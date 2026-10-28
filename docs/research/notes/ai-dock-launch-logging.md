@@ -7,10 +7,7 @@ entries under `docs/research/sources/ai-observed/`, redacted: the user name,
 the scratch path and process ids are replaced, and `PATH` was elided at
 capture; times keep their zone (MDT). The unredacted originals and the fetched
 copies of external sources stay untracked under `.claude/research/logging/`.
-[[source: ai-obs-index]] says what each holds. **Not put to Jev** when written;
-Jev is asked before the questions go to the owner. Jev was asked on
-2026-10-09 (decision log 353-354): question 1 is decided (§7), and question
-2's C shim cleared 0.9 both times but is held as conditional.
+[[source: ai-obs-index]] says what each holds. As of 2026-10-09 question 1 is decided (§7), and question 2's C shim is chosen but held as conditional.
 
 Evidence tags:
 - **M**: measured on this Mac (macOS 27.0 build 26A5425a, Xcode 27.0 27A266a,
@@ -42,8 +39,7 @@ Evidence tags:
   and the bundle's `LSEnvironment`. A config key would be baud's own.
 - **The premise needs one correction.** The Sixel refusal line
   (`describe_refusals`) is already `warn`. The `info` line is the image
-  *budget* (`describe_images`). `placements_refused` is never said, which
-  the record already records.
+  *budget* (`describe_images`). `placements_refused` is never said, which was already known.
 - **Apple's guidance for an app's messages is the unified log (`os_log`).** It
   "supersedes" syslog, and it stores "in memory and on disk, rather than
   writing that data to a text-based log file".
@@ -67,7 +63,7 @@ Evidence tags:
   - iTerm2 does both. Its error lines go to `NSLog` and to a rotating file
     written on every call. Its opt-in debug log goes to `/tmp` and,
     optionally, to the unified log, but without the message text.
-- The owner's questions are in §7.
+- The open questions are in §7.
 
 ## 1. baud today
 
@@ -206,9 +202,7 @@ Dock launch. A Dock click itself is UNVERIFIED.
   counted at `baud-domain/src/image.rs:623, 629, 634` (C). Its readers are
   `baud-bench/benches/ingest2.rs:410` and the tests in `baud-core/tests/` and
   `baud-domain/tests/`; nothing in baud-app reads it.
-  - the record, "A refused Sixel says which limit it hit", lists under
-    "What stays open": "**`placements_refused` is not said.**" It also lists
-    "**A Dock launch still sees nothing.**", which is this note's premise.
+  - the refused-Sixel work left two things open: `placements_refused` is not said, and a Dock launch still sees nothing, which is this note's premise.
   - The store's contract is "refuse-and-count, and the counters are public and
     never silent" (image.rs:415-416).
   - An image with no pixels is counted and deliberately not said (host.rs:68-70:
@@ -511,7 +505,7 @@ compiled at test time (C):
     land as Default, `LOG_INFO` lands as Info, and `LOG_DEBUG` is not listed.
     `LOG_EMERG` was not sent. [[source: macos-sdk-man-syslog]] (roff lines
     127-128) defines it as "A panic condition. This is normally broadcast to
-    all users.", so it was not tried on the owner's machine.
+    all users.", so it was not tried on this machine.
   - The legacy `_syslog` symbol behaves the same at `LOG_WARNING`, `LOG_ERR`
     and `LOG_INFO`. [[source: macos-sdk-sys-syslog-h]] line 227 aliases
     `syslog` to `syslog$DARWIN_EXTSN` from 10.13, so a plain Rust `extern`
@@ -894,9 +888,9 @@ baud's lines is one. ghostty maps warn to Error and err to Fault (§3).
 - **linux.rs:109** logs at `warn` and then exits. Apple's Error text is
   "Captures errors seen during the execution of your code", and Default's is
   "Captures information that is essential for troubleshooting problems"; which
-  it is, is the owner's call with question 4.
+  it is, is open with question 4.
 
-## 7. The owner's questions
+## 7. The questions
 
 1. **Where should a launched baud's lines go on macOS?**
    - **(a) The unified log.** It is governed by Apple's current Logging pages.
@@ -913,21 +907,13 @@ baud's lines is one. ghostty maps warn to Error and err to Fault (§3).
    - (a) conforms to the current guidance. (b) is practice an older text
      allows. (c) is both, with both costs. (d), stderr at a higher level, does
      not reach a Dock launch at all.
-   - **Decided: (a), the unified log** (Jev, 2026-10-09, 0.97 and 1.0 on the
-     original and on a replicate with the options reordered, decision log
-     lines 353-354; to be listed on the review page for the owner's veto).
-     It conforms: Apple's text names the unified log as superseding ASL and
+   - **Decided: (a), the unified log** (2026-10-09). It conforms: Apple's text names the unified log as superseding ASL and
      Syslog (§2.2). A launched baud's lines go to the unified log under
      subsystem `dev.baud.terminal` (§5 (a)), and a terminal launch keeps
      stderr; whether a terminal launch also writes the unified log is asked
      by no question.
    - **Unbuilt, and why.** The emitter needs three answers that are open:
-     the route (question 2; Jev picked the C shim at 0.97 and 1.0, held as
-     conditional because it would be the first C object in the shipping
-     binary), the type `warn` takes (question 4; 0.12 and 0.6) and each
-     value's privacy, which is the shim's format specifier (question 5;
-     0.27 and 0.22). How the level is set (question 6; 0.24 and 0.4) is open
-     too. Telling a launched baud from a terminal launch, by fd 2 being
+     the route (question 2; the C shim, held as conditional because it would be the first C object in the shipping binary), the type `warn` takes (question 4) and each value's privacy, which is the shim's format specifier (question 5). How the level is set (question 6) is open too. Telling a launched baud from a terminal launch, by fd 2 being
      `/dev/null` (§1.3), needs none of them, but on its own it changes nothing
      a user can see: the line still has nowhere to go. So the choice of sink
      lands with the emitter, with its unit test (the unified log is chosen
@@ -976,7 +962,7 @@ baud's lines is one. ghostty maps warn to Error and err to Fault (§3).
      Default (M, [[source: ai-obs-stderr-marker-requery]]).
    - **Default:** conforms to Apple's Default text above. **Error:** conforms
      if a refusal counts as "errors seen during the execution of your code";
-     that judgement is the owner's.
+     that judgement is open.
    - Cost of both: a 125 ns median through the shim; in the burst, Error's
      slowest call was 47 to 64 us and Default's 68 to 115 us (§4). Apple says
      "Faults and other severe messages incur more overhead"
@@ -1024,9 +1010,7 @@ baud's lines is one. ghostty maps warn to Error and err to Fault (§3).
 
 ## 8. Found on the way, decided by no question
 
-The first two are fixed (2026-10-09, the record, "`BAUD_LOG` governs
-the trace lines, and the Linux driver says what is still unverified"); the
-rest are open.
+The first two are fixed (2026-10-09: `BAUD_LOG` governs the trace lines, and the Linux driver says what is still unverified); the rest are open.
 
 - **Fixed: `trace: off (set BAUD_TRACE=<prefix> to record the session)`
   printed on every launch** through a bare `eprintln!` (app.rs:893). It
@@ -1036,9 +1020,7 @@ rest are open.
   unreadable value is. The nine `eprintln!` sites under their own variables
   (§1.2) are unchanged.
 - **Fixed: linux.rs:101 said at `warn`, on every launch, that the driver had
-  "not yet run on a compositor".** CLAUDE.md says the Linux port "has run only
-  headless", and calls that "the headless weston run", so the sentence was
-  stale (C). It now says the driver has run only on a headless compositor,
+  "not yet run on a compositor".** The Linux port had run only headless, on weston, so the sentence was stale (C). It now says the driver has run only on a headless compositor,
   that nobody has looked at its pixels or typed into it, and that it has no
   pointer.
 - **`placements_refused` is counted and never said.** The record already

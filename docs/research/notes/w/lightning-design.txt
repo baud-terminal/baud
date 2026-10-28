@@ -370,7 +370,7 @@ reference get wrong the same way. Unit tests have to own those:
   under 25%, and the rate criterion holds regardless.
 - **Readability.** The bolt crosses text for 0.32 s.
 
-## Owner questions (taste only)
+## Open questions (taste only)
 
 1. **Strike or arc.** The strike (recommended) has a fixed shape and one flash per
    ignition. The "electricity" arc re-shapes continuously: its offsets are interpolated

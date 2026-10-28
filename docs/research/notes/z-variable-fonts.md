@@ -1,6 +1,6 @@
 # Z. Variable fonts in baud-font
 
-The owner's call, 2026-09-29: the plain JetBrains Mono styles and the Nerd
+A choice the project made, 2026-09-29: the plain JetBrains Mono styles and the Nerd
 icon face now, then variable fonts, "the best for baud". This note scopes the
 second half before any code: what the files need, where the deltas are
 applied, what the oracle is, and in what order it lands.
@@ -22,7 +22,7 @@ statics came from, read with fontTools:
 | `STAT` | style names | no: nothing reads it |
 | `MVAR` | absent | a not-built row |
 | `cvar`, hinting | not read by baud | a not-built row |
-| `CFF2` | absent | read since 2026-10-11, at any coordinates (`baud-font/src/cff2.rs`; the record, "CFF2 outlines are read, blends and all") |
+| `CFF2` | absent | read since 2026-10-11, at any coordinates (`baud-font/src/cff2.rs`) |
 | FeatureVariations in GSUB and GPOS | absent in both | a not-built row |
 
 The chapters: `[[source: ms-opentype-otvaroverview]]`,
@@ -43,10 +43,9 @@ runtime path: deltas per glyph, on demand, into caller-provided scratch, as
 HarfBuzz, ttf-parser and skrifa do -- baud-font is `no_std` with no
 allocator, so baking a whole instance at load is not available.
 
-Jev, 0.96, asked with baud's architecture and CLAUDE.md's rules as context.
-A first ask without them offered only the two runtime shapes and picked
-per-glyph (0.86); that answer is withdrawn because the question was
-incomplete.
+Decided against baud's architecture and CONTRIBUTING.md's rules. A first
+reading without them offered only the two runtime shapes and picked
+per-glyph; it is withdrawn because the question was incomplete.
 
 One detail was open until step 5 was built, and is decided there: what the
 build step emits. Baking outlines and advances is a rewrite of `glyf`, `loca` and
@@ -80,7 +79,7 @@ nothing to vary them by, and a grid's cell must not change with a style.
   distance. That is the size of a changed point order or removed overlaps
   rather than a different shape, which a raster comparison would settle.
   Either way, swapping the embedded statics for the variable files changes
-  pixels, and the owner should see the difference before it lands.
+  pixels, and the difference should be seen before it lands.
 
 ## The tests to write first
 
@@ -100,7 +99,7 @@ nothing to vary them by, and a grid's cell must not change with a style.
 3. `HVAR`: advances. Built.
 4. The item variation store: the 876 GPOS device tables. Built.
 5. The build step that bakes the embedded instances. Built.
-6. The embed swap, with the pixel difference shown to the owner first.
+6. The embed swap, with the pixel difference shown first.
 
 Each step lands with its own red-first tests and perturbations.
 
@@ -110,8 +109,8 @@ Until faces can be named by family, the only consumer is the embed swap:
 about 0.5 MB off the binary (two variable files, 612 KB, against four
 statics, 1.1 MB), and every weight from 100 to 800 available. A user's own
 variable font gets real bold only once a configured stack can name styled
-faces, which waits on fonts by family name. Neither changes the owner's
-order; both belong in the record.
+faces, which waits on fonts by family name. Neither changes the font
+order.
 
 ## Step 1, built: normalised coordinates
 
@@ -121,8 +120,7 @@ coordinates on the face (sixteen axes; a font with more reads the rest at
 their default), with no allocation. The arithmetic is the specification's
 in 16.16, and its one open step -- how the two divisions round -- is
 HarfBuzz's: to the nearest 16.16 value, a half rounded up
-(`[[source: harfbuzz-12-3-0-ot-var]]`, `[[source: harfbuzz-12-3-0-avar]]`;
-Jev, 0.99). Truncating instead differs by one 2.14 unit in 1,482 of the
+(`[[source: harfbuzz-12-3-0-ot-var]]`, `[[source: harfbuzz-12-3-0-avar]]`). Truncating instead differs by one 2.14 unit in 1,482 of the
 fixture's values. ~~halves away from zero~~ -- this said so until step 3
 found that HarfBuzz's `roundf` is its own `floorf (x + .5f)`; no fixture
 value lands on a negative half, so the test could not tell, and step 3's
@@ -174,15 +172,15 @@ its source rather than recalled (`[[source: harfbuzz-12-3-0-gvar]]`,
   ~~undocumented, as HarfBuzz's source calls it~~ the text's rule, found in
   step 8: the glyph is drawn from its left side bearing point.
 
-**Four calls, made with Jev (the principles attached; every confidence under
-0.6, so each took the rule written before asking):**
+**Four calls; none was settled by the texts, so each took the rule written
+before asking:**
 
-| question | taken | Jev |
-|---|---|---|
-| the API | `Face::outline` refuses a varied glyph with `Drawn::NeedsScratch(need)`; `Face::outline_at` draws it | B, 0.50 -- the same |
-| malformed data part-way through a glyph | as HarfBuzz: the flushes already done stay, the pending deltas go | B (default outline), 0.26 |
-| anchored components | ~~as the default path: offset 0, the delta read and not applied~~ matched on both paths, as the text defines it (step 7) | B (match points), 0.57 |
-| SCALED_COMPONENT_OFFSET | ~~as the default path: ignored~~ honoured on both paths (step 7); neither flag, the text's open default, stays unscaled for Jev | B (honour), 0.18 |
+| question | taken |
+|---|---|
+| the API | `Face::outline` refuses a varied glyph with `Drawn::NeedsScratch(need)`; `Face::outline_at` draws it |
+| malformed data part-way through a glyph | as HarfBuzz: the flushes already done stay, the pending deltas go |
+| anchored components | ~~as the default path: offset 0, the delta read and not applied~~ matched on both paths, as the text defines it (step 7) |
+| SCALED_COMPONENT_OFFSET | ~~as the default path: ignored~~ honoured on both paths (step 7); neither flag, the text's open default, stays unscaled, open |
 
 The last two leave the varied path agreeing with the default one; neither
 reaches any of the fixture fonts' 3,599 components, so neither is measured.
@@ -197,8 +195,8 @@ which is every glyph of the three committed variable fonts (`head` bit 1
 set, zero exceptions counted).~~ **The shift is the left phantom's
 position**, `xMin - lsb` plus its delta, on both paths, where `head` bit 1
 is clear (step 8): the texts place the origin there. ~~With bit 1 set it is
-still the delta alone, for Jev.~~ With bit 1 set it is the position too,
-by the owner's pick of 2026-10-13, "xMin - lsb (Recommended)" (step 8,
+still the delta alone.~~ With bit 1 set it is the position too,
+by the pick of 2026-10-13, "xMin - lsb (Recommended)" (step 8,
 question 6).
 
 **The oracle is HarfBuzz's own drawing.** `tests/var/outlines.txt` holds
@@ -232,8 +230,8 @@ components a level, 32 levels deep, is 2^32 visits on a hostile font, which
 random byte flips never reach. `edge2049` and `edge2050` in the cases font
 sit on the boundary, and the default path now walks a composite once with
 `Glyf::need` before drawing it, because it streams into the sink and a
-refusal half-way would leave half a glyph there. Jev, both A: the bound on
-both paths (0.61), HarfBuzz's count (0.95). `tests/oracle.rs` still holds
+refusal half-way would leave half a glyph there. Decided: the bound on
+both paths, and HarfBuzz's count. `tests/oracle.rs` still holds
 the default path to ttf-parser on every face on this machine; no real
 composite comes near the bound.
 
@@ -289,15 +287,15 @@ Every range overlaps. Nothing draws a varied face yet.
 `Face::advance` answers at the face's coordinates, and
 `Face::default_advance` is the `hmtx` read it used to be, which the cell
 metrics now call, so a styled face at another weight cannot move the cell.
-Jev, A on both, 0.74 and 0.98. A first request asked three questions.
+Decided A on both. A first framing asked three questions.
 Its API question rested on a wrong premise -- that the no-`HVAR` advance
 needs caller scratch -- and its answer (B, 0.39) is withdrawn; the
 question was asked again with the facts corrected. Its other two stand,
-decided by the rules written before asking because Jev was under the 0.6
-bar on both: a walk HarfBuzz refuses gives HarfBuzz's `upem / 2` (Jev C,
-0.11; the rule: an unspecified step follows the implementation the
-platform renders with), and an advance stays a `u16` that saturates (Jev
-B, 0.07; the rule: the range a real font uses decides the type).
+decided by the rules written before asking, as neither was settled: a walk
+HarfBuzz refuses gives HarfBuzz's `upem / 2` (the rule: an unspecified step
+follows the implementation the platform renders with), and an advance stays
+a `u16` that saturates (the rule: the range a real font uses decides the
+type).
 
 **No scratch in any case, and HarfBuzz is why.** Its advances come from
 `HVAR` when the face has one, from `gvar`'s phantom points when it has
@@ -449,7 +447,7 @@ A hinting device moves nothing without a ppem, which a terminal's grid
 never gives it. The store is step 3's `baud_font::ivs`, unchanged.
 
 **Malformed variation data follows the tables' own rule, not
-HarfBuzz's** (Jev B, 0.84). baud has read `GDEF` and `GPOS` subtable by
+HarfBuzz's**. baud has read `GDEF` and `GPOS` subtable by
 subtable since those readers landed: a malformed class definition or
 lookup is absent and the rest is used. So a malformed store is no store,
 and a malformed device is no device -- that coordinate does not vary --
@@ -502,7 +500,7 @@ it needs. It is not yet called by a build script; that is step 6.
 
 **What it emits was the open call, and the answer is a TrueType font with
 its composites kept, point for point what fontTools' instancer writes.**
-Jev put the choice at 0.37, under the bar, so the rule written before
+The choice was unsettled, so the rule written before
 asking decided it: an unspecified step follows the implementation the
 platform renders with, and fontTools' instancer, the second oracle this
 note names, is that implementation for a bake. Keeping `GPOS`'s variation
@@ -533,8 +531,8 @@ follows and a test holds:
   not the runtime's rule (step 1 follows HarfBuzz's 16.16 integers), and the
   two part: the case font's wght 700 bends to 11,469 by HarfBuzz's rule and
   one unit lower by fontTools', so a delta of -5 is -3.5 exactly and rounds
-  to -3 rather than -4. On JetBrains Mono at 400 and 700 they agree. Jev put
-  HarfBuzz's rule at 0.49, under the bar, so the rule written before asking
+  to -3 rather than -4. On JetBrains Mono at 400 and 700 they agree. HarfBuzz's
+  rule was unsettled, so the rule written before asking
   decided: a step the oracle defines follows the oracle, since the test is
   exact equality with it.
 * **A glyph's points are the default plus the sum, rounded
@@ -561,18 +559,18 @@ follows and a test holds:
   point of every simple glyph and the first component of every composite.
 
 **Where it writes something else, and why each is so.** Six departures
-from fontTools' bytes went to Jev in one request, with the rule written
+from fontTools' bytes were decided together, with the rule written
 before asking -- match the oracle unless it costs a second pass or a
 feature nothing in baud uses:
 
-| | Jev | decided |
-|---|---|---|
-| `loca` short when `glyf` fits | A, 0.26 | match, by the rule |
-| `hmtx` trimmed to the trailing run | A, 0.10 | match, by the rule |
-| `STAT` instanced | B, 0.55 | dropped, by the rule: nothing reads it |
-| `name` pruned | B, 0.60 | copied whole |
-| transformed components | B, 0.93 | refused |
-| malformed data | B, 0.89 | refused -- fontTools raises too |
+| | decided |
+|---|---|
+| `loca` short when `glyf` fits | match, by the rule |
+| `hmtx` trimmed to the trailing run | match, by the rule |
+| `STAT` instanced | dropped, by the rule: nothing reads it |
+| `name` pruned | copied whole |
+| transformed components | refused |
+| malformed data | refused -- fontTools raises too |
 
 So `loca` and `hmtx` are fontTools', without a second pass: the glyphs
 write them at full width, last in the file with `glyf`, and one move
@@ -654,9 +652,9 @@ worked it out, since every scalar that reaches the cast in these fonts is
 exact in `f32`; the unit test pins `tent`'s own result.
 
 **Not built, recorded**: the runtime cache for a configured variable font
--- the owner asked for one ("in runtime create a cache for next time") and
-it has no consumer until fonts can be named by family, so it waits for that
-and for the owner's reading of what it caches; transformed components, which
+-- one was asked for, created at run time for the next launch, and it has
+no consumer until fonts can be named by family, so it waits for that
+and for a reading of what it caches; transformed components, which
 fontTools flattens with the transform applied and no font here carries;
 value-record devices.
 
@@ -769,9 +767,9 @@ text decides:
 | bits 11 and 12 both | unscaled | scaled (reads bit 11 only) | "invalid ... default behavior": unscaled |
 | a composite child's left phantom with a Y delta | moved by it | refused | "ignore Y deltas": not moved |
 | the parent's left or advance phantom, n or n+1 after the points so far | the child's own points, aligned | refused | "Phantom points from the parent ... may be referenced", numbered "after the last point number of the last contour": the parent's |
-| a parent point past every point HarfBuzz holds | offset 0 | refused | open: offset 0, as before (Jev, below) |
-| a parent point past the parent's left and advance phantoms but within the child's, or the first component matched | the child's own points, aligned | refused | open: offset 0, as before (Jev, below) |
-| a child's top phantom | aligned, `(0, yMax)` | refused | open: offset 0 (Jev, below) |
+| a parent point past every point HarfBuzz holds | offset 0 | refused | open: offset 0, as before |
+| a parent point past the parent's left and advance phantoms but within the child's, or the first component matched | the child's own points, aligned | refused | open: offset 0, as before |
+| a child's top phantom | aligned, `(0, yMax)` | refused | open: offset 0 |
 
 Both engines also shift a top-level glyph whose xMin is not its lsb by the
 difference -- `dot2`, and `umm`, which takes `dot2`'s phantoms under
@@ -779,11 +777,11 @@ USE_MY_METRICS -- which baud has never done (step 2's shift is the
 movement); ~~the test holds those two to baud's own default drawing, and the
 difference is recorded, not changed here. Not changed.~~ Built in step 8
 where `head` bit 1 is clear; this fixture sets it, so ~~`dot2` and `umm` keep
-baud's drawing, for Jev (step 8, question 6)~~ both are drawn from 20 as
+baud's drawing (step 8, question 6)~~ both are drawn from 20 as
 both engines draw them, and the test holds both to both engines (step 8,
 question 6).
 
-**For Jev, where the texts leave it open (each kept as it was; 2 is
+**Where the texts leave it open (each kept as it was; 2 is
 built where the text turned out to define it):**
 
 1. *Neither scaled-offset flag, and both.* (A) unscaled: the default the
@@ -814,10 +812,8 @@ built where the text turned out to define it):**
    (`anchptop`), and a number past n+3 names no point the text defines --
    (A) offset 0, as before, (B) refused, (D) HarfBuzz's, the child's own
    point where it holds one; the text neither asks for nor forbids any of
-   the three. ~~Kept: A, for Jev.~~ Jev picked A at 0.88 and 0.77 (round
-   2026-10-12, g2), under the bar; **the owner kept A on 2026-10-13**,
-   picking "Take Jev's leading pick (Recommended)", whose description gave
-   "g2 offset 0 and c4 FontMatrix not read (both as built)". Since 4 is
+   the three. ~~Kept: A.~~ A led (2026-10-12, g2) and **was kept on 2026-10-13**:
+   g2 offset 0 and c4 FontMatrix not read, both as built. Since 4 is
    built, A covers a number past n+3 alone.
 3. *The first component placed by points*, which the text says must not
    be ("This flag must always be set for the first component of a
@@ -828,22 +824,18 @@ built where the text turned out to define it):**
    says what a font must do and not what a reader does with one that does
    not, so none conforms or departs. ~~Kept: A.~~ The fonts lane added
    Microsoft's "cannot be used for the first component glyph", which read as a
-   condition of validity makes E conforming; Jev tied A and E at 0.23 both
-   times (g3), and **the owner picked E on 2026-10-13**, by the same pick,
-   whose description gave "g3 (a first component placed by points)
-   refused": the glyph is refused at any depth of its tree and nothing of
+   condition of validity makes E conforming; A and E tied (g3), and **E was
+   picked on 2026-10-13**: a first component placed by points is refused: the glyph is refused at any depth of its tree and nothing of
    its outline is drawn; its cell shows the next face that carries the
    character, else a `.notdef`, and a colour glyph still draws from its
-   image or layers (the record, "A component may align on a vertical
-   phantom, and a first component placed by points is refused").
+   image or layers.
 4. *A child's or the parent's vertical phantoms.* (A) no alignment, as
    before. (B) `vmtx` read, and HarfBuzz's positions: `(0, yMax + tsb)`
    and an advance height below, `(0, yMax)` and `(0, yMax - upem)` with no
    `vmtx`; the text names the points (top origin, advance height) but no x
    and no rule without `vmtx`. (C) refused, FreeType's for every phantom.
-   ~~Kept: A.~~ Jev picked B at 0.70 and 0.62 (g4); **the owner picked B on
-   2026-10-13**, by the same pick, whose description gave "g4 read vmtx
-   positions", and it is built: `[[source: ms-opentype-vmtx]]` puts the
+   ~~Kept: A.~~ B led (g4) and **was picked on
+   2026-10-13**, reading `vmtx` positions, and it is built: `[[source: ms-opentype-vmtx]]` puts the
    vertical origin's y at "the sum of the glyph's top side bearing ... and
    the top (i.e. maximum y) of the glyph's bounding box", with the advance
    height below it, and says its x "is not specified"; the x of 0 and the
@@ -895,8 +887,7 @@ texts define it:
 So the outline is drawn relative to the origin: every x less the left
 phantom's final position -- its start, `xMin - lsb` from the glyph's header
 and `hmtx`, or a USE_MY_METRICS component's start (the last one's, taken
-before it is placed, as Jev decided step 7's question 5 on 2026-10-12, at
-0.90 and 0.92), plus its `gvar` delta. `[[source: apple-ttrm-gvar]]`
+before it is placed, as step 7's question 5 decided on 2026-10-12), plus its `gvar` delta. `[[source: apple-ttrm-gvar]]`
 says the same of the deltas: the phantoms "represent the glyph's
 side-bearings". **Built, where `head` bit 1 is clear**, on the stream (the
 start found by a walk down the USE_MY_METRICS chain, taken from x after each point is placed, as HarfBuzz takes it; the
@@ -917,7 +908,7 @@ every one at -1). FreeType ignores the bit on purpose ("independent on the value
 of bit 1 ... at least major applications like Acroread indicate that",
 `[[source: freetype-2-14-3-ttgload]]`), HarfBuzz never reads it, and Core
 Text draws `dot2` from 20 in a font with flags 0x3 (the fonts lane's
-`ct-*.ttf`). ~~Kept as baud drew it, for Jev:~~ Decided by the owner on
+`ct-*.ttf`). ~~Kept as baud drew it:~~ Decided on
 2026-10-13 (below):
 
 6. *Bit 1 set and xMin not the lsb.* (A) `pp1 = 0`: no shift at the
@@ -931,28 +922,26 @@ Text draws `dot2` from 20 in a font with flags 0x3 (the fonts lane's
    glyphs, and `dot2` and `umm`. (C) as built: phantoms starting at
    `xMin - lsb` for alignment and the advance's extent, but no static
    shift -- neither reading, a hybrid of the two, kept only because it is
-   what was there. ~~Kept: C, until Jev decides between A and B; each sets
-   pp1 in one place.~~ Jev split A 0.50 / B 0.43 and B 0.54 / A 0.35
-   (round 2026-10-12c), ranking C last both times, and measured Core Text
+   what was there. ~~Kept: C, until A or B is decided; each sets
+   pp1 in one place.~~ A and B split (2026-10-12c), C last both times, and
+   Core Text was measured
    drawing every simple glyph from `xMin - lsb` whatever the bit says (555
    of 555) and every composite as its components each from their own start,
-   with no shift by the composite's (171 of 171). **The owner picked, on
-   2026-10-13,** "xMin - lsb (Recommended)", described "What HarfBuzz,
-   FreeType and Core Text do (Core Text: 555/555 simple glyphs). The flag
-   is a hint the font got wrong; hmtx is the measured value.", and
-   declined "Keep the hybrid", "Today's mix, which matches neither
-   reading." Over the 16 glyphs the question counted, Arial's 7 composites
+   with no shift by the composite's (171 of 171). **Picked on 2026-10-13:**
+   `xMin - lsb`, what HarfBuzz, FreeType and Core Text do (Core Text:
+   555/555 simple glyphs); the flag is a hint the font got wrong, and `hmtx`
+   is the measured value. The hybrid, which matches neither reading, was
+   declined. Over the 16 glyphs the question counted, Arial's 7 composites
    among them, that is B for a composite too: drawn from its own
    `xMin - lsb`, or its last USE_MY_METRICS component's, as HarfBuzz and
-   FreeType draw it; C is the hybrid declined. Built (the record, "With
-   head bit 1 set a glyph is drawn from xMin - lsb"): the bit is no longer
+   FreeType draw it; C is the hybrid declined. Built: the bit is no longer
    read, and the 546 Nerd Font glyphs and the 16 system glyphs move. Core
    Text's composite rule, each component from its own start, departs from
    the glyf composite text, which moves a component by its offset alone.
    It differs from what is built on Arial's 7 composites, which Core Text
    draws unshifted (round 2026-10-12c), on Baskerville's
    `uni0149.nApostrophe`, whose `quoteright` it draws 93 units right, and
-   on bit-clear composites (the record's Open (1)).
+   on bit-clear composites.
 
 The census (fontTools 4.63.0, `/System/Library/Fonts`, a composite's start
 taken from its last USE_MY_METRICS component): 648 `glyf` faces; 8,131

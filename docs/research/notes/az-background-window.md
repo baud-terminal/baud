@@ -65,19 +65,12 @@ terminal read changes its selection colour with the focus.
 
 ## Decisions
 
-Jev, uncached, both orders, with baud's own CPU renders; every figure is
-Jev's confidence:
+Each was weighed with baud's own CPU renders:
 
-- **Whether the cursor changes at all** is not decided. The TODO item says
-  "then the owner's call", and Jev leaned to leaving it unchanged in two
-  rounds: 0.83/0.77, and 0.59/0.61 after the HIG text and the survey were
-  added. It goes to the owner.
-  **The owner, 2026-10-22**, asked "Should the cursor turn hollow when
-  baud is in the background?": "i think hollow should be an option in
-  config". Built that day as `[cursor] unfocused_hollow`, `"on"` or
+- **Whether the cursor changes at all**: no text settled it, and on 2026-10-22 it became a setting, built that day as `[cursor] unfocused_hollow`, `"on"` or
   `"off"`, off by default, today's look; on, every shape is the hollow
-  box, the lean below, a trail runs and `?1004` changes nothing, the two
-  conditional decisions below.
+  box (below), a trail runs and `?1004` changes nothing, the two
+  conditional choices below.
 - **How thick the box's sides are**: the bar's line, `max(thickness, 2)`
   pixels, one point at the default size on a 2x display. kitty draws its
   box at 1pt (`[[source: kitty-decorations-851cb80]]` 231-238), foot at
@@ -86,16 +79,9 @@ Jev's confidence:
   (`[[source: wezterm-e2a98e1-customglyph]]` 654-676, 5051-5125) at
   their bar's thickness; xterm and ghostty at one device pixel
   (`[[source: ghostty-metrics-9bbb9b2]]` 31-34,
-  `[[source: ghostty-special-9bbb9b2]]` 300-324). Jev's lean, with
-  baud's own renders of 1 px, the bar's line and 15% of the cell:
-  0.72/0.70, and 0.77/0.82 once WezTerm's stroke was read; under the
-  bar, taken as the lean.
-- **If a hollow cursor is approved, every shape hollow** is Jev's lean,
-  0.50/0.68, against a block alone (xterm, iTerm2). The lane's task named
-  the other rule, "a bar or underline cursor keeps its shape", as xterm's
-  code and iTerm2 draw it, so the owner sees both against the render.
-- **Conditional on a hollow cursor:** a trail still runs while unfocused,
-  0.96/0.90; `?1004` changes nothing, 1.00/1.00.
+  `[[source: ghostty-special-9bbb9b2]]` 300-324). Chosen from baud's own renders of 1 px, the bar's line and 15% of the cell, and WezTerm's stroke.
+- **With a hollow cursor, every shape is hollow**, against a block alone (xterm, iTerm2). The other rule, "a bar or underline cursor keeps its shape", is how xterm's code and iTerm2 draw it; both were rendered.
+- **Conditional on a hollow cursor:** a trail still runs while unfocused; `?1004` changes nothing.
 
 Each option against the texts above:
 
@@ -116,16 +102,13 @@ Each option against the texts above:
 The selection on macOS:
 
 - **Reverse video in an inactive window** takes AppKit's unemphasized
-  pair, the lane's rule: the colours AppKit documents for a selection
-  "when the associated control/view/window is not key". Jev picked
-  whichever option was listed second in each order (confidence 0.14/0.32,
-  then 0.06/0.20), so the pick carries no signal. V13 chose reverse video
+  pair: the colours AppKit documents for a selection
+  "when the associated control/view/window is not key". No reading settled it. V13 chose reverse video
   for the selection after a side-by-side look; it did not decide how an
   inactive window draws it. baud has no selection in the system's colours,
   so reverse video is the one look that takes the pair. Taking it conforms
   to the header; unchanged follows no text.
 - **A selection colour of its own** (`[palette] selection`, a theme file,
-  `OSC 17`/`19`) is drawn unchanged in an inactive window: Jev's lean in
-  four asks, 0.70/0.49 and 0.71/0.58, taken. No text above covers it:
+  `OSC 17`/`19`) is drawn unchanged in an inactive window. No text above covers it:
   AppKit's pair stands in for AppKit's own selection colours, and iTerm2
   is the one terminal read that changes a colour of its own.

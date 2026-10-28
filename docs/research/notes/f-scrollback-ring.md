@@ -20,8 +20,7 @@ are served from: L2 at fifty lines, past L2 at two thousand, where the same
 misses cost ten times the stall. At the searched pitch of 13.4 KB a row that
 put 2,000 lines at 27 MB and cost 0.56x on `flat`; at the width's own pitch,
 3.3 MB, it costs 0.92x. A dense ring beside the grid that a retiring row was
-*copied* into cost 0.55x at every ring size, because the copy lands on the
-same cold lines. `CLAUDE.md`'s scrollback section carries the tables.
+*copied* into cost 0.55x at every ring size, because the copy lands on the same cold lines.
 
 ## What the field does
 
@@ -87,8 +86,7 @@ And where it is not, stated so it is not re-proposed as an improvement:
   and the rows the destination wraps onto are the lines the ring drops.
   The wrap flag beside the row marks is the input; the copy is once per
   width change, ~0.6 ms for two thousand lines, where a scroll cannot copy
-  every two hundred bytes. `CLAUDE.md`'s "A change of width reflows the
-  primary" has the tests and the cost.
+  every two hundred bytes; `baud-core/tests/reflow.rs` holds it.
 
 ## What the research says, and it had the answer before the terminals did
 

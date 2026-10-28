@@ -1,7 +1,6 @@
 # Theme files in peer terminals: how each one reads them, and whether any picks the format from the content
 
-Research for the owner's 2026-10-16 request: "we probably want to autodetect
-ansi/base16/base24" and "we might want to research on that". This is read-only
+Research for autodetecting ANSI, base16 and base24 theme files (2026-10-16). This is read-only
 research. Nothing in the repo was changed. It lives in the scratchpad, so if a
 decision ends up resting on it, it has to move to `docs/research/notes/` in the
 same session (a reboot wipes /private/tmp).
@@ -408,7 +407,7 @@ used) depends on palette.rs past line 205, which this research did not trace.
 
 ## 10. Scope: what "ansi" covers
 
-The owner's word "ansi" covers at least seven syntaxes, and baud reads one of
+The word "ansi", as the request used it, covers at least seven syntaxes, and baud reads one of
 them. They are all "sixteen slots, plus a page and a text colour" (note Y's
 ansi16-style), spelled differently:
 
@@ -456,5 +455,4 @@ reads it is an open question about scope, not something to build.
   - `key = N=` for ghostty.
   - `name value` with no `=` for kitty.
 
-  This is an observation about the formats, not a design. Choosing a design
-  goes to Jev with the standards lens first.
+  This is an observation about the formats, not a design. Choosing a design reads the standards first.

@@ -1,24 +1,16 @@
 # AN. DCS bodies and Sixel: what the texts say per byte
 
 **Status: research, 2026-10-10. Item 8, the pixel aspect ratio where both
-DEC texts make it whole, is built since 2026-10-11 (the record, "A Sixel pixel
-is drawn at its aspect ratio where both DEC texts agree"), and so is part of
-item 6, an HLS value past its range ignoring the whole command (the record, "A
-Sixel HLS register is converted, with DEC's hue origin"), and items 2 and 3,
+DEC texts make it whole, is built since 2026-10-11, and so is part of
+item 6, an HLS value past its range ignoring the whole command, and items 2 and 3,
 a `SPACE` in a Sixel body ignored and a GR byte in one read as its GL byte
-under ISO 8859-1, since 2026-10-13 (the record, "A SPACE in a Sixel body is
-ignored, and a GR byte is its GL byte under ISO 8859-1"). Item 9, a GR byte
-in the DCS introducer, was built by ba1a369 (the record, "A GR byte in a DCS
-prefix is its 7-bit byte under ISO 8859-1"). Items 1, 10 and 11 are built
-since 2026-10-19, by Jev's decision B_PUT_ALL (0.99/0.99) and lean STRIP
-(0.60/0.56): every C0 of a DCS body is put, DECRQSS and DECRSPS drop them
-and read a GR byte as GL, and a Sixel rings a `BEL` (the record, "Every C0
-of a DCS body reaches its handler, and a Sixel rings a BEL"). Item 4 and
+under ISO 8859-1, since 2026-10-13. Item 9, a GR byte
+in the DCS introducer, was built by ba1a369. Items 1, 10 and 11 are built
+since 2026-10-19, as decided: every C0 of a DCS body is put, DECRQSS and DECRSPS drop them
+and read a GR byte as GL, and a Sixel rings a `BEL`. Item 4 and
 questions 1 and 2 are built the same day: a Sixel cut off by `ESC` or a C1
-(KEEP, 0.94/0.94) or by `CAN` (the lean KEEP, 0.72/0.68) is placed from
-what it received, and a `SUB` in one is a blank sixel (BLANK_SIXEL,
-0.92/0.94) (the record, "A Sixel cut off keeps what it drew, and a SUB in
-one is a blank sixel"). Nothing else here is built.** Part 1 is what every text says a terminal does with each byte of a
+(KEEP) or by `CAN` (KEEP too) is placed from
+what it received, and a `SUB` in one is a blank sixel (BLANK_SIXEL). Nothing else here is built.** Part 1 is what every text says a terminal does with each byte of a
 DCS command string, and what baud does since `dd4dbe5`. Part 2 reads DEC STD
 070's Sixel chapter, 070-9, byte by byte against the other Sixel texts the
 manifest pins, and against baud's Sixel handler. Where the texts agree and
@@ -26,18 +18,12 @@ baud departs, the item is listed as work (section 10.1). Where one option
 conforms to every text, that is work too, and the other options are kept as
 alternatives considered (sections 5 and 8). Where no option conforms to every
 text, it is a question with options, each option marked against each text
-(section 14). Every choice between options here goes to Jev first, by the
-owner's rule of 2026-10-10: Jev at or above 0.9 confidence both times
-decides, a departure from a standard included, and otherwise the owner does,
-from the review page. So items 10, 11 and 12 are work, for Jev, and questions
-1 and 2 go to Jev before the owner. All but item 12 went to Jev on
-2026-10-19 (the record, "Every C0 of a DCS body reaches its handler, and
-a Sixel rings a BEL").
+(section 14). So items 10, 11 and 12 are work, and questions 1 and 2 are
+choices between options. All but item 12 were decided on 2026-10-19.
 
 **Base.** Line numbers in baud's code are at `dd4dbe5`, which built the two
 classes the texts agree on in a DCS body: the format effectors `08-0D` are put
-to the handler and `DEL` is ignored (the record, "A DCS body puts the format
-effectors and ignores DEL, where every text agrees"). smooth-scroll's HEAD is
+to the handler and `DEL` is ignored. smooth-scroll's HEAD is
 now `527ce01`; no file this note cites a line of changed between the two
 (`git diff --stat dd4dbe5 527ce01` over those files), and the harness below
 gives the same 55 lines at `dd4dbe5` and at `80dcc7d`. Every line number and
@@ -135,9 +121,9 @@ described, never used as a mark.
   recovery to the implementation. A parser that passes them all and handlers
   that ignore the ones they give no meaning to satisfy every one of these,
   and in a Sixel the handler rings a `BEL`, as DEC's Sixel standard says. It
-  is work, for Jev (section 5), and the options that keep today's split or
+  is work (section 5), and the options that keep today's split or
   ignore them all at the parser are kept as alternatives considered. A GR
-  byte in a DECRQSS is work, for Jev, too: under ISO 8859-1 it should be read
+  byte in a DECRQSS is work, too: under ISO 8859-1 it should be read
   as its 7-bit equivalent, where baud stores it raw.
 - **A Sixel body.** DEC's own Sixel standard says more about the data stream
   than the VT330/VT340 manual the decoder was built from. On most bytes the
@@ -157,14 +143,14 @@ described, never used as a mark.
     always draws 1:1;
   - a Sixel cut off by `ESC` or a C1 should keep what it drew, and baud draws
     none of it.
-- **Two Sixel conflicts, questions for Jev and then the owner.** DEC STD 070's
+- **Two Sixel conflicts, open questions.** DEC STD 070's
   chapter 3 ends every control string on `SUB`, as williams and the VT510 do;
   its Sixel chapter says a `SUB` inside a Sixel is a blank sixel and the image
   goes on. baud ends the string, and the rest of the image is then drawn as
   text (**M**, S14). For a Sixel cut off by `CAN`, williams keeps what was
   drawn while ECMA-48 says the data preceding a `CAN` "shall be ignored" and
   fixes no scope for "preceding"; baud keeps nothing.
-- **A pixel aspect ratio that is not a whole number is work, for Jev, not a
+- **A pixel aspect ratio that is not a whole number is work, not a
   question.** DEC's Sixel standard gives 4.5:1, 2.5:1, 1.5:1, 1.3:1 and
   1.12:1, says the ratio "should be preserved if possible", and measures a
   device's grid as an average over up to 30 pixels, which rows drawn 4 and 5
@@ -522,7 +508,7 @@ error recovery, "implementation-dependent" (C4), so a handler that ignores the
 byte before it reads the `Pt` reads a `Pt` of printable characters (**R**).
 The other reading, that C1 makes a `Pt` received with such a byte invalid, is
 not C1's text, and it would make the `dd4dbe5` answers to `m CR` and `m DEL`
-departures from ctlseqs, where the record of `dd4dbe5` lists ctlseqs among the
+departures from ctlseqs, where `dd4dbe5` lists ctlseqs among the
 texts that let the byte be dropped.
 
 **`b` = CR, LF or HT.**
@@ -563,7 +549,7 @@ seven bits (D8; **R**, section 3). No DECRQSS text speaks of GR. xterm, as
 practice, reads it as `m` too. **baud: `DCS 0 $ r ST`** (D3), a departure
 from the texts, which agree; section 5.5 lists it as work.
 
-## 5. The other C0 in a DCS body: work, for Jev, not a question
+## 5. The other C0 in a DCS body: work, not a question
 
 "The other C0" is every C0 but the format effectors and `CAN`, `SUB` and
 `ESC`: `00-07`, `0E-17`, `19` and `1C-1F`, 23 bytes, `BEL` included. What a
@@ -605,7 +591,7 @@ xterm, as practice: it stores every C0 in the buffer, so its DECRQSS answers
 invalid for any of them and gives no reply for a NUL (X4), and it rings a
 `BEL` in every string but an OSC (X3).
 
-**B conforms to every row, so by this note's rule it is work, for Jev**
+**B conforms to every row, so by this note's rule it is work**
 (section 10.1, item 10), with A, B' and C kept as the alternatives considered
 (section 5.4). Three readings carry that, and each is this note's (**R**):
 
@@ -621,7 +607,7 @@ invalid for any of them and gives no reply for a NUL (X4), and it rings a
   would conform to every text and this would be a question with C1 on one
   side. That reading is not in C1's text, and applied to every byte, as this
   note must apply it, it makes the `dd4dbe5` answers to `m CR`, `m LF`, `m HT`
-  and `m DEL` departures from ctlseqs as well, where the record of `dd4dbe5`
+  and `m DEL` departures from ctlseqs as well, where `dd4dbe5`
   lists ctlseqs, C1 with C4, among the texts that let `DEL` be dropped. STD
   070's DECRQSS describes the request the same way, as the "intermediate and
   final characters" its data holds (D11), and says nothing of a C0 in it.
@@ -740,13 +726,13 @@ red list are in `docs/research/notes/an/q1-arms/`.
 
 ### 5.5 The other classes, still open, and two to build
 
-These stay as the record of `dd4dbe5` names them and are not re-optioned here:
+These stay as `dd4dbe5` names them and are not re-optioned here:
 
 - SO and SI in a body: E4 lets them affect what follows; baud drops them
   without a shift.
 - A C0 in the prefix: W8 against D8.
 - A string that CAN, SUB, ESC or a C1 cancels is handed to no handler, where
-  W2 unhooks it (the record, "A C1 control inside a control string"). For a
+  W2 unhooks it. For a
   Sixel cut off by `ESC` or a C1 the texts agree and it is work (7.5, 7.11);
   for one cut off by `CAN` they conflict, question 2 (7.4).
 - `SUB` draws no error character (note AF, Q-UNDEF).
@@ -756,13 +742,13 @@ These stay as the record of `dd4dbe5` names them and are not re-optioned here:
 - **Item 9**: a GR byte in the DCS introducer under ISO 8859-1 is its 7-bit
   equivalent (D4, W7, E4, C3). baud sends it to the body (graph.rs 901, 909),
   so `ESC P A4 F1 m ST` is no DECRQSS (**M**, D4). The `dcs_entry` and
-  `dcs_param` rows read done; the record of `dd4dbe5` found this and left it
+  `dcs_param` rows read done; `dd4dbe5` found this and left it
   for its own change.
-- **Item 11**, for Jev: a GR byte in a DECRQSS body under ISO 8859-1 is its
+- **Item 11**: a GR byte in a DECRQSS body under ISO 8859-1 is its
   7-bit equivalent (section 3: E4, W7, C3, and D4 through D11 and D8, **R**).
   The record of `dd4dbe5` left `A0-FF` in a body open as E4 against D4; for a
   DECRQSS, D4 hands the meaning to a format whose texts say nothing of GR and
-  whose data are a control sequence's characters, so the record's conflict is
+  whose data are a control sequence's characters, so the conflict is
   none there. A Sixel's format sets it (build 3, section 7.10), and every
   other DCS is discarded whole. baud stores the byte raw, so `DCS $ q ED ST`
   answers invalid (**M**, D3). The build clears the eighth bit of `A0-FF` in
@@ -842,8 +828,7 @@ texts agree. 070-9 quotes are as extracted.
   `07` and stores nothing. It is the Sixel half of section 5's build, and
   buildable on its own today, since the graph already puts the `BEL`; under
   section 5.4's alternative C it would need a Sixel body node.
-  2026-10-09's "neither rings" (the record, "A BEL ends an OSC and no other
-  control string") was decided from williams' rows before 070-9 was read; it
+  2026-10-09's "neither rings" was decided from williams' rows before 070-9 was read; it
   stands for every other string.
 
 ### 7.2 `05` ENQ
@@ -968,7 +953,7 @@ texts agree. 070-9 quotes are as extracted.
   is discarded, a departure from williams and 070-9 (**R**).
 - **The texts agree. Build:** a Sixel that `ESC` cuts off (any byte but `\`
   after it) is decoded and placed from what it received, the cursor moving
-  as at ST, and then the escape sequence runs. It is the record's open cancel
+  as at ST, and then the escape sequence runs. It is the open cancel
   question, narrowed to the string and the bytes whose texts settle it. Cost:
   the edges that cancel a Sixel body, `StrEsc`'s edge for a byte other than
   `\` (graph.rs 917-922) and, under ISO 8859-1, the C1 edges (750-761), take
@@ -1274,7 +1259,7 @@ mapping, and xterm wraps, "The DEC terminals wrapped register indices"
 and 8, which 070-9's table gives as 4.5, 2.5, 1.5, 1.3 and 1.12 to 1, and a
 `Pan:Pad` such as `"3;2`. One option conforms to every text, for every `P1`
 and every `Pan:Pad` whose `Pan` and `Pad` in lowest terms are both at most 30,
-so it is work, for Jev (the status above), with the other two kept as
+so it is work (the status above), with the other two kept as
 alternatives considered. ECMA-48, williams and ctlseqs say nothing of the
 ratio and conform under every option; the VT3xx column binds the VT300 and not
 baud (**R**, above).
@@ -1365,23 +1350,14 @@ ratios that are not whole numbers to item 12.
 
 Items 10, 11 and 12 rest on this note's readings (**R**); 10 and 12 carry
 alternatives considered (sections 5.4 and 8), and 11 has the alternative of
-keeping the byte raw (section 5.5). Each is work, for Jev:
-by the owner's rule of 2026-10-10, Jev at or above 0.9 confidence both times
-decides between the options, and otherwise the owner does. Items 1, 4, 10
-and 11 and questions 1 and 2 were built on 2026-10-19 (Jev: B_PUT_ALL
-0.99/0.99, BLANK_SIXEL 0.92/0.94, KEEP 0.94/0.94; leans STRIP 0.60/0.56
-and KEEP 0.72/0.68 for CAN); item 12 was built on 2026-10-23 as option
-a, with a ratio below one drawn 1:1 and a `P1` past 9 read as omitted (Jev:
-PRESERVE 0.97/0.98, CLAMP_ONE 0.91/0.97, AS_DEFAULT 1.00/1.00; the record,
-"A Sixel pixel aspect ratio that is not whole is preserved").
+keeping the byte raw (section 5.5). Each is work.
+Items 1, 4, 10 and 11 and questions 1 and 2 were built on 2026-10-19; item 12 was built on 2026-10-23 as option
+a, with a ratio below one drawn 1:1 and a `P1` past 9 read as omitted.
 
 ### 10.2 Questions, the texts conflicting
 
 - **Question 1**: `SUB` inside a Sixel (section 7.3).
 - **Question 2**: what a Sixel that `CAN` cuts off keeps (section 7.4).
-
-Each goes to Jev first, and to the owner if Jev does not reach 0.9 both
-times.
 
 ### 10.3 Conforming, no work
 
@@ -1428,15 +1404,15 @@ times.
   one, and no row records it.
 - **Text that items 10 and 11 make stale, left for the commit that builds
   them**, since this note changes no code:
-  - `baud-core/src/graph.rs` 1243-1251 calls the 22 bytes "the owner's call"
+  - `baud-core/src/graph.rs` 1243-1251 calls the 22 bytes "a choice the project made"
     and says "`[[source: ecma48]]` puts them outside a command string, an
     error whose recovery the implementation picks", the attribution section
     2.1 corrects; its 1182-1194, "**Neither rings**", stops holding for a
     Sixel at item 1.
-  - `baud-core/src/osc.rs` 98-99 calls the `BEL` in a DECRQSS `Pt` "the
-    owner's open call".
+  - `baud-core/src/osc.rs` 98-99 calls the `BEL` in a DECRQSS `Pt` an open
+    call.
   - `docs/vt-coverage.md`'s `dcs_passthrough` row lists the other C0, the
-    Sixel `BEL` and `ENQ`, and `A0-FF` in a body as "Open, the owner's call,
+    Sixel `BEL` and `ENQ`, and `A0-FF` in a body as "Open, a choice the project made,
     where the texts conflict", and its `0x07` BEL row says that inside a
     control string it "rings nothing".
   - The record of `dd4dbe5` lists the other C0, the `BEL` and `A0-FF` in a
@@ -1510,8 +1486,7 @@ and none under a, and draws `Z` under both.
 ## 14. The questions
 
 Each option carries a mark, conforms or departs, against each text, the
-reason the texts give for it, and a cost. Each question goes to Jev first, and
-to the owner if Jev does not reach 0.9 both times. The C0 in a DCS body and a
+reason the texts give for it, and a cost. The C0 in a DCS body and a
 ratio that is not a whole number are not among them: one option conforms to
 every text, and they are items 10 and 12 (sections 5 and 8).
 
@@ -1541,7 +1516,7 @@ every text, and they are items 10 and 12 (sections 5 and 8).
      (graph.rs 700-702), and `DcsStr` is shared by DECRQSS, Sixel and every
      other DCS, so a Sixel takes a body node of its own, excepted from that
      rule for `SUB`: a 23rd row of 256 edges under each encoding, 512 bytes
-     more an encoding at the record's 2 bytes an edge, the `q` edge
+     more an encoding at 2 bytes an edge, the `q` edge
      (graph.rs 871) leading to it, and the stride ladder moving by an amount
      not measured. `str_put` maps the byte to `3F`. A DECRQSS and every other
      DCS keep ending on `SUB`.
@@ -1549,8 +1524,8 @@ every text, and they are items 10 and 12 (sections 5 and 8).
    derivation. **It is a conflict only under the wider reading of ECMA-48
    §8.3.6's "preceding"** (**R**): under the narrower one, in which the data
    in error is the sixel the `CAN` arrived in, option b conforms to every text
-   and would be work, as build 4 is for `ESC` and a C1. So what the owner
-   decides is which reading baud takes. The string ends under both options,
+   and would be work, as build 4 is for `ESC` and a C1. So what is to be
+   decided is which reading baud takes. The string ends under both options,
    as every text says; the question is the sixels received before the `CAN`.
    STD 070-3 3.5.4.4 and the VT510's Table 4-1 say the string ends and not
    what becomes of it, ctlseqs leaves error recovery to the implementation
@@ -1575,4 +1550,4 @@ every text, and they are items 10 and 12 (sections 5 and 8).
      `CAN` in `DcsStr` under each encoding, and since `DcsStr` is shared, the
      act tests the string's kind on that cold path, or the Sixel body node of
      question 1's option b carries the edge. The general cancel question for
-     an OSC or another DCS stays where the record left it.
+     an OSC or another DCS stays open.

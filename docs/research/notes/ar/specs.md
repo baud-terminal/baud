@@ -1,8 +1,6 @@
 # Theme formats: the governing texts (base16, base24, tinted8, "ANSI")
 
-Read-only research for the owner's 2026-10-16 request, verbatim: "we probably
-want to autodetect ansi/base16/base24" and "we might want to research on that".
-These notes cover the governing texts first and practice second. Where
+Read-only research for autodetecting ANSI, base16 and base24 theme files (2026-10-16). These notes cover the governing texts first and practice second. Where
 tinted-theming's own templates disagree with its specs, the spec wins, and the
 disagreement is recorded as the template's departure.
 
@@ -249,7 +247,7 @@ Its `config.yaml` pins `tinted8-builder` and `tinted8-styling` to `"~0.2.0"`
 
 ## 4. tinted8 (exists; v0.2.0-beta11, in `home/specs/tinted8/`)
 
-The owner set vogix aside until its beta. tinted8 is a separate system:
+vogix is set aside until its beta. tinted8 is a separate system:
 tinted-theming's own eight-anchor format, with **11 schemes in the corpus**.
 
 **File structure** (styling l.31-52, example l.59-87):
@@ -463,7 +461,7 @@ All are MIT (`LICENSES/tinted-*-MIT.txt` already cover home, base24 and
 tinted-shell). Optionally also pin WHATWG HTML §2.3.6, if the `#rgb` reading
 is to be cited.
 
-**Readings the text leaves open**, for Jev or the owner (stated, not decided):
+**Readings the text leaves open** (stated, not decided):
 1. Whether a base24 file missing some base1x slots loads through the fallback
    table or is refused. baud refuses it today.
 2. Whether "HTML hex" admits `#rgb`. The corpus never uses it. tinted8 says

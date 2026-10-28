@@ -188,10 +188,7 @@ of `─` is `─` and the cell still says where it came from.
 **baud has 31 of the 32, and `0x5F` is an open departure.** foot's table starts
 at `0x60`, so `ESC ( 0 _` stores `_` where DEC draws "Blank": on the bulk run,
 on the per-byte path and under VT52 `ESC F`. U+0020 and U+00A0 both conform in
-what they draw, and the texts do not choose between them, so the codepoint is
-the owner's call. It is open in the record, "DEC Special Graphics begins at
-0x5F, and what it stores there is the owner's call", and the coverage row is
-**partial** until it is answered.
+what they draw, and the texts do not choose between them, so the codepoint is open, and the coverage row is **partial** until it is answered.
 
 This section said the opposite: the cell kept "the byte the application sent,
 flagged", because `[[source: ctlseqs]]` names the set without a mapping and
@@ -224,7 +221,7 @@ Four OSC decisions are refusals or limits, and each is deliberate rather than a 
   of an ssh session could otherwise read back whatever the user last copied,
   which may be a password. Answering with anything -- including an empty
   payload -- tells it the feature works, so the refusal is silence.
-  **Writes are honoured**, the owner's V11 (2026-09-25), with `[clipboard]
+  **Writes are honoured** (note V, V11, 2026-09-25), with `[clipboard]
   osc52 = "off"` to refuse them, and they are not held to `OSC_MAX`: the body
   after `52;` goes to its own two areas, the copy being collected and the last
   one finished, and a copy past them is refused whole rather than cut. A `Pd`
@@ -277,7 +274,7 @@ all go through it. `baud-difftest` needs no checkout, and its tab case, plain
 
 ## Recommended against, with reasons
 
-Declining is a decision and belongs in the record.
+Declining is a decision, and each one is written down here with its reason.
 
 | protocol | why not |
 |---|---|
@@ -291,7 +288,7 @@ reported (V12): the "xterm will hang" warning describes an event loop, and
 `baud-core` has none. **Sixel** is
 decoded into caller memory with no external decoder and drawn by all three
 render paths. **Kitty graphics** (`APC G`) is out today, consumed without
-being executed and counted; the owner's call is to build it (below). **DECNRCM**, `?42`, was declined as "superseded by UTF-8": since
+being executed and counted; it is to be built (below). **DECNRCM**, `?42`, was declined as "superseded by UTF-8": since
 2026-10-24 it is recognised and changes nothing, as DEC STD 070 ignores it
 for a North American keyboard and baud has no other (the `?42` row in
 `docs/vt-coverage.md`).
@@ -300,35 +297,28 @@ for a North American keyboard and baud has no other (the `?42` row in
 
 ## Still open
 
-**Decided by the owner on 2026-09-25 and not built**
-(`docs/research/notes/v-open-decisions.md`, under its standing rule: "A
+**Decided on 2026-09-25 and not built** (`docs/research/notes/v-open-decisions.md`, under its rule: "A
 half-built protocol feature is finished to the spec, not switched off"):
 
 * **V10, side margins finished.** DECSLRM binds the wrap, ICH, DCH and
   DECIC/DECDC (above), and since 2026-10-12 every vertical scroll: `SU`,
   `SD`, `IND`, `RI`, `LF`, `IL` and `DL` move only the rectangle, which
-  `[[source: vt510-decslrm]]` makes the scrolling region (the record,
-  "Rectangle scrolling"). Steps (c) and (d) remain: line starts and cursor
+  `[[source: vt510-decslrm]]` makes the scrolling region. Steps (c) and (d) remain: line starts and cursor
   moves that honour the fence, and C2-min.
 * **V14, an ambiguous-width switch with `?1021`**: built 2026-10-15. The
   app's `[text] ambiguous_width` sets the core's policy at launch, Private
-  Use Area characters stay one column under either (the owner), and DECRQM
-  answers `?1021` `1` or `2`, `?1022` `0` and `?1023` `1` (Jev). Under
+  Use Area characters stay one column under either, and DECRQM
+  answers `?1021` `1` or `2`, `?1022` `0` and `?1023` `1`. Under
   "wide" a box-drawing or block character two cells wide is drawn across
   both, since 2026-10-25 (design step 4): its lines run through the second
   cell, its verticals and corners stay at the first cell's centre at the
   one-cell weight, and a block is its fraction of both cells. Both shapes
-  are Jev's leans, below the bar, left for the owner's veto
-  (the record, "A box line two cells wide is drawn across both").
+  are choices the texts leave open.
   Under `?2500` on a right-to-left line such a line is mirrored whole,
-  its verticals in its last cell (Jev, 0.92/0.92; the record, "A
-  composition takes the cells its commit will, and a wide box line
-  mirrors whole").
+  its verticals in its last cell.
 * **V18, the Sixel modes `?80` and `?1070`**, built to the spec, with
   `?8452` and XTSMGRAPHICS, since 2026-10-15 (`docs/vt-coverage.md`). Each
-  acts and answers only while DA lists Sixel; the choices Jev left below the
-  bar are on the owner's list there and in the record, "The Sixel
-  modes `?80`, `?1070` and `?8452` are built, and XTSMGRAPHICS answers".
+  acts and answers only while DA lists Sixel; the choices the texts leave open are listed there.
 * **V19, kitty graphics.** The reason this file gave against it was that
   `f=100` hands the terminal a PNG, which needs zlib, and the core decodes
   with no allocator and no dependency. The workspace already has such a
@@ -336,8 +326,7 @@ half-built protocol feature is finished to the spec, not switched off"):
   no allocation, and moved to `baud-domain/src/png.rs` (V19 step 2) beside
   a resumable inflate, `baud-domain/src/zlib.rs`.
 
-**DEC Special Graphics `0x5F`** — Blank, U+0020 or U+00A0, the owner's call
-(above).
+**DEC Special Graphics `0x5F`** — Blank, U+0020 or U+00A0, open (above).
 
 **The other DEC sets** — designated and not translated, though
 `[[source: xterm-charsets]]` has xterm's maps for eight of them (above).
@@ -357,14 +346,9 @@ Graphics table.
   (`[[source: dec-std-070]]` p. 3-81), so vt510's "Any single shift 2 (SS2)
   or single shift 3 (SS3) functions sent" is always empty.
 - **DEC Special Graphics leaves `0x5F` as `_`**, where every DEC text read
-  replaces it with Blank; which code point Blank stores is the owner's call
-  (the record, "DEC Special Graphics begins at 0x5F, and what
-  it stores there is the owner's call").
+  replaces it with Blank; which code point Blank stores is open.
 - **A `SUB` draws no error character by default**, where DEC's VT220 to
-  VT500 display one (`[[source: dec-std-070]]` p. 5-132): the owner's call of
-  2026-10-23, with `[screen] substitute_mark` to draw it, and in VT52 mode
-  it draws none either way, a lean Jev split on
-  ([vt-coverage.md](vt-coverage.md), the SUB rows).
+  VT500 display one (`[[source: dec-std-070]]` p. 5-132): a choice the project made on 2026-10-23, with `[screen] substitute_mark` to draw it, and in VT52 mode it draws none either way, which no DEC text settles ([vt-coverage.md](vt-coverage.md), the SUB rows).
 - **Every script is shaped as `latn` or `DFLT`.** OpenType directs an
   application to the script table for the text's own script and to `DFLT`
   where there is none; `baud-font` takes no script argument

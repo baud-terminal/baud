@@ -1,7 +1,7 @@
 # M. Resize, reflow, and the prompt the shell redraws
 
 **The question.** A window resize leaves another copy of the shell's
-prompt on screen, and every resize adds one. The owner reports it on
+prompt on screen, and every resize adds one. A user reports it on
 baud, and reports the same defect on wezterm, alacritty, Ghostty and
 Terminal.app. This note is what the mechanism is, what everyone else
 does about it, and which design baud should take.
@@ -15,7 +15,7 @@ worth pinning are named at the end.
 ## The mechanism, measured
 
 A shell redraws its prompt on a resize by **counting rows**. Captured
-from the owner's own `zsh`, one resize is:
+from the user's shell, one resize is:
 
 ```
 \r  ESC[4A  ESC[0m ESC[27m ESC[24m  ESC[J  OSC 133;P;k=i  \r\n  zsh ...
@@ -86,7 +86,7 @@ What remains is the re-cut of the rows the shell is about to redraw.
   `ghostty-org/ghostty#209`, "clears prompt on resize in some cases and
   never redraws", and discussion 8817, "shell-integration causes prompt
   to disappear when resizing".
-* **xterm and Terminal.app** do not reflow at all. The owner reports
+* **xterm and Terminal.app** do not reflow at all. A user reports
   Terminal.app still duplicating, so not reflowing is not by itself
   sufficient *there* -- though on baud it is, measured above, and the
   difference is worth understanding before leaning on it.
@@ -105,7 +105,7 @@ wants a new sequence for it. That gap is the opportunity.
 **Do not re-cut what the application is about to redraw; re-cut
 everything above it.**
 
-The boundary is `OSC 133`, which the owner's shell already emits -- the
+The boundary is `OSC 133`, which the user's shell already emits -- the
 capture above carries `133;P` and `133;B`. Prompt start marks where the
 region the shell owns begins; everything above it is finished command
 output that nobody will redraw, and re-wrapping it is a pure win.
@@ -286,7 +286,7 @@ for it before the live trace arrived:
   shell's own `ED` just made them -- become hidden. Nothing the
   terminal manufactured is left in the history. A first version
   erased the rows behind the window where they were and called the
-  blank row a growth then pulled back "residue"; the owner's recording
+  blank row a growth then pulled back "residue"; the recorded drag
   of 2026-09-18 -- a fresh terminal's prompt at the bottom of a
   same-sized window under a screen of blank rows -- is that residue,
   and it was not acceptable. `drag` goes five to one, and the matrix's
@@ -310,8 +310,8 @@ red first:
   prompt, and a burst's silent growth never reclaimed a block's own
   scrolled-off rows. The cut rows come back as far as the last that
   holds anything, the history is pulled next, blanks last -- the
-  owner's rule from the design discussion, "pull down to the bottom,
-  and blank-fill only when nothing is left to pull".
+  rule "pull down to the bottom, and blank-fill only when nothing is
+  left to pull".
 
 And a third, from the recording of 2026-09-18 09:09, which the burst
 fixture could not show until the burst was captured as the app makes
@@ -329,7 +329,7 @@ so the shell redraws once per size rather than once per burst:
   that survived the width change (`fresh-burst`; the whole starting
   screen, then Enter twice, a drag in and out, Enter again).
 
-Then the live trace itself -- `BAUD_TRACE`, the owner's session as the
+Then the live trace itself -- `BAUD_TRACE`, a user's session as the
 app fed the core, 767 steps, `tests/resize/live-drag` -- reproduced
 the screenshot of 09:31 headlessly and showed the fourth thing, at one
 mark in 767: at 21x3 the retreat was refused because the rows the

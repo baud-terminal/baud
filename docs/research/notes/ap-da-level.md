@@ -22,13 +22,11 @@ default", not landed, turns the opt-in on by default.
   implementing Level 2 functions it does not implement in full. baud
   implements many of them.
 
-Section 7 lists what is missing, and section 8 the choices it leaves for Jev
-or the owner.
+Section 7 lists what is missing, and section 8 the choices it leaves open.
 
 ## 1. The question
 
-Jev picked "advertise Sixel by default" at 0.94 and 0.98 (decision log lines
-559 and 560). The change built for it makes every session answer
+The choice was to advertise Sixel by default. The change built for it makes every session answer
 `CSI ? 6 ; 4 c`, and no text defines that shape:
 
 * `[[source: ctlseqs]]` 783-785: "The VT100-style response parameters do not
@@ -37,13 +35,7 @@ Jev picked "advertise Sixel by default" at 0.94 and 0.98 (decision log lines
   when `display_da1` is 200 or more. Below that, `case 102` sends a bare `6`
   (4135).
 
-Asked for the shape, Jev picked SEND_61_4_AFTER_LEVEL1_CHECK, "Answer ?61;4c
-(level 1 plus Sixel) as DEC STD 070 Table 1 allows, but only after checking
-baud against STD 070's level 1 requirements and pinning the missing VT340 text
-volume; until then do not flip the default" (log line 570, 0.91). On the
-replicate the same pick came at **0.79** (line 571). That is under the 0.9 the
-owner's 2026-10-10 rule asks on both asks, so the shape is not decided, and
-the rule sends it to research. This note is that research.
+For the shape, the lead was to answer `?61;4c` (level 1 plus Sixel) as DEC STD 070 Table 1 allows, but only after checking baud against STD 070's level 1 requirements and pinning the missing VT340 text volume, and until then not to flip the default. That did not settle the shape, so it went to research. This note is that research.
 
 baud's own rule is in `docs/protocol-decisions.md`, "DA under-claims": "a DA
 identity is a promise about *everything* in that level".
@@ -298,7 +290,7 @@ full.
   2 devices".
 * baud draws Sixel with raster attributes and colour (the `DCS ... q` row).
 * `docs/vt-coverage.md`'s `dcs_passthrough` row and note AN carry 070-9 §9.1
-  departures that are open with the owner:
+  departures that are open:
   - BEL and ENQ, which 070-9 gives the "same action as in text mode";
   - SUB, which 070-9 has "process as if a 3/15 code (blank Sixel) was
     received";
@@ -359,7 +351,7 @@ route in section 3.
    - KAM (§1.6.2; 070-6 §6.2.1 e);
    - SRM (070-5 p. 5-135, `Levels: 1-4`, though not in §1.6.2).
 2. **Two more if 070-3 §3.6.1.1 governs:** LS2 and LS3. Their own pages say
-   Levels 2, 3. This is note AE's Q9, the owner's.
+   Levels 2, 3. This is note AE's Q9, open.
 3. **Three partial functions:**
    - DEC Special Graphics at 5/15;
    - SUB's reversed question mark;
@@ -374,8 +366,7 @@ route in section 3.
 5. **For the `61` itself:** DA2 and DECSCL, the rest of the Identification
    and Conformance extension (§1.6.3.1). 070-4 makes DECSCL implicit only
    for devices reporting Level 2 or higher.
-6. **For the `;4`:** the 070-9 §9.1 departures already open with the owner
-   (section 5).
+6. **For the `;4`:** the 070-9 §9.1 departures already open (section 5).
 7. **And under §1.5.3.1.1's rule 2, read literally:** a Level 1 device must
    not implement Level 2, 3 or 4 functions, and baud implements many of them
    (section 6).
@@ -383,15 +374,14 @@ route in section 3.
 So `?61;4c` today would claim eight functions baud drops. That is the `parsed`
 failure that "DA under-claims" exists to avoid.
 
-## 8. What this leaves for Jev or the owner
+## 8. What this leaves open
 
-None of these is decided here. Each goes to Jev at 0.9 on both asks, or to
-the owner, with this note as its research.
+None of these is decided here; this note is the research each rests on.
 
 * **(a) Keep `?6c` by default and leave the Sixel opt-in as it is.**
   - CONFORMING: the bare VT102 alias is in TP-002 Table 12-1 and is 070-4 DA's
     Known Deviations route.
-  - Jev's 0.94/0.98 pick to advertise Sixel is not met.
+  - The choice to advertise Sixel is not met.
   - The opt-in's `?6;4c` stays a shape no text defines.
 * **(b) Build items 1-6 of section 7, then answer `?61;4c`.**
   - CONFORMING to 070-4 Table 1's shape, and to Level 1 except under the

@@ -78,8 +78,7 @@ screen, with no tracking to take the wheel, set sends cursor up and down through
 `Term::key`, so in DECCKM's form, and reset sends nothing -- "cursor up/down
 controls are sent when the terminal is displaying the Alternate Screen Buffer".
 It is set at power-on. ctlseqs leaves the initial state to the `alternateScroll`
-resource, which xterm defaults to off, so baud's default differs from xterm's:
-the owner's call.
+resource, which xterm defaults to off, so baud's default differs from xterm's.
 
 `RIS` clears the level and the encoding and `DECSTR` keeps them; neither touches
 `?1007`. DECRQM answers each level and each encoding `1` only while it is the
@@ -148,9 +147,7 @@ the mouse", where xterm writes all six in cells. ctlseqs' warning that "this
 mode requires a cooperating program, else xterm will hang" describes an event
 loop -- "All X events are ignored until the proper escape sequence is
 received" -- and `baud-core` has none to block: an event before the answer is
-normal tracking's. Where xterm's `button.c` departs from the text, and where
-the text is silent, is in the record, "`?1001` highlight tracking is built to
-the text", with the questions it leaves for Jev.
+normal tracking's. Where xterm's `button.c` departs from the text, and where the text is silent, those questions stay open.
 
 ## Asking which bytes a key sends: XTGETTCAP
 

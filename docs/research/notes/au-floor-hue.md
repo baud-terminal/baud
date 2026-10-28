@@ -1,9 +1,9 @@
 # AU. How the contrast floor keeps a lifted colour's hue
 
-Status: decided 2026-10-18. The owner, verbatim: "do 4A". Each floor
+Status: decided 2026-10-18: option A. Each floor
 keeps the reading of "hue" it is built on, and nothing changed in code:
 the glass floor lifts in OKLab, keeping OKLab hue and as much chroma as
-sRGB allows (record, "The glass floor keeps a lifted colour's hue"), and
+sRGB allows, and
 the opaque floor lifts by decision 6's linear-light mix (record, "The
 opaque floor keeps decision 6's mix").
 
@@ -20,8 +20,7 @@ opaque pass runs first.
 ## The question
 
 Decision 6 lifts a colour that misses its contrast target "just far
-enough" and keeps "each colour's hue". Toward black every option draws
-the owner's worked examples the same. Toward white the readings part:
+enough" and keeps "each colour's hue". Toward black every option draws the worked examples the same. Toward white the readings part:
 the mix keeps colorimetric hue (CIE xy and u,v angles, and sRGB channel
 order) and turns a saturated blue purple; the OKLab lift keeps the hue
 OKLab was fitted to (`[[source: ottosson-oklab]]`, fitted to "the
@@ -65,23 +64,16 @@ degrees, the mix 2.8; glass: 17.8 against 4.4, under all five viewing
 conditions tried). The words "keeps each colour's hue" were written to
 describe the linear-light mix. iTerm2 and xterm.js, the two terminals
 that reliably reach 4.5:1, land nearer the mix on all four test colours.
-C would overturn the opaque floor's own Jev decision (0.92 / 0.94,
-decisions 758-759) and fail two of the criteria fixed before measuring
+C would overturn the opaque floor's own decision and fail two of the criteria fixed before measuring
 (the opaque test, and no channel-order reversal on a final screen).
 
-## Jev, and the decision
+## The decision
 
-Jev, six options, both orders, three renders (decisions 808-809): A 0.27
-/ 0.36, B 0.36 / 0.31, A' (opaque mix, glass D8) 0.20 / 0.16, D8 0.08 /
-0.12, C 0.09 / 0.05, F 0.00 / 0.00, each pick at confidence 0.23. The
-options that keep the mix on the opaque floor total 0.83 in both orders.
-Below the bar, A stayed as built and went to the owner with the
-research recommending C. The owner chose A.
+Six options were weighed on three renders: A, B, A' (the opaque mix, glass D8), D8, C and F. The options that keep the mix on the opaque floor led, none of them clearly. The research recommended C; A, as built, was chosen.
 
 ## What other apps do
 
-The owner, 2026-10-18, verbatim: "i would say to research other apps
-and apple apps what they do". Read at source or from shipped assets,
+The question, 2026-10-18: what other apps, Apple's among them, do. Read at source or from shipped assets,
 nothing run on screen; ANSI blue `#0000ee` lifted on `#101010`:
 
 | App | When it adjusts | How | Blue becomes |

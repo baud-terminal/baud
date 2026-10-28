@@ -4,188 +4,184 @@
 built or changed by it.** The ghost was built on 2026-09-20 (`6cecea6`).
 The other nine (`quad`, `sweep`, `fire`, `plasma`, `lightning`, `ice`,
 `ufo`, `orb`, `liquid`) were researched, specified and built on 2026-09-25 to
-2026-09-27 in one session, <session>. Its scratchpad was wiped, so the research files under it are gone from disk. This
-note recovers what survives, mostly from that session's transcripts, and
-commits the recovered text under `docs/research/notes/w/` so it no longer
-depends on transcripts that will be pruned too. For each trail it says where
-the design came from, who decided what and when, where the measurements are,
-and what is lost. Section 8, added 2026-10-25, is the quad's provenance audit
+2026-09-27. The research's working directory was deleted afterwards. This
+note recovers what survives and commits it under `docs/research/notes/w/`,
+each file with its SHA-256 (section 1). For each trail it says where the
+design came from, what was decided and when, where the measurements are, and
+what is lost. Section 8, added 2026-10-25, is the quad's provenance audit
 against kitty and the re-derivation that followed it.
 
-**The letter.** W is shared: `w-fallback-fonts.md` is the note the record
-cites as "note W". Cite this one by its filename. Several letters are already
-shared this way (A, B, F, G, J).
+**The letter.** W is shared: `w-fallback-fonts.md` is also note W. Cite this
+one by its filename. Several letters are already shared this way (A, B, F, G,
+J).
 
-**How to read the citations.** "<session> l.N" is line N of the session's main
-transcript, `<transcript>.jsonl`, in Claude Code's
-project directory for this repository, given with its UTC time. The record's
-dates are the owner's local day, six hours behind UTC, so an answer at
-04:03 UTC on the 26th is the record's 2026-09-25. Record sections are named by
-their headings in the record. Scratchpad paths are written without code
-formatting, because the tree does not hold them. A line number given for an
-agent ("the fire agent's l.N", and every line number in section 1's
-"committed as" column) is in that agent's transcript, under the session's
-subagents directory: the fire agent is agent-a02879498e2089163.jsonl, and
-the workflow's agents are under subagents/workflows/wf_5d8be472-5b7/ (ice
-agent-ae416618ae07eed71, lightning agent-a8a9b8da49b1d9eda, liquid
-agent-ad25e8bdcc37158f5, orb agent-a4bd6c42b95521eee, ufo
-agent-aaf1dc38944f5b749, plasma agent-a9cf6173852a146d5).
+**How to read the citations.** A recovered file is cited by its path under
+`docs/research/notes/w/`, and section 1 gives the SHA-256 of each as
+committed. Dates are the project's local day. A measurement is cited by its
+section of MEASUREMENTS.md. A path in the deleted working directory is
+written without code formatting, because the tree does not hold it.
 
-## 1. What survives, and where it was found
+## 1. What survives, and where it is committed
 
-The session ran research in four places: two background subagents
-(2026-09-25), one workflow of research agents (2026-09-26), and the main
-session itself. Each piece is listed with where it was recovered from and what
-it is committed as. Every recovered file is byte for byte the last Write call
-or here-document that made it, except where the "as" column says otherwise.
-An agent's later in-place edits are not in that text. Where they exist the
-column names their transcript lines. Three files are committed with their
-edits replayed, each checked against the SHA-256 its agent printed. Four
-prototypes no longer equal what was recovered: their copies of the quad's
-rate choice were re-expressed on 2026-10-25 (section 8.6), and nothing else
-in them changed.
+The research ran in three places: two research agents on 2026-09-25, one
+for the quad and sweep and one for the fire; six research agents on
+2026-09-26, one for each of ice, plasma, ufo, lightning, liquid and the orb,
+with a critique of each spec; and the build itself. Each piece is listed with
+what it is, who made it, and what it is committed as. Every recovered file is
+the last full text written for it, except where the last column says
+otherwise. Edits made to a file in place afterwards are not in that text, and
+where they exist the last column says they are not applied. Three files are
+committed with their edits replayed, each checked against the SHA-256
+printed when it was made. Four prototypes no longer equal what was
+recovered: their copies of the quad's rate choice were re-expressed on
+2026-10-25 (section 8.6), and nothing else in them changed.
 
-| piece | made by | recovered from | committed as |
-|---|---|---|---|
-| quad and sweep research report: kitty, Ghostty, Neovide, sfte and others, with a proposed design for baud | subagent "Research GPU cursor trail implementations", 2026-09-25 22:37 UTC | its hand-back, and the fire agent's own `cat` of the same report.md | `docs/research/notes/w/quad-report.txt` |
-| its pins list: 66 sources, each with a URL at a fixed commit, SHA-256 and byte count | same | the fire agent's `cat pins.txt` output (the list's first 80 lines, which hold every pin) | `docs/research/notes/w/quad-pins.txt` (pin and comment lines only) |
-| fire research report: prior art, technique, cost, determinism, accessibility, and proposals A, B and C | subagent "Research GPU fire and particle cursor effects", 2026-09-25 23:18 UTC | the Write call that made report.md | `docs/research/notes/w/fire-report.txt` |
-| its pins list: 80 sources (the report says 81) | same | **lost**: pins.txt was built by a fetch script appending one line per file, and the lines were never printed. Reconstructed from the fetch commands and their echoes: 65 of the 80 or so sources, each with its local path, URL and licence, and the bytes fetched for most. Missing are the VS Code, Zed and W3C conversions.js files and the Apple documentation JSONs, whose commands used shell variables the reconstruction could not resolve. Every SHA-256 is gone | `docs/research/notes/w/fire-pins.tsv` (reconstructed, 65 rows) |
-| the fire's measurement harness, its CPU timing program, the flame shader as first written, the two black-body ramp scripts and the table the second one writes | same | Write calls and shell here-documents; the table regenerated by running the two scripts | `docs/research/notes/w/fire-harness.swift` (the Write of l.346 joined with the append of l.456; not the harness that ran, because the edits of l.350, 374, 437, 460, 464, 468, 471 and 505 are not applied, and l.460 edits code inside the append), `docs/research/notes/w/fire-cpu.swift` (l.445, before the fix of l.451), `docs/research/notes/w/fire-flame.metal` (the here-document of l.338, the flame before tuning; the edits of l.342, 389, 408, 415 and 505 are not applied, so it is not the shader the timing, determinism and luminance runs drew), `docs/research/notes/w/fire-blackbody2.py` (the here-document of l.334; it execs blackbody.py, l.330), `docs/research/notes/w/fire-blackbody.py` (that blackbody.py, the here-document of l.330, never edited afterwards; run again, its output equals the l.331 result byte for byte. fire-blackbody2.py opens it by the name `blackbody.py`, so it runs from a copy under that name. The report marks reuse of its CIE-fit coefficients UNVERIFIED), `docs/research/notes/w/fire-bbtable.metal` (bbtable.metal, which l.338 wrote as the last line of the second script's output; regenerated by running the two scripts, and equal byte for byte to the last line of the l.335 result) |
-| specs for ice, plasma, ufo, lightning and liquid: prior art with SHA-256s, the look, formulas, an MSL sketch, the uniform, reach, life, photosensitivity, the Rust reference, cost, risks, owner questions | the workflow "trail-effects-research", run wf_5d8be472-5b7, 2026-09-26 | the workflow's stored result (the scratchpad's specs/0.json to 4.json were the main session's copies of it, made 2026-09-26 23:30 UTC, and specs/2.txt, 4.txt, ice.txt and lightning.txt were extracts of them) | `docs/research/notes/w/spec-ice.json`, `docs/research/notes/w/spec-plasma.json`, `docs/research/notes/w/spec-ufo.json`, `docs/research/notes/w/spec-lightning.json`, `docs/research/notes/w/spec-liquid.json` (each the spec and its critique, re-serialised) |
-| the plasma spec's adversarial critique (verdict "fix") | same workflow | its stored result | inside `docs/research/notes/w/spec-plasma.json` |
-| the lightning agent's long design note, and its Rust model of the bolt | same workflow | Write call; shell here-document | `docs/research/notes/w/lightning-design.txt`, `docs/research/notes/w/lightning-model.rs.txt` (the here-document of l.169 with the edits of l.175, 194 and 207 replayed; SHA-256 452ad54d…, printed at l.208) |
-| the ice prototype, which the agent's notes call the exact spelling of its formulas, and those two short notes | same workflow | shell here-documents | `docs/research/notes/w/ice-prototype.swift` (the here-document of l.257 with the edits of l.277, 296, 311 and 331 replayed; SHA-256 1eb72d41…, printed at l.339 and cited by the ice spec; that hash and the spec's citation name the recovered text, and the committed file, its rate block re-expressed (section 8.6), is ae6bf89c…), `docs/research/notes/w/ice-notes.txt` (the here-document of l.324 and the append of l.339, joined) |
-| the orb agent's notes and its Metal harness: a design and its measurements, never returned as a spec | same workflow | Write calls | `docs/research/notes/w/orb-notes.txt`, `docs/research/notes/w/orb-harness.swift`, `docs/research/notes/w/orb-harness.metal` (the Writes of l.157 and l.161, orb-harness.swift's rate block re-expressed, section 8.6; the edits of l.200, 242 and 257, which the notes' figures rest on, including the ring's 2.2 R start, are not applied) |
-| plasma, ufo and liquid prototypes and sketches | same workflow | Write calls and here-documents | `docs/research/notes/w/plasma-sketch.metal`, `docs/research/notes/w/plasma-area.py`, `docs/research/notes/w/plasma-check.py`, `docs/research/notes/w/ufo-proto.py` (l.147; the edit of l.189 is not applied), `docs/research/notes/w/ufo-proto2.py` (its rate block re-expressed, section 8.6), `docs/research/notes/w/ufo-sketch.metal`, `docs/research/notes/w/ufo-reach.py`, `docs/research/notes/w/liquid-proto.py` (l.223 with l.242 and l.264 replayed; SHA-256 b9f6f716…, printed at l.288, the recovered text's; the committed file, its rate block re-expressed (section 8.6), is 59a76f83…), `docs/research/notes/w/liquid-proto2.py` (l.260; l.268 not applied), `docs/research/notes/w/liquid-sketch.metal` (l.253; l.291 not applied) |
+| piece | made by | committed as |
+|---|---|---|
+| quad and sweep research report: kitty, Ghostty, Neovide, sfte and others, with a proposed design for baud | the quad research, 2026-09-25 22:37 UTC | not committed here: its text names the deleted working directory's paths |
+| its pins list: 66 sources, each with a URL at a fixed commit, SHA-256 and byte count | same | `docs/research/notes/w/quad-pins.txt` (pin and comment lines only) |
+| fire research report: prior art, technique, cost, determinism, accessibility, and proposals A, B and C | the fire research, 2026-09-25 23:18 UTC | not committed here: its text names the deleted working directory's paths |
+| its pins list: 80 sources (the report says 81) | same | **lost**: pins.txt was built by a fetch script appending one line per file, and the lines were never printed. Reconstructed from the fetch commands and their echoes: 65 of the 80 or so sources, each with its local path, URL and licence, and the bytes fetched for most. Missing are the VS Code, Zed and W3C conversions.js files and the Apple documentation JSONs, whose commands used shell variables the reconstruction could not resolve. Every SHA-256 is gone. `docs/research/notes/w/fire-pins.tsv` (reconstructed, 65 rows) |
+| the fire's measurement harness, its CPU timing program, the flame shader as first written, the two black-body ramp scripts and the table the second one writes | same | `docs/research/notes/w/fire-harness.swift` (as first written, with its later append joined; not the harness that ran, whose eight later edits are not applied), `docs/research/notes/w/fire-cpu.swift` (before its one fix), `docs/research/notes/w/fire-flame.metal` (the flame before tuning; its five later edits are not applied, so it is not the shader the timing, determinism and luminance runs drew), `docs/research/notes/w/fire-blackbody2.py` (it execs blackbody.py), `docs/research/notes/w/fire-blackbody.py` (that blackbody.py, never edited afterwards; run again, its output equals the printed result byte for byte. fire-blackbody2.py opens it by the name `blackbody.py`, so it runs from a copy under that name. The report marks reuse of its CIE-fit coefficients UNVERIFIED), `docs/research/notes/w/fire-bbtable.metal` (regenerated by running the two scripts, and equal byte for byte to the table the second printed) |
+| specs for ice, plasma, ufo, lightning and liquid: prior art with SHA-256s, the look, formulas, an MSL sketch, the uniform, reach, life, photosensitivity, the Rust reference, cost, risks, open questions | the spec research, 2026-09-26 | `docs/research/notes/w/spec-ice.json`, `docs/research/notes/w/spec-plasma.json`, `docs/research/notes/w/spec-ufo.json`, `docs/research/notes/w/spec-liquid.json` (each the spec and its critique, re-serialised). The lightning spec is not committed here: its text names the deleted working directory's paths |
+| the plasma spec's critique (verdict "fix") | same | inside `docs/research/notes/w/spec-plasma.json` |
+| the lightning research's long design note, and its Rust model of the bolt | same | `docs/research/notes/w/lightning-design.txt`, `docs/research/notes/w/lightning-model.rs.txt` (its three later edits replayed, to the SHA-256 printed when it was made) |
+| the ice prototype, which the ice research's notes call the exact spelling of its formulas, and those two short notes | same | `docs/research/notes/w/ice-prototype.swift` (its four later edits replayed, to the SHA-256 printed when it was made, 1eb72d41…, which the ice spec cites; its rate block was re-expressed since, section 8.6), `docs/research/notes/w/ice-notes.txt` (a note and its append, joined) |
+| the orb research's notes and its Metal harness: a design and its measurements, never returned as a spec | same | `docs/research/notes/w/orb-notes.txt`, `docs/research/notes/w/orb-harness.swift`, `docs/research/notes/w/orb-harness.metal` (as first written, orb-harness.swift's rate block re-expressed, section 8.6; the three later edits the notes' figures rest on, including the ring's 2.2 R start, are not applied) |
+| plasma, ufo and liquid prototypes and sketches | same | `docs/research/notes/w/plasma-sketch.metal`, `docs/research/notes/w/plasma-area.py`, `docs/research/notes/w/plasma-check.py`, `docs/research/notes/w/ufo-proto.py` (one later edit not applied), `docs/research/notes/w/ufo-proto2.py` (its rate block re-expressed, section 8.6), `docs/research/notes/w/ufo-sketch.metal`, `docs/research/notes/w/ufo-reach.py`, `docs/research/notes/w/liquid-proto.py` (its two later edits replayed, to the SHA-256 printed when it was made, b9f6f716…; its rate block was re-expressed since, section 8.6), `docs/research/notes/w/liquid-proto2.py` (one later edit not applied), `docs/research/notes/w/liquid-sketch.metal` (one later edit not applied) |
 
-Left in the transcripts and **not committed**, on purpose:
+The files as committed, each with its SHA-256:
 
-- **The quad agent's replay scripts**, kitty_sim.py, fuzz_and_sfte.py and
+| file | SHA-256 |
+|---|---|
+| `fire-bbtable.metal` | `102515a06ae8663224711fa78207ed303951c4954a0ac710b74de90728b60320` |
+| `fire-blackbody.py` | `6fa51ff1ef705f26944d330334e32d936176fb343022ae420691110e813696c0` |
+| `fire-blackbody2.py` | `bfb6aaa829171cf3799cd2a00baf082149688777023f63afc2fe23019bdf8bc2` |
+| `fire-cpu.swift` | `a6d62129384250cbbeaf00dbde84897b1fa005947e2d1c12f96c8363c3a8f932` |
+| `fire-flame.metal` | `2646f78b201d9dacb5ab16bbc0f3cd4184a75267b07061da077739d66d70a45c` |
+| `fire-harness.swift` | `ee4c22a0d480324bc6a698e18a53a590ecdc3295aad616aea9b3b642f5e0b012` |
+| `fire-pins.tsv` | `13b5290cfa81757ac0e280b1ed8f6e6f365c4ded40a646f9a12d6c189934d218` |
+| `ice-notes.txt` | `a275339fcae59432d18cd6326c425881048ea1184231594fe6849eb8330ac40f` |
+| `ice-prototype.swift` | `ae6bf89c43e322d4f7d4bbf607333b62a8ff2ac5fbff1c1b5b57f7b8e353281c` |
+| `lightning-design.txt` | `c87d585b3f5ca6ed90c391802bdf698aaa5be5e424801593436e8613247b29b4` |
+| `lightning-model.rs.txt` | `452ad54d373ec5bb1635540bf11a81b2c3b14d1c35634673dd6a1ca213f5db09` |
+| `liquid-proto.py` | `59a76f83d798e82e409fcc128eb78a5ac19e2a60a3b81060eadb393d75c1d618` |
+| `liquid-proto2.py` | `209435b7daf885de1f55fdcd74d48477f2d2174f96a56580dc6da243570be984` |
+| `liquid-sketch.metal` | `8f282f8bafae5b515b543806d4c5f7589dff92c14a9586a209566b01ee3b19cd` |
+| `orb-harness.metal` | `01c85b38e5223d3028ebd8bc579152ce8a8e8a3dd7f49bb17fd69006f585c2b7` |
+| `orb-harness.swift` | `ee86363d404d110d691869309c813fb5775507e20877b4d46de53c77f8095f93` |
+| `orb-notes.txt` | `e338cbb67385cd71bb22f3d3744f09574dcf52cc3402d75b391d7e1c78a96c0e` |
+| `plasma-area.py` | `d8c7c34d824b04d3dd400879aca6ebb67b429d01925da2adb603de01f552c0af` |
+| `plasma-check.py` | `60f0c29d1f8b6ae0a373240848644d7e2176e97bf4a0c3865ebddd1126760eed` |
+| `plasma-sketch.metal` | `b9512c04325c5c127e19aab82891214a33e5da13af17c702bd5375d8250a9ed2` |
+| `quad-pins.txt` | `ad722c7ab5bf220551b94de4c9574e1c3a2ef092a7190fa4dae85a7be7acd35f` |
+| `spec-ice.json` | `c41d474e7fb40d3f14134099baff4b1cde6aa8245c6205b3ecb249148880672a` |
+| `spec-liquid.json` | `4c242a39f986e6eb23001934879cc0003b96d03edb2070fe7ac69f3afe072468` |
+| `spec-plasma.json` | `9a86e12d7493e529da929e32847442706a1fd505dff475106a9e888915175f65` |
+| `spec-ufo.json` | `0abff20e06ffbbcf783709000c81e95b6ff4412d642cd33ff5cb5b25dadab53e` |
+| `ufo-proto.py` | `7e704494c909e6d0d4068e0bd62c451c1663712f8cd9a1beec519a4f48d87140` |
+| `ufo-proto2.py` | `9d101e49e3ffeb368f11521d53fdf8c3623bedc8f5c0fcb8e66adf6bff190ee3` |
+| `ufo-reach.py` | `ad7f8c0b1e6d0671e85c7fc9181483870db2ec1971029e4e03e3b8bd5c920c86` |
+| `ufo-sketch.metal` | `3deff2aec58d7896526583da0f2bad947093f61b6832df43152977276ff2b806` |
+
+**Not committed**, on purpose:
+
+- **The quad research's replay scripts**, kitty_sim.py, fuzz_and_sfte.py and
   split_and_tau.py. kitty_sim.py transliterates kitty's `cursor_trail.c`,
   which is GPL-3.0, into Python, and the other two import it. They are what
-  the record's "replay of `cursor_trail.c`" was measured against. They survive
-  only as Write calls and here-documents in the subagent transcript.
-- **The liquid post-build review** (workflow "liquid-trail-review", run
-  wf_641b1299-ab7, 2026-09-27): 38 findings, about 400 KB. The record's liquid
-  section gives its outcome. The workflow's stored result keeps the findings.
-- **The main session's in-progress copies** of ufo.rs, liquid.rs and three
-  shaders (the scratchpad's icestate/), and the gallery page it showed the
-  owner on 2026-09-26 (trails/baud-trails.html). The built code is in git,
-  and the gallery became `docs/cursor.html`.
+  the replay of `cursor_trail.c` that `a_horizontal_move_is_kittys` checks
+  against was run with.
+- **The liquid post-build review** (2026-09-27): 38 findings, about 400 KB.
+  Its fixes are in the build (section 5.10).
+- **The build's in-progress copies** of ufo.rs, liquid.rs and three shaders
+  (the working directory's icestate/), and the gallery page of 2026-09-26
+  (trails/baud-trails.html). The built code is in git, and the gallery became
+  `docs/cursor.html`.
 
-**What is lost**, because only the scratchpad held it:
+**What is lost**, because only the deleted working directory held it:
 
 - **every fetched source file** behind both pins lists and behind the specs'
   prior art: about 80 for the fire, 66 for the quad, and the specs' local
-  copies. The URLs survive, and the specs and the quad list keep the
-  SHA-256s, so each file can be fetched again and checked. The fire list's
-  SHA-256s are lost.
+  copies. The URLs survive, and the four committed specs and the quad list
+  keep the SHA-256s, so each of those files can be fetched again and checked.
+  The fire list's SHA-256s are lost, and so are the lightning spec's, with it.
 - **every measurement output**: the fire's timing runs (time1.out to
   time4.out), its determinism run (det.out), its luminance run (lum.out),
-  its CPU timing (cpu_fire.out), the quad agent's kitty_sim.out,
-  fuzz_and_sfte.out and split_and_tau.out, and the orb agent's run-fast.out
-  and run-safe.out. The numbers the reports quote from them survive in the
-  reports.
+  its CPU timing (cpu_fire.out), the quad research's kitty_sim.out,
+  fuzz_and_sfte.out and split_and_tau.out, and the orb research's
+  run-fast.out and run-safe.out. The numbers this note quotes from them
+  come from the reports.
 - **every image**: the fire's contact strips (hybrid_strip.png,
   light_strip.png, diag_small.png and png/), the ice contact sheets, the ufo
   stills (render3/), the orb pngs, the liquid frames the build rendered, and
   the gallery's stills.
 - **some prototypes**: the fire flame's final form and its tuning copies
-  (fire_body v1 to v3), which can be rebuilt from the edits in the fire
-  agent's transcript but are not committed: no hash or full print of any of
-  them was made, so a replay could not be checked. Also ufo's proto3.py (which the ufo spec's
-  "look" was rendered from), the ice montage outputs, and anything an agent
-  wrote with a command these searches did not parse.
-- **the reviews that never ran.** The workflow says each spec was
-  "adversarially checked". Only the plasma's critique finished. The ice,
-  ufo, lightning and liquid critiques, and the completeness pass over the
-  set, stopped on the account's weekly usage limit between 13:27 and
-  13:28 UTC on 2026-09-26, so those four specs were built without a critique.
+  (fire_body v1 to v3), which no hash or full print of was made, so a replay
+  could not be checked. Also ufo's proto3.py (which the ufo spec's "look"
+  was rendered from) and the ice montage outputs.
+- **the critiques that never ran.** Each spec was to be checked by an
+  adversarial critique. Only the plasma's finished. The ice, ufo, lightning
+  and liquid critiques, and the completeness pass over the set, stopped on a
+  usage limit between 13:27 and 13:28 UTC on 2026-09-26, so those four specs
+  were built without a critique.
 
-## 2. Three things the work list had wrong
+## 2. Three earlier claims the recovery corrects
 
-The work-list item that asked for this note made three claims that the
-recovery contradicts. The work list is `TODO.md`, which is not committed, so
-they are stated here.
-
-1. **"Fire's research is lost" is wrong.** The fire report survives whole:
-   the prior-art table, the procedural-fire technique, the cost tables, the
+1. **The fire's research is not lost.** The fire report survived whole: the
+   prior-art table, the procedural-fire technique, the cost tables, the
    determinism checks, the WCAG luminance counts, and proposals A ("flame
    quad"), B ("ember sparks") and C ("burning fuse", recommended, which is
    what was built). What is lost is the evidence behind it: the source
    files, the outputs and the images (section 1).
-2. **"Orb had none" is half right.** The research agent for the orb wrote
-   137 assistant entries and 65 tool calls in its transcript. It wrote notes and a Metal harness measured against a CPU
-   reference, and hit the weekly limit before returning a spec. The main
-   session never read those notes: no read of the orb's notes appears in its
-   transcript before the orb was built (`1488b3c`). So the record's line
-   that "the effect-trail research had no orb spec, so this one was designed
-   here" stands. The orb's design is section 5.9.
-3. **"CLAUDE.md's fire citation" is not in CLAUDE.md.** CLAUDE.md names no
-   fire research. The citation is in the record, "The fire trail is a flame
-   in the cursor's colour, held to a Rust reference": "proposal C in note V's
-   research, scratchpad `trail/effects/`". `8211be4` wrote it into
-   CLAUDE.md, and `960503a` moved it, verbatim, into the record on
-   2026-10-02. It is wrong twice. Note V's research has no fire proposal (the
-   research workflows behind note V name no flame, no "burning fuse" and no
-   proposal C), and the scratchpad is gone. The record now points here.
-   CLAUDE.md is unchanged.
+2. **The orb had research, and it was not read.** The orb's research wrote
+   notes and a Metal harness measured against a CPU reference, and stopped
+   on the usage limit before returning a spec. Nothing read those notes
+   before the orb was built (`1488b3c`), so the orb was designed in the build,
+   in the family's shape (section 5.9).
+3. **The fire's design does not come from note V.** It had been cited as
+   "proposal C in note V's research". Note V's research has no fire proposal:
+   it names no flame, no "burning fuse" and no proposal C. The fire is
+   proposal C of the fire report (section 5.4).
 
-## 3. The owner's calls on the trails, in their words
+## 3. What was decided on the trails
 
-Most of these are from session <session>. The particles remark and the
-2026-09-29 call are from session <session>, and the 2026-09-27 answers are
-note X's.
+The 2026-09-27 answers are note X's.
 
-| when (UTC) | where | the owner's words, or the answer picked | what it decided |
-|---|---|---|---|
-| 2026-09-25 20:31 | l.5251 | "i also miss the cursor trail feature" | the trail comes back |
-| 2026-09-25 20:37 | l.5295 | "On by default" | the trail is on by default (`7f8413d`) |
-| 2026-09-25 22:03 | l.6611, l.6619 | "the way the trail works on other it looks like a very strong animation , looks like even gpu, have you checked ? though i like what you did also so keep that as an option as well"; "i always want you to research first" | the quad and sweep research (section 1), and the ghost kept as a style |
-| 2026-09-25 22:41 | l.6800 | on smooth scroll: "can we have option for both?"; on the default: "how is the C/C++ VT doing it swte?" (sfte) | the ride as an option; sfte's sweep read |
-| 2026-09-25 22:43 | l.6809 | "can we have all styles as config, i would want baud to have a unique one, i was thinking like fire or something ... with gpu shader"; smooth scroll: "Ride the scroll (Recommended)" | every style as config; the fire research; the ride by default |
-| 2026-09-25 23:35 | l.7630 | default trail: "Fire"; over glass: "Opaque flame (Recommended)"; Reduce Motion: "No trail (Recommended)" | the fire is the default; the opaque-flame call, later met by the cursor-colour rule; no trail under Reduce Motion unless named (`bc7cd03`) |
-| 2026-09-26 04:03 | l.12191 | "important the flame should not use a special color, we use the cursor color, default color" | every effect is drawn in the cursor's colour, with intensity as opacity, and the research's black-body ramp is dropped |
-| 2026-09-26 04:04 | l.12209, l.12210 | "and i would want also an ice shader for the trail and liquid as well (should be amazing and maybe default like liquid glass of osx ) just call it liquid"; "and if you have other ideas let me know" | ice and liquid |
-| 2026-09-26 04:04 | l.12233 to l.12263 | "in helix when i gg and ge, the trail isn't working"; "i would say read helix code also" | the placed cursor (`145ef81`) |
-| 2026-09-26 04:43 | l.12873 | "i'm thinking besides fire, ice, liquid to also have lightning and plasma" | lightning and plasma |
-| 2026-09-26 04:54 | l.13057 | "add also orb and ufo" | orb and ufo |
-| 2026-09-26 04:59 | l.13120 | "B it is" | helix's trail by option B, the placed cursor |
-| 2026-09-26 12:11 to 12:15 | l.14919, l.14946 | "i didn't see the ice, liquid, electricity, plasma, only fire"; "we should have something like this in docs like cursor.md or cursor.html i like it" | `docs/cursor.md` and `docs/cursor.html` (`bfd8371`) |
-| 2026-09-26 13:02 | l.15722 | "the fire looks slugish for some reason ... redo the videos" | the clips re-recorded. The fire's timing is still open (section 6) |
-| 2026-09-27 | note X | rule F; ride-scroll "rides at most two rows, then folds in"; the blink "with hard edges at 650/350"; every other sub-question at its recommended default | `0c8ed2d`, `0415566`, `5fb5eec` |
-| 2026-09-27 20:36 | <session> l.241 | "oh and i like the particles in fire plasma etc these are awesome" | the effects' particles stay as built |
-| 2026-09-29 08:03 | <session> l.1004 | "also i want the plasma trail as default and i want to ensure the trail is a single implementation that can have different visualizaiton" | the plasma replaces the fire as the default (built 2026-10-10, `eb2f75e`); one trail implementation (work list) |
+| when | what was decided |
+|---|---|
+| 2026-09-25 | the trail comes back |
+| 2026-09-25 | the trail is on by default (`7f8413d`) |
+| 2026-09-25 | the quad and sweep research (section 1), and the ghost kept as a style |
+| 2026-09-25 | the ride as an option; sfte's sweep read |
+| 2026-09-25 | every style as config; the fire research; the ride by default |
+| 2026-09-25 | the fire is the default; the opaque-flame call, later met by the cursor-colour rule; no trail under Reduce Motion unless named (`bc7cd03`) |
+| 2026-09-26 | every effect is drawn in the cursor's colour, with intensity as opacity, and the research's black-body ramp is dropped |
+| 2026-09-26 | ice and liquid |
+| 2026-09-26 | the placed cursor (`145ef81`) |
+| 2026-09-26 | lightning and plasma |
+| 2026-09-26 | orb and ufo |
+| 2026-09-26 | helix's trail by option B, the placed cursor |
+| 2026-09-26 | `docs/cursor.md` and `docs/cursor.html` (`bfd8371`) |
+| 2026-09-26 | the clips re-recorded. The fire's timing is still open (section 6) |
+| 2026-09-27 | `0c8ed2d`, `0415566`, `5fb5eec` |
+| 2026-09-27 | the effects' particles stay as built |
+| 2026-09-29 | the plasma replaces the fire as the default (built 2026-10-10, `eb2f75e`); one trail implementation |
 
-**Jev.** No trail's design went through Jev. Every trail was built by
-2026-09-27, and the record first mentions Jev in a later section, "Bold draws
-bold: a face per style, and the key carries it". Jev was asked note AL's
-questions on 2026-10-10, as 17 choice questions, each asked twice with the
-options reordered. One reached 0.9 both times: **the bound chosen for the
-trails does not also cover note AJ's launch splash** (0.96 and 0.98), on the
-condition that the splash gets its own flash count before it is built. That
-is decided by the rule of 2026-10-10, and the owner may veto it. Every other
-note AL question stayed under 0.9 or flipped between the two askings. The
-answer and its figures are on the owner's work list and in the Jev program's
-confirmations file (.claude/research/jev-program/confirms.json, item AL-7,
-uncommitted). Neither the record nor notes V, X, AJ or AL records it.
-Those were the places searched, with the work list and that file. The
-quad's licence options were also put to Jev, in the version plan's scoping
-on the work list, and stayed under the bar ((b) at 0.38 and 0.23). Asked
-again on 2026-10-25 with the line-by-line comparison of section 8, Jev
-picked (b) at 1.00 both times, and the quad was re-derived. So, apart from
-the splash and the quad's licence, every question in section 6 is open.
+**Since then.** Every trail was built by 2026-09-27. On 2026-10-10 one of
+note AL's questions was settled: **the bound chosen for the trails does not
+also cover note AJ's launch splash**, on the condition that the splash gets
+its own flash count before it is built. Every other note AL question is
+open. The quad's licence was settled on 2026-10-25 by re-deriving its rate
+choice (section 8). Apart from the splash and the quad's licence, every
+question in section 6 is open.
 
 ## 4. What every effect shares
 
 The contract the effect research was given, from the workflow's own prompt
-(2026-09-26), which the effect family built on 2026-09-26 holds (the record,
-"The fire is one effect of a family, and nothing about it moved"):
+(2026-09-26), which the effect family built on 2026-09-26 holds:
 
 1. **The cursor's colour only**, premultiplied, with intensity as opacity, so
-   one rule serves a dark theme, a light theme and glass. This is the owner's
-   word of l.12191.
+   one rule serves a dark theme, a light theme and glass.
 2. **A pure function** of the pixel, the age since ignition, the ignition's
    seed and the move's geometry. Nothing is kept between frames and the
    shader reads no clock, so a Rust reference can hold the shader to it, and
@@ -199,13 +195,11 @@ The contract the effect research was given, from the workflow's own prompt
    port can match to within a step of 255.
 7. **WCAG 2.3.1**, three flashes a second
    ([[source: wcag22-understanding-three-flashes]]). Whether the
-   shipped trails meet it is note AL's open question (the record, "The cursor
-   trails' flashes, counted on the frames they draw: at 32 pt the fire and
-   the orb fail WCAG 2.3.1").
+   shipped trails meet it is note AL's open question.
 8. **Cheap**, priced against the fire.
 
 The prior art behind rules 2 and 3 is kitty's quad and Neovide's VFX, read at
-source by both background agents. kitty's lightning and particle shaders, and
+source by both 2026-09-25 research agents. kitty's lightning and particle shaders, and
 Neovide's VFX at a later commit, were pinned since for note AL
 ([[source: kitty-trail-lightning-851cb80]],
 [[source: kitty-trail-particles-851cb80]],
@@ -215,7 +209,7 @@ Neovide's VFX at a later commit, were pinned since for note AL
 ## 5. Trail by trail
 
 Each entry gives the design source, the decisions, where the measurements
-are, the review it had, and what is lost. "Pinned" means a key in
+are, the critique it had, and what is lost. "Pinned" means a key in
 `docs/research/sources/MANIFEST.toml`. "Named" means a URL at a commit, with
 the SHA-256 the research recorded where it survives, and no copy in the tree.
 
@@ -226,13 +220,11 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   this was the trail before the 2026-09-25 decisions, and the quad research
   (section 1) is what found it weak (a one-cell box, linear, 0.1 s, on every
   cell change).
-- **Decisions:** on by default (l.5295), then a style named `ghost` once the
+- **Decisions:** on by default, then a style named `ghost` once the
   quad landed. Drawn in the cursor's colour since `84c7726`, under the
-  owner's colour rule.
-- **Measured:** the record, "The cursor trail is the scrollbar's shape, and a
-  bool became an enum"; "The CPU path draws the trail and the screen fade";
-  "The ghost is the cursor's colour too".
-- **Lost:** nothing that was not already in the record.
+  rule of section 4 that every effect is drawn in the cursor's colour.
+- **Measured:** MEASUREMENTS.md, "The cursor trails' costs".
+- **Lost:** nothing.
 
 ### 5.2 quad (`c2e20be`, 2026-09-25)
 
@@ -240,38 +232,33 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   ([[source: kitty-cursor-trail]], [[source: kitty-options-definition]],
   [[source: kitty-trail-slang]]), with Neovide's short-move rule
   ([[source: neovide-cursor-renderer]]) and sfte's 10 ms dwell
-  ([[source: sfte]]). The research, `docs/research/notes/w/quad-report.txt`,
+  ([[source: sfte]]). The quad report (section 1)
   read kitty, Ghostty, Neovide, Alacritty, WezTerm, iTerm2 and two Ghostty
   shader collections at the commits its pins list names. Its closed form for
   kitty's corners, and its finding that a retargeted quad can be concave,
   are what the build took: hence winding, not kitty's triangle fan.
 - **Licence:** kitty is GPL-3.0. The quad's rate choice followed kitty's
-  text term for term; its closed form was baud's own. The work list routed
-  it to Jev with three options: (a) a record that the quad takes only the
-  idea and the constants, (b) a clean re-derivation, or (d) leaving it out.
-  The licence itself is the owner's and is not put to Jev. **Decided
-  2026-10-25 (Jev, (b) at 1.00 both times): re-derived**, section 8; the
-  owner may veto.
-- **Decisions:** all styles as config (l.6809). The quad was the interim
+  text term for term; its closed form was baud's own. Three routes were
+  open: (a) a record that the quad takes only the idea and the constants,
+  (b) a clean re-derivation, or (d) leaving it out. **Re-derived on
+  2026-10-25 (b)**, because the line-by-line comparison of section 8.2 shows
+  the rate choice following kitty's text rather than only its idea.
+- **Decisions:** every style is a setting. The quad was the interim
   default until the fire.
-- **Measured:** the record, "The quad trail is kitty's four corners in closed
-  form" (`a_horizontal_move_is_kittys` holds it to kitty's replay).
+- **Measured:** MEASUREMENTS.md, "The cursor trails' costs" (`a_horizontal_move_is_kittys` holds it to kitty's replay).
 - **Lost:** the replay outputs and the 66 fetched files. The replay scripts
-  stay in the transcript (section 1).
+  are not committed (section 1).
 
 ### 5.3 sweep (`8da4787`, 2026-09-25)
 
 - **Design source:** sfte `5d7ac25` ([[source: sfte]]), `_sfte_render_trail`
-  and the chase update, read through the owner's question at l.6800 and the
-  quad research's sfte section.
-- **Measured:** the record, "The sweep trail is sfte's swept box, a second
-  shape of the same smear" (`a_sweep_is_sftes_box_swept_to_the_cursor`).
-- **Lost:** fuzz_and_sfte.out (sfte's snap times at 60 and 120 Hz). The
-  number the record quotes survives there.
+  and the chase update, read through the quad report's sfte section.
+- **Measured:** MEASUREMENTS.md, "The cursor trails' costs" (`a_sweep_is_sftes_box_swept_to_the_cursor`).
+- **Lost:** fuzz_and_sfte.out (sfte's snap times at 60 and 120 Hz).
 
 ### 5.4 fire (`8211be4`, 2026-09-25; the default until `eb2f75e`)
 
-- **Design source:** proposal C of `docs/research/notes/w/fire-report.txt`,
+- **Design source:** proposal C of the fire report (section 1),
   "burning fuse": proposal A's flame, built from fBM value noise on a PCG
   lattice rising off kitty's quad and burning out tail first, plus proposal
   B's closed-form embers. The report names its prior art (Neovide's
@@ -286,30 +273,27 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   `docs/research/notes/w/fire-pins.tsv`. The report marks the GPL sources
   (kitty, smear-cursor) as ideas only, and the Shadertoy-derived sparks
   shaders as of unverified licence, and its proposal A says "all new code".
-  The record's fire section makes no licence statement of its own.
-- **Decisions:** the default (l.7630, over the recommended quad). The cursor's
-  colour, not the research's 800-6500 K black-body ramp (l.12191). That
-  colour also met the opaque-over-glass call of l.7630 and the light-theme
-  variant the research asked for, as one rule. The plasma replaced it as the
+- **Decisions:** the default, over the recommended quad. The cursor's
+  colour, not the research's 800-6500 K black-body ramp. That colour also
+  met the call for a flame opaque over glass and the light-theme variant the
+  research asked for, as one rule. The plasma replaced it as the
   default (2026-09-29, built `eb2f75e`), and it stays by name.
 - **Measured:** in the research, GPU +1.5 to 4.5 us a frame on the M5 Max
   at full clock (proposal A's summary; the separate `fire_fragment` pipeline
   measured +1.6 us on a 30-column hop), 5.3 to 33 ms on the CPU (hence GPU
   only), and determinism: zero differing pixels across command buffers and
-  pipelines, five pixels one step apart between fast and safe math. In baud,
-  the record, "The fire trail is a flame in the cursor's colour, held to a
-  Rust reference" (the oracle's Rust reference, 31 perturbations, and the
-  idle-CPU sweep with +0.68% of a core over the quad under typing); "The fire
-  is one effect of a family, and nothing about it moved"; "A landed flame
-  waits where the chase rests, and helix's wheel no longer jumps it"; note
-  AL and the flash census for WCAG 2.3.1.
-- **Review:** no critique of the design. The report labels each claim
+  pipelines, five pixels one step apart between fast and safe math. In
+  baud: the pixel oracle's Rust reference, 31 injected faults its tests
+  caught, and the idle-CPU sweep with +0.68% of a core over the quad under
+  typing (MEASUREMENTS.md, "The cursor trails' costs"); note AL and the
+  flash census for WCAG 2.3.1.
+- **Critique:** none of the design. The report labels each claim
   VERIFIED, MEASURED, DERIVED or UNVERIFIED, and the build was held by 31
-  perturbations.
+  injected faults.
 - **Lost:** the 80 source files and their SHA-256s, and every output (time1
   to time4, det, lum, cpu_fire) and image. The flame as measured is not
-  committed: `fire-flame.metal` is its first write, and the edits that made
-  the measured version are at the fire agent's l.342, 389, 408, 415 and 505.
+  committed: `fire-flame.metal` is its first write, and the five edits that
+  made the measured version are not applied.
 
 ### 5.5 plasma (`bc40570`, 2026-09-26; the default since `eb2f75e`)
 
@@ -320,15 +304,13 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   licence, ideas only), nimitz's Plasma Globe through warrenm/Shadertweak
   (Shadertoy content, ideas only), and Lode Vandevenne's plasma tutorial
   (all rights reserved, prose only). No hue cycling, by the contract.
-- **Review:** the only spec with a finished critique, verdict "fix". The
+- **Critique:** the only spec with a finished one, verdict "fix". The
   build took its fixes, among them the bright spike its filaments poked ahead
   of the cursor, measured by the critique at 208/255. The critique's licence
   check found nothing lifted from kitty or from Shadertoy.
-- **Decisions:** owner's calls recorded rather than taken, in the record's
-  section.
-- **Measured:** the record, "The plasma trail is a braid that starves, and
-  the critique shaped it"; "The plasma is the default trail, and the fire
-  stays by name"; note AJ section 1.3 and note AL for the flash bound, which
+- **Decisions:** the spec's open questions were built at its proposals and
+  are open (section 6).
+- **Measured:** MEASUREMENTS.md, "The cursor trails' costs"; note AJ section 1.3 and note AL for the flash bound, which
   the plasma's module doc argues per 341x256 window and note AL counted on
   frames.
 - **Lost:** the sources' local copies (their SHA-256s are in the spec) and
@@ -336,8 +318,8 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
 
 ### 5.6 lightning (`0cef30d`, 2026-09-26)
 
-- **Design source:** `docs/research/notes/w/spec-lightning.json` and the
-  agent's longer `docs/research/notes/w/lightning-design.txt`. Prior art
+- **Design source:** the lightning spec (section 1) and the lightning
+  research's longer `docs/research/notes/w/lightning-design.txt`. Prior art
   named: kitty's cursor-trail-lightning.slang (GPL-3.0, ideas only; pinned
   since at another commit as [[source: kitty-trail-lightning-851cb80]]),
   0xhckr's cursor_lightning.glsl, which kitty ports, and fielding's
@@ -346,21 +328,21 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   godotshaders pages, taybart's blaze-lightning (no licence), and WCAG's
   Understanding 2.3.1. Shadertoy was not fetched. The design is one strike
   that never re-strikes, so each pixel rises once and falls once.
-- **Review:** the critique stopped on the usage limit. The build made three
-  changes to the spec after reading it against the code (in the record).
-- **Decisions:** the spec's four owner questions (strike or arc, bolt alone
+- **Critique:** stopped on the usage limit. The build made three
+  changes to the spec after reading it against the code.
+- **Decisions:** the spec's four open questions (strike or arc, bolt alone
   or over the quad, what a retarget leaves, sparks and corona) were built at
-  their proposed answers and remain the owner's calls (section 6).
-- **Measured:** the record, "The lightning trail is one flash a pixel, over a
-  region of its own".
-- **Lost:** the sources' local copies (SHA-256s in the spec). The Rust model
-  survives, with its three later edits replayed to the SHA-256 its agent
-  printed (452ad54d…).
+  their proposed answers and remain open (section 6).
+- **Measured:** MEASUREMENTS.md, "The cursor trails' costs".
+- **Lost:** the sources' local copies, and their SHA-256s, which are in the
+  lightning spec (not committed, section 1). The Rust model
+  survives, with its three later edits replayed to the SHA-256 printed when
+  it was made (452ad54d…).
 
 ### 5.7 ice (`26b26b0`, 2026-09-26)
 
 - **Design source:** `docs/research/notes/w/spec-ice.json`, "rime fuse", with
-  `docs/research/notes/w/ice-prototype.swift`, which the agent's notes call
+  `docs/research/notes/w/ice-prototype.swift`, which the ice research's notes call
   the exact spelling of its formulas. Prior art named: iq's voronoi-edges, smooth-voronoi, voronoise
   and 2D distance-function articles (code MIT per the site), Neovide's VFX,
   Riccardi's FreezePostProcess (MIT), Gustavson's webgl-noise cellular (MIT),
@@ -369,15 +351,14 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   cellular noise. Two Shadertoy frost shaders were unreachable and are
   recorded so nothing rests on them. A Voronoi grain sheet was rejected for
   cost, and six-fold crystals by folding were taken instead.
-- **Review:** the critique stopped on the usage limit.
-- **Decisions:** the spec's first owner question, whether bands may cover the
+- **Critique:** stopped on the usage limit.
+- **Decisions:** the spec's first open question, whether bands may cover the
   path rather than the quad, was answered by measurement in the build: a path
   point is inside kitty's quad for only 10 to 40 ms, so the family grew
   `Vfx::support`. The other four (shards unrotated, dark lace on a light
   theme, a life up to 0.87 s, the garland's density) were taken at the
-  spec's defaults and are owner questions.
-- **Measured:** the record, "The ice trail is frost laid on the path, and the
-  bands learned to cover it". The prototype's own checks are in
+  spec's defaults and are open questions.
+- **Measured:** MEASUREMENTS.md, "The cursor trails' costs". The prototype's own checks are in
   `docs/research/notes/w/ice-notes.txt`.
 - **Lost:** the contact sheets and the montage outputs.
 
@@ -388,40 +369,37 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   munrocket's WGSL port of the distance functions (MIT); Neovide's
   critically damped spring and its torpedo and pixiedust; Maurice-H's
   tractor beam (MIT); and 23skdu's ShaderCandy area_51.metal (Unlicense).
-- **Review:** the critique stopped on the usage limit. The clips, not a
-  review, showed that the spec's beam never opened on a long jump, and the
+- **Critique:** the critique stopped on the usage limit. The clips, not a
+  critique, showed that the spec's beam never opened on a long jump, and the
   build fixed it (`a_long_jump_still_opens_its_beam`).
-- **Decisions:** owner's calls recorded rather than taken (no cargo, ring
+- **Decisions:** built as the spec proposed, and open (section 6): no cargo, ring
   exhaust, below the cursor on the top rows, rim lights).
-- **Measured:** the record, "The ufo trail is a saucer on a spring, and its
-  beam waits for it".
+- **Measured:** MEASUREMENTS.md, "The cursor trails' costs".
 - **Lost:** proto3.py, which the spec's "look" was rendered from, and its
   stills. proto.py and proto2.py survive.
 
 ### 5.9 orb (`1488b3c`, landing fixed `9e06507`, 2026-09-26)
 
-- **Design source:** designed in the main session, in the family's shape. The
-  research agent's design was never read (section 2), and it differs from
-  what was built. The agent's design, in `docs/research/notes/w/orb-notes.txt`:
+- **Design source:** designed in the build, in the family's shape. The
+  orb research's design was never read (section 2), and it differs from
+  what was built. The research's design, in `docs/research/notes/w/orb-notes.txt`:
   a ball riding kitty's quad as a fifth chased point on the fast constant, a
   wake ribbon, a Plummer halo, a landing ring and five orbiting motes, every
   function of time evaluated in Rust. It measured 2.8x cheaper than the fire
   over the same bands, worst one step off its CPU reference, and at most two
   flashes a pixel once the ring started at 2.2 R. The committed harness is
-  its first write; the orb agent's edits of l.200, 242 and 257, among them
-  the ring's 2.2 R start, are not applied. What was built: a sphere
-  flying on a spring onto the quad's centroid, then, after the review the
-  record describes, a smootherstep toward the cursor through kitty's leading
+  its first write; the three later edits, among them the ring's 2.2 R
+  start, are not applied. What was built: a sphere flying on a spring onto
+  the quad's centroid, then, after a review of the effect family found the
+  orb bursting before it landed, a smootherstep toward the cursor through kitty's leading
   corners, with its own last 80 ms as a comet, and twelve sparks on arrival.
-- **Review:** none of the design. A read-only review of the effect family
-  found the burst ahead of the orb ("The orb lands before it bursts").
-- **Decisions:** owner's calls recorded rather than taken (size 0.4 cell, the
-  comet's length, the sparks, the 50 ms linger).
-- **Measured:** the record, "The orb trail is a sphere on a spring, and its
-  comet is its own flight"; "The orb lands before it bursts, and a spring
-  could not say when it had"; at 32 pt the orb fails WCAG 2.3.1 on the flash
+- **Critique:** none of the design. A read-only review of the effect family
+  found the burst ahead of the orb, and the orb now lands before it bursts.
+- **Decisions:** built as designed, and open (section 6): size 0.4 cell, the
+  comet's length, the sparks, the 50 ms linger.
+- **Measured:** MEASUREMENTS.md, "The cursor trails' costs"; at 32 pt the orb fails WCAG 2.3.1 on the flash
   census (note AL).
-- **Lost:** the agent's pins.txt (its prior art was never written down
+- **Lost:** the orb research's pins.txt (its prior art was never written down
   anywhere that survives), its run outputs and its images.
 
 ### 5.10 liquid (`818daaa`, 2026-09-26)
@@ -437,90 +415,78 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   rdev/liquid-glass-react, VII-Cae/hyalite, all MIT); iq's smooth minimum
   and rounded box; a Codrops metaball article; sahaj-b's cursor_warp; and
   Ghostty's custom-shader pass.
-- **Review:** the design critique stopped on the usage limit. The build had
-  the only post-build review of any trail, 38 findings, and the fixes where
-  the spec's own stated look failed are in the record.
-- **Decisions:** design (a) was built. (b), refraction, is the owner's call:
+- **Critique:** the design critique stopped on the usage limit. The build had
+  the only post-build review of any trail, 38 findings, and the build fixed
+  each place where the spec's own stated look failed.
+- **Decisions:** design (a) was built. (b), refraction, is open:
   a second render pass a frame, and even then it cannot bend what the window
-  server composites behind baud's glass window. The owner's "maybe default"
-  (l.12209) was not built; the default has been the plasma since `eb2f75e`.
-  The rest are owner's calls recorded rather than taken.
-- **Measured:** the record, "The liquid trail is a glass gel on kitty's quad,
-  and it bends nothing", including its cost on mains, taken 2026-09-27.
-- **Lost:** the frames rendered for the review, and the sources' local
+  server composites behind baud's glass window. The liquid as a default was
+  not built; the default has been the plasma since `eb2f75e`. The rest are
+  open (section 6).
+- **Measured:** MEASUREMENTS.md, "The cursor trails' costs", including its cost on mains, taken 2026-09-27.
+- **Lost:** the frames rendered, and the sources' local
   copies (SHA-256s in the spec).
 
 ### 5.11 What every trail later gained
 
-The ride on a smooth scroll (`0415566`; note X, "Ride-scroll"; the record,
-"A trail rides a smooth scroll, two rows at most"), Reduce Motion
-(`bc7cd03`; the record, "Reduce Motion means no trail, unless the config
-names one"), a refused ignition owing no frames (`eca6815`; "A refused
-ignition owes no frames"), the clips and their page ("The trails are
-recorded, and the page that shows them is gated"; "The clips drop no frames,
-and the recorder says so now"; `the_cursor_page_shows_every_trail`), and the
-flash census (`486a91f`; note AL). None of these rested on the lost files.
+The ride on a smooth scroll (`0415566`; note X, "Ride-scroll"), Reduce Motion
+(`bc7cd03`), a refused ignition owing no frames (`eca6815`), the clips and
+their page, which a test holds to every trail
+(`the_cursor_page_shows_every_trail`), and the flash census (`486a91f`; note AL). None of these rested on the lost files.
 
 ## 6. Open questions, with their options; none is picked here
 
-Each of these is the owner's, or Jev's under the rule of 2026-10-10, at 0.9
-both times with the owner's veto. Every one needs a visual on the review page
-before it is asked. They are listed so the research behind them is one place.
+Each of these is open, and each needs a render of its options before it is
+settled. They are listed so the research behind them is in one place.
 
 | trail | question | options, as recorded | status |
 |---|---|---|---|
-| all | the flash bound at large sizes | note AL's O1 to O4, a combination, per effect or every effect, and which system setting governs | open; note AL section 8. Jev asked 2026-10-10, none at 0.9 both times |
-| all | whether that bound also covers note AJ's launch splash | it does; it does not, and the splash is counted on its own | **decided (Jev, 2026-10-10, 0.96 and 0.98): not the splash**, on the condition that the splash is counted before it is built; the owner may veto |
-| all | the kitty-derived quad under baud's licence | (a) a record that it takes only the idea and the constants; (b) a clean re-derivation; (d) leave it out | **decided (Jev, 2026-10-25, (b) at 1.00 and 1.00): re-derived**, section 8; the owner may veto. The licence itself is the owner's and was not put to Jev. One visible difference: a retarget that lands a corner on its new target leaves it out of the spread, and the corner leading least lags longer (8.4) |
+| all | the flash bound at large sizes | note AL's O1 to O4, a combination, per effect or every effect, and which system setting governs | open; note AL section 8 |
+| all | whether that bound also covers note AJ's launch splash | it does; it does not, and the splash is counted on its own | **decided: not the splash**, on the condition that the splash is counted before it is built |
+| all | the kitty-derived quad under baud's licence | (a) a record that it takes only the idea and the constants; (b) a clean re-derivation; (d) leave it out | **re-derived (b), 2026-10-25**, section 8. One visible difference: a retarget that lands a corner on its new target leaves it out of the spread, and the corner leading least lags longer (8.4) |
 | all | a trail when the cursor hides | fade over kitty's slow constant, as kitty does; end at once, as baud does | open |
-| all | a trail on a jump scroll | ride it too; ride only a smooth scroll, as now | open; the work list records the owner's lean of 2026-09-27 as riding both |
+| all | a trail on a jump scroll | ride it too; ride only a smooth scroll, as now | open; riding both was proposed on 2026-09-27 |
 | fire | "the fire looks sluggish" | shorten its life; burn out faster; put it out on a keystroke; leave it (it burns 0.83 s on the demo's moves) | open |
-| plasma | the body fill; the flow direction; ions of one charge or both; a bar or underline narrowing the braid | the record's four calls: three of the spec's five questions (body, flow, ions) built at its proposals, and the narrowing the critique offered. The spec's other two, whether a flash counts per pixel or by area and whether long moves dim the filaments, went into the constant gain 0.95 and note AL's bound | open |
+| plasma | the body fill; the flow direction; ions of one charge or both; a bar or underline narrowing the braid | four calls: three of the spec's five questions (body, flow, ions) built at its proposals, and the narrowing the critique offered. The spec's other two, whether a flash counts per pixel or by area and whether long moves dim the filaments, went into the constant gain 0.95 and note AL's bound | open |
 | lightning | strike or arc; the bolt alone or over the quad; what a retarget leaves; sparks and corona | the spec's four questions, built at its proposals | open |
 | ice | shards unrotated; dark lace on light; a life up to 0.87 s; the garland's density | the spec's defaults, built | open |
 | ufo | cargo; exhaust rings or discs; below the cursor on the top rows; rim lights | as built | open |
-| orb | size 0.4 cell; the comet's length; sparks on arrival; the 50 ms linger | as built. The research agent's design (5.9) is a second option that was never put | open |
-| liquid | refraction (b); the glint on light; glass across the cursor; beads as drops or a satellite spray; a collar; materialise or fade; the back after a long move | the spec's first five questions, plus the review's collar and back-after-a-long-move. The spec's sixth, liquid or fire as the default, was overtaken by the plasma default | open |
-| helix | every helix launch trails to its first selection: from home until 2026-10-13, and since then, by reading and unmeasured, from the cell the shell left the cursor in | keep; do not follow a placement that comes first after a screen switch | open; the measurement is in the record, "A hidden cursor a program placed is followed, and helix's `gg` trails". It was taken while baud homed the cursor on a first `?1049h`, which ctlseqs and xterm do not; since the owner's decision of 2026-10-13 baud leaves the cursor, which moves where the trail starts and does not remove it (the record, "A first `?1049 h` leaves the cursor") |
+| orb | size 0.4 cell; the comet's length; sparks on arrival; the 50 ms linger | as built. The orb research's design (5.9) is a second option, never weighed | open |
+| liquid | refraction (b); the glint on light; glass across the cursor; beads as drops or a satellite spray; a collar; materialise or fade; the back after a long move | the spec's first five questions, plus the post-build review's collar and back-after-a-long-move. The spec's sixth, liquid or fire as the default, was overtaken by the plasma default | open |
+| helix | every helix launch trails to its first selection: from home until 2026-10-13, and since then, by reading and unmeasured, from the cell the shell left the cursor in | keep; do not follow a placement that comes first after a screen switch | open. It was measured while baud homed the cursor on a first `?1049h`, which ctlseqs and xterm do not; since 2026-10-13 baud leaves the cursor, which moves where the trail starts and does not remove it |
 
-## 7. How this was recovered, so it can be done again
+## 7. How this was recovered
 
-All of it was read-only, from the project's transcript directory for
-session <session>:
+Read-only, from the logs of the 2026-09-25 to 2026-09-27 work, which are not
+in the tree:
 
-- the main transcript, and the subagent transcripts under its subagents
-  directory, searched for Write calls and shell here-documents whose target
-  was under the scratchpad's trail/, trails/, icestate/ or specs/. That gave
-  45 files (none under specs/, which only the main session's shell commands
-  wrote). The latest write of each is what was taken, and a file written
-  then appended was joined. Three were then carried forward: ice.swift,
-  model.rs and liquid.py had their agents' later python and sed edits
-  replayed in transcript order with GNU sed, skipping the two whose result
-  was an error (the ice agent's l.292, the lightning agent's l.172) and
-  keeping the liquid agent's l.242 and l.264, which printed an error but
-  still changed liquid.py, and each reached the SHA-256 its
-  agent printed: 1eb72d416347818a1a4bb8c637d29d8a91c5611e19735bb4c85d75df361c3922,
+- every write whose target was under the working directory's trail/,
+  trails/, icestate/ or specs/. That gave 45 files (none under specs/, which
+  only shell commands wrote). The latest write of each is what was taken,
+  and a file written then appended was joined. Three were then carried
+  forward: ice.swift, model.rs and liquid.py had their later python and sed
+  edits replayed in order with GNU sed, skipping the two whose result was an
+  error and keeping the two on liquid.py that printed an error but still
+  changed it, and each reached the SHA-256 printed when it was made:
+  1eb72d416347818a1a4bb8c637d29d8a91c5611e19735bb4c85d75df361c3922,
   452ad54d373ec5bb1635540bf11a81b2c3b14d1c35634673dd6a1ca213f5db09 and
   b9f6f71666d59f352b525256a5b9ed6782dfa0c5111800518f7da7dc02904b35. The
   first and third no longer match the committed files, whose rate blocks
-  were re-expressed afterwards (section 8.6). Every
-  other file with later edits is committed as first written and says so in
-  section 1. blackbody.py was taken from its here-document and checked by
-  running it against its printed output; bbtable.metal was regenerated by
-  the two scripts and checked against the printed table.
-- the workflow records under its workflows directory: wf_5d8be472-5b7.json
-  holds the five specs, the plasma critique, and an empty completeness
-  result. The agent transcripts under subagents/workflows/wf_5d8be472-5b7
-  show which agent stopped where (each ends on the usage-limit message).
-- the fire agent's tool results, for the quad report and the quad pins it
-  printed, and its fetch commands with their echoes, for the fire pins.
-- the main transcript's user messages, queued prompts and question answers,
-  for the owner's words in section 3, and a search for any read of the orb
-  agent's notes (none).
+  were re-expressed afterwards (section 8.6). Every other file with later
+  edits is committed as first written and says so in section 1.
+  blackbody.py was taken as written and checked by running it against its
+  printed output; bbtable.metal was regenerated by the two scripts and
+  checked against the printed table.
+- the stored result of the spec research, which holds the five specs, the
+  plasma critique and an empty completeness result, and the logs that show
+  which research stopped where.
+- the quad report and the quad pins as printed, and the fire research's
+  fetch commands with their echoes, for the fire pins.
+- the requests and answers of that work, for section 3, and a search for
+  any read of the orb research's notes (none).
 
-The scripts that did this were scratch and are not kept. Each step above is
-a filter on the transcript's JSON lines, and repeating it needs only the
-paths named here, so long as the transcripts survive.
+The scripts that did this were scratch and are not kept. What survives is
+what section 1 lists, with its SHA-256s.
 
 ## 8. The quad's provenance against kitty, and its re-derivation (2026-10-25)
 
@@ -563,18 +529,12 @@ commits.
 | the fill | `trail.slang`: a four-vertex fan; the fragment masks the cursor's box, both edges inclusive, at a flat opacity | non-zero winding with a pixel of anti-aliased edge; the hole includes its left and top edges | different |
 | the numbers | definition.py: decay `0.1 0.4` (the option at 467-469), start threshold `2` (483-485), the trail in the cursor's colour (500-512) | `TAU_FAST`, `TAU_SLOW`, the app's two-cell threshold, the cursor's colour | numbers and a default, cited |
 
-### 8.3 Jev
+### 8.3 The route taken
 
-Jev got this comparison, the owner's words on the licence and on the plasma
-default, and the three routes. The request was asked twice, the options
-reversed the second time, and neither answer was cached:
-
-- **What the code is:** DERIVATIVE, at confidence 0.67 and 0.56; its
-  probabilities were 0.78 and 0.71, RE_DERIVE's 0.17 and 0.24 and
-  INDEPENDENT's 0.05 and 0.05.
-- **Which route:** B_RE_DERIVE, at confidence 1.00 and 1.00. That is above the bar in
-  both orders, so it is decided under the rule of 2026-10-10. The owner may
-  veto it.
+On 8.2's comparison the rate choice as built followed kitty's text term for
+term, so a record that the quad takes only kitty's idea and constants (a)
+would not have been true of it. It was re-derived (b), from 8.4, rather than
+left out (d).
 
 ### 8.4 The derivation the rate choice is now written from
 
@@ -627,7 +587,7 @@ retarget whose corner lands within 1e-3 px of its new target. It is visible:
 in that test's retarget the old code gave [0.4, 0.1, 0.117, 0.259] and this
 gives [0.4, 0.1, 0.132, 0.4], so the top-left corner, leading least, takes
 0.4 s where it took 0.259 s, and the bottom-left a little longer too. It is
-on section 6's list for the owner's veto.
+on section 6's list.
 
 ### 8.5 What is still kitty's, and the limits of this
 
@@ -636,7 +596,7 @@ defaults (0.1 s, 0.4 s, two cells), the half-pixel end, the rest before a
 trail follows, and the corner order. These are ideas, rules and numbers, and
 none of them is code. `a_horizontal_move_is_kittys` checks baud against
 numbers printed by a replay of kitty's code, and those numbers stay. The
-re-derivation was written from 8.4 by an agent that had read
+re-derivation was written from 8.4 by an author who had read
 `cursor_trail.c` for the audit. It is not a clean room in the two-team
 sense. None of this is legal advice.
 
@@ -652,10 +612,9 @@ does not travel left out of the spread, and tau_slow when no two leads
 differ. The Python two give the same rates as before to rounding on moves
 from rest, and the retarget of 8.4 as trail.rs does; both Swift files still
 type-check. ice-prototype.swift and liquid-proto.py no longer match the
-hashes their agents printed (section 7): their SHA-256s are now ae6bf89c…
+hashes printed when they were made (section 7): their SHA-256s are now ae6bf89c…
 and 59a76f83…. `no_model_of_the_quad_divides_by_the_half_diagonal`
 reads these and trail.rs for the division. With them, no code outside the
 pinned sources carries kitty's rate choice; 8.2's table quotes it and the
-quad report (`docs/research/notes/w/quad-report.txt`) describes it, for the
-audit. For code, the licence-trail item is handled, under the owner's veto
-and not as a clean room.
+quad report (section 1) describes it, for the audit. For code, the licence
+question is closed by the re-derivation, and not as a clean room.

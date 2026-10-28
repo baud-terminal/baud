@@ -176,7 +176,7 @@ second run agreed with every row within its ranges:
 **What the probe could not drive, stated rather than guessed.** A phased
 trackpad gesture built in-process revealed the knob once and never again,
 so it is no measurement. Hover cannot be sent in-process -- neither view
-exposes a tracking area -- and a real move would take the owner's cursor,
+exposes a tracking area -- and a real move would take the user's cursor,
 so the hovered knob's geometry is **the legacy scroller's, assumed**: the
 headers document no hovered geometry, the 17 pt frame is the only width
 they support, and that an overlay knob widens to the legacy band is an
@@ -184,7 +184,7 @@ assumption from how the two look, not a measurement. The hover-exit delay
 and the track's fade are unmeasured; the exit is taken as a scroll's hold,
 and the track appears and goes with the hover at once.
 
-## Fade and hover (the owner's calls, 2026-09-23)
+## Fade and hover (decided 2026-09-23)
 
 Follow the platform: the thumb fades to nothing, the timings are the
 measured ones, and the pointer widens it and shows a track. Two calls
@@ -308,7 +308,7 @@ style that changes mid-session clips the gutter off the right edge; normal
 sizing re-lays the grid instead.
 
 `BAUD_SCROLLER=overlay|legacy` overrides the system's answer, for a check
-that must not change the owner's settings; it is an instrument, like
+that must not change the user's settings; it is an instrument, like
 `BAUD_GPU`, and not a configuration.
 
 ## Tests

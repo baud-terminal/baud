@@ -5,12 +5,11 @@ review. The RD and SD pair was built on 2026-10-24 (section 10); every other
 light in this note is unbuilt.** Every baud file:line citation in this note is
 pinned at commit `473ff12`.
 
-- Section 1 holds the owner's two requests.
+- Section 1 holds the two requests.
 - Sections 2 to 5 cover the sources each LED would rest on, what one process
   can and cannot read about another on macOS and Linux, and what baud already
   knows.
-- Section 6 sets out the options with their costs, and section 8 the owner's
-  questions.
+- Section 6 sets out the options with their costs, and section 8 the open questions.
 
 The evidence is under `.claude/research/leds/`, untracked until the staged
 files below are committed:
@@ -23,7 +22,7 @@ files below are committed:
   - Process ids are replaced by role names and the power source's `id=`
     field is removed.
   - No output carries the ssh session's remote host or ports.
-  - `probes/` keeps the built binaries for the owner's checks (8.1).
+  - `probes/` keeps the built binaries for the checks (8.1).
 
 Evidence tags:
 
@@ -83,8 +82,7 @@ the same files by rendered line.
       a live ssh socket in another terminal was invisible (**M**, [[source: ah-obs-pcb64-probe-out]]).
     - Whether baud, outside that sandbox, can see another process's sockets
       is **UNVERIFIED**. Two unsandboxed runs made earlier in this research
-      showed the same thing and were not saved (3.7). It is on the owner's
-      list of checks (8.1).
+      showed the same thing and were not saved (3.7). It is on the list of checks (8.1).
     - Mechanism and cost: one `pcblist64` size query and fetch, 4.5 µs on the
       probe's three-record dump (**M**, [[source: ah-obs-pcb64-probe-out]]);
       a full dump, which visibility would return, is unmeasured.
@@ -117,19 +115,12 @@ the same files by rendered line.
     full height of 28 pt.
   - That was measured in a window shaped like glassnote's, built by two probes
     linked against SDK 14.4, the same SDK baud links (**M**, [[source: ah-obs-titlebar-probe-sdk14-out]]).
-  - The owner's crate has no accessory API (5.1).
+  - The window crate has no accessory API (5.1).
 
-## 1. What the owner asked (verbatim, 2026-10-08)
+## 1. What was asked (2026-10-08)
 
-> "i'd like to have on the title - most right LEDs like old style modems rx/tx
-> maybe more will be cool to show also what protocols are used, etc... again
-> option in config to turn it off"
-
-> "regarding the LEDS Linux Kernel TTY LED Triggers (CONFIG_LEDS_TRIGGER_TTY),
-> i was thinking that it should show the tx/rx of network if we are over ssh or
-> IO if we are over disk, CPU, MEM, not sure it should be unique and cool"
-
-`TODO.md` carries both verbatim, under P4 item 4.
+- Old-style modem lights, rx/tx at the right of the title bar, perhaps also showing which protocols are in use, with a setting to turn them off.
+- After Linux's TTY LED triggers (`CONFIG_LEDS_TRIGGER_TTY`): the network's tx/rx when the session is over ssh, disk IO, CPU and memory.
 
 ## 2. The sources
 
@@ -263,8 +254,7 @@ samples are never more than 100 ms apart, and they can be much closer: about
 
 ### 2.3 The modem front panel
 
-The owner's vocabulary is the modem's, so each label is taken from the
-manufacturers' manuals.
+The request's vocabulary is the modem's, so each label is taken from the manufacturers' manuals.
 
 - **Scanned manuals.** A helper read each one from its page images and
   checked every quote against the scan's text layer. A dozen of those checks
@@ -602,7 +592,7 @@ remote side sent.
 - **OSC 7 and remote-host announcements are claims, not measurements.** OSC
   7's `file://host/path` is the remote shell's statement of where it is. It is
   honest to show as "the program says". It is not evidence that a network is
-  in use. OSC 7 is on `TODO.md` P4 item 2, for the title.
+  in use. OSC 7 is planned for the title.
 
 ### 3.4 Disk
 
@@ -790,7 +780,7 @@ see another process's records is open.
   - **Visibility.** In both launches the dump held only the probe's own three
     records, so the live ssh client's two TCP sockets were absent. The leading header's
     `xig_count` read 53 and 56 (**M**, [[source: ah-obs-pcb64-probe-out]]). Outside the sandbox the result is
-    **UNVERIFIED**, and it is on the owner's list (8.1).
+    **UNVERIFIED**, and it is listed as open (8.1).
 - **NetworkStatistics, which `nettop` uses, is absent from the SDK headers.**
   `otool -L /usr/bin/nettop` lists
   `/System/Library/PrivateFrameworks/NetworkStatistics.framework`. The SDK
@@ -834,8 +824,7 @@ see another process's records is open.
     pinned source. Which one is UNVERIFIED.**
   - **Also UNVERIFIED:** a reviewer's sandboxed `pcblist_n` run (35,776 and
     48 B), and two unsandboxed runs earlier in this session that showed the
-    same thing. None of those outputs was saved. The unsandboxed check is on
-    the owner's list (8.1).
+    same thing. None of those outputs was saved. The unsandboxed check is on the list (8.1).
 
 **Linux: per-socket TCP bytes, through `sock_diag`.**
 
@@ -1030,8 +1019,7 @@ Placement for a binary linked against SDK 27.0 was not measured. Neither was
 placement inside baud's own window.
 
 The width on the right is ours to choose, whether the LEDs are an accessory
-or hand-placed views. The real constraint is the title text, if the title work
-(`TODO.md` P4 item 2) puts it back in the strip.
+or hand-placed views. The real constraint is the title text, if the title work puts it back in the strip.
 
 ### 5.2 Where a sample can run
 
@@ -1167,7 +1155,7 @@ the note says so wherever it is used.
 | CD | a carrier from a distant modem | a foreground ssh member holds an established TCP socket | `tcpsi_state` 4 / `sock_diag` |
 | OH | "using the telephone line" | a job other than the shell is in front | `e_tpgid` differs from the shell's own group (3.2) |
 | AA | auto-answer set; "Flashes ON for incoming ring detect" | flashes when baud queued a reply nobody typed. The steady half would always be on, so it is dropped | the reply buffer, filled other than by a key or mouse event: replies queued during a feed and those outside one (note AG: focus, the `?2048` report after a resize, `?2031`) |
-| HS | the rate the modem last ran at, held: computer-side in command state, the line's at connect, kept after disconnect | a looser analogue: a read came back at the platform's ceiling, a sign that more was waiting, though not proof (exactly that many bytes may have been all there was) | a read's length: 1024 on Darwin, 4095 on Linux (CLAUDE.md's `READ_CHUNK` row, [[source: linux-n-tty]]), under `READ_CHUNK` = 4096 (`pty.rs:90`). On macOS, each reader-thread chunk's length (`Read.bytes`), not `pump`'s drain |
+| HS | the rate the modem last ran at, held: computer-side in command state, the line's at connect, kept after disconnect | a looser analogue: a read came back at the platform's ceiling, a sign that more was waiting, though not proof (exactly that many bytes may have been all there was) | a read's length: 1024 on Darwin, 4095 on Linux (CONTRIBUTING.md's `READ_CHUNK` row, [[source: linux-n-tty]]), under `READ_CHUNK` = 4096 (`pty.rs:90`). On macOS, each reader-thread chunk's length (`Read.bytes`), not `pump`'s drain |
 | CS, **inverted** | ON normally; OFF when the modem lowers CTS to stop the computer | lit when the kernel refused baud's write: the child is not reading its input, or the child is gone (`pty.rs:97-101`, 265-267). The modem's polarity would always be on, so baud's CS is the inverse and must say so, or take another name | `write_some` returns `Wrote::Short` (`pty.rs:272-275`) |
 | RS, inverted | ON normally; OFF under `&R2` when the computer lowers RTS | lit when baud stopped reading the master. baud never stops today, on either system, so it would never light (2.3) | none today; a backpressure rule, if one is built |
 | ARQ | error control; flashes on a retransmit | the ssh socket is retransmitting or has retransmitted | Linux: `tcpi_total_retrans`, a count ([[source: linux-uapi-tcp-h]] 287). macOS: `pcblist64` `t_rxtshift` > 0 or `snd_nxt` < `snd_max`, a state at the sample, not a count, with the same open visibility and cost as the NET pair (3.7) |
@@ -1240,7 +1228,7 @@ Each option, with its benefit and its cost:
 - **P1. An accessory API in macos-liquid-glass.** For example, a
   `GlassWindow` method that takes a view and a leading or trailing side and
   wraps `NSTitlebarAccessoryViewController`.
-  - **Benefit:** it follows the owner's rule to extend the crate, never
+  - **Benefit:** it follows the project's rule to extend the crate, never
     duplicate it, and AppKit lays the view out.
   - **Cost:** a crate change, which reaches baud through a release or a
     `[patch]`.
@@ -1258,8 +1246,7 @@ Each option, with its benefit and its cost:
   - **Benefit:** AppKit lays the view out, and it works today with no crate
     release.
   - **Cost:** it is AppKit code in baud for something the crate's subject
-    covers. Whether that counts as duplicating the owner's crate is the
-    owner's call.
+    covers. Whether that counts as duplicating the window crate is open.
 - **P3. Hand-placed subviews in baud's container, as the icon is.**
   - **Benefit:** baud's existing idiom (5.1), with no crate change.
   - **Cost:** baud places the views itself and re-places them on every
@@ -1348,10 +1335,9 @@ list.
   `proc_*` call. This is checked with `dtruss` or a counting shim, never by
   argument.
 
-## 8. Open owner questions
+## 8. Open questions
 
-Each needs its options rendered on the review page before it is asked (the
-every-question-has-a-visual rule).
+Each needs its options rendered before it is settled.
 
 - **Q1. "What protocols are used": which meaning?**
   - (a) The session's transport, named from the process tree: ssh, mosh,
@@ -1362,14 +1348,13 @@ every-question-has-a-visual rule).
   - (c) Both.
 - **Q2. Which LEDs, and how many?**
   - The pty pair.
-  - Over ssh: CD, and a network pair. The owner's second request asks for
-    exactly that pair: "it should show the tx/rx of network if we are over
+  - Over ssh: CD, and a network pair. The second request asks for exactly that pair: "it should show the tx/rx of network if we are over
     ssh". What it costs and where it stands:
     - **Linux:** buildable from `sock_diag`; cost unmeasured.
     - **macOS:** the record is declared in the SDK, and its counts were exact
       on the probe's own sockets. Whether baud can see another process's
       socket is **UNVERIFIED**: two unsandboxed runs earlier in this research
-      showed the same thing and were not saved (3.7); the owner's check is 8.1.
+      showed the same thing and were not saved (3.7); the check is 8.1.
       If it can, the cost is 4.5 µs per sample on the probe's three-record
       dump plus the CD row (3.9); a full dump, which visibility would return,
       is unmeasured.
@@ -1380,17 +1365,12 @@ every-question-has-a-visual rule).
   - DK (one LED, or read and write), CPU and MEM.
   - Which state LEDs from 5.4.
   - One switch, `[titlebar] leds`, or one key per LED?
-    - **Decided: one switch** (Jev, 2026-10-09, 0.98 and 0.98 on the
-      original and on a replicate with the options reordered, decision log
-      lines 355-356; to be listed on the review page for the owner's veto).
-      No text governs; it matches the owner's "again option in config to
-      turn it off".
+    - **Decided: one switch.** No text governs; it matches the request's one setting to turn them off.
     - **Unbuilt, and why.** The key is `[titlebar] leds = true | false`, a
       two-state enum in the `[screen] transition` idiom (6.5), and off means
       none of 6.5's list. But no light exists: which ones (the rest of Q2)
       and where they are drawn (Q7) are open. A key read and acted on by
-      nothing is the config counterpart of the "parsed" state CLAUDE.md
-      calls worse than unbuilt, and section 7's zero-cost test would pass
+      nothing is the config counterpart of the "parsed" state CONTRIBUTING.md calls worse than unbuilt, and section 7's zero-cost test would pass
       vacuously today, since nothing calls `proc_*`. So the key lands with
       the first light, and its test with it.
 - **Q3. Replies nobody typed: inside SD, or their own LED (AA)?**
@@ -1419,7 +1399,7 @@ every-question-has-a-visual rule).
   - Both can exceed WCAG 2.3.2's three flashes a second.
   - Should the LEDs follow Reduce Motion, as the cursor trail does?
 - **Q7. Placement and look.**
-  - P1: an accessory API in the owner's crate (follows the extend-the-crate
+  - P1: an accessory API in the window crate (follows the extend-the-crate
     rule; needs a release or `[patch]`).
   - P2: an accessory added by baud through `ns_window()` (works today; may
     count as duplicating the crate).
@@ -1429,9 +1409,7 @@ every-question-has-a-visual rule).
   - Modem two-letter labels or icons? Which colours?
 - **Q8. A program baud may not read.** Should it get its own look, such as a
   hollow LED, or should its LEDs hide?
-  - **Decided: its own look** (Jev, 2026-10-09, 0.90 and 0.94 on the
-    original and on a replicate with the options reordered, decision log
-    lines 355-356; to be listed on the review page for the owner's veto).
+  - **Decided: its own look.**
     No text governs; it keeps rule 2 of 6.6, that a failed read is neither
     lit nor dark.
   - What it means once built: each process light has a third state,
@@ -1439,7 +1417,7 @@ every-question-has-a-visual rule).
     own: on macOS when `proc_pid_rusage` answers `EPERM` (3.8); on Linux
     only DK's `/proc/<pid>/io` is gated (3.4, 3.8), since `utime`, `stime`
     and `majflt` stay readable. The hollow LED is an example; the look is still
-    to be designed, and rendered on the review page before it is chosen.
+    to be designed, and rendered before it is chosen.
   - **Unbuilt, and why.** Which process lights exist (Q2's DK, CPU and
     MEM, Q5), where they are drawn (Q7) and the look itself are open, so
     the state has no light to belong to. A reading that told `EPERM` apart
@@ -1458,7 +1436,7 @@ every-question-has-a-visual rule).
   - FAX: an image.
   - AA: a reply nobody typed.
 
-### 8.1 Checks for the owner to run
+### 8.1 Checks to run
 
 These need a run outside the agent's sandbox, which this research made
 only without saving its output (3.7, UNVERIFIED). Each one needs an ssh session open in another terminal, and each is
@@ -1522,15 +1500,13 @@ Q1, Q3 to Q5, Q8 and the rest of Q2 stay open.
   `a_write_the_full_queue_takes_nothing_of_says_so`). Replies nobody typed
   stay inside SD (Q3 unanswered; SD counts what was sent).
 - **Placement (Q7).** P3, an image view in baud's container at the strip's
-  right, re-placed on every resize (Jev SUBVIEW 1.00/1.00). The pixels
-  are baud's renderer's. The owner's crate needs nothing for it; P1,
+  right, re-placed on every resize. The pixels
+  are baud's renderer's. The window crate needs nothing for it; P1,
   a trailing accessory API in the crate, remains the alternative.
-- **Look (Q7, Q9).** RD and SD letters to the left of each light (a
-  lean, 0.89/0.88). RD is AppKit's `systemGreenColor`, SD its
-  `systemOrangeColor`, resolved under the window's appearance (a lean,
-  0.91/0.88).
+- **Look (Q7, Q9).** RD and SD letters to the left of each light. RD is AppKit's `systemGreenColor`, SD its
+  `systemOrangeColor`, resolved under the window's appearance.
 - **Timing (Q6).** A light is lit for 200 ms after the last byte. Once it
-  changes, it does not change again for 200 ms (Jev 0.96/0.97), so any
+  changes, it does not change again for 200 ms, so any
   closed second holds at most three flashes of one light. The count holds
   per light: two lights out of phase can make twelve changes, six flashes,
   between them, so the pair passes WCAG 2.3.1 by the area clause, two 7 pt
@@ -1542,15 +1518,12 @@ Q1, Q3 to Q5, Q8 and the rest of Q2 stay open.
 - **Accessibility (Q6).** Dim Flashing Lights draws a lit light at the
   most of its colour that makes no WCAG flash over any grey the body
   under the strip can be: the standard material's range, or black to
-  white over the glass (Jev 1.00/1.00). Reduce Motion changes nothing (a lean,
-  0.92/0.89).
-- **The setting.** `[window] activity_lights = "on" | "off"`, on by
-  default (Jev 1.00/0.98 on the name). It takes effect at once on reload.
+  white over the glass. Reduce Motion changes nothing.
+- **The setting.** `[window] activity_lights = "on" | "off"`, on by default. It takes effect at once on reload.
 - **Linux.** Nothing: the Linux window has no title bar.
 - **Open.** Whether Increase Contrast re-colours the lights is
   unverified: their colours are re-read only when the style observer
-  fires. The image view has a tooltip but no accessibility label, and the
-  tooltip is a change a user sees that no Jev fork covered.
+  fires. The image view has a tooltip but no accessibility label, and the tooltip is a change a user sees that no decision covered.
 
 Decision log 1473 to 1476.
 

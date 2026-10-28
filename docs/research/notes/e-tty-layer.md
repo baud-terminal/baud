@@ -56,8 +56,7 @@ static bool tty_buffer_queue_work(struct tty_bufhead *buf)
 ```
 
 with `flush_to_ldisc` as the work. The bytes reach the line discipline on a
-kernel worker, not in the writer's syscall. That is the hop `CLAUDE.md` says
-eBPF can measure and cannot remove, and it is why `splice()` lost to
+kernel worker, not in the writer's syscall. That is the hop eBPF can measure and cannot remove (CONTRIBUTING.md, "Things already tried that lost"), and it is why `splice()` lost to
 `write(2)`: there is no route around the flip buffer, so splicing adds a pipe
 in front of the same ring.
 
@@ -107,8 +106,7 @@ So both figures have the same shape: **a fixed ring, drained per read.** Linux
 keeps one byte of slack in a 4096-byte ring and hands back 4095; Darwin fills a
 1024-byte clist to capacity and hands back 1024. `READ_CHUNK = 4096` is right
 on both, because it is the larger of the two and the smaller host simply
-receives less per syscall -- 49,152 reads for 48 MB, which is the measurement
-`CLAUDE.md` records.
+receives less per syscall -- 49,152 reads for 48 MB, which is the measurement CONTRIBUTING.md records (`READ_CHUNK`).
 
 **Same number, different constant, and only one of them is on the path.**
 `TTYHOG` and `TTYCLSIZE` are both 1024 in the same header, so a note that
@@ -125,9 +123,7 @@ sentence.
   explained.
 * **Scheduling.** "`SCHED_FIFO` -- p99 50% worse" is a prototype figure
   (`git show d8262f5:README.md`, line 88) with no kernel source behind it: a
-  result, not a mechanism, and left as such. The RTIC entry `CLAUDE.md`
-  carried until c1d710c (`git show d8262f5:CLAUDE.md`, line 65) had no
-  measurement behind it either.
+  result, not a mechanism, and left as such. The RTIC entry the project's rules carried until c1d710c had no measurement behind it either.
 * **`TTHIWAT` in practice.** `t_hiwat` at 9600 baud computes to
   `roundup(1216, CBSIZE)`, above the clist capacity, which is why the capacity
   binds. That arithmetic is from the source and is not separately measured;

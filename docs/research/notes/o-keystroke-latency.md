@@ -71,7 +71,7 @@ timestamp that is either already there or one call away:
 | 5 | the core was fed | the same clock | `Driver::pump`, after `Term::feed` |
 | 6 | the frame was committed | the same clock | `App::present`, at `Drawn::Frame` |
 | 7 | the GPU finished it | `MTLCommandBuffer.GPUEndTime` | the completion handler, carried in the `Landing` |
-| 8 | the surface was set on the layer | the same clock, in `Responder::presented` | the view, immediately after the `CATransaction` that sets the layer's contents commits -- a hook the owner's crate gained for this, because the wake that follows can also be the pty reader's |
+| 8 | the surface was set on the layer | the same clock, in `Responder::presented` | the view, immediately after the `CATransaction` that sets the layer's contents commits -- a hook the window crate gained for this, because the wake that follows can also be the pty reader's |
 | 9 | the panel showed it | two bounds: `CADisplayLink.targetTimestamp` as announced by the tick before 8 (`vsync`), and the next tick's (`vsync_hi`) | the vsync the surface makes when the commit met the compositor's deadline, and the one after when it did not; the probe says which |
 
 **One clock, and the SDK says so in each case.** `CADisplayLink`'s
@@ -185,7 +185,7 @@ compositor presents.
 ## What it read
 
 Apple M5 Max, macOS 27.0, on mains, the built-in 120 Hz panel, the app's
-default cell path at 120x40 under the owner's config. Five rounds of thirty
+default cell path at 120x40 under the measuring machine's config. Five rounds of thirty
 keys at a 150 ms gap, the first round discarded, an A/A copy of the same
 binary interleaved with the arm order rotated: 120 keys an arm. Every
 posted key paired with its line, no exclusions but two on the `cat` A/A arm
@@ -284,7 +284,7 @@ on -- one period late by construction; and it stamped `shown` at the wake,
 which the pty reader can also send ahead of the present. `vsync` is the
 announced target now, `vsync_hi` the one after, and `shown` is taken where
 the view commits the `CATransaction`, through a `presented` hook the
-owner's crate gained. Two more fell in the second round: a key the core
+window crate gained. Two more fell in the second round: a key the core
 encodes to nothing was stamped `written` by the next key's write and took
 its echo (an explicit unsent state now,
 `a_key_the_core_encodes_to_nothing_is_not_written_by_the_next_key`), and
@@ -307,7 +307,7 @@ if a frame's time has passed" gate is never open. There the base waited
 2.7-3.2 ms for the tick (`build`, fed to committed, against 65 us through
 `cat`), and drawing the echo on the read that brings it puts `to_shown`
 2.5-2.8 ms lower in each of four sweeps, past the floor in the two quiet
-ones; the figures are in `MEASUREMENTS.md` and the mechanism in `CLAUDE.md`.
+ones; the figures and the mechanism are in `MEASUREMENTS.md`, "Keystroke to pixel".
 
 **What the sweeps found about this instrument.** The first two had every
 arm's `vsync` leg tight -- 7.4-7.6 ms on the tick-paced base, 1.9-2.0 ms

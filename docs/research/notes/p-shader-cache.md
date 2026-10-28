@@ -142,7 +142,7 @@ on, and the documentation supplies the reasons.
   first present against 410. It needs the Metal compiler at build time,
   and this box does not have it: `xcrun metal` answers "cannot execute tool
   'metal' due to missing Metal Toolchain; use: xcodebuild -downloadComponent
-  MetalToolchain". That download is a change to the owner's Xcode and is
+  MetalToolchain". That download is a change to this machine's Xcode and is
   theirs to make; the shape once it exists is a generated
   `baud.metallib` committed beside the source with a hash of the source it
   was built from, gated the way this repo gates every generated table, and
@@ -152,8 +152,7 @@ on, and the documentation supplies the reasons.
   source; the launches where it is cold -- a first install, an OS update --
   are the launches where an archive the app wrote earlier does not exist or
   is invalid too. A *shipped* archive would spare the remaining 130 ms on
-  the GPU it was built for, and only that GPU family on that OS; for the
-  owner's own build that is this machine until the next update, for
+  the GPU it was built for, and only that GPU family on that OS; for a developer's own build that is this machine until the next update, for
   anyone else it is nothing.
 * **The remedy that needs no toolchain is not to wait.** The window is
   shown at 104 ms warm because the probe is joined once the window exists;
@@ -245,7 +244,7 @@ note asserting it.
   needs no toolchain and has not been run.
 
 **So the row is open on one command.** `xcodebuild -downloadComponent
-MetalToolchain` is a change to the owner's Xcode; with it, the remedy is
+MetalToolchain` is a change to this machine's Xcode; with it, the remedy is
 the contained one this note already describes -- a generated
 `baud.metallib` beside the source, hash-gated, with `newLibraryWithData`
 and the source as the fallback -- and it is worth ~197 ms of the 287.
@@ -256,7 +255,7 @@ is closed".)
 
 ## Built, and the row is closed
 
-**2026-09-19, after the owner installed the toolchain.** The shape this
+**2026-09-19, after the toolchain was installed.** The shape this
 note specified is what shipped, and the measurement is in `MEASUREMENTS.md`
 under "The shipped `.metallib`": the cold-cache penalty went from
 **+287 ms to +34**, a cold launch from 389.9 ms to 133.5, with the device
@@ -282,7 +281,7 @@ and warm-pass controls flat in both arms.
   lookups and its pipeline state -- under both): the whole difference is the *first* pipeline of the process, and
   building `bg` last moves the cost to whichever is built first, so it
   follows the position and not the shader. What `newLibraryWithData` defers
-  to that first pipeline is still not known. CLAUDE.md, "Row 1 shipped".
+  to that first pipeline is still not known (MEASUREMENTS.md, "The shipped `.metallib`").
 * **"This box does not have it: `xcrun metal` answers ..." was two errors
   wearing one sentence**, and the correction is in the section above:
   `xcrun` cannot reach the compiler on this box at all, and Xcode's `metal`

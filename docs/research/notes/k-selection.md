@@ -53,12 +53,11 @@ is at absolute line `scrolled - back + y`. So a selection:
   under a top region's scroll, losing only the lines a scroll takes out of
   its region, pushes under the screen or sends off the alternate screen's
   top, as xterm does with `keepSelection` at its default (the core's watch,
-  `Term::watched_lines`; Jev's decisions of 2026-10-20, where each of these
+  `Term::watched_lines`, since 2026-10-20, where each of these
   dropped it before). A write or an erase on it, `IL` at a row in it, `DL`
   of a row in it, and a scroll under side margins still clear it.
 * **keeps its text past its highlight** while `?1040`, xterm's
-  keepSelection, is set, as it is at power-on (Jev, SET_AT_POWER_ON, 0.95
-  and 0.98; since 2026-10-22): the text is taken before a read, once each
+  keepSelection, is set, as it is at power-on (since 2026-10-22): the text is taken before a read, once each
   time the selection changes, and output that clears the selection leaves
   it for a copy until another selection is made (`keep::KeptText`). Reset,
   the text goes with it, and every scroll above that would trim it drops
@@ -70,12 +69,11 @@ is at absolute line `scrolled - back + y`. So a selection:
   reset, output that takes the selection gives up what SELECT offered on
   Linux, as xterm's `DisownSelection` does. Set, `ICH`, `DCH`, `DECIC` and
   `DECDC` on a selected row take the highlight away where xterm shifts it:
-  the owner's answer A of 2026-10-22 to "When a program inserts
+  the answer A of 2026-10-22 to "When a program inserts
   characters before your selection, should its highlight move with the
   text?".
 
-The alternative -- keying on physical rows and a generation -- is what the
-position-keyed marks table was, and CLAUDE.md records what that cost. An
+The alternative -- keying on physical rows and a generation -- is what the position-keyed marks table was, and that cost was measured and withdrawn. An
 absolute line is a number the app already maintains.
 
 ## Membership and expansion

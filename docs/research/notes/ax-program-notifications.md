@@ -4,7 +4,7 @@
 show a progress bar: `OSC 9` (iTerm2), `OSC 777 ; notify` (Terminology
 and VTE), kitty's `OSC 99`, ConEmu's `OSC 9 ; 4`, and `OSC 1337 ;
 RequestAttention`. This note pins each text, says how the terminals
-that implement them disagree, records what Jev decided, and says what
+that implement them disagree, records what was decided, and says what
 each platform lets a terminal do with them.
 
 ## 1. The texts
@@ -36,49 +36,38 @@ The other ~30 `OSC 1337` subcommands are listed with one row each in
 Sources: `[[source: wt-adapt-dispatch]]` (`DoConEmuAction`),
 `[[source: kitty-window-py-0492]]` (`desktop_notify`: "This is probably
 the ConEmu progress reporting conflicting implementation"), `[[source:
-ghostty-osc9]]`. Jev: ConEmu's forms first, bare `9;4` clearing, the
-rest text -- lean 0.83 and 0.91; `9;4;9` dropped -- 0.98 and 0.96,
-decided. The argument that moved it: Windows Terminal's own docs have
+ghostty-osc9]]`. Decided: ConEmu's forms first, bare `9;4` clearing, the rest text; `9;4;9` dropped. The argument that moved it: Windows Terminal's own docs have
 shells send `9;9` at every prompt, and reading that as text posts a
 notification at every prompt.
 
 ## 3. The rest of the forks
 
-All asked of Jev in both orders, uncached, with the owner's standing
-rule quoted ("full VT420-class terminal. we need to support such
-protocols fully, always!") and the settings rule ("i would say on or
-off, not answer, keep it simple"):
+Each weighed against two rules: a protocol is built whole, and a setting is "on" or "off":
 
 - **The `OSC 777` body** is everything after the title's `;`, and a
-  title alone is a notification: lean 0.85 and 0.67. VTE's tokeniser
+  title alone is a notification. VTE's tokeniser
   stops at the next `;`, yet its own `vte.sh` sends a command line there;
   ghostty refuses a title alone, which VTE's text allows.
 - **Focus**: `OSC 99` follows `o`, whose default is `always` ("always
   honors the request"), so it shows while focused unless the program
   says otherwise; `OSC 9` and `OSC 777`, whose texts say nothing, show
-  only while the window is not focused: 0.98 and 0.97, decided.
+  only while the window is not focused.
 - **Icons**: `n` names mapped where the platform has named icons, `p=icon`
-  data cached under `g` with a bounded cache: 0.95 and 0.97, decided.
+  data cached under `g` with a bounded cache.
 - **macOS permission**: explicit authorization, asked when a program
-  first sends a notification with the setting on: 0.94 and 0.98,
-  decided. Provisional delivery would put a program's "build finished"
+  first sends a notification with the setting on. Provisional delivery would put a program's "build finished"
   only in Notification Center's history.
-- **The flood bound**: a bucket of four, refilled one a second: lean 0.86
-  and 0.91.
+- **The flood bound**: a bucket of four, refilled one a second.
 - **Stale progress**: only the texts clear it -- state 0, bare `9;4`,
-  `RIS`; no timeout (kitty's 60 s is its practice): 0.98 and 0.98,
-  decided.
+  `RIS`; no timeout (kitty's 60 s is its practice).
 - **`OSC 1337`**: `RequestAttention` built with notifications, every
-  other subcommand its own row: 0.97 and 0.92, decided.
+  other subcommand its own row.
 - **`OSC 99`'s value characters**: the text's set with `=`, which the
-  text's own base64 values need and kitty's own client sends (`[[source:
-  kitten-notify-go]]`): lean 0.30 and 0.48, over the set exactly and over
-  no check. The `?` of the text's own `p=?` is admitted too, which was not
-  put to Jev: the text writes it. A value with any other byte makes the
+  text's own base64 values need and kitty's own client sends (`[[source: kitten-notify-go]]`), over the set exactly and over no check. The `?` of the text's own `p=?` is admitted too, which was not
+  weighed: the text writes it. A value with any other byte makes the
   command malformed.
 - **macOS's `p=alive`**: Notification Center's delivered list, asked every
-  few seconds while any is shown, over only baud's own removals: lean 0.82
-  and 0.90, after a re-ask with kitty's own client in the context.
+  few seconds while any is shown, over only baud's own removals, as kitty's own client reads it.
 
 ## 4. The platforms
 
@@ -151,7 +140,7 @@ one does.
   reported and the buttons numbered from 1, `urgency`, `sound-name` or
   `suppress-sound`, `category`, and a PNG of at most 1024 pixels a side
   as `image-data`; JPEG and GIF data, which the text also names, are
-  refused and counted until a decoder exists (Jev, 0.95 and 0.97), as is
+  refused and counted until a decoder exists, as is
   a larger PNG, and the log says so once; the body
   escaped where the server lists `body-markup`; an icon name with a `/`
   or a `:` is not sent, since `app_icon` also takes a file URI;

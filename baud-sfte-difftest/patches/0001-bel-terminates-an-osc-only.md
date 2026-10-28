@@ -47,8 +47,7 @@ readers, the kitty `G` dispatch at sfte.h 34944-34946 and the Sixel header test
 at 35054-35075), and baud answers no
 `+q`, so no fixture sends one. Left as found, sfte's departure.
 
-**Why patch rather than pin.** The owner's rule is that no recording is
-excluded from the differential, and a BEL-terminated OSC is the commonest
+**Why patch rather than pin.** No recording is excluded from the differential, and a BEL-terminated OSC is the commonest
 window-title spelling in the wild, so an oracle that wedges on it is an oracle
 that cannot be trusted on any session that sets a title. One condition, scoped
 to the one string the texts let a BEL end, leaves sfte an independent
@@ -65,8 +64,7 @@ control that says the patch is applied.
 **How it is applied.** `build.rs` copies `docs/research/sources/sfte.h` --
 which stays pristine and hashed in `MANIFEST.toml` -- into `OUT_DIR` and
 replaces the anchor below **exactly once**, failing the build if the anchor is
-found zero or several times. A patch that silently fails to apply is the
-no-op edit `CLAUDE.md` records three times, and the build refusing is the
+found zero or several times. A patch that silently fails to apply is an edit that changed nothing and said so nowhere (CONTRIBUTING.md, "Refactoring failures that already happened here"), and the build refusing is the
 positive control. The altered copy carries a comment naming this file, which
 is what the zlib licence's second clause asks for.
 

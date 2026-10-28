@@ -30,8 +30,7 @@ decrypts them and runs five positive controls each (`[[source: adobe-5176-cff]]`
 ## E1. Crates, and why the core is untouched
 
 `baud-core` is `no_std`, `alloc`-free, zero-dependency and `forbid(unsafe)`,
-and `no_std` has no runtime ISA detection -- CLAUDE.md records that the
-parser's AVX2 arm had to be chosen once at startup by a caller for exactly
+and `no_std` has no runtime ISA detection -- CONTRIBUTING.md ("Style") records that the parser's AVX2 arm had to be chosen once at startup by a caller for exactly
 that reason. A compositor needs the opposite: pixman's shape is one chain
 chosen at startup from `cpuid`/`auxv` plus a per-operation fast-path table
 plus a scalar fallback, and Rust's `multiversion` or hand-rolled
@@ -187,8 +186,7 @@ keeps writing the next read into it. The GPU would read a grid being mutated,
 and making that safe needs either a ring of grids inside the core or a
 synchronisation scheme that costs more than the 1.2 µs copy it replaces. The
 copy into ring slot N is the recommendation of the memory sweep and of every
-terminal's practice. The owner's own refinement -- "or have the memory where
-it's faster" -- is what settles it.
+terminal's practice. The refinement to keep the memory where it is fastest is what settles it.
 
 ## E5. CUDA
 
@@ -205,8 +203,7 @@ measured ≤60% is reached (`[[source: nvidia-grace-hopper]]`). None of that
 helps a compositor; all of it says the discrete NVIDIA path is Vulkan with the
 ReBAR heap (E3). An import path -- `VK_KHR_external_memory` +
 `cudaImportExternalMemory` + external semaphores -- stays available for a
-future consumer of the frame. CLAUDE.md's own GPU section reaches the same
-conclusion for the parser from the same launch cost.
+future consumer of the frame. The project's GPU measurements reach the same conclusion for the parser from the same launch cost.
 
 ## E6. Rasterising on the CPU
 
@@ -446,8 +443,7 @@ tests off-Mac.
 ## E10. Colour emoji formats
 
 `sbix` (macOS, PNG strikes, skip the undocumented `emjc` graphic type;
-~~skip `flip`~~ -- `flip` is read as a `dupe` that mirrors since CLAUDE.md's
-"A colour bitmap is drawn from a strike that holds it"), `CBDT`/`CBLC` formats 17/18/19 (Noto on Linux and Android, 10.7 MB
+~~skip `flip`~~ -- `flip` is read as a `dupe` that mirrors (note J, `j-colour-bitmap-limits.md`)), `CBDT`/`CBLC` formats 17/18/19 (Noto on Linux and Android, 10.7 MB
 at v2.051) and `COLRv0` + `CPAL` (layered glyphs, trivial) share one PNG
 decoder and a blit; allsorts spends 2,484 + 1,651 + 327 lines on the three
 (`[[source: ms-opentype-sbix]]`, `[[source: apple-ttrm-sbix]]`,
@@ -472,7 +468,7 @@ exploited: CVE-2025-27363, a signed-short to unsigned-long cast in GX subglyph
 parsing giving an undersized heap allocation and an out-of-bounds write
 (FreeType ≤ 2.13.0). Of 375 faces on this Mac, 29 carry `fvar`, one `CFF2`.
 (baud-font reads `CFF2` since 2026-10-11, its blends at the face's
-coordinates: the record, "CFF2 outlines are read, blends and all".)
+coordinates.)
 
 ## E12. Damage
 
@@ -601,7 +597,7 @@ renderer drawing into the same texture share one zero-copy present, and it
 composes with `macos-liquid-glass` through `set_content_view`. The floor is
 `libobjc`, AppKit, QuartzCore, IOSurface and Metal -- the OS, not middleware.
 
-**Inside the owner's crate, read from source.** `macos-liquid-glass`
+**Inside the window crate, read from source.** `macos-liquid-glass`
 1.0.0-beta.4 depends on `objc2` 0.6, `objc2-app-kit` 0.3.2,
 `objc2-foundation` 0.3 and `objc2-core-foundation` 0.3 and nothing else
 (`[[source: mlg-cargo]]`). `GlassWindow::new` is an `NSWindow` with
@@ -620,7 +616,7 @@ render passes (`[[source: apple-nsglasseffectcontainerview]]`). The crate has
 no DPI, display-link, event or drawable-layer helper today; its example
 content view is `NSTextField` labels.
 
-**The compositing constraint is measured, by the owner.** The glass samples
+**The compositing constraint is measured.** The glass samples
 what is behind the effect view and the content view is composited on top of
 the material, so an opaque layer filling the content view hides the glass
 entirely. The crate's own measurements record that darkening "entirely by an
@@ -631,8 +627,7 @@ knob (`[[source: mlg-measurements]]`). So baud's layer is non-opaque
 (`[[source: apple-calayer-isopaque]]`; `isOpaque = true` lets Core Animation
 drop the alpha channel), clears to the terminal background at a configured
 alpha rather than to an opaque colour, and the darkening goes on the material
-through `tintColor` with a translucent dim in the content -- the recipe the
-owner shipped. Whether Core Animation's legibility treatment for a
+through `tintColor` with a translucent dim in the content -- the recipe the window crate shipped. Whether Core Animation's legibility treatment for a
 `contentView` alters the colours of a Metal or IOSurface layer is
 undocumented; measure luma with the crate's harness before trusting a colour.
 
@@ -726,7 +721,7 @@ any target terminal, so baud may not claim one without a rig.
 
 | omitted | what it would cost | why not now |
 |---|---|---|
-| Arabic joining | ~1.5k lines + `ArabicShaping.txt` tables; joining crosses cells | explicit-mode bidi applications send presentation forms; owner call |
+| Arabic joining | ~1.5k lines + `ArabicShaping.txt` tables; joining crosses cells | explicit-mode bidi applications send presentation forms; open |
 | Indic / USE / Khmer / Myanmar | 2.1-2.3k lines each + ~2.2k generated tables | a syllable is one visual unit over N `wcwidth` cells; no terminal maps it sanely |
 | bidi | wezterm-bidi is `no_std` + `alloc`, MIT, 100% BidiTest | a grid-level concern under `[[source: terminal-wg-bidi]]` (`BDSM`, `SPD`, `?2500`/`?2501`), owned by the VT core's modes; only VTE implements; ghostty and kitty force LTR |
 | COLRv1 | a vector paint engine with cycle and recursion hazards | E10 |
@@ -756,6 +751,6 @@ with no `static_assert`; ghostty's frame rate; contour's dirty tracking;
 recolours Metal or IOSurface content~~ -- measured since, in part: on baud's
 IOSurface set as `CALayer.contents`, under the `Regular` material, with
 opaque cells, seven bands captured byte for byte and luma exact, so there it
-does not (CLAUDE.md, "Luma under glass, measured"). A `CAMetalLayer`, the
+does not. A `CAMetalLayer`, the
 `Clear` material that is the default since 2026-09-19, and translucent cells
 are unmeasured.

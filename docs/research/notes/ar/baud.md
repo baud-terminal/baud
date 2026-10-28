@@ -1,11 +1,8 @@
 # baud today: theme files, the 16/256 mapping, and the contrast floor
 
-Read-only research for the owner's "we probably want to autodetect
-ansi/base16/base24" and "we might want to research on that" (2026-10-16;
-TODO.md:2106-2108). Read at HEAD `c417553d`. The last commit that touched the
+Read-only research for autodetecting ANSI, base16 and base24 theme files (2026-10-16). Read at HEAD `c417553d`. The last commit that touched the
 files below is `aea1a4aa`. Nothing in the repository was edited:
-`git status --short` still shows only the two entries that were there at the
-start (the owner's uncommitted edits to the coverage test and an untracked Hebrew test file).
+`git status --short` still shows only the two entries that were there at the start.
 
 Labels: **code** means read in baud's source at the line given. **probe**
 means run against baud's real readers by the scratch program described at the
@@ -73,8 +70,7 @@ end. **spec** means quoted from a pinned source in
 **Resolving a value to candidate paths**: `palette.rs:102-138`, `candidates`.
 - **A value containing `/` is a path.**
   - `~/` expands from `HOME`. With no `HOME`, there are no candidates.
-  - A relative path is resolved beside the config file in force (owner,
-    2026-10-13).
+  - A relative path is resolved beside the config file in force.
   - An absolute path is used as given.
 - **A bare name** is looked up in three directories, each tried once even if
   two of them are the same:
@@ -84,8 +80,7 @@ end. **spec** means quoted from a pinned source in
 
   In each directory the name is tried **as given first**, then with `.yaml`,
   then with `.yml`. So `night` beats `night.yaml` in the same directory, and
-  the reader then follows whichever file was found (Jev 0.65,
-  `palette.rs:8-12`).
+  the reader then follows whichever file was found (`palette.rs:8-12`).
 - **First match wins.** `load` (`palette.rs:150-219`) reads the first
   candidate that exists. A candidate that exists but cannot be read is
   reported as such and is not skipped.
@@ -248,7 +243,7 @@ field starts as `None` (`:353-364`), and a scheme that set nothing is
 page, text), and `notice` reports:
 - that count, when it is not zero;
 - a declared `variant` that the page and text contradict;
-- a polarity belonging to the other half ("used as named", Jev 0.93);
+- a polarity belonging to the other half;
 - ghostty entries past 15.
 
 ---
@@ -318,7 +313,7 @@ are** (data only, not a design):
 - **Bold.** Bold brightens entries 0-7 to 8-15 (`color.rs:451`). Under base16,
   9-14 copy 1-6, so **bold changes nothing visible for colours 1-6**. Bold
   black (0 to 8) becomes base03.
-- **Kitty images.** TODO.md:2061 (landed `aea1a4aa`): the default background
+- **Kitty images.** Landed in `aea1a4aa`: the default background
   is now judged by its drawn colour (`Theme::default_bg`, `color.rs:415-418`).
   "In a theme whose colour 0 equals the background, SGR 40 cells show a deep
   image (kitty the same)", and every base16 or base24 scheme is such a theme.
@@ -410,16 +405,10 @@ trigger) (`:123-180`).
 
 ## 7. Rules already recorded that bind a change here
 
-- **Each format's published mapping** (note Y decision 2). The owner endorsed
-  "Each format's own published mapping ... plus a narrow floor"
-  (`docs/research/notes/y-palettes.md:132-215`, item 4 of section 1). They
-  also asked for "a type so we can also support base24 or future ones".
-  `Scheme` is that type (`themefile.rs:90-122`).
-- **The owner's 2026-09-25 words, before the readers were built**: "as i know
-  there are a bunch like base16/24/ansi/etc", and "vogix16 and ansi and
-  base16 all have 16 colors, normal terminal, only diff is base24 i beliee...
-  so not sure maybe more research?" (y-palettes.md:69-71, :82-85).
-- **vogix is out of scope** until vogix 1.0.0-beta.1 (owner, 2026-09-29,
+- **Each format's published mapping** (note Y decision 2): "Each format's own published mapping ... plus a narrow floor"
+  (`docs/research/notes/y-palettes.md:132-215`, item 4 of section 1), with a type that can carry base24 or later formats. `Scheme` is that type (`themefile.rs:90-122`).
+- **The 2026-09-25 request, before the readers were built**: research the formats there are (base16, base24, ANSI and others), noting that most carry sixteen colours and base24 more (y-palettes.md:69-71, :82-85).
+- **vogix is out of scope** until vogix 1.0.0-beta.1 (2026-09-29,
   y-palettes.md:16-21 and section 15).
   - Its design at `c79140a` is 16 slots in ANSI order named by role: 0
     background, 1 danger, 2 success, 3 warning, 4 link, 5 highlight, 6 active,
@@ -433,8 +422,7 @@ trigger) (`:123-180`).
 - **Polarity is derived, never read.** `variant` is checked against the
   page-versus-text WCAG rule and reported, never used in its place
   (`Scheme::polarity`, `themefile.rs:113-122`; note Y decision 5).
-- **Standard first** (CLAUDE.md, "Get the specification before writing the
-  code"). For this topic the governing texts in the manifest are:
+- **Standard first**. For this topic the governing texts in the manifest are:
   - tinted styling.md v0.4.2 (`tinted-styling-base16`);
   - base24 styling.md 0.1.3 (`base24-styling`);
   - builder.md (`tinted-builder`);

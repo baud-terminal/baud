@@ -16,12 +16,10 @@ had the answer: `baud-font`'s `png.rs` (2026-09-12; `baud-domain/src/png.rs`
 since 2026-10-15) decodes PNG, its zlib
 stream included, under the same contract, into two buffers its caller
 sizes from the image header. It reads both interlace methods, Adam7 since
-2026-10-15 (the record, "png.rs reads Adam7"), and takes the whole file as
+2026-10-15, and takes the whole file as
 one slice, and baud-core cannot call it yet, because the core
-does not depend on baud-font. `t-images.md` is the Kitty note, and the
-owner's answer to note V's V19 (2026-09-25) is to build Kitty graphics to
-the spec; it is unbuilt (this cited the gitignored `TODO.md` until
-2026-10-10). Sixel needs *no* external decoder -- it is a self-contained
+does not depend on baud-font. `t-images.md` is the Kitty note, and note V's V19 (2026-09-25) is to build Kitty graphics to
+the spec; it is unbuilt. Sixel needs *no* external decoder -- it is a self-contained
 run-length format with no compression -- so it is the tractable half and
 the sane first one. Nothing here builds toward Kitty.
 
@@ -198,8 +196,7 @@ texts agree (note AN's item 8): `P1` omitted, 0, 1 or 5 is 2:1, 3 is 3:1 and
 sixel row is that many pixels tall and the extent, the arena reservation and
 the cursor's advance scale with it. Both Sixel streams in the tree send
 `"1;1` and do not move. A ratio that is not whole, and the envelope's grid
-size (`P3`, which ctlseqs calls `Ph`), are for Jev (the record, "A Sixel pixel
-is drawn at its aspect ratio where both DEC texts agree"). For the first, a
+size (`P3`, which ctlseqs calls `Ph`), are open. For the first, a
 VT340's own rows are practice beside note AN's item 12: vt340test gives `P1` 2
 as 5 VT340 pixels, 4 as 3, 6 as 2 and 7 and 8 as 1
 (`[[source: vt340test-physicalsixels]]` 223-229), the VT3xx column rounded,
@@ -294,9 +291,7 @@ filled the span with `ColorWord::DEFAULT` before decoding; since 2026-10-14
 the decode clears each row of its claim as the image reaches it, the same
 words. `store` does not clear, so a caller that writes every word (a Kitty
 memcpy) writes each once, and its doc says a caller that does not must
-clear. The gate is
-`baud-core/tests/sixel_reuse.rs`; the record, "A Sixel's span is cleared
-before it decodes".
+clear. The gate is `baud-core/tests/sixel_reuse.rs`: a Sixel's span is cleared before it decodes.
 
 The gate is `baud-core/tests/sixel.rs`: the real `swirl.raw` decodes to one
 64x48 placement, **chunk-invariant** across read sizes 1 through the whole file
@@ -313,8 +308,7 @@ sizes the pixel arena (an `ImageBudget`, a typed size rather than a raw one;
 it sized a body scratch too until 2026-10-14); `Owned::new` provisions none,
 so a default terminal recognises a Sixel, walks it, and refuses it for the
 arena, counted. The decoder's state, 256 registers and the walk, is
-provisioned always, about a KiB. The size is the owner's
-call the mechanism does not depend on -- a 64x48 image is 3072 `ColorWord`s, a
+provisioned always, about a KiB. The size is a choice the mechanism does not depend on -- a 64x48 image is 3072 `ColorWord`s, a
 full screen ~1.4M.
 
 **All three paths draw it, and the placement math is written once.**
@@ -353,7 +347,7 @@ bug).
   refused. The default is overridable through `[images] pixels_mb`, the one
   limit on an image's size a config sets since 2026-10-14, when a Sixel began
   decoding as it arrived. Until then a second knob, `[images] body_kb`, sized
-  the raw-body scratch -- 256 KiB, then the owner's 3 MiB interim -- two knobs
+  the raw-body scratch -- 256 KiB, then a 3 MiB interim -- two knobs
   because the decoded-pixel and raw-body limits were independent; a config
   that still names it is told it limits nothing. ~~The resolved budget is
   named on a startup line so a refusal is diagnosable without a rebuild.~~
@@ -441,8 +435,7 @@ of where the last one started rather than right of its edge. So baud's column
 conforms to 070-9, the standard, and to a VT340, and departs from that
 sentence of the VT330/VT340 manual, which binds the VT300 rather than baud by
 note AN's reading (section 8). It is recorded as a conflict between the texts
-and not changed; the record, "A Sixel's background fill waits on Jev, and the
-column has a second text", lists the options.
+and not changed; the options are open.
 
 **The `Term` field and the `Paint::new` argument cost nothing, measured.** They
 are per-`read(2)`, not per-byte -- `Paint::new` is called once a feed, not once
@@ -501,7 +494,7 @@ the grid, the arena, the reply buffer -- baud-core allocates none of them):
   it.~~ What bounds a decode is the walk's own extent (`Sixel::extent`), the
   same with raster attributes or without: both DEC texts say `Ph`x`Pv` "do not
   limit the size of the image", so a decode sized from them would be cut
-  wherever a sender's data ran past them. **Size is the owner's call**,
+  wherever a sender's data ran past them. **Size is open**,
   flagged below; the mechanism does not depend on the number.
 * **A placement table**, bounded, holding `{ image slot, anchor, z }`.
   Screen-space with its own storage, *not* a per-cell reference, because
@@ -531,16 +524,14 @@ top of that screen's window (`Book::top`, `Book::alt_top`). So:
   line and nothing re-registers.
 * **Off the top clips**, and when its last row leaves what the ring
   retains, or the alternate screen's top, the placement is dropped and
-  counted in `placements_expired` (its anchor row until 2026-10-18; the
-  record, "A tall picture keeps its rows in the history until its last
-  row leaves").
+  counted in `placements_expired` (its anchor row until 2026-10-18).
 * **The live view and the scrollback view** both draw it, because both are
   a rotation of the ring the anchor is expressed against -- the same
   property that made the scrollbar and selection survive `Term::view(back)`.
 
 ### What a resize does to an image
 
-The owner's call, 2026-09-22: **an image follows the row it was placed on**,
+A choice the project made, 2026-09-22: **an image follows the row it was placed on**,
 foot's model and ghostty's. A survey of eight terminals, read in source and
 adversarially checked, found four models -- follow the row (foot, ghostty),
 keep the screen position and let text reflow under it (kitty), cut the image
@@ -569,8 +560,7 @@ the one where the picture stays beside the text it was printed with.
   at the old width.~~ An anchor on a wrapped continuation row round-trips
   too, since 2026-10-11: the placement keeps where in its row the cell its
   row began with landed, and the next reflow asks by that cell rather than
-  by the row's own first (the record, "An image on a continuation row
-  follows the cell its row began with"). A line the reflow drops takes its
+  by the row's own first. A line the reflow drops takes its
   image with it.
 * **An image goes when its rows do**: its last past the far end of the history, its anchor cut
   below a shorter window past what the ring keeps, blanked as a reverse
@@ -656,7 +646,7 @@ image's left column on the line below. **Both are built since 2026-10-15**:
 under `?8452` the cursor is on the image's last row, `ceil(w / cell_w)`
 columns past the image's, where xterm's `finished_parsing` puts it
 (`[[source: xterm-graphics-sixel]]`), and past the right margin at the left
-margin of the next row, as xterm does (Jev, WRAP_NEXT_ROW, 0.94 and 0.92);
+margin of the next row, as xterm does;
 until then 8452 fell through to the unsupported-mode counter. **Which row
 is open without `?8452`**: the row below the image
 departs from both DEC texts -- `[[source: vt3xx-sixel]]` sets the text cursor
@@ -664,10 +654,7 @@ departs from both DEC texts -- `[[source: vt3xx-sixel]]` sets the text cursor
 row it falls in (`[[source: vt340test-textcursor-sh]]`), and
 `[[source: dec-std-070]]` 070-9 §11.3 moves it by "the vertical motion
 commands executed in the Sixel printing", allowing only "an adjustment less
-than one character height ... in a downward direction" (PDF p. 928). Jev
-chose the VT340's row at 0.91 and 0.88 on 2026-10-15 (the realigned-down row
-at 0.91 and 0.94 in an earlier round that did not offer it), so the row is the
-owner's call and unchanged; under baud's rule that text over an image frees
+than one character height ... in a downward direction" (PDF p. 928). The VT340's row was chosen on 2026-10-15, over a row realigned down, and is unchanged; under baud's rule that text over an image frees
 it, the VT340's row would let a prompt printed after `cat pic.six` erase the
 picture a VT340 overprints. The image occupies `ceil(Pv / cell_h)` rows and the grid
 scrolls to make room the way `LF` past the bottom does, so a tall image at
@@ -714,12 +701,11 @@ interacts with directly. The row moves from `out` to `todo`/`partial` as
 the work lands, `done` only when the three gates above exist and would fail
 if the operation regressed.
 
-## Owner's calls, flagged not settled
+## Open questions, flagged not settled
 
 * ~~**The image arena size.**~~ **Taken.** How much caller memory Sixel gets
   is `[images] pixels_mb` (decoded ARGB) and `[images] body_kb` (raw-Sixel
-  scratch), defaulting to `host::IMAGE_BUDGET`'s 4 MiB / 256 KiB -- the
-  owner's number, kept, with the knobs added around it rather than the default
+  scratch), defaulting to `host::IMAGE_BUDGET`'s 4 MiB / 256 KiB -- the number chosen, kept, with the knobs added around it rather than the default
   retuned. (The body default became 3 MiB on 2026-10-14, the next item, and
   the body knob went the same day, when a Sixel began decoding as it arrived;
   the arena's 4 MiB is unchanged.) Two knobs because the two limits were
@@ -739,8 +725,7 @@ if the operation regressed.
   (10-47 KiB of body) stored, and a UI screenshot (334-390 KiB at 600x375), a
   photo (474-680 KiB at 600x800) and a page of a text PDF (797-820 KiB at
   600x776) were refused though each fit the 4 MiB arena; the pane went blank
-  because yazi erases the old preview first. The owner picked "Stream-decode;
-  3 MiB until then": **the end state is a streaming decoder** -- no raw body
+  because yazi erases the old preview first. The choice was to stream-decode, at 3 MiB until then: **the end state is a streaming decoder** -- no raw body
   held, so only the pixel arena limits an image; the sections of
   `[[source: dec-std-070]]` 070-9 read for it (§1.1, §2, §8.1.2, §12) name no
   limit on a body's bytes, and §8.1.2 gives the raster extent as "a summary
@@ -766,8 +751,7 @@ if the operation regressed.
   one 16 KiB page wide, with the 3 MiB runs about a page higher. A 3 MiB
   body leaves its pages resident, so a terminal that has received one holds
   at most 3 MiB of body beside its 4 MiB arena, 2.75 MiB more than at
-  256 KiB (the record, "The Sixel body default is 3 MiB until a Sixel
-  streams"). A yazi configured past its 600x900 default could still write
+  256 KiB. A yazi configured past its 600x900 default could still write
   a body past 3 MiB, refused until the decoder streamed.
 * ~~**A Sixel decoded as its body arrives -- decided, not built.**~~ **Built,
   2026-10-14.** Each body byte the handler keeps is decoded on arrival
@@ -792,7 +776,7 @@ if the operation regressed.
   p. 2, PDF p. 913) have it. Its costs, measured: an image past the arena
   paints the claim before its refusal, and a sender whose `Ph` overstates its
   image writes its first band at that stride; `Pv` is not used, the claim
-  being the whole gap. The record, "A Sixel is decoded as its body arrives",
+  being the whole gap.,
   has the tests, the 54 recorded images against the buffered decoder and the
   time and memory.
 * ~~**Reflow.**~~ **Taken, 2026-09-22: the image follows the row it was
@@ -811,23 +795,21 @@ if the operation regressed.
   version of this line said xterm defaults to shared; that was wrong, caught
   by the prior-art survey and corrected in the Images register.)
 
-  **Answered 2026-09-25, built 2026-10-15**: note V's V18 put this mode and
-  DECSDM to the owner, and its "Decisions taken, 2026-09-25" records: "**V12,
+  **Answered 2026-09-25, built 2026-10-15**: note V's V18 put this mode and DECSDM, and its "Decisions taken, 2026-09-25" records: "**V12,
   V14, V18, V19: built to the spec**, overriding their recommendations.
   `?1001` highlight tracking, the ambiguous-width switch with `?1021`, the
   Sixel modes `?80` and `?1070`, and the kitty graphics protocol." Set at
   power-on; reset, a register a shared Sixel defines starts the next shared
   Sixel with that definition, and a drawn picture keeps its pixels -- what
-  ctlseqs states. **Open for the owner**: recolouring drawn pictures, as a
-  VT340's one colour map and xterm do, which would store a register number a
-  pixel (Jev, CARRY at 0.90 and 0.88, one ordering short).
+  ctlseqs states. **Open**: recolouring drawn pictures, as a
+  VT340's one colour map and xterm do, which would store a register number a pixel.
 * **DECSDM** (mode 80). Its meaning inverted between VT330 and later xterm,
   and `[[source: ctlseqs]]` documents both. baud picks one and records the
   choice with the source conflict named, the DECAWM precedent.
 
   **Answered 2026-09-25, numbered 2026-10-11, built 2026-10-15**: note V's
-  V18 decides that `?80` is to be built to the spec, and Jev decided xterm's
-  numbering (set = Sixel scrolling off, 0.90/0.90), on the owner's veto list
+  V18 decides that `?80` is to be built to the spec, and it was decided xterm's
+  numbering (set = Sixel scrolling off)
   against `[[source: vt3xx-sixel]]`. `[[source: vt3xx-tp]]` lists DECSDM in
   Table 12-3 (printed p. 221, PDF 230) as mode 80 for DECRQM, SM and RM, and
   says nothing of its direction. Set, a Sixel is drawn at the window's first
@@ -838,55 +820,43 @@ if the operation regressed.
   `[[source: dec-std-070]]` 070-9 §11.2.2, "Sixels defined to be printed past
   the right margin are not printed", so the bands a tall image lays side by
   side stop at the screen's width and the image is at most the screen's
-  size. **Open for the owner**: that literal reading, which Jev did not
-  decide over a `-` that still returns left (0.47 and 0.58).
+  size. **Open**: that literal reading, over a `-` that still returns left.
 * **An undefined register paints the foreground shown** (2026-10-15),
-  `[[source: dec-std-070]]` 070-9 §10, decided by Jev at 0.92 and 0.95 and
-  again at 0.96 and 0.98 with this measured: yazi writes `P2 = 1` and paints
+  `[[source: dec-std-070]]` 070-9 §10, decided, and again with this measured: yazi writes `P2 = 1` and paints
   every fully transparent pixel with register 0, which it never defines
   (`[[source: yazi-sixel]]`), so its preview of a PNG with transparency
   shows the foreground where it showed the text (190,031 pixels of the
-  recorded one; no other recorded image changes). **On the owner's veto
+  recorded one; no other recorded image changes). **On review
   list.**
 * **The three modes and XTSMGRAPHICS answer only while DA lists Sixel**
   (2026-10-15): `[[source: ctlseqs]]` puts DA's `4`, `?80`, `?1070`, `?8452`
   and the `DCS q` under one sentence, "If xterm is configured as VT240,
   VT241, VT330, VT340 or VT382 ... it supports Sixel Graphics controls", and
-  XTSMGRAPHICS fails while "not configured (runtime) for graphics". xterm
-  answers DECRQM from its flags whatever its configuration; Jev did not
-  decide between the two (0.61 and 0.67). A Sixel sent while DA does not list
+  XTSMGRAPHICS fails while "not configured (runtime) for graphics". xterm answers DECRQM from its flags whatever its configuration; which is right stays open. A Sixel sent while DA does not list
   Sixel still draws, also outside that sentence, and is open.
 * **`Pb`/`P2` background: built 2026-10-22.** A `P2` of 0 or 2, or none,
   sets each position its data leaves at zero to `Pixel::FILL`, over the
   raster extent when a raster command before the data sends one, else from
-  the image's corner to the margins in force (Jev, EXTENT_ELSE_MARGINS,
-  0.92/0.94), the data's reach on a side no cell size measures; the image is
+  the image's corner to the margins in force, the data's reach on a side no cell size measures; the image is
   marked `ImageGround::Filled` with how far its data reached, and the cursor
   goes below the data. The renderer draws a fill word in the default
-  background unreversed, read each frame (DEFAULT_BG_EACH_FRAME, 0.97/0.94;
-  UNREVERSED, 0.98/0.94, once xterm's graphics were read: its comment that
+  background unreversed, read each frame (once xterm's graphics were read: its comment that
   the fill is register 0 "including in light background mode" on the VT340,
   and no reverse video in `graphics.c`), opaque, on all three paths. Text on
   the fill alone clears it in its cells, as on a VT340's one bitmap; text on
-  the data frees the image. **On the see-through window it was not drawn
-  until the owner answered**, 2026-10-22: "i would say b is default with
-  config option to change it". `[glass] sixel_backgrounds` draws it opaque
+  the data frees the image. **On the see-through window it was not drawn until 2026-10-22**, when option B became the default with a setting to change it. `[glass] sixel_backgrounds` draws it opaque
   by default, as foot does, which fills with register 0 at full alpha and
   draws an opaque Sixel with `PIXMAN_OP_SRC` over its translucent window
   (`[[source: foot-sixel-c]]`, `[[source: foot-render]]`); `"dim"` draws
   the same colour at the window's alpha over what is under it, and
   `"clear"` at that alpha in its place, as erased cells look. Under `?5`
-  each keeps the colour unreversed: foot fills with register 0, which
-  reverse video does not reach (Jev, UNREVERSED, 0.84/0.82, then
-  0.98/0.96 once foot's fill word was read). The fill is stored whatever
+  each keeps the colour unreversed: foot fills with register 0, which reverse video does not reach, as foot's fill word reads. The fill is stored whatever
   the window: a Sixel with `P2` 0 and no raster command grows to the
   margins, 5.78 million words on a 200x50 grid of 17x34 cells against the
   app's 95 MiB arena, and every write on that region clears cells and
   moves the store's epoch. No committed recording takes this path: img2sixel,
   swirl and the yazi walk all send a raster command. `sixel_p2_ignored`
-  became `sixels_filled`. The record, "A Sixel's P2 fill is drawn, and on
-  the see-through window it waits on the owner", and "A Sixel's solid
-  background on the see-through window, as you set it".
+  became `sixels_filled`.
 
   The fill goes on as the image scrolls, since the same day: rows the
   data scrolls in past the rows left are filled from the band that
@@ -923,8 +893,7 @@ if the operation regressed.
   unchanged, which the conformance suite confirms. **Since 2026-10-11 an
   absent or empty `P2` is counted as 0 is**: `[[source: vt3xx-sixel]]` lists
   "0 or 2 (default)" and reads a missing parameter as 0, so `ESC P q` asks
-  what `ESC P 0;0;0 q` asks, where the counter missed it. The fill is still
-  not built, for Jev. The colour's texts are read now:
+  what `ESC P 0;0;0 q` asks, where the counter missed it. The fill is still not built, and open. The colour's texts are read now:
   `[[source: dec-std-070]]` 070-9 §7.2 calls it "device dependent" and §10
   initialises it to the "Device default background"; `[[source: vt3xx-sixel]]`
   says "the current background color", and on the VT340 that is an output-map
@@ -936,8 +905,7 @@ if the operation regressed.
   background pixel draws on baud's translucent window, where every background
   carries the window's alpha and an image is composited over the glyphs: at
   the window's alpha the glyphs under the image show through, and opaque it is
-  a slab the rest of the window is not. The record, "An absent Sixel P2 is P2
-  = 0, and the fill is for Jev", sets out the options.
+  a slab the rest of the window is not. An absent Sixel P2 is P2 = 0, and the fill is open.
 
   **What a VT340 does, from vt340test (2026-10-11), practice and not a text.**
   The region: with raster attributes "the width and height are used to clear a
@@ -965,9 +933,7 @@ if the operation regressed.
   a fill of the data's reach alone departs from 070-9 §7.2 (a reading) -- and
   the colour nearly so, baud's default background, with when it is read and
   what it is under `?5` still open. **How a filled pixel draws on a
-  translucent window stays open too**: no text knows a window's alpha. The
-  record, "A Sixel's background fill waits on Jev, and the column has a second
-  text", holds the options with their marks.
+  translucent window stays open too**: no text knows a window's alpha. The options, and their marks, are open.
 
 ## What this note does not cover
 

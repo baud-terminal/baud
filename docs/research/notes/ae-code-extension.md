@@ -1,30 +1,28 @@
 # AE. Code extension: the four G slots, GL and GR, and the shifts
 
 **Status: built 2026-10-19 (lane b100), but for Q12, Q13's SCORC half,
-Q15, Q17 and Q18; researched 2026-10-08.** Under the owner's rules of
-2026-10-10 and 2026-10-17 every question was asked again with the owner's
-DA decision ("Keep ?6c") and standing rule quoted (decision log lines
-900/901, re-asked after research 906/907): GR on G2 decided (1.00/0.96) and
-ANY_NUMBER of SO/SI (0.92/0.96); leans taken, each consistent across its
+Q15, Q17 and Q18; researched 2026-10-08.** Under the project's rules of
+2026-10-10 and 2026-10-17 every question was asked again with the project's
+DA decision ("Keep ?6c") and standing rule quoted: GR on G2 decided and
+ANY_NUMBER of SO/SI; leans taken, each consistent across its
 asks since 2026-10-08: Q2 DEC_SUPPLEMENTAL, Q4.1 SAME_IN_BOTH_ENCODINGS, Q6
 STD070_CANCEL, Q6.2 SO_ACTS, Q7 STRIP_BIT8, Q9 UNGATED, Q10 PER_AREA, Q5's
 LS1R-LS3R STATE_ONLY, Q14 UPSS. Q3 is settled by the standing rule: all six
 listed 96-sets are built. Sections 4-9 below are the research as written.
 
-- **Owner's call, whatever Jev says** (the routing of 2026-10-08): Q1, Q2
+- **Open** (the routing of 2026-10-08): Q1, Q2
   (with Q4.1), Q8, Q9, Q11, Q12 and Q17. In each, every option departs from
   some text (for Q1 under the 8bit-level1 reading of `ESC % @`, and for Q9
-  under the VT102 reading of DA, each reading itself the owner's), or the
+  under the VT102 reading of DA, each reading itself the project's), or the
   option that conforms collides with a practice baud already follows. The
   rules of 2026-10-10 and 2026-10-17 superseded it: lane b100 decided Q1
   and took leans on Q2 with Q4.1 and on Q9 (above), Q8 is decided at AE8
-  (§10), and Q11 leans SLOTS, 0.92 on a focused ask of 2026-10-09 with
-  the owner's rules (0.90 conditional on the proposed rules; decision log
-  lines 187/188), listed for the owner to confirm. Q11, Q12 and Q17 stay
+  (§10), and Q11 leans SLOTS on a focused ask of 2026-10-09 with
+  the project's rules (0.90 conditional on the proposed rules), listed for the project to confirm. Q11, Q12 and Q17 stay
   open.
-- **Jev first, at confidence 0.9 or better:** the premise P and Q3-Q7, Q10,
-  Q13-Q16 and Q18. A departure Jev accepts still goes to the owner, so Q3, Q6
-  (its two sub-points), Q10, Q13, Q14 and Q18 go on to the owner (§9).
+- **The review first, at confidence 0.9 or better:** the premise P and Q3-Q7, Q10,
+  Q13-Q16 and Q18. A departure the review accepts still goes for decision, so Q3, Q6
+  (its two sub-points), Q10, Q13, Q14 and Q18 go on for decision (§9).
 - **Buildable before any answer:** section 9 says what.
 
 Evidence is tagged as in the other notes:
@@ -45,8 +43,8 @@ Evidence is tagged as in the other notes:
 - **What moved while this was written.** D1 and D2 (§8) were fixed in
   `bdd59c6`, with the two tests this note names (test 17); the description of
   each as found stays, because it is what the reading found at `d894ebb`. The
-  change to `baud-core/tests/coverage.rs` (TODO.md:1952) is still uncommitted:
-  it turns the DEC Special Graphics row red until the owner answers which
+  change to `baud-core/tests/coverage.rs` is still uncommitted:
+  it turns the DEC Special Graphics row red until the project answers which
   codepoint `0x5F` stores. The new manifest keys below are committed with this
   note.
 
@@ -349,7 +347,7 @@ Both fast paths reach that count:
 | `ESC N` (SS2) | ECMA-35 Table 2, 8.4; ECMA-48 8.3.141; ctlseqs 175-177; 070-3 p. 3-80; vt220-rm-ch4 §4.4.4.1; vt510-ss | Counted | The next graphic character is drawn from G2, after which GL (and GR) apply as before. What cancels the shift is Q6; UTF-8 is P and Q4. Entered only from a bare `ESC` and from Latin-1 `8E` (§5) |
 | `ESC O` (SS3) | The same, for G3; ctlseqs 179-181 | Counted | The same, from G3 |
 | `ESC <I…> N`, `ESC <I…> O`, e.g. `ESC SP N` | ctlseqs 300; ECMA-35 Table 7 facilities 14 (`N`) and 15 (`O`, reserved by NOTE 52) | Counted. Unsplit, `fast_esc`'s intermediate arm (write.rs:2195-2213) calls `esc_final`; split, the graph's `EscFinal` does. Both reach `esc_final`'s intermediate branch, where `ESC SP` counts every final but `F` and `G` (write.rs:1717-1747) and `ESC ( N` designates as any `ESC ( F` does | Unchanged at every read split. **Not a single shift**: the final byte follows an intermediate (§5; test 6). What `ESC SP N` itself should do is the next row's |
-| `ESC SP L`, `ESC SP M`, `ESC SP N` (Announce Subset of Code Extension Facilities) | 070-3 §3.8.1 (pp. 3-68 to 3-70), the only receiver rule read: L and M designate ASCII into G0 and ISO Latin-1 Supplemental into G1 and invoke G0 into GL and G1 into GR; N designates ASCII into G0 and invokes G0 into GL; all only at "Levels: 2X, 3". ECMA-35 Table 7 facilities 12-14 and ctlseqs 296-300 name them and give no receiver rule | Since 2026-10-19 (lane b104) built at Levels 3 and 4, which DECSCL now selects, Level 4 at power-up: the designations and invocations §3.8.1 gives; counted at Levels 1 and 2 (Jev's lean, ACT_AT_3_PLUS, 0.91/0.88). It counted at every level before, departing from §3.8.1 at Level 3 | Q18, answered (a). Whatever it does runs in `esc_final`'s intermediate branch, which both paths reach, so it is the same at every split |
+| `ESC SP L`, `ESC SP M`, `ESC SP N` (Announce Subset of Code Extension Facilities) | 070-3 §3.8.1 (pp. 3-68 to 3-70), the only receiver rule read: L and M designate ASCII into G0 and ISO Latin-1 Supplemental into G1 and invoke G0 into GL and G1 into GR; N designates ASCII into G0 and invokes G0 into GL; all only at "Levels: 2X, 3". ECMA-35 Table 7 facilities 12-14 and ctlseqs 296-300 name them and give no receiver rule | Since 2026-10-19 (lane b104) built at Levels 3 and 4, which DECSCL now selects, Level 4 at power-up: the designations and invocations §3.8.1 gives; counted at Levels 1 and 2. It counted at every level before, departing from §3.8.1 at Level 3 | Q18, answered (a). Whatever it does runs in `esc_final`'s intermediate branch, which both paths reach, so it is the same at every split |
 | `ESC n` (LS2) | ECMA-35 8.3.1, Table 2 (7/8); ctlseqs 419 | Counted | `gl = G2`, then `invoke()` |
 | `ESC o` (LS3) | ECMA-35 8.3.1; ctlseqs 421 | Counted | `gl = G3`, then `invoke()` |
 | `ESC \|` (LS3R) | ECMA-35 8.3.2; ctlseqs 423 | Counted | `gr = G3`: state in both encodings, read only by GR bytes (Q5) |
@@ -363,7 +361,7 @@ Both fast paths reach that count:
 | `7F` DEL in Ground | 070-3 §3.4.2 ("shall be ignored"); vt510-ch7 §7.2.5 (DEL 127, "Ignored (unless in CRM)"); williams ground ("7F will be ignored" with a 94-set in GL) | `Route::of(0x7F)` is `Del` (scan.rs:520), which is neither `Control` nor `Text`. Under Latin-1 it is not a Latin-1 graphic, so `Act::Bad` (graph.rs:876). Under UTF-8 it is no UTF-8 lead, so `Act::Bad` (graph.rs:889). `Act::Bad` writes U+FFFD (write.rs:670-673). By reading; utf8.rs:96's comment names the same arm. DEPARTS (**D4**) | Ignored while GL holds a 94-set. With a 96-set in GL it is that set's character (ECMA-35 8.3.1; Q3) |
 | GR byte `A0-FF` under Latin-1 | ECMA-35 8.1, 8.3.2, 10.3.1 | `Act::Latin1` (write.rs:437-443) → `single_byte` (decode.rs:787-793) → U+00A0-U+00FF. No slot is consulted | Translate `b & 0x7F` through `g[gr]`. With a 94-set in GR, A0 and FF follow Q8. What the default draws is Q2 |
 | The same byte under UTF-8 | FCD 11; ECMA-35 NOTE 1, 15.4.1/15.4.2; ctlseqs 56-65 | A UTF-8 lead or continuation byte | None (P, Q5) |
-| `ESC ( ) * +` | ECMA-35 Table 6, 14.3.2, 7.3 | Slot loaded, then `invoke()` (write.rs:1687-1701). CONFORMING | Mechanism unchanged. A slot that holds GR takes effect at once (14.3.2), with no code needed, because GR is read at each GR byte (§5) |
+| `ESC  * +` | ECMA-35 Table 6, 14.3.2, 7.3 | Slot loaded, then `invoke()` (write.rs:1687-1701). CONFORMING | Mechanism unchanged. A slot that holds GR takes effect at once (14.3.2), with no code needed, because GR is read at each GR byte (§5) |
 | `ESC - . /` | ECMA-35 Table 6 (G1D6-G3D6), NOTE 44; ctlseqs 379-394; 070-5 p. 5-117 | `_ => unsupported_total += 1` (write.rs:1747) | Designate a 96-set into G1, G2 or G3 from the 96-series finals (NOTE 44). `A`, ISO Latin-1 Supplemental, is the one Q3 needs. Other finals are recorded and counted in `charset_unsupported`, as `Other` is today. `ESC , F` (02/12, reserved) stays counted |
 
 ---
@@ -398,7 +396,7 @@ the resets need no extra state for it.
 - ECMA-48 8.3.105 resets "to its initial state, i.e. the state it has after it
   is made operational", and baud is made operational in UTF-8. So keeping
   Latin-1 across RIS DEPARTS.
-- That is Q17, the owner's. Test 27 is written so that it pins neither answer.
+- That is Q17, the project's. Test 27 is written so that it pins neither answer.
 - For DECSTR, no text read says the input encoding changes. 070-4 p. 31's
   "Character Set Mode" row names DEC's multinational-versus-NRCS mode, not an
   input encoding (inferred).
@@ -412,7 +410,7 @@ practice is marked the same way. A recommendation states the departures
 first. Where every option departs from some text, the question says so, and
 an owner's question carries no recommendation.
 
-### Q1. Which slot GR holds initially (owner)
+### Q1. Which slot GR holds initially
 
 **The reading that decides it.** GR exists in baud only under `ESC % @`, which
 ctlseqs 312 calls "ISO 8859-1 (ISO 2022)". NOTE A.3 identifies ISO 8859-1 as
@@ -447,9 +445,9 @@ GR holds G1.
   from some text: (a) from ECMA-35 10.3.1 and NOTE A.3, (b) from every DEC
   text read. Under the reading that GR under `ESC % @` is DEC's Level 2/3 GR,
   (a) departs from none. Which reading holds, and so which departure baud
-  takes, is the owner's; Jev's answer is shown to the owner.
+  takes, is the project's; the review's answer is shown for decision.
 
-### Q2. What G2 and G3 hold initially, and so what a default GR byte draws (owner)
+### Q2. What G2 and G3 hold initially, and so what a default GR byte draws
 
 **The 20 positions.** Evidence from [[source: dec-special-graphics]] Table 2-3,
 right half:
@@ -520,7 +518,7 @@ right half:
 
 **Reading.** Under §3.6.4.3, G2 and G3 hold the UPSS. The UPSS's factory value
 is DEC Supplemental, and the UPSS must be selectable. So every option below
-also needs the selection (configuration plus DECAUPSS, the TODO.md DECAUPSS
+also needs the selection (configuration plus DECAUPSS, the DECAUPSS
 item) to conform to p. 3-63.
 
 **Options.**
@@ -567,7 +565,7 @@ No option conforms to every text, so no default is recommended.
   §7.3. Under a Level 2/3 reading, (a) or (b), as above. Decide the two
   together.
 
-### Q3. Whether 96-character sets are in scope now (Jev, then the owner)
+### Q3. Whether 96-character sets are in scope now
 
 - (a) **Now, in part.** `ESC - . /` with final `A`, and 96-set semantics in GL
   and GR.
@@ -591,12 +589,12 @@ No option conforms to every text, so no default is recommended.
   the VT102 reading of DA, and conforms at Level 3. baud's Latin-1 mode
   already takes 8-bit bytes, which Level 1 does not ("Level 1 operation is
   7-bits only", §3.6.4.1), so baud already acts beyond Level 1 there
-  (inferred). The reading is the owner's (Q9), so this goes to the owner after
-  Jev.
+  (inferred). The reading is the decision's (Q9), so this goes for decision after
+  the review.
 - The other 96 finals (B F H L M, ctlseqs 385-389) are recorded as a named 96
-  `Other` and counted. Their tables belong to TODO.md's xterm-charsets.h item.
+  `Other` and counted. Their tables belong to the open xterm-charsets.h item.
 
-### P. The premise Q4, Q5 and Q15 rest on: is UTF-8 mode an ISO 2022 code? (Jev)
+### P. The premise Q4, Q5 and Q15 rest on: is UTF-8 mode an ISO 2022 code?
 
 Q4 and Q5 must rest on one premise.
 
@@ -630,10 +628,10 @@ How each premise answers Q4 and Q5:
 
 **Recommend P-A**, because it is what FCD 11, NOTE 1 and 15.4.1 state. Under
 P-A, Q4(a) and Q5(a)+(i) are the choices consistent with the designations
-baud already honours under UTF-8, and they depart from no text. If Jev or the
+baud already honours under UTF-8, and they depart from no text. If the review or the
 owner takes P-B instead, Q5 becomes (ii).
 
-### Q4. Single shifts under UTF-8 (Jev, on P)
+### Q4. Single shifts under UTF-8 (the review, on P)
 
 - `0x8E`/`0x8F`: no change (ctlseqs 56-65). CONFORMING.
 - `ESC N` / `ESC O`, options:
@@ -656,7 +654,7 @@ owner takes P-B instead, Q5 becomes (ii).
   - foot: non-ASCII does not consume the shift (terminal.c:4073-4081, 4145,
     4363). That DEPARTS from vt220-rm-ch4 §4.4.4.
 - **Recommend (a)** under either premise.
-- **Decided: (a).** Jev, 2026-10-08, confidence 0.96 (§10).
+- **Decided: (a).** the review, 2026-10-08 (§10).
 
 **Q4.1. What G2 and G3 hold under UTF-8 (owner, with Q2).** Q4(a) has a visible
 consequence once G2/G3 hold anything but ASCII. baud's own key encoder sends
@@ -700,7 +698,7 @@ its input), Q4(a) draws the final byte from G3:
 The consequence arrives only at build stage (c) (§9). Until then G2 and G3
 stay ASCII, so the echo shows `A`.
 
-### Q5. GR under UTF-8; LS1R-LS3R under UTF-8 (Jev, on P)
+### Q5. GR under UTF-8; LS1R-LS3R under UTF-8 (the review, on P)
 
 - GR bytes under UTF-8:
   - (a) **No GR.** A0-FF stay UTF-8. Follows from P-A and from P-B (9.1).
@@ -718,13 +716,13 @@ stay ASCII, so the echo shows `A`.
   - (iii) Count.
 - **Recommend (a) and (i), under P-A.** Under P-B, (ii) is required.
 - **Decided, GR bytes: (a), no GR** (AE5 part 1). Re-asked on its own with
-  `[[source: unicode18-ch3]]` C4 and D92 added to the governing texts, Jev
-  picked (a) at 0.92 and 0.92 on a replicate with the options reordered
+  `[[source: unicode18-ch3]]` C4 and D92 added to the governing texts, the review
+  picked (a)
   (§10, "Re-asked since"). It is baud's behaviour already, now held by
   `gr_bytes_under_utf8_are_utf8_whatever_is_designated`. LS1R-LS3R under
   UTF-8 stay open.
 
-### Q6. A control function between SS2/SS3 and its character (Jev, then the owner)
+### Q6. A control function between SS2/SS3 and its character
 
 The texts:
 
@@ -789,7 +787,7 @@ Sub-points:
   `cancel_single_shift` after each SO/SI, so any number. ECMA-48 9 also allows
   any number. **Recommend any number, departure first:** it DEPARTS from 070-3
   p. 3-81's text and is CONFORMING to its algorithm and to ECMA-48 9. A
-  departure, so the owner sees it after Jev.
+  departure, so it is seen after the review.
 - **The shift status after `SS2 SO x`.**
   - ECMA-48 9 says SO "may, indeed, affect the meanings of bit combinations
     following".
@@ -798,9 +796,9 @@ Sub-points:
   - 070 says SO "will be interpreted normally".
   - **Recommend that SO acts, departure first:** it DEPARTS from ECMA-35
     8.4/9.4 read literally, and is CONFORMING to 070-3 p. 3-81 and ECMA-48 9.
-    A departure, so the owner sees it after Jev.
+    A departure, so it is seen after the review.
 
-### Q7. A single-shift operand from GR, under Latin-1 (Jev)
+### Q7. A single-shift operand from GR, under Latin-1
 
 The texts that name the single-shift area:
 
@@ -837,7 +835,7 @@ Options:
 - **Recommend (a).** The DEC tables' "GL" names where the character is
   invoked, and 070's own range and algorithm take GR operands.
 
-### Q8. 10/00 and 15/15 with a 94-set in GR; SP and DEL after a single shift (owner)
+### Q8. 10/00 and 15/15 with a 94-set in GR; SP and DEL after a single shift
 
 **Where Q8 arises depends on Q2.**
 
@@ -874,7 +872,7 @@ vt510-ch7 §7.2.5.
   1. **Consistency with SUB.** `docs/vt-coverage.md:189` keeps SUB's display
      of the same DEC error character `out`, following xterm, and gives it as
      `␦` (U+2426). Adopting 070 for A0 while following xterm for SUB is a
-     consistency question only the owner can settle.
+     consistency question only the project can settle.
   2. **The codepoint.** Which codepoint images the error character: U+2426,
      as that row names it, or U+FFFD.
 - **After a single shift with a 94-set** (the operand rules, not §3.4):
@@ -886,7 +884,7 @@ vt510-ch7 §7.2.5.
     the shift and is re-dispatched to Ground, where DEL is ignored once D4 is
     fixed, and FF follows this question.
 
-### Q9. Level gating of LS2/LS3, LS1R-LS3R and SS2/SS3 (C1, C2) (owner)
+### Q9. Level gating of LS2/LS3, LS1R-LS3R and SS2/SS3 (C1, C2)
 
 baud claims VT102 in DA (`baud-domain/src/vt/report.rs:201`) and has no
 conformance-level model. vt510-decscl makes Level 1 "VT100 mode", so the
@@ -951,10 +949,10 @@ Options:
     equivalent to the Digital conformance levels". See Q18.
 - **No recommendation.** Under the VT102 reading this is an owner's question
   by this note's own rule. Which level baud's DA answer claims (the
-  level-coherence question) is the owner's too, and it also decides Q2, Q3
+  level-coherence question) is the project's too, and it also decides Q2, Q3
   and Q18.
 
-### Q10. ECMA-35 8.3.4 against NOTE 25 (Jev, then the owner)
+### Q10. ECMA-35 8.3.4 against NOTE 25
 
 - Read 8.3.4's "corresponding locking-shift function" as specific to an area:
   LS1 corresponds to (G1, GL), and LS1R to (G1, GR).
@@ -966,9 +964,9 @@ Options:
   CONFORMING to NOTE 25; the literal reading is CONFORMING to 8.3.4's words
   and DEPARTS from NOTE 25. The two clauses of one standard conflict.
 - **Recommend the per-area reading, departure first:** it departs from 8.3.4
-  read literally. A departure, so the owner sees it after Jev.
+  read literally. A departure, so it is seen after the review.
 
-### Q11. Whether DECSC saves a set or a slot (C6) (owner)
+### Q11. Whether DECSC saves a set or a slot (C6)
 
 - **Slots.** This is what baud does today (term.rs:63-70).
   - CONFORMING to vt510-decsc ("(G0, G1, G2, or G3)") and to both DECCIRs'
@@ -978,11 +976,11 @@ Options:
 - **Sets.** CONFORMING to 070-5's algorithm; DEPARTS from vt510-decsc and the
   DECCIRs.
 - **No recommendation.** Every option departs from some text, so by this
-  note's rule the question is the owner's. For the owner: the published VT510
+  note's rule the question is the project's. For the project: the published VT510
   manual and both DECCIRs agree with each other, and 070-5 is "FOR REVIEW
-  ONLY"; slots are today's behaviour. Jev's answer is shown to the owner.
+  ONLY"; slots are today's behaviour. The review's answer is shown for decision.
 
-### Q12. Which wrap state DECSC saves (C8) (owner)
+### Q12. Which wrap state DECSC saves (C8)
 
 Three texts say what DECSC saves, and each option is marked against all three:
 
@@ -1028,11 +1026,11 @@ Options:
   - DEPARTS only from 070-5's `save_buffer_t`.
 - **Only (iii) conforms to vt510-decsc and both DECCIRs.** Every option still
   departs from 070-5's `save_buffer_t`, so by this note's rule the question
-  stays the owner's and carries no recommendation.
+  stays the project's and carries no recommendation.
 - For whichever option saves pending wrap: restore `cx = cols` when the width
   is unchanged; after a resize, clamp as today (§8).
 
-### Q13. DECRC with nothing saved, and SCORC sharing the slot (Jev, then the owner)
+### Q13. DECRC with nothing saved, and SCORC sharing the slot
 
 `CSI s`/`CSI u` and `ESC 7`/`ESC 8` share `cold.saved` (write.rs:1509-1513 and
 1752-1756; `scosc_and_decsc_share_a_slot`, vt100/cursor.rs:140).
@@ -1059,7 +1057,7 @@ Options:
   - DEPARTS from 070-5 p. 5-187 items 3-4, whose reset save buffer also holds
     `attribute.selective erase = FALSE`, which the four-item arm omits.
 - **Recommend (ii)**, departure stated. It changes only what a text read
-  requires. Revisit once SCORC's text is read; until then TODO.md:323's SCORC
+  requires. Revisit once SCORC's text is read; until then the open SCORC
   half stays open.
 - **2026-10-11: DECRC's half is built, the part both options share; SCORC's
   half and the model stay open.**
@@ -1087,7 +1085,7 @@ Options:
     had when the console driver received the SCP sequence." It is silent on a
     restore before any SCP, and it restores the position alone. xterm's
     `CASE_ANSI_RC` falls through to `CursorRestore` on a slot `CursorSave`
-    filled at start-up. **Open for Jev**, the choice narrowed to SCORC:
+    filled at start-up. **Open**, the choice narrowed to SCORC:
     - (a) inert, as today: conforms to ANSI.SYS, which is silent;
       departs from xterm's practice.
     - (b) DECRC's nothing-saved arm: conforms to ANSI.SYS (silent) and
@@ -1099,7 +1097,7 @@ Options:
     restores more than RCP's "cursor position"; whether that is a departure
     from ANSI.SYS's scope is part of the question.
 
-### Q14. What `<` designates (C13) (Jev, then the owner)
+### Q14. What `<` designates (C13)
 
 - vt220-rm-ch4 Table 4-4: DEC Supplemental. baud today: `Dec(Supplemental)`
   (charset.rs:278).
@@ -1120,10 +1118,10 @@ Options:
   Supplemental.
 - **Recommend: unchanged in this change, departure stated.** It does not touch
   the default state, because initial G2/G3 are set directly. Decide it with
-  DECAUPSS (the TODO.md item), and at stage (c) at the latest if Q2 is (b),
+  DECAUPSS (the item), and at stage (c) at the latest if Q2 is (b),
   since that makes the factory UPSS ISO Latin-1.
 
-### Q15. DOCS return (`ESC % @`) restores the ISO 2022 state (Jev)
+### Q15. DOCS return (`ESC % @`) restores the ISO 2022 state
 
 - (a) **Snapshot and restore.** Snapshot `g`, `gl` and `gr` on `ESC % G`;
   restore them on `ESC % @`. CONFORMING to ECMA-35 15.4.2.
@@ -1145,7 +1143,7 @@ Options:
   own red test and may land in a separate commit. The `vt-coverage.md` row
   records the departure until it lands.
 
-### Q16. `CellFlags::GRAPHICS` for GR and single-shifted writes (Jev)
+### Q16. `CellFlags::GRAPHICS` for GR and single-shifted writes
 
 - **Where the flag lives.**
   - Defined at cell.rs:166-185 as "written while … invoked into GL".
@@ -1176,14 +1174,14 @@ Options:
 - ~~**Recommend (b).** A shifted or GR-written DEC graphics glyph carries the
   flag on that cell only, and an untranslated character never carries it.
   The doc changes to match.~~
-- **Decided: (a), today's behaviour**, Jev, 2026-10-08, confidence 0.98 (§10),
+- **Decided: (a), today's behaviour**, the review, 2026-10-08 (§10),
   over this note's recommendation of (b), which is superseded. The flag keeps
   its first sentence's meaning: the set invoked into GL when the cell was
   written. A single-shifted or GR-written DEC graphics glyph carries no flag,
   and the doc's second sentence ("so it keeps where the character came from")
   is the one to change.
 
-### Q17. Whether RIS restores the input encoding (owner)
+### Q17. Whether RIS restores the input encoding
 
 - (a) **RIS sets UTF-8**, the state baud is made operational in (term.rs:529).
   CONFORMING to ECMA-48 8.3.105.
@@ -1206,14 +1204,13 @@ Options:
   - Its callees defined outside the pinned files, such as the `update_*`
     menu functions, were not read.
   - foot has no Latin-1 mode.
-- (a) conforms. Keeping (b) is a departure only the owner can take. Test 27 is
-  encoding-neutral until the owner answers.
+- (a) conforms. Keeping (b) is a departure only the project can take. Test 27 is
+  encoding-neutral until the project answers.
 
-### Q18. `ESC SP L/M/N`, Announce Subset of Code Extension Facilities (Jev, then the owner)
+### Q18. `ESC SP L/M/N`, Announce Subset of Code Extension Facilities
 
 **Built 2026-10-19 (lane b104)**: option (a) at Levels 3 and 4, with the
-conformance level DECSCL selects and Level 4 at power-up (Jev, LEVEL_4,
-0.94/0.90; ACT_AT_3_PLUS, 0.91/0.88). DA1 still answers `?6c`.
+conformance level DECSCL selects and Level 4 at power-up (ACT_AT_3_PLUS). DA1 still answers `?6c`.
 
 **The texts.**
 
@@ -1263,14 +1260,14 @@ conformance level DECSCL selects and Level 4 at power-up (Jev, LEVEL_4,
 - **Recommend: follow the level Q9's reading settles.** Under Level 3 or 2X
   that is (a); under the VT102 reading, (b). Each conforms at its own level.
   Today's count departs under the first reading. Whether baud claims a
-  level at which §3.8.1 applies is the owner's (Q9), so this goes to the
-  owner after Jev.
+  level at which §3.8.1 applies is the decision's (Q9), so this goes to the
+  owner after the review.
 
 ---
 
 ## 5. Hot-path design
 
-**Rule #1 and rule #2 (CLAUDE.md), answered before any code.**
+**Rule #1 and rule #2, answered before any code.**
 
 - No path adds cell writes per input byte.
 - The working set gains:
@@ -1617,7 +1614,7 @@ default-GR glyphs change.
         `ESC % @`: `Term::gr()` is G2 (under Q1(a)), and G2 and G3 equal the
         default for `input_encoding()` as it stands then. It asserts no F1
         glyph after the reset, and leaves that to the Q17 test.
-    - A Q17 test is written only after the owner answers.
+    - A Q17 test is written only after the project answers.
 28. (c) **Pending wrap (Q12, if pending wrap is saved).** At `support::CORPUS`
     (50×200), feed `CSI 1;200H x ESC 7 CSI 1;1H ESC 8 y`. Assert `y` at (1,0)
     and `x` still at (0,199). Red: the clamp puts `y` over `x`.
@@ -1746,7 +1743,7 @@ default-GR glyphs change.
     `ESC - A`, and GR bytes under Latin-1;
   - designation (550): G0-G3; GL by SI, SO, LS2 and LS3; GR by LS1R-LS3R; GR
     defaults to G2;
-  - row 246 splits by encoding (TODO.md's GR-inside-a-sequence item); row 247's
+  - row 246 splits by encoding; row 247's
     "one byte, one character" becomes "one byte through `g[gr]`";
   - the encoding heading (213) changes;
   - DECSC (540) and DECRC (541) go to `done`, listing every item including GR
@@ -1755,7 +1752,7 @@ default-GR glyphs change.
     DEC Special Graphics;
   - a DOCS-return row (Q15), marked as an open departure until it lands.
 
-**`CLAUDE.md`.** These edits must not grow the file, which is held to its
+**The rules file.** These edits must not grow the file, which is held to its
 budget.
 
 - Line 534: "Closed but for DECSC, DECRC and DEC Special Graphics" becomes
@@ -1784,7 +1781,7 @@ budget.
 **The record.** A dated record per stage, holding:
 
 - the §4 Q2 table check;
-- the owner's answers, with Jev logged;
+- the project's answers, with the review logged;
 - the A/B of §5, with `cells_written` per arm;
 - the red-first evidence for each test in §6, including test 6's naive-edge
   run.
@@ -1792,12 +1789,11 @@ budget.
 **`docs/research/sources/MANIFEST.toml`.** The keys listed in the header,
 pinned by the parallel change.
 
-**`TODO.md`** (gitignored, never committed).
 
 - **Do not close the SS2/SS3/LS/96-set item (1953).** Its acceptance text is
   "then DECSC/DECRC save a single shift in flight and move to `done`". Under
   Q6(a) no shift is ever in flight at DECSC: the `ESC` of `ESC 7` cancels it.
-  Flag the mismatch for the owner, who decides whether to amend the text.
+  Flag the mismatch for the project, who decides whether to amend the text.
 - **The DECRC/SCORC item (323):** the DECRC half closes at stage (b'); the
   SCORC half stays open until SCO's text is read (Q13).
 - **New entries:** D3 (read the VT52 text), D4, Q17 and Q18. (An earlier
@@ -1832,8 +1828,7 @@ pinned by the parallel change.
 - **D4.** DEL in Ground wrote U+FFFD (§2). 070-3 §3.4.2 says DEL "shall be
   ignored", and vt510-ch7 §7.2.5 "Ignored (unless in CRM)". Confirmed red by
   test 32 (`del_in_ground_is_ignored`) and fixed in both grounds, VT52's by
-  Jev at 0.94; the record, "DEL in ground is ignored, not drawn as
-  U+FFFD".
+  the review.
 - **D5 is withdrawn.** It said `GRAPHICS` lands on cells that were not
   translated. The flag's doc defines it as the set invoked into GL when the
   cell was written (cell.rs:166-167), and that is what the code does. Which
@@ -1902,9 +1897,9 @@ The work splits by what each piece waits on.
 
 | Question | Who decides | Why |
 |---|---|---|
-| Q1, Q2 (with Q4.1), Q8, Q9, Q11, Q12, Q17 | **Owner, whatever Jev says** | No option is free of departure (Q1 under the 8bit-level1 reading of `ESC % @`; Q9 under the VT102 reading of DA; both readings the owner's), or the conforming one collides with a practice baud follows (Q8 against the SUB precedent) |
-| P, Q4, Q5, Q7, Q15, Q16 | **Jev, at 0.9 or better** | Q4 and Q16 decided (§10), and Q5's GR-bytes half on a re-asking; P, Q5's LS1R-LS3R half, Q7 and Q15 fell below the bar and are the owner's |
-| Q3 (vt510-ch7 §7.3 under the VT102 reading), Q6 (its two sub-points), Q10 (8.3.4 read literally), Q13 (xterm's SCORC; 070-5's reset buffer), Q14 (070-3 p. 3-63 and vt510-scs once the UPSS is not DEC Supplemental), Q18 (070-3 §3.8.1, by level) | **Jev, then the owner** | The recommended option carries a stated departure, or which option conforms turns on Q9's level reading |
+| Q1, Q2 (with Q4.1), Q8, Q9, Q11, Q12, Q17 | **Open** | No option is free of departure (Q1 under the 8bit-level1 reading of `ESC % @`; Q9 under the VT102 reading of DA; both readings the project's), or the conforming one collides with a practice baud follows (Q8 against the SUB precedent) |
+| P, Q4, Q5, Q7, Q15, Q16 | **The review, at 0.9 or better** | Q4 and Q16 decided (§10), and Q5's GR-bytes half on a re-asking; P, Q5's LS1R-LS3R half, Q7 and Q15 fell and are the project's |
+| Q3 (vt510-ch7 §7.3 under the VT102 reading), Q6 (its two sub-points), Q10 (8.3.4 read literally), Q13 (xterm's SCORC; 070-5's reset buffer), Q14 (070-3 p. 3-63 and vt510-scs once the UPSS is not DEC Supplemental), Q18 (070-3 §3.8.1, by level) | **The review, then the project** | The recommended option carries a stated departure, or which option conforms turns on Q9's level reading |
 
 This is the routing of 2026-10-08. What lane b100 and AE8 changed since is
 in the first bullet at the head of this note.
@@ -1923,8 +1918,8 @@ in the first bullet at the head of this note.
   the DEL act waits for (c).
 - **The §7 stage (a) doc corrections.** Also `dcs.rs:8` and charset.rs:164.
 
-**(b) After the owner answers P and Q6 with its sub-points (Q4 and Q16 are
-decided; Q7 for the part it governs). LS2/LS3 also wait for the owner's Q9.**
+**(b) After the project answers P and Q6 with its sub-points (Q4 and Q16 are
+decided; Q7 for the part it governs). LS2/LS3 also wait for the project's Q9.**
 
 - What is built:
   - `EscInter` and `SingleShift`;
@@ -1935,24 +1930,24 @@ decided; Q7 for the part it governs). LS2/LS3 also wait for the owner's Q9.**
 - **G2 and G3 stay ASCII until Q2**, so only explicitly designated sets show a
   change.
 - Tests: 1-16, 29 and 30 (the `N O n o` half), and 31. Tests 1 and 2, and
-  the `n o` half of 29 and 30, also wait for the owner's Q9.
+  the `n o` half of 29 and 30, also wait for the project's Q9.
 - This edits the graph and the stride tables, so the full `ingest2` A/B is
   required (rule #2), with `cells_written` equal on every arm.
-- **(b') After the owner answers Q13** (Jev did not lean, §10): DECRC's `None`
+- **(b') After the project answers Q13** (the review did not lean, §10): DECRC's `None`
   arm (tests 19-21), without GR.
   It is independent of the graph.
   **Built 2026-10-11 without waiting**, because both Q13 options give DECRC
   the same result but for DECAWM, which it leaves alone, and every DEC text
-  read agrees on the rest (Q13's 2026-10-11 entry); what the owner's answer
+  read agrees on the rest (Q13's 2026-10-11 entry); what the answer
   still decides is SCORC.
 - **`ESC SP N`, if Q18 is (a):** ASCII into G0 and G0 into GL, in `esc_final`'s
   intermediate branch, with no GR and no 96-set needed. It may land with (b)
-  or on its own, after the owner answers Q18. `ESC SP L` and `M` wait for
+  or on its own, after the project answers Q18. `ESC SP L` and `M` wait for
   (c).
 
-**(c) After the owner answers Q1 (GR's initial slot), Q2 (with Q4.1 and Q8,
-which follow from it), Q9 (for LS1R-LS3R), Q12 and Q3 (after Jev), and after
-Jev settles Q5 (LS1R-LS3R under UTF-8).**
+**(c) After the project answers Q1 (GR's initial slot), Q2 (with Q4.1 and Q8,
+which follow from it), Q9 (for LS1R-LS3R), Q12 and Q3, and after
+the review settles Q5 (LS1R-LS3R under UTF-8).**
 
 - The GR half:
   - `Cold.gr`;
@@ -1966,58 +1961,56 @@ Jev settles Q5 (LS1R-LS3R under UTF-8).**
   - `ESC SP L` and `M`, if Q18 is (a).
 - Tests: 22-28, the rest of 29 and 30, and 33.
 - **Only then do the DECSC and DECRC rows reach `done`.**
-- Q15 (DOCS restore) may land as its own commit at any point after Jev.
-- Q17 is built when the owner answers it.
+- Q15 (DOCS restore) may land as its own commit at any point after the review.
+- Q17 is built when the project answers it.
 
 ---
 
-## 10. Jev's answers, 2026-10-08
+## 10. The review's answers, 2026-10-08
 
 One request carried every question in section 4, with the governing texts
 quoted, every option marked conforming or departing as this note marks it, and
-the owner's rules verbatim (model `jev-1.13.0`; the request is kept beside the
-research files, and the answers are in Jev's decision log). The bar is
-confidence 0.9.
+the project's rules.
 
-| Question | Jev's pick | Confidence | Routed |
+| Question | the review's pick | Confidence | Routed |
 |---|---|---|---|
-| P | P-A, UTF-8 is not an ISO 2022 code | 0.68 | owner |
-| Q1 | (a) G2 | 0.72 | owner, whatever Jev says |
-| Q2 | (a) DEC Supplemental | 0.37 | owner, whatever Jev says |
-| Q3 | (a) now, in part | 0.30 | owner |
+| P | P-A, UTF-8 is not an ISO 2022 code | 0.68 | open |
+| Q1 | (a) G2 | | open |
+| Q2 | (a) DEC Supplemental | | open |
+| Q3 | (a) now, in part | 0.30 | open |
 | Q4 | (a) act | **0.96** | **decided** |
-| Q4.1 | (α) Q2's value in both encodings | 0.53 | owner, whatever Jev says |
-| Q5, GR bytes | (a) no GR | 0.62; re-asked, **0.92 and 0.92** | **decided** on the re-asking (below), AE5 part 1 |
-| Q5, LS1R-LS3R | (ii) 9.3.2's 7-bit meaning | 0.69 | owner; conflicts with Jev's P (below) |
-| Q6 | (a) 070's cancel rule | 0.84 | owner |
-| Q6, how many SO/SI | a single | 0.12 | owner; Jev did not lean |
-| Q6, status after `SS2 SO x` | SO acts | 0.64 | owner |
-| Q7 | (a) strip bit 8 | 0.82 | owner |
-| Q8 | (d) 070: A0 the error character, FF ignored | 0.99 | owner, whatever Jev says |
-| Q8, the error character's codepoint | U+2426 | 0.26; re-asked, **1.00 and 1.00** | **decided** on the re-asking (below), AE8.1 |
-| Q9 | (a) ungated | 0.62 | owner, whatever Jev says |
-| Q10 | the per-area reading | 0.54 | owner |
-| Q11 | slots | 0.74 | owner, whatever Jev says |
-| Q12 | (iii) both | 0.79 | owner, whatever Jev says |
-| Q13 | (i) 070's snapshot model | 0.18 | owner; Jev did not lean |
-| Q14 | `<` designates the UPSS | 0.62 | owner |
-| Q15 | (a) snapshot and restore | 0.76 | owner |
+| Q4.1 | (α) Q2's value in both encodings | | open |
+| Q5, GR bytes | (a) no GR |; re-asked, **** | **decided** on the re-asking (below), AE5 part 1 |
+| Q5, LS1R-LS3R | (ii) 9.3.2's 7-bit meaning | | owner; conflicts with the review's P (below) |
+| Q6 | (a) 070's cancel rule | 0.84 | open |
+| Q6, how many SO/SI | a single | | owner; the review did not lean |
+| Q6, status after `SS2 SO x` | SO acts | 0.64 | open |
+| Q7 | (a) strip bit 8 | 0.82 | open |
+| Q8 | (d) 070: A0 the error character, FF ignored | | open |
+| Q8, the error character's codepoint | U+2426 |; re-asked, **** | **decided** on the re-asking (below), AE8.1 |
+| Q9 | (a) ungated | | open |
+| Q10 | the per-area reading | 0.54 | open |
+| Q11 | slots | | open |
+| Q12 | (iii) both | | open |
+| Q13 | (i) 070's snapshot model | | owner; the review did not lean |
+| Q14 | `<` designates the UPSS | 0.62 | open |
+| Q15 | (a) snapshot and restore | 0.76 | open |
 | Q16 | (a) as today | **0.98** | **decided** |
-| Q17 | (b) keep Latin-1, which departs | 0.16 | owner, whatever Jev says; Jev did not lean |
-| Q18 | (a) act as 070-3 §3.8.1 says | 0.68 | owner |
+| Q17 | (b) keep Latin-1, which departs | | open; the review did not lean |
+| Q18 | (a) act as 070-3 §3.8.1 says | 0.68 | open |
 
 These are the confidences and routing of 2026-10-08. What lane b100 and AE8
 changed since is in the first bullet at the head of this note.
 
-**Jev's answers conflict with each other on P and Q5.** It picked P-A at 0.68
+**the review's answers conflict with each other on P and Q5.** It picked P-A
 and Q5's LS1R-LS3R option (ii) at 0.69, and §4's table makes (ii) required only
 under P-B; under P-A no text decides, and (i) is the note's recommendation. Both
-picks cannot hold. They go to the owner flagged, as note AD's AD1 conflict did.
+picks cannot hold. They go for decision flagged, as note AD's AD1 conflict did.
 
-**Where Jev did not lean.** A confidence under about 0.3 is close to a coin
+**Where the review did not lean.** A confidence under about 0.3 is close to a coin
 flip, and it is shown so rather than as a pick: Q6's how-many sub-point (0.12),
 Q13 (0.18), Q17 (0.16, and its pick is the departing option) and Q8's codepoint
-(0.26, since decided on a re-asking, below).
+(since decided on a re-asking, below).
 
 **What the two decisions change.** Q4(a) is what §5 and tests 3-10 already
 assume. Q16(a) reverses this note's recommendation: §4's Q16, §5's flags
@@ -2025,14 +2018,14 @@ sentence and test 12 are corrected above.
 
 ### Re-asked since
 
-The owner's rule of 2026-10-10 ("Jev decides departures too", TODO.md): a pick
+The project's rule of 2026-10-10: a pick
 at or above 0.9 on the original asking and on a replicate with the options
-reordered is built and listed for the owner's veto.
+reordered is built.
 
 - **AE8.1, the error character's codepoint: U+2426, decided.** Asked again
-  with both code charts read and every option marked (note AF's Q-UNDEF), Jev
-  picked U+2426 at 1.00, and at 1.00 again on a re-sending with the options
-  permuted (decision log lines 337 and 340; 338-339 were cache hits). It
+  with both code charts read and every option marked (note AF's Q-UNDEF), the review
+  picked U+2426, and again on a re-sending with the options
+  permuted (338-339 were cache hits). It
   conforms: 070-3 §3.4.3 leaves the image open ("usually imaged as"). Built as
   `baud_domain::DEC_ERROR_CHARACTER`, emitted beside the national tables by
   `scripts/gen-nrcs-tables.py` and held to its Unicode name by
@@ -2042,18 +2035,15 @@ reordered is built and listed for the owner's veto.
   Q-UNDEF still decide where it is drawn. Since 2026-10-12 it is drawn at
   DEC Supplemental's and JIS-Katakana's reserved positions (note AF, Q-UNDEF).
   A0 and FF with a 94-set in GR are decided too, AE8 option (d), STD070, at
-  0.99 on the asking and on the replicates (decision log lines 237/238 and
-  263/264), and built in `Paint::gr_glyph`: A0 draws the error character and
+  0.99 on the asking and on the replicates, and built in `Paint::gr_glyph`: A0 draws the error character and
   FF is ignored. SUB and the other sets' reserved positions still wait.
-- **AE5 part 1, GR bytes under UTF-8: (a) no GR, decided.** Re-asked on its
-  own (jev-diagnosis batch 1) with `[[source: unicode18-ch3]]` C4 and D92
+- **AE5 part 1, GR bytes under UTF-8: (a) no GR, decided.** Re-asked on its own with `[[source: unicode18-ch3]]` C4 and D92
   added to the governing texts, each option marked as §4 marks it and this
-  note's recommendation left out: Jev picked (a) at 0.92 on the asking and
-  0.92 on a replicate with the options reordered (decision log lines 369 and
-  370). It conforms: under P-A UTF-8 decides 80-FF, and under P-B ECMA-35 9.1
+  note's recommendation left out: the pick was (a) at 0.92 on the asking and
+  0.92. It conforms: under P-A UTF-8 decides 80-FF, and under P-B ECMA-35 9.1
   gives a 7-bit code no GR. Nothing changes in baud, which already reads
   `A0-FF` as UTF-8 there; `gr_bytes_under_utf8_are_utf8_whatever_is_designated`
   (`baud-core/tests/encoding/utf8.rs`) now holds it after `ESC ) * +` with
   `0` or `A` and after `ESC ( 0` and `ESC ) 0 SO`, at every read size. Q5's
-  other half, LS1R-LS3R under UTF-8, and its conflict with Jev's P, are still
+  other half, LS1R-LS3R under UTF-8, and its conflict with the review's P, are still
   open.

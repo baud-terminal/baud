@@ -1,11 +1,11 @@
-# V. The owner's open decisions, researched
+# V. The project's open decisions, researched
 
 Taken at `f68375c`, 2026-09-25. **Nothing in this note is built.** Each
-decision waited on the owner's answer; the answers are the next section.
+decision waited on the answer; the answers are the next section.
 
 ## Decisions taken, 2026-09-25
 
-The owner's answers, in their words where they gave any. Each overrides the
+The project's answers, in their words where they gave any. Each overrides the
 section's recommendation where the two differ.
 
 - **A standing rule.** "We need to support such protocols fully, always ...
@@ -20,12 +20,11 @@ section's recommendation where the two differ.
   recommendations. `?1001` highlight tracking, the ambiguous-width switch
   with `?1021`, the Sixel modes `?80` and `?1070`, and the kitty graphics
   protocol.
-- **V16: research first.** The owner's words: "the terminal has LS_COLORS I
+- **V16: research first.** The project's words: "the terminal has LS_COLORS I
   think or something like that, what other VTs are doing? as I know there
   are a bunch like base16/24/ansi/etc and I have also vogix16, so maybe
   research here is needed." The `[palette]` recommendation is withdrawn
   until that research is done.
-- **V24: not yet.** Nothing is deleted.
 - **V23**: the corpus question had no default and is still open.
 - **Every other decision: as recommended.** V1-V9, V11, V15, V17, V20-V22
   and V25.
@@ -40,24 +39,22 @@ Two requests arrived with the answers, and are not decisions from this note:
   SGR 5 text had blinked since 2026-09-13 (`54286f4`); that is not the
   cursor.
 
-Later the same day the owner answered the cursor's questions, and these steer
+Later the same day the answer was the cursor's questions, and these steer
 the builds that follow them:
 
 - **Every trail style is config**: kitty's four-corner quad, sfte's fading
   swept box, baud's first ghost, and a fire trail drawn on the GPU, which is
   **the default** -- chosen over the recommended quad. On the CPU path,
   `fire` draws the quad, and Linux's driver draws no trail at all
-  (`baud-app/src/linux.rs`). **Superseded on 2026-09-29**: the owner made
-  the plasma the default, replacing the fire (built 2026-10-10; the record,
-  "The plasma is the default trail, and the fire stays by name").
+  (`baud-app/src/linux.rs`). **Superseded on 2026-09-29**: the project made
+  the plasma the default, replacing the fire (built 2026-10-10).
 - **The flame is opaque over glass**, and the light theme gets a darker
   variant that is not additive. **Met by one rule since the fire was built**
   (`8211be4`): the flame is drawn in the cursor's colour, premultiplied, with
   its heat as its opacity, which "is valid over a glass window by
   construction ... and is dark on a light theme, whose cursor is dark, so the
-  two variants the owner asked for (opaque over glass, darker over light) are
-  one rule" (the record, "The fire trail is a flame in the cursor's colour,
-  held to a Rust reference"). Every effect trail draws by that rule
+  two variants the request was for (opaque over glass, darker over light) are
+  one rule". Every effect trail draws by that rule
   (`baud-render/src/effect.rs`).
 - **Reduce Motion means no trail**, unless the config names one.
 - **The trail rides smooth scroll** by default, with an option to stay put.
@@ -71,40 +68,29 @@ the builds that follow them:
 Built since: the rendition cache (`60cce43`), the quad trail (`c2e20be`),
 sfte's swept box (`trail = "sweep"`, `8da4787`), and the fire trail
 (`8211be4`), the default until the plasma replaced it (`eb2f75e`) -- drawn in
-the cursor's colour, the owner's word mid-build: "the flame should not use a
+the cursor's colour, the project's word mid-build: "the flame should not use a
 special color, we use the cursor color, default color". Then plasma
 (`bc40570`), lightning (`0cef30d`), ice (`26b26b0`), ufo (`90bb30d`), orb
 (`1488b3c`) and liquid (`818daaa`), ten trails with the ghost: the one-cell
 box that was the trail before these decisions (`6cecea6`, 2026-09-20), named
 `ghost` by the quad's commit and drawn in the cursor's colour since `84c7726`.
 Then Reduce Motion (`bc7cd03`): the default trail is off under it and a named
-one is kept (CLAUDE.md, "Reduce Motion means no trail, unless the config names
-one"). Then the blink from the OS, with the owner's answers of 2026-09-27
+one is kept. Then the blink from the OS, with the project's answers of 2026-09-27
 (`5fb5eec`) -- hard edges at 650/350, every other sub-question as recommended:
 the rate read from the system's keys, macOS 15's non-blinking switch holding
 the drawing steady unless the config says `true`, and
-`[cursor] stop_blinking_after`, never by default (CLAUDE.md, "The cursor blinks at the
-system caret's rate"). Then rule F (`0c8ed2d`), the owner's call the same day:
+`[cursor] stop_blinking_after`, never by default. Then rule F (`0c8ed2d`), a choice the project made the same day:
 `?12` or-ed with the style's own blink, as foot does, and the style saved and
 restored across `?1049`, so vim and helix leave the shell its configured
-cursor (CLAUDE.md, "`?12` is a second input to the blink"). Then the ride
-(`0415566`), with the owner's bound of the same day -- two rows, then fold in:
+cursor (CONTRIBUTING.md). Then the ride
+(`0415566`), with the project's bound of the same day -- two rows, then fold in:
 a trail in flight moves up with the text under a smooth scroll, and `[cursor]
-trail_scroll = "stay"` keeps it put (CLAUDE.md, "A trail rides a smooth
-scroll, two rows at most").
-
-**On the `TODO.md` citations below (2026-10-10).** `TODO.md` is the owner's
-work list, gitignored and never committed, so no reader of this note can open
-it, and its line numbers have moved since. The seven citations that gave it
-by line now name the committed document that holds the finding where one
-exists; where one named a step on the work list, the step is described and
-the line numbers dropped. The plain mentions of "the TODO list" record what
-the list said on 2026-09-25 and stay as written.
+trail_scroll = "stay"` keeps it put.
 
 ## What this is
 
 The TODO list and the research notes leave these twenty-five decisions to
-the owner. Each one here went through three steps:
+the project. Each one here went through three steps:
 
 1. One agent read the code and the sources, and proposed an answer.
 2. A second agent tried to refute the proposal.
@@ -150,9 +136,7 @@ what blocks other work comes first.
    word, "accept the rest", takes every default in that table. A different
    answer on any one row is fine. One question in that table, V23's about
    the corpus, has no default and needs its own yes or no.
-3. **Needs an explicit yes, because it deletes things.** One: the old backup
-   branches and the stash. It is kept out of the batch on purpose.
-4. **Waiting on a source I can pin without you.** Pinning a source means
+3. **Waiting on a source I can pin without you.** Pinning a source means
    fetching it and recording its hash in the manifest. That is research, not
    building, and needs no decision. Seven decisions have a pin in front of
    them, listed below. One pin decides an answer (V4); the others only have
@@ -189,28 +173,10 @@ what blocks other work comes first.
 | V19 | Kitty graphics: the documents say a PNG decoder cannot live under the core's rules, and baud-font already has one. | Kitty stays parked. Fix the six stale places now, and record the design for unparking as depending on measurements. | Unpark it: large. |
 | V21 | When the unit tests fail before a push, the five checks after them never run, so one push shows one broken category. | Let the later checks run after a failure, with the first four kept hard. In the same change, guard the one trap this creates: if a gate is ever run without being named, a red unit test would exit 0. (Moving the path check after the format check is a separate yes; lean yes.) | |
 | V22 | Offer a scale-the-font resize mode beside reflow? | No. Keep reflow, keep Cmd+ and Cmd- for text size, and close the item. | A config key, for demos and screen recordings. |
-| V23 | A CLAUDE.md table rests on two long recordings that were never committed and are lost. | Do not re-capture. Mark the table "from captures no longer held; ordering only", point to cat-scroll's figures, and fix one sentence. | Not covered by "accept the rest": a separate yes or no, with no default, on whether you want recordings of paging through code, on the alternate screen, in the corpus. |
+| V23 | A measurement table rests on two long recordings that were never committed and are lost. | Do not re-capture. Mark the table "from captures no longer held; ordering only", point to cat-scroll's figures, and fix one sentence. | Not covered by "accept the rest": a separate yes or no, with no default, on whether you want recordings of paging through code, on the alternate screen, in the corpus. |
 | V25 | Pursue a decode-then-write split of the ingest path? | Close it as a direction. `put_run` already decodes before it writes, and the single-character decode was priced at 0-0.9% on earlier builds of this core, before GB11 and the 64-byte alignment. | A 30-minute re-price when the machine is free. |
 
-### 3. Needs an explicit yes, because it deletes things
-
-**V24.** Bundle `backup-pre-squash-smooth-scroll` into one file outside the
-repository and verify the bundle. Then:
-
-- delete all five backup branches, including the bundled
-  `backup-pre-squash-smooth-scroll`, plus `backup-pre-fixup-squash`,
-  `backup-pre-split-ris-prompt`, `backup-pre-trailer-rewrite` and
-  `sfte-oracle`;
-- drop the August stash;
-- delete the twelve branches already merged into `master`: `row0` to `row10`,
-  and `note-n-and-gate-audit`.
-
-Each was checked read-only; section V24 has the detail. The one branch with
-content that exists nowhere else is 58 KB of pre-squash commit messages,
-which is why it is bundled rather than deleted. Deleting
-`note-n-and-gate-audit` on origin is a separate call and is not included.
-
-### 4. Waiting on a source I can pin without you
+### 3. Waiting on a source I can pin without you
 
 | Decision | The pin it waits on | What the pin does |
 |---|---|---|
@@ -218,7 +184,7 @@ which is why it is bundled rather than deleted. Deleting
 | V10, only on the finish branch | ghostty's `Terminal.zig` at d9840f3c, and xterm's `cursor.c` (the same pin as V4's) | both pinned: [[source: xterm-cursor-c]], and [[source: ghostty-d9840f3-terminal]] committed 2026-10-12, the commit the oracle's libghostty-vt was built from |
 | V11, the clipboard | RFC 4648, base64's standard | lands before building |
 | V13, the selection colour on macOS | the NSColor selection colours, from the local SDK header | lands before building |
-| V17, colours under `?5` | xterm's `misc.c`, where OSC 4, 10 and 11 are handled | pinned ([[source: xterm-misc]]); OSC 10/11 built 2026-10-11; OSC 4 needs no mapping since 2026-10-14, when DEC's per-cell exchange for `?5`, the owner's choice of 2026-10-13, was built (the record, "`?5` exchanges every cell's colours") |
+| V17, colours under `?5` | xterm's `misc.c`, where OSC 4, 10 and 11 are handled | pinned ([[source: xterm-misc]]); OSC 10/11 built 2026-10-11; OSC 4 needs no mapping since 2026-10-14, when DEC's per-cell exchange for `?5`, the choice of 2026-10-13, was built |
 | V15 step 2, the real mode 2027 | the mode 2027 draft, and Unicode's emoji variation sequences file | lands before building |
 | V14's `?1021` | xterm's man page and `misc.c`, only if the switch is built and `?1021` is answered, which the lean leaves out even then | pinned ([[source: xterm-man]], [[source: xterm-misc]], [[source: xterm-wcwidth-c]]); read 2026-10-15 under "V14's open questions, answered" |
 
@@ -343,8 +309,8 @@ sent describes neither as built: its DRAWN_WINDOW Does slot and
 `baud_probe` (d) give e8f1d54's batching dependence, and a re-ask must
 carry this change's rule. The record: "A reset's
 reveal is decided at the reset's byte, not at the pump's edges
-(2026-10-11)", which also holds what an emptied history shows: Jev's
-answer A, as built (decisions lines 453-454).
+(2026-10-11)", which also holds what an emptied history shows: the review's
+answer A, as built.
 
 After the change: a reset leaves a clean slate, with no highlight, no slide,
 the live screen and no stale guess. It does so however the bytes fall into
@@ -524,7 +490,7 @@ them again, and each SHA-256 matched the manifest both times.
   - Forecloses nothing: under note U's models it moves into the core line by
     line.
 - **O5: wait for note U's option B or B+ and do it all in the core.**
-  - Cost: blocked on the owner while the defects stay live.
+  - Cost: blocked on the project while the defects stay live.
   - The slide and predictions are app state in every model, so O4's count is
     needed anyway.
   - By reading, B's own clamp-on-exit rule (note U, lines 312-317) reproduces
@@ -776,7 +742,7 @@ Measurement:
 **What would change it / depends on**
 
 What would change it:
-- **The owner wants the selection kept across a reset:** remove that line; the
+- **The project wants the selection kept across a reset:** remove that line; the
   window and slide halves stand.
 - **A reset should fade like a switch:** key the fade on *restarted*, one
   word.
@@ -842,7 +808,7 @@ called reflow.
   - the map through a re-cut, the `grid::Follow` hook inside `resize_holding`
     (term.rs:1165-1210).
 - The Linux driver has no wheel yet (lines 17-18 of `baud-app/src/linux.rs`)
-  and binds no pointer at all (CLAUDE.md). When it gets a wheel, it would have
+  and binds no pointer at all. When it gets a wheel, it would have
   to repeat this anchoring.
 
 **What others do**
@@ -1076,7 +1042,7 @@ per screen, or three?
 - The ESC 7 slot, `cold.saved` (term.rs:376), is written by ESC 7 and `CSI s`
   (lines 1509 and 1743 of `baud-core/src/write.rs`). Neither resize step moves
   it; it is only clamped when restored (ops.rs:89-90).
-- It is one slot shared by both screens (CLAUDE.md, the ?47 section, "What is
+- It is one slot shared by both screens (the ?47 section, "What is
   left").
 - The ?1049 save, `alt_saved`, is already carried through both resize steps
   (`PrimaryCursor::Saved`, term.rs:919-927, 1011, 1211-1218).
@@ -1201,7 +1167,7 @@ drag, or store whole logical lines instead of rows?
   into rows past L2 measured 0.56x. So the ingest cost fixes the depth long
   before the re-cut cost does; depth is not a lever here.
 - Costs on record:
-  - a step of the owner's recorded drag (`live-drag`): 1.44 [1.42-1.48] us to
+  - a step of the recorded drag (`live-drag`): 1.44 [1.42-1.48] us to
     resize;
   - one output-zone width change on a small history: 6.58-7.02 us;
   - a full 2,050-row ring re-cut, 200 to 100 columns and back: 317 and 412 us,
@@ -1380,8 +1346,7 @@ until you stop.
 **Today** -- No debounce: a SIGWINCH and an eager resize on every drag step
 that changes the grid. The rule stands on a measured freeze
 (`docs/research/notes/n-make-faster.md`, lines 75 and 90; the comment in
-`relayout`). A step of the owner's recorded drag costs 1.44 us to resize
-(CLAUDE.md).
+`relayout`). A step of the recorded drag costs 1.44 us to resize.
 
 **What others do**
 - foot debounces during a drag and pauses the pty (the channel between the
@@ -1578,9 +1543,9 @@ growth in real sessions, and the seven-gesture sweep bounds how much.
 
 ### V10. The side-margin fence: finish it or switch it off
 
-**Status, 2026-10-12.** The owner answered F. Steps (a), the oracle
+**Status, 2026-10-12.** The project answered F. Steps (a), the oracle
 harness (`bench-others/ghostty-oracle`), and (b), rectangle scrolling, are
-built: the record, "V10's oracle" and "Rectangle scrolling". Steps (c) and
+built: its measurement and "Rectangle scrolling". Steps (c) and
 (d) remain, and what follows is the note as it was written before them.
 
 **The question**
@@ -2351,7 +2316,7 @@ fixtures cover.
 
 ### V12. ?1001 highlight tracking: stop claiming it
 
-**Built 2026-10-11, to the spec, as the owner answered** ("built to the spec",
+**Built 2026-10-11, to the spec, as the answer was** ("built to the spec",
 overriding the recommendation below). `?1001` is the fifth tracking level,
 exclusive with the other four as ctlseqs' "five modes of the mouse protocols"
 are; a press is normal tracking's; button 1's press is owed the program's
@@ -2360,7 +2325,7 @@ that tracks the mouse within the program's rows; the macOS app draws it
 through the selection's highlight; and the release is reported as `CSI t` or
 `CSI T` in the encoding in force. Nothing waits on the answer. The record has
 it, "`?1001` highlight tracking is built to the text", with the questions the
-text leaves for Jev. What follows is the question as it was asked.
+text leaves. What follows is the question as it was asked.
 
 **The question**
 
@@ -2409,7 +2374,7 @@ sets it. What changes is only what a program is told if it asks.
 - **The house convention for DECRQM:** every mode baud counts and refuses
   (`?1047`, `?1048`, `?9`) answers 0 through the catch-all arm in
   `baud-core/src/ops.rs`. Nothing answers 4 today. The `ModeState` doc in
-  `baud-domain/src/vt/mode.rs` and CLAUDE.md both say 0 is the right answer
+  `baud-domain/src/vt/mode.rs` and the project's rules both say 0 is the right answer
   for a mode baud does not implement.
   - *Corrected 2026-10-10:* `?9` is no longer among them. It is X10
     compatibility tracking since 2026-10-09, and DECRQM answers it from the
@@ -2450,7 +2415,7 @@ sets it. What changes is only what a program is told if it asks.
   - "The program did not answer" needs either a timer, which baud's rules
     reject, or "the next mouse event".
 - **B. Keep as is.** No work, but baud keeps telling programs "set" while
-  doing nothing. That is `SECURITY.md`'s own reportable class and CLAUDE.md's
+  doing nothing. That is `SECURITY.md`'s own reportable class and the project's
   "never record a mode you do not act on", and the three docs keep
   disagreeing.
   - *Corrected 2026-10-10:* the docs agree now (the correction to **Today**'s
@@ -2504,7 +2469,7 @@ decide to move every counted mode to 4 (option F).
     answers 0".
   - `SECURITY.md` and `docs/protocol-decisions.md` stay, with the DECRQM
     answer added.
-  - CLAUDE.md's paragraph that argued for recording the mode is struck through
+  - the project's paragraph that argued for recording the mode is struck through
     with the reason. This **reverses a recorded decision** (the recorded
     region was kept as a channel for an embedder), and it should read as one.
 
@@ -2595,7 +2560,7 @@ Two choices about dragging to select text:
 - **The stated blocker is stale twice.** `docs/research/notes/k-selection.md`
   says a colour "wants the luma measurement the register still owes (D14)".
   But D14 in `docs/research/notes/j-rendering.md` is frame pacing, and the
-  luma under glass was measured (CLAUDE.md, "Luma under glass, measured"; the
+  luma under glass was measured (the
   surface is tagged sRGB). The caveat: only opaque cells under the Regular
   glass material were measured
   (`docs/research/notes/j-rendering-evidence.md`).
@@ -2701,7 +2666,7 @@ Two choices about dragging to select text:
   - Whether it needs NSAppearance's per-drawing call is **UNVERIFIED**: baud
     does not force its window's appearance, so the app's current appearance
     may already be the right one.
-  - If a block-taking API is needed, it goes in the owner's macos-liquid-glass
+  - If a block-taking API is needed, it goes in the project's macos-liquid-glass
     crate. That crate is pinned at `1.0.0-beta.5`, so the change would then
     wait on a crate release, which the effort estimate below does not include.
   - A colour that does not convert falls back to reverse and is counted.
@@ -3062,8 +3027,8 @@ Measurement:
 
 #### V14's open questions, answered (2026-10-15)
 
-Read for the work list's "V14's open questions, before building", after
-the owner's 2026-09-25 call to build the switch with `?1021`. Nothing here
+Read for the plan's "V14's open questions, before building", after
+the project's 2026-09-25 call to build the switch with `?1021`. Nothing here
 is built. Every xterm file is the patch 411 commit the others are pinned at
 (9489b20). `wcwidth.c` and `wcwidth.h` were fetched for this section.
 
@@ -3119,9 +3084,9 @@ ways:
   function that widens PUA counts two columns; one that does not counts
   one.
 
-Both readings conform. The work list's premise, that excluding PUA "would
+Both readings conform. The plan's premise, that excluding PUA "would
 be a departure", is not what the text says, and the choice is still not a
-free one: it goes to Jev at 0.9 on both asks, or to the owner. xterm's
+free one: it goes to the review at 0.9 on both asks, or for decision. xterm's
 default excludes PUA (point 3). That is practice, not the standard.
 
 **3. What `?1021`, `?1022` and `?1023` report.** [[source: ctlseqs]]
@@ -3221,8 +3186,8 @@ drawn.
   icons, among them U+E0B4 28 times, U+E60D 23 and U+E0B6 17. None of the
   ten others has any.
 
-**The options for the PUA question.** All of them are for Jev at 0.9 on
-both asks, or for the owner.
+**The options for the PUA question.** All of them are for the review at 0.9 on
+both asks, or for the project.
 1. **PUA follows "wide".** This is the data's default, and today's API
    already does it. **Conforming** (§ 6.1). `?1023` answers reset.
 2. **PUA always one column**, xterm's default. **Conforming** as the
@@ -3252,7 +3217,7 @@ both asks, or for the owner.
    the far end cannot see one.
 
 **The DECRQM value: 1 or 2, or 3 or 4.** ctlseqs gives no value rule for
-a read-only mode. These options are for Jev or the owner too.
+a read-only mode. These options are for the review or the project too.
 - **(i) 1 or 2, as xterm answers.** Conforming. It matches baud's own
   `?1020`.
 - **(ii) 3 or 4.** Conforming to ctlseqs' definitions ("3 - permanently
@@ -3312,23 +3277,21 @@ Option 3a above leaned to (ii) before `misc.c` had been read.
    disassembly compare at the default and, if the loop differs, the
    interleaved sweep, as above.
 
-**Built 2026-10-15** (thread t-0015; the record, "The ambiguous-width
-switch, with `?1021` to `?1023`"): items 1-4, 6, 7 and 8. Item 3 needed no
+**Built 2026-10-15** (thread t-0015): items 1-4, 6, 7 and 8. Item 3 needed no
 fifth code: `emit_merged_table` derives the code by asking `Width::of` under
 both policies, so with the range test in its `Wide` arm private use comes
 out narrow, code 0, and `Classified::width` is unchanged. Item 5, the
 renderer's two-cell masks, is not built.
 
-**Item 5 built 2026-10-25** (lane b212; the record, "A box line two
-cells wide is drawn across both"): a box or block character two cells
+**Item 5 built 2026-10-25** (lane b212): a box or block character two cells
 wide is drawn across both on the CPU, instance and cell paths, keyed by
 the cell's span. Its horizontals run through the second cell, its
 verticals, junctions and corners stay at the first cell's centre, its
 strokes keep the one-cell weight, and a block is its fraction of both
 cells. The texts leave the placement open ([[source: unicode18-chart-2500]],
-[[source: unicode18-chart-2580]], [[source: uax11]]); Jev leaned to the
+[[source: unicode18-chart-2580]], [[source: uax11]]); the lean was to the
 first cell's centre over both cells' centre, VTE's
-([[source: vte-minifont-0-84]]), below the bar in three askings, and to
+([[source: vte-minifont-0-84]]) in three askings, and to
 the blocks' fraction, below it in two. Both are leans left for the
 owner's veto.
 
@@ -3411,8 +3374,7 @@ Two existing problems the review found, both found by reading:
   So an accent sent there joins the neighbour. It is wrong today for combining
   marks; no test covers a mark after `?7l`. Pinned ghostty checks whether the
   cursor's own cell holds the base (Terminal.zig:1242-1246).
-  **Fixed in two halves**: the joined mark on 2026-10-10 (the record,
-  "With `DECAWM` reset the character just written is under the cursor"), and
+  **Fixed in two halves**: the joined mark on 2026-10-10, and
   the policy path, a mark after a control or a `U+200B`, on 2026-10-11 ("A
   zero-width character after a control goes where it goes with autowrap
   set"), by the pin kept fresh across controls rather than by ghostty's
@@ -3560,7 +3522,7 @@ Step two, the real mode:
    `mode_state` answers 1 or 2 from the bit; `soft_reset` clears it (the
    draft's DECSTR sentence); `hard_reset` already resets all modes (line
    1307).
-5. **baud-core, `attach`** (stays cold): widen when the mode is on, the owner
+5. **baud-core, `attach`** (stays cold): widen when the mode is on, the project
    cell is one column, and either the codepoint is VS16 after a character in
    the table, or (G) it is a skin-tone modifier or a ZWJ-joined pictograph.
    "After" means the codepoint immediately before, not the cluster's first, as
@@ -3574,7 +3536,7 @@ Step two, the real mode:
      columns.
 6. **A new `Paint::widen`** (cold, typed arguments to keep baud-core's zero
    signature primitives):
-   - Room to the right: rewrite the owner with a `WIDE_TAIL` through
+   - Room to the right: rewrite the project with a `WIDE_TAIL` through
      `view.put_glyph` (which repairs a wide character it half-covers and
      raises the row extent), count the cell, move the cursor one, clear images
      there, update `row_written`.
@@ -3591,7 +3553,7 @@ Step two, the real mode:
 7. **Renderer**: no geometry change. A widened cluster is a wide marked cell,
    the path ZWJ families already take. Steering VS16 clusters to the colour
    font is a renderer-track follow-up.
-8. **Docs**: vt-coverage.md (219 and 355-366), width.rs's gap note, CLAUDE.md.
+8. **Docs**: vt-coverage.md (219 and 355-366), width.rs's gap note.
    Record VS15 not narrowing as conformance.
 
 **Tests and measurement**
@@ -3671,7 +3633,7 @@ The frame benches are not owed, and the golden and sfte pins do not move.
 ### V16. A light-mode set of the sixteen ANSI colours
 
 **Re-researched and decided in note Y** (`docs/research/notes/y-palettes.md`),
-which supersedes this section where they differ. The owner's decisions of
+which supersedes this section where they differ. The project's decisions of
 2026-09-29: no vogix-specific work until vogix 1.0.0-beta.1; scheme files by
 each format's published mapping (base16 and base24 by tinted-theming's table,
 ghostty-style files keeping their own page and text) onto a scheme type later
@@ -3686,7 +3648,7 @@ lightened, note Y decision 8); Reduce Transparency drawing backgrounds opaque an
 Contrast raising the floor; faint blended toward the background. Corrections
 note Y makes to this section: ghostty's floor snaps to black or white rather
 than nudging; iTerm2 applies Minimum Contrast per appearance; the WCAG formula
-is pinned; the owner's `ls` is lsd.
+is pinned; the project's `ls` is lsd.
 
 **The question**
 
@@ -3708,17 +3670,17 @@ Its 3:1 large-text figure and the formula itself are UNPINNED.
 - **Today, in light mode**, GNU `ls --color` draws executables in bold green
   at **1.19:1**, symlinks in bold cyan at **1.09:1** and directories in bold
   blue at 4.12:1. So executables and symlinks are effectively invisible. This
-  assumes GNU ls, which the owner's PATH has (coreutils 9.11). A stock macOS
+  assumes GNU ls, which the project's PATH has (coreutils 9.11). A stock macOS
   `ls -G` uses other defaults, UNPINNED.
 - **Across the palette**: 10 of the 12 coloured entries are below 4.5:1 in
   light mode and 7 are below 3:1. In dark mode it is 4 and 1; the one below
   3:1 is plain blue at 2.02:1.
 - **These are the best case: an opaque background.** At the default glass
   setting (`[glass] dim_light = 0.12`), most of a light-mode background is the
-  glass material, not baud's colour. On the one screenshot CLAUDE.md records,
+  glass material, not baud's colour. On the one screenshot recorded,
   even ordinary default text reads about 2.0:1. That figure is indicative,
   from one wallpaper.
-- **Scope.** The owner runs system Dark with `theme = "auto"`, so the light
+- **Scope.** The project runs system Dark with `theme = "auto"`, so the light
   palette only appears when macOS is light. On Linux, `auto` always resolves
   to dark.
 - **After the recommended change**: nothing changes by default. If you set a
@@ -3730,7 +3692,7 @@ Its 3:1 large-text figure and the formula itself are UNPINNED.
 - **The theme.** `Theme::light()` is text 0x27 on background 0xEF, with
   xterm's table (`baud-render/src/color.rs`, lines 184-193; the table at
   321-356). Its doc says the gap is known and that "Choosing the numbers is
-  the owner's call and is not made here" (lines 182-183). It defers the
+  a choice the project made and is not made here" (lines 182-183). It defers the
   decision; it does not refuse one.
 - **Lookup and bold.** A cell's colour is the application's OSC 4 override if
   there is one, else the theme's table (lines 282-289). *OSC* is a family of
@@ -3856,7 +3818,7 @@ three places baud builds a theme, and switch it with the appearance.
 `Theme::light()` does not change, so light-mode `ls` stays as hard to read out
 of the box as it is today.**
 
-Two owner calls ride with it:
+Two open calls ride with it:
 
 1. **Decide the light glass dim, `dim_light`, before or alongside this.** At
    the default it decides more of what you see than any palette does.
@@ -4130,7 +4092,7 @@ already draws like xterm and A is the only consistent completion of that.
      Otherwise an `OSC 11;?` gets an `OSC 10` reply, which is the wrong-shaped
      answer `docs/vt-coverage.md` forbids.
 4. **Docs.** The "Not built" clause in the `?5` row becomes done, the
-   CLAUDE.md reverse-video section is updated, and `Video`'s doc cites misc.c.
+   the reverse-video notes are updated, and `Video`'s doc cites misc.c.
    The claim is stated precisely: equivalent to xterm for set, query, reset
    and flips, **not across DECSTR/RIS**.
 5. **Flash.** A `?5h`/`?5l` pair in one read is a renderer-only flash; the
@@ -4209,8 +4171,7 @@ already draws like xterm and A is the only consistent completion of that.
   2026-09-29; and the cursor-colour rule is built, 2026-10-11, the record's
   "A cursor colour equal to the text keeps its colour across `?5`".)*
 
-**Built, 2026-10-11, for `OSC 10` and `11`** (the record, "`OSC 10` and
-`11` under `?5` act on the colour shown"): option A, as recommended, in the
+**Built, 2026-10-11, for `OSC 10` and `11`**: option A, as recommended, in the
 half that is the same under every reading of DEC's `DECSCNM`. `Video` moved
 to baud-domain with `entry` and `role` (the design's `dynamic`), baud-render
 re-exports it and its `Theme::defaults` reads through `role`; the core maps
@@ -4222,9 +4183,9 @@ values on each flip, as xterm does. **`OSC 4` and `104 ; c` are held**: DEC
 STD 070 defines `DECSCNM` as reversing "the definitions of the foreground and
 background colors" (page 5-94, PDF 349) and describes it as a per-cell
 exchange of the attribute bits (PDF 362), and no DEC passage names entries
-0/7 and 8/15, so the owner's "as recommended", given without the DEC text,
+0/7 and 8/15, so the decision's "as recommended", given without the DEC text,
 does not decide xterm's palette swap. The `OSC 4` mapping exists only under
-that swap and waits on Jev (the question is in the record).
+that swap and waits on the review.
 
 ## Part 6. Images
 
@@ -4554,8 +4515,7 @@ You parked Kitty graphics on 2026-09-23.
     deflate block kind, and both checksums (CRC-32 on each PNG chunk, Adler-32
     on the zlib stream).
   - ~~It refuses Adam7 interlacing, a PNG storage order that sends the
-    picture in seven passes.~~ It reads Adam7 since 2026-10-15 (the record,
-    "png.rs reads Adam7").
+    picture in seven passes.~~ It reads Adam7 since 2026-10-15.
   - Its inflate (decompression) must fill its output buffer exactly (line
     336). That caps a "decompression bomb", a small input that expands to a
     huge output.
@@ -4586,7 +4546,7 @@ You parked Kitty graphics on 2026-09-23.
     (`baud-domain/src/image.rs`).
   - `blit_image` in `baud-render/src/composite.rs` draws a pixel fully or
     skips it.
-  - CLAUDE.md's CPU-path rule depends on that: every image pixel is opaque or
+  - the project's CPU-path rule depends on that: every image pixel is opaque or
     clear.
   - Kitty's default format is RGBA, and PNGs carry partial transparency.
 - **Budget:** `baud-app/src/host.rs` gave images 4 MiB by default
@@ -4606,7 +4566,7 @@ You parked Kitty graphics on 2026-09-23.
     `baud-font/tests/bitmap.rs` (both gone since 2026-10-15: png.rs reads
     Adam7).
 
-  The work list's entry for these was already correct and needed no change.
+  The plan's entry for these was already correct and needed no change.
 
 **What others do**
 
@@ -4643,7 +4603,7 @@ You parked Kitty graphics on 2026-09-23.
 - **Other terminals** (UNVERIFIED, from t-images' surveys): ghostty makes PNG
   decode an injected, nullable function; rio, wezterm and contour use the Rust
   `image` crate; foot declines Kitty graphics; sfte uses stb_image.
-- **CLAUDE.md, "kitty's protocol is all-or-nothing":** a partial
+- **CONTRIBUTING.md:** a partial
   implementation that answers the query is a false claim.
 
 **Options**
@@ -4652,7 +4612,7 @@ You parked Kitty graphics on 2026-09-23.
   design as contingent.** Docs only. No pictures yet.
 - **B. Move png.rs now,** into baud-domain or a new crate, with no Kitty code.
   Effort M for nothing a user sees, and code with no consumer, against
-  CLAUDE.md's rule "a consumer that exists or a decision that is pinned".
+  the project's rule "a consumer that exists or a decision that is pinned".
 - **C. The embedder injects the decoder,** ghostty's shape (the embedder is
   the app hosting the core, here baud-app). The seam's original reason is
   gone: it assumed a decoder has to allocate, and ours does not. A *different*
@@ -4677,7 +4637,7 @@ measurements, not as settled.**
 `baud-font`'s `png.rs` (`baud-domain/src/png.rs` since step 2) is a
 `no_std`, alloc-free, `forbid(unsafe)` PNG and
 zlib decoder, with its limits (~~no Adam7;~~ Adam7 read since 2026-10-15;
-bit-at-a-time Huffman; whole input contiguous). The Kitty row's reason becomes "parked by the owner; the real
+bit-at-a-time Huffman; whole input contiguous). The Kitty row's reason becomes "parked by the project; the real
 prerequisite is alpha".
 
 **At unpark, in order.** Each step with a choice is a fork for you, with my
@@ -4688,8 +4648,7 @@ lean:
    of what is sent; the memory one full-window picture needs. The arena needs
    about 8.2 MB, raw scratch about 8.2 MB more, plus the payload: roughly
    three pictures' worth transiently.~~ **Done 2026-10-15**, on kitten
-   0.49.2 at the app's 17x34 cell (the record, "A `kitten icat` session,
-   recorded, and the three numbers V19 owed";
+   0.49.2 at the app's 17x34 cell (its measurement;
    `scripts/record-kitten-icat.py`):
    - **Decode: 39.5-39.6 ms** (39.3-40.1 over an A/A pair, 476.7 M
      instructions) for a real 1920x1080 RGB PNG of 961 KB, the one kitten
@@ -4710,7 +4669,7 @@ lean:
      read interlaced images" (`[[source: w3c-png-2003]]` 13.10, and 15.2.3's
      "all the standardized ... interlace methods"), so png.rs's refusal is a
      departure to close before `f=100` is answered. **Closed 2026-10-15**:
-     png.rs reads Adam7 (the record, "png.rs reads Adam7").
+     png.rs reads Adam7.
    - **Memory: payload + raw + arena, exactly**, since png.rs allocates
      nothing; a process's peak footprint agreed within 79 KB, under 0.1%.
      1920x1080
@@ -4729,13 +4688,13 @@ lean:
      kitty-graphics]]`); unpadded base64, which
      the text allows, since only "All chunks, except the last" must be a
      multiple of 4.
-     - *Fork, for Jev at 0.9 or you:* **(a)** accept a chunk of any length
+     - *Fork, for the review at 0.9 or you:* **(a)** accept a chunk of any length
        and ignore a continuation chunk's other keys: kitten works, and the
        text binds the client and says nothing of what a terminal does with a
        longer chunk, so no text is departed from. **(b)** refuse what breaks
        the client's rules: the letter enforced, and kitten 0.49.2 shows no
-       picture whose base64 is longer than 4096 bytes. ~~No lean.~~ **Jev
-       decided (a), 2026-10-15, 0.90/0.92**; the owner can veto.
+       picture whose base64 is longer than 4096 bytes. ~~No lean.~~ **The review
+       decided (a), 2026-10-15**.
 1. **Alpha.**
    - *Fork:* a full alpha arena, or thresholding to opaque-or-clear, which is
      cheap, touches no render path and gives jagged edges. **Lean: full
@@ -4748,16 +4707,13 @@ lean:
      `ImageStore`. Sixel writes full-alpha pixels, so its output is unchanged.
    - Each image is marked opaque or partial at decode. Opaque keeps today's
      cheap repeatable blit; partial repaints the rows it covers each frame.
-   - **Built 2026-10-15** as decided: the owner's "Full alpha", and Jev's
+   - **Built 2026-10-15** as decided: the decision's "Full alpha", and the review's
      straight in the store, premultiplied once where it blends (1.00 and
      1.00). `Pixel` is straight `0xAARRGGBB`, each image `OpaqueOrClear` or
-     `Partial` (the record, "Images keep straight alpha, and a partial one
-     repaints its rows").
-2. ~~**Where the decoder lives.**~~ **Done 2026-10-15**, in baud-domain
-   (the owner's pick): `baud-domain/src/png.rs`, `baud-domain/src/zlib.rs`
+     `Partial`.
+2. ~~**Where the decoder lives.**~~ **Done 2026-10-15**, in baud-domain: `baud-domain/src/png.rs`, `baud-domain/src/zlib.rs`
    (inflate fed a read at a time, over any source of slices) and
-   `Base64::feed` (chunks of any length, Jev's (a)); the record, "The
-   decoders move to baud-domain, and inflate resumes across reads".
+   `Base64::feed` (chunks of any length, the review's (a)).
    - *Fork:* baud-domain, or a new leaf codec crate. **Lean: baud-domain**,
      which baud-core and baud-font both already depend on, and where t-images
      puts image decode. A new crate is viable too: `scripts/check-features.sh`
@@ -4778,19 +4734,17 @@ lean:
    - Deferred decode cannot cover PNG with compression, whose header is itself
      compressed.
    - **The table-driven Huffman fast path is built, 2026-10-15, and 8.3 ms
-     is not met** (the record, "Huffman codes decode through a table, and a
-     full window still takes four frames"). mosaic-blue decodes in 32.5 ms
+     is not met**. mosaic-blue decodes in 32.5 ms
      against base's 36.5, 355.6 M instructions against 412.7 M: 32.5 ms,
      3.9 frames; 24.2 ms over the bar. The symbol loop, its lookups
      included, is now about a tenth of a decode; the Adler-32 is about two
      fifths, unfiltering a fifth, and the byte-at-a-time back-reference
      copy an eighth. By this step's own
-     rule it falls to deferred decode, which is a design question for Jev.
-   - **Jev decided DEFER_IN_CORE_STEPPED (1.00 and 1.00), built 2026-10-16**
+     rule it falls to deferred decode, which is a design question.
+   - **it was decided DEFER_IN_CORE_STEPPED, built 2026-10-16**
      with steps 5-6: reserved, placed and the cursor moved when the size is
      known, `Term::decode_step` advancing the rest, the macOS display link a
-     MiB a tick and the Linux loop a MiB a turn; mosaic-blue's steps take 28.9 ms in all (the record, "kitty
-     graphics in the core").
+     MiB a tick and the Linux loop a MiB a turn; mosaic-blue's steps take 28.9 ms in all.
 4. **Transmission mediums.**
    - *Fork:* direct payloads (`t=d`) only, since the spec expects clients to
      probe and fall back; or an embedder hook for `t=f`, `t=t` and `t=s`, with
@@ -4804,18 +4758,17 @@ lean:
      DA whose CSI is longer than three bytes (`[[source: kitty-icat-detect]]`),
      so against baud's default `CSI ? 6 c` it waits out its 10 s timeout
      first; `CSI ? 6 ; 4 c` (`[images] advertise_sixel`) fails at once.
-   - **Built 2026-10-16, both halves** (Jev TD_FIRST_FILES_LATER: `t=d`
+   - **Built 2026-10-16, both halves** (the review TD_FIRST_FILES_LATER: `t=d`
      first, the three local mediums later through a baud-app hook): a
      `KittyFiles` trait the embedder lends, called at the terminator inside
      the read, so replies keep their order; baud-app's `LocalFiles` with the
      text's checks, `fstat`-identity TOCTOU-safe. kitten's detection sends
      `S` as the payload's length (87 for a three-byte `t=t` file), which
      the text's "smaller than the client claimed" refuses and kitty's
-     `read_img_file` reads as a bound; Jev kept the text (0.69, 0.72, under
+     `read_img_file` reads as a bound; the review kept the text (under
      the bar), so its `t=t` probe gets the error and it sends `t=d`; its
-     `file` and `memory` modes decode by `t=f` and `t=s`. Open, under the bar:
-     reading `S` as a bound; refusing a relative path (0.68, 0.70). The
-     record, "The kitty file mediums, through a reader the embedder lends".
+     `file` and `memory` modes decode by `t=f` and `t=s`. Open:
+     reading `S` as a bound; refusing a relative path (0.68, 0.70).
 5. **The protocol in baud-core.**
    - An `APC G` hook of the `Act::SixelStart` shape, and a payload scratch in
      `Storage` of the `sixel_body` shape.
@@ -4829,35 +4782,32 @@ lean:
      height) is checked against `ImageBudget` before anything is reserved, and
      a refusal is counted.
    - Placements, cursor movement and deletion reuse `ImageStore`.
-   - **Built 2026-10-16** (the record, "kitty graphics in the core"): routed
+   - **Built 2026-10-16**: routed
      by the body's first byte rather than a graph action, so the graph is
      unchanged; the scratch holds a PNG and its scanlines, eight bytes an
      arena pixel. Open, each recorded: the renderer does not draw the source
      rect, `c`/`r`, `X`/`Y` or `z` order; `t=f`/`t=t`/`t=s`, animation,
      `U=1` and `P` are later steps; a placed image is never deleted for
      space, and when deleting every unplaced image would not make space
-     none is deleted (Jev 0.90 and 0.92); replies keep the 7-bit shape
-     under S8C1T, following it the owner's question (Jev 0.92 and 0.88).
+     none is deleted; replies keep the 7-bit shape
+     under S8C1T, following it the project's question.
      The quota is the text's: the oldest images without placements go
-     first. **Followed up 2026-10-16** (the record, "A kitty query decodes
-     outside the quota, and the arena costs nothing idle"): a query
-     decodes in a 64x64 probe outside the arena, deleting nothing (Jev's
-     QUERY_SMALL_SCRATCH, 0.98 and 0.97); the arena comes from zeroed
+     first. **Followed up 2026-10-16**: a query
+     decodes in a 64x64 probe outside the arena, deleting nothing; the arena comes from zeroed
      memory, so the app's default is 95 MiB, three 3840x2160 screens, at
      no idle cost.
 6. **Answer no query until raw formats and PNG both decode.** This reverses
    t-images' order, which answered queries a step early. **Done 2026-10-16**:
    queries are answered in the commit that decodes both.
-7. **Unicode placeholders (`U=1`, U+10EEEE).** **Built 2026-10-16** (the
-   record, "kitty Unicode placeholders"), to `[[source: kitty-graphics]]`'s
+7. **Unicode placeholders (`U=1`, U+10EEEE).** **Built 2026-10-16**, to `[[source: kitty-graphics]]`'s
    "Unicode placeholders" and the pinned diacritic list `[[source:
    kitty-rowcolumn-diacritics]]`: virtual placements in the kitty stream's
    own table, holding their image, moving no cursor; the diacritics in the
    cell's content word; the inheritance resolved a row at a time as drawn;
    each run drawn on the three paths as a strip of the virtual placement's
-   whole image in its cells; deletes by `i I n N r R` only. Jev decided
+   whole image in its cells; deletes by `i I n N r R` only. It was decided
    ADJACENT, IDS (a departure from "colors"), STAY and FIT_WHOLE at 1.00
-   both times. **Open, under the bar:** BLANK for a placeholder with
+   both times. **Open:** BLANK for a placeholder with
    nothing to show (0.80, 0.84; TUS 5.3's `.notdef` the other option) and
    the content word over the cluster store (0.72, 0.68).
    **Followed up 2026-10-16**: a placement a full table refuses, virtual
@@ -4865,7 +4815,7 @@ lean:
    text's error form, at `q` absent and `q=1`, and an `a=T` answers for
    its placement, deferred or not. The text names no code for a full
    table and kitty has none to fill; ENOSPC is the code the text gives
-   for storage run out. Jev, 2026-10-16: ENOSPC 1.00 and 1.00, and an
+   for storage run out. The review, 2026-10-16: ENOSPC, and an
    `a=T` answering for its placement, PLACEMENT_OUTCOME, 1.00 and
    1.00, both decided as built.
    A virtual placement of an image no id names is answered nothing, the
@@ -4916,7 +4866,7 @@ with cells identical.
   - decode time on megabyte payloads is unmeasured;
   - a partly transparent picture costs CPU-path repaints while it is on
     screen;
-  - linking the decoder into the core brings the code-layout risk CLAUDE.md
+  - linking the decoder into the core brings the code-layout risk CONTRIBUTING.md
     records on `cat`.
 
 **What would change it / depends on**
@@ -5006,8 +4956,8 @@ owner-calls table) when this was asked; it records them confirmed since.
   [[source: vulkan-vk-ext-external-memory-dma-buf]], and handed to the
   compositor through linux-dmabuf [[source: wp-linux-dmabuf-v1]].
 - **"XWayland fallback" is the repo's own phrase.** The register's D13 ends
-  with "Owner calls: ... X11 first-class or XWayland fallback" (j-rendering.md
-  lines 227-228), and the owner-calls list asks "X11: first-class, or XWayland
+  with "Open calls: ... X11 first-class or XWayland fallback" (j-rendering.md
+  lines 227-228), and the project-calls list asks "X11: first-class, or XWayland
   fallback?" (line 265). You picked one of two options the note offered.
   - The wording misleads. XWayland is an X11 server that runs *inside* a
     Wayland desktop so old X11 programs keep working. It does nothing for a
@@ -5142,7 +5092,7 @@ owner-calls table) when this was asked; it records them confirmed since.
   each L.
 - **Risk:** none in code from confirming. The product risks you accept:
   - X11-only users cannot run baud.
-  - Machines without Vulkan get the CPU path. CLAUDE.md measures it at about
+  - Machines without Vulkan get the CPU path, measured at about
     0.56-2.1 ms of CPU a frame on this Mac, against 40-190 us for the Metal
     cell path as it ships (14-19 us before it drew ligatures and marks).
   - dmabuf modifier support and explicit sync on NVIDIA vary by driver
@@ -5351,7 +5301,7 @@ second mode?
 - **Scale-font:** the layout never changes, only the text size. Programs never
   gain room, and every step of a drag re-renders every glyph at a new size.
 - **Where the item came from:** a report after running fastfetch, that output
-  "disappears up and does not wrap". CLAUDE.md's resize section concludes this
+  "disappears up and does not wrap". The project's resize section concludes this
   was the build before the scale fix, which reported about 298 columns on a
   shrunk window. On the fixed build, wrapping works and nothing is lost. That
   conclusion is an inference: the reproduction ran on the fixed build, not
@@ -5393,7 +5343,7 @@ second mode?
   - mintty scales the font when you hold Shift while resizing
     (`ZoomFontWithWindow`, on by default). Its manual calls this "not a
     precise operation".
-- **Two corrections to CLAUDE.md's resize section:**
+- **Two corrections to the project's resize section:**
   - "It lies to TUIs about the size" is wrong. A TUI is a full-screen text
     program such as vim or htop. Under a fixed grid the pty's rows and columns
     stay true, and only the pixel reports change; `Sizing::Fixed` already
@@ -5429,10 +5379,10 @@ report that as a bug. It is not a reason for scale-font.
 **Design**
 
 - **For A, a doc edit:**
-  - close the work list's resize item;
-  - in CLAUDE.md's resize section, change "lies to TUIs" to "gives programs no
+  - close the open resize item;
+  - in the project's resize section, change "lies to TUIs" to "gives programs no
     room";
-  - name PuTTY and mintty as opt-in precedents where CLAUDE.md says "no
+  - name PuTTY and mintty as opt-in precedents where the resize notes say "no
     mainstream terminal".
 - **For B, if you want it later.** It touches `baud-app` only; `baud-core` is
   untouched, so no ingest measurement is owed.
@@ -5478,7 +5428,7 @@ report that as a bug. It is not a reason for scale-font.
 
 On 2026-09-13 two 55-second recordings were made at 200x50: `less` paging with
 the space bar through baud's own Rust source, and `vim -u NONE` paging through
-the same text with Ctrl-F. They fed one table in CLAUDE.md on how often the
+the same text with Ctrl-F. They fed one measurement table on how often the
 ligature window cache misses over a long session. That cache holds shaped
 character sequences such as `->` and `//`. Then the recordings were lost with
 a scratch directory.
@@ -5490,14 +5440,14 @@ no longer checkable?
 
 Nothing on screen either way. This is about two things:
 
-- whether a number in CLAUDE.md can be checked;
+- whether a number in that table can be checked;
 - whether the recording collection covers paging through code on the alternate
   screen (the separate screen that full-screen programs such as less and vim
   draw on).
 
 **Today**
 
-- **The table** is CLAUDE.md's "A long session says what the window cache
+- **The table** is the project's "A long session says what the window cache
   holds" (line 12897). Per frame:
   - `less` over code under JetBrains Mono: 62 windows, 17 missing;
   - `vim`: 31 windows, 11 missing;
@@ -5522,7 +5472,7 @@ This is baud's own corpus, so the evidence is internal.
 - **The committed recordings already give figures of the same order.**
   - `tests/recordings/ascii/cat-scroll.raw` is `cat` of 437 KB of Rust source
     at 200x50, about 110 frames at one 4096-byte read a frame.
-  - CLAUDE.md's row-7 table ("A ligature window's miss is 3 us") has its
+  - the project's row-7 table ("A ligature window's miss is 3 us") has its
     window figures: 61 windows and 18 misses a frame under JetBrains Mono, 54
     and 37 under FiraCode. git-log reads 27 and 15, and less-pager 56 and 23.
   - The lost rows were 62/17 under JetBrains Mono and 50/37 under FiraCode.
@@ -5542,7 +5492,7 @@ This is baud's own corpus, so the evidence is internal.
   changed, and its non-blank counts are still core2's. New rows would be a
   regression pin with no outside check.
 - **A precedent for "no longer checkable":** when the binary behind `opcost`'s
-  per-shape figures was deleted, CLAUDE.md kept them for their ordering and
+  per-shape figures was deleted, the notes kept them for their ordering and
   forbade quoting them as current.
 - **The decision the table supported stands without it.** Closing the
   "bootstrap cache" idea also rests on two other measurements: the faces map
@@ -5592,8 +5542,8 @@ corpus?** If yes:
 
 **Design**
 
-- **For C+:** edit CLAUDE.md's long-session section (a status line, a pointer
-  to the row-7 table, and the scoped sentence), and close the work list's
+- **For C+:** edit the project's long-session section (a status line, a pointer
+  to the row-7 table, and the scoped sentence), and close the plan's
   entry for the two lost recordings.
 - **If captured:**
   - **Pin the input first.** Either generate the paged text with a committed
@@ -5637,150 +5587,6 @@ corpus?** If yes:
   full membership turns out nearly free in suite time.
 - **Depends on:** nothing else here.
 
-### V24. Delete the old backup branches and the stash
-
-**The question**
-
-There are five leftover local branches, made as safety copies before squashes
-(combining several commits into one) and history rewrites, and one stash (a
-set-aside change from August). Can they be deleted, together with twelve old
-branches already merged into `master`?
-
-`smooth-scroll` is already pushed: it tracks `origin/smooth-scroll` at
-`f68375c`. So the precondition this item waited on is met.
-
-**What you would notice**
-
-`git branch` and `git stash list` would show only `master` and
-`smooth-scroll`. Nothing in the code changes.
-
-**Today**
-
-- `smooth-scroll` is at f68375c and on origin. `master` equals `origin/master`
-  (f5e6156).
-- **The six candidates:**
-  - `backup-pre-squash-smooth-scroll` (959cdbe);
-  - `backup-pre-fixup-squash` (ce70108);
-  - `backup-pre-split-ris-prompt` (aa8c76f);
-  - `sfte-oracle` (0d7c5ba);
-  - `backup-pre-trailer-rewrite` (0cc2fa7);
-  - `stash@{0}` (c5f2198): "graph-walks-everything: -45% btop, -23%
-    asciiquarium, +3% cat-cjk".
-- **Twelve more branches are fully merged into `master`:** `row0` through
-  `row10`, and `note-n-and-gate-audit`, which also exists on origin.
-- None of these holds the `$S/` build-artefact blobs that the history rewrite
-  removed.
-
-**What others do**
-
-Each claim was checked read-only with git; there is no outside practice to
-cite.
-
-- **`backup-pre-squash-smooth-scroll`.** Its code is already on
-  `smooth-scroll`: its tip tree is identical to that of 9ad4070, which is an
-  ancestor. What is unique to it is 63 pre-squash commit messages, 88,673
-  bytes, which were condensed to 30,173 on purpose under the
-  one-commit-per-feature rule. That is about 58 KB of prose.
-- **`backup-pre-fixup-squash`.** It has the same tip tree. Its 11 commit
-  messages are byte-identical to `smooth-scroll`'s, and 3 of its 11 trees are
-  intermediate states from before the fixups.
-- **`backup-pre-split-ris-prompt`.** It is an ancestor of `smooth-scroll`,
-  with nothing of its own.
-- **`sfte-oracle`.** 7 of its 10 commits are patch-identical on
-  `smooth-scroll`. The other 3 are present in squashed form, and their
-  findings are in MEASUREMENTS.md.
-- **`backup-pre-trailer-rewrite`.** It matches master's commits in tree and
-  subject. It differs only by 12 AI co-author trailer lines, which you had
-  removed, so keeping it keeps exactly what you deleted.
-- **The stash.** It was made on 2026-08-29, on the previous core's parser
-  code, which no longer exists, so it cannot be applied. Its finding was
-  re-measured on the current core (CLAUDE.md, "The scan is not the
-  protocol's": btop 503 against 884 with `probe-no-fast-csi`).
-- **What "recoverable after deleting" really means.**
-  - `git branch -D` also deletes that branch's own reflog (git's log of where
-    a ref pointed). Recovery then rests on HEAD's reflog and on the timing of
-    git's garbage collection, which uses git's defaults because this repo sets
-    none.
-  - A dropped stash is recoverable only through `git fsck`.
-  - That is why the one branch with unique content gets a bundle: a single
-    file holding a branch's commits.
-
-**Options**
-
-- **A. Delete all six, and the twelve merged branches.** A clean list. The 58
-  KB of original commit messages is lost once garbage collection prunes it.
-- **B. The same, but bundle `backup-pre-squash-smooth-scroll` first**, into
-  one file outside the repo. It keeps the original messages and is reversible,
-  at the cost of one extra file. A bundle is a different form from the
-  existing mirror-clone backup (baud-backup-pre-S-rewrite.git, outside the repository); it is
-  not the same convention.
-- **B2. Keep a tag instead of a bundle**, such as
-  `archive/pre-squash-smooth-scroll`, if you want the messages kept inside the
-  repo.
-- **C. Keep everything.** Zero risk, but clutter, and the trailer backup keeps
-  text you asked to have removed.
-
-**Recommendation**
-
-**Yes to B.** Bundle the pre-squash backup outside the repository and verify
-the bundle. Then delete the five branches, drop the stash, and delete the
-twelve merged branches.
-
-Deleting `note-n-and-gate-audit` on origin is a separate call and is not
-included.
-
-**Design**
-
-The commands, in order:
-
-1. `git bundle create ../baud-pre-squash-smooth-scroll.bundle backup-pre-squash-smooth-scroll`
-2. `git bundle verify ../baud-pre-squash-smooth-scroll.bundle`
-3. `git branch -D backup-pre-squash-smooth-scroll backup-pre-fixup-squash backup-pre-split-ris-prompt sfte-oracle backup-pre-trailer-rewrite`
-4. `git stash drop stash@{0}`
-5. `git branch -d row0-keystroke-instrument row1-shader-cache row2-bundle-icon row3-early-spawn row4-overlap-nsapp row5-dead-strip row6-pace-by-completion row7-window-miss row8-map-warm row9-local-echo row10-stale-redraws note-n-and-gate-audit`
-
-Step 5 uses `-d`, which refuses any branch that is not merged, so it checks
-itself. The check works because HEAD (`smooth-scroll`) contains `master`.
-
-Separately, a docs commit for stale text found along the way:
-
-- The work list said both "Pushed 2026-09-25" and "`smooth-scroll` is
-  local only, with no branch on origin", a contradiction in a file no commit
-  carries.
-- README.md's status table, found by reading it while writing this note:
-  - "Grid: two storage representations" (line 41) describes the deleted core's
-    two storage modes;
-  - the Scrollback row (line 43) still says nothing in the app scrolls to the
-    history, though the app has a wheel and a scrollbar;
-  - "Renderer" and "Font shaping" (lines 46-47) still read "not started";
-  - the VT row (line 39) still says 147 done and 2 partial, which CLAUDE.md
-    records as stale.
-
-**Tests and measurement**
-
-- **Already run, read-only:**
-  - ancestry (`merge-base --is-ancestor`);
-  - tree identity;
-  - patch equivalence (`git cherry`);
-  - commit-message byte counts;
-  - the absence of `$S/`.
-- **During:** `git bundle verify` must pass before anything is deleted.
-- **After:** `git branch` and `git stash list` show only `master` and
-  `smooth-scroll`.
-- No cargo was run.
-
-**Effort and risk**
-
-- **Effort:** S.
-- **Risk:** low. These are local refs only, and the bundle covers the one ref
-  with unique content.
-
-**What would change it / depends on**
-
-- **Changes it:** you want the pre-squash messages kept inside the repo (then
-  option B2).
-- **Depends on:** the push, which is done.
-
 ### V25. Decode-then-write on the ingest path: close it as a direction
 
 **The question**
@@ -5799,9 +5605,9 @@ performance-sensitive code. Pursuing it would target a step that measures at
 
 **Today**
 
-- **The proposal is baud-core2's.** CLAUDE.md lines 5532-5535 call it "a
+- **The proposal is baud-core2's.** the notes of the time call it "a
   research-note-scale project" and say not to start it "without putting the
-  choice to the owner". That core is deleted.
+  choice for decision". That core is deleted.
 - **Runs of characters already work this way on the current core.** `put_run`
   (`baud-core/src/write.rs`, documented at lines 1050-1057) is "Decoded first,
   then written by whichever writer fits".
@@ -5815,14 +5621,14 @@ performance-sensitive code. Pursuing it would target a step that measures at
     `baud-core/Cargo.toml` line 90) is an additive probe: a build that does
     one step twice, to price it. It covers only `put_one`'s decode.
   - `put_run`'s vector decode has no such probe.
-  - The `ceiling-no-decode` arm changes the screen, so CLAUDE.md records it as
+  - The `ceiling-no-decode` arm changes the screen, so it is recorded as
     pricing nothing.
-- **The work list** asked for a re-price on the current build before any
+- **The plan** asked for a re-price on the current build before any
   proposal.
 
 **What others do**
 
-The evidence is internal measurement (CLAUDE.md), all taken on earlier builds
+The evidence is internal measurement, all taken on earlier builds
 of this core.
 
 - **The new core's cost map** (line 2872): the per-character decode, done
@@ -5865,7 +5671,7 @@ recordings (cat-cjk and less-cjk).
 
 - **For A, a doc edit:**
   - strike that work-list entry;
-  - annotate CLAUDE.md lines 5532-5535 as baud-core2's proposal, superseded by
+  - annotate the notes of the time as baud-core2's proposal, superseded by
     `put_run`'s decode-then-write shape and by the 0-0.9% figures.
 - **For B, if taken:**
   - Declare a new feature, *probe-double-run-decode*, beside

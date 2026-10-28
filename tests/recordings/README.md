@@ -78,13 +78,11 @@ the capture of 2026-10-09 it replaces; only the text around them moved.
 
 `scripts/record-kitten-icat.py` records what `kitten icat` 0.49.2 writes,
 `--transfer-mode=stream`, to a pty carrying the app's pixels (17x34 a
-cell), for note V's V19 step 0 (the record, "A `kitten icat`
-session, recorded, and the three numbers V19 owed"). Unlike the captures
+cell), for note V's V19 step 0. Unlike the captures
 above, these regenerate: kitty and the two nixos-artwork pictures are
 pinned by nixpkgs revision, and two runs gave the same bytes. None is
 committed. `mosaic-blue` and `waterfall` are CC-BY-SA-4.0 and `skyglow` is
-Apple's, and whether a recording that carries one belongs in this
-repository is the owner's call. kitten fits a picture to the window's
+Apple's, and whether a recording that carries one belongs in this repository is open. kitten fits a picture to the window's
 width alone, so 113x24, 816 pixels high, sends the same bytes as 113x32.
 The sha256 of each:
 

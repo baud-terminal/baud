@@ -2,16 +2,12 @@
 
 **Status: research, 2026-10-09. Nothing is decided and nothing here is built
 into the shipped trail; four prototypes were built on branches, not merged, to
-be measured.** (Built since, 2026-10-17: O2, Jev's lean, with section 6's
+be measured.** (Built since, 2026-10-17: O2, with section 6's
 harness first. A repeat pass drops its particles and reads its cap from
 the cells under it, text included, and the CPU path's quad takes it: 0
-FAIL on the full grid at 1x and 2x; the record, "A trail's repeat pass is
-drawn under the flash thresholds". Since, the same day: the ghost was
+FAIL on the full grid at 1x and 2x: a trail's repeat pass is drawn under the flash thresholds. Since, the same day: the ghost was
 counted, failed at 72 pt and takes the same bound, and a selection, the
-cursor and the desktop under the dimmed glass are grounds the cap reads;
-the record, "A repeat pass reads the selection, the cursor and the glass, and the ghost takes the bound".) The owner's questions are in section 8. Jev is consulted on
-each and the review page shows each with a visual, as the owner's rules
-require; the frames staged with this note (section 4) are the material.
+cursor and the desktop under the dimmed glass are grounds the cap reads) The open questions are in section 8, each with a visual; the frames staged with this note (section 4) are the material.
 
 **The letter.** AL is this note's letter; the XTGETTCAP draft takes AM, and
 no key here collides with that draft's.
@@ -26,19 +22,17 @@ later ones sit six lower there. `baud-app/src/linux.rs` changed in both
 commits too, and the statement that the Linux driver draws no trail is
 quoted at `4911bf0`.
 
-**Where it comes from.** Three read-only investigations under
-`.claude/research/flash-fix/` (the governing texts in `standards/`, prior art
-in `prior-art/`, an analysis of baud's code with a CPU replica of the census
-in `baud/`), a design of four options (`design/options.md`), and four
-prototypes, each a commit on its own branch, run through the shipped census
-harness on this Mac's GPU:
+**Where it comes from.** Three read-only investigations (the governing
+texts, prior art, and an analysis of baud's code with a CPU replica of the
+census), a design of four options, and four prototypes, each a commit on a
+branch of its own, run through the shipped census harness on this Mac's GPU:
 
-| option | commit | branch |
-|---|---|---|
-| O1 geometry | `f5725ab` | `worktree-wf_e00ce0b4-019-5` |
-| O2 intensity | `4ccd622` | `worktree-wf_e00ce0b4-019-6` |
-| O3 temporal | `dc2fce3` | `worktree-wf_e00ce0b4-019-7` |
-| O4 setting and floor | `43b72d7` (and `dd56cd3` in the glass crate, branch `proto/flash-o4-dim-flashing`) | `worktree-wf_e00ce0b4-019-8` |
+| option | commit |
+|---|---|
+| O1 geometry | `f5725ab` |
+| O2 intensity | `4ccd622` |
+| O3 temporal | `dc2fce3` |
+| O4 setting and floor | `43b72d7` (and `dd56cd3` in the glass crate, branch `proto/flash-o4-dim-flashing`) |
 
 None is pushed. Their census files, analysis scripts and 19 frames are staged
 for `docs/research/sources/al-observed/` as the `al-obs-*` entries, with the
@@ -67,16 +61,15 @@ reading unless it says strict. Two other counts disagree with it (section
   note's date, and the orb fail when the cursor jumps back and forth on the
   light theme's page. At 72 pt, the View menu's zoom limit, five effects
   fail, and so do the plain quad and the sweep (**M**, section 3). The
-  plasma, which the owner made the default on 2026-09-29 and which has
-  shipped as the default since 2026-10-10 (the record, "The plasma is the
-  default trail, and the fire stays by name"), passes at 32 pt (92% of the
+  plasma, which became the default on 2026-09-29 and which has
+  shipped as the default since 2026-10-10, passes at 32 pt (92% of the
   limit) and fails at 72 pt. A configured font size can go above 72 pt,
   and no size above 72 pt was counted.
 - **Why.** `REIGNITE` limits how often an effect is lit, not how often the
   same pixels light up. Each jump inside it sweeps the burning effect back
   over the same band, so one pixel can flash many times in one second: 15
   for the fire at 32 pt, and up to 23 in the census, for the liquid at 32 pt
-  2x, 120 Hz (**M**, the record). What keeps 13 pt inside the rule is the
+  2x, 120 Hz (**M**). What keeps 13 pt inside the rule is the
   flashing area, which grows with the font.
 - **What the texts allow.** 2.3.1 passes flashing if it is rare (at most
   three flashes in any second), or small (at most a quarter of a 10-degree
@@ -92,17 +85,14 @@ reading unless it says strict. Two other counts disagree with it (section
   flashing as often as the shipped driver (18 a second at 32 pt against 17)
   and changes the look from 21 pt (20 pt at 2x); O2 failed the pixel check
   that backs its construction; O3 still fails the strict reading in 54
-  cases at 72 pt; O4 draws no trail of any kind above 24 pt and needs a
-  release of the owner's window crate. No option meets 2.3.2 (Level AAA),
+  cases at 72 pt; O4 draws no trail of any kind above 24 pt and needs a release of the window crate. No option meets 2.3.2 (Level AAA),
   and the grids differ. The table is in section 4.6.
 - **What the options leave out.** The texts take the whole program as the unit,
   and baud flashes in other ways: the visual bell, `SGR 5` blink, the
   alternate-screen fade and the ghost trail, which only O4 touches (section
   3.4). Each option bounds the counted trails only.
 - **Nothing is chosen.** Which option, for which effects, which sizes govern,
-  which reading governs, whether a system setting governs, and whether a
-  bound may override a trail the config names are the owner's calls
-  (section 8).
+  which reading governs, whether a system setting governs, and whether a bound may override a trail the config names are open (section 8).
 
 ## 1. What the texts say
 
@@ -200,7 +190,7 @@ greater than 3 per second, regardless of brightness or size. As a result,
 even a single flashing pixel would violate this criterion."
 
 Note AJ section 1.3 reads AAA as guidance for baud, and WCAG2ICT gives none.
-Whether 2.3.2 is a goal is the owner's call (section 8). Under it, a block
+Whether 2.3.2 is a goal is open (section 8). Under it, a block
 cursor that a program jumps between two cells every 100 ms already flashes
 those cells 5 times a second with no trail at all (**M**, every off arm in
 section 4), if a jump the program makes counts as a visual element
@@ -348,7 +338,7 @@ users with photo-sensitive epilepsy."
 found: GNOME's animation keys and the desktop portal's `reduced-motion` speak
 only of motion ([[source: gnome-a11y-interface-schema-2417a27]],
 [[source: xdg-portal-settings]]). The Linux driver draws no trail today
-(`baud-app/src/linux.rs` 25-27 at `4911bf0`, quoting the record).
+(`baud-app/src/linux.rs` 25-27 at `4911bf0`).
 
 ### 1.8 Where the texts disagree
 
@@ -428,8 +418,7 @@ restart would do to baud's census was not measured.
 
 ### 3.1 What the census counts, and what it found
 
-The census (the record, "The cursor trails' flashes, counted on the
-frames they draw: at 32 pt the fire and the orb fail WCAG 2.3.1"; data
+The census (data
 `docs/research/sources/aj-observed/flash-census.tsv`) draws the shipped
 driver's frames on the GPU and counts, per pixel, the transitions of the
 definition's Note 2, paired into flashes disjointly; a case fails
@@ -455,8 +444,7 @@ prototypes' base runs (all four ran them at 72 pt; the figures here are
 O3's, the shipped driver on the full 1x grid,
 [[source: al-obs-o3-analysis]]): the quad fails 78 of 192 cases at 72 pt as
 drawn and 78 apart, the sweep 22 and 20; both pass at 32 pt (worst 17,626
-and 14,322). These are shipped trails a config can name, and the record
-does not yet carry this.
+and 14,322). These are shipped trails a config can name.
 
 **Where the size crosses.** The O3 base run puts the worst case at 24 pt at
 18,675 pt² (the fire, black on light, every 100 ms on the diagonal, 120 Hz),
@@ -499,7 +487,7 @@ Traced through `baud-app/src/trail.rs` (**C**, `baud/analysis.md` section 2):
 
 `REIGNITE` held every back-and-forth to 8 ignitions in 3 s, as written; one
 pixel still flashed up to 23 times in one second (the liquid, at 32 pt 2x,
-120 Hz; the record). The module doc has said so since `6541bdf`: "It limits
+120 Hz). The module doc has said so since `6541bdf`: "It limits
 ignitions, not flashes".
 
 ### 3.3 What flashes, and why the light page
@@ -537,9 +525,7 @@ light page still fails at 50%, 25% and 10% of its opacity (43,191, 38,129,
 - **Reduce Motion** (commit `bc7cd03`): `[cursor] trail` reads into
   `TrailPick::{Default, Named}` (`config.rs` 343); `TrailPick::effective`
   (363) lets a named trail win over the system, and the reader's comment is
-  "A typo must not override an accessibility setting" (341). The owner's
-  rule of 2026-09-25 is the record's heading, "Reduce Motion means no trail,
-  unless the config names one". The app reads the preference before the
+  "A typo must not override an accessibility setting" (341). The rule since 2026-09-25: Reduce Motion means no trail, unless the config names one. The app reads the preference before the
   chase is built and polls it on every tick (`app.rs` 761-769 and
   `poll_motion`); a change goes through `retrail` and `Chase::restyle`,
   which keeps `last_lit`.
@@ -848,8 +834,7 @@ the raw measure six of the eight reach 0.1368 and the orb and the plasma
 change of ink or ground, a scan of up to about 767 alpha intervals; per
 repeat frame, one multiply per record. *As of the prototype at
 `4ccd622`; the landed build caps the CPU path's quad and reads the ground
-from the cells under the pass (the record, "A trail's repeat pass is drawn
-under the flash thresholds").* `baud-render`'s CPU drawing path
+from the cells under the pass.* `baud-render`'s CPU drawing path
 ignores the cap, and the macOS driver draws a trail through it whenever
 `BAUD_GPU=0` forces that path or no Metal device is found, every effect then
 running as the quad (`app.rs` 130-140, 160-171 and 805-809 at `6541bdf`); the
@@ -861,9 +846,7 @@ background); mixed backgrounds, text and glass are unmeasured, and the
 production answer (the least cap over the cells under the band, or a
 per-pixel clamp in the shader) is open. (Built since: the least cap over
 the colours the cells under the pass draw, a selection and the cursor
-among them, and a dimmed page over a white and a black desktop; the
-record, "A repeat pass reads the selection, the cursor and the glass, and
-the ghost takes the bound".)
+among them, and a dimmed page over a white and a black desktop)
 
 **What a person sees.** Up to 24 pt, nothing changes. Above, a single jump
 and the first sweep over any stretch in a second look as today; a jump back
@@ -949,12 +932,10 @@ band as the base's, because O3 draws the same band fewer times.
   opt-in" (`43b72d7`, `config.rs` 385), a reading, not a text (**R**).
 - **The setting.** `MADimFlashingLightsEnabled()` is resolved at run time
   (`dlopen`/`dlsym`, false when absent), because baud's minimum macOS is
-  13.0 (`packaging/macos/Info.plist` 14) and the function is 13.3's. It
-  lives in the owner's `macos-liquid-glass` beside `reduce_motion`, is read
+  13.0 (`packaging/macos/Info.plist` 14) and the function is 13.3's. It lives in the window crate, `macos-liquid-glass`, beside `reduce_motion`, is read
   at launch and polled on every tick, and `BAUD_FLASHING=dim|full` fixes it
   for checks. With it on, the default trail is off at every size; a named
-  trail is still drawn below the gate, taking the owner's Reduce Motion rule
-  of 2026-09-25 for this setting too.
+  trail is still drawn below the gate, taking the Reduce Motion rule of 2026-09-25 for this setting too.
 
 **Conformance, of the trail's flashes.** 2.3.1 (Level A): conforms on its
 grid on the disjoint reading; above the gate nothing is drawn but the
@@ -966,8 +947,7 @@ turns the default off, which any option could do; with it off, trails below
 the gate flash a pixel up to 17 times a second. The setting follows Apple's
 article for the default trail, against its header's video scope (section
 1.8); for a named trail below the gate it changes nothing, a departure from
-the article's "adjust the animation accordingly" that rests on the owner's
-Reduce Motion rule (the owner's call, Q10). Whether its default mode
+the article's "adjust the animation accordingly" that rests on the Reduce Motion rule (a choice the project made, Q10). Whether its default mode
 "minimizes" in EN 301 549's sense is open.
 
 **Measured** ([[source: al-obs-o4-census]], [[source: al-obs-o4-summary]];
@@ -1013,8 +993,7 @@ setting change. The poll adds one `dim_flashing_lights()` call per
 display-link tick, which is once a frame; a standalone probe timed it at
 5.6-5.9 ns against 12.1 ns for `reduce_motion()` (**U**: reported by the
 prototype, outside the app, under load, and its output was not kept;
-[[source: al-obs-o4-pollcost-tool]]). It cannot land until the owner's window
-crate ships a release with `dim_flashing_lights`: the prototype reaches
+[[source: al-obs-o4-pollcost-tool]]). It cannot land until the window crate ships a release with `dim_flashing_lights`: the prototype reaches
 `dd56cd3` through a `[patch.crates-io]` entry with an absolute path to a
 glassnote worktree on this machine. Where the lookup lives is a choice:
 `baud-app` already resolves an accessibility function at run time through
@@ -1024,9 +1003,8 @@ instead of in the crate.
 **Linux.** The Linux driver draws no trail today, so the floor has nothing
 to act on there, and no Dim Flashing Lights counterpart was found to read
 (section 1.7). If the trail comes to Linux, whether the floor and the
-setting follow it is open; the owner's rule that macOS and Linux draw the
-same pixels was set for text, and whether it extends to trails is the
-owner's call.
+setting follow it is open; the project's rule that macOS and Linux draw the
+same pixels was set for text, and whether it extends to trails is open.
 
 **What a person sees.** With the setting off, up to 24 pt nothing changes.
 At 25 pt and above there is no trail of any kind, whatever the config names:
@@ -1097,8 +1075,7 @@ or measured.
   which a 2025-06-27 erratum corrected (section 1.8).
 - **~~The ghost trail has never been counted.~~** Counted since, by a
   `ghost` arm that runs the ghost's rules from `trail.rs`: it passes up to
-  32 pt and fails at 72 pt, 1x and 2x, and takes O2's bound (the record,
-  "A repeat pass reads the selection, the cursor and the glass, and the ghost takes the bound").
+  32 pt and fails at 72 pt, 1x and 2x, and takes O2's bound.
 - **24 pt sits exactly on O2's, O3's and O4's 32 pt gate** (section 3.5); a
   font whose cell rounds one pixel taller puts 24 pt above it.
 - **A configured `font_size` outside `PxSize::of`'s range stops the launch**
@@ -1119,7 +1096,7 @@ or measured.
   driver: the prototypes' tests are on their branches.
 - The acceptance: the census at 13, 24, 26, 32 and 72 pt, 1x **and 2x**, both
   rates, every arm, with no FAIL drawn or apart, and the 13 pt hashes equal
-  to the base; and, if the owner sets a larger size as governing (Q5), the
+  to the base; and, if a larger size is set as governing (Q5), the
   sizes up to it.
 - A census series that counts seven transitions in a second, beside the
   disjoint and strict ones, so G19's count can be decided (section 1.8).
@@ -1128,9 +1105,7 @@ or measured.
 - ~~A census series over the glass page at alphas 179 and 153 on the GPU
   path.~~ Built: `FLASH_GLASS=1`, each frame over a white and a black
   desktop ([[source: al-obs-b76-glass]]), and how often the glass blanks
-  a repeat pass over the recordings' screens ([[source:
-  al-obs-b76-screens]]); the record, "On the glass a repeat pass rarely
-  draws nothing, and a switch of trail keeps the second".
+  a repeat pass over the recordings' screens ([[source: al-obs-b76-screens]]): on the glass a repeat pass rarely draws nothing, and a switch of trail keeps the second.
 
 ## 7. Unmeasured
 
@@ -1147,13 +1122,12 @@ the CPU path and, since, by the census's glass series. A
 coloured desktop is not read, and neither is a grey one between white
 and black: a glyph's edge over such a desktop is a mixture inside the
 triangle of text, page over white and page over black, and only that
-triangle's edges are scanned (the record, "A repeat pass reads the selection, the cursor and the glass, and the ghost takes the bound"). O2's 2x above 24 pt, 72 pt at 2x, text under the trail and its
+triangle's edges are scanned. O2's 2x above 24 pt, 72 pt at 2x, text under the trail and its
 CPU path were measured since ([[source: al-obs-b68-analysis]]).
 
-## 8. The owner's questions
+## 8. Open questions
 
-Each goes to Jev first, with a visual, by the owner's rules; each option is
-put with the same measures, from section 4.6.
+Each comes with a visual; each option is put with the same measures, from section 4.6.
 
 1. **Which option, or which combination?** On its own grid, each has 0 FAIL
    on the disjoint reading up to 72 pt, and none was run above. The same
@@ -1204,13 +1178,8 @@ put with the same measures, from section 4.6.
    Reduce Motion alone (already read). Linux draws no trail today and its
    settings speak only of motion; if the trail comes to Linux, whether the
    setting's behaviour follows it is part of this question.
-4. **The default trail.** The owner made the plasma the default on
-   2026-09-29, replacing the fire; it is not built, and the decision is
-   kept only in `TODO.md` (gitignored), whose P4 item 3 note AJ's section
-   3.2 cites. So the shipped default is still the fire. (Built since,
-   2026-10-10: the plasma is the shipped default, the fire kept by name, the
-   flash bounding unchanged; the record, "The plasma is the default trail,
-   and the fire stays by name". The questions below stand.) Both, on the
+4. **The default trail.** The plasma became the default on 2026-09-29, replacing the fire; it was not yet built (note AJ's section 3.2). So the shipped default is still the fire. (Built since,
+   2026-10-10: the plasma is the shipped default, the fire kept by name, the flash bounding unchanged. The questions below stand.) Both, on the
    shipped driver (**M**; disjoint drawn/apart, then strict):
 
    | size | fire | plasma |
@@ -1260,14 +1229,10 @@ put with the same measures, from section 4.6.
    those strict failures is undecided until a census series counts seven.
 9. **The ghost trail**: count it first, then the same option, or O4's floor.
    (Counted and bounded since, 2026-10-17: it failed at 72 pt only, and
-   takes O2's bound, its sweeps weighed on a ledger of their own, on the
-   lane's instruction under the owner's "use the recommended answers" of
-   that day, Jev not asked; the
-   record, "A repeat pass reads the selection, the cursor and the glass, and the ghost takes the bound".)
+   takes O2's bound, its sweeps weighed on a ledger of their own, the recommended answer of that day)
 10. **May a bound override a trail the config names?** All four prototypes
     do, above a size: O1-O3 change named trails, and O4 removes them, the
-    ghost included. The owner's rule of 2026-09-25 keeps a named trail over
-    Reduce Motion ("A typo must not override an accessibility setting", as
+    ghost included. The rule of 2026-09-25 keeps a named trail over Reduce Motion ("A typo must not override an accessibility setting", as
     the config reader puts it), and O4 extends that rule to Dim Flashing
     Lights below the gate. The reading that Level A leaves no room for an
     opt-in (section 1.2) is this note's, not a text's (**R**). Does a size

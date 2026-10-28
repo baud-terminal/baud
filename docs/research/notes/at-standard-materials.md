@@ -1,17 +1,14 @@
 # AT. A standard material for the window body
 
-Status: researched 2026-10-17; built 2026-10-18, after the owner took
-the proposal ("use the recommendations"). The body is
+Status: researched 2026-10-17; built 2026-10-18, taking the proposal. The body is
 `.underWindowBackground` by default, `[glass] style = "standard"`, and
 regular and clear Liquid Glass stay selectable; the dims hold. The
 contrast floor reads text against this note's model of the material, the
-Sidebar recipe's ends over a black and a white desktop (record, "The
-window body is the standard material"). The figures in sections 5 and 6
+Sidebar recipe's ends over a black and a white desktop. The figures in sections 5 and 6
 come from a model. They were not measured in pixels, and no window was
 opened.
 
-The owner, 2026-10-17, verbatim: "we should follow apple recommendations for
-osx" (note AS).
+The aim, 2026-10-17: follow Apple's recommendations on macOS (note AS).
 
 **What a user sees today.** Text sits on regular Liquid Glass, and the
 desktop shows through it, blurred. baud dims the glass at 0.70 in dark mode
@@ -44,13 +41,13 @@ shows through.
 - **WCAG 2.2 was not re-fetched.** The committed copy is cited: the
   contrast ratio is [[source: wcag22]]'s.
 - **Local files.** The material recipes and Apple's app binaries were read
-  on macOS 27.0 (26A5425a). baud is cited at `dbd309c9`. The owner's crate
+  on macOS 27.0 (26A5425a). baud is cited at `dbd309c9`. The window crate
   is cited at 1.0.0-beta.5, the version baud links.
 
 ## 1. The question
 
 baud's window body is an `NSGlassEffectView`, regular since 2026-10-17, from
-the owner's crate macos-liquid-glass. Should it move to an
+the window crate macos-liquid-glass. Should it move to an
 `NSVisualEffectView` standard material, stay on regular glass, or offer
 both with one of them as the default?
 
@@ -82,7 +79,7 @@ WWDC25 says the same, from today's copies of the pages:
 - Session 356 ([[source: apple-wwdc25-356]]): "controls sit on top of a
   system material, not directly on content."
 
-The owner's crate says it of itself, in mlg-glass.rs, whose bytes are
+The window crate says it of itself, in mlg-glass.rs, whose bytes are
 1.0.0-beta.5's glass.rs ([[source: mlg-glass]]). Liquid Glass is "the
 widget/HUD case that guidance permits rather than the general one. If you
 are building an ordinary document or list window, the material belongs on
@@ -181,7 +178,7 @@ path.
 
 ## 5. What changes for baud
 
-**In the owner's crate.**
+**In the window crate.**
 
 - The crate has no `NSVisualEffectView` surface in 1.0.0-beta.5 or anywhere
   in its history.
@@ -220,8 +217,7 @@ section 6's model.
 backdrop, black to white, covers either glass bound. It landed at
 `36be4250`, after this note's base. With it, btop's `#404040` meter ground
 on its black page goes to `#bcbcbc` at dark 0.70, so its meters read full.
-The figures are in the record entry
-"The glass floor reads against the whole backdrop".
+The glass floor reads against the whole backdrop.
 
 A standard material cuts the desktop's spread from 41-78 to about 10 luma,
 and an opaque one to none. Over glass anything can be behind the page,
@@ -313,64 +309,33 @@ and which of Apple's texts each follows.
 - both display settings on each material;
 - whether the dims are still wanted over a standard material.
 
-## 7. Jev, and the owner's call
+## 7. The decision
 
-**How Jev was asked.** Jev (jev-1.13.0) was asked twice, each time in both
-orders. All four answers were uncached: `decisions.jsonl` 730-733. The
-requests carried:
+The options were weighed on the three contact sheets and Apple's quotes,
+with the evidence uneven between the arms, and asked again with the search
+of all 661 catalogs, that `.windowBackground` means an opaque window where
+the dims stop mattering, decision 9 in note Y (opaque while Reduce
+Transparency is on, "and only then"), Apple's rule to pick a material by its
+intended use, and that Apple's Terminal ships translucent.
 
-- the three contact sheets;
-- Apple's quotes;
-- the owner's words;
-- a statement that the evidence is uneven between the arms;
-- a statement that even a 0.9 answer needs the owner's crate.
+Which standard material is not settled by that: describing what each move
+means swung the lead from the window background to the under-window
+material, so it depends on how the question is put. Every reading agreed on
+one result: staying on glass, or glass as the default with a standard
+material as an option, was ruled out, and a standard material as the default
+led.
 
-| ask | pick (confidence) | stay glass | move, under-window | move, window background | both, standard default | both, glass default |
-|---|---|---|---|---|---|---|
-| 1, original order (730) | move, window background (0.27) | 0.02 | 0.17 | 0.42 | 0.38 | 0.01 |
-| 1, reversed (731) | move, window background (0.70) | 0.02 | 0.19 | 0.76 | 0.03 | 0.00 |
-| 2, original order (732) | move, under-window (0.49) | 0.01 | 0.59 | 0.04 | 0.36 | 0.00 |
-| 2, reversed (733) | move, under-window (0.81) | 0.01 | 0.85 | 0.04 | 0.10 | 0.00 |
-
-**What round 2 added:**
-
-- the search of all 661 catalogs;
-- that `.windowBackground` means an opaque window, where the dims stop
-  mattering;
-- the owner's decision 9 in note Y verbatim (opaque while Reduce
-  Transparency is on, "and only then");
-- Apple's rule to pick a material by its intended use;
-- that Apple's Terminal ships translucent.
-
-**Framing disclosure.** Round 2's added text described what each move
-means, and the pick swung from the window background to the under-window
-material. So which standard material is not settled: it depends on how the
-question is put. Every ask did agree on one result:
-
-- staying on glass scored 0.01-0.02;
-- glass as the default with a standard material as an option scored
-  0.00-0.01;
-- the three options with a standard default together scored 0.97 or more.
-
-**Nothing reached 0.9, so Jev decided nothing.** After the re-ask, Jev's
-lean is to move to `.underWindowBackground` (0.49/0.81, decisions
-732/733). The proposal below keeps that material as the default and adds
-glass as an opt-in, which Jev scored 0.36/0.10. It goes to the owner
-because it needs the owner's crate.
-
-**The research's proposal**, which is not Jev's pick, since Jev never ranked
-it first:
+**The research's proposal**:
 
 - the default is `.underWindowBackground` with behind-window blending and
   the state that follows the window;
 - regular glass stays as an opt-in `[glass] style`;
 - the dims stay until an on-screen look says otherwise.
 
-If the owner wants a body that does not show the desktop, `.windowBackground`
+For a body that does not show the desktop, `.windowBackground`
 is Apple's "material for the background of opaque windows"
 ([[source: apple-nsvisualeffectview-windowbackground]]).
 
-**It is the owner's call.** Every option but staying on glass needs a new
-surface in the owner's crate, so it is the owner's call even at 0.9 (note
-AS, section 6). Nothing is built before the owner sees a standard-material
-window on screen.
+**It is open.** Every option but staying on glass needs a new
+surface in the window crate, so it waited on that crate (note
+AS, section 6) and on a standard-material window seen on screen.

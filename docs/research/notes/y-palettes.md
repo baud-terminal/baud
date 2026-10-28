@@ -4,18 +4,17 @@ Written 2026-09-29, read against `a276f44` (branch smooth-scroll); `56202db`
 and `534643a`, which built steps 1 and 2 of section 12 in another session
 while this was being written, are described from their commits and tests. Line numbers in baud files are at
 `a276f44` unless a line says otherwise. This note
-is V16 of note V, re-researched after the owner's answers of 2026-09-25 and
-decided by their answers of 2026-09-29. It synthesises eight source sweeps
+is V16 of note V, re-researched after the answers of 2026-09-25 and decided
+by those of 2026-09-29. It synthesises eight source sweeps
 (formats, switching, notify, floor, lightset, lscolors, baud's own code, and
 vogix). Each sweep was checked by a second agent whose job was to refute it,
-and two critics then read the draft, one against the owner's words and one
+and two critics then read the draft, one against the request and one
 against baud's architecture. **Every correction a refuter or critic made is
 applied here**: a refuted claim is dropped, and a claim nobody could verify
 is marked UNVERIFIED with the reason.
 
-**The scope changed on 2026-09-29.** The owner: "i would remove specific
-vogix for now until vogix v1.0.0-beta1 work is complete" (session <session>
-l.896). So this note designs no vogix reader, no vogix port and no change to
+**The scope changed on 2026-09-29**: vogix is set aside until vogix
+1.0.0-beta.1 is complete. So this note designs no vogix reader, no vogix port and no change to
 the vogix app. What the research found about vogix is kept, trimmed, in its
 own section near the end ("Record: vogix, out of scope until vogix
 1.0.0-beta.1").
@@ -43,12 +42,10 @@ nothing the tree lacks.
 
 ## The short answer to the first question: LS_COLORS
 
-The owner's first V16 words were "no what i mean is there terminal has
-LS_COLORS i think or somethig like that, what other VTs are doing?"
-(<session> l.5295, 2026-09-25), and on
-2026-09-29 "how other programs read the 16 colors? from where? is it env var?
-or what?" and "where terminals read the colors from LS_COLORS? where is the
-16 colors in a distro kept?" (<session> l.838, l.844).
+The first V16 question (2026-09-25) was what other terminals do with
+`LS_COLORS`, and on 2026-09-29 where programs and terminals read the sixteen
+colours from: an environment variable, `LS_COLORS`, or a file a distribution
+keeps.
 
 **No terminal sets LS_COLORS, and baud will not.** LS_COLORS is an
 environment variable that GNU `ls` reads, and what it holds is **colour
@@ -60,83 +57,41 @@ baud has are the sixteen it resolves, what it does with bold and faint, and a
 contrast floor on what it draws. Section 3 is the evidence.
 
 
-## 1. What the owner said, in order
+## 1. What was asked
 
-Verbatim, from the transcripts, read record by record rather than from
-session summaries. Option texts they selected are labelled as option texts, not
-as their words. Session <session> is 2026-09-25; session <session> is 2026-09-29.
-
-1. **2026-09-25, on V16** (<session> l.5295): "no what i mean is there
-   terminal has LS_COLORS i think or somethig like that, what other VTs are
-   doing? as i know there are a bunch like base16/24/ansi/etc and i have also
-   vogix16 so maybe research here is needed".
-2. **21:57:44Z, an option they selected** (l.6523; the question at l.6522):
-   "Theme pair + legible default (Recommended)". The option text: "`[palette]
-   light`/`dark` naming vogix16 day/night, base16/base24, or ghostty-format
-   files, switched live with macOS appearance (ghostty, kitty, contour,
-   Windows Terminal do this). Plus a built-in light sixteen, so GNU ls's bold
-   green/cyan (1.19 and 1.09:1 on today's light page) become readable --
-   Modus Operandi's is the only AAA set found (text 6.1:1+)." The "6.1:1+"
-   and "the only AAA set" are option text, and section 5 corrects the second
-   for baud's page.
-3. **Same answer, on mode 2031 / DSR 996/997**: "we want to be OS aware if
-   possible as well so bg luminance and os appearance , maybe we need more
-   research ?". **On ANSI 0 being the page**: "but again vogix16 and ansi and
-   base16 all have 16 colors, normal terminal, only diff is base24 i
-   beliee... so not sure maybe more research?".
-4. **22:53:51Z** (l.6854; the questions at l.6853). On 997 and program
-   colours, where the recommended option was "Background drawn; flip drops
-   overrides": "dude, we have ghe glass crate that i am the owner off that
-   does that already right, we just need to use it , it is already built
-   there including tint - osx specific , we will need for linux but that is
-   later work". On the mapping, endorsing the recommended option "Published
-   mapping + contrast floor": "i like what you recommend so we need to have a
-   type so we can also support base24 or future ones, i like it". **The
-   option text they endorsed, in full**: "Each format's own published mapping
-   (so a scheme looks as it does in kitty, ghostty, wezterm; vogix16 by
-   vogix's templates), plus a narrow floor that nudges text only when it would
-   be invisible against its own background (ghostty documents 1.1 as a good
-   value) -- fixing the invisible pairs of any convention, the built-in light
-   theme's included."
-5. **On light mode under glass, 2026-09-20** (session <session> l.9700):
-   "again, this should align with how osx settings are, isn't that what
-   glassterm is doing, it depends on the osx settings".
-6. **Standing rules**: "we need to support such protocols fully, always!"
-   (<session> l.5251, their message); "i always want you to research first" and
-   "it needs to be VERY EXTREMLY OPTIMIZED" (their spelling), which survive only
-   in the session's compaction summaries as "the owner, verbatim" (l.7068,
-   l.7660), the raw messages predating the compaction and not read; and, for
-   caching, tables and residency, baud's own idioms first.
-7. **2026-09-29, scope** (<session>): "i don't want to focus on vogix right now
-   or anything like that, i want it basic" (l.838); "ok so i started with
-   vogix-themes v1.0.0-beta1 so you can see that now its ansi compatible"
-   (l.877); "and i would remove specific vogix for now until vogix
-   v1.0.0-beta1 work is complete" (l.896).
-8. **2026-09-29, the decisions** (<session> l.916, l.926, l.940, l.962). The
-   light set: "not sure i follow " (l.916), then, re-asked, the option "Yes,
-   Modus Operandi (Recommended)" (l.926). Which setting: "glass term follow
-   system as well no?" (l.916), then the option "Appearance (Recommended)"
-   (l.926). Program colours on a flip: the option "Reset program colours
-   (Recommended)" (l.916). The floor's target: the option "To 4.5:1
-   (Recommended)" (l.916); the question named the trigger "below about 1.2:1,
-   e.g. executables at 1.19". dim_light: the option "Measure, then set
-   (Recommended)" (l.940). A dark set: the option "Yes, research one next
-   (Recommended)" (l.940). Reduce Transparency: the option "Yes, opaque then
-   (Recommended)" (l.962). Increase Contrast: the option "Yes, stricter floor
-   (Recommended)" (l.962), whose question said "fix anything under 3:1".
-   Faint and the floor's default: the option "Fix faint; floor on
-   (Recommended)" (l.962). **The thresholds 1.2, 3.0 and 4.5 are the
-   questions' and options' numbers, not figures they typed.**
+- **2026-09-25, on V16**: what other terminals do about `LS_COLORS` and the
+  sixteen colours, given base16, base24, ANSI and vogix16 schemes.
+- **The same day**: a theme pair with a legible default -- `[palette]`
+  `light` and `dark` naming base16, base24 or ghostty-format files, switched
+  live with macOS appearance as ghostty, kitty, contour and Windows Terminal
+  do, plus a built-in light sixteen so GNU `ls`'s bold green and cyan become
+  readable; awareness of the OS appearance and the background's luminance
+  (mode 2031, DSR 996/997); and each format's own published mapping plus a
+  narrow floor that nudges text only when it would be invisible against its
+  own background, with a type that can carry base24 or later formats.
+- **2026-09-20, light mode under glass**: follow the macOS settings, as the
+  glass does.
+- **Standing rules**: protocols are built whole; research comes first; the
+  result must be highly optimised; and for caching, tables and residency,
+  baud's own idioms come first.
+- **2026-09-29, scope**: basic, with vogix set aside until vogix
+  1.0.0-beta.1, whose design is ANSI-compatible.
+- **2026-09-29, the decisions** in section 2: Modus Operandi for the light
+  set; System Settings > Appearance for the palette; program colours reset on
+  a flip; the floor's target 4.5:1 with a trigger below about 1.2:1;
+  `dim_light` measured, then set; a dark set researched next; opaque under
+  Reduce Transparency; a stricter floor (3:1) under Increase Contrast; faint
+  fixed and the floor on by default.
 
 
 ## 2. Decisions taken
 
-The owner's decisions of 2026-09-29, in substance. They replace the draft's
-twelve owner questions; nothing in this list is open.
+The decisions of 2026-09-29, in substance. They replace the draft's
+twelve open questions; nothing in this list is open.
 
 1. **Scope.** No vogix reader, no vogix legibility or import rules, no vogix
    port or crate, and no vogix app fixes, until vogix 1.0.0-beta.1 is
-   complete. The owner said vogix's new design is ANSI-ordered: 16 slots, ANSI
+   complete. vogix's new design is ANSI-ordered: 16 slots, ANSI
    0-15, by role.
 2. **Scheme files by each format's published mapping.** base16 and base24 by
    tinted-theming's table ([[source: tinted-styling-base16]] v0.4.2, lines
@@ -157,15 +112,13 @@ twelve owner questions; nothing in this list is open.
    [[source: modus-operandi-theme-el]], [[source: modus-copying]]); the
    committed test holds the sixteen values as constants.
 
-   **2026-10-18, the owner: "use the recommendations".** The decisions
-   page's recommendation for this call read: "darken ansi 7 to #6c6c6c
+   **2026-10-18, the recommendation taken.** It read: "darken ansi 7 to #6c6c6c
    (4.57:1), the one change to Operandi." Built: `Theme::light()` draws
    entry 7 as `#6c6c6c`, 4.57:1 on 0xEF where `#a6a6a6` is 2.12;
    `MODUS_OPERANDI` keeps Operandi's own sixteen, the values its credit
    names, and `light_palette()` makes the one change over it.
 4. **The palette follows System Settings > Appearance** (AppleInterfaceStyle).
-   The glass keeps following Icon & widget style. On the owner's Mac the two
-   disagree (Appearance Dark, widget ClearLight), so by default they see the
+   The glass keeps following Icon & widget style. On the measuring machine the two disagree (Appearance Dark, widget ClearLight), so by default it shows the
    dark half.
 5. **An OS flip under `theme = "auto"` resets program colours**: the OSC 4,
    10, 11 and 12 overrides are dropped when the palette flips, the rule kitty,
@@ -205,11 +158,9 @@ twelve owner questions; nothing in this list is open.
    keeps normal text at 4.5:1 over the glass. The current 0.12 came from
    glassterm, which dims black under light text; baud dims a light page under
    dark text, so the number does not transfer.
-8. **A readable dark set is researched next**, Modus Vivendi first, after the
-   light set lands, and then put to the owner.
+8. **A readable dark set is researched next**, Modus Vivendi first, after the light set lands, and then decided.
 
-   **2026-10-18, the owner: "use the recommendations".** The decisions
-   page's recommendation for this call read: "xterm with four colours
+   **2026-10-18, the recommendation taken.** It read: "xterm with four colours
    corrected by OKLCH lightness only (#e93327, #3771ff, #d61bd5, #6469fe),
    so every colour reaches 4.5:1 and the rest stay xterm's." Built:
    `Theme::dark()` draws `dark_palette()`, xterm's 256 with entries 1, 4,
@@ -272,7 +223,7 @@ iTerm2 PTYSession.m, each with its COLORTERM line as the positive control
 that absence holds for PTYSession.m only). Distributions and frameworks set
 it: Fedora's colorls.sh, oh-my-zsh, vivid, dircolors-solarized. VERIFIED.
 
-**What the owner actually runs** (read from their home-manager files; VERIFIED
+**What the measuring machine actually runs** (read from its home-manager files; VERIFIED
 by the lscolors sweep and its refuter):
 
 - `ls`, `ll`, `la`, `lt` are aliases for **lsd 1.2.0**. LS_COLORS is unset, so
@@ -319,7 +270,7 @@ Under Modus the five below 1.2 are htop `1;30;43` (1.0076), fd `*.rs`
 colours or bright white, which a sixteen cannot fix; the floor lifts all
 five.**
 
-**Dark mode fails too, and the owner runs system Dark**: 51 of the 201 pairs
+**Dark mode fails too, and that machine runs system Dark**: 51 of the 201 pairs
 are below 4.5 on the dark page, including every plain blue `34` at 2.02
 (macOS `ls -G` directories, git upstream, delta file headers). That is
 decision 8's research.
@@ -420,8 +371,7 @@ ghostty are MIT; kitty-themes is GPLv3 overall with per-file licences (224 of
 - **A page and a text colour held apart from the slots.** base16 and base24
   fill them from base00 and base05, as tinted-shell's OSC 10/11 do. An
   ansi16-style file fills them from its own `background` and `foreground`.
-  A future format that defines ANSI 0 and 7 as its page and text (the
-  owner's ANSI-ordered vogix design) fills them from slots 0 and 7, which is a
+  A future format that defines ANSI 0 and 7 as its page and text (vogix's ANSI-ordered design) fills them from slots 0 and 7, which is a
   reader's choice, not a new pipeline.
 - **Polarity is derived, never read**: decision 5's WCAG rule applied to the
   page and the text. A declared polarity (tinted `variant`) is checked
@@ -473,7 +423,7 @@ dated line), so every entry but 15 is at least 4.5.
   dircolors database read ow `34;42` 1.48, pi/sg/tw 2.98, or 2.58, su 3.29,
   st 4.29 (with GNU's built-in table, which is what lsd uses, pi is 6.14 and
   bd/cd 6.09); **SGR 1;37 becomes slot 15 = `#ffffff` at 1.15:1**, where plain
-  37 is 2.12. The floor lifts the last, so decisions 3 and 6 depend on each
+  37 is 2.12. The floor lifts the last, so and 6 depend on each
   other: the legible default needs the floor on.
 - **The ports are not the source.** Every port traced (iTerm2-Color-Schemes,
   ghostty's bundle, kitty-themes) has ANSI 15 = `#595959`, from kitty-themes;
@@ -563,7 +513,7 @@ unless marked:
   reports light as 0 ([[source: kitty-themes-rst]] 84-89).
 - **What decision 5 costs, stated**: a program that set its colours once at
   startup loses them on a flip. That includes pywal-style shells, cava's OSC 4
-  entries, and the owner's vogix shell hook, which sends OSC 4 0-15 and OSC
+  entries, and vogix's shell hook, which sends OSC 4 0-15 and OSC
   10/11 once from bash/zsh initExtra (vogix@ad2e814
   nix/modules/home-manager/default.nix:627-666, UNPINNED). kovid argued in
   kitty#9253 for keeping escape-set colours (issue text, not commit-pinned).
@@ -657,14 +607,12 @@ precedent for an embedder-triggered, mode-gated report already exists:
 **The glass crate provides the macOS half, unchanged.**
 `Responder::appearance(Light | Dark)` fires from
 `viewDidChangeEffectiveAppearance` on the system light/dark axis
-([[source: mlg-drawable]] 190-195, 255-269, 420-429; the pin is the owner's
-repository at `ccf01c8`, whose file hashes equal the 1.0.0-beta.5 crate baud
+([[source: mlg-drawable]] 190-195, 255-269, 420-429; the pin is the window crate's repository at `ccf01c8`, whose file hashes equal the 1.0.0-beta.5 crate baud
 builds), and baud already routes it through `Driver::appearance` to
 `apply_style`. The crate's "tint" is not a light/dark signal:
 `WidgetStyle::tint()` is always `None` without the off-by-default
 `private-spi` feature, and `GlassSurface::set_tint_color` tints the material.
-(baud enables the crate's default features plus `drawable`.) On the owner's
-machine the two axes disagree: AppleInterfaceStyle is Dark and
+(baud enables the crate's default features plus `drawable`.) On the measuring machine the two axes disagree: AppleInterfaceStyle is Dark and
 AppleIconAppearanceTheme is ClearLight.
 
 **The design for 2031, 996 and 997** (decision 5, with the architecture
@@ -697,7 +645,7 @@ critic's change):
 - **A pinned theme sends nothing on an OS flip**: nothing an application draws
   on changed, and there is no standard channel for the raw OS appearance; 997
   must not be overloaded with it. **This drops OS awareness under a pinned
-  theme**, which the owner's "os appearance" wish would have wanted; the
+  theme**, which the wish for OS appearance would have wanted; the
   research found no channel that carries it.
 - **The glass material, the widget style and dim_light never enter 997**,
   since OSC 11 cannot express them either.
@@ -714,7 +662,7 @@ critic's change):
 - **Linux** is the same core logic plus the portal's `color-scheme` and
   `SettingChanged` in the Linux driver, which since 2026-10-21 follows the
   portal's `color-scheme` (`bus.rs`, `appearance.rs`). Value 0, no
-  preference, draws light, which was Jev's lean, LIGHT, at 0.88/0.86. With
+  preference, draws light. With
   no portal heard it draws dark.
 
 
@@ -737,12 +685,11 @@ refuter's corrections applied):
   want to avoid invisible text (same color as background), a value of 1.1 is a
   good value. If you want to avoid text that is difficult to read, a value of 3
   or higher is a good value. The higher the value, the more likely that text
-  will become black or white." **So the option the owner endorsed mixed two
-  mechanisms**: ghostty snaps, it does not nudge, and at 1.1 it turns symlinks
+  will become black or white." **So the option endorsed mixed two mechanisms**: ghostty snaps, it does not nudge, and at 1.1 it turns symlinks
   to `#000000` at 18.26:1. ghostty's code exempts box drawing, block
   elements, legacy computing and Powerline, not braille
   ([[source: ghostty-cell-d9840f3]] 294-345); its doc names only emoji and
-  images. Decision 6 keeps the owner's "nudge" and lifts by a mix, not a snap.
+  images. Decision 6 keeps the "nudge" and lifts by a mix, not a snap.
 - **iTerm2 applies its per-appearance keys** when separate light and dark
   colours are on ([[source: iterm2-ptysession]] 5864-5869).
 - **Do not port wezterm's arithmetic or kitty's ratio mode.** wezterm sets
@@ -893,11 +840,11 @@ test against the WCAG formula.
 
 - **What is drawn.** Every background carries `bg_alpha`, from `[glass]
   dim_dark` 0.22 and `dim_light` 0.12, which `Chan::from_unit` rounds to 56 and
-  31. The owner's own config sets `dim_dark = 0.5` and no `dim_light`. The dim
+  31. The measuring machine's config sets `dim_dark = 0.5` and no `dim_light`. The dim
   follows the palette's axis, AppleInterfaceStyle; the material follows the
   Icon & widget style (`baud-app/src/app.rs` lines 1818-1846).
-- **0.12 is glassterm's value**, adopted on 2026-09-20 when the owner chose
-  "every knob, like glassterm" (<session> l.9700; `config.toml.example`).
+- **0.12 is glassterm's value**, adopted on 2026-09-20 when the choice was
+  "every knob, like glassterm" (`config.toml.example`).
   glassterm dims black under light text; baud applies the number to a 0xEF page
   under dark text. **That is why decision 7 measures instead of keeping it.**
   That light mode is a light terminal was settled on 2026-09-25, by the
@@ -914,8 +861,7 @@ test against the WCAG formula.
   (encoded); at 0.5, 6.85 or 3.36. **Which space Core Animation blends in is
   UNVERIFIED**, and the real backdrop is the tinted material, not black, so
   these are bounds. Decision 7's measurement settles both.
-- **The one measurement on record is weak.** CLAUDE.md records the light body
-  at about (78.1, 86.4, 101.6), sd 18.6, the mean of the window's lower half on
+- **The one measurement taken is weak.** The light body measured at about (78.1, 86.4, 101.6), sd 18.6, the mean of the window's lower half on
   one wallpaper, from a screenshot of a P3 panel read as sRGB.
 - **So the floor measures against the stated, opaque colour** (WCAG 2.2's
   "specified background"; kitty, Windows Terminal, iTerm2 and wezterm), never
@@ -924,7 +870,7 @@ test against the WCAG formula.
   dim's job, and the dim is chosen by measurement.**
 - **The luma instrument's premise is stale.** `scripts/luma-swatch.sh` says
   "opaque truecolour background", which stopped being true when every
-  background took the dim; reproducing the CLAUDE.md measurement needs
+  background took the dim; reproducing that measurement needs
   `[glass] app_backgrounds = "opaque"` or dims of 1.0. It is fixed before the
   measurement is taken.
 - **Reduce Transparency and Increase Contrast** are read by the glass crate
@@ -1078,7 +1024,7 @@ Each rule is written once, in the crate where its inputs live.
   xterm's. `xterm_palette()` and `Theme::dark()` do not change (until
   2026-10-18, when `Theme::dark()` took decision 8's four). The doc comment
   on `Theme::light` (`baud-render/src/color.rs` lines 162-176, "Choosing the
-  numbers is the owner's call and is not made here") is rewritten in the same
+  numbers is open and is not made here") is rewritten in the same
   commit.
 - **The floor** in `resolve_slot`, placed as section 8 says, trigger and target
   in `Theme`.
@@ -1115,7 +1061,7 @@ Each rule is written once, in the crate where its inputs live.
   with `theme = "light"`, and the example says so. Under Increase Contrast the
   trigger is the larger of the config's and 3.0; while Increase Contrast is on
   it overrides `floor = "off"`, as Reduce Transparency overrides the dim
-  (decided here by analogy with decision 9; the owner can reverse it).
+  (decided here by analogy with decision 9).
 - **Both themes are built once, at Boot.** `apply_style` runs on the main
   thread in `pump`, so reading theme files at a flip would put disk I/O in the
   frame loop and repeat the warnings. A flip selects one of two ready Themes
@@ -1149,7 +1095,7 @@ red at its own assertion, then the measurement owed. Every baud-core step runs
 live outside baud-core. Test names below that do not exist yet are written
 without code formatting.
 
-**For every baud-core step, CLAUDE.md's two questions are answered no**: the
+**For every baud-core step, CONTRIBUTING.md's two questions ("The rule that overrides style") are answered no**: the
 paths are cold (a query, a reset, a mode, an embedder call), nothing is
 written per ingested byte, and the palette slice sits behind the `&mut StrBuf`
 reference `Paint` already carries, not in `Paint` or `Cold`. An ingest sweep
@@ -1163,8 +1109,7 @@ still runs, to show it.
 1. **OSC 4 answers every entry** (baud-core, baud-app, baud-bench). **Built at
    `56202db`**; its commit records red first (three of five tests in
    `baud-core/tests/palette_query.rs` red against a stub, two controls), four
-   perturbations and an `ingest2` sweep with every range overlapping. What
-   the step asked for, for the record:
+   perturbations and an `ingest2` sweep with every range overlapping. What the step asked for:
    - Unit: an unset entry answered from the embedder's table; an override wins;
      entries 16 and 255 answered (cube and ramp, pushed, not re-derived); OSC
      104 returns an entry to the table; the table moves no colour epoch; read
@@ -1269,8 +1214,7 @@ still runs, to show it.
      (`#595959`); the table written into 16-31.
    - Measure: frame by construction (values only); stated.
 6. **The floor, and faint** (baud-render, baud-domain's decode). **Built,
-   and two parts of the plan below changed on measurement**, each put to Jev
-   first (logged) and settled by the numbers where its confidence was low:
+   and two parts of the plan below changed on measurement**, each settled by the numbers where the reading was unsure:
    - **Faint mixes in encoded sRGB, keeping half**, not in linear light:
      linear light leaves faint default text at 1.86:1 on the light page and
      7.19:1 on the dark one; encoded, 2.96:1 and 4.07:1. Half is ghostty's
@@ -1330,8 +1274,7 @@ still runs, to show it.
      then a `?5` flip) with and without the floor; a steady frame costs nothing
      by construction; the `.metallib` unchanged.
 7. **Readers, the scheme type, and `[palette]`** (baud-domain, baud-render,
-   baud-app). **Built**, one commit per format and one for the config, each
-   open choice put to Jev with the rule written before asking (logged):
+   baud-app). **Built**, one commit per format and one for the config, each open choice taken by the rule written before asking:
    - **base16/base24**: the current and legacy forms, `system` inferred from
      the slots, a declared `variant` other than light or dark declaring
      nothing, one error at its line. A missing slot is reported at the file's
@@ -1355,12 +1298,12 @@ still runs, to show it.
      without the variable; the tarball is not committed). None sets an entry
      past 15.
    - **`[palette] light` and `dark`**: a bare name is tried as given, then
-     `.yaml`, then `.yml` (Jev 0.65), in the `themes` directory beside the
+     `.yaml`, then `.yml`, in the `themes` directory beside the
      config file in force, then `$XDG_CONFIG_HOME/baud/themes`, then
-     `~/.config/baud/themes`, each once (Jev 0.83); the reader is chosen by
+     `~/.config/baud/themes`, each once; the reader is chosen by
      extension in any case, `.yaml`/`.yml` base16/base24 and anything else
      ghostty (below 0.6, the rule); a scheme whose polarity is the other
-     half's is used as named and reported (Jev 0.93), the notice naming which
+     half's is used as named and reported, the notice naming which
      of page and text the file set. A file that exists and cannot be read is
      said as such. `Theme::take_scheme` lays the sixteen, the page and the
      text over the built-in half and counts what it left, and 16-255 are
@@ -1373,12 +1316,7 @@ still runs, to show it.
      padded quoted value, `rgbi:`, the whitespace set), the loader's
      directory, extension-case and unreadable-file defects, the Linux dim,
      record sentences that said more than the code, and ten mechanisms no
-     test could catch; all are fixed, each with a test red first. Jev, given
-     the same record claims and the source excerpts they rest on, scored
-     seven of nine right, hedged one true claim at 0.60 and scored one true
-     claim -- the base24 brights -- 0.39, for 6,771 tokens against the
-     workflow's 10.8 million; it found none of the defects, which live in the
-     code rather than in the record's sentences.
+     test could catch; all are fixed, each with a test red first.
    - Measured: `scripts/startup-bench.py`, nine rounds, none against two files
      named, an A/A copy: the wall +3.9 ms inside a 10.9 ms A/A spread, not a
      result; every stage moved ~1.1 ms including `scale`, which runs before
@@ -1387,14 +1325,12 @@ still runs, to show it.
      draws its own page, text and colour 1 exactly.
    - Not built: cursor and selection colours are parsed and not used (they
      wait on V13's selection setting); X11 names wait on the colour-names
-     TODO.
+     work.
 
    What the step asked for (`[palette] floor` was built early),
    ahead of the readers, so the floor had its off switch the day it shipped:
    a trigger from 1 to 21 or "off", the target the larger of 4.5 and the
-   trigger (Jev leaned to a fixed 4.5 at low confidence; the tiebreak written
-   before asking -- never lift text to below the trigger the reader set --
-   decided).
+   trigger, so text is never lifted to below the trigger the reader set.
    - The hex reader; base16/base24 YAML; ghostty files. Fixtures: a light and a
      legacy-flat base16, a base24, a hand-made ghostty file with a `#` inside a
      value; each refused form is one complaint and one test.
@@ -1413,7 +1349,7 @@ still runs, to show it.
 8. **Glass** (baud-app, scripts).
    - 8a: fix `scripts/luma-swatch.sh`'s premise, its own commit.
    - 8b: measure on screen which space Core Animation blends in, and the page
-     under the light appearance, recorded in CLAUDE.md; then set `dim_light`
+     under the light appearance; then set `dim_light`
      to the lowest opacity keeping normal text at 4.5:1 (decision 7).
    - 8c: Reduce Transparency draws every background opaque; Increase Contrast
      raises the floor to trigger 3.0, target 4.5; both polled on the tick on
@@ -1422,9 +1358,7 @@ still runs, to show it.
      Contrast applied without `set_theme` (the cache then serves stale slots);
      the poll routed through the pinned early return. Measure: `scripts/idle-cpu.py`
      for the poll, expected inside the floor like Reduce Motion's.
-9. **A readable dark sixteen**: research, Modus Vivendi first, then the owner
-   (decision 8). Not designed here. **Built 2026-10-18** as the owner's
-   answer took it: xterm's sixteen with four corrected (decision 8's dated
+9. **A readable dark sixteen**: research, Modus Vivendi first, then a decision (decision 8). Not designed here. **Built 2026-10-18** as the answer took it: xterm's sixteen with four corrected (decision 8's dated
    line), held by `baud-render/tests/readable_defaults.rs`.
 
 **Separate, now unblocked**: V17 (OSC 4/10/11 act on the colour shown under
@@ -1467,7 +1401,7 @@ unsolicited report is sent for `?5`.
    Decision 9.
 
 
-## 14. Corrections to the record
+## 14. Corrections
 
 - **ghostty does not nudge**; the endorsed option text described a mechanism no
   implementation has at 1.1.
@@ -1482,12 +1416,12 @@ unsolicited report is sent for `?5`.
   carried them UNPINNED.
 - **Among the terminals read, none defaults to a light sixteen**: Ptyxis and
   Terminal.app ship one and do not default to it.
-- **The owner's `ls` is lsd, and `lls` is uncoloured BSD ls**; V16 assumed GNU
+- **The measuring machine's `ls` is lsd, and `lls` is uncoloured BSD ls**; V16 assumed GNU
   ls on PATH. lsd's names still land at 1.19 and 1.09.
 - **dircolors.hin and ls.c's built-in table differ** (pi, bd/cd, or).
 - **helix does not detect the background in the installed version**; only
   master sends 996. Emacs does not detect under baud (no DA2 reply).
-- **bat and delta do not bypass the palette for this owner**: BAT_THEME=ansi
+- **bat and delta do not bypass the palette in the configuration measured**: BAT_THEME=ansi
   and delta's ansi theme route through slots 1-6.
 - **The override split is a split**: ghostty, iTerm2 (deliberately), VTE and
   alacritty keep; kitty, foot, contour and Windows Terminal drop. Decision 5
@@ -1520,13 +1454,11 @@ unsolicited report is sent for `?5`.
 
 ## 15. Record: vogix, out of scope until vogix 1.0.0-beta.1
 
-**Not designed and not built**, by the owner's 2026-09-29 word (section 1,
-item 7). This section records what was read so the work is not redone. The
+**Not designed and not built**, by the 2026-09-29 scope (section 1). This section records what was read so the work is not redone. The
 Vogix Design System is **unpublished**: on 2026-09-27, `git ls-remote` showed
 GitHub `main` = tag v0.2.0 = `ca0ad76`, and no published ref contained
 `c79140a`. On 2026-09-29 the local vogix16-themes checkout is still at
-`c79140a` on branch vogix-design-system, and the owner says they have started
-"vogix-themes v1.0.0-beta1", which is not in that checkout. **So every vogix
+`c79140a` on branch vogix-design-system, and vogix-themes v1.0.0-beta1 has been started, which is not in that checkout. **So every vogix
 file below is cited as a local path at the commit named, UNPINNED, never as a
 manifest key**, and everything here describes `c79140a`, not the beta.
 
@@ -1536,8 +1468,7 @@ UNPINNED, VERIFIED by reading):
 - **A theme is 16 colours, one per ANSI slot, named by role** (41-50): 0
   background, 1 danger, 2 success, 3 warning, 4 link, 5 highlight, 6 active, 7
   foreground, and 8-15 their brights. "A terminal given these 16 colors in ANSI
-  order is themed correctly with no further configuration" (52-53). This is the
-  owner's "ansi compatible" (<session> l.877).
+  order is themed correctly with no further configuration" (52-53). This is what "ANSI-compatible" means for vogix.
 - **Dark and light are defined once**, in Oklab lightness (85-88; register
   decision D12). baud's classifier is not this rule (decision 5).
 - **Section 6, Legibility** (158-191): 4.5:1 on background for foreground,

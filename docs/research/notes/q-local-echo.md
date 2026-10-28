@@ -103,8 +103,7 @@ shader must not draw itself; a prediction is one more masked cell and one
 more record -- the glyph `Renderer::cluster` gives the codepoint alone, in
 the cursor cell's rendition -- and the cursor handed to the shader and to
 the overlay's paint is one column right of the core's. The instance and
-CPU paths draw the grid as the core holds it; predictions are not drawn
-there, and the record says so.
+CPU paths draw the grid as the core holds it; predictions are not drawn there.
 
 **Judge it on the next read.** When bytes are fed, the pending
 predictions are compared with the grid, oldest first: the cell at its row
@@ -149,7 +148,7 @@ predicted is committed on the prediction's frame, before `fed`, and its
 user sees. `echo` and `fed` are still taken when the read comes, so
 `child` and `wake` keep their meaning. The line prints `pred=+us` (or `-`)
 after `written` and `predok=yes|no|-` at the end: whether the prediction
-was confirmed, contradicted or never judged before the record closed.
+was confirmed, contradicted or never judged before the line was written.
 
 A predicted record is shown before its echo, so its two bounds close
 before the verdict; it is held past them until judged (or until the

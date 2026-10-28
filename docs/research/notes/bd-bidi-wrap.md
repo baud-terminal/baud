@@ -1,36 +1,36 @@
 # BD. A right-to-left paragraph that wraps
 
 What a terminal may draw when a paragraph that mixes Hebrew and English
-runs past the last column, after the owner rejected all four options of
-`ab/b192/wrap.png` (note AB 12.3). Researched 2026-10-24 from the
+runs past the last column, after all four options of
+`ab/b192/wrap.png` were rejected (note AB 12.3). Researched 2026-10-24 from the
 governing texts, four layout engines and eight terminals read at source,
 baud's own code at `1c8b32b5`, and three prototypes drawn headless by
 baud's CPU renderer. Every source below is pinned in
 `docs/research/sources/MANIFEST.toml`, group J beside note AB's. Built
-2026-10-27 from the owner's choice of the B and own-direction panels, with
+2026-10-27 from the choice of the B and own-direction panels, with
 every word kept whole, as `[screen] wrap_words` (`docs/bidi.md`, "What you
 see"); the prototypes below are as researched.
 
-## 1. What the owner said
+## 1. What was asked
 
-2026-10-24, on the four options: "i don't like any of them, i am
-thinking if it goes to the next line, then we should break it to multiple
-line, hebrew, then english, then hebrew, if its only hebrew then . 2 w1 w2
-w3 are correct . i think we need more research to superb this feature".
+2026-10-24, on the four options: none of them; a paragraph that goes on to
+the next line should be broken into several lines, Hebrew, then English,
+then Hebrew; for an all-Hebrew paragraph, example 2's W1, W2 and W3 are
+right; and more research, to make the feature excellent.
 
 Read here as two requests:
 
 - **An all-Hebrew paragraph is drawn right today.** Example 2 split
   "ול|כן" mid-word across its two rows, and W1 (built), W2 and W3 all drew
-  it the same; the owner accepted that.
+  it the same, and that was accepted.
 - **A mixed paragraph that wraps should be drawn as lines of one
   direction each**: a Hebrew line, then an English line, then a Hebrew
   line, instead of an English run split across two rows. In W1 the
-  owner's example ends row 1 with "mid" at the left and starts row 2 with
+  example ends row 1 with "mid" at the left and starts row 2 with
   "dle" at the right (`bd/owner-runs/1-owner.png`, left panel).
 
 Every render in this note draws "זו פסקה" (U+05D6 ZAYIN), the bytes of
-the b192 scene the owner saw. The embedded font draws ז and ד (U+05D3)
+the b192 scene that was shown. The embedded font draws ז and ד (U+05D3)
 almost alike (section 10), so the first word reads "דו" in every panel.
 
 ## 2. What the standards say
@@ -115,7 +115,7 @@ reads TR/53 as having "No notion of paragraphs" (`[[source:
 terminal-wg-bidi-tr53-review]]`), and it requires the algorithm be run
 on the entire paragraph (`[[source: terminal-wg-bidi-why-special]]`).
 
-**The owner's idea against these texts.** Two axes, kept apart: where a
+**The request against these texts.** Two axes, kept apart: where a
 line breaks (the last column, a UAX #14 opportunity, a change of
 direction), and whether the display may move a cell to another row.
 
@@ -126,7 +126,7 @@ direction), and whether the display may move a cell to another row.
   direction changes meets 3.1. Read narrowly, as part of "3.1 Determining
   Line Break Opportunities", it binds the opportunities and leaves
   selection to "aesthetic and other criteria"; read broadly, it binds the
-  breaks. Both readings go to Jev (section 9).
+  breaks. Both readings are open (section 10).
 - terminal-wg is departed from outright: cells leave their stored row,
   and a re-broken paragraph needs as many drawn rows or more, because a
   terminal's wrap already fills every row.
@@ -160,7 +160,7 @@ line by itself; none breaks by direction.
   breaking scheme" (`[[source: coretext-cttypesetter-h]]` 141-280,
   `[[source: coretext-ctline-h]]`).
 
-**CoreText on the owner's text, measured** (`bd/coretext/ctwrap.out`,
+**CoreText on the example text, measured** (`bd/coretext/ctwrap.out`,
 from a headless probe built with Xcode's swiftc; probe source sha256
 `4b08277014940c1a43db170227a0689523f5a65409302000713a1d6234e55c61`, not
 committed). Hebrew is printed transliterated (ז as Z) so the printout is
@@ -179,7 +179,7 @@ not reordered again; 44 columns:
 |                         .HABH HRVWL HKYWMMW|
 ```
 
-A word break removes "mid|dle" and keeps the placement the owner
+A word break removes "mid|dle" and keeps the placement that was
 rejected: the English still ends row 1 at the left and resumes row 2 at
 the right. Breaking at the raw run boundary (c, in the file) orphans the
 comma that UAX #9 N1/N2 gave the paragraph's level, so it begins the
@@ -269,7 +269,7 @@ The window keeps `term.rows` rows, so each extra row pushes a stored row
 out of view. On the live screen those are rows a program can address, and
 everything below the paragraph is drawn off from where the program put
 it; `bd/runs-plus-words/7-full.png` shows the prompt pushed off. Keeping
-the stored row count does not answer the owner's example: two stored rows
+the stored row count does not answer the example: two stored rows
 hold three direction runs.
 
 **The existing zone test is not tight enough.** `primary_recuts`
@@ -285,7 +285,7 @@ wired; the cursor, selection, find, links and mouse were not mapped, and
 display lines past the window's last row were dropped from the bottom.
 The patches are in `bd/`.
 
-### 6.1 owner-runs: the owner's idea, two rules by two alignments
+### 6.1 owner-runs: the project's idea, two rules by two alignments
 
 `bd/owner-runs/owner-runs.patch`. Re-breaks a paragraph soft-wrapped over
 more than one stored row, wholly in the window, not a table row, holding
@@ -336,12 +336,12 @@ split, gets its row and the others stay inline.
 `bd/uax14/uax14.patch`. Every soft-wrapped paragraph that passes the
 right-to-left gate is re-filled greedily at UAX #14 opportunities, then
 each line reordered by L1-L2. Its W1 arm is pixel-identical to the
-renders the owner was shown (b192's three scene files, whose sheet is
+renders that were shown (b192's three scene files, whose sheet is
 `ab/b192/wrap.png`). It removes "mid|dle" and keeps the English at the
 left end of row 1 and the right end of row 2 (`bd/uax14/1-owner.png`),
 as CoreText's word break does; it moves "ולכן" whole in the all-Hebrew
-paragraph (`bd/uax14/2-hebrew.png`), against the owner's acceptance of
-W1 there. Across five texts at 16-50 columns, 15 of 90 layouts needed
+paragraph (`bd/uax14/2-hebrew.png`), against W1, accepted
+there. Across five texts at 16-50 columns, 15 of 90 layouts needed
 more rows than stored, at most 2 more.
 
 ![uax14 against W1](bd/uax14/sheet.png)
@@ -373,10 +373,10 @@ a run's end does not snap to end its line.
 
 ## 7. The judge's ranking
 
-Every render was read against the owner's words and the texts.
+Every render was read against the request and the texts.
 
 1. **owner-runs B, paragraph edge, with runs-plus-words' gate and its
-   LB28 merge.** It draws the owner's shape in scenes 1, 3 and 5, splits
+   LB28 merge.** It draws the requested shape in scenes 1, 3 and 5, splits
    no word, needs no jump upward, leaves all-Hebrew as W1, and keeps
    UAX #9 whole. The comma drawn at the English row's left is N1/N2's
    level and LB13's no-break, as CoreText draws it. From B: the start
@@ -386,7 +386,7 @@ Every render was read against the owner's words and the texts.
 2. **The same with own-direction alignment.** Reads better to an English
    reader; the line is resolved alone, W2, a UAX #9 departure.
 3. **runs-plus-words as built**: the shared tail row of scene 4.
-4. **uax14 word wrap**: the placement the owner rejected, and all-Hebrew
+4. **uax14 word wrap**: the placement that was rejected, and all-Hebrew
    changed.
 5. **owner-runs A**: 7 rows from 2 in scene 6.
 
@@ -419,7 +419,7 @@ Scope, set by the rows it adds:
   history, so the scroll position counts display lines.
 
 Whether a run breaking by direction is conforming, and the alignment, are
-Jev's (section 9); one call is the owner's.
+open (section 10), with one more call.
 
 ## 9. What would be built and measured
 
@@ -455,7 +455,7 @@ with the damage of a paragraph's first re-layout read separately.
 
 ## 10. Open
 
-**For Jev**, 0.9 in both orders, the owner can veto:
+**Open readings:**
 
 1. Moving cells to another row departs from terminal-wg's display-only
    model ("always shuffled within a single line", "each character
@@ -472,7 +472,7 @@ with the damage of a paragraph's first re-layout read separately.
 3. Own-direction alignment is a per-line P2-P3 departure; paragraph edge
    conforms.
 
-**For the owner**: should Hebrew words stay whole inside a re-broken
+**Open call**: should Hebrew words stay whole inside a re-broken
 mixed paragraph while an all-Hebrew paragraph still splits mid-word? Two
 rules for one script: compare `bd/owner-runs/2-hebrew.png` with
 `bd/owner-runs/1-owner.png` and `bd/owner-runs/3b-narrow.png`. Shown with

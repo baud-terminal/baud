@@ -70,7 +70,7 @@ compiled.
   across four PTY runs, ranges overlapping throughout — so: no measured cost,
   which is a weaker claim than "free".
 - **~~Not that grapheme clusters are handled.~~ They are now** (this note is
-  stale on that point; CLAUDE.md records the cluster machine landing). As
+  stale on that point; the cluster machine has landed, `docs/vt-coverage.md`). As
   written: they were not, and `Width` was computed per
   codepoint and should be per cluster. A variation selector changes the width of
   the *preceding* codepoint, and a ZWJ family sequence is five codepoints

@@ -1,17 +1,16 @@
 # J. Text anti-aliasing: weight, blend, hinting and placement
 
-The owner's call, 2026-09-30: baud's text must look the best of any
-terminal, so its anti-aliasing is decided on research, with Jev asked each
-question and anything under 0.6 sent back for more. This note records what
+The aim, 2026-09-30: baud's text must look the best of any terminal, so its
+anti-aliasing is decided on research, and an unsettled question goes back
+for more. This note records what
 was found, what was decided, and what was deferred, with the numbers each
 decision rests on. It supersedes D7 of `j-rendering.md` on two counts:
 baud will now thicken text on macOS, and it will hint at small sizes.
 
-**Superseded on weight, 2026-10-01.** The owner ruled that macOS and Linux
-draw the same pixels, so a model that copies one system's text is out; the
-literature ranks no model above another at these weights, and the owner
-chose DirectWrite's grayscale contrast curve (Jev 0.80, with plain
-blending the runner-up at 0.19). baud now rasterises every glyph once, as
+**Superseded on weight, 2026-10-01.** macOS and Linux draw the same pixels,
+so a model that copies one system's text is out; the literature ranks no
+model above another at these weights, and DirectWrite's grayscale contrast
+curve was chosen, with plain blending the runner-up. baud now rasterises every glyph once, as
 exact coverage, and bends the coverage by the curve for the colour it is
 drawn in -- a compiled 2 MB table, `baud_domain::contrast` -- on every
 path and every system, with no switch. The CoreText dilation below was
@@ -81,15 +80,15 @@ alacritty's white-on-black context does get the maximum.
 
 ## Decisions
 
-| # | question | decided | Jev | rests on |
-|---|---|---|---|---|
-| 1 | weight on macOS | replicate CoreText's dilation: five levels keyed on the text colour | 0.91 | the 15-28% measured gap is all dilation |
-| 2 | how it is built | a dilated mask per (glyph, level), box model, in baud-font; no CoreText at run time | 1.00 (0.99 on where) | below |
-| 3 | default blend on macOS | native sRGB-encoded OVER plus the dilation | 0.99 | CoreText's own blend |
-| 4 | macOS font smoothing turned off (`AppleFontSmoothing = 0`) | honour it: no dilation, as native apps do | 0.84 | Zed reads the same key (`[[source: zed-e8c6c67-gpui-macos-text]]`) |
-| 5 | weight on Linux | no dilation | 0.98 | no Linux toolkit or terminal dilates TrueType text |
-| 6 | hinting | one runtime vertical-only light auto-hinter for every font; the font's bytecode run at build time only, as a test oracle | 0.95 | below |
-| 7 | glyph placement | one grid-wide phase, `(cell_w - primary advance) / 2`, for every glyph | 0.98 | below |
+| # | question | decided | rests on |
+|---|---|---|---|
+| 1 | weight on macOS | replicate CoreText's dilation: five levels keyed on the text colour | the 15-28% measured gap is all dilation |
+| 2 | how it is built | a dilated mask per (glyph, level), box model, in baud-font; no CoreText at run time | below |
+| 3 | default blend on macOS | native sRGB-encoded OVER plus the dilation | CoreText's own blend |
+| 4 | macOS font smoothing turned off (`AppleFontSmoothing = 0`) | honour it: no dilation, as native apps do | Zed reads the same key (`[[source: zed-e8c6c67-gpui-macos-text]]`) |
+| 5 | weight on Linux | no dilation | no Linux toolkit or terminal dilates TrueType text |
+| 6 | hinting | one runtime vertical-only light auto-hinter for every font; the font's bytecode run at build time only, as a test oracle | below |
+| 7 | glyph placement | one grid-wide phase, `(cell_w - primary advance) / 2`, for every glyph | below |
 
 **2, the mechanism.** The alternative was one undilated mask plus a
 per-level coverage table in the shader, which keeps colour out of the atlas.
@@ -116,7 +115,7 @@ otherwise (`[[source: freetype-c30faba-ftdriver]]`, the darkening
 parameters). The biggest difference between baud and the native Linux look
 is slight hinting at 1x, which 6 addresses.
 
-**6, hinting.** The owner asked to combine a vertical zone snap with
+**6, hinting.** The request was to combine a vertical zone snap with
 running the font's bytecode. JetBrains Mono's bytecode is ttfautohint
 output, which is FreeType's auto-hinter compiled into TrueType: y-only, with
 an x-height increase limit of 14 readable from its `fpgm`. FreeType's light
@@ -174,16 +173,16 @@ would have to join the atlas key.
 
 - The dilated mask is rasterised supersampled, run through a separable
   sliding max over the box, and box-filtered down: exactly the measured
-  model (Jev 0.97). Only outline glyphs dilate; procedural box drawing,
+  model. Only outline glyphs dilate; procedural box drawing,
   `COLR` layers and bitmap strikes do not.
-- Its curves are cut by CoreGraphics' own rule (owner, Jev 0.93), recovered
+- Its curves are cut by CoreGraphics' own rule, recovered
   by matching masks: halve while `n(n-1)/8` times the max-norm of the second
   difference exceeds 0.2 device px (flatness 1), a quadratic into `2^k`
   equal pieces, a cubic recursively. Exact curves read 0.8-5.3% heavier
   than macOS on round letters at 1x, visible over 16-54% of the ink at a
   one-arcminute blur; the rule's chords are indistinguishable. Undilated
   text keeps baud's exact rasteriser.
-- The supersample is 8x (owner, Jev 0.86): within 11 codes of 16x
+- The supersample is 8x: within 11 codes of 16x
   everywhere, mean 0.34; 4x fails the CoreText gate. 8.5 us a mask at
   13 px, 31 us at 28 px, 97 us for a Han glyph at 32 px, against 0.6-3 us
   undilated.
@@ -204,13 +203,13 @@ would have to join the atlas key.
   It shipped in the renderer and was removed on 2026-10-01 (above).
 - Nerd Font icons are sized by a table generated at build time from the
   pinned font-patcher against the embedded Symbols Nerd Font Mono, with
-  Nerd Fonts' own patched JetBrains Mono as the oracle (Jev 1.00): 99.4% of
+  Nerd Fonts' own patched JetBrains Mono as the oracle: 99.4% of
   icons within 0.5 px, against 0 under today's em scaling, where 10,566 of
   10,623 overflow their cell. Stretched powerline glyphs keep the patcher's
-  overlap into the neighbour cell (Jev 0.97), and skip the grid phase. Where
+  overlap into the neighbour cell, and skip the grid phase. Where
   the rules apply is still open.
 - CJK from a fallback face is centred in its two cells by one offset per
-  face, from the face's ideograph advance, at em scale (Jev 1.00): within
+  face, from the face's ideograph advance, at em scale: within
   0.16 px, against 1-3 px left today.
   **Built**: a fallback face that maps 水 is offset by half the slack between
   two cells and its 水 (`face_phases` in `renderer.rs`; `Phase` now spans
@@ -220,7 +219,7 @@ would have to join the atlas key.
 
 ## Deferred
 
-**LCD subpixel anti-aliasing.** Three rounds; Jev ended at 0.75 for an
+**LCD subpixel anti-aliasing.** Three rounds ended on an
 opt-in that is off by default and disables itself on translucency, scaling,
 rotation, OLED and an unknown subpixel order. The measurements favour off:
 
@@ -241,10 +240,10 @@ rotation, OLED and an unknown subpixel order. The measurements favour off:
   reading speed or comfort against tuned grayscale, with a preference for
   moderate ClearType.
 
-The owner deferred it until the rest of the text work ships.
+It is deferred until the rest of the text work ships.
 
-**An alternative blend option.** The owner asked for "linear plus an alpha
-curve" beside native. kitty's curve (`[[source: kitty-6d5d0c4-cell-slang]]`,
+**An alternative blend option.** "Linear plus an alpha curve" was asked for
+beside native. kitty's curve (`[[source: kitty-6d5d0c4-cell-slang]]`,
 `foreground_contrast_new`; defaults in `[[source: kitty-6d5d0c4-options]]`)
 without dilation is kitty's exact look, but it reverses macOS's rule that
 lighter text is drawn heavier: on dark backgrounds the correlation of weight
@@ -258,8 +257,8 @@ colour-correct; an exact-luminance variant closes its remaining gaps on
 opaque backgrounds. But on baud's translucent backgrounds every in-shader
 correction drifts 5-27% in weight from native, because the wallpaper under
 the glass is unknown, and native's own fringe is under one just-noticeable
-difference everywhere except green on red. Jev picked ghostty's rule at
-0.79; the research favours no option. Deferred by the owner.
+difference everywhere except green on red. ghostty's rule led; the research
+favours no option. Deferred.
 
 ## Found on the way
 
@@ -274,21 +273,3 @@ difference everywhere except green on red. Jev picked ghostty's rule at
   more coarsely, at about 1 device px at 1x (inferred: a path filled at 16x
   with flatness 16 reproduces CoreText's unsmoothed masks to 0.0009). Whether
   baud should flatten finer is open.
-
-## Jev
-
-Every question went to Jev with baud's principles and the evidence of the
-round; each answer is in the decision log.
-
-| question | answers, in the order asked |
-|---|---|
-| blend space / default blend | native 0.82; native 0.99 |
-| weight on macOS | dilation 0.91 |
-| where and how to dilate | in baud-font 0.99; dilated masks 1.00 |
-| honour smoothing turned off | yes 0.84 |
-| hinting | vertical snap 0.74; auto-hinter with a bytecode oracle 0.95 |
-| Linux weight | none 0.41; none 0.98 |
-| placement | phase 0 0.35; centre 0.62; grid-wide centre 0.98 |
-| LCD | off 0.44; off 0.71; opt-in 0.79; opt-in 0.75 |
-| dilation under the curve option | off 0.08; off 0.82 |
-| the alternative blend option | linear-corrected 0.76; linear-corrected 0.79 |

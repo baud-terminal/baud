@@ -1,12 +1,7 @@
 # AQ. How the documentation is arranged, and for whom
 
 **Status: the layout is built, 2026-10-16; the items under "Not done
-here" are open.** The owner, the same day: "do a proper doc
-cleanup and product focus, its now all over the place , it should be well
-structured"; "the speed stuff on main page seems it should be in performance
-doc , also i don't see feature list , configuration file doc etc";
-"embedding the engine shoudl be its own doc no?"; "its like you are still
-technical". This note is the survey behind the layout that answered them.
+here" are open.** The aim, the same day: documentation arranged for the product's readers, the speed figures moved to a performance page, a feature list and a configuration reference, embedding on its own page, and less engineering voice. This note is the survey behind the layout that answered it.
 The ten projects' documentation was read at their repositories and sites on
 2026-10-16; none of it is pinned in the manifest, because it is evidence of
 practice, not a standard.
@@ -44,8 +39,7 @@ three places each.
 ## What was built
 
 * **Re-index, and move only what is cheap to move.** `docs/vt-coverage.md`,
-  `docs/input-coverage.md`, `docs/protocols/`, `docs/cursor*`, the record and
-  `MEASUREMENTS.md` are read by tests at fixed paths and cited by dozens of
+  `docs/input-coverage.md`, `docs/protocols/`, `docs/cursor*` and `MEASUREMENTS.md` are read by tests at fixed paths and cited by dozens of
   files, so they stay; `docs/README.md` files them by reader. BUILD.md,
   `docs/architecture.md` and FUNDING.md had a handful of inbound links each,
   and moved.
@@ -60,16 +54,13 @@ three places each.
   already held in one direction.
 * **Embedding has its own page**, `docs/embedding.md`, and the compiled
   quickstart block is checked there instead of in the README.
-* **History keeps its words.** A backticked path in the record or a note
-  names the file as it was that day; `docs.rs` resolves a listed move for
-  those two places only.
+* **History keeps its words.** A backticked path in a note names the file as it was that day; `docs.rs` resolves a listed move for notes only.
 
 ## Not done here
 
 * The README's rewrite, a separate marketing pass; it keeps its content
   and only its links followed the moves.
 * A screenshot of a working session on the first screen, which six of the
-  ten show; a help page written as symptoms; GitHub's description and
-  topics, which are the owner's to set.
+  ten show; a help page written as symptoms; GitHub's description and topics, which are set on GitHub.
 * No site generator: GitHub renders the Markdown, and `docs.rs` already
   gives what `strict: true` gives the MkDocs projects, and more.

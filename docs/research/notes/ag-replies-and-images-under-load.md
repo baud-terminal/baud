@@ -1,13 +1,9 @@
 # AG. Under load: the reply buffer and the Sixel body
 
-**Status: research, 2026-10-09.** Two owner questions (section 3), each put to
-Jev twice with no lean. Built from two investigations of the owner's own
-programs: herdr, the owner's multiplexer, and yazi, whose previews the owner
-reported blank. Both were run headless against `baud-core` in a pty, set up as
+**Status: research, 2026-10-09.** Two questions (section 3), neither settled by the research alone. Built from two investigations of programs in daily use: herdr, a multiplexer, and yazi, whose previews were reported blank. Both were run headless against `baud-core` in a pty, set up as
 `baud-app` sets it. The evidence (harnesses, captures, run logs) is under
 `.claude/research/reply/scratch/`, `.claude/research/yazi/scratch/` and
-`.claude/research/scroll/scratch/`, untracked: the captures carry the owner's
-workspace names, so none is committed, and any fixture is re-recorded from a
+`.claude/research/scroll/scratch/`, untracked: the captures carry private workspace names, so none is committed, and any fixture is re-recorded from a
 session that restores nothing.
 
 Evidence tags: **M** measured by those harnesses; **C** computed from the code.
@@ -62,9 +58,7 @@ read is 1,131 + 93,366 + 106 = 94,603 B; 96 KiB holds it. herdr's worst read nee
 **Correction, 2026-10-09: the richest DECRQSS answer is 111 B, not 114.**
 The 114 was measured on a rendition holding `4:3` and `21` together, which
 held curly and double at once because `SGR 21` set its bit beside the
-underline family instead of replacing it. `21` replaces the family now
-(the record, "SGR 21 is the double style, and the underline family
-holds one"), so no rendition holds two styles, and the richest one, with
+underline family instead of replacing it. `21` replaces the family now, so no rendition holds two styles, and the richest one, with
 `4:3` as the longest spelling, answers in 111 B (**M**, by
 `the_longest_decrqss_reply_is_within_its_bound`). From it: a worst ratio of
 22.2, and the one-read bound `1,014 + floor((L-1)/5) x 111` = 91,923 B at
@@ -78,8 +72,7 @@ answers, and has not been re-taken.
 
 ### 1.3 Defects found on the way, decided by no question
 
-The first two and the last are fixed (2026-10-09, the record, "DECRQSS
-is sent whole, and the app drains after every read"); the rest are open.
+The first two and the last are fixed; the rest are open.
 
 - **Fixed: DECRQSS answered with the wrong shape** when its reply did not fit.
   `baud-core/src/dcs.rs`'s emitter checked each fragment against the constant
@@ -87,7 +80,7 @@ is sent whole, and the app drains after every read"); the rest are open.
   and later, shorter fragments were written: with 200 bytes pending the child
   received a DCS with no terminator; with 252 pending, `ESC P 0 ;` with the
   `1$r` gone (**M**). An unterminated DCS swallows every later reply on the
-  application's side. CLAUDE.md: "Never answer a query with the wrong shape."
+  application's side. CONTRIBUTING.md: "Never answer a query with the wrong shape."
   The answer is now built in a `DECRQSS_MAX`-byte buffer (124, derived from
   `Attrs::WIRE` and the encoder's widest spellings, const-asserted under
   `REPLY`) and sent whole or dropped and counted once; a sweep across every
@@ -136,8 +129,7 @@ DCS 1 $ r Pt ST"; CPR "Result is CSI r ; c R"; `OSC 4` "replies with a control
 sequence of the same form". [[source: ecma48]] 8.3.35 is the only text that
 contemplates a device that cannot answer now, and only as a status for DSR:
 "1 busy, another DSR must be requested later". So a dropped reply is a query
-recognised and not answered -- the "parsed and dropped" shape CLAUDE.md rates
-worst -- and a fragment is the wrong shape.
+recognised and not answered -- the "parsed and dropped" shape CONTRIBUTING.md rates worst -- and a fragment is the wrong shape.
 
 ### 1.5 The options
 
@@ -158,7 +150,7 @@ worst -- and a fragment is the wrong shape.
   the largest single action and returns how far it got; the app drains and
   feeds the rest. It holds for any embedder that drains, and the buffer can
   shrink to about 4 KiB. Cost: one compare and branch per non-SGR CSI on the
-  fast path, unmeasured (CLAUDE.md's A/A protocol on btop, vim-unicode,
+  fast path, unmeasured (CONTRIBUTING.md's A/A protocol on btop, vim-unicode,
   asciiquarium and less-pager, git-log as the control); every caller of `feed`
   changes; a bench that replays a recording with queries must clear replies
   each rep.
@@ -170,8 +162,7 @@ worst -- and a fragment is the wrong shape.
   for each byte it writes; only an app rule (stop reading the pty while the
   outbox is over a bound) limits that, as it does in xterm and foot.
 
-**Jev, twice, no lean:** A at 0.19, then B at 0.22 (`.claude/research/reply/`).
-The design study recommends A, departures first (the residual overflow outside
+**No lean either way.** The design study recommends A, departures first (the residual overflow outside
 its contract, and the two colour departures until they are built).
 
 **Decided and built, 2026-10-25: B, the hold, off by default.** `REPLY`
@@ -190,11 +181,7 @@ playing between two of its reports, since one host byte plays all of
 them; taking the rest plays the macrograph on first, since the rest's
 first byte may leave the envelope. `REPLY` is twice
 `REPLY_MOST`, 20,824 bytes. Every flood is answered whole and in order at
-reads of 7 to 65,536 bytes. Jev: B_HOLD 0.97 and 0.97; the default,
-OFF_DEFAULT 0.08 and 0.64, then after research (every in-repo embedder but
-the app ignores `take_held`, and `ingest2` never drains) 0.92 and 0.96
-(log lines 1565-1568). The record has it: "A read stops for its answers
-to go out".
+reads of 7 to 65,536 bytes. Decided: B, holding the read; off by default, as every in-repo embedder but the app ignores `take_held` and `ingest2` never drains: a read stops for its answers to go out.
 
 ### 1.6 Red-first tests (either option)
 
@@ -234,7 +221,7 @@ Raising only the body limit stored every one, and old images were freed on each
 step. The refusal was counted with arena and slot refusals in one counter that
 nothing read; the budget line went to stderr, which a Dock launch discards.
 
-The owner's `~/.config/baud/config.toml` is gone (only `config.toml.old`, with
+The measuring machine's `~/.config/baud/config.toml` is gone (only `config.toml.old`, with
 `advertise_sixel = true`), so baud now starts with Sixel unadvertised and yazi
 draws text art: the blanks do not show today, and would return with Sixel
 advertised by default.
@@ -256,16 +243,11 @@ body or says what a terminal does when an image exceeds its capacity.
   must still be accepted. A larger change: the decoder keeps state across reads.
 - Raise now, stream next.
 
-Resident memory of a larger scratch was unmeasured here; it is measured in
-the record, "The Sixel body default is 3 MiB until a Sixel streams", where
-the owner's decision of 2026-10-13 is recorded: decode as the body streams,
+Resident memory of a larger scratch was unmeasured here; it was measured when the decision of 2026-10-13 was taken: decode as the body streams,
 and raise the default to 3 MiB until then. Both are built (2026-10-14),
-the raise first and then the streaming decoder, which removed the scratch:
-the record, "A Sixel is decoded as its body arrives". `Ph` sets its row
+the raise first and then the streaming decoder, which removed the scratch. `Ph` sets its row
 stride there; `Pv` sizes nothing, because the decode claims the arena's
-whole largest gap. **Jev, twice, no lean:**
-"raise now, stream next" at 0.55, then 0.24, with streaming close behind
-(`.claude/research/yazi/`).
+whole largest gap. "Raise now, stream next" led narrowly over streaming.
 
 ### 2.4 Decided by no question
 
@@ -273,7 +255,7 @@ Refusals are made visible: a counter per limit, and the app logging each
 refusal with the limit hit and the sizes. Note S's claim that a refusal is
 "diagnosable" (`docs/research/notes/s-sixel.md`) is corrected with it.
 
-## 3. The owner's questions
+## 3. The questions
 
 1. **Decided 2026-10-25, B (section 1.5).** ~~The reply buffer: A (a derived bound, about 96 KiB) or B (backpressure)?~~
    Neither departs from a text; A changes nothing per byte and keeps the API, B

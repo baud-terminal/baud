@@ -380,8 +380,7 @@ a remote host with no clipboard tool and no tmux, it gets that far:
   OSC 52 requires, a plain `y` or `p` uses the unnamed register and never
   asks the terminal.
 * **Copying** to `+` or `*` sends OSC 52, which baud drops today
-  (`clipboard_writes_dropped`). The owner's V11 is to honour writes, on by
-  default; it is not built.
+  (`clipboard_writes_dropped`). Note V's V11 is to honour writes, on by default; it is not built.
 * **Pasting** from `+` or `*`, such as `"+p`, sends `OSC 52 ; c ; ?` and waits
   1 s. It then prints "Waiting for OSC 52 response from the terminal. Press
   Ctrl-C to interrupt..." and waits up to 9 s more before it times out
@@ -1124,8 +1123,7 @@ to retrieve, so for XTSETTCAP each reduces to option 1.
      k-prefixed capabilities in the core (9,228 B, above); and every key test
      run under the mode as well.
 
-The proposal is option 1, which is what xterm's code would do for baud, and
-the owner decides (question 5).
+The proposal is option 1, which is what xterm's code would do for baud, and question 5 is open.
 
 ### 8.5 `Ms`
 
@@ -1314,7 +1312,7 @@ Costs, with every other N2 value as section 8.1 prices it (**C**,
   depend on where the reads fell.
 * A fixture of neovim's startup, recorded in baud, answers `Ms` as decided.
 
-## 11. The owner's questions
+## 11. The open questions
 
 Every option below carries a mark, conforms or departs, against the text and
 the reading named, and a cost. Section 8 holds the derivations.

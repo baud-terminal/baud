@@ -7,7 +7,7 @@ grounded in five prior-art surveys of shipping terminals, each claim traced to
 a pinned source. `s-sixel.md` is the Sixel half's spec and its acceptance
 gates; **this note settles the two things `s-sixel.md` deferred to "a Kitty
 note" -- the decoder seam under baud's `no_std` contract, and the Kitty
-protocol itself** -- and records the cross-protocol owner's calls.
+protocol itself** -- and records the cross-protocol calls.
 
 **Status, 2026-10-10.** The Sixel half of the sequencing below is built but
 for step 5: `492edae` (2026-09-21) committed this note with the decoder, the
@@ -16,7 +16,7 @@ three render paths, and the corpus's first two Sixel files,
 `tests/recordings/sixel/swirl.raw` and
 `tests/recordings/sixel/img2sixel-96x72.six`. Step 5, the decoder
 pointer-walk, is not built: `SixelCanvas::paint` still computes
-`y * width + x` per pixel. Kitty graphics is unbuilt; the owner's answer to
+`y * width + x` per pixel. Kitty graphics is unbuilt; the answer to
 note V's V19 (2026-09-25) is to build it to the spec, and the PNG and zlib
 decoder its `f=100` needs exists under the core's contract,
 `baud-domain/src/png.rs`, moved from `baud-font` for V19 step 2 (the seam
@@ -87,8 +87,7 @@ buffers of exactly that size, an interlaced one's scratch counting each Adam7
 pass's own filter bytes. Its limits are its own, not the contract's: it takes
 the whole file as one slice, and its inflate reads only the `IDAT` stream and
 cannot resume across reads. ~~It refuses Adam7 interlacing
-(`PngError::Interlaced`).~~ It reads Adam7 since 2026-10-15 (the record,
-"png.rs reads Adam7").
+(`PngError::Interlaced`).~~ It reads Adam7 since 2026-10-15.
 
 **The destination is sized before the decode for every format, `f=100`
 included.** For a raw format the core knows the destination size from
@@ -109,8 +108,7 @@ Where the decoder moves so baud-core can call it, baud-domain or a new crate,
 is open (note V's V19, step 2): baud-core depends on baud-domain and not on
 baud-font.
 
-**Measured 2026-10-15** (note V's V19, step 0, which has the figures and
-the record entry): `png.rs` decodes a full-window 1920x1080 PNG in about
+**Measured 2026-10-15** (note V's V19, step 0, which has the figures): `png.rs` decodes a full-window 1920x1080 PNG in about
 39 ms, 4.7 frames at 120 Hz, so a synchronous decode inside `feed` is
 over step 3's bar. The two sessions recorded at a 1920x1080 window needed
 15.5 and 18.7 MB at once -- payload, raw scratch and arena -- and the
@@ -321,11 +319,11 @@ baud's unconsumed `AbsLine`/`Anchor` types in `baud-domain` (recorded in
 model already half-built -- an image placement is a second consumer of exactly
 what selection and the scrollbar consume.
 
-## Owner's calls at the phase level
+## Calls at the phase level
 
 `s-sixel.md` carries the Sixel-specific calls (arena size, reflow, mode 1070 =
 private, DECSDM = follow xterm with the conflict named). This register carries
-the cross-protocol ones, and hands the owner a frame rather than a number where
+the cross-protocol ones, and gives a frame rather than a number where
 the research gives a discipline rather than a value.
 
 * **The image arena is a bounded-refuse-and-count table sized by measurement,
@@ -338,7 +336,7 @@ the research gives a discipline rather than a value.
   against L2 and went negative larger, `NLINK = 128`, and `ClusterStore`'s 63
   slots *refuse rather than evict and count the refusal* -- a bounded table
   sized against rule #2 (the touched set stays resident), which is
-  `s-sixel.md`'s design. The owner's call is the byte figure and whether refuse-
+  `s-sixel.md`'s design. A choice the project made is the byte figure and whether refuse-
   and-count (baud's instinct, a wrong-image-never-drawn guarantee) or evict-with-
   placeholder (xterm.js, an unbounded-history convenience) is the policy.
 * **Kitty at all, and in what order.** foot is a standing precedent for *not*
@@ -348,10 +346,9 @@ the research gives a discipline rather than a value.
   PNG and zlib, so Sixel is the tractable half regardless. The register's
   recommendation is **Sixel first (its gates are already fixed in `s-sixel.md`),
   then Kitty's raw-format and placement surface reusing the same storage, then
-  PNG and zlib as a separate slice, then U+10EEEE last.** Whether Kitty ships at
-  all was the owner's.
+  PNG and zlib as a separate slice, then U+10EEEE last.** Whether Kitty ships at all was open.
 
-  **Answered 2026-09-25**: note V's V19 put this to the owner, and its
+  **Answered 2026-09-25**: note V's V19 put this, and its
   "Decisions taken, 2026-09-25" records: "**V12, V14, V18, V19: built to the
   spec**, overriding their recommendations. `?1001` highlight tracking, the
   ambiguous-width switch with `?1021`, the Sixel modes `?80` and `?1070`, and
@@ -359,8 +356,7 @@ the research gives a discipline rather than a value.
   That answers whether Kitty ships; the order of its slices is not in it,
   and stays open.
 * **The storage fork is decided ARGB in this register** on the shader-sampling
-  ground above; the owner's confirmation is the point at which it moves from
-  recommended to settled, and the 4x memory cost is the thing to weigh it
+  ground above; a confirmation is the point at which it moves from recommended to settled, and the 4x memory cost is the thing to weigh it
   against.
 
 ## Sequencing
@@ -371,7 +367,7 @@ the research gives a discipline rather than a value.
    above; corrected 2026-10-10).
 2. **Sixel storage** -- the caller-provided arena, placement table and image-
    slot table on `Storage`, refuse-and-count, per `s-sixel.md`. The arena size
-   is the owner's call; the mechanism does not depend on it.
+   is open; the mechanism does not depend on it.
 3. **Sixel placement** -- absolute-line anchor + `z`, surviving scroll and the
    `Term::view(back)` rotation, per `s-sixel.md`.
 4. **The three render paths** -- CPU compositor, instance, cell -- carrying the

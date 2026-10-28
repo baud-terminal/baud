@@ -5,7 +5,7 @@
 ## Why this note exists
 
 Group F was declared when the corpus was set up and stood empty for the life of
-the project. Meanwhile `CLAUDE.md` refused a per-row high-water mark **twice**,
+the project. Meanwhile the project's rules refused a per-row high-water mark **twice**,
 both times on the strength of a `baud-bench` number that has since turned out
 to be noise, and both times with the same objection: *sixteen write sites to
 maintain an invariant, for a saving that cannot be shown.*
@@ -55,8 +55,7 @@ site cannot forget, because a write site cannot obtain a `&mut` cell without
 going through the operator that bumps the mark. Sixteen call sites, one place
 that maintains the invariant.
 
-baud already has the identical lever and `CLAUDE.md` already argues for it, in
-another section and about another quantity: `RowRot` is maintained inside
+baud already has the identical lever and already argues for it, in another place and about another quantity: `RowRot` is maintained inside
 `View::phys` so that the rotation is "one line rather than twenty-six chances
 to forget it". A used extent maintained inside `View`'s mutable accessors is
 the same move.
@@ -252,8 +251,7 @@ that eliminates 70% of it is worth up to about 40%.
   `used[phys(row)]` in `baud-domain/src/grid.rs`, so a scroll of the whole
   screen moves neither the row nor its mark, and a line move copies the mark
   with the row it copies.
-- **Selection, reflow and search** all read past the extent by nature, and
-  `CLAUDE.md` already lists them as unmeasured. VTE's NULL-return convention is
+- **Selection, reflow and search** all read past the extent by nature, and were unmeasured when this was written. VTE's NULL-return convention is
   the shape of the answer; baud has not needed one yet.
 - **Not read:** alacritty's history for why `occ` was added, and whether it was
   ever measured. The code is pinned; the rationale is not in it.

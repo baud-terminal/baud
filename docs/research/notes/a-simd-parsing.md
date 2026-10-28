@@ -273,8 +273,7 @@ Two things stand between here and there, and neither is fatal:
   already records.** It reasoned from `payload::streaming` -- pure ASCII, so
   0% -- and concluded the opportunity was "correspondingly small". Real
   terminal output is not ASCII: btop draws with `U+250x` box characters and vim
-  with CJK, and both are three bytes in UTF-8. That is "payloads that don't
-  exercise the case" from `CLAUDE.md`'s measurement-failure list, applied to a
+  with CJK, and both are three bytes in UTF-8. That is "payloads that don't exercise the case" from CONTRIBUTING.md's measurement-failure list, applied to a
   research estimate instead of a benchmark.
 
   So 14-28% of real bytes go through a decoder `[[source: utf8-lookup]]` prices
@@ -291,8 +290,7 @@ width and a cell out the other side." The obvious next step looked like a SIMD
 
 `[[source: simdutf]]` says not to build one, and its Table 6(b) is why. That
 table is an **Apple M1** — the same architecture class this project measures on,
-so it is a comparable number rather than the cross-machine kind `CLAUDE.md`
-rules out — and it reports validating UTF-8 to UTF-16 transcoding in
+so it is a comparable number rather than the cross-machine kind CONTRIBUTING.md rules out — and it reports validating UTF-8 to UTF-16 transcoding in
 gigacharacters per second:
 
 | Chinese | ICU | LLVM | finite | simdutf |

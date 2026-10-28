@@ -1,19 +1,18 @@
 # Rendering — the decisions register
 
-> **Group:** J · **Status:** draft for the owner · **Sources:** the 236 entries
+> **Group:** J · **Status:** decisions register · **Sources:** the 236 entries
 > under group J in `MANIFEST.toml`, each cited from
 > `j-rendering-evidence.md`, which carries the evidence behind every line here.
 
 ## What this is
 
-The owner's brief (2026-09-12): build the renderer **without engine
+The brief (2026-09-12): build the renderer **without engine
 dependencies -- baud owns font parsing, shaping and rasterisation**; multi-arch
 across CPU (NEON/AVX2) and GPU (Metal, Vulkan, DX12, GL, **NVIDIA/CUDA**);
 **high performance**, meaning the fourth of baud's four wins, frame rate under
 full-grid churn; **zero-copy wherever it is faster**, using CPU-GPU shared
 memory where the architecture has it; **the fewest dependencies**; and a
-separate **presentation layer** for Wayland/Hyprland, X11, macOS (via the
-owner's `macos-liquid-glass`) and Windows.
+separate **presentation layer** for Wayland/Hyprland, X11, macOS (via the window crate, `macos-liquid-glass`) and Windows.
 
 Six research sweeps answered it -- font formats, shaping, rasterisation,
 compositing, memory placement, presentation -- reading specs and the source of
@@ -54,7 +53,7 @@ per-platform system libraries. So: `baud-font` (parse + shape + raster,
 `no_std`+`alloc`, zero deps, the part that is pure), `baud-render` (compositor,
 CPU + GPU backends), `baud-present-*` (one per platform). The seam into the
 core is `Term::viewport()` plus `Term::marks()` and the rendition table, all of
-which exist. **Reverses if:** the owner wants one crate; nothing technical
+which exist. **Reverses if:** one crate is wanted; nothing technical
 forces the split, it is the dependency boundary made visible.
 
 ### D2. Ship cells to the GPU as instance records, background as a 4 B/cell texture
@@ -94,7 +93,7 @@ Mapping baud's viewport directly as the GPU buffer would have the GPU read a
 grid the parser is mutating. The 1.2 µs copy into ring slot *N* is cheaper
 than any synchronisation scheme that would make the live grid safe. **This is
 the one place "zero-copy as much as possible" yields to "wherever is faster,"
-by the owner's own refinement.** ~~Reverses if: baud-core grows a ring of grids
+by the brief's own refinement.** ~~Reverses if: baud-core grows a ring of grids
 (three viewports) -- a core change with its own cost, not a renderer decision.~~
 Superseded 2026-10-24, below.
 
@@ -121,7 +120,7 @@ for integrated GPUs," and `cudaMallocManaged` first-touch faulting costs
 2.1 ms against 24 µs resident. On discrete NVIDIA the right path is Vulkan
 with the ReBAR heap (D3). Keep an optional CUDA *import* path
 (`VK_KHR_external_memory` + `cudaImportExternalMemory`) for a future consumer,
-never a compositor. **Reverses if:** the owner wants compute-side effects
+never a compositor. **Reverses if:** compute-side effects are wanted
 (shaders as CUDA kernels) -- then interop, still not compositing.
 
 ### D6. Rasterise on the CPU, once per glyph, into a device-local atlas; composite on the GPU
@@ -179,8 +178,7 @@ whole sequence set is GSUB type 4 under `ccmp`) -- one shaper, but not the
 platform's emoji and a 10–24 MB font; **(3)** CoreText for that one font, as
 ghostty does -- zero shaping code, a 1.9k-line second glyph→cell path, and a
 platform framework inside the renderer. **The evidence recommends (1) if the
-rule is strict**, with (2) as the non-Apple fallback policy anyway. **Owner
-call:** is CoreText "the OS" (allowed, like libobjc) or "an engine"
+rule is strict**, with (2) as the non-Apple fallback policy anyway. **Open call:** is CoreText "the OS" (allowed, like libobjc) or "an engine"
 (forbidden)? The same question decides `libxkbcommon` on Linux (D13).
 
 ### D10. Colour emoji is bitmap-first; COLRv1 is a paint engine and is not v1
@@ -197,7 +195,7 @@ SF Mono, Cascadia and JetBrains Mono are variable, and `gvar`/`avar`/`HVAR`
 are ~3.3k reference lines plus the deltas hazard class that produced
 CVE-2025-27363. `fvar` is required to *read* the default instance and `glyf`
 already *is* it. **v1 parses `fvar`, ignores `gvar`; bold comes from the bold
-face, not from `wght`.** Reverses if: the owner wants weight-as-axis.
+face, not from `wght`.** Reverses if: weight-as-axis is wanted.
 
 ### D12. Damage is row-granular, outside the cell, and forwarded to the presentation layer
 The cell is full (`CellFlags` fully allocated), so a per-cell dirty bit is
@@ -229,7 +227,7 @@ Apple silicon) that the GPU draws into or the CPU writes under `IOSurfaceLock`,
 presented by setting a plain `CALayer.contents` -- the only design where the
 CPU and GPU renderers share a zero-copy present, and it avoids
 `CAMetalLayer`'s drawable pool and timeout. Pace with `NSView.displayLink`
-(14+). **One constraint from the owner's own measurements:** the glass
+(14+). **One constraint from the measurements:** the glass
 samples what is behind it and the content view is composited on top, so an
 opaque layer paints the glass out -- baud's layer is non-opaque, clears to
 the background at a configured alpha, and the darkening goes on the material
@@ -243,7 +241,7 @@ pure-Rust connection makes it library-free; DRI3 + Present is the GPU path,
 MIT-SHM the CPU one (one server-side copy, unavoidable). **Floors:** Linux
 none-or-`libvulkan`, plus `libxkbcommon` unless a Rust XKB compiler is
 accepted; macOS `libobjc` + AppKit/QuartzCore/IOSurface/Metal; Windows
-`user32`/`dxgi`/`d3d12`. **Owner calls:** Vulkan-only Linux (yes/no); X11
+`user32`/`dxgi`/`d3d12`. **Open calls:** Vulkan-only Linux (yes/no); X11
 first-class or XWayland fallback; `libxkbcommon` as floor or bet on a young
 Rust port.
 
@@ -275,7 +273,7 @@ whole ligature where HarfBuzz attaches it to the last component. Each is a
 line in the evidence note with its cost, so re-opening one is a costed
 change rather than a rediscovery.
 
-## The owner's calls, minimal
+## The calls, minimal
 
 1. **Constraint interpretation:** are OS frameworks (CoreText for one font,
    `libxkbcommon` for keymaps) "the OS", like `libobjc`, or "engines"? Decides
@@ -294,17 +292,15 @@ change rather than a rediscovery.
    whether alpha is a rendition property or a window property.
 
 **Where the six stand (recorded 2026-09-24, calls 2-4 confirmed 2026-09-25).**
-Three are settled by what was built, and three were answered in the session
-record on 2026-09-12 and confirmed by the owner on 2026-09-25 (note V, V20,
-"as recommended"):
+Three are settled by what was built, and three were answered on 2026-09-12 and confirmed on 2026-09-25 (note V, V20, as recommended):
 
 | call | status | evidence |
 |---|---|---|
 | 1. constraint interpretation | **strict**: CoreText and `libxkbcommon` count as engines. baud owns `morx` and the XKB compiler, `libxkbcommon` is an oracle only, and CoreText is unused; AppKit, Metal, QuartzCore and IOSurface remain the OS floor D13 lists | `baud-xkb` and `baud-font` depend on `baud-domain` alone; `baud-font/src/morx.rs`; `libxkbcommon` is loaded only by `scripts/xkb-oracle.py` |
 | 2. Vulkan-only on Linux | answered *yes* 2026-09-12; **confirmed** 2026-09-25, scoped to a first release (note V, V20) | no Vulkan code exists yet, so nothing built contradicts or confirms it |
-| 3. X11 | **(a), Wayland only for v1**, 2026-09-25 (note V, V20, owner: "as recommended"); a native X11 backend is not in v1 | the Linux driver is Wayland-only (`baud-present-wayland`); on a session without Wayland it exits saying baud needs one |
+| 3. X11 | **(a), Wayland only for v1**, 2026-09-25 (note V, V20, as recommended); a native X11 backend is not in v1 | the Linux driver is Wayland-only (`baud-present-wayland`); on a session without Wayland it exits saying baud needs one |
 | 4. Windows in v1 | answered *no* 2026-09-12; **confirmed** 2026-09-25, scoped to a first release (note V, V20) | no Windows code |
 | 5. macOS present | **IOSurface + `CALayer.contents`** | `baud-present-macos`; no `CAMetalLayer` in any code |
-| 6. what punches through the glass | **every background**, 2026-09-20; then `[glass] app_backgrounds` (default `dim`) and `pictures` (default `opaque`), 2026-09-22 | CLAUDE.md, "Every background is translucent now" and "A picture drawn in text is found from its block" |
+| 6. what punches through the glass | **every background**, 2026-09-20; then `[glass] app_backgrounds` (default `dim`) and `pictures` (default `opaque`), 2026-09-22 | `[glass] app_backgrounds` and `[glass] pictures` in `config.toml.example` |
 
 Everything else above is decided by evidence and reverses on a measurement.

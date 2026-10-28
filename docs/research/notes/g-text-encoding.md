@@ -518,7 +518,7 @@ zero-width predicate; then either make `measure` read `_t` or remove
 *Reason:* `بّ` costs two columns and a Devanagari virama costs one; both
 desynchronise the cursor against an `ncurses` peer computing with `wcwidth`.
 And a config field nothing reads is the same failure as a mode recorded and
-never acted on — CLAUDE.md's own rule.
+never acted on — CONTRIBUTING.md's own rule ("The protocol is enumerated").
 *Source:* [[source: uax11]] §6.2 for why EAW cannot supply zero;
 [[source: uax11]] §5 for the Ambiguous default (narrow when context is
 unavailable, which for a terminal is always).
@@ -619,9 +619,7 @@ conflated in a file whose purpose is making citations checkable.
 What holds of the old statement is narrower: **none of the DEC texts read gives
 a Unicode codepoint**. The entry is `retrieved`, and `[[source: vt100-ug-ch3]]`
 beside it names the set's 32 positions in text, `0x5F` "Blank" first. baud's
-codepoints are foot's, and `0x5F`, which foot leaves as `_`, is open:
-The record, "DEC Special Graphics begins at 0x5F, and what it stores there
-is the owner's call".
+codepoints are foot's, and `0x5F`, which foot leaves as `_`, is open.
 
 ---
 

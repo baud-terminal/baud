@@ -1,15 +1,12 @@
 # AS. Glass legibility: what Apple recommends, and what baud draws
 
 Status: researched 2026-10-17; the regular material, the 0.70/0.60 dims,
-Reduce Transparency and Increase Contrast are built on it (the record,
-"Regular glass, 4.5:1 dims, and the two display settings"), and so are the
-floor's backdrop bound and the oracle's shipped alphas (the record, "The
-glass floor reads against the whole backdrop"). Section 6 lists what stays
+Reduce Transparency and Increase Contrast are built on it, and so are the
+floor's backdrop bound and the oracle's shipped alphas. Section 6 lists what stays
 open.
 
-The owner, 2026-10-17, verbatim: "i am thinking our glass is too transparent
-so we need more research or something as text is hard to read, we should
-follow apple recommendations for osx".
+The problem, 2026-10-17: the glass was too transparent for text to read
+easily; the aim is to follow Apple's recommendations on macOS.
 
 **Provenance.** Apple's pages were fetched on 2026-10-17, the developer pages
 from the documentation JSON endpoint and the WWDC and support pages as HTML,
@@ -72,7 +69,7 @@ opaque windows." The Mac User Guide for macOS 26
 transparent effect used on some backgrounds in macOS with a solid background,
 to improve contrast and readability." The material answers by itself --
 "Reduced Transparency, makes Liquid Glass frostier" (WWDC25 219) -- but that
-does not reach what baud paints over it. The owner's crate says the same:
+does not reach what baud paints over it. The window crate says the same:
 "Honouring the setting means **not using the material at all**"
 ([[source: mlg-accessibility]] 3-16).
 
@@ -97,8 +94,8 @@ blur 0.5; Clear Light ([[source: macos-terminal-clear-light]]) is white at
   already the right choice.
 - Neither Reduce Transparency nor Increase Contrast was read; only Reduce
   Motion was (note Y already recorded this).
-- No `config.toml` was in the config directory on the owner's Mac, only a
-  `config.toml.old` holding `dim_dark = 0.5`. So the owner was looking at the
+- No `config.toml` was in the config directory on the measuring machine,
+  only a `config.toml.old` holding `dim_dark = 0.5`, so the screen showed the
   shipped defaults.
 - The material's appearance follows the Icon & widget style key, which read
   ClearLight while the system was Dark, so the dark palette drew over the
@@ -131,8 +128,8 @@ darkening and the tint.
 
 The model: a blurred wallpaper, then a material gain k, then the tint, the
 body dim and the text. Every blend is source-over in encoded sRGB. k = 0.695
-was fitted to the record's three on-screen captures ("The glass follows the
-appearance now"), with residuals of -2.9, +3.8 and -0.1 luma. k = 1 bounds the
+was fitted to three on-screen captures of the glass following the
+appearance, with residuals of -2.9, +3.8 and -0.1 luma. k = 1 bounds the
 other side. Default dark text, worst window position / median, at tint 0.14
 and a 16 pt blur:
 
@@ -156,31 +153,26 @@ difference, so none was invented.
 
 ## 5. Decisions
 
-Jev, uncached, `decisions.jsonl` 716-719 (716/717 the first round and its
-order-reversed replicate, 718/719 a re-ask of the two open questions after
-more research):
+| question | taken |
+|---|---|
+| default style | regular, not clear |
+| default dims | 0.70 dark, 0.60 light |
+| Reduce Transparency | opaque cells, the titlebar strip left as material |
+| Increase Contrast | floor trigger 3.0, target 4.5 |
 
-| question | Jev | taken |
-|---|---|---|
-| default style | clear, 0.92 / 0.95 | **not taken**: regular |
-| default dims | 0.70 dark, 0.60 light, 1.00 / 0.96, DECIDED | taken |
-| Reduce Transparency | opaque cells, titlebar strip left as material, 0.60 / 0.65 then 0.80 / 0.66 | the lean, below the bar |
-| Increase Contrast | floor trigger 3.0, target 4.5, 0.71 / 0.73 then 0.88 / 0.87 | the lean, below the bar |
-
-**Why clear was not taken.** The request modelled only clear and marked
-regular and the standard material "unmodelled". So Jev picked the only arm
-that had numbers. The owner asked to follow Apple, and Apple's text says
+**Why clear was not taken.** The first modelling covered only clear and
+marked regular and the standard material "unmodelled", so clear was the only
+arm with numbers. The aim is to follow Apple, and Apple's text says
 regular for a surface with a significant amount of text. The dims hold for
 regular as well, because they are set at the bound where the material
 darkens nothing.
 
-**Reduce Transparency's opaque cells are the owner's** (note Y, decision 9,
-"Yes, opaque then"). Jev's lean covers only the 32 pt titlebar strip, 5.1% of
+**Reduce Transparency's opaque cells are note Y's decision 9.** The
+titlebar strip left as material is 32 pt, 5.1% of
 the default window, which stays material that the system frosts.
 
-**Increase Contrast's floor is the owner's** (note Y, decision 9), and so is
-its overriding `floor = "off"`, by analogy (note Y; the owner can reverse
-it). A configured trigger or target above 3.0 or 4.5 is kept rather than
+**Increase Contrast's floor is note Y's decision 9**, and so, by analogy, is
+its overriding `floor = "off"`. A configured trigger or target above 3.0 or 4.5 is kept rather than
 lowered. That is this note's reading of "stricter". The brief's "target
 4.5" and the code's `max(configured, 4.5)` agree for every config whose
 floor is at or below 4.5, because the config's `floor()` already parses
@@ -190,25 +182,24 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
 
 ## 6. Open
 
-- **For the owner: a standard material instead of glass for the body.**
+- **Open: a standard material instead of glass for the body.**
   Apple puts Liquid Glass on controls and standard materials on "app
   backgrounds" ([[source: apple-hig-materials]]). For a see-through window
   that is `NSVisualEffectView` blending behind the window
   ([[source: apple-nsvisualeffectview-underwindowbackground]]: "create a
   sense of peeking through the back of the window"), picked "based on its
   intended use" ([[source: apple-nsvisualeffectview-2026-10-17]]). It needs
-  the owner's crate, so it is the owner's call.
+  the window crate, so it is open.
   [Note AT](at-standard-materials.md) has the research: Apple's text, the
-  shipped materials, modelled renders and Jev's answers.
+  shipped materials and modelled renders.
 - **An on-screen capture of regular against clear at 0.70/0.60**, which would
   replace section 4's model with pixels.
 - ~~**The floor measures against the page as stated**~~ **Built**: the
   floor reads text against the page at its alpha over anything from black
   to white, section 3's bound, and against the part most like the text
-  ([[source: wcag22-technique-f83]]); Jev's lean, 0.60/0.59 after a re-ask
-  (`decisions.jsonl` 734-737). Where no colour reaches 4.5 against the
+  ([[source: wcag22-technique-f83]]). Where no colour reaches 4.5 against the
   range the text goes as far as 3, and to black or white only where 3 is
-  out of reach too (Jev's lean, 0.70/0.64 after a re-ask, 744-747): at
+  out of reach too: at
   0.60 every lift on helix's and vimhl's dark pages is one of those, and
   most land near white. Under the light half at 0.22 btop's `#cccccc` on
   its black page, which went to `#4b4b4b`, now goes white (1.69:1); at
@@ -217,19 +208,12 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   lifted colour keeps its OKLab hue and as much chroma as sRGB
   holds, at the same target, so btop's red meter part and grey track stay
   apart on the glass (0.095 in OKLab where the linear-light mix left
-  0.017). Below the bar (0.80/0.55, with note Y decision 6 quoted,
-  `decisions.jsonl` 754-755), so decision 6's "just far enough" and its
-  hue are kept, as the fix allowed; the move from the linear-light mix
-  to OKLab is the owner's to veto, and the question is with the owner
-  with the renders. On a black page at 0.70 the room from 4.5:1
+  0.017). Decision 6's "just far enough" and its hue are kept, as the fix allowed; the move from the linear-light mix to OKLab is open, with the renders. On a black page at 0.70 the room from 4.5:1
   to white is 1.91:1, so no lift makes two lifted colours SC 1.4.11's 3:1
-  apart ([[source: wcag22-understanding-non-text-contrast]]). **Open, the
-  owner's call**: greys, which have no hue, still land on one grey (btop's
+  apart ([[source: wcag22-understanding-non-text-contrast]]). **Open**: greys, which have no hue, still land on one grey (btop's
   fade, `#404040` to `#979797`, all `#bcbcbc`; herdr's `#f7f7f7` and
   `#ffffff` on the opaque floor); keeping them apart means landing above
-  decision 6's "just far enough". A spread over the room above the target
-  did that, led Jev at 0.47/0.58 before decision 6 was quoted, fell to
-  0.03/0.04 after, and is withdrawn. The opaque floor keeps the mix,
+  decision 6's "just far enough". A spread over the room above the target did that, and is withdrawn, as decision 6 rules it out. The opaque floor keeps the mix,
   which washes the hue where it lifts toward white (a dark theme, or
   Increase Contrast's trigger 3); whether it follows is open too.
 - **Text on the default page is left out of the glass floor.** Its own text
@@ -243,8 +227,7 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   choice of bound: at k = 1 the range lifts the ground and the two
   endpoints would keep it dark, but at section 4's fitted k = 0.695 both
   the range and the endpoints lift it. btop's process-list fade,
-  `#4e4e4e`-`#979797`, goes to the same grey; the owner accepted that
-  (decision 2 of 2026-10-17, "btop's grey fade change is accepted"). A
+  `#4e4e4e`-`#979797`, goes to the same grey, accepted as decision 2 of 2026-10-17. A
   lift that keeps distinct colours distinct is being built next: WCAG 2.2
   SC 1.4.11 asks 3:1 "against adjacent color(s)" of the "parts of
   graphics required to understand the content" ([[source: wcag22]]).
@@ -253,9 +236,7 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   2.96, ansi7 2.12. These are the palette's, not the glass's. The floor at
   1.2 moves none; Increase Contrast's 3 lifts dark ansi4, light ansi7 and
   light faint. The light values are note Y's decision 3, faint decision 10,
-  and decision 8 reserves a readable dark set for the owner after research,
-  Modus Vivendi first. Jev: research that set first, 0.92/0.82 (738/739).
-  **For the owner**, with renders of keep against OKLCH-lightness
+  and decision 8 reserves a readable dark set for after research, Modus Vivendi first, which is to be researched first. **Open**, with renders of keep against OKLCH-lightness
   corrections (dark ansi1 `#e93327`, ansi4 `#3771ff`, ansi5 `#d61bd5`,
   ansi12 `#6469fe`; light ansi7 `#6c6c6c`). Leaving these slots to the
   floor draws the same as keeping them at the default trigger 1.2,
@@ -263,8 +244,7 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   renders show only keep against the corrections. Under Increase
   Contrast the two differ: dark ansi4, light ansi7 and light faint are
   lifted.
-  **2026-10-18, the owner: "use the recommendations"**: the corrections
-  are built (note Y, decisions 3 and 8). With no glass, dark ansi1 now
+  **2026-10-18, the recommendations taken**: the corrections are built (note Y and 8). With no glass, dark ansi1 now
   reads 4.50, ansi4 4.50, ansi5 4.51, ansi12 4.52 and light ansi7 4.57,
   so of this bullet's slots only faint, dark 4.07 and light 2.96, stays
   below 4.5, and under Increase Contrast only light faint is lifted. As

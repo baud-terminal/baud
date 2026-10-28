@@ -1,15 +1,14 @@
 # AR. Theme file formats, and telling them apart by content
 
-Status: built 2026-10-17 for every option the results sections below mark decided, plus the owner's decision 4, X resources and O14 (the owner's "use the recommended answers"); O2, O4, O8 and the empty file stay as built, as recorded there. Sections 0-5 are the design as researched on 2026-10-16. The owner asked (2026-10-16, verbatim): "we probably want to autodetect ansi/base16/base24", then "we might want to research on that". The surveys this design rests on are in `docs/research/notes/ar/` (the specs, the peers, and baud today). Every option in section 4 goes to Jev before anything is built.
+Status: built 2026-10-17 for every option the results sections below mark decided, plus the decision 4, X resources and O14; O2, O4, O8 and the empty file stay as built, as recorded there. Sections 0-5 are the design as researched on 2026-10-16. The project asked (2026-10-16, verbatim): "we probably want to autodetect ansi/base16/base24", then "we might want to research on that". The surveys this design rests on are in `docs/research/notes/ar/` (the specs, the peers, and baud today). Every option in section 4 goes to the review before anything is built.
 
 
-The owner, 2026-10-16, verbatim: "we probably want to autodetect
-ansi/base16/base24" and "we might want to research on that" (TODO.md, the item
-"Detect a theme file's format from its content").
+The project, 2026-10-16, verbatim: "we probably want to autodetect
+ansi/base16/base24" and "we might want to research on that".
 
 **Sections 0-5 are the design as researched.** Every choice the texts leave
-open is in section 4 as an option, marked conforming or not, for Jev to decide
-at 0.9 both times, with the owner able to veto. If a decision rests on this
+open is in section 4 as an option, marked conforming or not, for the review to decide
+at 0.9 both times, with the project able to review. If a decision rests on this
 file, the file moves to `docs/research/notes/` in the same session, because a
 reboot wipes `/private/tmp`.
 
@@ -84,9 +83,9 @@ baud's lines are cited at `c417553d`.
 | `Base24` (both forms) | the same, plus `base24-styling` styling.md:9-23 and :45-70 | the same reader |
 | `Ghostty` | `ghostty-config-d9840f3` Config.zig:571-573, :782-798; `ghostty-args-d9840f3` 1450-1482 | `themefile::ghostty`, themefile.rs:338-421 |
 
-**Tier N: detected and named, then refused with a message, unless Jev opens
+**Tier N: detected and named, then refused with a message, unless the review opens
 the format (O6, O7).** These are the other spellings of "sixteen slots plus a
-page and a text colour" that the owner's word "ansi" covers (peers.md §10),
+page and a text colour" that the project's word "ansi" covers (peers.md §10),
 and tinted's third system.
 
 | verdict | primary documentation | status of that text |
@@ -328,8 +327,8 @@ The steps run in order. The first step that decides, ends.
 2. It is the cross-check in D6.
 
 It no longer chooses the reader. palette.rs:8-12 records that the
-extension-chooses-reader rule was "below 0.6, the written rule". Jev never
-decided it. The bare-name order was decided at Jev 0.65, below today's 0.9
+extension-chooses-reader rule was "below 0.6, the written rule". The review never
+decided it. The bare-name order was decided at the review, below today's 0.9
 bar, and that order still decides which file's bytes are read when both
 `night` and `night.yaml` exist (O13).
 
@@ -370,7 +369,7 @@ specs.md §5). So every mapping below is the format's own.
 | page / text | base00 / base05 ("Default Background" / "Default Foreground") | same | `background` / `foreground`, independent of 0 and 7 |
 | cursor / selection | **unset** (themefile.rs:308-311); O5 | same | `cursor-color`, `cursor-text`, `selection-*`, parsed, unused until V13 |
 
-### 3.2 Tier N (the mapping each would get if Jev opens it, O7)
+### 3.2 Tier N (the mapping each would get if the review opens it, O7)
 
 | format | 0-7 | 8-15 | page / text | cursor | selection | notes |
 |---|---|---|---|---|---|---|
@@ -388,7 +387,7 @@ specs.md §5). So every mapping below is the format's own.
 
 ---
 
-## 4. Options where the texts leave a choice (for Jev)
+## 4. Options where the texts leave a choice
 
 Each option is marked **conforming** (the text allows it), **departure** (the
 text forbids it, or a format's own grammar reads the file another way), or
@@ -429,7 +428,7 @@ which message a partial file gets.
 - c. Read as base16 when `system` is absent. This conflicts with O2a's
   inference.
 
-Lean: put a and b to Jev. c reads as guessing.
+Lean: put a and b to the review. c reads as guessing.
 
 **O4. Hex forms in tinted files** ("HTML hex format and MAY be preceded by a
 `#`", builder.md:73).
@@ -468,7 +467,7 @@ V13's setting stays the chooser (y-palettes.md:415-418).
 Under any of these the spec is a beta (0.2.0-beta11). Its sources must be
 pinned before any reader cites them.
 
-**O7. Which ANSI-style syntaxes baud reads** (the owner's "ansi").
+**O7. Which ANSI-style syntaxes baud reads**.
 
 - a. ghostty only; every other syntax is detected and named. Conforming.
 - b. Add some or all of `Kitty`, `Foot`, `Alacritty`, `ColorNN`,
@@ -527,7 +526,7 @@ Both are conforming. (b) is closer to "never guess silently", because an
 empty scheme draws baud's own palette while the user believes a theme is in
 force.
 
-**O13. The bare-name order** (Jev 0.65, below the 0.9 bar; palette.rs:8-12).
+**O13. The bare-name order** (palette.rs:8-12).
 
 - a. Keep "as given, then `.yaml`, then `.yml`".
 - b. When more than one of them exists, refuse and name both.
@@ -588,7 +587,7 @@ Each asserts the verdict **and** the report line. A detector that returns
 - 15 hex lines and 17 hex lines: `Unknown(n hex lines)`.
 - Empty, and comments only: `Empty`, loaded with nothing set and the notice
   that the sixteen, the page and the text stay baud's own (decided
-  2026-10-17, load_empty_with_notice 0.98 / 0.98, decisions.jsonl 710/711:
+  2026-10-17, load_empty_with_notice 0.98 / 0.98:
   TOML's grammar allows an empty document, and ghostty, kitty, foot and
   alacritty each load one and set nothing). This line read `Unknown(empty)`,
   refused, until then.
@@ -603,7 +602,7 @@ Each asserts the verdict **and** the report line. A detector that returns
 - `system: "base16"` and `base12`: `Base16`, with a report naming base12 as
   unused.
 - Partial base24 without `system`: any one of base10-base17 makes it base24
-  (O2, any_one 1.00 / 1.00, decisions.jsonl 710/711), and then it is refused
+  (O2, any_one 1.00 / 1.00), and then it is refused
   at its first missing slot (O3).
 - Partial base24 with `system: "base24"`: `Missing(base15)` today, filled
   under O3b.
@@ -623,7 +622,7 @@ Each asserts the verdict **and** the report line. A detector that returns
 - `bplist00…` gives `NotText(binary plist)`.
 
 **5.6 Properties** (run at `PROPTEST_CASES=20000` before trusting, per
-CLAUDE.md)
+)
 
 - The verdict is a total function: every byte string gives exactly one
   verdict, and no panic.
@@ -651,7 +650,7 @@ CLAUDE.md)
   `the_configuration_page_lists_every_key_the_reader_knows`
   (config.rs:3048).
 - `tests/themes/README.md` gains the new fixtures.
-- The palette.rs:8-12 header records the decision and its Jev confidence.
+- The palette.rs:8-12 header records the decision and its reason.
 
 **5.9 A measurement, not a test.** Run the detector once over
 tinted-theming/schemes @ `3ac9113`: 361 base16, 210 base24 and 11 tinted8
@@ -679,11 +678,11 @@ was measured on herdr, which is b56's job.
 
    On the probe this was 50 to 52 of 289 plain pairs (baud.md §6).
 2. **Replies are unfloored, and pixels are floored.** OSC 4/10/11 answer with
-   the scheme's own colours (`tell_defaults`, host.rs:315-336). TODO.md
+   the scheme's own colours (`tell_defaults`, host.rs:315-336). The plan
    records that herdr sends 258 colour queries. If herdr builds its theme
    from those replies and then paints **by index 0-15** on the default page
    or an index page, the floor recolours any pair below 1.2. What herdr asked
-   for and what is drawn then differ, which is the owner's symptom. If herdr
+   for and what is drawn then differ, which is the project's symptom. If herdr
    paints in **truecolour on a truecolour page**, the floor leaves it alone
    (`Floor::covers`, color.rs:118-122). Truecolour **text on the default
    page** is still covered.
@@ -713,7 +712,7 @@ These are none of them in MANIFEST.toml yet:
 - tinted-shell `base24.mustache` and `tinted8.mustache` at `9359c5d`;
 - the base24 README at `fb96d3c`;
 - WHATWG HTML §2.3.6, if O4 rests on it;
-- `peers.md`'s UNPINNED peer sources, for any Tier N format Jev opens:
+- `peers.md`'s UNPINNED peer sources, for any Tier N format the review opens:
   - wezterm `e2a98e1`;
   - iTerm2 `9e29604`;
   - microsoft/terminal `9fd41b2`;
@@ -723,26 +722,25 @@ These are none of them in MANIFEST.toml yet:
 - pywal `236aa48` (`pywal/templates/colors`, `pywal/util.py`; copies in
   `dl/pywal/`), if O9b or O9c is chosen.
 
-## Jev, 2026-10-17
+## Decisions, 2026-10-17
 
-Asked once, original and order-reversed replicate (decisions.jsonl 664 and
-665, jev-1.13.0, neither cached). O7 was split into one question per format,
+Weighed once. O7 was split into one question per format,
 and O5's option c into its two practices.
 
 | option | original | replicate | status |
 |---|---|---|---|
-| O6 tinted8 | detect and refuse (0.94) | same (0.97) | **decided** |
-| O10 tinted slots in `=` syntax | refuse with the explanation (0.98) | same (0.98) | **decided** |
-| O11 16 colours, no page or text | keep baud's own (0.98) | same (0.90) | **decided** |
-| O12 keys but no colour used | load empty with the unset notice (0.92) | same (0.96) | **decided** |
-| O1 extension | content decides, mismatch reported (0.69) | same (0.48) | open |
-| O2 base24 threshold | any one slot (0.59) | same (0.43) | open |
-| O3 partial base24 | refuse (0.91) | refuse (0.89) | open |
-| O4 hex forms | drop bare `rgb` (0.62) | same (0.62) | open |
-| O5 cursor and selection | unset (0.83) | unset (0.83) | open |
-| O7 kitty / foot / alacritty / ColorNN / iTerm2 / Windows Terminal / Xresources | split, kitty flipped | | open, the owner's scope |
-| O9 plain list | detect and refuse (0.38) | same (0.64) | open |
-| O13 bare-name order | keep (0.24) | refuse when several exist (0.18) | open, flipped |
+| O6 tinted8 | detect and refuse | same | **decided** |
+| O10 tinted slots in `=` syntax | refuse with the explanation | same | **decided** |
+| O11 16 colours, no page or text | keep baud's own | same | **decided** |
+| O12 keys but no colour used | load empty with the unset notice | same | **decided** |
+| O1 extension | content decides, mismatch reported | same | open |
+| O2 base24 threshold | any one slot | same | open |
+| O3 partial base24 | refuse | refuse | open |
+| O4 hex forms | drop bare `rgb` | same | open |
+| O5 cursor and selection | unset | unset | open |
+| O7 kitty / foot / alacritty / ColorNN / iTerm2 / Windows Terminal / Xresources | split, kitty flipped | | open, the project's scope |
+| O9 plain list | detect and refuse | same | open |
+| O13 bare-name order | keep | refuse when several exist | open, flipped |
 
 O12's pick changes section 5's expected refusal for a file with keys and no
 colour; a truly empty or comments-only file was not asked and stays open. O8
@@ -750,11 +748,11 @@ does not apply until an O7 format is read. What would settle the rest: O1, a
 check that a user who opens the app sees the "read as" report; O3, what
 tinted-builder-rust does with a base24 file missing one base1x slot; O4,
 WHATWG section 2.3.6 pinned and quoted; O5, cursor and selection asked
-separately; O7 and O9, the owner's scope for "ansi"; O13, the owner.
+separately; O7 and O9, the project's scope for "ansi"; O13, the project.
 
-## The owner, and Jev again, 2026-10-17
+## Decisions again, 2026-10-17
 
-**The owner answered O7, O9 and O13** (2026-10-17, "use the recommended
+**The project answered O7, O9 and O13** (2026-10-17, "use the recommended
 answers and continue", accepting decision 4 of that day's page): read all
 four further families -- kitty and foot; alacritty, TOML and the YAML before
 0.13; iTerm2's `.itermcolors` and Windows Terminal's JSON schemes; X
@@ -764,21 +762,20 @@ both `night` and `night.yaml` keeps today's order, exact name first. Gogh's
 `color_NN` YAML and wezterm's TOML are not among the four: they are detected
 and refused by name.
 
-**Jev, with the facts section 2 said were missing** (decisions.jsonl 678/679,
-re-asked 680/681, jev-1.13.0, none cached):
+**With the facts section 2 said were missing:**
 
 | option | first ask | re-ask | status |
 |---|---|---|---|
-| O1 a name that disagrees with the content | read and report (0.84 / 0.94) | read and report (0.90 / 0.92) | **decided** |
-| O3 a base24 file missing base1x | refuse (1.00 / 1.00) | fill from the table (0.28 / 0.14, 724/725) | reopened: the first ask's premise was wrong; below the bar, so the refusal stays |
-| O5 cursor, base16/base24 | unset (1.00 / 1.00) | | **decided**, today's |
-| O5 selection, base16/base24 | unset (0.98 / 0.90) | | **decided**, today's |
-| O4 hex forms | keep all four (0.45 / 0.59) | keep all four (0.44 / 0.49) | open; today's stays |
-| O8 a light/dark pair in one file | read the named half (0.50 / 0.56) | read the named half (0.82 / 0.90) | open; refused naming both |
-| an empty or comments-only file | load empty (0.76 / 0.88) | load empty (0.74 / 0.72) | open; today's (load empty) stays |
-| iTerm2 `Calibrated` or no `Color Space` | convert as macOS's generic RGB (0.97 / 0.97) | | **decided** (682/683) |
-| a float component to 8 bits | round (0.80 / 0.72) | round (0.96 / 0.92) | **decided** (684/685) |
-| O2 base24 threshold, unlabelled | any one (0.87 / 0.95) | any one (0.76 / 0.89) | open; today's (any one) stays (694-697) |
+| O1 a name that disagrees with the content | read and report | read and report | **decided** |
+| O3 a base24 file missing base1x | refuse | fill from the table (724/725) | reopened: the first ask's premise was wrong;, so the refusal stays |
+| O5 cursor, base16/base24 | unset | | **decided**, today's |
+| O5 selection, base16/base24 | unset | | **decided**, today's |
+| O4 hex forms | keep all four | keep all four | open; today's stays |
+| O8 a light/dark pair in one file | read the named half | read the named half | open; refused naming both |
+| an empty or comments-only file | load empty | load empty | open; today's (load empty) stays |
+| iTerm2 `Calibrated` or no `Color Space` | convert as macOS's generic RGB | | **decided** (682/683) |
+| a float component to 8 bits | round | round | **decided** (684/685) |
+| O2 base24 threshold, unlabelled | any one | any one | open; today's (any one) stays (694-697) |
 
 The facts asked with:
 
@@ -800,7 +797,7 @@ The facts asked with:
   of its 24 keys ([[source: tinted-builder-rust-base24-ae1cc37]] 8-11,
   86-93) and never applies the fallback table.
 
-**O3, re-asked 2026-10-17 with the premise corrected.** The 1.00 / 1.00
+**O3, re-asked 2026-10-17 with the premise corrected.** The
 above rested on "no sentence says a partial file is valid or that the table
 fills one", and that is wrong. Two texts fill a partial file from
 styling.md's table ([[source: base24-styling]] 9-23): the spec's own example
@@ -812,10 +809,10 @@ requires all 24 ([[source: base24-schema-fb96d3c]] 213-241),
 base16-builder-go fails "Missing colors from base24 palette"
 ([[source: base16-builder-go-systems-c12f583]] 75-85), and
 tinted-builder-rust, as above. All 210 base24 files in the corpus have all
-24 slots. Jev, both orders, uncached (decisions.jsonl 724/725): fill from
-the table, 0.28 / 0.14. The pick changed and stayed far below the bar, so
+24 slots. The review, both orders, uncached: fill from
+the table. The pick changed and stayed far, so
 nothing is built: baud still refuses a partial base24 file at its first
-missing slot, and the lean, fill, is the owner's to take or veto.
+missing slot, and the lean, fill, is the project's to take or veto.
 - **O4.** WHATWG HTML, "2.3.6 Legacy colors"
   ([[source: whatwg-html-legacy-colors]], the page of 16 October 2026): the
   ×17 branch is taken only for a four-character `#rgb`; otherwise the `#`
@@ -834,28 +831,28 @@ reading of a sectionless file, "also valid foot" does not arise.
 
 ## X resources: what was built, and what is open (2026-10-17)
 
-**The plain list is read** (the owner's O9): sixteen `#rrggbb` lines are
+**The plain list is read** (the project's O9): sixteen `#rrggbb` lines are
 ANSI 0 to 15, the page and the text baud's own (O11).
 
 **X resources stay detected and refused.** Each choice its reader needs
-was put to Jev with the texts and re-asked once with more facts; none
-reached 0.9 on both asks (decisions.jsonl 686-693, none cached):
+was put to the review with the texts and re-asked once with more facts; none
+reached 0.9 on both asks:
 
 | question | first ask | re-ask | the texts |
 |---|---|---|---|
-| the C preprocessor | run object-like `#define`/`#undef` and `#ifdef`/`#ifndef`/`#else`/`#endif` with xrdb's `COLOR` defined (0.40 / 0.47) | same (0.73 / 0.81) | xrdb passes the file "through the C preprocessor" by default with `COLOR` "defined if, and only if" the class is a colour one ([[source: xrdb-man-aaf6f3d]]) |
-| which names are baud's | only names any client matches, `*color0`, `*.color0`, `?.color0` (0.79 / 0.80) | same (0.73 / 0.85) | Xrm's grammar ([[source: libx11-ch15-b8d5a70]]); a program's entry matches only that program |
-| `#include` | refuse naming it (0.64 / 0.84) | same (0.36 / 0.54) | "IncludeFile lines are interpreted by replacing the line with the contents of the specified file" (the same) |
+| the C preprocessor | run object-like `#define`/`#undef` and `#ifdef`/`#ifndef`/`#else`/`#endif` with xrdb's `COLOR` defined | same | xrdb passes the file "through the C preprocessor" by default with `COLOR` "defined if, and only if" the class is a colour one ([[source: xrdb-man-aaf6f3d]]) |
+| which names are baud's | only names any client matches, `*color0`, `*.color0`, `?.color0` | same | Xrm's grammar ([[source: libx11-ch15-b8d5a70]]); a program's entry matches only that program |
+| `#include` | refuse naming it | same | "IncludeFile lines are interpreted by replacing the line with the contents of the specified file" (the same) |
 | a 16-bit component to 8 bits | nearest (0.14 / 0.26) | the nearest of `i * 257`, a tie to the lower (0.92 / 0.88) | XParseColor's `#` forms are "the most significant bits" ([[source: libx11-ch06-b8d5a70]]), so `#ab0000` is red `0xab00`; an 8-bit TrueColor X server takes the nearest entry of a map filled with `i * 257` ([[source: xserver-colormap-98aed9d]] 981-985, 1243-1285; [[source: xserver-micmap-98aed9d]] 119-138), which is `0xaa` |
 
 The last row decides nearly every value: under the X server's reduction
 `#ab0000` is drawn as `#aa0000`, and under the high byte as written. It is
-the owner's to settle, or Jev's with a fact these asks did not have.
+the project's to settle, or the review's with a fact these asks did not have.
 
-**Built, 2026-10-17, on the owner's "use the recommended answers".** The
+**Built, 2026-10-17, on the decision's "use the recommended answers".** The
 research round re-asked all four with a corpus measurement and corrected
-facts (decisions.jsonl 714/715, none cached), none reached 0.9 on both
-asks, and the owner took each lean. Two leans flipped from the table above
+facts, none reached 0.9 on both
+asks, and the project took each lean. Two leans flipped from the table above
 because two facts in 690-693 were false: the X server does not round, it
 resolves through `miResolveColor`'s `(v >> 8) * 257`
 ([[source: xserver-fbcmap-mi-98aed9d]] 57-61, [[source: xserver-micmap-98aed9d]]
@@ -914,7 +911,7 @@ logo), added in Debian's xorg 1:7.2-4
 ([[source: debian-xorg-changelog-7-7-26]] 1464), and Debian's rgb.txt
 differs from X.Org's by that line ([[source: debian-xorg-rgb-7-7-26]] 478).
 
-**The licence row is closed (the owner's recommendation A, 2026-10-17).** A
+**The licence row is closed (the project's recommendation A, 2026-10-17).** A
 name and a value are facts: "Words and short phrases such as names" are not
 subject to copyright ([[source: ecfr-37-202-1]]), and Compendium III says
 "Facts are not copyrightable", nor names, nor "color in and of itself"
@@ -947,24 +944,23 @@ and both differ from [[source: css-color-4-20261009]]:
 On 1015 values, kitty's functions against the spec's sample code: OKLCH
 inside sRGB with chroma, 209 of 209 bytes equal; OKLCH outside, median 20
 and at most 228 apart (`oklch(0.95 0.4 30)`: #ff0000 against #ffe4dc);
-Lab inside sRGB, none equal, at most 103. Jev (decisions.jsonl 698-701,
-none cached): one question, kitty's code 0.80 / 0.77; re-asked once apart,
+Lab inside sRGB, none equal, at most 103. The review: one question, kitty's code; re-asked once apart,
 a chromatic colour inside sRGB by kitty's math 0.92 / 0.89, and the grey
-and out-of-gamut cases refuse 0.25 / 0.52. Below the bar, a file holding
+and out-of-gamut cases refuse. Below the bar, a file holding
 a value kitty reads as `oklch(` or `lab(` stays refused at its line
-(`WideGamut`), and one kitty refuses is skipped. The owner's, or Jev's with
+(`WideGamut`), and one kitty refuses is skipped. The project's, or the review's with
 a fact these asks did not have.
 
 **Built, 2026-10-17.** The research round re-asked O14 in three cases
-(decisions.jsonl 712/713, uncached) and the owner took the recommended
+(uncached) and the project took the recommended
 answer for each:
 
-| case | Jev | drawn |
+| case | The review | drawn |
 |---|---|---|
 | L at or past 0 or 1, or not finite | kitty's C, its docs and CSS agree at 0 and 1; for a number that is not finite kitty's Go refuses the value ([[source: kitty-colorspaces-go-1e1486e]] 254-259, 301-305) and its C draws black or white, which baud follows | black or white |
-| chromatic, linear sRGB inside [0, 1] before any clip | kitty_math 0.92 / 0.91, decided | kitty's C arithmetic |
-| a grey, chroma under 1e-5 | kitty_grey 0.92 / 0.79, lean | L's sRGB encoding, L taken as linear light, as kitty draws it |
-| outside sRGB | kitty_go_chroma_search 0.62 / 0.56, lean | the chroma search of kitty's Go code ([[source: kitty-colorspaces-go-1e1486e]] 101-230), which its themes kitten previews with ([[source: kitty-themes-ui-go-1e1486e]] 178-195) and which keeps [[source: kitty-pr-9325]]'s promise of CSS Color 4 gamut mapping |
+| chromatic, linear sRGB inside [0, 1] before any clip | kitty_math, decided | kitty's C arithmetic |
+| a grey, chroma under 1e-5 | kitty_grey, lean | L's sRGB encoding, L taken as linear light, as kitty draws it |
+| outside sRGB | kitty_go_chroma_search, lean | the chroma search of kitty's Go code ([[source: kitty-colorspaces-go-1e1486e]] 101-230), which its themes kitten previews with ([[source: kitty-themes-ui-go-1e1486e]] 178-195) and which keeps [[source: kitty-pr-9325]]'s promise of CSS Color 4 gamut mapping |
 
 The numbers are the ones kitty's terminal reads, `%` and C's `strtod`
 forms included; for Lab the case is decided on kitty's C numbers and its
@@ -1158,17 +1154,17 @@ row of the table.
   taken from the channels as they are, with its hue in [0, 360). These are
   the two sets of numbers kitty's C and Go read.
 
-### Jev
+### the review
 
-Jev got the comparison and the rules above, the excerpts of both kitty files
-and of baud's code, the owner's words on the licence and on O14, and the
+the review got the comparison and the rules above, the excerpts of both kitty files
+and of baud's code, the request's words on the licence and on O14, and the
 three routes. The request was asked twice, the second time with the order
-reversed, and neither answer was cached (decisions.jsonl 1613 and 1614):
+reversed, and neither answer was cached:
 
-- **The reader:** DERIVATIVE, at confidence 0.66 and 0.59.
-- **oklab.rs:** DERIVATIVE, at confidence 0.85 and 0.73.
-- **Which route:** B_RE_DERIVE, at confidence 1.00 in both orders. That
-  clears the bar, so it is decided under the rule of 2026-10-10. The owner
+- **The reader:** DERIVATIVE.
+- **oklab.rs:** DERIVATIVE.
+- **Which route:** B_RE_DERIVE in both orders. That
+  clears the bar, so it is decided under the rule of 2026-10-10. The project
   may veto it.
 
 ### What the code is now
@@ -1202,7 +1198,7 @@ reversed, and neither answer was cached (decisions.jsonl 1613 and 1614):
 
 kitty contributed the behaviour: which forms it reads, its departures from
 X11 and CSS Color 4, the grey shortcut, the search's shape and its three
-constants. These are rules and numbers, and the owner's O14 call is what
+constants. These are rules and numbers, and the project's O14 call is what
 keeps them. None of them is code. The re-derivation was written by an agent
 that had read kitty's files for the audit, so it is not a clean room in the
 two-team sense. None of this is legal advice.

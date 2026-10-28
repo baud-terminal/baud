@@ -132,5 +132,4 @@ idea requires them.
 "Look at how embedded does it" is now answered with two primary sources rather
 than an assumption, and the answer is that the throughput problem is baud's
 alone. The remaining leads for `cat-cjk` are in this repo's own measurements,
-not in prior art -- and `CLAUDE.md` records that every one of them has been
-priced.
+not in prior art -- and every one of them has been priced (MEASUREMENTS.md).

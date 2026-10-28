@@ -3,9 +3,7 @@
 The Linux app's frames, taken from a real compositor, against the same
 frames drawn by the CPU renderer on this Mac; and the Linux clipboard
 against a compositor's. Taken 2026-10-26 at `ef519585` plus this note's
-commits, by `scripts/linux-pixels.sh`, which any later run repeats. The
-owner's rule is that text looks the same on both systems (2026-10-01:
-"yes the rule is they must look the same").
+commits, by `scripts/linux-pixels.sh`, which any later run repeats. The rule is that text looks the same on both systems (2026-10-01).
 
 ## 1. What was compared
 
@@ -80,8 +78,7 @@ and icon face -- against Linux's, DejaVu Sans Mono there:
 
 The CJK, the emoji and the Arabic come from each system's own faces, the
 Mac's drawn and Linux's a placeholder where it has none. The platform's
-font choice, not the renderer's; the owner's order (configured, then the
-embedded font, then the system's) puts the fix in the embedded font. No
+font choice, not the renderer's; the font order (configured, then the embedded font, then the system's) puts the fix in the embedded font. No
 image of the macOS stack is committed: it draws Apple's glyphs.
 
 **The backdrop the contrast floor reads.** The page is translucent, and
@@ -103,11 +100,7 @@ luminance).
 *The image, btop with the Linux driver's floor, over black, is not in the repository: it is taken again.*
 *The image, btop with the macOS app's floor, over black, is not in the repository: it is taken again.*
 
-The floor reading black to white on Linux is b83's decision (Jev
-0.98/0.97, decisions 796-797; the record, "The window body is the
-standard material"). Jev re-weighed it with these renders, PER_BACKDROP
-at 0.80/0.80 and then 0.74/0.82: below 0.9, so the lean is taken and
-b83's decision stands unchanged. On Linux btop's dim greys are brighter
+The floor reading black to white on Linux was decided before these renders; weighed again with them, the decision stands unchanged. On Linux btop's dim greys are brighter
 than on macOS, and legible over any background.
 
 **The window's default size.** The Linux window opens at 800x600 pixels

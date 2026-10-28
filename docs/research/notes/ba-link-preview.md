@@ -1,10 +1,7 @@
 # BA. Holding Cmd over a link: prior art, the modifiers and every perturbation
 
 What a terminal shows of a link's address before it is opened, and where
-its own bars sit against a program's images. Read 2026-10-22 for lanes
-b149 and b150; every source below is pinned in
-`docs/research/sources/MANIFEST.toml`. The decisions and what was built
-are the record's, "Holding Cmd over a link shows where it goes".
+its own bars sit against a program's images. Read 2026-10-22; every source below is pinned in `docs/research/sources/MANIFEST.toml`.
 
 ## What other terminals show
 
@@ -21,14 +18,12 @@ iterm2-hover-url-view]]`); WezTerm underlines and shows no target
 OSC 8 spec asks terminals to "let the user know the URI upfront"
 (`[[source: osc8-spec]]`).
 
-Jev was asked twice in both orders with renders of each option
-(`baud-render`'s CPU path). E_BYTES, every byte outside printable ASCII
-as `\xNN`, is so that no control, bidi control or look-alike letter is
+Each option was rendered (`baud-render`'s CPU path). Every byte outside printable ASCII is shown as `\xNN`, so that no control, bidi control or look-alike letter is
 drawn (`[[source: rfc3986]]` 1.2.1, `[[source: utr36-15]]` 2.5).
 
 ## The refusal words
 
-The refusal words are not all the ones Jev was shown: "no host, or a
+The refusal words are not all the ones first drafted: "no host, or a
 file on another computer" covers both of `Refused::Host`'s cases, and "a
 mail link with extra headers" every header but `subject` and `body`,
 where the request said "a mail link that adds hidden recipients".
@@ -37,8 +32,7 @@ where the request said "a mail link that adds hidden recipients".
 
 The bar's look, cell-aligned text in the selection's colours, was asked
 on its own with renders of the bar as built, a framed bar and one lifted
-off the grid, and a system tooltip described: Jev decided K_SELECTION,
-0.96/0.99. A program's text can copy it exactly, and with a Sixel or
+off the grid, and a system tooltip described, and the selection's look was taken. A program's text can copy it exactly, and with a Sixel or
 kitty image any look on the grid; the bar shows only while the chord is
 held over a link.
 
@@ -69,11 +63,7 @@ the address or kept one of its own where the bar shows. kitty, the
 graphics protocol's author, draws its visual bell, scrollbar and
 hyperlink target after the images
 (`[[source: kitty-hyperlink-target]]`, `draw_cells_with_layers()`);
-Ghostty's banner and iTerm2's URL view are views over the surface. Jev,
-asked in both orders with renders of each, leaned to the bars over the
-images (O_BARS_OVER at 0.54 and 0.46; re-asked after kitty's order was
-read, 0.26, and O_IMAGE_OVER at 0.36 reversed: the lean, three asks of
-four).
+Ghostty's banner and iTerm2's URL view are views over the surface. With renders of each, the bars are drawn over the images, as kitty orders them.
 
 ## Every perturbation
 

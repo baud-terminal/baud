@@ -62,8 +62,7 @@ Each is a decision with a cost, not an oversight:
 | `OSC 52` clipboard **reads** | a remote program could read back what the user last copied |
 
 **Not declined, and not built.** Kitty graphics (`APC G`) is consumed without
-being executed and counted. The owner decided on 2026-09-25 to build it to
-the spec (V19), with the side margins' rectangle
+being executed and counted. It was decided on 2026-09-25 to build it to the spec (V19), with the side margins' rectangle
 scrolling (V10), the ambiguous-width switch and `?1021` (V14), `OSC 4`, `10`
 and `11` acting on the colour shown under `?5` (V17) and the Sixel modes
 `?80` and `?1070` (V18, built 2026-10-15), and to turn `OSC 52` writes on by
@@ -75,6 +74,6 @@ to the spec, drawn and reported (V12), and sixel is decoded and drawn; both
 rows are done. The DEC
 line-drawing glyph table translates `0x60..0x7E` and keeps `CellFlags::GRAPHICS`
 on the cell. Its row is **partial**: DEC's set also replaces `0x5F`, and baud
-leaves it as `_`, an open departure whose codepoint is the owner's call.
+leaves it as `_`, an open departure whose codepoint is open.
 
 Fuller reasoning in [../protocol-decisions.md](../protocol-decisions.md).

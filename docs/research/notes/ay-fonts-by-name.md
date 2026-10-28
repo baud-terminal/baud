@@ -1,11 +1,6 @@
 # AY. Fonts by family name, and a family's own bold and italic
 
-The owner, 2026-09-29: "we shouldn't put where the ttf font is aka
-directory, none of the other vts are doing that, they just put the font
-name and size right?" and "if there is bold font, baud should not fake it
-and use the bold font"; 2026-10-07: "the thing is that people can decide to
-config their own font and not use the built in one so we need to support
-that". Read 2026-10-21 for lane b141; every source below is pinned in
+The aim, from 2026-09-29: a font is named by its family and size, not its file, as other terminals do; a family's own bold is used, not faked; and a user can configure a font other than the embedded one (2026-10-07). Read 2026-10-21; every source below is pinned in
 `docs/research/sources/MANIFEST.toml`.
 
 ## The texts
@@ -70,27 +65,19 @@ Menlo.ttc@0, Apple Color Emoji.ttc@0 (not the hidden
 (400 searches down before up to the W6), Apple SD Gothic Neo@0, Kohinoor
 Devanagari@0.
 
-## Decisions (Jev, each asked in both orders)
+## Decisions
 
-- Discovery: baud's own scan, one Rust matcher on both systems -- D_SCAN,
-  0.72/0.85, then 0.89/0.89 after the CoreText measurement: the lean.
+- Discovery: baud's own scan, one Rust matcher on both systems, chosen after the CoreText measurement.
 - A family without a face for a style draws it from the face CSS picked,
-  unsynthesised -- R_REGULAR, 0.98/0.98: decided.
+  unsynthesised.
 - Bold italic follows CSS 5.2 (the Bold face for a family with no italic,
-  the Italic face for one with no bold italic) -- B_CSS, 0.50/0.60, then
-  0.78/0.70 after the practice above: the lean, and the text's.
-- A variable face serves the weights its axis covers, drawn at the
-  searched value -- V_AXIS, 0.82/0.82, then 0.94/0.96: decided.
+  the Italic face for one with no bold italic), the text's reading and the practice above.
+- A variable face serves the weights its axis covers, drawn at the searched value.
 - The embedded faces answer to a name in `fonts`, ahead of an installed
-  copy -- E_IN_NAMES, the re-ask's lean. E_OUT led the first ask,
-  0.67/0.59; the re-ask after the research chose E_IN_NAMES in both
-  orders, 0.58/0.70 (probabilities 0.72/0.80). Lane b141 took E_OUT by
-  pooling the two asks' probabilities, 0.485 to 0.483, which the lean
-  rule does not do: it takes the re-ask. Corrected in lane b145.
+  copy, as the research favoured; keeping them out of `fonts` was built first and corrected.
 - Which names: the font's build gives the two stock italics the built
   family's nameIDs 1, 4 and 6, so the four embedded faces are one family,
-  "Proto Hebrew Mono C" until decision 11 names it -- N_SHARE, 0.92/0.96,
-  decided. The name table: nameID 1 "should be shared among at most four
+  "Proto Hebrew Mono C" until decision 11 names it -- N_SHARE. The name table: nameID 1 "should be shared among at most four
   fonts that differ only in weight or style" (`[[source: ms-opentype-name]]`).
   Left as they were, the stock italics alone would answer to "JetBrains
   Mono", and with none installed CSS 5.2 would draw regular text from the
@@ -98,10 +85,7 @@ Devanagari@0.
 - A name is looked up as a PostScript name (nameID 6), then a full name
   (nameID 4, US English else the first record, passed over where it is
   one of the face's own family names, nameID 16 or 1), then a family --
-  L_PS_FIRST, kitty's order (`[[source: kitty-fonts-core-text-fa9f8da]]`,
-  `[[source: kitty-fonts-fontconfig-fa9f8da]]`); first ask 0.33/0.23,
-  split by order, re-ask 0.23/0.22, still split: the lean of the re-ask's
-  two orders, probabilities 0.92 against 0.78 for family first. On this
+  kitty's order (`[[source: kitty-fonts-core-text-fa9f8da]]`, `[[source: kitty-fonts-fontconfig-fa9f8da]]`), over family first. On this
   Mac 264 of the 690 family names the catalogue held at the base are also
   some face's full or PostScript name, always a face of that family
   (fontTools). The pass-over takes nameID 1 as well as 16: a weight-split
@@ -120,9 +104,7 @@ Devanagari@0.
   (`[[source: css-fonts-3]]` 4.3), which states no case rule; the
   family's caseless match is applied to them as a reading.
 - On Linux, where a fontconfig configuration is found, its directories are
-  the scan's whole list, the fixed list only where none is -- C_CONF_ONLY,
-  0.12/0.46, then 0.80/0.84 after the practice (fc-list and the
-  fontconfig-based terminals see exactly that set): the lean. Two
+  the scan's whole list, the fixed list only where none is, as fc-list and the fontconfig-based terminals see exactly that set. Two
   departures from fontconfig stay open: a configuration that fails (a
   malformed root file, or an `<include>` without `ignore_missing` that is
   missing or malformed) fontconfig drops whole for its fallback

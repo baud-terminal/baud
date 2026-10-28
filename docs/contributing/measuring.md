@@ -77,7 +77,7 @@ belongs in a table.
   47% below its settled rate. Run at least four rounds.
 - **Read the counters before the rate.** `ingest2` prints `cells_written`;
   if it differs between arms, the arms do different work.
-- **If the ranges overlap there is no result**, and the record says so.
+- **If the ranges overlap there is no result**, and the write-up says so.
 - **Same machine only.** A number from another box is not comparable.
 - **A PTY row on macOS measures the tty**, which hands over 1024 bytes a
   read; a parser change shows up in memory, not through a pty.

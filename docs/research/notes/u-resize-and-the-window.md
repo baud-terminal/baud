@@ -1,7 +1,6 @@
 # U. Who holds the window over the history across a resize
 
-The owner asked whether `Term::resize` is the right home for reflow, and this
-note is the answer and what it rests on. **The re-cut stays inside resize,
+Is `Term::resize` the right home for reflow? This note is the answer and what it rests on. **The re-cut stays inside resize,
 eagerly. What is out of place is the scroll position**, which the app holds
 as an integer and hands to `Term::resize_holding` so the core can say where
 it went. Six shipping terminals were surveyed on three questions: how each
@@ -18,8 +17,7 @@ reader re-checked each survey before this note used it.
     *primary* either: nothing but the gated re-cut touched the primary's
     marks. Making the marks
     honest exposed that the height step's content test reads a mark, which
-    is the owner's question 9 below. The record is CLAUDE.md, "A width growth
-    keeps the marks honest at a prompt".
+    is question 9 below.
   - `e3f23da` corrected the four stale passages this read found, which
     were the draft's appendix and are gone for that reason, but missed one
     of the three places the second of them named: `Term::screen`'s doc,
@@ -56,8 +54,7 @@ record itself was not read.
    - the child is told the size the terminal settled on, and the `?2048`
      report follows the completed resize (`app.rs:4169-4186`,
      `term.rs:1134-1143`).
-2. **What the owner is sensing is not the placement of reflow. It is the
-   scroll position.** `resize_holding(ws, back)` takes a parameter and hands
+2. **What is felt is not the placement of reflow. It is the scroll position.** `resize_holding(ws, back)` takes a parameter and hands
    it back because the scrollback window lives in the app, while everything
    needed to anchor it lives in the core. Four of the six surveyed
    implementations keep the viewport in the layer that performs the re-cut
@@ -67,7 +64,7 @@ record itself was not read.
    not from where reflow runs.** Both sit at the seam between the primary's
    two width models. **Both are fixed in `5be8d20`**, each red first. A third
    item, DECSC not following a re-cut, is a policy gap rather than a defect,
-   and it goes to the owner.
+   and it is open.
 
 ## 1. What the prior art does
 
@@ -81,7 +78,7 @@ record itself was not read.
 | **kitty** | Inside `screen_resize` → `resize_screen_buffers` (`screen.c:666`, `315`) | OS-window resizes are debounced: 0.1 s after the end, 0.5 s on a pause, or the OS end event on macOS (`child-monitor.c:1334-1364`). **[corr]** During the debounce the old, un-reflowed content is still drawn, and the "N by M cells" banner is conditional. A split-border drag reflows at every cell step but holds SIGWINCH until the drag ends (`boss.py:2875,2900`) | Eager for main and history. The separate pager byte ring is rewrapped lazily at read (`history.c:568`) | LineBuf (`line_map`) plus a HistoryBuf ring, wrap bit on the last cell. Re-cut into fresh buffers | Same routine. Shrinking drops empty bottom rows, then retires from the top. Growing pulls history only with an option that defaults to off | No |
 | **wezterm** | Inside `LocalPane::resize` → `Screen::resize` → `rewrap_lines` (`screen.rs:226-235`) | No coalescing: every OS resize event (`resize.rs:44`, **[corr]** plus two zero-size early-outs). The pty is resized first, then the lock taken (`localpane.rs:417-424`). **[corr]** Whether the child's redraw lands after the rewrap is a race with the parser thread; in practice it lands after | Eager: drains the whole `VecDeque` | `VecDeque<Line>`, `wrapped` attribute on the last cell. Re-cut into a fresh `VecDeque` (`screen.rs:109-176`) | Same function, but not rewrap: a window over the deque's tail with "bottom gravity", and blank rows below the cursor pre-pruned on every resize | No |
 | **VTE** | Inside `set_size` → `screen_set_size` → `Ring::rewrap` (`vte.cc:8137-8138`) | No coalescing: every GTK allocation that changes the grid (`vte.cc:8561-8565`). The pty is set first, then the rewrap. A maintainer: "resizing-rewrapping is an atomic step" (#2919) | Eager. #2154 (open) proposes wrapping only the visible part on demand | The one hybrid: a thawed row array plus frozen text, attr and row streams. Text and attrs are left in place; only `row_stream` is regenerated, into a fresh stream (`ring.cc:1225`) | Same function; the rewrap is skipped. Rows below the cursor's paragraph are dropped, bounded (bug 708213) | Yes, but deprecated since 0.58 |
-| **baud** | Inside `Term::resize_holding` (`term.rs:827-1161`). Primary screen only, and only in `Zone::Output` (`:1006`) | No coalescing, by owner rule: each drag step that changes the grid resizes, tells the pty and presents (`app.rs:4073-4217`). Sub-cell steps skip | Eager | One caller-provided ring of rows at a fixed pitch, wrap flag in `RowExtent`. Re-cut **in place** (`reflow.rs:1-34`) | Same function: rotation arithmetic over the ring (`term.rs:850-983`) | No switch; the zone gate |
+| **baud** | Inside `Term::resize_holding` (`term.rs:827-1161`). Primary screen only, and only in `Zone::Output` (`:1006`) | No coalescing, by the project's rule: each drag step that changes the grid resizes, tells the pty and presents (`app.rs:4073-4217`). Sub-cell steps skip | Eager | One caller-provided ring of rows at a fixed pitch, wrap flag in `RowExtent`. Re-cut **in place** (`reflow.rs:1-34`) | Same function: rotation arithmetic over the ring (`term.rs:850-983`) | No switch; the zone gate |
 
 ### Table B: state
 
@@ -114,8 +111,7 @@ record itself was not read.
    - kitty's secondary pager ring.
 3. **baud is the only one that re-cuts in place.** Every other
    implementation copies into fresh storage. `reflow.rs:8-12` says the same.
-4. **The viewport correlation is the finding that bears on the owner's
-   question.**
+4. **The viewport correlation is the finding that bears on the question.**
    - ghostty, foot and VTE re-anchor the viewport to content exactly, and
      alacritty approximately. All four hold it in the layer that performs
      the re-cut.
@@ -173,8 +169,7 @@ different answers.
    Each model is sound on its own. None of the six gates its primary model
    on OSC 133 state, so the seam between the two is new ground, and D1 and
    D2 below live on it.
-5. **How often does the embedder call resize?** This is settled by owner
-   rule: no debounce, and SIGWINCH goes out on the drag event.
+5. **How often does the embedder call resize?** This is settled by the project's rule: no debounce, and SIGWINCH goes out on the drag event.
 
 So the thing that looks wrong, a parameter going into resize and a mapped
 value coming out, is a question-2 problem. It is not a question-1 problem.
@@ -207,7 +202,7 @@ proved red first; the tests are named below.
   row's mark at or below `new`. Columns `[new, old)` of each destination row
   keep whatever that physical row held before the copy.
 - **Invariant broken:** the fixed pitch rests on "a row's mark bounds its
-  content over the whole pitch" (CLAUDE.md, "A resize moves no cell").
+  content over the whole pitch".
 - **When it shows:** a widen that re-cuts rewrites the row to the new
   width and cleans it. A widen in `Zone::Prompt` neither re-cuts nor calls
   `widened` on the primary, so it would expose those bytes. Example: narrow
@@ -229,7 +224,7 @@ through a re-cut.**
   shell overwrites prior output".
 - **Others:** foot, ghostty and VTE carry the saved cursor through, and
   kitty carries the main screen's. alacritty only clamps, as baud does.
-- **Why it is the owner's:** clamping is a defensible choice that alacritty
+- **Why it is open:** clamping is a defensible choice that alacritty
   shares, and fixing it needs either B+ below or an ad-hoc marker through
   `Follow`. It is Q4 in §5.
 
@@ -286,8 +281,7 @@ asserts `Ok`, and its primary half is rewritten to the rule in force since
     primary's.
 - **It is not free: the anchor has to be normalized.** An anchor that is
   only clamped when read is wrong in two ways:
-  - **It has reached the live screen.** The owner's rule is that a live
-    window stays live (`app.rs:1762-1783`). An anchor that reached `top` and
+  - **It has reached the live screen.** The rule is that a live window stays live (`app.rs:1762-1783`). An anchor that reached `top` and
     was left there would, after a later scroll, make a live window look
     scrolled back again.
   - **It has fallen below the floor.** Something shrank the history, and
@@ -335,7 +329,7 @@ asserts `Ok`, and its primary half is rewritten to the rule in force since
   - `moved_since` and `screen_epoch` stay, for the selection and the slide.
   - The Linux driver gets a window over the history without repeating any
     anchoring.
-- **Owner rules:**
+- **The project's rules:**
   - "We should not change the scroll ever" is enforced in one place.
   - "A key snaps only the live screen's window" (after foot) stays the
     embedder's decision, now expressed as a call rather than an integer
@@ -360,8 +354,8 @@ asserts `Ok`, and its primary half is rewritten to the rule in force since
   baud already has two ad-hoc instances, image staging and `held`, and the
   hook they share.
 - **Consequences:**
-  - Carries DECSC through a re-cut, if the owner wants it remapped (Q4).
-  - Lets a selection survive a resize, if the owner wants that.
+  - Carries DECSC through a re-cut, if it is to be remapped (Q4).
+  - Lets a selection survive a resize, if that is wanted.
   - Merges the app's `Scrolled` numbering (`select.rs:50-55`) with the
     core's `Book::top`. Today there are two numberings, and only the core's
     follows a resize.
@@ -375,7 +369,7 @@ asserts `Ok`, and its primary half is rewritten to the rule in force since
 narrow width loses history.
 - `reflow` drops whole lines from the oldest end when the re-cut exceeds
   the ring (`reflow.rs:309-313`), and widening back does not bring them
-  back. CLAUDE.md: "A reflow that drops is not an identity".
+  back: a reflow that drops is not an identity.
 - So a drag from 200 columns to 40 and back, over a full ring, loses what
   the 40-column cut could not hold. How much is **unmeasured**.
 - VTE documents the same row-capped limit: "The scrollback buffer also
@@ -418,8 +412,7 @@ here:
 
 **Verdict:** C1 and C2 buy nothing under baud's rules, a recorded rule
 forbids C3, and C4 has a structural blocker. The re-cut stays inside
-resize. The loss through narrow widths is a real trade-off, and it goes to
-the owner (Q5).
+resize. The loss through narrow widths is a real trade-off, and it is open (Q5).
 
 ### (D) Storage by logical line, wrapped at read time
 
@@ -430,7 +423,7 @@ the owner (Q5).
   - kitty's pager ring is the only store rewrapped at read time, and it is
     a secondary store.
 - **Consequences for baud:**
-  - It runs against the owner's "grid as ring, zero copy".
+  - It runs against the project's "grid as ring, zero copy".
   - Everything that addresses by row would have to change: `RowExtent`,
     images, the prompt block, cluster ids in cells, row damage, the
     per-frame window copy.
@@ -468,14 +461,13 @@ the owner (Q5).
 ## 4. Recommendation
 
 1. **The re-cut stays inside resize, and stays eager.** This is the direct
-   answer to the owner's question.
+   answer to the question.
    - All six prior-art implementations do it.
    - baud's invariants need it (§2, question 1).
-   - The owner's rules on SIGWINCH and debounce assume it.
+   - The project's rules on SIGWINCH and debounce assume it.
    - The cost is bounded by `Depth::DEFAULT` (2,000 lines;
      `history.rs:131`). Two scratch timings of a full-ring narrow-and-widen
-     round trip disagree by about 2x: ~0.6 ms plus ~0.7 ms
-     (CLAUDE.md:11969-11972), against 654.5 us for the whole round trip
+     round trip disagree by about 2x: ~0.6 ms plus ~0.7 ms, against 654.5 us for the whole round trip
      (:17180-17184). A third scratch bench, taken for `5be8d20`, reads the
      narrowing at 299 us and the widening at 347 us before that change, so
      it agrees with the second. The ~0.6 ms plus ~0.7 ms is the odd one out
@@ -486,8 +478,7 @@ the owner (Q5).
      of the three benches is kept runnable. After `5be8d20` the third reads
      317 us and 412 us, ranges disjoint from before, and a 100-column growth
      at a
-     prompt, which cost nothing, costs 46-54 us (CLAUDE.md, "A width growth
-     keeps the marks honest at a prompt").
+     prompt, which cost nothing, costs 46-54 us.
    - Row 10's per-step figures (0.19-0.56 us; a width change in
      `Zone::Output` 1.5-7.0 us) come from fixtures with 0-19 retained
      lines, and are from before `5be8d20`: since, `live-drag`'s resize is
@@ -513,7 +504,7 @@ the owner (Q5).
      an app integer by a rule other than the core's numbering. Under B there
      is one numbering and one owner.
 
-   Offer B+ as the owner's fork: it is the right shape if selection or DECSC
+   Offer B+ as a fork: it is the right shape if selection or DECSC
    should follow a re-cut, or if one `Term` may ever show two views.
 4. **Migrate B as a differential.** Keep the app's `anchored`,
    `after_read` and `resized_window` as the oracle during the move. Run a
@@ -527,11 +518,10 @@ the owner (Q5).
 
 - **Against "inside resize, eager":** a committed bench (`winch` cost with a
   full-ring `Zone::Output` payload) showing a drag step that changes the
-  grid over the frame budget (8.33 ms at 120 Hz) at the depth the owner
-  picks. Or evidence that users lose history they want through intermediate
+  grid over the frame budget (8.33 ms at 120 Hz) at the depth chosen. Or evidence that users lose history they want through intermediate
   narrow widths. Either would revive C4 or D.
 - **Against B:**
-  - the owner wants two views over one `Term`, which means B+ or leaving the
+  - two views over one `Term` are wanted, which means B+ or leaving the
     window outside;
   - a sweep shows the `Book` field costing ingest. The layout class is real
     here: `cat` read about -8% on a change that ran none of its code (the
@@ -542,11 +532,10 @@ the owner (Q5).
 - **Against D2:** its red test went red on the code this note read, so
   this one did not happen.
 
-## 5. Decisions that are the owner's
+## 5. Decisions
 
 **Answered 2026-09-25, through note V.** Note V
-(`docs/research/notes/v-open-decisions.md`) put these nine to the owner as
-its V2 to V9: questions 1 and 2 as V2, then question *n* as V*n*. Its
+(`docs/research/notes/v-open-decisions.md`) put these nine as its V2 to V9: questions 1 and 2 as V2, then question *n* as V*n*. Its
 "Decisions taken, 2026-09-25" records the answer: "**Every other decision:
 as recommended.** V1-V9, V11, V15, V17, V20-V22 and V25." Under each
 question is the recommendation that answer took, quoted from note V's
@@ -597,9 +586,7 @@ section for it.
    *Answered: note V's V5, as recommended.* "**Yes: keep the re-cut eager and
    the depth at 2,000 lines (fixed by the L2 scroll cost), count the rows a
    re-cut drops, and commit a full-ring fixture that measures a drag step.**"
-6. **Which rule governs the top line across a resize?** The record carries
-   a sequence, the code follows the last, and the record calls the last the
-   owner's rule for the primary since 2026-09-18. Confirm it.
+6. **Which rule governs the top line across a resize?** There was a sequence, the code follows the last, and the last is the project's rule for the primary since 2026-09-18. Confirm it.
    1. "when resizing the current first row changes and it should not -- we
       should not change the scroll ever, we should only re-arrange the grid
       of what is visible, not go to history" (`app.rs:1767`,
@@ -615,8 +602,7 @@ section for it.
 
    `5be8d20` found that `altresize.rs`'s primary test, which encoded the
    first, had never been able to fail, and rewrote it to the third, which
-   its record calls the owner's rule for the primary since 2026-09-18. If
-   the owner means the first, that test is the one to flip.
+   its record calls the project's rule for the primary since 2026-09-18. If the first is meant, that test is the one to flip.
 
    *Answered: note V's V6, as recommended.* "**Yes: confirm rule 3. Rule 1
    survives as the rule for a scrolled-back view: a view up in the history
@@ -648,7 +634,7 @@ section for it.
    - A row erased whole in a visible background colour has a mark of zero,
      so it does not count. A history line is pulled over it.
 
-   Honest marks add a third shape, and the owner's own recorded drag shows
+   Honest marks add a third shape, and the recorded drag shows
    it on steps 641-654: an invisible band past the old edge counts once a
    width growth has raised its mark. All three are pinned in
    `scrollback.rs`, as they behave today. A definition by what a row *shows*

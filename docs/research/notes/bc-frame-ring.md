@@ -1,16 +1,13 @@
 # BC. How the frame path becomes a ring: D4 revisited
 
-The owner, 2026-10-24: "so i think in D4 we need a better research how to do
-that properly as i thought its all ring bufferred". This note answers it. It
+The question, 2026-10-24: should the frame path not be a ring all the way, and what would doing D4 properly take? This note answers it. It
 covers what zero-copy means on a Mac, what baud does today, what D4 gave up,
 what the copy costs now, what Apple and five other projects do, three designs
 that would let the GPU read the core's own ring, and which of them to build.
 
 Everything below was read at `f3d71d10`, on 2026-10-24. Every external source
 is pinned in `docs/research/sources/MANIFEST.toml`. The decision this revisits
-is D4 in `docs/research/notes/j-rendering.md`. Its history is the record,
-"Nothing waits and nothing is copied: the frame loop is event driven, and the
-grid is the GPU's".
+is D4 in `docs/research/notes/j-rendering.md`.
 
 **The answer, in short.** The grid is a ring, but there are two rings in the
 frame path and they do different jobs. The core's ring is a ring of *lines*:
@@ -72,7 +69,7 @@ The first design (2026-09-14) had the cell shader read the live grid under the
 core's rotation, with no copy. It was safe only because `pump` refused to feed
 the parser while a frame was in flight. That refusal was the freeze, and
 `cbd2629` replaced the design with the copy (D4). In September the copy cost
-"about one microsecond" (the record) and D4 quotes 1.2 us. That figure is
+"about one microsecond" and D4 quotes 1.2 us. That figure is
 `ceiling.rs`'s memcpy rate, 62-69 GB/s (`j-rendering-evidence.md`, E4).
 
 September also recorded that the GPU read a fresh copy 30-60 us faster than
@@ -92,8 +89,7 @@ arms ran: the live grid waited, the live grid with a completion handler
 
 **Conditions differ from September.** Every round overlapped other sessions'
 builds, at load 5.65-6.09 in the first sweep and 4.26-5.01 in the second.
-September ran with nothing else running. That is the drifting-machine case
-CLAUDE.md records, so where today and September disagree below, the honest
+September ran with nothing else running. That is the drifting-machine case CONTRIBUTING.md records, so where today and September disagree below, the honest
 reading is "not reproduced under load". An idle re-run decides it (section 8).
 
 **A defect in the bench, found first.** `frame_gpu` makes the alternate
@@ -401,7 +397,7 @@ missed gate is a torn frame, drawn silently.
 
 * A window resize does *not* wait for the frame in flight, on purpose.
   `relayout` (`baud-app/src/app.rs`, around line 11513) records that it used
-  to, that the wait was "the freeze the owner reported", and that since D4
+  to, that the wait was a freeze seen while resizing, and that since D4
   "the reflow has nothing to collide with -- the frame in flight is reading
   its own buffer". Under 6.1 a reflow during flight must therefore
   copy-on-write the whole window. Waiting again is not an option, and neither
@@ -424,8 +420,7 @@ instead of a bit. The tags extend to N frames in flight more cleanly, which is
 its one advantage. Its costs and race argument are 6.1's. The judge ranked it
 below 6.1 on specification:
 
-* It proposes deferring reflow to landing, which would bring back the freeze
-  the owner reported.
+* It proposes deferring reflow to landing, which would bring back that freeze.
 * It caches the pool row in `Paint` across a pin, which would bypass the gate.
 * Its line-sharing risk assumed 64-B lines, which is wrong on this host.
 * Its pixel oracle compares only the final image, which cannot see a race.
@@ -491,10 +486,8 @@ Three precedents:
 * **One store at row entry** measured +0.3-0.6% instructions retired on cat,
   btop, vim and less (`baud-core/src/paint.rs`). That is instructions, not
   time.
-* **The row map** is the record's "The row map was built, measured at +21%,
-  and withdrawn". It is weaker than the "-7% on cat-scroll" its headline
-  gives: cat-scroll read 1678-1742 against 1490-1680, ranges that overlap, so
-  by CLAUDE.md that is no result. Only cat-cjk was disjoint, 668-674 against
+* **The row map** was built, measured at +21%, and withdrawn. It is weaker than the "-7% on cat-scroll" its headline
+  gives: cat-scroll read 1678-1742 against 1490-1680, ranges that overlap, so by CONTRIBUTING.md that is no result. Only cat-cjk was disjoint, 668-674 against
   657-661, about -2%. The same entry says a thin fixed-size reference
   "recovered most of it", and that is 6.1's carrying shape. It was measured on
   2026-08-30, a shape the current `View` has moved on from.
@@ -558,8 +551,7 @@ frame. In order:
    ceiling arm, selected by `cfg`, that carries 6.1's pool pointer through
    `View` with the identity map, reads through `map[slot]`, and compiles in
    the CAPTURED test, which never fires. Run cat-scroll, cat-cjk, btop, vim,
-   cava, asciiquarium, and less-pager at 400 reps. Follow CLAUDE.md's
-   protocol: `git archive` base, change and an A/A copy into one path, `touch`
+   cava, asciiquarium, and less-pager at 400 reps. Follow CONTRIBUTING.md's protocol ("How to verify a change"): `git archive` base, change and an A/A copy into one path, `touch`
    every file, `cmp` the binaries, rotate the arms, at least four rounds with
    the first dropped, on mains. `cells_written` must be identical on every
    arm.
@@ -573,8 +565,7 @@ that means *t* below about 0.26% on cat-scroll. At 200x50, a *t* that
 flat within the A/A spread and C at 400x150 is at least about 15 us, build 6.1
 for large windows, gated by the pin-audit property at `PROPTEST_CASES=20000`
 with a red run on a build that writes in place, plus the full workspace tests
-and `scripts/check-features.sh`. Otherwise the copy stands, and the record
-says so with both tables.
+and `scripts/check-features.sh`. Otherwise the copy stands, and MEASUREMENTS.md says so with both tables.
 
 **What would prove this recommendation wrong:** the ceiling arm flat within
 the A/A spread on every recording *and* a drawn 400x150 copy at or above 15
@@ -584,9 +575,7 @@ us. Neither has been measured.
 
 * **Whether 6.1 conforms.** Apple's prose is silent on a CPU writing one
   region of a buffer while the GPU reads another, and Apple's Game template
-  does exactly that at 256-B slots. Whether that counts as conforming is a
-  departure call, so it goes to Jev at 0.9 both ways, and only if step 4
-  licenses the design.
+  does exactly that at 256-B slots. Whether that counts as conforming is a departure call, open, and asked only if step 4 licenses the design.
 * **Whether writes after a commit are visible to a pass that waits on a
   CPU-signalled shared event.** It is unresolved in Apple's text. A test on
   one machine cannot settle a guarantee, and nothing here depends on it.

@@ -1,27 +1,21 @@
 # AK. The window title: what a program sets, what baud derives, and where it shows
 
 **Status: research, 2026-10-09; revised three times the same day after
-read-only reviews. Jev asked, with renders, on 2026-10-21 (below).** The owner,
-2026-10-08, verbatim: "title , we need standard options like current dir,
-current process i believe, so research here". In-repo lines are at 473ff12;
+read-only reviews; weighed with renders on 2026-10-21 (below).** The request,
+2026-10-08: the standard title options, such as the current directory and
+the current process. In-repo lines are at 473ff12;
 the cited files are unchanged at 2d8afea.
 
-**Decided and built, 2026-10-21.** Re-asked with renders, both orders
-(Jev decisions 1207-1210, and 1215-1216 for the three forks this note
-never asked, re-asked after more research): question 2 T2, a lean
-(0.61/0.72); question 4 R1, a lean (0.76/0.61); question 8 I1, decided
-(0.92/0.92); folder, then program, decided (0.95/0.98); the program by
-argv[0], a lean (0.58/0.69); the folder with home as `~` and past three
-folders the last three, as kitty's and ghostty's integrations spell it,
-a lean (0.25/0.37). Question 1 is the owner's (TODO.md) and the
-proxy icon waits on it. Built: `OSC 7` in the core, the derived title in
-both apps, checked as 6.5 settles (the record, "A shell can say
-which folder it is in: OSC 7" and "The window's title names the folder
-and the program"). Not re-asked this round, and nothing built for them:
+**Decided and built, 2026-10-21**, weighed with renders, with three forks
+this note had not posed researched further: question 2 T2; question 4 R1;
+question 8 I1; folder, then program; the program by argv[0]; the folder
+with home as `~` and past three folders the last three, as kitty's and
+ghostty's integrations spell it. Question 1 is open and the proxy icon
+waits on it. Built: `OSC 7` in the core, the derived title in
+both apps, checked as 6.5 settles. Not re-asked this round, and nothing built for them:
 question 5 (Q-A, keep refusing `CSI 21 t`, today's behaviour), question
-7a (orders split, G 0.30 against B 0.34; today's B kept) and 7b (L, a
-lean at 0.76/0.86, today's). Question 6 stays decided, H0 at
-0.97/0.95; a later ask leaned H1 at 0.35/0.43, below the bar.
+7a (unsettled; today's B kept) and 7b (L, today's). Question 6 stays
+decided, H0.
 
 Where the evidence lives: every source is a key in
 `docs/research/sources/MANIFEST.toml` (groups C, E, J and AK); the probes and
@@ -77,8 +71,8 @@ hides the title text. In a probe window built with the crate's style, AppKit
 created no document-icon (proxy) button while the title was hidden (**M**,
 section 3.1), although the SDK header says the icon shows for any non-nil
 URL. So "current dir, current process" in the macOS titlebar needs the crate
-to show its title, or baud to draw its own. That is the question already open
-in TODO.md (5.5), folded in here as question 1.
+to show its title, or baud to draw its own. That question was already open,
+and is folded in here as question 1.
 
 What baud can derive on macOS and what each read cost here (**M**, warm
 20,000-call loops over one pid, runs 1-3, 2.6): the foreground process group,
@@ -184,11 +178,11 @@ quotes § 9 in full and reads it as "a tolerance for transformation
 artifacts", marking a single-shift option conforming to it
 (`docs/research/notes/ae-code-extension.md` 184-190, 803); it decides nothing
 about title bytes. No earlier decision on title bytes against these texts was
-found (searched `docs/vt-coverage.md`, notes G, AE and AF and
-the record for "8.3.89", "command string", "07/14", "8-bit data"). The record describes the behaviour
+found (searched `docs/vt-coverage.md` and notes G, AE and AF for "8.3.89",
+"command string", "07/14", "8-bit data"). The behaviour was described
 without the texts: "the bytes are read in the encoding the terminal is in --
 ill-formed UTF-8 as U+FFFD, as the screen shows it, and ISO 8859-1 byte for
-codepoint" (the record 17213-17215). The choice is the owner's,
+codepoint". The choice is open,
 question 7.
 
 ### 1.2 xterm's control sequences
@@ -323,10 +317,9 @@ xterm patch #411, `xterm-snapshots` 9489b20: charproc.c is
 its colour protocol: [[source: kitty-6d5d0c4-color-stack]] 52,
 "<OSC> 21 ; key=value ; key=value ; ... <ST>", dispatched as `color_control`
 (kitty vt-parser.c 609-611). Neither is a title for baud: DECSWT is a VT520
-function, baud's DA identifies it as a VT102 (CLAUDE.md, "`DA` under-claims
-as a VT102"), and xterm ignores DECSWT below 520 (1.3). A terminal that took
+function, baud's DA identifies it as a VT102 (CONTRIBUTING.md, "The protocol is enumerated"), and xterm ignores DECSWT below 520 (1.3). A terminal that took
 `OSC 21` as DECSWT without that guard would show kitty's `foreground=...`
-payloads as titles. kitty's use departs from ctlseqs. TODO.md's guess of
+payloads as titles. kitty's use departs from ctlseqs. The guess of
 "OSC 21" as a title source is answered: it is DECSWT, and not for baud.
 
 Since 2026-10-22 baud reads `OSC 21` as kitty's colour control, as kitty
@@ -405,7 +398,7 @@ provided like this should be considered auxiliary and – to some degree –
 redundant information. Hence, it would be wise for a terminal to enforce
 limits" (196-199). kitty ignores it: "this is systemd's useless OSC 3008
 context protocol" (kitty window.py 1547). Listed for completeness; whether
-any program the owner runs sends it is UNVERIFIED.
+any program in use here sends it is UNVERIFIED.
 
 ### 1.8 Unicode: what in a title can mislead
 
@@ -813,8 +806,8 @@ Terminal.app were not checked.
   in every state: "80-8F,91-97,99,9A / execute" ([[source: williams]]
   263-268), and 9B, 90, 9D and 98/9E/9F enter CSI, DCS, OSC and SOS/PM/APC
   (296-301, 344-349, 397-402, 416-422). In UTF-8 those bytes are
-  continuations and the rule does not apply (1.1). A defect for TODO.md and
-  the owner; it touches no title option.
+  continuations and the rule does not apply (1.1). An open defect; it
+  touches no title option.
 - `OSC 7` and `OSC 21` reach `Osc::Unsupported` (`baud-domain/src/vt/osc.rs`
   399) and are counted in `strings_ignored` and `unsupported_total`
   (`osc.rs` 267-270).
@@ -822,9 +815,8 @@ Terminal.app were not checked.
   (`baud-domain/src/vt/csi.rs` 382-410; `docs/vt-coverage.md` 807: "`CSI 22 ;
   2 t` / `CSI 23 ; 2 t`, the title save and restore vim sends, is the one with
   a real consumer and the one to take first"). XTSMTITLE, XTRMTITLE and
-  XTTITLEPOS are counted, not built (TODO.md, "The title stack's siblings").
-- RIS does not clear the title, as xterm's does not (the record, "A
-  program's title is set on the window, and on macOS the window hides it");
+  XTTITLEPOS are counted, not built.
+- RIS does not clear the title, as xterm's does not;
   foot resets it (section 4).
 
 ### 5.2 The app
@@ -844,7 +836,7 @@ option B, ctlseqs' default and a departure from § 9).
 
 ### 5.3 The window
 
-baud links the owner's crate as `macos-liquid-glass` 1.0.0-beta.5
+baud links the window crate as `macos-liquid-glass` 1.0.0-beta.5
 (`Cargo.lock` 424-426), whose `src/window.rs` is byte-identical to
 glassnote's own checkout at 5fa641f ([[source: ak-obs-observations]]). It sets
 `setTitlebarAppearsTransparent(true)` and
@@ -870,33 +862,7 @@ document-icon button while the title was hidden (3.1, M).
   defect is question 6.
 - **The fallback is the app's name**, which the HIG advises against, while it
   allows an empty title area where a title would be redundant (3.1). Guidance,
-  not a standard; it is the owner's call in question 2.
-
-### 5.5 What TODO.md already says
-
-TODO.md is gitignored and changes under other sessions, so entries are named
-by their text:
-
-- "**2. The window title: standard options -- current directory, current
-  process**" (the owner's 2026-10-08 list), which ends: Overlaps the existing
-  OSC 7 entry ... and "Showing a title waits on TODO.md:1367".
-- "**OSC 7 (cwd; the owner wants the directory in the title bar)** ... have
-  no rows. ... Showing a title waits on TODO.md:1367."
-- **TODO.md:1367 is stale, and it resolves to the open owner question.** The
-  stale-entry note for the title stack cites "TODO.md:1371 'The title stack
-  `CSI 22;2t` / `CSI 23;2t`'". That line now sits four lines below "**Owner:
-  should the macOS titlebar show a program's title?** The window crate's
-  titled glass window hides its title text deliberately, so today the title
-  reaches the Window menu, Mission Control and accessibility only. Either the
-  crate shows it, or baud draws it in its titlebar." The same four-line gap
-  puts 1367 on that question (read 2026-10-09; inferred from the offset, and
-  the text matches what "showing a title" waits on).
-- "**XTWINOPS**: ... give 20/21 their own `out` row with the title-injection
-  reason".
-- "OSC 3, 5/6, 13-19, 21, 22, 46, 50, 51, 60-62 are `Unsupported` ... OSC 21
-  is OSC 2's VT520 spelling".
-- "kitty's `OSC 21` colour control protocol: not pinned; research first."
-  It is pinned now in this note's proposal (1.4).
+  not a standard; it is open in question 2.
 
 ## 6. Options
 
@@ -913,9 +879,9 @@ and in cost.
   drawn by AppKit; `subtitle` and `representedURL` become available
   natively, and the document-icon button existed in the probe (3.1, M).
   Practice: ghostty's native style; in line with the HIG's "Avoid creating
-  custom window UI". Cost: a change to the owner's crate (extend it, never
+  custom window UI". Cost: a change to the window crate (extend it, never
   duplicate it); the titlebar's look changes; the baud mark and the modem
-  LEDs (owner item 4) share the strip with AppKit's title.
+  LEDs (note AH) share the strip with AppKit's title.
 - **S2. baud draws the title in its titlebar strip.** Full control of
   placement and type, and the glass look unchanged. No terminal studied does
   this on macOS, and it is what the HIG's "Avoid creating custom window UI"
@@ -925,7 +891,7 @@ and in cost.
   change, through `baud-font` (unmeasured); the accessibility and Window-menu
   title still set through `set_title`.
 - **S3. Leave it hidden** (today). The Window menu, Mission Control and
-  accessibility keep the title. Cost: the owner's request stays unmet in the
+  accessibility keep the title. Cost: the request stays unmet in the
   titlebar: no directory, no process, no proxy icon there.
 
 On Wayland only `set_title` exists (1.9). Under S1 or S2 the subtitle and
@@ -935,7 +901,7 @@ whatever goes in the macOS subtitle needs a Linux home or must be absent.
 ### 6.2 What the title says, and who wins
 
 - **T1. The program's title only, with a fallback** (today). Conforming:
-  ctlseqs defines only the program's title. Cost: no reads; the owner's
+  ctlseqs defines only the program's title. Cost: no reads; the
   request (directory, process) stays unmet.
 - **T2. The program's title wins; derived facts only when it sets none.**
   The fallback becomes the foreground process name or the directory, never
@@ -1066,7 +1032,7 @@ terminal rule (1.8), and no text requires removing the characters.
   question 7. RIS resets the title modes, as xterm's does (1.3). Cost: ten
   slots, each holding a title and an icon name of up to `OSC_MAX` (10 KiB at
   512 bytes, **C**), and the modes in the reset.
-- **The icon name (`OSC 1`): the owner's call (question 8).** ctlseqs: "Ps =
+- **The icon name (`OSC 1`): a choice the project made (question 8).** ctlseqs: "Ps =
   1 -> Change Icon Name to Pt." (2035).
   - **I1. To `miniwindowTitle`**, AppKit's nearest counterpart: conforming to
     2035 in that reading. xterm sets the X icon name (`ChangeIconName`,
@@ -1077,7 +1043,7 @@ terminal rule (1.8), and no text requires removing the characters.
     crate must expose `miniwindowTitle`; one extra AppKit set per title
     change; under `OSC 0`, which sets both, the order matters.
   - **I2. Stored only** (today). The sequence is recognised and its effect
-    dropped, the state CLAUDE.md warns against ("Never record a mode you do
+    dropped, the state CONTRIBUTING.md warns against ("Never record a mode you do
     not act on"; a sequence the parser recognises and drops "is worse than
     one it does not implement"). Cost: none to build; the departure stays.
 - **`OSC 21` stays refused and counted**, with a coverage row saying why:
@@ -1100,10 +1066,10 @@ terminal rule (1.8), and no text requires removing the characters.
   risk xterm, ghostty and wezterm name when it is turned on: a title the
   attacker set, echoed back as input.
 
-## 7. The owner's questions
+## 7. Open questions
 
-1. **Show the title on macOS: S1, S2 or S3?** This is TODO.md's open "should
-   the macOS titlebar show a program's title?", and it gates everything else
+1. **Show the title on macOS: S1, S2 or S3?** This is the open "should the
+   macOS titlebar show a program's title?", and it gates everything else
    visible. All three conform to ctlseqs. S1: AppKit's title, subtitle and
    proxy icon (the button existed in the probe), at the cost of changing the
    crate and the strip's look. S2: baud's own drawing and the glass look kept,
@@ -1219,5 +1185,5 @@ terminal rule (1.8), and no text requires removing the characters.
 Settled by this note, not asked: the title stack and its siblings, with
 xterm's ring of ten (6.7); the scheduling of derived reads, if any option
 reads (6.5); `OSC 21` refused with its reason; `OSC 7` parsed and stored in
-the core whatever the answer to 4. Not part of this decision, recorded for
-TODO.md: the ISO 8859-1 C1 bytes stored inside strings (5.1).
+the core whatever the answer to 4. Not part of this decision, recorded as
+open: the ISO 8859-1 C1 bytes stored inside strings (5.1).

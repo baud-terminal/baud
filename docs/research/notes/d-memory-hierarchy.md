@@ -89,7 +89,7 @@ and it is still an inference. What would settle it is a counter.
 
 ## Which reopens a refusal
 
-`CLAUDE.md` said, until `dc0eed4` (2026-08-29) withdrew it: "Hardware
+The project's rules said, until `dc0eed4` (2026-08-29) withdrew it: "Hardware
 counters are not available on this machine even as root. SIP blocks the
 `cpc`, `fbt` and `pid` providers; only `profile` survives `sudo`. Cache
 misses, branch mispredicts and IPC need a recovery-mode reboot, so the two
@@ -114,9 +114,7 @@ whose SIP still blocks dtrace's `cpc`, as the paragraph below records (struck
 --template 'CPU Counters'` records with no `sudo`. A later record found the
 "absent" tool was never absent: `/usr/bin/xctrace` is an `xcode-select` shim
 that answers "not found" under a `DEVELOPER_DIR` carrying no Instruments, and
-Xcode's own copy records fine (the record, "The counters run on
-baud-core now, and the elimination holds on the new core", which also reads
-the counters on `baud-core`).
+Xcode's own copy records fine, and the counters run on `baud-core` (CONTRIBUTING.md, "Profiling: which tool answers which question").
 
 Two anomalies are recorded as unresolvable on the strength of the wider claim:
 the width tables at 5% and blanking at 38%. Both should be re-read against the
@@ -139,8 +137,7 @@ narrower one.
 - **The erase-path scan is untested.** `bcf1774` applied the same pattern to
   `fill_counted` (`EL`/`ED`). The fix reverts both functions, so that one's cost
   is inferred from the shared shape rather than measured.
-- **The older blanking anomaly is not explained by this.** The record,
-  "Blanking, priced before `RowExtent`", records that a variant *skipping*
+- **The older blanking anomaly is not explained by this.**, records that a variant *skipping*
   blanking entirely measured 142–150 against 213–229 — less work, slower —
   and resolves it there as a harness artefact. That is a different comparison
   from this one and this note does not account for it. Do not fold the two

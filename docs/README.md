@@ -131,7 +131,7 @@ its filename's prefix, and several notes share one.
 | [s-sixel.md](research/notes/s-sixel.md) | S. Sixel graphics | open |
 | [t-images.md](research/notes/t-images.md) | T. Images: the phase register for Sixel and Kitty graphics | open |
 | [u-resize-and-the-window.md](research/notes/u-resize-and-the-window.md) | U. Who holds the window over the history across a resize | open |
-| [v-open-decisions.md](research/notes/v-open-decisions.md) | V. The owner's open decisions, researched | open |
+| [v-open-decisions.md](research/notes/v-open-decisions.md) | V. The open decisions, researched | open |
 | [w-cursor-trails.md](research/notes/w-cursor-trails.md) | W. The cursor trails: where each design came from, what was decided, and what is lost | open |
 | [w-fallback-fonts.md](research/notes/w-fallback-fonts.md) | W. Fallback fonts: what other terminals do, and what baud could bundle | superseded by AC |
 | [x-cursor-motion-and-blink.md](research/notes/x-cursor-motion-and-blink.md) | X. The cursor's motion and blink: the designs as reviewed | open |
@@ -176,9 +176,9 @@ their entries' titles:
 | AW | the scope calls: printing on macOS, and the alert sound at a volume |
 | AX | notifications and progress from programs: `OSC 9`, `777`, `99`, `9;4` and `1337`, and where each platform shows them |
 | AZ | a window in the background: the unfocused cursor, the inactive selection, theme cursor colours |
-| BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (no note; `baud-app/src/bell.rs` and the record's section cite them) |
-| BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (no note; `baud-app/src/link.rs` and the record's section cite them) |
-| CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (no note; `baud-app/src/reload.rs` and the record's section cite them) |
+| BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (no note; `baud-app/src/bell.rs` cites them) |
+| BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (no note; `baud-app/src/link.rs` cites them) |
+| CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (no note; `baud-app/src/reload.rs` cites them) |
 
 A group's letter and a note's need not match: group H's sources are key
 encoding, and note H is not in the repository. Both tables are held to

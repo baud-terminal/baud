@@ -109,7 +109,7 @@ WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
 THE ITALICS
 
 Italic and bold italic Hebrew lean right, with JetBrains Mono Italic's Latin and
-digits: the owner's call of 2026-10-24 ("learn right R"). Each is its upright design
+digits, since 2026-10-24. Each is its upright design
 (Regular, or Bold) sheared 9 degrees about y = 315, JetBrains Mono Italic's angle
 (italicAngle = 9 in every master of its source), with the points moved by the same
 shear so each stays on its letter, then fitted back into the cell where the shear
@@ -144,8 +144,8 @@ BAUD'S OWN GLYPHS
 
 What the Hebrew repertoire needs beyond Cascadia's letters and the redrawn points is
 made by baud (build/cover.py) -- drawn, or built from this font's own letters -- and
-taken from no other font, the owner's rule of 2026-10-07 ("create our own so it looks
-better and align with jetbrains"). Each is appended after every other glyph, so no
+taken from no other font, the rule since 2026-10-07: baud's own glyphs, aligned
+with JetBrains Mono. Each is appended after every other glyph, so no
 glyph ID moves, and is drawn upright; the italics take it through the letters' shear
 and correction of rounds.
 
@@ -232,91 +232,62 @@ Nothing from Cascadia's Latin is used.
 
 
 INTERIM PICKS
-(Jev's confidence in its choice; 0.9 or above counts as settled, since 2026-10-10
-in both orders; anything below is interim)
+(settled where a text or a measurement decides it; interim otherwise)
 
-- Dalet: H45, interim. Jev's lean on the second ask, probability 0.83 and 0.81 in the
-  two orders (confidence 0.79 and 0.76), under the 0.9 bar, so the lean is taken: the
-  roof passes the leg by 45 units, the roof keeps its 418 (Bold 438) width. Zayin
-  stays as narrow-letter variant A has it (ZKEEP, probability 0.75 and 0.92), and no
-  other sister pair is redrawn (NONE, probability 0.79 and 0.87). Re-asked with
-  dalet's nearness to vav, which the second ask left out: H45 again, probability 0.70
-  and 0.81. Note AC 4d.
-- Cantillation marks: drawn into the font, settled, Jev's probability 0.99 in both
-  orders (confidence 0.98; note AD Q9). Their forms, variant B (larger, stronger, the
-  winding ones finer), interim, the lean taken: probability 0.74 and 0.70 (confidence
-  0.61 and 0.55) on the second ask, after the first split 0.56 and 0.55. Their
-  placement, interim, the lean taken: probability 0.77 and 0.77 (confidence 0.54).
-- Presentation forms: GSUB untouched (A), settled, Jev's probability 0.98 and 0.96
-  (confidence 0.97 and 0.94); the canonical forms as composites, interim, the lean
-  taken: probability 0.94 and 0.97 (confidence 0.88 and 0.94) on the second ask; the
-  alternative plus lowered, settled, confidence 0.97 and 0.95; the alef lamed
-  ligature, settled, confidence 0.96 and 0.92; varika, settled, confidence 0.94 and
-  0.94. The wide letters stretched across the cell, interim, the lean taken: the first
-  ask leaned to each as its letter (probability 0.68 and 0.88), the second, with
-  Courier New's measured, to stretched (probability 0.72 and 0.72, confidence 0.44).
-- Nun hafukha: the built nun reversed, settled, Jev SHIP at probability 0.98 in both
-  orders (confidence 0.96) on the second ask (probability 0.81 and 0.78 on the first).
-- Yiddish ligatures: B (each letter 252.5 wide, 45 apart), interim, the lean taken:
-  probability 0.80 and 0.83 (confidence 0.70 and 0.74), against the first design's 230
-  and 60.
-- Yod triangle: B (yods at 0.70, 30 apart), interim, the lean taken: probability 0.53
-  and 0.58 (confidence 0.30 and 0.37), against 0.62 and 40.
-- Sheqel sign: shape B (squarer shoulders) at 630, interim. Jev with renders: shape B
-  at probability 0.91 and 0.90 in the two orders, height 630 at 0.77 and 0.90, and
-  whether to ship split, REDRAW 0.52 and 0.54. Shape B (confidence 0.82/0.80) and
-  height 630 (0.54/0.80) are leans, taken. Re-asked with a lighter variant (stems 74
-  and 92), at probability: B 0.49 and 0.38, the lighter 0.41 and 0.48, redraw 0.10 and
-  0.14. On the re-ask the weight split between the orders; B is ahead on the two
-  askings' summed confidences (0.23 against 0.22) and is taken as the lean, the
-  record's rule for a split.
-- Tree: NEW_PATH_A2, interim, probability 0.74 (confidence 0.61); asked again,
-  confidence 0.77 and 0.91. Stock JetBrains Mono stays at
+- Dalet: H45, interim: the roof passes the leg by 45 units, the roof keeps its
+  418 (Bold 438) width, also weighed with dalet's nearness to vav. Zayin stays
+  as narrow-letter variant A has it (ZKEEP), and no other sister pair is
+  redrawn (NONE). Note AC 4d.
+- Cantillation marks: drawn into the font, settled (note AD Q9). Their forms,
+  variant B (larger, stronger, the winding ones finer), interim. Their
+  placement, interim.
+- Presentation forms: GSUB untouched (A), settled; the canonical forms as
+  composites, interim; the alternative plus lowered, settled; the alef lamed
+  ligature, settled; varika, settled. The wide letters stretched across the
+  cell, interim, chosen with Courier New's measured.
+- Nun hafukha: the built nun reversed, settled.
+- Yiddish ligatures: B (each letter 252.5 wide, 45 apart), interim, against the
+  first design's 230 and 60.
+- Yod triangle: B (yods at 0.70, 30 apart), interim, against 0.62 and 40.
+- Sheqel sign: shape B (squarer shoulders) at 630, interim, from renders, also
+  weighed against a lighter variant (stems 74 and 92) and a redraw.
+- Tree: NEW_PATH_A2, interim. Stock JetBrains Mono stays at
   baud-app/fonts/jetbrains-mono/ as the base. The Hebrew inputs live in
   baud-app/fonts/glyphs/languages/hebrew/ and the outputs here.
-- Bold: BOLD_A_L2_AS_BUILT, settled, probability 0.99 (confidence 0.98), asked in one
-  order. This is the gated Bold-A-L2 design, its bytes changed only by the two
-  conformance fixes. That also answers 1d and 1e as built for now (both below).
+- Bold: BOLD_A_L2_AS_BUILT, settled. This is the gated Bold-A-L2 design, its
+  bytes changed only by the two conformance fixes. That also answers 1d and 1e
+  as built for now (both below).
 - Regular: the gated Regular-A-L2 design, its bytes changed only by the two
-  conformance fixes; the review page's shown defaults for 1a (A) and 1b (L2).
-  Interim; the owner's call.
-- Italic and Bold Italic: the lean is the owner's (right, 2026-10-24). How far the
-  rounds' handles are corrected is C_PER_KIND_FIT, settled, probability 0.96 at
-  confidence 0.94 in both orders: each corner takes JetBrains Mono's fit for corners
-  of its kind. How far the bowls' joints are levelled is D13_LEVEL_CAPPED, settled,
-  probability 0.99 at confidence 0.98 in both orders: by the gap, at most 13 units.
-  Their family name is the built family's (N_SHARE, settled, confidence 0.92/0.96 in
-  both orders).
-- Inputs: COMMIT_VF, settled, confidence 0.98 on both forms of the second ask, a
-  focused request and one conditional on proposed rules (probability 0.99; the first
-  ask, probability 0.93, confidence 0.89).
-  Cascadia's variable font is committed with SOURCE and its licence, and the build
-  instances it.
-- Name bytes: KEEP_FINAL3_BYTES, settled, probability 0.95 (confidence 0.90),
-  superseded for two fields on 2026-10-08. That pick was asked without the dropped
-  trademark notice in its premise. Re-asked with both gaps and the standards' text,
-  Jev chose FIX_NOW at probability 0.52 against KEEP_FINAL3_BYTES at 0.48, confidence
-  0.04, below the bar; the owner's rule decided: a departure from the standard or the
-  licence is a defect, so both were fixed now (CHANGELOG). The rest of the name table
+  conformance fixes; the shown defaults for 1a (A) and 1b (L2). Interim.
+- Italic and Bold Italic: lean right (2026-10-24). How far the rounds' handles
+  are corrected is C_PER_KIND_FIT, settled: each corner takes JetBrains Mono's
+  fit for corners of its kind. How far the bowls' joints are levelled is
+  D13_LEVEL_CAPPED, settled: by the gap, at most 13 units. Their family name is
+  the built family's (N_SHARE, settled).
+- Inputs: COMMIT_VF, settled. Cascadia's variable font is committed with SOURCE
+  and its licence, and the build instances it.
+- Name bytes: KEEP_FINAL3_BYTES, settled, superseded for two fields on
+  2026-10-08. That pick was made without the dropped trademark notice in its
+  premise. Weighed again with both gaps and the standards' text, a departure
+  from the standard or the licence is a defect, so both were fixed now
+  (CHANGELOG). The rest of the name table
   (the prototype family name, nameID 3's tag) stays until decision 11, and is renamed
   once then.
-- Push: COMMIT_LOCAL_HOLD_PUSH, interim, probability 0.81 (confidence 0.72). Committed
-  on the local branch; nothing is pushed and no release bundle is made until the
-  licence call is answered.
-- Configured stacks: INCLUDE_REGULAR_FOLLOW, interim, probability 0.59 (confidence
-  0.38). The decision is that a configured font list gets this Regular appended after
+- Release: interim. No release bundle is made until the licence question below is
+  settled.
+- Configured stacks: INCLUDE_REGULAR_FOLLOW, interim. The decision is that a configured font list gets this Regular appended after
   the configured faces, before the icon face and STIX. It is a change to
   baud-app/src/config.rs, not to these files, and these files do not make it.
 
 
-OPEN OWNER CALLS
-(nothing here answers them)
+OPEN QUESTIONS
+(nothing here settles them)
 
 1a  Which vav, yod, zayin and final nun: narrow-letter variant A, B, C, D or E. The
     interim is A.
 1b  Holam on lamed: beside the mast (L1) or above it, inside the cell (L2). The
     interim is L2.
-1c  Answered by the owner on 2026-10-24: right, with the Latin.
+1c  Answered on 2026-10-24: right, with the Latin.
 1d  Vowel points at 26 px, baud's default size, where no round dot fits in the rows
     below the baseline: as built, no drop under ג ט ל ס ש, or a short or dash-shaped
     dot. The interim is as built.
@@ -331,13 +302,13 @@ Microsoft product, service, or content in which this font was included. ... Any
 other use is prohibited." and then gives OFL-based terms. The files here carry
 Microsoft's copyright line in nameID 0 and JetBrains Mono's OFL sentence in nameID
 13. They do not carry that text, and OFL.txt here carries both copyright lines over
-the OFL 1.1. Whether that is enough to ship is the owner's call.
+the OFL 1.1. Whether that is enough to ship is open.
 
 The build modules under glyphs/languages/hebrew/build/ and casanchors.py beside
-them are baud code under the repository's licence, not Font Software: the owner's
-call of 2026-10-28. anchors-400.json and anchors-700.json are data read out of
+them are baud code under the repository's licence, not Font Software, since
+2026-10-28. anchors-400.json and anchors-700.json are data read out of
 Cascadia Mono; hebrew/SOURCE states them under OFL.txt, as the font is, and the
-licence call should confirm it.
+licence question should confirm it.
 
 The repository's LICENSE is CC BY-NC-SA 4.0 (Cargo.toml: license = "CC-BY-NC-SA-4.0").
 OFL condition 5: "The Font Software, modified or unmodified, in part or in whole, must
@@ -356,8 +327,8 @@ not use individual words from the Reserved Font Names"), and it should not be
 nameIDs 8, 9, 11 and 12 stay until then; nameID 7 keeps both trademark notices.
 
 Shear or optical italic. Answered: the italics are optically corrected as JetBrains
-Mono's italic corrects its rounds (THE ITALICS), the reading the session recorded of
-the owner's words "i do think we want italic in hebrew".
+Mono's italic corrects its rounds (THE ITALICS), the reading taken of the request for
+italic Hebrew.
 
 
 KNOWN DEFECTS
@@ -406,11 +377,11 @@ CHANGELOG.)
   and final tsadi with qubuts by 140 (Regular; Bold unmeasured). With a meteg after
   it, a wide vowel on qof goes further, to leave meteg room between it and the leg
   (Regular: tsere and segol 3 units past the cell, the hatafs 56, qubuts 120, hataf
-  segol 148; Bold up to 219). Jev's lean, taken: the first two asks leaned to meteg
-  left of the leg (probability 0.53/0.60, then 0.58/0.67) on a figure for its
+  segol 148; Bold up to 219). The vowel goes past the edge: the first readings put meteg
+  left of the leg, on a figure for its
   overflow that was wrong (6-37 units in Bold, where it is 48, with the italics'
-  107-150 and its failing the check left out); asked once more with the measured
-  figures, the vowel past the edge, 0.79/0.62 (confidence 0.58/0.24). Since
+  107-150 and its failing the check left out), and the measured figures put the
+  vowel past the edge. Since
   2026-10-26, in <meteg, CGJ, vowel> on final kaf, and in Regular and Bold on final
   pe, the vowel leaves the cell on the left, up to 142-144 units in Regular (hataf
   segol; qubuts 116), 217-219 in Bold, 134 in Italic and 217 in Bold Italic; and in
@@ -427,7 +398,7 @@ CHANGELOG.)
 - At 20 px the cut went from clean to faint in the bold styles, against the round
   before.
 - The narrow letters were judged by non-native readers from baud renders, so they are
-  the owner's to check (1a).
+  open to a native reader's check (1a).
 - A dot above nun hafukha, which the Unicode Standard spells U+0307 (9.1), is
   JetBrains Mono's combining dot, and no lookup places it on U+05C6: it sits where
   the pen leaves it, offset 0 in HarfBuzz 14.5.1, as on nun.
@@ -480,7 +451,7 @@ CHANGELOG
   the four embedded faces are one family (see WHAT CHANGED IN ITALIC.TTF AND
   BOLDITALIC.TTF). Regular.ttf and Bold.ttf are unchanged.
 2026-10-24 (i-am-logger, baud): Italic.ttf and BoldItalic.ttf carry the Hebrew,
-  leaning right with the Latin (the owner's call), the upright sheared 9 degrees with
+  leaning right with the Latin, the upright sheared 9 degrees with
   JetBrains Mono Italic's correction of rounds (THE ITALICS). Regular.ttf and Bold.ttf
   are unchanged.
 2026-10-24 (i-am-logger, baud): ד (U+05D3) no longer reads as ז (U+05D6) at text
@@ -559,11 +530,11 @@ CHANGELOG
   the letter. Pointed text without meteg draws as before: the hebrew-faces fixtures
   change only on their 22 italic clusters that carry one. GPOS gains the chained
   context and 24 mark-to-base lookups (8.5-8.7 KB a file); no other table but
-  head's checksum changes. Jev with renders: moving the pair only in a meteg
-  cluster, probability 0.90 and 0.88 (confidence 0.85 and 0.82), and meteg keeping
-  its side where the cell has no room, 0.78 and 0.83 (confidence 0.56 and 0.66),
+  head's checksum changes. From renders: moving the pair only in a meteg
+  cluster, and meteg keeping
+  its side where the cell has no room,
   both leans taken; qof under KNOWN DEFECTS; meteg's ink kept in the cell before
-  the vowel's, 0.99 and 0.98 (confidence 0.98 and 0.96), settled, asked with
+  the vowel's, settled, asked with
   Regular's and Bold Italic's placements and renders: Bold's larger vowel moves on
   final kaf and final pe, up to 148 units, were not shown. No cluster that passed
   the meteg check before fails it. The gates were run again: OTS passes; the

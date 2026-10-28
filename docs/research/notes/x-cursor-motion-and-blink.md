@@ -8,11 +8,11 @@ Names of tests that were proposed and never written, and paths that exist
 only in that scratchpad, appear without code formatting, so this note does
 not cite what the tree lacks.
 
-The owner's answers of 2026-09-27: blink-after-exit rule **F**; ride-scroll
+The answers of 2026-09-27: blink-after-exit rule **F**; ride-scroll
 **rides at most two rows, then folds in** on the fast constant; the blink from
 the OS **with hard edges at 650/350**; and **every other sub-question at its
 recommended default**. What was built, and where the build departed from a
-design, is recorded in `CLAUDE.md` under each feature's own section:
+design, is recorded under each feature:
 
 | design | built | section |
 |---|---|---|
@@ -26,7 +26,7 @@ design, is recorded in `CLAUDE.md` under each feature's own section:
 
 ## Reduce Motion means no trail, unless the config names one (reviewed and corrected)
 
-Build: "reduce-motion". The owner's decision is at docs/research/notes/v-open-decisions.md:50: **"Reduce Motion means no trail, unless the config names one."** [read]
+Build: "reduce-motion". The decision is at docs/research/notes/v-open-decisions.md:50: **"Reduce Motion means no trail, unless the config names one."** [read]
 
 Labels:
 - **[read]**: read at source.
@@ -56,7 +56,7 @@ Nothing in the repository was edited, and no cargo command was run there.
 - The reader overwrites the field and keeps no trace that the key was present (config.rs:393-413). `"fire" | "true"` both give `Fire` (:395), and an unrecognised value gives `Fire` with "using fire" (:406-411).
 - The example names the trail: `trail = "fire"` at config.toml.example:102.
 - The example gate asserts `CursorTrail::Fire` (config.rs:1372-1377).
-- The owner's `~/.config/baud/config.toml` has only `[glass]` (:39) and `[images]` (:84) [run: grep].
+- The measuring machine's `~/.config/baud/config.toml` has only `[glass]` (:39) and `[images]` (:84) [run: grep].
 
 **E. Switching the trail to off mid-flight owes a frame on every tick.** Confirmed [read].
 - `present` handles `Off => None` and never calls `chase.frame` (app.rs:1032-1062).
@@ -97,9 +97,9 @@ Nothing in the repository was edited, and no cargo command was run there.
 
 1. **Poll on the tick, and drop the observer from the default design.** The source is `macos_liquid_glass::accessibility::reduce_motion()`, and the reason is finding B above.
    - It sits beside `poll_focus()` under `Trigger::Tick` (app.rs:3348-3349). That precedent polls an AppKit getter once a tick because a crate hook did not fire (app.rs:4434-4449) [read].
-   - The cost is one message send and one cached byte a tick. That is about 0.04 µs [run, the getter alone]; with `sharedWorkspace` I infer under 0.1 µs [inferred]. At 120 Hz it is under 12 µs a second, about 0.001% of a core, and under a fortieth of row 11's instrument floor of 0.044-0.060% [read: CLAUDE.md, the idle section].
+   - The cost is one message send and one cached byte a tick. That is about 0.04 µs [run, the getter alone]; with `sharedWorkspace` I infer under 0.1 µs [inferred]. At 120 Hz it is under 12 µs a second, about 0.001% of a core, and under a fortieth of row 11's instrument floor of 0.044-0.060% [read: MEASUREMENTS.md, "Idle CPU"].
    - It builds no frame.
-   - The observer moves to a fallback (owner question 6).
+   - The observer moves to a fallback.
 2. **The CPU path's clearing frame is already gated.** The design called this [inferred]; it is [read].
    - `trail_moved` compares `under_trail(trail)` with `under_trail(last_trail)` for any `Drawn` (renderer.rs:1400-1401).
    - `moving_smear`'s step at 0.5 s sets the look to `None` and requires the incremental frame to equal the full one (cpu_overlays.rs:389-424).
@@ -113,7 +113,7 @@ Nothing in the repository was edited, and no cargo command was run there.
    - `the_cursor_page_shows_every_trail` (config.rs:1014) calls `trail_name(Config::defaults().cursor_trail)` and asserts `read(..).cursor_trail == t`. Both break under `TrailPick`.
    - The same gate parses the refusal text by splitting on `"is not "` and `;`. The new "using the default" wording must keep the `;`.
 6. **The observer cannot be built in `App::new` as written.** `App::new` takes no `MainThreadMarker` (app.rs:680). This matters only for the fallback. There, build it in `run()` beside the style observer and pass what it needs into `App::new`.
-7. **Stale line numbers.** The TODO line is TODO.md:410-411, not 388-389 [read]. `Boot::prepare` is at app.rs:4034, `sharedApplication` at :4082, `GlassWindow::new` at :4105 and `App::new` at :4167.
+7. **Stale line numbers.** `Boot::prepare` is at app.rs:4034, `sharedApplication` at :4082, `GlassWindow::new` at :4105 and `App::new` at :4167.
 8. **docs/cursor.html has no Reduce Motion sentence to "update"** (its only matches are the page's own `prefers-reduced-motion` CSS, :210 and :371). One must be added. Its lede also still says "Liquid is wanted and not built yet" (:221). That is stale, separate, and one line to fix in the same commit.
 
 ---
@@ -144,15 +144,15 @@ Nothing in the repository was edited, and no cargo command was run there.
 - The reader arm (:393-413):
   - named values give `Named(..)`;
   - `"off" | "false"` gives `Named(Off)`;
-  - `"true"` gives `Default` (owner question 1);
-  - an unrecognised value gives `Default`, with "…; using the default", keeping the `;` (owner question 2).
+  - `"true"` gives `Default`;
+  - an unrecognised value gives `Default`, with "…; using the default", keeping the `;`.
 - Doc comments at :57-62 and :221-227.
 
 **baud-app/src/trail.rs:** `Chase::restyle`.
 
 **baud-app/src/app.rs:**
 - `fn motion_source() -> MotionSource`, the parse of `BAUD_MOTION=reduced|full`, beside `scroller_style` (app.rs:5272). It is a pure `motion_override(Option<&str>)`.
-  - `BAUD_SCROLLER` is the precedent, "for a check that must not change the owner's settings" (app.rs:5266-5277) [read].
+  - `BAUD_SCROLLER` is the precedent, "for a check that must not change the user's settings" (app.rs:5266-5277) [read].
 - `fn system_motion(src) -> SystemMotion`. `Fixed(m)` gives `m`. `System` reads the getter.
   - The getter must be read after `sharedApplication`. `App::new` is after it (app.rs:4082 then :4167), so the launch read is safe.
 - **`Driver::poll_motion()`**, called under `Trigger::Tick` right after `poll_focus()` (app.rs:3349), before `apply_style` (:3371):
@@ -183,14 +183,14 @@ Nothing in the repository was edited, and no cargo command was run there.
 
 | config | Reduce Motion off | Reduce Motion on |
 |---|---|---|
-| no `trail` key (the owner's config) | fire | **off** |
-| `trail = true` (owner question 1) | fire | **off** |
-| unrecognised value (owner question 2) | fire, with a complaint | **off**, with a complaint |
+| no `trail` key (the measuring machine's config) | fire | **off** |
+| `trail = true` | fire | **off** |
+| unrecognised value | fire, with a complaint | **off**, with a complaint |
 | any named trail | that trail | **that trail** |
 | `off` / `false` | off | off |
 
 - `scripts/trail-clips.sh:65` writes `trail = "%s"`, so every clip is named and unaffected [read].
-- On the example line (config.toml.example:102), see owner question 3.
+- On the example line (config.toml.example:102), see open question 3.
 
 ### 5. What the renderer is handed
 
@@ -226,7 +226,7 @@ A frame stays a pure function of what the driver hands the renderer. baud-render
   - the refusal-list parse still passes.
 
   This is a compile break today and must land in the same commit.
-- `the_committed_example_parses_to_what_it_documents` (config.rs:1352-1401), per owner question 3. If the line is commented out, the trail assertion becomes `TrailPick::Default`, a default like its neighbours. The `said.is_empty()` check and the key-line count still show that `[cursor]` landed through `shape` and `blink`.
+- `the_committed_example_parses_to_what_it_documents` (config.rs:1352-1401), per open question 3. If the line is commented out, the trail assertion becomes `TrailPick::Default`, a default like its neighbours. The `said.is_empty()` check and the key-line count still show that `[cursor]` landed through `shape` and `blink`.
 
 **L2. The trail driver** (trail.rs; every platform)
 - `a_restyle_mid_fire_owes_nothing`:
@@ -257,17 +257,17 @@ A frame stays a pure function of what the driver hands the renderer. baud-render
 - An optional source gate, in the shape of `every_reader_of_the_window_asks_the_clamp` (app.rs:2565): `pump`'s `Trigger::Tick` arm calls `poll_motion`. `pump` is AppKit-bound, so this is the only thing that can fail on a removed call.
 - The rest of the wiring is established by reading: `poll_motion`'s body, `App::new`'s launch read, and `present`. This follows the convention the cursor-blink section records for driver wiring.
 
-**L4. Live** (the owner): see M3. This is the only check that the OS toggle reaches AppKit's handler, and that the re-read is fresh.
+**L4. Live**: see M3. This is the only check that the OS toggle reaches AppKit's handler, and that the re-read is fresh.
 
 ### 8. Perturbations: one mechanism each, each red at its own test
 
 | broken on purpose | goes red |
 |---|---|
 | `effective` ignores the motion | L1 table, and L3 `motion_change` |
-| `"true"` read as `Named(Fire)` (if owner question 1 is taken) | L1 reader |
-| an unrecognised value read as `Named(Fire)` (if owner question 2 is taken) | L1 reader |
+| `"true"` read as `Named(Fire)` (if open question 1 is taken) | L1 reader |
+| an unrecognised value read as `Named(Fire)` (if open question 2 is taken) | L1 reader |
 | the complaint loses its `;` | L1 page gate |
-| the example's line restored (if owner question 3 is taken) | L1 example gate |
+| the example's line restored (if open question 3 is taken) | L1 example gate |
 | `restyle` only sets `style` | L2 mid-fire, and L3 switch |
 | `restyle` resets `last_lit` | L2 guard |
 | `restyle` resets `next_seed` | L2 seed assertion |
@@ -278,7 +278,7 @@ A frame stays a pure function of what the driver hands the renderer. baud-render
 | `system_motion` consults the getter under `Fixed` | L3 fixed |
 | `poll_motion` removed from the tick | the source gate, if taken |
 
-Run each perturbation with `--no-fail-fast`. Re-spell any perturbation that stops compiling under `-D warnings`. Both rules are recorded in CLAUDE.md.
+Run each perturbation with `--no-fail-fast`. Re-spell any perturbation that stops compiling under `-D warnings`. Both rules are in CONTRIBUTING.md.
 
 ### 9. Measurements owed
 
@@ -293,7 +293,7 @@ Run each perturbation with `--no-fail-fast`. Re-spell any perturbation that stop
   | `BAUD_MOTION=reduced` with `trail = "fire"` | about 1,181-1,184 |
 
   The frames are the result. The CPU column is none, under a 120 Hz animation.
-- **M3. The live toggle** (the owner; I changed no setting). Run baud with the mover and `BAUD_LOG=info`, and turn System Settings › Accessibility › Display › Reduce motion on, then off. Check that:
+- **M3. The live toggle** (I changed no setting). Run baud with the mover and `BAUD_LOG=info`, and turn System Settings › Accessibility › Display › Reduce motion on, then off. Check that:
   - the `motion:` line appears within a tick and names the **new** value (a stale re-read would name the old one);
   - the frames fall to the off figure, then return;
   - toggling Increase contrast logs nothing.
@@ -301,24 +301,20 @@ Run each perturbation with `--no-fail-fast`. Re-spell any perturbation that stop
 
 ### 10. Docs, in the one baud commit
 
-- **CLAUDE.md:**
-  - add a section "Reduce Motion means no trail, unless the config names one", with the probes' findings and labels, the poll and why the observer was not needed, the restyle, and M1-M3 as they land;
-  - strike "Reduce Motion" from the three "Not built, stated" lists (CLAUDE.md:19729, :19869, :20044).
 - **docs/cursor.md:236-237**, and add the sentence to docs/cursor.html. Fix the stale liquid lede at cursor.html:221 while there.
-- **config.toml.example:80-102**, per owner question 3.
+- **config.toml.example:80-102**, per open question 3.
 - **config.rs** doc comments at :57-62 and :221-227.
 - **docs/research/notes/v-open-decisions.md**, the "Built since" paragraph.
-- **TODO.md:410-411**, to be ticked. The file is gitignored; never commit it.
 - **The app.rs field doc at :459-465**, which still says the trail is "a fading ghost".
 
 ### 11. Not in this build
 
-- Smooth scroll, the screen fade, the scrollbar fade, the bell flash and the caret blink (owner question 5).
+- Smooth scroll, the screen fade, the scrollbar fade, the bell flash and the caret blink.
 - The Linux portal key.
-- The crate observer, unless M3 or owner question 6 calls for it.
+- The crate observer, unless M3 or open question 6 calls for it.
 
 
-### Owner questions
+### Open questions
 - Does `trail = true` name a trail? Recommended: no. The docs call `true` the default (config.rs:226-227, config.toml.example:96), so under Reduce Motion it gives off.
 - Does an unrecognised `[cursor] trail` value name a trail? Recommended: no. It falls back to the default, so it is off under Reduce Motion, and the complaint says 'using the default' (keeping the `;` the page gate splits on). A typo should not override an accessibility setting.
 - config.toml.example:102 writes `trail = "fire"`, so anyone who copied the example keeps a trail under Reduce Motion. Recommended: comment the line out and add one sentence saying that naming a trail keeps it under Reduce Motion.
@@ -329,7 +325,7 @@ Run each perturbation with `--no-fail-fast`. Re-spell any perturbation that stop
 - The Linux portal key `org.freedesktop.appearance reduced-motion`. Recommended: out of scope and recorded as not built, since the Linux driver draws no trail.
 
 ### Risks
-- Polling rests on an AppKit internal. `NSApplication.sharedApplication` registers its own observer of the display-options notification, which keeps the subsystem and its invalidating handler alive. This was run on this OS (Darwin 27 / SDK 27) and is not documented. If a later macOS drops that observer, the cached byte is never invalidated and a toggle is missed until relaunch. M3 detects this now. The crate observer (owner question 6) is the hedge, since registering creates the subsystem itself.
+- Polling rests on an AppKit internal. `NSApplication.sharedApplication` registers its own observer of the display-options notification, which keeps the subsystem and its invalidating handler alive. This was run on this OS (Darwin 27 / SDK 27) and is not documented. If a later macOS drops that observer, the cached byte is never invalidated and a toggle is missed until relaunch. M3 detects this now. The crate observer is the hedge, since registering creates the subsystem itself.
 - Whether the fresh read is fresh is inferred. The getter reads HIServices `_AXInterfaceGetReduceMotionEnabled`, which reads a preferences key after AppKit invalidates. If the in-process preferences cache lags the distributed notification, the re-read re-caches the old value, and nothing invalidates it until the next toggle. The same risk applies to the observer design. Only M3's check that the logged value is the new one can show it.
 - M3 also confirms that the OS toggle reaches `_accessibilityDisplaySettingsDidChange:`. The invalidate-then-post order is run (order.m, callee.m). The delivery from System Settings to that handler is not.
 - Switching the trail mid-flight is the main correctness risk. If `moving` or `fire` is left set, a frame is owed on every tick forever (finding E). A chase rebuilt with `Chase::new` resets `last_lit`, which breaks the three-a-second ignition guard. The restyle-mid-fire and guard tests are the gates.
@@ -360,7 +356,7 @@ Most of the draft survives:
 - the stop timer's semantics;
 - the Q2 reading.
 
-The Q2 reading is supported by the owner's own words: "the system's non-blinking-caret switch is honoured unless the config says otherwise" (`docs/research/notes/v-open-decisions.md:52-55` [source]), and `blink = false` does not say otherwise.
+The Q2 reading is supported by the decision's own words: "the system's non-blinking-caret switch is honoured unless the config says otherwise" (`docs/research/notes/v-open-decisions.md:52-55` [source]), and `blink = false` does not say otherwise.
 
 These findings change the design:
 
@@ -404,9 +400,9 @@ These findings change the design:
    - It calls `AXPrefersNonBlinkingTextInsertionIndicator()` fresh on every query (`:159-165`).
    - Both files are in `scratchpad/cursorq/src/chromium_chromium`.
    - The draft said Chromium re-reads the switch on activation.
-   - Whether an un-observed call returns a changed value: **not found**. So the focus-gain re-read is unverified, and the owner-run live check below is what settles it.
+   - Whether an un-observed call returns a changed value: **not found**. So the focus-gain re-read is unverified, and the hand-run live check below is what settles it.
 9. **The draft's startup measurement could not see the read [inferred].**
-   - A scripted launch gives a window that is frontmost and not key (`CLAUDE.md:19372-19374` [source]).
+   - A scripted launch gives a window that is frontmost and not key.
    - A read gated on a focus gain therefore never runs under `scripts/startup-bench.py`, so the A/A sweep reads flat whether the read costs nothing or 2 ms.
    - The first read moves to the first tick, beside the Dock-icon hook at `app.rs:3818-3822` [source], with a startup mark of its own, and every focus gain reads again.
 10. **The fallback `dlopen` loads a framework for nothing on macOS 13 and 14.** The symbol is macOS 15+ (`AXSettings.h:33` in MacOSX.sdk [source]).
@@ -422,15 +418,15 @@ These findings change the design:
 13. **Test 10's DECRQSS half is a pin, not a red-first test.** `baud-core` is untouched, so nothing in this change can move that answer. Its gate half duplicates test 7.
 14. **The Linux driver has to carry the choice.** Only `cfg.cursor_blink` reaches `set_initial_cursor_style` there (`linux.rs:152-155` [source]).
 15. **Citation and wording fixes:**
-    - The "no recorded level for a window's position" precedent is `CLAUDE.md:17339`, not `:17125`.
-    - The "blink" that `linux.rs:17` lists as missing is SGR 5 text blink, and it is still unwired (`TODO.md:592`). Reword it; do not delete it.
+    - The "no recorded level for a window's position" precedent was misnumbered.
+    - The "blink" that `linux.rs:17` lists as missing is SGR 5 text blink, and it is still unwired. Reword it; do not delete it.
     - Q1's "exactly 650 ms of full opacity" means equal *mean opacity*: an opacity integral of 556.25 + 93.75 = 650 ms per 1 s cycle. The caret is fully opaque for 537.5 ms [inferred, arithmetic on the run keyframes in `verify/anim-default.txt`].
 16. **A failed present can leave the caret hidden with nothing owed [source].** `caret.commit(caret)` is taken whether or not the present succeeded (`app.rs:1476-1482`).
     - Its comment says "the next flip -- at most `caret::ON` away -- draws the phase again".
     - That is false once nothing flips: a stop, the switch, a 60 s ceiling.
     - The shape predates this change for a focus loss, and this change adds three more ways to reach it. The comment is rewritten, and the case is listed as a risk.
 17. **The committed example writes `blink = true` (`config.toml.example:101` [source]),** so a config copied from it is explicit and ignores the switch. Mitigation: warn once at the read when the config says `true` and the switch is on.
-18. **A rate-override key is named in `TODO.md:421` [source] and not in the owner's record.** It came from a sweep, not from the owner, so it is an owner question (Q8).
+18. **A rate-override key came from a sweep, not from the decision record**, so it is an open question (Q8).
 
 ### B. The corrected design
 
@@ -599,7 +595,7 @@ The procedure is the house's:
 
 **Unit (`caret.rs`, every platform):**
 
-1. ~~A test of AppKit's unset cycle replaces `:196-208`: Shown at 0 and 649, Hidden at 650 and 999, Shown at 1000.~~ Since 2026-10-15 the unset cycle is 333 ms a phase (the owner's call; the record, "The cursor blinks 333/333, and its hidden phase is the plasma glow"), held by `the_unset_cycle_is_three_thirty_three_each_phase`: Shown at 332, Hidden at 333 and 665, Shown at 666.
+1. ~~A test of AppKit's unset cycle replaces `:196-208`: Shown at 0 and 649, Hidden at 650 and 999, Shown at 1000.~~ Since 2026-10-15 the unset cycle is 333 ms a phase, held by `the_unset_cycle_is_three_thirty_three_each_phase`: Shown at 332, Hidden at 333 and 665, Shown at 666.
 2. `a_blinking_cursor_costs_two_frames_a_cycle_and_a_steady_one_none` asserts **19**, from 22 (`:184-193`). Its doc says the first plan restarts the epoch at tick 1.
 3. `each_key_is_read_on_its_own_as_appkit_reads_it`:
    - `(400, 0)` gives 400/350, and `(0, 400)` gives 650/400;
@@ -645,9 +641,9 @@ The procedure is the house's:
 17. `the_steady_switch_resolves_on_macos_fifteen_and_later` is a positive control. When `NSProcessInfo` reports 15 or later, the symbol resolves; the value is not asserted.
 18. `the_constants_are_the_platform_headers_own` (`sys.rs:255-266`) gains `RTLD_LAZY`, `RTLD_LOCAL` and `RTLD_NOLOAD`, printed under `#ifdef __APPLE__` in the shared probe.
 
-**Recorded level: none.** A window's clock and focus are app state, and no recording carries them (`CLAUDE.md:17339`).
+**Recorded level: none.** A window's clock and focus are app state, and no recording carries them.
 
-**Live check, owner-run.** A script cannot make the window key.
+**Live check, hand-run.** A script cannot make the window key.
 - Precondition [run, by `grep`]: no config sets `blink =`. Neither `~/.config/baud/config.toml` nor the repository's `config.toml` has a `[cursor]` section.
 - Launch the bundle as `open -a baud --args -NSTextInsertionPointBlinkPeriodOn 1000 -NSTextInsertionPointBlinkPeriodOff 200`. This is the argument domain; it writes no preference.
 - Focus it, and expect the log to read `caret: 1000/200 ms`.
@@ -694,9 +690,9 @@ The gate needs no such reading: it is inside `Caret` (A4).
 * **`startup-bench.py`, A/A, base against change.** Three stages:
   - `caret os` (new), the read's own cost;
   - `first present`, which is expected flat, since nothing new runs before it;
-  - **`first content`** (`BAUD_CMD=shell`, `BAUD_BENCH_STAGE="first content"`), because the first tick at ~180 ms is close to the shell's first bytes at ~193 ms (`CLAUDE.md`'s cold-boot table).
-* **Idle, focused, owner-run.** 650/350 against 600/300 should be about 10% fewer blink frames a second.
-* **Idle, owner-run.** The switch on against `blink = false`: both should build no blink frames.
+  - **`first content`** (`BAUD_CMD=shell`, `BAUD_BENCH_STAGE="first content"`), because the first tick at ~180 ms is close to the shell's first bytes at ~193 ms (MEASUREMENTS.md, "The shader cache at launch").
+* **Idle, focused, hand-run.** 650/350 against 600/300 should be about 10% fewer blink frames a second.
+* **Idle, hand-run.** The switch on against `blink = false`: both should build no blink frames.
 * **No ingest sweep.** `baud-core` is untouched.
 
 #### 10. Docs, in the same commit
@@ -716,14 +712,12 @@ The gate needs no such reading: it is inside `Caret` (A4).
   - one sentence saying `true` overrides the system switch.
 * `docs/cursor.md:12`.
 * `docs/vt-coverage.md:661`.
-* `CLAUDE.md`: the blink section at `:18932-18940`, and a new section with the keyframes, the parse table, the gate, the stop and §9's numbers.
 * `v-open-decisions.md:59-62`.
-* `TODO.md:410-413` and `:421`, locally only; `TODO.md` is gitignored.
 * **Sources to pin** before any `[[source:]]` cites them: `AXSettings.h`, and Chromium's `defaults_utils.mm` and `os_settings_provider_mac.mm`. Confirm the Chromium commit at fetch.
 * `verify/anim.swift` becomes `scripts/caret-probe.swift`.
 
-### Owner questions
-- **Q1, the edges.** The owner's record gives only 650/350 (v-open-decisions.md:52-55); "hard edges" appears only in the workflow brief. AppKit's caret [run, verify/anim-default.txt] ramps into each phase in four 37.5 ms steps.
+### Open questions
+- **Q1, the edges.** The decision gives only 650/350 (v-open-decisions.md:52-55); "hard edges" appears only in the workflow brief. AppKit's caret [run, verify/anim-default.txt] ramps into each phase in four 37.5 ms steps.
 - Fully opaque 537.5 ms of each 1 s cycle.
 - At least half-opaque 687.5 ms.
 - The same *mean* opacity as hard edges at 650/350: an integral of 650 ms-equivalent per cycle.
@@ -735,7 +729,7 @@ The options:
 
 RECOMMENDED: (a).
 - **Q2, precedence.** RECOMMENDED: the switch steadies the drawn caret unless the config says `blink = true`, with a one-time warning when it does.
-- The owner's words support this: "honoured unless the config says otherwise". `false` does not say otherwise, so under `false` and the switch on, an application's `DECSCUSR 1` is drawn steady.
+- The decision's words support this: "honoured unless the config says otherwise". `false` does not say otherwise, so under `false` and the switch on, an application's `DECSCUSR 1` is drawn steady.
 - DECRQSS and DECRQM keep answering the application's style.
 - The alternative, the literal "any explicit config ignores the switch", lets an application blink the cursor for a user who wrote `blink = false` and turned the switch on.
 - **Q3, the floor and the ceiling.** The parse must be total: a zero phase divides by zero at caret.rs:143-148.
@@ -746,7 +740,7 @@ RECOMMENDED: (a).
 - NaN, 0 and negatives fall back per phase. AppKit takes a stored NaN as 250 ms [run]; that case is deliberately not followed.
 - **Q4, when the OS is read.** RECOMMENDED: once on the first tick, after the first present, with a startup mark so startup-bench can see the cost, then at every focus gain. No notification observer.
 - The switch's freshness without an observer is **not found**. Chromium observes `AXPrefersNonBlinkingTextInsertionIndicatorDidChangeNotification` (os_settings_provider_mac.mm:66-76) and calls the function fresh on each query. It re-reads only the keys on activation.
-- The owner-run live check settles it. If it fails, the fix is a notification observer through the window crate, which is a crate change and a release, since app.rs forbids unsafe.
+- The hand-run live check settles it. If it fails, the fix is a notification observer through the window crate, which is a crate change and a release, since app.rs forbids unsafe.
 - A change made while baud keeps focus lands at the next gain.
 - **Q5, the stop timer.** RECOMMENDED: kitty's semantics. The key is `[cursor] stop_blinking_after = <seconds>`; 0 or absent means never, which is the default, as decided.
 
@@ -766,7 +760,7 @@ Before the deadline a click moves only the deadline. After it, any input restart
 - AppKit's 650/350 as the one unset default on both platforms;
 - GNOME's 1200 ms cycle now.
 - **Q7, `SGR 5` text blink.** It runs on its own 0.4 s half-period (app.rs:77); kitty ties text blink to the cursor's interval (`kitty-options-definition`, lines 428-429). The AX switch speaks of insertion indicators only (AXSettings.h:32). RECOMMENDED: leave text blink's rate and the switch's reach out of this build and decide them on their own.
-- **Q8, a rate-override key.** TODO.md:421, a sweep entry and not the owner's record, asks for one; kitty has `cursor_blink_interval`, where -1 means the system (`kitty-options-definition`, lines 414-419). RECOMMENDED: none in this build. The bundled app already takes a per-app override with no code, `defaults write dev.baud.terminal NSTextInsertionPointBlinkPeriodOn -int 400` (Info.plist:7 names the domain). A bare `target/release/baud` reads its own executable domain instead [inferred].
+- **Q8, a rate-override key.** A sweep entry, not the decision record, asks for one; kitty has `cursor_blink_interval`, where -1 means the system (`kitty-options-definition`, lines 414-419). RECOMMENDED: none in this build. The bundled app already takes a per-app override with no code, `defaults write dev.baud.terminal NSTextInsertionPointBlinkPeriodOn -int 400` (Info.plist:7 names the domain). A bare `target/release/baud` reads its own executable domain instead [inferred].
 - **Coordination.** `BlinkChoice { Auto, On, Off }` should be the shape the Reduce Motion build reuses for `trail`. `config.toml.example:102` writes `trail = "fire"` explicitly, which is the same trap the example's `blink = true` is here (A17). RECOMMENDED: the same `"auto"` word, the same rule, and the same one-time warning when an explicit value overrides a system setting.
 
 ### Risks
@@ -774,16 +768,16 @@ Before the deadline a click moves only the deadline. After it, any input restart
 - **A failed present can leave the caret hidden with nothing owed.** `caret.commit(caret)` is taken whether or not the present succeeded (app.rs:1476-1482). If the one frame that shows a stopped, switched or steady caret fails, the caret stays hidden until something else draws. Its comment's "at most caret::ON away" becomes false.
 
 The shape predates this change for a focus loss, and this change adds three more ways to reach it.
-- **The switch's freshness without an observer is unverified.** Chromium observes the change notification rather than relying on a re-read (os_settings_provider_mac.mm:66-76). Only the owner-run live check can show the focus-gain re-read sees a flip made in System Settings.
+- **The switch's freshness without an observer is unverified.** Chromium observes the change notification rather than relying on a re-read (os_settings_provider_mac.mm:66-76). Only the hand-run live check can show the focus-gain re-read sees a flip made in System Settings.
 - **The dlopen/dlsym path has never run on macOS 13, 14 or 15.0.**
 - The version gate and the null-symbol branch are unexercised.
 - That AppKit has already loaded Accessibility.framework was run only on macOS 27.
 - **A misspelt symbol name reads `switch off` forever with every other test green.** Test 17, the positive control on macOS 15+, is the only thing that can catch it.
-- **The live checks are owner-run.** A scripted window is frontmost and not key (CLAUDE.md:19372-19374), so the blink's frames, the switch's effect and both idle measurements need the owner.
-- **Configs copied from the old example keep `blink = true`, which now means explicit and ignores the accessibility switch.** The owner's own configs carry no `[cursor]` section [run, grep]. The one-time warning is the only thing that surfaces it for anyone else.
+- **The live checks are hand-run.** A scripted window is frontmost and not key, so the blink's frames, the switch's effect and both idle measurements need a person at the machine.
+- **Configs copied from the old example keep `blink = true`, which now means explicit and ignores the accessibility switch.** The measuring machine's configs carry no `[cursor]` section [run, grep]. The one-time warning is the only thing that surfaces it for anyone else.
 - **The Chromium sources were fetched at the default branch's HEAD**, and the SHA `e5396564` is the report's, not re-confirmed. Pin and confirm before any `[[source:]]` cites them.
 - **`doubleForKey` agreeing with AppKit is inferred from matching results** on every string and double case tried [run]. A case where the two diverge would make baud's parse drift from AppKit's.
-- **Hard edges (Q1(a)) visibly differ from native text fields' ramped caret.** If the owner picks (b), the renderer needs a cursor opacity on every path and an oracle scene, and the blink's frames grow about 4x.
+- **Hard edges (Q1(a)) visibly differ from native text fields' ramped caret.** If (b) is picked, the renderer needs a cursor opacity on every path and an oracle scene, and the blink's frames grow about 4x.
 - **The input set decides who stops the stop timer.**
 - Keys-only stops the blink for a mouse user.
 - Counting the wheel on the alternate screen (it sends keys through `App::send`) means scrolling `less` holds it off, while scrolling vim under mouse tracking does not unless the wheel also calls `quiet`.
@@ -823,9 +817,9 @@ The task says vim and every curses `endwin` send cnorm (`\E[?12l\E[?25h`) at exi
 - `Se` is `\E[2 q`, an explicit steady block, from macOS's `/usr/share/terminfo/78/xterm-256color`. `infocmp -x` shows `Se=\E[2 q, Ss=\E[%p1%d q`, and baud gives its child `TERM=xterm-256color` (`baud-app/src/bell.rs:67-74`).
 - `TERM=xterm-256color tput cnorm | od -c` gives `033 [ ? 1 2 l 033 [ ? 2 5 h`, and `tput cvvis` gives `033 [ ? 1 2 ; 2 5 h` (**run**).
 
-**Finding: the pinned terminfo lost `Se`.** `docs/research/sources/terminfo/xterm-256color.ti` says "Reconstructed via infocmp" at line 1. It was made without `-x`, so the extended `Se`/`Ss` were dropped. The sentence at `CLAUDE.md:18972` ("the pinned `xterm-256color` entry carries no `Ss` or `Se`, so it cannot say which reset an editor sends") is an artefact of that pin, and the pin should be retaken with `infocmp -x`.
+**Finding: the pinned terminfo lost `Se`.** `docs/research/sources/terminfo/xterm-256color.ti` says "Reconstructed via infocmp" at line 1. It was made without `-x`, so the extended `Se`/`Ss` were dropped. The sentence ("the pinned `xterm-256color` entry carries no `Ss` or `Se`, so it cannot say which reset an editor sends") is an artefact of that pin, and the pin should be retaken with `infocmp -x`.
 
-*Since 2026-10-18 the pin is retaken:* `docs/research/sources/terminfo/xterm-256color.ti` is `infocmp -x -1` output and carries `Se=\E[2 q` and `Ss=\E[%p1%d q`, and the conformance profile replays both. The sentence quoted above is struck through in the record, where it moved from CLAUDE.md.
+*Since 2026-10-18 the pin is retaken:* `docs/research/sources/terminfo/xterm-256color.ti` is `infocmp -x -1` output and carries `Se=\E[2 q` and `Ss=\E[%p1%d q`, and the conformance profile replays both. The sentence quoted above is withdrawn.
 
 **Why macOS's `Se` is `\E[2 q`, and why baud is the odd one out.**
 
@@ -978,14 +972,14 @@ The helix column is kinder to the others than it looks, because each of them set
 
 This is the majority's practice. ghostty, alacritty and foot each ship an entry whose `Se` is Ps 0. With it, helix, nvim and **tmux** send `0 q`, which baud already reads as "configured" (`write.rs:1595`). It is the only non-XOR way to close tmux.
 
-Two forms, both owner calls:
+Two forms, both open calls:
 
 - **A baud entry, e.g. `xterm-baud`.** Remote hosts over ssh lack it and need a fallback. ghostty's answer is shell-integration terminfo installation, per the reports, not verified.
 - **Shadowing `xterm-256color`** through a `TERMINFO` that baud ships, with `Se=\E[0 q`. This is portable to local programs and changes nothing over ssh. It also redefines a standard name, which no terminal read here does.
 
 (G) does nothing for vim, whose `?12h ?12l` are built in, not `Se`, so it complements (D) rather than replacing it.
 
-### 3. Recommendation: (F) now, with (G) recorded as the owner's call for tmux
+### 3. Recommendation: (F) now, with (G) recorded as open for tmux
 
 This is a recommendation, not a decision.
 
@@ -1008,9 +1002,8 @@ This is a recommendation, not a decision.
 - **DECRQSS `SP q` answers the shape plus `csusr_blink`**, as foot does (per report, `dcs.c:420-437` of foot 1.21.0, a scratch fetch not pinned). The goldens are unchanged.
 - **Housekeeping:**
   - re-pin `xterm-256color` with `infocmp -x`;
-  - correct `CLAUDE.md:18972-18975`, and `docs/vt-coverage.md:579` (the `?12` row "done") and `:646` (the `cursorBlinkXOR` sentence);
-  - rename any renamed test at `CLAUDE.md:18988-18998` too, or `docs.rs` fails.
-  - *2026-10-18:* the re-pin is done, and the CLAUDE.md lines named here now live in the record, corrected there.
+  - correct `docs/vt-coverage.md:579` (the `?12` row "done") and `:646` (the `cursorBlinkXOR` sentence);
+  - *2026-10-18:* the re-pin is done.
 
 **The gates it needs**, each red first:
 
@@ -1023,9 +1016,9 @@ This is a recommendation, not a decision.
   - a tmux-shaped `2 q` on a screen that stays up, pinned as steady so (G) can move it.
 - **Perturbations:** one per mechanism: the OR, the save, the restore, each reset.
 
-**If the owner wants the minimum:** (E) alone fixes the three editors and follows kitty and wezterm. It leaves the cursor steady inside vim, after any cnorm on the primary screen, and inside tmux.
+**For the minimum:** (E) alone fixes the three editors and follows kitty and wezterm. It leaves the cursor steady inside vim, after any cnorm on the primary screen, and inside tmux.
 
-#### Owner calls to record
+#### Open calls to record
 
 1. Where the cursor is saved.
    - **In `Saved`:** plain DECSC/DECRC restore it too. kitty and wezterm do this; xterm, foot, ghostty and alacritty do not.
@@ -1070,7 +1063,7 @@ The (a)+(b) reading survives, and so do the fire's noise anchor (`rode` in `k[3]
 
 **2. BLOCKING: the fire's shader change needs `baud.metallib` rebuilt.**
 - `fire_flame` is compiled into the committed library. `the_library_was_built_from_the_shaders_beside_it` (`baud-present-macos/tests/metallib.rs:28`) checks its FNV digests [R].
-- `scripts/build-metallib.sh` has to regenerate `baud.metallib`, `baud.metallib.fnv` and `shaders.metal.fnv`. It needs the Metal toolchain through `xcodebuild` (CLAUDE.md, "Row 1 shipped") [R].
+- `scripts/build-metallib.sh` has to regenerate `baud.metallib`, `baud.metallib.fnv` and `shaders.metal.fnv`. It needs the Metal toolchain through `xcodebuild` [R].
 - Every shader perturbation needs its own rebuild.
 - The byte-identity check has to compare against HEAD's shaders rebuilt with the same toolchain [inf].
 
@@ -1114,7 +1107,7 @@ The (a)+(b) reading survives, and so do the fire's noise anchor (`rode` in `k[3]
 
 #### Facts restated
 
-- **Owner question 3's rationale is overstated.**
+- **Open question 3's rationale is overstated.**
   - At HEAD, Enter after a command longer than two cells is already a long move by `near()` (`trail.rs:343-347`) [R+inf]. So the default fire already lights on nearly every command.
   - That trail is drawn along the new prompt's row, which the command left when the LF scrolled it up [inf].
   - Moving the rest state would change three things instead: one- and two-letter commands would trail, the origin would become the command's line, and after long output that origin would be off the window.
@@ -1123,7 +1116,6 @@ The (a)+(b) reading survives, and so do the fire's noise anchor (`rode` in `k[3]
   - The breach shows only when a whole-screen retire leaves the cursor above the last row: `SU`, or output followed by a cursor-up in the same read.
   - Test 14's mid-screen scene is still the right gate.
 - **Citations.**
-  - The TODO entry is `TODO.md:410`, not 388 (`TODO.md:421`) [R].
   - `THRESHOLD` is at `baud-app/src/trail.rs:59` [R].
   - `docs/cursor.html` has no line about scrolling to edit [R].
   - `Smear::bounds` has no upper clip: negatives clamp to 0 through `round_px`. The effect bands do clip to `[0, fh)` (`effect.rs:256-257`) [R].
@@ -1148,7 +1140,7 @@ The (a)+(b) reading survives, and so do the fire's noise anchor (`rode` in `k[3]
 
 #### 0. Decision
 
-- The owner, 2026-09-25: "The trail rides smooth scroll by default, with an option to stay put" [R].
+- The decision, 2026-09-25: "The trail rides smooth scroll by default, with an option to stay put" [R].
 - "Neovide's choice" is the pinned nightly rule, lines 330-365: a corner moves by its text's drawn motion [R].
 
 #### 1. Reading
@@ -1167,9 +1159,9 @@ Two additions:
   - The segment then folds in on the fast constant (`Segment::quick`, `baud-render/src/trail.rs:247-255`) and rides no more.
   - This is the driver's existing fold-in for a short move in flight [R], applied to scrolling; it converges on kitty's wait-for-stop [inf].
   - The ignition path keeps riding, because its life bounds it.
-- **The rest state never moves** (owner question 3).
+- **The rest state never moves**.
 
-Both additions depart from Neovide's rule, which never stops riding and moves the rest state too (`previous_destination += scroll_delta`, 359-362) [R]. Owner questions 3 and 6 put the unbounded numbers beside the defaults.
+Both additions depart from Neovide's rule, which never stops riding and moves the rest state too (`previous_destination += scroll_delta`, 359-362) [R]. Open questions 3 and 6 put the unbounded numbers beside the defaults.
 
 #### 2. State, and where each piece lives
 
@@ -1309,15 +1301,13 @@ The design's table stands, and each shader row needs a rebuild. Four rows are ad
 
 #### 8. Docs
 
-- **CLAUDE.md:** a new section with the table, the bound, the noise anchor and the metallib rebuild.
 - **`docs/cursor.md:236-237`:** replace the line.
 - **`docs/cursor.html`:** it has no scrolling line to edit. Its lede at :221, "Liquid is wanted and not built yet", is stale and out of scope.
 - **`config.toml.example`:** the key.
 - **`v-open-decisions.md`:** "Built since".
-- **`TODO.md:410`:** update locally, never committed.
 - **Drive-by:** `baud-render/src/scroll.rs:2-3` says "Off by default", while `config.rs:284-288` defaults to Smooth [R].
 
-### Owner questions
+### Open questions
 - 1. The key. Recommended: `[cursor] trail_scroll = "ride" | "stay"`, default ride, as `enum TrailScroll`, read quoted or bare; any other value gives a complaint and falls back to ride. Alternative: `[scroll] trail`.
 - 2. What 'stay' means. Recommended: exactly HEAD. Nothing moves and the look is handed through unchanged.
 - The cost, scoped correctly: a trail's light can cover part of the sliding cursor for up to 60 ms, and only when a whole-screen retire leaves the cursor above the last row, as after SU or a cursor-up following output in the same read. With the cursor on the last row, the uncovered strip `[fh, fh+pan)` is clipped (shaders.metal:1153, :1224).
@@ -1329,7 +1319,7 @@ The design's table stands, and each shader row needs a rebuild. Four rows are ad
 - The literal rule would also make one- and two-letter commands trail, and after long output the origin would be off the window. It would need a rule to forget a target that ends wholly above the leaving row.
 - 4. The fire's noise anchor. Recommended: the accumulated offset `Ignition.rode` in the free `k[3]`, so a fire that never rode is byte-identical to HEAD. It needs `scripts/build-metallib.sh`.
 - Alternative: anchor the noise to the tail. That is simpler, but it changes the fire's look at rest once, and the committed clip becomes a previous build's.
-- 5. Riding a plain scroll. Recommended: no ride under `[scroll] mode = "normal"`, on the CPU path, or on the alternate screen, because the owner said 'rides smooth scroll'.
+- 5. Riding a plain scroll. Recommended: no ride under `[scroll] mode = "normal"`, on the CPU path, or on the alternate screen, because the decision says 'rides smooth scroll'.
 - Note: on a path with no slide, (b) alone is already rigid with the text. Riding a plain scroll would be a gate widening, not new geometry. Neovide moves its corners with the text even with scroll animation off.
 - 6. The streaming bound. This is new, and it departs from Neovide, which never stops riding. Recommended: a segment rides at most THRESHOLD (2) rows and then folds in on the fast constant (`Segment::quick`), riding no more. That is the driver's own fold-in rule, and it converges on kitty's rule of waiting for streaming to stop.
 - Unbounded (Neovide's rule), measured at a line every 16.7 ms: the quad's slow corners sit 3.0-4.0 rows and the sweep 5.5-6.5 rows above the cursor, never land while output streams, and owe a frame every tick. After the stream they last 323 ms and 609 ms more (ride_sim.py, run).
@@ -1352,7 +1342,7 @@ The design's table stands, and each shader row needs a rebuild. Four rows are ad
 
 ### Risks
 - The fire's shader changes, so `scripts/build-metallib.sh` has to rebuild `baud.metallib` and both FNV digests with the Metal toolchain, or `the_library_was_built_from_the_shaders_beside_it` goes red. Every shader perturbation needs its own rebuild. The byte-identity check has to compare against HEAD's shaders rebuilt with the same toolchain; toolchain drift could otherwise change unrelated effects.
-- Without the streaming bound, a ridden quad or sweep never lands while output streams. At a line every 16.7 ms it sits 3-4 rows above the cursor (sweep 5.5-6.5), owes a frame every tick, and adds frames where the slide is idle between lines (run: ride_sim.py). The bound fixes this and departs from Neovide's rule; the owner may prefer the unbounded rule.
+- Without the streaming bound, a ridden quad or sweep never lands while output streams. At a line every 16.7 ms it sits 3-4 rows above the cursor (sweep 5.5-6.5), owes a frame every tick, and adds frames where the slide is idle between lines (run: ride_sim.py). The bound fixes this and departs from Neovide's rule; the unbounded rule stays an option.
 - The ignition's head rides with the text while the hole and the emitter stay with the cursor. A ridden lightning bolt ends n rows above its corona and sparks. Ice frost stops above the cursor. The fire's burn at the cursor dims by `n*h*dir.y/len` for a move up.
 - The rest state never moving keeps HEAD's pre-existing text-wrong Enter trail: it runs along the new prompt's row from a cell the command has left, rather than from the command's line.
 - Pump's slide gate (`cell.is_some()`) and present's (`Mode::Gpu`) can disagree after a CPU fallback at resize. That mismatch is pre-existing: the slide forces frames and draws nothing. This design leaves it alone and gates only the ride and the lift on the shared predicate.

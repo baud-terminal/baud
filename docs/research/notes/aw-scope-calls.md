@@ -5,38 +5,37 @@ day (the DECELR rows of `docs/vt-coverage.md`), and the rest is not.** Each sect
 **Status: 2026-10-20, research only; section 5, the bell volumes and the
 margin bell, was built the same day (its last paragraph).** Each section is
 one feature baud reads and drops today: what a user would see if it were
-built, what the governing text says, the options, Jev's lean and a
-recommendation. Scope is the owner's call (TODO.md). Where Jev reached 0.9 in
-both orders the recommendation is Jev's pick as it stands. Below that it is
+built, what the governing text says, the options, the lean and a
+recommendation. Scope is open. Where the review reached 0.9 in
+both orders the recommendation is the review's pick as it stands. Below that it is
 the lean, said as one. XTSMPOINTER, the pointer-hiding mode, was asked
 separately and is not repeated here. **2026-10-20: section 3, the status
-line, was built**, its open forks put to Jev: the line's own character
-sets, 070-14's (SEPARATE, 0.98 and 1.00); DECAWM shared and the pending
-wrap each display's (0.94 and 0.96); no line at power-on, the lean
-(0.78 and 0.86, then 0.80 and 0.92). The record, "The status line:
-DECSSDT and DECSASD".
+line, was built**, its open forks put to the review: the line's own character
+sets, 070-14's (SEPARATE); DECAWM shared and the pending
+wrap each display's; no line at power-on, the lean
+(0.78 and 0.86, then 0.80 and 0.92).
 
-Every option was put to Jev with a render of it beside today's behaviour.
-Each request quoted the owner's standing rule of 2026-09-25 verbatim, "full
+Every option was put to the review with a render of it beside today's behaviour.
+Each request quoted the project's rule of 2026-09-25 verbatim, "full
 VT420-class terminal. we need to support such protocols fully, always!". It
-also quoted the owner's DA1 pick of 2026-10-15, "Keep ?6c (Recommended)". A
+also quoted the project's DA1 pick of 2026-10-15, "Keep ?6c (Recommended)". A
 request whose fork touches another owner decision quoted that one as well.
 Both orders were asked, uncached, and a fork below 0.9 was asked a second
-time with more research. The figures are Jev's confidences, first ask and
-then second; the log is lines 1000-1023 of Jev's decisions log.
+time with more research. The figures are the review's confidences, first ask and
+then second; the log is lines 1000-1023 of the review's decisions log.
 
 ## Summary
 
-| feature | what a user gets if it is in | recommendation | Jev |
+| feature | what a user gets if it is in | recommendation | The review |
 |---|---|---|---|
 | Printing (MC) | a program's print request opens the macOS print panel | **in, through the print panel** | 0.86/0.77, then 0.98/0.98 |
-| DEC text locator | DEC-style forms and menus answer to a click | **in** | 0.92/0.94 |
-| Status line | a program's own status row under the grid | **in**: the window grows a row; both line types (lean) | row 0.98/1.00, then 0.96/0.98; types 0.76/0.71, then 0.41/0.56 |
-| DECLL keyboard lights | Num, Caps and Scroll lights drawn on the title bar | **in, drawn** (lean) | split, then 0.91/0.65 |
+| DEC text locator | DEC-style forms and menus answer to a click | **in** | |
+| Status line | a program's own status row under the grid | **in**: the window grows a row; both line types (lean) | row, then; types, then |
+| DECLL keyboard lights | Num, Caps and Scroll lights drawn on the title bar | **in, drawn** (lean) | split, then |
 | Bell volumes | a program can soften or silence the bell, and a margin bell | **in** | 0.96/0.94 |
-| DECAC/DECATC (VT525) | a program sets the default and per-attribute colours by index | **out** (lean) | 0.04/0.32, then 0.14/0.42 |
-| ReGIS | DEC's vector graphics drawn in the window | **no recommendation**: Jev flips; **in**, the owner's call, 2026-10-20 | 0.27/0.43, then IN 0.14 / OUT 0.16 |
-| Tektronix 4014 | xterm's second, plotting personality | **out** (lean) | 0.84/0.84 |
+| DECAC/DECATC (VT525) | a program sets the default and per-attribute colours by index | **out** (lean) |, then |
+| ReGIS | DEC's vector graphics drawn in the window | **no recommendation**: the review flips; **in**, a choice the project made, 2026-10-20 |, then IN / OUT |
+| Tektronix 4014 | xterm's second, plotting personality | **out** (lean) | |
 
 ## 1. Printing: Media Copy and its modes
 
@@ -67,7 +66,7 @@ shell command to which xterm will open a pipe when the first MC (Media Copy)
 command is initiated. The default is an empty string ... the printer is
 disabled" (`[[source: xterm-man]]` 5154-5159; `[[source: xterm-reset]]`
 4747-4757). iTerm2 prints `CSI 0 i` through the macOS print system and
-collects `CSI 5 i` ... `CSI 4 i` into a buffer it then prints, yet it answers
+collects `CSI 5 i`... `CSI 4 i` into a buffer it then prints, yet it answers
 DSR `?15` with "no printer" (`[[source: iterm2-7ce037e-vt100terminal]]`
 2704-2715 and 1338-1340). kitty and foot send MC to their unknown-sequence
 branch (`[[source: kitty-9710eb4-vt-parser-c]]` 1455-1461;
@@ -92,7 +91,7 @@ screen going quiet is explained.
   - Printer-to-host stays refused and counted: the VT420's sessions,
     `CSI ? 9 i` and `CSI ? 8 i` (pp. 213-214), and the VT510's `CSI 6 i` and
     `CSI 7 i`, on its MC page. The print panel sends nothing back. This
-    refusal is part of the option Jev took at 0.98.
+    refusal is part of the option the review took.
   - Linux waits for a print path.
 - IN_COMMAND: xterm's route, a command the user configures, empty by default.
 
@@ -101,23 +100,19 @@ screen going quiet is explained.
   text of a screen, page or line handed to the embedder as a job.
 - Printer controller mode sends the byte stream to the printer before it
   reaches the grid. That is a change on the per-byte path, so it needs
-  CLAUDE.md's measurement of write amplification and working set.
+  CONTRIBUTING.md's write amplification and working-set rule.
 - macOS app: the print panel. Linux app: no print path, so DSR `?15` keeps
   answering "no printer" there.
 
-**Jev.** IN_PRINT_PANEL, 0.86 and 0.77 on the first ask. With a job defined
-and the `?15` answer made concrete, the second ask gave 0.98 and 0.98.
-IN_COMMAND's probability was 0.03 at most.
+**The review.** IN_PRINT_PANEL ask. With a job defined
+and the `?15` answer made concrete, the second ask .
+IN_COMMAND's probability was at most.
 
 **Recommendation: in, through the print panel.** This is the one option that
 builds the whole VT420 printer and still prints nothing without the user.
 
 **Built 2026-10-20**, as the MC, `?18` and `?19` rows of
-`docs/vt-coverage.md` give it. What building it left open went to Jev,
-both orders, uncached, with the owner's call and standing rule quoted. The
-job's payload, 070-7's stream in UTF-8, was decided (0.95/0.95 and
-0.97/0.98). Every other fork stayed under 0.9 on a second ask and was
-taken as the lean:
+`docs/vt-coverage.md` give it. What building it left open was weighed against the rule to build a protocol whole. The job's payload, 070-7's stream in UTF-8, was decided. Every other fork stayed unsettled and was taken as the lean:
 - DEC_PRINTER for what the app's printer acts on.
 - MERGE for jobs that finish while a panel is up.
 - SCROLLING_REGION for DECPEX's default, a source conflict.
@@ -153,7 +148,7 @@ values:
   rectangle.
 - DECRQLP, `CSI Ps ' |`, and the report `CSI Pe ; Pb ; Pr ; Pc ; Pp & w`,
   1907-1934.
-- DSR `?55` answers "CSI ? 5 0 n Locator available ... or CSI ? 5 3 n No
+- DSR `?55` answers "CSI ? 5 0 n Locator available... or CSI ? 5 3 n No
   Locator"; `?56` "CSI ? 5 7 ; 1 n Mouse" (1445-1450).
 
 **What others do.** xterm builds all of it (`[[source: xterm-reset]]`
@@ -176,17 +171,16 @@ pointer.
 report, beside the mouse reports `Term` already encodes. macOS app: the
 pointer events it already takes. Linux app: when its pointer input lands.
 
-**Jev.** IN, 0.92 and 0.94.
+**The review.** IN.
 
 **Recommendation: in.**
 
 **Built 2026-10-20**, in the core and both apps. Five forks the text left
-open went to Jev: DECOM in pixel units counts from the text area
-(PIXELS_ABSOLUTE, 0.96/0.94), DECELR 0 turns off any mouse protocol
-(ALL_OFF, 0.92/0.92), the fourth button is the first past three
-(FIRST_EXTRA, 0.98/0.98), a reversed rectangle is taken as given (lean
-AS_GIVEN, 0.89/0.85 on the second ask), and the wheel scrolls as with no
-protocol (lean AS_UNTRACKED, 0.53/0.38 on the second ask).
+open went to the review: DECOM in pixel units counts from the text area
+(PIXELS_ABSOLUTE), DECELR 0 turns off any mouse protocol
+(ALL_OFF), the fourth button is the first past three
+(FIRST_EXTRA), a reversed rectangle is taken as given (lean AS_GIVEN), and the wheel scrolls as with no
+protocol (lean AS_UNTRACKED).
 
 ## 3. The status line: DECSSDT and DECSASD
 
@@ -213,7 +207,7 @@ change to include the status line."
 **Sources that conflict.** For an omitted DECSSDT parameter, the VT420 manual
 marks 0 "(default)" and `[[source: ctlseqs]]` (2001-2005) marks 1. At power-on,
 070-14 has no status line and the VT420 has the indicator. Which one baud
-takes is an open fork for the build. The second ask put 070-14's to Jev, under
+takes is an open fork for the build. The second ask put 070-14's to the review, under
 which nothing changes for anyone until a program asks.
 
 The two texts also set opposite rules for what the line shares with the main
@@ -223,7 +217,7 @@ line", and a list of exceptions follows. 070-14 (§14.2, p. 14-4): "In
 general, controls which affect some portion of the Main Display do not affect
 the contents or the ANSI state of the Status Display", with its exceptions
 noted in that section. Which text governs is an open fork for the build; it
-was not put to Jev.
+was not put to the review.
 
 **What others do.** xterm builds it under its StatusLine window operation,
 "Resize window to provide a VT320-style status line" (`[[source: xterm-man]]`
@@ -241,7 +235,7 @@ have none.
 
 A second fork is where the row comes from: the window grows a row, or the
 grid gives one up. Window operations a program asks for are on by default,
-the owner's decision of 2026-10-19 ("4 it is"). Where the window cannot grow
+the decision of 2026-10-19 ("4 it is"). Where the window cannot grow
 (full screen, or window operations turned off) the grid gives up its last
 row.
 
@@ -255,12 +249,12 @@ three render paths draw a row outside the grid, and both apps grow the window.
 names StatusLine among its window operations; baud's `OSC 62` list does not
 carry the name today and would gain it.
 
-**Jev.** On the row, GROW_WINDOW: 0.98 and 1.00, then 0.96 and 0.98. On the
+**The review.** On the row, GROW_WINDOW, then. On the
 types, BOTH leads: 0.76 and 0.71, then 0.41 and 0.56. HOST_WRITABLE's
-probability was 0.10-0.24.
+probability was 0.10-.
 
-**Recommendation: in.** The window grows a row, Jev's pick above the 0.9 bar in
-both orders, if the owner takes the line in. Both types is the lean, below the
+**Recommendation: in.** The window grows a row, the review's pick above the 0.9 bar in
+both orders, if the project takes the line in. Both types is the lean, below the
 bar. Refusing the indicator would leave a VT420 control value unbuilt, which
 the standing rule asks against. 070-14's "not mandatory" permits leaving it
 out; it does not ask for that.
@@ -299,13 +293,13 @@ iTerm2, kitty and foot have none; kitty reports a bare `q` as unknown
   Caps Lock misleads the user about what they type.
 
 **Building it.** Core: three lights and an accessor. macOS app: indicators
-on the title bar, in the owner's window crate, where note AH plans its
+on the title bar, in the project's window crate, where note AH plans its
 lights. Linux app: it waits, as note AH's lights do.
 
-**Jev.** First ask split: DRAWN led one order and DRAWN_GATED the other, at
-confidences 0.31 and 0.27. With the gate's reason made explicit (the VT510
+**The review.** First ask split: DRAWN led one order and DRAWN_GATED the other, at
+confidences. With the gate's reason made explicit (the VT510
 gates DECLL because its LEDs are also the lock lights, which drawn lights are
-not), DRAWN led both orders, at confidences 0.91 and 0.65.
+not), DRAWN led both orders, at confidences.
 
 **Recommendation: in, drawn, as the VT100 does.** This is the lean, below the
 bar in one order. It shares the title bar with note AH's lights, which are
@@ -329,7 +323,7 @@ it the warning bell there. The VT420 manual has neither.
 **Sources that conflict.** `[[source: ctlseqs]]` (1720-1743) and xterm's code
 read DECSWBV 0 as off and DECSMBV 0 as high (`[[source: xterm-reset]]`
 6428-6481), the reverse of both DEC manuals. Which reading baud takes is an
-open fork for the build, for Jev; by baud's rule the DEC text is the
+open fork for the build; by baud's rule the DEC text is the
 requirement and xterm is practice.
 
 **What others do.** xterm scales its bell by the stored volume
@@ -337,9 +331,9 @@ requirement and xterm is practice.
 types near the right margin, off by default (`marginBell`,
 `[[source: xterm-man]]` 4449-4452). iTerm2, kitty and foot have neither.
 
-**The owner's bell and the volume.** The macOS app rings with NSBeep, "Plays
+**The project's bell and the volume.** The macOS app rings with NSBeep, "Plays
 the system beep" (`[[source: apple-nsbeep]]`), which takes no volume. This is
-the owner's bell decision of 2026-10-13, "System sound + Dock bounce
+the project's bell decision of 2026-10-13, "System sound + Dock bounce
 (Recommended)". "Low" can be built by playing the user's alert sound through
 NSSound at a lower volume, whose value "does not affect the systemwide volume"
 (`[[source: apple-nssound-volume]]`). Building only "off" would leave the
@@ -349,12 +343,12 @@ protocol half built. Linux rings nothing yet, and the volumes wait on it.
 accessors. macOS app: the bell decision in the app takes a volume, NSBeep
 for high and NSSound for low. Linux app: it rings nothing yet.
 
-**Jev.** IN, 0.96 and 0.94.
+**The review.** IN.
 
 **Recommendation: in**, both volumes and the margin bell, on macOS first.
 What rings the margin bell is a fork for the build: the VT520 says "as the
 current position nears the right margin", and xterm rings it on typed keys.
-Jev's 0.96 and 0.94 were given for an IN whose margin bell rings "as typed
+the review's were given for an IN whose margin bell rings "as typed
 text nears the right margin", xterm's trigger. The request quoted the VT520's
 text but did not offer its reading as a choice.
 
@@ -362,9 +356,9 @@ text but did not offer its reading as a choice.
 070-6 § 6.6.5.2 (pp. 6-45 and 6-46, `[[source: dec-std-070]]`) a normal
 keystroke arms the margin bell and a character printed across RIGHT
 MARGIN - 8 on the same line rings it, so xterm's key-time test and the VT520's
-"current position" are each half of one rule. Jev decided 0 by DEC (1.00
+"current position" are each half of one rule. It was decided 0 by DEC (1.00
 and 1.00), the trigger STD070 (0.94 and 0.95), eight columns (0.97 and
-0.97) and the new-line test at the write (0.94 and 0.94); the leans taken
+) and the new-line test at the write; the leans taken
 were TWO_SWITCHES for `?44` (0.37/0.27, then 0.27/0.14), the DECRQSS
 values 1, 2 and 5 (0.18/0.58, then 0.12/0.56) and low sounding as high on
 macOS (0.61/0.70, then 0.69/0.67), where no documented call plays the
@@ -393,8 +387,8 @@ VT420 and VT510 manuals have none of it. `[[source: ctlseqs]]` 1954-1984.
 only when its terminal ID is 525 or more (`[[source: xterm-reset]]`
 5936-5985). Its default identity is set at build time: the manual gives its
 default as a placeholder filled in when xterm is built (`[[source: xterm-man]]`
-3289-3294). The second ask told Jev it is a VT420, which the pinned files do
-not show, so the 0.14/0.42 lean rests partly on an unpinned premise. iTerm2,
+3289-3294). The second ask told the review it is a VT420, which the pinned files do
+not show, so the lean rests partly on an unpinned premise. iTerm2,
 kitty and foot have none.
 
 **What building it means.** DECATC without DECSTGLT and the two modes would
@@ -407,13 +401,13 @@ and the two modes, each answered by DECRQSS or DECRQM. The renderer resolves
 every cell's colour through the selected map on all three paths, so both
 apps follow.
 
-**Jev.** OUT, 0.04 and 0.32. The second ask added that baud already builds
+**The review.** OUT. The second ask added that baud already builds
 VT520 controls (DECSCUSR, and the bell volumes above), so "VT420-class" has
-been read as a floor. OUT again, 0.14 and 0.42. Every ask described IN as
+been read as a floor. OUT again. Every ask described IN as
 "all four controls and both modes"; it is three controls and two modes, the
 five above.
 
-**Recommendation: out**, the lean, below the bar. This agrees with note AV,
+**Recommendation: out**, the lean. This agrees with note AV,
 which leaves it to the DA-level question (note AP). DECRQSS answering invalid
 is truthful meanwhile.
 
@@ -452,36 +446,35 @@ neither.
 drawing into the image store as Sixel does. The three render paths already
 draw images, so both apps follow. Tektronix needs a surface of its own.
 
-**Options and Jev.** The first ask offered OUT, ReGIS only, or both, and gave
-OUT at 0.27 and 0.43. The second ask split the fork. On ReGIS Jev flipped:
+**Options and the review.** The first ask offered OUT, ReGIS only, or both, and gave
+OUT. The second ask split the fork. On ReGIS the review flipped:
 IN 0.14 in one order and OUT 0.16 in the other. On Tektronix it gave OUT
 0.84 and 0.84.
 
-**Recommendation.** No recommendation on ReGIS, which is an owner question.
+**Recommendation.** No recommendation on ReGIS, which is an open question.
 In builds a second graphics language whole, to 070-8; out writes 070-8's own
 "not the intent" as the reason. Tektronix: out, the lean, since it is a
 second terminal personality with no DEC text.
 
-**The owner's call, 2026-10-20**, verbatim: "3 46 and 50 all yes, pointer
-hiding - yes , ReGIS - yes". Read against this section's options (TODO.md,
-"DECIDED 2026-10-20"): ReGIS is in, to DEC STD 070-8, with macrograph
+**A choice the project made, 2026-10-20**, verbatim: "3 46 and 50 all yes, pointer
+hiding - yes , ReGIS - yes". Read against this section's options: ReGIS is in, to DEC STD 070-8, with macrograph
 reports answered empty as 070-8 § 8.5.7.4.1 prefers; Tektronix stays out,
 the lean taken. Lane b122 builds it, a part at a time, `docs/vt-coverage.md`'s
 ReGIS row saying which parts.
 
-**An open departure, on the owner's veto list.** ReGIS is built, and DA
+**An open departure.** ReGIS is built, and DA
 lists no attribute 3. 070-4's DA says "The rest of the parameters
 indicate the architectural extensions supported at the current operating
 level" (PDF 221), and its Table 1 registers "3 1-4 ReGIS Display"
 (PDF 223); baud lists Sixel's 4 there under its claim, and xterm sends 3
 while its ReGIS is on (`[[source: xterm-reset]]` 4165-4168). 3 stays out
-by the owner's DA pick of 2026-10-15, "Keep ?6c (Recommended)".
+by the project's DA pick of 2026-10-15, "Keep ?6c (Recommended)".
 
 ## Found and not fixed
 
 - The out-of-scope row for ReGIS and Tektronix in `docs/vt-coverage.md` gave
   "Historical; no modern application emits them", which nothing here checked.
-  Fixed with the owner's call: ReGIS has its own row, and Tektronix's row
+  Fixed with a choice the project made: ReGIS has its own row, and Tektronix's row
   gives the lean it was taken on.
 - DECSWBV and DECSMBV: ctlseqs and xterm reverse the DEC manuals' reading of
   0, and the VT510's DECSMBV page names the warning bell (section 5). Built

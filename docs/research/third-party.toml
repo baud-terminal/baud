@@ -27,18 +27,18 @@
 #            repository root, "in file", "uri" (the licence asks only for its
 #            URI, which THIRD_PARTY.md gives), "none needed", or "none"
 #   status   kept        redistributable, and its notice is satisfied
-#            own         the owner's work
+#            own         the project's own work
 #            nc          kept verbatim under CC BY-NC-SA 3.0, which allows a
 #                        verbatim copy that carries its attribution and the
 #                        licence's URI; its NonCommercial term binds every
 #                        copy of this file, whatever the repository's licence
 #            copyleft    redistributable with its licence text, which is in
-#                        LICENSES/; keeping it or making it `external` is the
-#                        owner's call
+#                        LICENSES/; keeping it or making it `external` is
+#                        open
 #            no-grant    no grant to redistribute; moving it out of the tree
-#                        (status `external` in the manifest) is the owner's call
-#            unverified  licence not established; the owner's call
-#            open        a question recorded where the file is; the owner's call
+#                        (status `external` in the manifest) is open
+#            unverified  licence not established; open
+#            open        a question recorded where the file is
 #
 # The classification comes from a read-only audit of the tree on 2026-10-10
 # (each file's own header, its upstream repository's licence through the
@@ -1373,7 +1373,7 @@ files   = [
 ]
 
 [upstream.owner-observations]
-name    = "The owner's own probes, captures and renders"
+name    = "The project's own probes, captures and renders"
 licence = "CC-BY-NC-SA-4.0"
 notice  = "LICENSE"
 status  = "own"
@@ -1564,9 +1564,9 @@ files   = [
 ]
 
 [upstream.macos-liquid-glass]
-name    = "macos-liquid-glass, the owner's MIT crate (copies of its files)"
+name    = "macos-liquid-glass, an MIT crate by baud's author (copies of its files)"
 licence = "MIT"
-notice  = "the owner's crate"
+notice  = "the author's crate"
 status  = "own"
 files   = [
   "mlg-Cargo.toml",
@@ -1605,7 +1605,7 @@ upstream = "https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1"
 status   = "kept"
 
 [[tree]]
-what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as the owner's open call"
+what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as open"
 paths    = ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf", "baud-app/fonts/built/Italic.ttf", "baud-app/fonts/built/BoldItalic.ttf", "baud-app/fonts/built/FONTLOG.txt", "baud-app/fonts/built/AUTHORS.txt"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/built/OFL.txt"
@@ -1621,7 +1621,7 @@ upstream = "https://github.com/microsoft/cascadia-code/releases/tag/v2407.24"
 status   = "open"
 
 [[tree]]
-what     = "The Hebrew build modules: baud's own code under the repository's licence, the owner's call of 2026-10-28; they are tools that write the font, not Font Software (FONTLOG.txt)"
+what     = "The Hebrew build modules: baud's own code under the repository's licence, decided 2026-10-28; they are tools that write the font, not Font Software (FONTLOG.txt)"
 paths    = ["baud-app/fonts/glyphs/languages/hebrew/casanchors.py", "baud-app/fonts/glyphs/languages/hebrew/build/build.py", "baud-app/fonts/glyphs/languages/hebrew/build/design.py", "baud-app/fonts/glyphs/languages/hebrew/build/design2.py", "baud-app/fonts/glyphs/languages/hebrew/build/design3.py", "baud-app/fonts/glyphs/languages/hebrew/build/field.py", "baud-app/fonts/glyphs/languages/hebrew/build/geom.py", "baud-app/fonts/glyphs/languages/hebrew/build/instance.py", "baud-app/fonts/glyphs/languages/hebrew/build/narrow.py", "baud-app/fonts/glyphs/languages/hebrew/build/optical.py", "baud-app/fonts/glyphs/languages/hebrew/build/pin.py", "baud-app/fonts/glyphs/languages/hebrew/build/style.py"]
 licence  = "CC-BY-NC-SA-4.0"
 notice   = "LICENSE"
@@ -1629,7 +1629,7 @@ upstream = "baud's own build, ported from the research tree"
 status   = "own"
 
 [[tree]]
-what     = "Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors, the owner's call of 2026-10-28"
+what     = "Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors, decided 2026-10-28"
 paths    = ["baud-font/tests/var/outlines.txt", "baud-font/tests/var/JetBrainsMono-LICENSE.txt", "baud-font/tests/var/FiraCode-LICENSE.txt"]
 licence  = "OFL-1.1"
 notice   = "the two fonts' OFL texts beside it (JetBrainsMono-LICENSE.txt, FiraCode-LICENSE.txt)"
@@ -1637,7 +1637,7 @@ upstream = "read from the test fonts by scripts/gvar-oracle.py"
 status   = "kept"
 
 [[tree]]
-what     = "Glyph outlines read out of Source Code VF by scripts/cff2-oracle.py, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe, the owner's call of 2026-10-28"
+what     = "Glyph outlines read out of Source Code VF by scripts/cff2-oracle.py, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe, decided 2026-10-28"
 paths    = ["baud-font/tests/var/cff2-outlines.txt", "baud-font/tests/var/SourceCodeVF-LICENSE.txt"]
 licence  = "OFL-1.1"
 notice   = "baud-font/tests/var/SourceCodeVF-LICENSE.txt"
@@ -1733,7 +1733,7 @@ upstream = "https://bottosson.github.io/posts/gamutclipping/ and https://bottoss
 status   = "kept"
 
 [[tree]]
-what     = "DEC Special Graphics, generated by scripts/gen-dec-graphics.py from foot's vt100_0[] table. Whether a 31-entry codepoint table needs foot's notice is the owner's call (MANIFEST.toml, at foot-vt100-0); the notice is in the tree for the foot sources either way"
+what     = "DEC Special Graphics, generated by scripts/gen-dec-graphics.py from foot's vt100_0[] table. Whether a 31-entry codepoint table needs foot's notice is open (MANIFEST.toml, at foot-vt100-0); the notice is in the tree for the foot sources either way"
 paths    = ["baud-domain/src/dec_graphics.rs"]
 licence  = "MIT (foot), if the table carries any"
 notice   = "LICENSES/foot-MIT.txt"
@@ -1749,7 +1749,7 @@ upstream = "https://www.unicode.org/Public/"
 status   = "kept"
 
 [[tree]]
-what     = "kitty's colour names, generated by scripts/gen-colour-names.py from X.Org's rgb.txt at 749182c and one name, DebianRed (215, 7, 81), which Debian added to its rgb.txt in 2004 (bug 243288, a value sampled from the Debian logo) and kitty's table carries; and kitty-colours.txt, baud's probes, rgb.txt's names and the numbers kitty's own C parser gives for them (and, for an oklch( or lab( colour outside sRGB, its Go conversion), written by scripts/kitty-colour-oracle.sh with no kitty text copied. A name and a value are facts (37 CFR 202.1(a); Compendium III 313.3(C), 313.4(C), 313.4(K)), and a program's output is not, in general, covered by the program's copyright (GPL FAQ, WhatCaseIsOutputGPL); the owner took recommendation A on 2026-10-17"
+what     = "kitty's colour names, generated by scripts/gen-colour-names.py from X.Org's rgb.txt at 749182c and one name, DebianRed (215, 7, 81), which Debian added to its rgb.txt in 2004 (bug 243288, a value sampled from the Debian logo) and kitty's table carries; and kitty-colours.txt, baud's probes, rgb.txt's names and the numbers kitty's own C parser gives for them (and, for an oklch( or lab( colour outside sRGB, its Go conversion), written by scripts/kitty-colour-oracle.sh with no kitty text copied. A name and a value are facts (37 CFR 202.1(a); Compendium III 313.3(C), 313.4(C), 313.4(K)), and a program's output is not, in general, covered by the program's copyright (GPL FAQ, WhatCaseIsOutputGPL); recommendation A was taken on 2026-10-17"
 paths    = ["baud-domain/src/themefile/colour_names.rs", "baud-domain/tests/kitty-colours.txt"]
 licence  = "MIT-open-group (rgb.txt); DebianRed from Debian xorg debian/local/rgb.txt, a name and a value"
 notice   = "LICENSES/xorg-rgb-COPYING.txt"
@@ -1797,7 +1797,7 @@ upstream = "docs/research/sources/iso8859-1.txt, iso8859-2.txt, iso8859-5.txt, i
 status   = "kept"
 
 [[tree]]
-what     = "DEC Supplemental, JIS-Katakana and JIS-Roman, generated by scripts/gen-dec-sets.py: DEC Supplemental from DEC's VT220 Table 2-3 as vt100.net transcribes it, JIS-Katakana from Unicode's JIS0201.TXT, each checked against xterm's charsets.h macros; and vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests and the generator read, written by scripts/extract-vt220-tables.py from the two pages, fetched by URL and hash-checked, no prose copied. Whether a codepoint table carries the transcription's terms (no grant found) is the owner's call; JIS0201.TXT's notice is in the tree"
+what     = "DEC Supplemental, JIS-Katakana and JIS-Roman, generated by scripts/gen-dec-sets.py: DEC Supplemental from DEC's VT220 Table 2-3 as vt100.net transcribes it, JIS-Katakana from Unicode's JIS0201.TXT, each checked against xterm's charsets.h macros; and vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests and the generator read, written by scripts/extract-vt220-tables.py from the two pages, fetched by URL and hash-checked, no prose copied. Whether a codepoint table carries the transcription's terms (no grant found) is open; JIS0201.TXT's notice is in the tree"
 paths    = ["baud-domain/src/dec_sets_data.rs", "baud-domain/tests/vt220_tables.tsv"]
 licence  = "LicenseRef-NoGrant (vt100.net's transcription), if the table carries any; Unicode-3.0 (JIS0201.TXT)"
 notice   = "LICENSES/Unicode-3.0.txt"
@@ -1845,7 +1845,7 @@ upstream = "https://github.com/protesilaos/modus-themes"
 status   = "open"
 
 [[tree]]
-what     = "The quad cursor trail follows kitty's design -- four corners chasing the cursor's at per-corner rates -- with kitty's defaults (decay 0.1 s and 0.4 s, a start threshold of two cells) and its half-pixel end. Its rate choice, which had followed kitty's cursor_trail.c term for term, was re-derived on 2026-10-25 from the derivation in note W, section 8, after a line-by-line audit against kitty v0.49.2 (Jev B_RE_DERIVE 1.00 in both orders), and so were the copies of it in four research prototypes under note W; no line of kitty's is ported"
+what     = "The quad cursor trail follows kitty's design -- four corners chasing the cursor's at per-corner rates -- with kitty's defaults (decay 0.1 s and 0.4 s, a start threshold of two cells) and its half-pixel end. Its rate choice, which had followed kitty's cursor_trail.c term for term, was re-derived on 2026-10-25 from the derivation in note W, section 8, after a line-by-line audit against kitty v0.49.2, and so were the copies of it in four research prototypes under note W; no line of kitty's is ported"
 paths    = ["baud-render/src/trail.rs", "docs/research/notes/w/liquid-proto.py", "docs/research/notes/w/ufo-proto2.py", "docs/research/notes/w/ice-prototype.swift", "docs/research/notes/w/orb-harness.swift"]
 licence  = "none claimed; kitty is GPL-3.0-only"
 notice   = "none needed"
@@ -1853,7 +1853,7 @@ upstream = "https://github.com/kovidgoyal/kitty/blob/b2cb871254fbdac19a085188813
 status   = "kept"
 
 [[tree]]
-what     = "The kitty theme reader's colour values (kitty_colour in terminals.rs) and its oklch( and lab( colours (oklab.rs) read and draw as kitty does: kitty's behaviour, its constants (a JND of 0.02, a convergence of 1e-4, a grey below a chroma of 1e-5) and its departures from CSS Color 4 and X11, which the owner's O14 call keeps. Both had followed kitty's colors.c and tools/utils/style/colorspaces.go step for step, and were re-derived on 2026-10-25 from the rules in note AR after a line-by-line audit against kitty v0.49.2 (Jev B_RE_DERIVE 1.00 in both orders). The oracle script's driver now compiles kitty's own parse_color body from the fetched, hash-checked file instead of carrying a copy; no line of kitty's is ported"
+what     = "The kitty theme reader's colour values (kitty_colour in terminals.rs) and its oklch( and lab( colours (oklab.rs) read and draw as kitty does: kitty's behaviour, its constants (a JND of 0.02, a convergence of 1e-4, a grey below a chroma of 1e-5) and its departures from CSS Color 4 and X11, which note AR's O14 keeps. Both had followed kitty's colors.c and tools/utils/style/colorspaces.go step for step, and were re-derived on 2026-10-25 from the rules in note AR after a line-by-line audit against kitty v0.49.2. The oracle script's driver now compiles kitty's own parse_color body from the fetched, hash-checked file instead of carrying a copy; no line of kitty's is ported"
 paths    = ["baud-domain/src/themefile/terminals.rs", "baud-domain/src/themefile/oklab.rs", "scripts/kitty-colour-oracle.sh"]
 licence  = "none claimed; kitty is GPL-3.0-only"
 notice   = "none needed"
@@ -1869,7 +1869,7 @@ upstream = "https://bottosson.github.io/posts/oklab/"
 status   = "kept"
 
 [[tree]]
-what     = "CFF Standard Encoding, a 256-entry code-to-SID table generated by scripts/gen-cff-standard-encoding.py from Appendix B of Adobe's technical note 5176, which is CC BY-ND 4.0. Whether the table is an adaptation the ND term forbids sharing, or a fact, is the owner's call"
+what     = "CFF Standard Encoding, a 256-entry code-to-SID table generated by scripts/gen-cff-standard-encoding.py from Appendix B of Adobe's technical note 5176, which is CC BY-ND 4.0. Whether the table is an adaptation the ND term forbids sharing, or a fact, is open"
 paths    = ["baud-font/src/standard_encoding.rs"]
 licence  = "CC-BY-ND-4.0 (Adobe TN 5176), if the table carries any"
 notice   = "docs/research/sources/adobe-5176-cff.pdf"
@@ -1877,7 +1877,7 @@ upstream = "https://github.com/adobe-type-tools/font-tech-notes"
 status   = "open"
 
 [[tree]]
-what     = "The kitty keyboard protocol's functional-key numbers in input.rs, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied; that documentation is GPL-3.0. Whether a protocol's key-to-number table carries kitty's licence is the owner's call"
+what     = "The kitty keyboard protocol's functional-key numbers in input.rs, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied; that documentation is GPL-3.0. Whether a protocol's key-to-number table carries kitty's licence is open"
 paths    = ["baud-domain/src/input.rs", "baud-core/tests/kitty_functional_keys.tsv", "baud-core/tests/kitty_legacy_c0.tsv"]
 licence  = "GPL-3.0-only (kitty's documentation), if the table carries any"
 notice   = "LICENSES/GPL-3.0-only.txt"
@@ -1885,7 +1885,7 @@ upstream = "https://sw.kovidgoyal.net/kitty/keyboard-protocol/"
 status   = "open"
 
 [[tree]]
-what     = "The Unicode placeholder diacritic table in placeholder_data.rs, generated by scripts/gen-placeholder-table.py from placeholder-diacritics.txt, the 297 codepoints of kitty's rowcolumn-diacritics.txt (fetched by URL and hash-checked, nothing else of the file kept), a list derived from UnicodeData.txt that every client of the kitty graphics protocol must send; that file is in kitty's tree. Kept as the protocol's interface data, attributed to kitty v0.49.2 (the owner, 2026-10-16: \"Protocol data, keep\")"
+what     = "The Unicode placeholder diacritic table in placeholder_data.rs, generated by scripts/gen-placeholder-table.py from placeholder-diacritics.txt, the 297 codepoints of kitty's rowcolumn-diacritics.txt (fetched by URL and hash-checked, nothing else of the file kept), a list derived from UnicodeData.txt that every client of the kitty graphics protocol must send; that file is in kitty's tree. Kept as the protocol's interface data, attributed to kitty v0.49.2 (decided 2026-10-16)"
 paths    = ["baud-domain/src/placeholder_data.rs", "docs/data/placeholder-diacritics.txt"]
 licence  = "protocol interface data, attributed to kitty v0.49.2 (Kovid Goyal)"
 notice   = "none"
@@ -1901,7 +1901,7 @@ upstream = "https://github.com/elementary/wallpapers"
 status   = "kept"
 
 [[tree]]
-what     = "The README's text.png carries renderings of Noto Color Emoji v2.051 and Noto Sans CJK SC 2.004 (Google), fetched at capture time by scripts/readme-capture.sh, pinned by sha256 and not committed; the rest is baud's embedded faces. No Apple face is in its stack (the owner, 2026-10-17: re-shoot with an open emoji font). The OFL covers the fonts, not what is drawn with them"
+what     = "The README's text.png carries renderings of Noto Color Emoji v2.051 and Noto Sans CJK SC 2.004 (Google), fetched at capture time by scripts/readme-capture.sh, pinned by sha256 and not committed; the rest is baud's embedded faces. No Apple face is in its stack (re-shot 2026-10-17 with an open emoji font). The OFL covers the fonts, not what is drawn with them"
 paths    = ["assets/readme/text.png"]
 licence  = "OFL-1.1"
 notice   = "none needed"

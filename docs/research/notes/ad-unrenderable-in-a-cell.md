@@ -1,8 +1,7 @@
 # AD. What a cell draws for a code point no face draws
 
 **Status: open, researched 2026-10-08.** Nothing here is decided or built. The
-note reopens the rule built in 11827bf (note AB, Q23) and sets out the questions
-for Jev and then the owner.
+note reopens the rule built in 11827bf (note AB, Q23) and sets out the questions it leaves.
 
 **2026-10-18, the composite subset of Case A answered.** That subset is a
 typed base the kept face draws plus a mark it lacks, where a canonical
@@ -10,10 +9,7 @@ composite exists: A + U+0311 is Ȃ. Like a letter that is precomposed in
 the text and that no face draws whole or in parts (Ȃ, ἀ, a Hangul
 syllable, a kana with a voiced mark), it is now one `.notdef` for the
 whole letter in its own cells. That is b2's shape, which this note marks
-partly against § 5.21.6's "how many are present". It was built as Jev's
-H_BOX lean under the bar (0.86 and 0.95), on C6: A + U+0311 is the one
-character Ȃ. The owner's veto with Q2 applies to it (the record, "A
-letter no face draws is one box, typed either way"). A mark with no
+partly against § 5.21.6's "how many are present". It was built as H_BOX, on C6: A + U+0311 is the one character Ȃ, and is open with Q2. A mark with no
 composite on its base, such as q + U+0316 or a Hebrew point, stays
 dropped and counted pending Q2 and Q4.
 
@@ -27,8 +23,7 @@ measurement outputs a claim here rests on are under
 
 ## 1. The question
 
-The owner asked for more research on this question. Then the owner asked "are
-we doing something outside standard?" and "could be jev is missing context".
+More research was asked for on this question: whether baud is doing something outside the standard, and whether the question had been asked with the whole context.
 
 **The question.** When no face in baud's stack draws a grapheme cluster whole,
 what should the cell draw for the code points the kept face lacks?
@@ -59,8 +54,7 @@ what should the cell draw for the code points the kept face lacks?
    placeholder, "so that at least it is clear that there are characters
    present—and usually, how many are present" ([[source: unicode18-ch5]]
    § 5.21.6). Chapter 5 says its guidelines are best practice and not
-   normative (section 2.2). The drop shows nothing. No request to Jev quoted
-   the standard (section 7.1).
+   normative (section 2.2). The drop shows nothing.
 2. **One option was never offered.** A_DROP was asked as a question about
    combining marks, with four options: drop the mark, replace the whole cell,
    use the base's face only and drop, or overlay the mark from another face.
@@ -75,8 +69,7 @@ what should the cell draw for the code points the kept face lacks?
    - AS_BUILT draws a woman where the text says woman technologist.
    - A box drawn with the base face's `.notdef` vanishes under Noto Color Emoji.
 
-   Jev split three ways on this (AS_BUILT 0.47, BOX_PRIMARY 0.29,
-   MARKS_ONLY_ELSE_BOX 0.24, at confidence 0.20).
+   It is unsettled between AS_BUILT, BOX_PRIMARY and MARKS_ONLY_ELSE_BOX.
 4. **The frequency numbers did not exist yet.** How often each case happens
    on the stacks baud ships is new in this note (section 5).
 
@@ -176,7 +169,7 @@ It binds a device that claims conformance to 10646, and the claim names the
 device's adopted subset (§ 2.3). The subset gives no way out for a silent drop
 (reading). A character inside the adopted subset must be identifiable, and one
 outside it must be indicated, and a dropped code point is neither. Whether
-baud claims 10646 device conformance is the owner's call, as UTS #51
+baud claims 10646 device conformance is open, as UTS #51
 conformance is. The verdicts below state this condition once, here, and refer
 back to it.
 
@@ -194,7 +187,7 @@ does not require conformance to UTS #51." ([[source: unicode18-ch22]] § 22.10)
 - **The core's deletions are a different matter (sections 2.6, 5.2 and 5.4).**
   Copy reads `Term`, so a code point the core refuses is gone from what copy
   emits, and C7 and § 2.14.2 bind what leaves the process. Whether a terminal's
-  copy "purports not to modify" the text is the owner's reading to make. On
+  copy "purports not to modify" the text is a reading that stays open. On
   screen, the refused code point shows as nothing, which departs from § 5.21.6
   as the renderer's drop does, and from § 2.3 c) under a 10646 claim (section
   2.7).
@@ -346,7 +339,7 @@ of the four describes dropping it.
 **baud meets C.1.1's second condition (measured): it supports at least one
 tag sequence.** England, Scotland and Wales draw as one glyph on every shipped
 emoji face ([[source: ad-obs-freq-emoji]], the RGI rows). Whether baud claims
-UTS #51 conformance, the first condition, is the owner's call; the Unicode
+UTS #51 conformance, the first condition, is open; the Unicode
 Standard does not require it (§ 22.10, section 2.2). What baud draws for the
 others is whatever the face's own shaping gives, since every face maps the tag
 characters and the drop rule never fires
@@ -406,7 +399,7 @@ The text forbids UTS #51's separate-emoji fallback, and it forbids sub-images
 whatever their width. Its stated reason, cursor movement, does not narrow the
 "must not". baud's core fixes the width whatever is drawn. Reading the text
 more narrowly, so that it allows sub-images confined to the two cells, would
-be a departure and the owner's call. Q3 marks confined sub-images as
+be a departure and a choice the project made. Q3 marks confined sub-images as
 departing. baud draws unconfined sub-images today (section 2.7).
 
 **The Text Terminal Working Group** has not addressed missing glyphs in any
@@ -455,7 +448,7 @@ the space the recommendation warns against (reading). Options b1 and b3 in
 section 6 rely on the kept font following that recommendation.
 
 A face's `.notdef` also differs from face to face and from one OS to another,
-which the owner's same-pixels rule does not allow.
+which the project's same-pixels rule does not allow.
 
 ### 2.6 What should draw nothing
 
@@ -1109,8 +1102,7 @@ The Hindi denominator is not exact: conjunct clusters also attach consonants.
 the clusters no cell names once all 1024 are used, so "only RIS frees the
 store" below describes the store this table measured. The four rows, one
 `Term` each at 200x50 with 2,000 lines of history, refuse 0, 2, 0 and 349,
-and none of them fills the store, so none sweeps (the record, "The
-cluster store holds 1024 clusters and sweeps the dead ones").
+and none of them fills the store, so none sweeps.
 
 - **Only RIS frees the store.** After the Hindi article, all 228 of Bialik's
   marks were refused across ED2, `?1049` entered and left, or DECSTR. RIS
@@ -1123,7 +1115,7 @@ cluster store holds 1024 clusters and sweeps the dead ones").
   `Term` (app.rs:5731-5738). This is the part C7 and § 2.14.2 reach (section
   2.2).
 - **One verse is enough to lose a point in a fresh `Term`.** Genesis 1:1 as
-  section 7.3's renders feed it (verse 1 of [[source: sefaria-genesis-1]],
+  section 7.2's renders feed it (verse 1 of [[source: sefaria-genesis-1]],
   with the `<big>` tags stripped) keeps the resh of its last word without its
   segol: U+05E8 is kept, U+05B6 is refused, and `marks_dropped` is 1, at 39
   and at 80 columns. The last word fed alone keeps U+05E8 U+05B6 and refuses
@@ -1233,17 +1225,14 @@ cluster store holds 1024 clusters and sweeps the dead ones").
       drawn through it, because the prototype hooks only the instance path.
       For real points, a scratch Metal probe found the cell and instance
       paths agree to 0 pixels at 14 and 26 px, and the points below pointed
-      letters draw into the next row at 26 px, where the CPU clips
-      (the record, "baud's
-      own Hebrew is in the embedded font, Regular and Bold, built from
-      committed sources"). So a placeholder below the row would likely cross
+      letters draw into the next row at 26 px, where the CPU clips. So a placeholder below the row would likely cross
       into the next row there too (inferred).
 
     So a placeholder placed below its row is not drawn whole inside its
     cells on any path: on the GPU paths it would cover the top of the next
     row (inferred, above), and on the CPU path it is cut off, so that mark
     shows nothing, or only an edge.
-- **Same pixels on every OS.** That is the owner's rule. The placeholder must
+- **Same pixels on every OS.** That is the project's rule. The placeholder must
   not depend on the configured or system face: their `.notdef` glyphs and the
   OS's last-resort font differ by OS and by configuration. The embedded face's
   `.notdef` (b2) meets the rule while that face is in the binary.
@@ -1293,9 +1282,7 @@ Notes on the rows, from the design lens unless marked:
   silent drop keeps the base too, but shows nothing.)
   - baud's placement for faces without GPOS, `BaseBox::place`
     (shape.rs:210-270), has no arm for combining classes 10-199, and baud-font
-    does not recategorise them (Hebrew's 10-26 it does since 2026-10-15: the
-    record, "Hebrew points on a face with no GPOS are placed as HarfBuzz
-    places them"). HarfBuzz does
+    does not recategorise them (Hebrew's 10-26 it does since 2026-10-15: its measurement). HarfBuzz does
     ([[source: harfbuzz-hb-ot-shape-fallback]], hb-ot-shape-fallback.cc:82-115).
     Without that, a placeholder for a Hebrew point lands on the letter.
   - `Kept` records only how many code points were dropped, not which ones
@@ -1365,7 +1352,7 @@ Notes on the rows, from the design lens unless marked:
 The options can be combined, for example e for case A with a or b2 for cases B
 and C.
 
-**Hebrew, the case the owner reads.**
+**Hebrew, the case read most here.**
 
 - **Before b7b7cd5 no face in the default stacks mapped Hebrew,** so every
   letter was case C.
@@ -1393,7 +1380,7 @@ and C.
   three points: 102 below, 27 above, and 17 dagesh inside the letter. A
   dot-sized placeholder below reads as a hiriq (inferred from the mockup).
 - **One option for the cantillation marks is in the font, not the renderer
-  (Q9).** The owner's font rule is that gaps are fixed in the embedded font
+  (Q9).** The project's font rule is that gaps are fixed in the embedded font
   (note AC). Drawing the 31 cantillation marks into baud's Hebrew would take
   them out of case A on every stack, but a placeholder rule would still be
   needed for every other script.
@@ -1404,69 +1391,13 @@ and C.
   holds 1024 and sweeps the clusters no cell names once all are used, and
   Bialik, OSHB Genesis 1, the Arabic and the Hindi, each through a terminal
   of its own, refuse 0, 2, 0 and 349 where they refused 81, 997, 1117 and
-  13473
-  (the record, "The cluster store holds 1024 clusters and sweeps the
-  dead ones").
+  13473.
 
-## 7. Questions for Jev and the owner
+## 7. Open questions
 
-### 7.1 What the earlier Jev requests did not carry
+### 7.1 The questions
 
-The four requests are in `.claude/research/hebrew-improve/missing-mark/`,
-which is untracked; each is copied unchanged into `ad-observed/`
-([[source: ad-obs-jev-design]], [[source: ad-obs-jev-design-r2]],
-[[source: ad-obs-jev-starters]], [[source: ad-obs-jev-starters-r2]]):
-
-- `jev-design.json` and `jev-design-r2.json`, the second of which decided
-  A_DROP at 0.99;
-- `jev-starters.json` (0.55 against 0.45, at confidence 0.10);
-- `jev-starters-r2.json` (0.47, 0.29 and 0.24, at confidence 0.20).
-
-Set against this note:
-
-| context | design, both asks | starters, both asks |
-|---|---|---|
-| § 5.21.6: a visible fallback, "how many", "Displaying nothing would give the user the impression that the character does not occur" | no | no |
-| § 5.3: a placeholder (hex value, script, the Last Resort Font) | no | no |
-| § 5.13 Show Hidden and Simple Overlap, and D52, which draw the mark's own glyph (option h) | no | no |
-| chapter 5 is not normative; C5; "blindly delete" covers reserved and private-use code points, and the drop deletes reserved code points after a ZWJ | no | no |
-| UTS #51: the modifier's missing-glyph indicator, the flag options, the tag overlay "occupying the same physical dimensions", C.1.1's "must" and its width reason, the glue | no | only "an unsupported ZWJ sequence should display as its components, which a 2-column cell cannot fit" |
-| the mode 2027 text on ZWJ emoji | no | no |
-| an option that keeps the base and draws a placeholder inside the cell | no: drop, replace the whole cell, base face and drop, overlay | no: both box options replace the whole cluster |
-| terminals observed here: Terminal.app, iTerm2, kitty's order dependence, WezTerm's toast | no | no |
-| the supplement (section 3): xterm and urxvt box a missing mark inside the cell over a kept base; VTE's GTK4 build and Warp drop marks a face can draw; zellij strips every width-0 code point before baud sees it; each terminal marked against the standard | no | no |
-| engines measured: none drops silently; the box comes from the primary font | no | partly: "Browsers draw .notdef for a character no font has; none silently drops a character" |
-| frequency: 0 emoji drops on macOS, 59 intact sequences on Noto 2.042 and 2.047 (60 on screen, counting one the core altered), 417-418 regional-indicator pairs spilling on every stack, 0 drops on attested mark pairs whose base a face draws (six scripts, no kana; in the recordings case A does occur, in one cluster on macOS and in one in each CJK recording on Linux), 208 of 346 marked clusters in Genesis 1 | no | no |
-| what else reaches the same displays: ISO/IEC 10646 § 2.3 c) ("shall be indicated to the user"); § 5.13's no-break-space base for a defective combining sequence, and the core's refusal of every zero-width code point at column 0; mode 2027's "must not" against the sub-images baud draws today; OpenType's "should not be left without an outline" for `.notdef`; ECMA-48 leaving the matter to the implementor | no | no |
-| the core: 106 RGI sequences altered in a fresh `Term`, 95 of them a different emoji on macOS; 2,703 of 2,760 in one session; the store refusing 36-71% of marks over a session | no | no |
-| Noto's `.notdef` is empty; the BOX prototype counted a box it never drew | no | the second ask: the empty `.notdef`, yes; the miscount, no |
-| the owner's same-pixels rule | no | the second ask: inside BOX_PRIMARY's criterion only |
-
-`principles.json`, which rides in every request, carries "Every protocol claim
-traces to a pinned primary source". It has nothing on missing glyphs, on
-display best practice, or on same pixels across operating systems.
-
-Some premises in the starters requests were wrong, not only missing. That is
-why Q23 was asked again once before, after a refuter found two wrong premises
-in the design request. In `jev-starters-r2.json`:
-
-- **BOX_PRIMARY** is described as the primary text face's `.notdef`,
-  "JetBrains Mono's, always inked". It is not always inked: under a configured
-  SF Mono, glyph 0 is empty (section 2.5).
-- **UTS #51** is summarised as asking for components "which a 2-column cell
-  cannot fit". That leaves out the displays it describes that do fit: the
-  modifier's missing-glyph indicator, and Annex C's overlay "occupying the same
-  physical dimensions".
-- **When it happens.** The request calls an emoji face older than the text "the
-  realistic case", on a default stack it describes as "system monospace" first.
-  The default primary is the embedded JetBrains Mono. The frequency is now
-  measured: no drops on macOS 27's emoji face, and 59 intact sequences on Noto
-  2.042 and 2.047 (60 on screen, counting one the core altered; section 5.1).
-
-### 7.2 The questions
-
-The bar is as before: an answer at 0.9 or above is built; below it, the owner
-decides from the renders in 7.3. Each option carries its verdict against the
+Each is decided from the renders in 7.2. Each option carries its verdict against the
 text quoted in section 2, judged the way section 3's yardstick judges every
 terminal. What other terminals do is in section 3. It is practice, and no
 criterion below rests on it.
@@ -1484,10 +1415,10 @@ cannot draw?**
     Departs from § 5.21.6. Chapter 5 is best practice, not a conformance
     clause (section 2.2), so a recorded departure breaks no Unicode clause.
     Under a 10646 device claim it departs from § 2.3 c) as well (section
-    2.2). It is still a departure, and under the owner's rule a departure is
-    the owner's call.
+    2.2). It is still a departure, recorded as one, and it is decided from
+    the renders in 7.2.
 - Criteria:
-  - § 5.21.6's "visible" and "how many", and the owner's "outside standard?";
+  - § 5.21.6's "visible" and "how many", and whether baud is outside the standard;
   - how often each case happens on the shipped stacks (section 5);
   - whether the base stays readable;
   - how a placeholder reads where marks are dense, as in cantillated Hebrew
@@ -1656,7 +1587,7 @@ follows both.
 - Criteria: whether the placeholder on screen already tells the user what
   § 5.21.6 wants them to know, against the noise a notice adds.
 
-**Q7. The core (the owner's call, outside the renderer).**
+**Q7. The core (a choice the project made, outside the renderer).**
 
 - No renderer option fixes the 95 different emoji on macOS in a fresh `Term`,
   which come from `ClusterSlot::CAPACITY` and the store's collisions, or the
@@ -1701,8 +1632,7 @@ inferred, not measured).
 **Q9. Hebrew cantillation.**
 
 - Options:
-  - Draw the 31 marks into baud's Hebrew (note AC). This follows the owner's
-    rule that gaps are fixed in the embedded font, and takes them out of case
+  - Draw the 31 marks into baud's Hebrew (note AC). This follows the project's rule that gaps are fixed in the embedded font, and takes them out of case
     A on every stack. The marks then draw as themselves, so no fallback text
     applies to them.
   - Rely on the placeholder chosen in Q2. This carries the verdict of the Q2
@@ -1712,23 +1642,19 @@ inferred, not measured).
   `.notdef`, which keeps its 600-unit advance in HarfBuzz 14.5.1 as in
   baud's shaper, so in the shaper's output it stands one cell left of its
   letter, right to left. Its offset from the letter is HarfBuzz's in all 99
-  such corpus clusters of each face (the record, "A cantillation mark's box
-  is shaped where HarfBuzz shapes it"). On screen baud draws no box for it:
+  such corpus clusters of each face. On screen baud draws no box for it:
   through baud's renderer at 13, 14 and 28 px, alef with etnahta and bet
   with qamats and merkha show their letters and points and nothing for the
   mark, the silent drop Q2's placeholder is to replace. The face has no
   anchor for it, since it maps none of the 31 marks; whether to draw the
   marks, or what shows in their place, is this question and Q2.
-- Decided 2026-10-25: draw them. Jev chose the first option at confidence
-  0.98 in both orders (probability 0.99, uncached), with the owner's font
-  rules and the standing VT420 rule quoted. Built the same day: the four
+- Decided 2026-10-25: draw them, as the font rules and the rule to build a protocol whole ask. Built the same day: the four
   built faces map all 31, drawn by baud and placed by the font's anchors
   and mark-to-mark lookups, and baud's shaper places every one of the 99
-  corpus clusters as HarfBuzz does (the record, "Hebrew cantillation is
-  drawn in the embedded font"). A cantillation mark that no face maps, in
+  corpus clusters as HarfBuzz does. A cantillation mark that no face maps, in
   another font stack, is still Q2's.
 
-### 7.3 Renders the owner must see before deciding
+### 7.2 Renders to see before deciding
 
 **What exists.**
 
@@ -1773,8 +1699,8 @@ Columns:
 - a wrestling sequence with skin tones on Noto 2.042, one of the 59, which
   spills today;
 - a ten-code-point kiss that the core alters, which shows a wrong emoji in
-  every row, so the owner sees what no option fixes.
+  every row, so what no option fixes is seen.
 
 A framed hex box cannot fit an 8-px cell, by arithmetic. The unframed grids
 fit: 7x11 px for a BMP code point and 7x17 px for an astral one (section 6).
-Render both, so the owner sees the difference.
+Render both, so the difference is seen.

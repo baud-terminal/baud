@@ -1,13 +1,12 @@
 # W. Fallback fonts: what other terminals do, and what baud could bundle
 
-**Status: superseded on 2026-10-07 by note AC.** The owner chose: the configured
+**Status: superseded on 2026-10-07 by note AC.** The choice was: the configured
 font, then baud's embedded font built from JetBrains Mono, the Nerd patch and
 baud's own patches, then the system's choice at run time, with no custom
 inheritance hacks (read as no run-time per-glyph rules; whether build-time lists
 count is open, note AC decision 6) and no parts of other fonts. That is closest to option E below, with baud's own
 glyphs in place of a bundle of other fonts. The rest of this note stands as the
-research. **Status before that: open, on the owner's review page.** The owner's rule of 2026-10-01
-is that macOS and Linux draw identical pixels. Today they do not, past the
+research. **Status before that: open.** The rule since 2026-10-01 is that macOS and Linux draw identical pixels. Today they do not, past the
 two embedded faces. Behind the embedded JetBrains Mono and Symbols Nerd Font
 Mono, baud reads system files by path (`baud-app/src/config.rs`): on macOS
 Menlo, Apple Color Emoji, Apple Symbols, Hiragino Sans GB, Apple SD Gothic
@@ -19,7 +18,7 @@ own CPU path:
 - **Linux** draws Han, kana, Hangul, Devanagari, Hebrew, and symbols such as
   U+2460 ①, U+203B ※, U+2103 ℃ and U+216B Ⅻ as `.notdef`.
 
-This note is the record behind the decision: what nine other terminals do,
+This note is the research behind the decision: what nine other terminals do,
 read at source, and what baud could bundle, measured. The options on the page:
 
 | option | design |
@@ -30,18 +29,7 @@ read at source, and what baud could bundle, measured. The options on the page:
 | D | bundle, with today's per-OS path lists behind it |
 | E | bundle, with charset discovery behind it (not built) |
 
-**Jev, 2026-10-01, with baud's principles in each request.** The figures are
-probabilities; Jev's bar is 0.9.
-
-- **Design** (request35): D 0.56, A 0.33, E 0.09, C 0.02, B 0.00, confidence
-  0.44. Under the bar.
-- **Han region** (request34): the SC and KR subsets over a single JP file or a
-  per-locale choice, probability 0.97, confidence 0.96. Over the bar. The same
-  question asked a few seconds earlier read 0.98 and 0.97.
-- **Emoji** (request36): Noto Color Emoji (CBDT) 0.50, Mozilla Twemoji 14
-  (COLRv0) 0.50, a tie. The same question asked about five minutes earlier read
-  Noto 0.56 and Twemoji 14 0.44. Twemoji 17 with an unverified licence, and
-  the system emoji per OS, both read 0.00 each time.
+**Where the three questions stood on 2026-10-01.** - **Design**: D led, then A; unsettled. - **Han region**: settled on the SC and KR subsets, over a single JP file or a per-locale choice. - **Emoji**: Noto Color Emoji (CBDT) and Mozilla Twemoji 14 (COLRv0) tied. Twemoji 17, with an unverified licence, and the system emoji per OS were ruled out.
 
 **What a bundle costs.**
 
@@ -245,7 +233,7 @@ Mono's, was taken separately. The rest must be re-taken when a bundle is
 built, and a pinned fetch computes them anyway.
 
 **Three emoji faces were re-fetched the same evening** from the URLs below,
-to redraw the review page's emoji panel, and hash as follows. Noto Color
+to redraw the emoji panel of the options' renders, and hash as follows. Noto Color
 Emoji matches the manifest's pin for it (`noto-color-emoji-cbdt`), and
 Twemoji 17 matches the hash that survived; Mozilla's Twemoji 14 is new:
 
@@ -257,7 +245,7 @@ Twemoji 17 matches the hash that survived; Mozilla's Twemoji 14 is new:
 
 **What was measured and what was read.** Formats, sizes, coverage and the
 two surviving hashes were measured with fontTools. The candidate measurement
-did not run baud-font. The session that built the review page later rendered
+did not run baud-font. The work that rendered the options later rendered
 some of these faces through baud (the Arabic fit below, and the 0.56 ms
 construction figure); which files it rendered is not recorded here. So what
 baud-font cannot read rests on reading its source alone, at 6a2eff5.
@@ -313,8 +301,7 @@ baud's own renderer:
 
 In baud, Liberation Mono's and Courier New's points land one cell to the right
 of their letters, and Cascadia's partly so, because baud shapes with the Latin
-script; placing them is per-script shaping. The Hebrew face is on the owner's
-review page (v8).
+script; placing them is per-script shaping. The Hebrew face was weighed from renders (v8).
 
 ### CJK
 
@@ -364,8 +351,7 @@ font, so a miss of 3 means complete.
   Their Han is drawn in the Simplified Chinese design, Japanese text included.
 - **The smallest complete single file** is NotoSansCJKjp-Regular.otf,
   16,467,736 B, CID-keyed CFF, with Japanese Han forms.
-- Which region's glyph forms to ship is the owner's call. Jev's answer is the
-  SC and KR pair, above.
+- Which region's glyph forms to ship is open; the SC and KR pair leads, above.
 
 Every complete candidate is CID-keyed CFF. The only glyf CJK faces are the
 `*-VF.ttf` subsets, which miss what their subsets miss.
@@ -421,8 +407,7 @@ numbers below were read.
   its monochrome glyf outlines at best.
 - ~~**CFF2: every `*-VF.otf` and the variable OTC.** Nothing in baud-font
   parses CFF2; `baud-font/src/bake.rs` names the tag only in its list of
-  tables a bake refuses.~~ Read since 2026-10-11 (`baud-font/src/cff2.rs`;
-  the record, "CFF2 outlines are read, blends and all"), at any
+  tables a bake refuses.~~ Read since 2026-10-11 (`baud-font/src/cff2.rs`), at any
   coordinates, and a face whose CFF2 does not read is refused at load. The
   bake still refuses a CFF2 face: it writes `glyf` instances.
 - **SVG fonts** are not read.
@@ -445,16 +430,16 @@ and 713-717). Arabic's joining forms come from the `init`, `medi` and `fina`
 features, which baud applies under no script. So every font draws Arabic in
 its unjoined forms.
 
-What the font still decides is the fit. Rendered for the review page, Noto
+What the font still decides is the fit. Rendered for the options, Noto
 Sans Arabic is proportional and its letters crowd in one-cell slots. DejaVu
 Sans Mono 2.37 is monospaced and fits. That file is 340,712 B, sha256
 b4a6c3e4faab8773f4ff761d56451646409f29abedd68f05d38c2df667d3c582; the hash
-was taken in the session that built the review page, not in the candidate
+was taken when the options were rendered, not in the candidate
 measurement above.
 
 ## A finding that changed the emoji panel
 
-The review page's Apple Color Emoji row was rendered at 40 px. At that size
+The renders' Apple Color Emoji row was rendered at 40 px. At that size
 baud drew the family (👨‍👩‍👧), U+1FAE0 MELTING FACE and U+1FA77 PINK HEART
 as nothing. The cause is baud's choice of bitmap strike, which is being
 fixed, and not Apple's font: on this Mac, CoreText finds both codepoints in
@@ -465,19 +450,15 @@ and it is not evidence about Apple's set until the fix lands.
 **The fix landed in 34759c1** -- a strike is chosen per glyph among the
 strikes that hold it, and `flip` is drawn -- and the panel was redrawn with
 it: Apple's row is complete at 40 px, and the other three rows did not
-change. The page says the earlier panel was wrong. CLAUDE.md, "A colour
-bitmap is drawn from a strike that holds it", has the measurements.
+change. The page says the earlier panel was wrong; note J's `j-colour-bitmap-limits.md` has the measurements.
 
 ## Does a bundled face follow a configured stack? (2026-10-03)
 
-The owner embedded STIX Two Math last in the default stacks (2026-10-02; the
-record's "STIX Two Math is embedded, last in the default stacks"). A
+STIX Two Math was embedded last in the default stacks (2026-10-02). A
 configured `fonts` replaces the default stack, and behind it baud appends only
-the embedded icon face, under `font_fallback`. So the fix does not reach a
-configured stack, the owner's included. Whether STIX should follow a
+the embedded icon face, under `font_fallback`. So the fix does not reach a configured stack. Whether STIX should follow a
 configured stack too (FOLLOW) or stay in the default stack only
-(DEFAULT_ONLY) went to Jev at 0.54, so the prior art was read at source for
-this one axis.
+(DEFAULT_ONLY) was unsettled, so the prior art was read at source for this one axis.
 
 Read from clones on 2026-10-03: WezTerm cab2516 · Ghostty befcdfd · kitty
 7d37453 · Alacritty d692748 with crossfont 0.8.1 (a93d1ee, the version it
@@ -508,23 +489,19 @@ locks) · foot cb27717 with fcft 1ff7e79 · iTerm2 91411f5.
 * **On this Mac STIX Two Math is the only system font with U+23F5**, of 387
   files scanned (the first face of each collection), and CoreText returns it
   for U+23F5 and U+23FA by each route these terminals call:
-  `CTFontCreateForString`, the default cascade list, and `CTLine`. So each of
-  them draws Claude Code's arrow behind a configured font from the face baud
+  `CTFontCreateForString`, the default cascade list, and `CTLine`. So each of them draws that arrow behind a configured font from the face baud
   embeds. That is inferred from the API calls, not from running each terminal.
 * **What the prior art shows going wrong is order, not following.** Ghostty
   #7204 (its bundled Nerd glyph for U+2665 pre-empting Menlo's) and #12200
   (bundled Noto Emoji pre-empting text glyphs) are bundled faces placed ahead
   of better ones. baud puts STIX last.
 
-**What FOLLOW changes in the owner's stack**, from CoreText's character sets,
+**What FOLLOW changes in a configured stack**, from CoreText's character sets,
 crediting each code point to the first face in the stack that has it (not
 baud's presentation-aware choice): of STIX's 4,611 code points, 1,877 are
 boxes today and would draw from STIX, U+23F5 among them. 43 held only by
 Apple Color Emoji would turn from colour to STIX's text glyph under the
 default `font` rule, U+23FA among them (U+23E9-23F3, U+26BD, U+26C4, U+26F5,
-U+2702, U+2709, U+2B1B and others), as 40 did in the default stack when the
-owner chose the embed.
+U+2702, U+2709, U+2B1B and others), as 40 did in the default stack when the embed was chosen.
 
-**Jev:** FOLLOW 0.54 with baud's own precedent only; 0.88 (confidence 0.76)
-with the prior art; 0.90 (confidence 0.79) with the measured consequence and
-the owner's earlier trade. On the review page 2026-10-03.
+**FOLLOW leads** (2026-10-03), on the prior art and the measured consequence above.

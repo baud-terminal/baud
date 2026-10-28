@@ -1,16 +1,13 @@
 # J: colour-bitmap limits -- a presence index, its bound, CBLC subtables, flip chains
 
-Research for owner questions, 2026-10-02. Round one went to the owner with a
-strike bound at 0.63 and a flip rule at 0.88, and the owner answered "too low,
-more research". Round two put five readers to work at source, a skeptic on
-each, and measured baud and CoreText on hostile fonts; Jev's numbers fell. A
-diagnostic then showed the strike options had been posed on the wrong axis,
+Research for the colour-bitmap questions, 2026-10-02. Round one's strike
+bound and flip rule were not settled and went back to research. Round two put
+five readers to work at source, a skeptic on each, and measured baud and
+CoreText on hostile fonts. A diagnostic then showed the strike options had been posed on the wrong axis,
 and round three re-posed every question on one axis. Every figure here is
 labelled MEASURED, READ or DERIVED; a derived figure is arithmetic on measured
 ones and is not a measurement.
 
-The record entry is "A colour bitmap is drawn from a strike that holds it, and
-`flip` is a mirror" in the record, with its follow-ups.
 
 ## 1. The walk is the wrong axis
 
@@ -33,11 +30,10 @@ then the glyph must be drawn using a bitmap from some strike"
 (`[[source: ms-opentype-sbix]]`; the same rule in `[[source: apple-ttrm-sbix]]`).
 So baud cannot read one strike per size, as FreeType does.
 
-**The principle it breaks.** baud's architecture principle, which rides in
-every Jev request: "Everything on the hot path is O(1): no scans, no linear
-search ... Judge a change by whether it moves work from runtime into a table."
-Asked whether the walk in the block fill satisfies it, Jev answered no, 0.91
-at confidence 0.82. Every option of rounds one and two -- 255, 64, `CBLC` 255
+**The principle it breaks.** baud's architecture principle: "Everything on
+the hot path is O(1): no scans, no linear search ... Judge a change by
+whether it moves work from runtime into a table." The walk in the block fill
+does not satisfy it. Every option of rounds one and two -- 255, 64, `CBLC` 255
 with `sbix` 65,535, no bound -- was a bound on that walk.
 
 **The index** (MEASURED, release build, outside the tree:
@@ -236,13 +232,12 @@ hb-ft, Qt, WebKit-Skia on Linux, Firefox local fonts on Linux and Android. mpdf
 wrote its own toggle (merged 2026-09-22, untested on Apple's font): "A flip of
 a flip is the right way round". allsorts draws no glyph for a second flip. An
 unmerged fontations pull request (1631) uses a flag with a 4-record bound, every
-hop in one strike. HarfBuzz's own `sbix` code, skrifa, ttf-parser, swash,
-cosmic-text and resvg do not support `flip`.
+hop in one strike. HarfBuzz's own `sbix` code, skrifa, ttf-parser, swash and resvg do not support `flip`.
 
 ## 5. Round four: where the flip questions and the symbol face stand
 
-The owner gave provisional answers (toggle; across strikes) and asked for more
-research where Jev scored low.
+Provisional answers (toggle; across strikes) were given, and more research
+was done where the questions stayed unsettled.
 
 **Where hops are read.** A model of CoreText's walk reproduces all 697
 recorded CoreText cells across 20 test fonts; reading the whole chain in
@@ -289,7 +284,7 @@ text, patent or Unicode document gives a chain a meaning.
   nothing visible and GTK4's GPU renderer draws a flip glyph as a silhouette in
   the text colour (READ, the last step inferred).
 
-**The symbol face** (the owner's screenshot: Claude Code's mode arrows as
+**The symbol face** (a screenshot of a terminal program's mode arrows drawn as
 boxes, its bullet as a colour emoji). U+23F5 is in no face of baud's stack and
 U+23FA only in Apple Color Emoji. Of every installed font only STIX Two Math
 2.13 (OFL 1.1, byte-identical to upstream v2.13b171) has both as text, and
@@ -298,10 +293,9 @@ first Linux fallback, has neither. The unmodified file is 838,652 bytes; baud
 embeds 3,718,412 bytes of fonts today. A subset would have to be renamed,
 because STIX's licence reserves the name "TM Math".
 
-**Jev, round four:** in the chosen strike 0.93 at 0.87; mirror once 0.67 at
-0.51 (toggle 0.32); the two axes together, once in the chosen strike 0.45
-against FreeType's toggle 0.35; the symbol face embedded 0.74 at 0.61 (hybrid
-0.25, system font only 0.01).
+**Round four:** hops read in the chosen strike; mirror once over a toggle;
+the two axes together, once in the chosen strike, against FreeType's toggle;
+the symbol face embedded, over a hybrid or the system font only.
 
 ## How the numbers were taken
 
@@ -321,28 +315,20 @@ before their re-pin); quotes from them here are from the 2026-10-02 fetch.
 
 ## Where the decisions stand
 
-All are the owner's. Jev's numbers by round, as "choice probability at
-confidence":
+| question | where it stands |
+|---|---|
+| strike bound on the walk | re-posed: the walk is the wrong axis (section 1) |
+| index or walk | an index |
+| bound on the index's build | counted in work, `CBLC`'s records included (WORK) |
+| `CBLC` subtables | sorted records required |
+| flip, how many mirrors | once, the lead after round four, over a toggle; the two read the composition differently |
+| flip, where hops are read | across strikes, as CoreText reads them |
+| the symbol face | embedded |
 
-| question | round 1 | round 2 | round 3 |
-|---|---|---|---|
-| strike bound on the walk | 255, 0.38 at 0.08; SPLIT 0.63 at 0.53 | SPLIT 0.58 at 0.44 | re-posed below |
-| index or walk | -- | -- | index 0.98 at 0.97 |
-| bound on the index's build | -- | -- | PAIRS and none tied at 0.43 (0.30); with where fonts come from and what no bound does at launch, PAIRS 0.78 at 0.72; counting `CBLC`'s records too (WORK), 0.95 at 0.94 |
-| `CBLC` subtables | -- | binary search 0.58, with a cap 0.41 (0.44) | sorted records required 0.95 at 0.92 |
-| flip, the old options | mirror once 0.91 at 0.81, then 0.88 at 0.76 | CoreText exactly 0.38 at 0.16 | split in two below |
-| flip, how many mirrors | -- | -- | once 0.82 at 0.74; with both readings stated, toggle 0.52 and once 0.48 (0.27) |
-| flip, where hops are read | -- | -- | across strikes as CoreText 0.60 at 0.20 |
-
-What moved them, as far as the requests show (Jev returns no reasons):
-
-- An option's arithmetic was wrong. PAIRS counted strikes x glyphs and missed
-  `CBLC`'s subtable records, so it did not bound a `CBLC` build; corrected, the
-  same question went from 0.78 to 0.95.
-- Options that differed on two axes at once split the vote. Round two's
-  subtable options S and SK both binary-search, and its flip options F and C
-  both mirror once; asked one axis at a time, the subtable question settled.
-- Context changed answers in both directions. The bound's first round-three
-  request left out where fonts come from and what no bound does at launch, and
-  adding them moved PAIRS from 0.43 to 0.78; the mirror request first left out
-  the composition reading, and adding it moved "once" from 0.82 to 0.48.
+Two things moved these as the questions were refined. An option's arithmetic
+was wrong: PAIRS counted strikes x glyphs and missed `CBLC`'s subtable
+records, so it did not bound a `CBLC` build, and counting them settled the
+bound. And options that differed on two axes at once could not be told
+apart: round two's subtable options S and SK both binary-search, and its flip
+options F and C both mirror once; posed one axis at a time, the subtable
+question settled.

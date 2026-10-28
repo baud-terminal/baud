@@ -69,8 +69,8 @@ cursor. It is the cursor's colour, with intensity as opacity.
 The braid lies along the move the quad is making, which the driver hands on,
 so it follows a retarget and does not turn when the corners land. It is as
 wide as the cursor across the move, so a bar or underline cursor narrows it
-to one line. The owner chose it as the default on 2026-09-29, over the
-fire, which was the default before it; it has shipped as the default since
+to one line. It became the default on 2026-09-29, over the fire, which
+was the default before it; it has shipped as the default since
 2026-10-10.
 
 ## lightning

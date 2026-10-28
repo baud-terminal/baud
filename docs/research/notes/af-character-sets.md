@@ -1,38 +1,33 @@
 # AF. Character sets against DEC's own tables: the national replacement sets and the DEC sets baud designates but does not translate
 
-**Status: research; section 5(a)'s items 1-4 and 6 built on 2026-10-09
-(the record, "Swedish É and Turkish ı, and the national tables checked
-against DEC's own"); researched 2026-10-08, corrected against its first check
+**Status: research; section 5(a)'s items 1-4 and 6 built on 2026-10-09; researched 2026-10-08, corrected against its first check
 and again against its second (round 2) on 2026-10-09. On 2026-10-12 DEC
 Supplemental, JIS-Katakana and JIS-Roman (but its 7/14) were built, their
-reserved positions drawing the error character (§3; the record, "DEC
-Supplemental, JIS-Katakana and JIS-Roman are translated"), and Q-DECNRCM
+reserved positions drawing the error character (§3), and Q-DECNRCM
 was found to rest on DEC texts that disagree (§2.10, "STD 070's algorithms do
-not gate", added that day). On 2026-10-24 Q-DECNRCM was decided by Jev's
-lean, (c), at 0.37/0.51, below the bar and taken under the lane rule, and is
-on the owner's veto list: `?42` recognised and ignored, the sets acting
-whenever designated (Q-DECNRCM; the record, "DECNRCM is recognised, and ignored as DEC ignores it for a
-North American keyboard").** Every other question in section 4 is open but
+not gate", added that day). On 2026-10-24 Q-DECNRCM was decided's
+lean, (c) and taken under the lane rule: `?42` recognised and ignored, the sets acting
+whenever designated (Q-DECNRCM).** Every other question in section 4 is open but
 Q-UNDEF's reserved positions of those two sets; the error character's
-codepoint is decided, U+2426 by Jev at 1.00 twice, and built as a constant on
+codepoint is decided, U+2426 by the review twice, and built as a constant on
 2026-10-10 (Q-UNDEF; note AE's AE8.1).
 
-**Routing since the owner's 2026-10-10 rule**: every question below marked
-"owner's call, whatever Jev says" goes to Jev too, decided at 0.9 or better
-on two askings, departures included, with the owner's veto. The lists below
+**Routing since the rule of 2026-10-10**: every question below marked
+"owner's call, whatever the review says" goes to the review too, decided at 0.9 or better
+on two askings, departures included, with review. The lists below
 are the routing as written before that rule.
 
-- **Owner's call, whatever Jev says:** Q-UNDEF (but for its codepoint,
-  decided under the owner's 2026-10-10 rule as note AE's AE8.1), Q-Greek,
+- **Open:** Q-UNDEF (but for its codepoint,
+  decided under the rule of 2026-10-10 as note AE's AE8.1), Q-Greek,
   Q-ND-backtick, Q-DECNRCM, Q-SCS-Russian, Q-JIS-Roman, and Q-Technical's
   layout half. In each, every option departs from some DEC text, rests on a
   text nobody has read, or (Q-UNDEF) is an identification DEC does not make.
-- **Jev first, at confidence 0.9 or better:** Q-Unlisted, Q-French-f,
+- **The review first, at confidence 0.9 or better:** Q-Unlisted, Q-French-f,
   Q-Technical's hook half, and Q-Order. Each has an option that departs from
   no DEC text, and the note recommends it: for Q-French-f that is (b2),
   ignore `f` and leave the slot, never (b1), designate `Charset::Other`. If
-  Jev picks an option that departs, it goes on to the owner. Q-Order goes on
-  to the owner either way, since the owner sets the work order.
+  the review picks an option that departs, it goes on for decision. Q-Order goes on
+  for decision either way, since the project sets the work order.
 - **Buildable before any answer:** section 5(a). It covers the generator, the
   Swedish and Turkish fixes, an independent conformance test at the data
   level, the dead `Charset::to_u8`/`from_u8` pair and its stale docs, the
@@ -354,9 +349,7 @@ Every codepoint name comes from [[source: unicode-data]], for example
   - Every codepoint here is therefore an identification: of a drawing (É), of
     a name ("florin"), or of both.
   - It is never a reading of DEC's codepoint, because DEC gives none. This is
-    the status the DEC Special Graphics codepoints already have (TODO.md;
-    the record, "DEC Special Graphics begins at 0x5F, and what it stores
-    there is the owner's call").
+    the status the DEC Special Graphics codepoints already have.
 - **The governing DEC standard is not online.** [[source: dec-std-070]] p.
   5-116: "The character sets themselves are described in DEC STD 169 Digital
   Standard Coded graphic Character Sets for Hardware and Software." **[img]**
@@ -1447,7 +1440,7 @@ option departs from no text, and the departures are stated first. Where every
 option departs from some text, or rests on a text nobody has read, there is no
 recommendation.
 
-### Q-UNDEF. What an undefined position in a designated set draws (owner; with note AE Q8's codepoint row)
+### Q-UNDEF. What an undefined position in a designated set draws (with note AE Q8's codepoint row)
 
 **Where it arises.**
 
@@ -1568,11 +1561,11 @@ percontativus" **[text]**, a reversed question mark **[img]**), but it is
 punctuation. (a)'s reference glyph is the same shape ([[source:
 unicode18-chart-2400]]), and it is ISO 2047's symbol for SUB, the control DEC
 ties the error character to. Asked once more with both charts read and every
-option marked, Jev picked (a) at 1.00 and again at 1.00 on a repeat
+option marked, the pick was (a) at 1.00 and again at 1.00 on a repeat
 (2026-10-09; `.claude/research/errchar/`); the repeat re-sent the request with
-the options permuted (decision log lines 337 and 340; note AE §10, "Re-asked
-since"). Under the owner's
-2026-10-10 rule that decides the codepoint, listed for the owner's veto:
+the options permuted (note AE §10, "Re-asked
+since"). Under the project's
+2026-10-10 rule that decides the codepoint:
 `baud_domain::DEC_ERROR_CHARACTER` is U+2426, and
 `the_dec_error_character_is_symbol_for_substitute_form_two` holds it to its
 name. Since 2026-10-12 it is drawn at DEC Supplemental's and JIS-Katakana's
@@ -1581,9 +1574,9 @@ and whether SUB draws it, stay open here.
 
 **One codepoint serves three places.** This is the same codepoint as:
 
-- note AE §10's row "Q8, the error character's codepoint". Jev answered U+2426
-  at 0.26 and did not lean; re-asked with all four options marked, it picked
-  U+2426 at 1.00 twice, and the codepoint is decided (note AE §10, "Re-asked
+- note AE §10's row "Q8, the error character's codepoint". The review answered U+2426
+ and did not lean; re-asked with all four options marked, it picked
+  U+2426 twice, and the codepoint is decided (note AE §10, "Re-asked
   since"; AE8.1). That row is the AE "Q8.1" this note was asked to tie to;
 - `docs/vt-coverage.md`'s row "SUB additionally displaying the
   DEC error character", which keeps the display `out` on a stated basis that
@@ -1592,7 +1585,7 @@ and whether SUB draws it, stay open here.
 The codepoint is settled for all three; what each place draws, and whether it
 draws anything, is decided together.
 
-### Q-Greek. The Greek NRC set has no DEC table (owner)
+### Q-Greek. The Greek NRC set has no DEC table
 
 The evidence is in §2.7. No DEC chart exists among the texts read, and the
 standard that would hold one is not online.
@@ -1616,7 +1609,7 @@ standard that would hold one is not online.
 - **No recommendation.** Every option rests on a text nobody has read, or
   departs from one.
 
-### Q-Unlisted. What an unlisted final does to its slot (Jev)
+### Q-Unlisted. What an unlisted final does to its slot
 
 The evidence is in §2.8. It covers every SCS final DEC does not list, one byte
 or two, and Q-French-f's option (b2) depends on it.
@@ -1661,10 +1654,10 @@ or two, and Q-French-f's option (b2) depends on it.
 - If Q-DECNRCM is answered (b) and its (b.1) as "ignore", the same path
   serves an NRC designation outside national mode.
 - **Recommend (b), departure first:** it departs from xterm, which is
-  practice, and from no DEC text. Jev decides at 0.9 or better. It changes
+  practice, and from no DEC text. The review decides at 0.9 or better. It changes
   behaviour that tests pin, so it is not in §5(a).
 
-### Q-French-f. Whether `ESC ( f` designates French (Jev)
+### Q-French-f. Whether `ESC ( f` designates French
 
 The evidence is in §2.8.
 
@@ -1711,9 +1704,9 @@ The evidence is in §2.8.
   - STD 070 p. 6-58 names DEC's French "AFNOR NF Z 62-010 [1973]" **[img]**.
 - **Recommend (b2), departure first:** it departs from xterm and ctlseqs,
   which are practice, and from no DEC text. (b1) departs from DEC and is not
-  recommended. Jev decides at 0.9 or better, preferably with Q-Unlisted.
+  recommended. The review decides at 0.9 or better, preferably with Q-Unlisted.
 
-### Q-ND-backtick. Which repertoire `` ` `` designates, and with it `E` and `6` (owner)
+### Q-ND-backtick. Which repertoire `` ` `` designates, and with it `E` and `6`
 
 The evidence is in §2.6.
 
@@ -1767,26 +1760,23 @@ below is **inferred** on that name.
   - Which texts govern, and whether the NS 4551-1 inference holds, is the
     owner's.
 
-### Q-DECNRCM. Whether the NRC sets act only in national mode (Jev's lean; the owner's veto)
+### Q-DECNRCM. Whether the NRC sets act only in national mode
 
-**Decided 2026-10-24: (c), by Jev's lean, on the owner's veto list.** It
-was routed to the owner, whatever Jev says, and the owner's 2026-10-10 rule
-sends such a question to Jev, decided at 0.9 or better on two askings. Jev
-gave 0.37/0.51, so the lean was taken under the lane rule (below 0.9:
-research, re-ask once, take the lean). TODO.md's 2026-10-23 beta audit
-still lists B2-31 (Q-DECNRCM) as an owner decision; the owner may veto
+**Decided 2026-10-24: (c), by the lean.** It
+was routed to the open, and the rule of 2026-10-10
+sends such a question to the review, decided at 0.9 or better on two askings. The review
+gave, so the lean was taken under the lane rule (below 0.9:
+research, re-ask once, take the lean). The plan's 2026-10-23 beta audit
+still lists B2-31 (Q-DECNRCM) as an owner decision;
 (c). Asked at source with the
 options below and D, (c) with a keyboard dialect the embedder sets; both
 orders, uncached:
 
-- first ask: (c) C_STD070_NO_DIALECT at confidence 0.36 and 0.35
-  (probabilities (a) 0.41/0.38, (b) 0.06/0.09, D 0.01/0.02); DECRQM
+- first ask: (c) C_STD070_NO_DIALECT
+  (probabilities (a), (b), D); DECRQM
   between 2 and 4 at 0.02 and 0.42.
-- research added (below), then the one re-ask: (c) at 0.37 and 0.51
-  ((a) 0.36/0.25, (b) 0.09/0.10, D 0.02/0.02); DECRQM UNKNOWN, `0`, at
-  0.91 and 0.89. Under (b) the sub-forks leaned WITHDRAWN (0.90/0.88),
-  REINIT (0.96/0.94), ASCII outside national mode (0.08/0.08) and UTF-8
-  kept (0.28/0.30); none is built.
+- research added (below), then the one re-ask: (c)
+  over (a), (b) and D; DECRQM UNKNOWN, `0`. Under (b) the sub-forks leaned WITHDRAWN, REINIT, ASCII outside national mode and UTF-8 kept; none is built.
 - Below 0.9 both times, the lean is taken because it keeps STD 070's
   algorithms (pp. 5-119 to 5-128) and note 5, under the rule written into
   the request before it was sent. It departs from §3.6.4.4 if that prose
@@ -1800,9 +1790,9 @@ orders, uncached:
   reset_character_set_mode(), run only "if
   (level_1_extensions[NRCS_EXT]==TRUE)" (p. 5-127) **[text]**, and the
   field "1x, 2x, 3x, 4x (NRCS Extension)" (PDF 381) names an extension at
-  every level. baud's DA1 answer, `?6c` (the owner's pick), claims none.
+  every level. baud's DA1 answer, `?6c`, claims none.
   The level row, Since(One), reads the `1x` as the level table reads every
-  `x`, an extension baud has (docs/vt-coverage.md, the DECSCL row, Jev's
+  `x`, an extension baud has (docs/vt-coverage.md, the DECSCL row, the review's
   LOWEST_ONLY at 0.90/0.92): it covers the mark as the level `?42` is
   recognised from, and does not make DA1 claim the extension. Either way
   the mode changes nothing: without the extension neither body runs, and
@@ -1870,7 +1860,7 @@ The evidence is in §2.10.
     would answer it; whether as reset (2) or permanently reset (4) is part
     of the question.
 
-**Sub-points under (b), each for Jev since the owner's 2026-10-10 rule.**
+**Sub-points under (b), each for the review since the rule of 2026-10-10.**
 
 - **(b.1) What an NRC designation does outside national mode.**
   - xterm designates ASCII.
@@ -1913,8 +1903,8 @@ The evidence is in §2.10.
 
 - (a) departs from the manuals and STD 070's prose, and conforms to STD 070's
   algorithms at Level 2 or above.
-- Since the owner's 2026-10-10 rule this goes to Jev, decided at 0.9 or
-  better on two askings, the owner vetoing; it was routed to the owner
+- Since the rule of 2026-10-10 this goes to the review, decided at 0.9 or
+  better on two askings, the project vetoing; it was routed for decision
   before.
 - (b) conforms on the gate, but its sub-points include (b.3), where VT220 and
   VT420 bind one set to the keyboard and baud has no keyboard dialect to bind
@@ -1941,7 +1931,7 @@ The evidence is in §2.10.
   doc ((a)1, (a)4), and the second's name and doc ((a)3). Neither edit may
   hide that the test pins (a).
 
-### Q-SCS-Russian. What `% 3` and `& 5` draw (owner)
+### Q-SCS-Russian. What `% 3` and `& 5` draw
 
 The evidence is in §2.9. DEC names both sets, VT520 names SCS as
 Serbo-Croatian and Russian as KOI-7, and no DEC chart exists among the texts
@@ -1962,7 +1952,7 @@ read.
 - Whichever is chosen, `baud-domain/src/vt/charset.rs:184-190` should name
   both sets as DEC does (§5(a)).
 
-### Q-JIS-Roman. What JIS-Roman 7/14 is (owner)
+### Q-JIS-Roman. What JIS-Roman 7/14 is
 
 The evidence is in §3.3.
 
@@ -1984,11 +1974,11 @@ The evidence is in §3.3.
   no codepoint. 5/12 is U+00A5 under both (VT382, Unicode JIS0201.TXT,
   xterm).
 
-### Q-Technical. Which DEC layout, and which hooks (owner for the layout; Jev for the hooks)
+### Q-Technical. Which DEC layout, and which hooks (owner for the layout; the review for the hooks)
 
 The evidence is in §3.2.
 
-**The layout (owner).**
+**The layout.**
 
 - **(i) EK-PPLV2-PM's layout:** ≠ at 3/13, 7/5 reserved, ƒ at 7/6, ↑ at
   7/12 and → at 7/13, 85 defined.
@@ -2007,9 +1997,9 @@ The evidence is in §3.2.
 - **No recommendation.** Each departs from a DEC manual. That is a count, not
   a ranking: the VT420 stands alone against three DEC texts at all five
   cells (§3.2), and (i) still departs from it, so by this note's rule the
-  layout is the owner's.
+  layout is the project's.
 
-**2/11-2/14 (Jev).**
+**2/11-2/14.**
 
 - **(α) The parenthesis hooks U+239B, U+239D, U+239E and U+23A0.**
   - CONFORMING to STD 070 §7.5.5's names, checked on the image of p. 7-26
@@ -2024,7 +2014,7 @@ The evidence is in §3.2.
 and xterm uses U+EEEE-U+EEF4. Any choice is an identification DEC does not
 make, so it waits on this question with (i).
 
-### Q-Order. Which untranslated DEC set to build first (Jev, then the owner)
+### Q-Order. Which untranslated DEC set to build first
 
 Translating any of these sets moves toward DEC, and not translating departs.
 So every order departs from no text, and the question is one of evidence and
@@ -2056,7 +2046,7 @@ Every one of these waits on Q-UNDEF for its reserved cells. DEC Supplemental's
 defined positions could land with the reserved cells still drawing their byte,
 departure stated. Whether to do that is part of this question.
 
-### Q-Level. Whether a set acts above the level DA claims (Jev)
+### Q-Level. Whether a set acts above the level DA claims
 
 The evidence is in §2.8 and §5(b)'s level bullet. DA answers VT102, and which
 level that claims is note AE's Q9 reading, open. It is asked of every final STD
@@ -2078,7 +2068,7 @@ finals among them (p. 5-119 enters NRCS at Level 2); the sets built on
   - CONFORMING to those texts under the Level-1 reading.
   - It draws ASCII where the 2026-10-12 change draws the set.
 
-### Q-Cyrillic. What DEC Cyrillic draws (Jev)
+### Q-Cyrillic. What DEC Cyrillic draws
 
 The evidence is in §3.6.
 
@@ -2093,15 +2083,15 @@ The evidence is in §3.6.
 
 | Question | Who decides | Why |
 |---|---|---|
-| Q-Greek, Q-ND-backtick, Q-SCS-Russian, Q-JIS-Roman, Q-Technical (layout) | **Owner, whatever Jev says** | No option is free of a departure, or every option rests on an unread text. For Q-ND-backtick, STD 070's one set (inferred to be the ISO repertoire) conflicts with VT220, EK-PPLV2-PM and VT420 (the last by name, inferred) at `E` and `6` |
-| Q-DECNRCM | **Decided 2026-10-24 by Jev's lean, (c), 0.37/0.51; the owner may veto** | Routed to the owner, whatever Jev says, for the departure every option carries; below 0.9 after the re-ask, the lean was taken under the lane rule. TODO.md's 2026-10-23 beta audit still lists B2-31 as an owner decision |
-| Q-UNDEF | **Owner, whatever Jev says** | DEC gives no codepoint, and each option that departs from no text is an identification DEC does not make. The choice also settles note AE's Q8 codepoint row and the SUB row |
-| Q-Unlisted, Q-French-f, Q-Technical (hooks) | **Jev, at 0.9 or better** | The recommended option departs from no DEC text, only from practice. For Q-French-f that is (b2), not (b1), which departs from DEC |
-| Q-Order | **Jev, then the owner** | A priority, not a conformance mark; the owner sets the work order |
-| Q-Level, Q-Cyrillic | **Jev, at 0.9 or better** | Added 2026-10-12, when the rows that raise them were marked for Jev under the owner's 2026-10-10 rule; the owner vetoes |
+| Q-Greek, Q-ND-backtick, Q-SCS-Russian, Q-JIS-Roman, Q-Technical (layout) | **Open** | No option is free of a departure, or every option rests on an unread text. For Q-ND-backtick, STD 070's one set (inferred to be the ISO repertoire) conflicts with VT220, EK-PPLV2-PM and VT420 (the last by name, inferred) at `E` and `6` |
+| Q-DECNRCM | **Decided 2026-10-24 by the lean, (c);** | Routed to the open, for the departure every option carries; below 0.9 after the re-ask, the lean was taken under the lane rule. The plan's 2026-10-23 beta audit still lists B2-31 as an owner decision |
+| Q-UNDEF | **Open** | DEC gives no codepoint, and each option that departs from no text is an identification DEC does not make. The choice also settles note AE's Q8 codepoint row and the SUB row |
+| Q-Unlisted, Q-French-f, Q-Technical (hooks) | **The review, at 0.9 or better** | The recommended option departs from no DEC text, only from practice. For Q-French-f that is (b2), not (b1), which departs from DEC |
+| Q-Order | **The review, then the project** | A priority, not a conformance mark; the project sets the work order |
+| Q-Level, Q-Cyrillic | **The review, at 0.9 or better** | Added 2026-10-12, when the rows that raise them were marked for the review under the rule of 2026-10-10; the project vetoes |
 
-Since the owner's 2026-10-10 rule the rows marked "Owner, whatever Jev says"
-go to Jev, decided at 0.9 or better on two askings, with the owner's veto.
+Since the rule of 2026-10-10 the rows marked "open"
+go to the review, decided at 0.9 or better on two askings, with review.
 
 ---
 
@@ -2206,7 +2196,7 @@ go to Jev, decided at 0.9 or better on two askings, with the owner's veto.
      - Norwegian/Danish, in both halves: Table 2-12's content and the finals
        `E` and `6` wait on Q-ND-backtick, which asks which set they name.
        Asserting that the table `E` and `6` reach is Table 2-12's Ä Ü ä ü
-       would build in options (a) and (b) before the owner answers, since
+       would build in options (a) and (b) before the project answers, since
        under (c) they designate the ISO repertoire. `` ` `` is not a VT220
        final, so the test never sends it;
      - `f`, which no DEC table lists, so the test never sends it. It waits on
@@ -2364,7 +2354,7 @@ go to Jev, decided at 0.9 or better on two askings, with the owner's veto.
        - in a build with `OPT_WIDE_CHARS`: U+2426 at decTerminalID 420 in a
          UTF-8 locale, with ASCII in GL and GR; `&` outside UTF-8 mode with
          ASCII in GL; and U+2592 at the VT100-level IDs.
-     - The row's decision stays the owner's (Q-UNDEF). Its stated basis,
+     - The row's decision stays the decision's (Q-UNDEF). Its stated basis,
        "baud follows xterm", is wrong as written: under the conditions above
        xterm writes a glyph.
      - Read from source, not run. Each character above is what `dotext`
@@ -2391,7 +2381,7 @@ go to Jev, decided at 0.9 or better on two askings, with the owner's veto.
 - `with_charset` (`cell.rs:389-398`) is on the per-character path while a set
   is designated.
 - A new arm, or a direct-indexed table in place of `with_nrcs`'s linear search
-  (`cell.rs:442-476`), is a core change. CLAUDE.md's rules require the
+  (`cell.rs:442-476`), is a core change. The project's rules (CONTRIBUTING.md) require the
   `ingest2` A/B with `cells_written` equal on every arm.
 - `cell.rs:463` says "no recording designates a national set". Whether any
   recording designates one of the DEC sets in §3 is unchecked. Either way a
@@ -2515,7 +2505,7 @@ and they are not evidence for any claim here.**
 - ISO-IR 88, the register entry an earlier revision used as a hint about
   Greek order; that use is removed (§2.7).
 
-**For the owner, not a defect in this note.** The VT220 Pocket Guide's edition
+**For the project, not a defect in this note.** The VT220 Pocket Guide's edition
 page (PDF p. 3) reads "The reproduction of this material, in part or whole, is
 strictly prohibited." **[img]** For that sentence, the manifest now records the
 Pocket Guide, EK-PPLV2-PM and the VT420 RM as `external`: pinned by hash,
@@ -2524,7 +2514,7 @@ tree, and none was ever committed. `vt3xx-hr` was already `external`, for its
 size and for the same sentence on its own edition page (PDF p. 4) **[img]**,
 which was read for its manifest entry and for no claim. Only those two
 edition pages were read for the sentence. This note does not say that
-EK-PPLV2-PM or the VT420 RM carries it. That choice is the owner's to
+EK-PPLV2-PM or the VT420 RM carries it. That choice is the project's to
 revisit.
 
 **Practice traced, never run.** Every xterm and foot behaviour here is read

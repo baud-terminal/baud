@@ -50,7 +50,7 @@ asserted equal to the derived count rather than merely not less than it.
 **This section was written on a premise that has since been withdrawn.** It
 read: "the ingest loop is latency-bound at IPC ≈ 1 on an eight-wide core, and
 the only changes which have ever helped are the ones that *shorten the critical
-path*." The counter work in `CLAUDE.md` retracted that -- purpose-built
+path*." The counter work (CONTRIBUTING.md, "Profiling: which tool answers which question") retracted that -- purpose-built
 controls put `cat-cjk` at **8.8% back-end bound**, not waiting, and the IPC ≈ 1
 figure was claimed and retracted twice because it agreed with the prior. So the
 loop is **not** latency-bound, and the shift-DFA result below is the direct

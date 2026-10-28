@@ -11699,7 +11699,7 @@ status = "retrieved"
 group  = "J"
 # Read for note Z's step 2, where the OpenType gvar chapter is silent: HarfBuzz
 # keeps deltas as floats on its drawing path, and shifts a glyph by its left
-# phantom point ('Undocumented rasterizer behavior'). Jev 0.78 to follow it.
+# phantom point ('Undocumented rasterizer behavior').
 
 [sources.harfbuzz-12-3-0-glyph]
 key    = "harfbuzz-12-3-0-glyph"
@@ -11715,7 +11715,7 @@ status = "retrieved"
 group  = "J"
 # Read for note Z's step 2, where the OpenType gvar chapter is silent: HarfBuzz
 # keeps deltas as floats on its drawing path, and shifts a glyph by its left
-# phantom point ('Undocumented rasterizer behavior'). Jev 0.78 to follow it.
+# phantom point ('Undocumented rasterizer behavior').
 
 [sources.harfbuzz-12-3-0-var-common]
 key    = "harfbuzz-12-3-0-var-common"
@@ -11947,7 +11947,7 @@ sha256 = "fa6ecfc02fd34bec3b8b9ad28c039f13d3465679b2ff81f4a8f0ce49fb81994e"
 bytes  = 31999
 status = "retrieved"
 group  = "J"
-# Read for note Z's step 4: where GDEF's store is and what a malformed one does in HarfBuzz; baud keeps its per-subtable rule instead (Jev B, 0.84).
+# Read for note Z's step 4: where GDEF's store is and what a malformed one does in HarfBuzz; baud keeps its per-subtable rule instead.
 
 [sources.fonttools-4-63-0-instancer]
 key    = "fonttools-4-63-0-instancer"
@@ -15161,81 +15161,6 @@ sha256 = "e6cb6b4f4bfbef63efa1187c49af3577e68d5eabf730102346a77b3cebf7d8a0"
 bytes  = 19482
 status = "retrieved"
 group  = "J"
-# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
-# the url says how it was made. Committed because the scratch directory it came from
-# does not survive a reboot, and a claim in the note rests on it.
-
-[sources.ad-obs-jev-design]
-key    = "ad-obs-jev-design"
-title  = "Jev request body: the first design request (A_DROP)"
-author = "baud research (note AD)"
-year   = 2026
-venue  = "local capture or measurement"
-url    = ".claude/research/hebrew-improve/missing-mark/jev-design.json (untracked), copied unchanged"
-file   = ""
-sha256 = "0cb454d9531f1e9e95b33170605acd73bd67e484aa07d1127044c26501fa81a0"
-bytes  = 5550
-status = "external"
-group  = "J"
-# Not in the repository: a log of the project's design review, not a source.
-# It was read as ad-observed/jev-design.json, and the digest is of that copy.
-# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
-# the url says how it was made. Committed because the scratch directory it came from
-# does not survive a reboot, and a claim in the note rests on it.
-
-[sources.ad-obs-jev-design-r2]
-key    = "ad-obs-jev-design-r2"
-title  = "Jev request body: the second design request, which decided A_DROP at 0.99"
-author = "baud research (note AD)"
-year   = 2026
-venue  = "local capture or measurement"
-url    = ".claude/research/hebrew-improve/missing-mark/jev-design-r2.json (untracked), copied unchanged"
-file   = ""
-sha256 = "f30721256cc4a8b40f8966ea05b5d5d355fe7014b7dea903b34529521c4742fc"
-bytes  = 6837
-status = "external"
-group  = "J"
-# Not in the repository: a log of the project's design review, not a source.
-# It was read as ad-observed/jev-design-r2.json, and the digest is of that
-# copy.
-# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
-# the url says how it was made. Committed because the scratch directory it came from
-# does not survive a reboot, and a claim in the note rests on it.
-
-[sources.ad-obs-jev-starters]
-key    = "ad-obs-jev-starters"
-title  = "Jev request body: the first starters request (0.55 against 0.45)"
-author = "baud research (note AD)"
-year   = 2026
-venue  = "local capture or measurement"
-url    = ".claude/research/hebrew-improve/missing-mark/jev-starters.json (untracked), copied unchanged"
-file   = ""
-sha256 = "885db70d34e496513e0c24cae1666e6a267dfd439d5b678fb9cd023bd8adf6e9"
-bytes  = 5619
-status = "external"
-group  = "J"
-# Not in the repository: a log of the project's design review, not a source.
-# It was read as ad-observed/jev-starters.json, and the digest is of that
-# copy.
-# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
-# the url says how it was made. Committed because the scratch directory it came from
-# does not survive a reboot, and a claim in the note rests on it.
-
-[sources.ad-obs-jev-starters-r2]
-key    = "ad-obs-jev-starters-r2"
-title  = "Jev request body: the second starters request (0.47, 0.29 and 0.24)"
-author = "baud research (note AD)"
-year   = 2026
-venue  = "local capture or measurement"
-url    = ".claude/research/hebrew-improve/missing-mark/jev-starters-r2.json (untracked), copied unchanged"
-file   = ""
-sha256 = "9be133a4890120fdf3db1bc37ad2c29c603df29342f82fa550ac7bcfaca62fa9"
-bytes  = 7296
-status = "external"
-group  = "J"
-# Not in the repository: a log of the project's design review, not a source.
-# It was read as ad-observed/jev-starters-r2.json, and the digest is of that
-# copy.
 # Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
@@ -26344,8 +26269,8 @@ sha256 = "596e894021c2429ff7aa74016deba23867722c4b1affdbb097611c25160fe236"
 bytes  = 1189312
 status = "external"
 group  = "L"
-# Read 2026-10-11 (round 2026-10-11d, lane v1q2) by Xcode's objdump and dyld_info -objc, through
-# .claude/research/jev-program/round-2026-10-11d/v1q2/scripts/term_trace.sh: callers of flashScrollers,
+# Read 2026-10-11 by Xcode's objdump and dyld_info -objc, through a trace
+# script: callers of flashScrollers,
 # scrollToBottom, _didChangeContents, hardReset, contentAreaScrolled and updateScroller, and what
 # -[TTVT100Emulator hardReset] sends. Static only: no run of Terminal.app was observed.
 
@@ -33065,7 +32990,7 @@ status = "external"
 group  = "AX"
 # kitty's own file, removed from the repository on 2026-10-25 (the owner:
 # "remove the kitty reference files"); this URL serves these bytes.
-# The timeouts are kitty practice and no text; baud has none (Jev, 0.98 both orders).
+# The timeouts are kitty practice and no text; baud has none.
 
 [sources.kitten-notify-go]
 key    = "kitten-notify-go"

@@ -153,8 +153,7 @@ not — but that the inlining stops being guaranteed by construction and becomes
 something CI has to check. baud already has that check.
 
 The cost is that `baud-core`'s "zero dependencies" becomes "two first-party
-dependencies", which is a README claim and an owner's decision rather than a
-technical one.
+dependencies", which is a README claim and a project decision rather than a technical one.
 
 ## Per-microarchitecture kernels are already possible here
 
@@ -197,10 +196,7 @@ resulting 64-bit value, and shift the nibble index down to a byte index. It is
 the first thing to try behind `Scan`, and it needs no crate. **Built and
 measured since** (corrected 2026-10-10): `2960dd9` wrote it and measured +10%
 on asciiquarium and +3.5% on btop on the core of the day, later renamed
-`baud-core2`. On `baud-core` the two results are the last section's, from
-the record, "The NEON scan was wired in and it is a null, because the
-trait cannot reach the cost" (`390fdd0`) and "Then the stride-three scan was
-written, and it is +4% on both CJK rows" (`5fa797d`).
+`baud-core2`. On `baud-core` the two results are the last section's: the NEON scan wired in was a null, because the trait cannot reach the cost (`390fdd0`), and the stride-three scan is +4% on both CJK rows (`5fa797d`).
 
 ## The split was built, and it costs nothing
 
@@ -267,4 +263,4 @@ one of them answered against this note's own suggested instrument.**
   So the per-ISA question is not "does a hand-written form beat `core::simd`"
   but "which scan, and is its extraction on the critical path" -- and the
   x86-64 counterpart does not exist, because `pmovmskb` is already the cheap
-  form there. `CLAUDE.md` carries both results.
+  form there. Both results are the last section's.

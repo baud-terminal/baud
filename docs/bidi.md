@@ -49,9 +49,7 @@ the screen; step 3 joins Arabic letters.
   line. A run that fits stays inline, and so does one the wrap breaks
   before rather than inside: a single foreign word that does not fit drops
   to the next line inline, as any word does, and so does a run of several
-  that fits whole there (the owner, 2026-10-27, on the
-  B and own-direction panels of `docs/research/notes/bd/owner-runs/`:
-  "this is what i like"). A run is a stretch above the paragraph's level
+  that fits whole there (the B and own-direction panels of `docs/research/notes/bd/owner-runs/`, chosen 2026-10-27). A run is a stretch above the paragraph's level
   that holds a letter of the other direction, so a number in a Hebrew
   sentence stays on its line; its ends move to the opportunities around
   it. **Only finished text**: on the main screen, a paragraph wholly in the
@@ -86,8 +84,7 @@ the screen; step 3 joins Arabic letters.
   on a row the display pushed out of the window or above it as well, and
   a line a smooth scroll slides out, the cells a trail's flash bound reads
   and a placeholder's run are the display's. All three draw paths read the one display:
-  `a_re_broken_paragraph_draws_the_same_on_every_arm`. **A departure, the
-  owner's**: UAX #9 resolves a paragraph at one level and orders each line
+  `a_re_broken_paragraph_draws_the_same_on_every_arm`. **A departure, a choice the project made**: UAX #9 resolves a paragraph at one level and orders each line
   by it (section 3, L1-L2); a moved run's line is laid out at its own
   direction's level, and each piece of the paragraph between moved runs is
   resolved as a paragraph of its own at the paragraph's level, which draws
@@ -198,7 +195,7 @@ the screen; step 3 joins Arabic letters.
   roots, integrals and the like), which BidiMirroring.txt leaves "up to
   the rendering system to provide mirrored glyphs", draw their own glyph
   flipped left to right in their cell; a mark one carries is drawn as it
-  is, where the flip puts it (Jev BASE_FLIPPED, 0.91 / 0.94). The three
+  is, where the flip puts it. The three
   draw paths match pixel for pixel, a flipped glyph the left-to-right
   one mirrored (`mirrored_characters_draw_mirrored_on_every_arm`).
 - **A cell moves whole**: a letter with its points, a wide character with
@@ -253,10 +250,7 @@ the screen; step 3 joins Arabic letters.
   in their cells, so their line is drawn in the order a write of the same
   text gives it: `cd` composed after `ab` in a Hebrew line is drawn
   `abcd`, the `ab` moved left to make room, and the cursor on the cell
-  after it in logical order, which the paragraph draws left of `abcd`, as
-  the text will be once it is sent and echoed (Jev AS_WRITTEN, 0.98 in
-  both orders for the composition, 1.00 in both for the echo, asked
-  again once the composition was decided; the options rendered in
+  after it in logical order, which the paragraph draws left of `abcd`, as the text will be once it is sent and echoed (the options rendered in
   `docs/research/notes/ab/b205/`;
   `a_composition_on_a_right_to_left_row_draws_as_the_text_written`, on
   every arm, and
@@ -290,8 +284,7 @@ the screen; step 3 joins Arabic letters.
   joined inside a word is drawn in its `med2` form (`[[source:
   ms-syriac-script-development]]`, the OpenType Syriac model). An alaph
   alone after a space or ZWNJ is drawn as it is at the start of a line,
-  as HarfBuzz and CoreText draw it (Jev ISOLATED_AFTER_SPACE,
-  0.98/0.98). Every joined letter is shaped
+  as HarfBuzz and CoreText draw it. Every joined letter is shaped
   with as many letters of its word before and after it, in logical order,
   as its face's rules read, up to 16 a side, across a soft wrap and past
   erased cells as joining reaches, each rule meeting the letters it reads:
@@ -512,54 +505,48 @@ terminal-wg-bidi-basic-modes]]`, `[[source: terminal-wg-bidi-display-only]]`,
 `[[source: terminal-wg-bidi-erased-cells]]`, `[[source:
 terminal-wg-bidi-cursor]]`, `[[source: terminal-wg-bidi-escape-sequences]]`,
 `[[source: terminal-wg-bidi-ecosystem]]`); VTE, mintty, iTerm2, Konsole,
-mlterm and WezTerm at source (note AB section 3). Jev was asked twice in
-each order, the second time after more research, and L4 twice more; the
-requests and the renders it was shown are in
-`docs/research/notes/ab/step2/`.
+mlterm and WezTerm at source (note AB section 3); the renders each choice
+was weighed on are in `docs/research/notes/ab/step2/`.
 
-**Decided by Jev, at 0.9 or more in both orders:**
+**Built so:**
 
-| choice | decided | Jev |
-|---|---|---|
-| the bidi controls stored on a cell | given to the algorithm (UAX #9 4.2's lowest reordering class needs LRM, RLM and ALM) | 1.00 / 1.00 |
-| selection and copy | logical: kept and copied as written, highlighted where drawn | 0.98 / 0.98 |
-| Arabic in this step | reordered, drawn isolated until joining | 1.00 / 1.00 |
-| a paragraph past the capacity | the drawn rows with whole rows of context (UAX #9 HL5) | 0.98 / 0.98 |
-| the lam-alef ligature in a grid | centred over the two cells the pair holds | 0.96 / 0.97 (re-ask) |
-| a soft wrap inside a word | joined across it (CSS Text 3) | 0.96 / 0.90 (re-ask) |
-| an erased cell between letters | transparent, as the boundary neutral it is given | 0.96 / 0.96 |
-| a lam and an alef erased cells part | the ligature, centred over the cells from one to the other | 0.91 / 0.93 |
-| the host-writable status line | laid out as a line of its own under the terminal's BDSM and the direction set on it (ECMA-48 7.2.1's IMPLICIT; DEC STD 070 ch. 14 says nothing on direction) | 0.94 / 0.97 |
-| a picture on a row drawn right to left | its whole box mirrored by its anchor row's direction, unflipped (terminal-wg's images section; UAX #9 3.2); not stored, not row by row | 0.97 / 0.98 |
-| SAPV 9 and 10's decimal mark | the FULL STOP between two digits (UAX #9 W4 reads a separator between numbers) | 0.98 / 0.96 |
-| an alaph after a space or ZWNJ | isolated, as at a line's start: S2's character to its right is a letter of the word, as HarfBuzz and CoreText read it | 0.98 / 0.98 (re-ask; 0.94 / 0.88 first) |
+| choice | behaviour |
+|---|---|
+| the bidi controls stored on a cell | given to the algorithm (UAX #9 4.2's lowest reordering class needs LRM, RLM and ALM) |
+| selection and copy | logical: kept and copied as written, highlighted where drawn |
+| Arabic in this step | reordered, drawn isolated until joining |
+| a paragraph past the capacity | the drawn rows with whole rows of context (UAX #9 HL5) |
+| the lam-alef ligature in a grid | centred over the two cells the pair holds |
+| a soft wrap inside a word | joined across it (CSS Text 3) |
+| an erased cell between letters | transparent, as the boundary neutral it is given |
+| a lam and an alef erased cells part | the ligature, centred over the cells from one to the other |
+| the host-writable status line | laid out as a line of its own under the terminal's BDSM and the direction set on it (ECMA-48 7.2.1's IMPLICIT; DEC STD 070 ch. 14 says nothing on direction) |
+| a picture on a row drawn right to left | its whole box mirrored by its anchor row's direction, unflipped (terminal-wg's images section; UAX #9 3.2); not stored, not row by row |
+| SAPV 9 and 10's decimal mark | the FULL STOP between two digits (UAX #9 W4 reads a separator between numbers) |
+| an alaph after a space or ZWNJ | isolated, as at a line's start: S2's character to its right is a letter of the word, as HarfBuzz and CoreText read it |
 
-**Decided by Jev for the display's word wrap** (2026-10-27, at 0.9 or
-more in both orders):
+**The display's word wrap** (2026-10-27):
 
-| choice | decided | Jev |
-|---|---|---|
-| where a re-broken paragraph's extra lines go | the window's last row stays and the text above is pushed up into the history; at the top of what the history keeps the oldest re-broken paragraphs keep the cut until the rest fits; the cursor, a selection, find, copy and the mouse name stored cells | 1.00 / 1.00 |
-| which wrap decides "the run the wrap would split" | the display's own word wrap | 0.98 / 0.98 |
-| which rows are finished | the history; the live rows above the latest prompt while the shell waits at it; none while a command runs, none without `OSC 133` marks | 0.98 / 0.97 |
-| BDSM reset | nothing re-broken (ECMA-48 7.2.1's EXPLICIT) | 0.98 / 0.98 (re-ask with 7.2.1 read; 0.78 / 0.78 first) |
-| an erased cell between characters | a space to the breaker | 1.00 / 1.00 |
+| choice | behaviour |
+|---|---|
+| where a re-broken paragraph's extra lines go | the window's last row stays and the text above is pushed up into the history; at the top of what the history keeps the oldest re-broken paragraphs keep the cut until the rest fits; the cursor, a selection, find, copy and the mouse name stored cells |
+| which wrap decides "the run the wrap would split" | the display's own word wrap |
+| which rows are finished | the history; the live rows above the latest prompt while the shell waits at it; none while a command runs, none without `OSC 133` marks |
+| BDSM reset | nothing re-broken (ECMA-48 7.2.1's EXPLICIT) |
+| an erased cell between characters | a space to the breaker |
 
-**Decided by the owner** (2026-10-27), on the renders of note BD: a run the
-wrap would split gets lines of its own and other runs stay inline, each
-moved line in its own direction at its own edge ("this is what i like");
-no word is split ("when we do wrapping, we do not break words , the word
-drop for the next line"), read as every finished paragraph the display
-wraps, single-direction ones too; on by default ("and warp should be
-default on").
+**Chosen on 2026-10-27**, on the renders of note BD: a run the wrap would
+split gets lines of its own and other runs stay inline, each moved line in
+its own direction at its own edge; no word is split, in every finished
+paragraph the display wraps, single-direction ones too; on by default.
 
-**Decided by the owner** (2026-10-24):
+**Chosen on 2026-10-24:**
 
-| choice | decided | the owner's words |
-|---|---|---|
-| the state at power-on | BDSM set, so right-to-left lines are drawn right to left from the start; `RIS` returns it to set, `DECSTR` keeps it | "Should right-to-left lines be on from the start? C" |
-| the cursor on a full reordered line | drawn over its cell, in its shape | "On a full right-to-left line, is the cursor drawn or hidden? drawn and based on how the cursor is , line, block or udnerline" |
-| which way a paragraph runs when nothing says | its first strong letter's way (UAX #9 P2-P3), a right-to-left line against the right edge, for every example shown but the wrapped paragraph and the table | "all match C besides these 2 , the wrap line looks bad and the table should be like B but דנהshould b be rtl" |
+| choice | behaviour |
+|---|---|
+| the state at power-on | BDSM set, so right-to-left lines are drawn right to left from the start; `RIS` returns it to set, `DECSTR` keeps it |
+| the cursor on a full reordered line | drawn over its cell, in its shape |
+| which way a paragraph runs when nothing says | its first strong letter's way (UAX #9 P2-P3), a right-to-left line against the right edge, for every example shown but the wrapped paragraph and the table |
 
 ECMA-48 7.1 recommends the reset state as every mode's initial one, and
 its Annex D leaves "the initial state of a device upon power up including
@@ -571,113 +558,96 @@ default, `[[source: vte-vteseq-cc-56bad78]]` 8315's RIS calls `reset()`,
 which `[[source: vte-modes-hh-56bad78]]` makes every mode's default) and
 as baud's own SRM already does, where the clause "set the modes into the
 reset state" in its "may imply, if applicable" list would turn the mode
-off. Jev's lean, which the owner can veto: INITIAL_STATE 0.78 / 0.82, then
-0.64 / 0.86 with VTE's source; both asks said wrongly that every other
-ANSI mode baud has starts reset, and asked again with SRM, 0.68 / 0.84.
+off.
 
 **terminal-wg's three modes (2026-10-25)**, read against the draft's
 pages (`[[source: terminal-wg-bidi-escape-sequences]]`, `[[source:
 terminal-wg-bidi-basic-modes]]`, `[[source: terminal-wg-bidi-misc]]`,
 `[[source: terminal-wg-bidi-arrow-key-swapping]]`) and VTE's and mintty's
 code. The draft has no box-mirroring or autodetection page of its own.
-Jev decided two at 0.9 in both orders: a mode applies at once only at a
-paragraph's start (FIRST_POSITION, 0.90/0.94) and `?2500` mirrors the Box
-Drawing block alone (BOX_DRAWING, 0.94/1.00); and, after a re-ask,
-the cell's direction on a table row for the keys (CELL, 0.98/0.98).
-**Taken from Jev's lean, which held in every answer; the owner can veto
-each:**
+A mode applies at once only at a paragraph's start, `?2500` mirrors the Box
+Drawing block alone, and the keys take the cell's direction on a table
+row. **Built so:**
 
-| choice | taken | Jev, first ask then re-ask |
-|---|---|---|
-| `?2501` at power-on, and SCP under it | set, so a line nobody set a direction for takes its first letter's (the owner's C), and SCP is the fallback while it is set, as mintty does; so SCP 2 alone no longer turns an English line | 0.82 / 0.86, 0.82 / 0.89 |
-| `?1243` at power-on | set, "needs to be the default", though baud detects direction from the start, which the draft's compatibility argument did not assume | 0.00 / 0.02, 0.86 / 0.86 |
-| which box characters `?2500` mirrors | each drawn right to left (L4's resolved R, HL6 widening which characters), so a table row's rules are not | 0.60 / 0.74, 0.88 / 0.92 |
-| `DECSTR` | returns all three in force to power-on, as mintty and VTE do | 0.30 / 0.51, 0.77 / 0.77 |
+| choice | behaviour |
+|---|---|
+| `?2501` at power-on, and SCP under it | set, so a line nobody set a direction for takes its first strong letter's way (UAX #9 P2-P3, the 2026-10-24 table above), and SCP is the fallback while it is set, as mintty does; so SCP 2 alone no longer turns an English line |
+| `?1243` at power-on | set, "needs to be the default", though baud detects direction from the start, which the draft's compatibility argument did not assume |
+| which box characters `?2500` mirrors | each drawn right to left (L4's resolved R, HL6 widening which characters), so a table row's rules are not |
+| `DECSTR` | returns all three in force to power-on, as mintty and VTE do |
 
 **SAPV (2026-10-26)**, read against ECMA-48 8.3.108, TR/53's worked
 example 1 and section 7, UAX #9's L4 and section 7, the Unicode
-Standard's chapters 9 and 23 and ECMA-114; Jev was asked twice in each
-order (`docs/research/notes/ab/b215/`). One fork reached 0.9 in both
-orders, the decimal mark (above). **Taken from Jev's lean; the owner can
-veto each:**
+Standard's chapters 9 and 23 and ECMA-114
+(`docs/research/notes/ab/b215/`). The decimal mark is settled (above).
+**Built so:**
 
-| choice | taken | Jev, first ask then re-ask |
-|---|---|---|
-| what a value is attached to | each character, in its rendition, as `SGR` is | 0.84 / 0.96, 0.82 / 0.96 |
-| 12, vowels after their letter | refused and counted | 0.30 / OWN_COLUMN 0.38, 0.59 / 0.61 |
-| which characters are vowels | Arabic tanwin and harakat, U+064B-U+0650, and the Hebrew vowel points, U+05B0-U+05BB and U+05C7 | 0.37 / 0.38, 0.40 / 0.23 |
-| 17, italics leaning left | the upright glyph sheared left by the italic face's angle | 0.60 / 0.40, 0.82 / 0.80 |
-| a form a letter has not got | the nearest it has, as a joiner beside it asks (Unicode 23.2) | 0.56 / 0.34, 0.22 / 0.40 |
-| 20, "device dependent" digits | as stored | 0.86 / 0.66, 0.86 / 0.82 |
-| `DECSTR` | the default presentation | 0.44 / 0.50, 0.32 / 0.22 |
-| a letter 5 to 8 asks a form of, inside a word | shaped in that form with its word around it, as a joiner beside it is ("change the context of a particular character occurrence", Unicode 23.2), so `rlig`, `rclt` and `calt` pick that form's variant (`docs/research/notes/ab/b216r/`) | 0.60 / 0.48, 0.90 / 0.86 |
+| choice | behaviour |
+|---|---|
+| what a value is attached to | each character, in its rendition, as `SGR` is |
+| 12, vowels after their letter | refused and counted |
+| which characters are vowels | Arabic tanwin and harakat, U+064B-U+0650, and the Hebrew vowel points, U+05B0-U+05BB and U+05C7 |
+| 17, italics leaning left | the upright glyph sheared left by the italic face's angle |
+| a form a letter has not got | the nearest it has, as a joiner beside it asks (Unicode 23.2) |
+| 20, "device dependent" digits | as stored |
+| `DECSTR` | the default presentation |
+| a letter 5 to 8 asks a form of, inside a word | shaped in that form with its word around it, as a joiner beside it is ("change the context of a particular character occurrence", Unicode 23.2), so `rlig`, `rclt` and `calt` pick that form's variant (`docs/research/notes/ab/b216r/`) |
 
-**15, where mirroring is the default, is Jev's lean,
-UNMIRROR_EXPLICIT_ONLY, in three of four answers; the owner can veto
-it**: unmirrors a right-to-left path with BDSM reset, and with it set L4
-governs. The first round gave it 0.10 and 0.14 and the re-ask's order A
-0.23; order B of the re-ask leaned to unmirroring in both states, at
-0.16. UAX #9 section 7: "mirroring must be done according to rule L4".
+**15, where mirroring is the default**, unmirrors a right-to-left path
+with BDSM reset, and with it set L4 governs. UAX #9 section 7: "mirroring
+must be done according to rule L4".
 
-The requests, the renders shown and the answers are in
-`docs/research/notes/ab/b211/`.
+The renders are in `docs/research/notes/ab/b211/`.
 
 **DEC's Hebrew modes and ECMA-48's strings (2026-10-26)**, read against
 the VT510's DECRLCM, DECHEM, DECSTR and chapter 4 pages (`[[source:
 vt510-decrlcm]]`, `[[source: vt510-dechem]]`, `[[source: vt510-decstr]]`,
 `[[source: vt510-chapter4]]`), ECMA-48 7.1, 7.2.3, 7.3.4, 8.3.114 and
-8.3.137, and TR/53's section 7 and worked examples; Jev was asked twice
-in each order, and the strings under the mode on a third time with a
-corrected render (`docs/research/notes/ab/b220/`). Two forks reached 0.9
-in both orders, both DECRLM's on the re-ask: a row it wrote is drawn as
-its cells hold (AS_STORED, 0.97 / 0.97; 0.55 / 0.76 first), and `HT`
-goes to the previous stop (LEFTWARD, 0.92 / 0.94). **Taken from Jev's
-lean; the owner can veto each:**
+8.3.137, and TR/53's section 7 and worked examples
+(`docs/research/notes/ab/b220/`). Two are settled, both DECRLM's: a row it
+wrote is drawn as its cells hold, and `HT` goes to the previous stop.
+**Built so:**
 
-| choice | taken | Jev, first ask then re-ask |
-|---|---|---|
-| what DECRLCM's copy reads | each line's cells in the order they are drawn, from the right edge | the order written, reversed, 0.14 / 0.02; then this, 0.02 / 0.22 |
-| a DECRLCM copy over several lines | each line reversed, the lines in order | 0.12 / 0.44, 0.52 / 0.76 |
-| SDS and SRS with the mode on | each string an isolate of its direction (UAX #9 HL3) | (the first two askings were shown a wrong render of a number in a string) 0.41 / ISOLATE_OVERRIDE 0.52, 0.52 / 0.46; corrected, 0.77 / 0.82 |
-| a reversed string at a line's top | reverses the line's character path, left to right where none is set | 0.74 / 0.78, 0.88 / 0.90 |
-| an end of the other kind | SDS 0 ends only a directed string and SRS 0 only a reversed one; any other end is counted | 0.82 / 0.62, 0.90 / 0.76 |
-| `DECSTR` and open strings | every string ends, the characters written keeping theirs | 0.26 / 0.46, 0.82 / 0.86 |
-| which DCSM state `CSI 9 h` selects | DATA, as 7.1, 7.2 and Table 6 have it | 0.58 / 0.72, 0.72 / 0.86 |
-| DCSM's PRESENTATION | built: the editing functions 7.2.3 lists take the presentation position on a line holding a string | 0.22 / 0.22, 0.86 / 0.86 |
-| DCSM at power-on | PRESENTATION, the reset state | 0.38 / 0.52, 0.66 / 0.42 |
-| the cursor functions and DCSM | by the positions as drawn under PRESENTATION, by cell under DATA, as TR/53's worked example 2 has `CUP` and `CHA`, where their definitions (8.3.7-8.3.23, 8.3.60, 8.3.161) move the active presentation position in every state, 7.2.3's NOTE leaves them out and Annex F calls them independent of DCSM: an open departure | 0.56 / 0.79, 0.53 / 0.77 |
-| the cursor functions under DATA, re-asked with TR/53's standing | as drawn in both states, the definitions' reading; TR/53's DATA lines by `HVP` and `HPA` (ALWAYS_EXPLICIT; keeping them by cell needed 0.9) | 0.76 / 0.84 |
-| a character inserted under PRESENTATION | drawn at the presentation position, what was drawn there moving on, as 7.2.9 says, where TR/53's line 7 inserts before the cell in the data | 0.94 / 0.96 |
-| HEM's PRECEDING under PRESENTATION | read as its DATA paragraph, the PRESENTATION paragraph's two "following" an erratum | 0.86 / 0.94, 0.92 / 0.98 |
-| HEM and `DECSTR` | kept, as its table names no HEM | 0.92 / 0.92 |
-| where PRECEDING's shifted part starts | the left margin under DECLRMM, as DECRLM's insertion stops there | 0.76 / 0.70, 0.88 / 0.86 |
-| a wide character at the shifted part's start | the cursor's column and the one after it | 0.70 / 0.56, 0.92 / 0.82 |
-| IRM under DECRLM with HEM | DECRLM's own shift in both states; `DCH` and `ICH` follow HEM | 0.84 / 0.72, 0.46 / 0.68 |
-| `CUF` and `CUB` on a right-to-left line | right and left on the screen, "rightwards in the presentation component" | 0.88 / 0.96, 0.88 / 0.96 |
-| which cursor functions | every one that moves the active presentation position: the tabs, `CVT` and `VT` with `CUP` to `CUD` | the six alone 0.08 / this 0.46; then this 0.28 / 0.56 |
-| `DECRQM 9` with the mode on | DATA's state, "considered to be set to DATA" | 0.80 / 0.52, 0.64 / 0.10 |
-| DECRLM under side margins | `CR` and the wrap's landing at the right margin, the wrap at the left one | 0.24 / 0.20; then the orders apart, AS_WORDED 0.23 and this 0.34, this the likelier, by mean probability 0.39 against 0.37 |
-| DECHEM | acted on as a Hebrew VT510: reset puts the DEC 7-bit Hebrew set in G0 to G3, set the power-up sets back, as STD 070's DECNRCM algorithms do; DECNRCM itself, the opposite, stays ignored (note AF's Q-DECNRCM), so `?36 l` acts where `?42 h`, which Table 4-8 note 1 gives the same result, does nothing: an open departure | ignored as DECNRCM is, 0.27 / 0.04; then the orders apart, ignored 0.18 and this 0.28, both askings describing G0 alone; asked again with the sets as built, this 0.51 / 0.49 |
+| choice | behaviour |
+|---|---|
+| what DECRLCM's copy reads | each line's cells in the order they are drawn, from the right edge |
+| a DECRLCM copy over several lines | each line reversed, the lines in order |
+| SDS and SRS with the mode on | each string an isolate of its direction (UAX #9 HL3) |
+| a reversed string at a line's top | reverses the line's character path, left to right where none is set |
+| an end of the other kind | SDS 0 ends only a directed string and SRS 0 only a reversed one; any other end is counted |
+| `DECSTR` and open strings | every string ends, the characters written keeping theirs |
+| which DCSM state `CSI 9 h` selects | DATA, as 7.1, 7.2 and Table 6 have it |
+| DCSM's PRESENTATION | built: the editing functions 7.2.3 lists take the presentation position on a line holding a string |
+| DCSM at power-on | PRESENTATION, the reset state |
+| the cursor functions and DCSM | by the positions as drawn under PRESENTATION, by cell under DATA, as TR/53's worked example 2 has `CUP` and `CHA`, where their definitions (8.3.7-8.3.23, 8.3.60, 8.3.161) move the active presentation position in every state, 7.2.3's NOTE leaves them out and Annex F calls them independent of DCSM: an open departure |
+| the cursor functions under DATA, re-asked with TR/53's standing | as drawn in both states, the definitions' reading; TR/53's DATA lines by `HVP` and `HPA` (ALWAYS_EXPLICIT) |
+| a character inserted under PRESENTATION | drawn at the presentation position, what was drawn there moving on, as 7.2.9 says, where TR/53's line 7 inserts before the cell in the data |
+| HEM's PRECEDING under PRESENTATION | read as its DATA paragraph, the PRESENTATION paragraph's two "following" an erratum |
+| HEM and `DECSTR` | kept, as its table names no HEM |
+| where PRECEDING's shifted part starts | the left margin under DECLRMM, as DECRLM's insertion stops there |
+| a wide character at the shifted part's start | the cursor's column and the one after it |
+| IRM under DECRLM with HEM | DECRLM's own shift in both states; `DCH` and `ICH` follow HEM |
+| `CUF` and `CUB` on a right-to-left line | right and left on the screen, "rightwards in the presentation component" |
+| which cursor functions | every one that moves the active presentation position: the tabs, `CVT` and `VT` with `CUP` to `CUD` |
+| `DECRQM 9` with the mode on | DATA's state, "considered to be set to DATA" |
+| DECRLM under side margins | `CR` and the wrap's landing at the right margin, the wrap at the left one |
+| DECHEM | acted on as a Hebrew VT510: reset puts the DEC 7-bit Hebrew set in G0 to G3, set the power-up sets back, as STD 070's DECNRCM algorithms do; DECNRCM itself, the opposite, stays ignored (note AF's Q-DECNRCM), so `?36 l` acts where `?42 h`, which Table 4-8 note 1 gives the same result, does nothing: an open departure |
 
-**Taken from Jev's lean, which held in all four answers but for the
-erased cells, where the first ask's SKIPPED (0.10 / 0.18 against a space)
-was re-offered as AS_BN, the same behaviour named after its class; the
-owner can veto each:**
+**Built so:**
 
-| choice | taken | Jev, first ask then re-ask |
-|---|---|---|
-| where BDSM lives | terminal-wide, as an ECMA-48 mode; per-paragraph state is the next step | 0.86 / 0.82, 0.72 / 0.76 |
-| an erased cell between characters | a boundary neutral, moved with the character before it | (SKIPPED) 0.10 / 0.18, (AS_BN) 0.85 / 0.89 |
-| the alternate screen | drawn like the primary ("The two screens should behave identically") | 0.58 / 0.34, 0.79 / 0.76 |
-| Arabic with the mode off | joined in display order (terminal-wg's text says no shaping; its author's issue #7 reverses it) | 0.24 / 0.16, 0.66 / 0.58 |
-| a lam and an alef a soft wrap parts | the ligature in the lam's cell, the alef's cell left blank | 0.19 / 0.15, 0.84 / 0.80 |
+| choice | behaviour |
+|---|---|
+| where BDSM lives | terminal-wide, as an ECMA-48 mode; per-paragraph state is the next step |
+| an erased cell between characters | a boundary neutral, moved with the character before it |
+| the alternate screen | drawn like the primary ("The two screens should behave identically") |
+| Arabic with the mode off | joined in display order (terminal-wg's text says no shaping; its author's issue #7 reverses it) |
+| a lam and an alef a soft wrap parts | the ligature in the lam's cell, the alef's cell left blank |
 
-The joining questions, their renders and Jev's answers are in
+The joining questions and their renders are in
 `docs/research/notes/ab/joining/`.
 
-**The table row, taken from Jev's lean, which held in all four answers;
-the owner can veto each.** Jev was shown the owner's table, a psql-style
-table drawn with `|`, a Hebrew sentence with a `|` in it beside a shell
+**The table row, where the texts leave the choice open.** The options
+were drawn on a table of box-drawing rules, a psql-style table drawn with `|`, a Hebrew sentence with a `|` in it beside a shell
 pipeline, and a tree, each drawn by baud's renderer under five options
 (`docs/research/notes/ab/b192/`), and asked again with HTML's `dir=auto`
 (`[[source: whatwg-html-dom-dir]]`: a direction from "the first character
@@ -692,41 +662,36 @@ table row stays left to right with no direction per cell (`[[source:
 konsole-terminaldisplay-c8bc143]]`), a change of Bidi_Class no UAX #9
 higher-level protocol allows.
 
-| choice | taken | Jev, first ask then re-ask |
-|---|---|---|
-| which characters divide a row's cells | the Box Drawing block (every ASCII vertical bar as well would split a Hebrew sentence; a bar under a bar or a plus sign was the runner-up) | 0.52 / 0.92, 0.71 / 0.91 |
-| how a row is known to be a table row | any rule in the paragraph (not a rule lined up with one in the row above or below) | 0.52 / 0.44, 0.42 / 0.30 |
-| where a right-to-left cell's text sits | against its cell's right side, the cell its own paragraph (not mlterm's, at the cell's left) | 0.50 / 0.42, 0.52 / 0.22 |
+| choice | behaviour |
+|---|---|
+| which characters divide a row's cells | the Box Drawing block (every ASCII vertical bar as well would split a Hebrew sentence; a bar under a bar or a plus sign was the runner-up) |
+| how a row is known to be a table row | any rule in the paragraph (not a rule lined up with one in the row above or below) |
+| where a right-to-left cell's text sits | against its cell's right side, the cell its own paragraph (not mlterm's, at the cell's left) |
 
 **L4 for every mirrored character, built to the text.** The 126 mirrored
 characters with no mirroring glyph draw their glyph flipped, and a
 mirrored character carrying a mark draws its mirror under the mark. The
 first two asks put only the first case, as 128 characters, and on the
 premise that every character with a mirroring glyph draws it, which the
-build did not then meet for a cell carrying an RLM; their answers
-(counted, 0.88 / 0.92 and 0.86 / 0.92) are superseded. Asked with the true
-counts, and again with the prior art (VTE swaps a cell's base and keeps
-its marks; HarfBuzz substitutes or applies the font's `rtlm`, which baud's
-faces do not carry; no terminal surveyed flips a glyph), Jev leaned to
-build both: a flipped glyph 0.58 / 0.50 then 0.70 / 0.66, a substitute
-base under the marks 0.62 / 0.54 then 0.72 / 0.66. A departure Jev did not
-decide at 0.9 is a defect (the owner, 2026-10-10), so both are built as
-L4 reads (`docs/research/notes/ab/step2/l4.png` showed both). One case
-neither settled, one of the 126 carrying a mark the face draws apart, Jev
-decided at 0.91 / 0.94: the base flipped and the mark not, which is
-Bidi_Mirrored=N and so not "depicted by a mirrored glyph", over the whole
-cell flipped (0.06 / 0.04) and the cell left unmirrored (0.00 / 0.00);
-the renders and answers are in `docs/research/notes/ab/b197/`.
+build did not then meet for a cell carrying an RLM; that reading, counting
+them, is superseded. The prior art (VTE swaps a cell's base and keeps its
+marks; HarfBuzz substitutes or applies the font's `rtlm`, which baud's
+faces do not carry; no terminal surveyed flips a glyph) does not settle
+it, and leaving them unmirrored would depart from L4, so both are built as
+L4 reads (`docs/research/notes/ab/step2/l4.png` shows both). One of the
+126 carries a mark the face draws apart: the base is flipped and the mark
+not, which is Bidi_Mirrored=N and so not "depicted by a mirrored glyph",
+over the whole cell flipped and the cell left unmirrored; the renders are
+in `docs/research/notes/ab/b197/`.
 
 terminal-wg prefers hiding the cursor on a full reordered line ("It's
-more consistent to make it disappear"); the owner chose it drawn.
+more consistent to make it disappear"); baud draws it.
 
-The owner chose the direction from renders of three options on eight
-examples: B, every line left to right (terminal-wg's default, built
-before); C, the first strong letter with a right-to-left line against the
-right edge; and C2, the first strong letter kept at the left edge. Jev had
-leaned first strong 0.56 / 0.48, then left to right 0.22 / 0.30. The two
-examples the answer excepts, a table row and a paragraph a soft wrap
+The direction was chosen from renders of three options on eight examples:
+B, every line left to right (terminal-wg's default, built before); C, the
+first strong letter with a right-to-left line against the right edge; and
+C2, the first strong letter kept at the left edge. C was taken. The two
+examples it excepts, a table row and a paragraph a soft wrap
 splits, are under "What is not built yet".
 
 ## What it costs
@@ -735,8 +700,7 @@ Measured with the `frame` bench's convert column (then with the mode set
 before a recording; since BDSM is set at power-on the bench draws with it
 on and `FRAME_BIDI=explicit` turns it off), base 1b335a67 against step 2
 built the same way from `git archive`, an A/A copy, four arms rotated over
-eight rounds with the first dropped, on mains (the record's entry,
-"Right-to-left lines are drawn in their visual order", has the table):
+eight rounds with the first dropped, on mains:
 
 - **With the mode off (`CSI 8 l`): no difference.** The layout returns
   at once; every recording's convert range overlaps base's.
@@ -765,10 +729,9 @@ eight rounds with the first dropped, on mains (the record's entry,
 - **The display's word wrap** (`[screen] wrap_words`) is read off the
   window, never on the path that writes the grid: `baud-core` is
   unchanged. A frame whose window reads as the last frame's keeps the last
-  layout. On the owner's cases at 44x12 the convert column's ranges
+  layout. On the cases of note BD at 44x12 the convert column's ranges
   overlap base's on a replay, and the instructions a run retires differ
-  from base's by less than base's own spread from run to run
-  (the record, "Finished text wraps at its words"). A window that
+  from base's by less than base's own spread from run to run. A window that
   moves every frame lays its paragraphs out again each time, unmeasured
   at 200x50.
 - **A session that has drawn no joining letter pays nothing measurable
@@ -835,12 +798,10 @@ eight rounds with the first dropped, on mains (the record's entry,
   nothing on the text path**: a string rides in the rendition, DCSM's and
   DECRLM's tests are one bit of the mode word `CR` already reads, and
   DECRLM's writer, and a write under insert mode that HEM or a drawn line
-  shifts, are reached only by the one-by-one graph (the record,
-  "DECRLM writes right to left"). **Once a string has been begun** a
+  shifts, are reached only by the one-by-one graph. **Once a string has been begun** a
   frame reads a row's cells for strings one bit a cell, and only while a
   rendition naming a string is in the table; with BDSM set a row keeps
-  its answer while its cells are the same (the record, "A frame
-  reads a string's renditions only on the rows that may hold one"). The
+  its answer while its cells are the same. The
   core pays more: from then on each erase keeps strings cell by cell
   (`Paint::erase_keeping_strings`), and with BDSM reset every `CR` and
   line feed maps its line (`Paint::line_map`), several times the
@@ -856,8 +817,7 @@ eight rounds with the first dropped, on mains (the record's entry,
   written; the rendition table's inline probe keys a rendition without
   variants and with the primary font as it did before they existed; an
   alternate font's key moved with the font, from bit 48 to bit 27. `ingest2` retires no more
-  instructions than before SAPV on any recording (the record, "SAPV
-  off the text path").
+  instructions than before SAPV on any recording.
 
 ## What is not built yet
 
@@ -867,9 +827,7 @@ eight rounds with the first dropped, on mains (the record's entry,
   keep the terminal's cut; a paragraph longer than `baud_render::CONTEXT`
   codepoints, a table row, a line not single-width, a row DECRLM wrote, a
   paragraph holding an SDS or SRS string and one that wrapped at DECSLRM
-  side margins keep it too, rather than be re-broken inside its margins
-  (Jev's lean, RECORD_BIT_KEEP_CUT, confidence 0.33 / 0.40 on the
-  re-ask); the scroll
+  side margins keep it too, rather than be re-broken inside its margins; the scroll
   position, the scrollbar and the wheel count stored lines; a link's
   preview and its Cmd-click over a cell the display draws from a line
   past the window read the nearest window cell. A copy under
@@ -895,8 +853,7 @@ eight rounds with the first dropped, on mains (the record's entry,
   BidiLineLTR setting is on, its default), at the cost of a row that runs left to right
   with the Hebrew period at its right end. The four options on three
   wrapped paragraphs: `docs/research/notes/ab/b192/wrap.png`.
-  The owner rejected all four (2026-10-24) and asked for a mixed
-  paragraph broken into lines of one direction each; the texts, the prior
+  All four were rejected (2026-10-24) for a mixed paragraph broken into lines of one direction each; the texts, the prior
   art, three prototypes and the recommendation are note BD,
   `docs/research/notes/bd-bidi-wrap.md`, and with `[screen] wrap_words` on, the
   default, a finished paragraph is drawn at its words (above, "What you
@@ -979,8 +936,6 @@ eight rounds with the first dropped, on mains (the record's entry,
 ## Decided in step 1
 
 **Unicode version (Q20): 17.0.0**, the version of every other UCD table
-baud compiles. Jev chose it over pinning only the bidi tables at 18.0.0, or
-moving every table at once, with confidence 0.95 and 0.98 in the two orders
-it was asked. Unicode 18.0.0 adds two brackets and five mirroring pairs.
+baud compiles, over pinning only the bidi tables at 18.0.0, or moving every table at once. Unicode 18.0.0 adds two brackets and five mirroring pairs.
 The data in its two test files is the same, so a later move of every table
 to 18.0.0 carries the bidi tables with it.

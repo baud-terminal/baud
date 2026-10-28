@@ -1,12 +1,11 @@
 # each recording rendered to a digest over content and resolved rendition.
 # utf8/cat-cjk departs from core2 on 2026-10-01, by a baud decision: a U+FE0F widens
-# its base, so the seven rainbow flags on its final screen are two cells (CLAUDE.md).
+# its base, so the seven rainbow flags on its final screen are two cells.
 # utf8/vim-unicode moved on 2026-10-10: vim writes U+1F1EF, then CUP two columns on,
 # then U+1F1F5, as two cells, and a cursor move now ends the cluster (GB4), so the
 # eleven JP pairs on its final screen are the two cells vim addressed, not one flag.
 # utf8/cava moved on 2026-10-19: it erases under a foreground or an attribute, and an
-# erased cell now keeps the background alone (the record, "An erase clears every attribute
-# but the background"); the frame baud-render pins did not move.
+# erased cell now keeps the background alone; the frame baud-render pins did not move.
 # ascii/pipes, utf8/btop and utf8/vim-unicode were captured on 2026-10-28
 # (tests/recordings/README.md), and their rows are these captures' renderings.
 ascii/cat-scroll digest 42b6a6104ae72a23 nonblank 1786 cursor 49 0

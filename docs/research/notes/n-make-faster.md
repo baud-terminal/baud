@@ -76,7 +76,7 @@ numbers. "Rests on" is the measurement the expectation comes from.
 | 11 | **Skip the present when nothing changed** on the cell path | idle CPU | the cell path re-walks the map every tick; a screen with no dirty rows and no blink should commit nothing | `Renderer::blink_seen` already gates blink |
 | 12 | **Reflow's copy is 0.6-0.7 ms per width change** -- leave it | resize | once per width step; below the noise of a drag | measured |
 | 13 | **The ring's 7 % on scrolling payloads** -- leave it | ingest | 13 L1 misses a scroll are what retaining a line costs, in any design; not user-felt behind a 177 MB/s pty | counters |
-| 14 | **The parser** -- leave it | ingest | thirty times the transport; every remaining lever is priced at 0-2 % and the dead ends fill a table below | the whole of `CLAUDE.md` |
+| 14 | **The parser** -- leave it | ingest | thirty times the transport; every remaining lever is priced at 0-2 % and the dead ends fill a table below | CONTRIBUTING.md and MEASUREMENTS.md |
 
 ## What not to do (this repo's own lab, in makefaster's table)
 
@@ -115,8 +115,7 @@ baud; row 1's research figure is replaced by one taken here
 (`docs/research/notes/p-shader-cache.md`); row 4 was measured and
 reverted. Keystroke-to-pixel has its baseline (`BAUD_KEYLAT=1` and
 `scripts/key-latency.py`, row 0) and idle CPU has one
-(`scripts/idle-cpu.py`, row 11). **Row 1 closed on 2026-09-19**, when the owner
-installed the Metal toolchain: the shaders are compiled at build time to a
+(`scripts/idle-cpu.py`, row 11). **Row 1 closed on 2026-09-19**, when the Metal toolchain was installed: the shaders are compiled at build time to a
 committed `baud.metallib` and a cold launch went 389.9 ms to 133.5, the
 cold-cache penalty from +287 ms to +34. **Every row of this checklist is
 finished.**

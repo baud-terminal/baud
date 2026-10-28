@@ -104,16 +104,14 @@ report them as gaps; if you think one is wrong, the reasoning is in
   read back whatever the user last copied, which may be a password. Any answer —
   including an empty one — tells it the feature works, so the refusal is
   silence, counted in `clipboard_reads_refused`.
-- **A screen checksum request (DECRQCRA) is answered by default**, the
-  owner's call of 2026-10-19, and `[screen] checksum = "off"` turns it off.
+- **A screen checksum request (DECRQCRA) is answered by default**, and `[screen] checksum = "off"` turns it off.
   A program can ask for the checksum of one cell at a time and so read back
   what is on the screen, other programs' output included; off, every request
   gets no reply and is counted in `checksums_refused`, and no sequence, a
   reset included, turns it back on.
 - **A program can move, resize, minimise, raise, lower, maximise and
   full-screen the window by default** (xterm's window operations, `CSI 1 t`
-  to `CSI 10 t`, and DECSLPP), the owner's call of 2026-10-19, and
-  `[window] operations = "off"` turns them off. Anything printed to the
+  to `CSI 10 t`, and DECSLPP), and `[window] operations = "off"` turns them off. Anything printed to the
   terminal -- a remote program, a file you `cat` -- can otherwise move the
   window off the screen, shrink it, hide it in the Dock or put it behind
   others; off, every request is refused and counted in
@@ -122,8 +120,7 @@ report them as gaps; if you think one is wrong, the reasoning is in
   `CSI 21 t` get no reply). A resize is no larger than the screen; with no
   screen size known, one in pixels is refused and one in cells is held to
   the largest grid.
-- **`OSC 52` clipboard *writes* are honoured by default**, the owner's V11
-  (`docs/research/notes/v-open-decisions.md`), and `[clipboard] osc52 = "off"`
+- **`OSC 52` clipboard *writes* are honoured by default** (V11, `docs/research/notes/v-open-decisions.md`), and `[clipboard] osc52 = "off"`
   turns them off. The threat is the write itself: anything printed to the
   terminal -- a remote program, a file you `cat` -- can replace your clipboard
   without asking, and you might paste that into a shell. Bracketed paste
