@@ -333,9 +333,9 @@ Microsoft's copyright line in nameID 0 and JetBrains Mono's OFL sentence in name
 13. They do not carry that text, and OFL.txt here carries both copyright lines over
 the OFL 1.1. Whether that is enough to ship is the owner's call.
 
-Also unasked: whether the build modules under glyphs/languages/hebrew/build/ and
-casanchors.py beside them are Font Software under the OFL or baud code under the
-repository's licence. anchors-400.json and anchors-700.json are data read out of
+The build modules under glyphs/languages/hebrew/build/ and casanchors.py beside
+them are baud code under the repository's licence, not Font Software: the owner's
+call of 2026-10-28. anchors-400.json and anchors-700.json are data read out of
 Cascadia Mono; hebrew/SOURCE states them under OFL.txt, as the font is, and the
 licence call should confirm it.
 

@@ -2070,12 +2070,28 @@ upstream = "https://github.com/microsoft/cascadia-code/releases/tag/v2407.24"
 status   = "open"
 
 [[tree]]
-what     = "The Hebrew build modules. Whether they are Font Software under the OFL or baud's code under the repository's licence has not been decided (FONTLOG.txt); LICENSE assigns them to neither"
+what     = "The Hebrew build modules: baud's own code under the repository's licence, the owner's call of 2026-10-28; they are tools that write the font, not Font Software (FONTLOG.txt)"
 paths    = ["baud-app/fonts/glyphs/languages/hebrew/casanchors.py", "baud-app/fonts/glyphs/languages/hebrew/build/build.py", "baud-app/fonts/glyphs/languages/hebrew/build/design.py", "baud-app/fonts/glyphs/languages/hebrew/build/design2.py", "baud-app/fonts/glyphs/languages/hebrew/build/design3.py", "baud-app/fonts/glyphs/languages/hebrew/build/field.py", "baud-app/fonts/glyphs/languages/hebrew/build/geom.py", "baud-app/fonts/glyphs/languages/hebrew/build/instance.py", "baud-app/fonts/glyphs/languages/hebrew/build/narrow.py", "baud-app/fonts/glyphs/languages/hebrew/build/optical.py", "baud-app/fonts/glyphs/languages/hebrew/build/pin.py", "baud-app/fonts/glyphs/languages/hebrew/build/style.py"]
-licence  = "not assigned"
-notice   = "baud-app/fonts/built/FONTLOG.txt"
+licence  = "CC-BY-NC-SA-4.0"
+notice   = "LICENSE"
 upstream = "baud's own build, ported from the research tree"
-status   = "open"
+status   = "own"
+
+[[tree]]
+what     = "Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors, the owner's call of 2026-10-28"
+paths    = ["baud-font/tests/var/outlines.txt", "baud-font/tests/var/JetBrainsMono-LICENSE.txt", "baud-font/tests/var/FiraCode-LICENSE.txt"]
+licence  = "OFL-1.1"
+notice   = "the two fonts' OFL texts beside it (JetBrainsMono-LICENSE.txt, FiraCode-LICENSE.txt)"
+upstream = "read from the test fonts by scripts/gvar-oracle.py"
+status   = "kept"
+
+[[tree]]
+what     = "Glyph outlines read out of Source Code VF by scripts/cff2-oracle.py, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe, the owner's call of 2026-10-28"
+paths    = ["baud-font/tests/var/cff2-outlines.txt", "baud-font/tests/var/SourceCodeVF-LICENSE.txt"]
+licence  = "OFL-1.1"
+notice   = "baud-font/tests/var/SourceCodeVF-LICENSE.txt"
+upstream = "read from the test font by scripts/cff2-oracle.py"
+status   = "kept"
 
 [[tree]]
 what     = "Bungee Tint, a test font, unmodified"
@@ -2118,7 +2134,7 @@ upstream = "https://github.com/JetBrains/JetBrainsMono/tree/cd5227bd1f61dff3bbd6
 status   = "kept"
 
 [[tree]]
-what     = "HarfBuzz 12.3.0's measurements of JetBrains Mono's and Fira Code's variable fonts (advances.txt and marks.txt also measure baud's own gvar, hvar and ink case fonts), the oracle baud-font's variation and mark code is tested against: advances.txt (a glyph's advance at an axis setting, scripts/advance-oracle.py), marks.txt (a mark's offsets and advance after its base, scripts/marks-oracle.py) and normalize.txt (an axis value normalised through avar, scripts/var-oracle.py). Numbers computed from the fonts' metric and positioning tables, not glyph data or a file the fonts' authors released, so OFL condition 5 does not reach them; the fonts themselves are under the OFL beside their licences. The glyph outlines in outlines.txt and cff2-outlines.txt are a separate open question that LICENSE records"
+what     = "HarfBuzz 12.3.0's measurements of JetBrains Mono's and Fira Code's variable fonts (advances.txt and marks.txt also measure baud's own gvar, hvar and ink case fonts), the oracle baud-font's variation and mark code is tested against: advances.txt (a glyph's advance at an axis setting, scripts/advance-oracle.py), marks.txt (a mark's offsets and advance after its base, scripts/marks-oracle.py) and normalize.txt (an axis value normalised through avar, scripts/var-oracle.py). Numbers computed from the fonts' metric and positioning tables, not glyph data or a file the fonts' authors released, so OFL condition 5 does not reach them; the fonts themselves are under the OFL beside their licences. The glyph outlines in outlines.txt and cff2-outlines.txt have a row of their own, under the OFL"
 paths    = ["baud-font/tests/var/advances.txt", "baud-font/tests/var/marks.txt", "baud-font/tests/var/normalize.txt"]
 licence  = "none claimed; the fonts measured are OFL-1.1"
 notice   = "none needed"
@@ -2342,7 +2358,7 @@ upstream = "https://github.com/googlefonts/noto-emoji/tree/v2.051/fonts, https:/
 status   = "kept"
 
 [[tree]]
-what     = "A recording of asciiquarium 1.1's output, which draws its castle, fish, dolphins and waves with lines of the script's sprites verbatim. asciiquarium's README says \"Pretty much all of the ASCII art was done by Joan Stark\", and her published terms are \"for personal use only\" with her initials kept (no initials are in asciiquarium's art); no grant from her to redistribute it was found. asciiquarium's code is GPL-2.0-or-later (Kirk Baucom). LICENSE names the file as one it does not cover"
+what     = "A recording of asciiquarium 1.1's output, which draws its castle, fish, dolphins and waves with lines of the script's sprites verbatim. asciiquarium's README says \"Pretty much all of the ASCII art was done by Joan Stark\", and her published terms are \"for personal use only\" with her initials kept (no initials are in asciiquarium's art); no grant from her to redistribute it was found. asciiquarium's code is GPL-2.0-or-later (Kirk Baucom). The repository's licence does not cover it"
 paths    = ["tests/recordings/ascii/asciiquarium.raw"]
 licence  = "LicenseRef-NoGrant (Joan Stark's art); asciiquarium's code is GPL-2.0-or-later"
 notice   = "none"

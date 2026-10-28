@@ -342,10 +342,10 @@ fn the_icon_sets_licences_travel_with_the_nerd_font() {
 /// (`scripts/*-oracle.py`) write what HarfBuzz reads out of the test fonts
 /// into `var/*.txt`, one font per line in the first column. A readout of a
 /// third-party font is named by a `[[tree]]` row of
-/// `docs/research/third-party.toml`, or by LICENSE, which names the two
-/// outline files as an open question; one that is neither is third-party
-/// data nobody has classified. Only the top-level `var/*.txt` readouts are
-/// scanned; `var/bake/`, `var/hvar/` and `tests/shape/*.txt` are not.
+/// `docs/research/third-party.toml`, or by LICENSE; one that is neither is
+/// third-party data nobody has classified. Only the top-level `var/*.txt`
+/// readouts are scanned; `var/bake/`, `var/hvar/` and `tests/shape/*.txt`
+/// are not.
 #[test]
 fn every_readout_of_a_third_party_font_has_a_licence_row() {
     let root = root().canonicalize().unwrap();
