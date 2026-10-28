@@ -13,7 +13,7 @@ categories = ["gui", "os::linux-apis"]
 # What crates.io gets: the source, what the build reads, the licence and
 # the notices its third-party files need (`scripts/check-publish.py`).
 # The tests and their fixtures stay in the repository.
-include = ["/src/", "/build.rs", "/README.md", "/LICENSE", "/protocols/"]
+include = ["/src/", "/build.rs", "/README.md", "/LICENSE", "/NOTICE", "/protocols/"]
 
 [dependencies]
 baud-domain = { workspace = true }

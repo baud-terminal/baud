@@ -8,6 +8,9 @@
                                                 own .crate, against the others'
     python3 scripts/check-publish.py --release  and no published crate ships a
                                                 file whose licence is not settled
+    python3 scripts/check-publish.py --write-notices
+                                                write each crate's NOTICE, and
+                                                check the rest
 
 Exit 0 when everything passes, 1 on any FAIL, and 2 under --release when the
 only thing left is a row awaiting the owner.
@@ -36,6 +39,11 @@ has to be able to fail:
     decision, not a change to the tree; with --release (the Release job,
     before anything is uploaded) each one refuses the release. A file with
     no entry at all is not seen here;
+  - each published crate carries NOTICE, and it is what notice() writes
+    from the crate's own file list: every entry of the sidecar with a file
+    in the crate, the files by their paths in the crate, each one's
+    licence, and where its notice is in the crate (--write-notices writes
+    them);
   - with --size or --verify, every .crate is under crates.io's 10 MiB
     upload limit;
   - with --verify, every crate builds from its .crate alone, as `cargo
@@ -53,6 +61,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 import tomllib
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -154,9 +163,82 @@ def is_path(notice):
     return "/" in notice or notice == "LICENSE"
 
 
-def check(size, verify):
+def gen_third_party():
+    """scripts/gen-third-party.py as a module, for its status meanings and
+    licence URIs, so NOTICE and THIRD_PARTY.md say the same thing."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("gen_third_party", os.path.join(ROOT, "scripts", "gen-third-party.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def notice(name, entries, src, g):
+    """The NOTICE of crate `name`: each sidecar entry with a file in the
+    crate, by the paths the crate gives its files. `src` maps a repository
+    path to the crate's path for it, both a file's own path and the one a
+    link resolves to. Every [[tree]] entry with a file here is listed; a
+    source group is left out when each of its files here is already listed
+    under a [[tree]] entry, as the target of a link is."""
+    wrap = lambda label, text: textwrap.fill(
+        text, width=76, initial_indent=f"  {label:<9}", subsequent_indent=" " * 11, break_on_hyphens=False,
+        break_long_words=False,
+    )
+    o = [
+        f"Third-party material in the {name} crate",
+        "",
+        textwrap.fill(
+            f"The licence of {name} is LICENSE. This file lists the material from other "
+            "projects that files in this crate carry: for each, the files by their paths "
+            "in this crate, the licence it keeps, and where the notice that licence asks "
+            "for is. It is generated from docs/research/third-party.toml in baud's "
+            "repository, whose THIRD_PARTY.md lists every such file in the repository.",
+            width=76,
+        ),
+    ]
+    shown = set()
+    count = 0
+    for what, paths, note, status, lic, origin, kind in entries:
+        files = sorted({src[p] for p in paths if p in src})
+        if not files or (kind == "source" and set(files) <= shown):
+            continue
+        shown |= set(files)
+        count += 1
+        if note.startswith("LICENSES/") or note == "LICENSE":
+            where = note
+        elif is_path(note):
+            where = src.get(note, note)
+        else:
+            uri = g.licence_uri(lic)
+            where = {
+                "in file": "in each file",
+                "uri": f"the licence's URI, {uri}" if uri else "the licence's URI",
+                "none needed": "none needed",
+                "none": "none",
+            }.get(note, note)
+        o += [
+            "",
+            textwrap.fill(what, width=76, break_on_hyphens=False, break_long_words=False),
+            wrap("Files:", ", ".join(files)),
+            wrap("Licence:", lic),
+            wrap("Notice:", where),
+            wrap("Status:", f"{status}: {g.STATUS[status]}"),
+        ]
+        if origin:
+            # A path in baud's repository, which is not in the crate.
+            if os.path.exists(os.path.join(ROOT, origin.split()[0].rstrip(","))):
+                origin = f"baud's repository, {origin}"
+            o.append(wrap("From:", origin))
+    if not count:
+        o += ["", "No file in this crate carries third-party material that", "docs/research/third-party.toml records."]
+    return "\n".join(o) + "\n"
+
+
+def check(size, verify, write):
     """(errors, awaiting): what fails the check, and the shipped files whose
-    rows await the owner."""
+    rows await the owner. With `write`, each crate's NOTICE is written
+    first."""
     errs, awaiting = [], []
     ws = load("Cargo.toml")
     version = ws["workspace"]["package"]["version"]
@@ -208,11 +290,14 @@ def check(size, verify):
                 )
 
     side = load(SIDECAR)
-    entries = [(f"[[tree]] {t['what'][:50]}", t["paths"], t["notice"], t["status"]) for t in side["tree"]]
-    entries += [
-        (f"upstream {g}", [f"docs/research/sources/{f}" for f in e["files"]], e["notice"], e["status"])
-        for g, e in side["upstream"].items()
+    entries = [
+        (t["what"], t["paths"], t["notice"], t["status"], t["licence"], t["upstream"], "tree") for t in side["tree"]
     ]
+    entries += [
+        (e["name"], [f"docs/research/sources/{f}" for f in e["files"]], e["notice"], e["status"], e["licence"], "", "source")
+        for g, e in sorted(side["upstream"].items())
+    ]
+    g = gen_third_party()
     for n in sorted(want):
         d, _ = mem[n]
         files, err = listed(n)
@@ -229,20 +314,36 @@ def check(size, verify):
             if os.path.islink(os.path.join(ROOT, d, f)) and (r.startswith("..") or not os.path.isfile(os.path.join(ROOT, r))):
                 errs.append(f"{n}: {f} links to {r}, which is not a file in the repository")
             src.setdefault(r, f)
-        for what, paths, notice, status in entries:
+            src.setdefault(os.path.normpath(os.path.join(d, f)), f)
+        want_notice = notice(n, entries, src, g)
+        path = os.path.join(ROOT, d, "NOTICE")
+        if write:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(want_notice)
+        if not os.path.isfile(path):
+            errs.append(f"{n}: has no NOTICE: run scripts/check-publish.py --write-notices")
+        elif "NOTICE" not in files and (not write or "NOTICE" not in (listed(n)[0] or [])):
+            # A NOTICE written just now is listed only from here on.
+            done = "NOTICE written, but " if write else ""
+            errs.append(f"{n}: {done}NOTICE is not in the package: add /NOTICE to its include")
+        elif open(path, encoding="utf-8").read() != want_notice:
+            errs.append(f"{n}: NOTICE is not what its files' rows give: run scripts/check-publish.py --write-notices")
+        for what, paths, notice_at, status, _, _, _ in entries:
+            what = what[:50]
             hit = [p for p in paths if p in src]
             if hit and status in UNSETTLED:
                 awaiting.append(f"{n}: ships {', '.join(src[p] for p in hit)} ({what}...), status {status}")
-            if not hit or not is_path(notice):
+            if not hit or not is_path(notice_at):
                 continue
-            if notice.startswith("LICENSES/"):
-                local = os.path.join(d, notice)
-                if notice not in files:
-                    errs.append(f"{n}: ships {src[hit[0]]} ({what}) without {notice}")
-                elif not filecmp.cmp(os.path.join(ROOT, local), os.path.join(ROOT, notice), shallow=False):
-                    errs.append(f"{n}: {notice} is not the root's")
-            elif notice != "LICENSE" and notice not in src:
-                errs.append(f"{n}: ships {src[hit[0]]} ({what}) without its notice {notice}")
+            notice_ = notice_at
+            if notice_.startswith("LICENSES/"):
+                local = os.path.join(d, notice_)
+                if notice_ not in files:
+                    errs.append(f"{n}: ships {src[hit[0]]} ({what}) without {notice_}")
+                elif not filecmp.cmp(os.path.join(ROOT, local), os.path.join(ROOT, notice_), shallow=False):
+                    errs.append(f"{n}: {notice_} is not the root's")
+            elif notice_ != "LICENSE" and notice_ not in src:
+                errs.append(f"{n}: ships {src[hit[0]]} ({what}) without its notice {notice_}")
 
     if (size or verify) and not errs:
         target = os.environ.get("CARGO_TARGET_DIR", os.path.join(ROOT, "target"))
@@ -267,7 +368,7 @@ def check(size, verify):
 def main():
     args = sys.argv[1:]
     release = "--release" in args
-    errs, awaiting = check("--size" in args, "--verify" in args)
+    errs, awaiting = check("--size" in args, "--verify" in args, "--write-notices" in args)
     for e in errs:
         print(f"FAIL {e}")
     for a in awaiting:

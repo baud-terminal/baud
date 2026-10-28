@@ -13,7 +13,7 @@ categories = ["parser-implementations", "no-std", "no-std::no-alloc", "text-proc
 # What crates.io gets: the source, what the build reads, the licence and
 # the notices its third-party files need (`scripts/check-publish.py`).
 # The tests and their fixtures stay in the repository.
-include = ["/src/", "/README.md", "/LICENSE"]
+include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 
 [features]
 # **`param3` is off, and it used to be on.** Three bytes an edge in the

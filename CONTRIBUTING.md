@@ -520,6 +520,10 @@ raise the limit before the first merge.
 **Each published crate carries its licence and its notices, as links.**
 `LICENSE` in each crate links to the root's, and its `LICENSES/` links to
 the root texts its third-party files need (`docs/research/third-party.toml`).
+Its `NOTICE` names those files by their paths in the crate, each with its
+licence, where its notice is and its status, generated from the same rows:
+`python3 scripts/check-publish.py --write-notices` writes them, and the
+check fails on a crate whose `NOTICE` is missing, unpackaged or stale.
 A file a crate's build reads from `docs/research/sources/` is a link inside
 the crate too: `baud-app/terminfo/`, `baud-wayland/protocols/` and
 `baud-xkb/xkbcommon-keysyms.h`. cargo packages a link as the file it points

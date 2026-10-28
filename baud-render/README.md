@@ -8,4 +8,4 @@ It is part of [baud](https://github.com/i-am-logger/baud), a terminal emulator, 
 `cargo install baud` can build it. Its API follows baud's needs and may
 change in any release.
 
-Licensed under CC BY-NC-SA 4.0 (`LICENSE`); the third-party code it carries keeps its notices in `LICENSES/`.
+Licensed under CC BY-NC-SA 4.0 (`LICENSE`); `NOTICE` names the third-party material it carries, each part's licence and where its notice is.

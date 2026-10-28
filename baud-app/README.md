@@ -34,4 +34,5 @@ to use yet ([Status](https://github.com/i-am-logger/baud/blob/master/docs/guide/
 [Configuration](https://github.com/i-am-logger/baud/blob/master/docs/guide/configuration.md) every setting.
 
 baud is licensed under CC BY-NC-SA 4.0 (`LICENSE`); the third-party files
-it carries, such as its fonts, keep their own licences beside them.
+it carries, such as its fonts, keep their own licences beside them, and
+`NOTICE` names each with its licence and where its notice is.

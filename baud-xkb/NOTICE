@@ -1,0 +1,24 @@
+Third-party material in the baud-xkb crate
+
+The licence of baud-xkb is LICENSE. This file lists the material from other
+projects that files in this crate carry: for each, the files by their paths
+in this crate, the licence it keeps, and where the notice that licence asks
+for is. It is generated from docs/research/third-party.toml in baud's
+repository, whose THIRD_PARTY.md lists every such file in the repository.
+
+baud-xkb's Compose reader, ported from libxkbcommon's Compose parser and
+state machine; the grammar in parser.c is itself adapted from libX11's
+imLcPrs.c under Oki Technosystems Laboratory's and Fuji Xerox's notice
+  Files:   src/compose.rs
+  Licence: MIT AND HPND-sell-variant
+  Notice:  LICENSES/libxkbcommon-LICENSE.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://github.com/xkbcommon/libxkbcommon/blob/xkbcommon-1.13.2/src/compose/parser.c
+
+baud-xkb's build reads xkbcommon's keysym header into the binary's keysym
+table
+  Files:   build.rs, xkbcommon-keysyms.h
+  Licence: X11
+  Notice:  xkbcommon-keysyms.h
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://github.com/xkbcommon/libxkbcommon/blob/xkbcommon-1.13.2/include/xkbcommon/xkbcommon-keysyms.h

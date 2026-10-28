@@ -1,0 +1,64 @@
+Third-party material in the baud crate
+
+The licence of baud is LICENSE. This file lists the material from other
+projects that files in this crate carry: for each, the files by their paths
+in this crate, the licence it keeps, and where the notice that licence asks
+for is. It is generated from docs/research/third-party.toml in baud's
+repository, whose THIRD_PARTY.md lists every such file in the repository.
+
+STIX Two Math 2.13 b171, embedded in the app, unmodified
+  Files:   fonts/stix-two-math/STIXTwoMath-Regular.otf
+  Licence: OFL-1.1
+  Notice:  fonts/stix-two-math/OFL.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://github.com/stipub/stixfonts/tree/v2.13b171
+
+Symbols Nerd Font Mono 3.5.1, embedded in the app, unmodified; its icon sets
+are under their own licences, which README.md lists and icon-licences/
+holds, copied from nerd-fonts v3.5.1 src/glyphs/ and, for the five MIT sets
+it ships no licence file for (Devicons, extraglyphs, Font Awesome Extension,
+Seti, Power Symbols IEC), from each set's own project (its SOURCE gives each
+URL and sha256): OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons
+packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT
+(Octicons and the rest) and Unlicense (Font Logos)
+  Files:   fonts/symbols-nerd-font/README.md,
+           fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf,
+           fonts/symbols-nerd-font/icon-licences/SOURCE
+  Licence: MIT AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0 AND Unlicense
+  Notice:  fonts/symbols-nerd-font/LICENSE
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1
+
+baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with
+Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The
+Cascadia release binary's own name table carries a notice that differs from
+its repository's licence; FONTLOG.txt records it as open
+  Files:   fonts/built/AUTHORS.txt, fonts/built/Bold.ttf,
+           fonts/built/BoldItalic.ttf, fonts/built/FONTLOG.txt,
+           fonts/built/Italic.ttf, fonts/built/Regular.ttf
+  Licence: OFL-1.1
+  Notice:  fonts/built/OFL.txt
+  Status:  open: an open question, recorded where the file is
+  From:    https://github.com/JetBrains/JetBrainsMono and
+           https://github.com/microsoft/cascadia-code
+
+The app compiles in ncurses' xterm-256color terminfo entry (infocmp output)
+to read the flash's padding
+  Files:   src/bell.rs, terminfo/xterm-256color.ti
+  Licence: X11
+  Notice:  LICENSES/ncurses-COPYING.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    baud's repository,
+           docs/research/sources/terminfo/xterm-256color.ti
+
+The readline click in readline.rs: boundary(), the column a click names, is
+xterm's eventColBetween formula, and point_move(), the cursor keys it sends,
+is ReadLineMovePoint's count over rowOnCurrentLine's wrapped rows (button.c,
+xterm patch #411), re-expressed; xterm's documentation gives neither. The
+paste's body() and quoted() follow the documented ctlseqs text, not this
+code
+  Files:   src/readline.rs
+  Licence: X11
+  Notice:  LICENSES/xterm-COPYING.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/button.c
