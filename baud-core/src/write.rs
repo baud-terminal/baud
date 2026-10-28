@@ -2379,7 +2379,7 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
             p.tab_landed();
         }
         DomCsi::CursorBackTab(c) => {
-            p.end_limit_wait();
+            p.end_wait_before_back_tab();
             p.tab_back(c)
         }
         DomCsi::TabClear(w) => p.tab_clear(w),

@@ -2715,6 +2715,8 @@ impl<'b> Term<'b> {
         let rows = want_rows.clamp(MAX_ROWS).clamp(cap.index());
         let over = cols.index() != want_cols.index() || rows.index() != want_rows.index();
         let (old_rows, old_cols) = (self.rows, self.cols);
+        // Where the cursor was, which an open aligned string left it at.
+        let before = (self.cy, self.cx);
         // A change of geometry moves or re-cuts the cells a placement names
         // (`placed.rs`); the same geometry leaves it.
         if (rows, cols) != (old_rows, old_cols) {
@@ -3295,6 +3297,7 @@ impl<'b> Term<'b> {
         }
         // A line limit set wider than the screen acts as its last column.
         self.cold.fence = crate::bounds::limited(own, &self.cold, self.cols);
+        self.resize_ends_string(before);
         // **An image whose row the resize took away goes with it**: a row
         // past what the primary's ring now retains, or past the bottom of a
         // shorter alternate screen, which keeps nothing below it.

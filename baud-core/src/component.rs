@@ -458,7 +458,7 @@ impl Paint<'_, '_> {
                 self.tab_landed();
             }
             Csi::CursorBackTab(c) => {
-                self.end_limit_wait();
+                self.end_wait_before_back_tab();
                 self.presented(|p| p.tab_back(c))
             }
             Csi::CursorLineTab(c) => self.presented(|p| p.line_tab(c)),
@@ -518,7 +518,7 @@ impl Paint<'_, '_> {
                 self.tab_landed();
             }
             Csi::CursorBackTab(c) => {
-                self.end_limit_wait();
+                self.end_wait_before_back_tab();
                 self.tab_back(c)
             }
             Csi::CursorLineTab(c) => self.line_tab(c),

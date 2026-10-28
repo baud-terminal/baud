@@ -1222,6 +1222,20 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **HTS and TBC 0**, at the end for the seeds: a stop set and cleared
+    // where a wrap waits, at the last column, a margin or a limit.
+    Atom {
+        name: "hts",
+        bytes: b"\x1bH",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "tbc",
+        bytes: b"\x1b[g",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.

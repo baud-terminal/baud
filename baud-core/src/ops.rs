@@ -3301,8 +3301,22 @@ impl Paint<'_, '_> {
     /// presentation position" (`[[source: ecma48]]` 8.3.62, 8.3.154,
     /// 8.3.17), with BDSM reset the cursor's position as drawn, in both
     /// DCSM states (`crate::component`), its cell's column otherwise.
+    ///
+    /// **A wrap waiting at the line limit, the last column or a right
+    /// margin names the column it waits on**, which a report names: the
+    /// active position is not advanced from "the last character position
+    /// of the active line" (6.1.6), DEC's Last Column Flag leaves it there
+    /// and its HTS sets the stop at "the Active Column" (`[[source:
+    /// dec-std-070]]` D.6.1, p. 5-69), and xterm's `TabSet()` and
+    /// `TabClear()` take the cursor column, which stays there while the
+    /// wrap waits (Jev's lean, WAITED_COLUMN, 0.53/0.75 then 0.75/0.87).
+    /// The wrap still waits: HTS is not among the controls D.6.1 lists.
     fn stop_col(&self) -> Col {
-        self.cursor_presented_col().unwrap_or(self.moved_from())
+        let c = self.cx.reported(self.report_fence(), self.cols);
+        match self.cold.modes.is_set(ModeBit::CursorPresented) {
+            true => self.line_map(self.cy).map_or(c, |m| m.presentation(c)),
+            false => c,
+        }
     }
 
     /// CTC, `CSI Ps... W`: every parameter, in order ("Notation: (Ps...)",

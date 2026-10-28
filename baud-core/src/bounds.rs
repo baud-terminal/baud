@@ -44,7 +44,8 @@
 //! already tests.
 
 use baud_domain::{
-    Align, BidiSupport, Col, Cols, Count, CursorCol, DeviceComponent, ModeBit, OneBased, PositionOp,
+    Align, BidiSupport, Col, Cols, Count, CursorAt, CursorCol, DeviceComponent, ModeBit, OneBased,
+    PositionOp,
 };
 
 use crate::paint::Paint;
@@ -140,6 +141,24 @@ impl Paint<'_, '_> {
     fn end_limit_wait_on_limit(&mut self) {
         let on = self.moved_from();
         self.set_col(CursorCol::moved(on));
+    }
+
+    /// **Before `CBT`: a wrap waiting at the limit, the last column or a
+    /// right margin ended on the column it waits on**, so the stops are
+    /// counted from the active position a report names, "the n-th
+    /// preceding character tabulation stop" (`[[source: ecma48]]` 8.3.7)
+    /// from it, as xterm's `TabPrev()` counts from the cursor column, which
+    /// stays there while the wrap waits (`[[source: xterm-tabs-c]]`
+    /// 132-179). A cursor placed one past the margin is a column and keeps
+    /// it. Out of line: `CBT` is rare.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn end_wait_before_back_tab(&mut self) {
+        self.end_limit_wait();
+        if let CursorAt::Pending(_) = self.cursor_at() {
+            let on = self.cx.reported(self.line_fence(), self.cols);
+            self.set_col(CursorCol::moved(on));
+        }
     }
 
     /// **Before a character of `need` columns is written while the line is

@@ -29,9 +29,11 @@
 //! ([`Paint::effector_ends_string`]). **An erase or edit of its line ends
 //! it too**, the decided rule's "and an erase or edit of the line", before
 //! it acts ([`EditRows`]; Jev's lean, LINE_REACHED, 0.83/0.94 on a second
-//! ask). A string that would move back past the line's start, the left
-//! margin under DECLRMM, or on past the line's end goes on as plain text
-//! (Jev's lean, AS_TEXT, 0.16/0.26 then 0.94/0.88).
+//! ask), and so does a resize that moves the cursor (Jev's lean,
+//! CURSOR_MOVED; `Term::resize_ends_string`). A string that would move
+//! back past the line's start, the left margin under DECLRMM, or on past
+//! the line's end goes on as plain text (Jev's lean, AS_TEXT, 0.16/0.26
+//! then 0.94/0.88).
 //!
 //! `HTS` and `CTC 0` set an ordinary stop where an aligned one was; `TBC`,
 //! `TSR` and `CTC` clear one as any stop; DECST8C, `RIS` and a restored
@@ -434,6 +436,28 @@ impl Paint<'_, '_> {
     }
 }
 
+impl crate::term::Term<'_> {
+    /// **A resize that moves the cursor ends an open string** (Jev's lean,
+    /// CURSOR_MOVED, split first, then 0.79/0.89): one that leaves it on
+    /// another row or column, by the width's clamp, rows retired above it
+    /// or its line re-cut, is a cursor movement under FORMAT_EFFECTOR, as
+    /// DEC's page-size controls move the active position only when it no
+    /// longer fits (`[[source: dec-std-070]]` DECSCPP p. 5-73, DECSLPP p.
+    /// 5-75), and DECSCPP's request is executed by the embedder's resize.
+    /// One that leaves the cursor where it was keeps the string's cells
+    /// where they were, since a re-cut keeps a line's order and the string
+    /// ends at the cursor on its row, so the string goes on.
+    pub(crate) fn resize_ends_string(&mut self, before: (Row, CursorCol)) {
+        if self.cold.modes.is_set(ModeBit::Aligning) && (self.cy, self.cx) != before {
+            self.store.strs.aligned.open = None;
+            self.store.strs.aligned.received = None;
+            self.cold.modes.apply(ModeBit::Aligning, false);
+            let routed = self.cold.modes.is_set(ModeBit::CursorPresented);
+            self.cold.modes.apply(ModeBit::CursorRouted, routed);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;
@@ -495,5 +519,48 @@ mod tests {
         .inspect(|home| std::eprintln!("open after {home:?}"))
         .count();
         assert_eq!(open, 0, "of 11");
+    }
+
+    /// Whether a string is open after `bytes` and a resize to `to`, on
+    /// storage with room for 8 by 40.
+    fn open_after_resize(bytes: &[u8], to: WinSize) -> [bool; 3] {
+        let big = WinSize {
+            ws_row: 8,
+            ws_col: 40,
+        };
+        let mut owned = Owned::new(&big);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        assert_eq!(t.resize(&to), crate::Resized::Ok);
+        [
+            t.store.strs.aligned.open.is_some(),
+            t.cold.modes.is_set(ModeBit::Aligning),
+            t.cold.modes.is_set(ModeBit::CursorRouted),
+        ]
+    }
+
+    /// **A resize that moves the cursor ends the string** (Jev's lean,
+    /// CURSOR_MOVED): the string on TALE's stop at 9, row 1 or row 4. A
+    /// narrowing to 6 columns re-cuts the line and to 8 clamps the cursor,
+    /// and a shortening to 2 rows retires the rows above the string's row
+    /// 4, each leaving the cursor elsewhere. No character written after
+    /// one shows it, since the next character is not where the string left
+    /// the cursor, so the string's state is read here. **A resize that
+    /// leaves the cursor where it was keeps it**, the controls: to the same
+    /// geometry, to 30 columns, and to 3 rows cut below the cursor on row 1.
+    #[test]
+    fn a_resize_that_moves_the_cursor_ends_the_string() {
+        let row1 = "\x1b[3g\x1b[9 a\tab";
+        let row4 = "\x1b[3g\x1b[9 a\x1b[4;1H\tab";
+        let to = |ws_row, ws_col| WinSize { ws_row, ws_col };
+        for (s, rows, cols) in [(row1, 4, 20), (row1, 4, 30), (row1, 3, 20), (row4, 4, 20)] {
+            let got = open_after_resize(s.as_bytes(), to(rows, cols));
+            assert_eq!(got, [true; 3], "{s:?} to {rows} by {cols}");
+        }
+        for (s, rows, cols) in [(row1, 4, 6), (row1, 4, 8), (row4, 2, 20), (row4, 4, 6)] {
+            let got = open_after_resize(s.as_bytes(), to(rows, cols));
+            assert_eq!(got, [false; 3], "{s:?} to {rows} by {cols}");
+        }
     }
 }
