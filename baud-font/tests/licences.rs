@@ -337,3 +337,75 @@ fn the_icon_sets_licences_travel_with_the_nerd_font() {
         wrong.join("\n  ")
     );
 }
+
+/// **A readout of a third-party font has a licence row.** The oracle scripts
+/// (`scripts/*-oracle.py`) write what HarfBuzz reads out of the test fonts
+/// into `var/*.txt`, one font per line in the first column. A readout of a
+/// third-party font is named by a `[[tree]]` row of
+/// `docs/research/third-party.toml`, or by LICENSE, which names the two
+/// outline files as an open question; one that is neither is third-party
+/// data nobody has classified.
+#[test]
+fn every_readout_of_a_third_party_font_has_a_licence_row() {
+    let root = root().canonicalize().unwrap();
+    let licence = fs::read_to_string(root.join("LICENSE")).expect("LICENSE");
+    let rows =
+        fs::read_to_string(root.join("docs/research/third-party.toml")).expect("third-party.toml");
+    let mut all = Vec::new();
+    fonts(&root.join("baud-font/tests"), &mut all);
+    let third: Vec<String> = all
+        .iter()
+        .filter(|p| !is_own(&rel(p)))
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    // The control: a walk that found no third-party font would pass.
+    assert!(third.len() >= 8, "only {} third-party fonts", third.len());
+
+    let var = root.join("baud-font/tests/var");
+    let mut readouts = Vec::new();
+    for e in fs::read_dir(&var).expect("var/").flatten() {
+        let p = e.path();
+        if p.extension().is_none_or(|x| x != "txt") {
+            continue;
+        }
+        let text = fs::read_to_string(&p).unwrap_or_default();
+        let reads = text
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| l.split_whitespace().next())
+            .filter_map(|f| f.rsplit('/').next())
+            .find(|f| third.iter().any(|t| t == f))
+            .map(str::to_string);
+        if let Some(font) = reads {
+            readouts.push((rel(&p), font));
+        }
+    }
+    readouts.sort();
+    // The control: advances, marks, normalize and the two outline files read
+    // third-party fonts; a parser that stopped matching would find none.
+    assert!(
+        readouts.len() >= 5,
+        "only {} readouts of third-party fonts: {readouts:?}",
+        readouts.len()
+    );
+
+    let quoted = |path: &str| format!("\"{path}\"");
+    let mut wrong = Vec::new();
+    for (path, font) in &readouts {
+        let row = rows
+            .lines()
+            .filter(|l| l.starts_with("paths"))
+            .any(|l| l.contains(&quoted(path)));
+        if !row && !licence.contains(path.as_str()) {
+            wrong.push(format!(
+                "{path} reads {font} and neither a third-party.toml row nor LICENSE names it"
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} readout(s) unclassified:\n  {}",
+        wrong.len(),
+        wrong.join("\n  ")
+    );
+}

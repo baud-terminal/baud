@@ -36253,3 +36253,48 @@ group  = "C"
 # 774 tests it for Shift+Insert, and its Shift+KP_Add font change is under "#if TODO".
 # rxvt.7.pod at the same commit is urxvt-rxvt7-5865a43 (the sha256 matches): "Pm = 35
 # (rxvt): h Allow XTerm Shift+key sequences".
+
+[sources.asciiquarium-1-1]
+key    = "asciiquarium-1-1"
+title  = "Asciiquarium 1.1 -- the script's header (Kirk Baucom's GPL-2.0-or-later notice, Joan Stark credited for 'most of the ASCII art'), its sprites and its README ('Pretty much all of the ASCII art was done by Joan Stark')"
+author = "Kirk Baucom; art by Joan Stark"
+year   = 2013
+venue  = "robobunny.com, the release tarball"
+url    = "https://robobunny.com/projects/asciiquarium/asciiquarium.tar.gz"
+file   = ""
+sha256 = "1b08c6613525e75e87546f4e8984ab3b33f1e922080268c749f1777d56c9d361"
+bytes  = 15436
+status = "external"
+group  = "C"
+# Read 2026-10-27 (lane b237), not copied: the header (lines 16-39), README's
+# Contributors section, and the sprites add_castle, add_fish, add_dolphins and
+# add_environment draw, whose lines tests/recordings/ascii/asciiquarium.raw carries.
+
+[sources.jgs-gallery-index]
+key    = "jgs-gallery-index"
+title  = "joan stark's ASCII Art Gallery, the front page -- 'COPYRIGHTED (c)1996-2001 Joan G. Stark ALL RIGHTS RESERVED LEAVE INITIALS ON ALL ASCII ART IMAGES'"
+author = "Joan G. Stark"
+year   = 2001
+venue  = "geocities.com/SoHo/7373, as the oocities.org mirror serves it"
+url    = "https://www.oocities.org/soho/7373/"
+file   = ""
+sha256 = "b47ad4e96bebad0d953ef41b4973328ec974b172e4bb9688b3db5c63f050b615"
+bytes  = 25975
+status = "external"
+group  = "C"
+# Fetched 2026-10-27 (lane b237) from the mirror because archive.org answered 429;
+# asciiquarium's header and README link the geocities address this mirrors.
+
+[sources.jgs-guidelines]
+key    = "jgs-guidelines"
+title  = "joan stark's ASCII Art Gallery -- Guidelines for Using this ASCII Art (Q1: 'for personal use only', initials kept; Q5: 'I don't allow others to financially profit from my work')"
+author = "Joan G. Stark"
+year   = 2001
+venue  = "geocities.com/SoHo/7373/please.htm, as the oocities.org mirror serves it"
+url    = "https://www.oocities.org/soho/7373/please.htm"
+file   = ""
+sha256 = "ec29dd514aac98c882ef366e1cd854e55a0ec7e0059e33ad04a5b88ca3deb21b"
+bytes  = 26407
+status = "external"
+group  = "C"
+# Fetched 2026-10-27 (lane b237); Q1-Q5 read. No grant beyond personal use is in it.

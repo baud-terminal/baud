@@ -9,7 +9,8 @@
 //! previewer's garbled image was never a decode fault -- it was a placement
 //! leak (`baud-core/tests/sixel.rs`).
 //!
-//! The fixture is `img2sixel`'s output for a 96x72 image; the reference is
+//! The fixture is `img2sixel`'s output for ImageMagick's
+//! `-size 96x72 gradient:red-blue -swirl 60`; the reference is
 //! that Sixel through `sixel2png` (libsixel 1.10.5), committed as raw 8-bit
 //! RGB beside it, so the gate needs no external tool at run time. Both come
 //! from libsixel, so this pins baud against libsixel's own encode/decode

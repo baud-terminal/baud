@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 333 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
-| unverified | 2 | 2 | licence not established; the owner's call |
+| no-grant | 333 | 1 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| unverified | 2 | 0 | licence not established; the owner's call |
 | open | 0 | 8 | an open question, recorded where the file is; the owner's call |
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 309 | 32 | redistributable, and its notice is satisfied |
-| own | 209 | 0 | the owner's work |
-| total | 870 | 42 | |
+| kept | 309 | 34 | redistributable, and its notice is satisfied |
+| own | 209 | 1 | the owner's work |
+| total | 870 | 44 | |
 
 ## Licence texts in LICENSES/
 
@@ -91,21 +91,13 @@ they were built from.
 
 ## In the tree outside docs/research/sources/
 
-### A recording of asciiquarium, which draws asciiquarium's sprite art; that art's licence has not been verified
+### A recording of asciiquarium 1.1's output, which draws its castle, fish, dolphins and waves with lines of the script's sprites verbatim. asciiquarium's README says "Pretty much all of the ASCII art was done by Joan Stark", and her published terms are "for personal use only" with her initials kept (no initials are in asciiquarium's art); no grant from her to redistribute it was found. asciiquarium's code is GPL-2.0-or-later (Kirk Baucom). LICENSE names the file as one it does not cover
 
-- **Status:** unverified -- licence not established; the owner's call
-- **Licence:** not verified
+- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
+- **Licence:** LicenseRef-NoGrant (Joan Stark's art); asciiquarium's code is GPL-2.0-or-later
 - **Notice:** none
-- **From:** https://robobunny.com/projects/asciiquarium/
+- **From:** https://robobunny.com/projects/asciiquarium/asciiquarium.tar.gz
 - **Files:** [tests/recordings/ascii/asciiquarium.raw](tests/recordings/ascii/asciiquarium.raw)
-
-### img2sixel's output for a 96x72 image whose source is not recorded
-
-- **Status:** unverified -- licence not established; the owner's call
-- **Licence:** not verified
-- **Notice:** none
-- **From:** unrecorded
-- **Files:** [tests/recordings/sixel/img2sixel-96x72.six](tests/recordings/sixel/img2sixel-96x72.six), [tests/recordings/sixel/img2sixel-96x72.oracle-rgb](tests/recordings/sixel/img2sixel-96x72.oracle-rgb)
 
 ### baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as the owner's open call
 
@@ -234,6 +226,14 @@ they were built from.
 - **Notice:** [baud-font/tests/var/bake/JetBrainsMono-LICENSE.txt](baud-font/tests/var/bake/JetBrainsMono-LICENSE.txt)
 - **From:** https://github.com/JetBrains/JetBrainsMono/tree/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/fonts/variable
 - **Files:** [baud-font/tests/var/bake/JetBrainsMono-Variable-400.ttf](baud-font/tests/var/bake/JetBrainsMono-Variable-400.ttf), [baud-font/tests/var/bake/JetBrainsMono-Variable-700.ttf](baud-font/tests/var/bake/JetBrainsMono-Variable-700.ttf), [baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-400.ttf](baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-400.ttf), [baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-700.ttf](baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-700.ttf)
+
+### HarfBuzz 12.3.0's measurements of JetBrains Mono's and Fira Code's variable fonts, the oracle baud-font's variation and mark code is tested against: advances.txt (a glyph's advance at an axis setting, scripts/advance-oracle.py), marks.txt (a mark's offsets and advance after its base, scripts/marks-oracle.py) and normalize.txt (an axis value normalised through avar, scripts/var-oracle.py). Numbers computed from the fonts' metric and positioning tables, not glyph data or a file the fonts' authors released, so OFL condition 5 does not reach them; the fonts themselves are under the OFL beside their licences. The glyph outlines in outlines.txt and cff2-outlines.txt are a separate open question that LICENSE records
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** none claimed; the fonts measured are OFL-1.1
+- **Notice:** none needed
+- **From:** https://github.com/harfbuzz/harfbuzz/releases/tag/12.3.0, run on baud-font/tests/fonts/
+- **Files:** [baud-font/tests/var/advances.txt](baud-font/tests/var/advances.txt), [baud-font/tests/var/marks.txt](baud-font/tests/var/marks.txt), [baud-font/tests/var/normalize.txt](baud-font/tests/var/normalize.txt)
 
 ### A subset of Noto Color Emoji (scripts/gen-cbdt-fixture.py), a Modified Version
 
@@ -426,6 +426,22 @@ they were built from.
 - **Notice:** [LICENSES/ijg-README.txt](LICENSES/ijg-README.txt)
 - **From:** https://www.ijg.org/files/jpegsrc.v6b.tar.gz
 - **Files:** [baud-domain/src/jpeg.rs](baud-domain/src/jpeg.rs)
+
+### The readline click in readline.rs: boundary(), the column a click names, is xterm's eventColBetween formula, and point_move(), the cursor keys it sends, is ReadLineMovePoint's count over rowOnCurrentLine's wrapped rows (button.c, xterm patch #411), re-expressed; xterm's documentation gives neither. The paste's body() and quoted() follow the documented ctlseqs text, not this code
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** X11
+- **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
+- **From:** https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/button.c
+- **Files:** [baud-app/src/readline.rs](baud-app/src/readline.rs)
+
+### img2sixel's encoding of ImageMagick's built-in red-to-blue gradient, swirled, and sixel2png's decode of it as raw RGB, made in baud's development by 'magick -size 96x72 gradient:red-blue -swirl 60 -rotate 0', libsixel 1.10.5's img2sixel and sixel2png; re-made byte for byte with ImageMagick 7.1.2-31 on 2026-10-27. No third party's picture is in it
+
+- **Status:** own -- the owner's work
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** generated: magick -size 96x72 gradient:red-blue -swirl 60 -rotate 0, then img2sixel and sixel2png
+- **Files:** [tests/recordings/sixel/img2sixel-96x72.six](tests/recordings/sixel/img2sixel-96x72.six), [tests/recordings/sixel/img2sixel-96x72.oracle-rgb](tests/recordings/sixel/img2sixel-96x72.oracle-rgb)
 
 ## docs/research/sources/
 

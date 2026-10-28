@@ -89,6 +89,15 @@ Images the tests read:
       baud's own, made as the README in each records, and are under this
       licence.
 
+Recordings the benchmarks and tests read:
+
+  tests/recordings/ascii/asciiquarium.raw
+      A capture of asciiquarium 1.1's output, which draws ASCII art that
+      asciiquarium's README credits to Joan Stark, whose published terms
+      allow personal use only. No grant to redistribute it was found, and
+      this licence does not cover it. asciiquarium's code is GPL-2.0 or
+      later; THIRD_PARTY.md records the file.
+
 Fonts the tests read:
 
   baud-font/tests/fonts/BungeeTint-Regular.ttf
@@ -132,7 +141,9 @@ Other projects' code:
   and Xcms notices and The Open Group's; LICENSES/libx11-xcms.txt); and
   the Compose reader in baud-xkb/src/compose.rs, from libxkbcommon's
   Compose parser and state machine (MIT and HPND-sell-variant;
-  LICENSES/libxkbcommon-LICENSE.txt); and the inverse DCT, the
+  LICENSES/libxkbcommon-LICENSE.txt); the readline click's column and
+  cursor-key count in baud-app/src/readline.rs, from xterm's button.c
+  (X11; LICENSES/xterm-COPYING.txt); and the inverse DCT, the
   triangle upsampling and the YCbCr conversion in
   baud-domain/src/jpeg.rs, the arithmetic of the Independent JPEG
   Group's libjpeg 6b (the IJG's terms; LICENSES/ijg-README.txt). This

@@ -2118,6 +2118,14 @@ upstream = "https://github.com/JetBrains/JetBrainsMono/tree/cd5227bd1f61dff3bbd6
 status   = "kept"
 
 [[tree]]
+what     = "HarfBuzz 12.3.0's measurements of JetBrains Mono's and Fira Code's variable fonts, the oracle baud-font's variation and mark code is tested against: advances.txt (a glyph's advance at an axis setting, scripts/advance-oracle.py), marks.txt (a mark's offsets and advance after its base, scripts/marks-oracle.py) and normalize.txt (an axis value normalised through avar, scripts/var-oracle.py). Numbers computed from the fonts' metric and positioning tables, not glyph data or a file the fonts' authors released, so OFL condition 5 does not reach them; the fonts themselves are under the OFL beside their licences. The glyph outlines in outlines.txt and cff2-outlines.txt are a separate open question that LICENSE records"
+paths    = ["baud-font/tests/var/advances.txt", "baud-font/tests/var/marks.txt", "baud-font/tests/var/normalize.txt"]
+licence  = "none claimed; the fonts measured are OFL-1.1"
+notice   = "none needed"
+upstream = "https://github.com/harfbuzz/harfbuzz/releases/tag/12.3.0, run on baud-font/tests/fonts/"
+status   = "kept"
+
+[[tree]]
 what     = "A subset of Noto Color Emoji (scripts/gen-cbdt-fixture.py), a Modified Version"
 paths    = ["baud-font/tests/fonts/NotoColorEmoji-subset.ttf"]
 licence  = "OFL-1.1"
@@ -2334,20 +2342,20 @@ upstream = "https://github.com/googlefonts/noto-emoji/tree/v2.051/fonts, https:/
 status   = "kept"
 
 [[tree]]
-what     = "A recording of asciiquarium, which draws asciiquarium's sprite art; that art's licence has not been verified"
+what     = "A recording of asciiquarium 1.1's output, which draws its castle, fish, dolphins and waves with lines of the script's sprites verbatim. asciiquarium's README says \"Pretty much all of the ASCII art was done by Joan Stark\", and her published terms are \"for personal use only\" with her initials kept (no initials are in asciiquarium's art); no grant from her to redistribute it was found. asciiquarium's code is GPL-2.0-or-later (Kirk Baucom). LICENSE names the file as one it does not cover"
 paths    = ["tests/recordings/ascii/asciiquarium.raw"]
-licence  = "not verified"
+licence  = "LicenseRef-NoGrant (Joan Stark's art); asciiquarium's code is GPL-2.0-or-later"
 notice   = "none"
-upstream = "https://robobunny.com/projects/asciiquarium/"
-status   = "unverified"
+upstream = "https://robobunny.com/projects/asciiquarium/asciiquarium.tar.gz"
+status   = "no-grant"
 
 [[tree]]
-what     = "img2sixel's output for a 96x72 image whose source is not recorded"
+what     = "img2sixel's encoding of ImageMagick's built-in red-to-blue gradient, swirled, and sixel2png's decode of it as raw RGB, made in baud's development by 'magick -size 96x72 gradient:red-blue -swirl 60 -rotate 0', libsixel 1.10.5's img2sixel and sixel2png; re-made byte for byte with ImageMagick 7.1.2-31 on 2026-10-27. No third party's picture is in it"
 paths    = ["tests/recordings/sixel/img2sixel-96x72.six", "tests/recordings/sixel/img2sixel-96x72.oracle-rgb"]
-licence  = "not verified"
-notice   = "none"
-upstream = "unrecorded"
-status   = "unverified"
+licence  = "CC-BY-NC-SA-4.0"
+notice   = "LICENSE"
+upstream = "generated: magick -size 96x72 gradient:red-blue -swirl 60 -rotate 0, then img2sixel and sixel2png"
+status   = "own"
 
 [[tree]]
 what     = "The Independent JPEG Group's test images from release 6b, unmodified: testorig.jpg, testprog.jpg and testimg.ppm, the reference decode of both"
@@ -2363,4 +2371,12 @@ paths    = ["baud-domain/src/jpeg.rs"]
 licence  = "IJG"
 notice   = "LICENSES/ijg-README.txt"
 upstream = "https://www.ijg.org/files/jpegsrc.v6b.tar.gz"
+status   = "kept"
+
+[[tree]]
+what     = "The readline click in readline.rs: boundary(), the column a click names, is xterm's eventColBetween formula, and point_move(), the cursor keys it sends, is ReadLineMovePoint's count over rowOnCurrentLine's wrapped rows (button.c, xterm patch #411), re-expressed; xterm's documentation gives neither. The paste's body() and quoted() follow the documented ctlseqs text, not this code"
+paths    = ["baud-app/src/readline.rs"]
+licence  = "X11"
+notice   = "LICENSES/xterm-COPYING.txt"
+upstream = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/button.c"
 status   = "kept"

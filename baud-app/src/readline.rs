@@ -4,6 +4,10 @@
 //! kept. And `OSC 133`'s click at a prompt: `cl=`'s keys and kitty's
 //! `click_events=` report. Pure, so the tests run on every platform. Both
 //! drivers call the click's and the paste's (`paste.rs`).
+//!
+//! [`boundary`] and [`point_move`] are xterm's arithmetic, from `button.c`
+//! (`[[source: xterm-button]]`), which xterm's documentation does not give;
+//! they keep xterm's X11 notice, in `LICENSES/xterm-COPYING.txt`.
 
 use baud_core::{ClickEvents, Col, Cols, ImagePx, PackedCell, Row, Rows, Wrap};
 
