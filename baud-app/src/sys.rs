@@ -828,6 +828,23 @@ pub const MAP_ANON: c_int = 0x1000;
 #[cfg(target_os = "linux")]
 pub const MADV_DONTNEED: c_int = 4;
 
+/// `prctl`'s option that turns transparent huge pages off, inherited
+/// across `fork` and kept across `execve`
+/// (`[[source: linux-pr-set-thp-disable-2const]]`). The man page says it
+/// sets the flag for the calling thread; the kernel sets it on the
+/// thread's memory map, the whole address space
+/// (`[[source: linux-sys-c-v6-8]]` 2620-2630), so it holds for every
+/// thread of the process. It is what the page tests'
+/// measuring child sets (`pages.rs`), so a 2 MB page the kernel commits
+/// whole is not read as a page baud kept.
+#[cfg(all(test, target_os = "linux"))]
+pub const PR_SET_THP_DISABLE: c_int = 41;
+
+#[cfg(all(test, target_os = "linux"))]
+unsafe extern "C" {
+    pub fn prctl(option: c_int, ...) -> c_int;
+}
+
 /// A Mach port name, as `mach_task_self` answers it: a `natural_t`.
 #[cfg(all(test, target_os = "macos"))]
 pub type MachPort = c_uint;
@@ -1132,6 +1149,7 @@ mod tests {
 #else
 #include <locale.h>
 #include <sys/inotify.h>
+#include <sys/prctl.h>
 #endif
 int main(void) {
     printf("winsize.size=%zu\n", sizeof(struct winsize));
@@ -1302,6 +1320,7 @@ int main(void) {
     printf("NAME_MAX=%lld\n", (long long)NAME_MAX);
     printf("O_PATH=%lld\n", (long long)O_PATH);
     printf("MADV_DONTNEED=%lld\n", (long long)MADV_DONTNEED);
+    printf("PR_SET_THP_DISABLE=%lld\n", (long long)PR_SET_THP_DISABLE);
     printf("IN_NONBLOCK=%lld\n", (long long)IN_NONBLOCK);
     printf("IN_CLOEXEC=%lld\n", (long long)IN_CLOEXEC);
     printf("IN_MODIFY=%lld\n", (long long)IN_MODIFY);
@@ -1573,6 +1592,7 @@ int main(void) {
             assert_eq!(h["IN_DELETE"], i128::from(IN_DELETE));
             assert_eq!(h["IN_DELETE_SELF"], i128::from(IN_DELETE_SELF));
             assert_eq!(h["IN_MOVE_SELF"], i128::from(IN_MOVE_SELF));
+            assert_eq!(h["PR_SET_THP_DISABLE"], i128::from(PR_SET_THP_DISABLE));
         }
     }
 }

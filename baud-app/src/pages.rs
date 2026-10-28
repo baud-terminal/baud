@@ -639,6 +639,44 @@ mod tests {
         }
     }
 
+    /// **Transparent huge pages off in the measuring child**, so what it
+    /// reads is what baud writes and gives back. Where the system's
+    /// setting is `always` (`[[source: linux-transhuge-rst]]`), the first
+    /// write into a 2 MB-aligned extent of the arena commits the whole 2
+    /// MB; the release gives back the 4 KiB pages wholly inside a freed
+    /// span and splits it, and the rest of the last huge page, past the
+    /// picture, which nothing wrote, stays committed for the next picture
+    /// to reuse. In an aarch64 colima VM set to `always`, the first cycle
+    /// read up to 2.34 MB over idle across 50 runs of each child (2.07 MB
+    /// for the refused Sixel, over the 2 MB margin), moving with where the
+    /// arena landed, and the cycles after it returned within 4 KB. With
+    /// the flag (`[[source: linux-pr-set-thp-disable-2const]]`) set before
+    /// the child started, or the VM at its default `madvise`, every cycle
+    /// read 0 to 4 KB, and with this call every page test passed 70 runs
+    /// of 70 under `always`. The man page says the flag is the calling
+    /// thread's; the kernel sets it on the thread's memory map
+    /// (`[[source: linux-sys-c-v6-8]]` 2620-2630), so it covers the whole
+    /// process. It is the control the kernel's text names beside the
+    /// system setting, and macOS has no such pages.
+    fn no_huge_pages() {
+        #[cfg(target_os = "linux")]
+        {
+            use crate::sys::{PR_SET_THP_DISABLE, prctl};
+            // SAFETY: the option takes a `long` flag and three zero
+            // `long`s, and only sets this process's memory map's flag.
+            let done = unsafe {
+                prctl(
+                    PR_SET_THP_DISABLE,
+                    core::ffi::c_long::from(1u8),
+                    core::ffi::c_long::from(0u8),
+                    core::ffi::c_long::from(0u8),
+                    core::ffi::c_long::from(0u8),
+                )
+            };
+            assert_eq!(done, 0, "PR_SET_THP_DISABLE");
+        }
+    }
+
     /// A green Sixel `w` x `h` with its raster given.
     fn green_sixel(w: ImagePx, h: ImagePx) -> Vec<u8> {
         let (w, h) = (w.raw(), h.raw());
@@ -663,6 +701,7 @@ mod tests {
         let Ok(kind) = std::env::var(CHILD) else {
             return;
         };
+        no_huge_pages();
         let ws = WinSize {
             ws_row: 150,
             ws_col: 400,

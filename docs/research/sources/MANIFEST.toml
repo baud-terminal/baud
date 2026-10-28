@@ -2236,6 +2236,70 @@ group  = "E"
 # because of a kernel-internal scalability optimization. If accurate values
 # are required, use /proc/pid/smaps or /proc/pid/smaps_rollup instead".
 
+# Transparent huge pages, which commit a whole 2 MB page on a first write
+# where the system's setting is `always`: the page-release tests in
+# `baud-app` `pages.rs` turn them off in the child that measures.
+[sources.linux-pr-set-thp-disable-2const]
+key    = "linux-pr-set-thp-disable-2const"
+title  = "Linux man-pages 6.9.1, PR_SET_THP_DISABLE(2const)"
+author = "Michael Kerrisk, Alejandro Colomar and the man-pages contributors"
+year   = 2024
+venue  = "The Linux man-pages project"
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man2const/PR_SET_THP_DISABLE.2const?h=man-pages-6.9.1"
+file   = ""
+sha256 = "15ac088f6396c8992f74a987080d119c04b47a3fc4aa8422fabc1cae8de69149"
+bytes  = 1357
+status = "external"
+group  = "E"
+# Read and hash-verified; not committed (Linux-man-pages-copyleft). Lines
+# 27-36: "Setting this flag provides a method for disabling transparent
+# huge pages for jobs where the code cannot be modified ... The setting of
+# the "THP disable" flag is inherited by a child created via fork(2) and is
+# preserved across execve(2)." Line 19: "int prctl(PR_SET_THP_DISABLE, long
+# flag, 0L, 0L, 0L);". Linux 3.15.
+
+[sources.linux-sys-c-v6-8]
+key    = "linux-sys-c-v6-8"
+title  = "Linux v6.8, kernel/sys.c -- prctl's PR_SET_THP_DISABLE, which sets MMF_DISABLE_THP on the memory map"
+author = "The Linux kernel developers"
+year   = 2024
+venue  = "The Linux kernel source tree"
+url    = "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/kernel/sys.c?h=v6.8"
+file   = ""
+sha256 = "a5dbbc30a1dc3cc545e72fe6652435d9923b6fa15293911b02d4fc5591481b87"
+bytes  = 70305
+status = "external"
+group  = "E"
+# Read and hash-verified; not committed (GPL-2.0). Lines 2620-2630, the
+# `PR_SET_THP_DISABLE` case of `prctl`: "if (arg2) set_bit(MMF_DISABLE_THP,
+# &me->mm->flags); else clear_bit(MMF_DISABLE_THP, &me->mm->flags);" under
+# `mmap_write_lock_killable(me->mm)`. The flag lives on the `mm`, which
+# every thread of a process shares, though the man page
+# (`[[source: linux-pr-set-thp-disable-2const]]` lines 10 and 22) says
+# "the calling thread".
+
+[sources.linux-transhuge-rst]
+key    = "linux-transhuge-rst"
+title  = "Linux v6.8, Documentation/admin-guide/mm/transhuge.rst"
+author = "The Linux kernel developers"
+year   = 2024
+venue  = "The Linux kernel source tree"
+url    = "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/Documentation/admin-guide/mm/transhuge.rst?h=v6.8"
+file   = ""
+sha256 = "736daa18a27c995b7c4b39b5b1e9b862e1eaeb512f45861b08d31a876e3796e4"
+bytes  = 19289
+status = "external"
+group  = "E"
+# Read and hash-verified; not committed (GPL-2.0). Lines 63-69: "THP can be
+# enabled system wide or restricted to certain tasks or even memory ranges
+# inside task's address space. Unless THP is completely disabled, there is
+# khugepaged daemon that scans memory and collapses sequences of basic pages
+# into PMD-sized huge pages. The THP behaviour is controlled via sysfs
+# interface and using madvise(2) and prctl(2) system calls." Lines 138-140:
+# the `always`, `madvise` and `never` settings. Lines 259-263:
+# max_ptes_none, "how many extra small pages (that are not already mapped)
+# can be allocated when collapsing".
+
 [sources.darwin-mmap-2]
 key    = "darwin-mmap-2"
 title  = "XNU xnu-12377.121.6, bsd/man/man2/mmap.2 -- MAP_FIXED, RETURN VALUES and ERRORS"
