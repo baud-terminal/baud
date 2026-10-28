@@ -2,7 +2,7 @@
 # baud-domain/tests/xtgettcap_d1.rs. Build and run, from the copy's root:
 #   cargo build --offline --tests -p baud-domain --test xtgettcap_d1   (dev profile, unoptimised: 11.2 s cold)
 #   cargo test --offline -p baud-domain --test xtgettcap_d1 -- --nocapture
-# Apple M5 Max (Mac17,6), on AC power. The test runs on one thread. Three runs, lines below
+# Apple M5 Max, on AC power. The test runs on one thread. Three runs, lines below
 # unedited apart from this header:
 D1: 190 rows x 98304 states = 18677760 encodes, longest 10 B, 3.17 s on one thread
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.17s

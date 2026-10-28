@@ -11406,7 +11406,7 @@ fn a_table_row_keeps_its_columns_on_every_arm() {
     ];
     let rows = [
         "\u{2502} Name          \u{2502} Size \u{2502} Owner \u{2502}",
-        "\u{2502} notes.txt     \u{2502} 42   \u{2502} ido   \u{2502}",
+        "\u{2502} notes.txt     \u{2502} 42   \u{2502} dev   \u{2502}",
         "\u{2502} \u{5DE}\u{5E1}\u{5DE}\u{5DA}.txt      \u{2502} 812  \u{2502} \u{5D3}\u{5E0}\u{5D4}   \u{2502}",
     ];
     let visual = "\u{2502}      txt.\u{5DA}\u{5DE}\u{5E1}\u{5DE} \u{2502} 812  \u{2502}   \u{5D4}\u{5E0}\u{5D3} \u{2502}";
