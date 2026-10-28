@@ -472,6 +472,16 @@ each manifest to the fields crates.io shows, each dependency on a workspace
 crate to a version beside its path, and each crate's files to the licence
 notices they need. Never run `cargo publish` by hand.
 
+**Nothing ships a file whose row is not settled.** A row of
+`docs/research/third-party.toml` whose status is `open`, `unverified`,
+`no-grant` or `copyleft` may cover a file in the repository, and
+`check-publish.py` prints each one a published crate would carry. The
+Release job runs it with `--release`, where the check exits 2 when any is
+listed, before anything is uploaded, so a release waits until each is
+answered. An `nc` row is not refused: CC BY-NC-SA 3.0 allows the verbatim
+copy it is kept as. A third-party file with no row is not seen by this
+check.
+
 **A release is a merged Release PR, and only once the repository is
 public.** On master, release-plz (`release-plz.toml`) keeps a Release PR
 open that raises the version and writes `CHANGELOG.md`. Merging it

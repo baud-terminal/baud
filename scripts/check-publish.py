@@ -6,6 +6,11 @@
                                                 `cargo package --no-verify`
     python3 scripts/check-publish.py --verify   and each crate built from its
                                                 own .crate, against the others'
+    python3 scripts/check-publish.py --release  and no published crate ships a
+                                                file whose licence is not settled
+
+Exit 0 when everything passes, 1 on any FAIL, and 2 under --release when the
+only thing left is a row awaiting the owner.
 
 `cargo install baud` builds the `baud` package and every crate it depends on,
 so each of those is published and nothing else is. The checks, each of which
@@ -25,6 +30,12 @@ has to be able to fail:
     `docs/research/third-party.toml` entry with a file in the list, a notice
     in LICENSES/ must be in the crate's own LICENSES/, byte for byte the
     root's, and a notice that is another file must be in the list;
+  - no published crate ships a file of a `docs/research/third-party.toml`
+    entry whose status is one of UNSETTLED: without --release each is
+    printed and the check still passes, since what is missing is a
+    decision, not a change to the tree; with --release (the Release job,
+    before anything is uploaded) each one refuses the release. A file with
+    no entry at all is not seen here;
   - with --size or --verify, every .crate is under crates.io's 10 MiB
     upload limit;
   - with --verify, every crate builds from its .crate alone, as `cargo
@@ -48,6 +59,13 @@ ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 SIDECAR = "docs/research/third-party.toml"
 LICENCE = "CC-BY-NC-SA-4.0"
 UNPUBLISHED = {"baud-bench", "baud-difftest", "baud-sfte-difftest"}
+# Statuses that say the licence of a file is not settled. A file under one
+# of these may sit in the repository, and must not go out in a published
+# crate: a crates.io version cannot be taken back. `copyleft` is one,
+# since keeping such a file or making it external is a choice still open;
+# `nc` is not, since CC BY-NC-SA 3.0 allows the verbatim copy it is kept
+# as.
+UNSETTLED = {"open", "unverified", "no-grant", "copyleft"}
 # crates.io's limit on an upload, in bytes.
 LIMIT = 10 * 1024 * 1024
 # The crates.io category slugs these manifests use, as
@@ -137,13 +155,15 @@ def is_path(notice):
 
 
 def check(size, verify):
-    errs = []
+    """(errors, awaiting): what fails the check, and the shipped files whose
+    rows await the owner."""
+    errs, awaiting = [], []
     ws = load("Cargo.toml")
     version = ws["workspace"]["package"]["version"]
     wdeps = ws["workspace"].get("dependencies", {})
     mem = members(ws)
     if "baud" not in mem:
-        return ["no workspace member is named `baud`: `cargo install baud` would find nothing"]
+        return ["no workspace member is named `baud`: `cargo install baud` would find nothing"], []
     want = closure("baud", mem)
     published = {n for n, (_, m) in mem.items() if m["package"].get("publish", True) is not False}
     if published != want:
@@ -188,9 +208,9 @@ def check(size, verify):
                 )
 
     side = load(SIDECAR)
-    entries = [(f"[[tree]] {t['what'][:50]}", t["paths"], t["notice"]) for t in side["tree"]]
+    entries = [(f"[[tree]] {t['what'][:50]}", t["paths"], t["notice"], t["status"]) for t in side["tree"]]
     entries += [
-        (f"upstream {g}", [f"docs/research/sources/{f}" for f in e["files"]], e["notice"])
+        (f"upstream {g}", [f"docs/research/sources/{f}" for f in e["files"]], e["notice"], e["status"])
         for g, e in side["upstream"].items()
     ]
     for n in sorted(want):
@@ -209,8 +229,10 @@ def check(size, verify):
             if os.path.islink(os.path.join(ROOT, d, f)) and (r.startswith("..") or not os.path.isfile(os.path.join(ROOT, r))):
                 errs.append(f"{n}: {f} links to {r}, which is not a file in the repository")
             src.setdefault(r, f)
-        for what, paths, notice in entries:
+        for what, paths, notice, status in entries:
             hit = [p for p in paths if p in src]
+            if hit and status in UNSETTLED:
+                awaiting.append(f"{n}: ships {', '.join(src[p] for p in hit)} ({what}...), status {status}")
             if not hit or not is_path(notice):
                 continue
             if notice.startswith("LICENSES/"):
@@ -238,15 +260,25 @@ def check(size, verify):
                 if b > LIMIT:
                     errs.append(f"{n}: {b} bytes, over crates.io's {LIMIT}")
     if not errs:
-        print(f"ok: {len(want)} crates to publish, {len(set(mem) - want)} not")
-    return errs
+        print(f"checked: {len(want)} crates to publish, {len(set(mem) - want)} not")
+    return errs, awaiting
 
 
 def main():
-    errs = check("--size" in sys.argv[1:], "--verify" in sys.argv[1:])
+    args = sys.argv[1:]
+    release = "--release" in args
+    errs, awaiting = check("--size" in args, "--verify" in args)
     for e in errs:
         print(f"FAIL {e}")
-    sys.exit(1 if errs else 0)
+    for a in awaiting:
+        print(f"{'REFUSED' if release else 'awaiting the owner'}: {a}")
+    if errs:
+        sys.exit(1)
+    if awaiting and release:
+        print(f"not releasable: {len(awaiting)} shipped files' licences await the owner")
+        sys.exit(2)
+    print("ok")
+    sys.exit(0)
 
 
 if __name__ == "__main__":

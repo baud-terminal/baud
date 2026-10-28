@@ -305,6 +305,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-04-11
+      # Nothing is uploaded while a published crate ships a file whose row
+      # in docs/research/third-party.toml is open, unverified, no-grant or
+      # copyleft: `--release` exits 2 on one, and a crates.io version cannot be
+      # taken back. It runs here as well as in Lint/UT, which skips the
+      # release commit.
+      - name: Every shipped file's licence row is settled
+        run: python3 scripts/check-publish.py --release
       - uses: release-plz/action@v0.5.131
         id: release-plz
         with:
@@ -328,7 +335,10 @@ jobs:
     timeout-minutes: 20
     # Requires Release to have SUCCEEDED: a failed publish leaves no new tag,
     # which would re-trigger the same redundant-PR loop. On an ordinary feature
-    # merge Release succeeds as a no-op, so this never blocks the first PR.
+    # merge Release succeeds as a no-op, unless check-publish.py --release
+    # refuses a shipped file whose licence row is open, unverified, no-grant
+    # or copyleft: then Release fails and no Release PR opens until each row
+    # is settled.
     if: |
       !cancelled() &&
       github.event.repository.private == false &&
