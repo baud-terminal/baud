@@ -847,17 +847,22 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// (`docs/record.md`, "With `DECAWM` reset the character just written is
     /// under the cursor").
     ///
-    /// **Right of the fence the last column is the screen's**, for a write
+    /// **Right of the fence the last column is the line's**, for a write
     /// that started there: `[[source: dec-std-070]]` p. 5-139, "the Active
     /// Position will not advance beyond the Right Margin or last column of
     /// the Active Line", the right margin only from at or inside it (p.
-    /// 5-140). `cx` is still where the write started.
+    /// 5-140), and on a double line that column is its half's, as xterm's
+    /// last column is `LineMaxCol` (`[[source: xterm-reset]]`, charproc.c
+    /// 7049-7058; `[[source: xterm-ptyx-h]]` 1701-1704). The screen's
+    /// left a write past SLL's limit there right of the half's sentinel,
+    /// until a read beginning on the status line pulled it back. `cx` is
+    /// still where the write started.
     #[cold]
     #[inline(never)]
     fn pin(&mut self, to: Col) -> CursorCol {
         self.refresh_fence();
         let right = match self.cx.raw() > self.cold.fence {
-            true => Col::at_index(self.cols.index() - 1),
+            true => Col::at_index(self.line_cols().index() - 1),
             false => self.cold.fence,
         };
         self.cold.pinned = match to > right {
@@ -2439,7 +2444,9 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// before anything moves**, as 070-7 § 7.3.7 prints "the active line";
     /// then `CR` first: `[[source: dec-std-070]]` LF's algorithm (p. 5-60)
     /// calls `carriage_return()` before it moves, so the line it leaves
-    /// decides where the next one starts under the margins.
+    /// decides where the next one starts under the margins, and SLH's home
+    /// is the following line's, as `NEL`'s is (`[[source: ecma48]]`
+    /// 8.3.86).
     #[cold]
     #[inline(never)]
     fn line_feed_moded(&mut self, by: Feed) {
@@ -2458,8 +2465,9 @@ impl<'a, 'b> Paint<'a, 'b> {
                 self.autoprint(end);
             }
         }
-        if self.cold.modes.is_set(ModeBit::LineFeedNewLine) {
-            self.carriage_return();
+        let lnm = self.cold.modes.is_set(ModeBit::LineFeedNewLine);
+        if lnm {
+            self.return_before_feed();
         }
         // **Under DCSM's PRESENTATION** the cursor keeps its presentation
         // position on the line it reaches (`crate::component`).
@@ -2471,6 +2479,9 @@ impl<'a, 'b> Paint<'a, 'b> {
             false => {
                 self.index();
             }
+        }
+        if lnm {
+            self.fed_onto_line();
         }
         self.keep_presented(kept);
     }

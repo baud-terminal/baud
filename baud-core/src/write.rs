@@ -2852,11 +2852,14 @@ fn esc_final(
         // `[[source: dec-std-070]]` NEL, p. 5-64, "If the Active Position is
         // before the left margin, or outside the top and bottom margins, it
         // will move to the first column of the next line", and its algorithm
-        // is `carriage_return(); line_feed();`.
+        // is `carriage_return(); line_feed();`. **SLH's home is the
+        // following line's** (`[[source: ecma48]]` 8.3.86), bounded by the
+        // line the feed reaches.
         Esc::NextLine => {
-            p.carriage_return();
+            p.return_before_feed();
             let kept = p.presented_col();
             p.index_bringing_in();
+            p.fed_onto_line();
             p.keep_presented(kept);
         }
         // Format effectors (8.2.4), which end an aligned string.

@@ -2148,6 +2148,82 @@ fn the_second_limit_hpr_and_cht_atoms_reach_the_cursor() {
     assert_eq!(run(&["cht"]).1, Col::at_index(8));
 }
 
+/// **With DECAWM reset, a write past the line limit on a double line pins
+/// to the half's last column**: a wide character, `\u{e9}` under the
+/// wide policy, written on it from past SLL's limit put the cursor one
+/// column right of the half's sentinel in one read, and a read beginning
+/// on the status line pulled it back, so the atoms one at a time read 9
+/// where the one read read 11. Found at 200,000 cases.
+#[test]
+fn a_write_pinned_past_the_limit_on_a_double_line_agrees_atom_by_atom() {
+    let prog: Vec<usize> = [
+        "status-host-on",
+        "decawm-reset",
+        "decdwl",
+        "esc-inter-introducer",
+        "csi-entry-lead",
+        "hpr",
+        "ascii",
+        "sll-near",
+        "latin1x3",
+        "latin1-enter",
+    ]
+    .iter()
+    .map(|n| atom(n))
+    .collect();
+    let w = AmbiguousWidth::Wide;
+    let one = drive_at(&bytes_of(&prog), 4096, w);
+    assert_eq!(one.7.2.as_ref().map(|l| l.1), Some(Some(Col::at_index(9))));
+    assert_eq!(one, drive_atomwise(&prog, w));
+}
+
+/// **A second program the same pin closes**, found at 200,000 cases on
+/// the base: the one read left the status line's cursor a column right
+/// of where the atoms one at a time left it, under either policy.
+#[test]
+fn a_wide_run_past_the_limit_on_a_double_status_line_agrees_atom_by_atom() {
+    let prog: Vec<usize> = [
+        "decawm-reset",
+        "decdhl-bottom",
+        "apc-bel",
+        "ppa",
+        "srs-begin",
+        "erm-el",
+        "wide-three",
+        "sll-near",
+        "status-none",
+        "decdhl-top",
+        "dcsm-data",
+        "decsel-list",
+        "decrsps-cir",
+        "decom-reset",
+        "g3-graphics",
+        "decdhl-bottom",
+        "status-host-on",
+        "hpa",
+        "decdwl",
+        "cuf",
+        "htj",
+        "dcs-bel",
+        "wide-three",
+        "tbc",
+        "sds-end",
+        "wide-three",
+        "decawm-set",
+        "ascii-short",
+        "decswl",
+    ]
+    .iter()
+    .map(|n| atom(n))
+    .collect();
+    for w in [AmbiguousWidth::Narrow, AmbiguousWidth::Wide] {
+        assert_eq!(
+            drive_at(&bytes_of(&prog), 4096, w),
+            drive_atomwise(&prog, w)
+        );
+    }
+}
+
 /// **The SEE atoms reach the extent**: under the page an `ICH` at the
 /// start of a full first row pushes its last character onto the second.
 #[test]

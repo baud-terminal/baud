@@ -269,15 +269,48 @@ impl Paint<'_, '_> {
         limited(own, self.cold, self.cols)
     }
 
-    /// **The column `CR`, `NEL`, `IL` and `DL` take**: `dec`, the line start
+    /// **The column `CR`, `IL` and `DL` take**: `dec`, the line start
     /// DEC's margins give, moved on to the line home once SLH has set one,
-    /// as the inner of the two; under DECRLM DEC's alone.
+    /// as the inner of the two; under DECRLM DEC's alone. **A home past the
+    /// line is its last column**, as SLH sets one past the screen, and on
+    /// a double line that is its half's: no position past it can be
+    /// addressed (`[[source: dec-std-070]]` § 5.6.1, p. 5-95). The
+    /// screen's put `CR`, `IL`, `DL` and a wrap in the hidden half, text
+    /// written on there in one read and pulled back when a read began on
+    /// the status line.
     pub(crate) fn homed(&self, dec: Col) -> Col {
+        self.homed_within(dec, self.line_cols())
+    }
+
+    /// [`Paint::homed`] on a line `cols` wide: the screen's for `NEL` and
+    /// LNM's `CR`, which [`Paint::fed_onto_line`] bounds on the line they
+    /// reach.
+    pub(crate) fn homed_within(&self, dec: Col, cols: Cols) -> Col {
         match self.cold.bounds.home {
             Some(h) if !self.cold.modes.is_set(ModeBit::CursorRightToLeft) => {
-                dec.max(h.min(Col::at_index(self.cols.index() - 1)))
+                dec.max(h.min(Col::at_index(cols.index() - 1)))
             }
             _ => dec,
+        }
+    }
+
+    /// **After `NEL`'s or LNM's feed, a home past the half of the line
+    /// reached is its last column**, as a move onto a double line ends
+    /// there, and on the screen's last line below the region, where the
+    /// feed does not move. Out of line: a test of the home inline.
+    #[inline]
+    pub(crate) fn fed_onto_line(&mut self) {
+        if self.cold.bounds.home.is_some() {
+            self.home_on_line();
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn home_on_line(&mut self) {
+        let last = Col::at_index(self.line_cols().index() - 1);
+        if self.cx.col() > last {
+            self.set_col(CursorCol::moved(last));
         }
     }
 

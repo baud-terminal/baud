@@ -59,6 +59,8 @@ use crate::strings::Begun;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum LineStart {
     Home,
+    /// `CR` before a line feed's move, whose home is the following line's.
+    Following,
     First,
 }
 
@@ -299,6 +301,18 @@ impl Paint<'_, '_> {
         self.return_mapped(LineStart::Home);
     }
 
+    /// **`CR` before a line feed, `NEL`'s and LNM's**, whose home is "the
+    /// line home position of the following line" (`[[source: ecma48]]`
+    /// 8.3.86): bounded by the screen here, and by the line the feed
+    /// reaches in [`Paint::fed_onto_line`]. Bounded by the line it left, a
+    /// double line's half was carried onto a single line below it.
+    pub(crate) fn return_before_feed(&mut self) {
+        match self.cold.modes.is_set(ModeBit::ReturnMapped) {
+            true => self.return_mapped(LineStart::Following),
+            false => self.carriage_return(),
+        }
+    }
+
     /// **`CNL`'s and `CPL`'s line start**: "the first character position"
     /// (8.3.12, 8.3.13), `CR`'s without SLH's line home. Out of line, as
     /// the rest of a mapped `CR` is.
@@ -317,8 +331,12 @@ impl Paint<'_, '_> {
     fn return_mapped(&mut self, to: LineStart) {
         self.effector_ends_string();
         self.line_home();
-        if to == LineStart::Home {
-            let c = self.homed(self.cx.col());
+        let homed = match to {
+            LineStart::Home => Some(self.homed(self.cx.col())),
+            LineStart::Following => Some(self.homed_within(self.cx.col(), self.cols)),
+            LineStart::First => None,
+        };
+        if let Some(c) = homed {
             self.set_col(CursorCol::moved(c));
         }
         if let Some(m) = self.cursor_map() {

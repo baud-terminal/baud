@@ -486,3 +486,77 @@ fn past_the_limit_on_a_double_line_the_half_bounds_the_cursor() {
     assert_eq!(r0, ".......abc..........");
     assert_eq!(r1, "def.................");
 }
+
+/// **With DECAWM reset, a write past the limit on a double line stops on
+/// the half's last column**, "the last column of the Active Line"
+/// (`[[source: dec-std-070]]` p. 5-139): from 8, past limit 5, `abc`
+/// leaves the cursor on 10, so `CUB 2` goes to 8 and `ICH` makes room on
+/// 10, where the cursor went to 11, the half's sentinel, `CUB 2` to 9 and
+/// `ICH` made room nowhere; and `U+4E00` from 10 leaves it on 10, where it
+/// went to 12, past the sentinel, which `CPR` named.
+#[test]
+fn without_autowrap_past_the_limit_a_double_line_s_half_pins_the_cursor() {
+    let off = b"\x1b[?7l\x1b#6\x1b[5 V";
+    let row = |b: &[u8]| after(&[&off[..], b].concat()).0;
+    assert_eq!(row(b"\x1b[1;8Habc\x1b[2Dx"), ".......xbc..........");
+    assert_eq!(row(b"\x1b[1;8Habc\x1b[@"), ".......ab...........");
+    assert_eq!(
+        reported(&[&off[..], "\x1b[1;10H\u{4e00}".as_bytes()].concat()),
+        ("\x1b[1;10R".into(), WrapPending::No)
+    );
+}
+
+/// **A line home past a double line's half is its last column**, as one
+/// past the screen is the screen's: `CR` under SLH 15 went to 15, in the
+/// hidden half, and text was written there. Now it goes to 10, and `ab`
+/// writes `a` there and wraps `b` to the next line's home; `IL`, `DL` and
+/// a wrap onto a double line go to its 10 too, and so do `NEL` and `LF`
+/// under LNM on a double last line below the region, where the feed does
+/// not move; `NEL` from the line above, which reached 10 by the move onto
+/// the line, is the control.
+#[test]
+fn a_line_home_past_a_double_line_s_half_is_its_last_column() {
+    assert_eq!(cursor(b"\x1b#6\x1b[15 U\x1b[1;3H\r"), (0, 9));
+    let (r0, r1, _) = after(b"\x1b#6\x1b[15 U\x1b[1;3H\rab");
+    assert_eq!(r0, ".........a..........");
+    assert_eq!(r1, "..............b.....");
+    let on = b"\x1b[2;1H\x1b#6\x1b[15 U";
+    for (op, b) in [
+        ("NEL", &b"\x1b[1;3H\x1bE"[..]),
+        ("IL", b"\x1b[2;3H\x1b[L"),
+        ("DL", b"\x1b[2;3H\x1b[M"),
+    ] {
+        assert_eq!(cursor(&[&on[..], b].concat()), (1, 9), "{op}");
+    }
+    let (_, r1, _) = after(&[&on[..], b"\x1b[1;1Habcdefghijklmnopqrstu"].concat());
+    assert_eq!(r1, ".........u..........", "a wrap");
+    let below = b"\x1b[1;3r\x1b[4;1H\x1b#6\x1b[15 U\x1b[4;3H";
+    for (op, b) in [("NEL", &b"\x1bE"[..]), ("LF under LNM", b"\x1b[20h\n")] {
+        assert_eq!(cursor(&[&below[..], b].concat()), (3, 9), "{op} below");
+    }
+}
+
+/// **`NEL` and `LF` under LNM take the home on the line they arrive at**,
+/// "the line home position of the following line" (`[[source: ecma48]]`
+/// 8.3.86): from a double line under SLH 15 onto a single line they go to
+/// 15, where the half's 10 was carried down and `z` was written on 10;
+/// onto another double line, to its 10; and from a double line at the
+/// bottom of the screen or of a region, onto the single line the scroll
+/// brings in, to 15.
+#[test]
+fn nel_and_lf_under_lnm_take_the_home_on_the_line_they_arrive_at() {
+    let dwl = b"\x1b#6\x1b[15 U\x1b[1;3H";
+    for (op, b) in [("NEL", &b"\x1bE"[..]), ("LF under LNM", b"\x1b[20h\n")] {
+        let (_, r1, at) = after(&[&dwl[..], b, b"z"].concat());
+        assert_eq!(r1, "..............z.....", "{op}");
+        assert_eq!(at, (1, 15), "{op}");
+        let both = b"\x1b[2;1H\x1b#6\x1b[15 U\x1b[1;1H\x1b#6\x1b[1;3H";
+        assert_eq!(cursor(&[&both[..], b].concat()), (1, 9), "{op}, double");
+        for (at, y, scroll) in [
+            ("screen", 3, &b"\x1b[4;1H\x1b#6\x1b[15 U\x1b[4;3H"[..]),
+            ("region", 2, b"\x1b[1;3r\x1b[3;1H\x1b#6\x1b[15 U\x1b[3;3H"),
+        ] {
+            assert_eq!(cursor(&[scroll, b].concat()), (y, 14), "{op}, {at} scroll");
+        }
+    }
+}
