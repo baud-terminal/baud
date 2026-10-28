@@ -6,9 +6,14 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "The type system: every quantity is a type, every invariant the compiler can hold is held by the compiler."
-# Not published to a registry: `publish = false`, so `cargo publish`
-# refuses it, and release-plz runs in git-only mode (`release-plz.toml`).
-publish = false
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["terminal", "vt100", "unicode", "types"]
+categories = ["no-std", "text-processing", "encoding"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`scripts/check-publish.py`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/build.rs", "/README.md", "/LICENSE", "/LICENSES/"]
 
 [dependencies]
 zerocopy = { version = "0.8", default-features = false, features = ["derive"] }

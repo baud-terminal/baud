@@ -2,9 +2,9 @@
 name = "baud-difftest"
 version.workspace = true
 edition.workspace = true
-# Not published to a registry: `publish = false`, so `cargo publish`
-# refuses it, and release-plz runs in git-only mode (`release-plz.toml`). It
-# is an oracle against an external implementation, not a library anyone
+# Not published: `publish = false`, so `cargo publish` refuses it and
+# release-plz leaves it out (`scripts/check-publish.py`). It is an
+# oracle against an external implementation, not a library anyone
 # depends on, and it carries no `license` or `description`.
 publish = false
 
@@ -30,7 +30,7 @@ baud-core = { path = "../baud-core", features = ["alloc"] }
 # compiled one `bitflags` with `serde` and `baud-app` linked *that* one,
 # carrying a serialisation framework it never calls for the sake of a test
 # harness. `cargo tree --workspace -e features` reads `default`, `serde`,
-# `std` before and `default`, `std` after, and `cargo tree -p baud-app` shows
+# `std` before and `default`, `std` after, and `cargo tree -p baud` shows
 # no serde either way, which is why building the crate alone never revealed
 # it. The oracle is unaffected: `every_case_agrees_with_alacritty` still
 # passes, and its pinned normalisation counts -- 4 spacers, 2 tab cells --

@@ -1,0 +1,11 @@
+# baud-render
+
+**baud's renderer: the screen's cells turned into pixels.**
+
+It shapes and lays out each row, keeps the glyph atlas, draws the cursor and its trails, and redraws only the rows that changed, on the CPU or as instances for the GPU.
+
+It is part of [baud](https://github.com/i-am-logger/baud), a terminal emulator, and is published so that
+`cargo install baud` can build it. Its API follows baud's needs and may
+change in any release.
+
+Licensed under CC BY-NC-SA 4.0 (`LICENSE`); the third-party code it carries keeps its notices in `LICENSES/`.

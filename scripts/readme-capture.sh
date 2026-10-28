@@ -5,7 +5,7 @@
 # needs Screen Recording, and it raises the window and drives the pointer
 # through System Events, which needs Accessibility.
 #
-#   cargo build --release -p baud-app && scripts/readme-capture.sh
+#   cargo build --release -p baud && scripts/readme-capture.sh
 #
 # ONLY names a subset, e.g. ONLY="hero tools"; BAUD names another binary.
 #
@@ -90,7 +90,7 @@ die() {
   echo "readme-capture: $*" >&2
   exit 1
 }
-[ -x "$baud" ] || die "no $baud: cargo build --release -p baud-app"
+[ -x "$baud" ] || die "no $baud: cargo build --release -p baud"
 git -C "$root" cat-file -e "$REV^{commit}" || die "this clone has no $REV"
 
 tmp=$(mktemp -d)

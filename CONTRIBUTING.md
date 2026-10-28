@@ -47,8 +47,9 @@ that is exactly the divergence this setup exists to prevent.
 or `type(scope): text`, the type one of `feat`, `fix`, `perf`, `docs`,
 `refactor`, `test`, `build`, `ci`, `style`, `revert` or `chore`, the scope
 the crate with the most changed source lines, and no `!`. The type picks the
-commit's group in the changelog `release-plz.toml` describes, and `chore`
-is left out of it. `scripts/check-changelog.sh`, the `test:changelog` task,
+commit's group in the changelog `release-plz.toml` describes: `feat` is
+Added, `fix` Fixed, `perf` Performance and `docs` Documentation, and the
+other types are left out of it. `scripts/check-changelog.sh`, the `test:changelog` task,
 fails on any commit in the history that is not one, or that no changelog
 parser reads.
 
@@ -461,26 +462,53 @@ sfte, cell for cell) before any rate; a test that only prints cannot fail.
 
 ## Releases
 
-**baud publishes nothing to a registry.** Every crate's `Cargo.toml` carries
-`publish = false`, so `cargo publish` refuses each one, and a new crate must
-carry it too. `cargo metadata --no-deps --format-version 1` shows
-`"publish": []` for every package. Do not publish by hand.
+**baud is published to crates.io, so `cargo install baud` installs the
+terminal.** The `baud` package (in `baud-app/`) is published with the
+eleven crates it is built from, because crates.io takes a crate only when
+every crate it depends on is there too. `baud-bench`, `baud-difftest` and
+`baud-sfte-difftest` carry `publish = false`. `scripts/check-publish.py`
+(the `test:publish` gate) holds the published set to `baud`'s dependencies,
+each manifest to the fields crates.io shows, each dependency on a workspace
+crate to a version beside its path, and each crate's files to the licence
+notices they need. Never run `cargo publish` by hand.
 
-**Nothing is tagged or released yet.** `release-plz.toml` runs release-plz
-in git-only mode, which "determines package versions from git tags instead
-of the cargo registry", and release-plz 0.3.172 finds a release tag only
-when the version in it is `\d+\.\d+\.\d+`, so a `v1.0.0-beta.N` tag is
-never found and every run would propose the first release again. With
-`git_tag_enable = false` no tag is made at all, so no later release would
-be found whatever the versions. Until the version scheme and the tag match
-agree, and tags are turned on, `release_commits` matches no commit:
-the Release-PR job in `.github/workflows/ci.yml` opens no Release PR and the
-Release job neither tags nor makes a GitHub release.
+**A release is a merged Release PR, and only once the repository is
+public.** On master, release-plz (`release-plz.toml`) keeps a Release PR
+open that raises the version and writes `CHANGELOG.md`. Merging it
+publishes every crate whose version is not on crates.io yet, tags each
+(`baud-v1.0.0-beta.2`, `baud-core-v1.0.0-beta.2`, ...), and makes a GitHub
+pre-release for `baud` alone; an ordinary push publishes nothing
+(`release_always = false`). Both release jobs in `.github/workflows/ci.yml`
+run only when `github.event.repository.private` is false, and the Release
+job reads a crates.io token from the `CARGO_REGISTRY_TOKEN` secret.
 
-**Cutting a release, when there is one, raises two numbers in one commit.**
-The version, `1.0.0-beta.N` in `[workspace.package]` of `Cargo.toml`, which
-every crate, XTVERSION and the app's short version read; and the build
-number in `packaging/macos/build-number`, one line raised by one, which
+**The first release keeps the version set by hand, `1.0.0-beta.1`.** With
+none of the crates on crates.io, release-plz 0.3.172 takes each as a new
+package and proposes it at its manifest's version with a first changelog
+entry (its `updater.rs`, "Package is new"); this is read from its source
+and has not run on GitHub yet. After that each release raises the `beta.N`
+by one, and moving to `1.0.0` is done by hand.
+
+**A change only outside the crates releases nothing.** release-plz releases
+a crate when the files it packages change, and `docs/`, `scripts/`,
+`.github/` and the root files are in none of them.
+
+**Each published crate carries its licence and its notices, as links.**
+`LICENSE` in each crate links to the root's, and its `LICENSES/` links to
+the root texts its third-party files need (`docs/research/third-party.toml`).
+A file a crate's build reads from `docs/research/sources/` is a link inside
+the crate too: `baud-app/terminfo/`, `baud-wayland/protocols/` and
+`baud-xkb/xkbcommon-keysyms.h`. cargo packages a link as the file it points
+at, while a `../` path out of the crate's directory is not in the package
+and fails its build there. `python3 scripts/check-publish.py --verify`
+(the gate) packages every published crate and builds each from its own
+tarball against the others, as `cargo publish` would.
+
+**A release raises two numbers.** The version, `1.0.0-beta.N` in
+`[workspace.package]` of `Cargo.toml`, which every crate, XTVERSION and the
+app's short version read, and which the Release PR raises; and the build
+number in `packaging/macos/build-number`, one line raised by one by hand,
+since the Release PR does not touch it, which
 `scripts/bundle-macos.sh` writes as the app's `CFBundleVersion`. The
 counter lives in the repository rather than coming from git, so a build
 with no `.git`, from nix or a source tarball, writes the same number.

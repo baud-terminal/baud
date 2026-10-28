@@ -1,8 +1,9 @@
 //! **The interface tables, generated from the pinned protocol XMLs at build
 //! time.** `docs/research/sources/wayland.xml` and the `wp-*.xml`,
 //! `xdg-system-bell-v1.xml` and `xdg-activation-v1.xml` beside it are the
-//! sources the manifest pins by hash; nothing here is transcribed by
-//! hand. The XML this reads is the restricted shape `wayland-scanner`
+//! sources the manifest pins by hash, read through the links to them in
+//! `baud-wayland/protocols/`, which the published crate carries as files; nothing here is
+//! transcribed by hand. The XML this reads is the restricted shape `wayland-scanner`
 //! reads -- `interface`, `request`, `event`, `arg`, `enum`, `entry`,
 //! `description` -- so the reader is a few dozen lines rather than a
 //! dependency, and a file that does not parse fails the build rather than
@@ -319,7 +320,7 @@ fn emit(ifaces: &[Interface]) -> String {
 
 fn main() {
     let manifest = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let dir = Path::new(&manifest).join("../docs/research/sources");
+    let dir = Path::new(&manifest).join("protocols");
     let mut all = Vec::new();
     for f in FILES {
         let path = dir.join(f);

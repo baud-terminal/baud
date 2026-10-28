@@ -42,7 +42,7 @@ fn the_version_is_the_beta_scheme() {
         .strip_prefix("1.0.0-beta.")
         .unwrap_or_else(|| panic!("{v} is not 1.0.0-beta.N"));
     assert!(integer(n) && n != "0", "{v}: N is a positive integer");
-    assert_eq!(env!("CARGO_PKG_VERSION"), v, "baud-app inherits it");
+    assert_eq!(env!("CARGO_PKG_VERSION"), v, "the baud package inherits it");
 }
 
 /// The `<string>` after `<key>{key}</key>`.

@@ -99,8 +99,16 @@ setting turned on ([how](docs/guide/configuration.md#images)).
 
 ## Install
 
-**With Nix or Cargo, once published.** baud is not on a package registry
-yet; Nix and Cargo packages are planned for the first published release.
+**With Cargo, once published.** baud's first release will be on
+[crates.io](https://crates.io/crates/baud). It builds with the nightly Rust
+toolchain baud is built with, and installs the `baud` binary, which opens a
+window running your login shell:
+
+```sh
+cargo +nightly-2026-04-11 install --locked baud
+```
+
+A Nix package is planned for the first published release too.
 
 **From source, today.** With [Nix](https://nixos.org) and
 [devenv](https://devenv.sh), which fetch the exact toolchain, in a git

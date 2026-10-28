@@ -73,7 +73,7 @@ def launch(extra, out_dir):
 
 def main():
     if not os.access(BINARY, os.X_OK):
-        sys.exit(f"no binary at {BINARY}: build it with `cargo build --release -p baud-app`")
+        sys.exit(f"no binary at {BINARY}: build it with `cargo build --release -p baud`")
     failures = []
     for arm, extra in [("dock", {}), ("empty", {"LANG": ""}), ("control", {"LANG": "fr_FR.UTF-8"})]:
         with tempfile.TemporaryDirectory() as d:

@@ -6,13 +6,18 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "AVX2 implementations of baud-isa's domain-typed scan operations. no_std, x86-64 only."
-# Not published to a registry: `publish = false`, so `cargo publish`
-# refuses it, and release-plz runs in git-only mode (`release-plz.toml`).
-publish = false
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["simd", "avx2", "x86-64", "terminal"]
+categories = ["no-std", "hardware-support"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`scripts/check-publish.py`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/README.md", "/LICENSE"]
 
 [dependencies]
-baud-domain = { path = "../baud-domain" }
-baud-isa = { path = "../baud-isa" }
+baud-domain = { workspace = true }
+baud-isa = { workspace = true }
 
 # **`std` is a fallback, not the probe.** `CPUID` leaf 4 answers the cache
 # geometry from the instruction itself and needs no operating system; the

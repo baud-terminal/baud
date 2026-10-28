@@ -11,8 +11,9 @@ licence, where the notice that licence asks for is, and where it came from. Ever
 docs/research/sources/ is listed, and the check fails on one that is not. The licence texts the
 files need are in
 [LICENSES/](LICENSES/). LICENSE names the fonts and code copies that its own licence does not
-cover. Nothing here is legal advice; where a file's status is a choice still open, this file says so
-and decides nothing.
+cover. Each crate published to crates.io carries LICENSE, and in its own LICENSES/ the texts its
+files need, as links to these, which scripts/check-publish.py checks. Nothing here is legal
+advice; where a file's status is a choice still open, this file says so and decides nothing.
 
 ## Summary
 
@@ -22,9 +23,9 @@ and decides nothing.
 | open | 0 | 7 | an open question, recorded where the file is |
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 309 | 36 | redistributable, and its notice is satisfied |
+| kept | 309 | 37 | redistributable, and its notice is satisfied |
 | own | 201 | 6 | the work of baud's author |
-| total | 529 | 49 | |
+| total | 529 | 50 | |
 
 ## Licence texts in LICENSES/
 
@@ -136,7 +137,7 @@ they were built from.
 - **Licence:** CC-BY-ND-4.0 (Adobe TN 5176), if the table carries any
 - **Notice:** [docs/research/sources/adobe-5176-cff.pdf](docs/research/sources/adobe-5176-cff.pdf)
 - **From:** https://github.com/adobe-type-tools/font-tech-notes
-- **Files:** [baud-font/src/standard_encoding.rs](baud-font/src/standard_encoding.rs)
+- **Files:** [baud-font/src/standard_encoding.rs](baud-font/src/standard_encoding.rs), [baud-font/LICENSES/adobe-5176-cff.pdf](baud-font/LICENSES/adobe-5176-cff.pdf)
 
 ### The kitty keyboard protocol's functional-key numbers in input.rs, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied; that documentation is GPL-3.0. Whether a protocol's key-to-number table carries kitty's licence is open
 
@@ -336,7 +337,7 @@ they were built from.
 - **Licence:** X11
 - **Notice:** [LICENSES/ncurses-COPYING.txt](LICENSES/ncurses-COPYING.txt)
 - **From:** docs/research/sources/terminfo/xterm-256color.ti
-- **Files:** [baud-app/src/bell.rs](baud-app/src/bell.rs)
+- **Files:** [baud-app/src/bell.rs](baud-app/src/bell.rs), [baud-app/terminfo/xterm-256color.ti](baud-app/terminfo/xterm-256color.ti)
 
 ### baud-xkb's Compose reader, ported from libxkbcommon's Compose parser and state machine; the grammar in parser.c is itself adapted from libX11's imLcPrs.c under Oki Technosystems Laboratory's and Fuji Xerox's notice
 
@@ -352,7 +353,7 @@ they were built from.
 - **Licence:** X11
 - **Notice:** [docs/research/sources/xkbcommon-keysyms.h](docs/research/sources/xkbcommon-keysyms.h)
 - **From:** https://github.com/xkbcommon/libxkbcommon/blob/xkbcommon-1.13.2/include/xkbcommon/xkbcommon-keysyms.h
-- **Files:** [baud-xkb/build.rs](baud-xkb/build.rs)
+- **Files:** [baud-xkb/build.rs](baud-xkb/build.rs), [baud-xkb/xkbcommon-keysyms.h](baud-xkb/xkbcommon-keysyms.h)
 
 ### Four DirectWrite gamma coefficients, from Windows Terminal's dwrite_helpers.hlsl at 4e2b8bd
 
@@ -433,6 +434,14 @@ they were built from.
 - **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
 - **From:** https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/button.c
 - **Files:** [baud-app/src/readline.rs](baud-app/src/readline.rs)
+
+### baud-wayland's build reads the Wayland and wayland-protocols XMLs into its interface tables, through links in baud-wayland/protocols/ to the copies in docs/research/sources/, which the published crate carries as the files
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** in the file
+- **From:** https://gitlab.freedesktop.org/wayland/wayland-protocols
+- **Files:** [baud-wayland/protocols/wayland.xml](baud-wayland/protocols/wayland.xml), [baud-wayland/protocols/wp-commit-timing-v1.xml](baud-wayland/protocols/wp-commit-timing-v1.xml), [baud-wayland/protocols/wp-cursor-shape-v1.xml](baud-wayland/protocols/wp-cursor-shape-v1.xml), [baud-wayland/protocols/wp-fifo-v1.xml](baud-wayland/protocols/wp-fifo-v1.xml), [baud-wayland/protocols/wp-fractional-scale-v1.xml](baud-wayland/protocols/wp-fractional-scale-v1.xml), [baud-wayland/protocols/wp-linux-dmabuf-v1.xml](baud-wayland/protocols/wp-linux-dmabuf-v1.xml), [baud-wayland/protocols/wp-linux-drm-syncobj-v1.xml](baud-wayland/protocols/wp-linux-drm-syncobj-v1.xml), [baud-wayland/protocols/wp-presentation-time.xml](baud-wayland/protocols/wp-presentation-time.xml), [baud-wayland/protocols/wp-primary-selection-unstable-v1.xml](baud-wayland/protocols/wp-primary-selection-unstable-v1.xml), [baud-wayland/protocols/wp-tearing-control-v1.xml](baud-wayland/protocols/wp-tearing-control-v1.xml), [baud-wayland/protocols/wp-text-input-unstable-v3.xml](baud-wayland/protocols/wp-text-input-unstable-v3.xml), [baud-wayland/protocols/wp-viewporter.xml](baud-wayland/protocols/wp-viewporter.xml), [baud-wayland/protocols/wp-xdg-decoration-unstable-v1.xml](baud-wayland/protocols/wp-xdg-decoration-unstable-v1.xml), [baud-wayland/protocols/wp-xdg-shell.xml](baud-wayland/protocols/wp-xdg-shell.xml), [baud-wayland/protocols/xdg-activation-v1.xml](baud-wayland/protocols/xdg-activation-v1.xml), [baud-wayland/protocols/xdg-system-bell-v1.xml](baud-wayland/protocols/xdg-system-bell-v1.xml)
 
 ### The Hebrew build modules: baud's own code under the repository's licence, decided 2026-10-28; they are tools that write the font, not Font Software (FONTLOG.txt)
 

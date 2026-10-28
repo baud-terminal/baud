@@ -1,13 +1,21 @@
+# **The package is `baud`, so `cargo install baud` installs the `baud`
+# binary.** The directory keeps its name, `baud-app/`.
 [package]
-name = "baud-app"
+name = "baud"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The terminal: a pty, baud-core, baud-render and a platform presentation crate joined into one process."
-# Not published: the binary, not a library anyone depends on.
-publish = false
+description.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["terminal", "terminal-emulator", "vt100", "xterm", "macos"]
+categories = ["command-line-utilities"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`scripts/check-publish.py`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/build.rs", "/README.md", "/LICENSE", "/LICENSES/", "/terminfo/", "/assets/", "/fonts/built/", "/fonts/stix-two-math/", "/fonts/symbols-nerd-font/"]
 # `cargo run` at the workspace root runs `baud`, the one binary; the rest is
 # part of the tests. The root manifest's `default-members` makes it build
 # what the bundle ships; this names the binary should the package grow a
@@ -16,27 +24,27 @@ publish = false
 default-run = "baud"
 
 [dependencies]
-baud-core = { path = "../baud-core", features = ["alloc"] }
-baud-domain = { path = "../baud-domain" }
-baud-font = { path = "../baud-font" }
-baud-render = { path = "../baud-render" }
+baud-core = { workspace = true, features = ["alloc"] }
+baud-domain = { workspace = true }
+baud-font = { workspace = true }
+baud-render = { workspace = true }
 
 # The cache probe, for `host_geometry`: the per-arch crate with `std` on, so
 # it may ask the kernel. Target-gated the way `baud-core` gates its scans.
 [target.'cfg(target_arch = "aarch64")'.dependencies]
-baud-isa = { path = "../baud-isa" }
-baud-isa-aarch64 = { path = "../baud-isa-aarch64", features = ["std"] }
+baud-isa = { workspace = true }
+baud-isa-aarch64 = { workspace = true, features = ["std"] }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-baud-isa = { path = "../baud-isa" }
-baud-isa-x86-64 = { path = "../baud-isa-x86-64", features = ["std"] }
+baud-isa = { workspace = true }
+baud-isa-x86-64 = { workspace = true, features = ["std"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-baud-present-wayland = { path = "../baud-present-wayland" }
-baud-wayland = { path = "../baud-wayland" }
+baud-present-wayland = { workspace = true }
+baud-wayland = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-baud-present-macos = { path = "../baud-present-macos" }
+baud-present-macos = { workspace = true }
 # The main queue, for the one AppKit call a responder callback cannot make in
 # place: a program's page width resizes the window after the callback that
 # asked returns (`widen_later`). The version `baud-present-macos` takes, with
@@ -55,8 +63,7 @@ macos-liquid-glass = { version = "1.0.0-beta.6", features = ["drawable"] }
 # only thing it is for.
 ceiling-idle-skip = []
 
-# The binary is `baud`; the crate keeps its name so the workspace reads
-# the same way as `baud-present-macos` beside it.
+# The binary is `baud`, as the package is.
 [[bin]]
 name = "baud"
 path = "src/main.rs"

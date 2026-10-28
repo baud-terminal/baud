@@ -1,0 +1,1 @@
+../../LICENSES/windows-terminal-MIT.txt

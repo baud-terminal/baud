@@ -6,16 +6,21 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Instruction-set implementations of baud's domain-typed scan operations. no_std, allocation-free."
-# Not published to a registry: `publish = false`, so `cargo publish`
-# refuses it, and release-plz runs in git-only mode (`release-plz.toml`).
-publish = false
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["simd", "terminal", "scan"]
+categories = ["no-std", "hardware-support"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`scripts/check-publish.py`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/README.md", "/LICENSE"]
 
 # **Domain-typed, not primitive.** Every operation here takes and returns
 # `baud-domain`'s types -- `ByteLen`, `LaneMask`, `Lane` -- because the whole
 # reason to have a crate boundary here is reuse, and a crate exporting
 # `fn movemask(v) -> u32` exports the bug class the newtypes exist to prevent.
 [dependencies]
-baud-domain = { path = "../baud-domain" }
+baud-domain = { workspace = true }
 
 [features]
 # **Off by default, and it adds no crate.** `std` is only the standard library,

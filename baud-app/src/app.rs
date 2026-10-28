@@ -10177,7 +10177,7 @@ fn icon() -> Option<Retained<NSImage>> {
     // the way every other Dock icon sits. The titlebar uses the bare mark
     // (`icon_titlebar`); the Dock wants the box. The SVG itself, not a raster,
     // so NSImage renders it as a vector.
-    const BYTES: &[u8] = include_bytes!("../../assets/logo/baud-icon-dock.svg");
+    const BYTES: &[u8] = include_bytes!("../assets/logo/baud-icon-dock.svg");
     macos_liquid_glass::image_from_bytes(BYTES)
 }
 
@@ -10186,7 +10186,7 @@ fn icon() -> Option<Retained<NSImage>> {
 /// the size of a traffic light; this viewBox is tight to the strokes, so the
 /// box the icon is given is the size the mark is drawn at.
 fn icon_titlebar() -> Option<Retained<NSImage>> {
-    const BYTES: &[u8] = include_bytes!("../../assets/logo/baud-mark-amber-tight.svg");
+    const BYTES: &[u8] = include_bytes!("../assets/logo/baud-mark-amber-tight.svg");
     macos_liquid_glass::image_from_bytes(BYTES)
 }
 

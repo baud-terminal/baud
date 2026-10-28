@@ -49,7 +49,7 @@ fi
 TARGET=${CARGO_TARGET_DIR:-$ROOT/target}
 
 if [ "${1:-}" != "--no-build" ]; then
-  cargo build --release -p baud-app
+  cargo build --release -p baud
 fi
 BIN="$TARGET/release/baud"
 [ -x "$BIN" ] || {

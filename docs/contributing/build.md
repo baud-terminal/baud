@@ -36,7 +36,8 @@ scripts/bundle-macos.sh               # target/baud.app: the release build as a 
 scripts/bundle-macos.sh --no-build    # the same, around a binary already built
 ```
 
-`baud-app` builds the binary `baud`, the workspace's only binary: a login
+The `baud` package, in `baud-app/`, builds the binary `baud`, the
+workspace's only binary: a login
 shell on a pty, `baud-core`, `baud-render`, and the platform's window --
 `baud-present-macos` on Metal, or `baud-present-wayland` on `wl_shm`. The
 root's `default-members` makes `cargo run` build it as the bundle does. The bundle gives it an `Info.plist`
@@ -70,7 +71,7 @@ committed, so a build needs no Metal toolchain.
 
 **Linux is type-checked from a Mac.** The Wayland driver is
 `cfg(target_os = "linux")`, so a host build here never compiles it;
-`cargo clippy -p baud-app --target aarch64-unknown-linux-gnu --all-targets -- -D warnings`,
+`cargo clippy -p baud --target aarch64-unknown-linux-gnu --all-targets -- -D warnings`,
 the `test:linux` task, does.
 
 ## The engine
@@ -116,7 +117,8 @@ answer to one alacritty, and it is a **workspace member** -- `cargo test
 --workspace` builds it and runs its tests. Both differentials are test targets
 and not binaries, so `devenv test`'s `cargo nextest run --workspace` runs them
 with the rest; `baud` is the one binary. A bare `cargo test`, `cargo build` or
-`cargo clippy` at the root covers `baud-app` alone, because `default-members`
+`cargo clippy` at the root covers the `baud` package alone, because
+`default-members`
 names only it; the gate passes `--workspace`.
 
 That is new, and the reason it is worth a paragraph: it used to pin alacritty by

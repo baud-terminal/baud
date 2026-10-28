@@ -248,7 +248,7 @@ crate_audit "baud-present-wayland" 5 10 baud-present-wayland/src
 # `read`, `write` and `mmap`, and the field is the window size's own `u16`:
 # the platform's widths, which a newtype would misrepresent rather than
 # document. Set at the count, and it does not move to fit a change.
-crate_audit "baud-app" 1 4 baud-app/src
+crate_audit "baud" 1 4 baud-app/src
 
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP
 # split its 12 permitted sites live across main.rs, harness.rs and drive.rs, and

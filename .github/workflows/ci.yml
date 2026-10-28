@@ -8,10 +8,9 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # master is exempt: its runs queue instead. Were releases turned on,
-  # release-plz would tag and make a GitHub release as separate steps that
-  # a cancel could split; release-plz.toml keeps both release jobs to
-  # no-ops that publish, tag and release nothing.
+  # master is exempt: its runs queue instead. It publishes to an immutable
+  # registry, then tags and makes a GitHub release as separate steps, and a
+  # cancel between them cannot be undone.
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 # Read-only by default. A job that writes says so in its own `permissions`,
@@ -24,10 +23,12 @@ permissions:
 # so the workflow is a thin wrapper over the tasks."test:*" set in devenv.nix.
 # Add a check by adding a task, never by adding a step here.
 #
-# release-plz-pr runs after release-plz-release: in git-only mode
-# (release-plz.toml) it computes the next version from the newest release
-# tag, which the release job would create. release-plz.toml has neither job
-# tag, release or open a Release PR yet.
+# release-plz-pr runs after release-plz-release: it computes the next bump
+# from the newest version on crates.io, which the release job publishes.
+#
+# **Neither release job runs while the repository is private.** Both are
+# guarded on `github.event.repository.private == false`, so nothing is
+# published, tagged or proposed before the repository is made public.
 jobs:
   devenv-checks:
     name: Lint/UT
@@ -268,14 +269,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [devenv-checks, avx2]
     timeout-minutes: 30
-    # `!cancelled()`, not `always()`: were releases turned on, this job
-    # would push a tag and make a GitHub release, and a run from a cancelled
-    # workflow should not. It publishes nothing (git-only mode and
-    # `release_commits` in release-plz.toml, and every crate's
-    # `publish = false`). `skipped` is accepted because devenv-checks skips
-    # on the release commit itself (see its `if`).
+    # Publishes to crates.io, tags, and makes `baud`'s GitHub release, and
+    # only from the commit of a merged Release PR (`release_always = false`
+    # in release-plz.toml). `!cancelled()`, not `always()`: crates.io is
+    # immutable, so a run from a cancelled workflow must not publish.
+    # `skipped` is accepted because devenv-checks skips on the release
+    # commit itself (see its `if`), whose underlying commits passed.
     if: |
       !cancelled() &&
+      github.event.repository.private == false &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/master' &&
       (needs.devenv-checks.result == 'success' || needs.devenv-checks.result == 'skipped') &&
@@ -291,6 +293,9 @@ jobs:
         with:
           # release-plz diffs against the previous tag, so it needs full history.
           fetch-depth: 0
+          # It creates each tag through the forge API with GITHUB_TOKEN, not
+          # `git push`, unless tag signing is configured (0.3.172's
+          # command/release.rs, create_git_tag_and_release()).
           persist-credentials: false
       # Nightly, because the workspace manifest declares
       # `cargo-features = ["profile-rustflags"]`, which stable cargo
@@ -304,17 +309,17 @@ jobs:
         id: release-plz
         with:
           command: release
-          # This action tag installs 0.3.160 by default. Private git-only
-          # packages are released consistently from 0.3.166 (#3054), and
-          # 0.3.172 is the release nixpkgs carries and the one this
-          # configuration was run with (`release-plz update`).
+          # This action tag installs 0.3.160 by default; 0.3.172 is the
+          # release nixpkgs carries and the one this configuration was read
+          # against.
           version: "0.3.172"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A crates.io API token, added to the repository's secrets by
+          # hand before the first release.
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  # Would open the Release PR that raises the version and writes
-  # CHANGELOG.md; release-plz.toml has it open none.
+  # Opens the Release PR that raises the version and writes CHANGELOG.md.
   # MUST run after release-plz-release — see the anti-loop note at the top.
   release-plz-pr:
     name: Release-PR
@@ -326,6 +331,7 @@ jobs:
     # merge Release succeeds as a no-op, so this never blocks the first PR.
     if: |
       !cancelled() &&
+      github.event.repository.private == false &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/master' &&
       (needs.devenv-checks.result == 'success' || needs.devenv-checks.result == 'skipped') &&

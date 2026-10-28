@@ -6,8 +6,14 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "The Wayland wire protocol spoken over the socket, with the interface tables generated at build time from the pinned protocol XMLs; no libwayland."
-# Not published: a platform crate for the app, with no crates.io audience.
-publish = false
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["wayland", "protocol", "client", "linux"]
+categories = ["gui", "os::linux-apis"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`scripts/check-publish.py`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/build.rs", "/README.md", "/LICENSE", "/protocols/"]
 
 [dependencies]
-baud-domain = { path = "../baud-domain" }
+baud-domain = { workspace = true }

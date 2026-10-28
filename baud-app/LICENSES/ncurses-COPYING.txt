@@ -1,0 +1,1 @@
+../../LICENSES/ncurses-COPYING.txt

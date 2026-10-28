@@ -131,7 +131,7 @@ in
     echo "=== bare metal ==="
     cargo build --release --quiet -p baud-core --target ${bareTarget} || { echo "FAILED: bare"; exit 1; }
     echo "=== linux ==="
-    cargo clippy --quiet -p baud-app --target ${linuxTarget} --all-targets -- -D warnings || { echo "FAILED: linux"; exit 1; }
+    cargo clippy --quiet -p baud --target ${linuxTarget} --all-targets -- -D warnings || { echo "FAILED: linux"; exit 1; }
     echo "=== sources ==="
     bash ./scripts/check-sources.sh || { echo "FAILED: sources"; exit 1; }
     echo "=== audit ==="
@@ -358,7 +358,7 @@ in
     # The Linux wiring, type-checked under clippy for a target this Mac
     # cannot run, so the driver cannot rot unbuilt between Linux sessions.
     "test:linux" = {
-      exec = "cargo clippy --quiet -p baud-app --target ${linuxTarget} --all-targets -- -D warnings";
+      exec = "cargo clippy --quiet -p baud --target ${linuxTarget} --all-targets -- -D warnings";
       after = [ "test:bare@completed" ];
     };
 
@@ -426,6 +426,17 @@ in
       after = [ "test:features@completed" ];
     };
 
+    # What crates.io would receive: `baud` and the crates it is built from,
+    # each with the fields crates.io shows, a version beside every path
+    # dependency, its licence and notices, a .crate under the upload limit,
+    # and each built from its own .crate as `cargo publish` builds it, so a
+    # tarball that does not build fails on the pull request, not partway
+    # through a release.
+    "test:publish" = {
+      exec = "python3 ./scripts/check-publish.py --verify";
+      after = [ "test:paths@completed" ];
+    };
+
     # RustSec advisories, which SECURITY.md asks reporters for. Run by hand
     # (`devenv tasks run test:advisories`) and not in `enterTest`: it fetches
     # the advisory database over the network, and an unchanged tree can pass
@@ -458,5 +469,5 @@ in
   # gate alone (`devenv tasks run test:features`, or the by-hand
   # `test:feature-suites`, schedules the chain before it), and that gate's
   # failure exits 0.
-  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:changelog test:clippy test:check test:unit test:bare test:linux test:audit test:features test:paths";
+  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:changelog test:clippy test:check test:unit test:bare test:linux test:audit test:features test:paths test:publish";
 }

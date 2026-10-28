@@ -6,13 +6,18 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "aarch64 implementations of baud-isa's domain-typed scan operations. no_std, ARM only."
-# Not published to a registry: `publish = false`, so `cargo publish`
-# refuses it, and release-plz runs in git-only mode (`release-plz.toml`).
-publish = false
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["simd", "neon", "aarch64", "terminal"]
+categories = ["no-std", "hardware-support"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`scripts/check-publish.py`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/README.md", "/LICENSE"]
 
 [dependencies]
-baud-domain = { path = "../baud-domain" }
-baud-isa = { path = "../baud-isa" }
+baud-domain = { workspace = true }
+baud-isa = { workspace = true }
 
 # **`std` is the cache probe asking the operating system**, and nothing else.
 # `CCSIDR_EL1` -- the register that describes an aarch64 cache -- traps at

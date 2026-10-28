@@ -1,100 +1,35 @@
 # Release configuration. https://release-plz.dev/docs/config
 #
-# **Nothing is published, tagged or released.** Every crate's Cargo.toml
-# carries `publish = false`, and the workspace runs in git-only mode, which
-# "determines package versions from git tags instead of the cargo registry";
-# in it "The package will not be published to any cargo registry
-# (`cargo publish` is skipped)", and "Setting `publish = true` together with
-# `git_only = true` is an error" (release-plz 0.3.172's config page, "The
-# `git_only` field", pinned as `release-plz-v0-3-172-config-md`).
-#
-# **Why no Release PR opens yet.** Git-only mode finds the last release by
-# a tag matching `git_tag_name`, and release-plz 0.3.172 builds that match
-# from the template with `{{ version }}` as `(\d+\.\d+\.\d+)`, anchored at
-# both ends (`release-plz-v0-3-172-release-regex-rs`). The crates'
-# version is `1.0.0-beta.N`, so a `v1.0.0-beta.1` tag is never found: "If no
-# matching tag is found, the package is treated as an initial release", and
-# every run would propose the same first release again. `release_commits`
-# below matches no commit, so `release-pr` opens nothing and `release` finds
-# nothing to release until the version scheme and the tag match agree, and
-# tags are turned on: with `git_tag_enable = false` no tag is ever made, so
-# git-only mode would never find a later release whatever the versions.
-#
-# Private git-only packages are released consistently from release-plz
-# 0.3.166 ("release private git-only packages consistently (#3054)",
-# `release-plz-v0-3-172-changelog-md`), so ci.yml pins the action's
-# `version` input to 0.3.172, the release this file was run with.
+# The workflow restricts releasing to master, and to the repository once it
+# is public (`.github/workflows/ci.yml`); this file decides what gets
+# released once there. `baud` and the crates it is built from are published
+# to crates.io, so `cargo install baud` installs the terminal;
+# `scripts/check-publish.py` says which crates those are.
 
 [workspace]
-git_only = true
-publish = false
-git_tag_enable = false
+# Defaults for every member; the per-package blocks at the end override what
+# has to differ. Without them every crate would claim the same tag, since
+# the name is a literal rather than a template over the package.
 git_release_enable = false
-# A word boundary and a non-boundary at one position: no commit matches, so
-# no package is updated and no Release PR opens ("only if at least one of
-# the commits matches the `release_commits` regex").
-release_commits = "\\b\\B"
-# Only merging a Release PR would release; an ordinary push to master does
-# not.
+
+# "auto" marks a version carrying a pre-release suffix as a GitHub
+# pre-release, so a beta does not present itself as the latest stable
+# download.
+git_release_type = "auto"
+
+# cargo-semver-checks before each release: a breaking change proposed as a
+# patch bump is rejected and the version escalated. Every bump between
+# pre-release versions is a major change, which permits anything, so this
+# guards nothing during the 1.0.0-beta series; it is on so that it starts
+# working by itself after 1.0.0.
+semver_check = true
+
+# Publishing requires merging a Release PR. An ordinary commit landing on
+# master does not publish, however it got there. crates.io is immutable, so
+# the second merge is the point.
 release_always = false
+
 pr_labels = ["release", "automated"]
-# One changelog, carried by baud-app.
-changelog_update = false
-
-# The root changelog, for when releases are turned on. By default a
-# package's changelog holds "commits containing changes in files of the
-# package directory", and `changelog_include` adds "commits that belong to
-# other packages": here the crates the app is built from.
-[[package]]
-name = "baud-app"
-version_group = "baud"
-git_tag_name = "v{{ version }}"
-changelog_update = true
-changelog_path = "CHANGELOG.md"
-changelog_include = [
-  "baud-core", "baud-domain", "baud-render", "baud-font",
-  "baud-present-macos", "baud-present-wayland", "baud-wayland", "baud-xkb",
-  "baud-isa", "baud-isa-aarch64", "baud-isa-x86-64",
-]
-
-# "If two or more packages share the same `version_group` then release-plz
-# will assign the same version to them".
-[[package]]
-name = "baud-core"
-version_group = "baud"
-[[package]]
-name = "baud-domain"
-version_group = "baud"
-[[package]]
-name = "baud-render"
-version_group = "baud"
-[[package]]
-name = "baud-font"
-version_group = "baud"
-[[package]]
-name = "baud-present-macos"
-version_group = "baud"
-[[package]]
-name = "baud-present-wayland"
-version_group = "baud"
-[[package]]
-name = "baud-wayland"
-version_group = "baud"
-[[package]]
-name = "baud-xkb"
-version_group = "baud"
-[[package]]
-name = "baud-isa"
-version_group = "baud"
-[[package]]
-name = "baud-isa-aarch64"
-version_group = "baud"
-[[package]]
-name = "baud-isa-x86-64"
-version_group = "baud"
-# baud-bench, baud-difftest and baud-sfte-difftest ship nothing, so they are
-# not in `changelog_include`. A commit that touches only them, or only docs/,
-# scripts/, .github/ or the root files, reaches no changelog.
 
 [changelog]
 header = """# Changelog
@@ -104,30 +39,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 """
-protect_breaking_commits = true
-sort_commits = "oldest"
-# "Parsers are evaluated in order. By default, processing stops at the first
-# matching parser." The order sets the order of the groups; the HTML comment
-# sorts each group and does not render. `scripts/check-changelog.sh` requires
-# every commit to match one of these.
+
+# The changelog carries what a user would notice. Everything else -- build,
+# ci, chore, refactor, style, test, revert and release-plz's own release
+# commits -- is skipped by the trailing catch-all. Group names match the
+# Keep a Changelog headings the header promises. These replace git-cliff's
+# defaults rather than adding to them, so feat and fix have to be listed for
+# them to appear at all. `scripts/check-changelog.sh` holds every commit to a
+# Conventional Commit of a listed type, so none is skipped by mistake.
 commit_parsers = [
-  # Release commits are not changes. Parsing them in would back-fill an
-  # entry and open another Release PR.
-  { message = "^chore(\\(.+\\))?: release", skip = true },
-  { message = "^feat", group = "<!-- 0 -->Added" },
-  { message = "^fix", group = "<!-- 1 -->Fixed" },
-  { message = "^perf", group = "<!-- 2 -->Performance" },
-  { message = "^docs", group = "<!-- 3 -->Documentation" },
-  { message = "^refactor", group = "<!-- 4 -->Refactor" },
-  { message = "^test", group = "<!-- 5 -->Testing" },
-  { message = "^build", group = "<!-- 6 -->Build" },
-  { message = "^ci", group = "<!-- 7 -->CI" },
-  { message = "^style", group = "<!-- 8 -->Style" },
-  # Measurement-only code (bench harnesses, ceiling and probe arms) is
-  # chore(bench) or chore(<crate>): nothing a user runs changed.
-  { message = "^chore", skip = true },
-  { message = "^revert", group = "<!-- 9 -->Reverted" },
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Performance" },
+  { message = "^doc", group = "Documentation" },
+  { message = ".*", skip = true },
 ]
-# release-plz's `[changelog]` has no `require_conventional` field (its config
-# page does not list one), so `scripts/check-changelog.sh` holds every commit
-# to Conventional Commits instead, through the `test:changelog` task.
+
+# baud is the crate anyone installs, so it is the one that gets a GitHub
+# release, and its changelog is the repository's: it takes in the commits of
+# the crates it is built from, which a user of the terminal notices.
+[[package]]
+name = "baud"
+git_tag_name = "baud-v{{ version }}"
+git_release_enable = true
+changelog_path = "CHANGELOG.md"
+changelog_include = [
+  "baud-core", "baud-domain", "baud-font", "baud-render",
+  "baud-present-macos", "baud-present-wayland", "baud-wayland", "baud-xkb",
+  "baud-isa", "baud-isa-aarch64", "baud-isa-x86-64",
+]
+
+# The rest are published because cargo requires it, not because anyone
+# installs them: a crate cannot go to crates.io with a path dependency that
+# is not there, so `baud` is unpublishable unless each crate it is built from
+# is published alongside. Each is tagged separately to keep the histories
+# apart, and gets no GitHub release: there is nothing to download, and a
+# second entry on the releases page would suggest otherwise.
+[[package]]
+name = "baud-core"
+git_tag_name = "baud-core-v{{ version }}"
+
+[[package]]
+name = "baud-domain"
+git_tag_name = "baud-domain-v{{ version }}"
+
+[[package]]
+name = "baud-font"
+git_tag_name = "baud-font-v{{ version }}"
+
+[[package]]
+name = "baud-render"
+git_tag_name = "baud-render-v{{ version }}"
+
+[[package]]
+name = "baud-present-macos"
+git_tag_name = "baud-present-macos-v{{ version }}"
+
+[[package]]
+name = "baud-present-wayland"
+git_tag_name = "baud-present-wayland-v{{ version }}"
+
+[[package]]
+name = "baud-wayland"
+git_tag_name = "baud-wayland-v{{ version }}"
+
+[[package]]
+name = "baud-xkb"
+git_tag_name = "baud-xkb-v{{ version }}"
+
+[[package]]
+name = "baud-isa"
+git_tag_name = "baud-isa-v{{ version }}"
+
+[[package]]
+name = "baud-isa-aarch64"
+git_tag_name = "baud-isa-aarch64-v{{ version }}"
+
+[[package]]
+name = "baud-isa-x86-64"
+git_tag_name = "baud-isa-x86-64-v{{ version }}"

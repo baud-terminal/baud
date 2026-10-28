@@ -2,8 +2,11 @@
 # **Every commit reaches the changelog's parsers.** release-plz writes
 # CHANGELOG.md from the commits since the last release, grouped by
 # `release-plz.toml`'s `commit_parsers`, and a commit none of them matches is
-# left out of it with no error. So this reads the whole history, from the
-# root to HEAD, three ways, and fails on any commit that would be lost:
+# left out of it with no error. Their last parser skips every type a user
+# would not notice, so a subject that is not a Conventional Commit of a
+# listed type would be skipped as one of those. So this reads the whole
+# history, from the root to HEAD, three ways, and fails on any commit that
+# would be lost:
 #
 #   1. its subject is a Conventional Commit of a listed type, `type: text`
 #      or `type(scope): text`;

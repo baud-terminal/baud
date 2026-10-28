@@ -5,15 +5,21 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "baud's macOS presentation layer: an IOSurface-backed content view inside the owner's macos-liquid-glass window, display-link pacing, AppKit input."
-# Not published: a platform crate for the app, with no crates.io audience.
-publish = false
+description = "baud's macOS presentation layer: an IOSurface-backed content view inside a macos-liquid-glass window, display-link pacing, AppKit input."
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["terminal", "macos", "metal", "appkit"]
+categories = ["gui", "os::macos-apis", "rendering"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`scripts/check-publish.py`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/README.md", "/LICENSE", "/LICENSES/"]
 
 [dependencies]
-baud-core = { path = "../baud-core", features = ["alloc"] }
-baud-domain = { path = "../baud-domain" }
-baud-font = { path = "../baud-font" }
-baud-render = { path = "../baud-render" }
+baud-core = { workspace = true, features = ["alloc"] }
+baud-domain = { workspace = true }
+baud-font = { workspace = true }
+baud-render = { workspace = true }
 
 # The `macos-liquid-glass` window crate. The drawable view and the surface
 # were added on its `feat/drawable-view` branch and released as

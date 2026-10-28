@@ -48,9 +48,9 @@ exclude = ["bench-others"]
 # `cargo run --release` resolves features across every member, and `baud-bench`
 # turns on `baud-render`'s `exceptions`, which that manifest says the app does
 # not get, and libc's `std`: 4,160 more bytes of `__text` than
-# `scripts/bundle-macos.sh`'s `cargo build --release -p baud-app`, measured at
+# `scripts/bundle-macos.sh`'s `cargo build --release -p baud`, measured at
 # 1e02e6b. With it a bare `cargo run`, `build`, `test` or `clippy` covers
-# `baud-app` alone; the gate passes `--workspace`.
+# the `baud` package alone; the gate passes `--workspace`.
 default-members = ["baud-app"]
 
 [workspace.package]
@@ -69,6 +69,28 @@ keywords = ["terminal", "vt100", "ansi", "tty", "vte"]
 categories = ["parser-implementations", "no-std", "text-processing"]
 license = "CC-BY-NC-SA-4.0"
 repository = "https://github.com/i-am-logger/baud"
+# The toolchain the crates are built with is nightly 1.96 (`nix/rust.nix`):
+# baud-domain and baud-font use `#![feature]`s, so no stable release builds
+# them, and 1.96 is the release whose nightly does.
+rust-version = "1.96"
+
+# **A path and a version for each crate `baud` is built from.** The path is
+# what the workspace builds against; the version is what a published crate
+# asks crates.io for, because `cargo package` drops the path and refuses a
+# dependency that has no version. Both move with the workspace version.
+# `scripts/check-publish.py` holds every published crate to them.
+[workspace.dependencies]
+baud-domain = { path = "baud-domain", version = "1.0.0-beta.1" }
+baud-isa = { path = "baud-isa", version = "1.0.0-beta.1" }
+baud-isa-aarch64 = { path = "baud-isa-aarch64", version = "1.0.0-beta.1" }
+baud-isa-x86-64 = { path = "baud-isa-x86-64", version = "1.0.0-beta.1" }
+baud-core = { path = "baud-core", version = "1.0.0-beta.1" }
+baud-font = { path = "baud-font", version = "1.0.0-beta.1" }
+baud-render = { path = "baud-render", version = "1.0.0-beta.1" }
+baud-xkb = { path = "baud-xkb", version = "1.0.0-beta.1" }
+baud-wayland = { path = "baud-wayland", version = "1.0.0-beta.1" }
+baud-present-wayland = { path = "baud-present-wayland", version = "1.0.0-beta.1" }
+baud-present-macos = { path = "baud-present-macos", version = "1.0.0-beta.1" }
 
 # **The debug suite optimises the four crates its time is spent in, and
 # every dependency.** At opt-level 0 the workspace nextest took 1531 s,

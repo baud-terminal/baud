@@ -199,8 +199,9 @@ def render(side, url):
         "docs/research/sources/ is listed, and the check fails on one that is not. The licence texts the\n"
         "files need are in\n"
         "[LICENSES/](LICENSES/). LICENSE names the fonts and code copies that its own licence does not\n"
-        "cover. Nothing here is legal advice; where a file's status is a choice still open, this file says so\n"
-        "and decides nothing.\n\n"
+        "cover. Each crate published to crates.io carries LICENSE, and in its own LICENSES/ the texts its\n"
+        "files need, as links to these, which scripts/check-publish.py checks. Nothing here is legal\n"
+        "advice; where a file's status is a choice still open, this file says so and decides nothing.\n\n"
     )
     w("## Summary\n\n")
     w("| status | research sources | other entries | meaning |\n|---|---|---|---|\n")

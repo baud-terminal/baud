@@ -6,9 +6,14 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "A terminal emulator core: PTY bytes through VT parse into a grid. no_std, allocation-free."
-# Not published to a registry: `publish = false`, so `cargo publish`
-# refuses it, and release-plz runs in git-only mode (`release-plz.toml`).
-publish = false
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["terminal", "vt100", "ansi", "escape-sequences", "parser"]
+categories = ["parser-implementations", "no-std", "no-std::no-alloc", "text-processing"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`scripts/check-publish.py`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/README.md", "/LICENSE"]
 
 [features]
 # **`param3` is off, and it used to be on.** Three bytes an edge in the
@@ -230,18 +235,18 @@ ceiling-no-text = []
 ceiling-implicit-tail = []
 
 [dependencies]
-baud-domain = { path = "../baud-domain" }
+baud-domain = { workspace = true }
 
 # **Optional and target-gated; `neon-scan`, the default, turns the aarch64
 # pair on.** `baud-isa-aarch64` is `#![cfg(target_arch = "aarch64")]`, so the
 # dependency cannot exist elsewhere and neither can the feature that wants it.
 # See `neon-scan` in `[features]` for what it is for and what it costs.
 [target.'cfg(target_arch = "aarch64")'.dependencies]
-baud-isa = { path = "../baud-isa", optional = true }
-baud-isa-aarch64 = { path = "../baud-isa-aarch64", optional = true }
+baud-isa = { workspace = true, optional = true }
+baud-isa-aarch64 = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-baud-isa-x86-64 = { path = "../baud-isa-x86-64", optional = true }
+baud-isa-x86-64 = { workspace = true, optional = true }
 
 # **The property suite, and the first dev-dependency this crate has had.**
 # `baud-core2` carried 606 tests and all the proptest machinery; this crate had

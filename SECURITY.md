@@ -7,7 +7,7 @@ that program may be hostile. Everything below follows from that.
 
 ## What baud does on your machine
 
-`baud-app`, the binary `baud`, starts your `$SHELL` as a login shell on a pty
+The `baud` package (`baud-app/`), the binary `baud`, starts your `$SHELL` as a login shell on a pty
 (`forkpty` and `execve`), with the variables other terminals set removed --
 in your home directory when baud's parent is launchd (`open`, and so,
 inferred, the Dock and Finder), where baud was started otherwise. It reads
@@ -43,7 +43,7 @@ compiler holds the boundary: a second module that wanted `unsafe` would
 have to say so in the diff.
 
 **What is left carries no such attribute, and this is where to look.**
-`baud-app` is a binary whose `app.rs` and `link.rs` forbid for themselves,
+The `baud` package is a binary whose `app.rs` and `link.rs` forbid for themselves,
 with the platform calls in `pty.rs` and `sys.rs` -- the pty, the read-only
 mapping, `poll`, and the `unsafe extern "C"` blocks that declare them.
 `baud-isa`, `baud-isa-aarch64` and `baud-isa-x86-64` are the vector and

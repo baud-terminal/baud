@@ -115,7 +115,7 @@ mkdir -p /io && tar -C /io -x
 mkdir -p /io/linux /io/shot /io/clip /io/faces
 cd /src
 export CARGO_TARGET_DIR=/target RUSTFLAGS="-D warnings"
-cargo build -q --release -p baud-app --bin baud
+cargo build -q --release -p baud --bin baud
 cargo bench -q -p baud-bench --bench pixels --no-run
 # The system face the default stack finds here, which the bench is told
 # of and which goes out for the Mac arm to read.

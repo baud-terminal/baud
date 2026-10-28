@@ -94,10 +94,12 @@ macro_rules! term_name {
 /// `TERM`, for the child's environment (`pty.rs`).
 pub const TERM: &str = term_name!();
 
-/// The pinned entry, as `infocmp` wrote it.
+/// The pinned entry, as `infocmp` wrote it, read through
+/// `baud-app/terminfo/`, whose link to `docs/research/sources/terminfo/`'s
+/// copy the published crate carries as the file.
 const ENTRY: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../docs/research/sources/terminfo/",
+    "/terminfo/",
     term_name!(),
     ".ti"
 ));

@@ -4,7 +4,7 @@
 # ScreenCaptureKit, so the terminal running it needs Screen Recording, and it
 # raises the window through System Events, which needs Accessibility.
 #
-#   cargo build --release -p baud-app && scripts/trail-clips.sh
+#   cargo build --release -p baud && scripts/trail-clips.sh
 #
 # For each trail it launches target/release/baud at an 80x24 grid with a
 # config of its own -- the built-in fonts at 16 pt, a steady block cursor and
@@ -38,7 +38,7 @@ TRAIL_FLOOR=20
 X=/Applications/Xcode.app/Contents/Developer
 
 [ -x "$baud" ] || {
-  echo "no $baud: cargo build --release -p baud-app" >&2
+  echo "no $baud: cargo build --release -p baud" >&2
   exit 1
 }
 tmp=$(mktemp -d)

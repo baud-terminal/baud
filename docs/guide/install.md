@@ -1,8 +1,8 @@
 # Installing baud
 
-baud is built from source. There are no downloads or packages yet, so the
-steps below build it on your Mac and leave you with an app you can put in
-Applications.
+baud is built from source. Its first release will be on crates.io; until
+then, the steps below build it on your Mac and leave you with an app you can
+put in Applications.
 
 ## What you need
 
@@ -35,6 +35,21 @@ devenv shell -- cargo run --release
 ```
 
 Either way baud opens a window running your login shell.
+
+## With Cargo, once published
+
+Once baud's first release is on [crates.io](https://crates.io/crates/baud),
+Cargo installs it with the nightly Rust toolchain baud is built with, which
+[rustup](https://rustup.rs) provides, and with the dependency versions baud
+was released with (`--locked`):
+
+```sh
+cargo +nightly-2026-04-11 install --locked baud
+```
+
+This puts the `baud` binary in `~/.cargo/bin`; run `baud` to open a window.
+It is the bare binary, not the app: the app for Applications and the Dock is
+the one `scripts/bundle-macos.sh` builds above.
 
 ## What a program sees
 

@@ -6,10 +6,16 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "baud's Wayland presentation layer: a wl_shm window over the pure-protocol connection, xdg-shell, frame pacing on the frame callback, and the keyboard through baud-xkb."
-# Not published: a platform crate for the app, with no crates.io audience.
-publish = false
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["terminal", "wayland", "linux"]
+categories = ["gui", "os::linux-apis"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`scripts/check-publish.py`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/README.md", "/LICENSE"]
 
 [dependencies]
-baud-domain = { path = "../baud-domain" }
-baud-wayland = { path = "../baud-wayland" }
-baud-xkb = { path = "../baud-xkb" }
+baud-domain = { workspace = true }
+baud-wayland = { workspace = true }
+baud-xkb = { workspace = true }

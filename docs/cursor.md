@@ -264,7 +264,7 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 `scripts/trail-clips.sh` records them, from a release build:
 
 ```sh
-cargo build --release -p baud-app && scripts/trail-clips.sh
+cargo build --release -p baud && scripts/trail-clips.sh
 ```
 
 For each trail it launches baud at an 80x24 grid with a config of its own --

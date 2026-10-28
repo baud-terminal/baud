@@ -2,8 +2,8 @@
 name = "baud-sfte-difftest"
 version.workspace = true
 edition.workspace = true
-# Not published to a registry: `publish = false`, so `cargo publish`
-# refuses it, and release-plz runs in git-only mode (`release-plz.toml`).
+# Not published: `publish = false`, so `cargo publish` refuses it and
+# release-plz leaves it out (`scripts/check-publish.py`).
 # Like `baud-difftest`, it is an oracle against an external implementation,
 # not a library anyone depends on.
 publish = false

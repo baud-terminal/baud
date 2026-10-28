@@ -3,7 +3,8 @@
 //! and the `/* U+XXXX ... */` comment the header carries beside a keysym
 //! with a Unicode equivalent becomes a value-to-codepoint entry. Nothing
 //! is transcribed; the header is `[[source: xkbcommon-keysyms]]`, hashed
-//! in the manifest.
+//! in the manifest, and read through `baud-xkb/xkbcommon-keysyms.h`, a
+//! link to it that the published crate carries as the file.
 
 use std::env;
 use std::fmt::Write as _;
@@ -12,7 +13,7 @@ use std::path::Path;
 
 fn main() {
     let manifest = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let path = Path::new(&manifest).join("../docs/research/sources/xkbcommon-keysyms.h");
+    let path = Path::new(&manifest).join("xkbcommon-keysyms.h");
     println!("cargo:rerun-if-changed={}", path.display());
     println!("cargo:rerun-if-changed=build.rs");
     let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));

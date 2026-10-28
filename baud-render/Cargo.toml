@@ -6,14 +6,19 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "baud's compositor: cells to instance records to pixels, on the CPU and on the GPU, with the glyph atlas and row-granular damage."
-# Not published to a registry: `publish = false`, so `cargo publish`
-# refuses it, and release-plz runs in git-only mode (`release-plz.toml`).
-publish = false
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["terminal", "renderer", "glyph", "atlas"]
+categories = ["rendering", "graphics"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`scripts/check-publish.py`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/README.md", "/LICENSE", "/LICENSES/"]
 
 [dependencies]
-baud-domain = { path = "../baud-domain" }
-baud-core = { path = "../baud-core", features = ["alloc"] }
-baud-font = { path = "../baud-font" }
+baud-domain = { workspace = true }
+baud-core = { workspace = true, features = ["alloc"] }
+baud-font = { workspace = true }
 
 [features]
 # The `differs` count in `Exceptions`: what the cell shader would draw

@@ -184,7 +184,9 @@ for entry in $CRATES; do
     # with it. So the move would have silently turned ~50 arm checks into ~50
     # checks of an almost-empty library, which is this repo's
     # gate-scoped-to-the-wrong-thing failure with a fresh carrier.
-    if ! out=$(RUSTFLAGS="-D warnings" cargo check --release -q -p "$crate" --all-targets --features "$f" 2>&1); then
+    # By manifest, because an entry is a directory and `baud-app/` holds the
+    # package `baud`.
+    if ! out=$(RUSTFLAGS="-D warnings" cargo check --release -q --manifest-path "$manifest" --all-targets --features "$f" 2>&1); then
       fail=1
       echo "  BROKEN  $crate/$f"
       printf '%s\n' "$out" | grep -E "^error" | head -2 | sed 's/^/      /'
