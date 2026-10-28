@@ -18,14 +18,13 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 333 | 1 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 0 | licence not established; the owner's call |
 | open | 0 | 7 | an open question, recorded where the file is; the owner's call |
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 309 | 36 | redistributable, and its notice is satisfied |
-| own | 209 | 2 | the owner's work |
-| total | 870 | 46 | |
+| own | 188 | 2 | the owner's work |
+| total | 516 | 45 | |
 
 ## Licence texts in LICENSES/
 
@@ -91,14 +90,6 @@ they were built from.
 
 ## In the tree outside docs/research/sources/
 
-### A recording of asciiquarium 1.1's output, which draws its castle, fish, dolphins and waves with lines of the script's sprites verbatim. asciiquarium's README says "Pretty much all of the ASCII art was done by Joan Stark", and her published terms are "for personal use only" with her initials kept (no initials are in asciiquarium's art); no grant from her to redistribute it was found. asciiquarium's code is GPL-2.0-or-later (Kirk Baucom). The repository's licence does not cover it
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant (Joan Stark's art); asciiquarium's code is GPL-2.0-or-later
-- **Notice:** none
-- **From:** https://robobunny.com/projects/asciiquarium/asciiquarium.tar.gz
-- **Files:** [tests/recordings/ascii/asciiquarium.raw](tests/recordings/ascii/asciiquarium.raw)
-
 ### baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as the owner's open call
 
 - **Status:** open -- an open question, recorded where the file is; the owner's call
@@ -128,7 +119,7 @@ they were built from.
 - **Status:** open -- an open question, recorded where the file is; the owner's call
 - **Licence:** LicenseRef-NoGrant (vt100.net's transcription), if the table carries any; Unicode-3.0 (JIS0201.TXT)
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
-- **From:** docs/research/sources/vt220-rm-chapter2.html, docs/research/sources/JIS0201.TXT and docs/research/sources/xterm-charsets.h
+- **From:** https://vt100.net/docs/vt220-rm/chapter2.html (dec-special-graphics in MANIFEST.toml), docs/research/sources/JIS0201.TXT and docs/research/sources/xterm-charsets.h
 - **Files:** [baud-domain/src/dec_sets_data.rs](baud-domain/src/dec_sets_data.rs)
 
 ### The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Whether a chosen set of sixteen values is protectable is unverified (note Y)
@@ -464,459 +455,6 @@ they were built from.
 Copies of other people's documents and code that baud's research cites, pinned by sha256 in
 [MANIFEST.toml](docs/research/sources/MANIFEST.toml). Each group gives the licence, where its
 notice is, and the URL each file was copied from.
-
-### Apple developer documentation and support pages (Apple Inc.)
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 143
-
-| file | copied from |
-|---|---|
-| [apple-accessibility-animated-images.json](docs/research/sources/apple-accessibility-animated-images.json) | https://developer.apple.com/tutorials/data/documentation/accessibility/animated-images.json |
-| [apple-audioservicesplaysystemsound.json](docs/research/sources/apple-audioservicesplaysystemsound.json) | https://developer.apple.com/tutorials/data/documentation/audiotoolbox/audioservicesplaysystemsound(_:).json |
-| [apple-axanimatedimagesenabled.json](docs/research/sources/apple-axanimatedimagesenabled.json) | https://developer.apple.com/tutorials/data/documentation/accessibility/axanimatedimagesenabled().json |
-| [apple-axanimatedimagesenableddidchangenotification.json](docs/research/sources/apple-axanimatedimagesenableddidchangenotification.json) | https://developer.apple.com/tutorials/data/documentation/accessibility/axanimatedimagesenableddidchangenotification.json |
-| [apple-cacurrentmediatime.json](docs/research/sources/apple-cacurrentmediatime.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cacurrentmediatime().json |
-| [apple-cadisplaylink-duration.json](docs/research/sources/apple-cadisplaylink-duration.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink/duration.json |
-| [apple-cadisplaylink-targettimestamp.json](docs/research/sources/apple-cadisplaylink-targettimestamp.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink/targettimestamp.json |
-| [apple-cadisplaylink-timestamp.json](docs/research/sources/apple-cadisplaylink-timestamp.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink/timestamp.json |
-| [apple-cadisplaylink.json](docs/research/sources/apple-cadisplaylink.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink.json |
-| [apple-cametaldisplaylink-targetpresentation.json](docs/research/sources/apple-cametaldisplaylink-targetpresentation.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cametaldisplaylink/update/targetpresentationtimestamp.json |
-| [apple-cametaldisplaylink-targettimestamp.json](docs/research/sources/apple-cametaldisplaylink-targettimestamp.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cametaldisplaylink/update/targettimestamp.json |
-| [apple-catransaction-commit.json](docs/research/sources/apple-catransaction-commit.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/catransaction/commit().json |
-| [apple-catransaction-flush.json](docs/research/sources/apple-catransaction-flush.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/catransaction/flush().json |
-| [apple-catransaction.json](docs/research/sources/apple-catransaction.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/catransaction.json |
-| [apple-cftimeinterval.json](docs/research/sources/apple-cftimeinterval.json) | https://developer.apple.com/tutorials/data/documentation/corefoundation/cftimeinterval.json |
-| [apple-cgevent-init-keyboard.json](docs/research/sources/apple-cgevent-init-keyboard.json) | https://developer.apple.com/tutorials/data/documentation/coregraphics/cgevent/init(keyboardeventsource:virtualkey:keydown:).json |
-| [apple-cgevent-post.json](docs/research/sources/apple-cgevent-post.json) | https://developer.apple.com/tutorials/data/documentation/coregraphics/cgevent/post(tap:).json |
-| [apple-cgevent-timestamp.json](docs/research/sources/apple-cgevent-timestamp.json) | https://developer.apple.com/tutorials/data/documentation/coregraphics/cgevent/timestamp.json |
-| [apple-cgeventsettimestamp.json](docs/research/sources/apple-cgeventsettimestamp.json) | https://developer.apple.com/tutorials/data/documentation/coregraphics/cgeventsettimestamp.json |
-| [apple-cgeventtaplocation.json](docs/research/sources/apple-cgeventtaplocation.json) | https://developer.apple.com/tutorials/data/documentation/coregraphics/cgeventtaplocation.json |
-| [apple-cgeventtimestamp.json](docs/research/sources/apple-cgeventtimestamp.json) | https://developer.apple.com/tutorials/data/documentation/coregraphics/cgeventtimestamp.json |
-| [apple-cghideventtap.json](docs/research/sources/apple-cghideventtap.json) | https://developer.apple.com/tutorials/data/documentation/coregraphics/cgeventtaplocation/cghideventtap.json |
-| [apple-customizing-logging.json](docs/research/sources/apple-customizing-logging.json) | https://developer.apple.com/tutorials/data/documentation/os/customizing-logging-behavior-while-debugging.json |
-| [apple-event-architecture.html](docs/research/sources/apple-event-architecture.html) | https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/EventOverview/EventArchitecture/EventArchitecture.html |
-| [apple-fspg-library-dirs.html](docs/research/sources/apple-fspg-library-dirs.html) | https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/MacOSXDirectories/MacOSXDirectories.html |
-| [apple-generating-log-messages.json](docs/research/sources/apple-generating-log-messages.json) | https://developer.apple.com/tutorials/data/documentation/os/generating-log-messages-from-your-code.json |
-| [apple-hig-accessibility.json](docs/research/sources/apple-hig-accessibility.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/accessibility.json |
-| [apple-hig-color.json](docs/research/sources/apple-hig-color.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/color.json |
-| [apple-hig-keyboards.json](docs/research/sources/apple-hig-keyboards.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/keyboards.json |
-| [apple-hig-launching.json](docs/research/sources/apple-hig-launching.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/launching.json |
-| [apple-hig-loading.json](docs/research/sources/apple-hig-loading.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/loading.json |
-| [apple-hig-motion.json](docs/research/sources/apple-hig-motion.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/motion.json |
-| [apple-hig-onboarding.json](docs/research/sources/apple-hig-onboarding.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/onboarding.json |
-| [apple-hig-the-menu-bar.json](docs/research/sources/apple-hig-the-menu-bar.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/the-menu-bar.json |
-| [apple-hig-toolbars.json](docs/research/sources/apple-hig-toolbars.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/toolbars.json |
-| [apple-hig-windows.json](docs/research/sources/apple-hig-windows.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/windows.json |
-| [apple-infoplist-lsenvironment.html](docs/research/sources/apple-infoplist-lsenvironment.html) | https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/LaunchServicesKeys.html |
-| [apple-kmadimflashinglightschangednotification.json](docs/research/sources/apple-kmadimflashinglightschangednotification.json) | https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/kmadimflashinglightschangednotification.json |
-| [apple-logging.json](docs/research/sources/apple-logging.json) | https://developer.apple.com/tutorials/data/documentation/os/logging.json |
-| [apple-mach_absolute_time.json](docs/research/sources/apple-mach_absolute_time.json) | https://developer.apple.com/tutorials/data/documentation/kernel/1462446-mach_absolute_time.json |
-| [apple-madimflashinglightsenabled.json](docs/research/sources/apple-madimflashinglightsenabled.json) | https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/madimflashinglightsenabled().json |
-| [apple-maflashinglightsprocessor-processsurface.json](docs/research/sources/apple-maflashinglightsprocessor-processsurface.json) | https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/maflashinglightsprocessor/processsurface(_:outsurface:timestamp:options:).json |
-| [apple-maflashinglightsprocessor-result.json](docs/research/sources/apple-maflashinglightsprocessor-result.json) | https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/maflashinglightsprocessor/result.json |
-| [apple-maflashinglightsprocessor.json](docs/research/sources/apple-maflashinglightsprocessor.json) | https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/maflashinglightsprocessor.json |
-| [apple-mediaaccessibility-flashing-lights.json](docs/research/sources/apple-mediaaccessibility-flashing-lights.json) | https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/flashing-lights.json |
-| [apple-metal-best-practices-functions-libraries.html](docs/research/sources/apple-metal-best-practices-functions-libraries.html) | https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/FunctionsandLibraries.html |
-| [apple-metal-best-practices-pipelines.html](docs/research/sources/apple-metal-best-practices-pipelines.html) | https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/Pipelines.html |
-| [apple-metal-binary-archives.json](docs/research/sources/apple-metal-binary-archives.json) | https://developer.apple.com/tutorials/data/documentation/metal/metal-binary-archives.json |
-| [apple-metal-building-a-shader-library.json](docs/research/sources/apple-metal-building-a-shader-library.json) | https://developer.apple.com/tutorials/data/documentation/metal/building-a-shader-library-by-precompiling-source-files.json |
-| [apple-metal-compiling-binary-archives-from-a-script.json](docs/research/sources/apple-metal-compiling-binary-archives-from-a-script.json) | https://developer.apple.com/tutorials/data/documentation/metal/compiling-binary-archives-from-a-custom-configuration-script.json |
-| [apple-metal-creating-binary-archives.json](docs/research/sources/apple-metal-creating-binary-archives.json) | https://developer.apple.com/tutorials/data/documentation/metal/creating-binary-archives-from-device-built-pipeline-state-objects.json |
-| [apple-metal-libraries.json](docs/research/sources/apple-metal-libraries.json) | https://developer.apple.com/tutorials/data/documentation/metal/metal-libraries.json |
-| [apple-metal-minimizing-binary-size.json](docs/research/sources/apple-metal-minimizing-binary-size.json) | https://developer.apple.com/tutorials/data/documentation/metal/minimizing-the-binary-size-of-a-shader-library.json |
-| [apple-metal-resource-options.html](docs/research/sources/apple-metal-resource-options.html) | https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/ResourceOptions.html |
-| [apple-metal-shader-libraries.json](docs/research/sources/apple-metal-shader-libraries.json) | https://developer.apple.com/tutorials/data/documentation/metal/shader-libraries.json |
-| [apple-metal-using-the-metal-4-compilation-api.json](docs/research/sources/apple-metal-using-the-metal-4-compilation-api.json) | https://developer.apple.com/tutorials/data/documentation/metal/using-the-metal-4-compilation-api.json |
-| [apple-metal-variables.json](docs/research/sources/apple-metal-variables.json) | https://developer.apple.com/tutorials/data/documentation/metal/metal-variables.json |
-| [apple-mtl4archive.json](docs/research/sources/apple-mtl4archive.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtl4archive.json |
-| [apple-mtlbinaryarchive-addrenderpipelinefunctions.json](docs/research/sources/apple-mtlbinaryarchive-addrenderpipelinefunctions.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlbinaryarchive/addrenderpipelinefunctions(descriptor:).json |
-| [apple-mtlbinaryarchive-serialize.json](docs/research/sources/apple-mtlbinaryarchive-serialize.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlbinaryarchive/serialize(to:).json |
-| [apple-mtlbinaryarchive.json](docs/research/sources/apple-mtlbinaryarchive.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlbinaryarchive.json |
-| [apple-mtlbinaryarchivedescriptor-url.json](docs/research/sources/apple-mtlbinaryarchivedescriptor-url.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlbinaryarchivedescriptor/url.json |
-| [apple-mtlbinaryarchivedescriptor.json](docs/research/sources/apple-mtlbinaryarchivedescriptor.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlbinaryarchivedescriptor.json |
-| [apple-mtlcommandbuffer-gpuendtime.json](docs/research/sources/apple-mtlcommandbuffer-gpuendtime.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlcommandbuffer/gpuendtime.json |
-| [apple-mtlcommandbuffer-gpustarttime.json](docs/research/sources/apple-mtlcommandbuffer-gpustarttime.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlcommandbuffer/gpustarttime.json |
-| [apple-mtlcommandbuffer-kernelstarttime.json](docs/research/sources/apple-mtlcommandbuffer-kernelstarttime.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlcommandbuffer/kernelstarttime.json |
-| [apple-mtldevice-makebinaryarchive.json](docs/research/sources/apple-mtldevice-makebinaryarchive.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makebinaryarchive(descriptor:).json |
-| [apple-mtldevice-makedefaultlibrary.json](docs/research/sources/apple-mtldevice-makedefaultlibrary.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makedefaultlibrary().json |
-| [apple-mtldevice-makelibrary-data.json](docs/research/sources/apple-mtldevice-makelibrary-data.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makelibrary(data:).json |
-| [apple-mtldevice-makelibrary-source.json](docs/research/sources/apple-mtldevice-makelibrary-source.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makelibrary(source:options:).json |
-| [apple-mtldevice-makelibrary-url.json](docs/research/sources/apple-mtldevice-makelibrary-url.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makelibrary(url:).json |
-| [apple-mtlpipelineoption-failonbinaryarchivemiss.json](docs/research/sources/apple-mtlpipelineoption-failonbinaryarchivemiss.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlpipelineoption/failonbinaryarchivemiss.json |
-| [apple-mtlrenderpipelinedescriptor-binaryarchives.json](docs/research/sources/apple-mtlrenderpipelinedescriptor-binaryarchives.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlrenderpipelinedescriptor/binaryarchives.json |
-| [apple-nsapplication-currentevent.json](docs/research/sources/apple-nsapplication-currentevent.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/currentevent.json |
-| [apple-nsapplication-requestuserattention.json](docs/research/sources/apple-nsapplication-requestuserattention.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/requestuserattention(_:).json |
-| [apple-nsapplication-requestuserattentiontype-informationalrequest.json](docs/research/sources/apple-nsapplication-requestuserattentiontype-informationalrequest.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/requestuserattentiontype/informationalrequest.json |
-| [apple-nsbeep.json](docs/research/sources/apple-nsbeep.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsbeep.json |
-| [apple-nsevent-timestamp.json](docs/research/sources/apple-nsevent-timestamp.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/timestamp.json |
-| [apple-nsevent.json](docs/research/sources/apple-nsevent.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent.json |
-| [apple-nspasteboard-name-find.json](docs/research/sources/apple-nspasteboard-name-find.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nspasteboard/name-swift.struct/find.json |
-| [apple-nsprinter-printernames.json](docs/research/sources/apple-nsprinter-printernames.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprinter/printernames.json |
-| [apple-nsprinter.json](docs/research/sources/apple-nsprinter.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprinter.json |
-| [apple-nsprintoperation-run.json](docs/research/sources/apple-nsprintoperation-run.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/run().json |
-| [apple-nsprintoperation-runmodal.json](docs/research/sources/apple-nsprintoperation-runmodal.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/runmodal(for:delegate:didrun:contextinfo:).json |
-| [apple-nsprintoperation-showsprintpanel.json](docs/research/sources/apple-nsprintoperation-showsprintpanel.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/showsprintpanel.json |
-| [apple-nsscreen-frame.json](docs/research/sources/apple-nsscreen-frame.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/frame.json |
-| [apple-nsscreen-screens.json](docs/research/sources/apple-nsscreen-screens.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/screens.json |
-| [apple-nsscreen-visibleframe.json](docs/research/sources/apple-nsscreen-visibleframe.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/visibleframe.json |
-| [apple-nsscroller-preferredscrollerstyle.json](docs/research/sources/apple-nsscroller-preferredscrollerstyle.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscroller/preferredscrollerstyle.json |
-| [apple-nsscroller-preferredscrollerstyledidchange.json](docs/research/sources/apple-nsscroller-preferredscrollerstyledidchange.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscroller/preferredscrollerstyledidchangenotification.json |
-| [apple-nsscrollview-usespredominantaxisscrolling.json](docs/research/sources/apple-nsscrollview-usespredominantaxisscrolling.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscrollview/usespredominantaxisscrolling.json |
-| [apple-nssound-volume.json](docs/research/sources/apple-nssound-volume.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nssound/volume.json |
-| [apple-nssound.json](docs/research/sources/apple-nssound.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nssound.json |
-| [apple-nswindow-constrainframerect.json](docs/research/sources/apple-nswindow-constrainframerect.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/constrainframerect(_:to:).json |
-| [apple-nswindow-converttoscreen.json](docs/research/sources/apple-nswindow-converttoscreen.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/converttoscreen(_:).json |
-| [apple-nswindow-deminiaturize.json](docs/research/sources/apple-nswindow-deminiaturize.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/deminiaturize(_:).json |
-| [apple-nswindow-frame.json](docs/research/sources/apple-nswindow-frame.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/frame.json |
-| [apple-nswindow-iskeywindow.json](docs/research/sources/apple-nswindow-iskeywindow.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/iskeywindow.json |
-| [apple-nswindow-isminiaturized.json](docs/research/sources/apple-nswindow-isminiaturized.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/isminiaturized.json |
-| [apple-nswindow-miniaturize.json](docs/research/sources/apple-nswindow-miniaturize.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/miniaturize(_:).json |
-| [apple-nswindow-miniwindowtitle.json](docs/research/sources/apple-nswindow-miniwindowtitle.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/miniwindowtitle.json |
-| [apple-nswindow-orderback.json](docs/research/sources/apple-nswindow-orderback.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/orderback(_:).json |
-| [apple-nswindow-orderfrontregardless.json](docs/research/sources/apple-nswindow-orderfrontregardless.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/orderfrontregardless().json |
-| [apple-nswindow-representedurl.json](docs/research/sources/apple-nswindow-representedurl.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/representedurl.json |
-| [apple-nswindow-screen.json](docs/research/sources/apple-nswindow-screen.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/screen.json |
-| [apple-nswindow-setframe.json](docs/research/sources/apple-nswindow-setframe.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/setframe(_:display:).json |
-| [apple-nswindow-stylemask-fullscreen.json](docs/research/sources/apple-nswindow-stylemask-fullscreen.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/stylemask-swift.struct/fullscreen.json |
-| [apple-nswindow-subtitle.json](docs/research/sources/apple-nswindow-subtitle.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/subtitle.json |
-| [apple-nswindow-title.json](docs/research/sources/apple-nswindow-title.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/title.json |
-| [apple-nswindow-titlebarappearstransparent.json](docs/research/sources/apple-nswindow-titlebarappearstransparent.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/titlebarappearstransparent.json |
-| [apple-nswindow-titlevisibility-hidden.json](docs/research/sources/apple-nswindow-titlevisibility-hidden.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/titlevisibility-swift.enum/hidden.json |
-| [apple-nswindow-titlevisibility-property.json](docs/research/sources/apple-nswindow-titlevisibility-property.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/titlevisibility-swift.property.json |
-| [apple-nswindow-togglefullscreen.json](docs/research/sources/apple-nswindow-togglefullscreen.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/togglefullscreen(_:).json |
-| [apple-nsworkspace-accessibilitydisplayoptionsdidchangenotification.json](docs/research/sources/apple-nsworkspace-accessibilitydisplayoptionsdidchangenotification.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsworkspace/accessibilitydisplayoptionsdidchangenotification.json |
-| [apple-nsworkspace-accessibilitydisplayshouldreducemotion.json](docs/research/sources/apple-nsworkspace-accessibilitydisplayshouldreducemotion.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsworkspace/accessibilitydisplayshouldreducemotion.json |
-| [apple-os-log-create.json](docs/research/sources/apple-os-log-create.json) | https://developer.apple.com/tutorials/data/documentation/os/os_log_create.json |
-| [apple-os-log-with-type.json](docs/research/sources/apple-os-log-with-type.json) | https://developer.apple.com/tutorials/data/documentation/os/os_log_with_type.json |
-| [apple-os-log.json](docs/research/sources/apple-os-log.json) | https://developer.apple.com/tutorials/data/documentation/os/os_log.json |
-| [apple-oslogprivacy.json](docs/research/sources/apple-oslogprivacy.json) | https://developer.apple.com/tutorials/data/documentation/os/oslogprivacy.json |
-| [apple-promotion-displays.json](docs/research/sources/apple-promotion-displays.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/optimizing-iphone-and-ipad-apps-to-support-promotion-displays.json |
-| [apple-reducing-your-app-s-launch-time.json](docs/research/sources/apple-reducing-your-app-s-launch-time.json) | https://developer.apple.com/tutorials/data/documentation/xcode/reducing-your-app-s-launch-time.json |
-| [apple-responding-to-flashing-lights-setting.json](docs/research/sources/apple-responding-to-flashing-lights-setting.json) | https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/responding-to-changes-in-the-flashing-lights-setting.json |
-| [apple-scstreamframeinfo-displaytime.json](docs/research/sources/apple-scstreamframeinfo-displaytime.json) | https://developer.apple.com/tutorials/data/documentation/screencapturekit/scstreamframeinfo/displaytime.json |
-| [apple-scstreamframeinfo.json](docs/research/sources/apple-scstreamframeinfo.json) | https://developer.apple.com/tutorials/data/documentation/screencapturekit/scstreamframeinfo.json |
-| [apple-storage-mode-apple-gpus.json](docs/research/sources/apple-storage-mode-apple-gpus.json) | https://developer.apple.com/tutorials/data/documentation/metal/choosing-a-resource-storage-mode-for-apple-gpus.json |
-| [apple-techtalk-10855-render-loop-hitches.html](docs/research/sources/apple-techtalk-10855-render-loop-hitches.html) | https://developer.apple.com/videos/play/tech-talks/10855/ |
-| [apple-terminal-guide-change-title.html](docs/research/sources/apple-terminal-guide-change-title.html) | https://support.apple.com/guide/terminal/change-the-title-shown-in-a-terminal-window-trml15228/mac |
-| [apple-terminal-guide-tab-settings.html](docs/research/sources/apple-terminal-guide-tab-settings.html) | https://support.apple.com/guide/terminal/change-profiles-tab-settings-trmltab/mac |
-| [apple-terminal-guide-window-settings.html](docs/research/sources/apple-terminal-guide-window-settings.html) | https://support.apple.com/guide/terminal/change-profiles-window-settings-trmlwindw/mac |
-| [apple-thread-safety-summary.html](docs/research/sources/apple-thread-safety-summary.html) | https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/ThreadSafetySummary/ThreadSafetySummary.html |
-| [apple-timeinterval.json](docs/research/sources/apple-timeinterval.json) | https://developer.apple.com/tutorials/data/documentation/foundation/timeinterval.json |
-| [apple-understanding-hangs-in-your-app.json](docs/research/sources/apple-understanding-hangs-in-your-app.json) | https://developer.apple.com/tutorials/data/documentation/xcode/understanding-hangs-in-your-app.json |
-| [apple-viewing-log-messages.json](docs/research/sources/apple-viewing-log-messages.json) | https://developer.apple.com/tutorials/data/documentation/os/viewing-log-messages.json |
-| [apple-wwdc20-10615-build-gpu-binaries.html](docs/research/sources/apple-wwdc20-10615-build-gpu-binaries.html) | https://developer.apple.com/videos/play/wwdc2020/10615/ |
-| [apple-wwdc20-10615-transcript.txt](docs/research/sources/apple-wwdc20-10615-transcript.txt) | https://developer.apple.com/videos/play/wwdc2020/10615/ |
-| [apple-wwdc22-10102-target-optimize-gpu-binaries.html](docs/research/sources/apple-wwdc22-10102-target-optimize-gpu-binaries.html) | https://developer.apple.com/videos/play/wwdc2022/10102/ |
-| [apple-wwdc22-10102-transcript.txt](docs/research/sources/apple-wwdc22-10102-transcript.txt) | https://developer.apple.com/videos/play/wwdc2022/10102/ |
-| [apple-wwdc23-10248-analyze-hangs.html](docs/research/sources/apple-wwdc23-10248-analyze-hangs.html) | https://developer.apple.com/videos/play/wwdc2023/10248/ |
-| [apple-xcode-16-release-notes.json](docs/research/sources/apple-xcode-16-release-notes.json) | https://developer.apple.com/tutorials/data/documentation/xcode-release-notes/xcode-16-release-notes.json |
-| [apple-xcode-26-release-notes.json](docs/research/sources/apple-xcode-26-release-notes.json) | https://developer.apple.com/tutorials/data/documentation/xcode-release-notes/xcode-26-release-notes.json |
-| [apple-xcode-additional-components.json](docs/research/sources/apple-xcode-additional-components.json) | https://developer.apple.com/tutorials/data/documentation/xcode/downloading-and-installing-additional-xcode-components.json |
-| [apple-xcode-improving-app-responsiveness.json](docs/research/sources/apple-xcode-improving-app-responsiveness.json) | https://developer.apple.com/tutorials/data/documentation/xcode/improving-app-responsiveness.json |
-| [apple-xcode-understanding-hitches.json](docs/research/sources/apple-xcode-understanding-hitches.json) | https://developer.apple.com/tutorials/data/documentation/xcode/understanding-hitches-in-your-app.json |
-
-### Blog and forum posts with no licence
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 15
-
-| file | copied from |
-|---|---|
-| [arm-neon-bitmask.html](docs/research/sources/arm-neon-bitmask.html) | https://developer.arm.com/community/arm-community-blogs/b/servers-and-cloud-computing-blog/posts/porting-x86-vector-bitmask-optimizations-to-arm-neon |
-| [chadaustin-2024-windows-terminal-latency.html](docs/research/sources/chadaustin-2024-windows-terminal-latency.html) | https://chadaustin.me/2024/02/windows-terminal-latency/ |
-| [danluu-2017-computer-latency-1977-2017.html](docs/research/sources/danluu-2017-computer-latency-1977-2017.html) | https://danluu.com/input-lag/ |
-| [danluu-2017-keyboard-latency.html](docs/research/sources/danluu-2017-keyboard-latency.html) | https://danluu.com/keyboard-latency/ |
-| [danluu-2017-terminal-latency.html](docs/research/sources/danluu-2017-terminal-latency.html) | https://danluu.com/term-latency/ |
-| [fatin-2015-typing-with-pleasure.html](docs/research/sources/fatin-2015-typing-with-pleasure.html) | https://pavelfatin.com/typing-with-pleasure/ |
-| [fatin-2015-typometer.html](docs/research/sources/fatin-2015-typometer.html) | https://pavelfatin.com/typometer/ |
-| [fixterms.html](docs/research/sources/fixterms.html) | http://www.leonerd.org.uk/hacks/fixterms/ |
-| [hn-42526221-mitchellh-on-latency-benchmarks.html](docs/research/sources/hn-42526221-mitchellh-on-latency-benchmarks.html) | https://news.ycombinator.com/item?id=42526221 |
-| [hume-2020-keyboard-to-photon-latency-tester.html](docs/research/sources/hume-2020-keyboard-to-photon-latency-tester.html) | https://thume.ca/2020/05/20/making-a-latency-tester/ |
-| [langdale-2018-sheng.html](docs/research/sources/langdale-2018-sheng.html) | https://branchfree.org/2018/05/25/say-hello-to-my-little-friend-sheng-a-small-but-fast-deterministic-finite-automaton/ |
-| [lkhrs-2022-measuring-terminal-latency.html](docs/research/sources/lkhrs-2022-measuring-terminal-latency.html) | https://www.lkhrs.com/blog/terminal-latency/ |
-| [sawicki-vulkan-memory-types.html](docs/research/sources/sawicki-vulkan-memory-types.html) | https://asawicki.info/news_1740_vulkan_memory_types_on_pc_and_how_to_use_them |
-| [zolotukhin-2026-04-20-metal-pipeline-state-tax.html](docs/research/sources/zolotukhin-2026-04-20-metal-pipeline-state-tax.html) | https://zolotukhin.ai/blog/2026-04-20-why-cold-metal-llms-pay-a-pipeline-state-tax/ |
-| [zolotukhin-2026-04-21-metal-binary-archive.html](docs/research/sources/zolotukhin-2026-04-21-metal-binary-archive.html) | https://zolotukhin.ai/blog/2026-04-21-metal-binary-archive-is-the-missing-cold-start-fix/ |
-
-### DEC manuals as transcribed on vt100.net (Digital Equipment Corporation)
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 103
-
-| file | copied from |
-|---|---|
-| [vt100-ug-chapter1.html](docs/research/sources/vt100-ug-chapter1.html) | https://vt100.net/docs/vt100-ug/chapter1.html |
-| [vt100-ug-chapter3.html](docs/research/sources/vt100-ug-chapter3.html) | https://vt100.net/docs/vt100-ug/chapter3.html |
-| [vt102-ug-chapter3.html](docs/research/sources/vt102-ug-chapter3.html) | https://vt100.net/docs/vt102-ug/chapter3.html |
-| [vt102-ug-chapter5.html](docs/research/sources/vt102-ug-chapter5.html) | https://vt100.net/docs/vt102-ug/chapter5.html |
-| [vt220-rm-chapter2.html](docs/research/sources/vt220-rm-chapter2.html) | https://vt100.net/docs/vt220-rm/chapter2.html |
-| [vt220-rm-chapter4.html](docs/research/sources/vt220-rm-chapter4.html) | https://vt100.net/docs/vt220-rm/chapter4.html |
-| [vt320-uu-appendixe.html](docs/research/sources/vt320-uu-appendixe.html) | https://vt100.net/docs/vt320-uu/appendixe.html |
-| [vt3xx-curve.html](docs/research/sources/vt3xx-curve.html) | https://vt100.net/docs/vt3xx-gp/chapter6.html |
-| [vt3xx-load.html](docs/research/sources/vt3xx-load.html) | https://vt100.net/docs/vt3xx-gp/chapter8.html |
-| [vt3xx-locator.html](docs/research/sources/vt3xx-locator.html) | https://vt100.net/docs/vt3xx-gp/chapter15.html |
-| [vt3xx-macrographs.html](docs/research/sources/vt3xx-macrographs.html) | https://vt100.net/docs/vt3xx-gp/chapter9.html |
-| [vt3xx-polygon-fill.html](docs/research/sources/vt3xx-polygon-fill.html) | https://vt100.net/docs/vt3xx-gp/chapter11.html |
-| [vt3xx-position.html](docs/research/sources/vt3xx-position.html) | https://vt100.net/docs/vt3xx-gp/chapter4.html |
-| [vt3xx-regis-intro.html](docs/research/sources/vt3xx-regis-intro.html) | https://vt100.net/docs/vt3xx-gp/chapter1.html |
-| [vt3xx-report.html](docs/research/sources/vt3xx-report.html) | https://vt100.net/docs/vt3xx-gp/chapter10.html |
-| [vt3xx-screen-control.html](docs/research/sources/vt3xx-screen-control.html) | https://vt100.net/docs/vt3xx-gp/chapter2.html |
-| [vt3xx-sixel.html](docs/research/sources/vt3xx-sixel.html) | https://vt100.net/docs/vt3xx-gp/chapter14.html |
-| [vt3xx-text.html](docs/research/sources/vt3xx-text.html) | https://vt100.net/docs/vt3xx-gp/chapter7.html |
-| [vt3xx-vector.html](docs/research/sources/vt3xx-vector.html) | https://vt100.net/docs/vt3xx-gp/chapter5.html |
-| [vt3xx-write-control.html](docs/research/sources/vt3xx-write-control.html) | https://vt100.net/docs/vt3xx-gp/chapter3.html |
-| [vt420-uu-chapter4.html](docs/research/sources/vt420-uu-chapter4.html) | https://vt100.net/docs/vt420-uu/chapter4.html |
-| [vt420-uu-chapter9.html](docs/research/sources/vt420-uu-chapter9.html) | https://vt100.net/docs/vt420-uu/chapter9.html |
-| [vt510-CHA.html](docs/research/sources/vt510-CHA.html) | https://vt100.net/docs/vt510-rm/CHA.html |
-| [vt510-CHT.html](docs/research/sources/vt510-CHT.html) | https://vt100.net/docs/vt510-rm/CHT.html |
-| [vt510-CNL.html](docs/research/sources/vt510-CNL.html) | https://vt100.net/docs/vt510-rm/CNL.html |
-| [vt510-CPL.html](docs/research/sources/vt510-CPL.html) | https://vt100.net/docs/vt510-rm/CPL.html |
-| [vt510-CUF.html](docs/research/sources/vt510-CUF.html) | https://vt100.net/docs/vt510-rm/CUF.html |
-| [vt510-DECALN.html](docs/research/sources/vt510-DECALN.html) | https://vt100.net/docs/vt510-rm/DECALN.html |
-| [vt510-DECANM.html](docs/research/sources/vt510-DECANM.html) | https://vt100.net/docs/vt510-rm/DECANM.html |
-| [vt510-DECARM.html](docs/research/sources/vt510-DECARM.html) | https://vt100.net/docs/vt510-rm/DECARM.html |
-| [vt510-DECAUPSS.html](docs/research/sources/vt510-DECAUPSS.html) | https://vt100.net/docs/vt510-rm/DECAUPSS.html |
-| [vt510-DECAWM.html](docs/research/sources/vt510-DECAWM.html) | https://vt100.net/docs/vt510-rm/DECAWM.html |
-| [vt510-DECBKM.html](docs/research/sources/vt510-DECBKM.html) | https://vt100.net/docs/vt510-rm/DECBKM.html |
-| [vt510-DECCIR.html](docs/research/sources/vt510-DECCIR.html) | https://vt100.net/docs/vt510-rm/DECCIR.html |
-| [vt510-DECCKSR.html](docs/research/sources/vt510-DECCKSR.html) | https://vt100.net/docs/vt510-rm/DECCKSR.html |
-| [vt510-DECCOLM.html](docs/research/sources/vt510-DECCOLM.html) | https://vt100.net/docs/vt510-rm/DECCOLM.html |
-| [vt510-DECCRA.html](docs/research/sources/vt510-DECCRA.html) | https://vt100.net/docs/vt510-rm/DECCRA.html |
-| [vt510-DECDC.html](docs/research/sources/vt510-DECDC.html) | https://vt100.net/docs/vt510-rm/DECDC.html |
-| [vt510-DECDHL.html](docs/research/sources/vt510-DECDHL.html) | https://vt100.net/docs/vt510-rm/DECDHL.html |
-| [vt510-DECDWL.html](docs/research/sources/vt510-DECDWL.html) | https://vt100.net/docs/vt510-rm/DECDWL.html |
-| [vt510-DECFRA.html](docs/research/sources/vt510-DECFRA.html) | https://vt100.net/docs/vt510-rm/DECFRA.html |
-| [vt510-DECHEBM.html](docs/research/sources/vt510-DECHEBM.html) | https://vt100.net/docs/vt510-rm/DECHEBM.html |
-| [vt510-DECHEM.html](docs/research/sources/vt510-DECHEM.html) | https://vt100.net/docs/vt510-rm/DECHEM.html |
-| [vt510-DECIC.html](docs/research/sources/vt510-DECIC.html) | https://vt100.net/docs/vt510-rm/DECIC.html |
-| [vt510-DECNCSM.html](docs/research/sources/vt510-DECNCSM.html) | https://vt100.net/docs/vt510-rm/DECNCSM.html |
-| [vt510-DECNKM.html](docs/research/sources/vt510-DECNKM.html) | https://vt100.net/docs/vt510-rm/DECNKM.html |
-| [vt510-DECOM.html](docs/research/sources/vt510-DECOM.html) | https://vt100.net/docs/vt510-rm/DECOM.html |
-| [vt510-DECPCCM.html](docs/research/sources/vt510-DECPCCM.html) | https://vt100.net/docs/vt510-rm/DECPCCM.html |
-| [vt510-DECRARA.html](docs/research/sources/vt510-DECRARA.html) | https://vt100.net/docs/vt510-rm/DECRARA.html |
-| [vt510-DECRC.html](docs/research/sources/vt510-DECRC.html) | https://vt100.net/docs/vt510-rm/DECRC.html |
-| [vt510-DECRLCM.html](docs/research/sources/vt510-DECRLCM.html) | https://vt100.net/docs/vt510-rm/DECRLCM.html |
-| [vt510-DECRLM.html](docs/research/sources/vt510-DECRLM.html) | https://vt100.net/docs/vt510-rm/DECRLM.html |
-| [vt510-DECRPDE.html](docs/research/sources/vt510-DECRPDE.html) | https://vt100.net/docs/vt510-rm/DECRPDE.html |
-| [vt510-DECRQDE.html](docs/research/sources/vt510-DECRQDE.html) | https://vt100.net/docs/vt510-rm/DECRQDE.html |
-| [vt510-DECRQPSR.html](docs/research/sources/vt510-DECRQPSR.html) | https://vt100.net/docs/vt510-rm/DECRQPSR.html |
-| [vt510-DECRQUPSS.html](docs/research/sources/vt510-DECRQUPSS.html) | https://vt100.net/docs/vt510-rm/DECRQUPSS.html |
-| [vt510-DECRSPS.html](docs/research/sources/vt510-DECRSPS.html) | https://vt100.net/docs/vt510-rm/DECRSPS.html |
-| [vt510-DECSC.html](docs/research/sources/vt510-DECSC.html) | https://vt100.net/docs/vt510-rm/DECSC.html |
-| [vt510-DECSCA.html](docs/research/sources/vt510-DECSCA.html) | https://vt100.net/docs/vt510-rm/DECSCA.html |
-| [vt510-DECSCL.html](docs/research/sources/vt510-DECSCL.html) | https://vt100.net/docs/vt510-rm/DECSCL.html |
-| [vt510-DECSCPP.html](docs/research/sources/vt510-DECSCPP.html) | https://vt100.net/docs/vt510-rm/DECSCPP.html |
-| [vt510-DECSED.html](docs/research/sources/vt510-DECSED.html) | https://vt100.net/docs/vt510-rm/DECSED.html |
-| [vt510-DECSEL.html](docs/research/sources/vt510-DECSEL.html) | https://vt100.net/docs/vt510-rm/DECSEL.html |
-| [vt510-DECSLPP.html](docs/research/sources/vt510-DECSLPP.html) | https://vt100.net/docs/vt510-rm/DECSLPP.html |
-| [vt510-DECSLRM.html](docs/research/sources/vt510-DECSLRM.html) | https://vt100.net/docs/vt510-rm/DECSLRM.html |
-| [vt510-DECST8C.html](docs/research/sources/vt510-DECST8C.html) | https://vt100.net/docs/vt510-rm/DECST8C.html |
-| [vt510-DECSTBM.html](docs/research/sources/vt510-DECSTBM.html) | https://vt100.net/docs/vt510-rm/DECSTBM.html |
-| [vt510-DECSTR.html](docs/research/sources/vt510-DECSTR.html) | https://vt100.net/docs/vt510-rm/DECSTR.html |
-| [vt510-DECSWL.html](docs/research/sources/vt510-DECSWL.html) | https://vt100.net/docs/vt510-rm/DECSWL.html |
-| [vt510-DECTABSR.html](docs/research/sources/vt510-DECTABSR.html) | https://vt100.net/docs/vt510-rm/DECTABSR.html |
-| [vt510-DL.html](docs/research/sources/vt510-DL.html) | https://vt100.net/docs/vt510-rm/DL.html |
-| [vt510-DSR-DIR.html](docs/research/sources/vt510-DSR-DIR.html) | https://vt100.net/docs/vt510-rm/DSR-DIR.html |
-| [vt510-DSR-KBD.html](docs/research/sources/vt510-DSR-KBD.html) | https://vt100.net/docs/vt510-rm/DSR-KBD.html |
-| [vt510-DSR-MSR.html](docs/research/sources/vt510-DSR-MSR.html) | https://vt100.net/docs/vt510-rm/DSR-MSR.html |
-| [vt510-DSR-PP.html](docs/research/sources/vt510-DSR-PP.html) | https://vt100.net/docs/vt510-rm/DSR-PP.html |
-| [vt510-DSR-UDK.html](docs/research/sources/vt510-DSR-UDK.html) | https://vt100.net/docs/vt510-rm/DSR-UDK.html |
-| [vt510-DSR-XCPR.html](docs/research/sources/vt510-DSR-XCPR.html) | https://vt100.net/docs/vt510-rm/DSR-XCPR.html |
-| [vt510-DSR.html](docs/research/sources/vt510-DSR.html) | https://vt100.net/docs/vt510-rm/DSR.html |
-| [vt510-ECH.html](docs/research/sources/vt510-ECH.html) | https://vt100.net/docs/vt510-rm/ECH.html |
-| [vt510-ED.html](docs/research/sources/vt510-ED.html) | https://vt100.net/docs/vt510-rm/ED.html |
-| [vt510-EL.html](docs/research/sources/vt510-EL.html) | https://vt100.net/docs/vt510-rm/EL.html |
-| [vt510-HPA.html](docs/research/sources/vt510-HPA.html) | https://vt100.net/docs/vt510-rm/HPA.html |
-| [vt510-HPR.html](docs/research/sources/vt510-HPR.html) | https://vt100.net/docs/vt510-rm/HPR.html |
-| [vt510-IL.html](docs/research/sources/vt510-IL.html) | https://vt100.net/docs/vt510-rm/IL.html |
-| [vt510-IND.html](docs/research/sources/vt510-IND.html) | https://vt100.net/docs/vt510-rm/IND.html |
-| [vt510-KAM.html](docs/research/sources/vt510-KAM.html) | https://vt100.net/docs/vt510-rm/KAM.html |
-| [vt510-LS.html](docs/research/sources/vt510-LS.html) | https://vt100.net/docs/vt510-rm/LS.html |
-| [vt510-NEL.html](docs/research/sources/vt510-NEL.html) | https://vt100.net/docs/vt510-rm/NEL.html |
-| [vt510-NP.html](docs/research/sources/vt510-NP.html) | https://vt100.net/docs/vt510-rm/NP.html |
-| [vt510-PP.html](docs/research/sources/vt510-PP.html) | https://vt100.net/docs/vt510-rm/PP.html |
-| [vt510-PPA.html](docs/research/sources/vt510-PPA.html) | https://vt100.net/docs/vt510-rm/PPA.html |
-| [vt510-PPB.html](docs/research/sources/vt510-PPB.html) | https://vt100.net/docs/vt510-rm/PPB.html |
-| [vt510-PPR.html](docs/research/sources/vt510-PPR.html) | https://vt100.net/docs/vt510-rm/PPR.html |
-| [vt510-RIS.html](docs/research/sources/vt510-RIS.html) | https://vt100.net/docs/vt510-rm/RIS.html |
-| [vt510-S7C1T.html](docs/research/sources/vt510-S7C1T.html) | https://vt100.net/docs/vt510-rm/S7C1T.html |
-| [vt510-S8C1T.html](docs/research/sources/vt510-S8C1T.html) | https://vt100.net/docs/vt510-rm/S8C1T.html |
-| [vt510-SCS.html](docs/research/sources/vt510-SCS.html) | https://vt100.net/docs/vt510-rm/SCS.html |
-| [vt510-SRM.html](docs/research/sources/vt510-SRM.html) | https://vt100.net/docs/vt510-rm/SRM.html |
-| [vt510-SS.html](docs/research/sources/vt510-SS.html) | https://vt100.net/docs/vt510-rm/SS.html |
-| [vt510-TBC.html](docs/research/sources/vt510-TBC.html) | https://vt100.net/docs/vt510-rm/TBC.html |
-| [vt510-chapter2.html](docs/research/sources/vt510-chapter2.html) | https://vt100.net/docs/vt510-rm/chapter2.html |
-| [vt510-chapter4.html](docs/research/sources/vt510-chapter4.html) | https://vt100.net/docs/vt510-rm/chapter4.html |
-| [vt510-chapter7.html](docs/research/sources/vt510-chapter7.html) | https://vt100.net/docs/vt510-rm/chapter7.html |
-
-### Gists with no licence (aras-p, rockorager, pervognsen)
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 3
-
-| file | copied from |
-|---|---|
-| [aras-metal-shader-cache-gist.md](docs/research/sources/aras-metal-shader-cache-gist.md) | https://gist.githubusercontent.com/aras-p/5a9ae8f1f7d9998f732aff26dfa62617/raw |
-| [inband-resize-notifications.md](docs/research/sources/inband-resize-notifications.md) | https://gist.githubusercontent.com/rockorager/e695fb2924d36b2bcf1fff4a3704bd83/raw/abca37a71844627772fb0b9528588fb768c48726/in-band-resize-notifications.md |
-| [pervognsen-shift-based-dfa.md](docs/research/sources/pervognsen-shift-based-dfa.md) | https://gist.github.com/pervognsen/218ea17743e1442e59bb60d29b1aa725 |
-
-### GitHub issue and pull-request comments (their authors' content)
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 14
-
-| file | copied from |
-|---|---|
-| [alacritty-issue-673-comments.json](docs/research/sources/alacritty-issue-673-comments.json) | https://api.github.com/repos/alacritty/alacritty/issues/673/comments?per_page=100 |
-| [alacritty-issue-673.json](docs/research/sources/alacritty-issue-673.json) | https://api.github.com/repos/alacritty/alacritty/issues/673 |
-| [gfx-rs-3716-comment-816575736.json](docs/research/sources/gfx-rs-3716-comment-816575736.json) | https://api.github.com/repos/gfx-rs/gfx/issues/comments/816575736 |
-| [kitty-issue-2701-comment-636497270.json](docs/research/sources/kitty-issue-2701-comment-636497270.json) | https://api.github.com/repos/kovidgoyal/kitty/issues/comments/636497270 |
-| [kitty-issue-2701-comment-911089374.json](docs/research/sources/kitty-issue-2701-comment-911089374.json) | https://api.github.com/repos/kovidgoyal/kitty/issues/comments/911089374 |
-| [kitty-issue-2701-comment-912704201.json](docs/research/sources/kitty-issue-2701-comment-912704201.json) | https://api.github.com/repos/kovidgoyal/kitty/issues/comments/912704201 |
-| [rust-issue-154878.json](docs/research/sources/rust-issue-154878.json) | https://api.github.com/repos/rust-lang/rust/issues/154878 |
-| [rust-issue-155086-comments.json](docs/research/sources/rust-issue-155086-comments.json) | https://api.github.com/repos/rust-lang/rust/issues/155086/comments?per_page=100 |
-| [rust-issue-155086.json](docs/research/sources/rust-issue-155086.json) | https://api.github.com/repos/rust-lang/rust/issues/155086 |
-| [rust-issue-155139-comments.json](docs/research/sources/rust-issue-155139-comments.json) | https://api.github.com/repos/rust-lang/rust/issues/155139/comments?per_page=100 |
-| [rust-pr-155056.json](docs/research/sources/rust-pr-155056.json) | https://api.github.com/repos/rust-lang/rust/pulls/155056 |
-| [rust-pr-162811.json](docs/research/sources/rust-pr-162811.json) | https://api.github.com/repos/rust-lang/rust/pulls/162811 |
-| [terminal-wg-issue-20.json](docs/research/sources/terminal-wg-issue-20.json) | https://gitlab.freedesktop.org/api/v4/projects/terminal-wg%2Fspecifications/issues/20 |
-| [wezterm-pr-7470-webgpu-present-mode.json](docs/research/sources/wezterm-pr-7470-webgpu-present-mode.json) | https://api.github.com/repos/wezterm/wezterm/pulls/7470 |
-
-### ISO/IEC 10646 final committee draft, 2010 (ISO/IEC)
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 1
-
-| file | copied from |
-|---|---|
-| [iso10646-fcd-2010.pdf](docs/research/sources/iso10646-fcd-2010.pdf) | http://unicode.org/L2/L2010/10038-fcd10646-main.pdf |
-
-### mikee47/VT100, vt100.cpp (Martin K. Schroeder); the repository has no licence
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 1
-
-| file | copied from |
-|---|---|
-| [vt100-avr-terminal.cpp](docs/research/sources/vt100-avr-terminal.cpp) | https://raw.githubusercontent.com/mikee47/VT100/2334dfa06e2ec677acd288b1504057efd924e353/src/Terminal.cpp |
-
-### Note AT's modelled contact sheets composited over Apple's Tahoe Evening wallpaper, blurred and dimmed (Apple's wallpaper art carries no grant)
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 2
-
-| file | copied from |
-|---|---|
-| [at-observed/sheet-btop-dark-tahoe-evening.png](docs/research/sources/at-observed/sheet-btop-dark-tahoe-evening.png) | baud's CPU-rendered cells composited over each body by the note AT material model, a0822e39 |
-| [at-observed/sheet-git-log-light-tahoe-evening.png](docs/research/sources/at-observed/sheet-git-log-light-tahoe-evening.png) | baud's CPU-rendered cells composited over each body by the note AT material model, a0822e39 |
-
-### Papers with no redistribution grant: ACM ASPLOS 2014, USENIX ATC 2012 and NSDI 2019, the Parabix paper
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 4
-
-| file | copied from |
-|---|---|
-| [cameron-2014-parabix-regex.pdf](docs/research/sources/cameron-2014-parabix-regex.pdf) | https://web.archive.org/web/20170813063427id_/http://parabix.costar.sfu.ca/export/3617/docs/Working/re/re-main.pdf |
-| [hyperscan-nsdi19.pdf](docs/research/sources/hyperscan-nsdi19.pdf) | https://www.usenix.org/system/files/nsdi19-wang-xiang.pdf |
-| [mosh-usenix-atc-2012.pdf](docs/research/sources/mosh-usenix-atc-2012.pdf) | https://mosh.org/mosh-paper.pdf |
-| [mytkowicz-2014-data-parallel-fsm.pdf](docs/research/sources/mytkowicz-2014-data-parallel-fsm.pdf) | https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/asplos302-mytkowicz.pdf |
-
-### The owner's research screenshots that show Apple Color Emoji artwork, some of them beside other system fonts' glyphs and other terminals' windows (Apple's glyph art carries no grant)
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 19
-
-| file | copied from |
-|---|---|
-| [ad-observed/chromium-zoom.png](docs/research/sources/ad-observed/chromium-zoom.png) | headless screenshot |
-| [ad-observed/coretext-sheet.png](docs/research/sources/ad-observed/coretext-sheet.png) | a Swift probe, CTLineDraw at 40 pt |
-| [ad-observed/frequency-shot-core-altered-macos.png](docs/research/sources/ad-observed/frequency-shot-core-altered-macos.png) | the frequency lens's shot binary (Term + Renderer, CPU path) at e0a611d; its arguments were not recorded |
-| [ad-observed/kitty-run-a.png](docs/research/sources/ad-observed/kitty-run-a.png) | screencapture -l |
-| [ad-observed/kitty-run-b.png](docs/research/sources/ad-observed/kitty-run-b.png) | screencapture -l |
-| [ad-observed/pango-jbm-apple.png](docs/research/sources/ad-observed/pango-jbm-apple.png) | pango-view, fontconfig limited to scratch fonts |
-| [ad-observed/review-v13-sheet-a-28.png](docs/research/sources/ad-observed/review-v13-sheet-a-28.png) | .claude/research/review-v13/starters/sheet-a-28.png (untracked), copied unchanged |
-| [ad-observed/review-v13-sheet-a-56.png](docs/research/sources/ad-observed/review-v13-sheet-a-56.png) | .claude/research/review-v13/starters/sheet-a-56.png (untracked), copied unchanged |
-| [ad-observed/review-v13-sheet-b-28.png](docs/research/sources/ad-observed/review-v13-sheet-b-28.png) | .claude/research/review-v13/starters/sheet-b-28.png (untracked), copied unchanged |
-| [ad-observed/review-v13-sheet-b-56.png](docs/research/sources/ad-observed/review-v13-sheet-b-56.png) | .claude/research/review-v13/starters/sheet-b-56.png (untracked), copied unchanged |
-| [ad-observed/review-v13-sheet-c-28.png](docs/research/sources/ad-observed/review-v13-sheet-c-28.png) | .claude/research/review-v13/starters/sheet-c-28.png (untracked), copied unchanged |
-| [ad-observed/review-v13-sheet-c-56.png](docs/research/sources/ad-observed/review-v13-sheet-c-56.png) | .claude/research/review-v13/starters/sheet-c-56.png (untracked), copied unchanged |
-| [ad-observed/review-v13-sheet-e-28.png](docs/research/sources/ad-observed/review-v13-sheet-e-28.png) | .claude/research/review-v13/starters/sheet-e-28.png (untracked), copied unchanged |
-| [ad-observed/review-v13-sheet-e-56.png](docs/research/sources/ad-observed/review-v13-sheet-e-56.png) | .claude/research/review-v13/starters/sheet-e-56.png (untracked), copied unchanged |
-| [ad-observed/supp-coretext-render.png](docs/research/sources/ad-observed/supp-coretext-render.png) | render source in supp-coretext-render.swift |
-| [ad-observed/supp-terminalapp-crop.png](docs/research/sources/ad-observed/supp-terminalapp-crop.png) | screencapture -l of the probe window (Retina, cropped), from the supplement's survey |
-| [ad-observed/supp-terminalapp-zoom.png](docs/research/sources/ad-observed/supp-terminalapp-zoom.png) | crop and scale of the same capture |
-| [ad-observed/terminals-sheet.png](docs/research/sources/ad-observed/terminals-sheet.png) | screencapture -l of each window, cropped and tiled |
-| [ad-observed/webkit-zoom.png](docs/research/sources/ad-observed/webkit-zoom.png) | WKWebView takeSnapshot |
-
-### Unicode publications: annexes, standard chapters, L2 documents (Unicode, Inc.)
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 27
-
-| file | copied from |
-|---|---|
-| [l2-24264-ttwg-report-utc181.pdf](docs/research/sources/l2-24264-ttwg-report-utc181.pdf) | https://www.unicode.org/L2/L2024/24264-ttwg-report-utc181.pdf |
-| [l2-25179-ttwg.pdf](docs/research/sources/l2-25179-ttwg.pdf) | https://www.unicode.org/L2/L2025/25179-ttwg.pdf |
-| [l2-25263-ttwg-report-utc185.pdf](docs/research/sources/l2-25263-ttwg-report-utc185.pdf) | https://www.unicode.org/L2/L2025/25263-ttwg-report-utc185.pdf |
-| [uax11-east-asian-width.html](docs/research/sources/uax11-east-asian-width.html) | https://www.unicode.org/reports/tr11/tr11-44.html |
-| [uax14-line-breaking.html](docs/research/sources/uax14-line-breaking.html) | https://www.unicode.org/reports/tr14/tr14-55.html |
-| [uax24-script-property.html](docs/research/sources/uax24-script-property.html) | https://www.unicode.org/reports/tr24/tr24-39.html |
-| [uax29-text-segmentation.html](docs/research/sources/uax29-text-segmentation.html) | https://www.unicode.org/reports/tr29/tr29-47.html |
-| [uax9-tr9-51.html](docs/research/sources/uax9-tr9-51.html) | https://www.unicode.org/reports/tr9/tr9-51.html |
-| [uax9-tr9-52.html](docs/research/sources/uax9-tr9-52.html) | https://www.unicode.org/reports/tr9/tr9-52.html |
-| [unicode-ch3.html](docs/research/sources/unicode-ch3.html) | https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/ |
-| [unicode-enumerated-versions.html](docs/research/sources/unicode-enumerated-versions.html) | https://www.unicode.org/versions/enumeratedversions.html |
-| [unicode16-ch5.html](docs/research/sources/unicode16-ch5.html) | https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-5/ |
-| [unicode17-ch2.html](docs/research/sources/unicode17-ch2.html) | https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-2/ |
-| [unicode17-ch23.html](docs/research/sources/unicode17-ch23.html) | https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-23/ |
-| [unicode17-ch3.html](docs/research/sources/unicode17-ch3.html) | https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/ |
-| [unicode17-ch5.html](docs/research/sources/unicode17-ch5.html) | https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-5/ |
-| [unicode18-ch2.html](docs/research/sources/unicode18-ch2.html) | https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-2/ |
-| [unicode18-ch22.html](docs/research/sources/unicode18-ch22.html) | https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-22/ |
-| [unicode18-ch23.html](docs/research/sources/unicode18-ch23.html) | https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-23/ |
-| [unicode18-ch3.html](docs/research/sources/unicode18-ch3.html) | https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-3/ |
-| [unicode18-ch5.html](docs/research/sources/unicode18-ch5.html) | https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-5/ |
-| [unicode18-release.html](docs/research/sources/unicode18-release.html) | https://www.unicode.org/versions/Unicode18.0.0/ |
-| [uts10-tr10-53.html](docs/research/sources/uts10-tr10-53.html) | https://www.unicode.org/reports/tr10/tr10-53.html |
-| [uts51-img-invalid-tag.png](docs/research/sources/uts51-img-invalid-tag.png) | https://www.unicode.org/reports/tr51/images/other/unknownTag2.png |
-| [uts51-img-missing-flag.png](docs/research/sources/uts51-img-missing-flag.png) | https://www.unicode.org/reports/tr51/images/other/black-flag-unknown.png |
-| [uts51-img-unsupported.png](docs/research/sources/uts51-img-unsupported.png) | https://www.unicode.org/reports/tr51/images/other/unsupported.png |
-| [uts51-r31.html](docs/research/sources/uts51-r31.html) | https://www.unicode.org/reports/tr51/tr51-31.html |
-
-### vt100.net, 'Character sets: technical' (Paul Flo Williams)
-
-- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
-- **Licence:** LicenseRef-NoGrant
-- **Notice:** none
-- **Files:** 1
-
-| file | copied from |
-|---|---|
-| [vt100net-charsets-technical.html](docs/research/sources/vt100net-charsets-technical.html) | https://vt100.net/charsets/technical.html |
 
 ### Ecma International standards ECMA-35 and ECMA-48, free to download; no notice was found in the text
 
@@ -2097,7 +1635,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the owner's work
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 203
+- **Files:** 182
 
 | file | copied from |
 |---|---|
@@ -2114,17 +1652,11 @@ notice is, and the URL each file was copied from.
 | [ad-observed/frequency-replay.txt](docs/research/sources/ad-observed/frequency-replay.txt) | a scratch crate over baud-core and baud-render at e0a611d |
 | [ad-observed/frequency-saturate.txt](docs/research/sources/ad-observed/frequency-saturate.txt) | a scratch crate over baud-core at e0a611d (bin saturate) |
 | [ad-observed/frequency-storetest.txt](docs/research/sources/ad-observed/frequency-storetest.txt) | a scratch crate over baud-core at e0a611d |
-| [ad-observed/jev-design-r2.json](docs/research/sources/ad-observed/jev-design-r2.json) | .claude/research/hebrew-improve/missing-mark/jev-design-r2.json (untracked), copied unchanged |
-| [ad-observed/jev-design.json](docs/research/sources/ad-observed/jev-design.json) | .claude/research/hebrew-improve/missing-mark/jev-design.json (untracked), copied unchanged |
-| [ad-observed/jev-starters-r2.json](docs/research/sources/ad-observed/jev-starters-r2.json) | .claude/research/hebrew-improve/missing-mark/jev-starters-r2.json (untracked), copied unchanged |
-| [ad-observed/jev-starters.json](docs/research/sources/ad-observed/jev-starters.json) | .claude/research/hebrew-improve/missing-mark/jev-starters.json (untracked), copied unchanged |
 | [ad-observed/kitty-run-a.log](docs/research/sources/ad-observed/kitty-run-a.log) | kitty --debug-font-fallback |
 | [ad-observed/kitty-run-b.log](docs/research/sources/ad-observed/kitty-run-b.log) | kitty --debug-font-fallback |
-| [ad-observed/notdef-survey.txt](docs/research/sources/ad-observed/notdef-survey.txt) | fontTools over the chain faces by path, and over /System/Library/Fonts, /Library/Fonts and ~/Library/Fonts |
 | [ad-observed/noto-tag-flags.png](docs/research/sources/ad-observed/noto-tag-flags.png) | fontTools CBDT extraction of the glyph ids ad-obs-reserved-tags-vs reports: 2.042 g481 g1951 g1467 g1911, then 2.051 g481 g1481 g1913, left to right |
 | [ad-observed/pango-marks.png](docs/research/sources/ad-observed/pango-marks.png) | pango-view, fontconfig limited to scratch fonts |
 | [ad-observed/reserved-tags-selectors.txt](docs/research/sources/ad-observed/reserved-tags-selectors.txt) | a scratch crate over baud-core and baud-render at e0a611d (the fixer probe) |
-| [ad-observed/review-v13-counts.txt](docs/research/sources/ad-observed/review-v13-counts.txt) | .claude/research/review-v13/starters/inputs/counts.txt (untracked), copied unchanged |
 | [ad-observed/review-v13-sheet-d-28.png](docs/research/sources/ad-observed/review-v13-sheet-d-28.png) | .claude/research/review-v13/starters/sheet-d-28.png (untracked), copied unchanged |
 | [ad-observed/review-v13-sheet-d-56.png](docs/research/sources/ad-observed/review-v13-sheet-d-56.png) | .claude/research/review-v13/starters/sheet-d-56.png (untracked), copied unchanged |
 | [ad-observed/review-v13-sheet-noto-a-28.png](docs/research/sources/ad-observed/review-v13-sheet-noto-a-28.png) | .claude/research/review-v13/starters/sheet-noto-a-28.png (untracked), copied unchanged |
@@ -2134,7 +1666,6 @@ notice is, and the URL each file was copied from.
 | [ad-observed/review-v13-sheet-noto-c-28.png](docs/research/sources/ad-observed/review-v13-sheet-noto-c-28.png) | .claude/research/review-v13/starters/sheet-noto-c-28.png (untracked), copied unchanged |
 | [ad-observed/review-v13-sheet-noto-c-56.png](docs/research/sources/ad-observed/review-v13-sheet-noto-c-56.png) | .claude/research/review-v13/starters/sheet-noto-c-56.png (untracked), copied unchanged |
 | [ad-observed/supp-coretext-fira-runs.txt](docs/research/sources/ad-observed/supp-coretext-fira-runs.txt) | probe source in supp-coretext-probe.swift |
-| [ad-observed/supp-coretext-jbm-runs.txt](docs/research/sources/ad-observed/supp-coretext-jbm-runs.txt) | probe source in supp-coretext-probe.swift, JetBrains Mono registered for the process only |
 | [ad-observed/supp-coretext-probe.swift](docs/research/sources/ad-observed/supp-coretext-probe.swift) | the supplement's swift/probe2.swift, copied unchanged |
 | [ad-observed/supp-coretext-render.swift](docs/research/sources/ad-observed/supp-coretext-render.swift) | the supplement's swift/render.swift, copied unchanged |
 | [ad-observed/supp-mux-cases.txt](docs/research/sources/ad-observed/supp-mux-cases.txt) | the supplement's cases_mux.txt, copied unchanged |
@@ -2142,7 +1673,6 @@ notice is, and the URL each file was copied from.
 | [ad-observed/supp-mux-harness.py](docs/research/sources/ad-observed/supp-mux-harness.py) | the supplement's mux/harness.py, copied unchanged |
 | [ad-observed/supp-terminalapp-cpr.json](docs/research/sources/ad-observed/supp-terminalapp-cpr.json) | CSI 6n before and after printing each case in a fresh window |
 | [ad-observed/supp-tmux-cpr.json](docs/research/sources/ad-observed/supp-tmux-cpr.json) | supp-mux-cprprobe.py inside a tmux pane |
-| [ad-observed/supp-tmux-out.bin](docs/research/sources/ad-observed/supp-tmux-out.bin) | supp-mux-harness.py under a Python pty at 100x50, TERM=xterm-256color, -f /dev/null |
 | [ad-observed/supp-zellij-cpr.json](docs/research/sources/ad-observed/supp-zellij-cpr.json) | supp-mux-cprprobe.py inside a zellij pane |
 | [ad-observed/supp-zellij-out.bin](docs/research/sources/ad-observed/supp-zellij-out.bin) | supp-mux-harness.py under a Python pty at 100x50, plugin-free layout |
 | [ad-observed/terminals-cases-e1first.txt](docs/research/sources/ad-observed/terminals-cases-e1first.txt) | hand-written test input |
@@ -2211,7 +1741,6 @@ notice is, and the URL each file was copied from.
 | [aj-observed/probe.sh](docs/research/sources/aj-observed/probe.sh) | the sweep agent's probe script, kept as run |
 | [ak-observed/lossy-out.txt](docs/research/sources/ak-observed/lossy-out.txt) | output of ak-obs-lossy-rs |
 | [ak-observed/lossy.rs](docs/research/sources/ak-observed/lossy.rs) | test source, compiled and run locally |
-| [ak-observed/observations.txt](docs/research/sources/ak-observed/observations.txt) | shell commands, their output saved verbatim |
 | [ak-observed/probe-run-path-sleep.txt](docs/research/sources/ak-observed/probe-run-path-sleep.txt) | output of ak-obs-probe-c with the job sleep 5 from PATH |
 | [ak-observed/probe-runs.txt](docs/research/sources/ak-observed/probe-runs.txt) | output of ak-obs-probe-c, three launches |
 | [ak-observed/probe.c](docs/research/sources/ak-observed/probe.c) | probe source, compiled and run locally |
@@ -2240,21 +1769,17 @@ notice is, and the URL each file was copied from.
 | [al-observed/base_frames-out.txt](docs/research/sources/al-observed/base_frames-out.txt) | python3 -I base_frames.py .claude/research/flash-fix |
 | [al-observed/base_frames.py](docs/research/sources/al-observed/base_frames.py) | written for note AL |
 | [al-observed/cell-sizes.txt](docs/research/sources/al-observed/cell-sizes.txt) | flash bench stderr, prototype O4's base binary |
-| [al-observed/census-out.txt](docs/research/sources/al-observed/census-out.txt) | python3 census.py |
-| [al-observed/census.py](docs/research/sources/al-observed/census.py) | written for the flash-fix analysis |
 | [al-observed/cross_base-out.txt](docs/research/sources/al-observed/cross_base-out.txt) | python3 -I cross_base.py . docs/research/sources/aj-observed/flash-census.tsv |
 | [al-observed/cross_base.py](docs/research/sources/al-observed/cross_base.py) | written for note AL |
 | [al-observed/gates-out.txt](docs/research/sources/al-observed/gates-out.txt) | python3 -I gates.py .claude/research/flash-fix <scratchpad>/bin docs/research/sources/aj-observed/flash-census.tsv |
 | [al-observed/gates.py](docs/research/sources/al-observed/gates.py) | written for note AL |
 | [al-observed/o1-analyze-out.txt](docs/research/sources/al-observed/o1-analyze-out.txt) | python3 o1-analyze.py |
-| [al-observed/o1-analyze.py](docs/research/sources/al-observed/o1-analyze.py) | written by the O1 prototype |
 | [al-observed/o1-census.tsv](docs/research/sources/al-observed/o1-census.tsv) | flash bench on f5725ab with and without features flash-o1 and flash-o1-29, joined by o1-analyze.py |
 | [al-observed/o1-fire32-f39.png](docs/research/sources/al-observed/o1-fire32-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
 | [al-observed/o1-fire32-footprint.png](docs/research/sources/al-observed/o1-fire32-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
 | [al-observed/o1-fire72-f31.png](docs/research/sources/al-observed/o1-fire72-f31.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
 | [al-observed/o1-fire72-footprint.png](docs/research/sources/al-observed/o1-fire72-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
 | [al-observed/o2-analyze.py](docs/research/sources/al-observed/o2-analyze.py) | written by the O2 prototype |
-| [al-observed/o2-astar.py](docs/research/sources/al-observed/o2-astar.py) | written by the O2 prototype |
 | [al-observed/o2-census.tsv](docs/research/sources/al-observed/o2-census.tsv) | flash bench on 4ccd622 with and without feature flash-o2, joined by o2-analyze.py |
 | [al-observed/o2-drop-particles-72x1-dark.tsv](docs/research/sources/al-observed/o2-drop-particles-72x1-dark.tsv) | flash bench on 4ccd622 with flash-o2 and FLASH_DROP_PARTICLES=1 |
 | [al-observed/o2-drop-particles-72x1-light.tsv](docs/research/sources/al-observed/o2-drop-particles-72x1-light.tsv) | flash bench on 4ccd622 with flash-o2 and FLASH_DROP_PARTICLES=1 |
@@ -2263,7 +1788,6 @@ notice is, and the URL each file was copied from.
 | [al-observed/o2-fire32-footprint.png](docs/research/sources/al-observed/o2-fire32-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 4ccd622 flash-o2 |
 | [al-observed/o2-summary.tsv](docs/research/sources/al-observed/o2-summary.tsv) | python3 o2-analyze.py |
 | [al-observed/o3-analyse.py](docs/research/sources/al-observed/o3-analyse.py) | written by the O3 prototype |
-| [al-observed/o3-analysis.txt](docs/research/sources/al-observed/o3-analysis.txt) | python3 o3-analyse.py |
 | [al-observed/o3-census.tsv](docs/research/sources/al-observed/o3-census.tsv) | flash bench on dc2fce3 with and without feature flash-o3, joined by o3-analyse.py |
 | [al-observed/o3-fire32-f39.png](docs/research/sources/al-observed/o3-fire32-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, dc2fce3 flash-o3 |
 | [al-observed/o3-fire32-f43.png](docs/research/sources/al-observed/o3-fire32-f43.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, dc2fce3 flash-o3 |
@@ -2272,17 +1796,12 @@ notice is, and the URL each file was copied from.
 | [al-observed/o4-census.tsv](docs/research/sources/al-observed/o4-census.tsv) | flash bench on 43b72d7 with and without feature flash-o4, joined by o4-analyze.py |
 | [al-observed/o4-dim13-f39.png](docs/research/sources/al-observed/o4-dim13-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 43b72d7 flash-o4, off arm |
 | [al-observed/o4-fire32-footprint.png](docs/research/sources/al-observed/o4-fire32-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 43b72d7 flash-o4 |
-| [al-observed/o4-live.txt](docs/research/sources/al-observed/o4-live.txt) | BAUD_LOG=info BAUD_CONFIG=<scratch> baud, on 43b72d7; the files concatenated by head with their names |
 | [al-observed/o4-pollcost-main.rs](docs/research/sources/al-observed/o4-pollcost-main.rs) | written by the O4 prototype |
 | [al-observed/o4-summary.py](docs/research/sources/al-observed/o4-summary.py) | written by the O4 prototype |
 | [al-observed/o4-summary.txt](docs/research/sources/al-observed/o4-summary.txt) | python3 o4-summary.py |
 | [al-observed/options_table-out.txt](docs/research/sources/al-observed/options_table-out.txt) | python3 -I options_table.py |
 | [al-observed/options_table.py](docs/research/sources/al-observed/options_table.py) | written for note AL |
-| [al-observed/replica-Cargo.toml](docs/research/sources/al-observed/replica-Cargo.toml) | written for the flash-fix analysis |
-| [al-observed/replica-gate.py](docs/research/sources/al-observed/replica-gate.py) | written for the flash-fix analysis |
-| [al-observed/replica-main.rs](docs/research/sources/al-observed/replica-main.rs) | written for the flash-fix analysis |
 | [al-observed/replica-matrix-out.txt](docs/research/sources/al-observed/replica-matrix-out.txt) | python3 replica-matrix.py |
-| [al-observed/replica-matrix.py](docs/research/sources/al-observed/replica-matrix.py) | written for the flash-fix analysis |
 | [al-observed/replica-out1.tsv](docs/research/sources/al-observed/replica-out1.tsv) | replica, jobs1 |
 | [al-observed/replica-out2.tsv](docs/research/sources/al-observed/replica-out2.tsv) | replica, jobs2 |
 | [al-observed/replica-out3.tsv](docs/research/sources/al-observed/replica-out3.tsv) | replica, jobs3 |
@@ -2294,8 +1813,6 @@ notice is, and the URL each file was copied from.
 | [al-observed/replica-trailx.rs](docs/research/sources/al-observed/replica-trailx.rs) | written for the flash-fix analysis |
 | [al-observed/thresholds-out.txt](docs/research/sources/al-observed/thresholds-out.txt) | python3 thresholds.py |
 | [al-observed/thresholds.py](docs/research/sources/al-observed/thresholds.py) | written for the flash-fix analysis |
-| [at-observed/sheet-btop-dark-white.png](docs/research/sources/at-observed/sheet-btop-dark-white.png) | baud's CPU-rendered cells composited over each body by the note AT material model, a0822e39 |
-| [xcode-27-metal-toolchain-component.txt](docs/research/sources/xcode-27-metal-toolchain-component.txt) | /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild and .../Toolchains/XcodeDefault.xctoolchain/usr/bin/metal, 27A266a, output captured 2026-09-18 |
 | [xparsecolor-observed/probe.c](docs/research/sources/xparsecolor-observed/probe.c) | built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1; run against Xvfb 21.1.24 -screen 0 1024x768x24 |
 | [xparsecolor-observed/rgb-specs.py](docs/research/sources/xparsecolor-observed/rgb-specs.py) | python3 rgb-specs.py | probe |
 | [xparsecolor-observed/rgb.out](docs/research/sources/xparsecolor-observed/rgb.out) | output of rgb-specs.py | probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor |

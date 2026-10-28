@@ -380,398 +380,6 @@ sha256  = "5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177"
 # ── docs/research/sources/: every `retrieved` file in MANIFEST.toml, in
 # exactly one group.
 
-[upstream.apple-docs]
-name    = "Apple developer documentation and support pages (Apple Inc.)"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "apple-accessibility-animated-images.json",
-  "apple-audioservicesplaysystemsound.json",
-  "apple-axanimatedimagesenabled.json",
-  "apple-axanimatedimagesenableddidchangenotification.json",
-  "apple-cacurrentmediatime.json",
-  "apple-cadisplaylink-duration.json",
-  "apple-cadisplaylink-targettimestamp.json",
-  "apple-cadisplaylink-timestamp.json",
-  "apple-cadisplaylink.json",
-  "apple-cametaldisplaylink-targetpresentation.json",
-  "apple-cametaldisplaylink-targettimestamp.json",
-  "apple-catransaction-commit.json",
-  "apple-catransaction-flush.json",
-  "apple-catransaction.json",
-  "apple-cftimeinterval.json",
-  "apple-cgevent-init-keyboard.json",
-  "apple-cgevent-post.json",
-  "apple-cgevent-timestamp.json",
-  "apple-cgeventsettimestamp.json",
-  "apple-cgeventtaplocation.json",
-  "apple-cgeventtimestamp.json",
-  "apple-cghideventtap.json",
-  "apple-customizing-logging.json",
-  "apple-event-architecture.html",
-  "apple-fspg-library-dirs.html",
-  "apple-generating-log-messages.json",
-  "apple-hig-accessibility.json",
-  "apple-hig-color.json",
-  "apple-hig-launching.json",
-  "apple-hig-loading.json",
-  "apple-hig-motion.json",
-  "apple-hig-onboarding.json",
-  "apple-hig-keyboards.json",
-  "apple-hig-the-menu-bar.json",
-  "apple-hig-toolbars.json",
-  "apple-hig-windows.json",
-  "apple-infoplist-lsenvironment.html",
-  "apple-kmadimflashinglightschangednotification.json",
-  "apple-logging.json",
-  "apple-mach_absolute_time.json",
-  "apple-madimflashinglightsenabled.json",
-  "apple-maflashinglightsprocessor-processsurface.json",
-  "apple-maflashinglightsprocessor-result.json",
-  "apple-maflashinglightsprocessor.json",
-  "apple-mediaaccessibility-flashing-lights.json",
-  "apple-metal-best-practices-functions-libraries.html",
-  "apple-metal-best-practices-pipelines.html",
-  "apple-metal-binary-archives.json",
-  "apple-metal-building-a-shader-library.json",
-  "apple-metal-compiling-binary-archives-from-a-script.json",
-  "apple-metal-creating-binary-archives.json",
-  "apple-metal-libraries.json",
-  "apple-metal-minimizing-binary-size.json",
-  "apple-metal-resource-options.html",
-  "apple-metal-shader-libraries.json",
-  "apple-metal-using-the-metal-4-compilation-api.json",
-  "apple-metal-variables.json",
-  "apple-mtl4archive.json",
-  "apple-mtlbinaryarchive-addrenderpipelinefunctions.json",
-  "apple-mtlbinaryarchive-serialize.json",
-  "apple-mtlbinaryarchive.json",
-  "apple-mtlbinaryarchivedescriptor-url.json",
-  "apple-mtlbinaryarchivedescriptor.json",
-  "apple-mtlcommandbuffer-gpuendtime.json",
-  "apple-mtlcommandbuffer-gpustarttime.json",
-  "apple-mtlcommandbuffer-kernelstarttime.json",
-  "apple-mtldevice-makebinaryarchive.json",
-  "apple-mtldevice-makedefaultlibrary.json",
-  "apple-mtldevice-makelibrary-data.json",
-  "apple-mtldevice-makelibrary-source.json",
-  "apple-mtldevice-makelibrary-url.json",
-  "apple-mtlpipelineoption-failonbinaryarchivemiss.json",
-  "apple-mtlrenderpipelinedescriptor-binaryarchives.json",
-  "apple-nsapplication-currentevent.json",
-  "apple-nsapplication-requestuserattention.json",
-  "apple-nsapplication-requestuserattentiontype-informationalrequest.json",
-  "apple-nsbeep.json",
-  "apple-nsevent-timestamp.json",
-  "apple-nsevent.json",
-  "apple-nspasteboard-name-find.json",
-  "apple-nsprinter-printernames.json",
-  "apple-nsprinter.json",
-  "apple-nsprintoperation-run.json",
-  "apple-nsprintoperation-runmodal.json",
-  "apple-nsprintoperation-showsprintpanel.json",
-  "apple-nsscreen-frame.json",
-  "apple-nsscreen-screens.json",
-  "apple-nsscreen-visibleframe.json",
-  "apple-nsscroller-preferredscrollerstyle.json",
-  "apple-nsscroller-preferredscrollerstyledidchange.json",
-  "apple-nsscrollview-usespredominantaxisscrolling.json",
-  "apple-nssound-volume.json",
-  "apple-nssound.json",
-  "apple-nswindow-constrainframerect.json",
-  "apple-nswindow-converttoscreen.json",
-  "apple-nswindow-deminiaturize.json",
-  "apple-nswindow-frame.json",
-  "apple-nswindow-iskeywindow.json",
-  "apple-nswindow-isminiaturized.json",
-  "apple-nswindow-miniaturize.json",
-  "apple-nswindow-miniwindowtitle.json",
-  "apple-nswindow-orderback.json",
-  "apple-nswindow-orderfrontregardless.json",
-  "apple-nswindow-representedurl.json",
-  "apple-nswindow-screen.json",
-  "apple-nswindow-setframe.json",
-  "apple-nswindow-stylemask-fullscreen.json",
-  "apple-nswindow-subtitle.json",
-  "apple-nswindow-title.json",
-  "apple-nswindow-titlebarappearstransparent.json",
-  "apple-nswindow-titlevisibility-hidden.json",
-  "apple-nswindow-titlevisibility-property.json",
-  "apple-nswindow-togglefullscreen.json",
-  "apple-nsworkspace-accessibilitydisplayoptionsdidchangenotification.json",
-  "apple-nsworkspace-accessibilitydisplayshouldreducemotion.json",
-  "apple-os-log-create.json",
-  "apple-os-log-with-type.json",
-  "apple-os-log.json",
-  "apple-oslogprivacy.json",
-  "apple-promotion-displays.json",
-  "apple-reducing-your-app-s-launch-time.json",
-  "apple-responding-to-flashing-lights-setting.json",
-  "apple-scstreamframeinfo-displaytime.json",
-  "apple-scstreamframeinfo.json",
-  "apple-storage-mode-apple-gpus.json",
-  "apple-techtalk-10855-render-loop-hitches.html",
-  "apple-terminal-guide-change-title.html",
-  "apple-terminal-guide-tab-settings.html",
-  "apple-terminal-guide-window-settings.html",
-  "apple-thread-safety-summary.html",
-  "apple-timeinterval.json",
-  "apple-understanding-hangs-in-your-app.json",
-  "apple-viewing-log-messages.json",
-  "apple-wwdc20-10615-build-gpu-binaries.html",
-  "apple-wwdc20-10615-transcript.txt",
-  "apple-wwdc22-10102-target-optimize-gpu-binaries.html",
-  "apple-wwdc22-10102-transcript.txt",
-  "apple-wwdc23-10248-analyze-hangs.html",
-  "apple-xcode-16-release-notes.json",
-  "apple-xcode-26-release-notes.json",
-  "apple-xcode-additional-components.json",
-  "apple-xcode-improving-app-responsiveness.json",
-  "apple-xcode-understanding-hitches.json",
-]
-
-[upstream.dec-manuals]
-name    = "DEC manuals as transcribed on vt100.net (Digital Equipment Corporation)"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "vt100-ug-chapter1.html",
-  "vt100-ug-chapter3.html",
-  "vt102-ug-chapter3.html",
-  "vt102-ug-chapter5.html",
-  "vt220-rm-chapter2.html",
-  "vt220-rm-chapter4.html",
-  "vt320-uu-appendixe.html",
-  "vt3xx-curve.html",
-  "vt3xx-load.html",
-  "vt3xx-locator.html",
-  "vt3xx-macrographs.html",
-  "vt3xx-polygon-fill.html",
-  "vt3xx-position.html",
-  "vt3xx-regis-intro.html",
-  "vt3xx-report.html",
-  "vt3xx-screen-control.html",
-  "vt3xx-sixel.html",
-  "vt3xx-text.html",
-  "vt3xx-vector.html",
-  "vt3xx-write-control.html",
-  "vt420-uu-chapter4.html",
-  "vt420-uu-chapter9.html",
-  "vt510-CHA.html",
-  "vt510-CHT.html",
-  "vt510-CNL.html",
-  "vt510-CPL.html",
-  "vt510-CUF.html",
-  "vt510-DECALN.html",
-  "vt510-DECANM.html",
-  "vt510-DECARM.html",
-  "vt510-DECAUPSS.html",
-  "vt510-DECAWM.html",
-  "vt510-DECBKM.html",
-  "vt510-DECCIR.html",
-  "vt510-DECCKSR.html",
-  "vt510-DECCOLM.html",
-  "vt510-DECCRA.html",
-  "vt510-DECDC.html",
-  "vt510-DECDHL.html",
-  "vt510-DECDWL.html",
-  "vt510-DECFRA.html",
-  "vt510-DECIC.html",
-  "vt510-DECNCSM.html",
-  "vt510-DECNKM.html",
-  "vt510-DECOM.html",
-  "vt510-DECRARA.html",
-  "vt510-DECRC.html",
-  "vt510-DECRPDE.html",
-  "vt510-DECRQDE.html",
-  "vt510-DECRQUPSS.html",
-  "vt510-DECRQPSR.html",
-  "vt510-DECRSPS.html",
-  "vt510-DECSC.html",
-  "vt510-DECSCA.html",
-  "vt510-DECSCL.html",
-  "vt510-DECSCPP.html",
-  "vt510-DECSED.html",
-  "vt510-DECSEL.html",
-  "vt510-DECSLRM.html",
-  "vt510-DECST8C.html",
-  "vt510-DECSTBM.html",
-  "vt510-DECSTR.html",
-  "vt510-DECSWL.html",
-  "vt510-DECTABSR.html",
-  "vt510-DL.html",
-  "vt510-DSR-DIR.html",
-  "vt510-DSR-KBD.html",
-  "vt510-DSR-MSR.html",
-  "vt510-DSR-PP.html",
-  "vt510-DSR-UDK.html",
-  "vt510-DSR-XCPR.html",
-  "vt510-DSR.html",
-  "vt510-ECH.html",
-  "vt510-ED.html",
-  "vt510-EL.html",
-  "vt510-HPA.html",
-  "vt510-HPR.html",
-  "vt510-IL.html",
-  "vt510-IND.html",
-  "vt510-KAM.html",
-  "vt510-LS.html",
-  "vt510-NEL.html",
-  "vt510-RIS.html",
-  "vt510-S7C1T.html",
-  "vt510-S8C1T.html",
-  "vt510-SCS.html",
-  "vt510-SRM.html",
-  "vt510-SS.html",
-  "vt510-TBC.html",
-  "vt510-chapter4.html",
-  "vt510-chapter7.html",
-  "vt510-DECSLPP.html",
-  "vt510-DECHEBM.html",
-  "vt510-DECHEM.html",
-  "vt510-DECRLCM.html",
-  "vt510-DECRLM.html",
-  "vt510-chapter2.html",
-  "vt510-NP.html",
-  "vt510-PP.html",
-  "vt510-PPA.html",
-  "vt510-PPB.html",
-  "vt510-PPR.html",
-  "vt510-DECPCCM.html",
-]
-
-[upstream.vt100net-charsets]
-name    = "vt100.net, 'Character sets: technical' (Paul Flo Williams)"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "vt100net-charsets-technical.html",
-]
-
-[upstream.unicode-publications]
-name    = "Unicode publications: annexes, standard chapters, L2 documents (Unicode, Inc.)"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "l2-24264-ttwg-report-utc181.pdf",
-  "l2-25179-ttwg.pdf",
-  "l2-25263-ttwg-report-utc185.pdf",
-  "uax11-east-asian-width.html",
-  "uax24-script-property.html",
-  "uax14-line-breaking.html",
-  "uax29-text-segmentation.html",
-  "uax9-tr9-51.html",
-  "uax9-tr9-52.html",
-  "unicode-ch3.html",
-  "unicode-enumerated-versions.html",
-  "uts10-tr10-53.html",
-  "unicode16-ch5.html",
-  "unicode17-ch2.html",
-  "unicode17-ch23.html",
-  "unicode17-ch3.html",
-  "unicode17-ch5.html",
-  "unicode18-ch2.html",
-  "unicode18-ch22.html",
-  "unicode18-ch23.html",
-  "unicode18-ch3.html",
-  "unicode18-ch5.html",
-  "unicode18-release.html",
-  "uts51-img-invalid-tag.png",
-  "uts51-img-missing-flag.png",
-  "uts51-img-unsupported.png",
-  "uts51-r31.html",
-]
-
-[upstream.iso10646]
-name    = "ISO/IEC 10646 final committee draft, 2010 (ISO/IEC)"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "iso10646-fcd-2010.pdf",
-]
-
-[upstream.papers]
-name    = "Papers with no redistribution grant: ACM ASPLOS 2014, USENIX ATC 2012 and NSDI 2019, the Parabix paper"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "cameron-2014-parabix-regex.pdf",
-  "hyperscan-nsdi19.pdf",
-  "mosh-usenix-atc-2012.pdf",
-  "mytkowicz-2014-data-parallel-fsm.pdf",
-]
-
-[upstream.posts]
-name    = "Blog and forum posts with no licence"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "arm-neon-bitmask.html",
-  "chadaustin-2024-windows-terminal-latency.html",
-  "danluu-2017-computer-latency-1977-2017.html",
-  "danluu-2017-keyboard-latency.html",
-  "danluu-2017-terminal-latency.html",
-  "fatin-2015-typing-with-pleasure.html",
-  "fatin-2015-typometer.html",
-  "fixterms.html",
-  "hn-42526221-mitchellh-on-latency-benchmarks.html",
-  "hume-2020-keyboard-to-photon-latency-tester.html",
-  "langdale-2018-sheng.html",
-  "lkhrs-2022-measuring-terminal-latency.html",
-  "sawicki-vulkan-memory-types.html",
-  "zolotukhin-2026-04-20-metal-pipeline-state-tax.html",
-  "zolotukhin-2026-04-21-metal-binary-archive.html",
-]
-
-[upstream.issues]
-name    = "GitHub issue and pull-request comments (their authors' content)"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "alacritty-issue-673-comments.json",
-  "alacritty-issue-673.json",
-  "gfx-rs-3716-comment-816575736.json",
-  "kitty-issue-2701-comment-636497270.json",
-  "kitty-issue-2701-comment-911089374.json",
-  "kitty-issue-2701-comment-912704201.json",
-  "rust-issue-154878.json",
-  "rust-issue-155086-comments.json",
-  "rust-issue-155086.json",
-  "rust-issue-155139-comments.json",
-  "rust-pr-155056.json",
-  "rust-pr-162811.json",
-  "terminal-wg-issue-20.json",
-  "wezterm-pr-7470-webgpu-present-mode.json",
-]
-
-[upstream.gists]
-name    = "Gists with no licence (aras-p, rockorager, pervognsen)"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "aras-metal-shader-cache-gist.md",
-  "inband-resize-notifications.md",
-  "pervognsen-shift-based-dfa.md",
-]
-
-[upstream.mikee47-vt100]
-name    = "mikee47/VT100, vt100.cpp (Martin K. Schroeder); the repository has no licence"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "vt100-avr-terminal.cpp",
-]
-
 [upstream.vt340test]
 name    = "hackerb9/vt340test (hackerb9 and contributors), tests and findings on a real VT340"
 licence = "CC0-1.0"
@@ -1764,43 +1372,6 @@ files   = [
   "ecfr-37-cfr-202.1.xml",
 ]
 
-[upstream.apple-emoji-screenshots]
-name    = "The owner's research screenshots that show Apple Color Emoji artwork, some of them beside other system fonts' glyphs and other terminals' windows (Apple's glyph art carries no grant)"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "ad-observed/chromium-zoom.png",
-  "ad-observed/coretext-sheet.png",
-  "ad-observed/frequency-shot-core-altered-macos.png",
-  "ad-observed/kitty-run-a.png",
-  "ad-observed/kitty-run-b.png",
-  "ad-observed/pango-jbm-apple.png",
-  "ad-observed/review-v13-sheet-a-28.png",
-  "ad-observed/review-v13-sheet-a-56.png",
-  "ad-observed/review-v13-sheet-b-28.png",
-  "ad-observed/review-v13-sheet-b-56.png",
-  "ad-observed/review-v13-sheet-c-28.png",
-  "ad-observed/review-v13-sheet-c-56.png",
-  "ad-observed/review-v13-sheet-e-28.png",
-  "ad-observed/review-v13-sheet-e-56.png",
-  "ad-observed/supp-coretext-render.png",
-  "ad-observed/supp-terminalapp-crop.png",
-  "ad-observed/supp-terminalapp-zoom.png",
-  "ad-observed/terminals-sheet.png",
-  "ad-observed/webkit-zoom.png",
-]
-
-[upstream.apple-wallpaper-renders]
-name    = "Note AT's modelled contact sheets composited over Apple's Tahoe Evening wallpaper, blurred and dimmed (Apple's wallpaper art carries no grant)"
-licence = "LicenseRef-NoGrant"
-notice  = "none"
-status  = "no-grant"
-files   = [
-  "at-observed/sheet-btop-dark-tahoe-evening.png",
-  "at-observed/sheet-git-log-light-tahoe-evening.png",
-]
-
 [upstream.owner-observations]
 name    = "The owner's own probes, captures and renders"
 licence = "CC-BY-NC-SA-4.0"
@@ -1820,17 +1391,11 @@ files   = [
   "ad-observed/frequency-replay.txt",
   "ad-observed/frequency-saturate.txt",
   "ad-observed/frequency-storetest.txt",
-  "ad-observed/jev-design-r2.json",
-  "ad-observed/jev-design.json",
-  "ad-observed/jev-starters-r2.json",
-  "ad-observed/jev-starters.json",
   "ad-observed/kitty-run-a.log",
   "ad-observed/kitty-run-b.log",
-  "ad-observed/notdef-survey.txt",
   "ad-observed/noto-tag-flags.png",
   "ad-observed/pango-marks.png",
   "ad-observed/reserved-tags-selectors.txt",
-  "ad-observed/review-v13-counts.txt",
   "ad-observed/review-v13-sheet-d-28.png",
   "ad-observed/review-v13-sheet-d-56.png",
   "ad-observed/review-v13-sheet-noto-a-28.png",
@@ -1840,7 +1405,6 @@ files   = [
   "ad-observed/review-v13-sheet-noto-c-28.png",
   "ad-observed/review-v13-sheet-noto-c-56.png",
   "ad-observed/supp-coretext-fira-runs.txt",
-  "ad-observed/supp-coretext-jbm-runs.txt",
   "ad-observed/supp-coretext-probe.swift",
   "ad-observed/supp-coretext-render.swift",
   "ad-observed/supp-mux-cases.txt",
@@ -1848,7 +1412,6 @@ files   = [
   "ad-observed/supp-mux-harness.py",
   "ad-observed/supp-terminalapp-cpr.json",
   "ad-observed/supp-tmux-cpr.json",
-  "ad-observed/supp-tmux-out.bin",
   "ad-observed/supp-zellij-cpr.json",
   "ad-observed/supp-zellij-out.bin",
   "ad-observed/terminals-cases-e1first.txt",
@@ -1917,7 +1480,6 @@ files   = [
   "aj-observed/probe.sh",
   "ak-observed/lossy-out.txt",
   "ak-observed/lossy.rs",
-  "ak-observed/observations.txt",
   "ak-observed/probe-run-path-sleep.txt",
   "ak-observed/probe-runs.txt",
   "ak-observed/probe.c",
@@ -1946,21 +1508,17 @@ files   = [
   "al-observed/base_frames-out.txt",
   "al-observed/base_frames.py",
   "al-observed/cell-sizes.txt",
-  "al-observed/census-out.txt",
-  "al-observed/census.py",
   "al-observed/cross_base-out.txt",
   "al-observed/cross_base.py",
   "al-observed/gates-out.txt",
   "al-observed/gates.py",
   "al-observed/o1-analyze-out.txt",
-  "al-observed/o1-analyze.py",
   "al-observed/o1-census.tsv",
   "al-observed/o1-fire32-f39.png",
   "al-observed/o1-fire32-footprint.png",
   "al-observed/o1-fire72-f31.png",
   "al-observed/o1-fire72-footprint.png",
   "al-observed/o2-analyze.py",
-  "al-observed/o2-astar.py",
   "al-observed/o2-census.tsv",
   "al-observed/o2-drop-particles-72x1-dark.tsv",
   "al-observed/o2-drop-particles-72x1-light.tsv",
@@ -1969,7 +1527,6 @@ files   = [
   "al-observed/o2-fire32-footprint.png",
   "al-observed/o2-summary.tsv",
   "al-observed/o3-analyse.py",
-  "al-observed/o3-analysis.txt",
   "al-observed/o3-census.tsv",
   "al-observed/o3-fire32-f39.png",
   "al-observed/o3-fire32-f43.png",
@@ -1978,17 +1535,12 @@ files   = [
   "al-observed/o4-census.tsv",
   "al-observed/o4-dim13-f39.png",
   "al-observed/o4-fire32-footprint.png",
-  "al-observed/o4-live.txt",
   "al-observed/o4-pollcost-main.rs",
   "al-observed/o4-summary.py",
   "al-observed/o4-summary.txt",
   "al-observed/options_table-out.txt",
   "al-observed/options_table.py",
-  "al-observed/replica-Cargo.toml",
-  "al-observed/replica-gate.py",
-  "al-observed/replica-main.rs",
   "al-observed/replica-matrix-out.txt",
-  "al-observed/replica-matrix.py",
   "al-observed/replica-out1.tsv",
   "al-observed/replica-out2.tsv",
   "al-observed/replica-out3.tsv",
@@ -2000,8 +1552,6 @@ files   = [
   "al-observed/replica-trailx.rs",
   "al-observed/thresholds-out.txt",
   "al-observed/thresholds.py",
-  "at-observed/sheet-btop-dark-white.png",
-  "xcode-27-metal-toolchain-component.txt",
   "xparsecolor-observed/probe.c",
   "xparsecolor-observed/rgb-specs.py",
   "xparsecolor-observed/rgb.out",
@@ -2250,7 +1800,7 @@ what     = "DEC Supplemental, JIS-Katakana and JIS-Roman, generated by scripts/g
 paths    = ["baud-domain/src/dec_sets_data.rs"]
 licence  = "LicenseRef-NoGrant (vt100.net's transcription), if the table carries any; Unicode-3.0 (JIS0201.TXT)"
 notice   = "LICENSES/Unicode-3.0.txt"
-upstream = "docs/research/sources/vt220-rm-chapter2.html, docs/research/sources/JIS0201.TXT and docs/research/sources/xterm-charsets.h"
+upstream = "https://vt100.net/docs/vt220-rm/chapter2.html (dec-special-graphics in MANIFEST.toml), docs/research/sources/JIS0201.TXT and docs/research/sources/xterm-charsets.h"
 status   = "open"
 
 [[tree]]
@@ -2356,14 +1906,6 @@ licence  = "OFL-1.1"
 notice   = "none needed"
 upstream = "https://github.com/googlefonts/noto-emoji/tree/v2.051/fonts, https://github.com/notofonts/noto-cjk/tree/Sans2.004"
 status   = "kept"
-
-[[tree]]
-what     = "A recording of asciiquarium 1.1's output, which draws its castle, fish, dolphins and waves with lines of the script's sprites verbatim. asciiquarium's README says \"Pretty much all of the ASCII art was done by Joan Stark\", and her published terms are \"for personal use only\" with her initials kept (no initials are in asciiquarium's art); no grant from her to redistribute it was found. asciiquarium's code is GPL-2.0-or-later (Kirk Baucom). The repository's licence does not cover it"
-paths    = ["tests/recordings/ascii/asciiquarium.raw"]
-licence  = "LicenseRef-NoGrant (Joan Stark's art); asciiquarium's code is GPL-2.0-or-later"
-notice   = "none"
-upstream = "https://robobunny.com/projects/asciiquarium/asciiquarium.tar.gz"
-status   = "no-grant"
 
 [[tree]]
 what     = "img2sixel's encoding of ImageMagick's built-in red-to-blue gradient, swirled, and sixel2png's decode of it as raw RGB, made in baud's development by 'magick -size 96x72 gradient:red-blue -swirl 60 -rotate 0', libsixel 1.10.5's img2sixel and sixel2png; re-made byte for byte with ImageMagick 7.1.2-31 on 2026-10-27. No third party's picture is in it"
