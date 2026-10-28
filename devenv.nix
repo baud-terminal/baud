@@ -48,6 +48,9 @@ in
     # each in its own process. It does not run doctests, so `test:unit` runs
     # those after it with `cargo test --doc`.
     pkgs.cargo-nextest
+    # `test:changelog` reads the history through git-cliff
+    # (`scripts/check-changelog.sh`).
+    pkgs.git-cliff
   ];
 
   # `scripts/bundle-macos.sh` renders the app icon with rsvg-convert, from
@@ -408,6 +411,15 @@ in
       after = [ "test:features" ];
     };
 
+    # release-plz writes CHANGELOG.md through `release-plz.toml`'s commit
+    # parsers and leaves out, with no error, a commit none of them matches.
+    # This fails on any such commit in the history, and on a non-conventional
+    # subject, before it reaches master.
+    "test:changelog" = {
+      exec = "bash ./scripts/check-changelog.sh";
+      after = [ "test:fmt" ];
+    };
+
     # A `path` dependency that leaves the repository builds on the machine it
     # was written on and nowhere else. Two have already shipped here and both
     # were green -- one by never being built, one by not being a workspace
@@ -450,5 +462,5 @@ in
   # gate alone (`devenv tasks run test:features`, or the by-hand
   # `test:feature-suites`, schedules the chain before it), and that gate's
   # failure exits 0.
-  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:clippy test:check test:unit test:bare test:linux test:audit test:features test:paths";
+  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:changelog test:clippy test:check test:unit test:bare test:linux test:audit test:features test:paths";
 }

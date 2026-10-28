@@ -24235,6 +24235,48 @@ bytes  = 35168
 status = "external"
 group  = "AN"
 
+[sources.release-plz-v0-3-172-config-md]
+key    = "release-plz-v0-3-172-config-md"
+title  = "release-plz 0.3.172, website/docs/config.md -- the `git_only`, `git_tag_enable`, `release_always`, `version_group`, `changelog_include` and `commit_parsers` fields"
+author = "Marco Ieni and the release-plz contributors"
+year   = 2026
+venue  = "release-plz (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/release-plz/release-plz-v0.3.172/website/docs/config.md"
+file   = ""
+sha256 = "01389b75e2c3b70eb9747612d3f63231fd8b4d1700d81fea2b66cd0c7f6f04c5"
+bytes  = 46327
+status = "external"
+group  = "AN"
+# Retrieved 2026-10-28. The release nixpkgs carries and ci.yml pins.
+
+[sources.release-plz-v0-3-172-changelog-md]
+key    = "release-plz-v0-3-172-changelog-md"
+title  = "release-plz 0.3.172, CHANGELOG.md -- 0.3.166 (2026-09-13): \"release private git-only packages consistently (#3054)\""
+author = "Marco Ieni and the release-plz contributors"
+year   = 2026
+venue  = "release-plz (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/release-plz/release-plz-v0.3.172/CHANGELOG.md"
+file   = ""
+sha256 = "a5ed17e4be2509d01aabebb3f500ac93c678ececa00c253a800b70f12851de6b"
+bytes  = 88129
+status = "external"
+group  = "AN"
+# Retrieved 2026-10-28.
+
+[sources.release-plz-v0-3-172-release-regex-rs]
+key    = "release-plz-v0-3-172-release-regex-rs"
+title  = "release-plz 0.3.172, crates/release_plz_core/src/release_regex.rs -- get_release_regex replaces `{{ version }}` with (\\d+\\.\\d+\\.\\d+) and anchors the pattern with ^ and $"
+author = "Marco Ieni and the release-plz contributors"
+year   = 2026
+venue  = "release-plz (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/release-plz/release-plz-v0.3.172/crates/release_plz_core/src/release_regex.rs"
+file   = ""
+sha256 = "1e481edf9f6daa51e20bb599d28cacc7b21d9f24e67e9096421e14c59229412d"
+bytes  = 5552
+status = "external"
+group  = "AN"
+# Retrieved 2026-10-28. A `v1.0.0-beta.1` tag does not match; `v1.0.0` does.
+
 [sources.devenv-6469c9c-treefmt-nix]
 key    = "devenv-6469c9c-treefmt-nix"
 title  = "devenv 6469c9c (the locked rev), src/modules/integrations/treefmt.nix -- the wrapper passes --tree-root <git.root or devenv.root> after \"$@\", or --tree-root-file when treefmt.config.projectRootFile is non-empty"

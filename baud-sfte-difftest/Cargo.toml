@@ -2,10 +2,10 @@
 name = "baud-sfte-difftest"
 version.workspace = true
 edition.workspace = true
-# Not published, as no crate here is (the owner's "no publishing, private";
-# `release-plz.toml` says how the release jobs are kept to a no-op). Like
-# `baud-difftest`, it is an oracle against an external implementation, not a
-# library anyone depends on.
+# Not published to a registry: `publish = false`, so `cargo publish`
+# refuses it, and release-plz runs in git-only mode (`release-plz.toml`).
+# Like `baud-difftest`, it is an oracle against an external implementation,
+# not a library anyone depends on.
 publish = false
 build = "build.rs"
 

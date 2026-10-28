@@ -2,10 +2,10 @@
 name = "baud-difftest"
 version.workspace = true
 edition.workspace = true
-# Not published, as no crate here is (the owner's "no publishing, private";
-# `release-plz.toml` says how the release jobs are kept to a no-op). It is an
-# oracle against an external implementation, not a library anyone depends on,
-# and it carries no `license` or `description`.
+# Not published to a registry: `publish = false`, so `cargo publish`
+# refuses it, and release-plz runs in git-only mode (`release-plz.toml`). It
+# is an oracle against an external implementation, not a library anyone
+# depends on, and it carries no `license` or `description`.
 publish = false
 
 # Dev-dependencies: the oracle is `tests/alacritty.rs`, and the library

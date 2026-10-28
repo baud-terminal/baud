@@ -43,9 +43,14 @@ that is exactly the divergence this setup exists to prevent.
 
 ## Commit messages
 
-[Conventional Commits](https://www.conventionalcommits.org/). Nothing is
-released (below), so no prefix decides a version or triggers a release.
-
+[Conventional Commits](https://www.conventionalcommits.org/): `type: text`
+or `type(scope): text`, the type one of `feat`, `fix`, `perf`, `docs`,
+`refactor`, `test`, `build`, `ci`, `style`, `revert` or `chore`, the scope
+the crate with the most changed source lines, and no `!`. The type picks the
+commit's group in the changelog `release-plz.toml` describes, and `chore`
+is left out of it. `scripts/check-changelog.sh`, the `test:changelog` task,
+fails on any commit in the history that is not one, or that no changelog
+parser reads.
 
 A commit message says what changed, the tests that hold it and the
 measurement, and nothing of how it was reviewed. Every sentence in it is a
@@ -456,14 +461,21 @@ sfte, cell for cell) before any rate; a test that only prints cannot fail.
 
 ## Releases
 
-**baud is private and publishes nothing.** Every crate's `Cargo.toml` carries
+**baud publishes nothing to a registry.** Every crate's `Cargo.toml` carries
 `publish = false`, so `cargo publish` refuses each one, and a new crate must
-carry it too. The release-plz jobs in `.github/workflows/ci.yml` still run on
-master, and `release-plz.toml` keeps them to a no-op: `release` skips every
-push that is not a Release PR's merge and finds nothing to release on one,
-`release-pr` opens no Release PR, and neither tags nor makes a GitHub
-release. Do not publish by hand. `cargo metadata --no-deps
---format-version 1` shows `"publish": []` for every package.
+carry it too. `cargo metadata --no-deps --format-version 1` shows
+`"publish": []` for every package. Do not publish by hand.
+
+**Nothing is tagged or released yet.** `release-plz.toml` runs release-plz
+in git-only mode, which "determines package versions from git tags instead
+of the cargo registry", and release-plz 0.3.172 finds a release tag only
+when the version in it is `\d+\.\d+\.\d+`, so a `v1.0.0-beta.N` tag is
+never found and every run would propose the first release again. With
+`git_tag_enable = false` no tag is made at all, so no later release would
+be found whatever the versions. Until the version scheme and the tag match
+agree, and tags are turned on, `release_commits` matches no commit:
+the Release-PR job in `.github/workflows/ci.yml` opens no Release PR and the
+Release job neither tags nor makes a GitHub release.
 
 **Cutting a release, when there is one, raises two numbers in one commit.**
 The version, `1.0.0-beta.N` in `[workspace.package]` of `Cargo.toml`, which

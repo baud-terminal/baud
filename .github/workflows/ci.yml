@@ -8,11 +8,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # master is exempt: its runs queue instead. This was for release-plz,
-  # which publishes, tags and makes a GitHub release as separate steps a
-  # cancel could split; release-plz.toml and every crate's
-  # `publish = false` now keep both release jobs to no-ops that publish,
-  # tag and release nothing.
+  # master is exempt: its runs queue instead. Were releases turned on,
+  # release-plz would tag and make a GitHub release as separate steps that
+  # a cancel could split; release-plz.toml keeps both release jobs to
+  # no-ops that publish, tag and release nothing.
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 # Read-only by default. A job that writes says so in its own `permissions`,
@@ -25,9 +24,10 @@ permissions:
 # so the workflow is a thin wrapper over the tasks."test:*" set in devenv.nix.
 # Add a check by adding a task, never by adding a step here.
 #
-# release-plz-pr runs after release-plz-release: it computes the next bump from
-# the newest tag, which the release job would create. release-plz.toml turns
-# tags off, so neither job makes one.
+# release-plz-pr runs after release-plz-release: in git-only mode
+# (release-plz.toml) it computes the next version from the newest release
+# tag, which the release job would create. release-plz.toml has neither job
+# tag, release or open a Release PR yet.
 jobs:
   devenv-checks:
     name: Lint/UT
@@ -62,6 +62,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          # `test:changelog` reads every commit, and refuses a shallow clone.
+          fetch-depth: 0
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
@@ -265,11 +268,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [devenv-checks, avx2]
     timeout-minutes: 30
-    # `!cancelled()`, not `always()`: were publishing turned on, this job
-    # would write to an immutable registry, and a run from a cancelled
-    # workflow could not be undone. It publishes nothing (every crate's
-    # `publish = false`, and release-plz.toml). `skipped` is accepted because
-    # devenv-checks skips on the release commit itself (see its `if`).
+    # `!cancelled()`, not `always()`: were releases turned on, this job
+    # would push a tag and make a GitHub release, and a run from a cancelled
+    # workflow should not. It publishes nothing (git-only mode and
+    # `release_commits` in release-plz.toml, and every crate's
+    # `publish = false`). `skipped` is accepted because devenv-checks skips
+    # on the release commit itself (see its `if`).
     if: |
       !cancelled() &&
       github.event_name == 'push' &&
@@ -300,12 +304,17 @@ jobs:
         id: release-plz
         with:
           command: release
+          # This action tag installs 0.3.160 by default. Private git-only
+          # packages are released consistently from 0.3.166 (#3054), and
+          # 0.3.172 is the release nixpkgs carries and the one this
+          # configuration was run with (`release-plz update`).
+          version: "0.3.172"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  # Would open the Release PR that bumps the version and writes CHANGELOG.md;
-  # release-plz.toml has it open none.
+  # Would open the Release PR that raises the version and writes
+  # CHANGELOG.md; release-plz.toml has it open none.
   # MUST run after release-plz-release — see the anti-loop note at the top.
   release-plz-pr:
     name: Release-PR
@@ -341,6 +350,8 @@ jobs:
         id: release-plz
         with:
           command: release-pr
+          # The Release job's release-plz, for the same reason.
+          version: "0.3.172"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

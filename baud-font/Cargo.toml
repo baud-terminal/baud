@@ -6,7 +6,8 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Font parsing, shaping and rasterisation owned by baud: sfnt/CFF/GSUB/GPOS/morx readers over borrowed bytes, no engine dependencies. no_std."
-# Not published: the owner's "no publishing, private".
+# Not published to a registry: `publish = false`, so `cargo publish`
+# refuses it, and release-plz runs in git-only mode (`release-plz.toml`).
 publish = false
 
 [dependencies]

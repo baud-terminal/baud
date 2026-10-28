@@ -1,43 +1,100 @@
-# Release configuration. **baud publishes nothing and releases nothing**: the
-# owner's "no publishing, private". The release-plz jobs in ci.yml still run
-# on every master push, on the dev shell's nightly because stable cargo cannot
-# parse the workspace manifest, and this file and the manifests are what make
-# each run a no-op. The source lines behind every
-# claim here are in docs/record.md, "Nothing is published, and release-plz
-# opens no Release PR".
+# Release configuration. https://release-plz.dev/docs/config
 #
-# https://release-plz.dev/docs/config
+# **Nothing is published, tagged or released.** Every crate's Cargo.toml
+# carries `publish = false`, and the workspace runs in git-only mode, which
+# "determines package versions from git tags instead of the cargo registry";
+# in it "The package will not be published to any cargo registry
+# (`cargo publish` is skipped)", and "Setting `publish = true` together with
+# `git_only = true` is an error" (release-plz 0.3.172's config page, "The
+# `git_only` field", pinned as `release-plz-v0-3-172-config-md`).
 #
-# **What does the work is `publish = false` in every crate's Cargo.toml.**
-# release-plz 0.3.160, the version `release-plz/action@v0.5.131` installs,
-# releases only packages cargo can publish, versions only those, and opens no
-# Release PR when nothing needs a new version. So `release` skips any push
-# that is not a Release PR's merge ("skipping release: current commit is not
-# from a release PR") and on one finds nothing to release, and `release-pr`
-# opens nothing; both exit 0.
+# **Why no Release PR opens yet.** Git-only mode finds the last release by
+# a tag matching `git_tag_name`, and release-plz 0.3.172 builds that match
+# from the template with `{{ version }}` as `(\d+\.\d+\.\d+)`, anchored at
+# both ends (`release-plz-v0-3-172-release-regex-rs`). The crates'
+# version is `1.0.0-beta.N`, so a `v1.0.0-beta.1` tag is never found: "If no
+# matching tag is found, the package is treated as an initial release", and
+# every run would propose the same first release again. `release_commits`
+# below matches no commit, so `release-pr` opens nothing and `release` finds
+# nothing to release until the version scheme and the tag match agree, and
+# tags are turned on: with `git_tag_enable = false` no tag is ever made, so
+# git-only mode would never find a later release whatever the versions.
 #
-# **Not `release = false`**, the setting that reads like the switch. It drops
-# every package before anything runs, and release-plz then fails with "no
-# public packages found", so both jobs would go red on every master push.
+# Private git-only packages are released consistently from release-plz
+# 0.3.166 ("release private git-only packages consistently (#3054)",
+# `release-plz-v0-3-172-changelog-md`), so ci.yml pins the action's
+# `version` input to 0.3.172, the release this file was run with.
 
 [workspace]
-# For a crate added later without `publish = false`: `release_commits` below
-# keeps release-pr from proposing it, and if a PR were merged anyway it would
-# neither run `cargo publish` nor create a git tag or a GitHub release.
+git_only = true
 publish = false
 git_tag_enable = false
 git_release_enable = false
-# No commit can match this regex (a word boundary and a non-boundary at one
-# position), so release-pr bumps nothing and opens no Release PR even for
-# a crate added later without `publish = false`.
+# A word boundary and a non-boundary at one position: no commit matches, so
+# no package is updated and no Release PR opens ("only if at least one of
+# the commits matches the `release_commits` regex").
 release_commits = "\\b\\B"
-
-# Only merging a Release PR releases; an ordinary push to master does not.
+# Only merging a Release PR would release; an ordinary push to master does
+# not.
 release_always = false
-
-# Filterable in the GitHub UI as `is:pr label:release`, and excludable from
-# "needs human review" queries with `-label:automated`.
 pr_labels = ["release", "automated"]
+# One changelog, carried by baud-app.
+changelog_update = false
+
+# The root changelog, for when releases are turned on. By default a
+# package's changelog holds "commits containing changes in files of the
+# package directory", and `changelog_include` adds "commits that belong to
+# other packages": here the crates the app is built from.
+[[package]]
+name = "baud-app"
+version_group = "baud"
+git_tag_name = "v{{ version }}"
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+changelog_include = [
+  "baud-core", "baud-domain", "baud-render", "baud-font",
+  "baud-present-macos", "baud-present-wayland", "baud-wayland", "baud-xkb",
+  "baud-isa", "baud-isa-aarch64", "baud-isa-x86-64",
+]
+
+# "If two or more packages share the same `version_group` then release-plz
+# will assign the same version to them".
+[[package]]
+name = "baud-core"
+version_group = "baud"
+[[package]]
+name = "baud-domain"
+version_group = "baud"
+[[package]]
+name = "baud-render"
+version_group = "baud"
+[[package]]
+name = "baud-font"
+version_group = "baud"
+[[package]]
+name = "baud-present-macos"
+version_group = "baud"
+[[package]]
+name = "baud-present-wayland"
+version_group = "baud"
+[[package]]
+name = "baud-wayland"
+version_group = "baud"
+[[package]]
+name = "baud-xkb"
+version_group = "baud"
+[[package]]
+name = "baud-isa"
+version_group = "baud"
+[[package]]
+name = "baud-isa-aarch64"
+version_group = "baud"
+[[package]]
+name = "baud-isa-x86-64"
+version_group = "baud"
+# baud-bench, baud-difftest and baud-sfte-difftest ship nothing, so they are
+# not in `changelog_include`. A commit that touches only them, or only docs/,
+# scripts/, .github/ or the root files, reaches no changelog.
 
 [changelog]
 header = """# Changelog
@@ -47,12 +104,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 """
-
-# Release commits are not changes. Parsed in, each one back-fills a changelog
-# entry and opens another release PR, which produces another release commit.
-#
-# The optional-scope group catches both forms release-plz emits: the unscoped
-# aggregate `chore: release` and the per-package `chore(<package>): release v<x>`.
+protect_breaking_commits = true
+sort_commits = "oldest"
+# "Parsers are evaluated in order. By default, processing stops at the first
+# matching parser." The order sets the order of the groups; the HTML comment
+# sorts each group and does not render. `scripts/check-changelog.sh` requires
+# every commit to match one of these.
 commit_parsers = [
+  # Release commits are not changes. Parsing them in would back-fill an
+  # entry and open another Release PR.
   { message = "^chore(\\(.+\\))?: release", skip = true },
+  { message = "^feat", group = "<!-- 0 -->Added" },
+  { message = "^fix", group = "<!-- 1 -->Fixed" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^docs", group = "<!-- 3 -->Documentation" },
+  { message = "^refactor", group = "<!-- 4 -->Refactor" },
+  { message = "^test", group = "<!-- 5 -->Testing" },
+  { message = "^build", group = "<!-- 6 -->Build" },
+  { message = "^ci", group = "<!-- 7 -->CI" },
+  { message = "^style", group = "<!-- 8 -->Style" },
+  # Measurement-only code (bench harnesses, ceiling and probe arms) is
+  # chore(bench) or chore(<crate>): nothing a user runs changed.
+  { message = "^chore", skip = true },
+  { message = "^revert", group = "<!-- 9 -->Reverted" },
 ]
+# release-plz's `[changelog]` has no `require_conventional` field (its config
+# page does not list one), so `scripts/check-changelog.sh` holds every commit
+# to Conventional Commits instead, through the `test:changelog` task.

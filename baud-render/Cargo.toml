@@ -6,7 +6,8 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "baud's compositor: cells to instance records to pixels, on the CPU and on the GPU, with the glyph atlas and row-granular damage."
-# Not published: the owner's "no publishing, private".
+# Not published to a registry: `publish = false`, so `cargo publish`
+# refuses it, and release-plz runs in git-only mode (`release-plz.toml`).
 publish = false
 
 [dependencies]
