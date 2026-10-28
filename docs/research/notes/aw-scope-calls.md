@@ -13,7 +13,7 @@ separately and is not repeated here. **2026-10-20: section 3, the status
 line, was built**, its open forks put to Jev: the line's own character
 sets, 070-14's (SEPARATE, 0.98 and 1.00); DECAWM shared and the pending
 wrap each display's (0.94 and 0.96); no line at power-on, the lean
-(0.78 and 0.86, then 0.80 and 0.92). `docs/record.md`, "The status line:
+(0.78 and 0.86, then 0.80 and 0.92). The record, "The status line:
 DECSSDT and DECSASD".
 
 Every option was put to Jev with a render of it beside today's behaviour.

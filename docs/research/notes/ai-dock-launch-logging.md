@@ -24,7 +24,7 @@ Evidence tags:
   `baud-domain/tests/image_store.rs`, `baud-core/tests/image_anchor.rs`,
   `baud-core/tests/sixel.rs`, `baud-bench/benches/ingest2.rs`,
   `baud-sfte-difftest/build.rs`, `baud-wayland/src/sys.rs` and `packaging/`.
-  `docs/record.md` was read at HEAD.
+  The record was read at HEAD.
 - **UNVERIFIED**: neither quoted nor measured.
 
 ## In plain words
@@ -43,7 +43,7 @@ Evidence tags:
 - **The premise needs one correction.** The Sixel refusal line
   (`describe_refusals`) is already `warn`. The `info` line is the image
   *budget* (`describe_images`). `placements_refused` is never said, which
-  `docs/record.md` already records.
+  the record already records.
 - **Apple's guidance for an app's messages is the unified log (`os_log`).** It
   "supersedes" syslog, and it stores "in memory and on disk, rather than
   writing that data to a text-based log file".
@@ -206,7 +206,7 @@ Dock launch. A Dock click itself is UNVERIFIED.
   counted at `baud-domain/src/image.rs:623, 629, 634` (C). Its readers are
   `baud-bench/benches/ingest2.rs:410` and the tests in `baud-core/tests/` and
   `baud-domain/tests/`; nothing in baud-app reads it.
-  - `docs/record.md`, "A refused Sixel says which limit it hit", lists under
+  - the record, "A refused Sixel says which limit it hit", lists under
     "What stays open": "**`placements_refused` is not said.**" It also lists
     "**A Dock launch still sees nothing.**", which is this note's premise.
   - The store's contract is "refuse-and-count, and the counters are public and
@@ -1024,7 +1024,7 @@ baud's lines is one. ghostty maps warn to Error and err to Fault (§3).
 
 ## 8. Found on the way, decided by no question
 
-The first two are fixed (2026-10-09, `docs/record.md`, "`BAUD_LOG` governs
+The first two are fixed (2026-10-09, the record, "`BAUD_LOG` governs
 the trace lines, and the Linux driver says what is still unverified"); the
 rest are open.
 
@@ -1041,7 +1041,7 @@ rest are open.
   stale (C). It now says the driver has run only on a headless compositor,
   that nobody has looked at its pixels or typed into it, and that it has no
   pointer.
-- **`placements_refused` is counted and never said.** `docs/record.md` already
+- **`placements_refused` is counted and never said.** The record already
   lists it as open (§1.4). If it takes the refusal line's form, no question
   decides it; if its level is in doubt, it is question 7.
 - **For any route through the unified log, look up the log object once.**

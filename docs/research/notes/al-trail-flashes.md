@@ -428,7 +428,7 @@ restart would do to baud's census was not measured.
 
 ### 3.1 What the census counts, and what it found
 
-The census (docs/record.md, "The cursor trails' flashes, counted on the
+The census (the record, "The cursor trails' flashes, counted on the
 frames they draw: at 32 pt the fire and the orb fail WCAG 2.3.1"; data
 `docs/research/sources/aj-observed/flash-census.tsv`) draws the shipped
 driver's frames on the GPU and counts, per pixel, the transitions of the

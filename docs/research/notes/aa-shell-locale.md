@@ -1,6 +1,6 @@
 # AA. The shell's locale, and Hebrew
 
-**Status: the locale half is built** (2026-10-03; `docs/record.md`, "A shell
+**Status: the locale half is built** (2026-10-03; the record, "A shell
 started from the Dock is given a locale"); the face, the Backspace flag's
 route, Linux and the per-language step are open (section 7).
 
@@ -69,7 +69,7 @@ from the Dock handed zsh no locale, and zsh ran in C, until the fill of
 A baud started from a terminal is different: `open -g target/baud.app` run from
 a shell gave the app that shell's whole environment, `LANG=en_US.UTF-8` and the
 devenv `PATH` among it (measured 2026-10-03), and baud passes `LANG` on. That is
-why the check of 2026-09-22 (`docs/record.md`, run from a Terminal.app shell)
+why the check of 2026-09-22 (the record, run from a Terminal.app shell)
 could not catch this, and why the owner's Terminal.app shell works: a Terminal
 session's environment has `LANG=en_US.UTF-8` while Terminal's own launchd
 environment has none and no startup file sets it (measured), so Terminal, or

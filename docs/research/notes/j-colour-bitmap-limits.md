@@ -10,7 +10,7 @@ labelled MEASURED, READ or DERIVED; a derived figure is arithmetic on measured
 ones and is not a measurement.
 
 The record entry is "A colour bitmap is drawn from a strike that holds it, and
-`flip` is a mirror" in `docs/record.md`, with its follow-ups.
+`flip` is a mirror" in the record, with its follow-ups.
 
 ## 1. The walk is the wrong axis
 

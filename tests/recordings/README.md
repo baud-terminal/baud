@@ -79,7 +79,7 @@ its body decoded alone.
 
 `scripts/record-kitten-icat.py` records what `kitten icat` 0.49.2 writes,
 `--transfer-mode=stream`, to a pty carrying the app's pixels (17x34 a
-cell), for note V's V19 step 0 (`docs/record.md`, "A `kitten icat`
+cell), for note V's V19 step 0 (the record, "A `kitten icat`
 session, recorded, and the three numbers V19 owed"). Unlike the captures
 above, these regenerate: kitty and the two nixos-artwork pictures are
 pinned by nixpkgs revision, and two runs gave the same bytes. None is

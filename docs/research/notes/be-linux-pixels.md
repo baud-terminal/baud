@@ -61,7 +61,7 @@ So on these fixtures nothing of baud's departs from the same pixels: the
 renderer's arithmetic gives the same bytes on Darwin and on Linux, and
 the Wayland driver hands the compositor exactly the renderer's frame.
 
-![The Linux app as weston shows it: vim-unicode](be/vim-unicode-linux.png)
+*The image, The Linux app as weston shows it: vim-unicode, is not in the repository: it is taken again.*
 
 ## 3. What differs, and whose it is
 
@@ -100,8 +100,8 @@ against the page over black that is 10.36:1 and 1.90:1, over grey 33
 9.62:1 and 1.76:1, over white 3.80:1 and 1.43:1 (WCAG 2.2 relative
 luminance).
 
-![btop with the Linux driver's floor, over black](be/btop-floor-linux.png)
-![btop with the macOS app's floor, over black](be/btop-floor-macos.png)
+*The image, btop with the Linux driver's floor, over black, is not in the repository: it is taken again.*
+*The image, btop with the macOS app's floor, over black, is not in the repository: it is taken again.*
 
 The floor reading black to white on Linux is b83's decision (Jev
 0.98/0.97, decisions 796-797; the record, "The window body is the

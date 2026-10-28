@@ -1,17 +1,17 @@
 # AF. Character sets against DEC's own tables: the national replacement sets and the DEC sets baud designates but does not translate
 
 **Status: research; section 5(a)'s items 1-4 and 6 built on 2026-10-09
-(docs/record.md, "Swedish É and Turkish ı, and the national tables checked
+(the record, "Swedish É and Turkish ı, and the national tables checked
 against DEC's own"); researched 2026-10-08, corrected against its first check
 and again against its second (round 2) on 2026-10-09. On 2026-10-12 DEC
 Supplemental, JIS-Katakana and JIS-Roman (but its 7/14) were built, their
-reserved positions drawing the error character (§3; docs/record.md, "DEC
+reserved positions drawing the error character (§3; the record, "DEC
 Supplemental, JIS-Katakana and JIS-Roman are translated"), and Q-DECNRCM
 was found to rest on DEC texts that disagree (§2.10, "STD 070's algorithms do
 not gate", added that day). On 2026-10-24 Q-DECNRCM was decided by Jev's
 lean, (c), at 0.37/0.51, below the bar and taken under the lane rule, and is
 on the owner's veto list: `?42` recognised and ignored, the sets acting
-whenever designated (Q-DECNRCM; docs/record.md, "DECNRCM is recognised, and ignored as DEC ignores it for a
+whenever designated (Q-DECNRCM; the record, "DECNRCM is recognised, and ignored as DEC ignores it for a
 North American keyboard").** Every other question in section 4 is open but
 Q-UNDEF's reserved positions of those two sets; the error character's
 codepoint is decided, U+2426 by Jev at 1.00 twice, and built as a constant on
@@ -355,7 +355,7 @@ Every codepoint name comes from [[source: unicode-data]], for example
     a name ("florin"), or of both.
   - It is never a reading of DEC's codepoint, because DEC gives none. This is
     the status the DEC Special Graphics codepoints already have (TODO.md;
-    docs/record.md, "DEC Special Graphics begins at 0x5F, and what it stores
+    the record, "DEC Special Graphics begins at 0x5F, and what it stores
     there is the owner's call").
 - **The governing DEC standard is not online.** [[source: dec-std-070]] p.
   5-116: "The character sets themselves are described in DEC STD 169 Digital

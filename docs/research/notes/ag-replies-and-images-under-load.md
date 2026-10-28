@@ -63,7 +63,7 @@ read is 1,131 + 93,366 + 106 = 94,603 B; 96 KiB holds it. herdr's worst read nee
 The 114 was measured on a rendition holding `4:3` and `21` together, which
 held curly and double at once because `SGR 21` set its bit beside the
 underline family instead of replacing it. `21` replaces the family now
-(`docs/record.md`, "SGR 21 is the double style, and the underline family
+(the record, "SGR 21 is the double style, and the underline family
 holds one"), so no rendition holds two styles, and the richest one, with
 `4:3` as the longest spelling, answers in 111 B (**M**, by
 `the_longest_decrqss_reply_is_within_its_bound`). From it: a worst ratio of
@@ -78,7 +78,7 @@ answers, and has not been re-taken.
 
 ### 1.3 Defects found on the way, decided by no question
 
-The first two and the last are fixed (2026-10-09, `docs/record.md`, "DECRQSS
+The first two and the last are fixed (2026-10-09, the record, "DECRQSS
 is sent whole, and the app drains after every read"); the rest are open.
 
 - **Fixed: DECRQSS answered with the wrong shape** when its reply did not fit.

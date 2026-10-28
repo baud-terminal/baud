@@ -3312,14 +3312,14 @@ Option 3a above leaned to (ii) before `misc.c` had been read.
    disassembly compare at the default and, if the loop differs, the
    interleaved sweep, as above.
 
-**Built 2026-10-15** (thread t-0015; `docs/record.md`, "The ambiguous-width
+**Built 2026-10-15** (thread t-0015; the record, "The ambiguous-width
 switch, with `?1021` to `?1023`"): items 1-4, 6, 7 and 8. Item 3 needed no
 fifth code: `emit_merged_table` derives the code by asking `Width::of` under
 both policies, so with the range test in its `Wide` arm private use comes
 out narrow, code 0, and `Classified::width` is unchanged. Item 5, the
 renderer's two-cell masks, is not built.
 
-**Item 5 built 2026-10-25** (lane b212; `docs/record.md`, "A box line two
+**Item 5 built 2026-10-25** (lane b212; the record, "A box line two
 cells wide is drawn across both"): a box or block character two cells
 wide is drawn across both on the CPU, instance and cell paths, keyed by
 the cell's span. Its horizontals run through the second cell, its
@@ -3411,7 +3411,7 @@ Two existing problems the review found, both found by reading:
   So an accent sent there joins the neighbour. It is wrong today for combining
   marks; no test covers a mark after `?7l`. Pinned ghostty checks whether the
   cursor's own cell holds the base (Terminal.zig:1242-1246).
-  **Fixed in two halves**: the joined mark on 2026-10-10 (`docs/record.md`,
+  **Fixed in two halves**: the joined mark on 2026-10-10 (the record,
   "With `DECAWM` reset the character just written is under the cursor"), and
   the policy path, a mark after a control or a `U+200B`, on 2026-10-11 ("A
   zero-width character after a control goes where it goes with autowrap

@@ -51,8 +51,8 @@ them.
 
 | | read it for |
 |---|---|
-| [record.md](record.md) | the dated record of every measured change and every decision |
-| [../CLAUDE.md](../CLAUDE.md) | the working rules for agents and contributors: the measurement discipline, and what was tried and lost |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | the rules for changing baud: the measurement discipline, and what was tried and lost |
+| [../MEASUREMENTS.md](../MEASUREMENTS.md) | every measured number, with the commit, host and payload it was taken on |
 | [the notes below](#research) | the research behind each design, one note per question |
 
 ## Research
@@ -115,7 +115,6 @@ its filename's prefix, and several notes share one.
 | [f-scrollback-ring.md](research/notes/f-scrollback-ring.md) | F — Where a retired line lives: the grid as a ring, checked against the field | open |
 | [g-property-lookup.md](research/notes/g-property-lookup.md) | Two lookups a character, unconditionally — and the design that does fewer | open |
 | [g-text-encoding.md](research/notes/g-text-encoding.md) | G — text encoding, width and grapheme clustering | open |
-| [h-session-context-budget.md](research/notes/h-session-context-budget.md) | H. Every session starts half full, and one edit to CLAUDE.md overflows it | open |
 | [i-isa-dispatch.md](research/notes/i-isa-dispatch.md) | Instruction-set dispatch — why the seam is a trait and not a crate | open |
 | [j-colour-bitmap-limits.md](research/notes/j-colour-bitmap-limits.md) | J: colour-bitmap limits -- a presence index, its bound, CBLC subtables, flip chains | open |
 | [j-rendering-evidence.md](research/notes/j-rendering-evidence.md) | Rendering -- the evidence behind the register | open |
@@ -182,7 +181,7 @@ their entries' titles:
 | CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (no note; `baud-app/src/reload.rs` and the record's section cite them) |
 
 A group's letter and a note's need not match: group H's sources are key
-encoding, and note H is the session context budget. Both tables are held to
+encoding, and note H is not in the repository. Both tables are held to
 the directory and the manifest by
 `every_research_note_and_source_group_is_in_the_index`
 (`baud-core/tests/docs.rs`), which fails when a note has no row or a group
@@ -213,7 +212,7 @@ the build instead:
 
 | check | what it holds |
 |---|---|
-| `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is a plain `partial`, `parsed` or `todo`, though a bold `**partial**` passes it, an open defect CLAUDE.md records; **every `out` row states a reason**; the operation counts quoted in README, CLAUDE.md and MEASUREMENTS.md match the table |
+| `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is a plain `partial`, `parsed` or `todo`, though a bold `**partial**` passes it, an open defect; **every `out` row states a reason**; the operation counts quoted in README and MEASUREMENTS.md match the table |
 | `baud-core/tests/conformance/enumerated.rs` | every **done** row's sequence, synthesised from the table and fed to a real `Term`, reaches a handler rather than being counted unsupported |
 | `baud-core/tests/conformance/spec_inventory.rs` | the reverse direction: every plain CSI final, every CSI *form* (markers and intermediates), every `ESC Fe`, **every `ESC` form with an intermediate — including all four G-slots × every charset final**, every `OSC Ps` and every `DCS` form that **`[[source: ctlseqs]]` defines** is either acted on or counted; and a final byte the specification gives two *arities* means two things — so an operation baud never enumerated cannot be silently swallowed |
 | `baud-core/tests/encoding/graphemes.rs` | all 766 cases of Unicode's `GraphemeBreakTest.txt`, and the generated tables still match the pinned data |

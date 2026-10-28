@@ -620,7 +620,7 @@ What holds of the old statement is narrower: **none of the DEC texts read gives
 a Unicode codepoint**. The entry is `retrieved`, and `[[source: vt100-ug-ch3]]`
 beside it names the set's 32 positions in text, `0x5F` "Blank" first. baud's
 codepoints are foot's, and `0x5F`, which foot leaves as `_`, is open:
-docs/record.md, "DEC Special Graphics begins at 0x5F, and what it stores there
+The record, "DEC Special Graphics begins at 0x5F, and what it stores there
 is the owner's call".
 
 ---

@@ -1109,7 +1109,7 @@ The Hindi denominator is not exact: conjunct clusters also attach consonants.
 the clusters no cell names once all 1024 are used, so "only RIS frees the
 store" below describes the store this table measured. The four rows, one
 `Term` each at 200x50 with 2,000 lines of history, refuse 0, 2, 0 and 349,
-and none of them fills the store, so none sweeps (docs/record.md, "The
+and none of them fills the store, so none sweeps (the record, "The
 cluster store holds 1024 clusters and sweeps the dead ones").
 
 - **Only RIS frees the store.** After the Hindi article, all 228 of Bialik's
@@ -1234,7 +1234,7 @@ cluster store holds 1024 clusters and sweeps the dead ones").
       For real points, a scratch Metal probe found the cell and instance
       paths agree to 0 pixels at 14 and 26 px, and the points below pointed
       letters draw into the next row at 26 px, where the CPU clips
-      (`docs/record.md`, "baud's
+      (the record, "baud's
       own Hebrew is in the embedded font, Regular and Bold, built from
       committed sources"). So a placeholder below the row would likely cross
       into the next row there too (inferred).
@@ -1405,7 +1405,7 @@ and C.
   Bialik, OSHB Genesis 1, the Arabic and the Hindi, each through a terminal
   of its own, refuse 0, 2, 0 and 349 where they refused 81, 997, 1117 and
   13473
-  (docs/record.md, "The cluster store holds 1024 clusters and sweeps the
+  (the record, "The cluster store holds 1024 clusters and sweeps the
   dead ones").
 
 ## 7. Questions for Jev and the owner

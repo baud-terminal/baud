@@ -569,7 +569,7 @@ the one where the picture stays beside the text it was printed with.
   at the old width.~~ An anchor on a wrapped continuation row round-trips
   too, since 2026-10-11: the placement keeps where in its row the cell its
   row began with landed, and the next reflow asks by that cell rather than
-  by the row's own first (docs/record.md, "An image on a continuation row
+  by the row's own first (the record, "An image on a continuation row
   follows the cell its row began with"). A line the reflow drops takes its
   image with it.
 * **An image goes when its rows do**: its last past the far end of the history, its anchor cut

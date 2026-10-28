@@ -2,9 +2,10 @@
 
 Every number here names the commit that first carried it, and a number taken on
 code that has changed since says so rather than passing for current. Superseded
-results are not kept — `git log MEASUREMENTS.md` has them, and `docs/record.md`
-carries the reasoning behind changes that did and did not work; where a section
-names a record heading, that heading is in `docs/record.md`.
+results are not kept — `git log MEASUREMENTS.md` has them. Where a section
+quotes a heading as "the record", it names the dated entry the project's
+development record keeps for that change, which is not part of this
+repository.
 
 ## How to read this file
 
@@ -31,7 +32,7 @@ The compiler moved to rustc 1.96.0-nightly 02c7f9bec, the nightly of
 changed: across the two compilers, ingest2 on nine recordings and
 opcost found no rate that moved, and multibench found none where its
 ghostty control held (less-pager, asciiquarium); its other rows were
-void. `docs/record.md`, "The nightly of 2026-04-11 moves where the code
+void. The record, "The nightly of 2026-04-11 moves where the code
 sits, and no rate with it".
 
 ## Against other implementations, on real capture
@@ -40,7 +41,7 @@ sits, and no rate with it".
 every `multibench` table in this file: this one, sfte's, cava's and the
 generated payloads'. Before it, baud-core's `cat-scroll` row moved by as
 much as 10% with where the linker put three functions, for no reason in the
-source (`docs/record.md`, "The cat row was a code-placement lottery, and
+source (the record, "The cat row was a code-placement lottery, and
 multibench now aligns to 128 bytes"). A table taken after the alignment is
 not comparable to these.
 
@@ -328,8 +329,32 @@ same escape density, one per 17 bytes, and differ 1.7x in cycles per byte; the
 difference between them is that vim carries wide characters and btop none.
 asciiquarium carries none and is the most expensive per byte, on escape density
 alone. So the cost is wide content *or* escape density, and neither predicts it
-by itself (the record, "The path split is the whole gap, and neither way of
-closing it works").
+by itself (the table below).
+
+## Cycles a byte across payloads
+
+**Taken on 2026-08-29 on `baud-core2`, the core this one replaced and since
+deleted, so it cannot be re-taken.** One binary across every payload, so every row implies the same
+clock, which `the_cycles_per_byte_table_agrees_with_itself` checks. The core
+has changed since, so the rates are historical; the table is quoted for its
+ordering. Throughput is code times content, and cycles a byte is the unit that
+separates the two:
+
+| payload | MB/s | cycles/byte |
+|---|---|---|
+| `payload::cjk`, synthetic | 2452 | **1.63** |
+| `payload::streaming`, synthetic | 1613 | 2.48 |
+| btop | 819 | 4.89 |
+| vim | 473 | 8.46 |
+| less-cjk | 440 | 9.11 |
+| **cat-cjk** | **425** | **9.42** |
+| **asciiquarium** | 419 | **9.57** |
+
+asciiquarium is pure ASCII -- no emoji, no CJK, no wide characters -- and costs
+more a byte than cat-cjk, so cat-cjk is not an emoji outlier: it sits in the
+same band as an escape-dense ASCII capture. Scrolling does not predict the
+cost either: `payload::streaming` scrolls most often per kilobyte and is the
+second fastest, and asciiquarium never scrolls and is the slowest.
 
 ## Storage
 
@@ -373,6 +398,37 @@ text*, and the figures above are per byte of *input*, which includes escapes.
 `docs/research/notes/f-row-extent.md`), so cat-scroll reads 1.9x without
 deferring a write. `ingest2` prints the figure per run.
 
+## The ASCII ladder and the store ceiling
+
+**Taken at `1774072e`, 2026-08-30, on the core of that day; the store-traffic
+column was corrected at `c05133fb`, 2026-09-11.** A terminal is not a copier: it turns
+one byte into eight, and every rate here is per *input* byte. Four synthetic
+payloads, 16 MB each, each rung adding exactly one thing to the one below, so
+the step that costs is named rather than inferred. They are not recordings and
+are never quoted against another implementation.
+
+| rung | what it adds | MB/s | cells a byte | store traffic |
+|---|---|---|---|---|
+| `wrap` | printable ASCII, `CR` at the margin, never scrolls | **5,850** | 1.0 | 49.1 GB/s |
+| `flat` | the same, wrapping off the bottom, so it scrolls | 4,400 | 2.0 | 73.8 GB/s |
+| `lines` | `CRLF` every 80 bytes | 3,260 | 1.9 | 52.0 GB/s |
+| `sgr` | one `ESC [ 3 2 m` a line | 2,200 | 1.8 | 33.2 GB/s |
+
+**The units are mixed, and the traffic column is arithmetic.** `ingest2`
+divides by `1 << 20`, so its MB/s are mebibytes, while the traffic is decimal:
+`traffic = rate x 2^20 x 8 x cells a byte / 1e9`, which
+`the_ladder_arithmetic_holds` checks. The column first read 46 / 69 / 48 / 31,
+4.86% low in every row, because it multiplied mebibytes as decimal.
+
+**The ceiling is the store port.** `baud-bench/benches/ceiling.rs` stores eight
+cells at a time into an 80 KB grid at 143.9 GB/s, which at one cell a byte is
+17,156 MB/s of input; everything a materialising terminal can do sits under it.
+Pure text is store-bound and near it: `wrap`'s stores are 47% of its clock and
+run at about 104 GB/s while they run, 73% of the peak. Scrolling costs cells,
+not time: 1.0 to 1.9 a byte at the same traffic. One escape sequence per eighty
+bytes costs 29% and takes the loop off the store ceiling, about 44 cycles for a
+five-byte SGR, thirteen times a text byte.
+
 ## Reproducing
 
 Every benchmark, these and the in-repository ones, with what each is for:
@@ -393,8 +449,8 @@ GHOSTTY_LIB_DIR=../../../ghostty/zig-out/lib TRANSPORT=memory cargo run --releas
 SFTE_CEILING=no-dirty-rows GHOSTTY_LIB_DIR=../../../ghostty/zig-out/lib TRANSPORT=memory \
   RECORDINGS="ascii/git-log.raw,ascii/cat-scroll.raw" cargo run --release
 
-# baud alone, one payload, no fork and no PTY -- the instrument every number
-# in docs/record.md is measured with. A recording, a ladder rung
+# baud alone, one payload, no fork and no PTY -- the instrument the memory
+# columns here are measured with. A recording, a ladder rung
 # (flat/wrap/lines/sgr), a synthetic payload (cjk/streaming), or `mix`.
 cargo bench -p baud-bench --bench ingest2 -- cat-cjk 200
 
@@ -411,7 +467,7 @@ its settled rate, which is larger than most effects being measured. Interleave
 arms, run at least four rounds, and quote the settled ones.
 
 Per-rep figures and rates taken before `481613f` are not comparable with those
-after it: `docs/record.md`, "ingest2's setup moved its timed loop" (btop +5.95%
+after it: the record, "ingest2's setup moved its timed loop" (btop +5.95%
 in instructions, +3.0% in cycles).
 
 ## Keystroke to pixel
@@ -922,7 +978,7 @@ launch. Timed one pipeline at a time since (`Build::each`), all of it is the
 state together. It follows the position rather than the shader: built last, `bg`
 costs what the others do, and the one built first pays instead. Why
 `newLibraryWithData` defers that work to the first pipeline is still not known.
-`docs/record.md`, "Row 1 shipped: the shaders are compiled at build time, and a
+The record, "Row 1 shipped: the shaders are compiled at build time, and a
 cold launch costs 34 ms instead of 287".
 
 **The 34 ms of wall is not the 73.6 ms of pipelines**, and the gap is the

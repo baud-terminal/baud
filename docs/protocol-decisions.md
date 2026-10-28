@@ -189,7 +189,7 @@ of `─` is `─` and the cell still says where it came from.
 at `0x60`, so `ESC ( 0 _` stores `_` where DEC draws "Blank": on the bulk run,
 on the per-byte path and under VT52 `ESC F`. U+0020 and U+00A0 both conform in
 what they draw, and the texts do not choose between them, so the codepoint is
-the owner's call. It is open in docs/record.md, "DEC Special Graphics begins at
+the owner's call. It is open in the record, "DEC Special Graphics begins at
 0x5F, and what it stores there is the owner's call", and the coverage row is
 **partial** until it is answered.
 
@@ -307,7 +307,7 @@ half-built protocol feature is finished to the spec, not switched off"):
 * **V10, side margins finished.** DECSLRM binds the wrap, ICH, DCH and
   DECIC/DECDC (above), and since 2026-10-12 every vertical scroll: `SU`,
   `SD`, `IND`, `RI`, `LF`, `IL` and `DL` move only the rectangle, which
-  `[[source: vt510-decslrm]]` makes the scrolling region (`docs/record.md`,
+  `[[source: vt510-decslrm]]` makes the scrolling region (the record,
   "Rectangle scrolling"). Steps (c) and (d) remain: line starts and cursor
   moves that honour the fence, and C2-min.
 * **V14, an ambiguous-width switch with `?1021`**: built 2026-10-15. The
@@ -319,15 +319,15 @@ half-built protocol feature is finished to the spec, not switched off"):
   cell, its verticals and corners stay at the first cell's centre at the
   one-cell weight, and a block is its fraction of both cells. Both shapes
   are Jev's leans, below the bar, left for the owner's veto
-  (`docs/record.md`, "A box line two cells wide is drawn across both").
+  (the record, "A box line two cells wide is drawn across both").
   Under `?2500` on a right-to-left line such a line is mirrored whole,
-  its verticals in its last cell (Jev, 0.92/0.92; `docs/record.md`, "A
+  its verticals in its last cell (Jev, 0.92/0.92; the record, "A
   composition takes the cells its commit will, and a wide box line
   mirrors whole").
 * **V18, the Sixel modes `?80` and `?1070`**, built to the spec, with
   `?8452` and XTSMGRAPHICS, since 2026-10-15 (`docs/vt-coverage.md`). Each
   acts and answers only while DA lists Sixel; the choices Jev left below the
-  bar are on the owner's list there and in `docs/record.md`, "The Sixel
+  bar are on the owner's list there and in the record, "The Sixel
   modes `?80`, `?1070` and `?8452` are built, and XTSMGRAPHICS answers".
 * **V19, kitty graphics.** The reason this file gave against it was that
   `f=100` hands the terminal a PNG, which needs zlib, and the core decodes
@@ -358,7 +358,7 @@ Graphics table.
   or single shift 3 (SS3) functions sent" is always empty.
 - **DEC Special Graphics leaves `0x5F` as `_`**, where every DEC text read
   replaces it with Blank; which code point Blank stores is the owner's call
-  ([the record](record.md), "DEC Special Graphics begins at 0x5F, and what
+  (the record, "DEC Special Graphics begins at 0x5F, and what
   it stores there is the owner's call").
 - **A `SUB` draws no error character by default**, where DEC's VT220 to
   VT500 display one (`[[source: dec-std-070]]` p. 5-132): the owner's call of

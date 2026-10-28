@@ -2,8 +2,8 @@
 
 The data path, the two core crates, and the constraints that shaped both, as
 of 2026-10-10. Read this before changing anything in `baud-core/`.
-[CLAUDE.md](../../CLAUDE.md) holds the rules and [the record](../record.md) every
-measured change behind them.
+[CONTRIBUTING.md](../../CONTRIBUTING.md) holds the rules and
+[MEASUREMENTS.md](../../MEASUREMENTS.md) the measurements behind them.
 
 ## The data path
 
@@ -142,7 +142,7 @@ crates, its own ground state, and its own test directory.
 ## Constraints that look arbitrary and are not
 
 Each cost something to learn. Changing one needs a measurement, not an
-argument — and `CLAUDE.md` carries the fuller list plus what was tried and lost.
+argument — and [CONTRIBUTING.md](../../CONTRIBUTING.md) carries the fuller list plus what was tried and lost.
 
 | thing | why |
 |---|---|
@@ -166,5 +166,5 @@ not the thing**: "it doesn't allocate" is not a defence.
 
 A cell core cannot hold write amplification to 1 and is not meant to: one
 printable byte becomes an eight-byte `PackedCell`, so 8x is a floor by
-construction ([the record](../record.md), "The pure-ASCII rung is at 74% of the
-machine's store bandwidth").
+construction ([MEASUREMENTS.md](../../MEASUREMENTS.md), "The ASCII ladder and
+the store ceiling").

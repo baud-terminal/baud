@@ -15,7 +15,7 @@ argv[0], a lean (0.58/0.69); the folder with home as `~` and past three
 folders the last three, as kitty's and ghostty's integrations spell it,
 a lean (0.25/0.37). Question 1 is the owner's (TODO.md) and the
 proxy icon waits on it. Built: `OSC 7` in the core, the derived title in
-both apps, checked as 6.5 settles (`docs/record.md`, "A shell can say
+both apps, checked as 6.5 settles (the record, "A shell can say
 which folder it is in: OSC 7" and "The window's title names the folder
 and the program"). Not re-asked this round, and nothing built for them:
 question 5 (Q-A, keep refusing `CSI 21 t`, today's behaviour), question
@@ -185,10 +185,10 @@ artifacts", marking a single-shift option conforming to it
 (`docs/research/notes/ae-code-extension.md` 184-190, 803); it decides nothing
 about title bytes. No earlier decision on title bytes against these texts was
 found (searched `docs/vt-coverage.md`, notes G, AE and AF and
-`docs/record.md` for "8.3.89", "command string", "07/14", "8-bit data"). The record describes the behaviour
+the record for "8.3.89", "command string", "07/14", "8-bit data"). The record describes the behaviour
 without the texts: "the bytes are read in the encoding the terminal is in --
 ill-formed UTF-8 as U+FFFD, as the screen shows it, and ISO 8859-1 byte for
-codepoint" (`docs/record.md` 17213-17215). The choice is the owner's,
+codepoint" (the record 17213-17215). The choice is the owner's,
 question 7.
 
 ### 1.2 xterm's control sequences
@@ -823,7 +823,7 @@ Terminal.app were not checked.
   2 t` / `CSI 23 ; 2 t`, the title save and restore vim sends, is the one with
   a real consumer and the one to take first"). XTSMTITLE, XTRMTITLE and
   XTTITLEPOS are counted, not built (TODO.md, "The title stack's siblings").
-- RIS does not clear the title, as xterm's does not (`docs/record.md`, "A
+- RIS does not clear the title, as xterm's does not (the record, "A
   program's title is set on the window, and on macOS the window hides it");
   foot resets it (section 4).
 

@@ -114,7 +114,7 @@ whose SIP still blocks dtrace's `cpc`, as the paragraph below records (struck
 --template 'CPU Counters'` records with no `sudo`. A later record found the
 "absent" tool was never absent: `/usr/bin/xctrace` is an `xcode-select` shim
 that answers "not found" under a `DEVELOPER_DIR` carrying no Instruments, and
-Xcode's own copy records fine (`docs/record.md`, "The counters run on
+Xcode's own copy records fine (the record, "The counters run on
 baud-core now, and the elimination holds on the new core", which also reads
 the counters on `baud-core`).
 
@@ -139,7 +139,7 @@ narrower one.
 - **The erase-path scan is untested.** `0e7cb84` applied the same pattern to
   `fill_counted` (`EL`/`ED`). The fix reverts both functions, so that one's cost
   is inferred from the shared shape rather than measured.
-- **The older blanking anomaly is not explained by this.** `docs/record.md`,
+- **The older blanking anomaly is not explained by this.** The record,
   "Blanking, priced before `RowExtent`", records that a variant *skipping*
   blanking entirely measured 142–150 against 213–229 — less work, slower —
   and resolves it there as a harness artefact. That is a different comparison

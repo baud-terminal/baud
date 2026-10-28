@@ -68,7 +68,7 @@ stack.
   draws it -- CoreText's `CTFontCreateForString` from the
   primary's bytes on macOS, fontconfig's charset match over baud's own scan
   on Linux -- and the face answered is appended behind the chain
-  (`baud-app/src/fallback.rs`; docs/record.md, "Arabic and Syriac draw from
+  (`baud-app/src/fallback.rs`; the record, "Arabic and Syriac draw from
   the system's faces"). The primary's missing glyph stays only where no
   installed face has the character.
 
@@ -156,7 +156,7 @@ baud-core kept at most 63 distinct clusters and freed them only on a full
 reset, and `marks_dropped` was 45 over Genesis 1:1-5 (measured), a core limit to
 fix before Hebrew can be called done. *Fixed 2026-10-14*: 1024 slots, eight
 probes and a sweep of the dead, and 0 dropped over the five verses
-(docs/record.md, "The cluster store holds 1024 clusters and sweeps the dead
+(the record, "The cluster store holds 1024 clusters and sweeps the dead
 ones"). The shipped patch needs baud's
 own Hebrew drawings (section 1). Without the bridge, the interim under the
 owner's order is the system fallback, once it exists: asked with

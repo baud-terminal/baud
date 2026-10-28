@@ -735,7 +735,7 @@ Measured with the `frame` bench's convert column (then with the mode set
 before a recording; since BDSM is set at power-on the bench draws with it
 on and `FRAME_BIDI=explicit` turns it off), base 9dd37f0f against step 2
 built the same way from `git archive`, an A/A copy, four arms rotated over
-eight rounds with the first dropped, on mains (the docs/record.md entry,
+eight rounds with the first dropped, on mains (the record's entry,
 "Right-to-left lines are drawn in their visual order", has the table):
 
 - **With the mode off (`CSI 8 l`): no difference.** The layout returns
@@ -768,7 +768,7 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   layout. On the owner's cases at 44x12 the convert column's ranges
   overlap base's on a replay, and the instructions a run retires differ
   from base's by less than base's own spread from run to run
-  (docs/record.md, "Finished text wraps at its words"). A window that
+  (the record, "Finished text wraps at its words"). A window that
   moves every frame lays its paragraphs out again each time, unmeasured
   at 200x50.
 - **A session that has drawn no joining letter pays nothing measurable
@@ -835,11 +835,11 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   nothing on the text path**: a string rides in the rendition, DCSM's and
   DECRLM's tests are one bit of the mode word `CR` already reads, and
   DECRLM's writer, and a write under insert mode that HEM or a drawn line
-  shifts, are reached only by the one-by-one graph (docs/record.md,
+  shifts, are reached only by the one-by-one graph (the record,
   "DECRLM writes right to left"). **Once a string has been begun** a
   frame reads a row's cells for strings one bit a cell, and only while a
   rendition naming a string is in the table; with BDSM set a row keeps
-  its answer while its cells are the same (docs/record.md, "A frame
+  its answer while its cells are the same (the record, "A frame
   reads a string's renditions only on the rows that may hold one"). The
   core pays more: from then on each erase keeps strings cell by cell
   (`Paint::erase_keeping_strings`), and with BDSM reset every `CR` and
@@ -856,7 +856,7 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   written; the rendition table's inline probe keys a rendition without
   variants and with the primary font as it did before they existed; an
   alternate font's key moved with the font, from bit 48 to bit 27. `ingest2` retires no more
-  instructions than before SAPV on any recording (docs/record.md, "SAPV
+  instructions than before SAPV on any recording (the record, "SAPV
   off the text path").
 
 ## What is not built yet

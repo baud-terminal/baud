@@ -825,7 +825,7 @@ The task says vim and every curses `endwin` send cnorm (`\E[?12l\E[?25h`) at exi
 
 **Finding: the pinned terminfo lost `Se`.** `docs/research/sources/terminfo/xterm-256color.ti` says "Reconstructed via infocmp" at line 1. It was made without `-x`, so the extended `Se`/`Ss` were dropped. The sentence at `CLAUDE.md:18972` ("the pinned `xterm-256color` entry carries no `Ss` or `Se`, so it cannot say which reset an editor sends") is an artefact of that pin, and the pin should be retaken with `infocmp -x`.
 
-*Since 2026-10-18 the pin is retaken:* `docs/research/sources/terminfo/xterm-256color.ti` is `infocmp -x -1` output and carries `Se=\E[2 q` and `Ss=\E[%p1%d q`, and the conformance profile replays both. The sentence quoted above is struck through in `docs/record.md`, where it moved from CLAUDE.md.
+*Since 2026-10-18 the pin is retaken:* `docs/research/sources/terminfo/xterm-256color.ti` is `infocmp -x -1` output and carries `Se=\E[2 q` and `Ss=\E[%p1%d q`, and the conformance profile replays both. The sentence quoted above is struck through in the record, where it moved from CLAUDE.md.
 
 **Why macOS's `Se` is `\E[2 q`, and why baud is the odd one out.**
 
@@ -1010,7 +1010,7 @@ This is a recommendation, not a decision.
   - re-pin `xterm-256color` with `infocmp -x`;
   - correct `CLAUDE.md:18972-18975`, and `docs/vt-coverage.md:579` (the `?12` row "done") and `:646` (the `cursorBlinkXOR` sentence);
   - rename any renamed test at `CLAUDE.md:18988-18998` too, or `docs.rs` fails.
-  - *2026-10-18:* the re-pin is done, and the CLAUDE.md lines named here now live in `docs/record.md`, corrected there.
+  - *2026-10-18:* the re-pin is done, and the CLAUDE.md lines named here now live in the record, corrected there.
 
 **The gates it needs**, each red first:
 

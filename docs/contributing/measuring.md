@@ -1,10 +1,10 @@
 # Measuring baud
 
 Which instrument answers which question, how to run each, and the rules a
-number has to pass before it goes in [MEASUREMENTS.md](../../MEASUREMENTS.md)
-or [the record](../record.md). The rules are CLAUDE.md's
-[How to verify a change](../../CLAUDE.md#how-to-verify-a-change) and
-[Measurement failures that already happened here](../../CLAUDE.md#measurement-failures-that-already-happened-here);
+number has to pass before it goes in [MEASUREMENTS.md](../../MEASUREMENTS.md).
+The rules are CONTRIBUTING.md's
+[How to verify a change](../../CONTRIBUTING.md#how-to-verify-a-change) and
+[Measurement failures that already happened here](../../CONTRIBUTING.md#measurement-failures-that-already-happened-here);
 this page is the commands.
 
 ## Which instrument
@@ -27,8 +27,8 @@ open with a comment saying what they time.
 ## In this repository
 
 ```sh
-# One payload, in memory, no fork and no pty: the instrument CLAUDE.md's "How
-# to verify a change" times a core change with. A recording name, or a ladder rung
+# One payload, in memory, no fork and no pty: the instrument CONTRIBUTING.md's
+# "How to verify a change" times a core change with. A recording name, or a ladder rung
 # (flat/wrap/lines/sgr), or a synthetic payload (cjk/streaming), or `mix`.
 cargo bench -p baud-bench --bench ingest2 -- cat-cjk 250
 devenv shell -- dev-bench cat-cjk   # the same harness, as a devenv script

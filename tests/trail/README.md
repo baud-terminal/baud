@@ -30,7 +30,7 @@ requires exactly that sequence of placements -- not at 4096, where the `gg`
 frame and the `:` fall in one read and the placement is made and forgotten
 inside it. Its corpus gate replays it at read sizes 1 and 4096 and pins the
 trail it gains at each. The app's trail follows the placements: see "A
-hidden cursor a program placed is followed" in `CLAUDE.md`.
+hidden cursor a program placed is followed" in the record.
 
 # Helix scrolled back by the wheel
 
@@ -67,4 +67,4 @@ frames, 6;8 after `gt`, then 9;8 twice, 12;8, 15;8 and 17;8 three times. No
 every 300 ms and draws every trail on every path through the app's chase on a
 120 Hz link, and requires that nothing drawn moves up once the wheel has
 begun: see "A landed flame waits where the chase rests, and helix's wheel no
-longer jumps it" in `docs/record.md`.
+longer jumps it" in the record.

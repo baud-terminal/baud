@@ -21,7 +21,7 @@ transcript, `<transcript>.jsonl`, in Claude Code's
 project directory for this repository, given with its UTC time. The record's
 dates are the owner's local day, six hours behind UTC, so an answer at
 04:03 UTC on the 26th is the record's 2026-09-25. Record sections are named by
-their headings in `docs/record.md`. Scratchpad paths are written without code
+their headings in the record. Scratchpad paths are written without code
 formatting, because the tree does not hold them. A line number given for an
 agent ("the fire agent's l.N", and every line number in section 1's
 "committed as" column) is in that agent's transcript, under the session's
@@ -169,7 +169,7 @@ is decided by the rule of 2026-10-10, and the owner may veto it. Every other
 note AL question stayed under 0.9 or flipped between the two askings. The
 answer and its figures are on the owner's work list and in the Jev program's
 confirmations file (.claude/research/jev-program/confirms.json, item AL-7,
-uncommitted). Neither `docs/record.md` nor notes V, X, AJ or AL records it.
+uncommitted). Neither the record nor notes V, X, AJ or AL records it.
 Those were the places searched, with the work list and that file. The
 quad's licence options were also put to Jev, in the version plan's scoping
 on the work list, and stayed under the bar ((b) at 0.38 and 0.23). Asked

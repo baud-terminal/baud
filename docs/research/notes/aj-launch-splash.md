@@ -83,7 +83,7 @@ Evidence tags:
 - **Q**: quoted from the source named.
 - **R**: read in code, not run.
 - **C**: computed from the files.
-- **M**: measured. Every M here is a figure already in `docs/record.md` or
+- **M**: measured. Every M here is a figure already in the record or
   `MEASUREMENTS.md`, cited by its heading and scoped as the source scopes
   it. Nothing was measured for this note.
 - **U**: a claim not verified.
@@ -682,7 +682,7 @@ How it measures:
 
   Until that is done the effect is not called safe, and the splash should
   not reuse it.
-- **Measured, 2026-10-09** (docs/record.md, "The cursor trails' flashes,
+- **Measured, 2026-10-09** (the record, "The cursor trails' flashes,
   counted on the frames they draw: at 32 pt the fire and the orb fail WCAG
   2.3.1"; [[source: aj-obs-flash-census]]). At the default 13 pt every effect
   passes every case; the plasma's worst flashing area is 8,274 pt², 38% of
@@ -1275,7 +1275,7 @@ Facts found reading them:
 
 `[cursor] trail = "plasma"` is built in `baud-render/src/plasma.rs`, with
 the fragment `plasma_fragment` in `baud-present-macos/src/shaders.metal`.
-It is recorded in `docs/record.md`, "The plasma trail is a braid that
+It is recorded in the record, "The plasma trail is a braid that
 starves, and the critique shaped it". What each part is (**R**):
 
 - **The body.** A tube fills kitty's collapsing quad. A sheath reaches

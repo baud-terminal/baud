@@ -263,21 +263,21 @@ MODEL. Each sheet is 2x2:
 Blending is in encoded sRGB, with the blur radius taken as a Gaussian sigma
 of 30 pt.
 
-![btop, dark at 0.70, over Tahoe Evening](../sources/at-observed/sheet-btop-dark-tahoe-evening.png)
+*The image, btop, dark at 0.70, over Tahoe Evening, is not in the repository: no grant to redistribute its wallpaper art was found.*
 
 [[source: at-obs-png-sheet-btop-dark-tahoe-evening]]
 
 **btop, dark at 0.70, over Tahoe Evening.** The wallpaper's blue shows in
 the top half only. The bottom row is flat grey.
 
-![git log, light at 0.60, over Tahoe Evening](../sources/at-observed/sheet-git-log-light-tahoe-evening.png)
+*The image, git log, light at 0.60, over Tahoe Evening, is not in the repository: no grant to redistribute its wallpaper art was found.*
 
 [[source: at-obs-png-sheet-git-log-light-tahoe-evening]]
 
 **git log, light at 0.60, over Tahoe Evening.** On glass the wallpaper's
 clouds show behind the text. The standard bodies read as near-white pages.
 
-![btop, dark at 0.70, over a white wallpaper](../sources/at-observed/sheet-btop-dark-white.png)
+*The image, btop, dark at 0.70, over a white wallpaper, is not in the repository: it is taken again.*
 
 [[source: at-obs-png-sheet-btop-dark-white]]
 

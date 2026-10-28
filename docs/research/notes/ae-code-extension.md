@@ -39,7 +39,7 @@ Evidence is tagged as in the other notes:
 - Between `8ccfff8` and `eeb5496` (HEAD when this was written), the only
   change under any `src/` is `baud-domain/src/store.rs`. `eeb5496`'s only code
   change is the coverage-table reader in `enumerated.rs`; it also touched
-  `docs/record.md`.
+  the record.
 - Nothing was built or run. Every behaviour of baud, xterm and foot here is
   traced, not observed.
 - **What moved while this was written.** D1 and D2 (§8) were fixed in
@@ -1781,7 +1781,7 @@ budget.
     ([[source: vt510-decrqupss]]);
   - vt100/charsets.rs:79-80, spec_inventory.rs:497-503 and esc_abandons.rs:117.
 
-**`docs/record.md`.** A dated record per stage, holding:
+**The record.** A dated record per stage, holding:
 
 - the §4 Q2 table check;
 - the owner's answers, with Jev logged;
@@ -1832,7 +1832,7 @@ pinned by the parallel change.
 - **D4.** DEL in Ground wrote U+FFFD (§2). 070-3 §3.4.2 says DEL "shall be
   ignored", and vt510-ch7 §7.2.5 "Ignored (unless in CRM)". Confirmed red by
   test 32 (`del_in_ground_is_ignored`) and fixed in both grounds, VT52's by
-  Jev at 0.94; docs/record.md, "DEL in ground is ignored, not drawn as
+  Jev at 0.94; the record, "DEL in ground is ignored, not drawn as
   U+FFFD".
 - **D5 is withdrawn.** It said `GRAPHICS` lands on cells that were not
   translated. The flag's doc defines it as the set invoked into GL when the

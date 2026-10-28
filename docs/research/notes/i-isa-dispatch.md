@@ -198,7 +198,7 @@ the first thing to try behind `Scan`, and it needs no crate. **Built and
 measured since** (corrected 2026-10-10): `76b5769` wrote it and measured +10%
 on asciiquarium and +3.5% on btop on the core of the day, later renamed
 `baud-core2`. On `baud-core` the two results are the last section's, from
-`docs/record.md`, "The NEON scan was wired in and it is a null, because the
+the record, "The NEON scan was wired in and it is a null, because the
 trait cannot reach the cost" (`6c9b926`) and "Then the stride-three scan was
 written, and it is +4% on both CJK rows" (`2ff81d8`).
 
