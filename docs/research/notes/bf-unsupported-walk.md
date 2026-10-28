@@ -1,6 +1,6 @@
 # BF. What baud still counts as unsupported, walked again
 
-**Status: 2026-10-27.** Note AV took this walk on 2026-10-19, and most of
+**Status: 2026-10-28.** Note AV took this walk on 2026-10-19, and most of
 what it listed to build has been built since. This note takes it again
 at `411bdc8c` and records only the change: what is still counted, what
 the governing text says of each, and which of three it is --
@@ -16,8 +16,8 @@ found, not a reading: the 25 `ECMA-48` `SP` presentation functions,
 DECDLD with DECDMAC and DECINVM, and `OSC 633`, `5522` and `5113` were
 found counted and their governing texts were not read here. DECSTUI,
 DECPFK and DECPAK carry (c) from TODO.md's owner markers alone, not from
-a reading of their text. Until those are read, the walk is not
-complete.
+a reading of their text. **Since 2026-10-28 every one of them is read
+at source and classified (section 8)**, and the walk is complete.
 
 The rule it is read against, the owner's of 2026-09-25: "full
 VT420-class terminal. we need to support such protocols fully, always!"
@@ -59,16 +59,16 @@ What remains is in sections 2 to 4.
 | `ESC B` BPH, `ESC C` NBH | 8.3.4 and 8.3.85: where a line break may or may not occur "when text is formatted" | (b) no counterpart | baud wraps at the line's end, and does not format text |
 | `ESC Q` PU1, `ESC R` PU2, `ESC S` STS, `ESC a` INT, `ESC d` CMD | private use with no meaning; the transmit state; "some agreed procedure"; the coding method's delimiter | (b) no counterpart | unchanged |
 | `ESC F` SSA, `ESC G` ESA | `[[source: ecma48]]`: the start and end of a string "eligible to be transmitted ... or transferred to an auxiliary input/output device" | (c) | REFUSE_COUNT, 1.00/1.00, 2026-10-26 (`ESC F`'s xterm meaning is off by default, `hpLowerleftBugCompat`) |
-| `ECMA-48`'s `SP`-intermediate presentation functions: GSM `SP B`, GSS `SP C`, FNT `SP D`, TSS `SP E`, JFY `SP F`, SPI `SP G`, QUAD `SP H`, PFS `SP J`, SHS `SP K`, SVS `SP L`, IGS `SP M`, IDCS `SP O`, DTA `SP T`, FNK `SP W`, SPQR `SP X`, SEF `SP Y`, PEC `SP Z`, SSW `SP [`, SACS `SP \`, STAB `SP ^`, GCC `SP _`, SCO `SP e`, SRCS `SP f`, SCS `SP g`, SLS `SP h` | `[[source: ecma48]]` 8.3 | not classified | **no row in `docs/vt-coverage.md`, and AV did not list them**: AV probed `CSI` finals bare and behind `?`, `>` and `=`, never behind `SP`. Each is counted. Most size, space or shape characters on a cell grid; FNK is sent by a device, not received. Next work: a row each, read at source |
-| `DCS Pfn ; Pcn ; ... { ... ST` DECDLD soft fonts; `DCS Pid ; Pdt ; Pen ! z ... ST` DECDMAC and `CSI Pid * z` DECINVM, macros | the VT420 and VT510 manuals; neither is in `[[source: ctlseqs]]`, no VT420 or VT510 page for them is pinned, and whether `[[source: dec-std-070]]` defines them was not read here | not classified (text not read) | **no row**, and AV did not list them. VT420 functions; `CSI ? 62 n` answers that there is no macro space, which is true and is the gap. Next work |
-| `DCS ! { ... ST` DECSTUI; `DCS " x` DECPFK, `DCS " y` DECPAK | as above | (c), from TODO.md's markers; the text was not read | **no row**. DECSTUI sets the unit ID DA3 reports, and DA3 is the owner's (below); DECPFK and DECPAK extend DECUDK (`[[source: ctlseqs]]` 2598-2599), the owner's (TODO.md: "Owner: DECUDK") |
+| `ECMA-48`'s `SP`-intermediate presentation functions: GSM `SP B`, GSS `SP C`, FNT `SP D`, TSS `SP E`, JFY `SP F`, SPI `SP G`, QUAD `SP H`, PFS `SP J`, SHS `SP K`, SVS `SP L`, IGS `SP M`, IDCS `SP O`, DTA `SP T`, FNK `SP W`, SPQR `SP X`, SEF `SP Y`, PEC `SP Z`, SSW `SP [`, SACS `SP \`, STAB `SP ^`, GCC `SP _`, SCO `SP e`, SRCS `SP f`, SCS `SP g`, SLS `SP h` | `[[source: ecma48]]` 8.3 | (a) 17, (b) 7, (c) 1 | AV probed `CSI` finals bare and behind `?`, `>` and `=`, never behind `SP`. Read 2026-10-28, each classified in section 8; the 8 not to build have a row each |
+| `DCS Pfn ; Pcn ; ... { ... ST` DECDLD soft fonts; `DCS Pid ; Pdt ; Pen ! z ... ST` DECDMAC and `CSI Pid * z` DECINVM, macros | `[[source: vt420-rm]]` pp. 44-48 and 114 on; `[[source: dec-std-070]]` pp. 5-182 to 5-185 | (a), not small | read 2026-10-28 (section 8). VT420 functions; `CSI ? 62 n` answers that there is no macro space, which is true and is the gap. Next work, with the forks section 8 lists |
+| `DCS ! { ... ST` DECSTUI; `DCS " x` DECPFK, `DCS " y` DECPAK | `[[source: vt420-rm]]` Table 4-1; `[[source: dec-std-070]]` 070-4 p. 4-31; `[[source: vt510-rm-b]]` pp. 5-77, 5-83 | DECSTUI (c); DECPFK, DECPAK (b) and (c) | read 2026-10-28 (section 8), a row each. DECSTUI's one reader is DA3, the owner's; DECPFK and DECPAK are the VT510's, above the VT420 class, and carry DECUDK's owner question |
 | `CSI Ps q` DECLL | ctlseqs 1536 | (c) | the owner's, beside note AH's title-bar lights (Jev, DRAWN 0.31 / DRAWN_GATED 0.27, 2026-10-20, under the bar) |
 | `CSI = Ps c` DA3, DECRPTUI | ctlseqs 810 | (c) | TODO.md: "Owner: answer DA2 and DA3?" |
 | `?1050`-`?1053`, `?1060`, `?1061` | ctlseqs DECSET | (c) | TODO.md: "Owner: `?1050`-`?1053`, `?1060`, `?1061`" |
-| XTWINOPS 1-10, `CSI Ps * \|` DECSNLS | ctlseqs | (c) | TODO.md: "**owner** on 1-10 and DECSLPP"; DECSNLS resizes the window as DECSLPP does |
+| `CSI Ps * \|` DECSNLS | ctlseqs | (a) | resizes the window as DECSLPP does; XTWINOPS 1-10 and DECSLPP are the owner's call of 2026-10-19 ("4 it is"), built and on by default, so DECSNLS rides the same window request |
 | `CSI Ps ; Pf ; Pb , \|` DECAC, `, }` DECATC, `CSI Ps ) {` DECSTGLT | ctlseqs 1954-1987, "VT525 only"; xterm gates both on `terminal_id >= 525` and its level 5 table (`[[source: xterm-reset]]` 5930-5990) | (b) above the VT420 class | a VT525 function, above DECSCL's Level 4, as AV kept it; unchanged |
 | `OSC 66` kitty text sizing | kitty's protocol | (c) | TODO.md: no row, the owner's call |
-| `OSC 633` VS Code's shell integration, `OSC 5522` kitty's clipboard, `OSC 5113` kitty's file transfer | not pinned | not classified | **no row**. Next work: pin the texts, then a row each; the clipboard and the file transfer carry `OSC 52`'s and `RequestUpload`'s safety questions |
+| `OSC 633` VS Code's shell integration, `OSC 5522` kitty's clipboard, `OSC 5113` kitty's file transfer | `[[source: vscode-shell-integration]]`, `[[source: kitty-clipboard]]`, `[[source: kitty-file-transfer]]` | `633` (c) a lean; `5522` reads (b), writes (a) not small; `5113` (b) unsafe | pinned and read 2026-10-28 (section 8), a row each |
 | VT52 `ESC E`, `L`, `M` and every final VT52 does not list | ctlseqs 3391-3431 lists every VT52 form | (b) no function | unchanged |
 | the `ESC` finals no text assigns, `CSI` finals likewise, `PM`, `SOS`, other `APC`s, charsets no list names, SGR 56 and 57 | as AV | (b) | unchanged |
 
@@ -182,12 +182,103 @@ for the first ask, 1747-1748 for the second, 1749-1750 for the third.
    it: `DECRQM 2`, DECTSR, `RIS` and `DECSTR` then follow KAM's, and
    neither is counted any more. Not built here because the brief builds
    only at 0.9 or more in both orders.
-2. The `SP` presentation functions of section 2: read each at
-   `[[source: ecma48]]` 8.3, classify it, and give it a row in
-   `docs/vt-coverage.md`.
-3. DECDLD, DECDMAC and DECINVM, DECSTUI, DECPFK and DECPAK: pin the
-   VT420 and VT510 pages, read them, classify each, then build or row
-   each.
-4. CCH, measured on the per-byte path; PLD and PLU with the renderer; MW
+2. ~~The `SP` presentation functions~~, ~~DECDLD, DECDMAC, DECINVM,
+   DECSTUI, DECPFK and DECPAK~~, ~~`OSC 633`, `5522`, `5113`~~: read
+   and classified 2026-10-28 (section 8); what is left to build is
+   there.
+3. CCH, measured on the per-byte path; PLD and PLU with the renderer; MW
    with DECLL's lights.
-5. `OSC 633`, `OSC 5522`, `OSC 5113`: pin the texts, row each.
+4. DECSNLS on the window request DECSLPP makes (section 2).
+
+## 8. The families read on 2026-10-28
+
+Each read at source: ECMA-48 through `scripts/extract-ecma48.py`, whose
+positive control passed first; the VT420 and VT510 manuals and DEC STD
+070 re-fetched with their digests matching and read on the text layer,
+DECSTUI and DECDLD found in STD 070 by the same search that finds no
+DECPFK or DECPAK; VS Code's and kitty's pages pinned at a commit.
+
+| function | the governing text | class | why |
+|---|---|---|---|
+| JFY `SP F`, QUAD `SP H` | 8.3.73, 8.3.102: a string justified, or positioned "flush to line home position margin", centred or "flush to line limit position margin" | (a), not small | SLH and SLL give the line home and limit, and TAC, TALE and TATE already lay a string out at a stop; JFY's word fill and hyphenation are formatting beside `[screen] wrap_words` |
+| IDCS `SP O` | 8.3.65: 1 "reserved for use with the DIAGNOSTIC state" of SRTM, 2 "reserved for Dynamically Redefinable Character Sets (DRCS) according to Standard ECMA-35" | (a), not small | with DECDLD |
+| GCC `SP _` | 8.3.54: "two or more graphic characters are to be imaged as one single graphic symbol" | (a), not small | the renderer's; "does not explicitly specify the relative sizes or placements" |
+| SCO `SP e` | 8.3.110: rotation in steps of 45 degrees | (a), not small | the renderer's; a quarter turn of a narrow glyph does not fit its cell |
+| FNT `SP D` | 8.3.53: "Ps2 identifies the character font according to a register which is to be established" | (b) wrong shape | no register exists, so no `Ps2` names a font |
+| IGS `SP M` | 8.3.66: identifies a repertoire "registered in accordance with ISO/IEC 7350" | (b) no function | it identifies and selects nothing; what a byte draws is the encoding's and SCS's |
+| FNK `SP W` | 8.3.52: "identifies the function key which has been operated" | (b) wrong direction | a device's report to its host |
+| SPQR `SP X`, SEF `SP Y` | 8.3.134, 8.3.116: print quality and speed; a sheet ejected "into a specified output stacker" and loaded "from a specified paper bin" | (b) no counterpart | baud prints to the system's print panel, which chooses both |
+| STAB `SP ^` | 8.3.144: the list of stops "specified in other standards, for example ISO 8613-6" | (b) no counterpart | no text baud follows makes the list, so no `Ps` names a stop |
+| GSM `SP B`, GSS `SP C`, TSS `SP E`, SPI `SP G`, SHS `SP K`, SVS `SP L`, PEC `SP Z`, SSW `SP [`, SACS `SP \`, SRCS `SP f`, SCS `SP g`, SLS `SP h` | 8.3.55, 56, 157, 132, 118, 149, 90, 140, 107, 136, 112, 124: a character's size, its escapement, or the line and character spacing | (a), not small, a lean | on baud's grid each is the cell's; to build on the cell machinery `OSC 66` would bring (Jev's lean, BUILD_LATER, below). DEC STD 070's character cells have none of them, and its ReGIS text has them, on the page (070-8 § 8.6.3) |
+| PFS `SP J` | 8.3.91: "the available area for the imaging of pages of text based on paper size", the pages "introduced by the subsequent occurrence of FORM FEED (FF)"; Annex E, Table E.1, each format's lines and characters by line and character spacing | (b) no counterpart | baud has one page and its FF is `LF`, so no later page is introduced for the area to apply to, as SPH's page home is read by nothing; DECSLPP, done, "sets the number of display lines per page" now (`[[source: dec-std-070]]` p. 5-75). Table E.1's column is SVS's and SHS's, neither built. Jev, REFUSE_COUNT, 0.95 / 0.95 (below) |
+| DTA `SP T` | 8.3.36: "the dimensions of the text area for subsequent pages", in SSU's unit | (c) a lean | as PFS, no subsequent page begins; built, it would be `CSI 8 ; Pn1 ; Pn2 t`'s window request, in CHARACTER, SSU's default, since baud does not act on SSU. Jev's lean REFUSE_COUNT, 0.69 / 0.73 (below) |
+| DECDMAC `DCS ! z`, DECINVM `CSI * z` | `[[source: dec-std-070]]` pp. 5-182 to 5-185; `[[source: vt420-rm]]` pp. 44-48 | (a), not small | see below |
+| DECDLD `DCS {` | `[[source: vt420-rm]]` p. 114 on | (a), not small | soft fonts: a glyph store and the renderer's; IDCS 2 with it |
+| DECSTUI `DCS ! {` | `[[source: vt420-rm]]` Table 4-1; STD 070 070-4 p. 4-31 | (c) | its one reader is DA3, "factory set", whose answer is an open question |
+| DECPFK `DCS " x`, DECPAK `DCS " y` | `[[source: vt510-rm-b]]` pp. 5-77, 5-83 | (b) above the VT420 class, and (c) | the VT510's, in neither the VT420 manual nor STD 070, as DECAC is; and DECUDK's owner question |
+| `OSC 633` | `[[source: vscode-shell-integration]]`: "These sequences should be ignored by other terminals" | (c) a lean | kitty ignores it by name (`[[source: kitty-6d5d0c4-vt-parser]]` 650), Windows Terminal routes it to one action, `Completions` (`[[source: wt-c91793f-output-state-machine-engine]]` 902-904, `[[source: wt-c91793f-adaptdispatch]]`); Jev split (below), KEEP_COUNTED kept |
+| `OSC 5522` read | `[[source: kitty-clipboard]]`: "a terminal that rejects a read request must simply ignore it" | (b) unsafe | as an `OSC 52` read; `DECRQM ? 5522` answers not recognized |
+| `OSC 5522` write | the same: "they must accept at least 64MB of data" | (a), not small | several MIME types, chunked, with error replies |
+| `OSC 5113` | `[[source: kitty-file-transfer]]`: "a session must be approved by the user in the terminal emulator" | (b) unsafe | files leave or reach your disk, as `RequestUpload`; baud has no prompt |
+
+**Macros, the forks before they are built.** DECDMAC stores up to 64
+macros in "6k bytes", text or hex pairs with a repeat introducer; DECINVM
+substitutes one "as if received from the host", "up to 16 levels of
+nesting, but cannot invoke themselves recursively"; `RIS` clears them and
+`DECSTR` does not; under printer controller mode DECINVM goes to the
+printer unexpanded; `?62` DECMSR and `?63` DECCKSR, which answer "none"
+now, then answer the space and a checksum. Three questions are open: a
+bound on what one invocation expands to (sixteen levels, each invoking
+the next many times, expand a short definition without limit inside one
+read); DECCKSR's checksum, "four hexadecimal digits", for which no
+pinned text gives an algorithm; and expansion re-entering the parser
+from inside a dispatch.
+
+**Built here**: nothing a user sees changes, and no file under
+`baud-core/src` changed. Eight rows for the `SP` functions and five for
+DECSTUI, DECPFK and DECPAK, `OSC 633`, the `OSC 5522` read and `OSC
+5113`, held by `the_typesetting_functions_are_counted_and_write_nothing`,
+`the_typesetting_functions_each_have_an_out_row` and
+`the_refused_strings_are_counted_and_answered_with_silence`.
+
+Jev, `OSC 633`, uncached, the standing rule quoted:
+
+| ask, confidences | order A | order B |
+|---|---|---|
+| first | KEEP_COUNTED 0.16 | BUILD_ON_133 0.42 |
+| with kitty's and Windows Terminal's practice | KEEP_COUNTED 0.60 | BUILD_ON_133 0.14 |
+
+Under the bar both times, and in all four asks Jev chose the option
+listed second, so the split carries no signal either way. KEEP_COUNTED
+stands as what baud already does and what the page asks, a lean for the
+owner's veto.
+
+Jev, the twelve size and spacing functions, uncached in two orders, the
+standing rule and the open `OSC 66` question quoted, the same pick each
+time:
+
+| ask, confidences | order A | order B |
+|---|---|---|
+| first: BUILD_LATER, REFUSE or WITH_OSC_66 | BUILD_LATER 0.40 | BUILD_LATER 0.37 |
+| with DEC STD 070 and baud's ReGIS text | BUILD_LATER 0.27 | BUILD_LATER 0.31 |
+
+Under the bar; BUILD_LATER is taken as the lean, so the twelve are
+listed to build and have no row.
+
+Jev, PFS and DTA on their own text, uncached in two orders, the owner's
+"4 it is" (2026-10-19), the standing rule and the SPH and SPL precedent
+quoted:
+
+| ask, confidences | order A | order B |
+|---|---|---|
+| first: DTA | RESIZE_NOW 0.31 | RESIZE_NOW 0.52 |
+| first: PFS | REFUSE_COUNT 0.72 | REFUSE_COUNT 0.72 |
+| with DEC STD 070's DECSLPP and the search of ctlseqs and the DEC texts: DTA | REFUSE_COUNT 0.69 | REFUSE_COUNT 0.73 |
+| the same: PFS | REFUSE_COUNT 0.95 | REFUSE_COUNT 0.95 |
+
+The research added was the timing: DECSLPP's text acts on the page now,
+where DTA's names "subsequent pages" and PFS's the pages a later FF
+introduces; and practice, where ctlseqs, DEC STD 070 and the VT420 and
+VT510 manuals have neither, the same searches finding DECSLPP in each.
+PFS is decided at the bar. DTA's REFUSE_COUNT is the lean after the one
+re-ask, for the owner's veto.

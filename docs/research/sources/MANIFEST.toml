@@ -139,6 +139,13 @@ group  = "C"
 # Read 2026-10-27 (lane b230) through `--find`: § 8.3.87 NP, § 8.3.95 PP, § 8.3.96 PPA,
 # § 8.3.97 PPB and § 8.3.98 PPR (PAGE POSITION FORWARD); NP and PP's 'The effect of this
 # control function on the active presentation position is not defined by this Standard'.
+# Read 2026-10-28 (lane b240) through `scripts/extract-ecma48.py`, its positive control
+# passing: the 25 functions with intermediate 02/00 that baud counts -- 8.3.36 DTA, 8.3.52
+# FNK, 8.3.53 FNT ("Ps2 identifies the character font according to a register which is to
+# be established"), 8.3.54 GCC, 8.3.55 GSM, 8.3.56 GSS, 8.3.65 IDCS, 8.3.66 IGS, 8.3.73 JFY,
+# 8.3.90 PEC, 8.3.91 PFS, 8.3.102 QUAD, 8.3.107 SACS, 8.3.110 SCO, 8.3.112 SCS, 8.3.116 SEF,
+# 8.3.118 SHS, 8.3.124 SLS, 8.3.132 SPI, 8.3.134 SPQR, 8.3.136 SRCS, 8.3.140 SSW, 8.3.144 STAB
+# ("specified in other standards, for example ISO 8613-6"), 8.3.149 SVS, 8.3.157 TSS.
 
 [sources.vt510-decom]
 key    = "vt510-decom"
@@ -493,6 +500,11 @@ group  = "C"
 # sha256 matches: 070-D D.6.1 Auto Wrap Mode and the Last Column Flag, "the Active
 # Position cannot be advanced", and the controls that reset it (PDF 1200-1201) [text];
 # CPR and its algorithm (pp. 5-53 to 5-54, PDF 308-309) [text].
+# Read 2026-10-28 (lane b240) on the text layer [text]: DA3 and DECRPTUI (070-4 p. 4-31,
+# 'factory set to a unique value'), DECDMAC, DECINVM, DECMSR and DECCKSR (pp. 5-180 to
+# 5-185: 'Macros can invoke other macros with up to 16 levels of nesting, but cannot invoke
+# themselves recursively'; DECCKSR's data 'four hexadecimal digits', no algorithm given);
+# DECPFK and DECPAK are not in it.
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -15684,6 +15696,12 @@ group  = "C"
 # sizes for one session, six pages of 24 lines to one of 144, chosen by DECSLPP, and NP, PP,
 # PPA, PPB and PPR, each 'If there is only one page, the terminal ignores' it; chapter 10,
 # DECPCCM (p. 184).
+# Re-fetched 2026-10-28 (lane b240), the sha256 matching, and read on the text layer
+# [text]: DECDMAC and DECINVM, pp. 44-48 ('6 Kbytes of memory available for the storage of
+# macros', 'RIS ... Clears all macro definitions', 'A soft terminal reset (DECSTR) has no
+# effect on' them); Table 4-1, which
+# lists DECSTUI, DECDMAC, DECINVM and DECCKSR among the functions a Level 1 VT420 ignores;
+# DECDLD, p. 114 on. DECPFK and DECPAK are in none of its pages.
 
 [sources.vt510-rm-b]
 key    = "vt510-rm-b"
@@ -15716,6 +15734,9 @@ group  = "C"
 # of a hung state").
 # Read 2026-10-22 (lane b147) on the text layer [text]: DECRQTSR (p. 5-110), DECRSTS
 # (p. 5-113), DECTSR (p. 5-152).
+# Re-fetched 2026-10-28 (lane b240), the sha256 matching [text]: DECPAK and DECPFK
+# (pp. 5-77, 5-83: key station numbers, 'a local terminal function', the 804 bytes shared
+# with DECUDK and DECCKD), DECCKSR (p. 5-33) and DECRPTUI (p. 5-101).
 
 [sources.vt520-rm]
 key    = "vt520-rm"
@@ -36313,3 +36334,81 @@ bytes  = 26407
 status = "external"
 group  = "C"
 # Fetched 2026-10-27 (lane b237); Q1-Q5 read. No grant beyond personal use is in it.
+
+[sources.vscode-shell-integration]
+key    = "vscode-shell-integration"
+title  = "Terminal Shell Integration -- 'VS Code custom sequences OSC 633 ; ... ST': 'These sequences should be ignored by other terminals'"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/vscode-docs @ 7f0009b, docs/terminal/shell-integration.md"
+url    = "https://raw.githubusercontent.com/microsoft/vscode-docs/7f0009b18ff2e915d9c286b1af09666c46be8c02/docs/terminal/shell-integration.md"
+file   = ""
+sha256 = "077b20ee207c98a7bc940da75cbb7e6e7474beb423aab26bee12dd14e78e2733"
+bytes  = 24065
+status = "external"
+group  = "C"
+# Fetched 2026-10-28 (lane b240); read [text]: OSC 633 A, B, C, D, E and P (line 255 on),
+# the Final Term OSC 133 and iTerm2 OSC 1337 CurrentDir lists after them.
+
+[sources.kitty-clipboard]
+key    = "kitty-clipboard"
+title  = "kitty: Copying all data types to the clipboard -- OSC 5522"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 78d6839, docs/clipboard.rst"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/78d68398812ecfb4943c92275209728351d20629/docs/clipboard.rst"
+file   = ""
+sha256 = "a39c5000237a51b35bde98b07b0c335547013c9df92c290ab28598500b29afa9"
+bytes  = 12096
+status = "external"
+group  = "C"
+# Fetched 2026-10-28 (lane b240), not committed (kitty's files were removed at the
+# owner's request); read [text]: reads 'should ask the user for permission', 'a terminal
+# that rejects a read request must simply ignore it' (39), writes 'must accept at least
+# 64MB of data' (154), the ?5522 paste-event mode and its DECRQM detection.
+
+[sources.kitty-file-transfer]
+key    = "kitty-file-transfer"
+title  = "kitty: File transfer over the TTY -- OSC 5113"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 78d6839, docs/file-transfer-protocol.rst"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/78d68398812ecfb4943c92275209728351d20629/docs/file-transfer-protocol.rst"
+file   = ""
+sha256 = "cb0144d75686f6d2cce8e81fad4780b53d845cf3696a4646cd35b452ccc515b9"
+bytes  = 26440
+status = "external"
+group  = "C"
+# Fetched 2026-10-28 (lane b240), not committed; read [text]: 'a session must be
+# approved by the user in the terminal emulator before any actual data is transmitted,
+# unless a pre-shared password is provided' (21), send and receive sessions.
+
+[sources.wt-c91793f-adaptdispatch]
+key    = "wt-c91793f-adaptdispatch"
+title  = "Windows Terminal c91793f, src/terminal/adapter/adaptDispatch.cpp -- DoVsCodeAction: OSC 633's 'Completions' alone"
+author = "Microsoft and contributors"
+year   = 2026
+venue  = "microsoft/terminal at c91793f (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/c91793f7dc022f1a10cacdc7a228ddce63942dc8/src/terminal/adapter/adaptDispatch.cpp"
+file   = ""
+sha256 = "fb120941d1da38fc1a8bb710f81a90ffe141148b1dbb5e7539bc1d98fc26c650"
+bytes  = 194947
+status = "external"
+group  = "C"
+# Fetched 2026-10-28 (lane b240); read [text]: DoVsCodeAction (3774-3840), which acts on
+# 'Completions' behind a feature flag and sends every other action to UnknownSequence().
+
+[sources.wt-c91793f-output-state-machine-engine]
+key    = "wt-c91793f-output-state-machine-engine"
+title  = "Windows Terminal c91793f, src/terminal/parser/OutputStateMachineEngine.cpp -- OSC 633 dispatched to DoVsCodeAction"
+author = "Microsoft and contributors"
+year   = 2026
+venue  = "microsoft/terminal at c91793f (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/c91793f7dc022f1a10cacdc7a228ddce63942dc8/src/terminal/parser/OutputStateMachineEngine.cpp"
+file   = ""
+sha256 = "d45d4c91d2fde46895d48c37bd839e5be315fd6e8ddd842415b25875f31d521b"
+bytes  = 42559
+status = "external"
+group  = "C"
+# Fetched 2026-10-28 (lane b240); read [text]: the OSC switch, `VsCodeAction` to
+# DoVsCodeAction (902-904), OSC 133 to DoFinalTermAction (897-899).
