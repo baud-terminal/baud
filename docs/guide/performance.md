@@ -40,12 +40,21 @@ lines of scrollback; medians of 9 runs, taken in turn. Megabytes per second, hig
 | less, paging a file | **1684.5** | 290.2 | 241.2 | **5.80x** |
 | cat, scrolling text | **1425.1** | 424.3 | 203.3 | **3.36x** |
 | git log | **1637.9** | 516.9 | 211.5 | **3.17x** |
-| asciiquarium | **524.2** | 197.2 | 243.6 | **2.66x** |
 | less, Chinese, Japanese and Korean text | **498.0** | 247.2 | 271.3 | **2.01x** |
-| vim, Unicode text | **636.4** | 346.8 | 293.0 | **1.84x** |
 | cava | **554.1** | 318.9 | 362.2 | **1.74x** |
-| btop | **871.3** | 511.2 | 330.9 | **1.70x** |
 | cat, Chinese, Japanese and Korean text | **459.4** | 385.1 | 221.7 | **1.19x** |
+
+Three recordings were captured again on 2026-10-28, and pipes took the
+place of asciiquarium; measured the same way that day, at `e9af53d9`, with
+less paging a file beside them to show how far baud's own figure has moved
+since the table above:
+
+| recording | baud | ghostty | alacritty | baud vs ghostty |
+|---|---|---|---|---|
+| less, paging a file | **1450.0** | 292.6 | 247.7 | **4.96x** |
+| btop | **879.1** | 516.4 | 355.5 | **1.70x** |
+| vim, Unicode text | **600.7** | 357.4 | 300.2 | **1.68x** |
+| pipes, an animation in eight colours | **503.0** | 304.6 | 316.5 | **1.65x** |
 
 What this does and does not show:
 
@@ -74,6 +83,9 @@ Throughput in MiB per second:
 | asciiquarium | **68** | 67 | 43 | 53 | 46 |
 | vim-unicode | **42** | 38 | 30 | 35 | 21 |
 
+The btop, asciiquarium and vim-unicode rows are of the recordings those
+names held then; the files were captured again, or replaced, on 2026-10-28,
+and this comparison has not been run on the new ones.
 baud leads by 16-22% on btop, cat-scroll and cat-cjk; on asciiquarium its
 lead over alacritty is inside the noise. macOS hands a terminal at most
 1024 bytes at a time, so these rows are bounded by the operating system as

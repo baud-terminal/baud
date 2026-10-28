@@ -581,8 +581,9 @@ fn step(
     act(p, e.act, node, enc, utf8, min, csi, from, left)
 }
 
-/// How many segment hashes the ceiling arm remembers. `btop.raw` has 1,126
-/// distinct redraw segments, so 4096 holds them all.
+/// How many segment hashes the ceiling arm remembers. The btop capture of
+/// 2026-08-27 had 1,126 distinct redraw segments, so 4096 held them all; the
+/// capture of 2026-10-28 has not been counted.
 #[cfg(feature = "ceiling-segment-cache")]
 pub(crate) const SEGS: usize = 4096;
 

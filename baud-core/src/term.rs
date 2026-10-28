@@ -159,8 +159,9 @@ pub struct Saved {
 /// How many `SGR` sequences the byte-keyed table holds.
 ///
 /// **Measured against the corpus, not chosen.** The distinct plain-`SGR`
-/// sequences are: `btop.raw` **168**, `asciiquarium.raw` **13**,
-/// `git-log.raw` 7, `vim-unicode.raw` 6, `less-cjk.raw` 3 -- so 256 slots
+/// sequences are: `btop.raw` **145**, `pipes.raw` **9**, `git-log.raw` 7,
+/// `vim-unicode.raw` 5, `less-cjk.raw` 3 (the captures of 2026-10-28;
+/// the btop capture before them had 168) -- so 256 slots
 /// hold every recording's whole working set and the table is exact rather
 /// than lossy in practice. It still **evicts on collision**, the same
 /// contract as the style and `OSC 8` link tables, because the key is

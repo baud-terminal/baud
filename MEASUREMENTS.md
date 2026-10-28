@@ -35,6 +35,16 @@ ghostty control held (less-pager, asciiquarium); its other rows were
 void. The record, "The nightly of 2026-04-11 moves where the code
 sits, and no rate with it".
 
+**Recordings captured again on 2026-10-28.** `utf8/btop.raw`,
+`utf8/vim-unicode.raw`, `sixel/yazi-walk.raw`, the seven `tests/resize/`
+gestures and `tests/scheme/tmux-start.raw` were captured again, and
+`ascii/asciiquarium.raw` was replaced by `ascii/pipes.raw`
+(`tests/recordings/README.md`, `tests/resize/README.md`). A figure below
+dated before 2026-10-28 that names one of them was measured on the capture
+that name held then, and is kept as its sweep measured it; it is not a
+figure for the file in the tree now. The sections re-taken on the new files
+say so.
+
 ## Against other implementations, on real capture
 
 **Taken before `multibench` aligned every function to 128 bytes**, as is
@@ -59,16 +69,34 @@ scrollback**.
 | `ascii/less-pager.raw` | **1684.5** | 290.2 | 241.2 | **5.80x** |
 | `ascii/cat-scroll.raw` | **1425.1** [1295-1626] | 424.3 | 203.3 | **3.36x** |
 | `ascii/git-log.raw` | **1637.9** [1106-1670] | 516.9 | 211.5 | **3.17x** |
-| `ascii/asciiquarium.raw` | **524.2** | 197.2 | 243.6 | **2.66x** |
 | `utf8/less-cjk.raw` | **498.0** | 247.2 | 271.3 | **2.01x** |
-| `utf8/vim-unicode.raw` | **636.4** | 346.8 | 293.0 | **1.84x** |
 | `utf8/cava.raw` | **554.1** | 318.9 | 362.2 | **1.74x** |
-| `utf8/btop.raw` | **871.3** | 511.2 | 330.9 | **1.70x** |
 | `utf8/cat-cjk.raw` | **459.4** | 385.1 | 221.7 | **1.19x** |
 
-Ahead on all nine, **1.19x to 5.80x**. baud-core is ahead of alacritty on all
-nine too. alacritty is ahead of ghostty on three rows -- asciiquarium, cava and
-less-cjk -- and behind it on the other six.
+Ahead on all six, **1.19x to 5.80x**. baud-core is ahead of alacritty on all
+six too. alacritty is ahead of ghostty on two rows -- cava and less-cjk -- and
+behind it on the other four. The sweep's asciiquarium, vim-unicode and btop
+rows were taken on captures since replaced, and are re-taken below.
+
+**The 2026-10-28 captures, taken at `e9af53d9`, 2026-10-28, on AC**, with
+`less-pager` beside them as the control: the same harness, `TRANSPORT=memory`,
+4096-byte reads, medians of 9, interleaved and rotated, two recordings a run.
+Not comparable with the table above: baud-core's `less-pager` reads 1450.0
+here against 1684.5 there, and ghostty's 292.6 [290.6-294.2] against 290.2,
+so the core has moved between the sweeps and the control has not.
+
+| recording | baud-core | ghostty | alacritty | sfte | **vs ghostty** |
+|---|---|---|---|---|---|
+| `ascii/less-pager.raw` | **1450.0** [1436-1465] | 292.6 | 247.7 | 14.3 | **4.96x** |
+| `utf8/btop.raw` | **879.1** [873-891] | 516.4 | 355.5 | 354.1 | **1.70x** |
+| `utf8/vim-unicode.raw` | **600.7** [590-607] | 357.4 | 300.2 | 166.1 | **1.68x** |
+| `ascii/pipes.raw` | **503.0** [498-509] | 304.6 | 316.5 | 447.6 | **1.65x** |
+
+Ahead of every other core on all four. alacritty is ahead of ghostty on
+pipes and behind it on the other three. sfte drew baud-core's screen on
+less-pager, btop and pipes and a different one on vim-unicode, which it
+draws without clustering; its pipes figure is the fastest of the other cores
+on that row, a stream that never scrolls.
 
 `git-log`'s and `cat-scroll`'s wide baud ranges are the kind of spread the
 record states for `cat-scroll`, ~25% within an arm (for `git-log` it records a
@@ -93,30 +121,31 @@ the header (its depth is a macro in the oracle's shim, where 2,000 is what
 makes the differential like-for-like with `Depth::DEFAULT`; the unfairness
 runs toward sfte on the scrolling rows). Locale `C.UTF-8`, asserted.
 
-**The row carries its own admissibility verdict, and four of nine rows fail
-it.** sfte has no `cells_written`, so after one full rep of the same replay
+**The row carries its own admissibility verdict, and three of the six rows
+kept here fail it.** The sweep's btop, asciiquarium and vim-unicode rows were
+taken on captures since replaced; their sfte figures on the new files are in
+the 2026-10-28 table above. sfte has no `cells_written`, so after one full rep of the same replay
 the harness digests both screens and prints whether they match under the
 row. A row whose two arms drew different screens is a figure for a different
 program and is not quoted as a ratio.
 
 | recording | baud-core | sfte | sfte, damage marking removed | same screen? |
 |---|---|---|---|---|
-| `utf8/btop.raw` | 864.5 | **359.1** [354-362] | 359.3 | yes -- **no** since `96949c2`, see below |
 | `utf8/cava.raw` | 553.7 | **347.6** [344-355] | 364.0 | yes |
-| `ascii/asciiquarium.raw` | 527.7 | **341.4** [336-344] | 344.3 | yes |
 | `ascii/git-log.raw` | 1645.4 | **17.2** [17-17] | **110.1** [104-111] | yes |
 | `ascii/cat-scroll.raw` | 1423.6 | **11.2** [11-12] | **82.9** [78-84] | yes |
 | `ascii/less-pager.raw` | 1706.3 | 14.3 | 115.9 | **no** -- alt-screen re-entry; yes since `96949c2`, see below |
-| `utf8/vim-unicode.raw` | 651.7 | 162.3 | -- | **no** -- clustering |
 | `utf8/less-cjk.raw` | 505.1 | 22.5 | -- | **no** -- clustering |
 | `utf8/cat-cjk.raw` | 474.1 | 20.9 | -- | **no** -- clustering |
 
-**Two mechanisms, and the split between them is the finding.** On the three
-like-for-like rows that never scroll, sfte sits at 341-359 -- in ghostty's
-band, above alacritty -- and that is its per-character path: one 36-byte
+**Two mechanisms, and the split between them is the finding.** On the
+like-for-like rows that never scroll, sfte sat at 341-359 in this sweep --
+cava's 347.6, and 341.4 and 359.1 on the asciiquarium and btop captures
+since replaced -- in ghostty's band, above alacritty, and that is its
+per-character path: one 36-byte
 cell a character, a libc `wcwidth` call, no run path. On the two
 like-for-like rows that scroll every line it reads 11 and 17, **30x
-slower than on btop**, and `sample` puts 95% of that in one function:
+slower than on that btop capture**, and `sample` puts 95% of that in one function:
 sfte's grid-scroll routine ends by marking every cell of the whole scrolling
 region dirty -- 10,000 byte stores at stride 36, 360 KB, on every newline
 that reaches the bottom row. That is a render-side damage model paid on
@@ -138,7 +167,7 @@ amplified by a cell 4.5x as wide, and its second refutation condition was
 that the scroll-heavy rows must show a *larger* gap than a non-scrolling
 one. They do -- by a factor that no bookkeeping story reaches, because the
 dominant term on those rows is not the write at all. The per-character
-mechanism is real and is the 341-359 against 528-865; it is second-order
+mechanism is real and is the 341-359 against 528-865 of that sweep; it is second-order
 on the rows where the plan expected it to be the story.
 
 **The gate's fourth `no` is a defect found by replay, not by the oracle.**
@@ -153,19 +182,20 @@ in `baud-sfte-difftest` -- as an isolated five-cell control and as the cut
 -- and it is the case a single pass structurally cannot see.
 
 **Since `96949c2` baud clears on re-entry too, and the gate moved on two
-rows.** xterm's `?1049 h` set arm clears whatever buffer is up, and baud
+rows** of the captures of the time. xterm's `?1049 h` set arm clears whatever buffer is up, and baud
 follows it now. The harness's own replay -- `baud-sfte-difftest`'s `cut`
 example, 32 MiB in 4096-byte reads, which is multibench's -- was re-run on
 2026-09-25 over all nine recordings. less-pager agrees at 0 cells.
-**btop now differs in 2,800 cells, every one in its background and none in
-its character**: its first pass ends inside a coloured rendition, so each
+**The btop capture of the time differed in 2,800 cells, every one in its
+background and none in its character**: its first pass ends inside a coloured rendition, so each
 later pass re-enters under a set background, and xterm and baud clear in
 the background in force (`ClearCurBackground`) where sfte clears to the
-default. cava, asciiquarium, git-log and cat-scroll still agree, and the
-three clustering rows still differ (vim 135 cells, less-cjk 147, cat-cjk
-178). **The throughput columns above were not re-taken**; the verdicts are
-what moved, and the btop row is now a figure for two programs that draw
-different screens.
+default. cava, asciiquarium, git-log and cat-scroll still agreed, and the
+three clustering rows still differed (vim 135 cells, less-cjk 147, cat-cjk
+178). The btop capture of 2026-10-28 ends its first pass under the default
+rendition and agrees after a second pass at 0 cells
+(`a_second_pass_over_every_recording_is_pinned`), as pipes does; multibench
+reports the same screen on both.
 
 ## cava, and every implementation on it
 
@@ -238,7 +268,10 @@ on 2026-10-05, so it cannot be recovered. It was not re-run for this file: it
 launches five GUI terminals, and on 2026-10-12 the box carried a 15-minute
 load of 5.1-6.0 with other work running. The record, "Five terminals, one
 geometry, one Mac: the throughput band is the transport and the CPU column is
-the terminal".
+the terminal". Its btop, asciiquarium and vim-unicode rows, and the fixed cost
+taken from btop, are figures for the captures those names held on 2026-09-12;
+re-taking them on the new files means launching the five terminals' windows
+again, which was not done.
 
 `scripts/vt-compare.sh`: every terminal launched fresh at **200x50 in Menlo
 13**, running `scripts/vt-child.sh`, which replays the recording through one
@@ -324,12 +357,13 @@ machine landed: **-33%** on cat-cjk, -31% on less-cjk, -8.8% on vim and -7.5% on
 btop against the same core storing without it (the record, "GB11 and the rest of
 UAX #29: every glyph gap is zero, and it costs a third").
 
-**No single property of a recording predicts its cost.** btop and vim have the
-same escape density, one per 17 bytes, and differ 1.7x in cycles per byte; the
-difference between them is that vim carries wide characters and btop none.
-asciiquarium carries none and is the most expensive per byte, on escape density
-alone. So the cost is wide content *or* escape density, and neither predicts it
-by itself (the table below).
+**No single property of a recording predicts its cost.** On the 2026-10-28
+captures btop sends an escape every 18.9 bytes and vim one every 17.2, and
+baud-core takes in btop 1.46x as fast (879.1 against 600.7 MB/s, the table
+above); the difference between them is that vim carries wide characters and
+btop none. pipes carries none and is the slowest of the three per byte, on
+escape density alone: one every 6.0 bytes. So the cost is wide content *or*
+escape density, and neither predicts it by itself.
 
 ## Cycles a byte across payloads
 
@@ -657,7 +691,8 @@ base's tail, where its tick-paced frame reached the layer more than
 
 ## The ligature window's miss (row 7, measured, no change)
 
-Taken at `70f26e4`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `FRAME_ARMS=async cargo bench -p baud-bench
+**Re-taken on the 2026-10-28 captures, at `e9af53d9`, 2026-10-28.** Apple M5
+Max, macOS 27.0, on AC. `FRAME_ARMS=async cargo bench -p baud-bench
 --bench frame_gpu -- <recording> 2 incremental`, one binary per arm from one
 source -- the base, `render-no-window-cache` (every window shaped) and
 `render-no-windows` (no window walk) -- plus a byte-identical copy of the
@@ -668,39 +703,46 @@ Convert in microseconds a frame, medians of four:
 
 | recording, face | base | A/A | every window a miss | no windows | windows a frame | misses a frame | a miss, us |
 |---|---|---|---|---|---|---|---|
-| btop, JetBrains Mono | 37.9 [37.4-39.6] | 38.7 | 193.0 | 30.1 | 59.7 | 0.4 | 2.6 |
-| cat-scroll, JetBrains Mono | 110.3 [109.3-113.3] | 110.8 | 233.1 | 23.2 | 60.6 | 17.8 | 2.9 |
-| git-log, JetBrains Mono | 190.6 [187.8-193.7] | 192.0 | 233.2 | 26.2 | 26.7 | 14.9 | 3.6 |
-| less-pager, JetBrains Mono | 171.3 [156.4-179.5] | 164.2 | 271.4 | 53.8 | 55.8 | 22.9 | 3.0 |
-| asciiquarium, JetBrains Mono | 332.3 [318.0-376.5] | 329.0 | 773.7 | 20.8 | 73.7 | 16.0 | 7.6 |
-| cat-scroll, FiraCode | 287.9 [278.5-293.2] | 284.5 | 350.1 | 24.0 | 54.3 | 37.4 | 3.7 |
-| git-log, FiraCode | 350.6 [347.6-354.9] | 355.6 | 432.7 | 26.9 | 48.6 | 36.7 | 6.9 |
+| btop, JetBrains Mono | 40.8 [38.8-41.5] | 40.2 | 53.0 | 38.3 | 9.2 | 0.5 | 1.4 |
+| cat-scroll, JetBrains Mono | 91.0 [90.5-92.2] | 90.2 | 170.2 | 26.1 | 60.6 | 17.8 | 1.8 |
+| git-log, JetBrains Mono | 162.6 [161.7-167.0] | 164.0 | 191.9 | 31.0 | 26.7 | 14.9 | 2.5 |
+| less-pager, JetBrains Mono | 134.2 [130.2-138.0] | 132.7 | 201.0 | 55.3 | 55.8 | 22.9 | 2.0 |
+| pipes, JetBrains Mono | 2119.6 [2110.2-2146.8] | 2139.6 | 6016.8 | 35.7 | 336.0 | 42.9 | 13.3 |
+| cat-scroll, FiraCode | 219.6 [218.6-220.2] | 219.6 | 274.0 | 27.7 | 54.3 | 37.4 | 3.2 |
+| git-log, FiraCode | 287.5 [287.1-287.9] | 287.6 | 350.4 | 32.2 | 48.6 | 36.7 | 5.3 |
 
 A miss is the extra convert of the every-miss arm over the base, divided by
 the windows it added to the misses; that arm still writes the cache, so a
-miss here is a shape plus a replace less the get the base pays. No change
-shipped: the frame's keep floor is one 120 Hz frame, the largest base
-convert in the table is 0.35 ms and the largest of any arm 0.77.
+miss here is a shape plus a replace less the get the base pays. The
+asciiquarium row of the 2026-09-18 table went with its recording and cannot
+be re-taken; pipes stands in its place, an SGR every 9 bytes, and its
+convert is almost all the window walk: 336 windows a frame,
+2.12 ms against 0.04 with no windows. No change: the frame's keep floor is
+one 120 Hz frame, 8.33 ms, the largest base convert in the table is 2.12 ms
+and the largest of any arm 6.02.
 
 ## The glyph map's first-frame misses (row 8, measured, no change)
 
-Taken at `c4a52e8`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `FRAME_FACES=<the app's default CJK stack>
+**Re-taken on the 2026-10-28 captures, at `e9af53d9`, 2026-10-28.** Apple M5
+Max, macOS 27.0, on AC. `FRAME_FACES=<the app's default CJK stack: Menlo,
+Apple Color Emoji, Apple Symbols, Hiragino Sans GB, Apple SD Gothic Neo>
 FRAME_FIRST=<n> FRAME_ARMS=async cargo bench -p baud-bench --bench frame_gpu
 -- <recording> 3 incremental`, 200x50 at 14 px; the first n frames of a
-replay reported apart from the rest, three rounds, the spread across rounds
-under 5 % on every row. Convert in microseconds a frame, and map misses:
+replay reported apart from the rest, three rounds a launch with the first
+discarded, three launches, the spans across the six settled rounds. Convert
+in microseconds a frame, and map misses:
 
 | recording | n | first n: convert, misses a frame | the rest: convert, misses a frame |
 |---|---|---|---|
-| cat-cjk | 1 | 2869-3087, 663 | 157-163, 32 |
-| cat-cjk | 3 | 1924-2048, 454 | 126-127, 24 |
-| cat-cjk | 10 | 1135-1188, 255 | 65-68, 9.2 |
-| cat-cjk | 30 | 481-486, 106 | 25.0-25.5, 0.18 |
-| less-cjk | 10 | 884-970, 201 | 44-48, 6.0 |
-| vim-unicode | 10 | 50-56, 9.7 | 16.5-17.1, 0 |
-| btop | 10 | 32-40, 10.4 | 20.5-20.8, 0.19 |
+| cat-cjk | 1 | 2874-3063, 663 | 125-129, 32 |
+| cat-cjk | 3 | 1621-1714, 454 | 103-111, 24 |
+| cat-cjk | 10 | 841-889, 255 | 61.5-62.7, 9.2 |
+| cat-cjk | 30 | 371-393, 106 | 32.3-34.3, 0.18 |
+| less-cjk | 10 | 687-717, 201 | 45.3-48.1, 6.0 |
+| vim-unicode | 10 | 112-114, 9.2 | 23.0-23.6, 0 |
+| btop | 10 | 46-50, 8.0 | 27.5-29.7, 0.11 |
 
-A miss is about 4.3 us (the first frame's convert less the walk, over its
+A miss is 4.1-4.4 us (the first frame's convert less the walk, over its
 misses). No change shipped: the first frame is 3 ms against a frame floor of
 8, and warming the map at load moves the same shaping and rasterising to
 launch rather than removing it.
@@ -780,56 +822,45 @@ observed -3.0 ms exceeds note Q's expected -2.5.
 
 ## A drag step's core work (row 10, measured, no change)
 
-Taken at `952c9ca`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `cargo bench -p baud-bench --bench winch
--- ../tests/resize/<fixture> cost 20`: each fixture's recorded steps -- a
-size and the bytes that arrived at it -- replayed through the core twenty
-times, the first round discarded, the resize and the feed timed apart and
-the median taken. A **fresh storage per round**, because `Term::new`
-resets the cursor and not the grid, so a round on a reused one starts on
-the last round's screen and writes up to 21% more cells (`short` 15,219
-against 12,612); the parser-cell column is one value across all nineteen
-settled rounds on every fixture, which is the check. Three runs of each fixture, the spans across those runs. No window
-and no GPU.
+**Re-taken on the 2026-10-28 gestures, at `e9af53d9`, on AC.** `cargo bench -p
+baud-bench --bench winch -- ../tests/resize/<fixture> cost 20`: each fixture's
+recorded steps -- a size and the bytes that arrived at it -- replayed through
+the core twenty times, the first round discarded, the resize and the feed timed
+apart and the median taken. A **fresh storage per round**, because `Term::new`
+resets the cursor and not the grid, so a round on a reused one starts on the
+last round's screen. The parser-cell column is one value across all nineteen
+settled rounds on every fixture, which is the check. Three runs of each
+fixture, the seven in turn on an otherwise idle box, after one pass over all
+seven discarded, the spans across those runs. No window and no GPU.
 
 | gesture | steps | bytes | width changes | a step: resize + feed | gesture | parser cells | lines held |
 |---|---|---|---|---|---|---|---|
-| live-drag | 767 | 99,018 | 438 | 0.01-0.02 + 0.17-0.19 us | 0.14-0.16 ms | 115,010 | 0 |
-| drag | 331 | 140,050 | 156 | 0.02 + 0.45-0.47 us | 0.16 ms | 164,605 | 0 |
-| fresh-drag | 331 | 132,732 | 156 | 0.02 + 0.35-0.39 us | 0.12-0.13 ms | 196,746 | 0 |
-| zoom | 26 | 13,603 | 23 | 0.01-0.02 + 0.53-0.54 us | 0.01 ms | 13,584 | 15 |
-| fresh-zoom | 26 | 8,148 | 23 | 0.02 + 0.32-0.35 us | 0.01 ms | 10,399 | 0 |
-| fresh-burst | 43 | 9,495 | 30 | 0.01-0.02 + 0.28-0.30 us | 0.01 ms | 10,682 | 0 |
-| short | 26 | 13,116 | 23 | 0.01-0.02 + 0.53-0.55 us | 0.01 ms | 12,612 | 19 |
+| live-drag | 519 | 231,204 | 438 | 3.99-4.09 + 0.63-0.64 us | 2.40-2.46 ms | 284,744 | 0 |
+| drag | 331 | 159,824 | 156 | 2.05-2.07 + 0.51-0.51 us | 0.85-0.85 ms | 206,026 | 0 |
+| fresh-drag | 331 | 156,248 | 156 | 1.56-1.61 + 0.56-0.57 us | 0.70-0.72 ms | 196,867 | 0 |
+| zoom | 26 | 13,280 | 23 | 9.45-9.66 + 0.53-0.54 us | 0.26-0.27 ms | 14,828 | 24 |
+| fresh-zoom | 26 | 9,704 | 23 | 9.24-9.53 + 0.51-0.52 us | 0.25-0.26 ms | 10,499 | 0 |
+| fresh-burst | 43 | 15,463 | 30 | 4.69-4.78 + 0.52-0.53 us | 0.22-0.23 ms | 16,023 | 0 |
+| short | 26 | 12,730 | 23 | 8.13-9.22 + 0.54-0.54 us | 0.23-0.25 ms | 13,698 | 29 |
 
-**The resize column is the clock, not the resize.** A null arm -- an
-empty timed region per step -- reads the same 0.01-0.02 us a step beside
-it, so what the column says is that a width change at a prompt costs less
-than a clock pair, not that it costs 20 ns.
+**The resize column is the core's work now, not the clock.** A null arm -- an
+empty timed region per step -- reads 0.00-0.01 us beside it. The table this
+replaces, taken at `952c9ca` on 2026-09-18 on the gestures since re-recorded,
+read 0.01-0.02 us a resize; the passes past a narrower edge (9d9de16) added a
+measure at every narrowing, and those two tables differ in both the code and
+the recordings, so no ratio between them is a result.
 
 The control, in the same run, looped the way the gesture is and on the
-screen the gesture left: one width change costs **0 [0-42] ns** in
+screen the gesture left: one width change costs **2.25-2.75 us** in
 `Zone::Prompt`, where the core leaves the shell's rows for the shell to
-redraw, and **1.5-7.0 us** in `Zone::Output`, where it re-cuts -- the
-span of the seven fixtures' medians, each a median of 19 settled rounds. **0 of
-every fixture's width changes are in `Zone::Output`**, counted at the
-call, which is why the resize column is at the floor.
+redraw, and **4.6-13.9 us** in `Zone::Output`, where it re-cuts -- the
+span of the seven fixtures' medians over the three runs, each a median of 19
+settled rounds. **0 of every fixture's width changes are in
+`Zone::Output`**, counted at the call.
 
-No change shipped. A step averages 0.19-0.56 us against a frame's 8.33 ms,
-four orders under it, and the whole of live-drag is under 2% of one frame. In
-`Zone::Output`, which no fixture reaches and which no coalescing of
-redraws would reach either -- a re-cut follows the resize, not the redraw
--- the control puts a width change at 1.5-7.0 us, three orders under a
-frame. Frames are per resize step and per display period, not per redraw.
-
-**Not re-taken since, and its resize column is not current.** The passes
-past a narrower edge (9d9de16) added a measure at every narrowing that read
-every row of the ring, most of a gesture's resize time ("The resize measure
-is most of a resize at a prompt" in the record), and "The resize measure
-reads only what the flags leave open" cut a gesture's resize time, against
-the commit before it, to a third or less on six fixtures, about a third on
-fresh-zoom, and a quarter or less on live-drag, drag, fresh-drag and
-fresh-burst, on a 400 by 150 storage at `cost 11`; this table's method was
-not run again.
+No change follows. A step is 2.1-10.2 us against a frame's 8.33 ms, three
+orders under it, and the whole of live-drag is under a third of one frame.
+Frames are per resize step and per display period, not per redraw.
 
 ## Idle CPU (row 11, measured, no change)
 
@@ -905,24 +936,29 @@ removes.
 
 ## Smooth scroll's per-frame cost (measured, under the floor)
 
-Taken at `6dd3244`, 2026-09-21, before the rendition table was sized to the
-screen (`20fccf6`) and before its resolve became a cache (`fe776c9`), so both
-columns carry a resolve of the whole table, then a fixed 1,024 slots (`NSTYLE`;
-3.1 us in the record's scratch timing, on battery, against 190 us at 65,536), a
-frame that HEAD's frame does not; the delta is a difference inside one sweep.
-Apple M5 Max, macOS 27.0, on AC. `frame_gpu`'s new `slide` arm is the `async`
+**Re-taken, the 2026-10-28 btop capture among them, at `e9af53d9`,
+2026-10-28.** The table this replaces was taken at `6dd3244` on 2026-09-21,
+on the btop of the time and before the rendition table was sized to the
+screen (`20fccf6`) and its resolve became a cache (`fe776c9`), so both its
+columns carried a resolve of the whole table that this one's do not; no
+ratio between the two is a result.
+Apple M5 Max, macOS 27.0, on AC. `frame_gpu`'s `slide` arm is the `async`
 cell frame plus the extra `map.ensure` the app's `present` slide branch does --
 it walks the map over the view one line up (the leaving row's glyphs) as well as
 over the screen, where a steady frame walks only the screen. So `slide - async`
 is the per-frame CPU cost a slide adds; `FRAME_ARMS=async,slide`, four rounds
-interleaved, first discarded, JetBrains Mono at 14 px, 200x50, convert in us a
-frame:
+interleaved, first discarded, three launches, JetBrains Mono at 14 px, 200x50,
+convert in us a frame, the spans across the nine settled rounds; the delta is
+each round's `slide` less the same round's `async`:
 
 | recording | `async` (steady) | `slide` | delta | map misses |
 |---|---|---|---|---|
-| btop | 33.4-35.0 | 48.8-49.9 | **+14-15** | 126 both |
-| cat-scroll | 109.7-110.8 | 118.3-121.0 | **+8-10** | 101 both |
-| cat-cjk | 106.4-108.6 | 114.3-115.2 | **+7-9** | 3197 both |
+| btop | 38.5-40.6 | 40.6-42.3 | **+1.3-2.5** | 91 both |
+| cat-scroll | 88.7-90.6 | 92.4-94.7 | **+2.7-5.0** | 101 both |
+| cat-cjk | 65.7-68.4 | 67.8-69.8 | **+1.4-3.1** | 3197 both |
+
+On btop the two spans touch at 40.6; the delta is paired, and in each of the
+nine settled rounds `slide` reads above that round's `async`.
 
 **The delta is a redundant walk, and the misses say so: identical on both
 arms.** The extra ensure rasterises nothing new -- the leaving row's glyphs
@@ -932,9 +968,10 @@ row would recover nearly all of it.
 
 **And it is far under the frame floor, so it is not a cost problem.** A
 slide is at most seven cell-path frames over `SLIDE_SECS_PER_ROW = 60 ms`
-(the cap holds it to one row), so a discrete scroll costs about
-`7 x 10 us = 70 us` of extra convert spread over 60 ms -- **~0.1% of one
-120 Hz frame**, against a keep rule of the larger of 5% (417 us) and one
+(the cap holds it to one row), so a discrete scroll costs at most
+`7 x 5 us = 35 us` of extra convert spread over 60 ms -- at most 5 us in any
+one frame, **0.06% of a 120 Hz frame**, against a keep rule of the larger of
+5% (417 us) and one
 frame (8333 us). This is note N's rows 7 and 8 again: a real redundancy
 with no floor to spend the fix against. The leaving-row copy (one row) and
 the `(rows+1)/rows` extra instances the GPU draws are bounded-negligible by

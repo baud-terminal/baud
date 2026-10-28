@@ -3143,10 +3143,11 @@ fn fast_csi(
     //
     // The walk was a read-modify-write of `Option<Param>` per digit: a 4-byte
     // load, a match on the `Option`, the multiply-add, a 4-byte store -- and
-    // `btop.raw`'s sequences are eleven bytes of which about nine are digits.
-    // Priced by stubbing it, the walk read 32% of btop -- an upper bound, and
-    // the stub also removes the truecolor `SGR` chain; two instruments bracket
-    // it at **19.5-33.5%**, see `CLAUDE.md`. A parameter only
+    // the btop capture of 2026-08-27 sent sequences of eleven bytes, about
+    // nine of them digits (the capture of 2026-10-28: 11.2 bytes, 6.1 digits).
+    // Priced by stubbing it on that capture, the walk read 32% of btop -- an
+    // upper bound, and the stub also removes the truecolor `SGR` chain; two
+    // instruments bracket it at **19.5-33.5%**, see `CLAUDE.md`. A parameter only
     // has to reach the array when it *ends*, at a separator or at the final
     // byte, so the digits fold in a register and the array is touched once a
     // parameter instead of once a digit. `baud-core2` always did this.
@@ -3154,17 +3155,18 @@ fn fast_csi(
     // **One loop, and splitting it into phases lost.** The marker can only be
     // at position zero and `seen_inter` only ever goes from false to true, so
     // hoisting both out looked like removing two branches a byte from a walk
-    // that is 32% of `btop.raw`. It measures **-5% on asciiquarium and -7% on
-    // git-log**: the branches are perfectly predictable, and the loop setup a
-    // second phase needs costs more than they do.
+    // that was 32% of that btop capture. It measured **-5% on asciiquarium
+    // and -7% on git-log**: the branches are perfectly predictable, and the
+    // loop setup a second phase needs costs more than they do.
     //
     // A three-byte lookup table was tried here too and is **-14% on btop**.
     // This loop is short and local, so a table removes arithmetic rather than
     // iterations, which is not where a table wins.
     // **The honest price of the walk, and the reason it needed a second
     // instrument.** `probe-no-csi-params` feeds the walk an empty slice, so
-    // nothing is stored and `ESC[38;2;204;204;204m` -- **47% of btop's
-    // sequences** -- never parses a colour, never folds a `StyleWord` and never
+    // nothing is stored and a truecolour `38;2` SGR -- **43% of the
+    // 2026-08-27 btop capture's sequences** and 46% of the 2026-10-28
+    // one's -- never parses a colour, never folds a `StyleWord` and never
     // interns one. That arm removes the walk *and* the whole truecolor SGR
     // chain, and `cells_written` cannot see it because the same glyphs land in
     // the same cells with a different `StyleId`. Its 33% is an upper bound.

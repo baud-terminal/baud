@@ -267,7 +267,7 @@ for it before the live trace arrived:
   them, then two of the shell's redraws landing together. The first
   was computed for the width the shell had at the first `SIGWINCH` --
   its prompt lines padded to 70 columns -- so on the 55-column screen
-  they wrap, the block grows by two rows, and the second redraw's
+  they wrap, the block grows, and the second redraw's
   `CUU 4` lands below where the first began; its `ED` misses the top.
   Each redraw honours the contract for the width it was computed at;
   the *stream* is stale relative to the size. At the second `P` the
@@ -343,6 +343,17 @@ the question a retreat asks -- may this row leave the screen.
 `no_more_than_two_blank_rows_come_between_consecutive_prompts` is the
 symptom's own test, width-independent so a drag that returns to none
 of its sizes is still checked.
+
+The fixtures named here were captured again on 2026-10-28 in a container
+with a neutral prompt of the same shape (`tests/resize/README.md`), and
+the trace is not in the tree: `tests/resize/live-drag` now replays its
+512 size changes through `capture-resize.py`, 519 steps. The trace and
+the replay both pass the tests above; whether the replay
+reaches the 21x3 refusal is not shown, since asking the mark instead of
+the cells within the live width leaves both the trace and the replay
+green at today's tree. `zoom` and `short` take their first narrowing as
+a burst, so the burst above is their step 3 on the new captures too;
+the old ones reached it only because the shell was slow to answer.
 
 `a_block_never_moves_once_it_is_drawn`,
 `no_more_than_two_blank_rows_come_between_consecutive_prompts`,
