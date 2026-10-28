@@ -8854,19 +8854,22 @@ group  = "P"
 
 [sources.xcode-27-metal-toolchain-component]
 key    = "xcode-27-metal-toolchain-component"
-title  = "Xcode 27.0 (27A266a) on this box: 'xcodebuild -downloadComponent NAME ... Supported component: MetalToolchain.'; the metal stub 'cannot execute tool metal due to missing Metal Toolchain; use: xcodebuild -downloadComponent MetalToolchain'; -showComponent MetalToolchain says uninstalled; the system shader cache directory listing (captured text)"
+title  = "Xcode 27.0 (27A266a) on this box: 'xcodebuild -downloadComponent NAME ... Supported component: MetalToolchain.'; the metal stub 'cannot execute tool metal due to missing Metal Toolchain; use: xcodebuild -downloadComponent MetalToolchain'; -showComponent MetalToolchain; the system shader cache directory listing (captured text)"
 author = "captured on this box"
 year   = 2026
-venue  = "local capture, Xcode 27.0 build 27A266a, macOS 27"
-url    = "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild and .../Toolchains/XcodeDefault.xctoolchain/usr/bin/metal, 27A266a, output captured 2026-09-18"
-file   = ""
-sha256 = "d16ec942f58b4646aa335bde73e7ad3fa436b1a9c448f1b126bdf1fd07b9ebc7"
-bytes  = 3788
-status = "external"
+venue  = "local capture, Xcode 27.0 build 27A266a, macOS 27.0 (26A5425a)"
+url    = "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild and .../Toolchains/XcodeDefault.xctoolchain/usr/bin/metal, 27A266a, output captured 2026-10-28"
+file   = "xcode-27-metal-toolchain-component.txt"
+sha256 = "4b40d3293b3f0833c093c668c23288a5da9224b9d1305804352c6875bddbc33d"
+bytes  = 14264
+status = "retrieved"
 group  = "P"
-# Not in the repository until it is captured again: the copy read,
-# xcode-27-metal-toolchain-component.txt, carried details of the machine it
-# was taken on. The digest is of that copy.
+# Taken again 2026-10-28. In the copy first read, from 2026-09-18,
+# -showComponent said uninstalled; on the re-take it says installed, and the
+# stub, run directly or through xcrun, still prints the missing-toolchain
+# error. The listings cut the cache directory's path and omit owner and group.
+# The copy first read had sha256
+# d16ec942f58b4646aa335bde73e7ad3fa436b1a9c448f1b126bdf1fd07b9ebc7.
 # Facts about this machine on that date. The cache listing shows $(getconf
 # DARWIN_USER_CACHE_DIR)/com.apple.metal/<id>/functions*.data|list and
 # libraries*.data|list, opaque binary; which id is which app is not derivable
@@ -14907,15 +14910,16 @@ title  = "CoreText runs with JetBrains Mono as the base: fonts, glyphs, position
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "probe source in supp-coretext-probe.swift, JetBrains Mono registered for the process only"
-file   = ""
-sha256 = "633dddadb096aba7ca289b20558a988037a21c6fee6d9f088d51f7a0eb5b3609"
-bytes  = 1600
-status = "external"
+url    = "supp-coretext-probe.swift JetBrainsMono-Regular 12 over the five cases its headers name, run from the repository root with REGISTER_FONT=baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf (registered for the process only)"
+file   = "ad-observed/supp-coretext-jbm-runs.txt"
+sha256 = "266e729f0c4c3428f9d1ca8a95e5c5c2c5d2a890c0ef4b3a0c41921607813aba"
+bytes  = 1576
+status = "retrieved"
 group  = "J"
-# Not in the repository until it is captured again: the copy read,
-# ad-observed/supp-coretext-jbm-runs.txt, carried details of the machine it
-# was taken on. The digest is of that copy.
+# Taken again 2026-10-28 on macOS 27.0 (26A5425a) by the committed probe. It
+# differs from the copy first read only in the register line, which now names
+# the font by its path from the repository root. The copy first read had
+# sha256 633dddadb096aba7ca289b20558a988037a21c6fee6d9f088d51f7a0eb5b3609.
 # Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
 # (26A5425a); not fetched -- the url says how it was made. Committed because the
 # scratch directory it came from does not survive a reboot, and a claim rests on it.
@@ -19596,19 +19600,22 @@ group  = "AK"
 
 [sources.ak-obs-observations]
 key    = "ak-obs-observations"
-title  = "Command output for note AK: sw_vers, CPU, pmset, Terminal.app title keys (strings), Basic.terminal, the terminal-wg tree and HEAD, the 401 on issue 20 notes, macos-liquid-glass 1.0.0-beta.5 window.rs against glassnote 5fa641f"
+title  = "Command output for note AK: sw_vers, CPU, pmset, Terminal.app title keys (strings), Basic.terminal, the terminal-wg tree and HEAD, the 401 on issue 20 notes, macos-liquid-glass 1.0.0-beta.5 and 1.0.0-beta.6 window.rs against glassnote 5fa641f"
 author = "baud research (note AK)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "shell commands, their output saved verbatim"
-file   = ""
-sha256 = "006673e8a00551346a28811f17052cd3951662b54312187e32a9ed2f8fb80614"
-bytes  = 1734
-status = "external"
+url    = "shell commands, each printed before its output"
+file   = "ak-observed/observations.txt"
+sha256 = "daf5f87ab60fe71554dd500b3d97bf2d2766b8a1e1e5fe0103eeb3e1e2a0bd01"
+bytes  = 2314
+status = "retrieved"
 group  = "AK"
-# Not in the repository until it is captured again: the copy read,
-# ak-observed/observations.txt, carried details of the machine it was taken
-# on. The digest is of that copy.
+# Taken again 2026-10-28 by a script that prints each command as run before
+# its output; the copy first read, from 2026-10-09, gave some commands
+# abbreviated. The pmset reading is the re-take's own. The beta.6 comparison
+# is new: Cargo.lock names that version now. Every other output equals the
+# first copy's. The copy first read had sha256
+# 006673e8a00551346a28811f17052cd3951662b54312187e32a9ed2f8fb80614.
 
 [sources.kitty-6d5d0c4-zsh-integration]
 key    = "kitty-6d5d0c4-zsh-integration"
@@ -22796,17 +22803,21 @@ author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
 url    = "written by the O1 prototype"
-file   = ""
-sha256 = "72268cff9c0ea5b4034f06fd165b3278179b1a074f2e75e27c32ccfd41070785"
-bytes  = 8496
-status = "external"
+file   = "al-observed/o1-analyze.py"
+sha256 = "b4cf0c92a787c13b2b79265425681fe6e1d24fdebb701e784e882bce2cec132d"
+bytes  = 8668
+status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
-# Not in the repository until it is captured again: the copy read,
-# al-observed/o1-analyze.py, carried details of the machine it was taken on.
-# The digest is of that copy.
+# Replaced 2026-10-28: the copy first read named the prototype's directory by
+# an absolute path on the machine it ran on; this one takes it as a second
+# argument, proto-O1 under the working directory by default. Nothing else
+# changed. Run over the prototype's runs and flash-census.tsv it prints
+# o1-analyze-out.txt byte for byte and writes a results.tsv equal to
+# o1-census.tsv. The copy first read had sha256
+# 72268cff9c0ea5b4034f06fd165b3278179b1a074f2e75e27c32ccfd41070785.
 
 [sources.al-obs-o1-analyze]
 key    = "al-obs-o1-analyze"
@@ -22847,17 +22858,19 @@ author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
 url    = "written by the O2 prototype"
-file   = ""
-sha256 = "246655bd7c6bf752541350d630c13c0131bbf76a9f85f0178100702a32e5f1a6"
-bytes  = 2706
-status = "external"
+file   = "al-observed/o2-astar.py"
+sha256 = "57ce45d9fef0f1a695ceb63e9348d0fcc3209628bb4f78efbf422c600d737aba"
+bytes  = 2740
+status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
-# Not in the repository until it is captured again: the copy read,
-# al-observed/o2-astar.py, carried details of the machine it was taken on. The
-# digest is of that copy.
+# Replaced 2026-10-28: the copy first read imported thresholds.py from an
+# absolute path on the machine it ran on; this one imports the committed
+# thresholds.py beside it, which equals the file it imported. Nothing else
+# changed, and the two print the same 16 lines. The copy first read had sha256
+# 246655bd7c6bf752541350d630c13c0131bbf76a9f85f0178100702a32e5f1a6.
 
 [sources.al-obs-o2-summary]
 key    = "al-obs-o2-summary"
@@ -22897,18 +22910,20 @@ title  = "Prototype O3's analysis output: the census gate, hash controls, base a
 author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "python3 o3-analyse.py"
-file   = ""
-sha256 = "0d2a34080fdf45dfc77b8eb516d8a00146db903e59ac8092e0c62a379be8d487"
-bytes  = 17706
-status = "external"
+url    = "python3 -I o3-analyse.py runs census.tsv out56.tsv out: the O3 prototype's runs directory (not in the repository), aj-observed/flash-census.tsv and replica-out56.tsv"
+file   = "al-observed/o3-analysis.txt"
+sha256 = "405e44f90f4eb2d204282e86d98796407f6a1209c3e658d0d95e37e25e56f160"
+bytes  = 17594
+status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
-# Not in the repository until it is captured again: the copy read,
-# al-observed/o3-analysis.txt, carried details of the machine it was taken on.
-# The digest is of that copy.
+# Taken again 2026-10-28 on macOS 27.0 (26A5425a) by the committed
+# o3-analyse.py, with relative arguments. It differs from the copy first read
+# only on lines 146-147, the paths of the two tables it writes; the
+# results.tsv it writes equals o3-census.tsv. The copy first read had sha256
+# 0d2a34080fdf45dfc77b8eb516d8a00146db903e59ac8092e0c62a379be8d487.
 
 [sources.al-obs-o4-analyze-tool]
 key    = "al-obs-o4-analyze-tool"
@@ -22997,17 +23012,20 @@ author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
 url    = "written for the flash-fix analysis"
-file   = ""
-sha256 = "179007879518d62bea3897d2c540ca671a389b061d98c8b2174a83387b20acea"
-bytes  = 13569
-status = "external"
+file   = "al-observed/census.py"
+sha256 = "50aab872340b66eec9c47ffb69abfbb5cbf73058ed4c40051ee2d1e250f3dfe6"
+bytes  = 13605
+status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
-# Not in the repository until it is captured again: the copy read,
-# al-observed/census.py, carried details of the machine it was taken on. The
-# digest is of that copy.
+# Replaced 2026-10-28: the copy first read named its default input by an
+# absolute path on the machine it ran on; this one names it from the
+# repository root, where it is run. Nothing else changed. Its output,
+# census-out.txt, re-taken from it, differs from the first only in that path.
+# The copy first read had sha256
+# 179007879518d62bea3897d2c540ca671a389b061d98c8b2174a83387b20acea.
 
 [sources.al-obs-census-out]
 key    = "al-obs-census-out"
@@ -23015,18 +23033,19 @@ title  = "census.py's output"
 author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "python3 census.py"
-file   = ""
-sha256 = "3e539d15a4d569aa598832cb828f1cdb07bc021fa8aca55b0e5b5819b1f9e48b"
-bytes  = 19237
-status = "external"
+url    = "python3 docs/research/sources/al-observed/census.py, from the repository root"
+file   = "al-observed/census-out.txt"
+sha256 = "6098621bc955e6be35565502962944875c452ec1238a0c46b5887fd819553e16"
+bytes  = 19213
+status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
-# Not in the repository until it is captured again: the copy read,
-# al-observed/census-out.txt, carried details of the machine it was taken on.
-# The digest is of that copy.
+# Taken again 2026-10-28 on macOS 27.0 (26A5425a) from the replaced census.py,
+# over the unchanged flash-census.tsv. It differs from the copy first read
+# only on line 1, the input's path. The copy first read had sha256
+# 3e539d15a4d569aa598832cb828f1cdb07bc021fa8aca55b0e5b5819b1f9e48b.
 
 [sources.al-obs-thresholds-tool]
 key    = "al-obs-thresholds-tool"
@@ -23067,17 +23086,19 @@ author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
 url    = "written for the flash-fix analysis"
-file   = ""
-sha256 = "d1dac1c121959d7499560073dcd9be1a88f65fad8f683564ed2284b0936b47fa"
-bytes  = 412
-status = "external"
+file   = "al-observed/replica-Cargo.toml"
+sha256 = "2d4339cf3d123cc910030c622b7362cbd480555a8562360c7497bd321338e38f"
+bytes  = 544
+status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
-# Not in the repository until it is captured again: the copy read,
-# al-observed/replica-Cargo.toml, carried details of the machine it was taken
-# on. The digest is of that copy.
+# Replaced 2026-10-28: the copy first read named baud's crates by absolute
+# paths on the machine it ran on; this one names them relative to a crate
+# directory directly under the repository root, as its header says. Not built
+# against this tree. The copy first read had sha256
+# d1dac1c121959d7499560073dcd9be1a88f65fad8f683564ed2284b0936b47fa.
 
 [sources.al-obs-replica-main]
 key    = "al-obs-replica-main"
@@ -23086,17 +23107,19 @@ author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
 url    = "written for the flash-fix analysis"
-file   = ""
-sha256 = "d1d4293817d30889b19f9e87c94d755278161e641f2e121b3726373cb476b0e0"
-bytes  = 13890
-status = "external"
+file   = "al-observed/replica-main.rs"
+sha256 = "c60ec6c88c1df0f5efd7c2495c2ba26930b61f31c4622586a2e39ac2f67b9961"
+bytes  = 13905
+status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
-# Not in the repository until it is captured again: the copy read,
-# al-observed/replica-main.rs, carried details of the machine it was taken on.
-# The digest is of that copy.
+# Replaced 2026-10-28: the copy first read named trail.rs, flash.rs and the
+# face by absolute paths on the machine it ran on; this one names them
+# relative to the crate replica-Cargo.toml describes. Nothing else changed.
+# Not built against this tree. The copy first read had sha256
+# d1d4293817d30889b19f9e87c94d755278161e641f2e121b3726373cb476b0e0.
 
 [sources.al-obs-replica-refs]
 key    = "al-obs-replica-refs"
@@ -23137,17 +23160,18 @@ author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
 url    = "written for the flash-fix analysis"
-file   = ""
-sha256 = "5d957263f16508e8ead5d0f8d68906143af0c2aaaa13811e709d0b87eae7a273"
-bytes  = 1132
-status = "external"
+file   = "al-observed/replica-gate.py"
+sha256 = "b2089ef819352cb3195617c5f7415c8905d57b155fdb59e66d7f1aab5b9a50f5"
+bytes  = 1140
+status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
-# Not in the repository until it is captured again: the copy read,
-# al-observed/replica-gate.py, carried details of the machine it was taken on.
-# The digest is of that copy.
+# Replaced 2026-10-28: the copy first read named flash-census.tsv by an
+# absolute path on the machine it ran on; this one names it from the
+# repository root, where it is run. Nothing else changed. The copy first read
+# had sha256 5d957263f16508e8ead5d0f8d68906143af0c2aaaa13811e709d0b87eae7a273.
 
 [sources.al-obs-replica-tab-tool]
 key    = "al-obs-replica-tab-tool"
@@ -23172,17 +23196,20 @@ author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
 url    = "written for the flash-fix analysis"
-file   = ""
-sha256 = "2ec9ee7b70283d9e8677dd22ad68210432004f1eb7d9f03cfc49dba737ee6b0e"
-bytes  = 3415
-status = "external"
+file   = "al-observed/replica-matrix.py"
+sha256 = "aeca9f1b89b0ff5aa20afd774f962c9063eeb5f4951587994e8333e3e7f44267"
+bytes  = 3421
+status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
-# Not in the repository until it is captured again: the copy read,
-# al-observed/replica-matrix.py, carried details of the machine it was taken
-# on. The digest is of that copy.
+# Replaced 2026-10-28: the copy first read named flash-census.tsv by an
+# absolute path on the machine it ran on; this one names it from the
+# repository root, where it is run. Nothing else changed. Run over
+# replica-out56.tsv it prints replica-matrix-out.txt byte for byte. The copy
+# first read had sha256
+# 2ec9ee7b70283d9e8677dd22ad68210432004f1eb7d9f03cfc49dba737ee6b0e.
 
 [sources.al-obs-replica-matrix]
 key    = "al-obs-replica-matrix"

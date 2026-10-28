@@ -1,0 +1,27 @@
+register baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf true
+base font: JetBrainsMono-Regular
+== 1a [0071 0316] utf16=2
+    U+0071 base:yes fallback:JetBrainsMono-Regular
+    U+0316 base:no fallback:Menlo-Regular
+   run font=Menlo-Regular str=0+2: g84(q)@i0 x=0.00 y=0.00 adv=0.00; g667(uni0316)@i1 x=0.00 y=-2.62 adv=7.22
+== 1b [0071 1AB2] utf16=2
+    U+0071 base:yes fallback:JetBrainsMono-Regular
+    U+1AB2 base:no fallback:LastResort
+   run font=JetBrainsMono-Regular str=0+1: g319(q)@i0 x=0.00 y=0.00 adv=7.20
+   run font=LastResort str=1+1: g4(lastresorttemplate)@i1 x=0.00 y=0.00 adv=20.40
+== 1c [0071 0316 1AB2 0301] utf16=4
+    U+0071 base:yes fallback:JetBrainsMono-Regular
+    U+0316 base:no fallback:Menlo-Regular
+    U+1AB2 base:no fallback:LastResort
+    U+0301 base:yes fallback:JetBrainsMono-Regular
+   run font=Menlo-Regular str=0+2: g84(q)@i0 x=0.00 y=0.00 adv=0.00; g667(uni0316)@i1 x=0.00 y=-2.62 adv=7.22
+   run font=LastResort str=2+1: g4(lastresorttemplate)@i2 x=0.00 y=0.00 adv=20.43
+   run font=Menlo-Regular str=3+1: g646(acutecomb)@i3 x=13.20 y=0.00 adv=14.45
+== 1f [0071 05BC] utf16=2
+    U+0071 base:yes fallback:JetBrainsMono-Regular
+    U+05BC base:no fallback:CourierNewPSMT
+   run font=CourierNewPSMT str=0+2: g84(q)@i0 x=0.00 y=0.00 adv=7.20; g664(dagesh)@i1 x=7.20 y=0.00 adv=0.00
+== 1g [0071 0301] utf16=2
+    U+0071 base:yes fallback:JetBrainsMono-Regular
+    U+0301 base:yes fallback:JetBrainsMono-Regular
+   run font=JetBrainsMono-Regular str=0+2: g319(q)@i0 x=0.00 y=0.00 adv=7.32; g1643(acutecomb)@i1 x=7.32 y=0.00 adv=-0.12

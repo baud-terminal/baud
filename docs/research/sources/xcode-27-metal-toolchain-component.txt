@@ -1,0 +1,287 @@
+# Xcode on this box, taken again 2026-10-28: the Metal toolchain is a separately downloaded component.
+# Each command as run, then its output. The per-user cache directory is $D, D=$(getconf DARWIN_USER_CACHE_DIR),
+# and is cut from what the listings print.
+
+$ sw_vers -buildVersion
+26A5425a
+
+$ /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -version
+Xcode 27.0
+Build version 27A266a
+
+$ /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -help 2>&1 | grep -i -A3 "downloadComponent"
+       xcodebuild -downloadComponent <componenttype> [-exportPath <destinationpath> -buildVersion <assetversion>]
+       xcodebuild -importComponent <componenttype> -importPath <bundlepath>
+       xcodebuild -deleteComponent <componenttype>
+       xcodebuild -showComponent <componenttype> [-json]
+--
+    -downloadComponent NAME                                  downloads the specified component. Supported component: MetalToolchain.
+    -importComponent NAME                                    import the component NAME
+    -deleteComponent NAME                                    delete the component NAME
+    -showComponent NAME                                      show details for the specified component NAME
+
+$ /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -showComponent MetalToolchain -json 2>/dev/null
+{
+  "assetPath" : "\/System\/Library\/AssetsV2\/com_apple_MobileAsset_MetalToolchain\/389a215aea89fda945178f9fb8bcdc6aa0e20570.asset\/AssetData",
+  "buildVersion" : "27A266a",
+  "status" : "installed",
+  "toolchainIdentifier" : "com.apple.dt.toolchain.Metal.32023.921.5",
+  "toolchainSearchPath" : "\/private\/var\/run\/com.apple.security.cryptexd\/mnt\/com.apple.MobileAsset.MetalToolchain-v27.1.266.1.rw3aje"
+}
+$ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun -f metal 2>/dev/null
+/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/metal
+
+$ /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/metal --version; echo "exit=$?"
+error: error: cannot execute tool 'metal' due to missing Metal Toolchain; use: xcodebuild -downloadComponent MetalToolchain
+exit=1
+
+$ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun metal --version; echo "exit=$?"
+warning: unhandled Platform key FamilyPlatforms
+warning: unhandled Platform key FamilyDisplayName
+warning: unhandled Platform key FamilyDisplayName
+warning: unhandled Platform key FamilyPlatforms
+warning: unhandled Platform key FamilyDisplayName
+warning: unhandled Platform key FamilyPlatforms
+warning: unhandled Platform key FamilyDisplayName
+warning: unhandled Platform key FamilyPlatforms
+warning: unhandled Platform key FamilyDisplayName
+warning: unhandled Platform key FamilyPlatforms
+warning: unhandled Platform key FamilyDisplayName
+warning: unhandled Platform key FamilyDisplayName
+warning: unhandled Platform key FamilyPlatforms
+warning: unhandled Platform key FamilyDisplayName
+warning: unhandled Platform key FamilyPlatforms
+warning: unhandled Platform key FamilyDisplayName
+warning: unhandled Platform key FamilyPlatforms
+warning: unhandled Platform key FamilyDisplayName
+error: error: cannot execute tool 'metal' due to missing Metal Toolchain; use: xcodebuild -downloadComponent MetalToolchain
+exit=1
+
+$ ls -lgo /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ | grep " metal$"
+-rwxr-xr-x 1    107392 Aug 14 14:18 metal
+
+$ ls /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/metal
+ls: cannot access '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/metal': No such file or directory
+
+# The system Metal shader cache on this box (a per-user cache directory; its contents are opaque binary):
+$ D=$(getconf DARWIN_USER_CACHE_DIR); find "$D/com.apple.metal" -type f | sed "s|^$D||" | sort
+/com.apple.metal/16777235_355/functions.data
+/com.apple.metal/16777235_355/functions.list
+/com.apple.metal/16777235_355/functions1.data
+/com.apple.metal/16777235_355/functions1.list
+/com.apple.metal/16777235_355/functions10.data
+/com.apple.metal/16777235_355/functions10.list
+/com.apple.metal/16777235_355/functions11.data
+/com.apple.metal/16777235_355/functions11.list
+/com.apple.metal/16777235_355/functions12.data
+/com.apple.metal/16777235_355/functions12.list
+/com.apple.metal/16777235_355/functions13.data
+/com.apple.metal/16777235_355/functions13.list
+/com.apple.metal/16777235_355/functions14.data
+/com.apple.metal/16777235_355/functions14.list
+/com.apple.metal/16777235_355/functions15.data
+/com.apple.metal/16777235_355/functions15.list
+/com.apple.metal/16777235_355/functions16.data
+/com.apple.metal/16777235_355/functions16.list
+/com.apple.metal/16777235_355/functions17.data
+/com.apple.metal/16777235_355/functions17.list
+/com.apple.metal/16777235_355/functions18.data
+/com.apple.metal/16777235_355/functions18.list
+/com.apple.metal/16777235_355/functions19.data
+/com.apple.metal/16777235_355/functions19.list
+/com.apple.metal/16777235_355/functions2.data
+/com.apple.metal/16777235_355/functions2.list
+/com.apple.metal/16777235_355/functions20.data
+/com.apple.metal/16777235_355/functions20.list
+/com.apple.metal/16777235_355/functions21.data
+/com.apple.metal/16777235_355/functions21.list
+/com.apple.metal/16777235_355/functions22.data
+/com.apple.metal/16777235_355/functions22.list
+/com.apple.metal/16777235_355/functions23.data
+/com.apple.metal/16777235_355/functions23.list
+/com.apple.metal/16777235_355/functions24.data
+/com.apple.metal/16777235_355/functions24.list
+/com.apple.metal/16777235_355/functions25.data
+/com.apple.metal/16777235_355/functions25.list
+/com.apple.metal/16777235_355/functions26.data
+/com.apple.metal/16777235_355/functions26.list
+/com.apple.metal/16777235_355/functions27.data
+/com.apple.metal/16777235_355/functions27.list
+/com.apple.metal/16777235_355/functions28.data
+/com.apple.metal/16777235_355/functions28.list
+/com.apple.metal/16777235_355/functions29.data
+/com.apple.metal/16777235_355/functions29.list
+/com.apple.metal/16777235_355/functions3.data
+/com.apple.metal/16777235_355/functions3.list
+/com.apple.metal/16777235_355/functions30.data
+/com.apple.metal/16777235_355/functions30.list
+/com.apple.metal/16777235_355/functions31.data
+/com.apple.metal/16777235_355/functions31.list
+/com.apple.metal/16777235_355/functions32.data
+/com.apple.metal/16777235_355/functions32.list
+/com.apple.metal/16777235_355/functions33.data
+/com.apple.metal/16777235_355/functions33.list
+/com.apple.metal/16777235_355/functions34.data
+/com.apple.metal/16777235_355/functions34.list
+/com.apple.metal/16777235_355/functions35.data
+/com.apple.metal/16777235_355/functions35.list
+/com.apple.metal/16777235_355/functions36.data
+/com.apple.metal/16777235_355/functions36.list
+/com.apple.metal/16777235_355/functions37.data
+/com.apple.metal/16777235_355/functions37.list
+/com.apple.metal/16777235_355/functions38.data
+/com.apple.metal/16777235_355/functions38.list
+/com.apple.metal/16777235_355/functions39.data
+/com.apple.metal/16777235_355/functions39.list
+/com.apple.metal/16777235_355/functions4.data
+/com.apple.metal/16777235_355/functions4.list
+/com.apple.metal/16777235_355/functions40.data
+/com.apple.metal/16777235_355/functions40.list
+/com.apple.metal/16777235_355/functions41.data
+/com.apple.metal/16777235_355/functions41.list
+/com.apple.metal/16777235_355/functions42.data
+/com.apple.metal/16777235_355/functions42.list
+/com.apple.metal/16777235_355/functions43.data
+/com.apple.metal/16777235_355/functions43.list
+/com.apple.metal/16777235_355/functions44.data
+/com.apple.metal/16777235_355/functions44.list
+/com.apple.metal/16777235_355/functions45.data
+/com.apple.metal/16777235_355/functions45.list
+/com.apple.metal/16777235_355/functions46.data
+/com.apple.metal/16777235_355/functions46.list
+/com.apple.metal/16777235_355/functions47.data
+/com.apple.metal/16777235_355/functions47.list
+/com.apple.metal/16777235_355/functions48.data
+/com.apple.metal/16777235_355/functions48.list
+/com.apple.metal/16777235_355/functions49.data
+/com.apple.metal/16777235_355/functions49.list
+/com.apple.metal/16777235_355/functions5.data
+/com.apple.metal/16777235_355/functions5.list
+/com.apple.metal/16777235_355/functions50.data
+/com.apple.metal/16777235_355/functions50.list
+/com.apple.metal/16777235_355/functions6.data
+/com.apple.metal/16777235_355/functions6.list
+/com.apple.metal/16777235_355/functions7.data
+/com.apple.metal/16777235_355/functions7.list
+/com.apple.metal/16777235_355/functions8.data
+/com.apple.metal/16777235_355/functions8.list
+/com.apple.metal/16777235_355/functions9.data
+/com.apple.metal/16777235_355/functions9.list
+/com.apple.metal/32024/libraries.data
+/com.apple.metal/32024/libraries.list
+/com.apple.metal/32024/libraries1.data
+/com.apple.metal/32024/libraries1.list
+
+$ D=$(getconf DARWIN_USER_CACHE_DIR); ls -lgo "$D/com.apple.metal/"* | sed "s|^$D||"
+/com.apple.metal/16777235_355:
+total 13084
+-rw-r--r-- 1 229376 Oct 27 08:28 functions.data
+-rw-r--r-- 1   2900 Oct 28 12:43 functions.list
+-rw-r--r-- 1 212992 Oct 25 15:02 functions1.data
+-rw-r--r-- 1   2900 Oct 28 12:43 functions1.list
+-rw-r--r-- 1 638976 Oct 24 13:36 functions10.data
+-rw-r--r-- 1   8388 Oct 28 07:48 functions10.list
+-rw-r--r-- 1 524288 Oct 26 01:13 functions11.data
+-rw-r--r-- 1   7268 Oct 28 07:48 functions11.list
+-rw-r--r-- 1 507904 Oct 24 17:22 functions12.data
+-rw-r--r-- 1   7156 Oct 28 07:48 functions12.list
+-rw-r--r-- 1 507904 Oct 24 17:36 functions13.data
+-rw-r--r-- 1   7156 Oct 28 07:48 functions13.list
+-rw-r--r-- 1 458752 Oct 25 21:18 functions14.data
+-rw-r--r-- 1   6260 Oct 28 07:48 functions14.list
+-rw-r--r-- 1 491520 Oct 25 14:56 functions15.data
+-rw-r--r-- 1   6708 Oct 28 07:48 functions15.list
+-rw-r--r-- 1 425984 Oct 25 21:59 functions16.data
+-rw-r--r-- 1   5532 Oct 28 06:40 functions16.list
+-rw-r--r-- 1 376832 Oct 26 00:34 functions17.data
+-rw-r--r-- 1   4972 Oct 28 00:19 functions17.list
+-rw-r--r-- 1 294912 Oct 17 13:17 functions18.data
+-rw-r--r-- 1   4076 Oct 17 13:17 functions18.list
+-rw-r--r-- 1 294912 Oct 17 12:28 functions19.data
+-rw-r--r-- 1   4076 Oct 17 15:39 functions19.list
+-rw-r--r-- 1 229376 Oct 28 12:43 functions2.data
+-rw-r--r-- 1   2900 Oct 28 12:43 functions2.list
+-rw-r--r-- 1 294912 Oct 17 12:28 functions20.data
+-rw-r--r-- 1   4076 Oct 17 15:10 functions20.list
+-rw-r--r-- 1 294912 Oct 17 13:16 functions21.data
+-rw-r--r-- 1   4076 Oct 17 13:16 functions21.list
+-rw-r--r-- 1 360448 Oct 17 12:18 functions22.data
+-rw-r--r-- 1   4524 Oct 17 12:18 functions22.list
+-rw-r--r-- 1 163840 Oct  9 20:49 functions23.data
+-rw-r--r-- 1   2172 Oct  9 21:43 functions23.list
+-rw-r--r-- 1 163840 Oct  9 20:46 functions24.data
+-rw-r--r-- 1   2172 Oct  9 21:43 functions24.list
+-rw-r--r-- 1 163840 Oct  9 20:56 functions25.data
+-rw-r--r-- 1   2172 Oct  9 21:43 functions25.list
+-rw-r--r-- 1 163840 Oct  9 21:02 functions26.data
+-rw-r--r-- 1   2172 Oct  9 21:18 functions26.list
+-rw-r--r-- 1 163840 Oct  9 20:49 functions27.data
+-rw-r--r-- 1   2172 Oct  9 21:25 functions27.list
+-rw-r--r-- 1 147456 Oct  9 21:25 functions28.data
+-rw-r--r-- 1   2172 Oct  9 21:25 functions28.list
+-rw-r--r-- 1 147456 Oct  9 21:18 functions29.data
+-rw-r--r-- 1   2172 Oct  9 21:18 functions29.list
+-rw-r--r-- 1 229376 Oct 25 15:27 functions3.data
+-rw-r--r-- 1   2900 Oct 28 12:43 functions3.list
+-rw-r--r-- 1 147456 Oct  9 21:18 functions30.data
+-rw-r--r-- 1   2172 Oct  9 21:25 functions30.list
+-rw-r--r-- 1 147456 Oct  9 21:25 functions31.data
+-rw-r--r-- 1   2172 Oct  9 21:25 functions31.list
+-rw-r--r-- 1 180224 Oct  9 21:26 functions32.data
+-rw-r--r-- 1   2172 Oct  9 21:26 functions32.list
+-rw-r--r-- 1 180224 Oct  9 21:30 functions33.data
+-rw-r--r-- 1   2172 Oct  9 21:30 functions33.list
+-rw-r--r-- 1 147456 Oct  9 21:25 functions34.data
+-rw-r--r-- 1   2172 Oct  9 21:25 functions34.list
+-rw-r--r-- 1 180224 Oct  9 21:06 functions35.data
+-rw-r--r-- 1   2172 Oct  9 21:06 functions35.list
+-rw-r--r-- 1 180224 Oct  9 21:06 functions36.data
+-rw-r--r-- 1   2172 Oct  9 21:06 functions36.list
+-rw-r--r-- 1 180224 Oct  9 21:08 functions37.data
+-rw-r--r-- 1   2172 Oct  9 21:08 functions37.list
+-rw-r--r-- 1 131072 Oct  9 21:09 functions38.data
+-rw-r--r-- 1   1668 Oct  9 21:09 functions38.list
+-rw-r--r-- 1 114688 Oct  9 21:04 functions39.data
+-rw-r--r-- 1   1724 Oct  9 21:07 functions39.list
+-rw-r--r-- 1 212992 Oct 26 12:39 functions4.data
+-rw-r--r-- 1   2900 Oct 28 12:43 functions4.list
+-rw-r--r-- 1 114688 Oct  9 21:04 functions40.data
+-rw-r--r-- 1   1724 Oct  9 21:07 functions40.list
+-rw-r--r-- 1  65536 Oct  9 20:42 functions41.data
+-rw-r--r-- 1   1164 Oct  9 20:42 functions41.list
+-rw-r--r-- 1 114688 Oct  9 21:04 functions42.data
+-rw-r--r-- 1   1724 Oct  9 21:07 functions42.list
+-rw-r--r-- 1 114688 Oct  9 21:04 functions43.data
+-rw-r--r-- 1   1724 Oct  9 21:05 functions43.list
+-rw-r--r-- 1 196608 Oct  9 20:58 functions44.data
+-rw-r--r-- 1   2172 Oct  9 20:58 functions44.list
+-rw-r--r-- 1 131072 Oct  9 20:47 functions45.data
+-rw-r--r-- 1   1332 Oct  9 20:47 functions45.list
+-rw-r--r-- 1 131072 Oct  9 20:56 functions46.data
+-rw-r--r-- 1   1444 Oct  9 20:56 functions46.list
+-rw-r--r-- 1 131072 Oct  9 20:58 functions47.data
+-rw-r--r-- 1   1724 Oct  9 20:58 functions47.list
+-rw-r--r-- 1  65536 Oct  9 20:51 functions48.data
+-rw-r--r-- 1   1164 Oct  9 20:51 functions48.list
+-rw-r--r-- 1 131072 Oct  9 20:53 functions49.data
+-rw-r--r-- 1   1444 Oct  9 20:53 functions49.list
+-rw-r--r-- 1 720896 Oct 24 09:30 functions5.data
+-rw-r--r-- 1   8612 Oct 28 12:43 functions5.list
+-rw-r--r-- 1 131072 Oct  9 20:58 functions50.data
+-rw-r--r-- 1   1724 Oct  9 20:58 functions50.list
+-rw-r--r-- 1 245760 Oct 26 00:48 functions6.data
+-rw-r--r-- 1   2900 Oct 28 12:43 functions6.list
+-rw-r--r-- 1 704512 Oct 24 14:40 functions7.data
+-rw-r--r-- 1   8612 Oct 28 12:43 functions7.list
+-rw-r--r-- 1 212992 Oct 26 07:13 functions8.data
+-rw-r--r-- 1   2900 Oct 28 12:43 functions8.list
+-rw-r--r-- 1 622592 Oct 24 15:11 functions9.data
+-rw-r--r-- 1   8276 Oct 28 07:48 functions9.list
+
+/com.apple.metal/32024:
+total 155388
+-rw-r--r-- 1 146014208 Oct 28 10:12 libraries.data
+-rw-r--r-- 1     37452 Oct 28 12:43 libraries.list
+-rw-r--r-- 1  13058048 Oct 22 22:15 libraries1.data
+-rw-r--r-- 1      2004 Oct 22 22:15 libraries1.list
+

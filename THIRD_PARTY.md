@@ -23,8 +23,8 @@ and decides nothing.
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 309 | 36 | redistributable, and its notice is satisfied |
-| own | 189 | 6 | the owner's work |
-| total | 517 | 49 | |
+| own | 201 | 6 | the owner's work |
+| total | 529 | 49 | |
 
 ## Licence texts in LICENSES/
 
@@ -1667,7 +1667,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the owner's work
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 183
+- **Files:** 195
 
 | file | copied from |
 |---|---|
@@ -1698,6 +1698,7 @@ notice is, and the URL each file was copied from.
 | [ad-observed/review-v13-sheet-noto-c-28.png](docs/research/sources/ad-observed/review-v13-sheet-noto-c-28.png) | .claude/research/review-v13/starters/sheet-noto-c-28.png (untracked), copied unchanged |
 | [ad-observed/review-v13-sheet-noto-c-56.png](docs/research/sources/ad-observed/review-v13-sheet-noto-c-56.png) | .claude/research/review-v13/starters/sheet-noto-c-56.png (untracked), copied unchanged |
 | [ad-observed/supp-coretext-fira-runs.txt](docs/research/sources/ad-observed/supp-coretext-fira-runs.txt) | probe source in supp-coretext-probe.swift |
+| [ad-observed/supp-coretext-jbm-runs.txt](docs/research/sources/ad-observed/supp-coretext-jbm-runs.txt) | supp-coretext-probe.swift JetBrainsMono-Regular 12 over the five cases its headers name, run from the repository root with REGISTER_FONT=baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf (registered for the process only) |
 | [ad-observed/supp-coretext-probe.swift](docs/research/sources/ad-observed/supp-coretext-probe.swift) | the supplement's swift/probe2.swift, copied unchanged |
 | [ad-observed/supp-coretext-render.swift](docs/research/sources/ad-observed/supp-coretext-render.swift) | the supplement's swift/render.swift, copied unchanged |
 | [ad-observed/supp-mux-cases.txt](docs/research/sources/ad-observed/supp-mux-cases.txt) | the supplement's cases_mux.txt, copied unchanged |
@@ -1774,6 +1775,7 @@ notice is, and the URL each file was copied from.
 | [aj-observed/probe.sh](docs/research/sources/aj-observed/probe.sh) | the sweep agent's probe script, kept as run |
 | [ak-observed/lossy-out.txt](docs/research/sources/ak-observed/lossy-out.txt) | output of ak-obs-lossy-rs |
 | [ak-observed/lossy.rs](docs/research/sources/ak-observed/lossy.rs) | test source, compiled and run locally |
+| [ak-observed/observations.txt](docs/research/sources/ak-observed/observations.txt) | shell commands, each printed before its output |
 | [ak-observed/probe-run-path-sleep.txt](docs/research/sources/ak-observed/probe-run-path-sleep.txt) | output of ak-obs-probe-c with the job sleep 5 from PATH |
 | [ak-observed/probe-runs.txt](docs/research/sources/ak-observed/probe-runs.txt) | output of ak-obs-probe-c, three launches |
 | [ak-observed/probe.c](docs/research/sources/ak-observed/probe.c) | probe source, compiled and run locally |
@@ -1802,17 +1804,21 @@ notice is, and the URL each file was copied from.
 | [al-observed/base_frames-out.txt](docs/research/sources/al-observed/base_frames-out.txt) | python3 -I base_frames.py .claude/research/flash-fix |
 | [al-observed/base_frames.py](docs/research/sources/al-observed/base_frames.py) | written for note AL |
 | [al-observed/cell-sizes.txt](docs/research/sources/al-observed/cell-sizes.txt) | flash bench stderr, prototype O4's base binary |
+| [al-observed/census-out.txt](docs/research/sources/al-observed/census-out.txt) | python3 docs/research/sources/al-observed/census.py, from the repository root |
+| [al-observed/census.py](docs/research/sources/al-observed/census.py) | written for the flash-fix analysis |
 | [al-observed/cross_base-out.txt](docs/research/sources/al-observed/cross_base-out.txt) | python3 -I cross_base.py . docs/research/sources/aj-observed/flash-census.tsv |
 | [al-observed/cross_base.py](docs/research/sources/al-observed/cross_base.py) | written for note AL |
 | [al-observed/gates-out.txt](docs/research/sources/al-observed/gates-out.txt) | python3 -I gates.py .claude/research/flash-fix <scratchpad>/bin docs/research/sources/aj-observed/flash-census.tsv |
 | [al-observed/gates.py](docs/research/sources/al-observed/gates.py) | written for note AL |
 | [al-observed/o1-analyze-out.txt](docs/research/sources/al-observed/o1-analyze-out.txt) | python3 o1-analyze.py |
+| [al-observed/o1-analyze.py](docs/research/sources/al-observed/o1-analyze.py) | written by the O1 prototype |
 | [al-observed/o1-census.tsv](docs/research/sources/al-observed/o1-census.tsv) | flash bench on f5725ab with and without features flash-o1 and flash-o1-29, joined by o1-analyze.py |
 | [al-observed/o1-fire32-f39.png](docs/research/sources/al-observed/o1-fire32-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
 | [al-observed/o1-fire32-footprint.png](docs/research/sources/al-observed/o1-fire32-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
 | [al-observed/o1-fire72-f31.png](docs/research/sources/al-observed/o1-fire72-f31.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
 | [al-observed/o1-fire72-footprint.png](docs/research/sources/al-observed/o1-fire72-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
 | [al-observed/o2-analyze.py](docs/research/sources/al-observed/o2-analyze.py) | written by the O2 prototype |
+| [al-observed/o2-astar.py](docs/research/sources/al-observed/o2-astar.py) | written by the O2 prototype |
 | [al-observed/o2-census.tsv](docs/research/sources/al-observed/o2-census.tsv) | flash bench on 4ccd622 with and without feature flash-o2, joined by o2-analyze.py |
 | [al-observed/o2-drop-particles-72x1-dark.tsv](docs/research/sources/al-observed/o2-drop-particles-72x1-dark.tsv) | flash bench on 4ccd622 with flash-o2 and FLASH_DROP_PARTICLES=1 |
 | [al-observed/o2-drop-particles-72x1-light.tsv](docs/research/sources/al-observed/o2-drop-particles-72x1-light.tsv) | flash bench on 4ccd622 with flash-o2 and FLASH_DROP_PARTICLES=1 |
@@ -1821,6 +1827,7 @@ notice is, and the URL each file was copied from.
 | [al-observed/o2-fire32-footprint.png](docs/research/sources/al-observed/o2-fire32-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 4ccd622 flash-o2 |
 | [al-observed/o2-summary.tsv](docs/research/sources/al-observed/o2-summary.tsv) | python3 o2-analyze.py |
 | [al-observed/o3-analyse.py](docs/research/sources/al-observed/o3-analyse.py) | written by the O3 prototype |
+| [al-observed/o3-analysis.txt](docs/research/sources/al-observed/o3-analysis.txt) | python3 -I o3-analyse.py runs census.tsv out56.tsv out: the O3 prototype's runs directory (not in the repository), aj-observed/flash-census.tsv and replica-out56.tsv |
 | [al-observed/o3-census.tsv](docs/research/sources/al-observed/o3-census.tsv) | flash bench on dc2fce3 with and without feature flash-o3, joined by o3-analyse.py |
 | [al-observed/o3-fire32-f39.png](docs/research/sources/al-observed/o3-fire32-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, dc2fce3 flash-o3 |
 | [al-observed/o3-fire32-f43.png](docs/research/sources/al-observed/o3-fire32-f43.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, dc2fce3 flash-o3 |
@@ -1834,7 +1841,11 @@ notice is, and the URL each file was copied from.
 | [al-observed/o4-summary.txt](docs/research/sources/al-observed/o4-summary.txt) | python3 o4-summary.py |
 | [al-observed/options_table-out.txt](docs/research/sources/al-observed/options_table-out.txt) | python3 -I options_table.py |
 | [al-observed/options_table.py](docs/research/sources/al-observed/options_table.py) | written for note AL |
+| [al-observed/replica-Cargo.toml](docs/research/sources/al-observed/replica-Cargo.toml) | written for the flash-fix analysis |
+| [al-observed/replica-gate.py](docs/research/sources/al-observed/replica-gate.py) | written for the flash-fix analysis |
+| [al-observed/replica-main.rs](docs/research/sources/al-observed/replica-main.rs) | written for the flash-fix analysis |
 | [al-observed/replica-matrix-out.txt](docs/research/sources/al-observed/replica-matrix-out.txt) | python3 replica-matrix.py |
+| [al-observed/replica-matrix.py](docs/research/sources/al-observed/replica-matrix.py) | written for the flash-fix analysis |
 | [al-observed/replica-out1.tsv](docs/research/sources/al-observed/replica-out1.tsv) | replica, jobs1 |
 | [al-observed/replica-out2.tsv](docs/research/sources/al-observed/replica-out2.tsv) | replica, jobs2 |
 | [al-observed/replica-out3.tsv](docs/research/sources/al-observed/replica-out3.tsv) | replica, jobs3 |
@@ -1846,6 +1857,7 @@ notice is, and the URL each file was copied from.
 | [al-observed/replica-trailx.rs](docs/research/sources/al-observed/replica-trailx.rs) | written for the flash-fix analysis |
 | [al-observed/thresholds-out.txt](docs/research/sources/al-observed/thresholds-out.txt) | python3 thresholds.py |
 | [al-observed/thresholds.py](docs/research/sources/al-observed/thresholds.py) | written for the flash-fix analysis |
+| [xcode-27-metal-toolchain-component.txt](docs/research/sources/xcode-27-metal-toolchain-component.txt) | /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild and .../Toolchains/XcodeDefault.xctoolchain/usr/bin/metal, 27A266a, output captured 2026-10-28 |
 | [xparsecolor-observed/probe.c](docs/research/sources/xparsecolor-observed/probe.c) | built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1; run against Xvfb 21.1.24 -screen 0 1024x768x24 |
 | [xparsecolor-observed/rgb-specs.py](docs/research/sources/xparsecolor-observed/rgb-specs.py) | python3 rgb-specs.py | probe |
 | [xparsecolor-observed/rgb.out](docs/research/sources/xparsecolor-observed/rgb.out) | output of rgb-specs.py | probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor |

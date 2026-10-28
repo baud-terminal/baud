@@ -27,9 +27,9 @@ and stay untracked under `.claude/research/title/`.
 
 Evidence tags: **M** measured by the probes [[source: ak-obs-probe-c]],
 [[source: ak-obs-proxy-m]] and [[source: ak-obs-lossy-rs]] on this Mac (Apple
-M5 Max, macOS 27.0 build 26A5425a; on AC power by a `pmset` reading taken
-after the runs, [[source: ak-obs-observations]]); **C** read from code, not
-run. Every source is cited by its quoted text, with line numbers of the file
+M5 Max, macOS 27.0 build 26A5425a, [[source: ak-obs-observations]], whose
+`pmset` reading is from 2026-10-28 and not from the runs); **C** read from
+code, not run. Every source is cited by its quoted text, with line numbers of the file
 as fetched. "rendered N" is line N of a rendering, given as a convenience:
 for an HTML page, `python3 scripts/render-html-source.py MODE PAGE.html`
 (the mode is named in the source's manifest entry); for an Apple DocC page,
@@ -836,9 +836,10 @@ option B, ctlseqs' default and a departure from § 9).
 
 ### 5.3 The window
 
-baud links the window crate as `macos-liquid-glass` 1.0.0-beta.5
-(`Cargo.lock` 424-426), whose `src/window.rs` is byte-identical to
-glassnote's own checkout at 5fa641f ([[source: ak-obs-observations]]). It sets
+baud links the window crate as `macos-liquid-glass` 1.0.0-beta.6
+(`Cargo.lock` 431-433), whose `src/window.rs`, like 1.0.0-beta.5's, is
+byte-identical to glassnote's own checkout at 5fa641f
+([[source: ak-obs-observations]]). It sets
 `setTitlebarAppearsTransparent(true)` and
 `setTitleVisibility(NSWindowTitleVisibility::Hidden)` for the titled shape,
 "drop the title text — the surface draws its own" (`src/window.rs` 266-270),
