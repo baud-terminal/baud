@@ -15041,18 +15041,19 @@ title  = "tmux 3.7c (utf8proc 2.11.3): the raw bytes it sent the outer pty for t
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "supp-mux-harness.py under a Python pty at 100x50, TERM=xterm-256color, -f /dev/null"
-file   = ""
-sha256 = "9d5e96ded7aef5df2e898f28b08dcf650b3b6e7a30fe9b2e5aab1d54e36ef446"
-bytes  = 2980
-status = "external"
+url    = "supp-mux-harness.py under a Python pty at 100x50, TERM=xterm-256color, LANG=C.UTF-8, -f /dev/null; SIDECAR at 2 s: respawn-pane -k printing supp-mux-cases.txt one case a line as tag[text]"
+file   = "ad-observed/supp-tmux-out.bin"
+sha256 = "002fa8a7cfb22d1610196e48f5898119f45fb59cff7777fdede248a3ac0a9185"
+bytes  = 3802
+status = "retrieved"
 group  = "J"
-# Not in the repository until it is captured again: the copy read,
-# ad-observed/supp-tmux-out.bin, carried details of the machine it was taken
-# on. The digest is of that copy.
-# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
-# (26A5425a); not fetched -- the url says how it was made. Committed because the
-# scratch directory it came from does not survive a reboot, and a claim rests on it.
+# Local evidence for note AD's terminal supplement, re-made 2026-10-28 in the
+# Linux container tests/resize/README.md describes (host name baud), tmux 3.7c
+# from nixpkgs 319e4cebef10cbb636c6ea392137b52ad105336a linked to utf8proc
+# 2.11.3, as the macOS capture of 2026-10-08 was; not fetched -- the url says
+# how it was made. Each of the 29 cases goes out as the bytes that capture
+# held, cursor rows aside: that capture's printer, not kept, left two blank
+# rows the new one does not.
 
 [sources.ad-obs-supp-tmux-cpr]
 key    = "ad-obs-supp-tmux-cpr"

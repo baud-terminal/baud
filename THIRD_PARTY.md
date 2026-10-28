@@ -23,8 +23,8 @@ and decides nothing.
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 309 | 36 | redistributable, and its notice is satisfied |
-| own | 188 | 3 | the owner's work |
-| total | 516 | 46 | |
+| own | 189 | 4 | the owner's work |
+| total | 517 | 47 | |
 
 ## Licence texts in LICENSES/
 
@@ -449,6 +449,14 @@ they were built from.
 - **Notice:** [LICENSE](LICENSE)
 - **From:** generated: tests/resize/README.md
 - **Files:** [tests/resize/drag.raw](tests/resize/drag.raw), [tests/resize/drag.steps](tests/resize/drag.steps), [tests/resize/drag.sizes](tests/resize/drag.sizes), [tests/resize/short.raw](tests/resize/short.raw), [tests/resize/short.steps](tests/resize/short.steps), [tests/resize/short.sizes](tests/resize/short.sizes), [tests/resize/zoom.raw](tests/resize/zoom.raw), [tests/resize/zoom.steps](tests/resize/zoom.steps), [tests/resize/zoom.sizes](tests/resize/zoom.sizes), [tests/resize/fresh-drag.raw](tests/resize/fresh-drag.raw), [tests/resize/fresh-drag.steps](tests/resize/fresh-drag.steps), [tests/resize/fresh-drag.sizes](tests/resize/fresh-drag.sizes), [tests/resize/fresh-zoom.raw](tests/resize/fresh-zoom.raw), [tests/resize/fresh-zoom.steps](tests/resize/fresh-zoom.steps), [tests/resize/fresh-zoom.sizes](tests/resize/fresh-zoom.sizes), [tests/resize/fresh-burst.raw](tests/resize/fresh-burst.raw), [tests/resize/fresh-burst.steps](tests/resize/fresh-burst.steps), [tests/resize/fresh-burst.sizes](tests/resize/fresh-burst.sizes), [tests/resize/live-drag.raw](tests/resize/live-drag.raw), [tests/resize/live-drag.steps](tests/resize/live-drag.steps), [tests/resize/live-drag.sizes](tests/resize/live-drag.sizes), [tests/resize/zdotdir/.zshrc](tests/resize/zdotdir/.zshrc), [tests/resize/zdotdir/banner](tests/resize/zdotdir/banner), [tests/resize/zdotdir/banner-fresh](tests/resize/zdotdir/banner-fresh)
+
+### tmux 3.7c starting with no configuration, captured by scripts/capture-tui.py in the same container on 2026-10-28: what tmux sends the outer terminal, its status line and the shell's prompt (tests/scheme/README.md)
+
+- **Status:** own -- the owner's work
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** generated: tests/scheme/README.md
+- **Files:** [tests/scheme/tmux-start.raw](tests/scheme/tmux-start.raw)
 
 ### img2sixel's encoding of ImageMagick's built-in red-to-blue gradient, swirled, and sixel2png's decode of it as raw RGB, made in baud's development by 'magick -size 96x72 gradient:red-blue -swirl 60 -rotate 0', libsixel 1.10.5's img2sixel and sixel2png; re-made byte for byte with ImageMagick 7.1.2-31 on 2026-10-27. No third party's picture is in it
 
@@ -1643,7 +1651,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the owner's work
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 182
+- **Files:** 183
 
 | file | copied from |
 |---|---|
@@ -1681,6 +1689,7 @@ notice is, and the URL each file was copied from.
 | [ad-observed/supp-mux-harness.py](docs/research/sources/ad-observed/supp-mux-harness.py) | the supplement's mux/harness.py, copied unchanged |
 | [ad-observed/supp-terminalapp-cpr.json](docs/research/sources/ad-observed/supp-terminalapp-cpr.json) | CSI 6n before and after printing each case in a fresh window |
 | [ad-observed/supp-tmux-cpr.json](docs/research/sources/ad-observed/supp-tmux-cpr.json) | supp-mux-cprprobe.py inside a tmux pane |
+| [ad-observed/supp-tmux-out.bin](docs/research/sources/ad-observed/supp-tmux-out.bin) | supp-mux-harness.py under a Python pty at 100x50, TERM=xterm-256color, LANG=C.UTF-8, -f /dev/null; SIDECAR at 2 s: respawn-pane -k printing supp-mux-cases.txt one case a line as tag[text] |
 | [ad-observed/supp-zellij-cpr.json](docs/research/sources/ad-observed/supp-zellij-cpr.json) | supp-mux-cprprobe.py inside a zellij pane |
 | [ad-observed/supp-zellij-out.bin](docs/research/sources/ad-observed/supp-zellij-out.bin) | supp-mux-harness.py under a Python pty at 100x50, plugin-free layout |
 | [ad-observed/terminals-cases-e1first.txt](docs/research/sources/ad-observed/terminals-cases-e1first.txt) | hand-written test input |

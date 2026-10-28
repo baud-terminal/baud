@@ -1379,6 +1379,7 @@ notice  = "LICENSE"
 status  = "own"
 files   = [
   "aa-observed/cwdprobe-run.txt",
+  "ad-observed/supp-tmux-out.bin",
   "ad-observed/coretext-cbdt-load.txt",
   "ad-observed/coretext-createforstring.txt",
   "ad-observed/coretext-ctline-fira.txt",
@@ -1913,6 +1914,14 @@ paths    = ["tests/resize/drag.raw", "tests/resize/drag.steps", "tests/resize/dr
 licence  = "CC-BY-NC-SA-4.0"
 notice   = "LICENSE"
 upstream = "generated: tests/resize/README.md"
+status   = "own"
+
+[[tree]]
+what     = "tmux 3.7c starting with no configuration, captured by scripts/capture-tui.py in the same container on 2026-10-28: what tmux sends the outer terminal, its status line and the shell's prompt (tests/scheme/README.md)"
+paths    = ["tests/scheme/tmux-start.raw"]
+licence  = "CC-BY-NC-SA-4.0"
+notice   = "LICENSE"
+upstream = "generated: tests/scheme/README.md"
 status   = "own"
 
 [[tree]]
