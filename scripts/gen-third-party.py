@@ -15,6 +15,10 @@ The checks, each of which has to be able to fail:
   - every `notice` that is a path, and every [[tree]] path, exists;
   - every status is one the sidecar defines;
   - every repository path LICENSE names exists (see licence_paths);
+  - a [[tree]] entry whose notice is "in file", under a licence whose URI
+    this script knows, names that URI in each of its files: the URI is
+    what a Creative Commons licence asks a copy to carry, and a header the
+    generator stopped writing would otherwise pass;
   - THIRD_PARTY.md is byte for byte what this script writes.
 
 The sidecar's header says what each field means. Nothing here decides a
@@ -169,6 +173,12 @@ def check(side, url):
                 errs.append(f"[[tree]] {i} ({t['what'][:40]}...): {p} does not exist")
         if is_path(t["notice"]) and not os.path.exists(os.path.join(ROOT, t["notice"])):
             errs.append(f"[[tree]] {i}: notice {t['notice']} does not exist")
+        uri = licence_uri(t["licence"])
+        if t["notice"] == "in file" and uri:
+            for p in t["paths"]:
+                full = os.path.join(ROOT, p)
+                if os.path.isfile(full) and uri.encode() not in open(full, "rb").read():
+                    errs.append(f"[[tree]] {i}: {p} is {t['licence']} with its notice in the file, and does not name {uri}")
     return errs
 
 

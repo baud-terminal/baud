@@ -3254,6 +3254,24 @@ group  = "J"
 # RC4-encrypted with an empty user password: a plain inflater sees zero streams.
 # `scripts/extract-adobe-cff.py` decrypts it and carries the positive control.
 
+[sources.adobe-font-tech-notes-license]
+key    = "adobe-font-tech-notes-license"
+title  = "adobe-type-tools/font-tech-notes LICENSE.md: Creative Commons Attribution-NoDerivatives 4.0 International"
+author = "Adobe"
+year   = 2021
+venue  = "GitHub, adobe-type-tools/font-tech-notes at 667d420"
+url    = "https://raw.githubusercontent.com/adobe-type-tools/font-tech-notes/667d420fbe2199cbc6801a524c7628ad9ea7934f/LICENSE.md"
+file   = ""
+sha256 = "a91cd2fa350f28986ff73036e7bb546219bf2b32554e5d79562c824a799ba460"
+bytes  = 16872
+status = "external"
+group  = "J"
+# The grant for the technical notes the repository publishes, 5176 and
+# 5177 among them: the PDFs' own text says only "All rights reserved". Its
+# section 3(a)(1) is what the header of baud-font/src/standard_encoding.rs
+# carries. Read and hash-verified on 2026-10-28; not committed, since the
+# licence's URI is all a copy needs. Re-fetch at the pinned commit.
+
 [sources.adobe-5177-type2]
 key    = "adobe-5177-type2"
 title  = "The Type 2 Charstring Format, Technical Note #5177"

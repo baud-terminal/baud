@@ -15,6 +15,36 @@ Usage: gen-cff-standard-encoding.py <5176.CFF.pdf> > baud-font/src/standard_enco
 import re, sys
 from pathlib import Path
 
+# What CC BY-ND 4.0 section 3(a)(1) asks a copy of the material to carry:
+# the creator, the copyright notice, the licence and its URI, a notice that
+# refers to the disclaimer of warranties, a link to the material, and
+# whether it was modified. The copyright line is TN 5176's own, from its
+# second page; the grant is the LICENSE.md of Adobe's font-tech-notes
+# repository, pinned in the manifest as adobe-font-tech-notes-license.
+ATTRIBUTION = """\
+//! The table is part of Appendix B, "Predefined Encodings", of The Compact
+//! Font Format Specification, Technical Note #5176, version 1.0, by Adobe
+//! Systems Incorporated:
+//! https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf
+//!
+//! Copyright \u00a9 1996\u20131998, 2000, 2003 by Adobe Systems Incorporated.
+//! All rights reserved.
+//!
+//! Adobe licenses its font technical notes under the Creative Commons
+//! Attribution-NoDerivatives 4.0 International licence (CC BY-ND 4.0),
+//! https://creativecommons.org/licenses/by-nd/4.0/, in the LICENSE.md of
+//! https://github.com/adobe-type-tools/font-tech-notes. The material is
+//! offered as-is and as-available, with no warranties of any kind: see the
+//! licence's section 5, Disclaimer of Warranties and Limitation of
+//! Liability.
+//!
+//! Not modified. The appendix's code and SID columns are reproduced in
+//! part, as the licence's section 2(a)(1)(A) allows: its name column is
+//! left out, and each SID is one byte at its code. Writing the same values
+//! in another format is a technical modification under section 2(a)(4),
+//! which never produces Adapted Material.
+"""
+
 HERE = Path(__file__).resolve().parent
 src = (HERE / "extract-adobe-cff.py").read_text().replace('if __name__ == "__main__": sys.exit(main())', "")
 ns = {}
@@ -53,6 +83,8 @@ out = "".join(f"\\x{s:02x}" for s, _ in table)
 print("//! CFF Standard Encoding, code to SID, generated from Appendix B of")
 print("//! `[[source: adobe-5176-cff]]` by `scripts/gen-cff-standard-encoding.py`.")
 print("//! Do not edit; regenerate.")
+print("//!")
+print(ATTRIBUTION, end="")
 print("//!")
 print("//! Indexed by the code `seac` supplies; the value is the standard string id")
 print("//! the face's charset then maps to a glyph. Every SID in Standard Encoding is")

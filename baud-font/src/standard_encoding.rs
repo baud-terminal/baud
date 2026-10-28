@@ -2,6 +2,28 @@
 //! `[[source: adobe-5176-cff]]` by `scripts/gen-cff-standard-encoding.py`.
 //! Do not edit; regenerate.
 //!
+//! The table is part of Appendix B, "Predefined Encodings", of The Compact
+//! Font Format Specification, Technical Note #5176, version 1.0, by Adobe
+//! Systems Incorporated:
+//! https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf
+//!
+//! Copyright © 1996–1998, 2000, 2003 by Adobe Systems Incorporated.
+//! All rights reserved.
+//!
+//! Adobe licenses its font technical notes under the Creative Commons
+//! Attribution-NoDerivatives 4.0 International licence (CC BY-ND 4.0),
+//! https://creativecommons.org/licenses/by-nd/4.0/, in the LICENSE.md of
+//! https://github.com/adobe-type-tools/font-tech-notes. The material is
+//! offered as-is and as-available, with no warranties of any kind: see the
+//! licence's section 5, Disclaimer of Warranties and Limitation of
+//! Liability.
+//!
+//! Not modified. The appendix's code and SID columns are reproduced in
+//! part, as the licence's section 2(a)(1)(A) allows: its name column is
+//! left out, and each SID is one byte at its code. Writing the same values
+//! in another format is a technical modification under section 2(a)(4),
+//! which never produces Adapted Material.
+//!
 //! Indexed by the code `seac` supplies; the value is the standard string id
 //! the face's charset then maps to a glyph. Every SID in Standard Encoding is
 //! below 150, so a byte holds it.
