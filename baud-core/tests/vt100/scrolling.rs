@@ -1087,3 +1087,34 @@ fn sph_and_spl_are_counted_and_move_nothing() {
         "FF does not go to a page home"
     );
 }
+
+/// **`ESC l` and `ESC m`, HP's memory lock and unlock, are counted and
+/// move no margin.** `[[source: ctlseqs]]` has them "Locks memory above
+/// the cursor" and xterm moves its top margin to the cursor's line
+/// (`[[source: xterm-reset]]` 4759-4770), but `[[source: ecma48]]` 5.5,
+/// Table 5, leaves `ESC 06/12` and `ESC 06/13` unallocated, "reserved for
+/// future standardization and shall not be used" (Jev's lean,
+/// KEEP_COUNTED, 0.76/0.50). A line feed at the bottom still scrolls
+/// line 1 away.
+#[test]
+fn hp_memory_lock_and_unlock_are_counted_and_move_no_margin() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"A\x1b[5;1H\x1bl\x1b[50;1H\nB");
+    assert_eq!(t.unsupported, 1, "ESC l is counted");
+    assert_eq!(
+        rows_of(b"A\x1b[5;1H\x1bl\x1b[50;1H\nB"),
+        rows_of(b"A\x1b[5;1H\x1b[50;1H\nB"),
+        "the lines above the cursor scroll as if ESC l had not come"
+    );
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b[5;20r\x1b[10;3H\x1bm");
+    assert_eq!(t.unsupported, 1, "ESC m is counted");
+    assert_eq!(
+        rows_of(b"A\x1b[5;20r\x1b[10;3H\x1bm\x1b[20;1H\nB"),
+        rows_of(b"A\x1b[5;20r\x1b[10;3H\x1b[20;1H\nB"),
+        "the region stays 5-20, and line 1 keeps its A"
+    );
+}
