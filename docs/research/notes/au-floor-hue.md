@@ -4,8 +4,7 @@ Status: decided 2026-10-18: option A. Each floor
 keeps the reading of "hue" it is built on, and nothing changed in code:
 the glass floor lifts in OKLab, keeping OKLab hue and as much chroma as
 sRGB allows, and
-the opaque floor lifts by decision 6's linear-light mix (record, "The
-opaque floor keeps decision 6's mix").
+the opaque floor keeps decision 6's linear-light mix.
 
 **What a user sees.** At the default trigger, nothing differs between
 the options on a dark theme: no glyph on any recording's final screen

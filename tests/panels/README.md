@@ -63,5 +63,5 @@ the file). Keys, encoded by `Term::key`: three seconds, `ctrl+b` `s` (the
 settings menu), then Down sixteen times 0.9 s apart, then Esc. herdr ran
 against a private `HOME`, config and socket, with `onboarding = false`,
 both update checks off and `[ui] window_title = "{workspace}"`, so the
-title carries no host name. Nothing in the file was edited. The record has
-what it shows: "herdr's themes under the glass".
+title carries no host name. Nothing in the file was edited. It shows
+herdr's themes under the glass.

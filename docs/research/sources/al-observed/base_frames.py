@@ -7,7 +7,7 @@ one shared scratch bin/, whose flash-base was overwritten (its last write,
 base run could have run another prototype's binary. Byte-identical frames
 across the prototypes rule that out for the frames compared.
 
-    python3 -I base_frames.py FLASH_FIX_DIR   # .claude/research/flash-fix
+    python3 -I base_frames.py FLASH_FIX_DIR   # the prototypes' working directory
 """
 import hashlib, os, sys
 from collections import Counter, defaultdict

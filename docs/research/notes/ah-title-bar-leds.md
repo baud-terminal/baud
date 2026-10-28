@@ -11,8 +11,8 @@ pinned at commit `473ff12`.
   knows.
 - Section 6 sets out the options with their costs, and section 8 the open questions.
 
-The evidence is under `.claude/research/leds/`, untracked until the staged
-files below are committed:
+The evidence was kept outside the repository until the files below were
+committed:
 
 - `sources/` holds the downloads, hashed in `manifest-proposed.toml`.
 - The five probes' sources, their saved outputs and a file of command
@@ -1442,11 +1442,9 @@ These need a run outside the agent's sandbox, which this research made
 only without saving its output (3.7, UNVERIFIED). Each one needs an ssh session open in another terminal, and each is
 run from an ordinary terminal (not inside the agent).
 
-The paths below, from the repository root, are the binaries already built
-on this Mac (untracked). Their sources
-are committed as [[source: ah-obs-pcb64-probe-c]] and [[source: ah-obs-leds-probe-c]],
-so they can be rebuilt elsewhere with the build line in each file's
-header.
+The commands below run the two probes, built from their committed sources,
+[[source: ah-obs-pcb64-probe-c]] and [[source: ah-obs-leds-probe-c]], with the
+build line in each file's header into `PROBES`, a directory of your choice.
 
 1. **`pcblist64`: can an unsandboxed process see another process's TCP
    socket?** Look for "its record FOUND" or "absent" in the last lines.
@@ -1454,14 +1452,14 @@ header.
    prints neither; "no ssh client running" means none was found.
 
    ```
-   pid=$(pgrep -x ssh | head -1); [ -n "$pid" ] && .claude/research/leds/probes/pcb64_probe "$pid" || echo "no ssh client running"
+   pid=$(pgrep -x ssh | head -1); [ -n "$pid" ] && "$PROBES"/pcb64_probe "$pid" || echo "no ssh client running"
    ```
 
 2. **`pcblist_n`: the same question.** Look at the "sockets in dump" lines
    and at "with so_last_pid == ...".
 
    ```
-   pid=$(pgrep -x ssh | head -1); [ -n "$pid" ] && .claude/research/leds/probes/leds_probe --pid "$pid" || echo "no ssh client running"
+   pid=$(pgrep -x ssh | head -1); [ -n "$pid" ] && "$PROBES"/leds_probe --pid "$pid" || echo "no ssh client running"
    ```
 
 3. **netstat: does it list TCP connections?**

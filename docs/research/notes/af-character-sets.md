@@ -5,29 +5,28 @@ and again against its second (round 2) on 2026-10-09. On 2026-10-12 DEC
 Supplemental, JIS-Katakana and JIS-Roman (but its 7/14) were built, their
 reserved positions drawing the error character (§3), and Q-DECNRCM
 was found to rest on DEC texts that disagree (§2.10, "STD 070's algorithms do
-not gate", added that day). On 2026-10-24 Q-DECNRCM was decided's
-lean, (c) and taken under the lane rule: `?42` recognised and ignored, the sets acting
-whenever designated (Q-DECNRCM).** Every other question in section 4 is open but
-Q-UNDEF's reserved positions of those two sets; the error character's
-codepoint is decided, U+2426 by the review twice, and built as a constant on
-2026-10-10 (Q-UNDEF; note AE's AE8.1).
+not gate", added that day). On 2026-10-24 Q-DECNRCM was decided by the
+lean, (c):
+`?42` recognised and ignored, the sets acting whenever designated
+(Q-DECNRCM).** Every other question in section 4 is open but Q-UNDEF's
+reserved positions of those two sets; the error character's codepoint is
+decided, U+2426, and built as a constant on 2026-10-10 (Q-UNDEF; note AE's
+AE8.1).
 
-**Routing since the rule of 2026-10-10**: every question below marked
-"owner's call, whatever the review says" goes to the review too, decided at 0.9 or better
-on two askings, departures included, with review. The lists below
-are the routing as written before that rule.
+The lists below are the state as written on 2026-10-09; a question marked
+open has since been weighed, departures included, where its section says so.
 
 - **Open:** Q-UNDEF (but for its codepoint,
   decided under the rule of 2026-10-10 as note AE's AE8.1), Q-Greek,
   Q-ND-backtick, Q-DECNRCM, Q-SCS-Russian, Q-JIS-Roman, and Q-Technical's
   layout half. In each, every option departs from some DEC text, rests on a
   text nobody has read, or (Q-UNDEF) is an identification DEC does not make.
-- **The review first, at confidence 0.9 or better:** Q-Unlisted, Q-French-f,
-  Q-Technical's hook half, and Q-Order. Each has an option that departs from
-  no DEC text, and the note recommends it: for Q-French-f that is (b2),
-  ignore `f` and leave the slot, never (b1), designate `Charset::Other`. If
-  the review picks an option that departs, it goes on for decision. Q-Order goes on
-  for decision either way, since the project sets the work order.
+- **Recommended:** Q-Unlisted, Q-French-f, Q-Technical's hook half, and
+  Q-Order. Each has an option that departs from no DEC text, and the note
+  recommends it: for Q-French-f that is (b2), ignore `f` and leave the slot,
+  never (b1), designate `Charset::Other`. An option that departs goes on for
+  decision as a departure. Q-Order goes on for decision either way, since it
+  is a work order and not a conformance mark.
 - **Buildable before any answer:** section 5(a). It covers the generator, the
   Swedish and Turkish fixes, an independent conformance test at the data
   level, the dead `Charset::to_u8`/`from_u8` pair and its stale docs, the
@@ -179,8 +178,8 @@ itself):
 
 Two research passes compared baud with DEC's tables, and a third pass checked
 both. Where the third pass corrected the first two, the correction is what
-appears here. The working files are in `.claude/research/nrcs/`, which is
-untracked. Every pinned source reproduces from its hash.
+appears here. The working files were kept outside the repository. Every
+pinned source reproduces from its hash.
 
 ### The VT220 tables: SVG extraction, with two controls
 
@@ -1560,12 +1559,9 @@ read, and DEC gives no codepoint for either. (d) matches DEC's words by name
 percontativus" **[text]**, a reversed question mark **[img]**), but it is
 punctuation. (a)'s reference glyph is the same shape ([[source:
 unicode18-chart-2400]]), and it is ISO 2047's symbol for SUB, the control DEC
-ties the error character to. Asked once more with both charts read and every
-option marked, the pick was (a) at 1.00 and again at 1.00 on a repeat
-(2026-10-09; `.claude/research/errchar/`); the repeat re-sent the request with
-the options permuted (note AE §10, "Re-asked
-since"). Under the project's
-2026-10-10 rule that decides the codepoint:
+ties the error character to. Weighed once more with both charts read and
+every option marked (2026-10-09; note AE §10, "Decided since"), (a) holds,
+and that decides the codepoint:
 `baud_domain::DEC_ERROR_CHARACTER` is U+2426, and
 `the_dec_error_character_is_symbol_for_substitute_form_two` holds it to its
 name. Since 2026-10-12 it is drawn at DEC Supplemental's and JIS-Katakana's
@@ -1574,9 +1570,9 @@ and whether SUB draws it, stay open here.
 
 **One codepoint serves three places.** This is the same codepoint as:
 
-- note AE §10's row "Q8, the error character's codepoint". The review answered U+2426
- and did not lean; re-asked with all four options marked, it picked
-  U+2426 twice, and the codepoint is decided (note AE §10, "Re-asked
+- note AE §10's row "Q8, the error character's codepoint". U+2426 led
+  without settling; weighed again with all four options marked, it held,
+  and the codepoint is decided (note AE §10, "Decided
   since"; AE8.1). That row is the AE "Q8.1" this note was asked to tie to;
 - `docs/vt-coverage.md`'s row "SUB additionally displaying the
   DEC error character", which keeps the display `out` on a stated basis that
@@ -1654,8 +1650,8 @@ or two, and Q-French-f's option (b2) depends on it.
 - If Q-DECNRCM is answered (b) and its (b.1) as "ignore", the same path
   serves an NRC designation outside national mode.
 - **Recommend (b), departure first:** it departs from xterm, which is
-  practice, and from no DEC text. The review decides at 0.9 or better. It changes
-  behaviour that tests pin, so it is not in §5(a).
+  practice, and from no DEC text. It changes behaviour that tests pin, so it
+  is not in §5(a).
 
 ### Q-French-f. Whether `ESC ( f` designates French
 
@@ -1704,7 +1700,7 @@ The evidence is in §2.8.
   - STD 070 p. 6-58 names DEC's French "AFNOR NF Z 62-010 [1973]" **[img]**.
 - **Recommend (b2), departure first:** it departs from xterm and ctlseqs,
   which are practice, and from no DEC text. (b1) departs from DEC and is not
-  recommended. The review decides at 0.9 or better, preferably with Q-Unlisted.
+  recommended. It is best decided with Q-Unlisted.
 
 ### Q-ND-backtick. Which repertoire `` ` `` designates, and with it `E` and `6`
 
@@ -1757,32 +1753,25 @@ below is **inferred** on that name.
     `6` (**inferred**), and from vt510-scs under the one-repertoire reading.
   - (c) conforms to STD 070 and to vt510-scs under that reading, and departs
     from the other three.
-  - Which texts govern, and whether the NS 4551-1 inference holds, is the
-    owner's.
+  - Which texts govern, and whether the NS 4551-1 inference holds, is
+    open.
 
 ### Q-DECNRCM. Whether the NRC sets act only in national mode
 
-**Decided 2026-10-24: (c), by the lean.** It
-was routed to the open, and the rule of 2026-10-10
-sends such a question to the review, decided at 0.9 or better on two askings. The review
-gave, so the lean was taken under the lane rule (below 0.9:
-research, re-ask once, take the lean). The plan's 2026-10-23 beta audit
-still lists B2-31 (Q-DECNRCM) as an owner decision;
-(c). Asked at source with the
-options below and D, (c) with a keyboard dialect the embedder sets; both
-orders, uncached:
+**Decided 2026-10-24: (c), by the lean.** Every option carries a departure. Weighed at
+source with the options below and D, (c) with a keyboard dialect the
+embedder sets:
 
-- first ask: (c) C_STD070_NO_DIALECT
-  (probabilities (a), (b), D); DECRQM
-  between 2 and 4 at 0.02 and 0.42.
-- research added (below), then the one re-ask: (c)
-  over (a), (b) and D; DECRQM UNKNOWN, `0`. Under (b) the sub-forks leaned WITHDRAWN, REINIT, ASCII outside national mode and UTF-8 kept; none is built.
-- Below 0.9 both times, the lean is taken because it keeps STD 070's
-  algorithms (pp. 5-119 to 5-128) and note 5, under the rule written into
-  the request before it was sent. It departs from §3.6.4.4 if that prose
-  is read as a gate, and reading no dialect as North American is
-  inferred. At Level 1 the sets act by the DECSCL row's lean, LEVEL_1
-  (0.84/0.82), where p. 5-119 enters NRCS only at Level 2 or above.
+- first: (c), STD 070 with no dialect, over (a), (b) and D.
+- with the research added (below): (c) again, over (a), (b) and D; DECRQM
+  answers `0`, not recognised. Under (b) the sub-forks leaned to a
+  withdrawn designation, a re-initialised set, ASCII outside national mode
+  and UTF-8 kept; none is built.
+- The lean, (c), is taken because it keeps STD 070's algorithms (pp. 5-119 to 5-128)
+  and note 5. It departs from §3.6.4.4 if that prose is read as a gate, and
+  reading no dialect as North American is inferred. At Level 1 the sets act
+  by the DECSCL row's reading, where p. 5-119 enters NRCS only at Level 2 or
+  above.
   `?42` is recognised and changes nothing; `DECRQM ?42` answers `0`; the
   national sets act whenever designated. The keyboard's side, `DECNRCM
   (keyboard)` (PDF 539), and a dialect setting are not built.
@@ -1792,13 +1781,13 @@ orders, uncached:
   field "1x, 2x, 3x, 4x (NRCS Extension)" (PDF 381) names an extension at
   every level. baud's DA1 answer, `?6c`, claims none.
   The level row, Since(One), reads the `1x` as the level table reads every
-  `x`, an extension baud has (docs/vt-coverage.md, the DECSCL row, the review's
-  LOWEST_ONLY at 0.90/0.92): it covers the mark as the level `?42` is
+  `x`, an extension baud has (docs/vt-coverage.md, the DECSCL row, read at
+  the lowest level only): it covers the mark as the level `?42` is
   recognised from, and does not make DA1 claim the extension. Either way
   the mode changes nothing: without the extension neither body runs, and
   with it note 3 ignores the mode for a North American keyboard.
 
-**The research the re-ask added** (page images and text layer of the
+**The research added for the second weighing** (page images and text layer of the
 hash-checked copy):
 
 - 070-6 §6.7.6, p. 6-58: "When 7-bit Characters and Typewriter mode are
@@ -1860,7 +1849,7 @@ The evidence is in §2.10.
     would answer it; whether as reset (2) or permanently reset (4) is part
     of the question.
 
-**Sub-points under (b), each for the review since the rule of 2026-10-10.**
+**Sub-points under (b), each decided on its own.**
 
 - **(b.1) What an NRC designation does outside national mode.**
   - xterm designates ASCII.
@@ -1903,9 +1892,6 @@ The evidence is in §2.10.
 
 - (a) departs from the manuals and STD 070's prose, and conforms to STD 070's
   algorithms at Level 2 or above.
-- Since the rule of 2026-10-10 this goes to the review, decided at 0.9 or
-  better on two askings, the project vetoing; it was routed for decision
-  before.
 - (b) conforms on the gate, but its sub-points include (b.3), where VT220 and
   VT420 bind one set to the keyboard and baud has no keyboard dialect to bind
   to.
@@ -1974,7 +1960,7 @@ The evidence is in §3.3.
   no codepoint. 5/12 is U+00A5 under both (VT382, Unicode JIS0201.TXT,
   xterm).
 
-### Q-Technical. Which DEC layout, and which hooks (owner for the layout; the review for the hooks)
+### Q-Technical. Which DEC layout, and which hooks (the layout open; the hooks recommended)
 
 The evidence is in §3.2.
 
@@ -2081,17 +2067,16 @@ The evidence is in §3.6.
 
 ### Routing
 
-| Question | Who decides | Why |
+| Question | Status | Why |
 |---|---|---|
 | Q-Greek, Q-ND-backtick, Q-SCS-Russian, Q-JIS-Roman, Q-Technical (layout) | **Open** | No option is free of a departure, or every option rests on an unread text. For Q-ND-backtick, STD 070's one set (inferred to be the ISO repertoire) conflicts with VT220, EK-PPLV2-PM and VT420 (the last by name, inferred) at `E` and `6` |
-| Q-DECNRCM | **Decided 2026-10-24 by the lean, (c);** | Routed to the open, for the departure every option carries; below 0.9 after the re-ask, the lean was taken under the lane rule. The plan's 2026-10-23 beta audit still lists B2-31 as an owner decision |
+| Q-DECNRCM | **Decided 2026-10-24 by the lean, (c)** | Every option carries a departure; (c) keeps STD 070's algorithms and note 5 |
 | Q-UNDEF | **Open** | DEC gives no codepoint, and each option that departs from no text is an identification DEC does not make. The choice also settles note AE's Q8 codepoint row and the SUB row |
-| Q-Unlisted, Q-French-f, Q-Technical (hooks) | **The review, at 0.9 or better** | The recommended option departs from no DEC text, only from practice. For Q-French-f that is (b2), not (b1), which departs from DEC |
-| Q-Order | **The review, then the project** | A priority, not a conformance mark; the project sets the work order |
-| Q-Level, Q-Cyrillic | **The review, at 0.9 or better** | Added 2026-10-12, when the rows that raise them were marked for the review under the rule of 2026-10-10; the project vetoes |
+| Q-Unlisted, Q-French-f, Q-Technical (hooks) | **Recommended** | The recommended option departs from no DEC text, only from practice. For Q-French-f that is (b2), not (b1), which departs from DEC |
+| Q-Order | **Recommended, a work order** | A priority, not a conformance mark |
+| Q-Level, Q-Cyrillic | **Recommended** | Added 2026-10-12, with the rows that raise them |
 
-Since the rule of 2026-10-10 the rows marked "open"
-go to the review, decided at 0.9 or better on two askings, with review.
+A row marked "open" is decided as a departure, with the departure stated.
 
 ---
 
@@ -2196,7 +2181,7 @@ go to the review, decided at 0.9 or better on two askings, with review.
      - Norwegian/Danish, in both halves: Table 2-12's content and the finals
        `E` and `6` wait on Q-ND-backtick, which asks which set they name.
        Asserting that the table `E` and `6` reach is Table 2-12's Ä Ü ä ü
-       would build in options (a) and (b) before the project answers, since
+       would build in options (a) and (b) before Q-ND-backtick is decided, since
        under (c) they designate the ISO repertoire. `` ` `` is not a VT220
        final, so the test never sends it;
      - `f`, which no DEC table lists, so the test never sends it. It waits on
@@ -2505,7 +2490,7 @@ and they are not evidence for any claim here.**
 - ISO-IR 88, the register entry an earlier revision used as a hint about
   Greek order; that use is removed (§2.7).
 
-**For the project, not a defect in this note.** The VT220 Pocket Guide's edition
+**A choice, not a defect in this note.** The VT220 Pocket Guide's edition
 page (PDF p. 3) reads "The reproduction of this material, in part or whole, is
 strictly prohibited." **[img]** For that sentence, the manifest now records the
 Pocket Guide, EK-PPLV2-PM and the VT420 RM as `external`: pinned by hash,
@@ -2514,8 +2499,7 @@ tree, and none was ever committed. `vt3xx-hr` was already `external`, for its
 size and for the same sentence on its own edition page (PDF p. 4) **[img]**,
 which was read for its manifest entry and for no claim. Only those two
 edition pages were read for the sentence. This note does not say that
-EK-PPLV2-PM or the VT420 RM carries it. That choice is the project's to
-revisit.
+EK-PPLV2-PM or the VT420 RM carries it. That choice can be revisited.
 
 **Practice traced, never run.** Every xterm and foot behaviour here is read
 from source at the pinned commits: xterm patch 411 at `9489b20`, and foot

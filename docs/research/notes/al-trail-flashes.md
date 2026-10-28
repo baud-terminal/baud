@@ -1070,7 +1070,7 @@ or measured.
 ## 5. Found on the way, decided by no question
 
 - **The quad and the sweep fail at 72 pt on shipped code** (section 3.1).
-  The record's census did not run them; a record entry is owed.
+  The census did not run them; that measurement is owed.
 - **Note AJ section 1.3 quotes the 2024 definition of motion animation**,
   which a 2025-06-27 erratum corrected (section 1.8).
 - **~~The ghost trail has never been counted.~~** Counted since, by a

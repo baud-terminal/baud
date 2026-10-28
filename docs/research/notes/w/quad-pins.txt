@@ -65,4 +65,4 @@ sahaj/cursor_tail.glsl https://raw.githubusercontent.com/sahaj-b/ghostty-cursor-
 sahaj/cursor_sweep.glsl https://raw.githubusercontent.com/sahaj-b/ghostty-cursor-shaders/0a274beac8b93ee6ce6b94402b7313a0417b8e38/cursor_sweep.glsl fcbfc323e06c236e8181525566953fbaa127a71ec5355d6226fd006f036c5a19 7671
 kitty/cocoa_window.m https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/cocoa_window.m 55df0def6913a6de86186cc5f17a9be4fd4eb281c20515d291f3c8ec1bf6f795 61484
 alacritty/vte_ansi.rs https://raw.githubusercontent.com/alacritty/vte/3b3da71c34cc1256c7e20981cf03f8eb95e08ffc/src/ansi.rs 2ce81d9282575b0f79d7a127463c177d966d1da13eea32d5ecbc0dc35f392b13 83726
-# MEASURED artefacts (this session's scripts, not sources): kitty_sim.py -> kitty_sim.out; fuzz_and_sfte.py -> fuzz_and_sfte.out; split_and_tau.py -> split_and_tau.out
+# MEASURED artefacts (scripts written for this research, not sources): kitty_sim.py -> kitty_sim.out; fuzz_and_sfte.py -> fuzz_and_sfte.out; split_and_tau.py -> split_and_tau.out

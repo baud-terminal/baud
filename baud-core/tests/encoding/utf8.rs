@@ -478,7 +478,7 @@ const GR_CANDIDATES: [(&str, &[u8]); 6] = [
 /// DEC Special Graphics in GL, by designation into G0 and by `SO` over G1.
 /// Here the character must match and the flags may not: a cell written while
 /// GL holds DEC graphics carries `CellFlags::GRAPHICS` whatever the character
-/// (note AE Q16(a), decided at 0.98), so the flags are cleared on both sides
+/// (note AE Q16(a), decided), so the flags are cleared on both sides
 /// before comparing. The payloads set no other flag.
 const GL_CANDIDATES: [(&str, &[u8]); 2] = [("ESC ( 0", b"\x1b(0"), ("ESC ) 0 SO", b"\x1b)0\x0e")];
 

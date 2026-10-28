@@ -197,9 +197,10 @@ fn a_link_whose_uri_may_have_been_cut_is_refused_and_counted() {
 /// **A cell never resolves to a URI other than the one written under its
 /// index.** A later link that hashes to an occupied slot is refused and
 /// counted, never written over the occupant. The table evicted until
-/// activation was designed, and the review that changed it named the
-/// consequence: an `OSC 8` run that writes no cell could retarget every cell
-/// already on screen whose index it took, with nothing on screen changing.
+/// activation was designed, and a later check of that design found the
+/// consequence: an
+/// `OSC 8` run that writes no cell could retarget every cell already on
+/// screen whose index it took, with nothing on screen changing.
 #[test]
 fn a_cell_never_resolves_to_a_uri_other_than_the_one_written_under_its_index() {
     let first = b"http://a".to_vec();

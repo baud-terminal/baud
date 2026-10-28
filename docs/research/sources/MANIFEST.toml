@@ -265,8 +265,8 @@ group  = "C"
 # line 2433, column 5's `x="562.5"` on row 15's `y="802.0"`.
 # What holds of the old text: **none of the DEC sources read gives a Unicode
 # codepoint**. DEC names or draws each glyph; the codepoint every
-# implementation stores is its own judgement. See docs/record.md, "DEC Special Graphics begins at 0x5F, and
-# what it stores there is the owner's call".
+# implementation stores is its own judgement. What baud stores at `0x5F` is an
+# open departure (docs/vt-coverage.md, the DEC Special Graphics row).
 #
 # It was `gated`, with `url` at `table2-4.html` and nothing committed, though
 # the page had been fetched on 2026-08-27. That url 301s to
@@ -1695,9 +1695,8 @@ group  = "G"
 # And over the 31, xterm, VTE, alacritty's `vte` crate, ghostty and wezterm
 # agree with foot while Linux and kitty put U+2591 LIGHT SHADE at `0x68`, where
 # DEC names "New line" and foot's U+2424 SYMBOL FOR NEWLINE is the one that
-# conforms. On `0x5F` they split four ways; see the keys below and
-# docs/record.md, "DEC Special Graphics begins at 0x5F, and what it stores
-# there is the owner's call".
+# conforms. On `0x5F` they split four ways; see the keys below and the DEC
+# Special Graphics row of docs/vt-coverage.md.
 [sources.foot-vt100-0]
 key    = "foot-vt100-0"
 title  = "foot 1.21.0, terminal.c -- vt100_0[] DEC Special Graphics mapping"
@@ -1711,9 +1710,9 @@ bytes  = 143121
 status = "retrieved"
 group  = "C"
 
-# Practice on DEC Special Graphics `0x5F`, read 2026-10-08 for the record "DEC
-# Special Graphics begins at 0x5F, and what it stores there is the owner's
-# call". Evidence of what implementations do, never of what is right. All
+# Practice on DEC Special Graphics `0x5F`, read 2026-10-08 for what `0x5F`
+# stores, an open question. Evidence of what implementations do, never of
+# what is right. All
 # `external`: read and hash-verified against a fetch of the url, not committed.
 # Re-fetch and compare. The same commit of xterm as `[[source: xterm-charsets]]`.
 
@@ -2031,7 +2030,7 @@ group  = "B"
 # --- E: the tty layer ----------------------------------------------------
 #
 # Group E was declared when the corpus was set up and stayed **empty** while
-# `CLAUDE.md` made load-bearing claims about the tty: that `N_TTY_BUF_SIZE`
+# CONTRIBUTING.md made load-bearing claims about the tty: that `N_TTY_BUF_SIZE`
 # caps a Linux `read(2)` at 4095 bytes however large the buffer, that Darwin
 # hands back **1024**, that `splice()` "goes through the ldisc ring anyway", and
 # that eBPF "cannot skip the `queue_work()` hop". Every one of those was
@@ -2087,7 +2086,7 @@ status = "retrieved"
 group  = "E"
 # `tty_flip_buffer_push` -> `tty_buffer_queue_work` -> `queue_work(flip_wq ?:
 # system_dfl_wq, &buf->work)`, and the work is `flush_to_ldisc`. That is the
-# "`queue_work()` hop" `CLAUDE.md` says eBPF cannot remove: a byte written to
+# "`queue_work()` hop" eBPF cannot remove: a byte written to
 # the pty master reaches the line discipline on a workqueue, not in the
 # writer's syscall.
 
@@ -2300,8 +2299,8 @@ sha256 = "1178a0b1c861cf31710feca2edec7d3b4e54998e6e4f1da24169ffc5766d9b46"
 bytes  = 240076
 status = "external"
 group  = "H"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); the digest is of the copy then
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); the digest is of the copy then
 # held. The page has changed since, and this URL no longer serves it.
 # The progressive-enhancement protocol: `CSI > flags u` to push a mode,
 # `CSI < u` to pop, with flags for disambiguation, event types, alternate keys
@@ -2328,15 +2327,15 @@ group  = "H"
 # and the 35 C0 cells key_encode.rs had read from it. Fetched 2026-10-25.
 
 # Group F was declared when the corpus was set up and stood empty for the life
-# of the project, while `CLAUDE.md` refused a per-row used-extent twice on the
-# strength of an unexplained benchmark. These four are the implementations that
+# of the project, while a per-row
+# used-extent was refused twice on the strength of an unexplained benchmark. These four are the implementations that
 # had already answered the question. All are `external`: they are the source
 # files of other terminal emulators, under GPL-3.0, LGPL-2.1+, Apache-2.0 and
 # MIT, and this repository is CC BY-NC-SA 4.0 -- committing them would take on
 # redistribution obligations the repo's own licence does not discharge. Every
 # URL is a tag or a commit, so `external` here still names an immutable object.
 # (`foot-vt100-0` predates this reasoning and is `retrieved`; that is a licence
-# question for the owner, not one to widen by precedent.)
+# question still open, not one to widen by precedent.)
 
 [sources.alacritty-row]
 key    = "alacritty-row"
@@ -2465,8 +2464,8 @@ file   = ""
 sha256 = "2a40225571f5ce4c874c56388579556052cb08b91da79d98af3867966d981c2a"
 status = "external"
 group  = "F"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); this URL serves these bytes.
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); this URL serves these bytes.
 
 [sources.kitty-line]
 key    = "kitty-line"
@@ -2496,7 +2495,7 @@ group  = "A"
 # Fetched to answer "is baud's CJK path decode-bound?", and it says no. Its
 # Table 6(b) is an **Apple M1**, the same architecture class this project
 # measures on, so its Chinese column is directly comparable rather than a
-# cross-machine number of the kind CLAUDE.md rules out.
+# cross-machine number of the kind CONTRIBUTING.md rules out.
 
 # **Group I exists because an architectural proposal needed checking, not
 # because a note wanted writing.** The question was whether to split
@@ -4601,7 +4600,7 @@ status = "retrieved"
 group  = "J"
 # Committed 2026-10-14 so a test can read it: `baud-font/tests/mark_order.rs`
 # holds the shaper's Hebrew mark order to HB_MODIFIED_COMBINING_CLASS_CCC10
-# to CCC26 (lines 333-349), the owner's pick of note AB 11.4.
+# to CCC26 (lines 333-349), the order note AB 11.4 chose.
 
 [sources.harfbuzz-hb-buffer]
 key    = "harfbuzz-hb-buffer"
@@ -6600,7 +6599,7 @@ group  = "J"
 
 [sources.mlg-window]
 key    = "mlg-window"
-title  = "macos-liquid-glass src/window.rs -- GlassWindow: the NSWindow the owner's crate hands baud"
+title  = "macos-liquid-glass src/window.rs -- GlassWindow: the NSWindow the window crate hands baud"
 author = "Ido Samuelson"
 year   = 2026
 venue  = "i-am-logger/macos-liquid-glass at master, 1.0.0-beta.4 (MIT)"
@@ -6610,7 +6609,7 @@ sha256 = "2ff68b7626e05ca888b40d931810726ecfc3f455b62517518efe805135bf745e"
 bytes  = 25879
 status = "retrieved"
 group  = "J"
-# Committed under docs/research/sources/ -- the owner's own crate, MIT, re-hashed on commit.
+# Committed under docs/research/sources/ -- baud's author's own crate, MIT, re-hashed on commit.
 
 [sources.mlg-glass]
 key    = "mlg-glass"
@@ -6624,11 +6623,11 @@ sha256 = "1e0dbf4c40f718037998f6884f8aa792f9ead58944bee387185ef617ad055080"
 bytes  = 13752
 status = "retrieved"
 group  = "J"
-# Committed under docs/research/sources/ -- the owner's own crate, MIT, re-hashed on commit.
+# Committed under docs/research/sources/ -- baud's author's own crate, MIT, re-hashed on commit.
 
 [sources.mlg-measurements]
 key    = "mlg-measurements"
-title  = "macos-liquid-glass MEASUREMENTS.md -- the owner's luma measurements of glass under opaque and translucent content"
+title  = "macos-liquid-glass MEASUREMENTS.md -- its author's luma measurements of glass under opaque and translucent content"
 author = "Ido Samuelson"
 year   = 2026
 venue  = "i-am-logger/macos-liquid-glass at master, 1.0.0-beta.4 (MIT)"
@@ -6638,7 +6637,7 @@ sha256 = "dfdab3cb751a52b0620260d6f152b00988bcbaf93d173a5ea8c2806a0fef7d53"
 bytes  = 21856
 status = "retrieved"
 group  = "J"
-# Committed under docs/research/sources/ -- the owner's own crate, MIT, re-hashed on commit.
+# Committed under docs/research/sources/ -- baud's author's own crate, MIT, re-hashed on commit.
 
 [sources.mlg-cargo]
 key    = "mlg-cargo"
@@ -6652,7 +6651,7 @@ sha256 = "a3d240eb6bb814ab81d9fc3b7da014d0a7afdaef80bb3bfaa174badf0e6f29fd"
 bytes  = 5925
 status = "retrieved"
 group  = "J"
-# Committed under docs/research/sources/ -- the owner's own crate, MIT, re-hashed on commit.
+# Committed under docs/research/sources/ -- baud's author's own crate, MIT, re-hashed on commit.
 
 [sources.font-fira-code-regular]
 key    = "font-fira-code-regular"
@@ -7148,7 +7147,7 @@ group  = "O"
 # Not in the repository: no grant to redistribute it was found (Apple's
 # documentation). It was read as apple-nsapplication-currentevent.json, and
 # the digest is of that copy.
-# How the app reaches the NSEvent behind a KeyPress the owner's crate hands it
+# How the app reaches the NSEvent behind a KeyPress the window crate hands it
 # without a timestamp.
 
 [sources.apple-cgeventtimestamp]
@@ -8033,8 +8032,8 @@ sha256 = "fec97b9d4b1d70eed958301606464eab854ff2343d01429f8b658faa4682ea98"
 bytes  = 6611
 status = "external"
 group  = "O"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); this URL serves these bytes.
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); this URL serves these bytes.
 
 [sources.kitty-conf]
 key    = "kitty-conf"
@@ -8048,8 +8047,8 @@ sha256 = "4c9eab40da7c0f2e2dede04450988988e5694c448c59e74195a50fa440848b9b"
 bytes  = 550570
 status = "external"
 group  = "O"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); the digest is of the copy then
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); the digest is of the copy then
 # held. The page has changed since, and this URL no longer serves it.
 
 [sources.kitty-2701-hardware-latency]
@@ -9086,8 +9085,8 @@ sha256 = "73c2eb31824a9594f256693dd55d990acd3cc0094345f3b61a0f8d2c5c2a6546"
 bytes  = 156855
 status = "external"
 group  = "C"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); the digest is of the copy then
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); the digest is of the copy then
 # held. The page has changed since, and this URL no longer serves it.
 # The colon underline styles: `CSI 4:0m` none, `4:1` straight, `4:2` double,
 # `4:3` curly, `4:4` dotted, `4:5` dashed, with `4m` and `24m` kept for
@@ -9435,8 +9434,8 @@ sha256 = "1e7c751498e93ea358d8d611aa3da824b9c91afc815447fca343a9b2146a4a32"
 bytes  = 300190
 status = "external"
 group  = "C"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); the digest is of the copy then
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); the digest is of the copy then
 # held. The page has changed since, and this URL no longer serves it.
 # The Kitty graphics protocol, the second image protocol the Images phase
 # covers and the one whose *transmission mediums* are the zero-copy question:
@@ -9740,8 +9739,8 @@ sha256 = "a80368b3272c41d8b50f3f640cf4305b6423e5a1aae6b72a405129bc29425f2c"
 bytes  = 18056
 status = "external"
 group  = "C"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); this URL serves these bytes.
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); this URL serves these bytes.
 # The file `[[source: kitty-graphics]]`'s "Unicode placeholders" links as
 # rowcolumn-diacritics.txt; the copy the documentation serves
 # (https://sw.kovidgoyal.net/kitty/_downloads/f0a0de9ec8d9ff4456206db8e0814937/rowcolumn-diacritics.txt)
@@ -10675,8 +10674,8 @@ sha256 = "66b73c132a5b139fa297cd1d595331f8718b5c379cde40fe1008a769dfe37aed"
 bytes  = 7730
 status = "external"
 group  = "V"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); this URL serves these bytes.
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); this URL serves these bytes.
 
 [sources.kitty-options-definition]
 key    = "kitty-options-definition"
@@ -10690,8 +10689,8 @@ sha256 = "322b4af9667818d1961e556a7c26f65a668da34e071f52f6acc1a4d819727533"
 bytes  = 163193
 status = "external"
 group  = "V"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); this URL serves these bytes.
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); this URL serves these bytes.
 
 [sources.kitty-trail-slang]
 key    = "kitty-trail-slang"
@@ -10705,8 +10704,8 @@ sha256 = "16a752335c838b57278365593350820390571a587ce8f3fefc107bebd0e35e77"
 bytes  = 1303
 status = "external"
 group  = "V"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); this URL serves these bytes.
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); this URL serves these bytes.
 
 # The quad's provenance audit (note W, section 8), at kitty's release tag
 # v0.49.2, commit b2cb871: cursor_trail.c differs from the 1e1486e copy above
@@ -15175,7 +15174,7 @@ title  = "review-v13 starters: the renderer counters each arm reported (marks_un
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/inputs/counts.txt (untracked), copied unchanged"
+url    = "the starter sheets' counts for note AD (inputs/counts.txt), copied unchanged"
 file   = ""
 sha256 = "c466a17754479314deb234d4b85fd9e42a52b21b105ea28b93c6018920b2d64a"
 bytes  = 8356
@@ -15194,7 +15193,7 @@ title  = "review-v13 starters sheet a at 28 px: HEAD, AS_BUILT and BOX rendered 
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-a-28.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-a-28.png), copied unchanged"
 file   = ""
 sha256 = "83b68882b910e34bef0614695d0408f5234f3be16ea5311f328978cf1527fb49"
 bytes  = 10820
@@ -15213,7 +15212,7 @@ title  = "review-v13 starters sheet a at 56 px: HEAD, AS_BUILT and BOX rendered 
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-a-56.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-a-56.png), copied unchanged"
 file   = ""
 sha256 = "133432b5925c51ce48fd4c103daf3ec97fc245fae1d8057a73f8455449b225c9"
 bytes  = 26384
@@ -15232,7 +15231,7 @@ title  = "review-v13 starters sheet b at 28 px: HEAD, AS_BUILT and BOX rendered 
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-b-28.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-b-28.png), copied unchanged"
 file   = ""
 sha256 = "c8ca183770db151aec58674ed1d57ac6c3c16095734905e471fce5241d6f8b68"
 bytes  = 9893
@@ -15251,7 +15250,7 @@ title  = "review-v13 starters sheet b at 56 px: HEAD, AS_BUILT and BOX rendered 
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-b-56.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-b-56.png), copied unchanged"
 file   = ""
 sha256 = "32f0812caa471f8d93c155a510cacb3d9177e19f99bb1bd71c751c74d5febae7"
 bytes  = 22298
@@ -15270,7 +15269,7 @@ title  = "review-v13 starters sheet c at 28 px: HEAD, AS_BUILT and BOX rendered 
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-c-28.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-c-28.png), copied unchanged"
 file   = ""
 sha256 = "346dd458fd72fefecadcaf6a3ac337d974be1294241acf889a613da7508e7f8f"
 bytes  = 6859
@@ -15289,7 +15288,7 @@ title  = "review-v13 starters sheet c at 56 px: HEAD, AS_BUILT and BOX rendered 
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-c-56.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-c-56.png), copied unchanged"
 file   = ""
 sha256 = "5b9a2f8897642f83e0e6ec640ba75b8d1b59c05daab44ebf423e980cc0c2db09"
 bytes  = 12255
@@ -15308,7 +15307,7 @@ title  = "review-v13 starters sheet d at 28 px: HEAD, AS_BUILT and BOX rendered 
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-d-28.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-d-28.png), copied unchanged"
 file   = "ad-observed/review-v13-sheet-d-28.png"
 sha256 = "e6f787f78c5910ea1e0772cdd74a367c8e1e9babe5c7e39dd821615f3914f4fc"
 bytes  = 6643
@@ -15324,7 +15323,7 @@ title  = "review-v13 starters sheet d at 56 px: HEAD, AS_BUILT and BOX rendered 
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-d-56.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-d-56.png), copied unchanged"
 file   = "ad-observed/review-v13-sheet-d-56.png"
 sha256 = "795f4e5590a6936adff788c508bcd0d8a0c859945f4d6b5f43aab8abb49f072a"
 bytes  = 12034
@@ -15340,7 +15339,7 @@ title  = "review-v13 starters sheet e at 28 px: HEAD, AS_BUILT and BOX rendered 
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-e-28.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-e-28.png), copied unchanged"
 file   = ""
 sha256 = "ab462f642d6285c8f2907a0371530fd6b2e5405ab545c2f23931a73005eeeae4"
 bytes  = 21061
@@ -15359,7 +15358,7 @@ title  = "review-v13 starters sheet e at 56 px: HEAD, AS_BUILT and BOX rendered 
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-e-56.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-e-56.png), copied unchanged"
 file   = ""
 sha256 = "53e3f3782ba274ed8ab92110f71b42439fa831fd0fdc920f14dd7db52163fb1b"
 bytes  = 57285
@@ -15378,7 +15377,7 @@ title  = "review-v13 starters sheet noto-a at 28 px: HEAD, AS_BUILT and BOX rend
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-noto-a-28.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-noto-a-28.png), copied unchanged"
 file   = "ad-observed/review-v13-sheet-noto-a-28.png"
 sha256 = "dfb26d31a6ebc60d65c6764f397c9934b7b738a56f270474fd08ea826ccd1ac0"
 bytes  = 9092
@@ -15394,7 +15393,7 @@ title  = "review-v13 starters sheet noto-a at 56 px: HEAD, AS_BUILT and BOX rend
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-noto-a-56.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-noto-a-56.png), copied unchanged"
 file   = "ad-observed/review-v13-sheet-noto-a-56.png"
 sha256 = "520ef8164ee88e13c74c1035f1486b6e101f4bf14b6ff806d3b321d7063e4531"
 bytes  = 16617
@@ -15410,7 +15409,7 @@ title  = "review-v13 starters sheet noto-b at 28 px: HEAD, AS_BUILT and BOX rend
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-noto-b-28.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-noto-b-28.png), copied unchanged"
 file   = "ad-observed/review-v13-sheet-noto-b-28.png"
 sha256 = "5f1e03eb9fde940c27d8dcbc9a9864af34fc3ad3b5e05e94ac6724d7dc9ec35f"
 bytes  = 9164
@@ -15426,7 +15425,7 @@ title  = "review-v13 starters sheet noto-b at 56 px: HEAD, AS_BUILT and BOX rend
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-noto-b-56.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-noto-b-56.png), copied unchanged"
 file   = "ad-observed/review-v13-sheet-noto-b-56.png"
 sha256 = "a962ba14236d58a7447f96063c9451297183c82dadf19b8cbd8b991cddaf35b4"
 bytes  = 17653
@@ -15442,7 +15441,7 @@ title  = "review-v13 starters sheet noto-c at 28 px: HEAD, AS_BUILT and BOX rend
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-noto-c-28.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-noto-c-28.png), copied unchanged"
 file   = "ad-observed/review-v13-sheet-noto-c-28.png"
 sha256 = "1f6203d405de6c17f961ed06e61427531c4f21b799730ce177332cd49484ec5c"
 bytes  = 7020
@@ -15458,7 +15457,7 @@ title  = "review-v13 starters sheet noto-c at 56 px: HEAD, AS_BUILT and BOX rend
 author = "baud research (note AD)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = ".claude/research/review-v13/starters/sheet-noto-c-56.png (untracked), copied unchanged"
+url    = "a starter sheet rendered for note AD (sheet-noto-c-56.png), copied unchanged"
 file   = "ad-observed/review-v13-sheet-noto-c-56.png"
 sha256 = "510c1b5f06e6584ea39bd31586677050f562b8a2da13c5514487bf61f1a6c84f"
 bytes  = 12358
@@ -15626,8 +15625,8 @@ group  = "J"
 # Group C -- note AE, code extension: designation and invocation of the graphic
 # sets (SCS, LS, SS), the user-preferred supplemental set, conformance levels, the
 # C1 transmission mode, and what DECSC/DECRC and RIS keep of them. The VT510 pages
-# and xterm's files were read in .claude/research/code-ext/, re-fetched on 2026-10-08
-# and committed when each re-fetch matched the copy read byte for byte.
+# and xterm's files were read outside the tree, re-fetched on 2026-10-08 and
+# committed when each re-fetch matched the copy read byte for byte.
 
 [sources.vt510-decrc]
 key    = "vt510-decrc"
@@ -16164,8 +16163,8 @@ group  = "C"
 # Hebrew, Greek and Turkish Supplementals, DEC Cyrillic): DEC's own charts and the
 # manuals searched for them, the vt100.net pages read beside them, the ISO-IR
 # registrations of the two JIS sets, Unicode's JIS X 0201 table, and the X keysym
-# values xterm's NRC tables name. Read in .claude/research/nrcs/ (wf-nrcs,
-# wf-untranslated, and wf-check, which corrects the first two). Every url was re-fetched
+# values xterm's NRC tables name. Read outside the tree (two passes, and a third
+# that corrects the first two). Every url was re-fetched
 # on 2026-10-08 and matched, byte for byte, the sha256 recorded when it was read. Files
 # under 3 MB are committed, but for three DEC manuals (vt220-pocket-guide, dec-pplv2-pm,
 # vt420-rm), which are `external` with the four over 3 MB; see each entry for why.
@@ -17530,7 +17529,7 @@ title  = "With --info --debug over 11:00-11:40: every Default, Error and Fault l
 author = "baud research (note AI)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "log show, read-only, 11:59, by the reviewer of the first draft"
+url    = "log show, read-only, 11:59, run while checking the first draft"
 file   = "ai-observed/review-info-debug-absent.txt"
 sha256 = "1b6ce70146acb661c9d5a936e9a91adc3b602044aa0bbf3e41b85708e4795575"
 bytes  = 3845
@@ -17543,7 +17542,7 @@ title  = "The cost probe's 6000 persisted lines, 11:20:16.605-.632, counted per 
 author = "baud research (note AI)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "log show, read-only, 11:59, by the reviewer of the first draft"
+url    = "log show, read-only, 11:59, run while checking the first draft"
 file   = "ai-observed/review-costprobe-lines.txt"
 sha256 = "ec1d5bf7387e762a1e36f822c1a8d2c41ee0b0820ad59823d170589656c6bf61"
 bytes  = 549
@@ -22657,8 +22656,8 @@ year   = 2026
 venue  = "local capture or measurement"
 url    = "written for note AL"
 file   = "al-observed/base_frames.py"
-sha256 = "2c1d46210e17022a1b127955cfc73312d7ea9a3098018151c640e3152abe8683"
-bytes  = 1541
+sha256 = "c3be27a2a9b93a87e5ae3225205dda9a0d87ff4c75c940ec6367863861c0dd94"
+bytes  = 1548
 status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
@@ -22671,7 +22670,7 @@ title  = "base_frames.py's output: 288 base frames rendered by two or more proto
 author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "python3 -I base_frames.py .claude/research/flash-fix"
+url    = "python3 -I base_frames.py FLASH_FIX_DIR, the prototypes' working directory"
 file   = "al-observed/base_frames-out.txt"
 sha256 = "2217aa653e00ed66bb82ad068bb48e5b024c4a5e7bccaf4606915cd1712bd3f4"
 bytes  = 130
@@ -22721,8 +22720,8 @@ year   = 2026
 venue  = "local capture or measurement"
 url    = "written for note AL"
 file   = "al-observed/gates.py"
-sha256 = "d2a2ef763d6b10ffb040dcea1049c98ee1cd149afd8ab807e224a87933191003"
-bytes  = 9167
+sha256 = "4d417d89fbb44b2e83ef0d8bc3933066341dea5aa819669f0acdcfc1866af84a"
+bytes  = 9174
 status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
@@ -22735,7 +22734,7 @@ title  = "gates.py's output, 2026-10-09: the controls as required in every run f
 author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "python3 -I gates.py .claude/research/flash-fix <scratchpad>/bin docs/research/sources/aj-observed/flash-census.tsv"
+url    = "python3 -I gates.py FLASH_FIX_DIR SCRATCH_BIN docs/research/sources/aj-observed/flash-census.tsv"
 file   = "al-observed/gates-out.txt"
 sha256 = "6e733a8f5adef1f1067dd1a627f35ccab3db9325a60f2ce7dbcbc3df8d659fc8"
 bytes  = 6554
@@ -27030,7 +27029,7 @@ status = "external"
 group  = "AA"
 # Retrieved 2026-10-12. Read: 323-362.
 
-# Group AA, note AA section 9 (2026-10-14, building the owner's call of 2026-10-13): what launchd
+# Group AA, note AA section 9 (2026-10-14, building the choice of 2026-10-13): what launchd
 # is, where an orphan goes, and what PWD must name. All external: hash-verified, not committed.
 
 [sources.macos-man-launchd]
@@ -28211,8 +28210,8 @@ group  = "BL"
 # documentation). It was read as apple-nswindow-iskeywindow.json, and the
 # digest is of that copy.
 
-# Fetched 2026-10-14 for HT and BS under side margins (docs/record.md, "HT and
-# BS under side margins"). vt100.net has no HT or BS page in this manual (both
+# Fetched 2026-10-14 for HT and BS under side margins (the HT and BS rows of
+# docs/vt-coverage.md). vt100.net has no HT or BS page in this manual (both
 # 404); Table 4-1, "C0 (7-Bit) Control Characters", is where the VT510 says
 # what each does. The hash covers the page with its site chrome.
 [sources.vt510-chapter4]
@@ -29936,8 +29935,8 @@ status = "external"
 group  = "Y"
 # Read and hash-verified; not committed -- a vendor page.
 
-# Group AS, for the glass's legibility (note AS, the owner's 2026-10-17 "we should
-# follow apple recommendations for osx"): Apple's guidance on the material, the
+# Group AS, for the glass's legibility (note AS, which follows Apple's
+# recommendations for macOS, 2026-10-17): Apple's guidance on the material, the
 # dimming and the Reduce Transparency and Increase Contrast settings, and Apple's
 # own Terminal. Each page was fetched 2026-10-17 from the documentation JSON
 # endpoint or as HTML; the Terminal profiles were read on macOS 27.0. Re-fetch or
@@ -30196,8 +30195,8 @@ bytes  = 4575
 status = "external"
 group  = "AS"
 
-# Group AT, for a standard material behind the window body (note AT, the
-# owner's 2026-10-17 "we should follow apple recommendations for osx"): the
+# Group AT, for a standard material behind the window body (note AT, which
+# follows Apple's recommendations for macOS, 2026-10-17): the
 # NSVisualEffectView pages note AS did not pin, today's copies of two WWDC pages
 # whose bytes moved, the shipped material catalogs, TextEdit, and the modelled
 # contact sheets. Pages fetched 2026-10-17 from the documentation JSON endpoint
@@ -32980,8 +32979,8 @@ sha256 = "57188360fc9466f4e2324457ca38f7d25de5383eeedd6b982bbea8af9fc60b51"
 bytes  = 26196
 status = "external"
 group  = "AX"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); this URL serves these bytes.
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); this URL serves these bytes.
 # Read whole, 2026-10-21 (lane b139). The governing text for OSC 99; its keys table and
 # the query table are what baud-domain/src/vt/notify.rs implements key by key.
 
@@ -32997,8 +32996,8 @@ sha256 = "1cd750e60dbf8e77e70edc62e06c75780091324d26de6e86f2547c8d02b971a0"
 bytes  = 47959
 status = "external"
 group  = "AX"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); this URL serves these bytes.
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); this URL serves these bytes.
 # Practice, read for what the text leaves open: one pending command per window, merged
 # while the id matches; 1024-character text limits, 8 buttons; untracked closes sent at
 # once; the query answer composed from what the platform integration supports.
@@ -33015,8 +33014,8 @@ sha256 = "710926826f7be5e21bc83bba286a81e8366e0819059342bbdcac6b701b146275"
 bytes  = 1622
 status = "external"
 group  = "AX"
-# kitty's own file, removed from the repository on 2026-10-25 (the owner:
-# "remove the kitty reference files"); this URL serves these bytes.
+# kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
+# files were removed from the tree); this URL serves these bytes.
 # The timeouts are kitty practice and no text; baud has none.
 
 [sources.kitten-notify-go]
@@ -35630,7 +35629,7 @@ bytes  = 113743
 status = "external"
 group  = "J"
 # Run 2026-10-23 (lane b176) against the decoder outside the tree, not
-# committed: the record has the result.
+# committed: its result is in the note that cites it.
 
 [sources.rust-issue-154878]
 key    = "rust-issue-154878"
@@ -37484,8 +37483,8 @@ sha256 = "a39c5000237a51b35bde98b07b0c335547013c9df92c290ab28598500b29afa9"
 bytes  = 12096
 status = "external"
 group  = "C"
-# Fetched 2026-10-28 (lane b240), not committed (kitty's files were removed at the
-# owner's request); read [text]: reads 'should ask the user for permission', 'a terminal
+# Fetched 2026-10-28 (lane b240), not committed (kitty's files were removed from
+# the tree); read [text]: reads 'should ask the user for permission', 'a terminal
 # that rejects a read request must simply ignore it' (39), writes 'must accept at least
 # 64MB of data' (154), the ?5522 paste-event mode and its DECRQM detection.
 

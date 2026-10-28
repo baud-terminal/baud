@@ -6,7 +6,7 @@ and 42 `external`. The probes' sources and raw outputs are the `ai-obs-*`
 entries under `docs/research/sources/ai-observed/`, redacted: the user name,
 the scratch path and process ids are replaced, and `PATH` was elided at
 capture; times keep their zone (MDT). The unredacted originals and the fetched
-copies of external sources stay untracked under `.claude/research/logging/`.
+copies of external sources were kept outside the repository.
 [[source: ai-obs-index]] says what each holds. As of 2026-10-09 question 1 is decided (§7), and question 2's C shim is chosen but held as conditional.
 
 Evidence tags:

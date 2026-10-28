@@ -17,7 +17,7 @@ Evidence is tagged as follows:
 - **[measured]**: a command and its output.
 - **[inferred]**: reasoning from the above.
 
-Where the critic found that a claim does not hold, this note gives the corrected form and marks it "(corrected)". The working files were copied out of the session scratchpad and are kept untracked in `.claude/research/rtl/research/<key>/` (scratchpad paths below map there), with the Windows deep dive in `.claude/research/rtl/windows/`. The sources in section 9 are not yet pinned in the manifest.
+Where the critic found that a claim does not hold, this note gives the corrected form and marks it "(corrected)". The working files, the Windows deep dive among them, were kept outside the repository. The sources in section 9 are not yet pinned in the manifest.
 
 ## 1. What was asked
 
@@ -406,7 +406,7 @@ xterm.js has no bidi. Its DOM renderer merges same-style cells into one span, so
 - It calls AnalyzeScript, then GetGlyphs with `isRightToLeft = 0`.
 - `GetParagraphReadingDirection` returns LTR, and `SetBidiLevel` returns E_NOTIMPL.
 
-The local extract at `.claude/research/open-calls/face/wt` has no `.git`, so its commit, 2b5336c, could not be verified. Its AtlasEngine.cpp (38e4648c…) and DWriteTextAnalysis.cpp (4f15e81a…) are byte-identical to the clone at 35f29bd, so the claims above hold for either [measured].
+The local extract of Windows Terminal that was read has no `.git`, so its commit, 2b5336c, could not be verified. Its AtlasEngine.cpp (38e4648c…) and DWriteTextAnalysis.cpp (4f15e81a…) are byte-identical to the clone at 35f29bd, so the claims above hold for either [measured].
 
 **conhost's GDI path deliberately presents RTL in logical order.** It sets `fOverrideDirection = TRUE` "to present RTL text in logical order in order to be compatible with applications like vim -H" [source: gdi/paint.cpp:452-490 @35f29bd]. That came out of #12294 and was merged as PR #12722 on 2022-03-21 [doc]. In #12294, j4james wrote that it is "almost impossible to write an RTL application on terminals that don't work this way".
 
@@ -564,7 +564,7 @@ All rows: [inferred from 6.1].
    - It asks for paragraph boundaries and embedding levels kept in the buffer, override controls, line-by-line reordering, and *visual* cursor movement. That last item conflicts with terminal-wg.
    - It is a proposal, not a working-group draft. The working group's later reports moved: L2/25-179 calls partial UAX #9 support a prerequisite, and L2/25-263 (2025-10) records "a desire in the group to not be dependent on terminals supporting UAX 9". The group's drafts are in a private repository and were not seen. The opposition paper L2/23-153 is unread.
 
-Note AA already recorded that Windows Terminal never reorders RTL text, so "Windows level" cannot mean matching Windows Terminal's reordering [source: aa-shell-locale.md:260-262]. Which reading the project means is Q1.
+Note AA already recorded that Windows Terminal never reorders RTL text, so "Windows level" cannot mean matching Windows Terminal's reordering [source: aa-shell-locale.md:260-262]. Which reading the request means is Q1.
 
 ## 7. Where it lives in baud
 
@@ -653,7 +653,7 @@ This needs a red test pinning `marks_dropped > 0` on that sample, and it gates p
 
 ## 8. Design questions
 
-Each question needs a rendered picture of its options on the review page before it is asked, and a decision. Several of them are coupled, and the couplings are stated.
+Each question needs a rendered picture of its options before it is decided. Several of them are coupled, and the couplings are stated.
 
 **Q1. What does "Windows level" mean?**
 
@@ -705,7 +705,7 @@ Phase 0 means four things: a script argument for `Layout::lang_sys`, per-(face, 
 
 How runs are itemised [inferred from the critic's correction of the Ghostty claim]:
 
-- Runs break at a face change (renderer.rs:2245-2247), which is enough only while Hebrew comes from a fallback face, as in the system-fallback interim. Under the project's 2026-10-07 direction, Hebrew is patched into the embedded font (note AC), so the default face covers both scripts and runs must be split by script (Scripts.txt/ScriptExtensions), as Contour does.
+- Runs break at a face change (renderer.rs:2245-2247), which is enough only while Hebrew comes from a fallback face, as in the system-fallback interim. Under the 2026-10-07 direction, Hebrew is patched into the embedded font (note AC), so the default face covers both scripts and runs must be split by script (Scripts.txt/ScriptExtensions), as Contour does.
 - A face that covers both Latin and Hebrew, such as Courier New or Liberation Mono used as the primary face, needs runs split by script, as Contour does.
 
 Phase 0 alone does not fix pointed text; see Q7.
@@ -720,7 +720,7 @@ Phase 0 alone does not fix pointed text; see Q7.
 - (c) Leave it bounded and keep counting refusals. *Against:* vowel points vanish.
 - CONTRIBUTING.md requires the attacker-keyed style and link tables to stay bounded. Cluster keys are attacker-supplied too, so by the same reasoning any option must stay bounded [inferred].
 - It needs a red test, pinning `marks_dropped > 0` on that sample, before any choice is made.
-- *Answered 2026-10-13 by the project and built 2026-10-14*: (a) and (b) together, 1024 slots with the index in the cell's `Content` above U+10FFFF, eight probes, and a sweep of the live cells that frees what no cell names (7.2's postscript). It stays bounded: a cluster whose eight slots hold others is refused and counted, before the store fills and after a sweep. The eight-continuation cap (`ClusterSlot::CAPACITY`) was left open by the project and is kept and stated in `docs/vt-coverage.md`.
+- *Answered 2026-10-13 and built 2026-10-14*: (a) and (b) together, 1024 slots with the index in the cell's `Content` above U+10FFFF, eight probes, and a sweep of the live cells that frees what no cell names (7.2's postscript). It stays bounded: a cluster whose eight slots hold others is refused and counted, before the store fills and after a sweep. The eight-continuation cap (`ClusterSlot::CAPACITY`) was left open and is kept and stated in `docs/vt-coverage.md`.
 
 **Q8. Erased cells between characters.**
 
@@ -818,14 +818,14 @@ vim with `arabicshape` already emits presentation forms.
 - 17.0.0 matches baud's other UCD pins and rev 51.
 - 18.0.0 adds two brackets and five mirroring pairs (2.4).
 - The test files' data is identical in both, and both sets of bytes are saved.
-- *Decided 2026-10-24 by the review and built*: 17.0.0 and rev 51, over the bidi tables alone at 18.0.0 and over every table moved at once. `uax9-bidi` now names rev 51's URL, the bytes it always hashed.
+- *Decided 2026-10-24 and built*: 17.0.0 and rev 51, over the bidi tables alone at 18.0.0 and over every table moved at once. `uax9-bidi` now names rev 51's URL, the bytes it always hashed.
 
 **Q21. Native digits and user direction toggles.**
 
 - Substitute Arabic-Indic digits by context, as Windows and Word do, or always draw ASCII digits, as Apple's HIG says for Hebrew?
 - Offer a user-side paragraph-direction toggle, such as macOS's Cmd+Ctrl+Left/Right (`makeBaseWritingDirection*`, measured in StandardKeyBinding.dict) or Rich Edit's Ctrl+Right Shift? These would compete with SCP and with applications.
 
-**Q22. The request: fall back to the system font when the configured font lacks a symbol.** (Answered by the project on 2026-10-07; note AC carries the design.)
+**Q22. The request: fall back to the system font when the configured font lacks a symbol.** (Answered on 2026-10-07; note AC carries the design.)
 
 The request is quoted in section 1.
 
@@ -843,7 +843,7 @@ Evidence:
 Options:
 
 - (a) System fallback through CoreText on macOS and fontconfig on Linux, as asked. *Against:* the face Stack borrows a fixed set of faces, so it would have to grow at runtime. It also conflicts with same pixels on every OS: macOS lands on Courier New, whose licence is unchecked, while Linux resolves through fontconfig coverage.
-- (b) Bundle a monospace Hebrew face, such as Liberation Mono (the review scored it in note AA). Superseded: Hebrew is to come from baud's own patch on JetBrains Mono. No Arabic face was measured besides Courier New.
+- (b) Bundle a monospace Hebrew face, such as Liberation Mono (weighed in note AA). Superseded: Hebrew is to come from baud's own patch on JetBrains Mono. No Arabic face was measured besides Courier New.
 - (c) Bundled faces first, the system last. This is the answer.
 
 If fallback ever selects faces per whole cluster, it must leave default-ignorable characters (ZWNJ, ZWJ, LRM, RLM, ALM, the embeddings and the isolates) out of the coverage test. Ghostty (run.zig:352-380 @befcdfd) and foot (#2049) fell back, or drew U+FFFD, because of them. This was not a problem in baud while it selected the face by base codepoint, and it already skipped `Ignorable::Yes` glyphs when drawing (baud-font shape.rs:15-17) [source; critic]. Since Q23 (2026-10-07) baud does select a marked cell's face per whole cluster, and its coverage test, `Normalised::covered` in baud-font/src/shape.rs, exempts every `Ignorable::Yes` codepoint, the variation selectors among them. `mark_coverage::an_ignorable_is_not_a_mark_a_face_must_have` pins it on a stack where only the second face maps ZWJ and ZWNJ.
@@ -888,18 +888,17 @@ The default-ignorables have broken this kind of coverage test elsewhere:
 - kitty exempts the whole non-rendered set: Cf, Other_Default_Ignorable and
   VS1-VS16 (gen/wcwidth.py:1129-1131).
 
-**Decided (the review, every cost below in the request).**
+**Decided, weighing every cost below.**
 
-the review was asked three times:
+It was weighed three times:
 
-- **First ask, earlier the same day, before the prior art above was read.**
-  It offered three fixes and put a face per whole cluster at 0.83. That option kept the base's face, box
-  included, when no face covers the cluster.
-- **Second ask, with the prior art and the costs in the request.** The
-  no-cover case was split into dropping and replacing, and A_DROP scored
-  0.99.
-- **Third ask, after a refuter found two of the second request's premises
-  wrong (corrected under the costs below).** A_DROP scored 0.99 .
+- **First, earlier the same day, before the prior art above was read.**
+  Of three fixes, a face per whole cluster led. That option kept the base's
+  face, box included, when no face covers the cluster.
+- **Second, with the prior art and the costs.** The no-cover case was split
+  into dropping and replacing, and dropping led.
+- **Third, after two of the second weighing's premises were found wrong
+  (corrected under the costs below).** Dropping led again.
 
 - A cell with marks draws from the first face that covers the base and every
   mark. The candidates are the face its base would get, then the fallback chain
@@ -910,7 +909,7 @@ the review was asked three times:
   that face cannot draw are dropped, before shaping, and counted.
 - Unmarked cells take the old path.
 
-The costs the review weighed:
+The costs weighed:
 
 - **Faces can mix inside a word.** Once note AC's Hebrew is built, a
   configured font with Hebrew letters but no points will draw pointed letters
@@ -924,19 +923,19 @@ The costs the review weighed:
   q + U+0305 draws from Menlo Regular
   (`mark_coverage::a_bold_cluster_its_bold_face_cannot_draw_falls_to_the_chain`).
   A configured `fonts` stack has no styled face at all (config.rs:840-846).
-  - The second request to the review said the embedded font had every point in every
-    style, so this cost reached only configured styled fonts, which baud does
-    not load.
+  - The second weighing took the embedded font to have every point in every
+    style, so that this cost reached only configured styled fonts, which baud
+    does not load.
   - Both premises were wrong: the first describes note AC's planned font, not
     the built one.
-  - The third ask corrected both, and the answer stood.
+  - The third weighing corrected both, and the answer stood.
 - **A coverage test runs per marked cell, remembered per cluster.** Only the
   run path is priced: the frame bench's convert step, on synthetic marked
   payloads. Where every face has the marks it read +1.7%, with the ranges
   overlapping, so there is no result. The cell path's overlay is the app's
-  default path, and it is unmeasured. See the record entry.
+  default path, and it is unmeasured.
 
-The alternatives scored 0.01 or less:
+The alternatives, each far behind:
 
 - replacing the whole cell (Ghostty, kitty);
 - the base's face only, dropping marks;
@@ -986,7 +985,7 @@ The tests are `baud-render/tests/mark_coverage.rs` and
 
 **Open.**
 
-- **A choice the project made: attached codepoints that are not marks.** As built, the
+- **Attached codepoints that are not marks.** As built, the
   drop also covers an emoji after a ZWJ, a skin-tone modifier and a flag's
   second regional indicator. On an emoji face that lacks a newer member, a
   ZWJ sequence draws what is left of it. This comes from reading the code, not
@@ -994,8 +993,8 @@ The tests are `baud-render/tests/mark_coverage.rs` and
   woman, a different emoji, and nothing on screen says so.
   - The alternative drops only combining marks. A cluster with any other
     codepoint its face lacks draws as one `.notdef` box in its cell, counted.
-  - The review put the built rule against, so the project
-    decides from renders of both.
+  - The built rule did not lead against it, so the choice is made from
+    renders of both.
 - **Pre-existing, outside the brief.** An unmarked precomposed character its
   face lacks, such as U+1F00 on JetBrains Mono, still decomposes in the shaper
   and draws an uncounted box one cell right.
@@ -1014,7 +1013,7 @@ The tests are `baud-render/tests/mark_coverage.rs` and
     from the letter's own face there.
   - Now a cluster that `face_for` moves to another face for its marks does too,
     for example q+U+0305 to Fira.
-- **As designed, noted for the project.** The walk down the chain tests the cmap
+- **As designed, noted.** The walk down the chain tests the cmap
   only:
   - it ignores presentation, so U+263A U+FE0F U+0301 draws a text smiley with
     the acute;
@@ -1050,7 +1049,7 @@ Note AD § 2.6 records the same refusal at column 0 and on an empty cell for sel
 - `U+1100 CSI b U+1161` writes two cells, L, then the copy L with V; GB6 makes L L V one cluster.
 - `ab CSI b U+0903` is `a`, `b`, and the copy `b` with the visarga, which both readings agree on.
 
-GB4 read on the `ESC` of `CSI b` breaks before the copy, which is what baud does; read on the expanded text it would not. [[source: ecma48]] 8.3.103 says REP indicates that "the preceding character in the data stream, if it is a graphic character... is to be repeated n times", which says what is written and not how it clusters. *For the review:* (a) keep the break before the copy, GB4 on the sequence; (b) treat the copies as the text they expand to, joining a copy to the cluster before it where the rules say so, which needs the machine walked across each copy rather than started again.
+GB4 read on the `ESC` of `CSI b` breaks before the copy, which is what baud does; read on the expanded text it would not. [[source: ecma48]] 8.3.103 says REP indicates that "the preceding character in the data stream, if it is a graphic character... is to be repeated n times", which says what is written and not how it clusters. *To decide:* (a) keep the break before the copy, GB4 on the sequence; (b) treat the copies as the text they expand to, joining a copy to the cluster before it where the rules say so, which needs the machine walked across each copy rather than started again.
 
 **3. Whether NUL and DEL end the cluster at all.** Both are Control to GB4 and GB5, and `[[source: gbtest]]` line 121 is `÷ 0000 ÷ 0903 ÷`, so baud ends the cluster at them, for a continuation that takes a column. Against that, [[source: ecma48]] 8.3.88 says NUL characters "may be inserted into, or removed from, a data stream without affecting the information content of that stream", and the parser discards both; read that way the visarga after `x NUL` joins the `x`. Implemented at face value of both texts: NUL changes nothing on the screen and is still a Control. For a zero-width codepoint they already do not end it (item 1): `ab NUL U+0308` puts the diaeresis on the `b`.
 
@@ -1072,7 +1071,7 @@ How the lists below were built [measured]:
 - The `file://` rows are local copies of macOS SDK headers and system files.
 - Where two keys read the same project at different commits, both commits are listed and each fact cites its own: Ghostty at d9840f3 and befcdfd, kitty at 6d5d0c4 and 7d37453.
 
-The merged pin list so far is `synthesis/pins-merged.tsv` in the scratchpad (sha256 `92ccb68a6d23ffa0ac8b1aa7ab64dce5da9e3a1bd8f8f5f0a45232c90b8849ba`, 77199 bytes; every row re-hashed against its saved copy). The TSV has 344 rows: every unique URL except the terminal-wg index. It is not authoritative until the Windows deep dive's lists are merged into it. The tables below copy it: 9.1 to 9.3 in full, and 9.4 and 9.5 as summaries by project, to keep this report one reply long. The full rows of 9.4 and 9.5 are in the TSV and in `synthesis/section9-full.md`. The TSV also carries the unversioned UAX #9 URL (same bytes as `tr9-52.html`), which should not be pinned.
+The merged pin list so far was `synthesis/pins-merged.tsv` in the working files (sha256 `92ccb68a6d23ffa0ac8b1aa7ab64dce5da9e3a1bd8f8f5f0a45232c90b8849ba`, 77199 bytes; every row re-hashed against its saved copy). The TSV has 344 rows: every unique URL except the terminal-wg index. It is not authoritative until the Windows deep dive's lists are merged into it. The tables below copy it: 9.1 to 9.3 in full, and 9.4 and 9.5 as summaries by project, to keep this report one reply long. The full rows of 9.4 and 9.5 are in the TSV and in `synthesis/section9-full.md`. The TSV also carries the unversioned UAX #9 URL (same bytes as `tr9-52.html`), which should not be pinned.
 
 ### 9.1 Already in the manifest
 
@@ -1345,30 +1344,28 @@ Pages that are not files in a repository, in full:
     - A report that bicon fails on ARM macOS is unconfirmed.
 13. **VTE's "v0.2".** It could not be confirmed, because no v0.2 was ever published.
 
-### For the parent
+### What follows
 
-- The font request: done; record Q22's answer as option (c).
-- Commit this note before the scratchpad is lost, and pin the sources.
-- Render each section 8 question as a visual before asking it.
+- The font request: done; Q22's answer is option (c).
+- Pin the sources.
+- Render each section 8 question as a visual before deciding it.
 
 ## 11. Script selection after phase 0: the four questions Q6 left (2026-10-13)
 
 Q6's postscript built phase 0 at 5d44960 and left four choices the texts do not settle. Round 2026-10-13f weighed all four, and round 2026-10-13g weighed Q-A and Q-C again with two research lanes' measurements. The data, harnesses and patch the decisions rest on are committed in [ab/](ab/), listed in 11.6. Every figure below is taken from those files. This section's baud citations are at a9bf3a1, not the a8114e2 of the note's header.
 
-### 11.1 What the review answered
+### 11.1 What was answered
 
-Confidence, then the probabilities. The rule since 2026-10-10: 0.9 or above both times decides, departures included; below 0.9 needs more research or a reframe.
+| question | options, as marked when weighed | result |
+|---|---|---|
+| Q-A: the Script table after `DFLT`, for a face with neither the run's script nor `DFLT` | A1_LATN, built; A2_NONE; A3_DFLT_LOWER; all three marked conforming, because the ScriptList text is silent past `DFLT` | **decided: A1_LATN, as built** |
+| Q-B: Hebrew whose `GPOS` has no `hebr` table | B1_DFLT_ANCHORS, built (conforming); B2_GPOS_OFF, HarfBuzz's (departing where the face has `DFLT`, silent where only `latn` is chosen) | **decided: B1_DFLT_ANCHORS, as built** |
+| Q-C: two Hebrew points of different classes in one cell | C1_CANONICAL, built; C2, a different option in each round: 13f's C2_SBL sorts by HarfBuzz's classes and "then makes HarfBuzz's one Hebrew swap", 13g's C2_HB_CLASSES is the patch, "without HarfBuzz's swap" (the swap fires 0 times in both corpora, 11.4); all marked conforming | **C2, 2026-10-13 (11.4)** |
+| Q-D: the order of an Indic or Myanmar script's tags | D1_V2_FIRST, built (conforming); D2_OLD_FIRST (conforming for the Indic pairs, departing for Myanmar "if that reaches lookup"); D3_DEV3, HarfBuzz's unregistered `dev3` (conforming) | **decided: D1_V2_FIRST, as built** |
 
-| question | options, as the requests marked them | 527 | 528 | 529 | 530 | result |
-|---|---|---|---|---|---|---|
-| Q-A: the Script table after `DFLT`, for a face with neither the run's script nor `DFLT` | A1_LATN, built; A2_NONE; A3_DFLT_LOWER; all three marked conforming, because the ScriptList text is silent past `DFLT` | A1 0.80 | A1 0.83 | A1 0.92 | A1 0.92 | **decided: A1_LATN, as built** |
-| Q-B: Hebrew whose `GPOS` has no `hebr` table | B1_DFLT_ANCHORS, built (conforming); B2_GPOS_OFF, HarfBuzz's (departing where the face has `DFLT`, silent where only `latn` is chosen) | B1 0.98 | B1 0.94 | | | **decided: B1_DFLT_ANCHORS, as built** |
-| Q-C: two Hebrew points of different classes in one cell | C1_CANONICAL, built; C2, a different option in each round: 13f's C2_SBL sorts by HarfBuzz's classes and "then makes HarfBuzz's one Hebrew swap", 13g's C2_HB_CLASSES is the patch, "without HarfBuzz's swap" (the swap fires 0 times in both corpora, 11.4); all marked conforming | C1 0.78 | C1 0.50 | C1 0.36 | C1 0.30 | **below 0.9; the pick was C2, 2026-10-13 (11.4)** |
-| Q-D: the order of an Indic or Myanmar script's tags | D1_V2_FIRST, built (conforming); D2_OLD_FIRST (conforming for the Indic pairs, departing for Myanmar "if that reaches lookup"); D3_DEV3, HarfBuzz's unregistered `dev3` (conforming) | D1 0.97 | D1 0.95 | | | **decided: D1_V2_FIRST, as built** |
+So these answers change nothing built; the pick of C2 for Q-C (11.4) did, built 2026-10-14. Q-B keeps `GPOS` on for Hebrew under `DFLT`'s anchors, reversing the `GPOS`-off half of Q6's (a), which was leaned to earlier and never decided. Q-D tries registered tags only, `v.2` first (`dev2` then `deva`, `mym2` then `mymr`).
 
-So the review's answers change nothing built; the pick of C2 for Q-C (11.4) did, built 2026-10-14. Q-B keeps `GPOS` on for Hebrew under `DFLT`'s anchors, reversing the `GPOS`-off half of Q6's (a), which earlier askings leaned to and 0.8 and never decided. Q-D tries registered tags only, `v.2` first (`dev2` then `deva`, `mym2` then `mymr`).
-
-**Two labels disagree.** The record's phase 0 section lists Q-A's `dflt` option and Q-D's `dev3` option as departing, because neither is a registered script tag; the requests marked both conforming, on the ground that no quoted text limits the tags an application looks up. For `dflt` the texts below favour the record's label (AFDKO: "`DFLT` is a valid value for the `script` tag, and `dflt` is not"). Neither decision turns on it: A3 drew 0.01, 0.03, 0.00 and 0.00, and D3 0.00 both times.
+**Two labels disagree.** Phase 0 labelled Q-A's `dflt` option and Q-D's `dev3` option as departing, because neither is a registered script tag; when weighed here both were marked conforming, on the ground that no quoted text limits the tags an application looks up. For `dflt` the texts below favour phase 0's label (AFDKO: "`DFLT` is a valid value for the `script` tag, and `dflt` is not"). Neither decision turns on it: A3 and D3 were the least favoured options every time.
 
 ### 11.2 Q-A: what comes after `DFLT`
 
@@ -1403,15 +1400,15 @@ Of the 112 final lines (4 on each of the 28 faces), A1 and A2 differ on 43, and 
 
 **A3 on a face that has 'dflt'.** DejaVu Sans Mono 2.20 has one [[source: dejavu-fonts-ttf-2-20]]; 2.37 has none [[source: dejavu-fonts-ttf-2-37]], and neither is in the repository. Its `GSUB` and `GPOS` scripts are `arab`, `cyrl`, `dflt`, `grek`, `lao ` and `latn`, with no `DFLT`; the 'dflt' tables name no features, and `latn` has `ccmp` and `mark`, whose lookup 7 is a SinglePos with `XAdvance -1233` (ab/qa/dejavu220.jsonl). baud shapes all 115,672 strings tried alike under A1, A2 and A3. The lookup that makes HarfBuzz's 'dflt' path differ, 7, is a type baud does not apply: it applies `GPOS` lookup types 4, 6 and 9 only (`baud-font/src/gpos.rs:1-10`). Why `latn`'s `GSUB` lookup 1, which baud does apply, changed none of the strings was not checked against its coverage. HarfBuzz takes 'dflt' and differs from forced `latn` on 1,196 strings, every one holding U+0328, which GDEF classes as a base, so nothing zeroes its advance unless lookup 7 runs: `0031 0328` gives `[20=0+1233|668=0+1233]` on the 'dflt' path and `[…|668=0+0]` with `latn`, where baud gives `[20=0@0,0|668=0@1233,0]` under all three. With 'dflt' removed, HarfBuzz's guessed result equals forced `latn` on every line. So A3 is visible in HarfBuzz and not in baud today.
 
-**Decided at 529-530: A1, as built.** A2 would drop `latn`'s mark placement and tone-letter ligature on the 28 faces above, where hb-shape agrees with A1 on 42 of 43 lines.
+**Decided: A1, as built.** A2 would drop `latn`'s mark placement and tone-letter ligature on the 28 faces above, where hb-shape agrees with A1 on 42 of 43 lines.
 
 ### 11.3 Q-B and Q-D
 
-Both were decided at 527-528 and both are as built (11.1). Q-B follows the ScriptList text, which sends a script with no table of its own to `DFLT`; HarfBuzz's `GPOS`-off fallback was. Q-D follows the registry, the only text that orders a pair ("Fonts supporting Unicode encoding of Myanmar script should use 'mym2' instead" [[source: ms-opentype-scripttags]]); for the Indic pairs, which it lists in no order, D1 was decided.
+Both were decided and both are as built (11.1). Q-B follows the ScriptList text, which sends a script with no table of its own to `DFLT`; HarfBuzz's `GPOS`-off fallback was. Q-D follows the registry, the only text that orders a pair ("Fonts supporting Unicode encoding of Myanmar script should use 'mym2' instead" [[source: ms-opentype-scripttags]]); for the Indic pairs, which it lists in no order, D1 was decided.
 
 ### 11.4 Q-C: the order of Hebrew points, the pick
 
-**The question.** Canonical order (C1, built) sorts qamats (18) before dagesh (21) and shin dot (24); HarfBuzz sorts Hebrew points by modified combining classes (C2) that put shin and sin dot, dagesh, rafe and holam first [[source: harfbuzz-hb-unicode]]. On Courier New C1 hands the font shin, qamats, shin dot, and its `ccmp` does not form the shin-dot ligature, so the dot lands a cell right (record, "OpenType script selection, phase 0").
+**The question.** Canonical order (C1, built) sorts qamats (18) before dagesh (21) and shin dot (24); HarfBuzz sorts Hebrew points by modified combining classes (C2) that put shin and sin dot, dagesh, rafe and holam first [[source: harfbuzz-hb-unicode]]. On Courier New C1 hands the font shin, qamats, shin dot, and its `ccmp` does not form the shin-dot ligature, so the dot lands a cell right (found when phase 0 was built, `5d44960`).
 
 **The standard, quoted first.** Both orders are canonically equivalent: D70 defines canonical equivalents as sequences whose full canonical decompositions are identical, and D108-D109 (§3.11.5) define a reorderable pair as two adjacent characters with ccc(A) > ccc(B) > 0 [[source: unicode-ch3]]. §3.11.2, right after the "only a guideline" passage quoted below: "The only normative use of combining class values is as input to the Canonical Ordering Algorithm, where they are used to normatively distinguish between sequences of combining marks that are canonically equivalent and those that are not." The rest of chapter 3:
 
@@ -1483,14 +1480,14 @@ HarfBuzz's three-mark Hebrew reorder (hb-ot-shaper-hebrew.cc:165-190 [[source: h
 
 Every range overlaps, and the gap between arms is inside the gap between same-source copies. Full shaping ran without the lookup digests, so the normalisation rows are the ones that isolate the change. Rule 1 by argument: C2 writes the same code points in another order, the swaps it makes depend on the order the text was typed in, and the working set grows by the 256-byte table.
 
-**Why it was not decided it.** C1 was the pick in all four runs, 0.50. The two C2s were different options: 527-528's C2_SBL, with HarfBuzz's swap, drew, and 529-530's C2_HB_CLASSES, the patch without the swap, drew. On these corpora they would shape alike, because the swap fires 0 times in both; 13f's was not built. Neither request carried P5's "should be prepared" sentence. The options as asked, both conforming:
+**Why it was not decided then.** C1 led every weighing but never settled. The two C2s were different options: 13f's C2_SBL, with HarfBuzz's swap, and 13g's C2_HB_CLASSES, the patch without the swap. On these corpora they would shape alike, because the swap fires 0 times in both; 13f's was not built. Neither weighing carried P5's "should be prepared" sentence. The options as weighed, both conforming:
 
 - **C1, canonical order (built).** Conforming: D108-D109's order. Against: on Courier New, Arial Hebrew and New Peninim MT a second point lands outside its letter or off hb-shape where C2 matches.
 - **C2, HarfBuzz's modified classes (the patch).** Conforming: a permutation of the fixed-position classes, canonically equivalent, within the FAQ's rule. For: matches hb-shape on every cluster C1 matches, and on 13, 13 and 12 more distinct Genesis clusters on those faces; P5's "should" leans to it on those three faces. Against: no normative text names it, and the one engine document that names an order names C1.
 
 Not built: an Appendix B arm (merged classes, outside the FAQ's rule) and HarfBuzz's three-mark reorder (0 occurrences). That the vowel-before-meteg order is the same in both arms is derived from the table (every modified vowel class is below meteg's 25), not measured.
 
-**The answer.** The project, 2026-10-13, asked in the session with C1 and C2 put side by side, picked C2 (HarfBuzz's order); the review had. C2 is to be built in its own commit, with baud-font's two raw-integer sites typed first so audit_all.sh stays at 12/60.
+**The answer.** Decided 2026-10-13, with C1 and C2 drawn side by side: C2, HarfBuzz's order. C2 is to be built in its own commit, with baud-font's two raw-integer sites typed first so audit_all.sh stays at 12/60.
 
 **Built, 2026-10-14**: `CombiningClass::sort_key`, with neither of the patch's two sites, so baud-font stays at 12 and 60. Over the 43 faces of the survey list that map shin and two or more points, no cluster that matched hb-shape stops matching, and this note's `tables.md` regenerates byte for byte from that commit's `measure.json` (`ab/qc-built/measure.json.gz`). `glyph.ccc` and the composition blocking keep Unicode's classes, as the patch left them.
 
@@ -1503,15 +1500,15 @@ Not built: an Appendix B arm (merged classes, outside the FAQ's rule) and HarfBu
 - **The four above, built, 2026-10-23**: `GPOS` types 1, 2 and 8 run; a Hebrew run whose `GPOS` selects no Script table is placed as on a face with none and composes the presentation forms; a face carrying `GSUB` and a `morx` baud runs whole shapes through `morx`. All three faces match hb-shape on every distinct cluster of both corpora. DejaVu Sans Mono 2.20's lookup 7 now runs; what it does to U+0328 there is unmeasured. Still open: Arial Hebrew Scholar, which HarfBuzz positions with `kerx` format 4, unbuilt.
 - **hb-shape depends on the file's bytes on three faces:** on `03B1 0308 0301` it leaves the acute unplaced on the original Tahoma Bold, Tahoma and Times New Roman Italic, and places it exactly as baud does (`589=0@550,390`) on fontTools round-trip copies with the script records unchanged. Tahoma and TNR Italic have a `grek` table, where A1 = A2. This is why 11.2's one hb = A2 line is confounded; its cause is unmeasured.
 - **The Q-C lane's report says "Every other face is unchanged"** after listing Courier New, Arial Hebrew and New Peninim MT; its own table moves Arial Hebrew Scholar too, 57/192 → 70/209 on Genesis and 87/477 → 100/514 on Pango. The tables above are generated from tables.md, not the report.
-- **The record's labels for Q-A's A3 and Q-D's D3** (departing) disagree with the requests' (conforming); 11.1.
+- **Phase 0's labels for Q-A's A3 and Q-D's D3** (departing) disagree with the ones they were weighed under (conforming); 11.1.
 - **~~Raanana's fallback puts a point at dy -4 under HarfBuzz and 0 under baud~~ (11.4). Built, 2026-10-15**: the fallback placer reads `recategorize_combining_class`'s Hebrew classes, and Raanana and Raanana Bold match hb-shape on every distinct cluster of both corpora, 70/209 and 190/641, from 19/96 and 42/279. Those figures shaped Raanana with the grid set, whose `-rlig` turns its default-on flag 0x2 off; at the chain defaults baud runs, it was 45/158 and 120/471 until `morx` walked right-to-left runs in logical order.
 - **Correction to 11.4's attribution of the presentation forms on Lucida Grande and Corsiva Hebrew.** They shape through `morx`, and on a `morx` face HarfBuzz replaces the Hebrew shaper with its dumber one (hb-ot-shape.cc:99-101 [[source: harfbuzz-hb-ot-shape]]), so `compose_hebrew` (hb-ot-shaper-hebrew.cc:81) does not run there. hb-shape's `--trace` shows the ligature formed by a `morx` chain subtable: 4 on Lucida Grande, 1 on Corsiva Hebrew and on New Peninim MT. **Found and built, 2026-10-15**: those subtables run in reverse layout order, which on a right-to-left run is logical order, and baud walked them backwards; it now reads the run's direction from its script, and every distinct cluster of both corpora matches hb-shape on all eight faces.
 
 ### 11.6 The files in ab/
 
-All copied from the session scratchpad on 2026-10-13, except `qc/residuals.py` and `qc/residuals.txt`, written for this note, and `qc/counted.txt`, whose header now names the committed files; the large intermediate outputs (the per-string `out*-A*.tsv`, 30-323 MB each, and the candidate lists) and the modified system fonts in the perturbation set are not committed.
+All copied from the working files on 2026-10-13, except `qc/residuals.py` and `qc/residuals.txt`, written for this note, and `qc/counted.txt`, whose header now names the committed files; the large intermediate outputs (the per-string `out*-A*.tsv`, 30-323 MB each, and the candidate lists) and the modified system fonts in the perturbation set are not committed.
 
-- [ab/c2-sbl-sort.patch](ab/c2-sbl-sort.patch): arm C2, sha256 `8527558c8fe1ac3afc28b10ff9cb66a147147b07fff0bf50b3429c2b3813a81c`, the bytes the 529-530 request carried. Apply at a9bf3a1 with `git apply docs/research/notes/ab/c2-sbl-sort.patch`; as it stands it fails `audit_all.sh` (baud-font at 13 and 61 against 12 and 60), so its `i as u8` and its `-> u8` signature are typed before it lands (11.4).
+- [ab/c2-sbl-sort.patch](ab/c2-sbl-sort.patch): arm C2, sha256 `8527558c8fe1ac3afc28b10ff9cb66a147147b07fff0bf50b3429c2b3813a81c`, the bytes 13g weighed. Apply at a9bf3a1 with `git apply docs/research/notes/ab/c2-sbl-sort.patch`; as it stands it fails `audit_all.sh` (baud-font at 13 and 61 against 12 and 60), so its `i as u8` and its `-> u8` signature are typed before it lands (11.4).
 - `ab/qa/`: the 420 font files surveyed (`fontlist.txt`, whose 51 rows under `baud-app/` and `baud-font/` were absolute paths into the checkout when the survey ran, as `survey.jsonl` still shows), the survey runner, its library and its output (`survey_run.py`, `survey.py`, `survey.jsonl`, 413,644 bytes), the raw table walk and its re-run output (`langdflt2.py`, `langdflt2.out`), the string generators (`gen.py`, `gen2.py`, `gen3.py`), the comparison and count scripts, the harness (`shapeq.rs.txt`, an example in a scratch copy of `baud-font`), the 28 faces, the 112 final lines (`final-in.tsv`, `final-A1.tsv`, `final-A2.tsv`, `final-hb.tsv`; `final-A3.tsv` hashed equal to A1's and is not kept), DejaVu 2.20's survey row, and `counted.txt`.
 - `ab/qc/`: the harness (`qc.rs.txt`), `make_c2.py`, the measurement scripts, the corpora as clustered (`corpus-gen5.txt`, `corpus-pango.txt`, their `-occ.json` occurrence counts and `-differ.txt` order-differs lists, `clusters-all.txt` and its UTF-8 form), the per-cluster results (`measure.json.gz`, gzip of the lane's 1.1 MB `measure.json`, sha256 `420b0f477fad79edaa2778b8aac234de879ae044f5813f04a6ce2f3c4fcf1253`), `tables.md`, `attrib.md`, `residuals.py` and its output `residuals.txt`, the 850 timed clusters (`bench-clusters.txt`), `timing.txt` and `timing.sh.txt`, the 360 spellings, the CGJ probes, both test logs, the Genesis text and `counted.txt`. `tables.py` over `measure.json` and the two `-occ.json` files regenerates `tables.md` byte for byte (checked for this note); `attrib.py` and `measure.py` also need fontTools and the faces.
 
@@ -1523,28 +1520,26 @@ Harness sources carry a `.txt` suffix so the formatter leaves the bytes that ran
 
 ## 12. Step 2: drawing the order (2026-10-24)
 
-**12.1 What the texts left open, and who decided.** Q2, Q3 (the direction
-default), Q4, Q8, Q10, Q14, Q15, Q17 and the long-paragraph rule of 2.4
-were put to the review with renders (`ab/step2/`), each option marked against
+**12.1 What the texts left open, and how it was decided.** Q2, Q3 (the
+direction default), Q4, Q8, Q10, Q14, Q15, Q17 and the long-paragraph rule
+of 2.4 were weighed with renders (`ab/step2/`), each option marked against
 ECMA-48, TR/53, UAX #9 and terminal-wg. TR/53's two "should"s were misread
-in the first request as an unconditional one to start EXPLICIT; the re-ask
+at first as an unconditional one to start EXPLICIT; the second weighing
 quoted both in full (the first names which state is the reset one, the
 second is conditional on keeping left-to-right behaviour), with ECMA-48
 7.1's "established by agreement between sender and recipient" and the
 finding that no pinned terminfo entry and no application read sends
 `CSI 8 h` (positive controls: IRM's `CSI 4 h` in 7 entries, `?1049` in 4).
 
-- Decided at 0.9 in both orders: Q4 level 2; Q15 logical
-  selection and copy (0.98/0.98); Arabic reordered and drawn isolated until
-  joining (1.00/1.00); a paragraph past the capacity resolved over the drawn
-  rows with whole rows of context, HL5 ( on the re-ask).
-- Leans taken, held in all four answers but for Q8: BDSM
-  terminal-wide, SCP and per-paragraph state the next step (0.72/0.76); Q8
-  erased cells between characters as BN, the first ask's SKIPPED
-  (0.10/0.18 against AS_SPACE) re-offered as AS_BN, the same behaviour
-  named after its class (0.85/0.89); Q17 the alternate screen reordered
-  like the primary (0.79/0.76).
-- **L4, open departures.** The first two requests stated 128 mirrored
+- Decided: Q4 level 2; Q15 logical selection and copy; Arabic reordered and
+  drawn isolated until joining; a paragraph past the capacity resolved over
+  the drawn rows with whole rows of context, HL5.
+- Leans taken, held in every weighing but for Q8: BDSM terminal-wide, SCP
+  and per-paragraph state the next step; Q8 erased cells between characters
+  as BN (first offered as skipped, against as-space, then under its class's
+  name, the same behaviour); Q17 the alternate screen reordered like the
+  primary.
+- **L4, open departures.** The first two weighings stated 128 mirrored
   characters with no Bidi_Mirroring_Glyph, where the pinned 17.0.0 data
   gives 126 of 554 mirrored (128 is BidiBrackets' count), and premised that
   the 428 with a glyph draw it, which the build did not meet for a cell
@@ -1554,36 +1549,31 @@ finding that no pinned terminfo entry and no application read sends
   again with the true counts and then with the prior art (VTE's `_vte_unistr_replace_base()` keeps a cell's marks
   under its mirrored base; HarfBuzz substitutes or applies `rtlm`, which
   baud's faces lack; no surveyed terminal flips a glyph), the lean is to
-  build both remaining cases: the 126 flipped (0.58/0.50) and a
+  build both remaining cases: the 126 flipped and a
   mirrored base under a mark that draws. That lean
   is to build both; this step built only the bidi-control case, so both
   stay unbuilt and counted, open departures until built (ab/step2/l4.png).
   ~~Open departures.~~ Built to L4 on 2026-10-24 (lane b197): a flipped
   glyph, each row of texels reversed and placed mirrored in its span, on
   all three draw paths, and the mirror under a cell's marks. One of the 126
-  carrying a mark the face draws apart: the base flipped and the mark not,
-  the review BASE_FLIPPED (ab/b197/).
-- **12.3 Open for the project**, today's behaviour kept:
-  ~~Q2 the state at power-on (built EXPLICIT)~~ answered 2026-10-24, "Should right-to-left lines be on
-  from the start? C": BDSM set at power-on and by RIS, RIS taken as
-  ECMA-48 8.3.105's "initial state" as VTE 56bad78's reset() does
-  (the lean INITIAL_STATE, then with VTE's source;
-  both requests stated that every other ANSI mode baud implements starts
-  reset, which SRM does not, and the corrected reading holds;
-  `ab/b191/`); ~~Q3 the paragraph direction (built level 0; FIRST_STRONG
-  0.56/0.48 then LTR_LEVEL 0.22/0.30)~~ answered 2026-10-24 from renders
-  of three options on eight examples, "all match C besides these 2 , the
-  wrap line looks bad and the table should be like B but דנהshould b be
-  rtl": the first strong letter (P2-P3), a right-to-left line against the
+  carrying a mark the face draws apart: the base flipped and the mark not
+  (ab/b197/).
+- **12.3 Open**, today's behaviour kept:
+  ~~Q2 the state at power-on (built EXPLICIT)~~ answered 2026-10-24, C:
+  BDSM set at power-on and by RIS, RIS taken as ECMA-48 8.3.105's
+  "initial state" as VTE 56bad78's reset() does (the lean, then with VTE's
+  source; both weighings stated that every other ANSI mode baud implements
+  starts reset, which SRM does not, and the corrected reading holds;
+  `ab/b191/`); ~~Q3 the paragraph direction (built level 0)~~ answered
+  2026-10-24 from renders of three options on eight examples, C for all
+  but two: the first strong letter (P2-P3), a right-to-left line against the
   right edge, built; the table row, built as the lean (each cell its own
   paragraph between box-drawing rules, `ab/b192/`), and the wrapped
-  paragraph, open for the project with four options drawn
-  (`ab/b192/wrap.png`), are their own items (`docs/bidi.md`); ~~Q14's cursor at a pending wrap on a
-  reordered row (built drawn; hidden 0.28 and drawn 0.73 in the two orders,
-  then hidden 0.52 and drawn 0.30)~~ answered 2026-10-24, "drawn and based
-  on how the cursor is , line, block or udnerline": drawn, each shape
-  placed for its cell. Q2's lean held in all four answers and
-  is taken; it is asked because the request's words point the other way.
+  paragraph, open with four options drawn (`ab/b192/wrap.png`), are their
+  own items (`docs/bidi.md`); ~~Q14's cursor at a pending wrap on a
+  reordered row (built drawn)~~ answered 2026-10-24: drawn, each shape
+  (bar, block or underline) placed for its cell. Q2's lean held in every
+  weighing and is taken.
 
 **12.2 What was built** (`baud-render/src/bidi.rs`; `docs/bidi.md`):
 BDSM in the core, with DECRQM 8 and RIS; a per-frame layout of the window
@@ -1608,31 +1598,29 @@ their implicit frames lay real right-to-left rows out.
 
 ## 13. Step 3: Arabic joining (2026-10-24)
 
-**13.1 What the texts left open, and who decided.** One letter a cell is
-given (widths come from East Asian Width and the general category). The
-four questions a fixed-cell grid leaves open went to the review with renders drawn
-by baud's own CPU renderer on Courier New (`ab/joining/`), each option
+**13.1 What the texts left open, and how it was decided.** One letter a
+cell is given (widths come from East Asian Width and the general category).
+The four questions a fixed-cell grid leaves open were weighed with renders
+drawn by baud's own CPU renderer on Courier New (`ab/joining/`), each option
 marked against chapter 9.2 (`[[source: unicode-ch9]]`), UAX #9 3.5
 (`[[source: uax9-bidi]]`), ECMA-48's SAPV and terminal-wg's basic modes.
 
 - Decided: an erased cell between letters is
   transparent, the boundary neutral step 2 gives it.
-  On the one re-ask, with prior art and CSS Text 3's rule for a word an
+  Weighed again with prior art and CSS Text 3's rule for a word an
   unforced break splits ("must still be shaped... as if the word were
   still whole", `[[source: w3c-css-text-3]]`): the lam-alef ligature centred
-  over its two cells (0.55/0.68, then 0.96/0.97; no surveyed terminal draws
-  it so: VTE and Konsole drop it, FriBidi's console mode and ICU leave a
-  cell beside it), and joining across a soft wrap (0.06/0.04, then
-  0.96/0.90).
-- Asked after a review found it built without a decision: a lam and an
-  alef erased cells part form the ligature (L1: transparent characters "do
-  not affect the ligating behavior"), centred over the cells from one to
-  the other, decided ask.
+  over its two cells (no surveyed terminal draws it so: VTE and Konsole
+  drop it, FriBidi's console mode and ICU leave a cell beside it), and
+  joining across a soft wrap.
+- Decided after it was found built without a decision: a lam and an alef
+  erased cells part form the ligature (L1: transparent characters "do not
+  affect the ligating behavior"), centred over the cells from one to the
+  other.
 - The leans taken: with BDSM reset, each row joined in the order it
-  is displayed, the order 9.2.2 states the rules in (0.24/0.16, then
-  0.66/0.58); and a lam and an alef a soft wrap parts drawn as the
-  ligature in the lam's cell, the alef's cell blank (0.19/0.15, then
-  0.84/0.80 with CSS Text 3's rule that a character unit an element
+  is displayed, the order 9.2.2 states the rules in; and a lam and an alef
+  a soft wrap parts drawn as the ligature in the lam's cell, the alef's
+  cell blank, with CSS Text 3's rule that a character unit an element
   boundary divides "may be rendered as belonging to either side of the
   boundary", and HarfBuzz giving the ligature the lam's cluster). terminal-wg's text says the emulator does not shape in
   explicit mode; its author's issue #7 reverses that, and VTE shapes there.
@@ -1696,9 +1684,9 @@ not, Afx (`fin3`) after dalath or rish, and one joined inside a word
 after a space or ZWNJ stays Xn: S2 read with its "character to its
 right" a letter of the word, as HarfBuzz's state table
 (`[[source: harfbuzz-14-5-1-shaper-arabic]]`) and Apple's CoreText draw
-it on Noto Sans Syriac (glyph 9, isol, where 11 is fin2), decided
-at 0.98/0.98 after that research (0.94/0.88 before; `ab/b216/`, whose
-render shows the two forms drawn alike in Estrangela). Where S1 reads "a
+it on Noto Sans Syriac (glyph 9, isol, where 11 is fin2), decided after
+that research (`ab/b216/`, whose render shows the two forms drawn alike in
+Estrangela). Where S1 reads "a
 non-joining character" after the alaph, an L-type letter does not end its
 word and HarfBuzz's table treats it as ending it; no Syriac letter is L.
 

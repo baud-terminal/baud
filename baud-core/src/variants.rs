@@ -30,7 +30,7 @@
 //! graph again. The text path's writers test neither bit. With 2, 10, 21
 //! or any variant but a waiting form the text goes by the text path: the
 //! variants ride in the rendition, which the core does not read per
-//! character. The record has the cost, "SAPV off the text path".
+//! character. Its cost is in commit `89bafa5c`'s message.
 
 use baud_domain::{Mirroring, ModeBit, Modes, Sapv, Slant, Variants};
 

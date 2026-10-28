@@ -209,7 +209,7 @@ section 6's model.
 
 | body | dims 0.70 / 0.60 | the contrast floor | spread |
 |---|---|---|---|
-| regular glass (today) | hold: set at the bound where the material darkens nothing (note AS, section 3) | at `dbd309c9`, reads against the page mixed over the default page at the dim (note AS, section 6); since `36be4250`, reads against the page at its alpha over black to white (record, "The glass floor reads against the whole backdrop") | 41-78 (glass rows, both halves, both bounds) |
+| regular glass (today) | hold: set at the bound where the material darkens nothing (note AS, section 3) | at `dbd309c9`, reads against the page mixed over the default page at the dim (note AS, section 6); since `36be4250`, reads against the page at its alpha over black to white | 41-78 (glass rows, both halves, both bounds) |
 | see-through standard (Sidebar stand-in) | hold by the same bound; could come down, unmeasured | same as glass | 10-11 |
 | `.windowBackground` / `.contentBackground` | no effect on what shows through: the body is opaque at any dim | its page is what is behind the text | 0 |
 

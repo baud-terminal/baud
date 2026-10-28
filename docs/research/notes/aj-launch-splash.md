@@ -4,31 +4,30 @@
 built:**
 
 - **1. When.** On the shell's first visible cell or a 0.5 s cap, whichever
-  is first (E2 and a cap; the cap is the lean, CAP_05);
+  is first (E2 and a cap of 0.5 s; the cap is the lean);
   the vanish starts on the frame after that one.
 - **2. Which plasma.** P1, against P2 with renders (from text on 2026-10-09). P4 was not offered: it needs a shader nothing in baud
   draws, and the plasma the trails use is baud's one plasma. P1 is built
   from the plasma trail's own model with no new shader: the box from the
   wordmark to the block collapses into the block on kitty's quad
-  constants (the review, against a slower collapse).
-- **3. Colour.** C1, the lockup's amber (the review, with the
-  owner's 2026-09-25 words on the flame quoted); the logo in the lockup's
+  constants (chosen over a slower collapse).
+- **3. Colour.** C1, the lockup's amber (chosen over C2, the cursor's
+  colour that the 2026-09-25 rule gives every effect); the logo in the lockup's
   colours on the half the theme's polarity names.
 - **4. Cells or pixels.** L2, against L1 with renders (from text on 2026-10-09): the lockup's geometry
   at 0.30 of the window's width, in the embedded
   JetBrains Mono Bold: weight 700 where the lockup asks 500, the one
-  departure (the review, against the Regular).
+  departure (chosen over the Regular).
 - **5. Reduce Motion.** R2, the logo, then a 0.15 s fade, on macOS: the Linux driver reads no motion preference yet.
-- **6. The key.** `[launch] splash = "on" | "off"`, on by default (the values the project's, 2026-10-19); the section is the review's
-  lean, LAUNCH.
+- **6. The key.** `[launch] splash = "on" | "off"`, on by default (settings
+  take "on" and "off", 2026-10-19); the `[launch]` section is the lean.
 - **7. Do not show again.** K, the key alone; nothing writes it.
 - **8. Linux and the CPU path.** The same plasma: every path draws every
   effect from its Rust model now, so 5.8's premise no longer holds.
 
 The research draft follows unchanged. It was revised on 2026-10-09 after a
-read-only review; the review was asked on 2026-10-09 and
-question 4's Medium face again on 2026-10-10 (377-378); the
-splash's forks were asked on 2026-10-24 (1479-1482 and 1489-1496). The request, verbatim:
+read-only review; question 4's Medium face was weighed again on 2026-10-10,
+and the splash's forks on 2026-10-24. The request, verbatim:
 
 > "i'd like baud to start with the baud > [] logo drawn in the middle and then
 > vanish with the plasma effect , the logo should be the one with the color, it
@@ -49,10 +48,9 @@ splash's forks were asked on 2026-10-24 (1479-1482 and 1489-1496). The request, 
 - **External.** Third-party source code and docs are `external`. Each
   entry carries the pinned URL, sha256 and byte count, and the bytes are
   not committed.
-- **What stays untracked.** The fetched copies of the external sources and
-  the sweep's ledger of them are under `.claude/research/splash/`, untracked.
-  The six terminals' clones are in a scratch directory outside the
-  repository. Neither is committed, and no claim rests on them beyond what
+- **What stays untracked.** The fetched copies of the external sources,
+  the sweep's ledger of them and the six terminals' clones were kept
+  outside the repository. Neither is committed, and no claim rests on them beyond what
   the keyed, hashed sources carry.
 
 Seven keys are already in `MANIFEST.toml` and are cited as they are:
@@ -76,9 +74,9 @@ Evidence tags:
 - **Q**: quoted from the source named.
 - **R**: read in code, not run.
 - **C**: computed from the files.
-- **M**: measured. Every M here is a figure already in the record or
-  `MEASUREMENTS.md`, cited by its heading and scoped as the source scopes
-  it. Nothing was measured for this note.
+- **M**: measured. Every M here is a figure already in a commit or
+  `MEASUREMENTS.md`, cited by its commit or heading and scoped as the source
+  scopes it. Nothing was measured for this note.
 - **U**: a claim not verified.
 
 ## 0. In plain words
@@ -147,7 +145,8 @@ Evidence tags:
     leaves a window of up to about 45-52 ms in which a key's fate is
     unverified;
   - the shell's first bytes arrive at about 193-196 ms, through the
-    owner's login shell, whose rc takes about 150-170 ms (**M**, 3.6).
+    development machine's login shell, whose rc takes about 150-170 ms
+    (**M**, 3.6).
 
   The requirement is that a logo in that gap delay nothing. Whether a
   given design meets it is unmeasured until the acceptance test in
@@ -195,7 +194,7 @@ Evidence tags:
     - the user's config: Windows Terminal's close dialog, Warp's
       zero-state block;
     - nowhere, with a config key instead.
-- **What the project decides** is in section 8: when the splash ends, which
+- **What is to decide** is in section 8: when the splash ends, which
   plasma, the colours, cells or pixels, its form under Reduce Motion, the
   key, whether "do not show again" means more than the key, and Linux.
 
@@ -249,18 +248,16 @@ the first screen is ready". baud has three candidates for that moment:
   unverified (U).
 - **The run loop running.** From here keys reach the shell (3.7). Its
   start is not marked, but it is bounded:
-  - **The first tick needs the loop.** The record says the GPU's completion
-    reaches the main thread through a call "which nothing delivers until
+  - **The first tick needs the loop.** The GPU's completion reaches the
+    main thread through a call "which nothing delivers until
     `NSApplication::run` turns the loop, and AppKit's entry into `run()` is
-    ~30 ms of its own" ("Cold boot: 215 ms to 101, and the shell is what a
-    user waits for").
+    ~30 ms of its own" (measured with commit `fb85b76`).
   - **When the first tick comes.** "The Dock icon from the bundle", in
     MEASUREMENTS, puts it at 134.6 ms in the base arm, 139.4 in the kept
     change's arm and 133.3 in the A/A copy. Those are medians of six, on
-    the M5 Max, through the login shell, from `.app` bundles. The
-    record's section on that change says "the first present is before the
-    first tick" ("The Dock icon comes from the bundle, 9 ms off the first
-    tick, and no wall moved").
+    the M5 Max, through the login shell, from `.app` bundles. The same
+    section says "The first present is before the first tick and is
+    unmoved".
 
   So the loop starts by about 133-139 ms. That is up to about 45-52 ms
   after the 87.9 ms first present, which was measured in a different run,
@@ -334,7 +331,7 @@ How far each line reaches:
   especially if they have to experience the animation more than once". A
   splash shown at every launch is experienced more than once. What the
   line supports is keys going to the shell while the splash runs. Whether
-  a key also starts the vanish is E3, an owner option (5.1).
+  a key also starts the vanish is E3, an option (5.1).
 
 **Accessibility** [[source: apple-hig-accessibility]], change log "June 9,
 2025 -- Added guidance and links for Assistive Access, Switch Control, and
@@ -857,7 +854,7 @@ rid of this message." (`src/config/lua/ConfigManager.cpp` 813,
 banner." (`content/configuring/core/_index.md` 17,
 [[source: hyprland-wiki-core-index]]).
 
-**What this means for the project's analogy.**
+**What this means for the request's analogy.**
 
 - **What the logo and splash are.** They are permanent background art, not
   a launch animation that vanishes.
@@ -1215,7 +1212,7 @@ What the README says, quoted with its em dashes:
   the dark or light ground to hold contrast."
 - **Which is "the one with the color".** The mono variants (`-mono-black`,
   `-mono-white`) are the "single colour" ones, so the colour lockups are
-  the one the project means.
+  the one the request means.
 
 Facts found reading them:
 
@@ -1292,12 +1289,11 @@ It is recorded in its measurement. What each part is (**R**):
 - **Where it draws.**
   - **GPU only.** "GPU only: the CPU path draws the emitter as the quad it
     is" (`effect.rs` 21-22).
-  - **Linux** has no trail at all (record, "The quad trail is kitty's four
-    corners in closed form", its "Not built, stated"). It drives no
+  - **Linux** has no trail at all (commit `c2e20bed`, the quad trail). It
+    drives no
     transition either: `linux.rs` has neither, and `config.rs` 349-350
     says "Only the macOS driver has a trail".
-- **Its cost.** Record, "The plasma trail is a braid that starves, and the
-  critique shaped it" (**M**):
+- **Its cost** (**M**, with commit `bc405703`, the plasma trail):
   - **The protocol.** `scripts/idle-cpu.py`, blink off, window unfocused,
     five rounds of ten seconds with the first dropped, an A/A copy of the
     plasma arm.
@@ -1305,15 +1301,13 @@ It is recorded in its measurement. What each part is (**R**):
     fire and the plasma read +5.9%, +5.2% and +5.8% of a core over no
     trail, "all inside the copy's 3.0% spread -- no result between them".
 - **Its pipeline.** It is a late pipeline, "built the first frame the
-  effect is drawn" (record, "The fire is one effect of a family, and
-  nothing about it moved"). A pipeline after the first is "about 7.5 ms
-  with a cold shader cache and about 0.1 ms warm". The record infers that
-  from per-pipeline figures and did not measure it (record, "The quad trail
-  is kitty's four corners in closed form").
-- **Still pending.** Owner's calls are recorded and not taken: the body
-  fill, the flow direction, the ions' charges, the braid's width. The plan's
-  P4 item 3, an agent's priority list, includes "plasma as the default
-  trail on one implementation".
+  effect is drawn" (commit `f202aea3`, the fire as one effect of a
+  family). A pipeline after the first is "about 7.5 ms with a cold shader
+  cache and about 0.1 ms warm", inferred from per-pipeline figures and not
+  measured (commit `c2e20bed`).
+- **Still pending.** Choices recorded and not taken: the body fill, the
+  flow direction, the ions' charges, the braid's width. A later priority
+  list includes "plasma as the default trail on one implementation".
 - **Its clips.** The trail's still and clip are tracked as
   `docs/cursor/plasma.png` and `docs/cursor/plasma.mp4`.
 
@@ -1323,7 +1317,7 @@ move, and no cursor except its block.
 
 ### 3.3 The idiom for anything timed
 
-The project's rule, from the project (2026-09-25): never a sleep, a blocked
+The rule for anything timed (2026-09-25): never a sleep, a blocked
 thread or a held frame. Anything timed is an effect whose end is scheduled
 on the display link (macOS) or the poll timeout (Linux), and output keeps
 drawing meanwhile.
@@ -1364,8 +1358,8 @@ practices.
 
 ### 3.4 Reduce Motion is already read, and an explicit choice wins
 
-The project's rule of 2026-09-25, built in commit `bc7cd03` and recorded in
-"Reduce Motion means no trail, unless the config names one":
+The rule of 2026-09-25, built in commit `bc7cd03`: Reduce Motion means no
+trail, unless the config names one.
 
 - **Two kinds of value.** `[cursor] trail` reads into `TrailPick::Default`
   or `TrailPick::Named(_)`. No `trail`, `trail = true`, and a value that
@@ -1376,11 +1370,11 @@ The project's rule of 2026-09-25, built in commit `bc7cd03` and recorded in
   the chase is built, so a launch under Reduce Motion never lights one"
   (`app.rs` 761-762). It polls it again on every tick beside the focus.
   `BAUD_MOTION=reduced|full` fixes it for checks.
-- **What a change does.** The record: "Turning it on cuts a trail in
-  flight, and costs one frame." The commit message words it "A switch cuts
-  a trail in flight with one frame".
-- **Its cost.** The record: "The launch's new stage, `reduce motion`, costs
-  38-44 µs in six launches." (**M**).
+- **What a change does.** Turning it on cuts a trail in flight, and costs
+  one frame. The commit message words it "A switch cuts a trail in flight
+  with one frame".
+- **Its cost.** The launch's new stage, `reduce motion`, costs 38-44 µs in
+  six launches (**M**, with commit `bc7cd03`).
 
 A splash's Reduce Motion rule can take this same shape with no new
 machinery.
@@ -1409,16 +1403,17 @@ No code in `baud-app/src` writes a config or any persistent user state.
 (**R**, by grep for `fs::write`, `File::create`, `OpenOptions` and
 `NSUserDefaults`.)
 
-Note AG records that "The project's `~/.config/baud/config.toml` is gone
-(only `config.toml.old` ...)". So a "do not show again" that writes the
-config would, on the project's machine today, *create* it.
+Note AG records that the development machine's
+`~/.config/baud/config.toml` is gone (only `config.toml.old` ...). So a
+"do not show again" that writes the config would, on that machine today,
+*create* it.
 
 ### 3.6 Launch, as measured
 
 None of these figures was taken for this note. Each column has its own
 scope.
 
-| stage, ms | record, "Cold boot: 215 ms to 101, and the shell is what a user waits for" | MEASUREMENTS, "Spawning the shell earlier (row 3, reverted)", base arm |
+| stage, ms | commit `fb85b76`, cold boot | MEASUREMENTS, "Spawning the shell earlier (row 3, reverted)", base arm |
 |---|---|---|
 | pty spawned | 19 (superseded; see below) | 24.5 |
 | window shown | 85 | 84.9 |
@@ -1428,33 +1423,29 @@ scope.
 
 **Scope of each column:**
 
-- **The record's column.** Commit `fb85b76`, 2026-09-13, says only "on
-  mains" and "this box".
-  - **The in-app stages** (19, 85, 92) come from the table before the
-    section's line "The bench takes `BAUD_CMD=shell` now". They were taken
-    with the bench's default child, not the login shell.
-  - **Only 193 and 211** are login-shell figures. The section says "So the
-    window is up at 92 and blank for a hundred milliseconds, and that
-    hundred is the shell's, not baud's", and "`zsh -l -i -c exit` alone on
-    this box is **150-160 ms** -- the devenv and direnv hooks in the
-    owner's rc files" (2026-09-13).
+- **The first column.** Commit `fb85b76`, 2026-09-13, measured on mains on
+  one machine.
+  - **The in-app stages** (19, 85, 92) were taken with the bench's default
+    child, not the login shell.
+  - **Only 193 and 211** are login-shell figures. So the window is up at
+    92 and blank for a hundred milliseconds, and that hundred is the
+    shell's, not baud's: `zsh -l -i -c exit` alone on that machine is
+    **150-160 ms**, the devenv and direnv hooks in its rc files
+    (2026-09-13).
 - **MEASUREMENTS' column.** Apple M5 Max, macOS 27.0, on AC, two `.app`
   bundles through the login shell, seven rounds with the first discarded,
-  an A/A copy, medians of six. The record's section for it is "Spawning the
-  shell 15 ms earlier bought 8 on the prompt, under the floor, and was
-  reverted" (2026-09-18; the arm reverted by `1eb2e5d`).
+  an A/A copy, medians of six. Spawning the shell 15 ms earlier bought 8 on
+  the prompt, under the floor, and was reverted (2026-09-18; the arm
+  reverted by `1eb2e5d`).
   - **It corrects the 19.** The display-scale query alone is 23.6 ms, and
     "The shell was spawned at 24.5 ms because the grid needs the cell size
     in pixels, which needs the scale".
-  - **The rc.** The same record section gives the shell's own rc as
-    "~170 ms either way". The 24.5 ms quote above is from that section
-    too.
+  - **The rc.** The shell's own rc took about 170 ms either way.
 
 Both columns predate the Reduce Motion stage (`bc7cd03`, 2026-09-27). On a
-shell without the project's hooks, the gap is unmeasured.
+shell without those hooks, the gap is unmeasured.
 
-How the launch path runs (**R**; record, "Cold boot: 215 ms to 101, and the
-shell is what a user waits for", and `app.rs`):
+How the launch path runs (**R**; commit `fb85b76` and `app.rs`):
 
 - **The first frame** is drawn synchronously after `show()`, waits for the
   GPU (`Done::Wait`), and is set on the layer in an explicit
@@ -1547,8 +1538,8 @@ are `Damage::Full`. On the cell path, E2 needs its own test, for example
 the first non-blank cell that differs from the first frame's. Its cost is
 unmeasured (U).
 
-the plan's summary of the request, which an agent wrote and not the project,
-reads "any key or output ends it early". That is E2 plus E3. On this box
+A summary of the request, written later and not part of it, reads "any key
+or output ends it early". That is E2 plus E3. On this box
 it gives the logo at least about 100 ms before it starts to vanish (**M**
 for the gap, **U** for whether that reads as "at a glance").
 
@@ -1562,8 +1553,8 @@ for the gap, **U** for whether that reads as "at a glance").
 | **P4** | the classic demoscene plasma, a field of summed sines through the logo's pixels | unstated (U) | a new shader, reference and oracle; nothing in baud draws it | motion animation, as P1; 2.3.1 not computed (U) |
 
 Against the decision's "fast so it feels snappy": whether 0.55-0.65 s of
-plasma, or 0.15 s of fade, reads as snappy is unmeasured and the project's
-call (U).
+plasma, or 0.15 s of fade, reads as snappy is unmeasured and a choice
+(U).
 
 More on each:
 
@@ -1583,7 +1574,7 @@ More on each:
 - **P4.** The tracked `docs/cursor/plasma.png` and `.mp4` are the trail's,
   and `tests/previews/README.md` uses ImageMagick's `plasma:fractal` only to
   make a synthetic test image. It is listed because "the plasma effect"
-  could mean it (**U** which one the project means).
+  could mean it (**U** which one the request means).
 
 P1, P2 and P4 are motion animation, and P3 is not. P3 applies wherever a
 fade is chosen: under Reduce Motion (Q5), or on a path with no GPU effects
@@ -1597,7 +1588,7 @@ brand name has no contrast requirement." ([[source: wcag22]], SC 1.4.3).
 
 - **The logo** takes the lockup's colours by the resolved half: `#F3F4F6`
   and `#F4A32C` on dark, `#1E2128` and `#C8801F` on light (3.1). This is the
-  owner's "the one with the color". Cost: two colour pairs picked by the
+  request's "the one with the color". Cost: two colour pairs picked by the
   half the renderer already resolves.
 - **The plasma** has two options:
   - **C1, the logo's amber.** The effect family has no such rule today:
@@ -1679,9 +1670,9 @@ a named value wins.
 | **R2** | the logo, then an opacity fade (P3) | P3's | meets it with one of the five listed practices ("Replacing transitions ... with fades"); not motion animation by WCAG's definition |
 | **R3** | the plasma anyway | none | departs from the HIG, unless the reader named it in the config, as a named trail survives today |
 
-R1 and R2 meet the HIG's requirement equally. The plan's wording, "Reduce
+R1 and R2 meet the HIG's requirement equally. A later summary, "Reduce
 Motion: show without the plasma, or not at all", names R2 then R1, but it
-is an agent's summary, not the request's words.
+is not the request's words.
 
 ### 5.6 The key
 
@@ -1702,8 +1693,8 @@ So `splash = "off"` turns it off whatever the system says.
   defaults to off. Shipping it off departs from the decision's "i'd like baud
   to start with the ... logo ... and a config option to turn it off",
   which reads as on by default with a switch to turn it off.
-- **The placeholder.** `[launch] splash` is the plan's placeholder, which an
-  agent wrote.
+- **The placeholder.** `[launch] splash` is a placeholder from a later
+  summary.
 - **Cost.** One key in the reader, a `TrailPick`-shaped enum, its tests (a
   typo follows the default), and a line in `config.toml.example`.
 
@@ -1715,7 +1706,7 @@ What writes, and where:
 |---|---|---|---|---|
 | **K** | the key only, documented; nothing in the app writes it | nothing | Hyprland's logo and splash keys and qtutils' button pointing at `no_update_news` (2.1); kitty's `update_check_interval`; wezterm's `check_for_updates` (2.2) | none beyond 5.6 |
 | **S** | a separate state store the app owns: `NSUserDefaults` under baud's domain, or a state file under `$XDG_STATE_HOME/baud/` | app state, never the config | Windows Terminal's `state.json`, with its spec's reason; Warp's private store for its banners (2.2) | the app's first persistent write; a store per platform; a precedence rule against the key |
-| **W** | the app edits the user's `config.toml` | the user's file | Hyprland's welcome "Finish" rewriting `hyprland.lua` (2.1); Windows Terminal's close dialog; Warp's zero-state block (2.2) | a TOML writer that keeps comments and order, which does not exist; on the project's machine it creates a config that does not exist (3.5) |
+| **W** | the app edits the user's `config.toml` | the user's file | Hyprland's welcome "Finish" rewriting `hyprland.lua` (2.1); Windows Terminal's close dialog; Warp's zero-state block (2.2) | a TOML writer that keeps comments and order, which does not exist; on the development machine it creates a config that does not exist (3.5) |
 
 Hyprland's `lastVersion` and `lastNag` are automatic state, not dismissals
 (2.1, item 4), and are not precedent for S. iTerm2 keeps its dismissals in
@@ -1724,9 +1715,8 @@ precedent for S either.
 
 **Costs, in more detail:**
 
-- **W.** baud's config code is a subset reader with no writer. The plan's
-  summary, which an agent wrote, records W as open, "since
-  writing the user's config needs their OK".
+- **W.** baud's config code is a subset reader with no writer. W stays
+  open, since writing the user's config needs their OK.
 - **S.** Under S, the precedence of the state against the key is a decision
   of its own. One rule is that the key wins when it is set, the
   `TrailPick` shape again.
@@ -1747,7 +1737,7 @@ precedent for S either.
     forbids it.
 - **A menu item**, for example "Show Logo at Launch", toggled. It lives
   outside the splash's second.
-  - **Cost.** A change and a release of the project's window crate, because
+  - **Cost.** A change and a release of baud's window crate, because
     baud's menu is that crate's and is extended there, never duplicated.
     It also needs S or W behind it to remember the choice.
   - **Guidance.** Nothing read governs it. The HIG's tutorial sentence asks
@@ -1775,8 +1765,7 @@ collapsing. The Linux driver has neither a trail nor the transition.
 | no splash there | none | conforms; on those paths it departs from the decision's "start with the ... logo" |
 | the vanish waits for the Linux GPU half | none now | conforms; meanwhile there is no splash on Linux, which departs from the decision's "start with the ... logo" there |
 
-The memory rule "same pixels on every OS" is the project's rule, not a
-standard. It asks the paths to match, which favours the fade or no splash.
+The rule "same pixels on every OS" is the project's, not a standard. It asks the paths to match, which favours the fade or no splash.
 
 ## 6. Costs, and what is unmeasured
 
@@ -1800,7 +1789,7 @@ standard. It asks the paths to match, which favours the fade or no splash.
 - the shipped trail's flashes on rendered frames, under retargets and for
   a saturated-red cursor colour (1.3);
 - the plasma over a logo-sized region, and its per-pixel transition rate;
-- the gap on any shell but the project's;
+- the gap on any shell but the development machine's;
 - whether about 100 ms of logo is "at a glance";
 - P2's flight time and P4's length;
 - whether a key typed before the run loop starts is queued or lost;
@@ -1864,9 +1853,8 @@ keep, and it is not yet measured.
 
 ## 8. Open questions
 
-The project's own words are only the request quoted at the top. The plan's
-summaries of it were written by an agent, and no question below rests on
-them.
+The request's own words are only those quoted at the top. Later summaries
+of it are not, and no question below rests on them.
 
 1. **When does the logo start to vanish?** The options:
    - **E2+E3**: on the shell's first visible output or the first key. The
@@ -1933,9 +1921,8 @@ them.
      with a key to turn it off. Leaving the key unset shows the splash,
      except under Reduce Motion, which question 5 decides; a value that
      turns it off wins whatever the system says (5.6).
-   - **Still open:** the name (the review for `[screen] splash`,
-     under the 0.9 bar) and the values. The review was asked the name and the
-     default, not the values; the named vanishes wait on how the logo
+   - **Still open:** the name (`[screen] splash` was the nearest, and not
+     settled) and the values; the named vanishes wait on how the logo
      vanishes (question 2) and on Reduce Motion's look (question 5).
    - **Unbuilt, and why.** No splash exists (questions 1 to 5 are open), and
      the key cannot be written without its name. The `BAUD_SPLASH=off|on`
@@ -1943,7 +1930,7 @@ them.
      something that is not there, so they land with the splash, with
      section 7's tests red first. The splash's own flash count (note AL)
      waits on it too.
-7. **What "do not show this again kinda thing" asks for.** The project's
+7. **What "do not show this again kinda thing" asks for.** The request's
    words can be read two ways.
    - **The config key itself (K).** This is how Hyprland's logo and splash
      are switched off. Both Hyprland controls worded as a dismissal write
@@ -1960,7 +1947,7 @@ them.
    - **Where it records the choice.** A state store outside the config
      (S), or the user's config (W).
    - **What the user presses.** A menu item, which costs a change and a
-     release of the project's window crate, or a key in the splash, which
+     release of baud's window crate, or a key in the splash, which
      conflicts with keys going to the shell.
    - **How often it shows.** Every launch, which is how "start with the
      ... logo" reads, or the first only, a reading that needs S.
@@ -1968,19 +1955,19 @@ them.
    departs from "start with the ... logo" on those paths), or wait for the
    Linux GPU half?
 
-**This draft's leans, before renders and before the review** (inputs to the review,
-not recommendations):
+**This draft's leans, before renders** (inputs to the decision, not
+recommendations):
 
 - **1: E4.** It is bounded both ways, and it holds the logo for the shell's
   own startup time. Its cap is a timer, against the time-boxed guidance,
-  and the cap's value is the project's.
-- **2: none.** It is a look, and the project decides looks from renders. P2
-  is the only option whose shader and oracle exist.
-- **3: none.** It is the project's own 2026-09-25 rule against the project's
-  own "the one with the color".
+  and the cap's value is a choice.
+- **2: none.** It is a look, and a look is decided from renders. P2 is the
+  only option whose shader and oracle exist.
+- **3: none.** It is the 2026-09-25 rule that every effect is the cursor's
+  colour against the request's own "the one with the color".
 - **4: L2 at weight 400.** It is closer to the lockup and adds no face.
 - **5: none.** R1 and R2 meet the requirement equally, and only the
-  owner's request can break the tie. R2 keeps the logo, and R1 departs
+  request's intent can break the tie. R2 keeps the logo, and R1 departs
   from "start with the ... logo".
 - **6: no lean** on the name.
 - **7: none between the readings.** If a control is wanted, the precedents
@@ -1991,11 +1978,10 @@ not recommendations):
   "Finish").
 - **8: the fade,** which matches across paths.
 
-Before any of these goes for decision, the project's rules ask for:
+Before any of these goes for decision, it needs:
 
-- renders of the options on the review page;
-- The review at or above 0.9, with the texts above quoted in the request;
+- renders of the options;
+- the texts above quoted beside them;
 - a recommendation per question.
 
-The review has been asked (see the status line); the renders and the
-per-question recommendations are not done.
+The status line records what was decided.

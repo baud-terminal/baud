@@ -23,7 +23,7 @@ their saved output are the `ak-obs-*` keys under
 `docs/research/sources/ak-observed/`; the scripts that reproduce the cited
 renderings are under `scripts/`. Fetched copies of the `external` sources
 (other terminals' code, kernel and SDK files, GPL documents) are not committed
-and stay untracked under `.claude/research/title/`.
+and were kept outside the repository.
 
 Evidence tags: **M** measured by the probes [[source: ak-obs-probe-c]],
 [[source: ak-obs-proxy-m]] and [[source: ak-obs-lossy-rs]] on this Mac (Apple

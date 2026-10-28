@@ -344,7 +344,7 @@ Claims carry one of three labels:
 - **[run]**: executed here;
 - **[inferred]**: reasoned, not checked.
 
-### A. What the review refuted or changed
+### A. What an independent check refuted or changed
 
 Most of the draft survives:
 - the AppKit keyframe reading;
@@ -1040,7 +1040,7 @@ Labels: **[R]** read at source, **[run]** run here, **[inf]** inferred. Line num
 - A durable copy of this review is at <scratchpad>/cursorq/rv2/ride-scroll-design-reviewed.md.
 - The streaming simulation is `ride_sim.py`, beside it.
 
-### A. What the review found
+### A. What an independent check found
 
 The (a)+(b) reading survives, and so do the fire's noise anchor (`rode` in `k[3]`), the rest state that never moves, and the gate set. Six things do not, and three of them block the commit.
 

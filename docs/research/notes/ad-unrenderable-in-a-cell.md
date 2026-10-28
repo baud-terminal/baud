@@ -60,9 +60,9 @@ what should the cell draw for the code points the kept face lacks?
    use the base's face only and drop, or overlay the mark from another face.
    None of them kept the base and drew a placeholder inside the cell, so that
    option was never priced.
-3. **The renders of the non-mark half looked wrong.** The review-v13 renders
-   (`.claude/research/review-v13/starters/`, which is untracked, sheets a-e
-   and noto-a..c; each sheet is copied into `ad-observed/` and keyed
+3. **The renders of the non-mark half looked wrong.** The version-13 starter
+   renders (sheets a-e and noto-a..c; each sheet is copied into
+   `ad-observed/` and keyed
    `ad-obs-review-v13-sheet-<sheet>-<px>`, for example
    [[source: ad-obs-review-v13-sheet-a-28]] and
    [[source: ad-obs-review-v13-sheet-noto-a-56]]) show two problems:
@@ -972,9 +972,8 @@ All 106 are RGI_Emoji_ZWJ_Sequence; the rows are section B of
   … 200D 1F48B 200D 1F3FC. The refused U+1F9D1 is only the eighth
   attachment, and the limit refuses only past the eighth (paint.rs:797 at
   11827bf), so the limit is not the cause (inferred from the code). The
-  frequency lens attributes the refusal to a store collision
-  (`.claude/research/ad-workflow-result.json`, untracked; not re-derived
-  here).
+  frequency lens attributes the refusal to a store collision (a working
+  result kept outside the repository; not re-derived here).
 - **So 15 lose a code point mid-sequence:** 11 sequences of 5 to 8 code points
   and those 4. The 11 lose a middle or final code point because the store's
   two-probe lookup collides with the sequence's own prefixes (cell.rs:613,
@@ -1266,8 +1265,8 @@ Notes on the rows, from the design lens unless marked:
   2.5).
 - **b3** is what the BOX prototype drew. It also counted `clusters_boxed=1` for
   a box it never drew, because `emit` skips a glyph whose atlas slot is empty
-  (renderer.rs:2634; `.claude/research/review-v13/starters/inputs/counts.txt`,
-  untracked, copied as [[source: ad-obs-review-v13-counts]]).
+  (renderer.rs:2634; the starters' counts, copied as
+  [[source: ad-obs-review-v13-counts]]).
 - **a** is § 5.21.6's "visible “missing glyph” box", drawn by baud. As
   practice, xterm and urxvt draw a box of their own inside the cell over a
   kept base, and kitty one per cell in place of the cluster (section 3). That
@@ -1658,8 +1657,8 @@ inferred, not measured).
 
 **What exists.**
 
-- **The review-v13 starters** (`.claude/research/review-v13/starters/`, sheets
-  a-e and noto-a..c, at 28 and 56 px; copied as
+- **The version-13 starters** (sheets a-e and noto-a..c, at 28 and 56 px;
+  copied as
   `ad-obs-review-v13-sheet-<sheet>-<px>`, for example
   [[source: ad-obs-review-v13-sheet-noto-b-28]]) show HEAD, AS_BUILT and BOX,
   where BOX is the base face's `.notdef`. On the Noto sheets the BOX arm draws

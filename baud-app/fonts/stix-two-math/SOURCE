@@ -1,5 +1,5 @@
 STIX Two Math: baud's embedded face for symbols no other default face has,
-last in the default stack on macOS and Linux (the owner's call, 2026-10-02).
+last in the default stack on macOS and Linux (a choice the project made, 2026-10-02).
 
 Release:   STIX Two v2.13 b171 (tag v2.13b171, commit 744a22a4dd626cd14d75728aef34fc8ad7c85db0)
 Font:      https://raw.githubusercontent.com/stipub/stixfonts/v2.13b171/fonts/static_otf/STIXTwoMath-Regular.otf

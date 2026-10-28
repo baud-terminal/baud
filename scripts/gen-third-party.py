@@ -35,12 +35,12 @@ SRC = "docs/research/sources"
 
 STATUS = {
     "kept": "redistributable, and its notice is satisfied",
-    "own": "the owner's work",
+    "own": "the work of baud's author",
     "nc": "kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence",
-    "copyleft": "redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call",
-    "no-grant": "no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call",
-    "unverified": "licence not established; the owner's call",
-    "open": "an open question, recorded where the file is; the owner's call",
+    "copyleft": "redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open",
+    "no-grant": "no grant to redistribute was found; moving it out of the tree (`external`) is a choice still open",
+    "unverified": "licence not established; a choice still open",
+    "open": "an open question, recorded where the file is",
 }
 ORDER = ["no-grant", "unverified", "open", "copyleft", "nc", "kept", "own"]
 
@@ -199,7 +199,7 @@ def render(side, url):
         "docs/research/sources/ is listed, and the check fails on one that is not. The licence texts the\n"
         "files need are in\n"
         "[LICENSES/](LICENSES/). LICENSE names the fonts and code copies that its own licence does not\n"
-        "cover. Nothing here is legal advice; where a file's status is the owner's call, this file says so\n"
+        "cover. Nothing here is legal advice; where a file's status is a choice still open, this file says so\n"
         "and decides nothing.\n\n"
     )
     w("## Summary\n\n")

@@ -39,7 +39,7 @@ script's tag below is a registered tag, and the registered tags it does not
 produce are `byzm`, `math` and `musc` (not Unicode scripts), `jamo` (the
 registry: "Use of this tag is not recommended ... should use 'hang'
 instead"), and `jurc`, `pcun` and `seal` (scripts Unicode 17.0 does not
-encode). The record has the check, "OpenType script selection, phase 0".
+encode). Every derived tag was checked against the registry's 187 tags.
 """
 import pathlib
 import sys

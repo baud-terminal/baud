@@ -28,7 +28,7 @@ The rule. Meteg stays on the side the text order gives and MIN_CLEAR from the
 letter, the check's bound; left of the vowel it stands METEG_GAP from it, and
 right of it METEG_GAP or further, so that it may stand past a descender rather
 than on it (left of qof's leg, with the vowel beyond it, was the other way to
-give meteg room there: Jev's lean, on qof, was the vowel past the cell's right
+give meteg room there; on qof the lean is the vowel past the cell's right
 edge instead). The vowel slides along its row from its own place, ACCEPT from
 the letter (or as far as it was, if that was less) all the way: it never passes
 through the letter's ink to its other side. Among those places: first the least of meteg's ink outside the

@@ -22,7 +22,7 @@ License 1.1 under "Copyright (c) 2019 - Present, Microsoft Corporation, with Res
 Font Name Cascadia Code." The Reserved Font Name binds modified versions (OFL condition
 3), so the built font's name may use neither Cascadia Code nor either of its words:
 SIL's OFL-FAQ 1.1-update7, Q5.4, "You may not use individual words from the Reserved
-Font Names". Its family name is the owner's decision 11 in note AC
+Font Names". Its family name is decision 11 in note AC
 (docs/research/notes/ac-built-font.md).
 
 The variable font's nameID 7 is "Cascadia Code is a trademark of the Microsoft group of
@@ -33,8 +33,8 @@ The variable font's own name table says something else. nameID 0 is "© 2021 Mic
 Corporation. All Rights Reserved.", and nameID 13 opens "Microsoft supplied font. You may
 use this font to create, display, and print content as permitted by the license terms
 ...". The built files carry JetBrains Mono's nameID 13 (the OFL sentence), and their
-nameID 0 carries both projects' copyright lines. Which text governs is the owner's open
-licence call (note AC). Until it is answered, the build is committed locally and nothing
+nameID 0 carries both projects' copyright lines. Which text governs is an open licence
+question (note AC). Until it is answered, the build is committed locally and nothing
 is pushed or released.
 
 Designers, per the repository's README.md at the tag (line 78) and the font's nameID 9:

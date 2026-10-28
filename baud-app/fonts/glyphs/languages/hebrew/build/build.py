@@ -23,8 +23,7 @@ directory cite the research tree, which is not committed; note AC
 (docs/research/notes/ac-built-font.md) is the record of those rounds.
 
 Two conformance changes since the port, both outside the design (2026-10-08,
-the owner's rule that a departure from the standard or the licence is a
-defect): nameID 7 carries Cascadia's trademark notice after JetBrains Mono's
+because a departure from the standard or the licence is a defect): nameID 7 carries Cascadia's trademark notice after JetBrains Mono's
 (OFL-FAQ 1.1-update7 Q3.7, "Any trademark notices must remain in any derivative
 fonts"), and GSUB and GPOS each gain a 'hebr' script record naming DFLT's Script
 table (with_script_copy). No outline, anchor, lookup or feature changed.

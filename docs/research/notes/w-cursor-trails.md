@@ -74,11 +74,11 @@ The files as committed, each with its SHA-256:
 | `plasma-area.py` | `d8c7c34d824b04d3dd400879aca6ebb67b429d01925da2adb603de01f552c0af` |
 | `plasma-check.py` | `60f0c29d1f8b6ae0a373240848644d7e2176e97bf4a0c3865ebddd1126760eed` |
 | `plasma-sketch.metal` | `b9512c04325c5c127e19aab82891214a33e5da13af17c702bd5375d8250a9ed2` |
-| `quad-pins.txt` | `ad722c7ab5bf220551b94de4c9574e1c3a2ef092a7190fa4dae85a7be7acd35f` |
-| `spec-ice.json` | `c41d474e7fb40d3f14134099baff4b1cde6aa8245c6205b3ecb249148880672a` |
-| `spec-liquid.json` | `4c242a39f986e6eb23001934879cc0003b96d03edb2070fe7ac69f3afe072468` |
-| `spec-plasma.json` | `9a86e12d7493e529da929e32847442706a1fd505dff475106a9e888915175f65` |
-| `spec-ufo.json` | `0abff20e06ffbbcf783709000c81e95b6ff4412d642cd33ff5cb5b25dadab53e` |
+| `quad-pins.txt` | `57d854da8f621eb86ff1f5e6afaecc953c98b93a07a897ada099340f5ba24e6b` |
+| `spec-ice.json` | `bacdefb3f2b115d19feeae4484eb86f46a4fe014616feb76e4c5bdd0a1d182ee` |
+| `spec-liquid.json` | `b310873714f654dc83177f993ecbacad7972137f38fcbb731fe93775eb50ff00` |
+| `spec-plasma.json` | `255a7401b48ec6253c363a2dce3585b365bceceab917bdfb85a8993775f739da` |
+| `spec-ufo.json` | `eff51404087ab9517929ab2a319447c4f334537efe009fe4ea00a96c1ee6a474` |
 | `ufo-proto.py` | `7e704494c909e6d0d4068e0bd62c451c1663712f8cd9a1beec519a4f48d87140` |
 | `ufo-proto2.py` | `9d101e49e3ffeb368f11521d53fdf8c3623bedc8f5c0fcb8e66adf6bff190ee3` |
 | `ufo-reach.py` | `ad7f8c0b1e6d0671e85c7fc9181483870db2ec1971029e4e03e3b8bd5c920c86` |

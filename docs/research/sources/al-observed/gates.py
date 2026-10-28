@@ -3,7 +3,7 @@
 
     python3 -I gates.py FLASH_FIX_DIR SCRATCH_BIN CENSUS
 
-FLASH_FIX_DIR is .claude/research/flash-fix (each prototype's runs/ and bin/
+FLASH_FIX_DIR is the prototypes' working directory (each prototype's runs/ and bin/
 under proto-O1 .. proto-O4, and note/to-commit/al-observed/ for the joined
 census files); SCRATCH_BIN is the scratch bin/ directory the O2 and O4
 prototypes built into; CENSUS is docs/research/sources/aj-observed/

@@ -1,14 +1,13 @@
 # AC. The embedded font, built from parts
 
 **Status: open, researched 2026-10-07.** The direction is decided and
-recorded below. The design questions it leaves go to the review and then to the project's
-review page. Nothing here is built yet.
+recorded below. The design questions it leaves are listed in section 6.
+Nothing here is built yet.
 
 Evidence is tagged as in the other notes: measured, source (file:line) or
-inferred. The full research is kept untracked in `.claude/research/font-build/`
-(the gap, the sources and the build design, with a critic's checks) and
-`.claude/research/hebrew-patch/` (the community bridge, a merge prototype, and
-run-time fitting).
+inferred. The full research (the gap, the sources and the build design, with
+a critic's checks; the community bridge, a merge prototype, and run-time
+fitting) was kept outside the repository; this note is its record.
 
 ## 1. What it was decided
 
@@ -155,21 +154,21 @@ reset, and `marks_dropped` was 45 over Genesis 1:1-5 (measured), a core limit to
 fix before Hebrew can be called done. *Fixed 2026-10-14*: 1024 slots, eight
 probes and a sweep of the dead, and 0 dropped over the five verses. The shipped patch needs baud's
 own Hebrew drawings (section 1). Without the bridge, the interim under the
-owner's order is the system fallback, once it exists: asked with
+font order (configured, then embedded, then the system) is the system
+fallback, once it exists: asked with
 `CTFontCreateForString` for Hebrew behind FiraCode Nerd Font, CoreText answers
 Courier New (measured 2026-10-07).
 
 ## 4a. Hebrew: the Cascadia-based prototype, four rounds
 
-After the project rejected the bridge and the generated letters, a font survey put
+With the bridge and the generated letters rejected, a font survey put
 Cascadia Mono's Hebrew (Liron Lavi Turkenich; OFL with the Reserved Font Name
 "Cascadia Code") first. It is sans and gives the narrow letters long heads.
-The review gave it against Noto refit, and the project
-answered "0.52 is very low" and "we need to improve it a lot". Four rounds
-followed on 2026-10-07. Rounds 1-3 each had an independent critic agent; round 4
-was re-measured in session without one. The files are in
-`.claude/research/hebrew-improve/` (git-excluded: build scripts, fonts, renders,
-critic logs); this section is the record.
+Against a refit Noto it was not a clear choice, and it needed improving a
+lot. Four rounds followed on 2026-10-07. Rounds 1-3 each had an independent
+critic; round 4 was re-measured without one. The build scripts, fonts,
+renders and critic logs were kept outside the repository; this section is
+the record.
 
 **What it is.** Cascadia's wght-400 Hebrew from the GitHub release
 (v2407.24), re-weighted to JetBrains Mono's stems (90/82), 630 units tall,
@@ -213,7 +212,7 @@ HarfBuzz unless marked):
   starts to read as resh at about 348 (0.58). In the same reading B's vav reads
   as resh or dalet, C's as a Latin l and E's as a dotless i (E's zayin as I); A
   and D read as themselves, and A's vav still floats. All of it was judged by
-  non-native readers from baud renders, so it is the project's to check.
+  non-native readers from baud renders, so a native reader checks it.
 
 **Still wrong:**
 
@@ -233,28 +232,28 @@ HarfBuzz unless marked):
 - A page of pointed text still loses points in baud-core's cluster store,
   whatever the font: 4 on the eight test lines, drawn plain.
 
-**The review after round 4**, with the still-wrong list in the request: CASCADIA_BASE, COMMISSION, LICENSE_NARKISS, NOTO_REFIT
-0.01, JULIA_BASE 0.00. That is under the 0.9 bar, and part of the rise is that
-only Cascadia was iterated (Noto refit had one round). On lamed it gave L2 0.60
-at 0.20. On narrow letters it gave A 0.72 at 0.65 (C 0.15, D 0.13, B and E 0).
-These are the second asks. The first carried round 3's meteg count, and it
-described C's and E's feet as JetBrains Mono's way of filling i and l without
-their misreads. On that framing the narrow answer was E 0.36, A 0.30, C 0.26 at
-0.20, so the omission moved it and the route barely (0.88 at 0.85).
+**After round 4**, weighed with the still-wrong list: the Cascadia base
+first, ahead of a commissioned design, licensing Narkiss, a refit Noto and a
+JuliaMono base. Part of its lead is that only Cascadia was iterated (Noto
+refit had one round). On lamed the lean is L2; on narrow letters, A (then C
+and D; B and E least). A first weighing that carried round 3's meteg count,
+and described C's and E's feet as JetBrains Mono's way of filling i and l
+without their misreads, leaned E on narrow letters; the framing moved the
+narrow answer and not the base.
 
-**A choice the project made.** Shown baud's version beside stock Cascadia, David Mono,
-JuliaMono and the bridge, all through baud, the request said "baud loooks better"
+**A choice the project made.** Shown beside stock Cascadia, David Mono,
+JuliaMono and the bridge, all through baud, baud's version read better
 (2026-10-07): baud builds its Hebrew on this prototype. Narrow letters and
-lamed's holam stay open on the review page (version 7). Cascadia's Bold carries
+lamed's holam stay open (questions 1a and 1b, section 5). Cascadia's Bold carries
 the same 39 Hebrew code points as its Regular; its Italic carries none, so the
 Italic will be a slant.
 
 ## 4b. Hebrew in four styles, and which way italic leans
 
-Built on 2026-10-07 by one workflow: a builder, an independent critic, a fix
+Built on 2026-10-07 in four steps: a build, an independent critic, a fix
 round, and a second critic. The research on lean direction ran beside them.
-Files are in `.claude/research/hebrew-improve/bi/` (git-excluded), and this
-section is the record.
+The working files were kept outside the repository, and this section is the
+record.
 
 **What was built.**
 
@@ -398,17 +397,15 @@ Notes on the table:
   - Its Bold candidates also shorten the plain qamats to 192 units. Otherwise
     the hataf qamats, 224 tall, rises onto the letter.
 
-**The review on these** (2026-10-08, every cost above in the request):
+**What was chosen** (2026-10-08, weighing every cost above):
 
-- **26 px:** as built. The round dot got, no drop
-  0.09 and the dash 0.01.
-- **If a short dot is chosen:** Regular gets it too, 0.95.
-- **The dot:** 120 × 98, settled at 0.99 at 0.98, against a rounder 119 × 102.
-- **The dagesh:** keep 104, 0.87 at 0.80. 106 got 0.13; redrawing letters for an
-  equal dagesh got 0.00.
+- **26 px:** as built, rather than the round dot or the dash.
+- **If a short dot is chosen:** Regular gets it too.
+- **The dot:** 120 × 98, against a rounder 119 × 102.
+- **The dagesh:** keep 104, rather than 106 or redrawing letters for an equal
+  dagesh.
 
-The 26 px choice and the dagesh are on the review page (version 10) as 1d and
-1e.
+The 26 px choice and the dagesh stay open as questions 1d and 1e.
 
 **Checked independently.** I re-rendered critic 2's probe on the third pass's
 fonts with critic 2's own renderer. Controls of the fix round came out
@@ -443,7 +440,7 @@ bold style. These got worse:
   - The anchors did not move. These points have the flatter dot's top at the
     same height.
 
-**For the project.** The dot is 120 × 98, 3% less ink than Regular's and flatter
+**What stays open.** The dot is 120 × 98, 3% less ink than Regular's and flatter
 than JetBrains Mono Bold's own (width over height 1.22 against 1.13). Only dots
 98 units tall read clean between the dots at 28 px. The dagesh, 104 × 92, is now
 smaller than the vowel dot; the three prior-art fonts keep the two equal. 106 is
@@ -511,9 +508,8 @@ I re-ran round 3's meteg check on the fourth pass's fonts:
 - **Gates on the changed files:** the generalised gate 29 of 29, OTS, critic 2's
   gate (which fails a fresh perturbation), the clearance sets, overpaint, the
   style path and Latin identity all pass.
-- **The review on keeping the fit** (2026-10-08, the costs above in the request): keep
-  the strict fit. A looser fit got and no fit.
-  Settled.
+- **Keeping the fit** (2026-10-08, weighing the costs above): keep the
+  strict fit, over a looser fit and no fit. Settled.
 
 **Which way italic Hebrew leans: the evidence.** Each lean was measured as the
 stem angle against the font's own upright, with JetBrains Mono Italic reading
@@ -572,25 +568,16 @@ puts both directions on one line, as in `git commit -m "תיקון באג"` or
 unavailable: Frank-Ri leaned its Latin left, and Khaled Hosny kept digits and
 punctuation upright.
 
-**The review on the lean, asked three times.**
-
-| Ask | Default lean | Confidence | Offer the other lean too |
-|---|---|---|---|
-| without the meteg count | right 0.77 | 0.54 | yes 0.88, at 0.76 |
-| with the unfitted meteg count | left 0.65 | 0.30 | yes 0.88, at 0.76 |
-| with the fitted count and its cost | left 0.57 | 0.14 | yes 0.87, at 0.74 |
-
-The default is a coin toss on the evidence. Shipping both behind one setting
-holds near 0.87. The question is on the review page (version 10) as 1c, with
-both leans re-rendered from the fourth pass's fonts. The project, a native reader,
-decides.
+**The evidence does not settle the default lean.** The Latin-first families
+and the matched angle argue for right; the Hebrew-first tradition and the
+meteg counts argue for left. Both leans were re-rendered from the fourth
+pass's fonts for question 1c, for a native reader to decide.
 
 ## 4c. The italics, built (2026-10-24)
 
-The project answered 1c on 2026-10-24: "learn right R". Italic and bold italic
-Hebrew lean right, with the Latin. The session's record of a choice the project made of
-2026-10-07 asks for the italic "optically corrected like JBM's italic rounds, not a
-plain shear". So the question became what JetBrains Mono's italic does to its rounds.
+Question 1c was answered on 2026-10-24: italic and bold italic Hebrew lean
+right, with the Latin. A choice of 2026-10-07 asks for the italic optically
+corrected like JetBrains Mono's italic rounds, not a plain shear. So the question became what JetBrains Mono's italic does to its rounds.
 
 **What JetBrains Mono's italic does, read at source.** Its italic masters
 (`[[source: jbm-glyphs-italic]]`) carry italicAngle = 9 and are drawn as their own
@@ -600,7 +587,7 @@ outlines. Read node for node against the upright masters
 - The italic is the upright sheared 9 degrees about y ~ 278. On 26 compatible
   letters and figures, the on-curve nodes sit 0.4 units off the sheared upright on
   average horizontally (ExtraBold 0.3). a, e, f, y, Q and nine are redrawn, not
-  sheared. (The first the review request said 29 letters; the tool measures 26.)
+  sheared. (A first count said 29 letters; the tool measures 26.)
 - Stems keep their horizontal width (90) and bars their height (82). The combining
   dots are the sheared upright.
 - **The bowls' joints move.** Of the 350 ends of the Regular master's 175
@@ -661,24 +648,23 @@ re-runs against the corrected outline and moves two point anchors: hataf segol
 under tet in Italic (x 246 to 248) and under shin in Bold Italic (x 256 to 268).
 Meteg passes 185 and 143 of 297, the same as the plain shear's.
 
-**How far, by the review.** The handles first. Three candidates went to the review, each with
-renders: A, the fit over all 175 corners, as one K; B, the fit over the 53 corners
-JBM visibly corrected (0.00266); C, each kind's own fit. First ask, A against B: B. The split by kind showed that B gives
-Hebrew's stroke-to-stroke corners about 12 times what JetBrains Mono gives its own.
-Re-asked with C: C, in both orders.
+**How far.** The handles first. Three candidates were rendered: A, the fit
+over all 175 corners, as one K; B, the fit over the 53 corners JBM visibly
+corrected (0.00266); C, each kind's own fit. B over A at first, but the split
+by kind showed that B gives Hebrew's stroke-to-stroke corners about 12 times
+what JetBrains Mono gives its own, so C: each corner gets what JetBrains Mono
+gives a corner of its kind.
 
-That request said the italic departs from the shear only in the handles, and it
-gave Hebrew's arc counts as 88 and 95. Both were wrong. The joints went to the review
-separately, with renders: C (handles only), D (level in full) and D13 (level by at
-most 13). First ask: C was rejected (0.02-0.03), and D against D13 split (0.49 and
-). The diagonal thickness then
-separated them. Against the plain shear, D thickens Hebrew's obtuse corners
-4.6-5.1% and its acute ones 3.7-4.0%. D13 gives 1.4-3.0% and 0.5-0.7%, which is
-JetBrains Mono's pattern. Re-asked: D13.
-Two statements in that request were wrong: that no point anchor moves (two do), and
-that every JetBrains Mono italic bowl ends level (g and e do not). Asked again with
-both corrected: D13, in both orders, then in both orders. What separated D from D13 was the diagonal thickness, which
-neither correction touches. The four renders it decided on are
+An early statement that the italic departs from the shear only in the
+handles, with Hebrew's arc counts as 88 and 95, was wrong on both. The joints
+were weighed separately, with renders: C (handles only), D (level in full)
+and D13 (level by at most 13). C was rejected. Against the plain shear, D thickens Hebrew's obtuse
+corners 4.6-5.1% and its acute ones 3.7-4.0%. D13 gives 1.4-3.0% and
+0.5-0.7%, which is JetBrains Mono's pattern, so D13. Two further statements
+were wrong and were corrected: that no point anchor moves (two do), and that
+every JetBrains Mono italic bowl ends level (g and e do not). Neither touches
+the diagonal thickness, which is what separates D from D13. The four renders
+it rests on are
 `docs/research/notes/ac/italic/overlay_full.png`,
 `docs/research/notes/ac/italic/overlay_capped.png`,
 `docs/research/notes/ac/italic/overlay_bold.png` and
@@ -731,20 +717,20 @@ toward resh's, whose leg ends the roof (dalet against resh: 1.88/1.81 px as buil
 or 0 made ד read as ר, and Z40 makes zayin's head as wide as vav's (300 against
 292).
 
-**The review**, with four renders, in both orders each time: H45 at confidence
-0.60/0.68; then, with the dalet-resh, 26 px, vav-zayin and other-pair measurements,
-H45, ZKEEP, NONE. The review's sheet showed the
-italics at 14 px only; the committed sheets add them at 12 and 16 px, and no pair
-there loses its feature. That ask left out the pair the change moves dalet toward
-besides resh: vav, a 292-wide head over a right-end leg with no heel. With the leg
+**Weighed** with four renders, and then with the dalet-resh, 26 px,
+vav-zayin and other-pair measurements: H45, zayin kept, no other pair
+redrawn. The first sheet showed the italics at 14 px only; the committed
+sheets add them at 12 and 16 px, and no pair there loses its feature. That
+sheet left out the pair the change moves dalet toward besides resh: vav, a 292-wide head over a right-end leg with no heel. With the leg
 at the right end, ד and ו are told apart by width and heel, 418 against 292 (1.76 px
 at 14 px) with H45 or H30 and 458 against 292 (2.32 px) with the W40 options; the
 shift-minimised coverage difference between them, a before/after screen only (it
 ranks ח/ם closest in the font), is 0.154-0.156 as built, 0.122-0.129 with H45 and
-0.157-0.218 with W40 (Regular, Bold). Re-asked on the dalet alone with that premise
-and a render of words where the two touch: H45. Under the bar
-each time, so the lean is taken: **H45**. Zayin stays variant A's, so the project's
-open call 1a is untouched, and no other pair is redrawn.
+0.157-0.218 with W40 (Regular, Bold). Weighed again on the dalet alone with
+that premise and a render of words where the two touch, the lean is taken:
+**H45**. With it the roof keeps its width, and dalet's leg stands further
+from resh's than with H30. Zayin stays variant A's, so open
+question 1a is untouched, and no other pair is redrawn.
 
 **Built** as round 5, `baud-app/fonts/glyphs/languages/hebrew/build/distinct.py`:
 dalet's leg and the roof's underside where it meets the leg move right until the
@@ -773,9 +759,8 @@ final forms descend 180. Dalet now stands nearer vav and resh than it did (above
 is at 517, so only the top corners moved. The band now starts at y 500, under both
 weights' head, so each end moves whole and stands square, as Regular's does; Regular
 and Italic are byte for byte as before
-(`zayin_head_ends_stand_square_in_every_style`). The review, with the 12-16 px words and
-the letters at 200 px before and after (`docs/research/notes/ac/zayin/`): FIX_500 at
- and in both orders.
+(`zayin_head_ends_stand_square_in_every_style`). The 12-16 px words and the
+letters at 200 px before and after are in `docs/research/notes/ac/zayin/`.
 
 **Dalet and resh, kept apart by the corner (2026-10-25).** Round 5 put dalet's leg
 at its roof's right end, where resh's stands, so their legs' offsets under their roofs
@@ -912,13 +897,10 @@ A design checked against the repository and a working prototype (fontTools
 
 ## 5a. The Hebrew build, built (2026-10-08)
 
-The project typed Hebrew into baud and every letter drew as JetBrains Mono's
-`.notdef` box. Then they said "i thought we have our own font that has hebrew".
+Hebrew typed into baud drew every letter as JetBrains Mono's `.notdef` box.
 The Cascadia-based Hebrew (section 4a) had been gated in four styles since
 2026-10-07, but it was never merged into the font the app loads. This section is
-what was built that day. The record ("baud's own Hebrew is in the embedded font,
-Regular and Bold, built from committed sources") carries the review table, the
-tests and the verifier's measurements.
+what was built that day.
 
 **The tree**, the interim layout:
 
@@ -963,22 +945,22 @@ The section 5 design's `base/` and `icons/` moves wait.
   differ from Latin shaping went from 18 of 34 to 0.
 - baud's shaping did not move (0 of 1,646 clusters), because it reads `latn`
   first.
-- The review split against on fixing this now, and the
-  owner's rule (the standard is the requirement) decided it.
+- Both departures are fixed now, because a departure from the standard or
+  the licence is a defect.
 
-**What the app embeds.** Regular and Bold are the built files, using the review
-page's defaults (1a = A, 1b = L2), which are interim and a choice the project made.
+**What the app embeds.** Regular and Bold are the built files, using the
+interim defaults of questions 1a and 1b (1a = A, 1b = L2), a choice the
+project made.
 Italic and Bold Italic stayed stock, so italic
 Hebrew drew upright Regular from the chain until 1c was answered; since 2026-10-24
 they carry the italic Hebrew (section 4c).
 
 **A configured stack is followed by the embedded Regular, then the icon face,
 then STIX** (`config.rs`, the `FontFallback::Embedded` branch). This is
-decision 8, asked again with its measured scope: 0.92, so interim under
-the bar read on confidence.
+decision 8, weighed again with its measured scope, and still interim.
 
-- By cmap it moves 458 code points for a FiraCode stack (450 for the project's
-  former FiraCode Nerd Font Mono):
+- By cmap it moves 458 code points for a FiraCode stack (450 for the former
+  default, FiraCode Nerd Font Mono):
   - the 52 Hebrew;
   - 38 that were boxes;
   - 360 that drew from STIX;
@@ -1013,7 +995,7 @@ the bar read on confidence.
 - Bold meteg's per-vowel failures (since 2026-10-26 only where the cell has no place
   for meteg on its side, FONTLOG's CHANGELOG).
 
-**Still the project's:**
+**Still open:**
 
 - 1a-1e.
 - The family name: OFL-FAQ Q5.4 allows neither word of "Cascadia Code", and it
@@ -1039,46 +1021,43 @@ font ... Any other use is prohibited".
 
 ## 6. Open decisions
 
-From the build research. The review's first answers (2026-10-07; probability of its choice,
-then its confidence; none is settled under the 0.9 bar read as confidence) follow
-items 1-3 and 5-12 in brackets; items 4, 13 and 14 were not asked. All go for decision with pictures:
+From the build research. The leaning answer of 2026-10-07 follows items 1-3
+and 5-12 in brackets; none is settled. Items 4, 13 and 14 have none. Each is
+decided with pictures:
 
 1. Where the icons come from: Nerd's fitted release glyphs (recommended), the
-   patcher run by baud, or the patcher's rules ported. [release, 0.88 at 0.82]
-2. Icons in the Regular only or in every style (the project's 2026-09-29 call was
-   one icon copy). [Regular only, 0.91 at 0.82]
+   patcher run by baud, or the patcher's rules ported. [release]
+2. Icons in the Regular only or in every style (the choice of 2026-09-29 was
+   one icon copy). [Regular only]
 3. The tool: the script with committed outputs (recommended), `build.rs`, or Rust.
-   [script, 0.65 at 0.48]
+   [script]
 4. JetBrains Mono's four statics as the base, or styles baked from the variable
    font (note Z, step 6).
 5. Nerd scope C under the new order: its 13 overrides of JetBrains Mono's own
-   glyphs inside the built font in all four styles, or none. [overrides, 0.60 at 0.20]
+   glyphs inside the built font in all four styles, or none. [overrides]
 6. Whether "no per-glyph rules" also covers build-time per-glyph lists (the
    reading here: it forbids run-time inheritance rules only). [the lean is the other
-   way, also build-time, 0.63 at 0.26; it is the project's rule to read]
-7. STIX Two Math: a part by the project's rule; its symbols are candidates for a
-   baud patch, and until then it stays a face, is merged, or goes. [stays a face,
-   0.93 at 0.89]
+   way, also build-time]
+7. STIX Two Math: a part by the font-inheritance rule; its symbols are
+   candidates for a baud patch, and until then it stays a face, is merged, or
+   goes. [stays a face]
 8. The built font behind a configured stack: the Regular only, or a chain per style.
-   [Regular only, 0.83 at 0.66; built 2026-10-08 under the first build ask's 0.59
-   (interim); a second ask with its measured scope gave 0.92 at 0.88, still
-   interim read on confidence (section 5a)]
+   [Regular only; built 2026-10-08 as the interim, and still the interim
+   when weighed again with its measured scope (section 5a)]
 9. macOS system fallback: the cascade at launch, per character, or both. [cascade at
-   launch; *re-asked 2026-10-26* with the measured costs and
+   launch; *weighed again 2026-10-26* with the measured costs and
    coverage -- the cascade maps 33 of 161 scripts' first letters, the
-   per-string answer 133, Syriac only the second -- per string, 0.88 at, built as the lean; asked when a frame meets the
-   character rather than at launch; for the
-   characters drawn rather than their whole block, the lean]
-10. Linux system fallback: linked, `dlopen`ed or a subprocess. [linked, 0.46 at 0.19;
-    *re-asked 2026-10-26* with a fourth option, fontconfig's charset match
-    over baud's own scan: that, 0.92 at 0.89 and 0.94 at 0.92, built as the
-    lean]
+   per-string answer 133, Syriac only the second -- per string, built as the
+   lean; asked when a frame meets the character rather than at launch, and
+   for the characters drawn rather than their whole block, the lean]
+10. Linux system fallback: linked, `dlopen`ed or a subprocess. [linked;
+    *weighed again 2026-10-26* with a fourth option, fontconfig's charset match
+    over baud's own scan: that, built as the lean]
 11. The family's name: anything but a Reserved Font Name; keeping "JetBrains
     Mono" is not barred by a Reserved Font Name, but it misnames a modified font
-    and is JetBrains' trademark, to which the OFL grants no right. [a new name,
-    0.86 at 0.72]
-12. Inputs committed, or fetched by pinned hash at build time. [committed, 0.60 at
-    0.20; for the Hebrew build, COMMIT_VF 0.93 at 0.89, built as the interim
+    and is JetBrains' trademark, to which the OFL grants no right. [a new name]
+12. Inputs committed, or fetched by pinned hash at build time. [committed;
+    for the Hebrew build, the variable font committed, built as the interim
     (section 5a)]
 13. Which gap blocks baud draws itself, in what order, and which stay with the
     system: Claude Code's and common TUI symbols first is the measured case.

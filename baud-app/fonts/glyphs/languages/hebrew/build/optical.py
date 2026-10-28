@@ -28,8 +28,8 @@ the acute. Hebrew's bowls stop short by 6.6-31.2 units (Regular) and 23.2-45.5 (
 more than JetBrains Mono ever moved. level_rec moves each outer joint toward its inner
 one by the gap, at most LEVEL units (style.py: 13, JetBrains Mono's largest move),
 which thickens Hebrew's obtuse corners 1.4-3.0% and its acute 0.5-0.7%, where a full
-level would give 4.6-5.1% and 3.7-4.0% (Jev, D13_LEVEL_CAPPED, 0.99 at confidence
-0.98 in both orders). The outer arc is scaled along its straight between its other
+level would give 4.6-5.1% and 3.7-4.0%; capped, the thickening is JetBrains Mono's
+own pattern (note AC 4c). The outer arc is scaled along its straight between its other
 end's tangent line and the joint, so the joint stays on its straight and both ends
 keep their tangents.
 
@@ -56,7 +56,7 @@ italic_rec applies that function to every round corner of a Hebrew letter: each 
 of an outline that turns through a right angle upright (87-93 degrees, between two
 points where the tangent is horizontal or vertical) gets the k of the angle the shear
 gives it and of its kind, so each Hebrew corner gets what JetBrains Mono gives a
-corner like it (Jev, C_PER_KIND_FIT, 0.96 at confidence 0.94 in both orders); 43 arcs
+corner like it (one fit for every kind would not: note AC 4c); 43 arcs
 in Italic, 39 in Bold Italic. The letters' outlines are TrueType splines from
 Cascadia, not one cubic per corner, so the handle ratio is carried as what it does to
 a cubic quarter: the arc's midpoint (where it crosses the corner's diagonal) moves

@@ -1,9 +1,8 @@
 # AG. Under load: the reply buffer and the Sixel body
 
 **Status: research, 2026-10-09.** Two questions (section 3), neither settled by the research alone. Built from two investigations of programs in daily use: herdr, a multiplexer, and yazi, whose previews were reported blank. Both were run headless against `baud-core` in a pty, set up as
-`baud-app` sets it. The evidence (harnesses, captures, run logs) is under
-`.claude/research/reply/scratch/`, `.claude/research/yazi/scratch/` and
-`.claude/research/scroll/scratch/`, untracked: the captures carry private workspace names, so none is committed, and any fixture is re-recorded from a
+`baud-app` sets it. The evidence (harnesses, captures, run logs) was kept
+outside the repository: the captures carry private workspace names, so none is committed, and any fixture is re-recorded from a
 session that restores nothing.
 
 Evidence tags: **M** measured by those harnesses; **C** computed from the code.

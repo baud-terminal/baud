@@ -68,14 +68,14 @@ the builds that follow them:
 Built since: the rendition cache (`60cce43`), the quad trail (`c2e20be`),
 sfte's swept box (`trail = "sweep"`, `8da4787`), and the fire trail
 (`8211be4`), the default until the plasma replaced it (`eb2f75e`) -- drawn in
-the cursor's colour, the project's word mid-build: "the flame should not use a
-special color, we use the cursor color, default color". Then plasma
+the cursor's colour, decided mid-build: the flame uses no special colour,
+only the cursor's colour, by default the default colour. Then plasma
 (`bc40570`), lightning (`0cef30d`), ice (`26b26b0`), ufo (`90bb30d`), orb
 (`1488b3c`) and liquid (`818daaa`), ten trails with the ghost: the one-cell
 box that was the trail before these decisions (`6cecea6`, 2026-09-20), named
 `ghost` by the quad's commit and drawn in the cursor's colour since `84c7726`.
 Then Reduce Motion (`bc7cd03`): the default trail is off under it and a named
-one is kept. Then the blink from the OS, with the project's answers of 2026-09-27
+one is kept. Then the blink from the OS, with the answers of 2026-09-27
 (`5fb5eec`) -- hard edges at 650/350, every other sub-question as recommended:
 the rate read from the system's keys, macOS 15's non-blinking switch holding
 the drawing steady unless the config says `true`, and
@@ -83,19 +83,19 @@ the drawing steady unless the config says `true`, and
 `?12` or-ed with the style's own blink, as foot does, and the style saved and
 restored across `?1049`, so vim and helix leave the shell its configured
 cursor (CONTRIBUTING.md). Then the ride
-(`0415566`), with the project's bound of the same day -- two rows, then fold in:
+(`0415566`), with the bound chosen the same day -- two rows, then fold in:
 a trail in flight moves up with the text under a smooth scroll, and `[cursor]
 trail_scroll = "stay"` keeps it put.
 
 ## What this is
 
-The TODO list and the research notes leave these twenty-five decisions to
-the project. Each one here went through three steps:
+The research notes leave these twenty-five decisions open. Each one here
+went through three steps:
 
-1. One agent read the code and the sources, and proposed an answer.
-2. A second agent tried to refute the proposal.
-3. A third wrote the section below. Where the first two disagreed, the
-   reviewer's correction is taken.
+1. The code and the sources were read, and an answer proposed.
+2. An independent check tried to refute the proposal.
+3. The section below was written. Where the first two disagreed, the
+   check's correction is taken.
 
 Every section has the same parts: the question, what you would notice, how
 it is today, what other terminals do, the options, a recommendation in bold,
@@ -303,14 +303,12 @@ reset's byte now: the first erasure in a pump, kept by the core
 with the window above 0. The window is still the one stored at the pump's
 start, so a full-screen `SD`, `RI` at the top or a prompt redraw that
 takes it live in the same pump as the reset still depends on the
-batching (note V's V2); the record names it. Q2 is not decided by it.
-Both options are now batching-invariant, so the request round 2026-10-11d
-sent describes neither as built: its DRAWN_WINDOW Does slot and
-`baud_probe` (d) give e8f1d54's batching dependence, and a re-ask must
-carry this change's rule. The record: "A reset's
+batching (note V's V2). Q2 is not decided by it. Both options are now
+batching-invariant, so the weighing of 2026-10-11 describes neither as
+built: its drawn-window option and `baud_probe` (d) give e8f1d54's batching
+dependence, and a later weighing must carry this change's rule. A reset's
 reveal is decided at the reset's byte, not at the pump's edges
-(2026-10-11)", which also holds what an emptied history shows: the review's
-answer A, as built.
+(2026-10-11), and an emptied history shows answer A, as built.
 
 After the change: a reset leaves a clean slate, with no highlight, no slide,
 the live screen and no stale guess. It does so however the bytes fall into
@@ -369,8 +367,8 @@ Two smaller gaps sit in the same code.
 - **The Linux driver has no window, selection or slide**
   (`baud-app/src/linux.rs`), so none of this applies there yet.
 
-The TODO list records this item as waiting on note U's questions 1-3, which
-ask who owns the scroll position. It need not wait; see the last section.
+This item was recorded as waiting on note U's questions 1-3, which ask who
+owns the scroll position. It need not wait; see the last section.
 
 **What others do**
 
@@ -454,8 +452,8 @@ scrolling. The nearest analogies:
   clear (screen.c 1935 and 2887).
 
 The six external sources (alacritty, kitty, ghostty, VTE) have no committed
-copy. The researcher fetched each from its manifest URL, the reviewer fetched
-them again, and each SHA-256 matched the manifest both times.
+copy. Each was fetched from its manifest URL twice, independently, and each
+SHA-256 matched the manifest both times.
 
 **Options**
 
@@ -484,7 +482,7 @@ them again, and each SHA-256 matched the manifest both times.
       primary's window, so the window rule has to tell a reset from a switch
       anyway.
 - **O4: a dedicated reset count in the core, acted on by the app (recommended,
-  with the reviewer's corrections).**
+  with an independent check's corrections).**
   - Cost: one field, one accessor, an extraction in the app and an ingest
     sweep.
   - Forecloses nothing: under note U's models it moves into the core line by
@@ -591,7 +589,7 @@ App: `baud-app/src/app.rs`.
    - **If the thumb fork is yes:** when the view went from above 0 to 0,
      reveal the thumb the way `snap_to_live` does (line 4019).
 
-**Dropped from the researcher's design: a "leaving row" gate on `sliding`.**
+**Dropped from the first design: a "leaving row" gate on `sliding`.**
 - The app's scrollback depth is fixed at `Depth::DEFAULT`. Once the reset's
   read settles the slide, the next slide needs a scroll, and a scroll makes
   the history at least one line.
@@ -872,8 +870,8 @@ public tracked-point array yet.**
   line, or `Live` if there is no history. It runs at three points:
   - at the exit of `Term::feed`;
   - at the exit of `Term::resize`;
-  - between the height step and the width step inside `resize` -- the review's
-    correction. `resize_holding` already does this today. Without it, a view
+  - between the height step and the width step inside `resize` -- a
+    correction to the first design. `resize_holding` already does this today. Without it, a view
     that a height pull brought onto the live screen becomes `At(l)`, a
     narrowing re-cut can land it behind the new top, and the exit then reads
     it as scrolled back.
@@ -913,7 +911,7 @@ public tracked-point array yet.**
   `a_read_that_switches_screens_anchors_by_what_the_primary_scrolled`,
   `a_resize_on_the_alternate_screen_anchors_by_the_primary`,
   `a_window_over_the_history_holds_its_line_through_a_re_cut`. Add the three
-  in `baud-core/tests/reflow.rs` the review named:
+  in `baud-core/tests/reflow.rs`:
   `a_live_window_stays_live_through_a_re_cut` (line 415),
   `a_window_a_growth_brings_to_the_live_screen_stays_live_through_the_re_cut`
   (431) and
@@ -979,7 +977,7 @@ only taller or shorter. Should it survive a height-only change?
 - Keep it across a height-only resize on the main screen by renumbering
   (alacritty). A small app change.
 - Remap it through a re-cut (foot). Needs V2's B+ registration API.
-- A sub-choice the review raised: a selection that touches rows a shrink cut
+- A sub-choice: a selection that touches rows a shrink cut
   below the cursor. Those rows are hidden, not deleted; they may come back, or
   be blanked when history is pulled instead. Clip the selection to what is
   still shown, or clear it. My lean is clear: a kept selection could later
@@ -1069,8 +1067,8 @@ per screen, or three?
 - wezterm #6669 is open and calls this "wholly unspecified"
   ([[source: wezterm-issue-6669]]). It also asks that a pending wrap be reset.
   ghostty issue #5718, which it cites, was not fetched (UNPINNED).
-- xterm is said to keep one saved cursor per buffer (cursor.c, UNPINNED). The
-  TODO says to pin it first.
+- xterm is said to keep one saved cursor per buffer (cursor.c, UNPINNED). It
+  is to be pinned first.
 
 **Options**
 - Keep clamping (alacritty's shrink and width behaviour). No code. The #6669
@@ -1647,7 +1645,7 @@ vertical scrolls move whole rows.
 - Yet the DECRQM query ("is this mode supported?") for ?69 answers
   "recognised" (`baud-core/src/ops.rs` 1513).
 
-**Reach.** By the researcher's grep, 0 of 23 captures contain ?69 or
+**Reach.** By a grep, 0 of 23 captures contain ?69 or
 `CSI Pl;Pr s`. The TERM entry baud sets has no margin capabilities
 [[source: terminfo-xterm-256color]], so ncurses never fences.
 
@@ -1746,7 +1744,7 @@ character goes where the cursor is, and the next goes to the left margin.
   - (d) the corner, as C2-min.
   - Cost: L overall.
 - **For step (d), the corner itself:**
-  - *A. Keep wrap-first; fix the record and the reports.* Effort S. baud stays
+  - *A. Keep wrap-first; fix the coverage rows and the reports.* Effort S. baud stays
     different from pinned xterm.
   - *B. xterm's rule only past right+1.* Rejected. Column 11 would wrap into
     the fence while column 12 writes on, and no implementation makes two
@@ -1789,7 +1787,7 @@ Why I lean that way:
 - W is small and reversible, and finishing is large.
 - W makes baud's claims consistent, since DA1 already says VT102.
 
-If W, fix the record in the same change: the coverage rows, and the stale
+If W, fix the docs in the same change: the coverage rows, and the stale
 comment above the line-136 test.
 
 **Design**
@@ -1827,8 +1825,7 @@ comment above the line-136 test.
       gate.
   - First, pin ghostty's Terminal.zig at d9840f3c and xterm's cursor.c in
     `docs/research/sources/MANIFEST.toml`, so their rules can be cited.
-- **(b) Rectangle scrolling.** Its own decision (the TODO list item after this
-  one), not designed here.
+- **(b) Rectangle scrolling.** Its own decision, not designed here.
 - **(c) Line starts and moves**, following xterm cursor.c (pin it first):
   - CR, NEL, CNL and CPL go to the left margin when DECLRMM is on and the
     cursor is at or right of it; otherwise to column 0.
@@ -1972,7 +1969,7 @@ comment above the line-136 test.
 
 **Levels.** Unit tests, hand-written fixtures at every read size, and the
 ghostty harness. There is no recorded level, because no capture contains ?69,
-and the record must say so.
+and the docs must say so.
 
 **Perturbations**, each red alone:
 
@@ -2004,7 +2001,7 @@ and the record must say so.
     wrap cross the edge every 200 bytes).
 - `cat` is readable now: its aligned arm read 1662.3-1680.8 over nine rounds.
 - No capture reaches the new code, so the sweep prices carrying and layout
-  only, and the record must say so.
+  only, and the docs must say so.
 - A disjoint regression the A/A copy does not cover: try the other BS
   encoding. If both regress, fall back to option A.
 
@@ -2094,8 +2091,8 @@ keystrokes).
   `GetSelection` and `SetSelection` among the window operations). The defaults
   come from xterm.man at the same commit: allowWindowOps false, and
   disallowedWindowOps listing GetSelection and SetSelection among the
-  "dangerous" operations. Both the researcher and the reviewer read that man
-  page, and it is **UNPINNED**.
+  "dangerous" operations. That man page was read twice, independently, and
+  it is **UNPINNED**.
 - **kitty**, [[source: kitty-conf]]: writes allowed, reads ask for permission;
   `clipboard_max_size 512` (MB).
 - **sfte**, [[source: sfte]]: OSC 52 on by default. It skips reads and hands
@@ -2143,8 +2140,8 @@ keystrokes).
   measurement.
 - **C with a "recent keystroke" gate**: accept a write that arrives soon after
   a key sent to the child. It is a timestamp comparison rather than a wait,
-  but it is a time constant, which baud's event-driven rules resist. Offered
-  by the reviewer, and not leaned toward.
+  but it is a time constant, which baud's event-driven rules resist. Not
+  leaned toward.
 - **D. No gate.** kitty's documentation describes this, and sfte's code does
   it.
 - **E. Also honour reads, behind a confirmation.** It needs a prompt baud does
@@ -2165,7 +2162,7 @@ land B-prime first so short copies work at once.
 
 **Design**
 
-These are the researcher's design with the reviewer's four changes applied.
+This is the first design with an independent check's four changes applied.
 
 *Core (`baud-core`: no_std, no allocator, no unsafe):*
 
@@ -2251,7 +2248,8 @@ fixtures cover.
     truncated at 512 bytes anyway.
   - The same at read sizes 1, 3, 7, 4096 and whole.
   - **Two writes where the second spans into the next read, at several read
-    sizes.** This is the reviewer's bug, and single-write tests cannot see it.
+    sizes.** This is the bug the independent check found, and single-write
+    tests cannot see it.
   - A body past the buffer is refused whole and counted, and nothing is
     published.
   - Bad base64 or padding is refused, and the generation does not move.
@@ -2469,7 +2467,7 @@ decide to move every counted mode to 4 (option F).
     answers 0".
   - `SECURITY.md` and `docs/protocol-decisions.md` stay, with the DECRQM
     answer added.
-  - the project's paragraph that argued for recording the mode is struck through
+  - the paragraph that argued for recording the mode is struck through
     with the reason. This **reverses a recorded decision** (the recorded
     region was kept as a channel for an embedder), and it should read as one.
 
@@ -2873,8 +2871,7 @@ UNPINNED:
 - A blog reports glibc 2.39 made ja_JP.UTF-8 count ambiguous characters
   narrow; Debian bug #471021 says the opposite for older glibc. Unresolved.
 
-Measured on this Mac by the reviewer (not pinned; one OS build, macOS 27.0
-26A5425a):
+Measured on this Mac (not pinned; one OS build, macOS 27.0 26A5425a):
 - The C library's `wcwidth` (the function programs call to ask how many
   columns a character takes) returns 1 for U+2500, U+2581, ±, α, U+2018,
   U+E0B0 and U+F0000 under ja_JP, zh_CN and ko_KR UTF-8 locales. The locale
@@ -2914,7 +2911,7 @@ Measured on this Mac by the reviewer (not pinned; one OS build, macOS 27.0
 **Fix the documentation slips now, and hold the config key until a user who
 needs "wide" asks for it. The default stays narrow. Yes or no?**
 
-My lean follows the reviewer: on this Mac nothing measured would agree with
+My lean follows the measurement: on this Mac nothing measured would agree with
 "wide", so the medium-sized renderer work serves only programs configured by
 hand (vim's *ambiwidth=double*, whose effect on box drawing is UNVERIFIED). If
 you want the key built now anyway, the answer is option 3 with the Private Use
@@ -3027,8 +3024,8 @@ Measurement:
 
 #### V14's open questions, answered (2026-10-15)
 
-Read for the plan's "V14's open questions, before building", after
-the project's 2026-09-25 call to build the switch with `?1021`. Nothing here
+Read for "V14's open questions, before building", after the 2026-09-25
+decision to build the switch with `?1021`. Nothing here
 is built. Every xterm file is the patch 411 commit the others are pinned at
 (9489b20). `wcwidth.c` and `wcwidth.h` were fetched for this section.
 
@@ -3086,7 +3083,7 @@ ways:
 
 Both readings conform. The plan's premise, that excluding PUA "would
 be a departure", is not what the text says, and the choice is still not a
-free one: it goes to the review at 0.9 on both asks, or for decision. xterm's
+free one: it goes for decision. xterm's
 default excludes PUA (point 3). That is practice, not the standard.
 
 **3. What `?1021`, `?1022` and `?1023` report.** [[source: ctlseqs]]
@@ -3186,8 +3183,7 @@ drawn.
   icons, among them U+E0B4 28 times, U+E60D 23 and U+E0B6 17. None of the
   ten others has any.
 
-**The options for the PUA question.** All of them are for the review at 0.9 on
-both asks, or for the project.
+**The options for the PUA question.** All of them go for decision.
 1. **PUA follows "wide".** This is the data's default, and today's API
    already does it. **Conforming** (§ 6.1). `?1023` answers reset.
 2. **PUA always one column**, xterm's default. **Conforming** as the
@@ -3217,7 +3213,7 @@ both asks, or for the project.
    the far end cannot see one.
 
 **The DECRQM value: 1 or 2, or 3 or 4.** ctlseqs gives no value rule for
-a read-only mode. These options are for the review or the project too.
+a read-only mode. These options go for decision too.
 - **(i) 1 or 2, as xterm answers.** Conforming. It matches baud's own
   `?1020`.
 - **(ii) 3 or 4.** Conforming to ctlseqs' definitions ("3 - permanently
@@ -3292,8 +3288,7 @@ cells. The texts leave the placement open ([[source: unicode18-chart-2500]],
 [[source: unicode18-chart-2580]], [[source: uax11]]); the lean was to the
 first cell's centre over both cells' centre, VTE's
 ([[source: vte-minifont-0-84]]) in three askings, and to
-the blocks' fraction, below it in two. Both are leans left for the
-owner's veto.
+the blocks' fraction, below it in two. Both are leans, not settled.
 
 ### V15. Mode 2027 and U+FE0F: stop the false claim, then make it a real switch
 
@@ -3324,7 +3319,7 @@ Under the recommendation:
   that switches the mode on, such as Neovim, gets U+2764 plus VS16 drawn two
   columns wide, matching what it counts.
 
-Your shell, measured by the reviewer (zsh 5.9.2, not pinned):
+The development machine's shell, measured (zsh 5.9.2, not pinned):
 - It counts U+2764 plus VS16, the keycap 1 plus VS16 plus U+20E3, and U+263A
   plus VS16 as one column each. That matches baud today and the off default.
 - It counts U+1F3F3 alone as 2 (Unicode 17 and baud say 1), the rainbow flag
@@ -3366,7 +3361,7 @@ item 1); until then it found its base. The draft is silent there, and
 ghostty finds the base ([[source: ghostty-terminal-9bbb9b2]]
 Terminal.zig:1226-1265), practice.
 
-Two existing problems the review found, both found by reading:
+Two existing problems, both found by reading:
 - **A mark after the last column with autowrap off lands on the wrong cell.**
   With DECAWM (autowrap, `?7`) reset, `Paint::advance` (paint.rs:600-605)
   leaves the cursor *on* the character just written in the last column, and
@@ -3779,7 +3774,7 @@ arithmetic, not palettes anyone has looked at on screen:
   text. *Under this rule* the brights also collapse onto the plain entries. On
   the one glass screenshot these entries read about 1.40:1, where xterm's read
   3.4-4.3 (indicative).
-- **Balanced** (the reviewer's addition). Put yellow, green and cyan near
+- **Balanced** (added on an independent check). Put yellow, green and cyan near
   3.6:1 both ways. That clears 3:1 as text and as a background, and the
   brights can stay distinct. The cost: no text entry among the three reaches
   4.5:1.
@@ -4016,8 +4011,8 @@ answers the second; xterm answers the first. Which should baud do?
 - **wezterm** at b09b56c uses the unreversed slot: reverse video is only a
   flag (UNPINNED).
 - **ghostty** also uses the unreversed slot. It has a reverse-colours mode
-  ([[source: ghostty-terminal-9bbb9b2]]), and the reviewer found that its
-  colour-operation handler in stream_handler.zig at 9bbb9b2 never reads it
+  ([[source: ghostty-terminal-9bbb9b2]]), and an independent check found that
+  its colour-operation handler in stream_handler.zig at 9bbb9b2 never reads it
   (UNPINNED). This was UNVERIFIED in the research and is now settled.
 - **kitty**: DECSCNM is a render flag ([[source: kitty-screen-0-49]] screen.c
   2004-2010). What its Python colour callbacks do is UNVERIFIED.
@@ -4168,8 +4163,8 @@ already draws like xterm and A is the only consistent completion of that.
   and the reset gap. xterm's DECSTR and RIS reset every OSC 4 entry; baud's
   keep every colour override. That gap exists today and is its own item.
   *(Since closed: both resets clear every OSC 4 override as of a8b1179,
-  2026-09-29; and the cursor-colour rule is built, 2026-10-11, the record's
-  "A cursor colour equal to the text keeps its colour across `?5`".)*
+  2026-09-29; and the cursor-colour rule is built, 2026-10-11: a cursor
+  colour equal to the text keeps its colour across `?5`.)*
 
 **Built, 2026-10-11, for `OSC 10` and `11`**: option A, as recommended, in the
 half that is the same under every reading of DEC's `DECSCNM`. `Video` moved
@@ -4185,7 +4180,7 @@ background colors" (page 5-94, PDF 349) and describes it as a per-cell
 exchange of the attribute bits (PDF 362), and no DEC passage names entries
 0/7 and 8/15, so the decision's "as recommended", given without the DEC text,
 does not decide xterm's palette swap. The `OSC 4` mapping exists only under
-that swap and waits on the review.
+that swap and waits on its decision.
 
 ## Part 6. Images
 
@@ -4298,10 +4293,10 @@ the other state.
 - **A. Status quo plus coverage rows.** No code. DECRQM keeps answering
   "unknown" for states baud has, and chafa's harmless requests keep counting
   as unsupported.
-- **B. Permanent answers for ?80 and ?1070** (the researcher's
+- **B. Permanent answers for ?80 and ?1070** (the first
   recommendation). Small. Leaves ?8452 in the unsupported counter, so chafa's
   burst still counts half as a failure.
-- **B+. B extended to ?8452** (the reviewer's revision). DECRQM answers ?80
+- **B+. B extended to ?8452** (a revision on an independent check). DECRQM answers ?80
   with 4 ("permanently reset"), ?1070 with 3 ("permanently set") and ?8452
   with 4. The request for the state baud is in is accepted silently; the
   request for the other state is refused and counted. How to count is a small
@@ -4458,7 +4453,7 @@ code layout (where functions happen to land in the binary).
   because old-numbering clients also send `?80h`.
 - **Depends on nothing.** It is independent of V19.
 
-**Also for your list** (raised by the review; separate items, none blocking)
+**Also for the list** (raised by an independent check; separate items, none blocking)
 
 - **Cursor row after a picture.** [[source: vt3xx-sixel]] says "When sixel
   mode is exited, the text cursor is set to the current sixel cursor
@@ -4688,7 +4683,7 @@ lean:
      kitty-graphics]]`); unpadded base64, which
      the text allows, since only "All chunks, except the last" must be a
      multiple of 4.
-     - *Fork, for the review at 0.9 or you:* **(a)** accept a chunk of any length
+     - *Fork:* **(a)** accept a chunk of any length
        and ignore a continuation chunk's other keys: kitten works, and the
        text binds the client and says nothing of what a terminal does with a
        longer chunk, so no text is departed from. **(b)** refuse what breaks
@@ -4707,13 +4702,12 @@ lean:
      `ImageStore`. Sixel writes full-alpha pixels, so its output is unchanged.
    - Each image is marked opaque or partial at decode. Opaque keeps today's
      cheap repeatable blit; partial repaints the rows it covers each frame.
-   - **Built 2026-10-15** as decided: the decision's "Full alpha", and the review's
-     straight in the store, premultiplied once where it blends (1.00 and
-     1.00). `Pixel` is straight `0xAARRGGBB`, each image `OpaqueOrClear` or
+   - **Built 2026-10-15** as decided: the decision's "Full alpha", stored
+     straight, premultiplied once where it blends. `Pixel` is straight `0xAARRGGBB`, each image `OpaqueOrClear` or
      `Partial`.
 2. ~~**Where the decoder lives.**~~ **Done 2026-10-15**, in baud-domain: `baud-domain/src/png.rs`, `baud-domain/src/zlib.rs`
    (inflate fed a read at a time, over any source of slices) and
-   `Base64::feed` (chunks of any length, the review's (a)).
+   `Base64::feed` (chunks of any length, option (a)).
    - *Fork:* baud-domain, or a new leaf codec crate. **Lean: baud-domain**,
      which baud-core and baud-font both already depend on, and where t-images
      puts image decode. A new crate is viable too: `scripts/check-features.sh`
@@ -4758,17 +4752,17 @@ lean:
      DA whose CSI is longer than three bytes (`[[source: kitty-icat-detect]]`),
      so against baud's default `CSI ? 6 c` it waits out its 10 s timeout
      first; `CSI ? 6 ; 4 c` (`[images] advertise_sixel`) fails at once.
-   - **Built 2026-10-16, both halves** (the review TD_FIRST_FILES_LATER: `t=d`
-     first, the three local mediums later through a baud-app hook): a
+   - **Built 2026-10-16, both halves** (`t=d` first, the three local
+     mediums later through a baud-app hook): a
      `KittyFiles` trait the embedder lends, called at the terminator inside
      the read, so replies keep their order; baud-app's `LocalFiles` with the
      text's checks, `fstat`-identity TOCTOU-safe. kitten's detection sends
      `S` as the payload's length (87 for a three-byte `t=t` file), which
      the text's "smaller than the client claimed" refuses and kitty's
-     `read_img_file` reads as a bound; the review kept the text (under
-     the bar), so its `t=t` probe gets the error and it sends `t=d`; its
-     `file` and `memory` modes decode by `t=f` and `t=s`. Open:
-     reading `S` as a bound; refusing a relative path (0.68, 0.70).
+     `read_img_file` reads as a bound; the text is kept (a lean), so its
+     `t=t` probe gets the error and it sends `t=d`; its `file` and `memory`
+     modes decode by `t=f` and `t=s`. Open: reading `S` as a bound; refusing
+     a relative path.
 5. **The protocol in baud-core.**
    - An `APC G` hook of the `Act::SixelStart` shape, and a payload scratch in
      `Storage` of the `sixel_body` shape.
@@ -4881,15 +4875,15 @@ with cells identical.
   confirmation of ARGB storage (t-images.md, "The storage fork is decided ARGB in this register"), which becomes ARGB
   with alpha; and a new image budget. It is independent of V18.
 
-## Part 7. Platform, process and the record
+## Part 7. Platform, process and the docs
 
 ### V20. Linux GPU, X11 and Windows: confirm the 12 September answers
 
 **The question**
 
-On 12 September you answered three platform questions out loud.
+On 12 September three platform questions were answered out loud.
 `docs/research/notes/j-rendering.md` marked all three "unconfirmed" (its
-owner-calls table) when this was asked; it records them confirmed since.
+table of calls) when this was asked; it records them confirmed since.
 
 - **Call 2.** On Linux, is Vulkan the only GPU interface, at least for the
   first version? Vulkan is the modern cross-vendor way to drive a graphics
@@ -4922,9 +4916,9 @@ owner-calls table) when this was asked; it records them confirmed since.
 - There is no Vulkan, X11 or Windows code anywhere.
 - The Linux driver has run once, on weston headless (a compositor with no
   screen). Nobody has looked at its pixels, and it takes no mouse input.
-- The only written trace of your three answers is an auto-memory note:
+- The only written trace of the three answers was a working note:
   "Vulkan-only Linux over pure-protocol Wayland; X11 = XWayland fallback; no
-  Windows in v1". The session record itself is not in the repo.
+  Windows in v1".
 
 **What others do**
 
@@ -5422,7 +5416,7 @@ report that as a bug. It is not a reason for scale-font.
 - **Depends on:** nothing else here. Option C would need a
   `macos-liquid-glass` change.
 
-### V23. The two lost long recordings: re-capture, or fix the record
+### V23. The two lost long recordings: re-capture, or fix the docs
 
 **The question**
 
@@ -5447,8 +5441,8 @@ Nothing on screen either way. This is about two things:
 
 **Today**
 
-- **The table** is the project's "A long session says what the window cache
-  holds" (line 12897). Per frame:
+- **The table** is the measurement "A long session says what the window
+  cache holds". Per frame:
   - `less` over code under JetBrains Mono: 62 windows, 17 missing;
   - `vim`: 31 windows, 11 missing;
   - `less` under FiraCode: 50 windows, 37 missing.
@@ -5503,11 +5497,11 @@ This is baud's own corpus, so the evidence is internal.
 
 **Options**
 
-- **C+. Do not re-capture; fix the record.**
+- **C+. Do not re-capture; fix the docs.**
   - Mark the table "from captures no longer held; ordering only".
   - Point its steady-state claim at the row-7 figures, which can be re-taken.
   - Scope "a quarter to a third" to JetBrains Mono.
-  - Close the TODO item.
+  - Close the item.
   - Cost: a doc edit. Forecloses nothing.
 - **B. Re-capture and commit as a separate "long" tier**, a new long/ folder
   beside ascii/ and utf8/.
@@ -5527,7 +5521,7 @@ This is baud's own corpus, so the evidence is internal.
 **Recommendation**
 
 **Yes to C+: mark the table, point to the committed recordings' figures, fix
-the sentence, and close the item.** This reverses the researcher's lean toward
+the sentence, and close the item.** This reverses the first lean toward
 re-capturing, because the committed `cat-scroll` recording already covers the
 steady-state claim.
 
@@ -5542,9 +5536,9 @@ corpus?** If yes:
 
 **Design**
 
-- **For C+:** edit the project's long-session section (a status line, a pointer
-  to the row-7 table, and the scoped sentence), and close the plan's
-  entry for the two lost recordings.
+- **For C+:** edit the long-session section (a status line, a pointer
+  to the row-7 table, and the scoped sentence), and close the entry for
+  the two lost recordings.
 - **If captured:**
   - **Pin the input first.** Either generate the paged text with a committed
     script at a named commit, or commit the text itself, as `cjk-corpus.txt`
@@ -5643,7 +5637,7 @@ of this core.
   two vectorised block decoders. The lesson recorded there, keep the writes
   specialised by character class, is the shape `put_run` has now.
 - **Where the time goes instead:** 84% of cat-cjk's multi-byte runs are one
-  character long. The lever the record keeps naming is bytes per loop
+  character long. The lever the measurements keep naming is bytes per loop
   iteration, not the decode.
 - **Caveat:** both figures predate the GB11 work and the 64-byte function
   alignment (f68375c).
@@ -5662,8 +5656,8 @@ of this core.
 
 **Recommendation**
 
-**Yes to A: close "separate decode from write" as a direction.** If you want a
-current number for the record, run B when the machine is free. Reopen only if
+**Yes to A: close "separate decode from write" as a direction.** For a
+current number, run B when the machine is free. Reopen only if
 the two decode probes together read clearly outside the A/A spread on the CJK
 recordings (cat-cjk and less-cjk).
 

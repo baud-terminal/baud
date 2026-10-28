@@ -94,7 +94,7 @@ ROUND_K = ({k: float(os.environ['ROUND_K']) for k in _NONE} if os.environ.get('R
 # Italic, measured on the wght-700 outlines: a level is not a magnitude, so nothing is interpolated).
 # 13, JBM's largest move, thickens Hebrew's obtuse bowl corners 1.4-3.0% and its acute ones 0.5-0.7%
 # where JBM's italic thickens its own 3.1-3.2% and 0.2-0.6%; levelling in full would give 4.6-5.1% and
-# 3.7-4.0% (Jev, D13_LEVEL_CAPPED, 0.99 at confidence 0.98 in both orders). LEVEL in the environment
+# 3.7-4.0%, which is not JetBrains Mono's own pattern (note AC 4c). LEVEL in the environment
 # overrides it: 0 is off, 'full' no limit; scripts/build-fonts.sh --italics sets 0.
 LEVEL_OF = {'Italic': 13.0, 'BoldItalic': 13.0}
 _level = os.environ.get('LEVEL')

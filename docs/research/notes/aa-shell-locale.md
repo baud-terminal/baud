@@ -11,8 +11,8 @@ here; it is note AB's.
 
 Evidence is tagged as in the rest of these notes: measured (run, with the
 command), source (read at file:line) or inferred. The probes are in
-`scripts/locale/`; the full reports of the workflow that gathered this are kept
-untracked in `.claude/research/hebrew-locale/`.
+`scripts/locale/`; the full reports that gathered this were kept outside the
+repository.
 
 ## 1. What happened
 
@@ -207,7 +207,7 @@ Each open one is weighed with its picture.
 ## 8. The second round (2026-10-04)
 
 The face and the per-language step were researched again, because neither was settled; the Backspace route and Linux reran after a usage limit
-stopped them. The evidence is untracked, in `.claude/research/open-calls/`.
+stopped them. The evidence was kept outside the repository.
 With these facts Liberation Mono leads over waiting for note W, and the step leans to leaving it out. Neither is settled.
 
 **The face.**

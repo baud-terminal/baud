@@ -11,8 +11,8 @@ the cluster's content, a cell finds its cluster by the index in its
 `CellFlags`, and the store is 63 usable slots probed twice that **refuses**
 rather than evicts, so a cluster that finds no slot, or has more than
 `ClusterSlot::CAPACITY` (8) continuations, keeps its base and loses its tail,
-counted in `marks_dropped`. The record has it as "The cluster store is
-content-keyed, and the index rides in the cell". The sentences below that
+counted in `marks_dropped`: the cluster store is content-keyed, and the
+index rides in the cell. The sentences below that
 said "today" are put in the past where they stand.
 
 ## Why this note exists
