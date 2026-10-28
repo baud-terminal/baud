@@ -42,8 +42,10 @@ fragment float4 bg_ground_fragment(BgOut in [[stage_in]],
 // The background pass again, over a kitty image below `INT32_MIN/2`, for
 // the cells whose background is not the default one alone, blended over
 // the image at the background's own alpha, as over the desktop where
-// there is no image (the owner's pick of 2026-10-16). The CPU's
-// `cover_set`.
+// there is no image, and as kitty blends its backgrounds over an image
+// (`draw_cells_with_layers()`, `[[source: kitty-shaders-c]]`, drawing the
+// non-default cells with bit 1 of kitty's background bitfield,
+// `[[source: kitty-cell-slang]]`). The CPU's `cover_set`.
 fragment float4 bg_set_fragment(BgOut in [[stage_in]],
                                 constant U& u [[buffer(0)]],
                                 texture2d<float, access::read> bg [[texture(0)]],

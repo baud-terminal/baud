@@ -9,9 +9,9 @@
 //! reads it, and 333 where not ([`rate`]). Linux reads no desktop setting,
 //! so it is the config's interval or 333.
 //!
-//! **The hidden phase is the animation's** (`[cursor] blink_animation`, the
-//! same day's picks): the plasma glow by default, a fade, the fire, the
-//! ufo, or none -- a hard switch. Each is a function of how far into the hidden phase it is, not
+//! **The hidden phase is the animation's** (`[cursor] blink_animation`):
+//! the plasma glow by default, a fade, the fire, the ufo, or none -- a hard
+//! switch. Each is a function of how far into the hidden phase it is, not
 //! of a length of its own, so it scales with any interval and ends inside
 //! the phase ([`BlinkAnimation::runs`]). Reduce Motion means none.
 //!
