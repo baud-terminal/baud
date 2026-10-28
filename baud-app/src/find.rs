@@ -471,7 +471,10 @@ mod tests {
                 baud_domain::Cols::of_index(30),
             );
             let h = shown.expect("the selection is on the window");
-            assert_eq!((h.from.0, h.from.1), (current[0].row, current[0].from));
+            assert_eq!(
+                (baud_render::WindowLine::of(h.from.0), h.from.1),
+                (current[0].line, current[0].from)
+            );
         });
     }
 

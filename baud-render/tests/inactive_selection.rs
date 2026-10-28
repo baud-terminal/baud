@@ -64,11 +64,11 @@ fn drawn(theme: Theme, bytes: &[u8], pairs: &[Option<Hilite>]) -> Vec<(Argb, Arg
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, b"\x1b[?25l\x1b[38;2;205;0;0m\xe2\x96\x88\x1b[0m ");
     feed(&mut t, bytes);
-    r.set_highlight(Some(Highlight {
-        from: (Row::ZERO, Col::at_index(0)),
-        to: (Row::ZERO, Col::at_index(1)),
-        region: Region::Stream,
-    }));
+    r.set_highlight(Some(Highlight::new(
+        (Row::ZERO, Col::at_index(0)),
+        (Row::ZERO, Col::at_index(1)),
+        Region::Stream,
+    )));
     let (w, h) = r.pixel_size();
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     let m = r.metrics();

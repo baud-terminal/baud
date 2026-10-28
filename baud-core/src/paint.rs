@@ -1962,12 +1962,13 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.cx = CursorCol::written(self.cold.fence);
             return;
         }
-        // Autoprint and a selected character path out of line, one test.
-        if self
-            .cold
-            .modes
-            .either_set(ModeBit::AutoPrint, ModeBit::PathSelected)
-        {
+        // Autoprint, a selected character path and side margins out of
+        // line, one test.
+        if self.cold.modes.any_of_three(
+            ModeBit::AutoPrint,
+            ModeBit::PathSelected,
+            ModeBit::SideMargins,
+        ) {
             return self.wrap_moded();
         }
         self.cx = CursorCol::moved(self.cold.left);
@@ -1977,15 +1978,27 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.index();
     }
 
-    /// [`Paint::wrap`] under autoprint or a selected character path.
-    /// Autoprint prints the line an autowrap leaves, ended by `LF` (070-7
-    /// § 7.3.7, "or LF if Auto Wrap"); the row the wrap brings in takes the
-    /// direction of the paragraph it joins (`crate::path`).
+    /// [`Paint::wrap`] under autoprint, a selected character path or
+    /// DECLRMM. Autoprint prints the line an autowrap leaves, ended by `LF`
+    /// (070-7 § 7.3.7, "or LF if Auto Wrap"); the row the wrap brings in
+    /// takes the direction of the paragraph it joins (`crate::path`). **A
+    /// wrap at side margins narrower than the page marks the row it leaves**
+    /// ([`baud_domain::WrappedAt::Margins`]): the next line starts at the
+    /// left margin (`[[source: vt510-decslrm]]`), and the display keeps the
+    /// paragraph at its cut, since by baud's reading the row's cells outside
+    /// the margins are not the paragraph's.
     #[cold]
     #[inline(never)]
     fn wrap_moded(&mut self) {
         if self.cold.modes.is_set(ModeBit::AutoPrint) {
             self.autoprint(crate::print::LineEnd::LineFeed);
+        }
+        if self.cold.left != Col::ZERO || self.cold.right.index() + 1 < self.cols.index() {
+            let b = self.view.bidi(self.cy);
+            if b.wrapped_at() != baud_domain::WrappedAt::Margins {
+                self.view
+                    .set_bidi(self.cy, b.with_wrapped_at(baud_domain::WrappedAt::Margins));
+            }
         }
         self.cx = CursorCol::moved(self.cold.left);
         self.view.set_wrapped(self.cy);

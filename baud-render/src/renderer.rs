@@ -564,8 +564,11 @@ fn screen(v: i32) -> Screen {
 
 /// The marks a find overlay draws on `row`.
 fn marks_on(f: &Option<FindLook>, row: Row) -> impl Iterator<Item = &crate::find::Mark> {
-    f.iter()
-        .flat_map(move |f| f.marks.iter().filter(move |m| m.row == row))
+    f.iter().flat_map(move |f| {
+        f.marks
+            .iter()
+            .filter(move |m| m.line == crate::select::WindowLine::of(row))
+    })
 }
 
 /// The find field, when it is on `row`.
@@ -1211,7 +1214,7 @@ enum Prev {
 /// Where a picture's anchor row is: a row of the window drawn, or that
 /// many lines above its first.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Anchor {
+pub(crate) enum Anchor {
     At(Row),
     Above(Rows),
 }
@@ -2909,8 +2912,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             let y = |r: Row| screen(i32::try_from(self.band(r).top.value()).unwrap_or(i32::MAX));
             let wash = self.find_wash;
+            // A mark's line past the window is drawn on none of its rows
+            // unless a display draws it on a window line; a run on the row
+            // after the window's would wash the status line or the padding.
+            let rows = self.rows.index();
             for m in f.marks.iter().filter(|m| m.current == Current::No) {
-                for (row, at, n) in self.bidi.orders().stored_runs(m.row, m.from, m.to) {
+                for (row, at, n) in self
+                    .bidi
+                    .orders()
+                    .line_runs(m.line, m.from, m.to)
+                    .into_iter()
+                    .filter(|&(row, _, _)| row.index() < rows)
+                {
                     let n = u32::try_from(n.index()).unwrap_or(0);
                     out.push(solid(
                         x(at),
@@ -3535,7 +3548,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.flash_held = flash::Held::Full;
             return;
         }
-        let view = term.view(term.window_back());
+        // The window as the last layout drew it: the display's lines where
+        // it re-broke a finished paragraph ([`crate::rebreak`]), so each
+        // cell under the pass is the one drawn there.
+        let held = self.bidi.orders().display_held();
+        let view = match &held {
+            Some(d) => d.window(),
+            None => term.view(term.window_back()),
+        };
         let (cols, rows) = (view.cols().index(), view.rows().index());
         let side = |v: u32| usize::try_from(v.max(1)).unwrap_or(1);
         let (cw, ch) = (
@@ -5073,15 +5093,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 BidiDirection::Rtl => grid_w - x0 - i64::from(dest.w),
                 BidiDirection::Ltr => x0,
             };
-            // **Where the display re-broke a paragraph above it**
-            // ([`crate::rebreak`]), its anchor row moved with the text: up by
-            // the lines the paragraph gained.
-            let y0 = match (anchor, &shown) {
-                (Anchor::At(r), Some(d)) => match d.row_of(r) {
-                    Some(at) => y0 + (at.index() as i64 - r.index() as i64) * ch,
-                    None => y0,
-                },
-                _ => y0,
+            // **Where the display re-broke a paragraph** ([`crate::rebreak`]),
+            // the picture moved with its anchor row's text, as a scroll moves
+            // it: the row's own move where it is one of the window's
+            // paragraphs, pushed above the window or not, and the move of
+            // the text above the window where it is anchored higher.
+            let y0 = match &shown {
+                Some(d) => y0 + d.shift(anchor) as i64 * ch,
+                None => y0,
             };
             // The visible part, in drawn pixels from the drawn top-left:
             // columns on the frame, rows from one row above the top -- the
@@ -5119,7 +5138,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // held: a screen with none asks one compare a frame.
         if term.kitty_virtuals() {
             let back = term.looking_back(back);
-            let vp = term.view(back);
+            // **Where each run is drawn**: the cells are characters, and a
+            // row drawn in another order moves them, so a strip is placed
+            // over its run's cells where the order draws them, its pixels
+            // unflipped. The window is laid out for it here, the frame's
+            // own layout coming after the placements, with the display's
+            // wrap the frame draws ([`crate::rebreak`]), and its rows read
+            // as that layout draws them.
+            let mut order = self.placeholder_bidi.take().unwrap_or_default();
+            order.set_word_wrap(self.word_wrap);
+            order.lay_out_as(term, back, crate::bidi::Joins::Unseen);
+            let vp = order.view(term, back);
             // The leaving row too, draw row -1: the line above the window,
             // `view(back + 1).row(0)`, the cells the cell path slides in
             // from the ring, resolved from those cells as when that line
@@ -5134,13 +5163,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let y = Row::from_index(r);
                 (r as i64, vp.row(y), vp.rendition(y))
             });
-            // **Where each run is drawn**: the cells are characters, and a
-            // row drawn in another order moves them, so a strip is placed
-            // over its run's cells where the order draws them, its pixels
-            // unflipped. The window is laid out for it here, the frame's
-            // own layout coming after the placements.
-            let mut order = self.placeholder_bidi.take().unwrap_or_default();
-            order.lay_out_as(term, back, crate::bidi::Joins::Unseen);
             for (r, row, size) in leaving
                 .map(|(row, size)| (-1, row, size))
                 .into_iter()
@@ -5858,6 +5880,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (self.styles, self.styles_stamp) = (styles, stamp);
     }
 
+    /// **The size of the line a smooth scroll's leaving row draws**: the
+    /// first line of the window one line up as its layout draws it, laid
+    /// out here -- where the display re-broke a paragraph below it
+    /// ([`crate::rebreak`]), that display line's, which may be a
+    /// single-width line of the paragraph where the stored row above the
+    /// window is double. What [`crate::Overlay::leaving`] and
+    /// [`Renderer::sized_leaving`] decide the row's path by.
+    pub(crate) fn leaving_rendition(&mut self, term: &Term<'_>, back: Rows) -> LineRendition {
+        let above = Rows::of_index(back.index() + 1);
+        let reach = self.widest_reach();
+        let leaving = self
+            .beside
+            .get_or_insert_with(Box::default)
+            .leaving
+            .get_or_insert_with(crate::bidi::Reorder::new);
+        leaving.set_reach(reach);
+        leaving.set_word_wrap(self.word_wrap);
+        leaving.lay_out_top(term, above, self.joins_seen);
+        leaving.view(term, above).rendition(Row::ZERO)
+    }
+
     /// **The leaving row of a smooth scroll, when its line is not
     /// single-width**: the line just above the window `back` lines into the
     /// history, in the order it was drawn in as that window's first,
@@ -5875,25 +5918,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
     pub fn sized_leaving(&mut self, term: &Term<'_>, back: Rows, out: &mut Vec<Instance>) {
         out.clear();
         let above = Rows::of_index(back.index() + 1);
-        let up = term.view(term.looking_back(above));
-        let size = up.rendition(Row::ZERO);
+        // The row in the order it was drawn in as the first of the window
+        // one line up, converted through that layout's map -- its seams,
+        // joins and mirrors -- put in place of the window's for the one
+        // conversion. Its size is that line's: where the display re-broke
+        // a paragraph below it, the line drawn there, not the stored row.
+        let size = self.leaving_rendition(term, back);
         if !size.is_double() {
             return;
         }
         self.sized_ready(term);
-        // The row in the order it was drawn in as the first of the window
-        // one line up, converted through that layout's map -- its seams,
-        // joins and mirrors -- put in place of the window's for the one
-        // conversion.
-        let reach = self.widest_reach();
-        let leaving = self
-            .beside
-            .get_or_insert_with(Box::default)
-            .leaving
-            .get_or_insert_with(crate::bidi::Reorder::new);
-        leaving.set_reach(reach);
-        leaving.set_word_wrap(self.word_wrap);
-        leaving.lay_out_top(term, above, self.joins_seen);
+        let Some(leaving) = self.beside.as_deref().and_then(|b| b.leaving.as_ref()) else {
+            return;
+        };
         let up = leaving.view(term, above);
         let mut cells = vec![PackedCell::EMPTY; up.cols().index()];
         leaving
@@ -6316,8 +6353,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let badge_moved = self.badge_built != self.last_badge_built
                 && (badge_row(self.badge_rect) || badge_row(self.last_badge_rect));
             let row = Row::from_index(r);
+            // **A display line that is not its own stored row** draws cells
+            // of other rows, a line's past the window among them
+            // ([`crate::rebreak`]): what is selected or marked on it is not
+            // read off its own row, so any change to either repaints it.
+            let rebroken_line = self
+                .bidi
+                .orders()
+                .display()
+                .is_some_and(|d| d.same(row) != Some(row));
             let selected = |h: Option<Highlight>| h.filter(|h| h.covers_row(row));
-            let selection_moved = selected(self.highlight) != selected(self.last_highlight);
+            let selection_moved = selected(self.highlight) != selected(self.last_highlight)
+                || (rebroken_line && self.highlight != self.last_highlight);
             let band = self.band(row);
             let slice = |b: Option<Bar>| b.and_then(|b| b.slice(band.top, band.bottom));
             let bar_moved = slice(self.bar) != slice(self.last_bar);
@@ -6338,7 +6385,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // A match marked, unmarked or moved on this row, or the find
             // field come, gone or changed on it.
             let found = find_changed
-                && (marks_on(&self.find, row).ne(marks_on(&self.last_find, row))
+                && (rebroken_line
+                    || marks_on(&self.find, row).ne(marks_on(&self.last_find, row))
                     || field_on(&self.find, row) != field_on(&self.last_find, row));
             // A link's run underlined or not, or its bar come, gone or
             // changed on this row.
@@ -7875,16 +7923,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let logical_of = |v: Col| logical.get(v.index()).copied().unwrap_or(v);
         // **On a display line, the stored cell each visual cell shows**
         // ([`crate::rebreak`]), which a selection is kept by.
-        let stored: Vec<Option<(Row, Col)>> = match orders.display() {
+        let stored: Vec<Option<(crate::select::WindowLine, Col)>> = match orders.display() {
             Some(_) => (0..row.len())
-                .map(|v| orders.stored_at(r, logical_of(Col::at_index(v))))
+                .map(|v| orders.stored_line_at(r, logical_of(Col::at_index(v))))
                 .collect(),
             None => Vec::new(),
         };
         let selects = |h: &Highlight, col: Col, content: baud_domain::Content| match stored
             .get(col.index())
         {
-            Some(Some((sr, sc))) => h.selects(*sr, *sc, content),
+            Some(Some((sl, sc))) => h.selects_line(*sl, *sc, content),
             Some(None) => false,
             None => h.selects(r, logical_of(col), content),
         };

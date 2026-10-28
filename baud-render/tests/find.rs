@@ -11,7 +11,7 @@ use baud_domain::{BytePos, Codepoint, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{
     Argb, Blend, Caret, Current, Damage, Find, FindLook, PxSize, Renderer, Stack, Target, Theme,
-    Typing,
+    Typing, WindowLine,
 };
 use support::font;
 
@@ -155,12 +155,20 @@ fn a_wrapped_match_is_marked_on_each_of_its_rows() {
         let marks = f.marks(t, Rows::ZERO);
         assert_eq!(marks.len(), 2);
         assert_eq!(
-            (marks[0].row, marks[0].from, marks[0].to),
-            (Row::from_index(0), Col::at_index(28), Col::at_index(29))
+            (marks[0].line, marks[0].from, marks[0].to),
+            (
+                WindowLine::of(Row::from_index(0)),
+                Col::at_index(28),
+                Col::at_index(29)
+            )
         );
         assert_eq!(
-            (marks[1].row, marks[1].from, marks[1].to),
-            (Row::from_index(1), Col::ZERO, Col::at_index(3))
+            (marks[1].line, marks[1].from, marks[1].to),
+            (
+                WindowLine::of(Row::from_index(1)),
+                Col::ZERO,
+                Col::at_index(3)
+            )
         );
     });
 }

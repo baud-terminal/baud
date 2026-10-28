@@ -116,8 +116,8 @@ pub use scrollbar::{
     thumb, track,
 };
 pub use select::{
-    AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span, char_col,
-    row_of,
+    AbsLine, Beyond, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
+    WindowLine, char_col, row_of,
 };
 pub use splash::{SplashLook, SplashPhase};
 pub use stack::{

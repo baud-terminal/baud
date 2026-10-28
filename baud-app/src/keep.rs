@@ -150,6 +150,9 @@ pub(crate) fn stale_in_moved_rows(term: &Term<'_>) -> bool {
 #[derive(Default)]
 pub(crate) struct KeptText {
     taken: Taken,
+    /// The display's wrap the window is drawn with, which a copy under
+    /// `?96` reads its lines by ([`Selection::text_as`]).
+    wrap: baud_render::WordWrap,
 }
 
 /// What [`KeptText`] holds.
@@ -174,6 +177,7 @@ impl KeptText {
     /// nothing. A selection gone with neither a read's output on it nor a
     /// click -- a switch, a reset, a resize -- leaves nothing kept.
     pub(crate) fn take(&mut self, sel: Option<&Selection>, term: &Term<'_>, scrolled: Scrolled) {
+        let wrap = self.wrap;
         if !term.resource(Resource::KeepSelection) {
             self.taken = Taken::Nothing;
             return;
@@ -181,7 +185,7 @@ impl KeptText {
         match (sel, &self.taken) {
             (Some(s), _) if s.is_click() => {}
             (Some(s), Taken::Of(from, _)) if from == s => {}
-            (Some(s), _) => self.taken = Taken::Of(*s, s.text(term, scrolled)),
+            (Some(s), _) => self.taken = Taken::Of(*s, s.text_as(term, scrolled, wrap)),
             (None, Taken::Of(..) | Taken::Made(_)) => self.taken = Taken::Nothing,
             (None, _) => {}
         }
@@ -206,7 +210,7 @@ impl KeptText {
         self.taken = match (sel, core::mem::take(&mut self.taken)) {
             (Some(s), _) if !s.is_click() => Taken::Made(*s),
             (_, Taken::Of(_, text)) => Taken::Unhighlighted(text),
-            (_, Taken::Made(was)) => Taken::Unhighlighted(was.text(term, scrolled)),
+            (_, Taken::Made(was)) => Taken::Unhighlighted(was.text_as(term, scrolled, self.wrap)),
             (_, kept) => kept,
         };
     }
@@ -237,6 +241,19 @@ impl KeptText {
         if let (Some(s), Taken::Of(from, _)) = (sel, &mut self.taken) {
             *from = *s;
         }
+    }
+
+    /// **The display's wrap the window is drawn with** (`wrap_words`):
+    /// the text taken after this reads a copy under `?96` by it.
+    pub(crate) fn set_word_wrap(&mut self, wrap: baud_render::WordWrap) {
+        self.wrap = wrap;
+    }
+
+    /// The display's wrap a copy reads by ([`KeptText::set_word_wrap`]),
+    /// for the Linux seat's copy; the macOS driver asks its renderer.
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn word_wrap(&self) -> baud_render::WordWrap {
+        self.wrap
     }
 
     /// The text a copy takes: with `sel` up, the text taken when it was
@@ -369,6 +386,21 @@ pub(crate) fn kept_across_resize(
     }
 }
 
+/// **The lines past the window `back` lines up that the display may draw
+/// on its own** under the display's wrap `wrap` (`baud_render::Beyond`),
+/// which a selection's highlight and find's marks reach: none with the
+/// wrap off, which draws every row where it is stored.
+pub(crate) fn beyond(
+    term: &Term<'_>,
+    back: Rows,
+    wrap: baud_render::WordWrap,
+) -> baud_render::Beyond {
+    match wrap {
+        baud_render::WordWrap::On => baud_render::Beyond::of(term, back),
+        baud_render::WordWrap::Off => baud_render::Beyond::NONE,
+    }
+}
+
 /// **`?1001`'s region, through the selection's highlight**, on the view
 /// `back` lines up: `[[source: ctlseqs]]`'s highlight tracking "highlights
 /// the region covered by the mouse within that range until button
@@ -457,11 +489,11 @@ mod highlight_tests {
 
     /// The stream highlight from one cell to another, as the view draws it.
     fn drawn(from: CellAt, to: CellAt) -> Option<Highlight> {
-        Some(Highlight {
-            from: (from.row, from.col),
-            to: (to.row, to.col),
-            region: Region::Stream,
-        })
+        Some(Highlight::new(
+            (from.row, from.col),
+            (to.row, to.col),
+            Region::Stream,
+        ))
     }
 
     /// **From the answer to the release, the region is what is drawn**, a
@@ -551,13 +583,24 @@ mod highlight_tests {
             MouseKind::Motion,
             at(Col::at_index(7), Row::from_index(8)),
         );
+        let h = tracked_highlight(&t, scrolled, Rows::of_count(3)).expect("drawn");
+        let want = drawn(
+            at(Col::at_index(3), Row::from_index(5)),
+            at(Col::at_index(19), Row::from_index(9)),
+        )
+        .expect("drawn");
         assert_eq!(
-            tracked_highlight(&t, scrolled, Rows::of_count(3)),
-            drawn(
-                at(Col::at_index(3), Row::from_index(5)),
-                at(Col::at_index(19), Row::from_index(9))
-            ),
+            (h.from, h.to, h.region),
+            (want.from, want.to, want.region),
             "the end below the view is clipped to its last cell"
+        );
+        assert_eq!(
+            h.ends.1,
+            (
+                baud_render::WindowLine::of(Row::from_index(11)),
+                Col::at_index(7)
+            ),
+            "and kept where it is, two lines past the view's last row"
         );
     }
 }

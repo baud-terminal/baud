@@ -29,6 +29,7 @@ use baud_core::{
 use baud_domain::{Codepoint, Col, Cols, LineIdx, Row, Rows};
 
 use crate::overlay::{Caret, Composition, Hints, Measure};
+use crate::select::WindowLine;
 use crate::units::Tally;
 
 /// The find field's least width, in columns, where the grid has them.
@@ -137,11 +138,13 @@ pub enum Current {
     No,
 }
 
-/// **One row's part of a match, on a view**: the columns, both inclusive,
+/// **One row's part of a match, on a view**: its line counted from the
+/// view's top -- a window row, or a line past the window the display draws
+/// on one of its lines ([`crate::Beyond`]) -- the columns, both inclusive,
 /// and whether the match is the current one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Mark {
-    pub row: Row,
+    pub line: WindowLine,
     pub from: Col,
     pub to: Col,
     pub current: Current,
@@ -419,15 +422,19 @@ impl Find {
     }
 
     /// **Every match's part of the view `back` lines up**, row by row: a
-    /// match the writer wrapped across rows marks each.
+    /// match the writer wrapped across rows marks each. The lines past the
+    /// view that the display may draw on its own ([`crate::select::Beyond::of`])
+    /// are marked too, counted from the view's top.
     pub fn marks(&self, term: &Term<'_>, back: Rows) -> Vec<Mark> {
         let (cols, rows) = term.geometry();
         let lines = term.search_lines();
-        let top = lines
+        let reach = crate::select::Beyond::of(term, back);
+        let window = lines
             .top
             .minus(term.looking_back(back))
             .unwrap_or(LineIdx::FIRST);
-        let end = top.plus(rows);
+        let top = window.minus(reach.above).unwrap_or(LineIdx::FIRST);
+        let end = window.plus(rows).plus(reach.below);
         let last_col = Col::at_index(cols.index().saturating_sub(1));
         let first = self.found.partition_point(|f| f.last.line < top);
         let mut out = Vec::new();
@@ -441,9 +448,15 @@ impl Find {
             };
             let mut line = f.first.line.max(top);
             while line <= f.last.line && line < end {
-                let Some(y) = line.since(top) else { break };
+                let at = match line.since(window) {
+                    Some(y) => WindowLine::of(Row::from_index(y.index())),
+                    None => match window.since(line) {
+                        Some(k) => WindowLine::of(Row::ZERO).up(k),
+                        None => break,
+                    },
+                };
                 out.push(Mark {
-                    row: Row::from_index(y.index()),
+                    line: at,
                     from: match line == f.first.line {
                         true => f.first.col,
                         false => Col::ZERO,

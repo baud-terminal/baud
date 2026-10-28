@@ -761,3 +761,23 @@ fn a_kept_layout_reads_what_is_written_and_rejoins_around_it() {
     assert_eq!(lead(&o), 10, "as stored again");
     assert_eq!(keep(&mut o, &none), Rejoin::Changed, "kept again");
 }
+
+/// **The context below a window that looks back reaches the live screen's
+/// last row**: in a window one line up whose last row holds only digits
+/// and a space, soft-wrapped onto a live last row that starts in Hebrew,
+/// the paragraph takes its level from that Hebrew (UAX #9 P2-P3), so the
+/// digits' row runs right to left, its space between the two numbers at
+/// level 1 (N1). Reading the window's own last row again as the row below
+/// found no right-to-left letter and drew it left to right.
+#[test]
+fn a_window_one_line_up_reads_the_live_last_row_as_context() {
+    let ws = WinSize {
+        ws_row: 4,
+        ws_col: 10,
+    };
+    let bytes = "a\r\nb\r\nc\r\n12345 6789\u{5E9}\u{5DC}\u{5D5}\u{5DD}";
+    let (s, _) = drawn_with(&ws, bytes, 3, Rows::of_count(1));
+    assert_eq!(s, "6789 12345");
+    let (live, _) = drawn_with(&ws, bytes, 2, Rows::ZERO);
+    assert_eq!(live, "6789 12345", "the live window, the control");
+}

@@ -126,6 +126,125 @@ impl Scrolled {
     }
 }
 
+/// **A stored line counted from the window's top**: a row of the window,
+/// or a line that many above its top or past its last row. The display's
+/// word wrap ([`crate::rebreak`]) draws cells of such lines on the window's
+/// own: the rows of its first paragraph above it on its first line, and,
+/// while it looks back, the rows of its last paragraph below it on its
+/// last; a selection, a find mark and a pointer name them by this.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+pub struct WindowLine(isize);
+
+impl WindowLine {
+    /// Window row `r`.
+    pub fn of(r: Row) -> WindowLine {
+        WindowLine(isize::try_from(r.index()).unwrap_or(isize::MAX))
+    }
+
+    /// The line `n` above this one.
+    pub fn up(self, n: Rows) -> WindowLine {
+        WindowLine(
+            self.0
+                .saturating_sub(isize::try_from(n.index()).unwrap_or(isize::MAX)),
+        )
+    }
+
+    /// The line `n` below this one.
+    pub fn down(self, n: Rows) -> WindowLine {
+        WindowLine(
+            self.0
+                .saturating_add(isize::try_from(n.index()).unwrap_or(isize::MAX)),
+        )
+    }
+
+    /// The window row this line is, of a window `rows` tall; none above its
+    /// top or past its last row.
+    pub fn row(self, rows: Rows) -> Option<Row> {
+        usize::try_from(self.0)
+            .ok()
+            .filter(|&y| y < rows.index())
+            .map(Row::from_index)
+    }
+
+    /// How many lines this is below `earlier`; none above it.
+    pub fn since(self, earlier: WindowLine) -> Option<Rows> {
+        let d = self.0.checked_sub(earlier.0)?;
+        usize::try_from(d).ok().map(Rows::of_count)
+    }
+
+    /// Absolute line `line` counted from a window whose top is `top`.
+    pub fn between(top: AbsLine, line: AbsLine) -> WindowLine {
+        let d = i128::from(line.0) - i128::from(top.0);
+        WindowLine(isize::try_from(d).unwrap_or(match d < 0 {
+            true => isize::MIN,
+            false => isize::MAX,
+        }))
+    }
+
+    /// The absolute line this is on a window whose top is `top`; none
+    /// before the session's first.
+    pub fn line(self, top: AbsLine) -> Option<AbsLine> {
+        let d = i128::from(top.0) + i128::try_from(self.0).ok()?;
+        u64::try_from(d).ok().map(AbsLine)
+    }
+}
+
+/// **How far past the window the display may draw a stored line on it**:
+/// the rows above the window that its first paragraph runs on from, and,
+/// while the window looks back, the rows below it that its last paragraph
+/// runs on into, each at most the paragraph's bound the layout reads
+/// ([`crate::rebreak`]). Read off the terminal, so a frame asks it of the
+/// window it draws rather than of the last one laid out.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Beyond {
+    pub above: Rows,
+    pub below: Rows,
+}
+
+impl Beyond {
+    /// The window's own rows and nothing past them.
+    pub const NONE: Beyond = Beyond {
+        above: Rows::ZERO,
+        below: Rows::ZERO,
+    };
+
+    /// **The lines past the window `back` lines up**, as [`crate::rebreak`]
+    /// reads its context: up while the row above wraps onto the next, and
+    /// down from a last row that wraps, through the live screen's rows the
+    /// window is short of.
+    pub fn of(term: &Term<'_>, back: Rows) -> Beyond {
+        let view = term.view(back);
+        let (rows, cols) = (view.rows().index(), view.cols().index());
+        let budget = crate::CONTEXT / cols.max(1);
+        let mut above = 0;
+        loop {
+            let want = Rows::of_count(back.index() + above + 1);
+            if above >= budget || term.looking_back(want) != want {
+                break;
+            }
+            if term.view(want).wrapped(Row::ZERO) != Wrap::Continues {
+                break;
+            }
+            above += 1;
+        }
+        let mut below = 0;
+        let last = Row::from_index(rows - 1);
+        if view.wrapped(last) == Wrap::Continues {
+            while below < back.index() && below < budget {
+                below += 1;
+                let v = term.view(Rows::of_count(back.index() - below));
+                if v.wrapped(last) != Wrap::Continues {
+                    break;
+                }
+            }
+        }
+        Beyond {
+            above: Rows::of_count(above),
+            below: Rows::of_count(below),
+        }
+    }
+}
+
 /// A cell of the live surface, by absolute line and column.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Point {
@@ -215,6 +334,37 @@ impl Span {
         Span {
             start: Point::new(top.plus(Rows::of_count(first)), Col::ZERO),
             end: Point::new(top.plus(Rows::of_count(last)), end_col),
+        }
+    }
+
+    /// **The line through stored line `line`**, read by number: the row and
+    /// every row the wrap flag joins to it, before and after, each way as
+    /// far as the display reads a paragraph ([`Beyond::of`]'s bound). What a
+    /// triple click over a cell the display draws from a line past the
+    /// window selects.
+    pub fn line_at(term: &Term<'_>, scrolled: Scrolled, line: AbsLine) -> Span {
+        let cols = term.geometry().0.index();
+        let budget = crate::CONTEXT / cols.max(1);
+        let joins = |l: AbsLine| {
+            row_of(term, scrolled, l).is_some_and(|(_, w)| matches!(w, Wrap::Continues))
+        };
+        let mut first = line;
+        for _ in 0..budget {
+            match first.above() {
+                Some(up) if joins(up) => first = up,
+                _ => break,
+            }
+        }
+        let mut last = line;
+        for _ in 0..budget {
+            if !joins(last) || row_of(term, scrolled, last.below()).is_none() {
+                break;
+            }
+            last = last.below();
+        }
+        Span {
+            start: Point::new(first, Col::ZERO),
+            end: Point::new(last, Col::at_index(cols.saturating_sub(1))),
         }
     }
 }
@@ -407,45 +557,74 @@ impl Selection {
 
     /// Where the selection falls on a view whose top row is `top`, in the
     /// view's screen coordinates, clipped to the screen; `None` when none
-    /// of it is on this screen.
+    /// of it is on this screen ([`Selection::highlight_reaching`] with no
+    /// line past it).
     pub fn highlight(&self, top: AbsLine, rows: Rows, cols: Cols) -> Option<Highlight> {
+        self.highlight_reaching(top, rows, cols, Beyond::NONE)
+    }
+
+    /// **Where the selection falls on a view whose top row is `top`, and on
+    /// the lines `beyond` it** ([`Beyond::of`]) that the display may draw
+    /// on the window's own: its corners clipped to the screen, and its ends
+    /// unclipped, which a cell of such a line is asked by
+    /// ([`Highlight::selects_line`]); `None` when none of it is on the
+    /// screen or on those lines. Selected only on lines past the window,
+    /// its corners are none of the window's ([`Highlight::covers_row`]).
+    pub fn highlight_reaching(
+        &self,
+        top: AbsLine,
+        rows: Rows,
+        cols: Cols,
+        beyond: Beyond,
+    ) -> Option<Highlight> {
         let (start, end) = self.ordered();
         let last_line = top.plus(Rows::of_count(rows.index().saturating_sub(1)));
-        if end.line < top || start.line > last_line || rows.index() == 0 {
+        if end.line < top.minus(beyond.above)
+            || start.line > last_line.plus(beyond.below)
+            || rows.index() == 0
+        {
             return None;
         }
         let last_col = Col::at_index(cols.index().saturating_sub(1));
+        let col = |c: Col| Col::at_index(c.index().min(last_col.index()));
+        let ends = (
+            (WindowLine::between(top, start.line), col(start.col)),
+            (WindowLine::between(top, end.line), col(end.col)),
+        );
+        if end.line < top || start.line > last_line {
+            return Some(Highlight {
+                from: (Row::from_index(1), Col::ZERO),
+                to: (Row::ZERO, Col::ZERO),
+                region: self.region,
+                ends,
+            });
+        }
         if self.region == Region::Block {
             // Rows clipped to the view, and the same columns on every row.
             let first = start.line.max(top);
             let last = end.line.min(last_line);
-            let col = |c: Col| Col::at_index(c.index().min(last_col.index()));
             return Some(Highlight {
                 from: (row_in(top, first), col(start.col)),
                 to: (row_in(top, last), col(end.col)),
                 region: Region::Block,
+                ends,
             });
         }
         let from = if start.line < top {
             (Row::ZERO, Col::ZERO)
         } else {
-            (
-                row_in(top, start.line),
-                Col::at_index(start.col.index().min(last_col.index())),
-            )
+            (row_in(top, start.line), col(start.col))
         };
         let to = if end.line > last_line {
             (Row::from_index(rows.index() - 1), last_col)
         } else {
-            (
-                row_in(top, end.line),
-                Col::at_index(end.col.index().min(last_col.index())),
-            )
+            (row_in(top, end.line), col(end.col))
         };
         Some(Highlight {
             from,
             to,
             region: Region::Stream,
+            ends,
         })
     }
 
@@ -461,8 +640,21 @@ impl Selection {
     /// same cells in the order they are drawn from its right edge to its
     /// left ([`drawn_from_right`]), the rows in their order: "ABCD" copies
     /// as "DCBA" (`[[source: vt510-decrlcm]]`), and a Hebrew line UAX #9
-    /// draws right to left in the order it reads.
+    /// draws right to left in the order it reads. With the display's wrap
+    /// at its default, on ([`Selection::text_as`]).
     pub fn text(&self, term: &Term<'_>, scrolled: Scrolled) -> String {
+        self.text_as(term, scrolled, crate::WordWrap::On)
+    }
+
+    /// [`Selection::text`] under the display's wrap `wrap`, the
+    /// `wrap_words` setting the window is drawn with: under `?96`, a stream
+    /// over a finished paragraph the display draws at its words
+    /// ([`crate::rebreak`]) reads each of that paragraph's display lines,
+    /// the lines as they are drawn, from its right edge -- the same cells,
+    /// a line's cells drawn there whichever row stores them -- and joins
+    /// them as a soft wrap joins rows. A block reads the stored rows, as it
+    /// cuts them.
+    pub fn text_as(&self, term: &Term<'_>, scrolled: Scrolled, wrap: crate::WordWrap) -> String {
         let (start, end) = self.ordered();
         let block = self.region == Region::Block;
         let mut out = String::new();
@@ -470,8 +662,25 @@ impl Selection {
             CopyDirection::LeftToRight => None,
             CopyDirection::RightToLeft => Some(Drawn::new()),
         };
+        // The last line of a paragraph found drawn as stored, so its other
+        // lines are not asked again.
+        let mut plain: Option<AbsLine> = None;
         let mut line = start.line;
         loop {
+            let asks = !block && wrap == crate::WordWrap::On && plain.is_none_or(|p| line > p);
+            if let (Some(d), true) = (drawn.as_mut(), asks) {
+                match d.rebroken(term, scrolled, line, (start, end), &mut out) {
+                    Para::Drawn(last) => {
+                        if last == end.line {
+                            break;
+                        }
+                        out.push('\n');
+                        line = last.plus(Rows::of_count(1));
+                        continue;
+                    }
+                    Para::Stored(last) => plain = Some(last),
+                }
+            }
             if let Some((row, wrap)) = row_of(term, scrolled, line) {
                 let first = if block || line == start.line {
                     start.col.index()
@@ -527,25 +736,49 @@ impl Selection {
 /// same corners.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Highlight {
+    /// The corners clipped to the window's rows: what the cell shader's
+    /// uniforms carry. Where none of the window's rows is selected, `from`
+    /// is after `to`, so no cell of the window is between them.
     pub from: (Row, Col),
     pub to: (Row, Col),
     pub region: Region,
+    /// **The ends, unclipped**: each line counted from the window's top,
+    /// above it or past its last row included, which every cell is asked
+    /// by -- the window's, and a cell the display draws on a window line
+    /// from a line past it.
+    pub ends: ((WindowLine, Col), (WindowLine, Col)),
 }
 
 impl Highlight {
+    /// A selection of the window's rows alone, from `from` to `to`.
+    pub fn new(from: (Row, Col), to: (Row, Col), region: Region) -> Highlight {
+        Highlight {
+            from,
+            to,
+            region,
+            ends: (
+                (WindowLine::of(from.0), from.1),
+                (WindowLine::of(to.0), to.1),
+            ),
+        }
+    }
+
     /// Whether the cell at `(r, c)` is inside the selection's geometry.
     pub fn contains(&self, r: Row, c: Col) -> bool {
+        self.contains_line(WindowLine::of(r), c)
+    }
+
+    /// Whether column `c` of stored line `l`, the window's or one past it,
+    /// is inside the selection's geometry.
+    pub fn contains_line(&self, l: WindowLine, c: Col) -> bool {
+        let ((fl, fc), (tl, tc)) = self.ends;
         match self.region {
             Region::Stream => {
-                let p = (r.index(), c.index());
-                let from = (self.from.0.index(), self.from.1.index());
-                let to = (self.to.0.index(), self.to.1.index());
-                p >= from && p <= to
+                let p = (l, c.index());
+                p >= (fl, fc.index()) && p <= (tl, tc.index())
             }
             Region::Block => {
-                self.covers_row(r)
-                    && c.index() >= self.from.1.index()
-                    && c.index() <= self.to.1.index()
+                l >= fl && l <= tl && c.index() >= fc.index() && c.index() <= tc.index()
             }
         }
     }
@@ -557,12 +790,18 @@ impl Highlight {
     /// render path asks this**, and the cell shader's `selected()` spells
     /// the same rule; the pixel oracle compares the two.
     pub fn selects(&self, r: Row, c: Col, content: Content) -> bool {
+        self.selects_line(WindowLine::of(r), c, content)
+    }
+
+    /// [`Highlight::selects`] for column `c` of stored line `l`, the
+    /// window's or one past it that the display draws on a window line.
+    pub fn selects_line(&self, l: WindowLine, c: Col, content: Content) -> bool {
         let c = if content.is_wide_tail() && c.index() > 0 {
             Col::at_index(c.index() - 1)
         } else {
             c
         };
-        self.contains(r, c)
+        self.contains_line(l, c)
     }
 
     /// Whether any cell of screen row `r` is selected.
@@ -578,14 +817,141 @@ fn row_in(top: AbsLine, line: AbsLine) -> Row {
 /// **Each copied row's cells in the order they are drawn, from the right
 /// edge**, for `?96`: the layout every draw path reads ([`Reorder`]),
 /// taken over the window that shows the line, the live screen's kept for
-/// its rows.
+/// its rows; and a finished paragraph the display draws at its words, its
+/// lines laid out alone ([`crate::rebreak::paragraph_display`]).
 struct Drawn {
     live: Option<Reorder>,
+    para: Option<(Reorder, crate::rebreak::Breaker)>,
+}
+
+/// What [`Drawn::rebroken`] did with a line's paragraph: read it as the
+/// display draws it, through its last line read, or found it drawn as
+/// stored, through its last line.
+enum Para {
+    Drawn(AbsLine),
+    Stored(AbsLine),
 }
 
 impl Drawn {
     fn new() -> Drawn {
-        Drawn { live: None }
+        Drawn {
+            live: None,
+            para: None,
+        }
+    }
+
+    /// **The selected cells of `line`'s paragraph, line by display line**,
+    /// where the display draws it at its words: each display line's cells
+    /// from its right edge to its left, the cells a stream from `start` to
+    /// `end` selects -- on each stored row, those before its last selected
+    /// content, as the stored rows' copy takes them -- with no break
+    /// between the lines, as a soft wrap joins rows. Nothing is written
+    /// where the paragraph is drawn as stored: not finished (in the
+    /// history, or above the latest prompt while the shell waits at it),
+    /// or one the display keeps at the terminal's cut.
+    fn rebroken(
+        &mut self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        line: AbsLine,
+        (start, end): (Point, Point),
+        out: &mut String,
+    ) -> Para {
+        let Some((here, mark)) = marked_row(term, scrolled, line) else {
+            return Para::Stored(line);
+        };
+        let cols = here.len().max(1);
+        let budget = crate::CONTEXT / cols + 1;
+        // The paragraph's rows: up while the row above wraps, down while
+        // the row wraps.
+        let mut first = line;
+        let mut up: Vec<(&[PackedCell], baud_domain::RowExtent)> = Vec::new();
+        while let Some(prev) = first.0.checked_sub(1).map(AbsLine) {
+            match marked_row(term, scrolled, prev) {
+                Some((cells, m)) if m.wrapped() && up.len() < budget => {
+                    up.push((cells, m));
+                    first = prev;
+                }
+                _ => break,
+            }
+        }
+        up.reverse();
+        let mut rows = up;
+        rows.push((here, mark));
+        let mut last = line;
+        while rows.last().is_some_and(|(_, m)| m.wrapped()) && rows.len() <= budget {
+            let next = last.plus(Rows::of_count(1));
+            match marked_row(term, scrolled, next) {
+                Some(r) => {
+                    rows.push(r);
+                    last = next;
+                }
+                None => break,
+            }
+        }
+        // Finished: its last row above the latest prompt's live row.
+        let live = i128::from(last.0) - i128::from(scrolled.0);
+        let finished =
+            live < i128::from(i64::try_from(crate::rebreak::finished_before(term)).unwrap_or(0));
+        let shown_to = last.min(end.line);
+        if !finished {
+            return Para::Stored(last);
+        }
+        let (order, breaker) = self
+            .para
+            .get_or_insert_with(|| (Reorder::new(), crate::rebreak::Breaker::default()));
+        let Some(d) = crate::rebreak::paragraph_display(term, &rows, breaker) else {
+            return Para::Stored(last);
+        };
+        order.lay_out_display(term, d.clone());
+        // Each stored row's selected columns, as the stored rows' copy
+        // takes them.
+        let taken: Vec<Option<(usize, usize)>> = rows
+            .iter()
+            .enumerate()
+            .map(|(p, (cells, _))| {
+                let at = AbsLine(first.0 + u64::try_from(p).unwrap_or(u64::MAX));
+                if at < start.line || at > end.line || cells.is_empty() {
+                    return None;
+                }
+                let from = if at == start.line {
+                    start.col.index()
+                } else {
+                    0
+                };
+                let to = match at == end.line {
+                    true => end.col.index().min(cells.len() - 1),
+                    false => cells.len() - 1,
+                };
+                if from > to {
+                    return None;
+                }
+                let used = cells[from..=to]
+                    .iter()
+                    .rposition(|c| !c.content.is_empty())?;
+                Some((from, from + used))
+            })
+            .collect();
+        let n = d.window().rows().index();
+        for y in 0..n {
+            let y = Row::from_index(y);
+            for v in (0..cols).rev() {
+                let l = order.orders().logical_col(y, Col::at_index(v));
+                let Some((r, c)) = d.stored(y, l) else {
+                    continue;
+                };
+                let (p, c) = (r.index(), c.index());
+                if taken
+                    .get(p)
+                    .copied()
+                    .flatten()
+                    .is_some_and(|(a, b)| c >= a && c <= b)
+                {
+                    push_cell(out, term, rows[p].0[c]);
+                }
+            }
+        }
+        Para::Drawn(shown_to)
     }
 
     /// The logical columns of `line`, `cols` wide, from its rightmost drawn
@@ -683,6 +1049,33 @@ pub fn row_of<'t>(
     }
     let view = term.view(back);
     Some((view.row(Row::ZERO), view.wrapped(Row::ZERO)))
+}
+
+/// [`row_of`] with the row's mark -- its paragraph properties, rendition
+/// and wrap -- as the display's layout reads a row.
+fn marked_row<'t>(
+    term: &'t Term<'_>,
+    scrolled: Scrolled,
+    line: AbsLine,
+) -> Option<(&'t [PackedCell], baud_domain::RowExtent)> {
+    let live = term.viewport();
+    if line.0 >= scrolled.0 {
+        let y = usize::try_from(line.0 - scrolled.0).ok()?;
+        if y >= live.rows().index() {
+            return None;
+        }
+        let y = Row::from_index(y);
+        return Some((live.row(y), crate::rebreak::mark_of(&live, y)));
+    }
+    let back = Rows::of_count(usize::try_from(scrolled.0 - line.0).ok()?);
+    if term.looking_back(back) != back {
+        return None;
+    }
+    let view = term.view(back);
+    Some((
+        view.row(Row::ZERO),
+        crate::rebreak::mark_of(&view, Row::ZERO),
+    ))
 }
 
 fn push_cell(out: &mut String, term: &Term<'_>, cell: PackedCell) {
@@ -1070,11 +1463,11 @@ mod tests {
 
     #[test]
     fn a_wide_tail_takes_its_leads_selection() {
-        let h = Highlight {
-            from: (Row::ZERO, Col::at_index(2)),
-            to: (Row::from_index(3), Col::at_index(2)),
-            region: Region::Block,
-        };
+        let h = Highlight::new(
+            (Row::ZERO, Col::at_index(2)),
+            (Row::from_index(3), Col::at_index(2)),
+            Region::Block,
+        );
         let tail = Content::WIDE_TAIL;
         let plain = glyph('x').content;
         // A tail at the left edge, its lead outside: out.
@@ -1088,11 +1481,11 @@ mod tests {
         assert!(h.selects(Row::from_index(2), Col::at_index(2), plain));
         // A tail in column 0 cannot have a lead before it, and answers for
         // itself rather than wrapping.
-        let edge = Highlight {
-            from: (Row::ZERO, Col::ZERO),
-            to: (Row::ZERO, Col::ZERO),
-            region: Region::Block,
-        };
+        let edge = Highlight::new(
+            (Row::ZERO, Col::ZERO),
+            (Row::ZERO, Col::ZERO),
+            Region::Block,
+        );
         assert!(edge.selects(Row::ZERO, Col::ZERO, tail));
     }
 

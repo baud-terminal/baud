@@ -67,12 +67,25 @@ the screen; step 3 joins Arabic letters.
   keep the terminal's cut until the rest fits. A paragraph whose words
   need fewer lines than it was stored on -- trailing spaces the terminal
   wrapped onto a row of their own, which hang -- keeps the terminal's cut,
-  so the window's last row stays where it is and no row from above the
-  window is drawn in the gap, where a pointer could not name it. The
-  cursor, a selection's
+  so the window's last row stays where it is and no line made only of
+  rows above the window is drawn in the gap, where a mouse report could
+  not name it. The cursor, a selection's
   ends, a mouse report and a find match name stored cells, each drawn
-  where its cell is drawn, and a copy gives the stored text in logical
-  order, soft wraps joined. All three draw paths read the one display:
+  where its cell is drawn. **Every cell drawn can be selected and found**:
+  where a paragraph runs on from above the window, the window's first
+  line holds cells of the rows above it, and while the window looks back
+  its last line holds cells of the rows below it; a selection, a find
+  mark and a pointer that selects name each by its stored line
+  (`a_selection_reaches_the_cells_a_window_line_draws_from_above_it`,
+  `a_find_mark_reaches_the_cells_a_window_line_draws_from_above_it`,
+  `a_drag_over_cells_drawn_from_above_the_window_selects_them`), and a
+  mouse report over one names the nearest window cell, since a program
+  addresses no line past the window. A copy gives the stored text in logical
+  order, soft wraps joined; under `?96` it reads each display line from
+  its right edge. A picture moves with its text as on a scroll, anchored
+  on a row the display pushed out of the window or above it as well, and
+  a line a smooth scroll slides out, the cells a trail's flash bound reads
+  and a placeholder's run are the display's. All three draw paths read the one display:
   `a_re_broken_paragraph_draws_the_same_on_every_arm`. **A departure, the
   owner's**: UAX #9 resolves a paragraph at one level and orders each line
   by it (section 3, L1-L2); a moved run's line is laid out at its own
@@ -852,15 +865,16 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   paragraphs at the top of what the history keeps, and every paragraph on
   a shell that sends no `OSC 133` marks until it scrolls into the history,
   keep the terminal's cut; a paragraph longer than `baud_render::CONTEXT`
-  codepoints, a table row, a line not single-width, a row DECRLM wrote and
-  a paragraph holding an SDS or SRS string keep it too; DECSLRM's side
-  margins are not read, so a paragraph wrapped inside them is re-broken at
-  the window's width; the scroll position, the scrollbar and the wheel
-  count stored lines; a picture anchored on a row the display pushed out
-  of the window, or above it, is not moved, and `?96`'s copy in drawn order
-  reads each stored row in its own order; on a display line that holds
-  cells of a row outside the window, those cells are drawn but not
-  selected or marked by find.
+  codepoints, a table row, a line not single-width, a row DECRLM wrote, a
+  paragraph holding an SDS or SRS string and one that wrapped at DECSLRM
+  side margins keep it too, rather than be re-broken inside its margins
+  (Jev's lean, RECORD_BIT_KEEP_CUT, confidence 0.33 / 0.40 on the
+  re-ask); the scroll
+  position, the scrollbar and the wheel count stored lines; a link's
+  preview and its Cmd-click over a cell the display draws from a line
+  past the window read the nearest window cell. A copy under
+  `?96` of a paragraph the window keeps at its cut at the top of what the
+  history keeps reads it by its words, not by the cut drawn.
 - **A paragraph a soft wrap splits mid-word, with `[screen] wrap_words` off**
   ("the wrap line looks bad"): an English word the wrap split lands at
   opposite ends of its two rows. UAX #9 breaks a paragraph into

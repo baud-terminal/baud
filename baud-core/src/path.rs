@@ -272,10 +272,12 @@ impl Paint<'_, '_> {
     }
 }
 
-/// `now` with `from`'s `which` property, or all of `from`.
+/// `now` with `from`'s `which` property, or all of `from`; where the row
+/// has wrapped kept, as the row's own fact and no paragraph property
+/// ([`baud_domain::WrappedAt`]).
 fn taken(now: LineBidi, from: LineBidi, which: Option<LineProperty>) -> LineBidi {
     match which {
         Some(w) => now.with_property(from, w),
-        None => from,
+        None => from.with_wrapped_at(now.wrapped_at()),
     }
 }

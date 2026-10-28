@@ -250,6 +250,22 @@ pub enum RowWritten {
     RightToLeft,
 }
 
+/// **Where a row has wrapped since it was last erased whole**: only at
+/// the page's edge, or at DECSLRM side margins narrower than the page,
+/// where the next line starts at the left margin. DECSLRM "sets the left
+/// and right margins to define the scrolling region" (`[[source:
+/// vt510-decslrm]]`) and says nothing of the cells outside them; that
+/// they are no part of a paragraph wrapped inside the margins is baud's
+/// reading.
+/// A paragraph holding a row that wrapped at margins is drawn as the
+/// terminal cut it, never re-broken across its margins (Jev's lean,
+/// RECORD_BIT_KEEP_CUT, confidence 0.33 / 0.40 on the re-ask).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WrappedAt {
+    Edge,
+    Margins,
+}
+
 impl LineBidi {
     /// No path, autodetection on, no box mirroring.
     pub const POWER_ON: LineBidi = LineBidi(0);
@@ -259,6 +275,23 @@ impl LineBidi {
     const BOX: u8 = 0b1000;
     /// A character was written on the row under DECRLM.
     const LEFTWARD: u8 = 0b1_0000;
+    /// The row wrapped at side margins narrower than the page.
+    const MARGINED: u8 = 0b10_0000;
+
+    /// **Where the row has wrapped since it was last erased whole**
+    /// ([`WrappedAt`]).
+    pub fn wrapped_at(self) -> WrappedAt {
+        match self.0 & Self::MARGINED {
+            0 => WrappedAt::Edge,
+            _ => WrappedAt::Margins,
+        }
+    }
+    pub fn with_wrapped_at(self, w: WrappedAt) -> LineBidi {
+        match w {
+            WrappedAt::Edge => LineBidi(self.0 & !Self::MARGINED),
+            WrappedAt::Margins => LineBidi(self.0 | Self::MARGINED),
+        }
+    }
 
     /// **Whether a character was written on the row under DECRLM**
     /// ([`RowWritten`]): such a row holds its characters in the order a
@@ -422,7 +455,10 @@ impl RowExtent {
     /// mirroring are kept, as any fill keeps them.
     pub fn erased(self) -> RowExtent {
         RowExtent {
-            bidi: self.bidi.with_written(RowWritten::InOrder),
+            bidi: self
+                .bidi
+                .with_written(RowWritten::InOrder)
+                .with_wrapped_at(WrappedAt::Edge),
             ..self
         }
     }

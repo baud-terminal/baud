@@ -595,7 +595,11 @@ pub fn run() {
         decode: DecodeProgress::Idle,
         performed: crate::winops::Performed::new(),
         bounds_event: crate::winops::BoundsEvent::Never,
-        seat: crate::seat::Seat::new(),
+        seat: {
+            let mut seat = crate::seat::Seat::new();
+            seat.set_word_wrap(cfg.wrap_words);
+            seat
+        },
         shape: None,
         hiding,
         shapeless: Said::Not,
@@ -1803,7 +1807,10 @@ impl Driver {
                 }
                 Part::CursorGuide => self.cursor_guide = c.cursor_guide,
                 Part::Badge => self.badge = c.badge,
-                Part::WrapWords => self.renderer.set_word_wrap(c.wrap_words),
+                Part::WrapWords => {
+                    self.renderer.set_word_wrap(c.wrap_words);
+                    self.seat.set_word_wrap(c.wrap_words);
+                }
                 // The Linux window has no title bar to put them in.
                 Part::ActivityLights => {}
                 Part::ImageAnimation => self.timed.set_image_animation(c.image_animation),

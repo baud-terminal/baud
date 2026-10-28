@@ -132,7 +132,7 @@ use baud_domain::{
 use std::rc::Rc;
 
 use crate::rebreak::{Breaker, Display, WordWrap};
-use crate::select::Highlight;
+use crate::select::{Highlight, WindowLine};
 use crate::units::Tally;
 
 /// The most codepoints one paragraph's text is resolved over: a row at the
@@ -378,6 +378,18 @@ impl Orders {
         }
     }
 
+    /// **The stored cell logical column `l` of display row `y` shows, by
+    /// its line counted from the window's top**: the window's cell where
+    /// nothing is re-broken; on a re-broken line, the cell it draws, of a
+    /// window row or of a line past the window its paragraph runs on from
+    /// or into; none for padding.
+    pub fn stored_line_at(&self, y: Row, l: Col) -> Option<(WindowLine, Col)> {
+        match &self.display {
+            Some(d) => d.stored_line(y, l),
+            None => Some((WindowLine::of(y), l)),
+        }
+    }
+
     /// The display row stored row `r` of the window starts on.
     pub fn row_of(&self, r: Row) -> Option<Row> {
         match &self.display {
@@ -407,12 +419,35 @@ impl Orders {
             .unwrap_or((y, l))
     }
 
+    /// **The stored cell a selection made by a pointer over visual column
+    /// `col` of display row `y` names**: [`Orders::pointer`]'s, but a cell
+    /// the display draws from a line past the window is named by that line
+    /// ([`Orders::stored_line_at`]), so a selection reaches every cell drawn.
+    /// A mouse report keeps [`Orders::pointer`]'s window cell: a program
+    /// addresses no line past the window.
+    pub fn pointer_line(&self, y: Row, col: Col) -> (WindowLine, Col) {
+        let l = self.pointer_col(y, col);
+        let Some(d) = &self.display else {
+            return (WindowLine::of(y), l);
+        };
+        if let Some(at) = d.stored_line(y, l) {
+            return at;
+        }
+        let n = self.cols.index();
+        (0..l.index())
+            .rev()
+            .chain(l.index() + 1..n)
+            .find_map(|x| d.stored_line(y, Col::at_index(x)))
+            .unwrap_or((WindowLine::of(y), l))
+    }
+
     /// **Whether logical column `l` of display row `y`, holding `content`,
     /// is drawn selected** by `h`, a selection kept by stored cells: the
-    /// stored cell it shows asked; padding never is.
+    /// stored cell it shows asked, a line's past the window included;
+    /// padding never is.
     pub fn selects(&self, h: &Highlight, y: Row, l: Col, content: Content) -> bool {
-        match self.stored_at(y, l) {
-            Some((r, c)) => h.selects(r, c, content),
+        match self.stored_line_at(y, l) {
+            Some((line, c)) => h.selects_line(line, c, content),
             None => false,
         }
     }
@@ -422,7 +457,22 @@ impl Orders {
     /// [`Orders::runs`] where nothing is re-broken; on a re-broken
     /// paragraph, the runs of each display line its cells are drawn on.
     pub fn stored_runs(&self, r: Row, from: Col, to: Col) -> Vec<(Row, Col, Cols)> {
+        self.line_runs(WindowLine::of(r), from, to)
+    }
+
+    /// [`Orders::stored_runs`] for stored line `line`, the window's or one
+    /// past it: where a line past the window is drawn on a window line,
+    /// the runs its cells are drawn in there; none where it is not drawn.
+    pub fn line_runs(&self, line: WindowLine, from: Col, to: Col) -> Vec<(Row, Col, Cols)> {
         let Some(d) = &self.display else {
+            // A line past a laid-out window is drawn on none of its rows.
+            let Some(r) = line
+                .since(WindowLine::of(Row::ZERO))
+                .map(|k| Row::from_index(k.index()))
+                .filter(|r| self.rows.is_empty() || r.index() < self.rows.len())
+            else {
+                return Vec::new();
+            };
             return self
                 .runs(r, from, to)
                 .into_iter()
@@ -430,7 +480,7 @@ impl Orders {
                 .collect();
         };
         let mut shown: Vec<(Row, Col)> = (from.index()..=to.index())
-            .filter_map(|c| d.shown(r, Col::at_index(c)))
+            .filter_map(|c| d.shown_line(line, Col::at_index(c)))
             .collect();
         shown.sort_by_key(|&(y, x)| (y.index(), x.index()));
         let mut out = Vec::new();
@@ -1389,6 +1439,36 @@ impl Reorder {
         // window, where it re-breaks one: every row below is then one of its
         // lines, read with the lines around the window it holds.
         let held = crate::rebreak::lay_out(term, back, self.wrap, &mut self.breaker);
+        self.lay_out_held(term, back, held, joins, written, extent);
+    }
+
+    /// **Lays out `d`, a display of one paragraph alone**
+    /// ([`crate::rebreak::paragraph_display`]), as the window's layout lays
+    /// out a display: each of its lines in the order it is drawn in. What a
+    /// copy in drawn order reads a re-broken paragraph's lines by (`?96`).
+    pub(crate) fn lay_out_display(&mut self, term: &Term<'_>, d: Rc<Display>) {
+        self.lay_out_held(
+            term,
+            Rows::ZERO,
+            Some(d),
+            Joins::Unseen,
+            &Unwritten,
+            Extent::Window,
+        );
+    }
+
+    /// [`Reorder::lay_out_window`] past its display: the window's rows, or
+    /// `held`'s lines where it is one.
+    #[inline(always)]
+    fn lay_out_held(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        held: Option<Rc<Display>>,
+        joins: Joins,
+        written: &impl Over,
+        extent: Extent,
+    ) {
         let (vp, around) = match &held {
             Some(d) => {
                 let (up, down) = d.around();
@@ -1788,7 +1868,8 @@ impl Reorder {
         {
             let mut k = 1;
             while k <= back.index() && below.len() < budget {
-                let v = term.view(Rows::of_index(back.index() - k));
+                // `of_count`: at `k == back` the live screen, view 0.
+                let v = term.view(Rows::of_count(back.index() - k));
                 let at = Row::from_index(nrows - 1);
                 below.push(v.row(at));
                 if v.wrapped(at) != Wrap::Continues {

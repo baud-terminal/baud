@@ -13,7 +13,7 @@ use baud_domain::{
     LocatorKind, Modifiers, MouseButton, MouseTracking, PointerPx, RegisInput, Row, Rows,
     ShiftEscape,
 };
-use baud_render::{Grain, Press, Scrolled, Selection, Span};
+use baud_render::{Grain, Press, Scrolled, Selection, Span, WindowLine};
 
 /// What a pointer event is, as either driver delivers it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -316,7 +316,9 @@ pub(crate) enum Selected {
 }
 
 /// **The selection a press, a drag and a release make**, on the cell `at`
-/// of the view drawn: a left press starts one, by the cell, the word or
+/// of the view drawn, by its line counted from the window's top -- a line
+/// past the window where the display draws its cell on a window line
+/// (`baud_render::Orders::pointer_line`): a left press starts one, by the cell, the word or
 /// the line as its clicks count one, two or more, as `press` says (a new
 /// stream, a block, or the one there extended); a drag with the left
 /// button held moves its head; a release ends it. `held` is the button the
@@ -330,18 +332,40 @@ pub(crate) fn select(
     held: &mut Option<MouseButton>,
     (kind, button, clicks): (Kind, Pressed, u8),
     press: Press,
-    (row, col): (Row, Col),
+    (at, col): (WindowLine, Col),
 ) -> Selected {
     let back = term.window_back();
     let view = term.view(back);
-    // The line's own column: half the display's on a sized line.
-    let col = baud_render::char_col(&view, row, col);
     let top = scrolled.top(back);
+    // **A line past the window**, whose cells the display's word wrap
+    // draws on a window line (`baud_render::Orders::pointer_line`): read by
+    // its number, and its line the rows a soft wrap joins to it. Such a
+    // line is single-width, as every line of a paragraph re-broken is.
+    let past = match at.row(view.rows()) {
+        Some(_) => None,
+        None => at
+            .line(top)
+            .and_then(|line| baud_render::row_of(term, scrolled, line).map(|(r, _)| (line, r))),
+    };
+    let row = at
+        .row(view.rows())
+        .unwrap_or(match at < WindowLine::of(Row::ZERO) {
+            true => Row::ZERO,
+            false => Row::from_index(view.rows().index() - 1),
+        });
+    // The line's own column: half the display's on a sized line.
+    let col = match past {
+        Some(_) => col,
+        None => baud_render::char_col(&view, row, col),
+    };
     let line = scrolled.line(back, row);
-    let span_at = |grain: Grain| match grain {
-        Grain::Cell => Span::cell(view.row(row), line, col),
-        Grain::Word => Span::word(term, view.row(row), line, col),
-        Grain::Line => Span::line(&view, top, row),
+    let span_at = |grain: Grain| match (past, grain) {
+        (Some((l, cells)), Grain::Cell) => Span::cell(cells, l, col),
+        (Some((l, cells)), Grain::Word) => Span::word(term, cells, l, col),
+        (Some((l, _)), Grain::Line) => Span::line_at(term, scrolled, l),
+        (None, Grain::Cell) => Span::cell(view.row(row), line, col),
+        (None, Grain::Word) => Span::word(term, view.row(row), line, col),
+        (None, Grain::Line) => Span::line(&view, top, row),
     };
     match kind {
         Kind::Down if button == Pressed::Left => {
@@ -689,6 +713,54 @@ mod tests {
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     }
 
+    /// **A press on a line above the window selects it by its number**:
+    /// the cell, and the word on that row as a double click takes it on
+    /// any row, under a pointer the display names one line up
+    /// ([`baud_render::Orders::pointer_line`]), read off that stored row;
+    /// the line, the whole paragraph a soft wrap joins into the window's
+    /// first row. A line before the session's first is
+    /// none, and the press falls on the window's first row.
+    #[test]
+    fn a_press_on_a_line_above_the_window_selects_by_that_line() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let bytes = format!(
+            "h0\r\n{} {} zz\r\nf1\r\nf2\r\nf3\r\nf4\r\n$ ",
+            "X".repeat(13),
+            "Y".repeat(10)
+        );
+        feed(&mut t, bytes.as_bytes());
+        let s = Scrolled::START.advanced(t.looking_back(Rows::of_index(usize::MAX)));
+        let above = WindowLine::of(Row::ZERO).up(Rows::of_count(1));
+        let press = |clicks: u8, at: (WindowLine, Col)| {
+            let (mut sel, mut held) = (None, None);
+            select(
+                &t,
+                s,
+                &mut sel,
+                &mut held,
+                (Kind::Down, Pressed::Left, clicks),
+                Press::Stream,
+                at,
+            );
+            sel.expect("pressed").text(&t, s)
+        };
+        assert_eq!(press(1, (above, Col::at_index(16))), "Y");
+        assert_eq!(press(2, (above, Col::at_index(16))), "YYYYYY");
+        assert_eq!(
+            press(3, (above, Col::at_index(16))),
+            format!("{} {} zz", "X".repeat(13), "Y".repeat(10))
+        );
+        assert_eq!(press(1, (above, Col::ZERO)), "X", "the stored row's own");
+        assert_eq!(
+            press(1, (WindowLine::of(Row::ZERO), Col::ZERO)),
+            "Y",
+            "the control: the window's first row"
+        );
+        let before = WindowLine::of(Row::ZERO).up(Rows::of_count(1000));
+        assert_eq!(press(1, (before, Col::ZERO)), "Y", "none: the first row");
+    }
+
     /// **A press, a drag and a release select; a press and a release with
     /// no drag is a click**, which leaves nothing selected for the driver to
     /// pass on; a right press selects nothing.
@@ -707,7 +779,7 @@ mod tests {
                 held,
                 (k, b, 1),
                 Press::Stream,
-                (Row::ZERO, Col::at_index(c)),
+                (WindowLine::of(Row::ZERO), Col::at_index(c)),
             )
         };
         assert_eq!(
@@ -787,7 +859,7 @@ mod tests {
                 &mut held,
                 (k, Pressed::Left, 1),
                 Press::Stream,
-                (Row::ZERO, at(c)),
+                (WindowLine::of(Row::ZERO), at(c)),
             );
         }
         assert_eq!(sel.expect("made").text(&t, s), "\u{5D0}\u{5D1}\u{5D2}");
@@ -808,7 +880,7 @@ mod tests {
             &mut held,
             (Kind::Down, Pressed::Left, 2),
             Press::Stream,
-            (Row::ZERO, Col::at_index(8)),
+            (WindowLine::of(Row::ZERO), Col::at_index(8)),
         );
         assert_eq!(sel.expect("pressed").text(&t, s), "world");
     }

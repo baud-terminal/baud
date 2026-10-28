@@ -991,6 +991,9 @@ impl Boot {
 
 impl App {
     fn new(ws: WinSize, sizing: Sizing, scale: CGFloat, waker: Waker, pty: Pty, boot: Boot) -> App {
+        // The display's wrap `prepare` gave the renderer, which a copy
+        // under `?96` reads its lines by.
+        let wrap_words = boot.renderer.word_wrap();
         let Boot {
             request,
             geom,
@@ -1301,7 +1304,11 @@ impl App {
             sizing,
             pending: Pending::Dirty,
             selection: None,
-            kept: KeptText::default(),
+            kept: {
+                let mut kept = KeptText::default();
+                kept.set_word_wrap(wrap_words);
+                kept
+            },
             scrolled: Scrolled::START,
             finding: None,
             hover: crate::link::Hover::default(),
@@ -1603,9 +1610,12 @@ impl App {
             let top = self.scrolled.top(back);
             match self.term.highlight() {
                 Some(_) => tracked_highlight(&self.term, self.scrolled, back),
-                None => self
-                    .selection
-                    .and_then(|s| s.highlight(top, view.rows(), view.cols())),
+                None => {
+                    let wrap = self.renderer.word_wrap();
+                    let beyond = crate::keep::beyond(&self.term, back, wrap);
+                    self.selection
+                        .and_then(|s| s.highlight_reaching(top, view.rows(), view.cols(), beyond))
+                }
             }
         };
         self.renderer.set_highlight(highlight);
@@ -11487,7 +11497,10 @@ impl Driver {
                 }
                 Part::CursorGuide => self.app.cursor_guide = c.cursor_guide,
                 Part::Badge => self.app.badge = c.badge,
-                Part::WrapWords => self.app.renderer.set_word_wrap(c.wrap_words),
+                Part::WrapWords => {
+                    self.app.renderer.set_word_wrap(c.wrap_words);
+                    self.app.kept.set_word_wrap(c.wrap_words);
+                }
                 Part::ImageAnimation => self.app.image_animation = c.image_animation,
                 Part::Hollow => {
                     self.app.unfocused_cursor = c.unfocused_cursor;
@@ -11997,7 +12010,7 @@ impl Driver {
     /// the only way in, so Shift+Option is how a block starts there, where
     /// letting Shift win would extend whatever was already on screen.
     fn select(&mut self, event: &Mouse) {
-        let at = self.cell_under(event.x, event.y);
+        let at = self.line_under(event.x, event.y);
         let selected = crate::gesture::select(
             &self.app.term,
             self.app.scrolled,
@@ -12745,10 +12758,13 @@ impl Driver {
     fn find_chord(&mut self, chord: crate::find::Chord) {
         use crate::find::{Chord, Finding};
         let selected = match chord {
-            Chord::UseSelection => self
-                .app
-                .selection
-                .map(|s| s.text(&self.app.term, self.app.scrolled)),
+            Chord::UseSelection => self.app.selection.map(|s| {
+                s.text_as(
+                    &self.app.term,
+                    self.app.scrolled,
+                    self.app.renderer.word_wrap(),
+                )
+            }),
             _ => None,
         };
         match (self.app.finding.as_mut(), selected) {
@@ -12832,7 +12848,11 @@ impl Driver {
         let text = match self.app.selection {
             Some(sel) => match self.app.kept.text(Some(&sel)) {
                 Some(t) => t.to_owned(),
-                None => sel.text(&self.app.term, self.app.scrolled),
+                None => sel.text_as(
+                    &self.app.term,
+                    self.app.scrolled,
+                    self.app.renderer.word_wrap(),
+                ),
             },
             None => match self.app.kept.text(None) {
                 Some(t) => t.to_owned(),
@@ -12901,6 +12921,13 @@ impl Driver {
         let (row, col) = cell_under((x, y), scale, cell, grid, pad);
         // The logical cell the visual one shows (`gesture::logical`).
         self.app.renderer.bidi().pointer(row, col)
+    }
+
+    /// **The stored cell under a point, for a selection**: [`cell_under`]'s,
+    /// but a cell the display's word wrap draws from a line past the window
+    /// is named by that line (`baud_render::Orders::pointer_line`).
+    fn line_under(&self, x: f64, y: f64) -> (baud_render::WindowLine, Col) {
+        line_under(self.app.renderer.bidi(), (x, y), self.pointer_geometry())
     }
 
     /// **The wheel across**: a tilt, Shift with a mouse wheel, a sideways
@@ -13011,6 +13038,18 @@ fn cell_under(
 ) -> (Row, Col) {
     let (row, col, _) = pointer_under(at, scale, cell, grid, pad);
     (row, col)
+}
+
+/// `line_under` as a pure function of the order the frame drew, the point
+/// and the geometry: the cell [`cell_under`] names, by the stored line a
+/// selection takes it from (`baud_render::Orders::pointer_line`).
+fn line_under(
+    orders: &baud_render::Orders,
+    at: (f64, f64),
+    (scale, cell, grid, pad): PointerGeometry,
+) -> (baud_render::WindowLine, Col) {
+    let (row, col) = cell_under(at, scale, cell, grid, pad);
+    orders.pointer_line(row, col)
 }
 
 /// Whether AppKit has the window minimized.
@@ -14434,6 +14473,47 @@ mod tests {
             .1;
         let body = &body[..body.find("\n    }\n").expect("its end")];
         assert!(body.contains(concat!("widen_", "later(")));
+    }
+
+    /// **A selection's point over a cell the display draws from the row
+    /// above the window names that row**: "Y" ten times, cut after its
+    /// sixth letter at the window's top, is drawn whole on the first line,
+    /// and a point over its third cell names the stored row one line up,
+    /// column 15; a mouse report's point names the window's first row.
+    #[test]
+    fn a_selection_point_names_the_line_a_cell_is_drawn_from() {
+        use baud_core::{Owned, Term};
+        use baud_domain::{BytePos, ReadLen, Rows, WinSize};
+        use baud_render::WindowLine;
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let bytes = format!(
+            "h0\r\nh1\r\n{} {} zz\r\nf1\r\nf2\r\nf3\r\nf4\r\n\x1b]133;A\x07$ ",
+            "X".repeat(13),
+            "Y".repeat(10)
+        );
+        t.write_at(BytePos::ZERO, bytes.as_bytes());
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        let mut order = baud_render::Reorder::new();
+        order.lay_out(&t, Rows::ZERO);
+        // 1x scale, 10x10 px cells: point (25, 5) is cell (0, 2).
+        let g: PointerGeometry = (1.0, (10.0, 10.0), (20, 6), (0, 0));
+        assert_eq!(
+            line_under(order.orders(), (25.0, 5.0), g),
+            (
+                WindowLine::of(Row::ZERO).up(Rows::of_count(1)),
+                Col::at_index(16)
+            )
+        );
+        assert_eq!(
+            order.orders().pointer(Row::ZERO, Col::at_index(2)).0,
+            Row::ZERO,
+            "a report names a window row"
+        );
     }
 
     #[test]

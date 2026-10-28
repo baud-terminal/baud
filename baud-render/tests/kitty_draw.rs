@@ -623,11 +623,11 @@ fn below_half_int32_min_the_order_is_still_z_then_the_lower_id() {
 fn a_deep_image_goes_under_the_block_cursor_and_the_selection() {
     // The cursor on the default-backed block, the third cell; the
     // selection over the default-backed space, the fourth.
-    let lit = Some(Highlight {
-        from: (Row::from_index(2), Col::at_index(7)),
-        to: (Row::from_index(2), Col::at_index(7)),
-        region: Region::Stream,
-    });
+    let lit = Some(Highlight::new(
+        (Row::from_index(2), Col::at_index(7)),
+        (Row::from_index(2), Col::at_index(7)),
+        Region::Stream,
+    ));
     let more = "\x1b[2 q\x1b[3;7H\x1b[?25h";
     let text = |t: &mut Term| {
         feed(t, SCENE.as_bytes());

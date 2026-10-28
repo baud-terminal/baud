@@ -526,7 +526,7 @@ fn a_find_mark_on_an_all_english_paragraph_follows_the_word_wrap() {
     // them: the layout that makes the display draws them through it.
     let field = Find::new().field(baud_domain::Cols::of_index(12));
     let mark = |row: usize, from: usize, to: usize| Mark {
-        row: Row::from_index(row),
+        line: baud_render::WindowLine::of(Row::from_index(row)),
         from: Col::at_index(from),
         to: Col::at_index(to),
         current: Current::No,

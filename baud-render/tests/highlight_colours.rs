@@ -55,11 +55,11 @@ fn selected_in(theme: Theme, osc: &[u8]) -> (Argb, Argb, u32) {
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, b"\x1b[?25l\x1b[38;2;205;0;0m\xe2\x96\x88\x1b[0m ");
     feed(&mut t, osc);
-    r.set_highlight(Some(Highlight {
-        from: (Row::ZERO, Col::at_index(0)),
-        to: (Row::ZERO, Col::at_index(1)),
-        region: Region::Stream,
-    }));
+    r.set_highlight(Some(Highlight::new(
+        (Row::ZERO, Col::at_index(0)),
+        (Row::ZERO, Col::at_index(1)),
+        Region::Stream,
+    )));
     let (w, h) = r.pixel_size();
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
@@ -150,11 +150,11 @@ fn an_incremental_frame_after_osc_17_equals_a_full_repaint() {
         )
         .unwrap()
     };
-    let sel = Some(Highlight {
-        from: (Row::ZERO, Col::at_index(0)),
-        to: (Row::ZERO, Col::at_index(3)),
-        region: Region::Stream,
-    });
+    let sel = Some(Highlight::new(
+        (Row::ZERO, Col::at_index(0)),
+        (Row::ZERO, Col::at_index(3)),
+        Region::Stream,
+    ));
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, b"\x1b[?25labc");

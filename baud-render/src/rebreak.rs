@@ -34,7 +34,9 @@
 //! live screen. A finished paragraph is one wholly above the latest prompt
 //! the shell marked while it waits at that prompt, or wholly in the
 //! history. A table row (a box-drawing rule), a line not single-width, a
-//! row DECRLM wrote, a paragraph holding an SDS or SRS string, and one
+//! row DECRLM wrote, a row that wrapped at DECSLRM side margins
+//! (`baud_domain::WrappedAt`; by baud's reading its cells outside the
+//! margins are no part of its paragraph), a paragraph holding an SDS or SRS string, and one
 //! longer than [`crate::CONTEXT`] codepoints keep the terminal's cut.
 //!
 //! **Where the extra lines go.** A paragraph drawn on more lines than it
@@ -47,9 +49,18 @@
 //! rest fits, so no line is pushed where it cannot be read. A paragraph
 //! whose words need fewer lines than it is stored in -- trailing spaces
 //! the terminal wrapped onto a row of their own, hanging -- keeps the
-//! terminal's cut, so the window's last row stays its last and no row from
-//! above the window is drawn in the gap, where a pointer and a selection,
-//! which name the window's rows, could not name it.
+//! terminal's cut, so the window's last row stays its last and no line
+//! made only of rows above the window is drawn in the gap, where a mouse
+//! report, which names the window's rows, could not name it.
+//!
+//! **Cells of lines past the window.** The window's first line can hold
+//! cells of its first paragraph's rows above the window, and, while the
+//! window looks back, its last line cells of its last paragraph's rows
+//! below it. A selection, a find mark and a pointer that selects name each
+//! by its stored line counted from the window's top
+//! ([`crate::WindowLine`], [`Display::stored_line`]), so every cell drawn
+//! can be selected and marked; a mouse report names the nearest window
+//! cell, since a program addresses no line past the window.
 //!
 //! **What does not change.** The grid keeps what the program wrote: the
 //! cursor, a cursor position report, a copy (the stored text in logical
@@ -64,9 +75,10 @@ use baud_core::{BidiSupport, PromptLine, Screen, Term, Zone};
 use baud_domain::{
     Autodetect, Bidi, BidiClass, BidiDirection, BidiLevel, BidiProps, CharacterPath, Col, Cols,
     LineBreak, LineRendition, PackedCell, Row, RowExtent, RowRot, RowWritten, Rows, Stride,
-    Viewport, Wrap, is_table_rule, line_breaks,
+    Viewport, Wrap, WrappedAt, is_table_rule, line_breaks,
 };
 
+use crate::select::WindowLine;
 use crate::units::Tally;
 
 /// **Whether the display wraps a finished paragraph at its words**, the
@@ -427,12 +439,26 @@ pub struct Display {
     above: Rows,
     cells: Vec<PackedCell>,
     used: Vec<RowExtent>,
-    /// For each window display cell, the stored window cell it shows.
-    from: Vec<Option<(Row, Col)>>,
+    /// For each window display cell, the stored cell it shows: a window
+    /// row's, or one of a line past the window that a paragraph runs on
+    /// from or into.
+    from: Vec<Option<(WindowLine, Col)>>,
     /// For each stored window cell, the window display cell it is drawn in.
     to: Vec<Option<(Row, Col)>>,
+    /// **The lines past the window drawn on its lines**: how many above its
+    /// top and below its last row, and for each of their cells, by line
+    /// and column, the window display cell it is drawn in -- the
+    /// reverse of `from` for those lines, so a mark of one is found by
+    /// index.
+    past: (Rows, Rows),
+    past_to: Vec<Option<(Row, Col)>>,
     /// For each window display line drawn as a stored row, that row.
     same: Vec<Option<Row>>,
+    /// **Where each stored row of the window's paragraphs starts**, the
+    /// rows above the window and below it included: its row counted from
+    /// the window's top, negative above it, and the display line its first
+    /// cell is drawn on, counted the same way; in stored order.
+    starts: Vec<(isize, isize)>,
     rebroken: Tally,
     moved: Tally,
     emergency: Tally,
@@ -463,13 +489,45 @@ impl Display {
 
     /// The stored window cell display column `x` of display row `y` shows,
     /// in its logical order; none for padding, or a cell from a row
-    /// outside the window.
+    /// outside the window ([`Display::stored_line`] names that one).
     pub fn stored(&self, y: Row, x: Col) -> Option<(Row, Col)> {
+        let (l, c) = self.stored_line(y, x)?;
+        l.row(self.rows).map(|r| (r, c))
+    }
+
+    /// **The stored cell display column `x` of display row `y` shows**, in
+    /// its logical order, by its line counted from the window's top: a
+    /// window row's, or a line's past the window that a paragraph runs on
+    /// from or into; none for padding.
+    pub fn stored_line(&self, y: Row, x: Col) -> Option<(WindowLine, Col)> {
         let n = self.cols.index();
         if x.index() >= n {
             return None;
         }
         self.from.get(y.index() * n + x.index()).copied().flatten()
+    }
+
+    /// **The display cell stored cell `(l, c)` is drawn in**, by its
+    /// logical column, for a line of the window or one past it: none where
+    /// it is not drawn on a window line.
+    pub fn shown_line(&self, l: WindowLine, c: Col) -> Option<(Row, Col)> {
+        if let Some(r) = l.row(self.rows) {
+            return self.shown(r, c);
+        }
+        let n = self.cols.index();
+        if c.index() >= n {
+            return None;
+        }
+        let (above, below) = self.past;
+        let last = WindowLine::of(Row::from_index(self.rows.index() - 1));
+        let i = match WindowLine::of(Row::ZERO).since(l) {
+            Some(k) => above.index().checked_sub(k.index())?,
+            None => {
+                let k = l.since(last)?.index();
+                (k <= below.index()).then(|| above.index() + k - 1)?
+            }
+        };
+        self.past_to.get(i * n + c.index()).copied().flatten()
     }
 
     /// The display cell stored cell `(r, c)` of the window is drawn in, by
@@ -491,6 +549,28 @@ impl Display {
         }
         let n = self.cols.index();
         (0..n).find_map(|c| self.shown(r, Col::at_index(c)).map(|(y, _)| y))
+    }
+
+    /// **How many lines the display moves stored row `at` by**, a row of
+    /// the window or one that many lines above it: down where positive, up
+    /// where negative. A row of the window's paragraphs moves
+    /// to the line its first cell is drawn on; a row above them all moves
+    /// as the first of them does, since the display pushes the text above
+    /// the window up as a block, as a scroll moves it; a row the layout
+    /// gave no line of its own, as the nearest row above it that has one.
+    pub(crate) fn shift(&self, at: crate::renderer::Anchor) -> isize {
+        let r = match at {
+            crate::renderer::Anchor::At(y) => isize::try_from(y.index()).unwrap_or(isize::MAX),
+            crate::renderer::Anchor::Above(n) => -isize::try_from(n.index()).unwrap_or(isize::MAX),
+        };
+        let at = match self.starts.iter().rposition(|&(s, _)| s <= r) {
+            Some(i) => self.starts[i],
+            None => match self.starts.first() {
+                Some(&first) => first,
+                None => return 0,
+            },
+        };
+        at.1 - at.0
     }
 
     /// The stored row display row `y` is a copy of, where it is one.
@@ -608,7 +688,7 @@ const ERASED: char = '\u{200B}';
 
 /// A stored row's mark as a view reads it: its paragraph properties, its
 /// rendition and whether it wraps.
-fn mark_of(vp: &Viewport<'_>, r: Row) -> RowExtent {
+pub(crate) fn mark_of(vp: &Viewport<'_>, r: Row) -> RowExtent {
     let cols = vp.cols();
     let e = RowExtent::of(cols.index())
         .with_bidi(vp.bidi(r))
@@ -623,7 +703,7 @@ fn mark_of(vp: &Viewport<'_>, r: Row) -> RowExtent {
 /// screen's top**: rows above it finished. The live screen's top while the
 /// shell is not at a prompt, or sends no marks: only the history is
 /// finished then. Negative where the prompt began above the live screen.
-fn finished_before(term: &Term<'_>) -> isize {
+pub(crate) fn finished_before(term: &Term<'_>) -> isize {
     if term.primary_zone() != Zone::Prompt {
         return 0;
     }
@@ -726,6 +806,57 @@ pub(crate) fn lay_out(
         shown: shown.clone(),
     });
     shown
+}
+
+/// **One finished paragraph drawn at its words, alone**: its stored rows,
+/// `rows`, top down, each with its mark, re-broken as the window's layout
+/// re-breaks a paragraph ([`rebreak`]), its lines the display's rows and
+/// each of its rows a window row, counted from its first. `None` where the
+/// display draws it as stored: the alternate screen, BDSM reset, a single
+/// row, a paragraph [`rebreak`] keeps, or one whose words need fewer lines
+/// than it is stored in, which the window keeps at its cut. Whether it is
+/// finished is the caller's to ask. What a copy in drawn order reads its
+/// lines from (`?96`).
+pub(crate) fn paragraph_display(
+    term: &Term<'_>,
+    rows: &[(&[PackedCell], RowExtent)],
+    work: &mut Breaker,
+) -> Option<Rc<Display>> {
+    if term.screen() != Screen::Normal
+        || term.bidi_support() != BidiSupport::Implicit
+        || rows.len() < 2
+    {
+        return None;
+    }
+    let cols = Cols::of_index(rows[0].0.len());
+    let mut g = Group {
+        rows: rows
+            .iter()
+            .enumerate()
+            .map(|(p, &(cells, used))| Source {
+                cells,
+                used,
+                window: Some(Row::from_index(p)),
+            })
+            .collect(),
+        lines: Vec::new(),
+        text: Vec::new(),
+        at: Vec::new(),
+        level: BidiLevel::LTR,
+        rebroken: Rebroken::No,
+        broken: Broken::default(),
+    };
+    rebreak(term, &mut g, cols, work);
+    if g.rebroken == Rebroken::No || g.lines.len() < g.rows.len() {
+        return None;
+    }
+    let n = g.lines.len();
+    let placed = Placed {
+        all: (0..n).map(|li| (0, li)).collect(),
+        window: (0, n),
+        lost: Lost::No,
+    };
+    Some(Rc::new(build(&[g], &placed, cols, Rows::of_index(n))))
 }
 
 /// The rows above the window its first paragraph reaches, with the one
@@ -902,7 +1033,7 @@ fn place_window(
         // **Fewer lines than rows**: the topmost paragraph drawn on fewer
         // lines than it is stored in keeps the stored cut, until the
         // window's last row is its last again; a row from above the window
-        // drawn in the gap is one a pointer and a selection cannot name.
+        // drawn in the gap is one a mouse report cannot name.
         let Some(g) = groups
             .iter_mut()
             .find(|g| g.rebroken == Rebroken::Yes && g.lines.len() < g.rows.len())
@@ -931,6 +1062,7 @@ fn rebreak(term: &Term<'_>, g: &mut Group<'_>, cols: Cols, work: &mut Breaker) {
     for (p, row) in g.rows.iter().enumerate() {
         if row.used.rendition() != LineRendition::Single
             || row.used.bidi().written() == RowWritten::RightToLeft
+            || row.used.bidi().wrapped_at() == WrappedAt::Margins
         {
             return;
         }
@@ -1119,6 +1251,50 @@ fn place(groups: &[Group<'_>], rows: Rows) -> Placed {
     }
 }
 
+/// **Where each stored row of the window's paragraphs starts** on the
+/// display ([`Display::shift`]): for every line of `placed`, each source
+/// row it draws a cell of the first time one does, both counted from the
+/// window's top.
+fn starts(groups: &[Group<'_>], placed: &Placed) -> Vec<(isize, isize)> {
+    let start = isize::try_from(placed.window.0).unwrap_or(0);
+    let mut out: Vec<(isize, isize)> = Vec::new();
+    let mut seen: Vec<Vec<bool>> = groups.iter().map(|g| vec![false; g.rows.len()]).collect();
+    for (i, &(gi, li)) in placed.all.iter().enumerate() {
+        let g = &groups[gi];
+        // The group's rows are consecutive: each counted from the window's
+        // top through the first that is a window row.
+        let Some((p0, r0)) = g
+            .rows
+            .iter()
+            .enumerate()
+            .find_map(|(p, s)| s.window.map(|r| (p, r.index())))
+        else {
+            continue;
+        };
+        let stored = |p: usize| {
+            isize::try_from(r0).unwrap_or(0) + isize::try_from(p).unwrap_or(0)
+                - isize::try_from(p0).unwrap_or(0)
+        };
+        let shown = isize::try_from(i).unwrap_or(0) - start;
+        let mut mark = |p: usize| {
+            if !seen[gi][p] {
+                seen[gi][p] = true;
+                out.push((stored(p), shown));
+            }
+        };
+        match &g.lines[li] {
+            Drawn::Stored(p) => mark(*p),
+            Drawn::Text(l) => {
+                for a in &g.at[l.from..l.to] {
+                    mark(a.row.0);
+                }
+            }
+        }
+    }
+    out.sort_by_key(|&(s, _)| s);
+    out
+}
+
 /// **The display grid**: the lines of the window's first paragraph above
 /// it, the window's lines, and the lines of its last paragraph below it,
 /// with the map between stored and display cells.
@@ -1151,7 +1327,10 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
         used: vec![RowExtent::of(n); total],
         from: vec![None; nrows * n],
         to: vec![None; nrows * n],
+        past: (Rows::ZERO, Rows::ZERO),
+        past_to: Vec::new(),
         same: vec![None; nrows],
+        starts: starts(groups, placed),
         rebroken: Tally::of(
             groups
                 .iter()
@@ -1160,6 +1339,24 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
         ),
         moved: Tally::default(),
         emergency: Tally::default(),
+    };
+    // Each group's rows by line counted from the window's top, so a cell
+    // of a row past the window is named on a window line as well.
+    let lines_of: Vec<Vec<Option<WindowLine>>> = groups.iter().map(window_lines).collect();
+    // The cells of lines past the window drawn on window lines: the line,
+    // its column, and the display cell.
+    let mut past: Vec<(WindowLine, Col, Row, Col)> = Vec::new();
+    let last = WindowLine::of(Row::from_index(nrows - 1));
+    type Maps<'m> = (
+        &'m mut [Option<(WindowLine, Col)>],
+        &'m mut [Option<(Row, Col)>],
+    );
+    let mut name = |(from, to): Maps<'_>, (y, x): (Row, usize), (l, c): (WindowLine, usize)| {
+        from[y.index() * n + x] = Some((l, Col::at_index(c)));
+        match l.row(rows) {
+            Some(sr) => to[sr.index() * n + c] = Some((y, Col::at_index(x))),
+            None => past.push((l, Col::at_index(c), y, Col::at_index(x))),
+        }
     };
     for (k, &(gi, li)) in lines.iter().enumerate() {
         let g = &groups[gi];
@@ -1177,9 +1374,10 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
                 d.used[k] = src.used;
                 if let (Some(y), Some(sr)) = (wy, src.window) {
                     d.same[y.index()] = Some(sr);
+                }
+                if let (Some(y), Some(l)) = (wy, lines_of[gi][*r]) {
                     for c in 0..m {
-                        d.from[y.index() * n + c] = Some((sr, Col::at_index(c)));
-                        d.to[sr.index() * n + c] = Some((y, Col::at_index(c)));
+                        name((&mut d.from, &mut d.to), (y, c), (l, c));
                     }
                 }
             }
@@ -1201,9 +1399,8 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
                     for i in 0..w {
                         let c = a.col.index() + i;
                         row[x + i] = src.cells.get(c).copied().unwrap_or(PackedCell::EMPTY);
-                        if let (Some(y), Some(sr)) = (wy, src.window) {
-                            d.from[y.index() * n + x + i] = Some((sr, Col::at_index(c)));
-                            d.to[sr.index() * n + c] = Some((y, Col::at_index(x + i)));
+                        if let (Some(y), Some(l)) = (wy, lines_of[gi][a.row.0]) {
+                            name((&mut d.from, &mut d.to), (y, x + i), (l, c));
                         }
                     }
                     x += w;
@@ -1232,7 +1429,53 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
     for g in groups.iter().filter(|g| g.rebroken == Rebroken::Yes) {
         d.emergency.add(g.broken.emergency);
     }
+    // The reverse of `from` for the lines past the window, by index.
+    let top = WindowLine::of(Row::ZERO);
+    let above = past
+        .iter()
+        .filter_map(|p| top.since(p.0))
+        .max()
+        .unwrap_or(Rows::ZERO);
+    let below = past
+        .iter()
+        .filter_map(|p| p.0.since(last))
+        .max()
+        .unwrap_or(Rows::ZERO);
+    d.past = (above, below);
+    d.past_to = vec![None; (above.index() + below.index()) * n];
+    for (l, c, y, x) in past {
+        let i = match top.since(l) {
+            Some(k) => above.index() - k.index(),
+            None => l.since(last).map_or(0, |k| above.index() + k.index() - 1),
+        };
+        if c.index() < n {
+            d.past_to[i * n + c.index()] = Some((y, x));
+        }
+    }
     d
+}
+
+/// **Each of a paragraph's rows by its line counted from the window's
+/// top**: its rows are consecutive, so each is counted from the first that
+/// is a window row; none for a group with no window row.
+fn window_lines(g: &Group<'_>) -> Vec<Option<WindowLine>> {
+    let Some((p0, r0)) = g
+        .rows
+        .iter()
+        .enumerate()
+        .find_map(|(p, s)| s.window.map(|r| (p, r)))
+    else {
+        return vec![None; g.rows.len()];
+    };
+    let at = WindowLine::of(r0);
+    (0..g.rows.len())
+        .map(|p| {
+            Some(match p < p0 {
+                true => at.up(Rows::of_count(p0 - p)),
+                false => at.down(Rows::of_count(p - p0)),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

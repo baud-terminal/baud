@@ -258,6 +258,12 @@ impl Seat {
         }
     }
 
+    /// **The display's wrap the window is drawn with** (`wrap_words`),
+    /// which a copy under `?96` reads its lines by.
+    pub(crate) fn set_word_wrap(&mut self, wrap: baud_render::WordWrap) {
+        self.kept.set_word_wrap(wrap);
+    }
+
     /// The order the frame just drawn put each row in: a pointer on it is
     /// over the logical cell its visual one shows.
     pub(crate) fn drawn(&mut self, orders: &baud_render::Orders) {
@@ -342,6 +348,16 @@ impl Seat {
             gesture::pointer_under(at, 1.0, g.cell, g.grid, g.pad),
             g.cell,
         )
+    }
+
+    /// **The stored cell under the pointer, for a selection**: a cell the
+    /// display's word wrap draws from a line past the window named by that
+    /// line (`baud_render::Orders::pointer_line`); a report keeps
+    /// [`Seat::under`]'s window cell.
+    fn under_line(&self, g: Geometry) -> (baud_render::WindowLine, Col) {
+        let at = self.at.unwrap_or((0.0, 0.0));
+        let (row, col, _) = gesture::pointer_under(at, 1.0, g.cell, g.grid, g.pad);
+        self.orders.pointer_line(row, col)
     }
 
     /// Where DEC's locator is: `None` off the surface or its text area.
@@ -575,6 +591,7 @@ impl Seat {
             };
         }
         if to == To::Select {
+            let at = self.under_line(g);
             let selected = gesture::select(
                 term,
                 self.scrolled,
@@ -582,7 +599,7 @@ impl Seat {
                 &mut self.held,
                 (kind, button, self.clicks.count.0),
                 press_of(mods),
-                (row, col),
+                at,
             );
             return match selected {
                 Selected::Unchanged => Owed::Nothing,
@@ -790,7 +807,7 @@ impl Seat {
         let text = match self.selection {
             Some(s) => match self.kept.text(Some(&s)) {
                 Some(t) => t.to_owned(),
-                None => s.text(term, self.scrolled),
+                None => s.text_as(term, self.scrolled, self.kept.word_wrap()),
             },
             None => self.kept.text(None)?.to_owned(),
         };
@@ -909,9 +926,11 @@ impl Seat {
         let top = self.scrolled.top(back);
         match term.highlight() {
             Some(_) => tracked_highlight(term, self.scrolled, back),
-            None => self
-                .selection
-                .and_then(|s| s.highlight(top, view.rows(), view.cols())),
+            None => {
+                let beyond = crate::keep::beyond(term, back, self.kept.word_wrap());
+                self.selection
+                    .and_then(|s| s.highlight_reaching(top, view.rows(), view.cols(), beyond))
+            }
         }
     }
 }
@@ -2338,5 +2357,102 @@ mod tests {
         feed(&mut t, b"more\r\nmore\r\n");
         let _ = seat.hover_refresh(&t, ctrl, host);
         assert_eq!(bar(&seat), shown, "the link drawn under the pointer");
+    }
+
+    /// **A drag over the cells the display draws from a row above the
+    /// window selects them**: "Y" ten times, cut after its sixth letter at
+    /// the window's top, is drawn whole on the window's first line, five
+    /// of the letters under columns 1 to 5 stored on the row above the
+    /// window. A press at column 1 and a release at column 8 select the
+    /// eight letters between, five of them from above the window; naming
+    /// the window cell nearest each instead, the selection began at the
+    /// window row's first letter and held three.
+    #[test]
+    fn a_drag_over_cells_drawn_from_above_the_window_selects_them() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(
+            &mut t,
+            format!(
+                "h0\r\nh1\r\n{} {} zz\r\nf1\r\nf2\r\nf3\r\nf4\r\n\x1b]133;A\x07$ ",
+                "X".repeat(13),
+                "Y".repeat(10)
+            )
+            .as_bytes(),
+        );
+        let mut seat = Seat::new();
+        seat.scrolled = Scrolled::START.advanced(t.looking_back(Rows::of_index(usize::MAX)));
+        let mut order = baud_render::Reorder::new();
+        order.lay_out(&t, Rows::ZERO);
+        assert!(
+            order.orders().display().is_some(),
+            "the premise: the paragraph is drawn at its words"
+        );
+        seat.drawn(order.orders());
+        put(&mut seat, &mut t, Input::Entered(15.0, 5.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(10)),
+            NONE,
+        );
+        put(&mut seat, &mut t, Input::Moved(85.0, 5.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(20)),
+            NONE,
+        );
+        assert_eq!(seat.selected_text(&t).as_deref(), Some("YYYYYYYY"));
+        let h = seat.highlight(&t).expect("drawn");
+        let shown = order.view(&t, Rows::ZERO).row(Row::ZERO).to_vec();
+        let lit: Vec<bool> = (0..13)
+            .map(|x| {
+                order
+                    .orders()
+                    .selects(&h, Row::ZERO, Col::at_index(x), shown[x].content)
+            })
+            .collect();
+        let want: Vec<bool> = (0..13).map(|x| (1..9).contains(&x)).collect();
+        assert_eq!(lit, want, "drawn selected where the pointer went");
+    }
+
+    /// **The seat's copy reads `?96` by the display's wrap it was given**
+    /// (`wrap_words`): on, a finished paragraph the display draws at its
+    /// words copies by its display lines, the English line from its right
+    /// edge whole; off, by the stored rows, where the cut "mid|dle" falls
+    /// inside the English.
+    #[test]
+    fn the_seats_copy_reads_decrlcm_by_its_word_wrap() {
+        let ws = WinSize {
+            ws_row: 6,
+            ws_col: 44,
+        };
+        let he1 = "\u{5D6}\u{5D5} \u{5E4}\u{5E1}\u{5E7}\u{5D4} \u{5D1}\u{5E2}\u{5D1}\u{5E8}\u{5D9}\u{5EA} ";
+        let he2 = "\u{5E9}\u{5DE}\u{5DE}\u{5E9}\u{5D9}\u{5DB}\u{5D4} \u{5DC}\u{5E9}\u{5D5}\u{5E8}\u{5D4} \u{5D4}\u{5D1}\u{5D0}\u{5D4}.";
+        let history: String = (0..8).map(|i| format!("h{i}\r\n")).collect();
+        let bytes = format!(
+            "{history}{he1}with English words in the middle, {he2}\r\n\x1b]133;A\x07$ \x1b[?96h"
+        );
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        feed(&mut t, bytes.as_bytes());
+        let scrolled = Scrolled::START.advanced(t.looking_back(Rows::of_index(usize::MAX)));
+        let line = |r: usize| scrolled.line(Rows::ZERO, Row::from_index(r));
+        let row = |r: usize| t.view(Rows::ZERO).row(Row::from_index(r));
+        let mut sel = Selection::at(
+            baud_render::Span::cell(row(3), line(3), Col::ZERO),
+            baud_render::Grain::Cell,
+        );
+        sel.extend(baud_render::Span::cell(row(4), line(4), Col::at_index(43)));
+        let mut seat = Seat::new();
+        seat.selection = Some(sel);
+        seat.scrolled = scrolled;
+        let on = seat.selected_text(&t).expect("text");
+        assert!(on.contains(" ,elddim eht ni"), "{on}");
+        seat.set_word_wrap(baud_render::WordWrap::Off);
+        let off = seat.selected_text(&t).expect("text");
+        assert!(off.contains("dim eht"), "{off}");
+        assert!(!off.contains("elddim"), "{off}");
     }
 }

@@ -1768,11 +1768,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     );
     assert_eq!(differing(&none_a, &none_b), 0);
     feed(&mut t, b"\x1b[?25h");
-    arms.highlight = Some(Highlight {
-        from: (Row::from_index(1), Col::at_index(58)),
-        to: (Row::from_index(1), Col::at_index(70)),
-        region: Region::Stream,
-    });
+    arms.highlight = Some(Highlight::new(
+        (Row::from_index(1), Col::at_index(58)),
+        (Row::from_index(1), Col::at_index(70)),
+        Region::Stream,
+    ));
     let (sel_a, sel_b) = arms.draw(&mut t);
     assert_eq!(
         differing(&sel_a, &sel_b),
@@ -2289,11 +2289,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // selection reaches the pixels.
     feed(&mut t, b"\x1b[2 q\x1b[2;3H");
     let (plain, _) = arms.draw(&mut t);
-    arms.highlight = Some(Highlight {
-        from: (Row::from_index(1), Col::at_index(2)),
-        to: (Row::from_index(4), Col::at_index(30)),
-        region: Region::Stream,
-    });
+    arms.highlight = Some(Highlight::new(
+        (Row::from_index(1), Col::at_index(2)),
+        (Row::from_index(4), Col::at_index(30)),
+        Region::Stream,
+    ));
     let (a, b) = arms.draw(&mut t);
     {
         let (w, _) = arms.renderer.frame_size();
@@ -2579,11 +2579,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         (Row::from_index(1), Col::at_index(101)),
         (Row::from_index(4), Col::at_index(101)),
     );
-    arms.highlight = Some(Highlight {
-        from: corners.0,
-        to: corners.1,
-        region: Region::Block,
-    });
+    arms.highlight = Some(Highlight::new(corners.0, corners.1, Region::Block));
     let (a, b) = arms.draw(&mut t);
     {
         let (w, _) = arms.renderer.frame_size();
@@ -2605,11 +2601,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     );
     // The same corners as a stream select whole middle rows, which a
     // block does not: the region reaches the pixels.
-    arms.highlight = Some(Highlight {
-        from: corners.0,
-        to: corners.1,
-        region: Region::Stream,
-    });
+    arms.highlight = Some(Highlight::new(corners.0, corners.1, Region::Stream));
     let (stream, _) = arms.draw(&mut t);
     assert!(
         differing(&a, &stream) > 0,
@@ -4084,11 +4076,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
              \x1b[38;2;0;205;0m\u{ff5b}x\u{ff5d}\x1b[0m\u{26a1}\r\nabcdefghijklmnopqrstuvwxyz\x1b[1;22H\x1b[?25h"
                 .as_bytes(),
         );
-        arms.highlight = Some(Highlight {
-            from: (Row::from_index(1), Col::at_index(0)),
-            to: (Row::from_index(1), Col::at_index(3)),
-            region: Region::Stream,
-        });
+        arms.highlight = Some(Highlight::new(
+            (Row::from_index(1), Col::at_index(0)),
+            (Row::from_index(1), Col::at_index(3)),
+            Region::Stream,
+        ));
         let (a, b) = arms.draw(&mut t);
         let bx = diff_box(&a, &b, w, cell);
         assert_eq!(
@@ -4240,11 +4232,11 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     );
     // A selection across a framed run and an encircled one swaps their
     // colours on both arms.
-    arms.highlight = Some(Highlight {
-        from: (Row::from_index(3), Col::at_index(2)),
-        to: (Row::from_index(5), Col::at_index(20)),
-        region: Region::Stream,
-    });
+    arms.highlight = Some(Highlight::new(
+        (Row::from_index(3), Col::at_index(2)),
+        (Row::from_index(5), Col::at_index(20)),
+        Region::Stream,
+    ));
     let (a, b) = arms.draw(t);
     arms.highlight = None;
     assert_eq!(
@@ -4823,11 +4815,11 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     }
     // A selection from a single line into the double-width one and the pair.
     feed(t, lines(true).as_bytes());
-    arms.highlight = Some(Highlight {
-        from: (Row::from_index(0), Col::at_index(30)),
-        to: (Row::from_index(4), Col::at_index(5)),
-        region: Region::Stream,
-    });
+    arms.highlight = Some(Highlight::new(
+        (Row::from_index(0), Col::at_index(30)),
+        (Row::from_index(4), Col::at_index(5)),
+        Region::Stream,
+    ));
     let (a, b) = arms.draw(t);
     let cpu = cpu_frame(arms, t);
     arms.highlight = None;
@@ -5019,11 +5011,11 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     for (step, region) in [
         (
             "a selection over the line",
-            Some(Highlight {
-                from: (Row::from_index(1), Col::at_index(0)),
-                to: (Row::from_index(1), Col::at_index(6)),
-                region: Region::Stream,
-            }),
+            Some(Highlight::new(
+                (Row::from_index(1), Col::at_index(0)),
+                (Row::from_index(1), Col::at_index(6)),
+                Region::Stream,
+            )),
         ),
         ("the selection taken off", None),
     ] {
@@ -6242,11 +6234,11 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, case: &GlassCase)
         .as_bytes(),
     );
     feed(t, b"\x1b[5;14H\x1b[?25h");
-    arms.highlight = Some(Highlight {
-        from: (Row::from_index(4), Col::at_index(2)),
-        to: (Row::from_index(4), Col::at_index(6)),
-        region: Region::Stream,
-    });
+    arms.highlight = Some(Highlight::new(
+        (Row::from_index(4), Col::at_index(2)),
+        (Row::from_index(4), Col::at_index(6)),
+        Region::Stream,
+    ));
     let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
     let (cw, ch) = (
         usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap(),
@@ -6371,11 +6363,11 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, case: &GlassCase)
         format!("\x1b[9;41H\x1b[38;2;{lr};{lg};{lb}mx\u{2502}\x1b[10;41Hx\u{2502}\x1b[0m")
             .as_bytes(),
     );
-    arms.highlight = Some(Highlight {
-        from: (Row::from_index(9), Col::at_index(40)),
-        to: (Row::from_index(9), Col::at_index(41)),
-        region: Region::Stream,
-    });
+    arms.highlight = Some(Highlight::new(
+        (Row::from_index(9), Col::at_index(40)),
+        (Row::from_index(9), Col::at_index(41)),
+        Region::Stream,
+    ));
     let cell = |f: &[u32], row: usize, col: usize| -> Vec<u32> {
         (0..ch)
             .flat_map(|y| (0..cw).map(move |x| (row * ch + y) * fw + col * cw + x))
@@ -7733,11 +7725,11 @@ fn kitty_below_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let at = |x: u32, y: u32| usize::try_from(y * fw + x).unwrap();
     let (ax, ay) = (4 * cw, 2 * ch);
     let scene = "\x1bc\x1b[?25l\x1b[3;5H\x1b[41m\u{2580} \x1b[0m\u{2580} ";
-    let lit = Highlight {
-        from: (Row::from_index(2), Col::at_index(7)),
-        to: (Row::from_index(2), Col::at_index(7)),
-        region: Region::Stream,
-    };
+    let lit = Highlight::new(
+        (Row::from_index(2), Col::at_index(7)),
+        (Row::from_index(2), Col::at_index(7)),
+        Region::Stream,
+    );
     for (z, deep, more, highlight) in [
         (-1_073_741_825, true, "", None),
         (-1_073_741_824, false, "", None),
@@ -10082,11 +10074,11 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
     {
         arms!(fresh() => arms, t);
         scene(&mut t, true, "");
-        arms.highlight = Some(Highlight {
-            from: (Row::from_index(1), Col::at_index(4)),
-            to: (Row::from_index(1), Col::at_index(6)),
-            region: Region::Stream,
-        });
+        arms.highlight = Some(Highlight::new(
+            (Row::from_index(1), Col::at_index(4)),
+            (Row::from_index(1), Col::at_index(6)),
+            Region::Stream,
+        ));
         let sel = three(&mut arms, &mut t, "selected");
         arms.highlight = None;
         let bare = three(&mut arms, &mut t, "unselected");
@@ -10114,11 +10106,11 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
     {
         arms!(fresh() => arms, t);
         scene(&mut t, true, "");
-        arms.highlight = Some(Highlight {
-            from: (Row::from_index(4), Col::at_index(2)),
-            to: (Row::from_index(4), Col::at_index(3)),
-            region: Region::Stream,
-        });
+        arms.highlight = Some(Highlight::new(
+            (Row::from_index(4), Col::at_index(2)),
+            (Row::from_index(4), Col::at_index(3)),
+            Region::Stream,
+        ));
         let sel = three(&mut arms, &mut t, "pointed, selected");
         arms.highlight = None;
         let bare = three(&mut arms, &mut t, "pointed, unselected");
@@ -10254,11 +10246,11 @@ fn a_re_broken_paragraph_draws_the_same_on_every_arm() {
     );
     // A selection of the stored cells "with" (105..=108 of row 7): drawn
     // at visual 0..=3 of display row 7 on every arm, nowhere on row 6.
-    arms.highlight = Some(Highlight {
-        from: (Row::from_index(7), Col::at_index(105)),
-        to: (Row::from_index(7), Col::at_index(108)),
-        region: Region::Stream,
-    });
+    arms.highlight = Some(Highlight::new(
+        (Row::from_index(7), Col::at_index(105)),
+        (Row::from_index(7), Col::at_index(108)),
+        Region::Stream,
+    ));
     let sel = three(&mut arms, &mut t, "re-broken, selected");
     arms.highlight = None;
     let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
@@ -10282,6 +10274,164 @@ fn a_re_broken_paragraph_draws_the_same_on_every_arm() {
     let off = three(&mut arms, &mut t, "the setting off");
     assert!(arms.renderer.bidi().display().is_none());
     assert!(differing(&on, &off) > 0, "the control: off draws otherwise");
+}
+
+/// **A selection of the cells a window line draws from above the window
+/// is drawn the same on every arm**: "Y" ten times, cut after its sixth
+/// letter at the window's top, is drawn whole on the window's first line,
+/// its first six letters stored on the row above the window. Those six
+/// selected, and none of the window's own rows, the cell arm's shader
+/// still reads the overlay's answer for them, and every arm draws the six
+/// cells selected and nothing else.
+#[test]
+fn a_selection_from_above_the_window_draws_the_same_on_every_arm() {
+    use baud_render::{Beyond, Grain, Scrolled, Selection, Span};
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let history: String = (0..12).map(|i| format!("h{i}\r\n")).collect();
+    let fillers: String = (1..=8)
+        .map(|i| format!("line {i}: the quick brown fox jumps over the lazy dog\r\n"))
+        .collect();
+    let bytes = format!(
+        "\x1b[?25l{history}{} {} zz\r\n{fillers}\x1b]133;A\x07$ ",
+        "X".repeat(113),
+        "Y".repeat(10)
+    );
+    arms!(fresh() => arms, t);
+    feed(&mut t, bytes.as_bytes());
+    let scrolled = Scrolled::START.advanced(t.looking_back(Rows::of_index(usize::MAX)));
+    let top = scrolled.top(Rows::ZERO);
+    let up = top.above().expect("a line above");
+    let up_row = t.view(Rows::of_count(1)).row(Row::ZERO).to_vec();
+    let mut part = Selection::at(Span::cell(&up_row, up, Col::at_index(114)), Grain::Cell);
+    part.extend(Span::cell(&up_row, up, Col::at_index(119)));
+    let (cols, rows) = (usize::from(WS.ws_col), usize::from(WS.ws_row));
+    let h = part
+        .highlight_reaching(
+            top,
+            Rows::of_index(rows),
+            Cols::of_index(cols),
+            Beyond::of(&t, Rows::ZERO),
+        )
+        .expect("drawn on the first line");
+    assert!(
+        (0..rows).all(|r| !h.covers_row(Row::from_index(r))),
+        "the premise: no window row's own cells"
+    );
+    let plain = three_arms(&mut arms, &mut t, "unselected");
+    assert!(
+        arms.renderer.bidi().display().is_some(),
+        "the premise: the paragraph is drawn at its words"
+    );
+    arms.highlight = Some(h);
+    let lit = three_arms(&mut arms, &mut t, "selected above the window");
+    arms.highlight = None;
+    let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+    let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+    let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+    assert_eq!(
+        diff_box(&plain, &lit, w, (cw, ch)),
+        Some((0, 0, 5, 0)),
+        "the six cells of the first line, and only they"
+    );
+}
+
+/// **The line a smooth scroll slides out is the one the display draws**:
+/// a double-width line stored just above the window, over a finished
+/// paragraph the display draws on one line more, is pushed out of the
+/// window one line up, whose first line is the single-width "x1". The
+/// leaving row's row of the mask is not marked sized: its size is read
+/// from the display's line, not from the stored row, whose double width
+/// marked it. A full-row slide is that window drawn still, on every arm.
+#[test]
+fn a_slide_under_a_re_broken_paragraph_draws_the_display_line() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    // Seventeen thirteen-letter words: two rows at 120 columns, three lines
+    // at their words (eight a line).
+    let words: Vec<String> = (0..17)
+        .map(|i| char::from(b'a' + i).to_string().repeat(13))
+        .collect();
+    let history: String = (0..12).map(|i| format!("h{i}\r\n")).collect();
+    let fillers: String = (1..=7).map(|i| format!("x{i}\r\n")).collect();
+    let bytes = format!(
+        "\x1b[?25l{history}\x1b#6double width\r\n{fillers}{}\r\n\x1b]133;A\x07$ ",
+        words.join(" ")
+    );
+    arms!(fresh() => arms, t);
+    feed(&mut t, bytes.as_bytes());
+    assert!(
+        t.view(Rows::of_count(1)).rendition(Row::ZERO).is_double(),
+        "the premise: the stored row above the window is double-width"
+    );
+    arms.reads = Reads::Copy;
+    let cell_h = arms.renderer.metrics().cell_h;
+    arms.back = Rows::ZERO;
+    arms.slide = Some(cell_h);
+    let (_, full_slid) = arms.draw(&mut t);
+    // The leaving row's row of the mask, after the window's: no cell of it
+    // marked sized.
+    let (cols, rows) = (usize::from(WS.ws_col), usize::from(WS.ws_row));
+    assert!(
+        arms.overlay_mem[rows * cols..(rows + 1) * cols]
+            .iter()
+            .all(|&b| b & baud_render::MASK_SIZED == 0),
+        "the leaving row is marked sized"
+    );
+    arms.slide = None;
+    arms.back = Rows::of_count(1);
+    let (instance_up, one_up) = arms.draw(&mut t);
+    let cpu_up = cpu_frame(&mut arms, &mut t);
+    assert!(
+        arms.renderer.bidi().display().is_some(),
+        "the premise: the window one line up is re-broken"
+    );
+    arms.back = Rows::ZERO;
+    for (arm, up) in [
+        ("cell", &one_up),
+        ("instance", &instance_up),
+        ("cpu", &cpu_up),
+    ] {
+        assert_eq!(
+            differing(&full_slid, up),
+            0,
+            "a full-row slide under a re-broken paragraph is not the {arm} arm's screen one line up"
+        );
+    }
 }
 
 /// The faces the right-to-left gates draw with: baud's built face, which

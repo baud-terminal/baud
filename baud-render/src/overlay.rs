@@ -1944,16 +1944,13 @@ impl Overlay {
         mask: &mut [u8],
         records: &mut Vec<Instance>,
     ) {
-        let above = Rows::of_index(back.index() + 1);
         let at = rows.index().saturating_mul(cols.index());
         if mask.len() < at.saturating_add(cols.index()) {
             return;
         }
-        if !term
-            .view(term.looking_back(above))
-            .rendition(Row::ZERO)
-            .is_double()
-        {
+        // The size of the line the row draws, as the display lays it out:
+        // a re-broken paragraph's line where the stored row is double.
+        if !r.leaving_rendition(term, back).is_double() {
             return self.slide_single(r, term, (map, styles), (cols, rows), pan, mask, records);
         }
         let Some(row) = mask.get_mut(at..at.saturating_add(cols.index())) else {
@@ -3023,10 +3020,12 @@ pub(crate) fn composition_parts(
         let paint = Paint {
             styles: &one,
             block,
-            highlight: (look.selected == Selected::Yes).then_some(Highlight {
-                from: (c.row, Col::at_index(x0)),
-                to: (c.row, Col::at_index(x0 + n - 1)),
-                region: crate::select::Region::Stream,
+            highlight: (look.selected == Selected::Yes).then(|| {
+                Highlight::new(
+                    (c.row, Col::at_index(x0)),
+                    (c.row, Col::at_index(x0 + n - 1)),
+                    crate::select::Region::Stream,
+                )
             }),
             blink,
             cursor,
