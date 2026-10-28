@@ -160,7 +160,7 @@ fn main() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests");
     println!("threshold: {PICTURE_COLOURS} colours; geometry 200x50, reads of {CHUNK}");
     for r in [
-        "ascii/asciiquarium.raw",
+        "ascii/pipes.raw",
         "ascii/cat-scroll.raw",
         "ascii/git-log.raw",
         "ascii/less-pager.raw",

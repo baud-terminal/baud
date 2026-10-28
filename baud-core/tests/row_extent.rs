@@ -50,7 +50,7 @@ fn true_extent(t: &Term, y: usize) -> usize {
 #[test]
 fn the_mark_is_never_smaller_than_the_text_it_covers() {
     for name in [
-        "ascii/asciiquarium.raw",
+        "ascii/pipes.raw",
         "ascii/cat-scroll.raw",
         "ascii/git-log.raw",
         "ascii/less-pager.raw",
@@ -280,7 +280,7 @@ fn every_row_is_uniform_past_its_mark() {
         "utf8/btop.raw",
         "ascii/git-log.raw",
         "utf8/cat-cjk.raw",
-        "ascii/asciiquarium.raw",
+        "ascii/pipes.raw",
         "utf8/vim-unicode.raw",
         "ascii/less-pager.raw",
         "utf8/less-cjk.raw",

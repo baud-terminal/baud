@@ -91,7 +91,7 @@ use core::time::Duration;
 /// The recordings, with the size each was captured at (the READMEs beside
 /// them); a resize recording's sizes are its `.steps`.
 const RECORDINGS: [(&str, u16, u16); 30] = [
-    ("tests/recordings/ascii/asciiquarium.raw", 160, 45),
+    ("tests/recordings/ascii/pipes.raw", 160, 45),
     ("tests/recordings/ascii/cat-scroll.raw", 200, 50),
     ("tests/recordings/ascii/git-log.raw", 200, 50),
     ("tests/recordings/ascii/less-pager.raw", 200, 50),

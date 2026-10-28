@@ -8,7 +8,7 @@ use baud_font::Px;
 use baud_render::{Blend, Damage, Frame, PxSize, Renderer, Stack, Target, Theme};
 
 pub const RECORDINGS: [&str; 9] = [
-    "ascii/asciiquarium.raw",
+    "ascii/pipes.raw",
     "utf8/btop.raw",
     "ascii/cat-scroll.raw",
     "ascii/git-log.raw",

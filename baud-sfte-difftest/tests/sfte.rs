@@ -492,7 +492,7 @@ fn pins() -> Vec<Pin> {
     let devanagari = Cells::of(if cfg!(target_os = "linux") { 250 } else { 165 });
     vec![
         Pin {
-            path: "ascii/asciiquarium.raw",
+            path: "ascii/pipes.raw",
             diverging_boundaries: Boundary::of(0),
             first_cells: Cells::of(0),
             reason: "pure ASCII",
@@ -769,12 +769,12 @@ mod tests {
         );
         // **The normalisations are pinned exactly, not bounded**, so one that
         // starts firing somewhere new has to come and change these numbers.
-        // Over every fixture and every boundary of every recording: 84,557
+        // Over every fixture and every boundary of every recording: 84,376
         // wide tails (every second cell of a double-width character, on both
         // sides, keyed on sfte's DUMMY flag) and 240,317 zero-rune blanks
         // (cells sfte has never written, read as blank -- the blindness the
         // `Normalised` doc records).
-        assert_eq!(norm.tails.get(), 84_557, "wide tails normalised");
+        assert_eq!(norm.tails.get(), 84_376, "wide tails normalised");
         // 240,317: it was 230,317 until the `OSC 11 set then query` fixture,
         // whose 10,000 untouched cells are exactly the difference. 310,301
         // since the seven `ESC` fixtures, measured: 69,984 more, the cells of
@@ -824,18 +824,18 @@ mod replay {
     /// where 155 cells of sfte's cleared screen had not yet been redrawn.
     /// baud clears on re-entry now, as xterm does, and that cut agrees.
     ///
-    /// **What differs now is the colour the clear fills with, and only on
-    /// btop.** xterm's `ClearScreen` fills with `ClearCurBackground` -- the
+    /// **The colour the clear fills with is where the two would differ**:
+    /// xterm's `ClearScreen` fills with `ClearCurBackground` -- the
     /// background in force -- and so does baud's; sfte's fills with the
-    /// default. btop's first pass ends inside a coloured rendition, so its
-    /// second pass re-enters under a set background, and 2,800 cells differ
-    /// in their background and in no character. The other five re-enter
-    /// under the default, or not at all, and agree.
+    /// default. All six recordings re-enter under the default rendition, or
+    /// not at all, and agree. The btop capture the current one replaced
+    /// ended its first pass inside a coloured rendition, and 2,800 cells
+    /// differed in their background and in no character.
     #[test]
     fn a_second_pass_over_every_recording_is_pinned() {
         set_locale();
         let whole: &[&str] = &[
-            "ascii/asciiquarium.raw",
+            "ascii/pipes.raw",
             "ascii/cat-scroll.raw",
             "ascii/git-log.raw",
             "ascii/less-pager.raw",
@@ -845,11 +845,7 @@ mod replay {
         let mut bad = Vec::new();
         for path in whole {
             // `(cells differing, of which in their character)`.
-            let pin = if *path == "utf8/btop.raw" {
-                (2_800, 0)
-            } else {
-                (0, 0)
-            };
+            let pin = (0, 0);
             let got = replayed(path, 2, None);
             if got != pin {
                 bad.push(format!(

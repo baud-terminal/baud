@@ -68,15 +68,15 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// left against the right edge; every other row's pixels are the old
 /// frame's.
 const GOLDEN: [(&str, u64); 9] = [
-    ("ascii/asciiquarium.raw", 0x02759005377d677c),
-    ("utf8/btop.raw", 0x378fe94215f0d9b5),
+    ("ascii/pipes.raw", 0x21596d79a8e28041),
+    ("utf8/btop.raw", 0x448ea46ab364ba76),
     ("ascii/cat-scroll.raw", 0x1a613c1d646560b1),
     ("ascii/git-log.raw", 0x2303bd10c2107db7),
     ("ascii/less-pager.raw", 0x41e082191ab41018),
     ("utf8/cat-cjk.raw", 0x848bd3c8e7cc5925),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
-    ("utf8/vim-unicode.raw", 0xed2f76a3190917a6),
+    ("utf8/vim-unicode.raw", 0xcc9318f5d404150a),
 ];
 
 #[test]

@@ -23,8 +23,8 @@ and decides nothing.
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 309 | 36 | redistributable, and its notice is satisfied |
-| own | 189 | 4 | the owner's work |
-| total | 517 | 47 | |
+| own | 189 | 6 | the owner's work |
+| total | 517 | 49 | |
 
 ## Licence texts in LICENSES/
 
@@ -441,6 +441,22 @@ they were built from.
 - **Notice:** [LICENSE](LICENSE)
 - **From:** baud's own build, ported from the research tree
 - **Files:** [baud-app/fonts/glyphs/languages/hebrew/casanchors.py](baud-app/fonts/glyphs/languages/hebrew/casanchors.py), [baud-app/fonts/glyphs/languages/hebrew/build/build.py](baud-app/fonts/glyphs/languages/hebrew/build/build.py), [baud-app/fonts/glyphs/languages/hebrew/build/design.py](baud-app/fonts/glyphs/languages/hebrew/build/design.py), [baud-app/fonts/glyphs/languages/hebrew/build/design2.py](baud-app/fonts/glyphs/languages/hebrew/build/design2.py), [baud-app/fonts/glyphs/languages/hebrew/build/design3.py](baud-app/fonts/glyphs/languages/hebrew/build/design3.py), [baud-app/fonts/glyphs/languages/hebrew/build/field.py](baud-app/fonts/glyphs/languages/hebrew/build/field.py), [baud-app/fonts/glyphs/languages/hebrew/build/geom.py](baud-app/fonts/glyphs/languages/hebrew/build/geom.py), [baud-app/fonts/glyphs/languages/hebrew/build/instance.py](baud-app/fonts/glyphs/languages/hebrew/build/instance.py), [baud-app/fonts/glyphs/languages/hebrew/build/narrow.py](baud-app/fonts/glyphs/languages/hebrew/build/narrow.py), [baud-app/fonts/glyphs/languages/hebrew/build/optical.py](baud-app/fonts/glyphs/languages/hebrew/build/optical.py), [baud-app/fonts/glyphs/languages/hebrew/build/pin.py](baud-app/fonts/glyphs/languages/hebrew/build/pin.py), [baud-app/fonts/glyphs/languages/hebrew/build/style.py](baud-app/fonts/glyphs/languages/hebrew/build/style.py)
+
+### A recording of pipes.sh 1.3.0's output, captured by scripts/capture-tui.py on 2026-10-28 (tests/recordings/README.md): cursor moves, SGRs and characters from the program's own ASCII pipe sets, no art. pipes.sh is MIT (Pipeseroni/pipes.sh contributors, Yu-Jie Lin, Matthew Simpson); the capture copies none of its code
+
+- **Status:** own -- the owner's work
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** https://github.com/pipeseroni/pipes.sh/tree/v1.3.0
+- **Files:** [tests/recordings/ascii/pipes.raw](tests/recordings/ascii/pipes.raw)
+
+### Recordings of btop 1.4.7 (cpu and mem boxes), vim 9.1 paging a file scripts/gen-vim-unicode.py writes, and yazi 26.5.6 walking the files scripts/gen-yazi-files.py writes, captured on 2026-10-28 (tests/recordings/README.md): what each program drew, and in yazi's the Sixel previews of baud's own generated pictures
+
+- **Status:** own -- the owner's work
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** generated: tests/recordings/README.md
+- **Files:** [tests/recordings/utf8/btop.raw](tests/recordings/utf8/btop.raw), [tests/recordings/utf8/vim-unicode.raw](tests/recordings/utf8/vim-unicode.raw), [tests/recordings/sixel/yazi-walk.raw](tests/recordings/sixel/yazi-walk.raw)
 
 ### The seven resize recordings: zsh 5.9.2 resized through a pty by scripts/capture-resize.py in a Linux container on 2026-10-28, with baud's own zsh configuration, prompt and start-up banners in tests/resize/zdotdir/ and the size sequences in the .sizes files (tests/resize/README.md). WezTerm's wezterm.sh was sourced at record time and is not committed; what it sent is its OSC 7 and OSC 133 marks
 

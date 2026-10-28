@@ -219,7 +219,7 @@ fn main() {
                 "utf8/btop.raw",
                 "ascii/git-log.raw",
                 "utf8/cat-cjk.raw",
-                "ascii/asciiquarium.raw",
+                "ascii/pipes.raw",
                 "utf8/vim-unicode.raw",
                 "ascii/less-pager.raw",
                 "utf8/less-cjk.raw",
@@ -235,7 +235,7 @@ fn main() {
         // shape `CLAUDE.md` asks for before the row map is built again.
         "cava" => recording("utf8/cava.raw"),
         "btop" => recording("utf8/btop.raw"),
-        "asciiquarium" => recording("ascii/asciiquarium.raw"),
+        "pipes" => recording("ascii/pipes.raw"),
         "vim" => recording("utf8/vim-unicode.raw"),
         "cat" => recording("ascii/cat-scroll.raw"),
         "less" => recording("ascii/less-pager.raw"),

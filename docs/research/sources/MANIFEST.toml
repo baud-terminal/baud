@@ -37504,3 +37504,20 @@ status = "external"
 group  = "C"
 # Fetched 2026-10-28 (lane b240); read [text]: the OSC switch, `VsCodeAction` to
 # DoVsCodeAction (902-904), OSC 133 to DoFinalTermAction (897-899).
+[sources.btop-readme-147]
+key    = "btop-readme-147"
+title  = "btop v1.4.7, README.md -- the configuration file's shown_boxes, disks_filter and show_battery keys, and -c, --config"
+author = "Jakob P. Liljenberg (aristocratos) and the btop contributors"
+year   = 2026
+venue  = "btop (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/aristocratos/btop/v1.4.7/README.md"
+file   = ""
+sha256 = "0cf73bc0d9770f743bf620977ddbeeac21b9819fd8220922fc165398cb510eee"
+bytes  = 52812
+status = "external"
+group  = "C"
+# Fetched and read 2026-10-28, not committed. Line 1384: "#* Manually set which boxes
+# to show. Available values are "cpu mem net proc" and "gpu0" through "gpu5", separate
+# values with whitespace."; line 1577: "-c, --config <file>     Path to a config file".
+# The btop.conf tests/recordings/README.md describes is this version's
+# --default-config with shown_boxes, disks_filter and show_battery changed.

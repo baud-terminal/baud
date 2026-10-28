@@ -113,7 +113,7 @@ fn main() {
     };
     let name = match which.as_str() {
         "btop" => "utf8/btop.raw".to_string(),
-        "asciiquarium" => "ascii/asciiquarium.raw".to_string(),
+        "pipes" => "ascii/pipes.raw".to_string(),
         "cat-scroll" | "cat" => "ascii/cat-scroll.raw".to_string(),
         "git-log" => "ascii/git-log.raw".to_string(),
         "less-pager" | "less" => "ascii/less-pager.raw".to_string(),

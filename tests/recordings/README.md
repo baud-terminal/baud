@@ -17,19 +17,19 @@ rather than a decoder workout.
 
 | file | program | bytes | non-ASCII | wide cps | scrolls | what it exercises that the others do not |
 |---|---|---|---|---|---|---|
-| `ascii/asciiquarium.raw` | asciiquarium, 45x160 | 335479 | 0.0% | 0 | 20 | curses animation: heavy cursor addressing with 16-colour SGR |
 | `ascii/cat-scroll.raw` | `cat` of 437 KB of Rust source, 50x200 | 448460 | 0.1% | 0 | many | **scrolling**, and text with no escapes at all |
 | `ascii/git-log.raw` | `git --no-pager log --stat --color`, 50x200 | 501185 | 0.1% | 0 | many | colour over scrolling text, an SGR every 141 bytes |
 | `ascii/less-pager.raw` | `less -R` paged with space/`b`/`G`/`g` | 30146 | 0.1% | 0 | 5104 | full-screen repaint in the **alternate screen** |
-| `utf8/btop.raw` | btop, 45x160 | 524288 | 14.5% | **0** | 0 | truecolour `38;2`, box drawing, dense full-screen repaint, SGR mouse modes |
-| `utf8/vim-unicode.raw` | vim on a generated UTF-8 file, paged with `^F`/`^B` | 138571 | 28.2% | 3740 | 0 | scroll regions (DECSTBM), CJK, emoji, ZWJ, RTL, combining marks |
+| `ascii/pipes.raw` | pipes.sh 1.3.0, 45x160 | 536908 | 0.0% | 0 | 0 | an animation: a cursor move, a bold and a colour `SGR` before every character, an `SGR` every 9.1 bytes |
+| `utf8/btop.raw` | btop 1.4.7, cpu and mem boxes, 45x160 | 459870 | 21.5% | **0** | 0 | truecolour `38;2`, box drawing, braille graphs, dense full-screen repaint, SGR mouse modes |
+| `utf8/vim-unicode.raw` | vim on a generated UTF-8 file, paged with `^F`/`^B`, 45x160 | 138583 | 28.2% | 3740 | 0 | scroll regions (DECSTBM), CJK, emoji, ZWJ, RTL, combining marks |
 | `utf8/cat-cjk.raw` | `cat` of `cjk-corpus.txt` x3, 50x200 | 327351 | 81.2% | 69741 | 125951 | **wide characters while scrolling**, with no escapes at all |
 | `utf8/less-cjk.raw` | `less -R` over the same, paged both ways | 84473 | 76.3% | 17002 | 30930 | wide characters scrolling in the **alternate screen** |
 
 ## Why the CJK two exist
 
 **Counting non-ASCII bytes against wide codepoints split what looked like one
-axis into two.** btop is 14.5% multi-byte and has **zero wide codepoints** --
+axis into two.** btop is 21.5% multi-byte and has **zero wide codepoints** --
 box drawing and braille are one column each -- so it exercises the decoder and
 never the two-cell pair. `vim-unicode` was the only file in the corpus with
 wide characters at all, 3,740 of them, and it scrolls **zero** times.
@@ -57,23 +57,22 @@ case where a wide character lands against the last column.
 
 ## `sixel/yazi-walk.raw`
 
-yazi 26.5.6's output, 2,805,276 bytes, as a capture harness's pty received it
-on 2026-10-09 (sha256
-`d16d2a1f18f0d5f3236f1dd166a6014b8d47c48ae8497746a65b5c1d1b18f8e6`, the
-`walk-big` run of round 2026-10-13c's `runs.sha256`): the cursor stepped down
-six files with `j` and back six with `k` over seven synthetic test files
-(round 2026-10-13c, Limits) -- `photo.jpg`, `flat.png`, `alpha.png`,
-`screenshot.png`, `small.png`, `sparse.pdf` and `text.pdf`. Thirteen previews,
-each a Sixel `ESC P 9;1 q "1;1;W;H` -- `P2 = 1`, so an unset bit keeps what is
-under the image -- cleared with spaces and the next drawn at the same cell.
-The replies it was sent are not in the file; one gave the cell as 17x34
-(`CSI 6 ; 34 ; 17 t`); the file's first screen shows the capture's scratch
-directory, a yazi/files folder in the session's scratchpad.
-It is committed whole because a recording is not edited before it is measured,
-and because `every_preview_in_a_yazi_walk_is_its_own_body_alone`
+yazi 26.5.6's output, 2,804,600 bytes (sha256
+`a6ef7cade8cb52f13aa776343fc4e3a588ac631f80435630862ca1dc4801f599`), as
+`scripts/capture-yazi-walk.py`'s pty received it at 120x40: the cursor
+stepped down six files with `j` and back six with `k` over the seven files
+`scripts/gen-yazi-files.py` writes -- `photo.jpg`, `flat.png`, `alpha.png`,
+`screenshot.png`, `small.png`, `sparse.pdf` and `text.pdf`. Thirteen
+previews, each a Sixel `ESC P 9;1 q "1;1;W;H` -- `P2 = 1`, so an unset bit
+keeps what is under the image -- cleared with spaces and the next drawn at
+the same cell. The replies it was sent are not in the file; one gave the
+cell as 17x34 (`CSI 6 ; 34 ; 17 t`). The first screen shows `~/files`.
+It is committed whole because a recording is not edited before it is
+measured, and because `every_preview_in_a_yazi_walk_is_its_own_body_alone`
 (`baud-core/tests/sixel_reuse.rs`) needs both directions of the walk: it
 requires preview k to equal preview 14 - k as well as each preview to equal
-its body decoded alone.
+its body decoded alone. Its thirteen Sixel bodies are byte for byte those of
+the capture of 2026-10-09 it replaces; only the text around them moved.
 
 ## kitty graphics: regenerated, not committed
 
@@ -136,9 +135,36 @@ a change only where the change reaches the final screen. Each file's own length
 and FNV-1a were pinned by `replay.rs`, which went with `baud-core2` in
 `bcefaae`; nothing pins the bytes themselves now.
 
-`btop.raw` is the first 512 KiB of a 2.48 MB capture. The whole thing was 10
-seconds and 147,492 escape sequences; the tail is more of the same, and a
-megabyte of it in git buys nothing a test can use.
+## How the 2026-10-28 captures were made
+
+`btop.raw`, `vim-unicode.raw`, `pipes.raw` and `yazi-walk.raw` were captured
+again on 2026-10-28 on macOS 27.0 (Apple silicon), each with its whole output
+committed, `HOME` and every XDG directory in a scratch folder and the
+environment emptied but for `PATH=/usr/bin:/bin`, `TERM=xterm-256color` and
+`LANG=en_US.UTF-8`:
+
+- **btop** 1.4.7, nixpkgs `319e4cebef10cbb636c6ea392137b52ad105336a`, 45
+  seconds at 45x160:
+  `capture-tui.py --seconds 45 --rows 45 --cols 160 -- btop -c btop.conf`,
+  where `btop.conf` is `btop --default-config` with three keys changed:
+  `shown_boxes = "cpu mem"`, `disks_filter = "/"` and
+  `show_battery = false`. btop's README gives the first: "Manually set which
+  boxes to show. Available values are "cpu mem net proc" and "gpu0" through
+  "gpu5"" (`[[source: btop-readme-147]]`). Without the process box, which
+  lists every user's commands, and the net box, which shows the address.
+- **vim** 9.1 (`/usr/bin/vim`, patches 1-1752, no vimrc in `HOME`) on
+  `unicode.txt`, written by `scripts/gen-vim-unicode.py`, opened by that
+  relative name from its own directory, at 45x160, sent `^F` twelve times,
+  `^B` twice and `^F` twice, 0.35 s apart:
+  `capture-tui.py --seconds 9 --rows 45 --cols 160 --keys <those> -- vim unicode.txt`.
+- **pipes.sh** 1.3.0 (MIT), the same nixpkgs, 200 seconds at 45x160:
+  `capture-tui.py --seconds 200 --rows 45 --cols 160 -- pipes.sh -t 4 -t 5 -t 8 -p 4 -f 100 -r 0`:
+  its three ASCII pipe sets, four pipes, a hundred frames a second, never
+  reset. What it draws is its own pipe characters, so the capture carries
+  no one's art.
+- **yazi** 26.5.6 (nixpkgs' build of 2026-05-05, with its own `file`,
+  poppler and ImageMagick on its `PATH`), started in `~/files`:
+  `capture-yazi-walk.py --cols 120 --out yazi-walk.raw -- yazi`.
 
 They are fixtures, deliberately not entries in
 `docs/research/sources/MANIFEST.toml`. That manifest is for *specifications*: a

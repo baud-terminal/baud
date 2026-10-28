@@ -18,9 +18,10 @@
 //! gone. The rule is `placed.rs`'s.
 //!
 //! The corpus test is the gate the owner set: no recording in
-//! `tests/recordings/` gains a trail. Its teeth are the corpus's twenty hides
-//! -- vim's seventeen, and one each in btop, asciiquarium and cava -- none of
-//! them straight after a move; the five recordings with no hide at all
+//! `tests/recordings/` gains a trail. Its teeth are the twenty hides in the
+//! nine recordings it replays -- vim's seventeen, and one each in btop,
+//! `pipes.raw` and cava -- none of them straight after a move (yazi-walk's
+//! 28 are not among them); the five recordings with no hide at all
 //! cannot fail it under any rule decided at a hide, and are its control on
 //! the count.
 //!
@@ -471,8 +472,9 @@ fn recording(name: &str) -> Vec<u8> {
 /// trails so a change shows -- the teeth are the corpus's twenty hides, none
 /// straight after a move (see the module doc). It was one under a first rule that compared
 /// positions: vim starts with `CSI H`, `CSI 2J`, `?25l`, which it placed at
-/// home, and the mixed stream, where vim inherits asciiquarium's hidden
-/// cursor, gained a trail to it. The helix capture is the positive control,
+/// home, and the mixed stream, where vim inherits the hidden cursor of the
+/// recording before it (asciiquarium's then, `pipes.raw`'s now), gained a
+/// trail to it. The helix capture is the positive control,
 /// through the same counters: exactly `ge` and `gg` are new.
 #[test]
 fn no_recording_gains_a_trail() {
@@ -481,7 +483,7 @@ fn no_recording_gains_a_trail() {
         ("utf8/btop.raw", 0),
         ("ascii/git-log.raw", 0),
         ("utf8/cat-cjk.raw", 0),
-        ("ascii/asciiquarium.raw", 0),
+        ("ascii/pipes.raw", 0),
         ("utf8/vim-unicode.raw", 0),
         ("ascii/less-pager.raw", 0),
         ("utf8/less-cjk.raw", 0),

@@ -110,7 +110,9 @@ fn a_zoom_back_draws_no_glyph_again_and_paints_a_fresh_frame() {
             if again {
                 assert_eq!(drawn, 0, "{step} drew {drawn} glyphs again");
             } else {
-                assert!(drawn > 100, "{step} draws the screen's glyphs: {drawn}");
+                // btop's last screen and the scene's lines draw 90 glyphs at
+                // the first size.
+                assert!(drawn > 80, "{step} draws the screen's glyphs: {drawn}");
             }
         }
     });

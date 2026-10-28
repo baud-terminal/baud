@@ -1157,10 +1157,10 @@ fn light_theme_text_on_the_glass_reaches_the_target_where_the_page_is_dimmed() {
 /// Every `.raw` recording in `tests/recordings`, held to the directory so a
 /// new one is read too.
 const RECORDINGS: [&str; 12] = [
-    "ascii/asciiquarium.raw",
     "ascii/cat-scroll.raw",
     "ascii/git-log.raw",
     "ascii/less-pager.raw",
+    "ascii/pipes.raw",
     "kitty/grad-80x24-placeholder.raw",
     "sixel/swirl.raw",
     "sixel/yazi-walk.raw",
@@ -1293,13 +1293,13 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
         }
         got.push((half, *name, moved, lines, glass_lines));
     }
-    // On the final screens, at the shipped dims: btop's process-list fade
-    // and graph greys, helix's and vimdiff's panels, asciiquarium's
-    // colours on its black page; under the light theme, light text on dark
-    // pages goes light. Over every read, the lines: herdr's dividers on the
+    // On the final screens, at the shipped dims: btop's graph greys,
+    // helix's and vimdiff's panels; under the light theme, light text on
+    // dark pages goes light. pipes draws on the default page and moves
+    // nothing. Over every read, the lines: herdr's dividers on the
     // default page, which the floor lifted (2546 dark, 1211 light), and
     // the borders on pages the program set that the glass trigger would
-    // lift: btop's 211707, helix's 123 and herdr's panels.
+    // lift: btop's 156194, helix's 123 and herdr's panels.
     // yazi-walk's 17 on dark came with the dark sixteen's corrections of
     // 2026-10-18: its 11 blue letters on `SGR 47`, `#3771ff` on `#e5e5e5`
     // (3.36 asked, `#0000ee` was 7.46), and 6 reversed letters in the
@@ -1310,16 +1310,14 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
         .flat_map(|h| streams.iter().map(move |(n, _)| (h, *n)))
         .map(|(h, n)| {
             let (moved, lines, glass) = match (h, n) {
-                ("dark", "ascii/asciiquarium.raw") => (303, 0, 0),
-                ("dark", "utf8/btop.raw") => (1330, 0, 211_707),
+                ("dark", "utf8/btop.raw") => (599, 0, 156_194),
                 ("dark", "helix") => (1195, 0, 123),
                 ("dark", "vimdiff") => (2667, 0, 0),
                 ("dark", "vimhl") => (70, 0, 0),
                 ("dark", "herdr-themes") => (2, 2546, 7610),
                 ("dark", "sixel/yazi-walk.raw") => (17, 0, 0),
-                ("light", "ascii/asciiquarium.raw") => (914, 0, 0),
                 ("light", "sixel/yazi-walk.raw") => (27, 0, 0),
-                ("light", "utf8/btop.raw") => (1745, 0, 211_707),
+                ("light", "utf8/btop.raw") => (722, 0, 156_194),
                 ("light", "helix") => (1665, 0, 123),
                 ("light", "vimdiff") => (5225, 0, 0),
                 ("light", "vimhl") => (1344, 0, 0),
