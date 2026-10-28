@@ -56,9 +56,6 @@ fn dropped(preamble: &[u8], bytes: &[u8]) -> usize {
 /// redefined rather than achieved.
 fn exempt(name: &str) -> Option<&'static str> {
     Some(match name {
-        // Media copy: printing. There is no printer, and inventing one would be
-        // a sequence accepted and silently discarded.
-        "mc0" | "mc4" | "mc5" | "mc5p" => "printer support, out of scope",
         // xterm memory lock/unlock, a scroll-region variant no application uses.
         "meml" | "memu" => "xterm memory lock, no known consumer",
         // `u6`/`u8` are *response templates*: the shape an application should
