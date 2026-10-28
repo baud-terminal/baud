@@ -1,12 +1,42 @@
 //! **iTerm2's interpolated strings**, the form a badge's format takes
-//! (`[[source: iterm2-badges]]`): text with expressions embedded in `\(…)`
-//! and backslash escapes (`[[source: iterm2-doc-scripting-fundamentals]]`).
-//! What is here is the parse, as iTerm2's code does it: the split into
-//! literal text and expressions (`iTermSwiftyStringParser`), the escapes a
-//! literal part expands (`it_stringByExpandingBackslashEscapedCharacters`),
-//! and whether an expression calls a function, which iTerm2 refuses in a
-//! format a program sends (`[[source: iterm2-964a75d-ptysession]]`). What
-//! an expression evaluates to is the caller's.
+//! (`[[source: iterm2-badges]]`: "This value is an interpolated string").
+//!
+//! The syntax is the one iTerm2's documentation gives (`[[source:
+//! iterm2-doc-scripting-fundamentals]]`): "To embed an expression in a
+//! string, place it in `\(…)`"; an expression holds parentheses that group
+//! and that call, and double-quoted strings; "Interpolated strings may be
+//! nested", a `\(` inside an expression's string opening another; and a
+//! literal part takes the page's eleven escapes, `\n` to `\uxxxx`.
+//!
+//! This module was written from that page and from the cases in
+//! `baud-domain/tests/interpolate.rs`, without iTerm2's source code open.
+//! Its author had read the earlier version of this file, a translation of
+//! iTerm2's parser, before writing, and used that version only as a
+//! black-box oracle; none of its code was kept. Its split is a pair of
+//! functions, one for an expression and one for a string inside it, each
+//! finding where its own text ends. Its call check reads each expression
+//! the split gives as the split reads it, as far as the first `\(` the
+//! split reads as text, and reads the whole format again with a count of
+//! open parentheses for each expression it is inside.
+//! Where the page says nothing, the tests decide: an expression never
+//! closed is literal text, and a format with no expression is expanded
+//! whole; a backslash that begins no escape is kept, a last one too; `\u`
+//! also reads its four characters with white space before them or a `0x`
+//! in them, and a surrogate is U+FFFD; and a user variable may be written
+//! with a `?` after its name. That a format a program sends may not call
+//! a function is iTerm2's rule, not the page's ([`calls_a_function`]).
+//! Which variables and functions an expression names, and what it
+//! evaluates to, are the caller's.
+//!
+//! Open: the page sets no limit on nesting ("Interpolated strings may be
+//! nested"), and this parser follows sixteen `\(` deep inside strings,
+//! reading one deeper as its string's text. That is a departure. The call
+//! check reads every level as well, so a call is refused however deep it
+//! is written, and a format of up to [`CALL_CHECK_MAX`] bytes that calls
+//! nothing in either reading is accepted however deep it nests. A call
+//! the split reads is refused too, but for one sixteen levels deep after
+//! a `\(` the split reads as text: past that `\(` the two readings part,
+//! and the reading of every depth decides.
 
 /// One part of an interpolated string.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -17,297 +47,286 @@ pub enum Interpolated<'a> {
     Expression(&'a str),
 }
 
-/// The parser's states, `iTermSwiftyStringParser`'s five.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum State {
-    Literal,
-    LiteralEscape,
-    Expression,
-    ExprString,
-    ExprStringEscape,
-}
-
-/// The deepest `\(` nested in an expression's strings this follows; one
-/// deeper is read as the string it sits in.
+/// How many `\(` deep, inside the strings of expressions, an expression is
+/// still read as one; one deeper is read as that string's text.
 const NESTING: usize = 16;
 
-/// **Each part of `s`, in order**, as `iTermSwiftyStringParser` splits it
-/// (`[[source: iterm2-964a75d-swifty-string-parser]]`): a `\(` opens an
-/// expression, which its matching `)` closes, counting the parentheses in
-/// it and skipping those in its double-quoted strings, where a `\(` opens
-/// a nested expression; whatever is left at the end, an expression not
-/// closed included, is literal text. An empty literal part is not given.
-pub fn interpolated_parts<'a>(s: &'a str, mut f: impl FnMut(Interpolated<'a>)) {
-    let mut state = State::Literal;
-    let (mut start, mut parens) = (0usize, 0usize);
-    let mut stack = [0usize; NESTING];
-    let mut depth = 0usize;
-    for (i, c) in s.char_indices() {
-        match state {
-            State::Literal => {
-                if c == '\\' {
-                    state = State::LiteralEscape;
-                }
-            }
-            State::LiteralEscape => {
-                if c == '(' {
-                    // The text up to the `\`, which is one byte.
-                    if i - 1 > start {
-                        f(Interpolated::Literal(&s[start..i - 1]));
-                    }
-                    start = i + 1;
-                    parens = 1;
-                    state = State::Expression;
-                } else {
-                    state = State::Literal;
-                }
-            }
-            State::Expression => match c {
-                '(' => parens += 1,
-                ')' => {
-                    parens -= 1;
-                    if parens == 0 {
-                        if depth == 0 {
-                            f(Interpolated::Expression(&s[start..i]));
-                            start = i + 1;
-                            state = State::Literal;
-                        } else {
-                            depth -= 1;
-                            parens = stack[depth];
-                            state = State::ExprString;
-                        }
-                    }
-                }
-                '"' => state = State::ExprString,
-                _ => {}
-            },
-            State::ExprString => match c {
-                '\\' => state = State::ExprStringEscape,
-                '"' => state = State::Expression,
-                _ => {}
-            },
-            State::ExprStringEscape => {
-                if c == '(' && depth < NESTING {
-                    stack[depth] = parens;
-                    depth += 1;
-                    parens = 1;
-                    state = State::Expression;
-                } else {
-                    state = State::ExprString;
-                }
-            }
+/// The index of the `)` that closes an expression whose text starts at
+/// `from`, `depth` strings deep, or `None` when nothing closes it. Every
+/// delimiter is ASCII, which no byte of a longer UTF-8 character equals,
+/// so the bytes are read one at a time.
+fn expression_end(b: &[u8], from: usize, depth: usize) -> Option<usize> {
+    let mut open = 0usize;
+    let mut i = from;
+    while let Some(&byte) = b.get(i) {
+        match byte {
+            b'(' => open += 1,
+            b')' if open == 0 => return Some(i),
+            b')' => open -= 1,
+            b'"' => i = string_end(b, i + 1, depth)?,
+            _ => {}
         }
-    }
-    if s.len() > start {
-        f(Interpolated::Literal(&s[start..]));
-    }
-}
-
-/// **A literal part's escapes expanded**, as
-/// `it_stringByExpandingBackslashEscapedCharacters` expands them
-/// (`[[source: iterm2-964a75d-nsstringiterm]]`): `\n`, `\r`, `\t`, `\a`,
-/// `\b`, `\f`, `\e`, `\\`, `\"` and `\/`, and `\u` and four characters
-/// that scan as hexadecimal to the end, `NSScanner`'s `scanHexInt` (white
-/// space skipped, an optional `0x`); any other backslash is kept with the
-/// character after it. A code point that is a surrogate is U+FFFD.
-pub fn expand_escapes(s: &str, mut f: impl FnMut(char)) {
-    let mut it = s.chars().peekable();
-    while let Some(c) = it.next() {
-        if c != '\\' {
-            f(c);
-            continue;
-        }
-        let Some(&e) = it.peek() else {
-            f('\\');
-            break;
-        };
-        let simple = match e {
-            'n' => Some('\n'),
-            'r' => Some('\r'),
-            't' => Some('\t'),
-            'a' => Some('\u{7}'),
-            'b' => Some('\u{8}'),
-            'f' => Some('\u{c}'),
-            'e' => Some('\u{1b}'),
-            '\\' => Some('\\'),
-            '"' => Some('"'),
-            '/' => Some('/'),
-            _ => None,
-        };
-        if let Some(r) = simple {
-            it.next();
-            f(r);
-            continue;
-        }
-        if e == 'u' {
-            let mut ahead = it.clone();
-            ahead.next();
-            let mut four = ['\0'; 4];
-            let mut n = 0;
-            for slot in &mut four {
-                match ahead.next() {
-                    Some(h) => {
-                        *slot = h;
-                        n += 1;
-                    }
-                    None => break,
-                }
-            }
-            if n == 4 {
-                if let Some(v) = scan_hex(&four) {
-                    it.next();
-                    for _ in 0..4 {
-                        it.next();
-                    }
-                    f(char::from_u32(v).unwrap_or('\u{FFFD}'));
-                    continue;
-                }
-            }
-        }
-        // Not an escape: the backslash stays, and the character after it
-        // is read as any other.
-        f('\\');
-    }
-}
-
-/// `scanHexInt` over exactly these four characters: true only when it
-/// reads to their end.
-fn scan_hex(four: &[char; 4]) -> Option<u32> {
-    let mut i = 0;
-    while i < 4 && four[i].is_whitespace() {
         i += 1;
     }
-    if i + 1 < 4
-        && four[i] == '0'
-        && matches!(four[i + 1], 'x' | 'X')
-        && four[i + 2..].iter().any(|c| c.is_ascii_hexdigit())
-    {
-        i += 2;
-    }
-    let digits = &four[i..];
-    if digits.is_empty() || !digits.iter().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
-    digits
-        .iter()
-        .try_fold(0u32, |v, c| Some(v * 16 + c.to_digit(16)?))
+    None
 }
 
+/// The index of the `"` that closes a string whose text starts at `from`,
+/// inside an expression `depth` strings deep, or `None`: a backslash takes
+/// the byte after it, and `\(` opens an expression nested in the string.
+fn string_end(b: &[u8], from: usize, depth: usize) -> Option<usize> {
+    let mut i = from;
+    while let Some(&byte) = b.get(i) {
+        match byte {
+            b'"' => return Some(i),
+            b'\\' if b.get(i + 1) == Some(&b'(') && depth < NESTING => {
+                i = expression_end(b, i + 2, depth + 1)?;
+            }
+            b'\\' => i += 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// **Each part of `s`, in order**: the text between expressions, and each
+/// expression a `\(` opens and its own `)` closes, with the parentheses
+/// and strings inside it read as `expression_end` reads them. A
+/// backslash before anything but `(` is an escape and opens nothing, `\\(`
+/// included. An expression nothing closes ends the split, and what follows
+/// its `\(` is the last literal part. An empty literal part is not given.
+pub fn interpolated_parts<'a>(s: &'a str, mut f: impl FnMut(Interpolated<'a>)) {
+    let b = s.as_bytes();
+    let mut text = 0usize;
+    let mut i = 0usize;
+    while let Some(&byte) = b.get(i) {
+        if byte != b'\\' {
+            i += 1;
+            continue;
+        }
+        if b.get(i + 1) != Some(&b'(') {
+            i += 2;
+            continue;
+        }
+        if i > text {
+            f(Interpolated::Literal(&s[text..i]));
+        }
+        let Some(end) = expression_end(b, i + 2, 0) else {
+            text = i + 2;
+            break;
+        };
+        f(Interpolated::Expression(&s[i + 2..end]));
+        text = end + 1;
+        i = end + 1;
+    }
+    if b.len() > text {
+        f(Interpolated::Literal(&s[text..]));
+    }
+}
+
+/// **A literal part's escapes expanded**, the documentation's eleven:
+/// `\n`, `\a`, `\t`, `\r`, `\b`, `\f`, `\e`, `\\`, `\"`, `\/`, and `\u`
+/// with four characters naming a code point in hexadecimal (`hex4`). A
+/// backslash that begins none of them is kept, and the character after it
+/// is read as any other.
+pub fn expand_escapes(s: &str, mut f: impl FnMut(char)) {
+    let mut rest = s;
+    while let Some(at) = rest.find('\\') {
+        rest[..at].chars().for_each(&mut f);
+        let after = &rest[at + 1..];
+        match escape(after) {
+            Some((c, len)) => {
+                f(c);
+                rest = &after[len..];
+            }
+            None => {
+                f('\\');
+                rest = after;
+            }
+        }
+    }
+    rest.chars().for_each(f);
+}
+
+/// The escape that `after`, the text after a backslash, begins: the
+/// character it stands for and how many bytes of `after` it spans.
+fn escape(after: &str) -> Option<(char, usize)> {
+    let c = match *after.as_bytes().first()? {
+        b'n' => '\n',
+        b'a' => '\u{7}',
+        b't' => '\t',
+        b'r' => '\r',
+        b'b' => '\u{8}',
+        b'f' => '\u{c}',
+        b'e' => '\u{1b}',
+        b'\\' => '\\',
+        b'"' => '"',
+        b'/' => '/',
+        b'u' => return hex4(&after[1..]).map(|(c, len)| (c, 1 + len)),
+        _ => return None,
+    };
+    Some((c, 1))
+}
+
+/// `\u`'s four characters, the first four of `s`, as a code point and
+/// their length in bytes: hexadecimal digits that run to the fourth
+/// character's end, which white space may precede and `0x` or `0X` may
+/// begin. A surrogate is U+FFFD.
+fn hex4(s: &str) -> Option<(char, usize)> {
+    let (at, last) = s.char_indices().nth(3)?;
+    let len = at + last.len_utf8();
+    let four = s[..len].trim_start();
+    let digits = match four.strip_prefix("0x").or_else(|| four.strip_prefix("0X")) {
+        Some(d) if !d.is_empty() => d,
+        _ => four,
+    };
+    if digits.is_empty() || !digits.bytes().all(|d| d.is_ascii_hexdigit()) {
+        return None;
+    }
+    let v = u32::from_str_radix(digits, 16).ok()?;
+    Some((char::from_u32(v).unwrap_or('\u{FFFD}'), len))
+}
+
+/// How many expressions deep, the outermost counted, [`calls_a_function`]
+/// reads a string: as deep as one of [`CALL_CHECK_MAX`] bytes can nest.
+const LEVELS: usize = 128;
+
+/// **The longest string [`calls_a_function`] reads exactly at every
+/// depth**, 385 bytes. Each level past the outermost takes three bytes to
+/// open, a `"` and a `\(`, so a string one byte longer can open one more
+/// expression than [`LEVELS`], and that one is read as a call.
+pub const CALL_CHECK_MAX: usize = 2 + 3 * LEVELS - 1;
+
 /// **Whether any expression in `s` calls a function**, which iTerm2
-/// refuses in a format a program sends ("For security reasons, this is not
-/// allowed"): a `(` that follows a name, `foo(` or `foo (`, outside the
-/// expression's strings and inside the expressions nested in them. A
-/// parenthesis that groups, `(a + b)`, follows no name.
+/// refuses in a format a program sends (`[[source:
+/// iterm2-964a75d-ptysession]]`: "For security reasons, this is not
+/// allowed"). A call is the documentation's `name(argument: value)`: a `(`
+/// after a name, `foo(` or `foo (`, outside the expression's strings, or
+/// one in an expression nested in them at any depth. A parenthesis that
+/// groups, `(a + b)`, follows no name. Two readings are taken and a
+/// call either finds is refused: the split's, which follows sixteen
+/// levels ([`interpolated_parts`]), in each expression up to a `\(` it
+/// reads as text, and one that follows every level. An expression that
+/// nothing closes is text to both and calls nothing. A
+/// string longer than [`CALL_CHECK_MAX`] that opens more than [`LEVELS`]
+/// expressions inside one another is read as one that calls.
 pub fn calls_a_function(s: &str) -> bool {
     let mut found = false;
     interpolated_parts(s, |p| {
         if let Interpolated::Expression(e) = p {
-            found |= expression_calls(e);
+            found |= calls_as_split(e, 0);
         }
     });
-    found
+    found || calls_at_every_depth(s)
 }
 
-fn expression_calls(e: &str) -> bool {
+/// Whether the expression `e`, `depth` strings deep, calls as the split
+/// reads it: a `\(` in its strings opens an expression [`NESTING`] deep
+/// at most. One deeper is that string's text to the split, but opens an
+/// expression to the reading of every depth ([`calls_at_every_depth`]);
+/// from that `\(` the two read the rest of `e` differently, and the rest
+/// is left to the reading of every depth, since a `(` the split reads
+/// there as code can be in a string, as in `\("a(b)")` that deep.
+fn calls_as_split(e: &str, depth: usize) -> bool {
+    let b = e.as_bytes();
+    let mut i = 0usize;
     let mut in_string = false;
-    let mut escape = false;
-    let mut last: Option<char> = None;
-    let mut it = e.chars().peekable();
-    while let Some(c) = it.next() {
-        if in_string {
-            if escape {
-                escape = false;
-                if c == '(' {
-                    // A nested expression: read to its close as one.
-                    let mut depth = 1usize;
-                    let mut inner = alloc_free::Buf::new();
-                    for d in it.by_ref() {
-                        match d {
-                            '(' => depth += 1,
-                            ')' => depth -= 1,
-                            _ => {}
-                        }
-                        if depth == 0 {
-                            break;
-                        }
-                        inner.push(d);
-                    }
-                    if inner.calls() {
-                        return true;
-                    }
+    while let Some(&byte) = b.get(i) {
+        match byte {
+            b'(' if !in_string && follows_a_name(&e[..i]) => return true,
+            b'"' => in_string = !in_string,
+            b'\\' if in_string && b.get(i + 1) == Some(&b'(') && depth < NESTING => {
+                let Some(end) = expression_end(b, i + 2, depth + 1) else {
+                    return true;
+                };
+                if calls_as_split(&e[i + 2..end], depth + 1) {
+                    return true;
                 }
-                continue;
+                i = end;
             }
-            match c {
-                '\\' => escape = true,
-                '"' => in_string = false,
-                _ => {}
-            }
-            continue;
-        }
-        match c {
-            '"' => in_string = true,
-            '(' if last.is_some_and(|l| l.is_alphanumeric() || l == '_' || l == '.') => {
-                return true;
-            }
+            b'\\' if in_string && b.get(i + 1) == Some(&b'(') => return false,
+            b'\\' if in_string => i += 1,
             _ => {}
         }
-        if !c.is_whitespace() {
-            last = Some(c);
-        }
+        i += 1;
     }
     false
 }
 
-/// A nested expression read without allocating: its first characters,
-/// as many as fit, which is all a call needs to be seen in, and whether
-/// it ran past them, which is then read as a call, the safe side.
-mod alloc_free {
-    const CAP: usize = 256;
-
-    pub(super) struct Buf {
-        bytes: [u8; CAP],
-        len: usize,
-        over: Over,
-    }
-
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum Over {
-        Fits,
-        Past,
-    }
-
-    impl Buf {
-        pub(super) fn new() -> Buf {
-            Buf {
-                bytes: [0; CAP],
-                len: 0,
-                over: Over::Fits,
+/// Whether `s` calls, its expressions read to every depth.
+fn calls_at_every_depth(s: &str) -> bool {
+    let b = s.as_bytes();
+    // The parentheses open in each expression `s` is inside at `i`,
+    // the outermost first; `depth` of them are in use, none in the text.
+    let mut open = [0usize; LEVELS];
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut called = false;
+    let mut i = 0usize;
+    while let Some(&byte) = b.get(i) {
+        if depth == 0 {
+            if byte == b'\\' {
+                if b.get(i + 1) == Some(&b'(') {
+                    depth = 1;
+                    open[0] = 0;
+                }
+                i += 1;
+            }
+        } else if in_string {
+            match byte {
+                b'"' => in_string = false,
+                b'\\' if b.get(i + 1) == Some(&b'(') => {
+                    let Some(level) = open.get_mut(depth) else {
+                        return true;
+                    };
+                    *level = 0;
+                    depth += 1;
+                    in_string = false;
+                    i += 1;
+                }
+                b'\\' => i += 1,
+                _ => {}
+            }
+        } else {
+            let level = &mut open[depth - 1];
+            match byte {
+                b'(' => {
+                    called |= follows_a_name(&s[..i]);
+                    *level += 1;
+                }
+                b')' if *level == 0 => {
+                    depth -= 1;
+                    if depth == 0 && called {
+                        return true;
+                    }
+                    in_string = depth > 0;
+                }
+                b')' => *level -= 1,
+                b'"' => in_string = true,
+                _ => {}
             }
         }
-
-        pub(super) fn push(&mut self, c: char) {
-            let mut tmp = [0u8; 4];
-            let s = c.encode_utf8(&mut tmp);
-            if self.len + s.len() > CAP {
-                self.over = Over::Past;
-                return;
-            }
-            self.bytes[self.len..self.len + s.len()].copy_from_slice(s.as_bytes());
-            self.len += s.len();
-        }
-
-        pub(super) fn calls(&self) -> bool {
-            self.over == Over::Past
-                || core::str::from_utf8(&self.bytes[..self.len]).is_ok_and(super::expression_calls)
-        }
+        i += 1;
     }
+    false
+}
+
+/// Whether the text before a `(` ends in a name, white space after it
+/// allowed: a letter, a digit, `_`, or the `.` of a dotted path.
+fn follows_a_name(before: &str) -> bool {
+    before
+        .trim_end()
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.')
 }
 
 /// **An interpolated string evaluated**: each literal part's escapes
-/// expanded, each expression replaced by what `eval` writes for it, as
-/// iTerm2's evaluator joins the parts; with no expression in it the whole
-/// string's escapes expanded, as iTerm2's parser does then.
+/// expanded and each expression replaced by what `eval` writes for it, as
+/// the documentation replaces "the expression `hostname`" with "its
+/// value". With no expression in it the whole string's escapes are
+/// expanded, a `\(` nothing closes kept as written.
 pub fn interpolate(
     s: &str,
     mut eval: impl FnMut(&str, &mut dyn FnMut(char)),
@@ -326,7 +345,7 @@ pub fn interpolate(
 
 /// **The user variable an expression names**, `user.NAME` or `user.NAME?`
 /// with white space around it, where iTerm2's user-defined variables
-/// "always begin with user." (`[[source:
+/// "always begin with `user.`" (`[[source:
 /// iterm2-doc-scripting-fundamentals]]`): the name after `user.`, or
 /// `None` for any other expression.
 pub fn user_variable(e: &str) -> Option<&str> {

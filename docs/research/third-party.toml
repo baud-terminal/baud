@@ -2021,6 +2021,14 @@ upstream = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b
 status   = "kept"
 
 [[tree]]
+what     = "iTerm2's interpolated strings in interpolate.rs, the badge format's syntax: written from iTerm2's documentation (Scripting Fundamentals and Badges, docs/research/sources/MANIFEST.toml) and the cases in baud-domain/tests/interpolate.rs, without iTerm2's source code open; its author had read the earlier version of this file, a translation of iTerm2's parser, before writing, and used that version only as a black-box oracle; none of its code was kept"
+paths    = ["baud-domain/src/interpolate.rs"]
+licence  = "CC-BY-NC-SA-4.0"
+notice   = "LICENSE"
+upstream = "https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-scripting-fundamentals.md and https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-badges.md"
+status   = "own"
+
+[[tree]]
 what     = "baud-wayland's build reads the Wayland and wayland-protocols XMLs into its interface tables, through links in baud-wayland/protocols/ to the copies in docs/research/sources/, which the published crate carries as the files"
 paths    = [
   "baud-wayland/protocols/wayland.xml",

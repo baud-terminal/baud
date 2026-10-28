@@ -214,3 +214,18 @@ software is based in part on the work of the Independent JPEG Group
   Notice:  LICENSES/ijg-README.txt
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://www.ijg.org/files/jpegsrc.v6b.tar.gz
+
+iTerm2's interpolated strings in interpolate.rs, the badge format's syntax:
+written from iTerm2's documentation (Scripting Fundamentals and Badges,
+docs/research/sources/MANIFEST.toml) and the cases in
+baud-domain/tests/interpolate.rs, without iTerm2's source code open; its
+author had read the earlier version of this file, a translation of iTerm2's
+parser, before writing, and used that version only as a black-box oracle;
+none of its code was kept
+  Files:   src/interpolate.rs
+  Licence: CC-BY-NC-SA-4.0
+  Notice:  LICENSE
+  Status:  own: the work of baud's author
+  From:    https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-scripting-fundamentals.md
+           and
+           https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-badges.md

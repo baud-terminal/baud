@@ -33237,7 +33237,7 @@ sha256 = "fb56da7ab7a7f02e8e3b11d068cf2091a6b6d60a71f4ad005f33f3a86582129d"
 bytes  = 1550
 status = "external"
 group  = "AX"
-# Read for the subcommand name only.
+# Read for the subcommand name, and for the badge being an interpolated string.
 
 [sources.iterm2-feature-reporting]
 key    = "iterm2-feature-reporting"
@@ -35205,6 +35205,7 @@ sha256 = "39f39672dd932a5367b6d94e2f0d113395cc4e1e7fb8e7f3e55b28ada3b299c4"
 bytes  = 5688
 status = "external"
 group  = "AX"
+# No longer cited: baud-domain/src/interpolate.rs is written from the documentation. Kept as provenance for the version it replaced.
 
 [sources.iterm2-964a75d-expression-parser]
 key    = "iterm2-964a75d-expression-parser"

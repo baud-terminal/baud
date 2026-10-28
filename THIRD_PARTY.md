@@ -24,8 +24,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 311 | 42 | redistributable, and its notice is satisfied |
-| own | 201 | 6 | the work of baud's author |
-| total | 529 | 53 | |
+| own | 201 | 7 | the work of baud's author |
+| total | 529 | 54 | |
 
 ## Licence texts in LICENSES/
 
@@ -515,6 +515,14 @@ they were built from.
 - **Notice:** [LICENSE](LICENSE)
 - **From:** generated: magick -size 96x72 gradient:red-blue -swirl 60 -rotate 0, then img2sixel and sixel2png
 - **Files:** [tests/recordings/sixel/img2sixel-96x72.six](tests/recordings/sixel/img2sixel-96x72.six), [tests/recordings/sixel/img2sixel-96x72.oracle-rgb](tests/recordings/sixel/img2sixel-96x72.oracle-rgb)
+
+### iTerm2's interpolated strings in interpolate.rs, the badge format's syntax: written from iTerm2's documentation (Scripting Fundamentals and Badges, docs/research/sources/MANIFEST.toml) and the cases in baud-domain/tests/interpolate.rs, without iTerm2's source code open; its author had read the earlier version of this file, a translation of iTerm2's parser, before writing, and used that version only as a black-box oracle; none of its code was kept
+
+- **Status:** own -- the work of baud's author
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-scripting-fundamentals.md and https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-badges.md
+- **Files:** [baud-domain/src/interpolate.rs](baud-domain/src/interpolate.rs)
 
 ## docs/research/sources/
 

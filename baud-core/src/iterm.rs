@@ -81,6 +81,10 @@ pub(crate) struct Pushed {
 /// body baud reads, `OSC_MAX` bytes of base64, decodes to.
 pub(crate) const BADGE_MAX: usize = OSC_MAX / 4 * 3;
 
+// `calls_a_function` reads a string of up to `CALL_CHECK_MAX` bytes at
+// every depth, so every badge format a program sends is read exactly.
+const _: () = assert!(BADGE_MAX <= CALL_CHECK_MAX);
+
 /// The badge format a program set, if any.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Badge {
