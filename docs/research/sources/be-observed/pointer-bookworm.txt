@@ -1,0 +1,322 @@
+# scripts/linux-pointer.sh, the bookworm arm
+
+## the compositor
+sway version 1.7
+interface: 'zwp_primary_selection_device_manager_v1', version: 1
+interface: 'zwp_virtual_keyboard_manager_v1', version: 1
+interface: 'zwlr_virtual_pointer_manager_v1', version: 2
+interface: 'wl_seat', version: 7
+
+## the checks
+ok      a stream drag, the primary selection: [beta gamma
+one two]
+ok      Ctrl+Shift+C, the clipboard: [beta gamma
+one two]
+ok      an Alt drag, a block: [0123
+abcd
+ABCD]
+ok      a double click, the word: [gamma]
+ok      a triple click, the line: [one two three four]
+ok      two clicks 300 ms apart select nothing: [sentinel]
+ok      the same two clicks 10 ms apart, the word: [beta]
+ok      Shift and a click extend it, by words: [beta gamma
+one]
+ok      three detents up, the top row: [line 75]
+ok      three down again, the top row: [line 78]
+ok      a touchpad's 51 px up, three lines of 17, the top row: [line 75]
+ok      the thumb dragged to the top, the top row: [line 1]
+ok      the wheel on the primary screen sends the program nothing: []
+ok      three lines back, the window draws the history: [0 of 214200 pixels differ, largest channel difference 0]
+ok      the thumb at the top draws what the wheel at the top draws: [0 of 234600 pixels differ, largest channel difference 0]
+ok      the thumb at the top does not draw the live screen: [the history]
+ok      the wheel on the alternate screen, Up three times, Down twice: [^[[A^[[A^[[A^[[B^[[B]
+ok      ?1000 ?1006: buttons, wheel, Ctrl, Alt: [^[[<0;11;3M^[[<0;11;3m^[[<1;11;3M^[[<1;11;3m^[[<2;11;3M^[[<2;11;3m^[[<64;11;3M^[[<65;11;3M^[[<66;11;3M^[[<67;11;3M^[[<16;11;3M^[[<16;11;3m^[[<8;11;3M^[[<8;11;3m]
+ok      ?1002: a drag, once a cell: [^[[<0;12;3M^[[<32;13;3M^[[<32;14;4M^[[<0;14;4m]
+ok      ?1003: every move into another cell: [^[[<35;11;3M^[[<35;12;3M^[[<35;12;4M]
+ok      ?1000 alone: X10's bytes: [^[[M +#^[[M#+#]
+ok      the shapes, drawn: the I-beam, and the arrow for hand, arrow and watch: [enter;set_cursor the I-beam;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the I-beam;leave;enter;set_cursor the I-beam;leave;capabilities keyboard;capabilities none;capabilities pointer;capabilities pointer keyboard;enter;set_cursor the I-beam;leave;capabilities keyboard;capabilities none;]
+ok      the middle button and Shift+Insert paste the primary: [^[[200~from the primary^[[201~^[[200~from the primary^[[201~]
+ok      Ctrl clicks run xdg-open with each link: [https://example.org/p14
+https://example.com/plain
+https://example.org/p14]
+ok      under tracking a Ctrl click on a link is the link's, elsewhere the program's: [^[[<16;38;4M^[[<16;38;4m]
+ok      ?2001: a click six columns back is six Lefts: [^[[D^[[D^[[D^[[D^[[D^[[D]
+ok      every set_cursor and set_shape carries the last enter's serial: [0]
+
+## the pointer traffic: select
+get_pointer
+enter 52 8
+set_cursor the I-beam
+button left pressed
+motion 60 25
+motion 52 25
+button left released
+motion 52 42
+button left pressed
+motion 70 59
+motion 76 76
+button left released
+motion 108 8
+button left pressed
+button left released
+button left pressed
+button left released
+motion 20 25
+button left pressed
+button left released
+button left pressed
+button left released
+button left pressed
+button left released
+motion 60 8
+button left pressed
+button left released
+button left pressed
+button left released
+button left pressed
+button left released
+button left pressed
+button left released
+motion 20 25
+button left pressed
+button left released
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: wheel
+get_pointer
+enter 620 200
+set_cursor the I-beam
+axis_source 0
+axis_discrete vertical -3
+axis vertical -45
+motion 20 8
+button left pressed
+button left released
+button left pressed
+button left released
+button left pressed
+button left released
+axis_source 0
+axis_discrete vertical 3
+axis vertical 45
+button left pressed
+button left released
+button left pressed
+button left released
+button left pressed
+button left released
+motion 620 200
+axis_source 1
+axis vertical -51
+motion 20 8
+button left pressed
+button left released
+button left pressed
+button left released
+button left pressed
+button left released
+axis_source 1
+axis vertical 51
+motion 620 200
+axis_source 0
+axis_discrete vertical -3
+axis vertical -45
+motion 634 350
+button left pressed
+motion 634 200
+motion 634 5
+button left released
+motion 20 8
+button left pressed
+button left released
+button left pressed
+button left released
+button left pressed
+button left released
+motion 620 200
+axis_source 0
+axis_discrete vertical 100
+axis vertical 1500
+axis_source 0
+axis_discrete vertical -100
+axis vertical -1500
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: alt
+get_pointer
+enter 300 200
+axis_source 0
+axis_discrete vertical -3
+axis vertical -45
+axis_source 0
+axis_discrete vertical 2
+axis vertical 30
+set_cursor the I-beam
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: sgr
+get_pointer
+enter 84 42
+button left pressed
+button left released
+button middle pressed
+button middle released
+button right pressed
+button right released
+axis_source 0
+axis_discrete vertical -1
+axis vertical -15
+axis_source 0
+axis_discrete vertical 1
+axis vertical 15
+axis_source 0
+axis_discrete horizontal -1
+axis horizontal -15
+axis_source 0
+axis_discrete horizontal 1
+axis horizontal 15
+button left pressed
+button left released
+button left pressed
+button left released
+button left pressed
+button left released
+set_cursor the I-beam
+motion 92 42
+motion 100 59
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: drag
+get_pointer
+enter 84 42
+motion 92 42
+button left pressed
+motion 94 42
+motion 100 42
+motion 108 59
+button left released
+motion 116 59
+set_cursor the I-beam
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: any
+get_pointer
+enter 84 42
+motion 86 42
+motion 92 42
+motion 92 59
+set_cursor the I-beam
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: x10
+get_pointer
+enter 84 42
+button left pressed
+button left released
+set_cursor the I-beam
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: shape
+get_pointer
+enter 300 200
+set_cursor the I-beam
+set_cursor hidden
+set_cursor the arrow
+set_cursor the arrow
+set_cursor hidden
+set_cursor the arrow
+set_cursor the arrow
+set_cursor hidden
+set_cursor the arrow
+set_cursor the arrow
+motion 310 200
+set_cursor hidden
+set_cursor the I-beam
+set_cursor the I-beam
+leave
+enter 300 200
+set_cursor the I-beam
+leave
+leave
+capabilities keyboard
+capabilities none
+release
+capabilities pointer
+capabilities pointer keyboard
+get_pointer
+enter 300 200
+motion 320 210
+set_cursor the I-beam
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: paste
+get_pointer
+enter 84 42
+button middle pressed
+button middle released
+set_cursor the I-beam
+leave
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: link
+get_pointer
+enter 52 8
+set_cursor the I-beam
+button left pressed
+button left released
+motion 196 8
+button left pressed
+button left released
+leave
+enter 300 200
+set_cursor the I-beam
+set_cursor hidden
+set_cursor the I-beam
+motion 52 8
+button left pressed
+button left released
+motion 300 59
+button left pressed
+button left released
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: readline
+get_pointer
+enter 34 8
+button left pressed
+button left released
+set_cursor the I-beam
+leave
+capabilities keyboard
+capabilities none
+release

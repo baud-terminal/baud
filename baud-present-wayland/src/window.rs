@@ -54,12 +54,16 @@ pub enum Event {
     /// focus. The driver hands it to `Term::focus`, which reports it to the
     /// child only if it asked with `?1004`.
     Focus(Focus),
-    /// What the pointer did, a `wl_pointer.frame` at a time.
-    Pointer(PointerEvent),
-    /// `wl_keyboard.modifiers` that changed what is held, read through
-    /// [`Window::modifiers`]. A link under a resting pointer is shown
-    /// while Ctrl is held, without the pointer moving.
-    Modifiers,
+    /// What the pointer did, a `wl_pointer.frame` at a time, with the
+    /// modifiers held when its frame came: a report, a selection and a
+    /// link click read these, not [`Window::modifiers`], which is what is
+    /// held once every queued event has been read -- Ctrl let go in the
+    /// same read as a Ctrl-click would otherwise take Ctrl from the click.
+    Pointer(PointerEvent, Modifiers),
+    /// `wl_keyboard.modifiers` that changed what is held, and what is held
+    /// from then on. A link under a resting pointer is shown while Ctrl is
+    /// held, without the pointer moving.
+    Modifiers(Modifiers),
     /// A clipboard key the terminal keeps (`keys::shortcut`): its press,
     /// in place of the key event, and its release goes nowhere.
     Shortcut(Shortcut),
@@ -679,7 +683,8 @@ impl Window {
     }
 
     /// The modifiers held now, as the keyboard's last `modifiers` event
-    /// left them: what a mouse report and a selection read beside a button.
+    /// left them. A queued pointer event carries the ones held when it
+    /// came ([`Event::Pointer`]), which a report and a selection read.
     pub fn modifiers(&self) -> Modifiers {
         match self.keymap.as_ref() {
             Some(km) => {
@@ -1227,16 +1232,19 @@ impl Window {
 
     /// An enter, leave, motion or button event into the frame.
     fn pointer_event(&mut self, e: PointerEvent) {
+        let held = self.modifiers();
         let events = &mut self.events;
         self.gather
-            .event(e, &mut |e| events.push_back(Event::Pointer(e)));
+            .event(e, &mut |e| events.push_back(Event::Pointer(e, held)));
     }
 
     /// An axis event into the frame.
     fn axis(&mut self, axis: AxisCode, piece: Piece) {
+        let held = self.modifiers();
         let events = &mut self.events;
-        self.gather
-            .axis(axis, piece, &mut |e| events.push_back(Event::Pointer(e)));
+        self.gather.axis(axis, piece, &mut |e| {
+            events.push_back(Event::Pointer(e, held))
+        });
     }
 
     /// The keymap the compositor shares as a file of `size` bytes. Read
@@ -1488,7 +1496,9 @@ impl Handler for Window {
                         }
                         self.pointer = None;
                         if self.entered.take().is_some() {
-                            self.events.push_back(Event::Pointer(PointerEvent::Left));
+                            let held = self.modifiers();
+                            self.events
+                                .push_back(Event::Pointer(PointerEvent::Left, held));
                         }
                     }
                     _ => {}
@@ -1546,9 +1556,10 @@ impl Handler for Window {
                 self.axis(AxisCode(*axis), Piece::Stop);
             }
             ("wl_pointer", "frame", _) => {
+                let held = self.modifiers();
                 let events = &mut self.events;
                 self.gather
-                    .frame(&mut |e| events.push_back(Event::Pointer(e)));
+                    .frame(&mut |e| events.push_back(Event::Pointer(e, held)));
             }
             ("wl_keyboard", "keymap", [Read::Uint(format), Read::Fd(fd), Read::Uint(size)])
                 if *format == protocol::wl_keyboard::keymap_format::XKB_V1 =>
@@ -1598,8 +1609,9 @@ impl Handler for Window {
                 self.group = usize::try_from(*group).unwrap_or(0);
                 // Only a change of what is held: a compositor sends the
                 // event after every key, most of them changing nothing.
-                if self.modifiers() != was {
-                    self.events.push_back(Event::Modifiers);
+                let now = self.modifiers();
+                if now != was {
+                    self.events.push_back(Event::Modifiers(now));
                 }
             }
             (

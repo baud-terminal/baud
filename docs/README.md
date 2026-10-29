@@ -176,6 +176,7 @@ their entries' titles:
 | AW | the scope calls: printing on macOS, and the alert sound at a volume |
 | AX | notifications and progress from programs: `OSC 9`, `777`, `99`, `9;4` and `1337`, and where each platform shows them |
 | AZ | a window in the background: the unfocused cursor, the inactive selection, theme cursor colours |
+| BE | the Linux app under a pointer: the virtual pointer and keyboard protocols a headless sway takes, and what the app did there (note BE) |
 | BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (no note; `baud-app/src/bell.rs` cites them) |
 | BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (no note; `baud-app/src/link.rs` cites them) |
 | CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (no note; `baud-app/src/reload.rs` cites them) |

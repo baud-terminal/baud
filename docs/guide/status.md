@@ -24,10 +24,13 @@ programs, and pictures.
   told yet. Key presses themselves work.
 - **Linux.** The Linux version builds and has run in headless sessions.
   There, given the same fonts and colours, it draws the same pixels as the
-  Mac version, and it copies and pastes with the desktop's clipboard;
-  characters drawn from each system's own fonts, and some programs' dim
-  colours, can still look different. Nobody has used it with a mouse on a
-  real screen, and its GPU drawing is not started. It is not ready to use.
+  Mac version, it copies and pastes with the desktop's clipboard, and a
+  mouse selects text, scrolls back through the history, pastes with the
+  middle button, opens links with Ctrl-click and works in programs that
+  use the mouse; characters drawn from each system's own fonts, and some
+  programs' dim colours, can still look different. Nobody has used it on
+  a real screen, and its GPU drawing is not started. It is not ready to
+  use.
 - **A few control sequences.** The gaps are each listed with their reason
   in [vt-coverage](../vt-coverage.md), as a row at **partial** or **out**.
 

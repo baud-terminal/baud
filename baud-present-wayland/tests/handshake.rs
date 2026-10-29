@@ -1249,7 +1249,7 @@ fn repeat_info(server: &mut Server, keyboard: ObjectId, rate: i32, delay: i32) {
 /// read the keys, and `a_change_of_the_modifiers_is_an_event` the changes.
 fn drain(w: &mut Window) -> Vec<Event> {
     std::iter::from_fn(|| w.next_event())
-        .filter(|e| !matches!(e, Event::Modifiers))
+        .filter(|e| !matches!(e, Event::Modifiers(_)))
         .collect()
 }
 
@@ -1263,7 +1263,7 @@ fn a_change_of_the_modifiers_is_an_event() {
     let (mut conn, mut server, mut w, kb, _) = keyboard_session();
     let mods = |w: &mut Window| {
         std::iter::from_fn(|| w.next_event())
-            .filter(|e| matches!(e, Event::Modifiers))
+            .filter(|e| matches!(e, Event::Modifiers(_)))
             .count()
     };
     let _ = mods(&mut w);
@@ -1677,6 +1677,7 @@ struct Pointed {
     server: Server,
     w: Window,
     pointer: ObjectId,
+    keyboard: ObjectId,
     /// The shape device, if one was made.
     device: Option<ObjectId>,
     surface: ObjectId,
@@ -1749,7 +1750,10 @@ fn pointer_session(seat_version: u32, shapes: Shapes) -> Pointed {
         )],
     );
     pump(&mut conn, &mut w);
-    server.expect("wl_seat", "get_keyboard");
+    let r = server.expect("wl_seat", "get_keyboard");
+    let Val::New(keyboard) = r.args[0] else {
+        panic!()
+    };
     let r = server.expect("wl_seat", "get_pointer");
     let Val::New(pointer) = r.args[0] else {
         panic!()
@@ -1766,6 +1770,7 @@ fn pointer_session(seat_version: u32, shapes: Shapes) -> Pointed {
         server,
         w,
         pointer,
+        keyboard,
         device,
         surface,
     }
@@ -1779,13 +1784,76 @@ fn pointer_drain(w: &mut Window) -> Vec<PointerEvent> {
     drain(w)
         .into_iter()
         .map(|e| match e {
-            Event::Pointer(p) => p,
+            Event::Pointer(p, _) => p,
             other => panic!("not the pointer's: {other:?}"),
         })
         .collect()
 }
 
 const VERTICAL: u32 = protocol::wl_pointer::axis::VERTICAL_SCROLL;
+
+/// **A pointer event carries the modifiers held when it came**, not the
+/// ones held when the driver reads it: Ctrl pressed, a click, Ctrl let go,
+/// all in one read, is a Ctrl-click, as `wl_keyboard.modifiers` "notifies
+/// clients that the modifier and/or group state has changed" from that
+/// point in the stream (`[[source: wayland]]`). Read when the driver
+/// drained the queue, it was a plain click: the modifiers were the
+/// release's by then. Perturbation: give each pointer event the
+/// modifiers held at `next_event` -- the press and the enter read none.
+#[test]
+fn a_pointer_event_carries_the_modifiers_of_its_moment() {
+    use baud_domain::Modifiers;
+    let Pointed {
+        mut conn,
+        mut server,
+        mut w,
+        pointer,
+        keyboard,
+        surface,
+        ..
+    } = pointer_session(9, Shapes::Absent);
+    let _ = drain(&mut w);
+    let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
+    depressed(&mut server, keyboard, 1 << 2);
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(5), Arg::Object(surface), fixed(4.0), fixed(8.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    let button = |state| {
+        [
+            Arg::Uint(6),
+            Arg::Uint(100),
+            Arg::Uint(0x110),
+            Arg::Uint(state),
+        ]
+    };
+    server.send(pointer, "wl_pointer", "button", &button(1));
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    depressed(&mut server, keyboard, 0);
+    server.send(pointer, "wl_pointer", "button", &button(0));
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    let got: Vec<Event> = std::iter::from_fn(|| w.next_event()).collect();
+    let left = |press| PointerEvent::Button {
+        button: Button::Left,
+        press,
+        time: baud_domain::EventMillis::of_millis(100),
+    };
+    assert_eq!(
+        got,
+        [
+            Event::Modifiers(ctrl),
+            Event::Pointer(PointerEvent::Entered(At { x: 4.0, y: 8.0 }), ctrl),
+            Event::Pointer(left(Press::Pressed), ctrl),
+            Event::Modifiers(Modifiers::NONE),
+            Event::Pointer(left(Press::Released), Modifiers::NONE),
+        ]
+    );
+    assert_eq!(w.modifiers(), Modifiers::NONE, "what is held now");
+}
 
 /// **The pointer arrives a frame at a time** (`[[source: wayland]]`,
 /// `wl_pointer.frame`): an event waits for the frame that closes its
@@ -1803,6 +1871,7 @@ fn the_pointer_reports_by_frame_and_takes_its_shape() {
         pointer,
         device,
         surface,
+        ..
     } = pointer_session(9, Shapes::Offered);
     let device = device.expect("the shape device");
     assert_eq!(
@@ -1953,6 +2022,7 @@ fn a_seat_that_loses_its_pointer_releases_it() {
         pointer,
         device,
         surface,
+        ..
     } = pointer_session(9, Shapes::Offered);
     server.send(
         pointer,
@@ -2004,6 +2074,7 @@ fn an_old_pointer_reports_at_once_and_no_global_draws_its_own() {
         pointer,
         device,
         surface,
+        ..
     } = pointer_session(4, Shapes::Absent);
     assert_eq!(device, None);
     use protocol::wp_cursor_shape_device_v1::shape;
@@ -2099,6 +2170,7 @@ fn the_pointer_hides_with_no_surface_and_a_shape_shows_it() {
         pointer,
         device,
         surface,
+        ..
     } = pointer_session(9, Shapes::Offered);
     let device = device.expect("the shape device");
     assert_eq!(
@@ -3772,7 +3844,7 @@ fn an_input_method_composes_at_the_cursor_and_commits_text() {
 fn typed_events(w: &mut Window) -> Vec<Event> {
     drain(w)
         .into_iter()
-        .filter(|e| !matches!(e, Event::Pointer(_)))
+        .filter(|e| !matches!(e, Event::Pointer(..)))
         .collect()
 }
 

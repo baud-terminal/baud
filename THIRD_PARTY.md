@@ -23,9 +23,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 | open | 0 | 5 | an open question, recorded where the file is |
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 312 | 42 | redistributable, and its notice is satisfied |
-| own | 225 | 7 | the work of baud's author |
-| total | 554 | 54 | |
+| kept | 314 | 42 | redistributable, and its notice is satisfied |
+| own | 234 | 7 | the work of baud's author |
+| total | 565 | 54 | |
 
 ## Licence texts in LICENSES/
 
@@ -1553,6 +1553,18 @@ notice is, and the URL each file was copied from.
 | [wt-ColorFix.cpp](docs/research/sources/wt-ColorFix.cpp) | https://raw.githubusercontent.com/microsoft/terminal/bb0541e7a972a1f9e39318c1f6b4e70347a86696/src/types/ColorFix.cpp |
 | [wt-RenderSettings.cpp](docs/research/sources/wt-RenderSettings.cpp) | https://raw.githubusercontent.com/microsoft/terminal/bb0541e7a972a1f9e39318c1f6b4e70347a86696/src/renderer/base/RenderSettings.cpp |
 
+### wlroots and wlr-protocols
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** in the file
+- **Files:** 2
+
+| file | copied from |
+|---|---|
+| [virtual-keyboard-unstable-v1.xml](docs/research/sources/virtual-keyboard-unstable-v1.xml) | https://gitlab.freedesktop.org/wlroots/wlroots/-/raw/02e9e84ebaeecb85356d829c3316cf77d067b454/protocol/virtual-keyboard-unstable-v1.xml |
+| [wlr-virtual-pointer-unstable-v1.xml](docs/research/sources/wlr-virtual-pointer-unstable-v1.xml) | https://gitlab.freedesktop.org/wlroots/wlr-protocols/-/raw/1106a4a1c57562ddd438c547da4c0d6dc150d624/unstable/wlr-virtual-pointer-unstable-v1.xml |
+
 ### X.Org keysymdef.h (The Open Group)
 
 - **Status:** kept -- redistributable, and its notice is satisfied
@@ -1720,7 +1732,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 219
+- **Files:** 228
 
 | file | copied from |
 |---|---|
@@ -1934,6 +1946,15 @@ notice is, and the URL each file was copied from.
 | [al-observed/replica-trailx.rs](docs/research/sources/al-observed/replica-trailx.rs) | written for the flash-fix analysis |
 | [al-observed/thresholds-out.txt](docs/research/sources/al-observed/thresholds-out.txt) | python3 thresholds.py |
 | [al-observed/thresholds.py](docs/research/sources/al-observed/thresholds.py) | written for the flash-fix analysis |
+| [be-observed/pointer-base-trixie-wheel-back.png](docs/research/sources/be-observed/pointer-base-trixie-wheel-back.png) | grim after wheel -3 in the wheel session, trixie arm, base binary |
+| [be-observed/pointer-base.txt](docs/research/sources/be-observed/pointer-base.txt) | scripts/linux-pointer.sh on the base binary, both arms |
+| [be-observed/pointer-bookworm-block.png](docs/research/sources/be-observed/pointer-bookworm-block.png) | grim -c after the Alt drag of the select session, bookworm arm |
+| [be-observed/pointer-bookworm-hand2.png](docs/research/sources/be-observed/pointer-bookworm-hand2.png) | grim -c after OSC 22 hand2 in the shape session, bookworm arm |
+| [be-observed/pointer-bookworm.txt](docs/research/sources/be-observed/pointer-bookworm.txt) | scripts/linux-pointer.sh, the bookworm arm: sway 1.7 headless, the app drawing its own pointer |
+| [be-observed/pointer-trixie-hand2.png](docs/research/sources/be-observed/pointer-trixie-hand2.png) | grim -c after OSC 22 hand2 in the shape session, trixie arm |
+| [be-observed/pointer-trixie-link-preview.png](docs/research/sources/be-observed/pointer-trixie-link-preview.png) | grim -c with Ctrl held over the link in the link session, trixie arm |
+| [be-observed/pointer-trixie-wheel-back.png](docs/research/sources/be-observed/pointer-trixie-wheel-back.png) | grim after wheel -3 in the wheel session, trixie arm |
+| [be-observed/pointer-trixie.txt](docs/research/sources/be-observed/pointer-trixie.txt) | scripts/linux-pointer.sh, the trixie arm: sway 1.10.1 headless, cursor-shape-v1 |
 | [xcode-27-metal-toolchain-component.txt](docs/research/sources/xcode-27-metal-toolchain-component.txt) | /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild and .../Toolchains/XcodeDefault.xctoolchain/usr/bin/metal, 27A266a, output captured 2026-10-28 |
 | [xparsecolor-observed/probe.c](docs/research/sources/xparsecolor-observed/probe.c) | built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1; run against Xvfb 21.1.24 -screen 0 1024x768x24 |
 | [xparsecolor-observed/rgb-specs.py](docs/research/sources/xparsecolor-observed/rgb-specs.py) | python3 rgb-specs.py | probe |

@@ -1,8 +1,9 @@
 # BE. Linux draws what macOS draws, pixel for pixel, given the same faces and floor
 
 The Linux app's frames, taken from a real compositor, against the same
-frames drawn by the CPU renderer on this Mac; and the Linux clipboard
-against a compositor's. Taken 2026-10-26 at `ef519585` plus this note's
+frames drawn by the CPU renderer on this Mac; the Linux clipboard
+against a compositor's; and, in section 6, a pointer moved over the app
+on two compositors (2026-10-29). Taken 2026-10-26 at `ef519585` plus this note's
 commits, by `scripts/linux-pixels.sh`, which any later run repeats. The rule is that text looks the same on both systems (2026-10-01).
 
 ## 1. What was compared
@@ -152,11 +153,99 @@ Bluetooth keyboard reconnecting.
   weston-simple-shm, where desktop-shell shows both; that is why the
   run uses desktop-shell.
 
-## 6. Open
+## 6. The pointer
 
-- The pointer: neither headless seat has one, so wl_pointer, the
-  pointer shapes and a selection made by dragging have not run on a
-  compositor.
+Taken 2026-10-29 by `scripts/linux-pointer.sh`, which any later run
+repeats. sway's headless backend, started with no input device, is
+given one by `scripts/linux-pointer.py`: a client that writes the
+Wayland wire format itself and holds one virtual pointer
+(`[[source: wlr-virtual-pointer-unstable-v1]]`) and one virtual keyboard
+(`[[source: virtual-keyboard-unstable-v1]]`) for a whole script of
+absolute moves, buttons, wheel detents, keys and modifiers. Each event
+carries a time from the script's own clock, so a double click is one
+however the machine is scheduled. One binary, built in bookworm, runs
+under two sways:
+
+| arm | compositor | wl_seat | the pointer's image | a wheel detent |
+|---|---|---|---|---|
+| bookworm | sway 1.7 | 7 | no cursor-shape global: baud draws its I-beam or arrow and sets it with wl_pointer.set_cursor | axis_discrete |
+| trixie | sway 1.10.1 | 9 | wp_cursor_shape_device_v1.set_shape (`[[source: wp-cursor-shape-v1]]`) | axis_value120 |
+
+The window floats at 640x408 at the origin of a 1024x768 output: 80x24
+cells of 8x17 px. What is read: the bytes the program receives,
+wl-paste's primary selection and clipboard, the arguments a stand-in
+`xdg-open` writes down instead of opening anything, the app's pointer
+requests in sway's `WAYLAND_DEBUG=server` log, and grim's screenshots.
+Each arm's 27 checks and its traffic are in
+`[[source: be-obs-pointer-bookworm]]` and `[[source: be-obs-pointer-trixie]]`.
+Both arms read the same on every check but the image's:
+
+| path | read |
+|---|---|
+| a drag from column 7 of row 1 to column 7 of row 2 | primary "beta gamma\none two"; Ctrl+Shift+C puts the same on the clipboard |
+| the same drag with Alt held | primary "0123\nabcd\nABCD", a block (`[[source: be-obs-pointer-bookworm-block]]`) |
+| a double click; a triple click | "gamma"; "one two three four" |
+| two clicks 300 ms apart; the same 10 ms apart; then Shift and a click | nothing selected; "beta"; "beta gamma\none", extended by words |
+| three wheel detents up over 100 lines, then three down | the top row reads "line 75", then "line 78"; the program reads nothing; the window's rows are the live rows three lower, 0 of 214,200 pixels different (`[[source: be-obs-pointer-trixie-wheel-back]]`) |
+| a touchpad's 51 px up, no detents | "line 75": three lines of the 17 px cell |
+| the thumb dragged to the top | "line 1"; below the first row the frame is the wheel's at the top, 0 of 234,600 pixels different, and not the live rows |
+| the wheel on the alternate screen, three up and two down | `CSI A` three times and `CSI B` twice |
+| `?1000` `?1006`: left, middle, right, the wheel both ways and sideways, Ctrl, Alt, Shift | `CSI < 0;11;3 M` and `m`, `1`, `2`, then `64`, `65`, `66`, `67`, then `16` and `8` pressed and released; Shift's click selects and sends nothing |
+| `?1002` drag; `?1003` moves; `?1000` alone | a report a cell, `32` added while the button is held, `35` with none; X10's `CSI M` and three bytes, each value plus 32 |
+| the middle button, then Shift+Insert, with `?2004` | "from the primary" twice, bracketed |
+| Ctrl over an `OSC 8` link; a Ctrl click on it, on a URI in the text, and on the link under `?1000` | the address in the bar (`[[source: be-obs-pointer-trixie-link-preview]]`), gone when the pointer leaves; `xdg-open` given each address, one argument; under tracking the program hears only a Ctrl click off the link, `CSI < 16;38;4 M` |
+| a click six columns left of the cursor under `?2001` | six `CSI D` |
+| the shape, through no `OSC 22`, a key, `hand2`, `left_ptr`, `watch`, an empty `OSC 22`, a leave and an enter, and a new pointer | sway 1.10.1: text, hidden, pointer, hidden, default, hidden, wait, hidden, text, then text after each enter (`[[source: be-obs-pointer-trixie-hand2]]`); sway 1.7: the I-beam, and the arrow for the three named (`[[source: be-obs-pointer-bookworm-hand2]]`) |
+| every set_cursor and set_shape | the serial of the last enter, as both requests require |
+
+The new pointer is the seat losing its pointer and keyboard and gaining
+new ones: the app releases the old wl_pointer, destroys its shape device,
+asks for the new one and sets the I-beam at its enter.
+
+**What the run found, and what changed.** Four checks failed on the
+binary built from `12a190d1`, on both arms (`[[source: be-obs-pointer-base]]`),
+one for each fix below and two more for the second:
+
+- *A modifier pressed or let go in the same read as a click.* The window
+  queued each pointer frame and the app read the modifiers when it took
+  the event from the queue, so it read what the keyboard held by then.
+  With Ctrl, Alt and Shift each held for one click and let go before the
+  next, sent without a pause, all three clicks were reported as
+  `CSI < 0;11;3 M`: no Ctrl, no Alt, and Shift's click reported where it
+  selects. It is a race: the Alt drag, whose Alt is let go after the
+  release, failed on the first run of the base and passed on later ones,
+  as the modifier and the click fell in one read or two. On a desktop that is Ctrl let go just after a click, while the
+  app is busy drawing. wl_keyboard.modifiers "notifies clients that the
+  modifier and/or group state has changed" (`[[source: wayland]]`), at
+  its place in the stream; each pointer event now carries the modifiers
+  held when its frame came, and `a_pointer_event_carries_the_modifiers_of_its_moment`
+  holds it over a socket pair.
+- *The wheel and the thumb moved the window over the history and the
+  app drew the live screen.* The selection, a link's lookup and the
+  thumb read the history -- the triple click read "line 75" -- while the
+  frame kept "line 78" on top
+  (`[[source: be-obs-pointer-base-trixie-wheel-back]]`), and the thumb
+  dragged to the top drew the live rows: the driver painted the live
+  rows where the macOS CPU path paints the window's. It now paints
+  `Term::window_back`'s rows through `render_at`.
+
+**Checks of the harness.** `hand2` mapped to `default` failed the trixie
+arm's shape check and passed bookworm's, which draws the arrow for both;
+each pointer event given the modifiers held at `next_event` failed the
+unit test.
+
+**Found and left.** After a key hides the pointer, the program's next
+`OSC 22` is set twice, the same shape in two requests, harmless: the read
+shows it and then the read's unhide shows it again. The pointer keeps
+the I-beam over a link while Ctrl shows the link, on both apps, as
+`docs/input-coverage.md` records. Not run on a compositor: DEC's
+locator and the `OSC 133` prompt's click, which take a program that
+asks for them and are held by `seat.rs`'s tests; the side button; a
+scale other than one.
+
+## 7. Open
+
+- The pointer on a screen, and on GNOME's and KDE's compositors.
 - Everything here is over a black background; a desktop with a
   wallpaper, and a screen, are not.
 - The GPU half of Linux.

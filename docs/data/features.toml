@@ -2071,7 +2071,7 @@ does = "The same terminal core on Wayland, drawn on the CPU, with the keyboard, 
 status = "partial"
 gap = "it has run only on a headless compositor: font sizes are in pixels, and GPU drawing has not started."
 platform = "linux"
-tests = ["baud-present-wayland/tests/handshake.rs::a_window_opens_shows_a_frame_and_types", "baud-present-wayland/tests/handshake.rs::the_pointer_reports_by_frame_and_takes_its_shape", "baud-app/src/seat.rs::a_tracking_child_gets_the_buttons_and_the_wheel"]
+tests = ["baud-present-wayland/tests/handshake.rs::a_window_opens_shows_a_frame_and_types", "baud-present-wayland/tests/handshake.rs::the_pointer_reports_by_frame_and_takes_its_shape", "baud-present-wayland/tests/handshake.rs::a_pointer_event_carries_the_modifiers_of_its_moment", "baud-app/src/seat.rs::a_tracking_child_gets_the_buttons_and_the_wheel"]
 behind = "the Linux version has run only headless, with no GPU drawing yet."
 roadmap = ["F2-02", "SQ-1.x-06"]
 

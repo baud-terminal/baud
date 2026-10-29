@@ -1253,6 +1253,16 @@ files   = [
   "xdg-system-bell-v1.xml",
 ]
 
+[upstream.wlroots]
+name    = "wlroots and wlr-protocols"
+licence = "MIT"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "virtual-keyboard-unstable-v1.xml",
+  "wlr-virtual-pointer-unstable-v1.xml",
+]
+
 [upstream.windows-terminal]
 name    = "Windows Terminal (Microsoft); each file names the licence, whose text is beside"
 licence = "MIT"
@@ -1418,6 +1428,15 @@ notice  = "LICENSE"
 status  = "own"
 files   = [
   "aa-observed/cwdprobe-run.txt",
+  "be-observed/pointer-bookworm.txt",
+  "be-observed/pointer-trixie.txt",
+  "be-observed/pointer-base.txt",
+  "be-observed/pointer-bookworm-block.png",
+  "be-observed/pointer-bookworm-hand2.png",
+  "be-observed/pointer-trixie-hand2.png",
+  "be-observed/pointer-trixie-link-preview.png",
+  "be-observed/pointer-trixie-wheel-back.png",
+  "be-observed/pointer-base-trixie-wheel-back.png",
   "ad-observed/supp-tmux-out.bin",
   "ad-observed/coretext-cbdt-load.txt",
   "ad-observed/coretext-createforstring.txt",

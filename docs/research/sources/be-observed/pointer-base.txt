@@ -1,0 +1,74 @@
+# scripts/linux-pointer.sh on the base binary, the bookworm arm
+
+ok      a stream drag, the primary selection: [beta gamma
+one two]
+ok      Ctrl+Shift+C, the clipboard: [beta gamma
+one two]
+ok      an Alt drag, a block: [0123
+abcd
+ABCD]
+ok      a double click, the word: [gamma]
+ok      a triple click, the line: [one two three four]
+ok      two clicks 300 ms apart select nothing: [sentinel]
+ok      the same two clicks 10 ms apart, the word: [beta]
+ok      Shift and a click extend it, by words: [beta gamma
+one]
+ok      three detents up, the top row: [line 75]
+ok      three down again, the top row: [line 78]
+ok      a touchpad's 51 px up, three lines of 17, the top row: [line 75]
+ok      the thumb dragged to the top, the top row: [line 1]
+ok      the wheel on the primary screen sends the program nothing: []
+FAILED  three lines back, the window draws the history: [1907 of 214200 pixels differ, largest channel difference 186], wanted [0 of 214200 pixels differ, largest channel difference 0]
+FAILED  the thumb at the top draws what the wheel at the top draws: [136 of 234600 pixels differ, largest channel difference 172], wanted [0 of 234600 pixels differ, largest channel difference 0]
+FAILED  the thumb at the top does not draw the live screen: [the live screen], wanted [the history]
+ok      the wheel on the alternate screen, Up three times, Down twice: [^[[A^[[A^[[A^[[B^[[B]
+FAILED  ?1000 ?1006: buttons, wheel, Ctrl, Alt: [^[[<0;11;3M^[[<0;11;3m^[[<1;11;3M^[[<1;11;3m^[[<2;11;3M^[[<2;11;3m^[[<64;11;3M^[[<65;11;3M^[[<66;11;3M^[[<67;11;3M^[[<0;11;3M^[[<0;11;3m^[[<0;11;3M^[[<0;11;3m^[[<0;11;3M^[[<0;11;3m], wanted [^[[<0;11;3M^[[<0;11;3m^[[<1;11;3M^[[<1;11;3m^[[<2;11;3M^[[<2;11;3m^[[<64;11;3M^[[<65;11;3M^[[<66;11;3M^[[<67;11;3M^[[<16;11;3M^[[<16;11;3m^[[<8;11;3M^[[<8;11;3m]
+ok      ?1002: a drag, once a cell: [^[[<0;12;3M^[[<32;13;3M^[[<32;14;4M^[[<0;14;4m]
+ok      ?1003: every move into another cell: [^[[<35;11;3M^[[<35;12;3M^[[<35;12;4M]
+ok      ?1000 alone: X10's bytes: [^[[M +#^[[M#+#]
+ok      the shapes, drawn: the I-beam, and the arrow for hand, arrow and watch: [enter;set_cursor the I-beam;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the I-beam;leave;enter;set_cursor the I-beam;leave;capabilities keyboard;capabilities none;capabilities pointer;capabilities pointer keyboard;enter;set_cursor the I-beam;leave;capabilities keyboard;capabilities none;]
+ok      the middle button and Shift+Insert paste the primary: [^[[200~from the primary^[[201~^[[200~from the primary^[[201~]
+ok      Ctrl clicks run xdg-open with each link: [https://example.org/p14
+https://example.com/plain
+https://example.org/p14]
+ok      under tracking a Ctrl click on a link is the link's, elsewhere the program's: [^[[<16;38;4M^[[<16;38;4m]
+ok      ?2001: a click six columns back is six Lefts: [^[[D^[[D^[[D^[[D^[[D^[[D]
+ok      every set_cursor and set_shape carries the last enter's serial: [0]
+
+# scripts/linux-pointer.sh on the base binary, the trixie arm
+
+ok      a stream drag, the primary selection: [beta gamma
+one two]
+ok      Ctrl+Shift+C, the clipboard: [beta gamma
+one two]
+ok      an Alt drag, a block: [0123
+abcd
+ABCD]
+ok      a double click, the word: [gamma]
+ok      a triple click, the line: [one two three four]
+ok      two clicks 300 ms apart select nothing: [sentinel]
+ok      the same two clicks 10 ms apart, the word: [beta]
+ok      Shift and a click extend it, by words: [beta gamma
+one]
+ok      three detents up, the top row: [line 75]
+ok      three down again, the top row: [line 78]
+ok      a touchpad's 51 px up, three lines of 17, the top row: [line 75]
+ok      the thumb dragged to the top, the top row: [line 1]
+ok      the wheel on the primary screen sends the program nothing: []
+FAILED  three lines back, the window draws the history: [1910 of 214200 pixels differ, largest channel difference 205], wanted [0 of 214200 pixels differ, largest channel difference 0]
+FAILED  the thumb at the top draws what the wheel at the top draws: [136 of 234600 pixels differ, largest channel difference 189], wanted [0 of 234600 pixels differ, largest channel difference 0]
+FAILED  the thumb at the top does not draw the live screen: [the live screen], wanted [the history]
+ok      the wheel on the alternate screen, Up three times, Down twice: [^[[A^[[A^[[A^[[B^[[B]
+FAILED  ?1000 ?1006: buttons, wheel, Ctrl, Alt: [^[[<0;11;3M^[[<0;11;3m^[[<1;11;3M^[[<1;11;3m^[[<2;11;3M^[[<2;11;3m^[[<64;11;3M^[[<65;11;3M^[[<66;11;3M^[[<67;11;3M^[[<0;11;3M^[[<0;11;3m^[[<0;11;3M^[[<0;11;3m^[[<0;11;3M^[[<0;11;3m], wanted [^[[<0;11;3M^[[<0;11;3m^[[<1;11;3M^[[<1;11;3m^[[<2;11;3M^[[<2;11;3m^[[<64;11;3M^[[<65;11;3M^[[<66;11;3M^[[<67;11;3M^[[<16;11;3M^[[<16;11;3m^[[<8;11;3M^[[<8;11;3m]
+ok      ?1002: a drag, once a cell: [^[[<0;12;3M^[[<32;13;3M^[[<32;14;4M^[[<0;14;4m]
+ok      ?1003: every move into another cell: [^[[<35;11;3M^[[<35;12;3M^[[<35;12;4M]
+ok      ?1000 alone: X10's bytes: [^[[M +#^[[M#+#]
+ok      the shapes, named: I-beam, hidden, hand, hidden, arrow, hidden, watch, hidden, I-beam: [enter;set_shape text;set_cursor hidden;set_shape pointer;set_cursor hidden;set_shape default;set_cursor hidden;set_shape wait;set_cursor hidden;set_shape text;leave;enter;set_shape text;leave;capabilities keyboard;capabilities none;capabilities pointer;capabilities pointer keyboard;enter;set_shape text;leave;capabilities keyboard;capabilities none;]
+ok      the middle button and Shift+Insert paste the primary: [^[[200~from the primary^[[201~^[[200~from the primary^[[201~]
+ok      Ctrl clicks run xdg-open with each link: [https://example.org/p14
+https://example.com/plain
+https://example.org/p14]
+ok      under tracking a Ctrl click on a link is the link's, elsewhere the program's: [^[[<16;38;4M^[[<16;38;4m]
+ok      ?2001: a click six columns back is six Lefts: [^[[D^[[D^[[D^[[D^[[D^[[D]
+ok      every set_cursor and set_shape carries the last enter's serial: [0]
+

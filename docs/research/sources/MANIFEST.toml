@@ -38202,3 +38202,153 @@ bytes  = 40145
 status = "external"
 group  = "AN"
 # Fetched and read 2026-10-29, not committed. Lines 362-366: a licence nixpkgs' unfree check refuses unless a config allows it.
+
+# --- BE: the Linux app under a virtual pointer and keyboard on headless sway (2026-10-29) ---
+[sources.wlr-virtual-pointer-unstable-v1]
+key    = "wlr-virtual-pointer-unstable-v1"
+title  = "wlr-virtual-pointer-unstable-v1 -- a client-made pointer: motion_absolute, button, axis_discrete, frame"
+author = "Josef Gajdusek"
+year   = 2019
+venue  = "wlroots/wlr-protocols 1106a4a1, freedesktop.org GitLab (MIT)"
+url    = "https://gitlab.freedesktop.org/wlroots/wlr-protocols/-/raw/1106a4a1c57562ddd438c547da4c0d6dc150d624/unstable/wlr-virtual-pointer-unstable-v1.xml"
+file   = "wlr-virtual-pointer-unstable-v1.xml"
+sha256 = "3ff6d540be0bc5228195bf072bde42117ea17945a5c2061add5d3cf97d6bb524"
+bytes  = 6895
+status = "retrieved"
+group  = "BE"
+# Committed under docs/research/sources/ -- a protocol file. The requests
+# scripts/linux-pointer.py spells, in their order: opcodes 1 to 8.
+
+[sources.virtual-keyboard-unstable-v1]
+key    = "virtual-keyboard-unstable-v1"
+title  = "virtual-keyboard-unstable-v1 -- a client-made keyboard: keymap, key, modifiers"
+author = "Kristian Hogsberg, Intel Corporation, Collabora and Purism SPC"
+year   = 2018
+venue  = "wlroots/wlroots 02e9e84e protocol/, freedesktop.org GitLab (MIT)"
+url    = "https://gitlab.freedesktop.org/wlroots/wlroots/-/raw/02e9e84ebaeecb85356d829c3316cf77d067b454/protocol/virtual-keyboard-unstable-v1.xml"
+file   = "virtual-keyboard-unstable-v1.xml"
+sha256 = "b4898f92c27db08c75bb82e9eeec5b179b80a4d6aeb34c26da60b485fca9c450"
+bytes  = 4937
+status = "retrieved"
+group  = "BE"
+# Committed under docs/research/sources/ -- a protocol file. The requests
+# scripts/linux-pointer.py spells: keymap, key, modifiers, destroy.
+
+[sources.be-obs-pointer-bookworm]
+key    = "be-obs-pointer-bookworm"
+title  = "The Linux app under a virtual pointer on sway 1.7: the compositor, the 27 checks and the pointer traffic of each session"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pointer.sh, the bookworm arm: sway 1.7 headless, the app drawing its own pointer"
+file   = "be-observed/pointer-bookworm.txt"
+sha256 = "a31fc46aca06e3d3f84127db69faed2c0565909702f199d68bb07e21a3c02af4"
+bytes  = 7619
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-trixie]
+key    = "be-obs-pointer-trixie"
+title  = "The Linux app under a virtual pointer on sway 1.10.1: the compositor, the 27 checks and the pointer traffic of each session"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pointer.sh, the trixie arm: sway 1.10.1 headless, cursor-shape-v1"
+file   = "be-observed/pointer-trixie.txt"
+sha256 = "7c892153cc6fd3146dcc1f57a808914bab101e86b13d4860635097cf0c147fa9"
+bytes  = 8078
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-base]
+key    = "be-obs-pointer-base"
+title  = "The same 27 checks on the binary built from 12a190d1: four fail on each arm"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pointer.sh on the base binary, both arms"
+file   = "be-observed/pointer-base.txt"
+sha256 = "a04efbc495fe7ebda403a603ad809ad48a9f59f24648c4af57bab4300612ac51"
+bytes  = 5987
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-bookworm-block]
+key    = "be-obs-pointer-bookworm-block"
+title  = "An Alt drag on sway 1.7: a block of three rows by four columns, under the I-beam baud draws"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "grim -c after the Alt drag of the select session, bookworm arm"
+file   = "be-observed/pointer-bookworm-block.png"
+sha256 = "4c1fba69dc0681c74ac634a4261db81658fcc8beec8dad6e872da14c16329349"
+bytes  = 14226
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-bookworm-hand2]
+key    = "be-obs-pointer-bookworm-hand2"
+title  = "OSC 22 hand2 on sway 1.7, which has no cursor-shape-v1: baud draws its arrow"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "grim -c after OSC 22 hand2 in the shape session, bookworm arm"
+file   = "be-observed/pointer-bookworm-hand2.png"
+sha256 = "5a1dbfea34c02ccdbcc27c418f120dc2eb5e7fb6e53d23437d9cfd16b57515e3"
+bytes  = 5144
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-trixie-hand2]
+key    = "be-obs-pointer-trixie-hand2"
+title  = "OSC 22 hand2 on sway 1.10.1: set_shape pointer, the theme hand"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "grim -c after OSC 22 hand2 in the shape session, trixie arm"
+file   = "be-observed/pointer-trixie-hand2.png"
+sha256 = "576741e8dec8e88309960d94e1b73ca6975372380eb21fc70f3274a905024086"
+bytes  = 4760
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-trixie-link-preview]
+key    = "be-obs-pointer-trixie-link-preview"
+title  = "Ctrl held over an OSC 8 link on sway 1.10.1: the link underlined and its address in the bar"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "grim -c with Ctrl held over the link in the link session, trixie arm"
+file   = "be-observed/pointer-trixie-link-preview.png"
+sha256 = "4d29ca0e8c6f6e1b490e7af50803b30de9fd611162de813d6f06802a1e5033e4"
+bytes  = 9476
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-trixie-wheel-back]
+key    = "be-obs-pointer-trixie-wheel-back"
+title  = "Three wheel detents up on sway 1.10.1: lines 75 to 98 drawn, the thumb shown"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "grim after wheel -3 in the wheel session, trixie arm"
+file   = "be-observed/pointer-trixie-wheel-back.png"
+sha256 = "076b290a4fc60253246767927a968118134a63f2716e25b64800d4a8e384f8c5"
+bytes  = 24203
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-base-trixie-wheel-back]
+key    = "be-obs-pointer-base-trixie-wheel-back"
+title  = "The same three detents on the base binary: the thumb moved and the rows did not, lines 78 to 100 and the cursor's row"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "grim after wheel -3 in the wheel session, trixie arm, base binary"
+file   = "be-observed/pointer-base-trixie-wheel-back.png"
+sha256 = "47d429d06bc2742588b9166f6eba317e9c0a0b63b341fff7e869e87bde259c80"
+bytes  = 23462
+status = "retrieved"
+group  = "BE"
+# Local evidence for note BE, made 2026-10-29 in colima's aarch64 VM; not fetched --
+# the url says how it was made.

@@ -13,10 +13,13 @@
 //! equal, on every pixel, the CPU renderer's on macOS set up as this
 //! driver sets it up, and under sway's a virtual keyboard types into it
 //! and its clipboard and wl-copy's trade text (`scripts/linux-pixels.sh`,
-//! note BE). No pointer has moved over it on a compositor and no screen
-//! has shown it; the protocol, the keymap compiler and the window are
-//! tested here over a socket pair, and this file is the wiring between
-//! them and the core. It says so at startup.
+//! note BE); under sway 1.7 and 1.10 a virtual pointer selects, scrolls,
+//! clicks links and drives a program's mouse reports, and the pointer
+//! images it asks for are read off the compositor
+//! (`scripts/linux-pointer.sh`, note BE). No screen has shown it; the
+//! protocol, the keymap compiler and the window are tested here over a
+//! socket pair, and this file is the wiring between them and the core. It
+//! says so at startup.
 //!
 //! **The timed effects are the macOS app's, on the CPU path** (`timed.rs`):
 //! `SGR 5` and `SGR 6` text blink at their own rates, the cursor trail --
@@ -56,11 +59,10 @@
 //! tracking child's reports; every report encoding the core has; stream and
 //! block selection with Shift's override of tracking; `?2001`'s click and
 //! the `OSC 133` prompt's; and `OSC 22`'s shape through `cursor-shape-v1`
-//! where the compositor offers it. Tested over a socket pair and through
-//! `seat.rs`, never on a compositor with a mouse. **Open**: while the
-//! scrollbar holds a press or a drag, its moves return before
-//! `Seat::input`, so DEC's locator does not see them here; the macOS app
-//! updates the locator first.
+//! where the compositor offers it. Tested over a socket pair, through
+//! `seat.rs`, and with a virtual pointer on two headless sways. Each
+//! pointer event is read with the modifiers held when it came, which the
+//! window hands with it, not with what is held once the queue is read.
 //!
 //! **Copy and paste are the Linux desktop's** (`baud_present_wayland::clip`):
 //! Ctrl+Shift+C copies the selection to the clipboard and Ctrl+Shift+V
@@ -70,7 +72,7 @@
 //! `OSC 52` write lands on each selection it names (`clip::boards`); a paste
 //! goes through `paste.rs` as the macOS app's does. Every transfer is a
 //! non-blocking pipe in the loop's one wait. Tested over a socket pair,
-//! never against a compositor's clipboard.
+//! and against sway's clipboard and primary selection.
 //!
 //! **Typing in every language**: dead keys and `Multi_key` sequences
 //! through the locale's Compose table (`baud_present_wayland::compose`),
@@ -351,7 +353,7 @@ enum Said {
 
 pub fn run() {
     crate::warn!(
-        "baud on Wayland: run only on headless compositors, where its pixels, keys and clipboard are checked; no mouse has moved over it and no screen has shown it"
+        "baud on Wayland: run only on headless compositors, where its pixels, keys, pointer and clipboard are checked; no screen has shown it"
     );
     // **The watch before the read** (`reload::Watch::around`), so an edit
     // that lands while the config is read is heard; the themes and fonts
@@ -911,8 +913,8 @@ pub fn run() {
                     }
                     d.pending = Pending::Dirty;
                 }
-                Event::Pointer(p) => d.pointer(p),
-                Event::Modifiers => d.modifiers(),
+                Event::Pointer(p, mods) => d.pointer(p, mods),
+                Event::Modifiers(mods) => d.modifiers(mods),
                 Event::Shortcut(s) => d.shortcut(s),
                 Event::Pasted(_, text) => d.paste(&text),
                 Event::PasteAbandoned(_) => crate::warn!(
@@ -1248,9 +1250,9 @@ impl Driver {
 
     /// **One pointer event** into the seat (`seat.rs`): the wheel, a
     /// button, a move, an enter or a leave, with the modifiers the keyboard
-    /// holds. Bytes for the child go to the outbox, flushed at the loop's
-    /// end with the core's reply.
-    fn pointer(&mut self, p: PointerEvent) {
+    /// held when it came. Bytes for the child go to the outbox, flushed at
+    /// the loop's end with the core's reply.
+    fn pointer(&mut self, p: PointerEvent, mods: baud_domain::Modifiers) {
         use crate::gesture::Pressed;
         use crate::seat::{Input, Owed};
         use baud_present_wayland::{Button, EventCode, Press, Scroll};
@@ -1300,7 +1302,6 @@ impl Driver {
             self.caret.quiet(Instant::now());
         }
         let g = self.seat_geometry();
-        let mods = self.window.modifiers();
         // DEC's locator, then the scrollbar's thumb (`bar.rs`), then the
         // rest of the seat, the macOS order: the locator sees every
         // position and the buttons held, a press the thumb takes keeps its
@@ -1391,8 +1392,8 @@ impl Driver {
 
     /// **The modifiers changed**: Ctrl pressed or let go over a link shows
     /// or takes away its preview, the pointer resting.
-    fn modifiers(&mut self) {
-        let (g, mods) = (self.seat_geometry(), self.window.modifiers());
+    fn modifiers(&mut self, mods: baud_domain::Modifiers) {
+        let g = self.seat_geometry();
         let host = crate::link::Host(&self.host);
         if self.seat.hover(&self.term, mods, g, host) {
             self.pending = Pending::Dirty;
@@ -2501,8 +2502,12 @@ impl Driver {
         // refilled -- changed pixels past the grid's rows too, which no
         // band the renderer paints covers: the whole buffer is damaged.
         let whole = self.damage;
+        // The rows the window shows, `window_back` lines up the history
+        // while the wheel or the thumb holds it there: the rows the
+        // selection, the link under a click and the thumb already read.
+        let back = self.term.window_back();
         self.renderer
-            .render(&mut self.term, &mut target, self.damage);
+            .render_at(&mut self.term, back, &mut target, self.damage);
         // The order each row was drawn in, which the pointer maps back
         // through.
         self.seat.drawn(self.renderer.bidi());
