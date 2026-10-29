@@ -3661,7 +3661,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || self
                 .badge_rect
                 .is_some_and(|b| meets(side(b[0]), side(b[1]), side(b[2]), side(b[3])));
-        let ink = self.cursor_fill.with_alpha(Chan::from_u8(0xFF));
+        // The splash's vanish draws in the lockup's amber, every trail in
+        // the cursor's colour.
+        let splash = self.splash_vfx().map(|_| self.splash_colours());
+        let ink = splash
+            .map_or(self.cursor_fill, |c| c.amber)
+            .with_alpha(Chan::from_u8(0xFF));
         let opaque = |c: Argb| c.with_alpha(Chan::from_u8(0xFF));
         let mut triples: Vec<(Argb, Argb)> = Vec::new();
         // A text colour over a page, and each over the desktops while the
@@ -3758,6 +3763,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 if cursored == Cursored::Shape {
                     ground(self.shape_colour(d.bg, d.cursor_fg), page, &mut triples);
                 }
+            }
+        }
+        // **The splash's lockup is a ground no cell names**: its wordmark
+        // and its amber over every page under the pass, and the mixtures a
+        // glyph's edge and the ghost draw between them.
+        if let Some(c) = splash {
+            let mut pages: Vec<Argb> = Vec::new();
+            for &(_, page) in &triples {
+                if !pages.contains(&page) {
+                    pages.push(page);
+                }
+            }
+            for page in pages {
+                ground(c.wordmark, page, &mut triples);
+                ground(c.amber, page, &mut triples);
             }
         }
         // **Bounded a frame, and sound while it is**: the repeat draws

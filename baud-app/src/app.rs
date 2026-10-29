@@ -619,12 +619,16 @@ struct App {
     chase: crate::trail::Chase<HostTime>,
     last_cursor_cell: Option<(Row, Col)>,
     tick_target: f64,
-    /// **The launch splash's timing** (`splash.rs`): emerging from the
-    /// first frame, held, then vanishing, read off `tick_target` like the
-    /// trail.
+    /// **The launch splash's timing** (`splash.rs`): waiting for the
+    /// window to be shown, emerging, then vanishing, read off
+    /// `tick_target` like the trail.
     splash: crate::splash::Splash,
-    /// Whether the plasma's pipeline was built while the splash was held.
+    /// Whether the plasma's pipeline was built while the splash stood
+    /// still.
     splash_warm: Done,
+    /// Whether a frame has reached the layer: half of what shows the
+    /// window to the splash (`Driver::frame`).
+    layer_shown: Done,
     /// Whether an alternate-screen switch fades, from `[screen] transition`,
     /// and the fade being animated. `Some` forces a frame the way a trail
     /// does, so an idle terminal on either screen builds nothing.
@@ -1386,6 +1390,7 @@ impl App {
                 launch_splash,
             )),
             splash_warm: Done::No,
+            layer_shown: Done::No,
             screen_transition,
             transition: None,
             scroll,
@@ -1756,11 +1761,11 @@ impl App {
             None => None,
         };
         self.renderer.set_screen_fade(veil);
-        // The launch splash, off `tick_target` like the fade: emerging,
-        // held, vanishing or gone. The synchronous first frame comes before
-        // the display link's first tick, so it draws the emerge's first
-        // frame -- or the held logo, under reduced motion -- and starts no
-        // clock.
+        // The launch splash, off `tick_target` like the fade: waiting for
+        // the window, emerging, held, vanishing or gone. The synchronous
+        // first frame comes before the window is shown, so it draws nothing
+        // of the logo -- or the held logo, under reduced motion -- and
+        // starts no clock.
         let now = self.last_tick.map(|_| self.tick_target);
         let splash = self.splash.look(now, &self.term, self.motion);
         self.renderer.set_splash(splash);
@@ -2353,7 +2358,11 @@ impl App {
                             shown = Presented::Yes;
                             self.latency.committed(|| before);
                             startup_first("first commit", &FIRST_COMMIT);
+                            // Drawn now, the frame is on the layer and
+                            // no completion follows it: marked here for
+                            // the tick's splash gate (`frame`).
                             if show == Show::Now {
+                                self.layer_shown = Done::Yes;
                                 startup_first("first present", &FIRST_PRESENT);
                             }
                             if FIRST_BYTES.load(Ordering::Relaxed) {
@@ -2390,7 +2399,11 @@ impl App {
                             shown = Presented::Yes;
                             self.latency.committed(|| before);
                             startup_first("first commit", &FIRST_COMMIT);
+                            // Drawn now, the frame is on the layer and
+                            // no completion follows it: marked here for
+                            // the tick's splash gate (`frame`).
                             if show == Show::Now {
+                                self.layer_shown = Done::Yes;
                                 startup_first("first present", &FIRST_PRESENT);
                             }
                             if FIRST_BYTES.load(Ordering::Relaxed) {
@@ -2423,6 +2436,9 @@ impl App {
                 if let Some(p) = &mut self.presenter {
                     if p.present_changed(screen, &self.frame, w, clear, changed) == Presented::Yes {
                         shown = Presented::Yes;
+                        // On the layer now, as the first frame drawn on
+                        // the GPU is; no completion follows a CPU frame.
+                        self.layer_shown = Done::Yes;
                         self.latency.shown_cpu(host_now);
                         startup_first("first present", &FIRST_PRESENT);
                         if FIRST_BYTES.load(Ordering::Relaxed) {
@@ -5762,6 +5778,99 @@ mod drag_tests {
             !branch.contains("pending"),
             "the frame stays owed: {branch}"
         );
+    }
+
+    /// **Every frame that reaches the layer shows the window to the
+    /// splash**: the first frame, drawn now on either GPU arm, every CPU
+    /// frame, and a GPU frame the completion hands over. The first two set
+    /// the layer's surface themselves and no completion follows them, so a
+    /// mark only in `presented` leaves the splash waiting for good on the
+    /// CPU path. A GPU frame drawn on an event is only committed when
+    /// `present` returns, so it is not marked there. `present` is
+    /// AppKit-bound, so the source is what can fail.
+    #[test]
+    fn every_frame_on_the_layer_shows_the_window_to_the_splash() {
+        const SRC: &str = include_str!("app.rs");
+        let body = SRC
+            .split_once(concat!(
+                "fn present(&mut self, screen: &Drawable",
+                "View, show: Show) {"
+            ))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("present's body");
+        let mark = concat!("self.layer_", "shown = Done::Yes;");
+        let calls = [
+            "p.draw_cells(",
+            "p.draw_cells_now(",
+            "p.draw(",
+            "p.draw_now(",
+            "p.present_changed(",
+        ];
+        // From a call to the next, or to the end of `present`.
+        let after = |call: &str| {
+            let at = body
+                .find(call)
+                .unwrap_or_else(|| panic!("{call} in present"));
+            let rest = &body[at + call.len()..];
+            let end = calls
+                .iter()
+                .filter_map(|c| rest.find(c))
+                .min()
+                .unwrap_or(rest.len());
+            &rest[..end]
+        };
+        for (call, shown) in [
+            ("p.draw_cells_now(", "if show == Show::Now {"),
+            ("p.draw_now(", "if show == Show::Now {"),
+            ("p.present_changed(", "== Presented::Yes {"),
+        ] {
+            let arm = after(call);
+            let at = arm
+                .find(shown)
+                .unwrap_or_else(|| panic!("the control: {shown} after {call}: {arm}"));
+            assert!(
+                arm[at..].contains(mark),
+                "{call} sets the layer's surface and leaves the splash waiting: {arm}"
+            );
+        }
+        let presented = SRC
+            .split_once(concat!("fn presented(&mut self) {\n        ", "self.app."))
+            .map(|(_, rest)| rest)
+            .expect("the completion");
+        assert!(
+            presented.starts_with("layer_shown = Done::Yes;"),
+            "the completion leaves the splash waiting"
+        );
+    }
+
+    /// **The tick starts the splash only once the window is shown**: a
+    /// frame on the layer, the plasma's pipeline built, and AppKit's
+    /// window on screen and not wholly covered. The tick is AppKit-bound,
+    /// so the source is what can fail.
+    #[test]
+    fn the_tick_starts_the_splash_only_once_the_window_is_shown() {
+        const SRC: &str = include_str!("app.rs");
+        let frame = SRC
+            .split_once(concat!("fn frame(&mut self, ", "target: f64) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("the tick");
+        let start = concat!("self.app.splash.", "shown()");
+        assert_eq!(frame.matches(start).count(), 1, "one start: {frame}");
+        let (before, _) = frame.split_once(start).expect("the start");
+        let gate = before
+            .rsplit_once(concat!("if self.app.splash.", "waiting()"))
+            .map(|(_, gate)| gate)
+            .expect("the start is gated");
+        for read in [
+            "self.app.layer_shown == Done::Yes",
+            "self.app.splash_warm == Done::Yes",
+            "w.isVisible()",
+            "w.occlusionState().contains(NSWindowOcclusionState::Visible)",
+        ] {
+            assert!(gate.contains(read), "{read} in the gate: {gate}");
+        }
     }
 }
 
@@ -10021,11 +10130,33 @@ impl Responder for Driver {
         if self.app.trail.is_some() || self.app.transition.is_some() {
             self.app.pending = Pending::Dirty;
         }
+        // **The window is shown to the splash** once a frame has reached
+        // the layer and AppKit reports the window on screen and not wholly
+        // covered -- `isVisible`, "visible onscreen", and the occlusion
+        // state's `.visible`, "at least part of the window is visible"
+        // ([[source: apple-nswindow-isvisible]],
+        // [[source: apple-nswindow-occlusionstate]]): its clock starts on
+        // the frame after, which this owes. AppKit reports no end to the
+        // window's own open animation (note AJ, section 10). Not before the
+        // plasma's pipeline is built below, a tick earlier at the latest,
+        // so the emerge's first frame never pays for it.
+        if self.app.splash.waiting()
+            && self.app.layer_shown == Done::Yes
+            && self.app.splash_warm == Done::Yes
+        {
+            let visible = self.view.window().is_some_and(|w| {
+                w.isVisible() && w.occlusionState().contains(NSWindowOcclusionState::Visible)
+            });
+            if visible && self.app.splash.shown() == crate::splash::Owes::Frame {
+                self.app.pending = Pending::Dirty;
+                startup_mark("splash shown");
+            }
+        }
         // The launch splash owes every frame while it emerges or vanishes,
-        // and the one its hold ends on. The emerge builds the plasma's
-        // pipeline on the first frame; a launch under reduced motion builds
-        // it while the logo is held, once, so a plasma vanish -- full
-        // motion back before it starts -- does not pay on its first frame.
+        // and the one a reduced-motion hold ends on. The plasma's pipeline
+        // is built while it stands still -- waiting for the window, or held
+        // under reduced motion -- once, so neither the emerge's first frame
+        // nor a plasma vanish after full motion returns pays for it.
         if self.app.splash.owes(target) == crate::splash::Owes::Frame {
             self.app.pending = Pending::Dirty;
         }
@@ -10110,6 +10241,7 @@ impl Responder for Driver {
     }
 
     fn presented(&mut self) {
+        self.app.layer_shown = Done::Yes;
         self.app.presented();
     }
 

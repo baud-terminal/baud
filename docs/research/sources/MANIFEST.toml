@@ -21201,6 +21201,122 @@ bytes  = 60958
 status = "retrieved"
 group  = "AJ"
 
+[sources.aj-obs-turn-census]
+key    = "aj-obs-turn-census"
+title  = "The launch splash with the vanish at the turn, counted by baud's flash census on four grounds at 64x20 cells at 1x at 60 frames a second, 200x50 at 2x at 60 and 120, and 6120x3330 px at 60: no pixel over three flashes in a second; the full-strength vanish's failing holds, where its flashes fall, and the emerge's frame against the held logo by age"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud_bench::flash::Census over the splash's whole life on baud-render's CPU path, as baud-bench/tests/splash_flashes.rs counts it, with the emerge's end and the hold varied, 2026-10-29, from 3fefb118 with the change applied"
+file   = "aj-observed/turn-census.txt"
+sha256 = "ab6bea3cc4367293e803a44fa1715ba70b82b83959649ca3730b698ffe940788"
+bytes  = 5013
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-turn-strip-dark]
+key    = "aj-obs-turn-strip-dark"
+title  = "The splash as built: the emerge from the first frame after the window is shown, the vanish at 0.48 s drawn under the flash thresholds, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied"
+file   = "aj-observed/turn-strip-dark.png"
+sha256 = "72cd24851270cd3cf3b3cc748338034cc9faef4f90e9c6a93a469977396e8e4d"
+bytes  = 30376
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-turn-strip-light]
+key    = "aj-obs-turn-strip-light"
+title  = "The splash as built, on the light theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, light theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied"
+file   = "aj-observed/turn-strip-light.png"
+sha256 = "b8778272e95ac42e84ef5ee57a89f925f7bbfcf079bfae8f1cf47e41d460afb6"
+bytes  = 29060
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-turn-strip-at-end]
+key    = "aj-obs-turn-strip-at-end"
+title  = "An option not taken: the vanish drawn under the flash thresholds from the emerge plasma's end, 0.63 s, with no hold, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied, the vanish started at 0.63 s"
+file   = "aj-observed/turn-strip-at-end-dark.png"
+sha256 = "16e2cbb9c019fcb2b889c91a184d669bd69e24ae2d413b87588a9c4595c2d950"
+bytes  = 30763
+status = "retrieved"
+group  = "AJ"
+
+[sources.apple-nswindow-isvisible]
+key    = "apple-nswindow-isvisible"
+title  = "NSWindow isVisible -- whether the window is visible onscreen, even when obscured by other windows (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/isvisible.json"
+file   = ""
+sha256 = "4c6070044a96e08c9350632b99d01705202def3859b8cff4589b90f0171e3e3f"
+bytes  = 11813
+status = "external"
+group  = "AJ"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nswindow-isvisible.json, and the digest is of that copy.
+# Fetched 2026-10-28 for the launch splash's start (note AJ, section 10).
+
+[sources.apple-nswindow-occlusionstate]
+key    = "apple-nswindow-occlusionstate"
+title  = "NSWindow occlusionState -- visible when at least part of the window is visible, otherwise fully occluded (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/occlusionstate-swift.property.json"
+file   = ""
+sha256 = "ad947ec0741427387d2856564c4626710d89c43f46396afe084c302ece38d6a5"
+bytes  = 11507
+status = "external"
+group  = "AJ"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nswindow-occlusionstate.json, and the digest is of that copy.
+# Fetched 2026-10-28 for the launch splash's start (note AJ, section 10).
+
+[sources.apple-nswindow-animationbehavior]
+key    = "apple-nswindow-animationbehavior"
+title  = "NSWindow animationBehavior -- the automatic animation used when the window is ordered front or out; none may suit a window whose app animates (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/animationbehavior-swift.property.json"
+file   = ""
+sha256 = "ae99ebcd5dec1ed72a0cd1a1814fc0f7f990a4532bae9486df01409decc8357e"
+bytes  = 14553
+status = "external"
+group  = "AJ"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nswindow-animationbehavior.json, and the digest is of that copy.
+# Fetched 2026-10-28 for the launch splash's start (note AJ, section 10).
+
+[sources.apple-nswindow]
+key    = "apple-nswindow"
+title  = "NSWindow -- the class page, whose Notifications list names every notification the window posts (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow.json"
+file   = ""
+sha256 = "4a46820130ab378f212ed9b2af4ff0017a7b94ccd54fc0fc3f9eb4a4ceefbe5d"
+bytes  = 495578
+status = "external"
+group  = "AJ"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nswindow.json, and the digest is of that copy.
+# Fetched 2026-10-28 for the launch splash's start (note AJ, section 10).
+
 [sources.aj-obs-probe-tool]
 key    = "aj-obs-probe-tool"
 title  = "The other-terminals sweep's probe: 26 terms and a positive control, one rg -c per term per repository"

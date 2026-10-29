@@ -1,21 +1,24 @@
-//! **The launch splash, as both drivers time it** (note AJ): baud's colour
-//! lockup coming out of the plasma from the first frame, left to right,
-//! for the plasma's length; held whole for [`hold`]; then gone back into
-//! the plasma, left to right -- on the clock alone, so a shell's output
-//! neither cuts it short nor holds it longer. Under reduced motion there
-//! is no plasma: the logo is whole from the first frame, held until the
-//! shell draws something or [`CAP`] passes, whichever is first, then gone
-//! in a fade, one of the HIG's Reduce Motion practices and no motion
-//! animation by WCAG's definition. The renderer draws it
-//! (`baud_render::splash`); this says where it is on a clock, the display
-//! link's timestamp on macOS and seconds since start on Linux, so it is a
-//! pure function of the clock and the screen, and the tests run on every
-//! platform.
+//! **The launch splash, as both drivers time it** (note AJ): nothing of
+//! it until the window is shown -- on macOS the first display-link tick at
+//! which a frame has reached the layer and AppKit reports the window
+//! visible, on Linux the compositor's first frame callback -- then baud's
+//! colour lockup coming out of the plasma, left to right; at [`turn`] into
+//! the emerge, once what is left of its plasma is under a flash's change,
+//! gone back into the plasma, left to right -- on the clock alone, so a
+//! shell's output neither cuts it short nor holds it longer. Under reduced
+//! motion there is no plasma: the logo is whole from the first frame, held
+//! until the shell draws something or [`CAP`] after the window is shown,
+//! whichever is first, then gone in a fade, one of the HIG's Reduce Motion
+//! practices and no motion animation by WCAG's definition. The renderer
+//! draws it (`baud_render::splash`); this says where it is on a clock, the
+//! display link's timestamp on macOS and seconds since start on Linux, so
+//! it is a pure function of the clock, the screen and the window's being
+//! shown, and the tests run on every platform.
 //!
 //! **It waits on nothing.** The shell is spawned before the first frame,
 //! keys go to it throughout, its output is drawn under the logo on the
 //! frame it arrives, and the splash only owes frames while it emerges or
-//! vanishes; while it is held it owes one frame, at the hold's end.
+//! vanishes, and the one the window's being shown starts.
 //!
 //! **"The shell drew something" is a visible cell**, not a byte: a shell's
 //! first bytes are often an `OSC 7` directory, a title or mode sets, which
@@ -26,10 +29,10 @@ use baud_core::Term;
 use baud_domain::{Content, Row};
 use baud_render::{SplashLook, SplashPhase};
 
-/// **Seconds from the first frame after which the logo vanishes though the
-/// shell has drawn nothing**, under reduced motion: a slow login shell, a
-/// remote one, a command that prints nothing. Short, so a launch feels
-/// quick.
+/// **Seconds from the window's being shown after which the logo vanishes
+/// though the shell has drawn nothing**, under reduced motion: a slow
+/// login shell, a remote one, a command that prints nothing. Short, so a
+/// launch feels quick.
 pub(crate) const CAP: f64 = 0.5;
 
 /// What the splash owes the frame loop.
@@ -42,31 +45,23 @@ pub(crate) enum Owes {
 /// Where the splash is.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum State {
+    /// The window is not shown yet: nothing of the logo under full motion,
+    /// the logo whole under reduced motion, and no clock.
+    Waiting,
     /// Coming out of the plasma; the clock it runs from, once a frame has
     /// had one.
     Emerging(Option<f64>),
-    /// Shown whole, until what ends the hold; the clock it runs from.
-    Held(Option<f64>, Until),
+    /// Shown whole under reduced motion, which has no emerge, until the
+    /// shell's first visible cell or [`CAP`]; the clock it runs from.
+    Held(Option<f64>),
     /// The hold is over: this frame shows the logo still held, and the
-    /// vanish starts on the next -- so a frame that brings the shell's
-    /// text costs what a held frame does and no more, the vanish's first
-    /// frame landing on the frame after it.
+    /// fade starts on the next -- so a frame that brings the shell's text
+    /// costs what a held frame does and no more.
     Due,
     /// Vanishing since this time, in this form.
     Vanishing(f64, Form),
     /// Gone, or never shown.
     Gone,
-}
-
-/// **What ends a hold**, fixed when it starts.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Until {
-    /// After the emerge: [`hold`] once the logo is whole, on the clock
-    /// alone, the clock counting from the emerge's start.
-    Clock,
-    /// Under reduced motion, which has no emerge: the shell's first
-    /// visible cell or [`CAP`] from the first frame, whichever is first.
-    Shell,
 }
 
 /// How the logo leaves.
@@ -82,27 +77,41 @@ pub(crate) struct Splash {
     state: State,
 }
 
-/// Seconds the emerge lasts: its plasma's, at kitty's pace.
-fn emerge() -> f64 {
-    f64::from(baud_render::splash::end())
-}
-
-/// Seconds the logo holds whole between the emerge and the vanish
-/// (`baud_render::splash::HOLD`).
-pub(crate) fn hold() -> f64 {
-    f64::from(baud_render::splash::HOLD)
+/// Seconds into the emerge at which the vanish starts
+/// (`baud_render::splash::TURN`).
+pub(crate) fn turn() -> f64 {
+    f64::from(baud_render::splash::TURN)
 }
 
 impl Splash {
-    /// The splash a launch starts with: emerging, or gone when the
-    /// setting is off.
+    /// The splash a launch starts with: waiting for the window, or gone
+    /// when the setting is off.
     pub(crate) fn new(setting: LaunchSplash) -> Splash {
         Splash {
             state: match setting {
-                LaunchSplash::On => State::Emerging(None),
+                LaunchSplash::On => State::Waiting,
                 LaunchSplash::Off => State::Gone,
             },
         }
+    }
+
+    /// **The window is shown**: the emerge, or the reduced-motion hold,
+    /// runs from the next frame with a clock, which this owes. Once.
+    pub(crate) fn shown(&mut self) -> Owes {
+        match self.state {
+            State::Waiting => {
+                self.state = State::Emerging(None);
+                Owes::Frame
+            }
+            _ => Owes::Nothing,
+        }
+    }
+
+    /// Whether it waits for the window to be shown: what the macOS tick
+    /// asks AppKit about.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn waiting(&self) -> bool {
+        self.state == State::Waiting
     }
 
     /// **The setting read again**: `"off"` takes it down at once, which
@@ -112,7 +121,11 @@ impl Splash {
         match (setting, self.state) {
             (
                 LaunchSplash::Off,
-                State::Emerging(_) | State::Held(..) | State::Due | State::Vanishing(..),
+                State::Waiting
+                | State::Emerging(_)
+                | State::Held(_)
+                | State::Due
+                | State::Vanishing(..),
             ) => {
                 self.state = State::Gone;
                 Owes::Frame
@@ -121,15 +134,15 @@ impl Splash {
         }
     }
 
-    /// **The look for a frame at `now`**, which advances the state: the
-    /// emerge for the plasma's length from the first frame with a clock,
-    /// the hold, and the vanish from the frame after the hold ends, in the
-    /// form the motion preference gives; a vanish that is over is gone.
+    /// **The look for a frame at `now`**, which advances the state: nothing
+    /// while it waits for the window (the logo whole under reduced
+    /// motion); then the emerge from the first frame with a clock, and the
+    /// vanish from [`turn`] into it; under reduced motion the hold and the
+    /// fade from the frame after it ends; a vanish that is over is gone.
     /// `None` for `now` -- a frame before the clock has a reading, the
-    /// first one on macOS -- shows the emerge's first frame, or the held
-    /// logo, and starts no clock. Reduced motion arriving mid-emerge shows
-    /// the logo whole at once, and mid-plasma cuts the vanish, as it cuts
-    /// a trail in flight.
+    /// first one on macOS -- starts no clock. Reduced motion arriving
+    /// mid-emerge shows the logo whole at once, and mid-plasma cuts the
+    /// vanish, as it cuts a trail in flight.
     pub(crate) fn look(
         &mut self,
         now: Option<f64>,
@@ -138,27 +151,34 @@ impl Splash {
     ) -> Option<SplashLook> {
         if motion == SystemMotion::Reduced {
             match self.state {
-                State::Emerging(since) => self.state = State::Held(since, Until::Shell),
+                State::Emerging(since) => self.state = State::Held(since),
                 State::Vanishing(_, Form::Plasma) => self.state = State::Gone,
                 _ => {}
             }
+        }
+        let held = Some(SplashLook {
+            phase: SplashPhase::Hold,
+        });
+        if self.state == State::Waiting {
+            return match motion {
+                SystemMotion::Full => None,
+                SystemMotion::Reduced => held,
+            };
         }
         let Some(now) = now else {
             return match self.state {
                 State::Emerging(_) => Some(SplashLook {
                     phase: SplashPhase::Emerge(0.0),
                 }),
-                State::Held(..) | State::Due => Some(SplashLook {
-                    phase: SplashPhase::Hold,
-                }),
+                State::Held(_) | State::Due => held,
                 _ => None,
             };
         };
         match self.state {
             State::Emerging(since) => {
                 let since = since.unwrap_or(now);
-                self.state = match now - since >= emerge() {
-                    true => State::Held(Some(since), Until::Clock),
+                self.state = match now - since >= turn() {
+                    true => State::Vanishing(now, Form::Plasma),
                     false => State::Emerging(Some(since)),
                 };
             }
@@ -171,25 +191,21 @@ impl Splash {
                     },
                 );
             }
-            State::Held(since, until) => {
+            State::Held(since) => {
                 let since = since.unwrap_or(now);
-                let over = match until {
-                    Until::Clock => now - since >= emerge() + hold(),
-                    Until::Shell => drawn(term) || now - since >= CAP,
-                };
-                self.state = match over {
+                self.state = match drawn(term) || now - since >= CAP {
                     true => State::Due,
-                    false => State::Held(Some(since), until),
+                    false => State::Held(Some(since)),
                 };
             }
-            State::Vanishing(..) | State::Gone => {}
+            State::Waiting | State::Vanishing(..) | State::Gone => {}
         }
         let phase = match self.state {
             State::Emerging(since) => {
                 SplashPhase::Emerge((now - since.unwrap_or(now)).max(0.0) as f32)
             }
-            State::Held(..) | State::Due => SplashPhase::Hold,
-            State::Gone => return None,
+            State::Held(_) | State::Due => SplashPhase::Hold,
+            State::Waiting | State::Gone => return None,
             State::Vanishing(from, form) => {
                 let age = (now - from).max(0.0) as f32;
                 let (phase, over) = match form {
@@ -211,42 +227,39 @@ impl Splash {
         Some(SplashLook { phase })
     }
 
-    /// **What a tick at `now` owes**: a frame every tick while it emerges
-    /// or vanishes, the one its hold ends on while it is held, and the
-    /// first frame after the screen gets a visible cell under reduced
-    /// motion -- which the output's own frame draws anyway.
+    /// **What a tick at `now` owes**: nothing while it waits for the
+    /// window, a frame every tick while it emerges or vanishes, and under
+    /// reduced motion the one its cap runs out on -- the first frame after
+    /// the screen gets a visible cell is the output's own.
     pub(crate) fn owes(&self, now: f64) -> Owes {
         match self.state {
-            State::Emerging(_) | State::Vanishing(..) | State::Due | State::Held(None, _) => {
+            State::Emerging(_) | State::Vanishing(..) | State::Due | State::Held(None) => {
                 Owes::Frame
             }
-            State::Held(Some(since), Until::Clock) if now - since >= emerge() + hold() => {
-                Owes::Frame
-            }
-            State::Held(Some(since), Until::Shell) if now - since >= CAP => Owes::Frame,
+            State::Held(Some(since)) if now - since >= CAP => Owes::Frame,
             _ => Owes::Nothing,
         }
     }
 
-    /// **When the hold ends** on the clock alone: what bounds the Linux
-    /// loop's wait.
+    /// **When the reduced-motion hold ends** on the clock alone: what
+    /// bounds the Linux loop's wait. The window's being shown is an event
+    /// of its own, so a wait for it has no deadline.
     #[cfg(any(target_os = "linux", test))]
     pub(crate) fn deadline(&self) -> Option<f64> {
         match self.state {
-            State::Held(Some(since), Until::Clock) => Some(since + emerge() + hold()),
-            State::Held(Some(since), Until::Shell) => Some(since + CAP),
+            State::Held(Some(since)) => Some(since + CAP),
             _ => None,
         }
     }
 
-    /// Whether it is held, still to vanish: the time to build what the
-    /// vanish draws with, before it starts -- for a launch under reduced
-    /// motion, whose vanish is a plasma if full motion returns before it;
-    /// an emerge has built it on the first frame. The macOS GPU path's:
-    /// the CPU path builds nothing.
+    /// Whether it stands still before its plasma -- waiting for the window,
+    /// or held under reduced motion: the time to build what the plasma
+    /// draws with, so neither the emerge's first frame nor a vanish after
+    /// full motion returns pays for it. The macOS GPU path's: the CPU path
+    /// builds nothing.
     #[cfg(any(target_os = "macos", test))]
     pub(crate) fn held(&self) -> bool {
-        matches!(self.state, State::Held(..) | State::Due)
+        matches!(self.state, State::Waiting | State::Held(_) | State::Due)
     }
 }
 
@@ -293,11 +306,98 @@ mod tests {
         l.map(|l| l.phase)
     }
 
+    /// **The emerge waits for the window**: before it is shown no frame
+    /// draws anything of the logo, with a clock or without, and nothing is
+    /// owed, nor a deadline set, however long it takes; the plasma is built
+    /// meanwhile. Being shown owes one frame, once, and the emerge's clock
+    /// starts on the first frame after it.
+    #[test]
+    fn the_emerge_waits_for_the_window_to_be_shown() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut s = Splash::new(LaunchSplash::On);
+        let full = SystemMotion::Full;
+        assert!(s.waiting());
+        assert_eq!(s.look(None, &t, full), None, "nothing before the window");
+        feed(&mut t, b"$ ");
+        for now in [0.1, 1.0, 5.0] {
+            assert_eq!(s.look(Some(now), &t, full), None, "{now}");
+            assert_eq!(s.owes(now), Owes::Nothing, "{now}");
+            assert_eq!(s.deadline(), None, "{now}");
+        }
+        assert!(s.held(), "the plasma is built while it waits");
+        assert_eq!(s.shown(), Owes::Frame);
+        assert!(!s.waiting());
+        assert_eq!(s.shown(), Owes::Nothing, "once");
+        assert_eq!(
+            phase(s.look(Some(7.0), &t, full)),
+            Some(SplashPhase::Emerge(0.0)),
+            "the clock starts after the window is shown"
+        );
+        let Some(SplashPhase::Emerge(a)) = phase(s.look(Some(7.1), &t, full)) else {
+            panic!("emerging");
+        };
+        assert!((a - 0.1).abs() < 1e-4, "{a}");
+    }
+
+    /// **It emerges, then vanishes at the turn**, on the display link's
+    /// clock alone: the emerge runs from the first frame with a clock after
+    /// the window is shown, owing every frame; the frame [`turn`] into it
+    /// is the vanish's first, with no hold between -- output drawn
+    /// meanwhile neither ends it nor holds it longer -- and the vanish is
+    /// gone at the plasma's end, owing nothing after.
+    #[test]
+    fn it_emerges_then_vanishes_at_the_turn() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut s = Splash::new(LaunchSplash::On);
+        let full = SystemMotion::Full;
+        let _ = s.shown();
+        assert_eq!(
+            phase(s.look(None, &t, full)),
+            Some(SplashPhase::Emerge(0.0)),
+            "a frame before the clock"
+        );
+        assert_eq!(
+            phase(s.look(Some(5.0), &t, full)),
+            Some(SplashPhase::Emerge(0.0))
+        );
+        feed(&mut t, b"% ");
+        assert_eq!(s.owes(5.1), Owes::Frame, "every frame while it emerges");
+        assert_eq!(s.deadline(), None);
+        let Some(SplashPhase::Emerge(a)) = phase(s.look(Some(5.0 + turn() - 0.01), &t, full))
+        else {
+            panic!("output does not end the emerge");
+        };
+        assert!((f64::from(a) - (turn() - 0.01)).abs() < 1e-4, "{a}");
+        assert_eq!(
+            phase(s.look(Some(5.0 + turn()), &t, full)),
+            Some(SplashPhase::Vanish(0.0)),
+            "the vanish starts at the turn"
+        );
+        assert_eq!(s.owes(5.0 + turn()), Owes::Frame);
+        let end = 5.0 + turn() + f64::from(baud_render::splash::end()) + 0.001;
+        assert_eq!(s.look(Some(end), &t, full), None);
+        assert_eq!(s.owes(end + 0.1), Owes::Nothing);
+    }
+
+    /// **The turn is the new length**: under half a second into the emerge,
+    /// before the emerge's plasma is out; the logo no longer holds 0.4 s
+    /// after it.
+    #[test]
+    fn the_vanish_starts_before_the_emerges_plasma_is_out() {
+        let emerge = f64::from(baud_render::splash::end());
+        assert!(turn() < emerge, "{} {emerge}", turn());
+        assert!((turn() - 0.48).abs() < 1e-6, "{}", turn());
+    }
+
     /// **Under reduced motion it holds until the shell draws a visible
-    /// cell, then fades, and is gone at the fade's end**: an `OSC 7`, a
-    /// title and spaces draw nothing and keep it held; the frame that
-    /// shows the prompt holds it over the prompt, and the next starts the
-    /// fade; the frame after its end draws none and owes nothing.
+    /// cell, then fades, and is gone at the fade's end**: whole from the
+    /// first frame, before the window is shown, and held there whatever
+    /// the shell drew; after it, an `OSC 7`, a title and spaces draw
+    /// nothing and keep it held; the frame that shows the prompt holds it
+    /// over the prompt, and the next starts the fade; the frame after its
+    /// end draws none and owes nothing.
     #[test]
     fn under_reduced_motion_it_holds_until_the_shell_draws_then_fades() {
         let mut owned = Owned::new(&WS);
@@ -305,6 +405,12 @@ mod tests {
         let mut s = Splash::new(LaunchSplash::On);
         let reduced = SystemMotion::Reduced;
         assert_eq!(phase(s.look(None, &t, reduced)), Some(SplashPhase::Hold));
+        assert_eq!(
+            phase(s.look(Some(9.0), &t, reduced)),
+            Some(SplashPhase::Hold)
+        );
+        assert_eq!(s.owes(9.0 + CAP), Owes::Nothing, "no cap before shown");
+        assert_eq!(s.shown(), Owes::Frame);
         assert_eq!(
             phase(s.look(Some(10.0), &t, reduced)),
             Some(SplashPhase::Hold)
@@ -339,69 +445,12 @@ mod tests {
         assert_eq!(s.look(Some(11.6), &t, reduced), None);
     }
 
-    /// **It emerges from the first frame, holds whole, then vanishes**,
-    /// on the display link's clock alone: the first frame, before the
-    /// clock, is the emerge's first; the emerge runs the plasma's length
-    /// from the first frame with a clock, owing every frame; the logo
-    /// holds whole for [`hold`] owing nothing until the hold's end --
-    /// output drawn meanwhile neither ends it nor holds it longer; the
-    /// frame at the hold's end holds it, and the next starts the vanish.
-    #[test]
-    fn it_emerges_holds_then_vanishes() {
-        let mut owned = Owned::new(&WS);
-        let mut t = Term::new(owned.storage(), &WS);
-        let mut s = Splash::new(LaunchSplash::On);
-        let full = SystemMotion::Full;
-        let emerge = f64::from(baud_render::splash::end());
-        assert_eq!(
-            phase(s.look(None, &t, full)),
-            Some(SplashPhase::Emerge(0.0)),
-            "the first frame emerges"
-        );
-        assert_eq!(s.owes(0.0), Owes::Frame);
-        assert_eq!(
-            phase(s.look(Some(5.0), &t, full)),
-            Some(SplashPhase::Emerge(0.0))
-        );
-        feed(&mut t, b"% ");
-        let Some(SplashPhase::Emerge(a)) = phase(s.look(Some(5.1), &t, full)) else {
-            panic!("output does not end the emerge");
-        };
-        assert!((a - 0.1).abs() < 1e-4, "{a}");
-        assert_eq!(s.owes(5.1), Owes::Frame, "every frame while it emerges");
-        assert_eq!(s.deadline(), None);
-        let whole = 5.0 + emerge;
-        assert_eq!(
-            phase(s.look(Some(whole), &t, full)),
-            Some(SplashPhase::Hold)
-        );
-        assert_eq!(s.owes(whole + 0.01), Owes::Nothing, "nothing while held");
-        assert_eq!(s.deadline(), Some(whole + hold()));
-        assert_eq!(
-            phase(s.look(Some(whole + hold() - 0.01), &t, full)),
-            Some(SplashPhase::Hold)
-        );
-        assert_eq!(s.owes(whole + hold()), Owes::Frame, "the hold's end");
-        assert_eq!(
-            phase(s.look(Some(whole + hold()), &t, full)),
-            Some(SplashPhase::Hold)
-        );
-        assert_eq!(
-            phase(s.look(Some(whole + hold() + 0.016), &t, full)),
-            Some(SplashPhase::Vanish(0.0))
-        );
-        let end = whole + hold() + 0.016 + emerge + 0.001;
-        assert_eq!(s.look(Some(end), &t, full), None);
-        assert_eq!(s.owes(end + 0.1), Owes::Nothing);
-    }
-
-    /// **A shell that never draws does not hold it past the hold**, and
+    /// **A shell that never draws does not hold it past the turn**, and
     /// one that draws at once does not cut it short: the vanish starts
-    /// on the same frame either way.
+    /// on the same frame either way, the turn after the window is shown.
     #[test]
     fn output_neither_ends_nor_holds_the_full_motion_splash() {
         let full = SystemMotion::Full;
-        let emerge = f64::from(baud_render::splash::end());
         let mut starts = Vec::new();
         for prompt in [&b""[..], b"$ "] {
             let mut owned = Owned::new(&WS);
@@ -411,6 +460,9 @@ mod tests {
             let mut at = None;
             for f in 0..240 {
                 let now = f64::from(f) / 120.0;
+                if f == 30 {
+                    let _ = s.shown();
+                }
                 if let Some(SplashPhase::Vanish(0.0)) = phase(s.look(Some(now), &t, full)) {
                     at = Some(now);
                     break;
@@ -419,8 +471,9 @@ mod tests {
             starts.push(at.expect("it vanishes"));
         }
         assert_eq!(starts[0], starts[1]);
+        let shown = 30.0 / 120.0;
         assert!(
-            (starts[0] - (emerge + hold())).abs() <= 2.0 / 120.0,
+            (starts[0] - (shown + turn())).abs() <= 2.0 / 120.0,
             "{starts:?}"
         );
     }
@@ -435,11 +488,13 @@ mod tests {
         let reduced = SystemMotion::Reduced;
         let mut s = Splash::new(LaunchSplash::On);
         assert_eq!(phase(s.look(None, &t, reduced)), Some(SplashPhase::Hold));
+        let _ = s.shown();
         assert_eq!(
             phase(s.look(Some(1.0), &t, reduced)),
             Some(SplashPhase::Hold)
         );
         let mut s = Splash::new(LaunchSplash::On);
+        let _ = s.shown();
         assert_eq!(
             phase(s.look(Some(1.0), &t, SystemMotion::Full)),
             Some(SplashPhase::Emerge(0.0))
@@ -452,14 +507,16 @@ mod tests {
     }
 
     /// **The cap ends a hold the shell never ends**, under reduced
-    /// motion, from the first frame with a clock, and owes the frame it
-    /// runs out on.
+    /// motion, from the first frame with a clock after the window is
+    /// shown, and owes the frame it runs out on.
     #[test]
     fn the_cap_ends_a_hold_the_shell_never_ends() {
         let mut owned = Owned::new(&WS);
         let t = Term::new(owned.storage(), &WS);
         let mut s = Splash::new(LaunchSplash::On);
         let reduced = SystemMotion::Reduced;
+        assert_eq!(s.owes(0.0), Owes::Nothing, "waiting for the window");
+        let _ = s.shown();
         assert_eq!(s.owes(0.0), Owes::Frame, "the first tick starts the clock");
         assert_eq!(
             phase(s.look(Some(5.0), &t, reduced)),
@@ -493,6 +550,7 @@ mod tests {
         feed(&mut t, b"$ ");
         let reduced = SystemMotion::Reduced;
         let mut s = Splash::new(LaunchSplash::On);
+        let _ = s.shown();
         assert_eq!(
             phase(s.look(Some(0.9), &t, reduced)),
             Some(SplashPhase::Hold)
@@ -508,13 +566,12 @@ mod tests {
         assert!((p - 0.5).abs() < 1e-4);
         assert_eq!(s.look(Some(1.0 + fade), &t, reduced), None);
         let mut s = Splash::new(LaunchSplash::On);
+        let _ = s.shown();
         let full = SystemMotion::Full;
-        let due = 1.0 + emerge() + hold();
+        let due = 1.0 + turn();
         let _ = s.look(Some(1.0), &t, full);
-        let _ = s.look(Some(1.0 + emerge()), &t, full);
-        let _ = s.look(Some(due), &t, full);
         assert_eq!(
-            phase(s.look(Some(due + 0.01), &t, full)),
+            phase(s.look(Some(due), &t, full)),
             Some(SplashPhase::Vanish(0.0))
         );
         assert_eq!(s.look(Some(due + 0.05), &t, reduced), None);
@@ -522,7 +579,7 @@ mod tests {
     }
 
     /// **Off draws nothing and owes nothing; turned off live it goes at
-    /// once; turned on after launch it stays gone.**
+    /// once, waiting or emerging; turned on after launch it stays gone.**
     #[test]
     fn off_draws_nothing_and_a_reload_to_off_cuts_it() {
         let mut owned = Owned::new(&WS);
@@ -532,9 +589,15 @@ mod tests {
         assert_eq!(off.look(None, &t, full), None);
         assert_eq!(off.look(Some(1.0), &t, full), None);
         assert_eq!(off.owes(1.0), Owes::Nothing);
+        assert_eq!(off.shown(), Owes::Nothing);
         assert_eq!(off.set(LaunchSplash::On), Owes::Nothing);
         assert_eq!(off.look(Some(1.1), &t, full), None);
+        let mut waiting = Splash::new(LaunchSplash::On);
+        assert_eq!(waiting.set(LaunchSplash::Off), Owes::Frame);
+        assert_eq!(waiting.shown(), Owes::Nothing);
+        assert_eq!(waiting.look(Some(1.0), &t, SystemMotion::Reduced), None);
         let mut s = Splash::new(LaunchSplash::On);
+        let _ = s.shown();
         assert_eq!(
             phase(s.look(Some(1.0), &t, full)),
             Some(SplashPhase::Emerge(0.0))

@@ -832,7 +832,13 @@ pub fn run() {
         while let Some(e) = d.window.next_event() {
             match e {
                 Event::Configured { width, height } => d.configure(width, height),
-                Event::Frame => {}
+                // The first frame reached the screen: the splash's clock
+                // starts on the next (`Timed::shown`).
+                Event::Frame => {
+                    if d.timed.shown() != crate::timed::Owes::Nothing {
+                        d.pending = Pending::Dirty;
+                    }
+                }
                 // The find field takes every key while it is open, before a
                 // key could snap the window away from the match it shows.
                 Event::Key(k) if d.finding.is_some() => {

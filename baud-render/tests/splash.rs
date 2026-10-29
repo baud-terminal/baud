@@ -242,3 +242,55 @@ fn the_emerges_first_frame_shows_the_logo_faintly_in_the_plasma() {
     assert!(alphas(&r).iter().all(|&a| a >= 254), "{:?}", alphas(&r));
     assert_eq!(r.vfx(), None, "its plasma out");
 }
+
+/// **The vanish is drawn under the flash thresholds, the emerge is not**:
+/// the vanish passes over the box the emerge's plasma lit less than a
+/// second before, so it is drawn as a trail's repeat pass is -- its bands
+/// alone, each at most the cap -- and the cap is the amber's over the
+/// lockup as well as over the page, so it is no more than the amber's
+/// cap over the wordmark and over the amber. The control: the emerge is
+/// full strength and carries its ions, records that are not bands.
+#[test]
+fn the_vanish_is_drawn_under_the_flash_thresholds() {
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    for (theme, c) in [(Theme::dark(), DARK), (Theme::light(), LIGHT)] {
+        let page = theme.bg;
+        let mut r = renderer(&faces, theme);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut px = Vec::new();
+        r.set_splash(look(SplashPhase::Emerge(0.05)));
+        let _ = paint(&mut r, &mut t, &mut px, Damage::Full);
+        let v = r.vfx().expect("the emerge's plasma");
+        assert_eq!(v.emitter.strength, Strength::Full, "the emerge");
+        assert!(
+            r.trail().iter().any(|i| i.kind != Kind::Band),
+            "the emerge's ions"
+        );
+        // A frame scans so many caps; a few frames scan every ground.
+        for age in [0.10, 0.11, 0.12, 0.13, 0.14, 0.15] {
+            r.set_splash(look(SplashPhase::Vanish(age)));
+            let _ = paint(&mut r, &mut t, &mut px, Damage::Full);
+        }
+        let v = r.vfx().expect("the vanish's plasma");
+        assert_eq!(v.emitter.strength, Strength::UnderThreshold, "the vanish");
+        assert_eq!(r.flash_held(), baud_render::Held::Capped);
+        let k = r.flash_cap();
+        assert!(k.get() > 0);
+        let opaque = |a: baud_render::Argb| a.with_alpha(baud_domain::Chan::from_u8(0xFF));
+        for text in [c.wordmark, c.amber] {
+            let over =
+                baud_render::under_threshold_over(opaque(c.amber), opaque(text), opaque(page));
+            assert!(k.get() <= over.get(), "{text:?}: {k:?} over {over:?}");
+        }
+        assert!(!r.trail().is_empty());
+        for i in r.trail() {
+            assert_eq!(i.kind, Kind::Band, "its bands alone");
+            assert!(i.color.a().get() <= k.get(), "{:?} over {k:?}", i.color);
+        }
+    }
+}

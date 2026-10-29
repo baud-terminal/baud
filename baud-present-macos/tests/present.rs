@@ -419,3 +419,25 @@ fn a_reshape_waits_for_the_last_frame_not_the_first() {
     j.land(tag(two, second), &epoch, quiet());
     assert_eq!(j.reshape(), Reshape::Now);
 }
+
+/// **The layer's surface is set in three places and handed over in one**:
+/// `present_changed`, the CPU path, and `draw_now` and `draw_cells_now`, a
+/// GPU frame drawn now, set it themselves; a GPU frame drawn on an event is
+/// handed over by its completion, through the waker. The app shows the
+/// window to its launch logo at each of the four
+/// (`every_frame_on_the_layer_shows_the_window_to_the_splash`), so a fifth
+/// would leave the logo waiting on the frames it draws.
+#[test]
+fn the_layer_is_set_in_three_places_and_handed_over_in_one() {
+    const SRC: &str = include_str!("../src/lib.rs");
+    let set = concat!("view.set_", "surface(");
+    let at: Vec<&str> = SRC
+        .match_indices(set)
+        .map(|(i, _)| {
+            let (_, f) = SRC[..i].rsplit_once(" fn ").expect("a function");
+            f.split_once(['(', '<']).map_or(f, |(name, _)| name)
+        })
+        .collect();
+    assert_eq!(at, ["present_changed", "draw_now", "draw_cells_now"]);
+    assert_eq!(SRC.matches(concat!("waker.", "present(")).count(), 1);
+}

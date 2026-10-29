@@ -1367,6 +1367,17 @@ fn the_splash_draws_alike_on_every_arm() {
         ] {
             let at = format!("{half}, {phase:?}");
             arms.splash = Some(SplashLook { phase });
+            // The vanish is a repeat pass, whose cap is scanned a few
+            // grounds a frame: drawn until every ground under it is
+            // scanned, so the arms compared draw the same cap.
+            if let SplashPhase::Vanish(_) = phase {
+                for _ in 0..16 {
+                    let _ = arms.draw(&mut t);
+                    if arms.renderer.flash_held() != baud_render::Held::Scanning {
+                        break;
+                    }
+                }
+            }
             let (a, b) = arms.draw(&mut t);
             assert_eq!(differing(&a, &b), 0, "{at}: the GPU arms disagree");
             let cpu = cpu_frame(&mut arms, &mut t);

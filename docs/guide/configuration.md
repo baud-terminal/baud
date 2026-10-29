@@ -222,7 +222,7 @@ unless you name a trail here.
 
 | key | values | default | what it changes |
 |---|---|---|---|
-| `splash` | `"on"`, `"off"` | `"on"` | Whether baud starts with its colour logo in the middle of the window: it comes out of a burst of plasma from left to right, holds for a moment, and goes back into the plasma from left to right, gone in under two seconds. Your keys go to the shell the whole time, and the shell's output draws under the logo. On a Mac with Reduce Motion on, the logo shows whole and fades once your shell has drawn something, or half a second after the window opens if the shell draws nothing by then. It never flashes more than three times a second. `"off"` turns it off; saving `"off"` while the logo shows takes it down at once. |
+| `splash` | `"on"`, `"off"` | `"on"` | Whether baud starts with its colour logo in the middle of the window once the window is on screen: it comes out of a burst of plasma from left to right and goes back out from left to right in a faint glow a quarter of a second after it is whole, gone in about a second. Your keys go to the shell the whole time, and the shell's output draws under the logo. On a Mac with Reduce Motion on, the logo shows whole and fades once your shell has drawn something, or half a second after the window is on screen if the shell draws nothing by then. It never flashes more than three times a second. `"off"` turns it off; saving `"off"` while the logo shows takes it down at once. |
 
 ## [pointer]
 

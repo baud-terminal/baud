@@ -1,7 +1,7 @@
 //! **The launch splash**: baud's colour lockup, `baud ❯ █`, in the middle
-//! of the window from the first frame -- coming out of the plasma from its
-//! left edge to its right, held whole, then going back into the plasma
-//! from its left edge to its right (note AJ). The lockup is
+//! of the window once it is shown -- coming out of the plasma from its
+//! left edge to its right, then going back into the plasma from its left
+//! edge to its right at [`TURN`] (note AJ). The lockup is
 //! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s geometry and
 //! colours, without the dark one's baked ground, which would be a
 //! rectangle on the glass; the half is the theme's by the rule `CSI ? 996
@@ -21,11 +21,14 @@
 //! prompt go where the quad's trailing edge has passed, and the block,
 //! whole until that edge comes within its width, starves with the tube,
 //! as `(1 - k)^2`. **The emerge is the same plasma with the ink the other
-//! way**: the logo stands faintly in it from the first frame ([`GHOST`])
+//! way**: the logo stands faintly in it from its first frame ([`GHOST`])
 //! and is drawn whole where the trailing edge has passed, the block last.
-//! So no new shader: every path
-//! draws it by the effect it already draws, and the pixel oracle holds it
-//! by the reference it already has.
+//! **The vanish passes over the box the emerge lit less than a second
+//! before**, so it is drawn as a trail's repeat pass is,
+//! [`Strength::UnderThreshold`]: its bands alone, each capped under the
+//! flash thresholds over the page and the lockup. So no new shader: every
+//! path draws it by the effect it already draws, and the pixel oracle
+//! holds it by the reference it already has.
 //!
 //! **Everything is a pure function of the phase**: the driver hands
 //! [`SplashLook`] -- so many seconds into the emerge, the logo held, so
@@ -120,12 +123,16 @@ pub const SEED: Seed = Seed(0xBA0D_276F);
 /// Seconds the fade lasts: the screen transition's (`TRANSITION_S`).
 pub const FADE_S: f32 = 0.15;
 
-/// **Seconds the logo holds whole between the emerge and the vanish**: the
-/// shortest tried that keeps the two plasmas from flashing a pixel more
-/// than three times in a second (WCAG 2.3.1); at 0.3 s some pixel flashed
-/// four times on three of the four grounds the census counts
-/// (`baud-bench/tests/splash_flashes.rs`).
-pub const HOLD: f32 = 0.4;
+/// **Seconds into the emerge at which the vanish starts**: every frame of
+/// the emerge from here on is within a general flash's change, 0.10 of
+/// relative luminance, of the held logo at every pixel, on the four
+/// grounds the census counts -- the last frames still at 0.10 or over are
+/// at 0.44 s at 1x and 0.47 s at 2x, on the light ground, and at 0.30 s on
+/// the dark one at 2x -- so the emerge's plasma ends there with no
+/// visible step
+/// (`baud-bench/tests/splash_flashes.rs`). The logo is whole about 0.25 s
+/// into the emerge, so it stands whole about a quarter of a second.
+pub const TURN: f32 = 0.48;
 
 /// The lockup's two colours on a half: the wordmark's and the amber of the
 /// prompt and the block.
@@ -192,8 +199,14 @@ pub fn ignition(at: Pt, scale: f32) -> Ignition {
 
 /// **The plasma `age` seconds into the vanish**: the emitter collapsing
 /// from its box into the block on kitty's constants, the block its hole,
-/// the axis the move's.
+/// the axis the move's -- drawn under the flash thresholds, the box the
+/// emerge's plasma lit less than a second before.
 pub fn vfx(at: Pt, scale: f32, age: f32) -> Vfx {
+    plasma(at, scale, age, Strength::UnderThreshold)
+}
+
+/// The collapse `age` seconds in, at `strength`.
+fn plasma(at: Pt, scale: f32, age: f32, strength: Strength) -> Vfx {
     let e = placed(EMITTER, at, scale);
     let block = placed(BLOCK, at, scale);
     let f = ignition(at, scale).at(age.max(0.0));
@@ -203,7 +216,7 @@ pub fn vfx(at: Pt, scale: f32, age: f32) -> Vfx {
             corners: Segment::new(e.corners(), block).at(age.max(0.0)),
             hole: block,
             shape: Shape::Quad,
-            strength: Strength::Full,
+            strength,
         },
         ignition: f,
         axis: f.dir,
@@ -228,9 +241,10 @@ pub const GHOST: f32 = 0.25;
 /// **The emerge's plasma `age` seconds in**: the vanish's own, so the
 /// logo comes out of the plasma it goes back into -- the box from the
 /// wordmark to the block collapsing into the block on kitty's constants,
-/// its trailing edge crossing the logo from left to right.
+/// its trailing edge crossing the logo from left to right -- at full
+/// strength.
 pub fn emerge_vfx(at: Pt, scale: f32, age: f32) -> Vfx {
-    vfx(at, scale, age)
+    plasma(at, scale, age, Strength::Full)
 }
 
 /// The edge of the plasma's quad the ink follows: its trailing edge, the
@@ -338,8 +352,9 @@ mod tests {
 
     /// **The vanish is the plasma's, into the block**: at its start the
     /// emitter is the box from the wordmark to the block, the hole the
-    /// block; it collapses into the block; and it is out by the plasma's
-    /// end, which is the same at every size.
+    /// block; it is drawn under the flash thresholds, the emerge's same
+    /// plasma at full strength; it collapses into the block; and it is out
+    /// by the plasma's end, which is the same at every size.
     #[test]
     fn the_vanish_collapses_the_plasma_into_the_block() {
         let s = scale(FRAME);
@@ -351,6 +366,13 @@ mod tests {
         assert!(xs.iter().any(|&x| (x - e.right).abs() < 1e-3));
         assert_eq!(first.emitter.hole, placed(BLOCK, o, s));
         assert_eq!(first.effect, Effect::Plasma);
+        assert_eq!(first.emitter.strength, Strength::UnderThreshold);
+        let emerge = emerge_vfx(o, s, 0.0);
+        assert_eq!(emerge.emitter.strength, Strength::Full);
+        assert_eq!(
+            emerge.emitter.corners, first.emitter.corners,
+            "the same plasma"
+        );
         let late = vfx(o, s, 0.5).emitter.corners.0;
         let b = placed(BLOCK, o, s);
         assert!(

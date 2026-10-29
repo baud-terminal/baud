@@ -1,13 +1,15 @@
 # AJ. The launch splash: the colour logo, and the plasma it vanishes in
 
 **Status: built 2026-10-24 (roadmap F1-19); the emerge built 2026-10-28
-(section 9). The questions as built:**
+(section 9); its start and its turn 2026-10-29 (section 10). The questions
+as built:**
 
-- **1. When.** Under full motion, on the clock alone since 2026-10-28 (the lean):
-  the emerge for the plasma's length, the logo held whole 0.4 s, and the
-  vanish on the frame after (section 9). Under reduced motion, as first
-  built: on the shell's first visible cell or a 0.5 s cap, whichever
-  is first (E2 and a cap of 0.5 s; the cap is the lean);
+- **1. When.** Nothing of it until the window is shown (section 10). Under
+  full motion, on the clock alone since 2026-10-28 (the lean): the emerge,
+  and the vanish at 0.48 s into it, drawn under the flash thresholds, with
+  no hold (section 10). Under reduced motion, as first built: on the
+  shell's first visible cell or a 0.5 s cap from the window's being shown,
+  whichever is first (E2 and a cap of 0.5 s; the cap is the lean);
   the vanish starts on the frame after that one.
 - **2. Which plasma.** P1, against P2 with renders (from text on 2026-10-09). P4 was not offered: it needs a shader nothing in baud
   draws, and the plasma the trails use is baud's one plasma. P1 is built
@@ -2048,3 +2050,65 @@ and faster emerges flash up to six. The shortest passing holds tried:
 **Unmeasured.** This replaces section 6's placement: under full motion the emerge draws the plasma on the first frame, so its pipeline's build is on the launch path; under Reduce Motion it is still built while the logo is held. The plasma's pipeline now builds on the first frame, not
 on the vanish's first: section 6's late build (7.5 ms cold, 0.1 ms warm,
 inferred) lands on the first present. No launch was timed for this change.
+
+## 10. When it starts, and how long it stands (2026-10-29)
+
+**What the user sees.** Nothing of the logo until the window is on
+screen; then it comes out of the plasma left to right as before, is whole
+about 0.25 s in, and starts to go at 0.48 s, left to right, in a faint
+amber glow with no sparks; gone about 1.1 s after it began. It stood whole
+about 0.78 s before (0.25 s to 1.03 s), and about 0.23 s now. Keys and
+output are as before; under Reduce Motion the logo is whole from the
+first frame, and its 0.5 s cap counts from the window's being shown.
+
+The request, verbatim (2026-10-28): "ok the baud logo now starts too fast
+and waits too much, so i think it should start after the window is fully
+displayed, and not wait so much with full display".
+
+**When the window is shown.** On macOS, the first display-link tick at
+which a frame has reached the layer, the plasma's pipeline is built, and
+the window is `isVisible` ("visible onscreen") with its occlusion state
+`.visible` ("at least part of the window is visible")
+([[source: apple-nswindow-isvisible]],
+[[source: apple-nswindow-occlusionstate]]). A frame reaches the layer in
+three ways, and each marks it: the first frame, drawn at once on either GPU
+path; every frame on the CPU path; and a GPU frame drawn on an event, when
+its completion hands the surface over. The first two set the layer
+themselves and no completion follows them, so a mark at the completion
+alone would leave the CPU path's logo waiting for good.
+`every_frame_on_the_layer_shows_the_window_to_the_splash` holds each
+mark, `the_tick_starts_the_splash_only_once_the_window_is_shown` the
+tick's gate, and `the_layer_is_set_in_three_places_and_handed_over_in_one`
+that the presenter sets the layer nowhere else. On Linux, the first frame
+callback, which a server "should avoid signaling ... if the surface is not
+visible in any way" ([[source: wayland]]); `Timed::shown` is tested, and
+the event loop's call to it is not. **AppKit reports no end to a
+window's open animation**: the class's Notifications list has none
+([[source: apple-nswindow]]), and `animationBehavior` only lets an app turn
+it off ([[source: apple-nswindow-animationbehavior]]). Whether baud's window
+animates, and whether these signals come later than the first tick on a
+normal launch, is unmeasured: measuring it opens a window on screen.
+
+**How long it stands.** Two full-strength plasmas over the box put a
+fourth flash into one second at some pixel unless 0.4 s kept them apart;
+every failing pixel is in the box the plasma fills, and ending the emerge
+early made it worse ([[source: aj-obs-turn-census]]). The vanish passes
+over what the emerge lit under a second before, so it is now drawn as a
+trail's repeat pass is (note AL): its bands alone, capped so the amber over
+the page and over the lockup makes no transition. It starts at 0.48 s:
+from there every frame of the emerge is within 0.10 of the held logo at
+every pixel (the last at 0.10 or over is at 0.47 s, light ground, 2x and
+at a full-screen 6K frame). Census: general, red and red-encoded at most
+3, area 0, on four grounds at 64x20 at 1x 60 Hz, 200x50 at 2x 60 and
+120 Hz, and 6120x3330 px at 60 Hz -- margin 0, as before. The vanish's
+first frame can draw no glow while its cap is still being scanned
+(`FLASH_SCANS` a frame). Measured at one frame on the dark and light
+themes, opaque and at a 0xB0 page, with a prompt on screen.
+
+**The choices, from strips** ([[source: aj-obs-turn-strip-dark]],
+[[source: aj-obs-turn-strip-light]], [[source: aj-obs-turn-strip-at-end]]):
+the vanish at 0.48 s over at the plasma's end, 0.63 s; nothing of the
+logo before the window is shown over the emerge's first frame held still;
+AppKit's open animation kept over turning it off. Each is the lean. A full
+vanish with another seed passed at 0.35 s only, and a seed picked by
+search is fitting.

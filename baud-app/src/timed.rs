@@ -157,10 +157,22 @@ impl Timed {
     }
 
     /// **The launch's splash**, from `[launch] splash` (and `BAUD_SPLASH`):
-    /// shown from the first frame, as on macOS.
+    /// waiting for the window to be shown, as on macOS.
     pub(crate) fn with_splash(mut self, setting: crate::config::LaunchSplash) -> Timed {
         self.splash = crate::splash::Splash::new(setting);
         self
+    }
+
+    /// **The window is shown**: the compositor's first frame callback after
+    /// the first frame was committed -- "a good time to start drawing a new
+    /// frame", and one a server "should avoid signaling ... if the surface
+    /// is not visible in any way" (`[[source: wayland]]`, `wl_surface.frame`).
+    /// The splash's clock starts on the frame after it, which this owes.
+    pub(crate) fn shown(&mut self) -> Owes {
+        match self.splash.shown() {
+            crate::splash::Owes::Frame => Owes::Frame,
+            crate::splash::Owes::Nothing => Owes::Nothing,
+        }
     }
 
     /// **`[launch] splash` read again**: off takes a splash still on
@@ -497,15 +509,15 @@ mod tests {
         }
     }
 
-    /// **The launch splash on Linux, as on macOS**: emerging from the
-    /// first plan and owing every turn while it does, whatever the shell
-    /// draws; held whole after it, owing nothing and its end the wait's
-    /// deadline; the frame after the hold's end starts the plasma, which
-    /// owes every turn and is gone at its end, owing nothing after; and a
-    /// reload to off takes it down with one whole frame. Without
-    /// `with_splash` there is none.
+    /// **The launch splash on Linux, as on macOS**: nothing of it until the
+    /// window is shown, owing nothing and setting no deadline; the first
+    /// frame callback owes a frame, once, and the emerge runs from the plan
+    /// after it, owing every turn whatever the shell draws; the plan at the
+    /// turn starts the plasma, which owes every turn and is gone at its
+    /// end, owing nothing after; and a reload to off takes it down with one
+    /// whole frame. Without `with_splash` there is none.
     #[test]
-    fn the_splash_emerges_holds_wakes_at_the_hold_end_and_vanishes() {
+    fn the_splash_waits_for_the_first_frame_then_emerges_and_vanishes() {
         use crate::config::LaunchSplash;
         use baud_render::SplashPhase;
         let t0 = Instant::now();
@@ -514,10 +526,18 @@ mod tests {
         let off = TrailPick::Named(CursorTrail::Off);
         let mut none = Timed::new(t0, off, ScreenTransition::Off);
         assert_eq!(none.plan(t0, &t, rect, CELL, widths()).splash, None);
+        assert_eq!(none.shown(), Owes::Nothing);
         let mut fx = Timed::new(t0, off, ScreenTransition::Off).with_splash(LaunchSplash::On);
-        let first = fx.plan(t0, &t, rect, CELL, widths()).splash;
+        assert_eq!(fx.plan(t0, &t, rect, CELL, widths()).splash, None);
+        let later = t0 + Duration::from_millis(300);
+        assert_eq!(fx.turn(later, &mut t), Owes::Nothing, "waiting");
+        assert_eq!(fx.deadline(later), None);
+        assert_eq!(fx.plan(later, &t, rect, CELL, widths()).splash, None);
+        assert_eq!(fx.shown(), Owes::Frame, "the first frame callback");
+        assert_eq!(fx.shown(), Owes::Nothing, "once");
+        let first = fx.plan(later, &t, rect, CELL, widths()).splash;
         assert_eq!(first.map(|l| l.phase), Some(SplashPhase::Emerge(0.0)));
-        let soon = t0 + Duration::from_millis(100);
+        let soon = later + Duration::from_millis(100);
         assert_eq!(fx.turn(soon, &mut t), Owes::Frame, "every turn");
         feed(&mut t, b"$ ");
         let shown = fx.plan(soon, &t, rect, CELL, widths()).splash;
@@ -525,35 +545,19 @@ mod tests {
             matches!(shown.map(|l| l.phase), Some(SplashPhase::Emerge(a)) if a > 0.09),
             "over the prompt, still emerging: {shown:?}"
         );
-        let emerge = Duration::from_secs_f64(f64::from(baud_render::splash::end()));
-        let whole = t0 + emerge + Duration::from_millis(1);
-        let held = fx.plan(whole, &t, rect, CELL, widths()).splash;
-        assert_eq!(held.map(|l| l.phase), Some(SplashPhase::Hold));
-        assert_eq!(fx.turn(whole, &mut t), Owes::Nothing);
-        let hold = Duration::from_secs_f64(crate::splash::hold());
-        let wake = fx.deadline(whole).expect("the hold's end");
-        let after = wake.saturating_duration_since(t0);
-        assert!(
-            after.abs_diff(emerge + hold) < Duration::from_millis(2),
-            "{after:?}"
-        );
-        let due = t0 + emerge + hold;
-        assert_eq!(fx.turn(due, &mut t), Owes::Frame);
-        let shown = fx.plan(due, &t, rect, CELL, widths()).splash;
-        assert_eq!(shown.map(|l| l.phase), Some(SplashPhase::Hold));
-        let soon = due + Duration::from_millis(16);
-        let vanish = fx.plan(soon, &t, rect, CELL, widths()).splash;
+        let turn = Duration::from_secs_f64(crate::splash::turn());
+        let at = later + turn + Duration::from_millis(1);
+        let vanish = fx.plan(at, &t, rect, CELL, widths()).splash;
         assert_eq!(vanish.map(|l| l.phase), Some(SplashPhase::Vanish(0.0)));
-        assert_eq!(
-            fx.turn(soon + Duration::from_millis(16), &mut t),
-            Owes::Frame
-        );
-        let end = emerge + Duration::from_millis(10);
-        assert_eq!(fx.plan(soon + end, &t, rect, CELL, widths()).splash, None);
-        assert_eq!(fx.turn(soon + end, &mut t), Owes::Nothing);
+        assert_eq!(fx.turn(at + Duration::from_millis(16), &mut t), Owes::Frame);
+        let end = Duration::from_secs_f64(f64::from(baud_render::splash::end()))
+            + Duration::from_millis(10);
+        assert_eq!(fx.plan(at + end, &t, rect, CELL, widths()).splash, None);
+        assert_eq!(fx.turn(at + end, &mut t), Owes::Nothing);
         let mut blank = Owned::new(&WS);
         let b = Term::new(blank.storage(), &WS);
         let mut held = Timed::new(t0, off, ScreenTransition::Off).with_splash(LaunchSplash::On);
+        let _ = held.shown();
         let first = held.plan(t0, &b, rect, CELL, widths()).splash;
         assert_eq!(first.map(|l| l.phase), Some(SplashPhase::Emerge(0.0)));
         assert_eq!(held.set_splash(LaunchSplash::On), Owes::Nothing);
