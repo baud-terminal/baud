@@ -244,9 +244,9 @@ fn the_first_frame_shows_the_logo_faintly_in_the_plasma() {
     assert_eq!(r.vfx(), None, "its plasma out");
 }
 
-/// **The splash's plasma is never a repeat pass, and its remainder fades
-/// out**: every frame of its life at 60 Hz draws one plasma at full
-/// strength, carries no cap and waits on no scan; once the logo is
+/// **The splash's plasma is never capped as a repeat pass, and its
+/// remainder fades out**: every frame of its life at 60 Hz draws one
+/// plasma, the first pass's or the second's, at full strength, carries no cap and waits on no scan; once the logo is
 /// carried out ([`LEFT`]) every record is drawn at no more than [`glow`]
 /// of its own alpha, a band at exactly that; at [`GONE`] the plasma is
 /// out. The control: before the logo is out a band is drawn whole.

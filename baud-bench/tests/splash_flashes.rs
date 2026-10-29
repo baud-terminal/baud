@@ -20,11 +20,13 @@
 //! four times is under 1% of the limit on every ground and size counted,
 //! and under 20% on the chained reading of a flash (the census's strict
 //! verdict), which is asserted too. Both are printed with their margin.
-//! This window is small, 64 by 20 cells at 1x, for the debug suite; the
-//! model is not scale-free (an ion's radius and a filament's width have
-//! pixel floors), and the same count was taken at 200 by 50 cells at 2x,
-//! at 60 and 120 frames a second, and over a 6120 by 3330 pixel frame at
-//! 2x at 60 (note AJ).
+//! This window is small, 64 by 20 cells at 1x, for the debug suite. At
+//! this size the whole lockup covers less than the area limit, so the
+//! verdict alone cannot fail here, and the margin assertion is what holds
+//! it. The model is not scale-free (an ion's radius and a filament's
+//! width have pixel floors), so the same census was taken at 200 by 50
+//! cells at 2x, at 60 and 120 frames a second, and over a 6120 by 3330
+//! pixel frame at 2x at 60 (note AJ).
 //! The control: the same logo shown and taken down every 125 ms, four
 //! times a second, does count more than three flashes at a pixel, so the
 //! census sees the logo.

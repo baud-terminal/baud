@@ -2147,7 +2147,7 @@ plasma's records are dimmed in step with the time left after the sweep
 (`glow`), so the splash's last frame differs little from the bare page
 whenever it falls. `no_splash_frame_waits_on_a_cap_scan`,
 `every_frame_the_splash_owes_moves` and
-and the half-second bound (renamed in section 12) drive the app's own clock into
+the half-second bound (renamed in section 12) drive the app's own clock into
 the renderer at 60 and 120 Hz; all three failed before the change. Both
 GPU arms ran the cap scan; on the instance arm the worst splash frame is
 now 0.66 ms of main-thread time and 1.71 ms of GPU at 6K.
@@ -2223,5 +2223,11 @@ writes the logo and trailing edge erases it, never whole at once
 ([[source: aj-obs-plasma-strip-b]]).
 
 **Not fixed.** The CPU path's frames cost what they did (26 ms at 2x,
-84 ms at 6K), and now more of them carry a plasma.
+84 ms at 6K), and now more of them carry a plasma. The first plasma's
+ions stop on the frame the second lights (0.30 s) rather than fading out.
+The seen-plasma figures are from the CPU path, which the pixel oracle
+holds the GPU arms to; the GPU cross-check ran at 120x10 cells and counts
+the logo's own partial ink. The 6K GPU frame was not timed again: it
+draws no more effect records or record pixels than before (18 and
+2,158,300).
 

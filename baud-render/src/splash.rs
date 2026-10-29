@@ -1,8 +1,9 @@
 //! **The launch splash**: baud's colour lockup, `baud ❯ █`, in the middle
 //! of the window once it is shown -- carried in by the plasma from its
 //! left edge to its right, whole at [`OUT`], 0.3 s in, then carried out by
-//! a second plasma from its left edge to its right, and gone at [`GONE`],
-//! 0.6 s in (note AJ). The lockup is
+//! a second plasma from its left edge to its right, the logo gone at
+//! [`LEFT`], 0.6 s in, and what is left of the plasma at [`GONE`], 0.68 s
+//! in (note AJ). The lockup is
 //! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s geometry and
 //! colours, without the dark one's baked ground, which would be a
 //! rectangle on the glass; the half is the theme's by the rule `CSI ? 996
