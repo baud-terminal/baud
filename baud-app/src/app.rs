@@ -11,7 +11,7 @@ use crate::gesture::{
     pointer_route, pointer_under, shift_overrides,
 };
 use crate::host::{
-    FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK,
+    FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_SPLASH, FIRST_TICK,
     FIRST_TICK_DONE, MAX_GRID, cell_px, describe, host_geometry, startup_first, startup_mark,
     startup_note,
 };
@@ -60,7 +60,7 @@ use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
     NSAutoresizingMaskOptions, NSBeep, NSColor, NSCursor, NSEvent, NSEventModifierFlags, NSImage,
     NSImageView, NSRequestUserAttentionType, NSScreen, NSScroller, NSScrollerStyle, NSView,
-    NSWindow, NSWindowButton, NSWindowOcclusionState, NSWindowStyleMask,
+    NSWindow, NSWindowAnimationBehavior, NSWindowButton, NSWindowOcclusionState, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -1769,6 +1769,12 @@ impl App {
         // starts no clock.
         let now = self.last_tick.map(|_| self.tick_target);
         let splash = self.splash.look(now, &self.term, self.motion);
+        if let Some(baud_render::SplashLook {
+            phase: baud_render::SplashPhase::Plasma(_),
+        }) = splash
+        {
+            startup_first("splash first frame", &FIRST_SPLASH);
+        }
         self.renderer.set_splash(splash);
         // The input manager's composition, at the cursor of the live view:
         // the instance and CPU paths draw it in their convert, the cell path
@@ -5845,9 +5851,40 @@ mod drag_tests {
         );
     }
 
+    /// **The window is ordered front with no open animation**, so the
+    /// gate's "on screen" is the window whole on screen and the launch
+    /// logo never plays inside AppKit's animation of it: the launch sets
+    /// its `animationBehavior` to none once, before it shows the window,
+    /// and nothing else in the app sets it. AppKit posts nothing at the
+    /// animation's end, so no later signal could stand in for it. The
+    /// launch is AppKit-bound, so the source is what can fail.
+    #[test]
+    fn the_window_opens_whole_before_the_logo_starts() {
+        const SRC: &str = include_str!("app.rs");
+        let launch = SRC
+            .split_once(concat!("\npub fn ", "run() {"))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(body, _)| body)
+            .expect("the launch");
+        let set = concat!(
+            ".setAnimation",
+            "Behavior(NSWindowAnimationBehavior::None);"
+        );
+        let show = concat!("window.", "show();");
+        let at = launch.find(set).expect("the open animation is turned off");
+        let shown = launch.find(show).expect("the control: the window is shown");
+        assert!(at < shown, "turned off after the window is shown");
+        assert_eq!(launch.matches(show).count(), 1, "shown once");
+        assert_eq!(
+            SRC.matches(concat!(".setAnimation", "Behavior(")).count(),
+            1,
+            "set once"
+        );
+    }
+
     /// **The tick starts the splash only once the window is shown**: a
-    /// frame on the layer, the plasma's pipeline built, and AppKit's
-    /// window on screen and not wholly covered. The tick is AppKit-bound,
+    /// frame on the layer, the plasma's pipeline built on an earlier
+    /// tick, and AppKit's window on screen and not wholly covered. The tick is AppKit-bound,
     /// so the source is what can fail.
     #[test]
     fn the_tick_starts_the_splash_only_once_the_window_is_shown() {
@@ -5872,6 +5909,15 @@ mod drag_tests {
         ] {
             assert!(gate.contains(read), "{read} in the gate: {gate}");
         }
+        // The pipeline is built after the gate in the tick, so the gate
+        // never passes on the first tick: the first frame has been on the
+        // layer for a display link interval when the logo starts.
+        let warm = concat!("self.app.splash_warm = ", "Done::Yes;");
+        assert_eq!(frame.matches(warm).count(), 1, "built once: {frame}");
+        assert!(
+            frame.find(start) < frame.find(warm),
+            "the pipeline is built before the gate reads it"
+        );
     }
 }
 
@@ -10137,10 +10183,12 @@ impl Responder for Driver {
         // state's `.visible`, "at least part of the window is visible"
         // ([[source: apple-nswindow-isvisible]],
         // [[source: apple-nswindow-occlusionstate]]): its clock starts on
-        // the frame after, which this owes. AppKit reports no end to the
-        // window's own open animation (note AJ, section 10). Not before the
-        // plasma's pipeline is built below, a tick earlier at the latest,
-        // so the emerge's first frame never pays for it.
+        // this tick's frame, which this owes. The window was ordered front
+        // with no open animation (`run`), so on screen is whole on screen
+        // (note AJ, section 13). Not before the plasma's pipeline is built
+        // below, on the tick before at the latest -- so not on the first
+        // tick, and the first frame has been on the layer for a display
+        // link interval -- and the emerge's first frame never pays for it.
         if self.app.splash.waiting()
             && self.app.layer_shown == Done::Yes
             && self.app.splash_warm == Done::Yes
@@ -10623,6 +10671,19 @@ pub fn run() {
     window.set_min_size(NSSize::new(200.0, 100.0));
     window.center();
     startup_mark("centered");
+    // **Ordered front at once, without AppKit's inferred open animation**,
+    // so the window is whole on screen the moment it is shown and the
+    // launch logo, which starts once it is shown (`frame`), plays over the
+    // window rather than inside an animation that is still opening it.
+    // `animationBehavior` is "used when the orderFront(_:) or orderOut(_:)
+    // methods are called", and none disables it, "which may be useful if
+    // that animation interferes with an animation that your application
+    // implements" ([[source: apple-nswindow-animationbehavior]],
+    // [[source: apple-nswindow-animationbehavior-none]]); AppKit posts no
+    // notification at the animation's end ([[source: apple-nswindow]]).
+    window
+        .ns_window()
+        .setAnimationBehavior(NSWindowAnimationBehavior::None);
     window.show();
     startup_mark("shown");
     let mut icon_iv: Option<Retained<NSImageView>> = None;

@@ -21409,6 +21409,45 @@ bytes  = 169857
 status = "retrieved"
 group  = "AJ"
 
+[sources.aj-obs-kitty-measure]
+key    = "aj-obs-kitty-measure"
+title  = "The launch splash at kitty's pace, both plasmas unslowed and 0.27 s apart: the flash census at four sizes and rates on four grounds, the plasma seen coming in and going out, and its times"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, 2026-10-29, with the change applied"
+file   = "aj-observed/kitty-measure.txt"
+sha256 = "f0f810f22cc1dba875796abac4da2132a14911db73899fbb4762741b891dab66"
+bytes  = 4521
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-kitty-strip-dark]
+key    = "aj-obs-kitty-strip-dark"
+title  = "The splash at kitty's pace: a plasma carries the logo in, whole at 0.27 s, a second carries it out, the block last, gone 0.62 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 13 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/kitty-strip-dark.png"
+sha256 = "5d1f1ff6244090d260deb8b3ce9ccb7ba3edc432a408d0e5cc4f7973ef83eba1"
+bytes  = 52517
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-kitty-strip-light]
+key    = "aj-obs-kitty-strip-light"
+title  = "The splash at kitty's pace: a plasma carries the logo in, whole at 0.27 s, a second carries it out, the block last, gone 0.62 s, light theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), light theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 13 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/kitty-strip-light.png"
+sha256 = "1421ca4af7c55123825c6a67de6f8bee46407179c619e8445da52218c9b4c8aa"
+bytes  = 53579
+status = "retrieved"
+group  = "AJ"
+
 [sources.apple-nswindow-isvisible]
 key    = "apple-nswindow-isvisible"
 title  = "NSWindow isVisible -- whether the window is visible onscreen, even when obscured by other windows (documentation JSON)"
@@ -21456,6 +21495,22 @@ group  = "AJ"
 # Not in the repository: no grant to redistribute it was found (Apple's
 # documentation). It was read as apple-nswindow-animationbehavior.json, and the digest is of that copy.
 # Fetched 2026-10-28 for the launch splash's start (note AJ, section 10).
+
+[sources.apple-nswindow-animationbehavior-none]
+key    = "apple-nswindow-animationbehavior-none"
+title  = "NSWindow.AnimationBehavior none -- no automatic animation used; may be useful when you perform your own window animation (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/animationbehavior-swift.enum/none.json"
+file   = ""
+sha256 = "dea3f40b4d6fda9c7b1e137edfebb2ced6fb6921a37e95c3c0021fd4446a79b6"
+bytes  = 12632
+status = "external"
+group  = "AJ"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nswindow-animationbehavior-none.json, and the digest is of that copy.
+# Fetched 2026-10-29 for the launch splash's start (note AJ, section 13).
 
 [sources.apple-nswindow]
 key    = "apple-nswindow"

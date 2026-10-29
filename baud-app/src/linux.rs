@@ -832,11 +832,14 @@ pub fn run() {
         while let Some(e) = d.window.next_event() {
             match e {
                 Event::Configured { width, height } => d.configure(width, height),
-                // The first frame reached the screen: the splash's clock
-                // starts on the next (`Timed::shown`).
+                // The first frame reached the screen: the compositor's
+                // first frame callback, which follows the first commit
+                // that attached a buffer, and the splash's clock starts on
+                // the next frame (`Timed::shown`).
                 Event::Frame => {
                     if d.timed.shown() != crate::timed::Owes::Nothing {
                         d.pending = Pending::Dirty;
+                        startup_mark("splash shown");
                     }
                 }
                 // The find field takes every key while it is open, before a

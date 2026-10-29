@@ -1,8 +1,8 @@
 //! **The launch splash**: baud's colour lockup, `baud ❯ █`, in the middle
 //! of the window once it is shown -- carried in by the plasma from its
-//! left edge to its right, whole at [`OUT`], 0.3 s in, then carried out by
+//! left edge to its right, whole at [`OUT`], 0.27 s in, then carried out by
 //! a second plasma from its left edge to its right, the logo gone at
-//! [`LEFT`], 0.6 s in, and what is left of the plasma at [`GONE`], 0.68 s
+//! [`LEFT`], 0.54 s in, and what is left of the plasma at [`GONE`], 0.62 s
 //! in (note AJ). The lockup is
 //! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s geometry and
 //! colours, without the dark one's baked ground, which would be a
@@ -14,21 +14,19 @@
 //! stands rather than flying its block to the shell's cursor. It is drawn
 //! as the lockup's own pixels, not as cells.
 //!
-//! **It comes out of the plasma trail's own model**, [`crate::plasma`]:
-//! the lockup's block is a cursor, and the box from the wordmark's left to
-//! the block collapses into it as kitty's quad collapses into the cell a
-//! cursor reached ([`Segment`]), the tube filling it, the filaments
-//! braiding into the block and the ions peeling off. **Two passes, at full
+//! **It is the plasma trail's own model, at kitty's pace**,
+//! [`crate::plasma`]: the lockup's block is a cursor, and the box from the
+//! wordmark's left to the block collapses into it as kitty's quad
+//! collapses into the cell a cursor reached ([`Segment`]), the tube
+//! filling it, the filaments braiding into the block and the ions peeling
+//! off, on kitty's constants and kitty's clock. **Two passes, at full
 //! strength**: the first draws the logo, which stands faintly in it from
 //! its first frame ([`GHOST`]), whole where the quad's trailing edge has
 //! passed; the second lights over the whole logo on the frame it is whole
 //! and takes it away where its own trailing edge has passed, the block
 //! last each time, and what is left of it fades to nothing by [`GONE`].
-//! Each runs at [`PACE`] of kitty's clock, and each trailing edge crosses
-//! the lockup at one speed ([`IN_S`], [`SWEEP_S`]) rather than on kitty's
-//! curve, so the plasma covers every glyph for as long as the next. The
-//! two passes put a fourth flash into one second at a few pixels, an area
-//! the general and red flash thresholds allow by a wide margin
+//! The two passes put a fourth flash into one second at a few pixels, an
+//! area the general and red flash thresholds allow by a wide margin
 //! (`baud-bench/tests/splash_flashes.rs`); no pass is capped, so nothing
 //! waits on a flash cap and no frame stands still. No new shader: every
 //! path draws it by the effect it already draws, and the pixel oracle
@@ -41,7 +39,6 @@
 //! [`crate::effect`].
 
 use crate::color::Argb;
-use crate::det::Det;
 use crate::effect::{Effect, Ignition, Seed, Vfx, smoothstep};
 use crate::flash::Strength;
 use crate::trail::{Pt, Rect, Segment, Shape, Smear};
@@ -124,33 +121,19 @@ pub const SEED: Seed = Seed(0xBA0D_276F);
 /// Seconds the fade lasts: the screen transition's (`TRANSITION_S`).
 pub const FADE_S: f32 = 0.15;
 
-/// **The plasma's clock against kitty's**: each pass's tube, sheath,
-/// filaments, knots and ions age at this share of the trail's own pace, so
-/// it burns brighter for longer and braids more slowly.
-pub const PACE: f32 = 0.7;
-
-/// **Seconds the first pass takes to draw the logo**: its quad's trailing
-/// edge crosses the lockup at one speed, from the wordmark's left to the
-/// block's, rather than on kitty's curve, which halves its gap every 0.04 s
-/// -- that drew the wordmark in about a tenth of a second and left the
-/// plasma on the prompt and the block alone.
-pub const IN_S: f32 = 0.30;
-
 /// **Seconds into the splash at which the plasma that carries it out
-/// lights**: the first pass's edge has reached the block, the logo is
-/// whole, and the second pass lights over it on that frame, so nothing
-/// stands still.
-pub const OUT: f32 = IN_S;
-
-/// **Seconds the second pass takes to carry the logo out**: its trailing
-/// edge crosses the lockup at one speed, as the first pass's did, rather
-/// than taking the first glyph in a frame and leaving the block standing
-/// alone in a dim plasma.
-pub const SWEEP_S: f32 = 0.30;
+/// lights**: the first pass's trailing edge has drawn the logo whole (the
+/// block, drawn last, at 0.986-0.995 of its opacity just before 0.27 s,
+/// from a 6120-pixel frame to a 640), and the second
+/// pass lights over it on that frame, so nothing stands still.
+pub const OUT: f32 = 0.27;
 
 /// **Seconds into the splash at which the logo is gone**: the second
-/// pass's trailing edge has crossed the lockup, the block last.
-pub const LEFT: f32 = OUT + SWEEP_S;
+/// pass's trailing edge, on kitty's curve, has crossed every glyph and
+/// closed on the block, which is under 0.02 of its opacity (0.014 at a
+/// 1600-pixel frame, 0.018 at 6120); what is left of it fades with the
+/// plasma's remainder.
+pub const LEFT: f32 = OUT + 0.27;
 
 /// **Seconds into the splash at which it is gone**: the second pass fades
 /// to nothing over [`DIM`] up to here, so its end is no step at any frame
@@ -158,14 +141,11 @@ pub const LEFT: f32 = OUT + SWEEP_S;
 /// two 60 Hz frames before here is within 0.10 of the bare page's
 /// relative luminance at every pixel on the four grounds the census counts
 /// (`baud-bench/tests/splash_flashes.rs`).
-pub const GONE: f32 = LEFT + 0.08;
+pub const GONE: f32 = LEFT + DIM;
 
 /// **Seconds the second pass takes to fade out**, ending at [`GONE`]: it
-/// starts as the block goes, the last of the logo, since at 0.7 of kitty's
-/// pace the plasma is still bright when the logo is out -- a fade over
-/// 0.08 s from [`LEFT`] left 0.12 of relative luminance on the light page
-/// two frames before the end.
-pub const DIM: f32 = 0.12;
+/// starts as the logo goes, the block last.
+pub const DIM: f32 = 0.08;
 
 /// The second pass's seed: its filaments and ions are its own, not the
 /// first pass's played again.
@@ -238,10 +218,11 @@ fn lit(at: Pt, scale: f32, seed: Seed) -> Ignition {
     )
 }
 
-/// One pass `t` seconds of its own clock in: the emitter collapsing from
-/// its box into the block on kitty's constants, the block its hole, the
-/// axis the move's, at full strength.
-fn pass(at: Pt, scale: f32, seed: Seed, t: f32, quad: f32) -> Vfx {
+/// **One pass `t` seconds after it lights**: the emitter collapsing from
+/// its box into the block on kitty's constants and kitty's clock, the
+/// block its hole, the axis the move's, at full strength -- a cursor
+/// trail's plasma, as the trail draws one.
+fn pass(at: Pt, scale: f32, seed: Seed, t: f32) -> Vfx {
     let e = placed(EMITTER, at, scale);
     let block = placed(BLOCK, at, scale);
     let t = t.max(0.0);
@@ -249,7 +230,7 @@ fn pass(at: Pt, scale: f32, seed: Seed, t: f32, quad: f32) -> Vfx {
     Vfx {
         effect: Effect::Plasma,
         emitter: Smear {
-            corners: Segment::new(e.corners(), block).at(quad.max(0.0)),
+            corners: Segment::new(e.corners(), block).at(t),
             hole: block,
             shape: Shape::Quad,
             strength: Strength::Full,
@@ -259,32 +240,15 @@ fn pass(at: Pt, scale: f32, seed: Seed, t: f32, quad: f32) -> Vfx {
     }
 }
 
-/// **The plasma `age` seconds into the splash**: two passes at [`PACE`],
-/// each the trailing edge of its quad crossing the logo evenly from left
-/// to right -- the first drawing it, from the first frame, over [`IN_S`];
-/// the second, lit over it at [`OUT`], taking it away over [`SWEEP_S`].
+/// **The plasma `age` seconds into the splash**: two passes of kitty's
+/// plasma, each at its own clock from the frame it lights -- the first
+/// drawing the logo from the first frame, the second, lit over it at
+/// [`OUT`], taking it away.
 pub fn vfx(at: Pt, scale: f32, age: f32) -> Vfx {
     match age < OUT {
-        true => pass(at, scale, SEED, age * PACE, even(age, 0.0, IN_S)),
-        false => pass(
-            at,
-            scale,
-            SEED_OUT,
-            (age - OUT) * PACE,
-            even(age, OUT, SWEEP_S),
-        ),
+        true => pass(at, scale, SEED, age),
+        false => pass(at, scale, SEED_OUT, age - OUT),
     }
-}
-
-/// **A pass's quad time `age` seconds into the splash**, the pass starting
-/// at `from` and crossing in `span`: the time on kitty's curve at which its
-/// trailing edge -- both left corners, which alone travel and so chase the
-/// block's on the slow constant -- has closed the share of its gap an even
-/// crossing has, `2^(-10 t / TAU_SLOW)` being the gap left. So the edge
-/// moves at one speed, and is within `2^-12` of the block at its end.
-fn even(age: f32, from: f32, span: f32) -> f32 {
-    let left = (1.0 - (age - from) / span).max(1.0 / 4096.0);
-    -crate::trail::TAU_SLOW / 10.0 * left.det_log2()
 }
 
 /// **Seconds from the splash's start to when nothing of its plasma would
@@ -292,7 +256,7 @@ fn even(age: f32, from: f32, span: f32) -> f32 {
 /// on its own clock -- which [`GONE`] comes before. The ion count reads
 /// the path's length in units, so this is the same at every size.
 pub fn end() -> f32 {
-    OUT + Effect::Plasma.end(&lit(Pt { x: 0.0, y: 0.0 }, 1.0, SEED_OUT)) / PACE
+    OUT + Effect::Plasma.end(&lit(Pt { x: 0.0, y: 0.0 }, 1.0, SEED_OUT))
 }
 
 /// **The logo's opacity before the emerge's edge reaches it**: drawn
@@ -412,16 +376,16 @@ mod tests {
     /// **Both passes collapse into the block**: at each one's start the
     /// emitter is the box from the wordmark to the block, the hole the
     /// block, drawn at full strength, the second with a seed of its own;
-    /// each has landed on the block, within a pixel, at its end; and the
-    /// second's own end, the same at every size, comes after the splash is
-    /// gone.
+    /// half a second of its own clock in, each has landed on the block,
+    /// within a pixel; and the second's own end, the same at every size,
+    /// comes after the splash is gone.
     #[test]
     fn both_passes_collapse_into_the_block() {
         let s = scale(FRAME);
         let o = origin(FRAME, s);
         let e = placed(EMITTER, o, s);
         let b = placed(BLOCK, o, s);
-        for (start, landed, seed) in [(0.0, OUT - 1e-4, SEED), (OUT, LEFT - 1e-4, SEED_OUT)] {
+        for (start, seed) in [(0.0, SEED), (OUT, SEED_OUT)] {
             let first = vfx(o, s, start);
             let xs = first.emitter.corners.0.map(|p| p.x);
             assert!(xs.iter().any(|&x| (x - e.left).abs() < 1e-3), "{start}");
@@ -431,61 +395,69 @@ mod tests {
             assert_eq!(first.emitter.strength, Strength::Full);
             assert_eq!(first.ignition.seed, seed);
             assert_eq!(first.ignition.age, 0.0, "lit at {start}");
-            let late = vfx(o, s, landed).emitter.corners.0;
+            let late = pass(o, s, seed, 0.5).emitter.corners.0;
             assert!(
                 late.iter()
                     .all(|p| p.x >= b.left - 1.0 && p.x <= b.right + 1.0),
-                "{landed}: {late:?}"
+                "{start}: {late:?}"
             );
         }
         let out = end();
         assert!(GONE < out, "{GONE} {out}");
         assert_eq!(
-            OUT + Effect::Plasma.end(&lit(o, s, SEED_OUT)) / PACE,
+            OUT + Effect::Plasma.end(&lit(o, s, SEED_OUT)),
             out,
             "the same at another size"
         );
     }
 
-    /// **Each trailing edge crosses at one speed**: the quad's leftmost
-    /// corner, sampled every 5 ms through each pass, is where an even
-    /// crossing from the wordmark's left to the block's left puts it, to
-    /// within half a pixel; and each pass's plasma ages at [`PACE`] of the
-    /// splash's clock. The control: on kitty's own curve, at the same
-    /// clock, the edge is over two and a half times as far across a tenth
-    /// of the way in.
+    /// **Each pass is kitty's plasma, at kitty's pace**: every 5 ms of the
+    /// splash, its effect is the cursor trail's plasma spelled from the
+    /// trail's own parts -- the emitter's box collapsing into the block on
+    /// kitty's curve, and the ignition from the emitter's left aged -- at
+    /// the pass's own clock, the seconds since it lit: the splash's for the
+    /// first, the seconds since [`OUT`] for the second. So the plasma that
+    /// carries the logo in is the one it was before it was slowed, frame
+    /// for frame, and the one that carries it out runs as fast.
     #[test]
-    fn each_trailing_edge_crosses_at_one_speed() {
-        let s = scale(FRAME);
-        let o = origin(FRAME, s);
-        let (e, b) = (placed(EMITTER, o, s), placed(BLOCK, o, s));
-        for (from, span) in [(0.0, IN_S), (OUT, SWEEP_S)] {
-            for k in 0u8..60 {
-                let u = f32::from(k) / 60.0;
-                let age = from + span * u;
+    fn each_pass_is_kittys_plasma_at_kittys_pace() {
+        for frame in [FRAME, (3400.0, 1850.0), (640.0, 400.0)] {
+            let s = scale(frame);
+            let o = origin(frame, s);
+            let (e, b) = (placed(EMITTER, o, s), placed(BLOCK, o, s));
+            let from = Pt {
+                x: e.left,
+                y: (e.top + e.bottom) * 0.5,
+            };
+            for ms in (0u16..).step_by(5) {
+                let age = f32::from(ms) / 1000.0;
+                if age >= GONE {
+                    break;
+                }
+                let (seed, t) = match age < OUT {
+                    true => (SEED, age),
+                    false => (SEED_OUT, age - OUT),
+                };
+                let lit = Ignition::ignite(from, b, seed, b.bottom - b.top).at(t);
                 let v = vfx(o, s, age);
-                let want = e.left + (b.left - e.left) * u;
-                assert!(
-                    (edge(&v) - want).abs() < 0.5,
-                    "{age}: {} not {want}",
-                    edge(&v)
+                assert_eq!(v.effect, Effect::Plasma, "{age}");
+                assert_eq!(
+                    v.emitter.corners,
+                    Segment::new(e.corners(), b).at(t),
+                    "{frame:?} at {age}"
                 );
-                assert!((v.ignition.age - (age - from) * PACE).abs() < 1e-5, "{age}");
+                assert_eq!(v.ignition, lit, "{frame:?} at {age}");
+                assert_eq!(v.axis, lit.dir, "{frame:?} at {age}");
             }
         }
-        let kitty = Segment::new(e.corners(), b).at(IN_S * 0.1 * PACE);
-        let x = kitty.0.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
-        assert!(
-            x - e.left > 2.5 * 0.1 * (b.left - e.left),
-            "the control: {x}"
-        );
     }
 
     /// **The second pass takes the logo, and the glow fades after it**: the
     /// logo whole at [`OUT`]; the wordmark's first glyph gone before the
-    /// prompt; nothing of the logo once the second pass's edge has crossed
-    /// the block; the plasma's light whole until [`DIM`] before [`GONE`]
-    /// and none at [`GONE`]; the fade taking all of it together.
+    /// prompt; at [`LEFT`] nothing of the glyphs and under 0.02 of the
+    /// block; the plasma's light whole until [`DIM`] before [`GONE`] and
+    /// none at [`GONE`], nor anything of the block; the fade taking all of
+    /// it together.
     #[test]
     fn the_second_pass_takes_the_logo_and_the_glow_fades_after_it() {
         let s = scale(FRAME);
@@ -504,16 +476,16 @@ mod tests {
         assert!(ink(at(OUT), o, s, p.0, p.1) > 1.0 - 1e-3);
         assert!(block(at(OUT), o, s) > 0.99, "{}", block(at(OUT), o, s));
         assert!(
-            block(at(OUT - 1e-4), o, s) > 0.99,
+            block(at(OUT - 1e-4), o, s) > 0.98,
             "whole as the first pass ends"
         );
         let t = OUT + 0.1;
         assert!(ink(at(t), o, s, b.0, b.1) < ink(at(t), o, s, p.0, p.1));
         assert_eq!(ink(at(LEFT), o, s, b.0, b.1), 0.0);
         assert_eq!(ink(at(LEFT), o, s, p.0, p.1), 0.0);
-        assert!(block(at(LEFT), o, s) < 1e-3, "{}", block(at(LEFT), o, s));
+        assert!(block(at(LEFT), o, s) < 0.02, "{}", block(at(LEFT), o, s));
         assert_eq!(block(at(GONE), o, s), 0.0);
-        assert_eq!(glow(GONE - DIM), 1.0);
+        assert!(glow(GONE - DIM) > 1.0 - 1e-5, "{}", glow(GONE - DIM));
         assert!(glow(GONE - DIM / 2.0) > 0.4 && glow(GONE - DIM / 2.0) < 0.6);
         assert_eq!(glow(GONE), 0.0);
         let half = SplashLook {

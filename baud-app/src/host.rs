@@ -728,6 +728,11 @@ pub static FIRST_TICK: AtomicBool = AtomicBool::new(false);
 /// the main thread, which is where the Dock icon used to be set.
 #[cfg(target_os = "macos")]
 pub static FIRST_TICK_DONE: AtomicBool = AtomicBool::new(false);
+/// The first frame of the launch logo's plasma with a clock: the gap from
+/// `splash shown` is the tick it waited for, and from `first present` the
+/// window's time on screen before the logo.
+#[cfg(target_os = "macos")]
+pub static FIRST_SPLASH: AtomicBool = AtomicBool::new(false);
 pub static FIRST_PRESENT: AtomicBool = AtomicBool::new(false);
 
 #[cfg(test)]

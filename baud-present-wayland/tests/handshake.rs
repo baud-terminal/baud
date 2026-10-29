@@ -212,6 +212,9 @@ fn a_window_opens_shows_a_frame_and_types() {
     }
     server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
     pump(&mut conn, &mut w);
+    // The registry's round trip is a `wl_callback` too, and not a frame:
+    // the launch logo starts on the first `Event::Frame`.
+    assert_eq!(w.next_event(), None, "the sync's callback is no frame");
     let mut bound = Vec::new();
     let mut ids: HashMap<&str, ObjectId> = HashMap::new();
     for _ in 0..4 {
@@ -274,6 +277,7 @@ fn a_window_opens_shows_a_frame_and_types() {
         })
     );
     assert_eq!(w.size(), Some((Px(320), Px(200))));
+    assert_eq!(w.next_event(), None, "no frame before a frame is shown");
 
     // **A zero configure means the client chooses, and it must keep what it
     // had.** This is not an edge case: weston sends `0 x 0` for an ordinary
@@ -353,7 +357,12 @@ fn a_window_opens_shows_a_frame_and_types() {
     };
     server.expect("wl_surface", "commit");
 
-    // The callback and the release: the next frame may go, on the other buffer.
+    // The callback and the release: the next frame may go, on the other
+    // buffer. Nothing before it was a frame: the first `Event::Frame`, on
+    // which the launch logo starts, answers the first commit that attached
+    // a buffer, and a server "should avoid signaling" it "if the surface is
+    // not visible in any way" ([[source: wayland]], `wl_surface.frame`).
+    assert_eq!(w.next_event(), None, "no frame before its callback");
     server.send(callback, "wl_callback", "done", &[Arg::Uint(16)]);
     pump(&mut conn, &mut w);
     assert_eq!(w.next_event(), Some(Event::Frame));

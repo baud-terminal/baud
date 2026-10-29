@@ -1,0 +1,33 @@
+# The launch splash at kitty's pace: both plasmas unslowed, 0.27 s apart.
+# Measured 2026-10-29 on an Apple M5 Max under macOS 27.0, release build, with the
+# change applied, on baud-render's CPU path (the pixels the GPU arms are held to by
+# the pixel oracle). Frames: 0.2 s blank, the splash's life, 0.2 s blank, at 60 or
+# 120 a second. 'general', 'red', 'red-enc': the most flashes at one pixel in any
+# second; 'area': the most of any 341x256-point field flashing more than three times
+# in one second (WCAG 2.2's area clause; the limit is 21,824 pt2); 'strict': the same
+# on the chained reading of a flash. Both verdicts pass when the area is no more than
+# the limit. 'seen in' / 'out': the plasma's own light over the bare page, summed
+# over pixels and frames, in pt2*s, split where the logo is whole and where it is
+# gone (see plasma-measure.txt); 'whole', 'logo gone', 'gone': seconds into the
+# splash. 360x90 cells at 28 px at 2x is the 6120x3330 px frame.
+200x50@2x 120Hz 1a: general 4 red 1 red-enc 1 area 12.5 strict 128.2 (0.06%/0.6% of 21824) | seen in 110.93 out 101.33 after 0.08 pt2*s, peak in 2209 out 1998 pt2 | whole 0.269 logo gone 0.579 gone 0.625 s
+200x50@2x 120Hz cd: general 4 red 1 red-enc 1 area 6.2 strict 86.5 (0.03%/0.4% of 21824) | seen in 101.66 out 92.89 after 0.08 pt2*s, peak in 1937 out 1753 pt2 | whole 0.269 logo gone 0.579 gone 0.625 s
+200x50@2x 120Hz dark: general 4 red 0 red-enc 0 area 14.8 strict 137.8 (0.07%/0.6% of 21824) | seen in 119.65 out 109.06 after 0.08 pt2*s, peak in 2354 out 2124 pt2 | whole 0.269 logo gone 0.579 gone 0.625 s
+200x50@2x 120Hz light: general 4 red 0 red-enc 0 area 163.5 strict 3289.8 (0.75%/15.1% of 21824) | seen in 566.57 out 521.31 after 0.85 pt2*s, peak in 9529 out 8620 pt2 | whole 0.269 logo gone 0.579 gone 0.625 s
+200x50@2x 60Hz 1a: general 4 red 1 red-enc 1 area 4.5 strict 66.0 (0.02%/0.3% of 21824) | seen in 120.97 out 92.30 after 0.10 pt2*s, peak in 2209 out 1634 pt2 | whole 0.269 logo gone 0.579 gone 0.633 s
+200x50@2x 60Hz cd: general 4 red 1 red-enc 1 area 0.5 strict 38.2 (0.00%/0.2% of 21824) | seen in 110.37 out 84.92 after 0.10 pt2*s, peak in 1937 out 1434 pt2 | whole 0.269 logo gone 0.579 gone 0.633 s
+200x50@2x 60Hz dark: general 4 red 0 red-enc 0 area 6.0 strict 74.0 (0.03%/0.3% of 21824) | seen in 130.28 out 99.40 after 0.10 pt2*s, peak in 2354 out 1749 pt2 | whole 0.269 logo gone 0.579 gone 0.633 s
+200x50@2x 60Hz light: general 4 red 0 red-enc 0 area 112.8 strict 2562.0 (0.52%/11.7% of 21824) | seen in 609.59 out 482.30 after 1.07 pt2*s, peak in 9529 out 7311 pt2 | whole 0.269 logo gone 0.579 gone 0.633 s
+360x90@2x 60Hz 1a: general 4 red 1 red-enc 1 area 16.0 strict 176.8 (0.07%/0.8% of 21824) | seen in 390.26 out 297.65 after 0.32 pt2*s, peak in 7139 out 5278 pt2 | whole 0.270 logo gone 0.582 gone 0.633 s
+360x90@2x 60Hz cd: general 4 red 1 red-enc 1 area 4.2 strict 91.8 (0.02%/0.4% of 21824) | seen in 356.38 out 274.10 after 0.31 pt2*s, peak in 6262 out 4637 pt2 | whole 0.270 logo gone 0.582 gone 0.633 s
+360x90@2x 60Hz dark: general 4 red 0 red-enc 0 area 21.2 strict 187.5 (0.10%/0.9% of 21824) | seen in 420.47 out 320.64 after 0.33 pt2*s, peak in 7608 out 5652 pt2 | whole 0.270 logo gone 0.582 gone 0.633 s
+360x90@2x 60Hz light: general 4 red 0 red-enc 0 area 297.2 strict 6276.8 (1.36%/28.8% of 21824) | seen in 1972.38 out 1560.25 after 3.46 pt2*s, peak in 30844 out 23668 pt2 | whole 0.270 logo gone 0.582 gone 0.633 s
+64x20@1x 60Hz 1a: general 3 red 1 red-enc 1 area 0.0 strict 18.0 (0.00%/0.1% of 21824) | seen in 12.56 out 9.73 after 0.06 pt2*s, peak in 225 out 166 pt2 | whole 0.249 logo gone 0.550 gone 0.633 s
+64x20@1x 60Hz cd: general 3 red 1 red-enc 1 area 0.0 strict 4.0 (0.00%/0.0% of 21824) | seen in 11.22 out 8.80 after 0.07 pt2*s, peak in 194 out 143 pt2 | whole 0.249 logo gone 0.550 gone 0.633 s
+64x20@1x 60Hz dark: general 3 red 0 red-enc 0 area 0.0 strict 19.0 (0.00%/0.1% of 21824) | seen in 13.44 out 10.44 after 0.07 pt2*s, peak in 238 out 176 pt2 | whole 0.249 logo gone 0.550 gone 0.633 s
+64x20@1x 60Hz light: general 4 red 0 red-enc 0 area 20.0 strict 298.0 (0.09%/1.4% of 21824) | seen in 58.76 out 47.74 after 0.62 pt2*s, peak in 904 out 695 pt2 | whole 0.249 logo gone 0.550 gone 0.633 s
+#
+# Before the plasma was slowed (24540262), 200x50@2x 60 Hz: seen in 130.28 dark,
+# 609.59 light, 110.37 #CD0000, 120.97 #1A0000 -- the same figures as above. The
+# worst field at any size and ground: 297.2 pt2 (1.36% of the limit, light, 6K),
+# strict 6,276.8 pt2 (28.8%).

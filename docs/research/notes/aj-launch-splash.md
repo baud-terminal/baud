@@ -3,13 +3,15 @@
 **Status: built 2026-10-24 (roadmap F1-19); the emerge built 2026-10-28
 (section 9); its start and its turn 2026-10-29 (section 10); the sweep,
 gone in half a second, 2026-10-29 (section 11); a plasma carrying it in
-and a second carrying it out, 2026-10-29 (section 12). The questions as
-built:**
+and a second carrying it out, 2026-10-29 (section 12); both at kitty's
+pace again, after a window that opens whole, 2026-10-29 (section 13). The
+questions as built:**
 
-- **1. When.** Nothing of it until the window is shown (section 10). Under
+- **1. When.** Nothing of it until the window is whole on screen
+  (sections 10 and 13). Under
   full motion, on the clock alone since 2026-10-28 (the lean): carried in
-  by one plasma, whole at 0.30 s, then carried out by a second, the logo
-  gone at 0.60 s and the glow at 0.68 s (section 12). Under reduced motion, as first built: on the
+  by one plasma, whole at 0.27 s, then carried out by a second, the logo
+  all but gone at 0.54 s and the glow at 0.62 s (section 13). Under reduced motion, as first built: on the
   shell's first visible cell or a 0.5 s cap from the window's being shown,
   whichever is first (E2 and a cap of 0.5 s; the cap is the lean);
   the vanish starts on the frame after that one.
@@ -17,8 +19,8 @@ built:**
   draws, and the plasma the trails use is baud's one plasma. P1 is built
   from the plasma trail's own model with no new shader: the box from the
   wordmark to the block collapses into the block on kitty's quad
-  constants (chosen over a slower collapse); since section 12 two
-  passes, each at 0.7 of kitty's clock with an even trailing edge.
+  constants (chosen over a slower collapse); two passes, each kitty's
+  plasma at kitty's pace (section 13).
 - **3. Colour.** C1, the lockup's amber (chosen over C2, the cursor's
   colour that the 2026-09-25 rule gives every effect); the logo in the lockup's
   colours on the half the theme's polarity names.
@@ -2190,7 +2192,7 @@ The requests, verbatim (2026-10-29): "i don't see the plasma when logo is
 kitty's clock (`PACE`), each quad's trailing edge crossing the lockup at
 one speed over 0.30 s (`IN_S`, `SWEEP_S`) instead of on kitty's curve,
 which drew the wordmark in a tenth of a second and left the block alone
-at the end (`each_trailing_edge_crosses_at_one_speed`). The second has a
+at the end (a test of the even crossing, removed in section 13). The second has a
 seed of its own. Both are full strength: nothing is capped or scanned,
 and at 6K no frame draws more effect records than the first did before.
 
@@ -2231,3 +2233,64 @@ the logo's own partial ink. The 6K GPU frame was not timed again: it
 draws no more effect records or record pixels than before (18 and
 2,158,300).
 
+## 13. The plasma at kitty's pace, after a window that opens whole (2026-10-29)
+
+**What the user sees.** The window appears whole at once, with AppKit's
+automatic open and close animation off for it, and only then does the
+logo start.
+A burst of amber plasma carries it in from left to right exactly as it
+did before section 12 slowed it, whole at 0.27 s; on that frame a second
+plasma, at the same pace, lights over it and carries it out from left to
+right, the block last: the glyphs are out and the block under 2% of its
+opacity at 0.54 s, nothing of the logo is left by 0.55-0.58 s depending
+on the window's size, and the glow is gone at 0.62 s. Keys, output under
+the logo and Reduce Motion are as before.
+
+The request, verbatim (2026-10-29): "ok so don't slow the plasma, it
+should be as before... and just ensure the logo apear after the window is
+fully rendered".
+
+**The plasma.** Each pass is the cursor trail's plasma at kitty's own
+clock and curve, the second lit 0.27 s in with a seed of its own
+(`each_pass_is_kittys_plasma_at_kittys_pace`, red on the slowed build).
+The light coming in is what it was at 24540262 on every ground
+(`the_plasma_is_seen_carrying_the_logo_in_and_out`: 13.54, 59.54, 11.32,
+12.64 pt²·s at 1x), and going out is 0.76-0.79 of it, where before the
+logo left in no plasma. What is left of the second plasma fades from
+0.54 s to 0.62 s, 0.35 s after it lights and before its own end, as
+the single plasma's remainder faded before section 12.
+Census ([[source: aj-obs-kitty-measure]]): a fourth flash at a few pixels,
+at most 297 pt² of the 21,824 allowed (1.4%, light page, 6K) and 6,277
+(28.8%) on the chained reading, at 1x 60 Hz, 2x 60 and 120 Hz and 6K on
+four grounds; both verdicts pass. Strips:
+[[source: aj-obs-kitty-strip-dark]], [[source: aj-obs-kitty-strip-light]].
+
+**Fully rendered.** AppKit animates a window as `orderFront` shows it,
+"based on its inference of a window's type", and posts no notification
+when that ends ([[source: apple-nswindow-animationbehavior]],
+[[source: apple-nswindow]]); the occlusion notification marks only the
+window becoming visible, the animation's start. Setting the window's
+`animationBehavior` to none, which Apple suggests when "that animation
+interferes with an animation that your application implements"
+([[source: apple-nswindow-animationbehavior-none]]), makes on screen whole
+on screen, so the gate of section 10 now means fully rendered: the first
+frame on the layer, the plasma's pipeline built on the tick before (never
+the first tick), `isVisible` and occlusion `.visible`; the first plasma
+frame is drawn for that tick. Chosen over a fixed delay, a guess at a
+length AppKit does not document, over the occlusion notification, and
+over the gate as it was.
+`the_window_opens_whole_before_the_logo_starts` holds it, red before. On
+Linux the start is the first frame callback, which answers the first
+commit that attached a buffer: `a_window_opens_shows_a_frame_and_types`
+now asserts no frame event before it, and
+`the_linux_driver_shows_the_window_on_the_frame_callback` the driver's
+wiring, which no test held.
+
+**Reading it.** `BAUD_STARTUP=1` prints `shown` (ordered front), `first
+frame`, `glass installed`, `first tick`, `splash warm`, `splash shown`
+(the gate) and now `splash first frame`, in milliseconds since launch;
+on Linux `splash shown` too. The gap from `first present` to `splash
+first frame` is the window's time on screen before the logo.
+
+**Unmeasured.** No window was opened for this: whether the window
+animated before, and the gap on a real launch, are not measured.

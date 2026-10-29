@@ -1,7 +1,8 @@
 //! **The launch splash, as both drivers time it** (note AJ): nothing of
 //! it until the window is shown -- on macOS the first display-link tick at
 //! which a frame has reached the layer, the plasma's pipeline is built and
-//! AppKit reports the window visible, on Linux the compositor's first frame callback -- then baud's
+//! AppKit reports the window visible, which it opened whole, with no
+//! animation, on Linux the compositor's first frame callback -- then baud's
 //! colour lockup carried in by the plasma, left to right, and carried out
 //! by a second, left to right, gone [`gone`] after it starts -- on the clock alone,
 //! so a shell's output neither cuts it short nor holds it longer. Under reduced
@@ -358,12 +359,12 @@ mod tests {
         assert_eq!(s.look(Some(5.0 + gone() + 0.02), &t, full), None);
     }
 
-    /// **Its times are the renderer's**: gone 0.68 s after it starts, the
+    /// **Its times are the renderer's**: gone 0.62 s after it starts, the
     /// plasma that carries the logo out lighting before, and both before
     /// that plasma's own end, which it does not wait for.
     #[test]
     fn it_is_gone_by_the_renderers_end() {
-        assert!((gone() - 0.68).abs() < 1e-6, "{}", gone());
+        assert!((gone() - 0.62).abs() < 1e-6, "{}", gone());
         assert!(out() < gone(), "{} {}", out(), gone());
         assert!(gone() < f64::from(baud_render::splash::end()));
     }
@@ -684,14 +685,14 @@ mod tests {
     }
 
     /// **The logo is gone at its end**: from its first frame to the one
-    /// that clears it, at most 0.68 s and a frame, at 60 and 120 frames a
+    /// that clears it, at most 0.62 s and a frame, at 60 and 120 frames a
     /// second.
     #[test]
     fn the_splash_is_gone_at_its_end() {
         for rate in [60.0, 120.0] {
             let frames = life(rate);
             let on = (frames.len() - 1) as f64 / rate;
-            assert!(on <= 0.68 + 1.0 / rate + 1e-9, "{rate} Hz: {on} s");
+            assert!(on <= 0.62 + 1.0 / rate + 1e-9, "{rate} Hz: {on} s");
         }
     }
 
@@ -703,5 +704,41 @@ mod tests {
         assert_eq!(splash_override(Some("on"), Off), On);
         assert_eq!(splash_override(Some("yes"), Off), Off);
         assert_eq!(splash_override(None, On), On);
+    }
+
+    /// **The Linux driver shows the window to the splash on the
+    /// compositor's frame callback**: its event loop's `Event::Frame` arm
+    /// calls `Timed::shown` and owes the frame its clock starts on, and no
+    /// other arm does -- the first `Event::Frame` answers the first commit
+    /// that attached a buffer (`baud-present-wayland`'s handshake test).
+    /// The loop is Linux's and waits on a compositor, so the source is
+    /// what can fail; read here so it is checked on every platform.
+    #[test]
+    fn the_linux_driver_shows_the_window_on_the_frame_callback() {
+        const SRC: &str = include_str!("linux.rs");
+        let start = concat!("d.timed.", "shown()");
+        assert_eq!(SRC.matches(start).count(), 1, "one start");
+        let (before, after) = SRC.split_once(start).expect("the start");
+        let arm = before
+            .rsplit_once("Event::")
+            .map(|(_, arm)| arm)
+            .expect("an event arm");
+        assert!(arm.starts_with("Frame => {"), "the start's arm: {arm}");
+        let body = after.split_once('}').map(|(b, _)| b).expect("its body");
+        assert!(
+            body.contains("d.pending = Pending::Dirty;"),
+            "the frame it owes: {body}"
+        );
+        let timed = include_str!("timed.rs");
+        let shown = timed
+            .split_once(concat!("pub(crate) fn ", "shown(&mut self) -> Owes {"))
+            .map(|(_, rest)| rest)
+            .expect("Timed::shown");
+        assert!(
+            shown
+                .trim_start()
+                .starts_with("match self.splash.shown() {"),
+            "Timed::shown starts the splash"
+        );
     }
 }

@@ -15,11 +15,12 @@
 //! The census's verdict is that rule, the field Note 1's 341 by 256 pixels
 //! read in points; this test held the splash to at most three flashes at
 //! every pixel, which is the rule's first half alone, stricter than the
-//! text. The two passes put a fourth flash into one second at a few
-//! pixels of the box they both cross; the most of any field that flashes
-//! four times is under 1% of the limit on every ground and size counted,
-//! and under 20% on the chained reading of a flash (the census's strict
-//! verdict), which is asserted too. Both are printed with their margin.
+//! text. The two passes, at kitty's pace and 0.27 s apart, put a fourth
+//! flash into one second at a few pixels of the box they both cross; the
+//! most of any field that flashes four times is under 2% of the limit on
+//! every ground and size counted, and under 30% on the chained reading of
+//! a flash (the census's strict verdict), which is asserted too. Both are
+//! printed with their margin.
 //! This window is small, 64 by 20 cells at 1x, for the debug suite. At
 //! this size the whole lockup covers less than the area limit, so the
 //! verdict alone cannot fail here, and the margin assertion is what holds
@@ -248,13 +249,12 @@ fn the_plasmas_remainder_fades_into_the_page() {
 /// the page's -- summed over the pixels and the frames, in points squared
 /// and seconds. Split where the logo starts to leave,
 /// [`baud_render::splash::OUT`]: coming in before it, going out from it to
-/// the last frame that draws any of the logo. At 64 by 20 cells at 1x, 60 frames a
-/// second, on the four grounds. The splash this replaced, at 24540262,
-/// measured 13.54, 59.54, 11.32 and 12.64 coming in and 0.16, 1.39, 0.16
-/// and 0.14 going out: the logo left in no plasma, only the faint end of
-/// the one that drew it. Coming in is now at least 1.9 times those (1.97
-/// to 1.99 measured), and going out at least 0.9 of coming in (0.99 to
-/// 1.00).
+/// the last frame that draws any of the logo. At 64 by 20 cells at 1x, 60
+/// frames a second, on the four grounds. Coming in is what it was at
+/// 24540262, before the plasma was slowed -- 13.54, 59.54, 11.32 and
+/// 12.64, within 1% -- and going out, which was 0.16, 1.39, 0.16 and 0.14
+/// there, the logo leaving in no plasma, is now at least 0.7 of coming in
+/// (0.76 to 0.79 measured): a second plasma at the same pace.
 #[test]
 fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
     use baud_render::{Kind, Pt};
@@ -371,10 +371,9 @@ fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
             "{name}: coming in {coming:.2}, going out {going:.2} (before: {before} coming in)"
         );
         assert!(
-            coming >= 1.9 * before && going >= 0.9 * coming,
-            "{name}: coming in {coming}, at least {}; going out {going}, at least {}",
-            1.9 * before,
-            0.9 * coming
+            (coming - before).abs() <= 0.01 * before && going >= 0.7 * coming,
+            "{name}: coming in {coming}, not {before}; going out {going}, at least {}",
+            0.7 * coming
         );
     }
 }
