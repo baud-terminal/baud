@@ -1,7 +1,7 @@
 //! **The launch splash, as both drivers time it** (note AJ): nothing of
 //! it until the window is shown -- on macOS the first display-link tick at
-//! which a frame has reached the layer and AppKit reports the window
-//! visible, on Linux the compositor's first frame callback -- then baud's
+//! which a frame has reached the layer, the plasma's pipeline is built and
+//! AppKit reports the window visible, on Linux the compositor's first frame callback -- then baud's
 //! colour lockup coming out of the plasma, left to right; at [`turn`] into
 //! the emerge, once what is left of its plasma is under a flash's change,
 //! gone back into the plasma, left to right -- on the clock alone, so a

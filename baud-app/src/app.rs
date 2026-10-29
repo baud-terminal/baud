@@ -626,8 +626,9 @@ struct App {
     /// Whether the plasma's pipeline was built while the splash stood
     /// still.
     splash_warm: Done,
-    /// Whether a frame has reached the layer: half of what shows the
-    /// window to the splash (`Driver::frame`).
+    /// Whether a frame has reached the layer: one of what the tick's gate
+    /// reads before it shows the window to the splash (`Driver::frame`),
+    /// with the plasma's pipeline built and the window visible.
     layer_shown: Done,
     /// Whether an alternate-screen switch fades, from `[screen] transition`,
     /// and the fade being animated. `Some` forces a frame the way a trail
@@ -10761,8 +10762,8 @@ pub fn run() {
     }
     // The first frame now, on this thread, before the run loop is entered:
     // the geometry the view's first resize callback would report, then one
-    // draw. Its completion wakes the responder through the run loop, which
-    // is where the surface reaches the layer.
+    // draw, which waits on the GPU and sets the layer itself (`draw_now`):
+    // no completion follows it.
     // **The palette for the first frame, from the window rather than the
     // observer.** The observer below fires once the moment it is built and
     // would set this -- but it is built after the glass, which is after
