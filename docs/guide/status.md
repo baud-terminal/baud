@@ -45,5 +45,6 @@ what was measured and how.
 
 ## Getting it
 
-Nothing is published to a package manager or as a download yet, so baud is
-built from source: see [Installing](install.md).
+Nix builds and runs baud from the repository in one command, and Cargo
+will once baud's first release is on crates.io; there is no download yet.
+See [Installing](install.md).

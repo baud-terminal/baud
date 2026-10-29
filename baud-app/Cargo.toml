@@ -1,3 +1,8 @@
+# For the `rustflags` of the `[profile.release]` at the end, as the
+# workspace's. It also makes a stable cargo stop at this manifest, before
+# it builds anything, with an error that says nightly is needed.
+cargo-features = ["profile-rustflags"]
+
 # **The package is `baud`, so `cargo install baud` installs the `baud`
 # binary.** The directory keeps its name, `baud-app/`.
 [package]
@@ -67,3 +72,16 @@ ceiling-idle-skip = []
 [[bin]]
 name = "baud"
 path = "src/main.rs"
+
+# **`cargo install baud` builds the binary the repository measures.** Cargo
+# reads a profile only from the root manifest. In the workspace that is
+# the root `Cargo.toml`, and cargo warns that this copy is ignored; the
+# published crate is built as its own root, and there this copy is the
+# profile: whole-program LTO, one codegen unit and the 64-byte function
+# alignment, which a crate built without it lacks. `scripts/check-publish.py`
+# holds it equal to the workspace's, and `build.rs` sets the macOS floor.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+rustflags = ["-C", "llvm-args=-align-all-functions=6"]

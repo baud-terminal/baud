@@ -35,5 +35,13 @@ fn main() {
         // IOSurface and CoreGraphics are referenced by symbol and stay.
         println!("cargo:rustc-link-arg-bins=-Wl,-needed_framework,AppKit");
         println!("cargo:rustc-link-arg-bins=-Wl,-dead_strip_dylibs");
+        // **The floor travels with the crate.** `.cargo/config.toml` sets
+        // the deployment target for a build in the repository, and a
+        // published crate carries no `.cargo/config.toml`: `cargo install
+        // baud` would link for rustc's default, macOS 11. Cargo hands a
+        // build script's `rustc-env` to every rustc it runs for this
+        // package, the link included, and rustc reads the variable from
+        // there; `baud-app/tests/macos_floor.rs` holds it to the others.
+        println!("cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET=26.0");
     }
 }

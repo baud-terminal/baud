@@ -1,4 +1,4 @@
-//! **One floor, macOS 26, set in three places.** baud runs on macOS 26
+//! **One floor, macOS 26, set in four places.** baud runs on macOS 26
 //! and later. The release is written where each layer reads it, and
 //! nothing ties the places together but this file:
 //!
@@ -6,6 +6,9 @@
 //!   which Launch Services checks before the app runs;
 //! * the deployment target (`.cargo/config.toml`), which rustc and the
 //!   linker write into the binary as `LC_BUILD_VERSION minos`;
+//! * the same variable from `baud-app/build.rs`, for the published crate,
+//!   which carries no `.cargo/config.toml`: `cargo install baud` would
+//!   otherwise link for rustc's default, macOS 11;
 //! * the Metal compiler's `-mmacosx-version-min` (`scripts/build-metallib.sh`).
 //!
 //! The committed library's own target triples, `air64_v..-apple-macosx..`,
@@ -86,6 +89,12 @@ fn the_bundle_the_binary_and_the_shaders_name_one_floor() {
     assert!(
         forced,
         "MACOSX_DEPLOYMENT_TARGET must be forced over devenv's"
+    );
+
+    let env = format!("cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET={FLOOR}\")");
+    assert!(
+        read("baud-app/build.rs").contains(&env),
+        "baud-app/build.rs must print {env}"
     );
 
     let script = read("scripts/build-metallib.sh");

@@ -2,7 +2,9 @@
 # and later: `packaging/macos/Info.plist` names 26.0, and this makes the
 # Mach-O's own minimum (`LC_BUILD_VERSION minos`) say the same.
 # `scripts/build-metallib.sh` passes the same release to the Metal
-# compiler, and `baud-app/tests/macos_floor.rs` holds all three equal.
+# compiler, `baud-app/build.rs` sets it for the published crate, which
+# carries no copy of this file, and `baud-app/tests/macos_floor.rs` holds
+# all four equal.
 #
 # `force`, because the devenv shell already exports
 # `MACOSX_DEPLOYMENT_TARGET=14.0` (its nix stdenv's), and an `[env]` entry

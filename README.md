@@ -99,18 +99,32 @@ setting turned on ([how](docs/guide/configuration.md#images)).
 
 ## Install
 
+baud runs on macOS 26 and later. Nix and Cargo install the `baud`
+binary, which opens a window running your login shell, built with the
+settings baud is measured with.
+
+**With [Nix](https://nixos.org).** One command fetches the exact compiler,
+builds baud and opens it (with flakes turned on):
+
+```sh
+nix run github:i-am-logger/baud              # or: nix profile install github:i-am-logger/baud
+```
+
+baud's licence, CC BY-NC-SA 4.0, lets you use it for anything that is not
+commercial. nixpkgs counts that as unfree, so if you build baud in your own
+nixpkgs through this flake's `overlays.default`, allow it there:
+`nixpkgs.config.allowUnfreePredicate = pkg: lib.getName pkg == "baud";`.
+
 **With Cargo, once published.** baud's first release will be on
 [crates.io](https://crates.io/crates/baud). It builds with the nightly Rust
-toolchain baud is built with, and installs the `baud` binary, which opens a
-window running your login shell:
+toolchain baud is built with; a stable toolchain stops at once and says
+nightly is needed:
 
 ```sh
 cargo +nightly-2026-04-11 install --locked baud
 ```
 
-A Nix package is planned for the first published release too.
-
-**From source, today.** With [Nix](https://nixos.org) and
+**From source, for the app.** With [Nix](https://nixos.org) and
 [devenv](https://devenv.sh), which fetch the exact toolchain, in a git
 clone (a ZIP download has no `.git`, and the dev shell needs one):
 

@@ -51,6 +51,12 @@ has to be able to fail:
     does not carry (wording()); an entry whose status is one of UNSETTLED is
     reported on the awaiting path instead, since --release refuses it and
     it is reworded when it is settled;
+  - `baud`, the package `cargo install` builds as its own root, carries
+    the workspace's [profile.release] and cargo-features: cargo reads a
+    profile only from the root manifest, so without the copy an install
+    builds without LTO, in 16 codegen units and without the function
+    alignment; with --size or --verify, the manifest inside baud's .crate
+    is held to the same;
   - with --size or --verify, every .crate is under crates.io's 10 MiB
     upload limit;
   - with --verify, every crate builds from its .crate alone, as `cargo
@@ -68,6 +74,7 @@ import os
 import re
 import subprocess
 import sys
+import tarfile
 import textwrap
 import tomllib
 
@@ -324,6 +331,21 @@ def notice(name, entries, src, g, repo, tops):
     return "\n".join(o) + "\n", found
 
 
+def root_settings(name, m, ws):
+    """What is wrong with `m`, the manifest of the package `cargo install`
+    builds as its own root, against the workspace's release settings."""
+    errs = []
+    want, got = ws.get("profile", {}).get("release"), m.get("profile", {}).get("release")
+    if not want:
+        errs.append("the workspace has no [profile.release]: the profile check has stopped working")
+    elif got != want:
+        errs.append(f"{name}: [profile.release] is {got!r}, not the workspace's {want!r}")
+    for f in ws.get("cargo-features", []):
+        if f not in m.get("cargo-features", []):
+            errs.append(f"{name}: cargo-features lacks {f!r}, which its [profile.release] needs")
+    return errs
+
+
 def check(size, verify, write):
     """(errors, awaiting): what fails the check, and the shipped files whose
     rows await the owner. With `write`, each crate's NOTICE is written
@@ -347,6 +369,7 @@ def check(size, verify, write):
     if len(want) < 10:
         errs.append(f"only {len(want)} crates reached from `baud`: the dependency walk has stopped working")
 
+    errs += root_settings("baud", mem["baud"][1], ws)
     for n in sorted(want):
         d, m = mem[n]
         p = m["package"]
@@ -461,6 +484,10 @@ def check(size, verify, write):
                 print(f"  {n}: {b / 1048576:.2f} MiB compressed")
                 if b > LIMIT:
                     errs.append(f"{n}: {b} bytes, over crates.io's {LIMIT}")
+                if n == "baud":
+                    with tarfile.open(crate) as t:
+                        packed = tomllib.load(t.extractfile(f"{n}-{version}/Cargo.toml"))
+                    errs += [f"{e} in its .crate" for e in root_settings(n, packed, ws)]
     if not errs:
         print(f"checked: {len(want)} crates to publish, {len(set(mem) - want)} not")
     return errs, awaiting

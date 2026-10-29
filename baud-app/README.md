@@ -20,9 +20,11 @@ cargo +nightly-2026-04-11 install --locked baud
 baud
 ```
 
-This installs the `baud` binary, which opens a window running your login
-shell. The app bundle for Applications and the Dock is built from the
-repository ([Installing](https://github.com/i-am-logger/baud/blob/master/docs/guide/install.md)).
+This installs the `baud` binary, built with link-time optimisation for
+macOS 26, which opens a window running your login shell; a stable
+toolchain stops at once, with an error that says nightly is needed. With
+Nix, `nix run github:i-am-logger/baud` does the same. The app bundle for
+Applications and the Dock is built from the repository ([Installing](https://github.com/i-am-logger/baud/blob/master/docs/guide/install.md)).
 
 The Linux version builds and has run in headless sessions; it is not ready
 to use yet ([Status](https://github.com/i-am-logger/baud/blob/master/docs/guide/status.md)).

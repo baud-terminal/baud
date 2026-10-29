@@ -1268,3 +1268,50 @@ trail against the fire's +0.74%, disjoint from both:
 one-minute load of 2-5, under the fire, ride against `be25132` and `stay`:
 every pair overlaps on every mover, the A/A copy spreading 1.3-2.0% of a core
 under the scrolling movers against 0.07% idle. No result.
+
+## What `cargo install` and `nix build` make
+
+Taken on `78d68d0` with this section's change applied, 2026-10-29. Apple
+M5 Max, macOS 27.0, rustc 1.96.0-nightly 02c7f9bec. A crate's arm is
+`cargo package --no-verify` of `baud` and the crates it depends on, each
+`.crate` unpacked and patched in for its registry name, and `cargo install
+--locked --path` of baud's, with no `RUSTFLAGS`: what a user's `cargo
+install baud` builds. Cargo reads a profile from the root manifest alone
+(`[[source: cargo-eb94155-profiles]]`), and the published crate is its own
+root, so before this change none of the workspace's `[profile.release]`
+reached it. The workspace arm is `cargo build --release -p baud` in the dev
+shell. Symbols are `nm`'s text symbols; the floor is `LC_BUILD_VERSION minos`.
+
+| arm | `__text` bytes | text symbols | 64-byte aligned | minos |
+|---|---|---|---|---|
+| workspace build | 3,071,552 | 3,018 | 3,015 | 26.0 |
+| crate, before | 3,075,300 | 5,263 | 366 | 11.0 |
+| **crate, after** | **3,071,552** | **3,018** | **3,015** | **26.0** |
+| crate, after, `MACOSX_DEPLOYMENT_TARGET=14.0` | 3,071,552 | 3,018 | 3,015 | 26.0 |
+| crate, after, `build.rs` floor line removed | 3,071,552 | 3,018 | 3,015 | 11.0 |
+| `nix build`, nixpkgs' rustflags | 3,077,632 | 3,040 | 3,037 | 26.0 |
+| **`nix build`, `RUSTFLAGS` empty** | **3,071,552** | **3,018** | **3,015** | **26.0** |
+
+Before, the crate built without LTO (5,263 symbols), in cargo's default
+16 units, with the alignment on 7% of its functions. After, its functions
+have the workspace build's sizes, the same multiset of 3,017; the
+`__text` bytes differ, and so do the symbol names' crate hashes. A
+deployment target in the environment leaves the floor at 26.0, because `build.rs` sets it for baud's own rustc
+(`[[source: cargo-eb94155-build-scripts-rustc-env]]`,
+`[[source: rustc-02c7f9b-apple-darwin]]`); under it, and in the final nix
+arm, one function size of 3,017 differs. Without the line, the floor is
+rustc's default, 11.0.
+
+nixpkgs' cargo hook writes `-Cforce-frame-pointers=yes` into the target's
+`rustflags` (`[[source: nixpkgs-9cf7092-rust-hooks]]`): 6,080 more bytes
+of `__text` and 20,328 of `__eh_frame`, a build never measured on ingest.
+Neither turning cargo-auditable off nor nix's strip setting changed the
+`__text` size, the symbol count or a function size. An empty
+`RUSTFLAGS` displaces the target's (`[[source: cargo-eb94155-config-rustflags]]`)
+while the profile's alignment stays, so the flake sets it.
+
+A stable cargo 1.99.1 stops at the after crate's manifest, with nothing
+built: "the cargo feature `profile-rustflags` requires a nightly version of
+Cargo, but this is the `stable` channel", the same from `--path` and, for a
+one-line crate with the same `cargo-features`, from a directory registry
+(`[[source: cargo-eb94155-cargo-features-tests]]`).

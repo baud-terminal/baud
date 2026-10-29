@@ -1,20 +1,63 @@
 # Installing baud
 
-baud is built from source. Its first release will be on crates.io; until
-then, the steps below build it on your Mac and leave you with an app you can
-put in Applications.
+baud installs with Nix today, and with Cargo once its first release is on
+crates.io. Both give you the `baud` binary; to have an app you can put in
+Applications and the Dock, build it from the repository.
 
 ## What you need
 
 - **A Mac running macOS 26 or later.** On an older system baud says what
   it needs and quits.
-- **[Nix](https://nixos.org) and [devenv](https://devenv.sh).** They fetch
-  the exact compiler and tools baud is built with, so you do not install a
-  Rust toolchain yourself.
+- **[Nix](https://nixos.org)** with flakes turned on, or
+  **[rustup](https://rustup.rs)** for Cargo. Either fetches the exact
+  compiler baud is built with, so you do not pick a Rust version yourself.
+
+## With Nix
+
+```sh
+nix run github:i-am-logger/baud
+```
+
+This builds baud and opens a window running your login shell. To keep it
+on your `PATH`:
+
+```sh
+nix profile install github:i-am-logger/baud
+```
+
+The package carries the licences of the fonts baud draws with in
+`share/doc/baud/`, as the app does.
+
+**About the licence.** baud is CC BY-NC-SA 4.0: free to use and share for
+anything that is not commercial. nixpkgs counts a NonCommercial licence as
+unfree. The flake's own packages allow baud, so the commands above work as
+typed. If you build baud in your own nixpkgs, through the flake's
+`overlays.default`, your nixpkgs refuses it until you allow it there:
+
+```nix
+nixpkgs.config.allowUnfreePredicate = pkg: lib.getName pkg == "baud";
+```
+
+## With Cargo, once published
+
+Once baud's first release is on [crates.io](https://crates.io/crates/baud),
+Cargo installs it with the nightly Rust toolchain baud is built with, which
+[rustup](https://rustup.rs) provides, and with the dependency versions baud
+was released with (`--locked`):
+
+```sh
+cargo +nightly-2026-04-11 install --locked baud
+```
+
+This puts the `baud` binary in `~/.cargo/bin`; run `baud` to open a window.
+It is built the way the repository builds it, with whole-program link-time
+optimisation, and for macOS 26. A stable toolchain stops before it builds
+anything, with an error that says a nightly Cargo is needed.
 
 ## Build the app
 
-Clone the repository with git and build from the clone:
+Clone the repository with git and build from the clone, with
+[Nix](https://nixos.org) and [devenv](https://devenv.sh):
 
 ```sh
 git clone https://github.com/i-am-logger/baud
@@ -33,42 +76,6 @@ To try baud without making the app, run it from the terminal you are in:
 ```sh
 devenv shell -- cargo run --release
 ```
-
-Either way baud opens a window running your login shell.
-
-## With Cargo, once published
-
-Once baud's first release is on [crates.io](https://crates.io/crates/baud),
-Cargo installs it with the nightly Rust toolchain baud is built with, which
-[rustup](https://rustup.rs) provides, and with the dependency versions baud
-was released with (`--locked`):
-
-```sh
-cargo +nightly-2026-04-11 install --locked baud
-```
-
-This puts the `baud` binary in `~/.cargo/bin`; run `baud` to open a window.
-It is the bare binary, not the app: the app for Applications and the Dock is
-the one `scripts/bundle-macos.sh` builds above.
-
-**That build is not the one baud is measured as.** A published crate does
-not carry the repository's build settings, so Cargo builds it without
-whole-program link-time optimisation, in 16 code-generation units rather
-than one, without the function alignment the measurements rely on, and for
-an older macOS (baud still
-refuses to run below macOS 26). To build what the repository builds, pass
-the same settings through the environment:
-
-```sh
-CARGO_PROFILE_RELEASE_LTO=true \
-CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-RUSTFLAGS="-C llvm-args=-align-all-functions=6" \
-MACOSX_DEPLOYMENT_TARGET=26.0 \
-cargo +nightly-2026-04-11 install --locked baud
-```
-
-These are the repository's `[profile.release]` in `Cargo.toml` and its
-`.cargo/config.toml`, spelled as environment variables.
 
 ## What a program sees
 

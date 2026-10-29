@@ -38034,3 +38034,116 @@ group  = "C"
 # values with whitespace."; line 1577: "-c, --config <file>     Path to a config file".
 # The btop.conf tests/recordings/README.md describes is this version's
 # --default-config with shown_boxes, disks_filter and show_battery changed.
+[sources.cargo-eb94155-profiles]
+key    = "cargo-eb94155-profiles"
+title  = "The Cargo Book, reference/profiles.md at eb94155, the cargo of nightly-2026-04-11 -- \"Cargo only looks at the profile settings in the Cargo.toml manifest at the root of the workspace\""
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/doc/src/reference/profiles.md"
+file   = ""
+sha256 = "7b074150b80ecdfa9f327af43dbc81f420f6c98ac4cd6032fd3f00ebad35550a"
+bytes  = 18882
+status = "external"
+group  = "AN"
+# Fetched and read 2026-10-29, not committed. Lines 21-23: profile settings are read from the root manifest alone, and those
+# of dependencies are ignored. The crate `cargo install` builds is its own root.
+[sources.cargo-eb94155-unstable-profile-rustflags]
+key    = "cargo-eb94155-unstable-profile-rustflags"
+title  = "The Cargo Book, reference/unstable.md at eb94155 -- \"Profile rustflags option\": cargo-features = [\"profile-rustflags\"] and a [profile.release] rustflags"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/doc/src/reference/unstable.md"
+file   = ""
+sha256 = "023eefc6c90b9da08483b582fb7b10252c767be8730eb50eeed43d48dc454ad5"
+bytes  = 98961
+status = "external"
+group  = "AN"
+# Fetched and read 2026-10-29, not committed. Lines 1-2: experimental features are only available on the nightly channel;
+# lines 869-885: the profile rustflags option and how a manifest turns it on.
+[sources.cargo-eb94155-build-scripts-rustc-env]
+key    = "cargo-eb94155-build-scripts-rustc-env"
+title  = "The Cargo Book, reference/build-scripts.md at eb94155 -- cargo::rustc-env sets an environment variable when compiling the package"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/doc/src/reference/build-scripts.md"
+file   = ""
+sha256 = "703f7547c5d4c28fff8d7769d5bd80dd6cd20475b7725baa902dd1cbc4449396"
+bytes  = 26099
+status = "external"
+group  = "AN"
+# Fetched and read 2026-10-29, not committed. Lines 325-331: `rustc-env` "tells Cargo to set the given environment variable
+# when compiling the package".
+[sources.cargo-eb94155-config-rustflags]
+key    = "cargo-eb94155-config-rustflags"
+title  = "The Cargo Book, reference/config.md at eb94155 -- build.rustflags: four mutually exclusive sources of extra flags, RUSTFLAGS ahead of target.<triple>.rustflags"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/doc/src/reference/config.md"
+file   = ""
+sha256 = "e7e2a10de9b258306e612cf11261552ac1cfe8cb6f88e05c431b9c1b215caf21"
+bytes  = 56585
+status = "external"
+group  = "AN"
+# Fetched and read 2026-10-29, not committed. Lines 566-572: CARGO_ENCODED_RUSTFLAGS, then RUSTFLAGS, then the target entries,
+# then build.rustflags, "with the first one being used".
+[sources.cargo-eb94155-cargo-features-tests]
+key    = "cargo-eb94155-cargo-features-tests"
+title  = "cargo eb94155, tests/testsuite/cargo_features.rs -- cant_publish: a stable cargo refuses a manifest with cargo-features; publish_allowed: a nightly cargo publishes one"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/tests/testsuite/cargo_features.rs"
+file   = ""
+sha256 = "c0ea9ae3b02e97f64635521823255f78c5d55bc4449fca23525b5df7a679bc68"
+bytes  = 21524
+status = "external"
+group  = "AN"
+# Fetched and read 2026-10-29, not committed. Lines 581-618: on stable, "failed to parse manifest" and "the cargo feature ...
+# requires a nightly version of Cargo, but this is the `stable` channel"; lines
+# 674-718: a nightly cargo packages, verifies and uploads the same manifest.
+[sources.rustc-02c7f9b-apple-darwin]
+key    = "rustc-02c7f9b-apple-darwin"
+title  = "The rustc book, platform-support/apple-darwin.md at 02c7f9b, nightly-2026-04-11 -- rustc respects MACOSX_DEPLOYMENT_TARGET"
+author = "The Rust Project Developers"
+year   = 2026
+venue  = "rust-lang/rust (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/rust/02c7f9bec0fd583160f8bcccb830216023b07bee/src/doc/rustc/src/platform-support/apple-darwin.md"
+file   = ""
+sha256 = "8ae4685c803eaf3943e93794715eb76654f7e2de4f70ab0c4daac66db83b2b29"
+bytes  = 2537
+status = "external"
+group  = "AN"
+# Fetched and read 2026-10-29, not committed. Lines 26-31: rustc "respects the common environment variables used by Xcode",
+# here MACOSX_DEPLOYMENT_TARGET, and --print=deployment-target gives the default:
+# 11.0 for aarch64-apple-darwin on this nightly.
+[sources.nixpkgs-9cf7092-rust-hooks]
+key    = "nixpkgs-9cf7092-rust-hooks"
+title  = "nixpkgs 9cf7092, the source of devenv-nixpkgs fa7125e, pkgs/build-support/rust/hooks/default.nix -- the cargo setup hook's target rustflags, -Cforce-frame-pointers=yes"
+author = "The Nixpkgs/NixOS contributors"
+year   = 2026
+venue  = "NixOS/nixpkgs (MIT)"
+url    = "https://raw.githubusercontent.com/NixOS/nixpkgs/9cf7092bdd603554bd8b63c216e8943cf9b12512/pkgs/build-support/rust/hooks/default.nix"
+file   = ""
+sha256 = "ad9c0c017b47500fa2a5c72e67d9bde02e446c5340c8a88a0a6eb0a9995413ae"
+bytes  = 4071
+status = "external"
+group  = "AN"
+# Fetched and read 2026-10-29, not committed. Lines 90-103: the [target.<triple>] rustflags the hook writes into .cargo/config.toml
+# carry "-Cforce-frame-pointers=yes" on every platform but 32-bit x86.
+[sources.nixpkgs-9cf7092-licenses]
+key    = "nixpkgs-9cf7092-licenses"
+title  = "nixpkgs 9cf7092, lib/licenses.nix -- cc-by-nc-sa-40: spdxId CC-BY-NC-SA-4.0, free = false"
+author = "The Nixpkgs/NixOS contributors"
+year   = 2026
+venue  = "NixOS/nixpkgs (MIT)"
+url    = "https://raw.githubusercontent.com/NixOS/nixpkgs/9cf7092bdd603554bd8b63c216e8943cf9b12512/lib/licenses.nix"
+file   = ""
+sha256 = "46caa7a8c641265d73a932c233f60cc489c580efe16c98d9d32b4c0d08411448"
+bytes  = 40145
+status = "external"
+group  = "AN"
+# Fetched and read 2026-10-29, not committed. Lines 362-366: a licence nixpkgs' unfree check refuses unless a config allows it.
