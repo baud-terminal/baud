@@ -1,0 +1,10 @@
+]133;D;1[?2004h]133;Ademo$ ]133;Bgit log --s
+--shortstat                --since=
+--show-linear-break        --single-worktree 
+--show-notes-by-default    --sparse 
+--show-pulls               --src-prefix=
+--show-signature           --stat 
+--simplify-by-decoration   --submodule 
+--simplify-merges          --submodule=
+--since-as-filter          --summary 
+]133;Ademo$ ]133;Bgit log --s

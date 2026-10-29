@@ -1,0 +1,48 @@
+# COLSxROWS <bytes of the .raw that one read returned>
+80x24 83
+# answered b'\x1b[?u' with b'\x1b[?0u'
+# answered b'\x1b[>0q' with b'\x1bP>|baud(1.0.0-beta.1)\x1b\\'
+# answered b'\x1bP+q696e646e\x1b\\' with b'\x1bP0+r\x1b\\'
+# answered b'\x1bP+q71756572792d6f732d6e616d65\x1b\\' with b'\x1bP0+r\x1b\\'
+# answered b'\x1b[0c' with b'\x1b[?6c'
+80x24 1
+80x24 97
+# answered b'\x1b[6n' with b'\x1b[1;1R'
+# answered b'\x1b[0c' with b'\x1b[?6c'
+# sent b'g'
+80x24 6
+80x24 17
+80x24 18
+# sent b'i'
+80x24 19
+80x24 17
+# sent b't'
+80x24 22
+80x24 23
+# sent b' '
+80x24 7
+80x24 8
+# sent b'l'
+80x24 7
+80x24 18
+# sent b'o'
+80x24 17
+# sent b'g'
+80x24 17
+# sent b' '
+80x24 17
+80x24 8
+# sent b'-'
+80x24 7
+80x24 18
+80x24 18
+# sent b'-'
+80x24 20
+80x24 21
+# sent b's'
+80x24 20
+# sent b'\t'
+80x24 21
+80x24 21
+80x24 1024
+80x24 114

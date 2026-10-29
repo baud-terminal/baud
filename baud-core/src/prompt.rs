@@ -76,6 +76,21 @@ pub(crate) struct Shell {
     pub(crate) input: Input,
     /// The newest row a `k=s` or `k=c` line began on, in this block.
     pub(crate) secondary: Later,
+    /// Whether the window changed size since the last initial mark.
+    pub(crate) resize: SinceMark,
+}
+
+/// **Whether a resize came since the last initial mark**: a shell redraws
+/// its prompt on `SIGWINCH`, and the next initial mark in the prompt zone
+/// is that redraw wherever the cursor is -- readline's goes to the
+/// input's last line first, below any line break inside the input, where
+/// a mark with no resize before it is the prompt printed again below a
+/// list. Set by `Term::resize` on both screens; the mark that follows
+/// takes it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SinceMark {
+    Unresized,
+    Resized,
 }
 
 /// What the `A` or `N` that opened the command asked: kitty's `redraw=`,
@@ -135,21 +150,17 @@ pub(crate) enum Later {
     At(RowRot),
 }
 
-/// An initial line's mark: a new block, or the shell redrawing the one it
-/// is at -- an initial mark that arrives while the prompt zone is open.
+/// An initial line's mark: a new block; the shell redrawing the one it is
+/// at, a mark that arrives in the prompt zone with the cursor still on the
+/// input's line or above it; or the same prompt drawn again below what the
+/// shell wrote under its input -- a completion list, after which bash's
+/// readline and zsh, when the list does not fit below the prompt, print
+/// the prompt again rather than move back up to it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum InitialMark {
     Fresh,
     Redraw,
-}
-
-impl InitialMark {
-    fn in_zone(zone: crate::term::Zone) -> InitialMark {
-        match zone {
-            crate::term::Zone::Prompt => InitialMark::Redraw,
-            crate::term::Zone::Output => InitialMark::Fresh,
-        }
-    }
+    Again,
 }
 
 /// **How many prompts have opened on the primary**: the times its zone
@@ -180,6 +191,7 @@ impl Shell {
         asks: Asks::NONE,
         input: Input::None,
         secondary: Later::None,
+        resize: SinceMark::Unresized,
     };
 }
 
@@ -197,13 +209,13 @@ impl Paint<'_, '_> {
             // that the erase then has to take back, or cannot.
             Semantic::Command(opener, o) => match o.kind {
                 PromptKind::Initial => {
-                    let mark = InitialMark::in_zone(self.strs.shell.zone);
-                    let redraw = mark == InitialMark::Redraw;
-                    if !redraw {
+                    let mark = self.initial_mark();
+                    if mark == InitialMark::Fresh {
                         self.strs.shell.asks = Asks::NONE;
                     }
                     self.strs.shell.asks.apply(&o);
-                    let erases = redraw && self.strs.shell.asks.redraw != Redraw::Never;
+                    let erases =
+                        mark == InitialMark::Redraw && self.strs.shell.asks.redraw != Redraw::Never;
                     if !erases {
                         self.fresh_line();
                     }
@@ -219,7 +231,8 @@ impl Paint<'_, '_> {
                 }
             },
             Semantic::Prompt(PromptKind::Initial) => {
-                self.initial_prompt(InitialMark::in_zone(self.strs.shell.zone), None);
+                let mark = self.initial_mark();
+                self.initial_prompt(mark, None);
             }
             Semantic::Prompt(kind) => self.later_prompt(kind),
             Semantic::Input(end) => {
@@ -262,14 +275,56 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// An initial line: a new block, or a redraw of the one the shell is at.
-    /// A redraw under `redraw=0` erases nothing: "the shell will not redraw
-    /// the prompt on resize so it should not erase it". `redraw=last` erases
-    /// as `1` does: under it an initial mark reaches a block only where the
+    /// **What an initial mark is**: a new block after output; in the prompt
+    /// zone, a redraw of the block after a resize, or while the cursor is on
+    /// the input's line or above it, where a shell that redraws moves it
+    /// back to before it draws -- zsh up by its count, readline a `CR` and
+    /// an `EL` on the input's line (`tests/prompt/bash-grow`) -- and the
+    /// same prompt drawn again once the cursor has passed the end of the
+    /// input's line with no resize since the last initial mark. A shell
+    /// passes it only by writing below its input, and what it wrote there
+    /// is its own, which the redraw's erase would take: a completion list.
+    /// With no `B` or `I` yet the block's input is not known, and the mark
+    /// is a redraw.
+    fn initial_mark(&self) -> InitialMark {
+        let shell = &self.strs.shell;
+        match shell.zone {
+            crate::term::Zone::Output => InitialMark::Fresh,
+            crate::term::Zone::Prompt if shell.resize == SinceMark::Resized => InitialMark::Redraw,
+            crate::term::Zone::Prompt if self.past_input() => InitialMark::Again,
+            crate::term::Zone::Prompt => InitialMark::Redraw,
+        }
+    }
+
+    /// Whether the cursor is past the end of the input's line: below a row
+    /// from the input's row to the cursor's that did not wrap. With the
+    /// input's row gone above the screen, the rows from the top to the
+    /// cursor's are the ones read: zsh's count clamps at the top row of a
+    /// block taller than the window, and readline redraws from the input's
+    /// last row, both on rows the input wrapped onto.
+    fn past_input(&self) -> bool {
+        let Input::At { row, .. } = self.strs.shell.input else {
+            return false;
+        };
+        let y = row
+            .retreat(self.view.rotation().index(), self.view.ring())
+            .index();
+        let cy = self.cy.index();
+        if y >= self.rows.index() {
+            return (0..cy).any(|r| !self.view.extent(Row::from_index(r)).wrapped());
+        }
+        y < cy && (y..cy).any(|r| !self.view.extent(Row::from_index(r)).wrapped())
+    }
+
+    /// An initial line: a new block, a redraw of the one the shell is at, or
+    /// the block drawn again below the shell's own lines, which erases
+    /// nothing and keeps the command's place in the prompt log. A redraw
+    /// under `redraw=0` erases nothing: "the shell will not redraw the
+    /// prompt on resize so it should not erase it". `redraw=last` erases as
+    /// `1` does: under it an initial mark reaches a block only where the
     /// shell redraws a line that begins with one.
     fn initial_prompt(&mut self, mark: InitialMark, command: Option<(Aid, Opener)>) {
-        let redraw = mark == InitialMark::Redraw;
-        if redraw && self.strs.shell.asks.redraw != Redraw::Never {
+        if mark == InitialMark::Redraw && self.strs.shell.asks.redraw != Redraw::Never {
             self.replace_prompt_block();
         }
         self.open_prompt_block();
@@ -277,14 +332,15 @@ impl Paint<'_, '_> {
         let shell = &mut self.strs.shell;
         shell.input = Input::None;
         shell.secondary = Later::None;
+        shell.resize = SinceMark::Unresized;
         if self.cold.screen != crate::term::Screen::Normal {
             return;
         }
         let line = self.book.top.plus(Rows::of_count(self.cy.index()));
-        match (redraw, command) {
-            (true, _) => self.strs.prompts.redrawn(line),
-            (false, Some((aid, opener))) => self.strs.prompts.open(line, aid, opener),
-            (false, None) => self.strs.prompts.open_bare(line),
+        match (mark, command) {
+            (InitialMark::Redraw | InitialMark::Again, _) => self.strs.prompts.redrawn(line),
+            (InitialMark::Fresh, Some((aid, opener))) => self.strs.prompts.open(line, aid, opener),
+            (InitialMark::Fresh, None) => self.strs.prompts.open_bare(line),
         }
     }
 

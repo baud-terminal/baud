@@ -1,0 +1,46 @@
+[?2004h[6n[0m[?25l[1;2H[J[1;1H]133;A;k=i;click_events=1\[92mdemo[96m> [35m7[1;81H]133;P;k=r\[0m8]133;B\[0m[0m78[?25h[0m[?25l[1;2H[J[1;1H]133;A;k=i;click_events=1\[92mdemo[96m> [35m7[1;81H]133;P;k=r\[0m8]133;B\[0m[0m[36ms[0m78[?25h[0m[?25l[1;2H[J[1;1H]133;A;k=i;click_events=1\[92mdemo[96m> [35m7[1;81H]133;P;k=r\[0m8]133;B\[0m[0m[36mst[0m78[?25h[0m[?25l[1;2H[J[1;1H]133;A;k=i;click_events=1\[92mdemo[96m> [35m7[1;81H]133;P;k=r\[0m8]133;B\[0m[0m[1;36mstr[0m78[?25h[0m[?25l[1;2H[J[1;1H]133;A;k=i;click_events=1\[92mdemo[96m> [35m7[1;81H]133;P;k=r\[0m8]133;B\[0m[0m[1;36mstr[0m 78[?25h[6n[0m[?25l[1;2H[J[1;1H]133;A;k=i;click_events=1\[92mdemo[96m> [35m7[1;81H]133;P;k=r\[0m8]133;B\[0m[0m[1;36mstr[0m 78[?25h[6n[0m[?25l
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;2H[J[1;1H]133;A;k=i;click_events=1\[92mdemo[35m7[1;81H]133;P;k=r\[0m8[96m| ]133;B\[0m[1;36mstr[0m 7[2;1H[J[0m[32m[7;32m[0m[32m[1;4;7;32mstr [0m[32m[7;32mcamel-case[0m[32m[7;32m            [33mConvert a string to camelCase.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mcapitalize            [0m[33mCapitalize the first letter of text.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mcontains              [0m[33mChecks if string input contains a substring.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mdistance              [0m[33mCompare two strings and return the edit distance/Le...[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mdowncase              [0m[33mConvert text to lowercase.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mends-with             [0m[33mCheck if an input ends with a string.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mescape-regex          [0m[33mEscapes special characters in the input string with...[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mexpand                [0m[33mGenerates all possible combinations defined in brac...[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mindex-of              [0m[33mReturns start index of first occurrence of string i...[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mjoin                  [0m[33mConcatenate multiple strings into a single string, ...[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mkebab-case            [0m[33mConvert a string to kebab-case.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mlength                [0m[33mOutput the length of any strings in the pipeline.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mlowercase             [0m[33mConvert text to lowercase.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mpascal-case           [0m[33mConvert a string to PascalCase.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mreplace               [0m[33mFind and replace text in the input string.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mreverse               [0m[33mReverse every string in the pipeline.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mscreaming-snake-case  [0m[33mConvert a string to SCREAMING_SNAKE_CASE.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32msnake-case            [0m[33mConvert a string to snake_case.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mstarts-with           [0m[33mCheck if an input starts with a string.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mstats                 [0m[33mGather word count statistics on the text.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32msubstring             [0m[33mGet part of a string. Note that the first character...[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mtitle-case            [0m[33mConvert a string to Title Case.[0m[0m
+[0m[32m[0m[32m[4mstr [0m[32mtrim                  [0m[33mTrim whitespace or specific character.[0m[0m8[?25h

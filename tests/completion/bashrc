@@ -1,0 +1,15 @@
+# The bash the completion recordings in tests/completion/ were made with:
+# git's own completion (contrib/completion/git-completion.bash, named by
+# BAUD_GITBASH), a neutral prompt, and the switches the README names.
+source "$BAUD_GITBASH"
+PS1='demo$ '
+
+# BAUD_MARKS: the OSC 133 marks, as tests/prompt/bashrc sets them.
+if [[ -n ${BAUD_MARKS-} ]]; then
+  PS1='\[\e]133;A\a\]demo$ \[\e]133;B\a\]'
+  PS0='\e]133;C\a'
+  PROMPT_COMMAND='printf "\e]133;D;%s\a" "$?"'
+fi
+
+# BAUD_SHOWALL: readline lists on the first Tab.
+[[ -n ${BAUD_SHOWALL-} ]] && bind 'set show-all-if-ambiguous on'

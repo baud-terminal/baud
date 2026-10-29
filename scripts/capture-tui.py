@@ -14,6 +14,18 @@ explicitly.
 
 Usage:
     python3 scripts/capture-tui.py --seconds 10 --out capture.raw -- btop
+
+With `--steps`, each `read(2)` is also written as a `COLSxROWS <bytes>`
+line, the format of `tests/resize/`'s `.steps`, and each key sent as a
+`# sent <key>` line before the first read after it, so a replay can feed
+the bytes at the boundaries they arrived at and say which key each read
+answered.
+
+With `--answer QUERY=REPLY`, as Python escape strings, each `QUERY` the
+program writes is answered with `REPLY`, as a terminal answers it: fish
+waits on its `DA1` before it draws a prompt. Give the replies baud's
+core gives (`Term::reply`), so the capture is the session baud would
+have had.
 """
 
 from __future__ import annotations
@@ -50,6 +62,9 @@ def main() -> int:
     # waits out its start-up queries reads the keys sent before then in one
     # burst.
     ap.add_argument("--first-key", type=float, default=None)
+    # Where to write each read's length, one `COLSxROWS <bytes>` a line.
+    ap.add_argument("--steps", default=None)
+    ap.add_argument("--answer", action="append", default=[])
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     args = ap.parse_args()
 
@@ -80,14 +95,23 @@ def main() -> int:
     next_key = time.monotonic() + first
     ki = 0
 
+    def esc(s: str) -> bytes:
+        return s.encode().decode("unicode_escape").encode("latin-1")
+
+    answers = [tuple(esc(x) for x in a.split("=", 1)) for a in args.answer]
+    answered = [0] * len(answers)
+    seen = b""
+
     sel = selectors.DefaultSelector()
     sel.register(master, selectors.EVENT_READ)
     end = time.monotonic() + args.seconds
     total = 0
+    steps: list[str] = []
     with open(args.out, "wb") as f:
         while time.monotonic() < end:
             if ki < len(keys) and time.monotonic() >= next_key:
                 os.write(master, keys[ki])
+                steps.append(f"# sent {keys[ki]!r}")
                 ki += 1
                 next_key = time.monotonic() + args.key_delay
             # Wake for the next key as well as for output, so a key is not
@@ -103,6 +127,13 @@ def main() -> int:
                     break
                 f.write(chunk)
                 total += len(chunk)
+                steps.append(f"{args.cols}x{args.rows} {len(chunk)}")
+                seen += chunk
+                for i, (q, r) in enumerate(answers):
+                    while seen.count(q) > answered[i]:
+                        os.write(master, r)
+                        answered[i] += 1
+                        steps.append(f"# answered {q!r} with {r!r}")
 
     os.kill(pid, signal.SIGTERM)
     time.sleep(0.3)
@@ -113,6 +144,10 @@ def main() -> int:
     os.waitpid(pid, os.WNOHANG)
     os.close(master)
 
+    if args.steps:
+        with open(args.steps, "w") as f:
+            f.write("# COLSxROWS <bytes of the .raw that one read returned>\n")
+            f.write("".join(f"{line}\n" for line in steps))
     print(f"{total} bytes -> {args.out}")
     return 0 if total else 1
 

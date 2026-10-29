@@ -1,0 +1,31 @@
+# COLSxROWS <bytes of the .raw that one read returned>
+80x12 104
+80x12 27
+80x12 8
+# sent b'g'
+80x12 1
+# sent b'i'
+80x12 3
+# sent b't'
+80x12 1
+# sent b' '
+80x12 1
+# sent b'l'
+80x12 1
+# sent b'o'
+80x12 1
+# sent b'g'
+80x12 1
+# sent b' '
+80x12 1
+# sent b'-'
+80x12 1
+# sent b'-'
+80x12 1
+# sent b's'
+80x12 1
+# sent b'\t'
+80x12 4
+80x12 1024
+80x12 14
+80x12 388

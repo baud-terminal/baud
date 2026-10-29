@@ -1,0 +1,21 @@
+# COLSxROWS <bytes of the .raw that one read returned>
+80x24 12
+# answered b'\x1b[6n' with b'\x1b[1;1R'
+80x24 129
+# sent b's'
+80x24 139
+# sent b't'
+80x24 140
+# sent b'r'
+80x24 143
+# sent b' '
+80x24 144
+# sent b'\t'
+80x24 4
+# answered b'\x1b[6n' with b'\x1b[1;1R'
+80x24 144
+80x24 4
+# answered b'\x1b[6n' with b'\x1b[1;1R'
+80x24 1024
+80x24 1024
+80x24 861

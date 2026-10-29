@@ -1,0 +1,175 @@
+[1m[7m%[27m[1m[0m                                                                                ]133;A;cl=m;aid=30466[0m[27m[24m[J]133;P;k=idemo% ]133;B[K[?2004hggit log --
+zsh: do you wish to see all 173 possibilities (173 lines)? y[J[J--abbrev                    -- use specified digits to display object names[K
+--abbrev-commit             -- show only partial prefixes of commit object n[K
+--after                     -- show commits more recent than given date[K
+--all                       -- show all commits from refs[K
+--all-match                 -- limit commits to those matching all --grep, -[K
+--ancestry-path             -- only display commits that exists directly on [K
+--anchored                  -- generate diffs using the "anchored diff" algo[K
+--author                    -- limit commits to those by given author[K
+--author-date-order         -- display commits in author date order[K
+--before                    -- show commits older than given date[K
+--binary                    -- in addition to --full-index, output binary di[K
+--bisect                    -- pretend as if refs/bisect/bad --not refs/bise[K
+--boundary                  -- output uninteresting commits at boundary[K
+--branches                  -- show all commits from refs/heads[K
+--break-rewrites            -- break complete rewrite changes into pairs of [K
+--cc                        -- combined diff format for merge commits[K
+--check                     -- warn if changes introduce trailing whitespace[K
+--cherry                    -- synonym for --right-only --cherry-mark --no-m[K
+--cherry-mark               -- like --cherry-pick but mark equivalent commit[K
+--cherry-pick               -- omit any commit that introduces the same chan[K
+--children                  -- display children of commit[K
+--clear-decorations         -- clear all previously-defined decoration filte[K
+--color                     -- show colored diff[K
+--color-moved               -- color moved lines differently[K
+--color-moved-ws            -- configure how whitespace is ignored when perf[K
+--color-words               -- show colored-word diff[K
+--committer                 -- limit commits to those by given committer[K
+--compact-summary           -- show a summary of file creations, deletions a[K
+--count                     -- display how many commits would have been list[K
+--cumulative                -- synonym for --dirstat=cumulative[K
+--date                      -- format of date output[K
+--date-order                -- display commits in date order[K
+--decorate                  -- print out ref names of any commits that are s[K
+--decorate-refs             -- only decorate refs that match pattern[K
+--decorate-refs-exclude     -- don't decorate refs that match pattern[K
+--default                   -- use argument as default revision[K
+--dense                     -- only display selected commits, plus meaningfu[K
+--diff-algorithm            -- choose a diff algorithm[K
+--diff-filter               -- select certain kinds of files for diff[K
+--diff-merges               -- specify diff format to be used for merge comm[K
+--dirstat                   -- generate dirstat by amount of changes[K
+--dirstat-by-file           -- generate dirstat by number of files[K
+--do-walk                   -- only display given revs, traversing their anc[K
+--dst-prefix                -- use given prefix for destination[K
+--early-output              -- undocumented[K
+--encoding                  -- output log messages in given encoding[K
+--exclude                   -- don't include refs matching glob[K
+--expand-tabs               -- replace each tab with spaces[K
+--ext-diff                  -- allow external diff helper to be executed[K
+--extended-regexp           -- use POSIX extended regexps[K
+--find-copies               -- detect copies as well as renames with given s[K
+--find-copies-harder        -- try harder to find copies[K
+--find-object               -- look for differences that change the number o[K
+--find-renames              -- detect renames with given scope[K
+--first-parent              -- follow only first parent from merge commits[K
+--fixed-strings             -- don't interpret patterns as regexps[K
+--follow                    -- continue listing the history of a file beyond[K
+--format                    -- pretty print commit messages[K
+--full-diff                 -- show full commit diffs when using log -p, not[K
+--full-history              -- do not prune history[K
+--full-index                -- show full object name of pre- and post-image [K
+--function-context          -- show whole function where a match was found[K
+--glob                      -- show all commits from refs matching glob[K
+--graph                     -- display graphical representation of commit hi[K
+--grep                      -- limit commits to those with log messages matc[K
+--grep-reflog               -- limit commits to ones whose reflog message ma[K
+--histogram                 -- generate diffs with histogram algorithm[K
+--ignore-all-space          -- ignore white space when comparing lines[K
+--ignore-blank-lines        -- ignore changes whose lines are all blank[K
+--ignore-cr-at-eol          -- ignore carriage-return at end of line[K
+--ignore-matching-lines     -- ignore changes whose lines all match regex[K
+--ignore-missing            -- ignore invalid object an ref names on command[K
+--ignore-space-at-eol       -- ignore changes in whitespace at end of line[K
+--ignore-space-change       -- ignore changes in amount of white space[K
+--ignore-submodules         -- ignore changes to submodules[K
+--inter-hunk-context        -- combine patch hunks closer than specified num[K
+--invert-grep               -- limit commits to those not matching --grep, -[K
+--irreversible-delete       -- omit the preimage for deletes[K
+--ita-invisible-in-index    -- hide 'git add -N' entries from the index[K
+--left-only                 -- list only commits on the left side of a symme[K
+--left-right                -- mark which side of symmetric diff commit is r[K
+--line-prefix               -- prepend additional prefix to every line of ou[K
+--log-size                  -- print log message size in bytes before the me[K
+--mailmap                   -- use mailmap file to map author and committer [K
+--max-age                   -- maximum age of commits to output[K
+--max-count                 -- maximum number of commits to display[K
+--max-depth                 -- specify maximum tree depth to recurse[K
+--max-parents               -- show only commits with at most specified numb[K
+--merge                     -- after a failed merge, show refs that touch fi[K
+--merges                    -- display only merge commits[K
+--min-age                   -- minimum age of commits to output[K
+--min-parents               -- show only commits with at least specified num[K
+--minimal                   -- spend extra time to make sure the smallest po[K
+--name-only                 -- show only names of changed files[K
+--name-status               -- show only names and status of changed files[K
+--no-abbrev                 -- show the full 40-byte hexadecimal commit obje[K
+--no-abbrev-commit          -- show the full 40-byte hexadecimal commit obje[K
+--no-color                  -- turn off colored diff[K
+--no-color-moved-ws         -- don't ignore whitespace when performing move [K
+--no-decorate               -- do not print out ref names of any commits tha[K
+--no-ext-diff               -- disallow external diff helper to be executed[K
+--no-follow                 -- do not follow renames[K
+--no-indent-heuristic       -- disable heuristic that shifts diff hunk bound[K
+--no-max-parents            -- reset limit[K
+--no-merges                 -- don't display commits with more than one pare[K
+--no-min-parents            -- reset limit[K
+--no-notes                  -- do not show notes that annotate commit[K
+--no-patch                  -- suppress diff output[K
+--no-prefix                 -- don't show any source or destination prefix[K
+--no-renames                -- turn off rename detection[K
+--no-textconv               -- do not allow external text conversion filters[K
+--no-walk                   -- only display given revs, don't traverse their[K
+--not                       -- reverses meaning of ^ prefix for revisions th[K
+--notes                     -- show notes that annotate commit, with optiona[K
+--numstat                   -- generate more machine-friendly diffstat[K
+--objects                   -- display object ids of objects referenced by l[K
+--objects-edge              -- display object ids of objects referenced by l[K
+--oneline                   -- shorthand for --pretty=oneline --abbrev-commi[K
+--output                    -- output to a specific file[K
+--output-indicator-context  -- specify the character to indicate a context l[K
+--output-indicator-new      -- specify the character to indicate a new line[K
+--output-indicator-old      -- specify the character to indicate a old line[K
+--parents                   -- display parents of commit[K
+--patch                     -- generate diff in patch format[K
+--patch-with-raw            -- generate patch but also keep the default raw [K
+--patch-with-stat           -- generate patch and prepend its diffstat[K
+--patience                  -- generate diffs with patience algorithm[K
+--perl-regexp               -- use perl regular expression[K
+--pickaxe-all               -- when -G or -S find a change, show all changes[K
+--pickaxe-regex             -- treat argument of -S as regular expression[K
+--pretty                    -- pretty print commit messages[K
+--raw                       -- generate default raw diff output[K
+--reflog                    -- show all commits from reflogs[K
+--regexp-ignore-case        -- match regexps ignoring case[K
+--relative                  -- exclude changes outside and output relative t[K
+--relative-date             -- show dates relative to current time[K
+--remerge-diff              -- produce remerge-diff output for merge commits[K
+--remotes                   -- show all commits from refs/remotes[K
+--remove-empty              -- stop when given path disappears from tree[K
+--rename-empty              -- use empty blobs as rename source[K
+--reverse                   -- display commits in reverse order[K
+--right-only                -- list only commits on the right side of a symm[K
+--rotate-to                 -- show the change in specified path first[K
+--shortstat                 -- generate summary diffstat[K
+--show-linear-break         -- show a barrier between commits from different[K
+--show-signature            -- validate GPG signature of commit[K
+--simplify-by-decoration    -- show only commits that are referenced by a re[K
+--simplify-merges           -- milder version of --full-history[K
+--since                     -- show commits more recent than given date[K
+--single-worktree           -- examine the current working tree only[K
+--skip                      -- skip given number of commits before output[K
+--skip-to                   -- skip the output to the specified path[K
+--source                    -- show which ref each commit is reached from[K
+--sparse                    -- when paths are given, display only commits th[K
+--src-prefix                -- use given prefix for source[K
+--stat                      -- generate diffstat instead of patch[K
+--stat-count                -- generate diffstat with limited lines[K
+--stat-graph-width          -- generate diffstat with a given graph width[K
+--stat-width                -- generate diffstat with a given width[K
+--stdin                     -- additionally read commits from standard input[K
+--submodule                 -- select output format for submodule difference[K
+--summary                   -- generate condensed summary of extended header[K
+--tags                      -- show all commits from refs/tags[K
+--text                      -- treat all files as text[K
+--textconv                  -- allow external text conversion filters to be [K
+--topo-order                -- display commits in topological order[K
+--unified                   -- generate diff with given lines of context[K
+--until                     -- show commits older than given date[K
+--use-mailmap               -- use mailmap file to map author and committer [K
+--walk-reflogs              -- walk reflog entries from most recent to oldes[K
+--word-diff                 -- show word diff[K
+--word-diff-regex           -- specify what constitutes a word[K
+--ws-error-highlight        -- specify where to highlight whitespace errors[K
+[0m[27m[24m[J]133;P;k=idemo% ]133;Bgit log --[K

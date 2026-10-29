@@ -1,0 +1,39 @@
+[1m[7m%[27m[1m[0m                                                                                ]133;A;cl=m;aid=30956[0m[27m[24m[J]133;P;k=idemo% ]133;B[K[?2004hggit log --s
+--shortstat               -- generate summary diffstat[27m
+--show-linear-break       -- show a barrier between commits from different b[27m
+--show-signature          -- validate GPG signature of commit[27m
+--simplify-by-decoration  -- show only commits that are referenced by a ref[27m
+--simplify-merges         -- milder version of --full-history[27m
+--since                   -- show commits more recent than given date[27m
+--single-worktree         -- examine the current working tree only[27m
+--skip                    -- skip given number of commits before output[27m
+--skip-to                 -- skip the output to the specified path[27m
+--source                  -- show which ref each commit is reached from[27m
+--sparse                  -- when paths are given, display only commits that[27m
+--src-prefix              -- use given prefix for source[27m
+--stat                    -- generate diffstat instead of patch[27m
+--stat-count              -- generate diffstat with limited lines[27m
+--stat-graph-width        -- generate diffstat with a given graph width[27m
+--stat-width              -- generate diffstat with a given width[27m
+--stdin                   -- additionally read commits from standard input[27m
+--submodule               -- select output format for submodule differences[27m
+[J--summary                 -- generate condensed summary of extended header i[27m[J[19A[0m[27m[24m[6Cgit log --s[Khortstat
+[7m--shortstat               -- generate summary diffstat[27m[K[27m[K
+--show-linear-break       -- show a barrier between commits from different b[K[27m[K
+--show-signature          -- validate GPG signature of commit[K[27m[K
+--simplify-by-decoration  -- show only commits that are referenced by a ref[K[27m[K
+--simplify-merges         -- milder version of --full-history[K[27m[K
+--since                   -- show commits more recent than given date[K[27m[K
+--single-worktree         -- examine the current working tree only[K[27m[K
+--skip                    -- skip given number of commits before output[K[27m[K
+--skip-to                 -- skip the output to the specified path[K[27m[K
+--source                  -- show which ref each commit is reached from[K[27m[K
+--sparse                  -- when paths are given, display only commits that[K[27m[K
+--src-prefix              -- use given prefix for source[K[27m[K
+--stat                    -- generate diffstat instead of patch[K[27m[K
+--stat-count              -- generate diffstat with limited lines[K[27m[K
+--stat-graph-width        -- generate diffstat with a given graph width[K[27m[K
+--stat-width              -- generate diffstat with a given width[K[27m[K
+--stdin                   -- additionally read commits from standard input[K[27m[K
+--submodule               -- select output format for submodule differences[K[27m[K
+[J--summary                 -- generate condensed summary of extended header i[K[27m[J[19A[0m[27m[24m[6Cgit log --shortstat[K

@@ -1,0 +1,21 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[Jdemo% [K[?2004hggit log --s
+[J--shortstat               -- generate summary diffstat[K
+--show-linear-break       -- show a barrier between commits from different b[K
+--show-signature          -- validate GPG signature of commit[K
+--simplify-by-decoration  -- show only commits that are referenced by a ref[K
+--simplify-merges         -- milder version of --full-history[K
+--since                   -- show commits more recent than given date[K
+--single-worktree         -- examine the current working tree only[K
+--skip                    -- skip given number of commits before output[K
+--skip-to                 -- skip the output to the specified path[K
+--source                  -- show which ref each commit is reached from[K
+--sparse                  -- when paths are given, display only commits that[K
+--src-prefix              -- use given prefix for source[K
+--stat                    -- generate diffstat instead of patch[K
+--stat-count              -- generate diffstat with limited lines[K
+--stat-graph-width        -- generate diffstat with a given graph width[K
+--stat-width              -- generate diffstat with a given width[K
+--stdin                   -- additionally read commits from standard input[K
+--submodule               -- select output format for submodule differences[K
+--summary                 -- generate condensed summary of extended header i[K
+[0m[27m[24m[Jdemo% git log --s[K

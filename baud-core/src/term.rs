@@ -2700,6 +2700,9 @@ impl<'b> Term<'b> {
         // (`placed.rs`); the same geometry leaves it.
         if (rows, cols) != (old_rows, old_cols) {
             self.cold.placement.forget();
+            // The shell redraws at the next initial mark, wherever it is.
+            self.store.strs.shell.resize = crate::prompt::SinceMark::Resized;
+            self.store.strs.shell_other.resize = crate::prompt::SinceMark::Resized;
         }
         // The window over the history, in lines from the window's top, as it
         // moves with the steps below; `None` is the live screen. Read through

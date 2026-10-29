@@ -1235,6 +1235,40 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // The shell's prompt marks, last so the seeds before them keep their
+    // meaning: an initial mark in an open prompt zone is a redraw or the
+    // prompt drawn again by where the cursor is, never by where a read
+    // ended.
+    Atom {
+        name: "osc133_a",
+        bytes: b"\x1b]133;A\x07",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "osc133_b",
+        bytes: b"\x1b]133;B\x07",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "osc133_p",
+        bytes: b"\x1b]133;P;k=i\x07",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "osc133_c",
+        bytes: b"\x1b]133;C\x07",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "osc133_d",
+        bytes: b"\x1b]133;D;0\x07",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -2347,4 +2381,41 @@ proptest! {
             }
         }
     }
+}
+
+/// **The prompt-mark atoms reach both readings of an initial mark**, so the
+/// chunk properties above put the new rule under every read size: a
+/// prompt, its input, a line below it and an `A` there is the prompt drawn
+/// again, erasing nothing and opening no second command; an `A` with the
+/// cursor still on the input's line is a redraw, which erases.
+#[test]
+fn the_prompt_mark_atoms_reach_a_redraw_and_a_prompt_drawn_again() {
+    let again = bytes_of(&[
+        atom("osc133_a"),
+        atom("ascii-short"),
+        atom("osc133_b"),
+        atom("ascii-short"),
+        atom("crlf"),
+        atom("ascii-short"),
+        atom("crlf"),
+        atom("osc133_a"),
+    ]);
+    support::with_term(&ws(), |t| {
+        support::feed(t, &again);
+        assert_eq!(t.prompt_erases, 0, "the prompt drawn again");
+        assert_eq!(t.prompts().count(), 1, "one command");
+        assert_eq!(t.cursor().0, Row::from_index(2));
+    });
+    let redraw = bytes_of(&[
+        atom("osc133_a"),
+        atom("ascii-short"),
+        atom("osc133_b"),
+        atom("ascii-short"),
+        atom("osc133_a"),
+    ]);
+    support::with_term(&ws(), |t| {
+        support::feed(t, &redraw);
+        assert_eq!(t.prompt_erases, 1, "a redraw");
+        assert_eq!(t.cursor().0, Row::ZERO);
+    });
 }

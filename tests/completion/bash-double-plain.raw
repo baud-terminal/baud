@@ -1,0 +1,10 @@
+[?2004hdemo$ git log --s
+--shortstat                --since=
+--show-linear-break        --single-worktree 
+--show-notes-by-default    --sparse 
+--show-pulls               --src-prefix=
+--show-signature           --stat 
+--simplify-by-decoration   --submodule 
+--simplify-merges          --submodule=
+--since-as-filter          --summary 
+demo$ git log --s
