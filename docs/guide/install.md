@@ -22,7 +22,7 @@ This builds baud and opens a window running your login shell. To keep it
 on your `PATH`:
 
 ```sh
-nix profile install github:i-am-logger/baud
+nix profile add github:i-am-logger/baud
 ```
 
 The package carries the licences of the fonts baud draws with in

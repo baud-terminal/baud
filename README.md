@@ -107,7 +107,7 @@ settings baud is measured with.
 builds baud and opens it (with flakes turned on):
 
 ```sh
-nix run github:i-am-logger/baud              # or: nix profile install github:i-am-logger/baud
+nix run github:i-am-logger/baud              # or: nix profile add github:i-am-logger/baud
 ```
 
 baud's licence, CC BY-NC-SA 4.0, lets you use it for anything that is not

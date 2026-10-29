@@ -6,7 +6,9 @@
 //! give that date to `cargo +nightly-…`. This file fails on a lock bumped
 //! alone and on a guide left on an old nightly. The dev shell names no
 //! date, so both locks moved together can take its nightly past the
-//! flake's; that pair is not held here.
+//! flake's; that pair is not held here, and neither are the date's
+//! other copies: CONTRIBUTING.md's "Releases", docs/embedding.md and the
+//! two `toolchain:` lines of the CI workflow.
 
 use std::path::PathBuf;
 

@@ -1298,8 +1298,11 @@ have the workspace build's sizes, the same multiset of 3,017; the
 `__text` bytes differ, and so do the symbol names' crate hashes. A
 deployment target in the environment leaves the floor at 26.0, because `build.rs` sets it for baud's own rustc
 (`[[source: cargo-eb94155-build-scripts-rustc-env]]`,
-`[[source: rustc-02c7f9b-apple-darwin]]`); under it, and in the final nix
-arm, one function size of 3,017 differs. Without the line, the floor is
+`[[source: rustc-02c7f9b-apple-darwin]]`). The one span between symbols
+that differs, in every arm, runs from the Mach-O header to the first
+function: it is padding that moves with `__cstring`'s size, which holds
+the source paths the build ran from, and it is not code. Without the
+line, the floor is
 rustc's default, 11.0.
 
 nixpkgs' cargo hook writes `-Cforce-frame-pointers=yes` into the target's
