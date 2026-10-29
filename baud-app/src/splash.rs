@@ -1,8 +1,9 @@
 //! **The launch splash, as both drivers time it** (note AJ): nothing of
 //! it until the window is shown -- on macOS the first display-link tick at
-//! which a frame has reached the layer, the plasma's pipeline is built and
-//! AppKit reports the window visible, which it opened whole, with no
-//! animation, on Linux the compositor's first frame callback -- then baud's
+//! which a frame has reached the layer and AppKit reports the window
+//! visible, which it showed once the app finished launching, its first
+//! frame already drawn, whole, with no animation, and the plasma's pipeline
+//! built at launch; on Linux the compositor's first frame callback -- then baud's
 //! colour lockup carried in by the plasma, left to right, and carried out
 //! by a second, left to right, gone [`gone`] after it starts -- on the clock alone,
 //! so a shell's output neither cuts it short nor holds it longer. Under reduced
@@ -235,15 +236,6 @@ impl Splash {
             _ => None,
         }
     }
-
-    /// Whether it stands still before its plasma -- waiting for the window,
-    /// or held under reduced motion: the time to build what the plasma
-    /// draws with, so the plasma's first frame does not pay for it. The
-    /// macOS GPU path's: the CPU path builds nothing.
-    #[cfg(any(target_os = "macos", test))]
-    pub(crate) fn held(&self) -> bool {
-        matches!(self.state, State::Waiting | State::Held(_) | State::Due)
-    }
 }
 
 /// **`BAUD_SPLASH`**: `on` and `off` fix the splash whatever the config
@@ -308,7 +300,6 @@ mod tests {
             assert_eq!(s.owes(now), Owes::Nothing, "{now}");
             assert_eq!(s.deadline(), None, "{now}");
         }
-        assert!(s.held(), "the plasma is built while it waits");
         assert_eq!(s.shown(), Owes::Frame);
         assert!(!s.waiting());
         assert_eq!(s.shown(), Owes::Nothing, "once");
@@ -403,7 +394,6 @@ mod tests {
         );
         assert_eq!(s.owes(10.1), Owes::Nothing);
         assert_eq!(s.deadline(), Some(10.0 + CAP));
-        assert!(s.held());
         feed(&mut t, b"% ");
         // The frame that shows the prompt holds the logo over it.
         assert_eq!(
@@ -416,7 +406,6 @@ mod tests {
             phase(s.look(Some(10.25), &t, reduced)),
             Some(SplashPhase::Fade(0.0))
         );
-        assert!(!s.held());
         let fade = f64::from(baud_render::splash::FADE_S);
         assert_eq!(s.look(Some(10.25 + fade + 0.001), &t, reduced), None);
         assert_eq!(s.owes(11.5), Owes::Nothing);

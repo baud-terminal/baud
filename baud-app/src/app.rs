@@ -12,8 +12,8 @@ use crate::gesture::{
 };
 use crate::host::{
     FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_SPLASH, FIRST_TICK,
-    FIRST_TICK_DONE, MAX_GRID, cell_px, describe, host_geometry, startup_first, startup_mark,
-    startup_note,
+    FIRST_TICK_DONE, FIRST_VISIBLE, FIRST_WAKE, MAX_GRID, cell_px, describe, host_geometry,
+    startup_first, startup_mark, startup_note,
 };
 use crate::keep::{
     Before, KeptText, Ring, followed, kept_across_resize, numbered, oldest, reset_in,
@@ -623,12 +623,10 @@ struct App {
     /// window to be shown, emerging, then vanishing, read off
     /// `tick_target` like the trail.
     splash: crate::splash::Splash,
-    /// Whether the plasma's pipeline was built while the splash stood
-    /// still.
-    splash_warm: Done,
     /// Whether a frame has reached the layer: one of what the tick's gate
     /// reads before it shows the window to the splash (`Driver::frame`),
-    /// with the plasma's pipeline built and the window visible.
+    /// with the window visible. The plasma's pipeline is built at launch,
+    /// on the GPU's own thread beside the others.
     layer_shown: Done,
     /// Whether an alternate-screen switch fades, from `[screen] transition`,
     /// and the fade being animated. `Some` forces a frame the way a trail
@@ -823,11 +821,11 @@ impl Boot {
         // it overlaps -- the probe is joined once the window exists.
         let probe = std::thread::spawn(move || {
             let t0 = Instant::now();
-            let g = match request {
+            let mut g = match request {
                 Request::Force(Path::Cpu) => None,
                 _ => Gpu::new(),
             };
-            if let Some(g) = &g {
+            if let Some(g) = &mut g {
                 let b = g.build();
                 let t1 = Instant::now();
                 g.warm();
@@ -856,6 +854,16 @@ impl Boot {
                     b.each[2].as_secs_f64() * 1e3,
                     b.each[3].as_secs_f64() * 1e3,
                     b.each[4].as_secs_f64() * 1e3,
+                ));
+                // **The launch logo's plasma beside them**, so the tick
+                // that starts the logo waits on no pipeline and its first
+                // frame pays for none.
+                let t2 = Instant::now();
+                let built = g.warm_effect(baud_render::effect::Effect::Plasma);
+                startup_note(&format!(
+                    "gpu plasma: {:.2} ms{}",
+                    t2.elapsed().as_secs_f64() * 1e3,
+                    if built { "" } else { ", not built" }
                 ));
             }
             g
@@ -1390,7 +1398,6 @@ impl App {
                 std::env::var("BAUD_SPLASH").ok().as_deref(),
                 launch_splash,
             )),
-            splash_warm: Done::No,
             layer_shown: Done::No,
             screen_transition,
             transition: None,
@@ -3443,9 +3450,10 @@ struct Driver {
     derive: crate::title::Derive,
     watch: Option<crate::fg::Watch>,
     /// This machine's names, one of which an `OSC 7` must name to be
-    /// local (`machine_names`), and the home directory a folder is spelled
-    /// from (`title.rs`).
-    hosts: Vec<String>,
+    /// local (`machine_names`), read on a thread of their own from launch
+    /// (`Hosts`), and the home directory a folder is spelled from
+    /// (`title.rs`).
+    hosts: Hosts,
     home: Option<Vec<u8>>,
     /// The pointer the window last showed for a program's `OSC 22`
     /// (`pointer.rs`), unknown while the pointer is outside it.
@@ -5883,9 +5891,8 @@ mod drag_tests {
     }
 
     /// **The tick starts the splash only once the window is shown**: a
-    /// frame on the layer, the plasma's pipeline built on an earlier
-    /// tick, and AppKit's window on screen and not wholly covered. The tick is AppKit-bound,
-    /// so the source is what can fail.
+    /// frame on the layer and AppKit's window on screen and not wholly
+    /// covered. The tick is AppKit-bound, so the source is what can fail.
     #[test]
     fn the_tick_starts_the_splash_only_once_the_window_is_shown() {
         const SRC: &str = include_str!("app.rs");
@@ -5903,20 +5910,111 @@ mod drag_tests {
             .expect("the start is gated");
         for read in [
             "self.app.layer_shown == Done::Yes",
-            "self.app.splash_warm == Done::Yes",
             "w.isVisible()",
             "w.occlusionState().contains(NSWindowOcclusionState::Visible)",
         ] {
             assert!(gate.contains(read), "{read} in the gate: {gate}");
         }
-        // The pipeline is built after the gate in the tick, so the gate
-        // never passes on the first tick: the first frame has been on the
-        // layer for a display link interval when the logo starts.
-        let warm = concat!("self.app.splash_warm = ", "Done::Yes;");
-        assert_eq!(frame.matches(warm).count(), 1, "built once: {frame}");
+    }
+
+    /// **The plasma's pipeline is built at launch, beside the others**: on
+    /// the GPU's own thread, after its five pipelines, and never on a tick,
+    /// so the gate above can pass on the display link's first tick and the
+    /// logo's first frame waits on no build. The launch is AppKit-bound, so
+    /// the source is what can fail.
+    #[test]
+    fn the_plasmas_pipeline_is_built_at_launch() {
+        const SRC: &str = include_str!("app.rs");
+        let warm = concat!("warm_", "effect(baud_render::effect::Effect::Plasma)");
+        let probe = SRC
+            .split_once(concat!("let probe = std::thread::", "spawn(move || {"))
+            .and_then(|(_, rest)| rest.split_once("\n        });\n"))
+            .map(|(body, _)| body)
+            .expect("the GPU's thread");
+        let pipelines = probe
+            .find("gpu pipelines:")
+            .expect("the control: the five pipelines are noted there");
+        let at = probe
+            .find(warm)
+            .expect("the plasma is built on the GPU's thread");
+        assert!(pipelines < at, "after the five");
+        let frame = SRC
+            .split_once(concat!("fn frame(&mut self, ", "target: f64) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("the tick");
+        assert!(!frame.contains("warm_effect("), "built on a tick: {frame}");
+    }
+
+    /// **The window is shown once the app has finished launching, its
+    /// first frame already on its layer**: the launch registers for the end
+    /// of `finishLaunching` before it runs the app, and there the first
+    /// frame is drawn before the window is ordered front, which the launch
+    /// does nowhere else. Shown before `run()`, the window stood on screen
+    /// through the rest of the launch with no frame and then no logo. The
+    /// launch is AppKit-bound, so the source is what can fail.
+    #[test]
+    fn the_window_is_shown_once_launched_with_its_first_frame() {
+        const SRC: &str = include_str!("app.rs");
+        let launch = SRC
+            .split_once(concat!("\npub fn ", "run() {"))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(body, _)| body)
+            .expect("the launch");
+        let (before, launched) = launch
+            .split_once(concat!("launch::when_", "launched(move || {"))
+            .expect("shown once launched");
+        let show = concat!("window.", "show();");
         assert!(
-            frame.find(start) < frame.find(warm),
-            "the pipeline is built before the gate reads it"
+            !before.contains(show),
+            "shown before the app finished launching"
+        );
+        let (inside, after) = launched
+            .split_once("\n    });\n")
+            .expect("the callback ends");
+        assert!(
+            after.contains("ns_app.run();"),
+            "registered before the app runs"
+        );
+        let drawn = inside
+            .find(concat!("driver.app.present(&v, ", "Show::Now);"))
+            .expect("the first frame is drawn there");
+        let shown = inside.find(show).expect("the window is shown there");
+        assert!(drawn < shown, "shown before its first frame");
+        let installed = inside
+            .find(concat!("view.set_", "responder("))
+            .expect("the responder is installed there");
+        assert!(shown < installed, "the responder last");
+    }
+
+    /// **This machine's names are read off the main thread**: the launch
+    /// starts the read on a thread of its own and never reads them itself,
+    /// so `hostName`'s first call, 5-29 ms measured, is not between the
+    /// window and its first frame.
+    #[test]
+    fn the_machines_names_are_read_off_the_launch() {
+        const SRC: &str = include_str!("app.rs");
+        let launch = SRC
+            .split_once(concat!("\npub fn ", "run() {"))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(body, _)| body)
+            .expect("the launch");
+        assert!(launch.contains("Hosts::start()"), "the read is started");
+        assert!(
+            !launch.contains(concat!("machine_", "names()")),
+            "read on the launch's own thread"
+        );
+        let start = SRC
+            .split_once(concat!("fn start() -> ", "Hosts {"))
+            .map(|(_, rest)| rest)
+            .expect("the read's start");
+        assert!(
+            start
+                .split_once("\n    }\n")
+                .expect("its end")
+                .0
+                .contains(".spawn(machine_names)"),
+            "on a thread of its own"
         );
     }
 }
@@ -10184,37 +10282,27 @@ impl Responder for Driver {
         // ([[source: apple-nswindow-isvisible]],
         // [[source: apple-nswindow-occlusionstate]]): its clock starts on
         // this tick's frame, which this owes. The window was ordered front
-        // with no open animation (`run`), so on screen is whole on screen
-        // (note AJ, section 13). Not before the plasma's pipeline is built
-        // below, on the tick before at the latest -- so not on the first
-        // tick, and the first frame has been on the layer for a display
-        // link interval -- and the emerge's first frame never pays for it.
-        if self.app.splash.waiting()
-            && self.app.layer_shown == Done::Yes
-            && self.app.splash_warm == Done::Yes
-        {
+        // with no open animation and its first frame already on its layer
+        // (`run`), so on screen is whole on screen (note AJ, sections 13
+        // and 15). The plasma's pipeline was built at launch, so this can
+        // pass on the first tick and the emerge's first frame never pays
+        // for it.
+        if self.app.splash.waiting() && self.app.layer_shown == Done::Yes {
             let visible = self.view.window().is_some_and(|w| {
                 w.isVisible() && w.occlusionState().contains(NSWindowOcclusionState::Visible)
             });
+            if visible {
+                startup_first("window visible", &FIRST_VISIBLE);
+            }
             if visible && self.app.splash.shown() == crate::splash::Owes::Frame {
                 self.app.pending = Pending::Dirty;
                 startup_mark("splash shown");
             }
         }
         // The launch splash owes every frame while it plays or fades, and
-        // the one a reduced-motion hold ends on. The plasma's pipeline is
-        // built while it stands still -- waiting for the window, or held
-        // under reduced motion -- once, so the plasma's first frame does not
-        // pay for it.
+        // the one a reduced-motion hold ends on.
         if self.app.splash.owes(target) == crate::splash::Owes::Frame {
             self.app.pending = Pending::Dirty;
-        }
-        if self.app.splash.held() && self.app.splash_warm == Done::No {
-            self.app.splash_warm = Done::Yes;
-            if let Some(p) = &mut self.app.presenter {
-                p.warm_effect(baud_render::effect::Effect::Plasma);
-            }
-            startup_mark("splash warm");
         }
         // The quad owes every frame while it is in flight, and the one a
         // move's dwell runs out on: after a lone keystroke's echo nothing
@@ -10295,6 +10383,7 @@ impl Responder for Driver {
     }
 
     fn wake(&mut self) {
+        startup_first("run loop", &FIRST_WAKE);
         if self.app.frames.value() > 0
             && self.app.presenter.as_ref().map(Presenter::in_flight) != Some(InFlight::Busy)
         {
@@ -10451,6 +10540,8 @@ pub fn run() {
         refuse(message);
     }
     let mtm = MainThreadMarker::new().expect("run() on the main thread");
+    // This machine's names, read while the launch goes on (`Hosts`).
+    let hosts = Hosts::start();
     let size = NSSize::new(960.0, 600.0);
     // What the grid needs before a window exists: the display's scale, and
     // the titlebar's height -- the window is FullSizeContentView, so its
@@ -10671,88 +10762,6 @@ pub fn run() {
     window.set_min_size(NSSize::new(200.0, 100.0));
     window.center();
     startup_mark("centered");
-    // **Ordered front at once, without AppKit's inferred open animation**,
-    // so the window is whole on screen the moment it is shown and the
-    // launch logo, which starts once it is shown (`frame`), plays over the
-    // window rather than inside an animation that is still opening it.
-    // `animationBehavior` is "used when the orderFront(_:) or orderOut(_:)
-    // methods are called", and none disables it, "which may be useful if
-    // that animation interferes with an animation that your application
-    // implements" ([[source: apple-nswindow-animationbehavior]],
-    // [[source: apple-nswindow-animationbehavior-none]]); AppKit posts no
-    // notification at the animation's end ([[source: apple-nswindow]]).
-    window
-        .ns_window()
-        .setAnimationBehavior(NSWindowAnimationBehavior::None);
-    window.show();
-    startup_mark("shown");
-    let mut icon_iv: Option<Retained<NSImageView>> = None;
-    let (mut icon_x, mut icon_s) = (0.0_f64, 0.0_f64);
-    // The activity lights keep the traffic lights' gap from the strip's
-    // other edge: the close button's distance from the left, once laid out.
-    let lights_right = window
-        .ns_window()
-        .standardWindowButton(NSWindowButton::CloseButton)
-        .map(|c| c.frame())
-        .filter(|f| f.size.height >= 1.0)
-        .map_or(12.0, |f| f.origin.x);
-    if let Some(img) = &icon {
-        // Placed against the real traffic lights rather than a hand-picked x.
-        // The window is FullSizeContentView, so `container` (the content view)
-        // spans the whole frame and shares the theme frame's bottom-left
-        // origin -- so a standard button's `frame` is already in container
-        // coordinates, no conversion (which would be `unsafe` here) needed.
-        let w = window.ns_window();
-        let lights = (
-            w.standardWindowButton(NSWindowButton::CloseButton),
-            w.standardWindowButton(NSWindowButton::MiniaturizeButton),
-            w.standardWindowButton(NSWindowButton::ZoomButton),
-        );
-        // Read after `show()`, so the buttons are laid out; a zero-height
-        // frame means they are not, and the fallback places it by the strip.
-        let measured = match lights {
-            (Some(close), Some(mini), Some(zoom)) => {
-                let (c, m, z) = (close.frame(), mini.frame(), zoom.frame());
-                (z.size.height >= 1.0).then(|| {
-                    // Horizontal comes from the buttons: x is shared with the
-                    // container (the titlebar view spans the width from x=0).
-                    // Vertical does NOT -- a button's `frame` is in the
-                    // titlebar view's own coordinates, so its y is near that
-                    // view's bottom, not the window's top. Convert would be
-                    // `unsafe`, forbidden here, so the icon is centred in the
-                    // strip from geometry we already know: it runs from
-                    // `full.height - inset` to `full.height`.
-                    let gap = (m.origin.x - (c.origin.x + c.size.width)).max(0.0);
-                    // A peer of the lights: a little larger than a button, the
-                    // snug mark reading at about a traffic light's size.
-                    let s = (z.size.height * 1.4).clamp(16.0, inset - 4.0);
-                    (s, z.origin.x + z.size.width + gap)
-                })
-            }
-            _ => None,
-        };
-        let (s, left) = measured.unwrap_or_else(|| {
-            let s = (inset - 2.0).clamp(18.0, 28.0);
-            (s, 74.0)
-        });
-        // Centred in the titlebar strip, whose top is the window top.
-        let cy = full.height - inset / 2.0;
-        // The snug crop, not the padded dock mark, so the box is the size.
-        let iv = match icon_titlebar() {
-            Some(tight) => macos_liquid_glass::icon_view(mtm, &tight),
-            None => macos_liquid_glass::icon_view(mtm, img),
-        };
-        iv.setFrame(NSRect::new(
-            NSPoint::new(left, cy - s / 2.0),
-            NSSize::new(s, s),
-        ));
-        // No autoresizing mask: a drag to a tiny window clamps the frame and
-        // it never recovers. `Driver::place_icon` re-places it every resize.
-        container.addSubview(&iv);
-        icon_iv = Some(iv);
-        icon_x = left;
-        icon_s = s;
-    }
     // The cell the observer writes and `pump` reads; cloned into both.
     let style = PendingStyle::default();
     let hiding = crate::hide::Hiding::new(&probe.term);
@@ -10788,17 +10797,19 @@ pub fn run() {
         mini: crate::title::Mini::new(),
         derive: crate::title::Derive::new(),
         watch,
-        hosts: machine_names(),
+        hosts,
         home: std::env::var_os("HOME")
             .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
         pointer_shown: crate::pointer::Shown::Unknown,
         hiding,
-        icon: icon_iv,
+        // Placed once the window is shown, which lays out the traffic
+        // lights it is placed against.
+        icon: None,
         icon_super: container.clone(),
-        icon_x,
-        icon_size: icon_s,
+        icon_x: 0.0,
+        icon_size: 0.0,
         icon_inset: inset,
-        lights: crate::lights::Strip::new(lights_right),
+        lights: crate::lights::Strip::new(0.0),
         lights_appearance: glass.appearance(&window),
         reload: None,
         notice,
@@ -10821,10 +10832,10 @@ pub fn run() {
             read,
         });
     }
-    // The first frame now, on this thread, before the run loop is entered:
-    // the geometry the view's first resize callback would report, then one
-    // draw, which waits on the GPU and sets the layer itself (`draw_now`):
-    // no completion follows it.
+    startup_mark("driver");
+    // The first frame's geometry and settings now, before the run loop:
+    // the geometry the view's first resize callback would report. The
+    // frame itself is drawn once the app has finished launching, below.
     // **The palette for the first frame, from the window rather than the
     // observer.** The observer below fires once the moment it is built and
     // would set this -- but it is built after the glass, which is after
@@ -10844,88 +10855,210 @@ pub fn run() {
     // not, so a launch under Reduce Transparency never draws a dim frame.
     driver.poll_display();
     Responder::resized(&mut driver, view.frame().size, scale);
-    let v = driver.view.clone();
-    driver.app.present(&v, Show::Now);
-    startup_mark("first frame");
-    // The glass under the terminal now that the first frame is on the
-    // layer: ordering a window whose content is a glass effect view costs
-    // 10-20 ms more than ordering one whose content is a plain view, so
-    // the window went up bare and the material lands here, before the run
-    // loop -- and before a responder exists, because moving the container
-    // re-enters the view's resize callback, which a responder callback
-    // holding the view's borrow cannot survive.
-    window.set_content_view(glass.view());
-    glass.set_content_view(&container);
-    startup_mark("glass installed");
-    // **Follow the system's appearance and tint, which nothing did.** The
-    // titlebar changed on a light/dark flip and the body did not, because
-    // AppKit repaints the titlebar itself while the material and the
-    // palette were both set once at launch and never again. The crate's
-    // own example installs this observer and re-applies all three; the
-    // callback fires once immediately, so building it is also what applies
-    // the current style.
-    //
-    // It cannot be built before `show()` the way the example builds it:
-    // the glass it tints does not exist until the line above, which is
-    // after the first frame by design (ordering a window whose content is
-    // a glass effect view costs 10-20 ms). The frame drawn in the gap gets
-    // its palette from `window.is_dark()` above instead.
-    //
-    // The callback touches the window and the glass directly -- they are
-    // AppKit objects, not the driver -- and leaves the palette in a cell
-    // for `pump`, because it can land while a responder callback holds the
-    // view's borrow.
-    //
-    // **It used to hand `s.tint()` to `set_tint_color`, and that was the
-    // one thing the example's own comment forbids**: the theme colour
-    // through this setter "floods the surface to a flat saturated slab at
-    // full strength", which is why the example paints its wash in its own
-    // `drawRect:` instead. The setter carries the material *darkening*
-    // now, and nothing carries the wash -- see `apply_glass`.
-    {
-        let glass_cb = glass.clone();
-        let window_cb = window.clone();
-        let glass_now = std::rc::Rc::clone(&driver.glass_live);
-        let observer = macos_liquid_glass::icon_style::StyleObserver::new(mtm, move |_| {
-            apply_glass(
-                &glass_cb,
-                &window_cb,
-                &glass_now.get(),
-                glass_cb.appearance(&window_cb),
-            );
-        });
-        // The window is never torn down before the process ends, so the
-        // observer outlives every reference by outliving the process --
-        // the alternative is a field on a driver that is about to be boxed
-        // into the view, which buys nothing a leak does not.
-        core::mem::forget(observer);
-        startup_mark("style observer");
-    }
-    // **First responder AFTER the glass, because installing it takes the
-    // chain away.** `set_content_view` replaces the window's content view,
-    // which tears down the hierarchy the old one rooted and resigns first
-    // responder back to the window. Claimed before this line -- where it
-    // used to be -- the view is not in the responder chain afterwards, and
-    // every menu item that targets it is disabled by AppKit's automatic
-    // validation: Copy, Paste, Bigger, Smaller and Actual Size all read
-    // `enabled = false`, while Minimize and Close, which AppKit answers
-    // itself, read true. That is the whole signature of the defect.
-    //
-    // It cost copy, paste and zoom outright, because the key handler's
-    // `Cmd-C`/`Cmd-V` arms were deleted when the menu landed: a key
-    // equivalent is a menu item's, so with the item disabled nothing runs.
-    // The glass move was a launch optimisation worth ~7 ms and it took
-    // three commands with it, silently, because nothing asks a menu
-    // whether it is enabled.
-    window.make_first_responder(&view);
-    // The menu after the first frame, before the run loop: key equivalents
-    // need it from the first event, and nothing on screen waits for it.
+    startup_mark("laid out");
+    // The menu before the run loop: key equivalents need it from the first
+    // event, and nothing on screen waits for it.
     macos_liquid_glass::menu::install_main_menu(&ns_app, mtm, "baud");
     startup_mark("menu");
-    view.set_responder(Box::new(driver));
-    view.start_display_link();
-    view.waker().wake();
+    // **The window is shown once the app has finished launching, with its
+    // first frame already on its layer**, and the launch logo starts on the
+    // display link's first tick after: `finishLaunching`, which activates
+    // the app, runs inside `run()` before the event loop
+    // ([[source: apple-nsapplication-finishlaunching]],
+    // [[source: apple-nsapplication-didfinishlaunchingnotification]]), and
+    // the display link ticks only for a view on a display
+    // ([[source: sdk27-nsview-h]]), so a window shown before `run()` stood
+    // on screen through all of it, empty and then without its logo (note
+    // AJ, section 15). Everything below keeps the order it had: the first
+    // frame, the window, its titlebar icon, the glass, the style observer,
+    // first responder, and the responder last, so nothing here re-enters a
+    // responder holding the view's borrow.
+    baud_present_macos::launch::when_launched(move || {
+        startup_mark("launched");
+        // The first frame, drawn now on this thread: one draw, which
+        // waits on the GPU and sets the layer itself (`draw_now`); no
+        // completion follows it. Before the window is ordered front, so
+        // the window is never on screen without it.
+        // Said when the layer is missing, which would drop the frame, or
+        // at a scale other than the display's, read from a window not yet
+        // on screen.
+        match view.layer() {
+            None => startup_note("first frame: the view has no layer"),
+            Some(l) if (l.contentsScale() - scale).abs() > 1e-6 => startup_note(&format!(
+                "first frame: the layer's scale {:.2}, the display's {scale:.2}",
+                l.contentsScale()
+            )),
+            Some(_) => {}
+        }
+        let v = driver.view.clone();
+        startup_mark("first draw");
+        driver.app.present(&v, Show::Now);
+        startup_mark("first frame");
+        // **Ordered front at once, without AppKit's inferred open animation**,
+        // so the window is whole on screen the moment it is shown and the
+        // launch logo, which starts once it is shown (`frame`), plays over the
+        // window rather than inside an animation that is still opening it.
+        // `animationBehavior` is "used when the orderFront(_:) or orderOut(_:)
+        // methods are called", and none disables it, "which may be useful if
+        // that animation interferes with an animation that your application
+        // implements" ([[source: apple-nswindow-animationbehavior]],
+        // [[source: apple-nswindow-animationbehavior-none]]); AppKit posts no
+        // notification at the animation's end ([[source: apple-nswindow]]).
+        window
+            .ns_window()
+            .setAnimationBehavior(NSWindowAnimationBehavior::None);
+        window.show();
+        startup_mark("shown");
+        let mut icon_iv: Option<Retained<NSImageView>> = None;
+        let (mut icon_x, mut icon_s) = (0.0_f64, 0.0_f64);
+        // The activity lights keep the traffic lights' gap from the strip's
+        // other edge: the close button's distance from the left, once laid out.
+        let lights_right = window
+            .ns_window()
+            .standardWindowButton(NSWindowButton::CloseButton)
+            .map(|c| c.frame())
+            .filter(|f| f.size.height >= 1.0)
+            .map_or(12.0, |f| f.origin.x);
+        if let Some(img) = &icon {
+            // Placed against the real traffic lights rather than a hand-picked x.
+            // The window is FullSizeContentView, so `container` (the content view)
+            // spans the whole frame and shares the theme frame's bottom-left
+            // origin -- so a standard button's `frame` is already in container
+            // coordinates, no conversion (which would be `unsafe` here) needed.
+            let w = window.ns_window();
+            let lights = (
+                w.standardWindowButton(NSWindowButton::CloseButton),
+                w.standardWindowButton(NSWindowButton::MiniaturizeButton),
+                w.standardWindowButton(NSWindowButton::ZoomButton),
+            );
+            // Read after `show()`, so the buttons are laid out; a zero-height
+            // frame means they are not, and the fallback places it by the strip.
+            let measured = match lights {
+                (Some(close), Some(mini), Some(zoom)) => {
+                    let (c, m, z) = (close.frame(), mini.frame(), zoom.frame());
+                    (z.size.height >= 1.0).then(|| {
+                        // Horizontal comes from the buttons: x is shared with the
+                        // container (the titlebar view spans the width from x=0).
+                        // Vertical does NOT -- a button's `frame` is in the
+                        // titlebar view's own coordinates, so its y is near that
+                        // view's bottom, not the window's top. Convert would be
+                        // `unsafe`, forbidden here, so the icon is centred in the
+                        // strip from geometry we already know: it runs from
+                        // `full.height - inset` to `full.height`.
+                        let gap = (m.origin.x - (c.origin.x + c.size.width)).max(0.0);
+                        // A peer of the lights: a little larger than a button, the
+                        // snug mark reading at about a traffic light's size.
+                        let s = (z.size.height * 1.4).clamp(16.0, inset - 4.0);
+                        (s, z.origin.x + z.size.width + gap)
+                    })
+                }
+                _ => None,
+            };
+            let (s, left) = measured.unwrap_or_else(|| {
+                let s = (inset - 2.0).clamp(18.0, 28.0);
+                (s, 74.0)
+            });
+            // Centred in the titlebar strip, whose top is the window top.
+            let cy = full.height - inset / 2.0;
+            // The snug crop, not the padded dock mark, so the box is the size.
+            let iv = match icon_titlebar() {
+                Some(tight) => macos_liquid_glass::icon_view(mtm, &tight),
+                None => macos_liquid_glass::icon_view(mtm, img),
+            };
+            iv.setFrame(NSRect::new(
+                NSPoint::new(left, cy - s / 2.0),
+                NSSize::new(s, s),
+            ));
+            // No autoresizing mask: a drag to a tiny window clamps the frame and
+            // it never recovers. `Driver::place_icon` re-places it every resize.
+            container.addSubview(&iv);
+            icon_iv = Some(iv);
+            icon_x = left;
+            icon_s = s;
+        }
+        driver.icon = icon_iv;
+        driver.icon_x = icon_x;
+        driver.icon_size = icon_s;
+        driver.lights = crate::lights::Strip::new(lights_right);
+        startup_mark("titlebar");
+        // The glass under the terminal now that the first frame is on the
+        // layer: ordering a window whose content is a glass effect view costs
+        // 10-20 ms more than ordering one whose content is a plain view, so
+        // the window went up bare and the material lands here, before the run
+        // loop -- and before a responder exists, because moving the container
+        // re-enters the view's resize callback, which a responder callback
+        // holding the view's borrow cannot survive.
+        window.set_content_view(glass.view());
+        glass.set_content_view(&container);
+        startup_mark("glass installed");
+        // **Follow the system's appearance and tint, which nothing did.** The
+        // titlebar changed on a light/dark flip and the body did not, because
+        // AppKit repaints the titlebar itself while the material and the
+        // palette were both set once at launch and never again. The crate's
+        // own example installs this observer and re-applies all three; the
+        // callback fires once immediately, so building it is also what applies
+        // the current style.
+        //
+        // It cannot be built before `show()` the way the example builds it:
+        // the glass it tints does not exist until the line above, which is
+        // after the first frame by design (ordering a window whose content is
+        // a glass effect view costs 10-20 ms). The frame drawn in the gap gets
+        // its palette from `window.is_dark()` above instead.
+        //
+        // The callback touches the window and the glass directly -- they are
+        // AppKit objects, not the driver -- and leaves the palette in a cell
+        // for `pump`, because it can land while a responder callback holds the
+        // view's borrow.
+        //
+        // **It used to hand `s.tint()` to `set_tint_color`, and that was the
+        // one thing the example's own comment forbids**: the theme colour
+        // through this setter "floods the surface to a flat saturated slab at
+        // full strength", which is why the example paints its wash in its own
+        // `drawRect:` instead. The setter carries the material *darkening*
+        // now, and nothing carries the wash -- see `apply_glass`.
+        {
+            let glass_cb = glass.clone();
+            let window_cb = window.clone();
+            let glass_now = std::rc::Rc::clone(&driver.glass_live);
+            let observer = macos_liquid_glass::icon_style::StyleObserver::new(mtm, move |_| {
+                apply_glass(
+                    &glass_cb,
+                    &window_cb,
+                    &glass_now.get(),
+                    glass_cb.appearance(&window_cb),
+                );
+            });
+            // The window is never torn down before the process ends, so the
+            // observer outlives every reference by outliving the process --
+            // the alternative is a field on a driver that is about to be boxed
+            // into the view, which buys nothing a leak does not.
+            core::mem::forget(observer);
+            startup_mark("style observer");
+        }
+        // **First responder AFTER the glass, because installing it takes the
+        // chain away.** `set_content_view` replaces the window's content view,
+        // which tears down the hierarchy the old one rooted and resigns first
+        // responder back to the window. Claimed before this line -- where it
+        // used to be -- the view is not in the responder chain afterwards, and
+        // every menu item that targets it is disabled by AppKit's automatic
+        // validation: Copy, Paste, Bigger, Smaller and Actual Size all read
+        // `enabled = false`, while Minimize and Close, which AppKit answers
+        // itself, read true. That is the whole signature of the defect.
+        //
+        // It cost copy, paste and zoom outright, because the key handler's
+        // `Cmd-C`/`Cmd-V` arms were deleted when the menu landed: a key
+        // equivalent is a menu item's, so with the item disabled nothing runs.
+        // The glass move was a launch optimisation worth ~7 ms and it took
+        // three commands with it, silently, because nothing asks a menu
+        // whether it is enabled.
+        window.make_first_responder(&view);
+        view.set_responder(Box::new(driver));
+        view.start_display_link();
+        startup_mark("display link");
+        view.waker().wake();
+    });
     ns_app.activate();
+    startup_mark("activated");
     ns_app.run();
 }
 
@@ -11914,7 +12047,7 @@ impl Driver {
         let refused = self.derive.refused;
         let title = self.derive.title(
             self.app.term.working_directory(),
-            &self.hosts,
+            self.hosts.names(),
             self.home.as_deref(),
         );
         if self.derive.refused != refused {
@@ -15328,6 +15461,48 @@ impl PrinterList {
 /// `<name>.local`. On a Mac with `HostName` set the two can be the same;
 /// the code accepts either. RFC 8089 § 3's "resolves to the machine"
 /// holds of both (`[[source: rfc8089]]`).
+/// **This machine's names, read off the main thread**: `NSProcessInfo`'s
+/// `hostName` took 5-29 ms on its first call in five runs of a probe on
+/// this box, and it was read on the main thread between the window's
+/// being shown and its first frame. `ProcessInfo` "is
+/// thread-safe in macOS 10.7 and later" ([[source: apple-processinfo]]);
+/// the archived Threading Programming Guide still lists `NSProcessInfo`
+/// among the thread-unsafe classes
+/// ([[source: apple-thread-safety-summary]]); the class reference is the
+/// current text, and this rests on it. The names are taken at the first
+/// `OSC 7`, joined then if the thread is still out.
+enum Hosts {
+    Reading(std::thread::JoinHandle<Vec<String>>),
+    Read(Vec<String>),
+}
+
+impl Hosts {
+    /// The read started, on its own thread; on the calling thread when no
+    /// thread can be made.
+    fn start() -> Hosts {
+        match std::thread::Builder::new()
+            .name("hosts".into())
+            .spawn(machine_names)
+        {
+            Ok(h) => Hosts::Reading(h),
+            Err(_) => Hosts::Read(machine_names()),
+        }
+    }
+
+    /// The names, waited for if they are still being read.
+    fn names(&mut self) -> &[String] {
+        if let Hosts::Reading(_) = self {
+            if let Hosts::Reading(h) = core::mem::replace(self, Hosts::Read(Vec::new())) {
+                *self = Hosts::Read(h.join().unwrap_or_else(|_| machine_names()));
+            }
+        }
+        match self {
+            Hosts::Read(names) => names,
+            Hosts::Reading(_) => &[],
+        }
+    }
+}
+
 fn machine_names() -> Vec<String> {
     let mut names: Vec<String> = crate::hostlog::machine_name().into_iter().collect();
     let process = baud_present_macos::link::host_name();

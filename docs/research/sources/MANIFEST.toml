@@ -21588,6 +21588,54 @@ group  = "AJ"
 # documentation). It was read as apple-nswindow-animationbehavior-none.json, and the digest is of that copy.
 # Fetched 2026-10-29 for the launch splash's start (note AJ, section 13).
 
+[sources.apple-nsapplication-finishlaunching]
+key    = "apple-nsapplication-finishlaunching"
+title  = "NSApplication finishLaunching() -- activates the app; the run() method calls this method before it starts the event loop (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/finishlaunching().json"
+file   = ""
+sha256 = "739aa0835cd23987d4d05b5412c4f0d39f9909cf764f36343a5f79c2a62d96ea"
+bytes  = 24487
+status = "external"
+group  = "AJ"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nsapplication-finishlaunching.json, and the digest is of that copy.
+# Fetched 2026-10-29 for the launch window's showing (note AJ, section 15): "The run() method calls this method before it starts the event loop."
+
+[sources.apple-nsapplication-didfinishlaunchingnotification]
+key    = "apple-nsapplication-didfinishlaunchingnotification"
+title  = "NSApplication didFinishLaunchingNotification -- posted at the end of finishLaunching() to indicate that the app has completed launching and is ready to run (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/didfinishlaunchingnotification.json"
+file   = ""
+sha256 = "9a7d45abbad83eefc855754e6c2519f8ced8f270a866310e0224325fd468d5ee"
+bytes  = 41545
+status = "external"
+group  = "AJ"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nsapplication-didfinishlaunchingnotification.json, and the digest is of that copy.
+# Fetched 2026-10-29 for the launch window's showing (note AJ, section 15): "Posted at the end of the finishLaunching() method to indicate that the app has completed launching and is ready to run." "The system posts this notification on the main actor."
+
+[sources.apple-processinfo]
+key    = "apple-processinfo"
+title  = "ProcessInfo (NSProcessInfo) -- a collection of information about the current process; thread-safe in macOS 10.7 and later (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation"
+url    = "https://developer.apple.com/tutorials/data/documentation/foundation/processinfo.json"
+file   = ""
+sha256 = "6506c535e77720986f021ca4bf5e792517727903b5af425d26c7ea9c9e25458e"
+bytes  = 99589
+status = "external"
+group  = "AJ"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-processinfo.json, and the digest is of that copy.
+# Fetched 2026-10-29 for the launch window's showing (note AJ, section 15): Note: "ProcessInfo is thread-safe in macOS 10.7 and later." The archived Thread Safety Summary (apple-thread-safety-summary) lists NSProcessInfo among the thread-unsafe classes.
+
 [sources.apple-nswindow]
 key    = "apple-nswindow"
 title  = "NSWindow -- the class page, whose Notifications list names every notification the window posts (documentation JSON)"

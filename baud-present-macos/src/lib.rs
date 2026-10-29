@@ -34,6 +34,7 @@
 
 pub mod clipboard;
 pub mod journal;
+pub mod launch;
 pub mod lights;
 pub mod link;
 pub mod metal;

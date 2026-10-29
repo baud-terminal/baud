@@ -2404,3 +2404,55 @@ edge, which still leaves the word in about 0.07 s
 **Not fixed.** On the CPU path more frames carry the largest quad: at 2x,
 27-28 of the splash's frames take over 8.3 ms and 17 over 16.7 ms (15-17
 and 5 before); at 6K, 50 over 16.7 ms (38 before).
+
+## 15. The window shown whole, and the logo with it (2026-10-29)
+
+**What the user sees.** The window appears once the app has finished
+launching, already showing its first frame, and the logo starts on the
+next display refresh. Before, the window stood on screen about 0.16 s
+before the logo: about 0.09 s with none of baud's frames in it, then about
+0.07 s with its first frame and no logo. The window now appears later in
+the launch than it did, never empty and never without the logo. Keys,
+output under the logo and Reduce Motion are as before.
+
+The request, verbatim (2026-10-29): "there is still a wait that is too
+long", measured with `BAUD_STARTUP=1`: `shown` 65.9 ms, `first frame`
+157.6, `first tick` 220.4, `splash first frame` 227.6.
+
+**Why it waited.** Three things stood between the window and the logo.
+The window was ordered front before its first frame was drawn, and the
+machine's name was read in that gap: `NSProcessInfo`'s `hostName` took
+5-29 ms on its first call in five runs of a probe. The display link that
+starts the logo ticks only for a view on a display ([[source:
+sdk27-nsview-h]]), and `run()` calls `finishLaunching`, which activates
+the app, before it starts the event loop ([[source:
+apple-nsapplication-finishlaunching]]), so the window stood through the
+activation and the launch's end. And the plasma's pipeline was built on
+the first tick, so the logo could not start before the second.
+
+**How it is built.** The launch draws nothing and shows nothing before
+`run()`. At the end of `finishLaunching`, "ready to run" ([[source:
+apple-nsapplication-didfinishlaunchingnotification]]), it draws the first
+frame onto the layer, then orders the window front with no open
+animation, then installs the glass, the observers and the responder, in
+the order they had. The plasma's pipeline is built on the GPU's own
+thread beside the other five; the machine's names are read on a thread of
+their own and taken at the first `OSC 7` (`ProcessInfo` "is thread-safe
+in macOS 10.7 and later", [[source: apple-processinfo]]; the archived
+guide lists it as unsafe, [[source: apple-thread-safety-summary]]). `the_window_is_shown_once_launched_with_its_first_frame`,
+`the_plasmas_pipeline_is_built_at_launch` and
+`the_machines_names_are_read_off_the_launch` hold it; all three failed
+before the change.
+
+**Reading it.** `BAUD_STARTUP=1` now also prints `driver`, `laid out`,
+`menu`, `activated`, `launched` (the end of `finishLaunching`), `first
+draw` (before the first frame's draw and its GPU wait), `titlebar`,
+`display link`, `run loop` (the first wake the event loop delivers),
+`window visible` and `gpu plasma`. `shown` to `splash first frame` is the
+window's time on screen before the logo; the aim is one display interval.
+
+**Unmeasured.** No window was opened for this: the new gap, the time the
+launch takes to reach `launched`, and whether the first frame's layer
+contents are committed before the window is ordered front are for the
+next run of `BAUD_STARTUP=1`. The launch-to-first-frame figure of
+`scripts/startup-bench.py` now includes `finishLaunching`.

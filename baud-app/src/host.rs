@@ -729,10 +729,18 @@ pub static FIRST_TICK: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 pub static FIRST_TICK_DONE: AtomicBool = AtomicBool::new(false);
 /// The first frame of the launch logo's plasma with a clock: the gap from
-/// `splash shown` is the tick it waited for, and from `first present` the
-/// window's time on screen before the logo.
+/// `splash shown` is the tick it waited for, and from `shown` the window's
+/// time on screen before the logo.
 #[cfg(target_os = "macos")]
 pub static FIRST_SPLASH: AtomicBool = AtomicBool::new(false);
+/// The first wake the run loop delivers: the event loop has started.
+#[cfg(target_os = "macos")]
+pub static FIRST_WAKE: AtomicBool = AtomicBool::new(false);
+/// The first tick at which AppKit reports the window visible and not
+/// wholly covered, apart from `splash shown`, which also needs a frame on
+/// the layer.
+#[cfg(target_os = "macos")]
+pub static FIRST_VISIBLE: AtomicBool = AtomicBool::new(false);
 pub static FIRST_PRESENT: AtomicBool = AtomicBool::new(false);
 
 #[cfg(test)]
