@@ -246,7 +246,7 @@ area = "window"
 status = "done"
 date = "2026-10-24"
 title = "A launch splash"
-summary = "baud's colour logo at launch, coming out of a burst of plasma and going back into it, each from left to right, with a setting to turn it off. On a Mac with Reduce Motion on, it shows whole and fades instead."
+summary = "baud's colour logo at launch, coming out of a burst of plasma and swept back out, each from left to right, with a setting to turn it off. On a Mac with Reduce Motion on, it shows whole and fades instead."
 
 [[item]]
 id = "F1-20"

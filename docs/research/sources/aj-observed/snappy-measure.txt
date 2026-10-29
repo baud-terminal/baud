@@ -1,0 +1,133 @@
+# The launch splash: what made it stall, and the sweep that replaced it.
+# Measured 2026-10-29 on an Apple M5 Max under macOS 27.0, release builds.
+#
+# 1. Before (from c98a05ab): the vanish's flash cap, scanned at most two colours a
+# frame (FLASH_SCANS), on the GPU path's main thread -- set_splash + sync_styles,
+# which both GPU arms run each frame -- over a prompt, dark theme, per frame of
+# the splash at 60 and 120 Hz. Only the vanish's first two frames exceed 0.5 ms:
+#   size (frame px)      vanish frame 1 (held)       vanish frame 2 (held)
+#   64x20@1x 512x360     7.30 ms (Scanning, cap 0)   3.13 ms (Capped, 42)
+#   200x50@2x 3400x1850  5.81 ms (Scanning, cap 0)   2.44 ms (Capped, 42)
+#   360x90@2x 6120x3330  4.95 ms (Scanning, cap 0)   2.14 ms (Capped, 42)
+# (at 120 Hz: 6.62, 5.21, 4.58 ms on frame 1). Through the instance arm's whole
+# frame (set_splash, sync_styles, convert, Gpu::draw waited): 6.49-7.24 ms of CPU
+# on the vanish's first frame, every other splash frame under 0.7 ms of CPU and
+# 1.2 ms of GPU. warm_effect(Plasma) cold: 0.05-0.06 ms.
+#
+# 2. Before: what moves, on baud-render's CPU path (the pixels the GPU arms are
+# held to), 64x20@1x at 60 Hz, dark, over a prompt; 'changed' the pixels whose
+# relative luminance moved by 0.002 or more since the frame before, 'most' the
+# largest change at one pixel:
+#   emerge 0.30-0.47 s   changed 78 falling to 10, most 0.048 falling to 0.011
+#   vanish frame 1       changed 10, most 0.009 (no glow: the cap not scanned)
+#   vanish frame 2       changed 1879, most 0.899
+#   vanish 0.18-0.38 s   changed 264-272 (the block alone), most 0.017 falling to 0.002
+#   vanish 0.40-0.63 s   changed 0, most under 0.002
+# Driven as the app drives it (the life in baud-app/src/splash.rs's tests, with
+# output under the logo, 60 Hz): frames 62-67 of 68 bit-identical to the frame
+# before, the vanish's first frame Scanning, on screen 1.117 s.
+#
+# 3. On the CPU arm the plasma itself is the cost, before and after: the first
+# plasma frame 24 ms at 200x50@2x and 76 ms at 6120x3330 px, frames over 8.3 ms
+# through about the eighth at 2x (render with Damage::Full).
+#
+# 4. The three options, prototyped on c98a05ab and counted by baud_bench::flash::Census
+# over the whole life on four grounds ('general', 'red', 'red-encoded': the most
+# flashes at one pixel in any second; 'area': pixels over three; 'strict': pixels
+# at any flash). WAVE: the logo erased by the plasma's own trailing edge 0.25 s
+# behind it, gone 0.57 s. SWEEP: an even sweep out from 0.27 s over 0.15 s, gone
+# 0.50 s. GLOW: today's capped glow pass at 0.48 s with the logo swept out under
+# it in 0.15 s, gone 0.63 s.
+WAVE 64x20@1x 60fps dark: general 3 red 0 red-encoded 0, area 0, strict 1
+WAVE 64x20@1x 60fps light: general 3 red 0 red-encoded 0, area 0, strict 16
+WAVE 64x20@1x 60fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+WAVE 64x20@1x 60fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 1
+WAVE 200x50@2x 60fps dark: general 3 red 0 red-encoded 0, area 0, strict 1.75
+WAVE 200x50@2x 60fps light: general 3 red 0 red-encoded 0, area 0, strict 88
+WAVE 200x50@2x 60fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+WAVE 200x50@2x 60fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 1
+WAVE 200x50@2x 120fps dark: general 3 red 0 red-encoded 0, area 0, strict 5.5
+WAVE 200x50@2x 120fps light: general 3 red 0 red-encoded 0, area 0, strict 108
+WAVE 200x50@2x 120fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+WAVE 200x50@2x 120fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 4.25
+WAVE 360x90@2x 60fps dark: general 3 red 0 red-encoded 0, area 0, strict 5.75
+WAVE 360x90@2x 60fps light: general 3 red 0 red-encoded 0, area 0, strict 195.75
+WAVE 360x90@2x 60fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+WAVE 360x90@2x 60fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 3.5
+SWEEP 64x20@1x 60fps dark: general 3 red 0 red-encoded 0, area 0, strict 1
+SWEEP 64x20@1x 60fps light: general 3 red 0 red-encoded 0, area 0, strict 16
+SWEEP 64x20@1x 60fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+SWEEP 64x20@1x 60fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 1
+SWEEP 200x50@2x 60fps dark: general 3 red 0 red-encoded 0, area 0, strict 1.75
+SWEEP 200x50@2x 60fps light: general 3 red 0 red-encoded 0, area 0, strict 88
+SWEEP 200x50@2x 60fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+SWEEP 200x50@2x 60fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 1
+SWEEP 200x50@2x 120fps dark: general 3 red 0 red-encoded 0, area 0, strict 5.5
+SWEEP 200x50@2x 120fps light: general 3 red 0 red-encoded 0, area 0, strict 108
+SWEEP 200x50@2x 120fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+SWEEP 200x50@2x 120fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 4.25
+SWEEP 360x90@2x 60fps dark: general 3 red 0 red-encoded 0, area 0, strict 5.75
+SWEEP 360x90@2x 60fps light: general 3 red 0 red-encoded 0, area 0, strict 195.75
+SWEEP 360x90@2x 60fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+SWEEP 360x90@2x 60fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 3.5
+GLOW 200x50@2x 60fps dark: general 3 red 0 red-encoded 0, area 0, strict 1.75
+GLOW 200x50@2x 60fps light: general 3 red 0 red-encoded 0, area 0, strict 91.5
+GLOW 200x50@2x 60fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+GLOW 200x50@2x 60fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 1
+GLOW 200x50@2x 120fps dark: general 3 red 0 red-encoded 0, area 0, strict 5.5
+GLOW 200x50@2x 120fps light: general 3 red 0 red-encoded 0, area 0, strict 112
+GLOW 200x50@2x 120fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+GLOW 200x50@2x 120fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 4.25
+GLOW 360x90@2x 60fps dark: general 3 red 0 red-encoded 0, area 0, strict 5.75
+GLOW 360x90@2x 60fps light: general 3 red 0 red-encoded 0, area 0, strict 202
+GLOW 360x90@2x 60fps #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
+GLOW 360x90@2x 60fps #1A0000: general 3 red 1 red-encoded 1, area 0, strict 3.5
+# GLOW at 64x20@1x 60fps: dark general 3, light 3, #CD0000 2 (red 1), #1A0000 3 (red 1), area 0.
+#
+# 5. As built (the sweep, its remainder faded out from 0.42 s to 0.50 s), the
+# census in baud-bench/tests/splash_flashes.rs at each size and rate:
+64x20@1x 60fps dark plasma: general 3 red 0 red-encoded 0, area 0, strict 1
+64x20@1x 60fps dark fade: general 0 red 0 red-encoded 0, area 0, strict 0
+64x20@1x 60fps light plasma: general 3 red 0 red-encoded 0, area 0, strict 15
+64x20@1x 60fps light fade: general 0 red 0 red-encoded 0, area 0, strict 0
+64x20@1x 60fps #CD0000 plasma: general 2 red 1 red-encoded 1, area 0, strict 0
+64x20@1x 60fps #CD0000 fade: general 0 red 0 red-encoded 0, area 0, strict 0
+64x20@1x 60fps #1A0000 plasma: general 3 red 1 red-encoded 1, area 0, strict 1
+64x20@1x 60fps #1A0000 fade: general 0 red 0 red-encoded 0, area 0, strict 0
+200x50@2x 60fps dark plasma: general 3 red 0 red-encoded 0, area 0, strict 1.75
+200x50@2x 60fps dark fade: general 0 red 0 red-encoded 0, area 0, strict 0
+200x50@2x 60fps light plasma: general 3 red 0 red-encoded 0, area 0, strict 77
+200x50@2x 60fps light fade: general 0 red 0 red-encoded 0, area 0, strict 0
+200x50@2x 60fps #CD0000 plasma: general 2 red 1 red-encoded 1, area 0, strict 0
+200x50@2x 60fps #CD0000 fade: general 0 red 0 red-encoded 0, area 0, strict 0
+200x50@2x 60fps #1A0000 plasma: general 3 red 1 red-encoded 1, area 0, strict 1
+200x50@2x 60fps #1A0000 fade: general 0 red 0 red-encoded 0, area 0, strict 0
+200x50@2x 120fps dark plasma: general 3 red 0 red-encoded 0, area 0, strict 5.5
+200x50@2x 120fps dark fade: general 0 red 0 red-encoded 0, area 0, strict 0
+200x50@2x 120fps light plasma: general 3 red 0 red-encoded 0, area 0, strict 94.5
+200x50@2x 120fps light fade: general 0 red 0 red-encoded 0, area 0, strict 0
+200x50@2x 120fps #CD0000 plasma: general 2 red 1 red-encoded 1, area 0, strict 0
+200x50@2x 120fps #CD0000 fade: general 0 red 0 red-encoded 0, area 0, strict 0
+200x50@2x 120fps #1A0000 plasma: general 3 red 1 red-encoded 1, area 0, strict 4.25
+200x50@2x 120fps #1A0000 fade: general 0 red 0 red-encoded 0, area 0, strict 0
+360x90@2x 60fps dark plasma: general 3 red 0 red-encoded 0, area 0, strict 5.75
+360x90@2x 60fps dark fade: general 0 red 0 red-encoded 0, area 0, strict 0
+360x90@2x 60fps light plasma: general 3 red 0 red-encoded 0, area 0, strict 164.25
+360x90@2x 60fps light fade: general 0 red 0 red-encoded 0, area 0, strict 0
+360x90@2x 60fps #CD0000 plasma: general 2 red 1 red-encoded 1, area 0, strict 0
+360x90@2x 60fps #CD0000 fade: general 0 red 0 red-encoded 0, area 0, strict 0
+360x90@2x 60fps #1A0000 plasma: general 3 red 1 red-encoded 1, area 0, strict 3.5
+360x90@2x 60fps #1A0000 fade: general 0 red 0 red-encoded 0, area 0, strict 0
+#
+# 6. As built: what is left of the plasma against the bare page, the largest
+# change of relative luminance at one pixel, light ground (the largest), frames
+# at 60 Hz from the sweep's end:
+#   64x20@1x             0.42 s 0.116, 0.437 s 0.081, 0.453 s 0.053, 0.47 s 0.030, 0.487 s 0.015
+#   200x50@2x, 6120x3330 0.42 s 0.157, 0.437 s 0.116, 0.453 s 0.074, 0.47 s 0.044, 0.487 s 0.016
+# dark at 2x: 0.024 falling to 0.001.
+#
+# 7. As built, the GPU instance arm at 120 Hz over the whole splash (set_splash,
+# sync_styles, convert, Gpu::draw waited; the cell arm was not timed): the worst frame's
+# main-thread time 0.05 ms (64x20@1x), 0.20 ms (200x50@2x), 0.66 ms (6120x3330 px),
+# each on the first frame; GPU with the wait 1.01, 1.21, 1.71 ms. No frame carries
+# a cap; no owed frame is bit-identical to the one before (60 and 120 Hz).

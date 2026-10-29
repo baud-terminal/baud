@@ -1,13 +1,13 @@
 # AJ. The launch splash: the colour logo, and the plasma it vanishes in
 
 **Status: built 2026-10-24 (roadmap F1-19); the emerge built 2026-10-28
-(section 9); its start and its turn 2026-10-29 (section 10). The questions
-as built:**
+(section 9); its start and its turn 2026-10-29 (section 10); the sweep,
+gone in half a second, 2026-10-29 (section 11). The questions as built:**
 
 - **1. When.** Nothing of it until the window is shown (section 10). Under
-  full motion, on the clock alone since 2026-10-28 (the lean): the emerge,
-  and the vanish at 0.48 s into it, drawn under the flash thresholds, with
-  no hold (section 10). Under reduced motion, as first built: on the
+  full motion, on the clock alone since 2026-10-28 (the lean): out of the
+  plasma, then an even sweep out from 0.27 s, gone at 0.50 s, with one
+  plasma and no second pass (section 11). Under reduced motion, as first built: on the
   shell's first visible cell or a 0.5 s cap from the window's being shown,
   whichever is first (E2 and a cap of 0.5 s; the cap is the lean);
   the vanish starts on the frame after that one.
@@ -2112,3 +2112,59 @@ logo before the window is shown over the emerge's first frame held still;
 AppKit's open animation kept over turning it off. Each is the lean. A full
 vanish with another seed passed at 0.35 s only, and a seed picked by
 search is fitting.
+
+## 11. Snappy: one plasma, swept out, gone in half a second (2026-10-29)
+
+**What the user sees.** Once the window is on screen the logo comes out
+of the plasma left to right, as before, and is whole about 0.25 s in; at
+0.27 s a quick, even sweep takes it out left to right in 0.15 s, the
+block last, while the plasma burns out; what is left of the glow fades by
+0.50 s. Something moves on every frame, and nothing waits. It stood whole
+about 0.23 s and was gone about 1.1 s after it began; the whole lockup now
+stands together for a frame or two, each glyph 0.16-0.27 s, and it is
+gone at 0.50 s. Keys, output under the logo and Reduce Motion are as
+before; Reduce Motion arriving during the sweep takes it down.
+
+The requests, verbatim (2026-10-29): "so it still holds too long" and "it
+feels like it get stuck not snappy".
+
+**What stalled it** ([[source: aj-obs-snappy-measure]]). The vanish's
+faint pass was capped from the colours under it, scanned two a frame: its
+first frame drew no glow and cost 4.6-7.3 ms of main-thread time (8.3 ms
+is a frame at 120 Hz), then the next jumped by up to 0.90 of relative
+luminance. Around it the logo stood still from about 0.30 s to 0.48 s and
+the block dimmed alone until about 1.1 s, the last owed frames
+bit-identical. The pipeline's build (0.05 ms cold) and the window's gate
+(at most one tick) were not the cause.
+
+**How it is built.** One plasma, the emerge's, at full strength: no second
+pass crosses the box, so there is no cap to scan and no frame waits. The
+logo is swept out by an even edge across the lockup (`SWEEP_S`), and the
+plasma's records are dimmed in step with the time left after the sweep
+(`glow`), so the splash's last frame differs little from the bare page
+whenever it falls. `no_splash_frame_waits_on_a_cap_scan`,
+`every_frame_the_splash_owes_moves` and
+`the_splash_is_gone_within_half_a_second` drive the app's own clock into
+the renderer at 60 and 120 Hz; all three failed before the change. Both
+GPU arms ran the cap scan; on the instance arm the worst splash frame is
+now 0.66 ms of main-thread time and 1.71 ms of GPU at 6K.
+
+**Flashes.** Census: general and red-encoded at most 3, red at most 1, area
+0, on four grounds at 64x20 cells 1x 60 Hz, 200x50 2x 60 and 120 Hz and
+6120x3330 px at 60 Hz: margin 0, as before, the 3 being the emerge's own.
+From 0.47 s on, what is left is within 0.10 of the bare page at every pixel
+(`the_plasmas_remainder_fades_into_the_page`).
+
+**The choice, from strips** ([[source: aj-obs-snappy-strip-before]],
+[[source: aj-obs-snappy-strip-sweep-dark]],
+[[source: aj-obs-snappy-strip-sweep-light]]): the sweep, the lean, over a
+wave that erases the logo with the plasma's own trailing edge 0.25 s
+behind it, gone 0.57 s ([[source: aj-obs-snappy-strip-wave]]), and over
+keeping the faint glow pass with its cap computed ahead, gone 0.63 s with
+the 0.23 s hold ([[source: aj-obs-snappy-strip-glow]]). The logo now
+leaves in the plasma's fading tail rather than in a pass of its own.
+
+**Not fixed.** On the CPU path, which the Linux driver draws with, the
+plasma itself costs 24 ms on its first frame at 2x and 76 ms at 6K, and
+frames stay over 8.3 ms through about the eighth at 2x, before and after
+this change.

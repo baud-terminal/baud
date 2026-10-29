@@ -10153,11 +10153,11 @@ impl Responder for Driver {
                 startup_mark("splash shown");
             }
         }
-        // The launch splash owes every frame while it emerges or vanishes,
-        // and the one a reduced-motion hold ends on. The plasma's pipeline
-        // is built while it stands still -- waiting for the window, or held
-        // under reduced motion -- once, so neither the emerge's first frame
-        // nor a plasma vanish after full motion returns pays for it.
+        // The launch splash owes every frame while it plays or fades, and
+        // the one a reduced-motion hold ends on. The plasma's pipeline is
+        // built while it stands still -- waiting for the window, or held
+        // under reduced motion -- once, so the plasma's first frame does not
+        // pay for it.
         if self.app.splash.owes(target) == crate::splash::Owes::Frame {
             self.app.pending = Pending::Dirty;
         }

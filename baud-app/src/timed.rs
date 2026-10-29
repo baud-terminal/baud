@@ -511,13 +511,12 @@ mod tests {
 
     /// **The launch splash on Linux, as on macOS**: nothing of it until the
     /// window is shown, owing nothing and setting no deadline; the first
-    /// frame callback owes a frame, once, and the emerge runs from the plan
-    /// after it, owing every turn whatever the shell draws; the plan at the
-    /// turn starts the plasma, which owes every turn and is gone at its
-    /// end, owing nothing after; and a reload to off takes it down with one
-    /// whole frame. Without `with_splash` there is none.
+    /// frame callback owes a frame, once, and the plasma runs from the plan
+    /// after it, owing every turn whatever the shell draws, and is gone
+    /// half a second in, owing nothing after; and a reload to off takes it
+    /// down with one whole frame. Without `with_splash` there is none.
     #[test]
-    fn the_splash_waits_for_the_first_frame_then_emerges_and_vanishes() {
+    fn the_splash_waits_for_the_first_frame_then_plays_and_goes() {
         use crate::config::LaunchSplash;
         use baud_render::SplashPhase;
         let t0 = Instant::now();
@@ -536,30 +535,35 @@ mod tests {
         assert_eq!(fx.shown(), Owes::Frame, "the first frame callback");
         assert_eq!(fx.shown(), Owes::Nothing, "once");
         let first = fx.plan(later, &t, rect, CELL, widths()).splash;
-        assert_eq!(first.map(|l| l.phase), Some(SplashPhase::Emerge(0.0)));
+        assert_eq!(first.map(|l| l.phase), Some(SplashPhase::Plasma(0.0)));
         let soon = later + Duration::from_millis(100);
         assert_eq!(fx.turn(soon, &mut t), Owes::Frame, "every turn");
         feed(&mut t, b"$ ");
         let shown = fx.plan(soon, &t, rect, CELL, widths()).splash;
         assert!(
-            matches!(shown.map(|l| l.phase), Some(SplashPhase::Emerge(a)) if a > 0.09),
-            "over the prompt, still emerging: {shown:?}"
+            matches!(shown.map(|l| l.phase), Some(SplashPhase::Plasma(a)) if a > 0.09),
+            "over the prompt, still playing: {shown:?}"
         );
-        let turn = Duration::from_secs_f64(crate::splash::turn());
-        let at = later + turn + Duration::from_millis(1);
-        let vanish = fx.plan(at, &t, rect, CELL, widths()).splash;
-        assert_eq!(vanish.map(|l| l.phase), Some(SplashPhase::Vanish(0.0)));
-        assert_eq!(fx.turn(at + Duration::from_millis(16), &mut t), Owes::Frame);
-        let end = Duration::from_secs_f64(f64::from(baud_render::splash::end()))
-            + Duration::from_millis(10);
-        assert_eq!(fx.plan(at + end, &t, rect, CELL, widths()).splash, None);
-        assert_eq!(fx.turn(at + end, &mut t), Owes::Nothing);
+        let gone = Duration::from_secs_f64(crate::splash::gone());
+        let before = later + gone - Duration::from_millis(5);
+        assert_eq!(fx.turn(before, &mut t), Owes::Frame);
+        let last = fx.plan(before, &t, rect, CELL, widths()).splash;
+        assert!(
+            matches!(last.map(|l| l.phase), Some(SplashPhase::Plasma(_))),
+            "{last:?}"
+        );
+        let at = later + gone + Duration::from_millis(1);
+        assert_eq!(fx.plan(at, &t, rect, CELL, widths()).splash, None);
+        assert_eq!(
+            fx.turn(at + Duration::from_millis(10), &mut t),
+            Owes::Nothing
+        );
         let mut blank = Owned::new(&WS);
         let b = Term::new(blank.storage(), &WS);
         let mut held = Timed::new(t0, off, ScreenTransition::Off).with_splash(LaunchSplash::On);
         let _ = held.shown();
         let first = held.plan(t0, &b, rect, CELL, widths()).splash;
-        assert_eq!(first.map(|l| l.phase), Some(SplashPhase::Emerge(0.0)));
+        assert_eq!(first.map(|l| l.phase), Some(SplashPhase::Plasma(0.0)));
         assert_eq!(held.set_splash(LaunchSplash::On), Owes::Nothing);
         assert_eq!(held.set_splash(LaunchSplash::Off), Owes::Full);
         assert_eq!(held.plan(t0, &b, rect, CELL, widths()).splash, None);

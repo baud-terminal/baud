@@ -508,8 +508,9 @@ operations = "on"
 activity_lights = "on"
 
 # baud's colour logo in the middle of the window when it starts: it comes
-# out of a burst of plasma from left to right, holds for a moment, and goes
-# back into the plasma from left to right, gone in under two seconds. Your
+# out of a burst of plasma from left to right, and as soon as it is whole a
+# quick sweep takes it out from left to right, gone half a second after it
+# starts. Your
 # keys go to the shell the whole time, and the shell's output draws under
 # the logo. On a Mac with Reduce Motion on, the logo shows whole and fades
 # once your shell has drawn something (or half a second after the window

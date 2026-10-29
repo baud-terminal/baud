@@ -24,8 +24,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 312 | 42 | redistributable, and its notice is satisfied |
-| own | 210 | 7 | the work of baud's author |
-| total | 539 | 54 | |
+| own | 216 | 7 | the work of baud's author |
+| total | 545 | 54 | |
 
 ## Licence texts in LICENSES/
 
@@ -1720,7 +1720,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 204
+- **Files:** 210
 
 | file | copied from |
 |---|---|
@@ -1831,6 +1831,12 @@ notice is, and the URL each file was copied from.
 | [aj-observed/probe-run.sh](docs/research/sources/aj-observed/probe-run.sh) | a shell script written for note AJ |
 | [aj-observed/probe-terminals.txt](docs/research/sources/aj-observed/probe-terminals.txt) | bash probe-run.sh probe.sh, run in the directory of git clone --depth 1 copies at the printed pins |
 | [aj-observed/probe.sh](docs/research/sources/aj-observed/probe.sh) | the other-terminals sweep's probe script, kept as run |
+| [aj-observed/snappy-measure.txt](docs/research/sources/aj-observed/snappy-measure.txt) | set_splash, sync_styles and the instance arm's Gpu::draw timed per frame headless, baud-render's CPU path read per frame, and baud_bench::flash::Census over the splash's whole life, 2026-10-29, from c98a05ab and with the change applied |
+| [aj-observed/snappy-strip-before-dark.png](docs/research/sources/aj-observed/snappy-strip-before-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 24 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from c98a05ab |
+| [aj-observed/snappy-strip-glow-dark.png](docs/research/sources/aj-observed/snappy-strip-glow-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 14 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on c98a05ab |
+| [aj-observed/snappy-strip-sweep-dark.png](docs/research/sources/aj-observed/snappy-strip-sweep-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 11 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
+| [aj-observed/snappy-strip-sweep-light.png](docs/research/sources/aj-observed/snappy-strip-sweep-light.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, light theme, JetBrains Mono, cropped to the logo; 11 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
+| [aj-observed/snappy-strip-wave-dark.png](docs/research/sources/aj-observed/snappy-strip-wave-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 12 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on c98a05ab |
 | [aj-observed/turn-census.txt](docs/research/sources/aj-observed/turn-census.txt) | baud_bench::flash::Census over the splash's whole life on baud-render's CPU path, as baud-bench/tests/splash_flashes.rs counts it, with the emerge's end and the hold varied, 2026-10-29, from 3fefb118 with the change applied |
 | [aj-observed/turn-strip-at-end-dark.png](docs/research/sources/aj-observed/turn-strip-at-end-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied, the vanish started at 0.63 s |
 | [aj-observed/turn-strip-dark.png](docs/research/sources/aj-observed/turn-strip-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied |

@@ -21253,6 +21253,84 @@ bytes  = 30763
 status = "retrieved"
 group  = "AJ"
 
+[sources.aj-obs-snappy-measure]
+key    = "aj-obs-snappy-measure"
+title  = "The launch splash's stall measured -- the vanish's flash cap scanned over its first frames, 4.6-7.3 ms of main-thread time on the first, which drew no glow, and the still and bit-identical frames -- the three options counted by baud's flash census, and the sweep as built: census at four sizes and rates, its remainder against the bare page, its frame times"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "set_splash, sync_styles and the instance arm's Gpu::draw timed per frame headless, baud-render's CPU path read per frame, and baud_bench::flash::Census over the splash's whole life, 2026-10-29, from c98a05ab and with the change applied"
+file   = "aj-observed/snappy-measure.txt"
+sha256 = "ad5e0a209b6726b5105d54f9702fa97465eabaf61adb7f4e2dc50557dc1f0d6a"
+bytes  = 9718
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-snappy-strip-before]
+key    = "aj-obs-snappy-strip-before"
+title  = "The splash before the change: whole about 0.25-0.50 s, the vanish's faint glow at 0.48 s, the block alone dimming to about 1.1 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 24 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from c98a05ab"
+file   = "aj-observed/snappy-strip-before-dark.png"
+sha256 = "c64f9f204db82a560594532bacf48730e2a17fe577c21323df47198ba6f5e6f9"
+bytes  = 45630
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-snappy-strip-wave]
+key    = "aj-obs-snappy-strip-wave"
+title  = "An option not taken: one plasma, the logo erased by the plasma's own trailing edge 0.25 s behind it, gone 0.57 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 12 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on c98a05ab"
+file   = "aj-observed/snappy-strip-wave-dark.png"
+sha256 = "5fd2769ac3219b34262ed1bd96611317315ea8dcfa24f9f6d9e898de7d5aedc6"
+bytes  = 35032
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-snappy-strip-glow]
+key    = "aj-obs-snappy-strip-glow"
+title  = "An option not taken: the faint glow pass at 0.48 s with its cap computed ahead and the logo swept out under it in 0.15 s, gone 0.63 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 14 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on c98a05ab"
+file   = "aj-observed/snappy-strip-glow-dark.png"
+sha256 = "46183fad184ff6c8aec3c78c15d883adcf93784768f211e7de8e80e731cfb6ca"
+bytes  = 42227
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-snappy-strip-sweep-dark]
+key    = "aj-obs-snappy-strip-sweep-dark"
+title  = "The splash as built: one plasma, the logo whole about 0.25 s, swept out left to right from 0.27 s in 0.15 s, the plasma's remainder faded out, gone 0.50 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 11 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/snappy-strip-sweep-dark.png"
+sha256 = "b3aa785c6b30dfd9f70a4ff76558ec524407b8de617a735ad9f163923e9a51de"
+bytes  = 35073
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-snappy-strip-sweep-light]
+key    = "aj-obs-snappy-strip-sweep-light"
+title  = "The splash as built, on the light theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, light theme, JetBrains Mono, cropped to the logo; 11 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/snappy-strip-sweep-light.png"
+sha256 = "2f9cd7f0d37dd1803f740fd6640f437eff6f5b4d4e8cdf5c7a194ffb453c58f7"
+bytes  = 34091
+status = "retrieved"
+group  = "AJ"
+
 [sources.apple-nswindow-isvisible]
 key    = "apple-nswindow-isvisible"
 title  = "NSWindow isVisible -- whether the window is visible onscreen, even when obscured by other windows (documentation JSON)"

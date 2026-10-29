@@ -1953,7 +1953,7 @@ pub struct Renderer<'f, 'a> {
     /// **The launch splash** on this frame and the last ([`SplashLook`]),
     /// the scale its glyphs were first drawn at, and its records: the
     /// lockup's glyphs and block, drawn with baud's own overlays over
-    /// everything but the thumb and the fade. While it vanishes its plasma
+    /// everything but the thumb and the fade. Under full motion its plasma
     /// is the frame's effect.
     splash: Option<SplashLook>,
     last_splash: Option<SplashLook>,
@@ -3307,7 +3307,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **The trail this frame draws**: the splash's plasma while it
-    /// vanishes, since a frame has one effect's slot on every GPU path;
+    /// burns, since a frame has one effect's slot on every GPU path;
     /// else the driver's, unless one lit under the plasma is still in
     /// flight -- held back until it lands, so it never appears halfway.
     fn choose_trail(&mut self) {
@@ -3318,7 +3318,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.held_trail = HeldTrail::No;
         }
         self.trail = match (plasma, self.held_trail) {
-            (Some(v), _) => Some(Drawn::Vfx(v, Px::of(0), Px::of(0))),
+            (Some((v, _)), _) => Some(Drawn::Vfx(v, Px::of(0), Px::of(0))),
             (None, HeldTrail::Yes) => None,
             (None, HeldTrail::No) => self.asked_trail,
         };
@@ -3330,7 +3330,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// chose, its records drawn with baud's own overlays on every path --
     /// in [`Renderer::instances`] after the find field and the link bar,
     /// the CPU path's over the images, and the cell path's from
-    /// [`Renderer::splash`] -- and, while it vanishes, its plasma in the
+    /// [`Renderer::splash`] -- and, under full motion, its plasma in the
     /// effect's slot. A change of it repaints the whole frame, as the
     /// screen fade does.
     pub fn set_splash(&mut self, look: Option<SplashLook>) {
@@ -3353,16 +3353,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.splash_inst
     }
 
-    /// The splash's plasma this frame, while it emerges or vanishes.
-    fn splash_vfx(&self) -> Option<Vfx> {
+    /// The splash's plasma this frame, and how much of its light is drawn
+    /// ([`splash::glow`]), until the splash is gone.
+    fn splash_vfx(&self) -> Option<(Vfx, f32)> {
         let look = self.splash?;
         let (scale, at) = self.splash_place()?;
         match look.phase {
-            splash::SplashPhase::Emerge(age) if age < splash::end() => {
-                Some(splash::emerge_vfx(at, scale, age))
-            }
-            splash::SplashPhase::Vanish(age) if age < splash::end() => {
-                Some(splash::vfx(at, scale, age))
+            splash::SplashPhase::Plasma(age) if age < splash::GONE => {
+                Some((splash::vfx(at, scale, age), splash::glow(age)))
             }
             _ => None,
         }
@@ -3473,7 +3471,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let frame = self.pixel_size();
         // The splash's plasma is the logo's amber; every trail the cursor's
         // colour.
-        let effect_fill = match self.splash_vfx() {
+        let splash = self.splash_vfx();
+        let effect_fill = match splash {
             Some(_) => self.splash_colours().amber,
             None => self.cursor_fill,
         };
@@ -3506,6 +3505,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         if self.strength() == Strength::UnderThreshold {
             let k = self.flash_cap;
+            for r in &mut self.trail_inst {
+                r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
+            }
+        }
+        // What is left of the splash's plasma fades out after the logo is
+        // swept out: every record's alpha scaled, as a cap scales it.
+        if let Some((_, glow)) = splash.filter(|&(_, g)| g < 1.0) {
+            let k = Chan::from_unit(glow);
             for r in &mut self.trail_inst {
                 r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
             }
@@ -3661,12 +3668,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || self
                 .badge_rect
                 .is_some_and(|b| meets(side(b[0]), side(b[1]), side(b[2]), side(b[3])));
-        // The splash's vanish draws in the lockup's amber, every trail in
-        // the cursor's colour.
-        let splash = self.splash_vfx().map(|_| self.splash_colours());
-        let ink = splash
-            .map_or(self.cursor_fill, |c| c.amber)
-            .with_alpha(Chan::from_u8(0xFF));
+        let ink = self.cursor_fill.with_alpha(Chan::from_u8(0xFF));
         let opaque = |c: Argb| c.with_alpha(Chan::from_u8(0xFF));
         let mut triples: Vec<(Argb, Argb)> = Vec::new();
         // A text colour over a page, and each over the desktops while the
@@ -3763,21 +3765,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 if cursored == Cursored::Shape {
                     ground(self.shape_colour(d.bg, d.cursor_fg), page, &mut triples);
                 }
-            }
-        }
-        // **The splash's lockup is a ground no cell names**: its wordmark
-        // and its amber over every page under the pass, and the mixtures a
-        // glyph's edge and the ghost draw between them.
-        if let Some(c) = splash {
-            let mut pages: Vec<Argb> = Vec::new();
-            for &(_, page) in &triples {
-                if !pages.contains(&page) {
-                    pages.push(page);
-                }
-            }
-            for page in pages {
-                ground(c.wordmark, page, &mut triples);
-                ground(c.amber, page, &mut triples);
             }
         }
         // **Bounded a frame, and sound while it is**: the repeat draws

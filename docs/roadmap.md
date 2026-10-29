@@ -93,7 +93,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **A window title with the folder and the running program** — When a program sets no title, the window shows the current folder and what is running in it; on a Mac the title bar does not draw it yet. *In progress.*
 - [ ] **A slide when full-screen programs open and close** — The screen slides between your shell and a full-screen program, as an option beside today's fade.
 - [ ] **Cmd-N opens a new window** — Open another window, including after the last one closed.
-- [x] **A launch splash** — baud's colour logo at launch, coming out of a burst of plasma and going back into it, each from left to right, with a setting to turn it off. On a Mac with Reduce Motion on, it shows whole and fades instead. (2026-10-24)
+- [x] **A launch splash** — baud's colour logo at launch, coming out of a burst of plasma and swept back out, each from left to right, with a setting to turn it off. On a Mac with Reduce Motion on, it shows whole and fades instead. (2026-10-24)
 - [x] **A prompt pinned to the bottom** — An optional mode that keeps the shell prompt at the bottom of the window, for a shell that marks its prompts. (2026-10-24)
 - [x] **Activity lights in the title bar** — Small modem-style lights for bytes coming in and going out, with a setting to turn them off. On macOS; the Linux window has no title bar. (2026-10-24)
 - [x] **Blinking text follows Dim Flashing Lights** — With macOS's Dim Flashing Lights on, blinking text keeps its rates but dims in its off phase instead of vanishing, and switching the setting shows at once. (2026-10-22)

@@ -1,13 +1,13 @@
 //! The launch splash on the CPU path, which the Linux driver draws with
-//! (note AJ): what holds the effect's slot while it emerges and vanishes,
-//! the colour its plasma is drawn in, the trail it holds back, and the
-//! rows it repaints.
+//! (note AJ): what holds the effect's slot while it plays, the colour its
+//! plasma is drawn in and how its remainder fades out, the trail it holds
+//! back, and the rows it repaints.
 
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
-use baud_render::splash::{DARK, LIGHT, end};
+use baud_render::splash::{DARK, GONE, LIGHT, OUT, SWEEP_S, glow};
 use baud_render::{
     Blend, Damage, FaceRole, FaceStyle, Kind, PxSize, Rect, Renderer, Segment, Shape, Smear,
     SplashLook, SplashPhase, Stack, Strength, Target, Theme, TrailLook,
@@ -85,15 +85,15 @@ fn cursor_fire(age: f32) -> TrailLook {
     })
 }
 
-/// **While it emerges or vanishes the splash's plasma is the frame's
-/// effect, in the lockup's amber**, on each half, and the trail the cursor
+/// **While it plays the splash's plasma is the frame's effect, in the
+/// lockup's amber**, on each half, and the trail the cursor
 /// lit meanwhile
 /// is held back -- not drawn when the plasma is over, but from the frame
 /// after it lands (`set_trail(None)`). Held, the splash takes no slot: the
 /// cursor's trail draws. The controls: the effect's records before and
 /// after are the cursor's, in its colour.
 #[test]
-fn the_vanish_holds_the_effects_slot_in_amber() {
+fn the_plasma_holds_the_effects_slot_in_amber() {
     let (regular, bold) = (
         font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
         font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
@@ -108,7 +108,7 @@ fn the_vanish_holds_the_effects_slot_in_amber() {
             Some(Effect::Fire),
             "held: the cursor's"
         );
-        for phase in [SplashPhase::Emerge(0.1), SplashPhase::Vanish(0.1)] {
+        for phase in [SplashPhase::Plasma(0.1), SplashPhase::Plasma(0.35)] {
             r.set_splash(look(phase));
             let v = r.vfx().expect("the splash's plasma");
             assert_eq!(v.effect, Effect::Plasma, "{phase:?}");
@@ -120,7 +120,7 @@ fn the_vanish_holds_the_effects_slot_in_amber() {
         }
         r.set_trail(Some(cursor_fire(0.1)));
         assert_eq!(r.vfx().map(|v| v.effect), Some(Effect::Plasma));
-        // The vanish is over; the cursor's trail is still in flight.
+        // The splash is over; the cursor's trail is still in flight.
         r.set_splash(None);
         r.set_trail(Some(cursor_fire(0.15)));
         assert_eq!(r.vfx(), None, "a trail lit under the plasma stays held");
@@ -208,15 +208,14 @@ fn its_size_is_the_first_frames() {
     r.set_splash(look(SplashPhase::Hold));
     assert_eq!(size(&r), first, "the same glyph sizes");
     assert_ne!(at(&r), before, "centred again");
-    assert!(end() > 0.5);
 }
 
-/// **The emerge's first frame shows the whole logo, faintly, in the
+/// **The splash's first frame shows the whole logo, faintly, in the
 /// plasma**: every record drawn at the ghost's opacity of its colour, and
 /// the plasma lit; at its end every record whole. The control: held, every
 /// record is whole.
 #[test]
-fn the_emerges_first_frame_shows_the_logo_faintly_in_the_plasma() {
+fn the_first_frame_shows_the_logo_faintly_in_the_plasma() {
     let (regular, bold) = (
         font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
         font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
@@ -228,7 +227,7 @@ fn the_emerges_first_frame_shows_the_logo_faintly_in_the_plasma() {
     };
     r.set_splash(look(SplashPhase::Hold));
     assert_eq!(alphas(&r), vec![255; 6], "the control: held, whole");
-    r.set_splash(look(SplashPhase::Emerge(0.0)));
+    r.set_splash(look(SplashPhase::Plasma(0.0)));
     let ghost = baud_render::splash::at_alpha(DARK.amber, baud_render::splash::GHOST)
         .a()
         .get();
@@ -238,59 +237,59 @@ fn the_emerges_first_frame_shows_the_logo_faintly_in_the_plasma() {
         "every record, on the first frame"
     );
     assert_eq!(r.vfx().map(|v| v.effect), Some(Effect::Plasma));
-    r.set_splash(look(SplashPhase::Emerge(end())));
-    assert!(alphas(&r).iter().all(|&a| a >= 254), "{:?}", alphas(&r));
+    r.set_splash(look(SplashPhase::Plasma(OUT)));
+    assert!(alphas(&r).iter().all(|&a| a >= 250), "{:?}", alphas(&r));
+    r.set_splash(look(SplashPhase::Plasma(GONE)));
+    assert!(r.splash().is_empty(), "the logo swept out");
     assert_eq!(r.vfx(), None, "its plasma out");
 }
 
-/// **The vanish is drawn under the flash thresholds, the emerge is not**:
-/// the vanish passes over the box the emerge's plasma lit less than a
-/// second before, so it is drawn as a trail's repeat pass is -- its bands
-/// alone, each at most the cap -- and the cap is the amber's over the
-/// lockup as well as over the page, so it is no more than the amber's
-/// cap over the wordmark and over the amber. The control: the emerge is
-/// full strength and carries its ions, records that are not bands.
+/// **The splash's plasma is never a repeat pass, and its remainder fades
+/// out**: every frame of its life at 60 Hz draws one plasma at full
+/// strength, carries no cap and waits on no scan; once the logo is swept
+/// out ([`OUT`] plus [`SWEEP_S`]) every record is drawn at no more than
+/// [`glow`] of its own alpha, a band at exactly that; at [`GONE`] the
+/// plasma is out. The control: before the sweep is over a band is drawn
+/// whole.
 #[test]
-fn the_vanish_is_drawn_under_the_flash_thresholds() {
+fn the_plasma_is_full_strength_and_its_remainder_fades_out() {
     let (regular, bold) = (
         font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
         font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
     );
     let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
-    for (theme, c) in [(Theme::dark(), DARK), (Theme::light(), LIGHT)] {
-        let page = theme.bg;
+    for theme in [Theme::dark(), Theme::light()] {
         let mut r = renderer(&faces, theme);
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"$ ");
         let mut px = Vec::new();
-        r.set_splash(look(SplashPhase::Emerge(0.05)));
-        let _ = paint(&mut r, &mut t, &mut px, Damage::Full);
-        let v = r.vfx().expect("the emerge's plasma");
-        assert_eq!(v.emitter.strength, Strength::Full, "the emerge");
-        assert!(
-            r.trail().iter().any(|i| i.kind != Kind::Band),
-            "the emerge's ions"
-        );
-        // A frame scans so many caps; a few frames scan every ground.
-        for age in [0.10, 0.11, 0.12, 0.13, 0.14, 0.15] {
-            r.set_splash(look(SplashPhase::Vanish(age)));
+        let swept = OUT + SWEEP_S;
+        let mut whole = false;
+        for f in 0u16.. {
+            let age = f32::from(f) / 60.0;
+            if age >= GONE {
+                break;
+            }
+            r.set_splash(look(SplashPhase::Plasma(age)));
             let _ = paint(&mut r, &mut t, &mut px, Damage::Full);
+            let v = r.vfx().expect("the splash's plasma");
+            assert_eq!(v.emitter.strength, Strength::Full, "{age}");
+            assert_eq!(r.flash_held(), baud_render::Held::Full, "{age}");
+            let k = baud_domain::Chan::from_unit(glow(age)).get();
+            for i in r.trail() {
+                assert!(i.color.a().get() <= k, "{age}: {:?} over {k}", i.color);
+                if i.kind == Kind::Band {
+                    assert_eq!(i.color.a().get(), k, "{age}: a band");
+                }
+            }
+            whole |= age < swept && r.trail().iter().any(|i| i.color.a().get() == 0xFF);
         }
-        let v = r.vfx().expect("the vanish's plasma");
-        assert_eq!(v.emitter.strength, Strength::UnderThreshold, "the vanish");
-        assert_eq!(r.flash_held(), baud_render::Held::Capped);
-        let k = r.flash_cap();
-        assert!(k.get() > 0);
-        let opaque = |a: baud_render::Argb| a.with_alpha(baud_domain::Chan::from_u8(0xFF));
-        for text in [c.wordmark, c.amber] {
-            let over =
-                baud_render::under_threshold_over(opaque(c.amber), opaque(text), opaque(page));
-            assert!(k.get() <= over.get(), "{text:?}: {k:?} over {over:?}");
-        }
-        assert!(!r.trail().is_empty());
-        for i in r.trail() {
-            assert_eq!(i.kind, Kind::Band, "its bands alone");
-            assert!(i.color.a().get() <= k.get(), "{:?} over {k:?}", i.color);
-        }
+        assert!(
+            whole,
+            "the control: a band drawn whole before the sweep ends"
+        );
+        r.set_splash(look(SplashPhase::Plasma(GONE)));
+        assert_eq!(r.vfx(), None, "out at its end");
     }
 }
