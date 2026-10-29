@@ -1,0 +1,74 @@
+# The launch splash's plasma in and out: how much of it is seen, and its flashes.
+# Measured 2026-10-29 on an Apple M5 Max under macOS 27.0, release builds, from
+# 24540262 ('base') and with the change applied ('C', the two even passes as built).
+#
+# 'seen': the plasma's own light over the bare page -- per pixel, the relative
+# luminance of the amber at the alpha the plasma's records draw there (bands by the
+# effect's light, particles by their disc, compounded source-over) against the page's
+# -- summed over pixels and frames, divided by the frame rate and by the scale squared:
+# points squared times seconds. 'emerge' is every frame before OUT (base 0.27 s, C
+# 0.30 s); 'leave' is from OUT to the last frame that draws any of the logo. Drawn on
+# baud-render's CPU path, the pixels the GPU arms are held to by the pixel oracle.
+# 'general', 'red', 'red-enc': the most flashes at one pixel in any second; 'area':
+# the most of any 341x256-point field flashing more than three times in one second
+# (WCAG 2.2's area clause; the limit is 21,824 pt2); 'strict': the same on the
+# chained reading of a flash. Both verdicts pass when the area is no more than the
+# limit. Frames: 0.2 s blank, the splash's life, 0.2 s blank, 60 or 120 a second.
+C 200x50@2x 60Hz dark: general 4 red 0 red-enc 0 area 11.0 strict 179.0 | seen emerge 258.48 leave 261.47, logo gone 0.600 s
+C 200x50@2x 60Hz light: general 4 red 0 red-enc 0 area 68.2 strict 1733.5 | seen emerge 1227.72 leave 1216.43, logo gone 0.600 s
+C 200x50@2x 60Hz #CD0000: general 4 red 1 red-enc 1 area 2.2 strict 90.0 | seen emerge 219.40 leave 221.22, logo gone 0.600 s
+C 200x50@2x 60Hz #1A0000: general 4 red 1 red-enc 1 area 9.8 strict 175.2 | seen emerge 238.93 leave 242.49, logo gone 0.600 s
+C 200x50@2x 120Hz dark: general 4 red 0 red-enc 0 area 15.0 strict 221.0 | seen emerge 248.61 leave 251.53, logo gone 0.600 s
+C 200x50@2x 120Hz light: general 4 red 0 red-enc 0 area 83.0 strict 1985.8 | seen emerge 1188.72 leave 1177.64, logo gone 0.600 s
+C 200x50@2x 120Hz #CD0000: general 4 red 1 red-enc 1 area 5.5 strict 118.0 | seen emerge 211.40 leave 213.16, logo gone 0.600 s
+C 200x50@2x 120Hz #1A0000: general 4 red 1 red-enc 1 area 13.5 strict 220.0 | seen emerge 229.67 leave 233.15, logo gone 0.600 s
+C 360x90@2x 60Hz dark: general 4 red 0 red-enc 0 area 33.0 strict 464.2 | seen emerge 834.08 leave 844.00, logo gone 0.600 s
+C 360x90@2x 60Hz light: general 4 red 0 red-enc 0 area 158.2 strict 3880.8 | seen emerge 3972.12 leave 3935.82, logo gone 0.600 s
+C 360x90@2x 60Hz #CD0000: general 4 red 1 red-enc 1 area 8.8 strict 241.8 | seen emerge 708.43 leave 714.49, logo gone 0.600 s
+C 360x90@2x 60Hz #1A0000: general 4 red 1 red-enc 1 area 30.8 strict 455.0 | seen emerge 770.81 leave 782.55, logo gone 0.600 s
+C 64x20@1x 60Hz dark: general 4 red 0 red-enc 0 area 2.0 strict 31.0 | seen emerge 26.83 leave 26.86, logo gone 0.600 s
+C 64x20@1x 60Hz light: general 4 red 0 red-enc 0 area 14.0 strict 206.0 | seen emerge 118.75 leave 117.08, logo gone 0.600 s
+C 64x20@1x 60Hz #CD0000: general 3 red 1 red-enc 1 area 0.0 strict 10.0 | seen emerge 22.42 leave 22.40, logo gone 0.600 s
+C 64x20@1x 60Hz #1A0000: general 4 red 1 red-enc 1 area 1.0 strict 30.0 | seen emerge 24.96 leave 25.05, logo gone 0.600 s
+base 200x50@2x 60Hz dark: general 3 red 0 red-enc 0 area 0.0 strict 1.8 | seen emerge 130.28 leave 1.10, logo gone 0.433 s
+base 200x50@2x 60Hz light: general 3 red 0 red-enc 0 area 0.0 strict 77.0 | seen emerge 609.59 leave 10.74, logo gone 0.433 s
+base 200x50@2x 60Hz #CD0000: general 2 red 1 red-enc 1 area 0.0 strict 0.0 | seen emerge 110.37 leave 1.15, logo gone 0.433 s
+base 200x50@2x 60Hz #1A0000: general 3 red 1 red-enc 1 area 0.0 strict 1.0 | seen emerge 120.97 leave 1.03, logo gone 0.433 s
+base 200x50@2x 120Hz dark: general 3 red 0 red-enc 0 area 0.0 strict 5.5 | seen emerge 119.65 leave 1.17, logo gone 0.425 s
+base 200x50@2x 120Hz light: general 3 red 0 red-enc 0 area 0.0 strict 94.5 | seen emerge 566.57 leave 11.37, logo gone 0.425 s
+base 200x50@2x 120Hz #CD0000: general 2 red 1 red-enc 1 area 0.0 strict 0.0 | seen emerge 101.66 leave 1.22, logo gone 0.425 s
+base 200x50@2x 120Hz #1A0000: general 3 red 1 red-enc 1 area 0.0 strict 4.2 | seen emerge 110.93 leave 1.10, logo gone 0.425 s
+base 360x90@2x 60Hz dark: general 3 red 0 red-enc 0 area 0.0 strict 5.8 | seen emerge 420.47 leave 3.54, logo gone 0.433 s
+base 360x90@2x 60Hz light: general 3 red 0 red-enc 0 area 0.0 strict 164.2 | seen emerge 1972.38 leave 34.71, logo gone 0.433 s
+base 360x90@2x 60Hz #CD0000: general 2 red 1 red-enc 1 area 0.0 strict 0.0 | seen emerge 356.38 leave 3.69, logo gone 0.433 s
+base 360x90@2x 60Hz #1A0000: general 3 red 1 red-enc 1 area 0.0 strict 3.5 | seen emerge 390.26 leave 3.33, logo gone 0.433 s
+base 64x20@1x 60Hz dark: general 3 red 0 red-enc 0 area 0.0 strict 1.0 | seen emerge 13.54 leave 0.16, logo gone 0.433 s
+base 64x20@1x 60Hz light: general 3 red 0 red-enc 0 area 0.0 strict 15.0 | seen emerge 59.54 leave 1.39, logo gone 0.433 s
+base 64x20@1x 60Hz #CD0000: general 2 red 1 red-enc 1 area 0.0 strict 0.0 | seen emerge 11.32 leave 0.16, logo gone 0.433 s
+base 64x20@1x 60Hz #1A0000: general 3 red 1 red-enc 1 area 0.0 strict 1.0 | seen emerge 12.64 leave 0.14, logo gone 0.433 s
+#
+# The worst field at any size and ground: C 158.2 pt2 (0.72% of the limit, light,
+# 6120x3330 px at 2x), strict 3,880.8 pt2 (17.8%). base: 0 and 164.2.
+#
+# The options, from strips, at 200x50@2x 60 Hz dark and 6120x3330 light:
+# A (the first pass on kitty's curve at 0.7 of its pace, the second even over 0.30 s,
+#   gone 0.70 s): emerge 176.82, leave 228.87; 6K light area 205.0, strict 5,505.2.
+# B (one wave at 0.4 of kitty's pace, written by the quad's leading edge, erased by
+#   its trailing edge; the logo never whole, gone 0.73 s): 223.39 over its life;
+#   6K light area 0, strict 120.0.
+# C (both passes even over 0.30 s, gone 0.68 s): the rows above.
+# C at 0.6 and 0.5 of kitty's pace: emerge 2.1-2.2 times base at 1x, and the
+# remainder over 0.10 of the bare page two frames before the end on the light page.
+#
+# On the GPU (both arms drawn and read back, baud-present-macos's cell harness, 120x10
+# cells at 28 px, dark, a prompt and a line under the logo): pixels lit by neither the
+# plain frame nor the held logo, weighted by their luminance from the plain frame --
+# which counts the logo's own partial ink too -- before OUT and after:
+#   base 60 Hz: 42.2 and 10.4; 120 Hz: 41.2 and 11.3
+#   C    60 Hz: 65.5 and 61.2; 120 Hz: 61.3 and 58.8
+# worst frame for both arms drawn, waited and read: 2.6 ms base and C.
+#
+# Per frame at 6120x3330 px, dark, 60 and 120 Hz: set_splash at most 0.35 ms base and
+# 0.34 ms C; at most 18 effect records a frame and 2,158,300 record pixels, the same
+# in both (the second pass's first frame draws the first pass's first box). The CPU
+# path's whole frame, before and after: 26 ms at 3400x1850, 84 ms at 6120x3330.

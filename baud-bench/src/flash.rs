@@ -1156,6 +1156,37 @@ mod tests {
         assert_eq!(r.outcome(), Outcome::Passes, "{r:?}");
     }
 
+    /// **The area clause's boundary, at 2x**: "no more than ... 25% of any
+    /// 10 degree visual field" ([[source: wcag22]]) passes a 4 Hz patch of
+    /// exactly 21,824 points squared -- 682 by 128 device pixels, 341 by 64
+    /// points -- and fails the same patch with one device pixel more, a
+    /// quarter of a point squared, inside the same field. Each flashes four
+    /// times in every second at every pixel, which a test that requires at
+    /// most three at any pixel would fail outright: the count is the first
+    /// half of the threshold, and either half passes.
+    #[test]
+    fn the_area_clause_passes_at_its_bound_and_fails_past_it() {
+        let size = (Px::of(700), Px::of(520));
+        let f = square(4, FPS, BLACK, WHITE);
+        let p = Patch(9, 40, 682, 128);
+        let at = run(size, Scale(2), FPS, 2.0, Paint(BLACK), &[(p, &f)]);
+        assert_eq!(at.general.flashes, Flashes(4), "{at:?}");
+        assert_eq!(at.area, Area(21_824.0), "{at:?}");
+        assert_eq!(at.threshold, Area(21_824.0), "{at:?}");
+        assert_eq!(at.outcome(), Outcome::Passes, "{at:?}");
+        let one = Patch(9, 300, 1, 1);
+        let past = run(
+            size,
+            Scale(2),
+            FPS,
+            2.0,
+            Paint(BLACK),
+            &[(p, &f), (one, &f)],
+        );
+        assert_eq!(past.area, Area(21_824.25), "{past:?}");
+        assert_eq!(past.outcome(), Outcome::Fails, "{past:?}");
+    }
+
     /// **Red and cyan at one luminance flash red, and not generally**: pure
     /// red's relative luminance is 0.2126, and `#008E8E`'s 0.2131, so no
     /// change reaches 0.10, while red's R/(R+G+B) is 1 and the two are 0.36

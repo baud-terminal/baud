@@ -2,12 +2,14 @@
 
 **Status: built 2026-10-24 (roadmap F1-19); the emerge built 2026-10-28
 (section 9); its start and its turn 2026-10-29 (section 10); the sweep,
-gone in half a second, 2026-10-29 (section 11). The questions as built:**
+gone in half a second, 2026-10-29 (section 11); a plasma carrying it in
+and a second carrying it out, 2026-10-29 (section 12). The questions as
+built:**
 
 - **1. When.** Nothing of it until the window is shown (section 10). Under
-  full motion, on the clock alone since 2026-10-28 (the lean): out of the
-  plasma, then an even sweep out from 0.27 s, gone at 0.50 s, with one
-  plasma and no second pass (section 11). Under reduced motion, as first built: on the
+  full motion, on the clock alone since 2026-10-28 (the lean): carried in
+  by one plasma, whole at 0.30 s, then carried out by a second, the logo
+  gone at 0.60 s and the glow at 0.68 s (section 12). Under reduced motion, as first built: on the
   shell's first visible cell or a 0.5 s cap from the window's being shown,
   whichever is first (E2 and a cap of 0.5 s; the cap is the lean);
   the vanish starts on the frame after that one.
@@ -15,7 +17,8 @@ gone in half a second, 2026-10-29 (section 11). The questions as built:**
   draws, and the plasma the trails use is baud's one plasma. P1 is built
   from the plasma trail's own model with no new shader: the box from the
   wordmark to the block collapses into the block on kitty's quad
-  constants (chosen over a slower collapse).
+  constants (chosen over a slower collapse); since section 12 two
+  passes, each at 0.7 of kitty's clock with an even trailing edge.
 - **3. Colour.** C1, the lockup's amber (chosen over C2, the cursor's
   colour that the 2026-09-25 rule gives every effect); the logo in the lockup's
   colours on the half the theme's polarity names.
@@ -2144,7 +2147,7 @@ plasma's records are dimmed in step with the time left after the sweep
 (`glow`), so the splash's last frame differs little from the bare page
 whenever it falls. `no_splash_frame_waits_on_a_cap_scan`,
 `every_frame_the_splash_owes_moves` and
-`the_splash_is_gone_within_half_a_second` drive the app's own clock into
+and the half-second bound (renamed in section 12) drive the app's own clock into
 the renderer at 60 and 120 Hz; all three failed before the change. Both
 GPU arms ran the cap scan; on the instance arm the worst splash frame is
 now 0.66 ms of main-thread time and 1.71 ms of GPU at 6K.
@@ -2168,3 +2171,57 @@ leaves in the plasma's fading tail rather than in a pass of its own.
 plasma itself costs 24 ms on its first frame at 2x and 76 ms at 6K, and
 frames stay over 8.3 ms through about the eighth at 2x, before and after
 this change.
+
+## 12. A plasma seen coming in and going out (2026-10-29)
+
+**What the user sees.** Once the window is on screen a burst of amber
+plasma carries the logo in from left to right, every glyph inside it as
+it is drawn, whole at 0.30 s; on that frame a second plasma lights over
+the whole logo and carries it out from left to right, the block last,
+the logo gone at 0.60 s and the glow at 0.68 s. There is plasma on the
+screen on every frame to about 0.55 s, and nothing stands still. Before,
+the plasma was mostly over by 0.15 s and the logo left with none.
+Keys, output under the logo and Reduce Motion are as before.
+
+The requests, verbatim (2026-10-29): "i don't see the plasma when logo is
+\"leaving\"" and "and very little when it enters".
+
+**How it is built.** Two passes of the same plasma, each at 0.7 of
+kitty's clock (`PACE`), each quad's trailing edge crossing the lockup at
+one speed over 0.30 s (`IN_S`, `SWEEP_S`) instead of on kitty's curve,
+which drew the wordmark in a tenth of a second and left the block alone
+at the end (`each_trailing_edge_crosses_at_one_speed`). The second has a
+seed of its own. Both are full strength: nothing is capped or scanned,
+and at 6K no frame draws more effect records than the first did before.
+
+**How much is seen** ([[source: aj-obs-plasma-measure]]): the plasma's
+own light over the bare page, summed over pixels and frames. At 2x,
+60 Hz, dark: coming in 130 before, 258 now; going out 1.1 before, 261
+now; the same shares on the other grounds, at 120 Hz and at 6K.
+`the_plasma_is_seen_carrying_the_logo_in_and_out` failed before the
+change and holds at least 1.9 times the old entry and a leaving at least
+0.9 of the entry.
+
+**Flashes.** WCAG 2.2 passes content with no more than three flashes a
+second *or* concurrent flashing of no more than 25% of any 10-degree
+field. The splash's census test held every pixel to three, the first
+half alone, which is stricter than the text; it now asserts the
+census's verdict on both readings of a flash
+(`the_splash_is_below_the_flash_thresholds`), and the census holds the
+bound exactly
+(`the_area_clause_passes_at_its_bound_and_fails_past_it`). The two
+passes flash a few pixels four times in a second: at most 158 pt² of the
+21,824 allowed (0.7%, light page, full-screen 6K), 3,881 (17.8%) on the
+chained reading, at 1x 60 Hz, 2x 60 and 120 Hz and 6K on four grounds.
+
+**The choice, from strips** ([[source: aj-obs-plasma-strip-before]],
+[[source: aj-obs-plasma-strip-c-dark]],
+[[source: aj-obs-plasma-strip-c-light]]): both passes even, the lean,
+over the first pass on kitty's curve ([[source: aj-obs-plasma-strip-a]],
+gone 0.70 s, entry 1.36 times before) and one wave whose leading edge
+writes the logo and trailing edge erases it, never whole at once
+([[source: aj-obs-plasma-strip-b]]).
+
+**Not fixed.** The CPU path's frames cost what they did (26 ms at 2x,
+84 ms at 6K), and now more of them carry a plasma.
+

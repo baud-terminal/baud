@@ -2,8 +2,8 @@
 //! it until the window is shown -- on macOS the first display-link tick at
 //! which a frame has reached the layer, the plasma's pipeline is built and
 //! AppKit reports the window visible, on Linux the compositor's first frame callback -- then baud's
-//! colour lockup coming out of the plasma, left to right, and swept out of
-//! it left to right, gone [`gone`] after it starts -- on the clock alone,
+//! colour lockup carried in by the plasma, left to right, and carried out
+//! by a second, left to right, gone [`gone`] after it starts -- on the clock alone,
 //! so a shell's output neither cuts it short nor holds it longer. Under reduced
 //! motion there is no plasma: the logo is whole from the first frame, held
 //! until the shell draws something or [`CAP`] after the window is shown,
@@ -47,7 +47,7 @@ enum State {
     /// The window is not shown yet: nothing of the logo under full motion,
     /// the logo whole under reduced motion, and no clock.
     Waiting,
-    /// Coming out of the plasma and swept out of it; the clock it runs
+    /// Carried in by the plasma and out by a second; the clock it runs
     /// from, once a frame has had one.
     Playing(Option<f64>),
     /// Shown whole under reduced motion, which has no plasma, until the
@@ -75,9 +75,9 @@ pub(crate) fn gone() -> f64 {
     f64::from(baud_render::splash::GONE)
 }
 
-/// Seconds into the splash at which the sweep out starts
-/// (`baud_render::splash::OUT`): reduced motion arriving before it shows
-/// the logo whole, and after it takes the logo down.
+/// Seconds into the splash at which the plasma that carries the logo out
+/// lights (`baud_render::splash::OUT`): reduced motion arriving before it
+/// shows the logo whole, and after it takes the logo down.
 fn out() -> f64 {
     f64::from(baud_render::splash::OUT)
 }
@@ -136,8 +136,8 @@ impl Splash {
     /// the frame after it ends; a fade that is over is gone. `None` for
     /// `now` -- a frame before the clock has a reading, the first one on
     /// macOS -- starts no clock. Reduced motion arriving while the logo
-    /// comes out shows it whole at once, and once the sweep out has started
-    /// takes it down, as it cuts a trail in flight.
+    /// comes out shows it whole at once, and once the plasma that carries
+    /// it out has lit takes it down, as it cuts a trail in flight.
     pub(crate) fn look(
         &mut self,
         now: Option<f64>,
@@ -358,12 +358,12 @@ mod tests {
         assert_eq!(s.look(Some(5.0 + gone() + 0.02), &t, full), None);
     }
 
-    /// **Its times are the renderer's**: gone half a second after it
-    /// starts, the sweep out starting before, and both before the plasma's
-    /// own end, which it does not wait for.
+    /// **Its times are the renderer's**: gone 0.68 s after it starts, the
+    /// plasma that carries the logo out lighting before, and both before
+    /// that plasma's own end, which it does not wait for.
     #[test]
-    fn it_is_gone_half_a_second_after_it_starts() {
-        assert!((gone() - 0.5).abs() < 1e-6, "{}", gone());
+    fn it_is_gone_by_the_renderers_end() {
+        assert!((gone() - 0.68).abs() < 1e-6, "{}", gone());
         assert!(out() < gone(), "{} {}", out(), gone());
         assert!(gone() < f64::from(baud_render::splash::end()));
     }
@@ -666,9 +666,8 @@ mod tests {
 
     /// **Every frame the logo owes moves**: from its first frame to the one
     /// that clears it, none repeats the frame before bit for bit -- a
-    /// bit-identity check, not a visible-change threshold: the last frames,
-    /// 0.43-0.50 s, change by under 0.025 of relative luminance as the
-    /// remainder fades. At 60 and 120 frames a second.
+    /// bit-identity check, not a visible-change threshold: the last frames
+    /// change little as the remainder fades. At 60 and 120 frames a second.
     #[test]
     fn every_frame_the_splash_owes_moves() {
         for rate in [60.0, 120.0] {
@@ -684,15 +683,15 @@ mod tests {
         }
     }
 
-    /// **The logo is gone within half a second**: from its first frame to
-    /// the one that clears it, at most 0.5 s and a frame, at 60 and 120
-    /// frames a second.
+    /// **The logo is gone at its end**: from its first frame to the one
+    /// that clears it, at most 0.68 s and a frame, at 60 and 120 frames a
+    /// second.
     #[test]
-    fn the_splash_is_gone_within_half_a_second() {
+    fn the_splash_is_gone_at_its_end() {
         for rate in [60.0, 120.0] {
             let frames = life(rate);
             let on = (frames.len() - 1) as f64 / rate;
-            assert!(on <= 0.5 + 1.0 / rate + 1e-9, "{rate} Hz: {on} s");
+            assert!(on <= 0.68 + 1.0 / rate + 1e-9, "{rate} Hz: {on} s");
         }
     }
 

@@ -3509,8 +3509,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
             }
         }
-        // What is left of the splash's plasma fades out after the logo is
-        // swept out: every record's alpha scaled, as a cap scales it.
+        // What is left of the splash's plasma fades out as the logo goes:
+        // every record's alpha scaled, as a cap scales it.
         if let Some((_, glow)) = splash.filter(|&(_, g)| g < 1.0) {
             let k = Chan::from_unit(glow);
             for r in &mut self.trail_inst {

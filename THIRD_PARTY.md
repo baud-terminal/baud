@@ -24,8 +24,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 312 | 42 | redistributable, and its notice is satisfied |
-| own | 216 | 7 | the work of baud's author |
-| total | 545 | 54 | |
+| own | 222 | 7 | the work of baud's author |
+| total | 551 | 54 | |
 
 ## Licence texts in LICENSES/
 
@@ -1720,7 +1720,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 210
+- **Files:** 216
 
 | file | copied from |
 |---|---|
@@ -1826,6 +1826,12 @@ notice is, and the URL each file was copied from.
 | [aj-observed/font_probe.txt](docs/research/sources/aj-observed/font_probe.txt) | python3 docs/research/sources/aj-observed/font_probe.py, run from the repository root at ccb8aaa |
 | [aj-observed/logo_probe.sh](docs/research/sources/aj-observed/logo_probe.sh) | a shell script written for note AJ, run from the repository root |
 | [aj-observed/logo_probe.txt](docs/research/sources/aj-observed/logo_probe.txt) | bash docs/research/sources/aj-observed/logo_probe.sh, run from the repository root at ccb8aaa |
+| [aj-observed/plasma-measure.txt](docs/research/sources/aj-observed/plasma-measure.txt) | baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, the cell harness of baud-present-macos for the GPU, 2026-10-29, from 24540262 and with the change applied |
+| [aj-observed/plasma-strip-a-dark.png](docs/research/sources/aj-observed/plasma-strip-a-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 16 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on 24540262 |
+| [aj-observed/plasma-strip-b-dark.png](docs/research/sources/aj-observed/plasma-strip-b-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 16 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on 24540262 |
+| [aj-observed/plasma-strip-before-dark.png](docs/research/sources/aj-observed/plasma-strip-before-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 10 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 24540262 |
+| [aj-observed/plasma-strip-c-dark.png](docs/research/sources/aj-observed/plasma-strip-c-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 14 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
+| [aj-observed/plasma-strip-c-light.png](docs/research/sources/aj-observed/plasma-strip-c-light.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), light theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 14 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
 | [aj-observed/probe-logo-sampling.sh](docs/research/sources/aj-observed/probe-logo-sampling.sh) | a shell script written for note AJ, run in the directory of the pinned clones |
 | [aj-observed/probe-logo-sampling.txt](docs/research/sources/aj-observed/probe-logo-sampling.txt) | bash probe-logo-sampling.sh, run in the directory of git clone --depth 1 copies at the pins in aj-obs-probe-terminals |
 | [aj-observed/probe-run.sh](docs/research/sources/aj-observed/probe-run.sh) | a shell script written for note AJ |

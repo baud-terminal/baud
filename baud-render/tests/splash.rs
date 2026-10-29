@@ -7,7 +7,7 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
-use baud_render::splash::{DARK, GONE, LIGHT, OUT, SWEEP_S, glow};
+use baud_render::splash::{DARK, GONE, LEFT, LIGHT, OUT, glow};
 use baud_render::{
     Blend, Damage, FaceRole, FaceStyle, Kind, PxSize, Rect, Renderer, Segment, Shape, Smear,
     SplashLook, SplashPhase, Stack, Strength, Target, Theme, TrailLook,
@@ -240,17 +240,16 @@ fn the_first_frame_shows_the_logo_faintly_in_the_plasma() {
     r.set_splash(look(SplashPhase::Plasma(OUT)));
     assert!(alphas(&r).iter().all(|&a| a >= 250), "{:?}", alphas(&r));
     r.set_splash(look(SplashPhase::Plasma(GONE)));
-    assert!(r.splash().is_empty(), "the logo swept out");
+    assert!(r.splash().is_empty(), "the logo carried out");
     assert_eq!(r.vfx(), None, "its plasma out");
 }
 
 /// **The splash's plasma is never a repeat pass, and its remainder fades
 /// out**: every frame of its life at 60 Hz draws one plasma at full
-/// strength, carries no cap and waits on no scan; once the logo is swept
-/// out ([`OUT`] plus [`SWEEP_S`]) every record is drawn at no more than
-/// [`glow`] of its own alpha, a band at exactly that; at [`GONE`] the
-/// plasma is out. The control: before the sweep is over a band is drawn
-/// whole.
+/// strength, carries no cap and waits on no scan; once the logo is
+/// carried out ([`LEFT`]) every record is drawn at no more than [`glow`]
+/// of its own alpha, a band at exactly that; at [`GONE`] the plasma is
+/// out. The control: before the logo is out a band is drawn whole.
 #[test]
 fn the_plasma_is_full_strength_and_its_remainder_fades_out() {
     let (regular, bold) = (
@@ -264,7 +263,7 @@ fn the_plasma_is_full_strength_and_its_remainder_fades_out() {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, b"$ ");
         let mut px = Vec::new();
-        let swept = OUT + SWEEP_S;
+        let swept = LEFT;
         let mut whole = false;
         for f in 0u16.. {
             let age = f32::from(f) / 60.0;

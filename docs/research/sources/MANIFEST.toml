@@ -21331,6 +21331,84 @@ bytes  = 34091
 status = "retrieved"
 group  = "AJ"
 
+[sources.aj-obs-plasma-measure]
+key    = "aj-obs-plasma-measure"
+title  = "The launch splash's plasma measured: how much of it is seen coming in and going out, before and with the two even passes, and the flash census at four sizes and rates on four grounds, the options, a GPU cross-check and frame costs"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, the cell harness of baud-present-macos for the GPU, 2026-10-29, from 24540262 and with the change applied"
+file   = "aj-observed/plasma-measure.txt"
+sha256 = "3cc356cb223611a76b86665ee39e7af51bc0ddaf6d0b2cf99b5954f87629158e"
+bytes  = 6942
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-plasma-strip-before]
+key    = "aj-obs-plasma-strip-before"
+title  = "The splash before the change: one plasma carrying the logo in, whole about 0.27 s, then an even sweep with no plasma, gone 0.50 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 10 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 24540262"
+file   = "aj-observed/plasma-strip-before-dark.png"
+sha256 = "81dca4235a9884d9d8a3dd1088a3936ccc3d803f42e86860577ba04d78d611d7"
+bytes  = 79077
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-plasma-strip-a]
+key    = "aj-obs-plasma-strip-a"
+title  = "An option not taken: the first plasma on kitty's curve at 0.7 of its pace, whole at 0.39 s, a second plasma carrying the logo out evenly over 0.30 s, gone 0.70 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 16 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on 24540262"
+file   = "aj-observed/plasma-strip-a-dark.png"
+sha256 = "acc9ee3610032eb3663222b1586344b7acd15719edfca399354bc4df769a5937"
+bytes  = 151962
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-plasma-strip-b]
+key    = "aj-obs-plasma-strip-b"
+title  = "An option not taken: one plasma wave at 0.4 of kitty's pace, the logo written by its quad's leading edge and erased by its trailing edge, never whole at once, gone 0.73 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 16 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on 24540262"
+file   = "aj-observed/plasma-strip-b-dark.png"
+sha256 = "7f33ca9c5777896d73deead28a21ea157c2630aec6185dc36f9a9b8aa88e278d"
+bytes  = 104009
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-plasma-strip-c-dark]
+key    = "aj-obs-plasma-strip-c-dark"
+title  = "The splash as built: a plasma carrying the logo in evenly over 0.30 s, a second carrying it out evenly over 0.30 s, the block last, gone 0.68 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 14 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/plasma-strip-c-dark.png"
+sha256 = "4ee76daafb4833b41decf19bc7a28cf953c54d7e635b2563b5bf532ce7ef88fc"
+bytes  = 172151
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-plasma-strip-c-light]
+key    = "aj-obs-plasma-strip-c-light"
+title  = "The splash as built, on the light theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), light theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 14 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/plasma-strip-c-light.png"
+sha256 = "7baed21d0e748e5cb0a330834f115caa40a5baaefbce2bc73e4a02e0d27134eb"
+bytes  = 169857
+status = "retrieved"
+group  = "AJ"
+
 [sources.apple-nswindow-isvisible]
 key    = "apple-nswindow-isvisible"
 title  = "NSWindow isVisible -- whether the window is visible onscreen, even when obscured by other windows (documentation JSON)"

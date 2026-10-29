@@ -377,7 +377,7 @@ pub struct Config {
     /// has no title bar (`baud_render::lights`).
     pub activity_lights: baud_render::ActivityLights,
     /// `[launch] splash`: whether a launch shows baud's colour logo in the
-    /// middle of the window, coming out of the plasma and swept out of it
+    /// middle of the window, carried in and out by the plasma
     /// -- `"on"` by default (note AJ) -- or `"off"`. On follows Reduce
     /// Motion, which shows it whole and fades it instead (`splash.rs`).
     pub launch_splash: LaunchSplash,

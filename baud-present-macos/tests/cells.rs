@@ -1309,8 +1309,9 @@ macro_rules! arms {
 }
 
 /// **The launch splash draws alike on every arm** (note AJ): the lockup
-/// held, the plasma at four ages as the logo comes out, three as it is
-/// swept out, one as what is left of it fades, and its end, and the fade
+/// held, the plasma at four ages as the logo comes out, three as the
+/// second plasma carries it out, one as what is left of it fades, and its
+/// end, and the fade
 /// at half, over a prompt and a line of text under the logo, on the dark
 /// and the light
 /// half. The cell arm draws what the instance arm draws, pixel for pixel;
@@ -1320,7 +1321,7 @@ macro_rules! arms {
 /// controls: the held logo changes the frame and its block is the half's
 /// amber, exactly, at the block's centre; each plasma lights pixels the
 /// held logo does not; the first frame differs from the held logo; at
-/// its end the frame is the plain one. One plasma at full strength: no
+/// its end the frame is the plain one. Both plasmas at full strength: no
 /// frame carries a cap.
 #[test]
 fn the_splash_draws_alike_on_every_arm() {
@@ -1344,7 +1345,7 @@ fn the_splash_draws_alike_on_every_arm() {
         b"\x1b[1;34m~/code\x1b[0m on \x1b[35mmain\x1b[0m\r\n\x1b[5;30Hunder the logo, text\x1b[2;1H$ ",
     );
     let (out, gone) = (baud_render::splash::OUT, baud_render::splash::GONE);
-    let swept = out + baud_render::splash::SWEEP_S;
+    let swept = baud_render::splash::LEFT;
     for (half, theme, amber) in [
         ("dark", Theme::dark(), baud_render::splash::DARK.amber),
         ("light", Theme::light(), baud_render::splash::LIGHT.amber),
@@ -1367,7 +1368,7 @@ fn the_splash_draws_alike_on_every_arm() {
         ] {
             let at = format!("{half}, {phase:?}");
             arms.splash = Some(SplashLook { phase });
-            // One plasma at full strength: no frame waits on a cap.
+            // Both plasmas at full strength: no frame waits on a cap.
             let (a, b) = arms.draw(&mut t);
             assert_eq!(
                 arms.renderer.flash_held(),
