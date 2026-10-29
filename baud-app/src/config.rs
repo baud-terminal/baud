@@ -377,9 +377,9 @@ pub struct Config {
     /// has no title bar (`baud_render::lights`).
     pub activity_lights: baud_render::ActivityLights,
     /// `[launch] splash`: whether a launch shows baud's colour logo in the
-    /// middle of the window until the shell draws something, gone in the
-    /// plasma -- `"on"` by default (note AJ) -- or `"off"`. On follows
-    /// Reduce Motion, which fades it instead (`splash.rs`).
+    /// middle of the window, coming out of the plasma and going back into
+    /// it -- `"on"` by default (note AJ) -- or `"off"`. On follows Reduce
+    /// Motion, which shows it whole and fades it instead (`splash.rs`).
     pub launch_splash: LaunchSplash,
     /// `[pointer] hide_while_typing`: whether a key hides the pointer unless
     /// a program tracks the mouse, `"on"` by default -- xterm's

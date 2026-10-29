@@ -24,8 +24,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 311 | 42 | redistributable, and its notice is satisfied |
-| own | 201 | 7 | the work of baud's author |
-| total | 529 | 54 | |
+| own | 206 | 7 | the work of baud's author |
+| total | 534 | 54 | |
 
 ## Licence texts in LICENSES/
 
@@ -1719,7 +1719,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 195
+- **Files:** 200
 
 | file | copied from |
 |---|---|
@@ -1813,6 +1813,11 @@ notice is, and the URL each file was copied from.
 | [ai-observed/syslogprobe2-syntax.txt](docs/research/sources/ai-observed/syslogprobe2-syntax.txt) | Xcode clang, 12:57 |
 | [ai-observed/syslogprobe2.c](docs/research/sources/ai-observed/syslogprobe2.c) | probe source, written for the note |
 | [ai-observed/syslogprobe2.txt](docs/research/sources/ai-observed/syslogprobe2.txt) | syslogprobe2 run at 12:05:14 and log show |
+| [aj-observed/emerge-census.txt](docs/research/sources/aj-observed/emerge-census.txt) | baud_bench::flash::Census over the splash's whole life on baud-render's CPU path, as baud-bench/tests/splash_flashes.rs counts it, with the emerge's pace and the hold varied, 2026-10-28, from c10174a0 with the emerge built |
+| [aj-observed/emerge-lead-kitty.png](docs/research/sources/aj-observed/emerge-lead-kitty.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built |
+| [aj-observed/emerge-trail-1.4x.png](docs/research/sources/aj-observed/emerge-trail-1.4x.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built |
+| [aj-observed/emerge-trail-2.1x.png](docs/research/sources/aj-observed/emerge-trail-2.1x.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built |
+| [aj-observed/emerge-trail-kitty.png](docs/research/sources/aj-observed/emerge-trail-kitty.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built |
 | [aj-observed/flash-census.tsv](docs/research/sources/aj-observed/flash-census.tsv) | cargo build --release -p baud-bench --bench flash, then the binary run seven times at once on an Apple M5 Max under macOS 27.0 (26A5425a) on AC, 2026-10-09: `all 13x1 60,120 all all`, `all 13x2 60,120 all all`, `all 32x1 60,120 all all`, `all 32x2 60,120 all dark,light`, `all 32x2 60,120 all red,darkred`, `all 72x1 60,120 all dark,light` and `all 72x1 60,120 all red,darkred`, joined in that order with the repeated control rows (which agree) dropped; every column it shares with an earlier build's census, run without the apart columns, agrees |
 | [aj-observed/flash_area.py](docs/research/sources/aj-observed/flash_area.py) | a Python script written for note AJ; reads no files, its constants copied from baud-render/src/plasma.rs, shaders.metal, metrics.rs, color.rs, trail.rs and metal.rs at ccb8aaa |
 | [aj-observed/flash_area.txt](docs/research/sources/aj-observed/flash_area.txt) | python3 docs/research/sources/aj-observed/flash_area.py, run from the repository root at ccb8aaa |

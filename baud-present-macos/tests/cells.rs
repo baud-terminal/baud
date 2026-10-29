@@ -1309,15 +1309,18 @@ macro_rules! arms {
 }
 
 /// **The launch splash draws alike on every arm** (note AJ): the lockup
-/// held, the plasma at five ages of its vanish and the fade at half, over
+/// held, the plasma at four ages of its emerge and five of its vanish and
+/// the fade at half, over
 /// a prompt and a line of text under the logo, on the dark and the light
 /// half. The cell arm draws what the instance arm draws, pixel for pixel;
 /// the CPU arm, which the Linux driver draws with, the same, but for the
 /// plasma's own rounding against the GPU's -- a step on a few pixels, as
 /// [`effect_scenes`] holds each GPU arm to the effect's reference. The
 /// controls: the held logo changes the frame and its block is the half's
-/// amber, exactly, at the block's centre; the plasma lights pixels the
-/// held logo does not; past the vanish's end the frame is the plain one.
+/// amber, exactly, at the block's centre; each plasma lights pixels the
+/// held logo does not; the emerge's first frame differs from the held
+/// logo and its end equals it; past the vanish's end the frame is the
+/// plain one.
 #[test]
 fn the_splash_draws_alike_on_every_arm() {
     let font = |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).unwrap();
@@ -1350,6 +1353,10 @@ fn the_splash_draws_alike_on_every_arm() {
         let mut held = Vec::new();
         for phase in [
             SplashPhase::Hold,
+            SplashPhase::Emerge(0.0),
+            SplashPhase::Emerge(0.03),
+            SplashPhase::Emerge(0.1),
+            SplashPhase::Emerge(end + 0.01),
             SplashPhase::Vanish(0.0),
             SplashPhase::Vanish(0.03),
             SplashPhase::Vanish(0.08),
@@ -1365,7 +1372,7 @@ fn the_splash_draws_alike_on_every_arm() {
             let cpu = cpu_frame(&mut arms, &mut t);
             let (n, most) = channel_diff(&cpu, &a, |_| true);
             match phase {
-                SplashPhase::Vanish(age) if age > 0.0 && age < end => {
+                SplashPhase::Vanish(age) | SplashPhase::Emerge(age) if age > 0.0 && age < end => {
                     assert!(
                         most <= 1 && n <= 40,
                         "{at}: the CPU arm differs on {n}, by {most}"
@@ -1395,7 +1402,14 @@ fn the_splash_draws_alike_on_every_arm() {
                     assert_eq!(differing(&a, &plain), 0, "{at}: gone");
                     assert!(arms.renderer.splash().is_empty(), "{at}: no record left");
                 }
-                SplashPhase::Vanish(age) if age > 0.0 && age < 0.3 => {
+                SplashPhase::Emerge(age) if age >= end => {
+                    assert_eq!(differing(&a, &held), 0, "{at}: whole, as held");
+                }
+                SplashPhase::Emerge(0.0) => {
+                    assert!(differing(&a, &held) > 500, "{at}: not yet whole");
+                    assert!(differing(&a, &plain) > 500, "{at}: on screen at once");
+                }
+                SplashPhase::Vanish(age) | SplashPhase::Emerge(age) if age > 0.0 && age < 0.3 => {
                     let new = a
                         .iter()
                         .zip(&held)

@@ -3352,14 +3352,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The splash's plasma this frame, while it vanishes.
     fn splash_vfx(&self) -> Option<Vfx> {
         let look = self.splash?;
-        let splash::SplashPhase::Vanish(age) = look.phase else {
-            return None;
-        };
-        if age >= splash::end() {
-            return None;
-        }
         let (scale, at) = self.splash_place()?;
-        Some(splash::vfx(at, scale, age))
+        match look.phase {
+            splash::SplashPhase::Emerge(age) if age < splash::end() => {
+                Some(splash::emerge_vfx(at, scale, age))
+            }
+            splash::SplashPhase::Vanish(age) if age < splash::end() => {
+                Some(splash::vfx(at, scale, age))
+            }
+            _ => None,
+        }
     }
 
     /// The splash's scale and where its box starts in the frame.
@@ -3449,7 +3451,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             h: Tex(u16::try_from((y1 - y0).max(0.0) as i64).unwrap_or(0)),
             u: Tex(0),
             v: Tex(0),
-            color: splash::at_alpha(colours.amber, splash::block(look)),
+            color: splash::at_alpha(colours.amber, splash::block(look, at, scale)),
             kind: Kind::Solid,
             curve: curve_row(colours.amber),
         });

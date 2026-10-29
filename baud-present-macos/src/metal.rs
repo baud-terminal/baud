@@ -1634,9 +1634,11 @@ impl Gpu {
     }
 
     /// **Builds `effect`'s pipeline now**, if it never was: the launch
-    /// splash builds the plasma's while its logo is held and nothing else
-    /// is drawn, so the frame its vanish starts on -- the shell's first
-    /// output -- does not pay for it. Whether it built.
+    /// splash under reduced motion builds the plasma's while its logo is
+    /// held and nothing else is drawn, so a plasma vanish -- full motion
+    /// back before it starts -- does not pay for it on its first frame.
+    /// (Under full motion the emerge draws the plasma on the first frame,
+    /// which builds it.) Whether it built.
     pub fn warm_effect(&mut self, effect: Effect) -> bool {
         let Some(at) = Effect::ALL.iter().position(|&e| e == effect) else {
             return false;

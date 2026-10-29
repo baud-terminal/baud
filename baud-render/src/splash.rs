@@ -1,6 +1,7 @@
-//! **The launch splash**: baud's colour lockup, `baud ❯ █`, drawn in the
-//! middle of the window from the first frame, and gone in the plasma once
-//! the shell has drawn something (note AJ). The lockup is
+//! **The launch splash**: baud's colour lockup, `baud ❯ █`, in the middle
+//! of the window from the first frame -- coming out of the plasma from its
+//! left edge to its right, held whole, then going back into the plasma
+//! from its left edge to its right (note AJ). The lockup is
 //! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s geometry and
 //! colours, without the dark one's baked ground, which would be a
 //! rectangle on the glass; the half is the theme's by the rule `CSI ? 996
@@ -17,14 +18,18 @@
 //! block collapses into it as kitty's quad collapses into the cell a
 //! cursor reached ([`Segment`]), the tube filling it, the filaments
 //! braiding into the block and the ions peeling off. The wordmark and the
-//! prompt go where the quad's trailing edge has passed, and the block
-//! starves with the tube, as `(1 - k)^2`. So no new shader: every path
+//! prompt go where the quad's trailing edge has passed, and the block,
+//! whole until that edge comes within its width, starves with the tube,
+//! as `(1 - k)^2`. **The emerge is the same plasma with the ink the other
+//! way**: the logo stands faintly in it from the first frame ([`GHOST`])
+//! and is drawn whole where the trailing edge has passed, the block last.
+//! So no new shader: every path
 //! draws it by the effect it already draws, and the pixel oracle holds it
 //! by the reference it already has.
 //!
 //! **Everything is a pure function of the phase**: the driver hands
-//! [`SplashLook`] -- the logo held, so many seconds into the vanish, or so
-//! far into the fade -- computed from the display link's timestamp, and
+//! [`SplashLook`] -- so many seconds into the emerge, the logo held, so
+//! many seconds into the vanish, or so far into the fade -- computed from the display link's timestamp, and
 //! this derives the records and the effect. No clock and no state, as
 //! [`crate::effect`].
 
@@ -37,8 +42,11 @@ use baud_domain::Chan;
 /// **Where the splash is**, as the driver hands it each frame.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum SplashPhase {
-    /// The logo, whole: from the first frame until the shell draws
-    /// something or the cap passes.
+    /// So many seconds into the plasma the logo comes out of: from the
+    /// first frame, under full motion.
+    Emerge(f32),
+    /// The logo, whole: after the emerge, or from the first frame under
+    /// reduced motion.
     Hold,
     /// So many seconds into the plasma.
     Vanish(f32),
@@ -110,6 +118,13 @@ pub const SEED: Seed = Seed(0xBA0D_276F);
 
 /// Seconds the fade lasts: the screen transition's (`TRANSITION_S`).
 pub const FADE_S: f32 = 0.15;
+
+/// **Seconds the logo holds whole between the emerge and the vanish**: the
+/// shortest tried that keeps the two plasmas from flashing a pixel more
+/// than three times in a second (WCAG 2.3.1); at 0.3 s some pixel flashed
+/// four times on three of the four grounds the census counts
+/// (`baud-bench/tests/splash_flashes.rs`).
+pub const HOLD: f32 = 0.4;
 
 /// The lockup's two colours on a half: the wordmark's and the amber of the
 /// prompt and the block.
@@ -194,38 +209,69 @@ pub fn vfx(at: Pt, scale: f32, age: f32) -> Vfx {
     }
 }
 
-/// **Seconds from the vanish's start to when nothing of it is left**: the
-/// plasma's end -- its life, or its last ion's death -- which the block,
-/// starving with the tube, never outlasts. The ion count reads the path's
+/// **Seconds from the emerge's or the vanish's start to when nothing of
+/// its plasma is left**: the plasma's end -- its life, or its last ion's
+/// death -- which the block, starving with the tube, never outlasts. The ion count reads the path's
 /// length in units, so this is the same at every size.
 pub fn end() -> f32 {
     Effect::Plasma.end(&ignition(Pt { x: 0.0, y: 0.0 }, 1.0))
 }
 
+/// **The logo's opacity before the emerge's edge reaches it**: drawn
+/// faintly inside the plasma from the first frame, so the logo is on
+/// screen at once and the plasma draws it whole.
+pub const GHOST: f32 = 0.25;
+
+/// **The emerge's plasma `age` seconds in**: the vanish's own, so the
+/// logo comes out of the plasma it goes back into -- the box from the
+/// wordmark to the block collapsing into the block on kitty's constants,
+/// its trailing edge crossing the logo from left to right.
+pub fn emerge_vfx(at: Pt, scale: f32, age: f32) -> Vfx {
+    vfx(at, scale, age)
+}
+
+/// The edge of the plasma's quad the ink follows: its trailing edge, the
+/// corners' leftmost.
+fn edge(v: &Vfx) -> f32 {
+    v.emitter
+        .corners
+        .0
+        .iter()
+        .map(|p| p.x)
+        .fold(f32::INFINITY, f32::min)
+}
+
 /// **A glyph's opacity**, `left` to `right` its box in frame pixels: whole
-/// while held, gone as the plasma's emitter's trailing edge crosses it,
-/// and the fade's.
+/// while held; drawn as the emerge's trailing edge crosses it, from
+/// [`GHOST`]; gone as the vanish's crosses it; and the fade's.
 pub fn ink(look: SplashLook, at: Pt, scale: f32, left: f32, right: f32) -> f32 {
+    let swept = |x: f32| smoothstep(left, right.max(left + 1.0), x);
     match look.phase {
         SplashPhase::Hold => 1.0,
         SplashPhase::Fade(p) => 1.0 - p.clamp(0.0, 1.0),
-        SplashPhase::Vanish(age) => {
-            let c = vfx(at, scale, age).emitter.corners.0;
-            let trailing = c.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
-            1.0 - smoothstep(left, right.max(left + 1.0), trailing)
+        SplashPhase::Emerge(age) => {
+            GHOST + (1.0 - GHOST) * swept(edge(&emerge_vfx(at, scale, age)))
         }
+        SplashPhase::Vanish(age) => 1.0 - swept(edge(&vfx(at, scale, age))),
     }
 }
 
-/// **The block's opacity**: whole while held, starving with the tube as
-/// `(1 - k)^2` over the plasma's life, and the fade's.
-pub fn block(look: SplashLook) -> f32 {
+/// **The block's opacity**: whole while held; drawn last in the emerge, as
+/// its edge closes the block's own width short of it; in the vanish whole
+/// until the trailing edge comes that near, then starving with the tube
+/// as `(1 - k)^2` over the plasma's life -- so the right part goes last;
+/// and the fade's.
+pub fn block(look: SplashLook, at: Pt, scale: f32) -> f32 {
+    let b = placed(BLOCK, at, scale);
+    // Arrived within half a pixel, as a trail's corner is.
+    let near = |x: f32| smoothstep(b.left - (b.right - b.left), b.left - 0.5, x);
     match look.phase {
         SplashPhase::Hold => 1.0,
         SplashPhase::Fade(p) => 1.0 - p.clamp(0.0, 1.0),
+        SplashPhase::Emerge(age) => GHOST + (1.0 - GHOST) * near(edge(&emerge_vfx(at, scale, age))),
         SplashPhase::Vanish(age) => {
             let k = (age / crate::plasma::LIFE).clamp(0.0, 1.0);
-            (1.0 - k) * (1.0 - k)
+            ((1.0 - k) * (1.0 - k)).max(1.0 - near(edge(&vfx(at, scale, age))))
         }
     }
 }
@@ -332,7 +378,7 @@ mod tests {
             phase: SplashPhase::Hold,
         };
         assert_eq!(ink(held, o, s, b.0, b.1), 1.0);
-        assert_eq!(block(held), 1.0);
+        assert_eq!(block(held, o, s), 1.0);
         let at = |t: f32| SplashLook {
             phase: SplashPhase::Vanish(t),
         };
@@ -340,12 +386,79 @@ mod tests {
         let t = 0.02;
         assert!(ink(at(t), o, s, b.0, b.1) < ink(at(t), o, s, p.0, p.1));
         assert!(ink(at(0.3), o, s, b.0, b.1) < 1e-3);
-        assert!(block(at(0.2)) < 1.0 && block(at(0.2)) > 0.0);
-        assert_eq!(block(at(crate::plasma::LIFE)), 0.0);
+        assert!(block(at(0.2), o, s) < 1.0 && block(at(0.2), o, s) > 0.0);
+        assert_eq!(block(at(crate::plasma::LIFE), o, s), 0.0);
         let half = SplashLook {
             phase: SplashPhase::Fade(0.5),
         };
         assert_eq!(ink(half, o, s, b.0, b.1), 0.5);
-        assert_eq!(block(half), 0.5);
+        assert_eq!(block(half, o, s), 0.5);
+    }
+
+    /// The lockup's five glyphs' boxes, left to right, in frame pixels:
+    /// the wordmark's four at its advance less its tracking, and the
+    /// prompt.
+    fn glyphs(o: Pt, s: f32) -> [(f32, f32); 5] {
+        let step = 62.0 * 0.6 + WORDMARK.tracking;
+        let w = |i: f32| {
+            let l = WORDMARK.x + i * step;
+            (o.x + l * s, o.x + (l + step) * s)
+        };
+        [
+            w(0.0),
+            w(1.0),
+            w(2.0),
+            w(3.0),
+            (o.x + 192.0 * s, o.x + 224.0 * s),
+        ]
+    }
+
+    /// **Both sweeps run left to right, the block last**: at every age of
+    /// the emerge each glyph is at least as drawn as the one to its right
+    /// and the block the least; at every age of the vanish each is at
+    /// least as gone, the block the last to go. The first frame of the
+    /// emerge shows the logo partly drawn, and its end shows it whole.
+    #[test]
+    fn both_sweeps_run_left_to_right_the_block_last() {
+        let s = scale(FRAME);
+        let o = origin(FRAME, s);
+        let g = glyphs(o, s);
+        let ms = (0u16..=700).map(|m| f32::from(m) / 1000.0);
+        for age in ms {
+            for (phase, name) in [
+                (SplashPhase::Emerge(age), "emerge"),
+                (SplashPhase::Vanish(age), "vanish"),
+            ] {
+                let look = SplashLook { phase };
+                let mut inks: Vec<f32> = g.iter().map(|&(l, r)| ink(look, o, s, l, r)).collect();
+                inks.push(block(look, o, s));
+                for w in inks.windows(2) {
+                    let ordered = match phase {
+                        SplashPhase::Emerge(_) => w[0] + 1e-4 >= w[1],
+                        _ => w[0] <= w[1] + 1e-4,
+                    };
+                    assert!(ordered, "{name} at {age}: {inks:?}");
+                }
+            }
+        }
+        let first = SplashLook {
+            phase: SplashPhase::Emerge(0.0),
+        };
+        let b = ink(first, o, s, g[0].0, g[0].1);
+        assert!(b > 0.0 && b < 1.0, "the first frame, partly: {b}");
+        let last = SplashLook {
+            phase: SplashPhase::Emerge(end()),
+        };
+        for &(l, r) in &g {
+            assert!(ink(last, o, s, l, r) > 1.0 - 1e-3);
+        }
+        assert!(block(last, o, s) > 1.0 - 1e-3, "whole at its end");
+        let midway = SplashLook {
+            phase: SplashPhase::Emerge(0.05),
+        };
+        assert!(
+            ink(midway, o, s, g[0].0, g[0].1) > ink(midway, o, s, g[4].0, g[4].1) + 0.2,
+            "the left drawn before the right"
+        );
     }
 }

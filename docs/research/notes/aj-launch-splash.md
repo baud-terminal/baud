@@ -1,9 +1,12 @@
 # AJ. The launch splash: the colour logo, and the plasma it vanishes in
 
-**Status: built 2026-10-24 (roadmap F1-19). The questions as
-built:**
+**Status: built 2026-10-24 (roadmap F1-19); the emerge built 2026-10-28
+(section 9). The questions as built:**
 
-- **1. When.** On the shell's first visible cell or a 0.5 s cap, whichever
+- **1. When.** Under full motion, on the clock alone since 2026-10-28:
+  the emerge for the plasma's length, the logo held whole 0.4 s, and the
+  vanish on the frame after (section 9). Under reduced motion, as first
+  built: on the shell's first visible cell or a 0.5 s cap, whichever
   is first (E2 and a cap of 0.5 s; the cap is the lean);
   the vanish starts on the frame after that one.
 - **2. Which plasma.** P1, against P2 with renders (from text on 2026-10-09). P4 was not offered: it needs a shader nothing in baud
@@ -18,7 +21,7 @@ built:**
   at 0.30 of the window's width, in the embedded
   JetBrains Mono Bold: weight 700 where the lockup asks 500, the one
   departure (chosen over the Regular).
-- **5. Reduce Motion.** R2, the logo, then a 0.15 s fade, on macOS: the Linux driver reads no motion preference yet.
+- **5. Reduce Motion.** R2, the logo, then a 0.15 s fade, on macOS: the Linux driver reads no motion preference yet. No emerge: the logo whole from the first frame (section 9).
 - **6. The key.** `[launch] splash = "on" | "off"`, on by default (settings
   take "on" and "off", 2026-10-19); the `[launch]` section is the lean.
 - **7. Do not show again.** K, the key alone; nothing writes it.
@@ -1985,3 +1988,63 @@ Before any of these goes for decision, it needs:
 - a recommendation per question.
 
 The status line records what was decided.
+
+## 9. The emerge (2026-10-28)
+
+**What the user sees.** The logo is on screen from the first frame,
+faint inside a burst of the amber plasma, and is drawn whole from its
+left edge to its right as the plasma's tail sweeps across it, the block
+last; it holds whole for 0.4 s, then goes back into the plasma from its
+left edge to its right, the block last again; all of it gone about 1.7 s
+after the first frame. Keys go to the shell and its output draws under the logo
+throughout. Under Reduce Motion it is as before: whole, then the fade.
+
+The requests, verbatim: "i think when baud start, we should show the logo
+immediatly, it should popup with the plasma effect, then disapear with
+it... right now it starts displayed and immediatly vanishes with plasma,
+its good but it needs more", and "it should apear from left to right and
+disapear from left to right".
+
+**How it is built.** The emerge is the vanish's own plasma, P1 at kitty's
+constants, with the ink the other way: each glyph stands at 0.25 of its
+opacity (`GHOST`) and is drawn whole as the quad's trailing edge crosses
+it. No new shader; the pixel oracle holds every arm to it at four ages
+(`the_splash_draws_alike_on_every_arm`). The vanish was not strictly left
+to right: its block began to starve on the first frame while the prompt
+was still whole. The block now stays whole until the trailing edge is
+within its own width, then starves with the tube as before
+(`both_sweeps_run_left_to_right_the_block_last`).
+
+**The hold is the flash bound.** Counted on rendered frames over the
+whole life ([[source: aj-obs-emerge-census]]), the two plasmas land in
+one second unless the hold keeps them apart: at kitty's pace a 0.3 s hold
+flashes some pixel four times in a second on three of the four grounds,
+and faster emerges flash up to six. The shortest passing holds tried:
+0.4 s at kitty's pace, 0.6 s at 1.4 times it, 0.7 s at 2.1 times it. At
+0.4 s no pixel flashes more than three times at 64x20 cells at 1x at
+60 Hz, or at 200x50 at 2x at 60 and 120 Hz -- three, so with no margin.
+
+**The choices**, made from frame strips of each option:
+
+- **Form: the trailing edge** ([[source: aj-obs-emerge-trail-kitty]]),
+  over a plasma cursor flying from the left edge to the block with the
+  logo drawn at its head ([[source: aj-obs-emerge-lead-kitty]]). The head
+  runs on kitty's fast constant, so that logo is whole by the third frame
+  at 60 Hz -- close to the "starts displayed" the request asks more of --
+  where the trailing edge sweeps the glyphs over 9 frames, at the speed
+  of the vanish's own sweep.
+- **Pace: kitty's**, holding 0.4 s, over 1.4 and 2.1 times it holding
+  0.6 and 0.7 s ([[source: aj-obs-emerge-trail-fast14]],
+  [[source: aj-obs-emerge-trail-fast21]]): every option starts the vanish
+  at 1.00-1.05 s, and only kitty's keeps the pace question 2 of the
+  status records.
+- **Reduce Motion: the logo whole**, R2 unchanged, over a 0.15 s fade-in:
+  the request asks for the logo at once, and a fade-in is an animation R2
+  does not have.
+- **Trigger: the clock alone.** The first visible cell or the cap always
+  falls before 0.5 s and the hold ends at 1.03 s, so keeping them would
+  change no frame; under Reduce Motion, which has no emerge, they stay.
+
+**Unmeasured.** The plasma's pipeline now builds on the first frame, not
+on the vanish's first: section 6's late build (7.5 ms cold, 0.1 ms warm,
+inferred) lands on the first present. No launch was timed for this change.

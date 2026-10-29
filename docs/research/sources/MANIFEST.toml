@@ -21110,6 +21110,71 @@ bytes  = 1104548
 status = "retrieved"
 group  = "AJ"
 
+[sources.aj-obs-emerge-census]
+key    = "aj-obs-emerge-census"
+title  = "The launch splash's emerge, hold and vanish counted by baud's flash census on four grounds for each emerge pace and hold tried, at 64x20 cells at 1x at 60 frames a second, and for the three passing options at 200x50 cells at 2x at 60 and 120: the shortest passing holds are 0.4 s at kitty's pace, 0.6 s at 1.4 times it and 0.7 s at 2.1 times it"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud_bench::flash::Census over the splash's whole life on baud-render's CPU path, as baud-bench/tests/splash_flashes.rs counts it, with the emerge's pace and the hold varied, 2026-10-28, from c10174a0 with the emerge built"
+file   = "aj-observed/emerge-census.txt"
+sha256 = "3cb3593f3d7b807c4b3c3e62167dfaabb195a67a707a8e2a9898b2173148a900"
+bytes  = 10481
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-emerge-trail-kitty]
+key    = "aj-obs-emerge-trail-kitty"
+title  = "The emerge as built: the logo faint in the plasma on the first frame, drawn whole behind its trailing edge from left to right, at kitty's pace; then the vanish"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built"
+file   = "aj-observed/emerge-trail-kitty.png"
+sha256 = "5b5c4d1fcaa9714d8199d595cbea1ec2f9a3e9ed1f84997d365d571ddc8ff34b"
+bytes  = 66988
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-emerge-trail-fast14]
+key    = "aj-obs-emerge-trail-fast14"
+title  = "The trailing-edge emerge at 1.4 times kitty's pace, an option not taken"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built"
+file   = "aj-observed/emerge-trail-1.4x.png"
+sha256 = "4e1d0b738b65c84ec3e5d01f2629f9f4c92fdff8df070f30f944270c651205ce"
+bytes  = 64242
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-emerge-trail-fast21]
+key    = "aj-obs-emerge-trail-fast21"
+title  = "The trailing-edge emerge at 2.1 times kitty's pace, an option not taken"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built"
+file   = "aj-observed/emerge-trail-2.1x.png"
+sha256 = "b453b2afa4ebf295b4c245a165f3e6bbc85dd7af933b2f97b355e0654b5f92db"
+bytes  = 60356
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-emerge-lead-kitty]
+key    = "aj-obs-emerge-lead-kitty"
+title  = "The leading-edge emerge, an option not taken: a plasma cursor flying from the wordmark's left edge to the block, the logo drawn behind its head, whole by 33 ms"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built"
+file   = "aj-observed/emerge-lead-kitty.png"
+sha256 = "adc3f34730157db60bfed54b141cc200b0ae101c3b3f5a59dd872a252007e5c6"
+bytes  = 60958
+status = "retrieved"
+group  = "AJ"
+
 [sources.aj-obs-probe-tool]
 key    = "aj-obs-probe-tool"
 title  = "The other-terminals sweep's probe: 26 terms and a positive control, one rg -c per term per repository"

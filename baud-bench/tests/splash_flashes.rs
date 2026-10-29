@@ -2,7 +2,8 @@
 //! AJ; WCAG 2.3.1, `[[source: wcag22]]`), by [`baud_bench::flash::Census`]:
 //! its whole life at 60 frames a second on the CPU path -- the pixels the
 //! Linux driver shows and the macOS pixel oracle holds the GPU arms to --
-//! from the blank window through the held logo, the plasma and after.
+//! from the blank window through the emerge's plasma, the held logo, the
+//! vanish's plasma and after.
 //!
 //! **No pixel flashes more than three times in any second**, general or
 //! red, on the dark and the light theme and over the two red grounds the
@@ -10,9 +11,13 @@
 //! zero. This window is small, 64 by 20 cells at 1x, for the debug suite;
 //! the model is not scale-free (an ion's radius and a filament's width
 //! have pixel floors), and the same count was taken at 200 by 50 cells at
-//! 2x, at 60 and 120 frames a second. The control: the same logo shown and
-//! taken down every 125 ms, four times a second, does count more than
-//! three flashes at a pixel, so the census sees the logo.
+//! 2x, at 60 and 120 frames a second. The two plasmas are what the hold
+//! keeps apart: at 0.3 s some pixel flashes four times in a second on
+//! three of these four grounds, at [`baud_render::splash::HOLD`] none
+//! more than three.
+//! The control: the same logo shown and taken down every 125 ms, four
+//! times a second, does count more than three flashes at a pixel, so the
+//! census sees the logo.
 
 use baud_bench::flash::{Census, Flashes, Rate, Scale};
 use baud_core::{Owned, Term};
@@ -78,10 +83,20 @@ const FRAME_S: f32 = 1.0 / 60.0;
 fn the_splash_flashes_no_pixel_more_than_three_times_a_second() {
     let end = baud_render::splash::end();
     let mut life: Vec<Option<SplashPhase>> = vec![None; 12];
-    life.extend((0..12).map(|_| Some(SplashPhase::Hold)));
-    let ages = (0u16..).map(|f| f32::from(f) * FRAME_S);
+    let ages = || (0u16..).map(|f| f32::from(f) * FRAME_S);
     life.extend(
-        ages.take_while(|&a| a <= end + 2.0 * FRAME_S)
+        ages()
+            .take_while(|&a| a < end)
+            .map(|a| Some(SplashPhase::Emerge(a))),
+    );
+    life.extend(
+        ages()
+            .take_while(|&a| a < baud_render::splash::HOLD)
+            .map(|_| Some(SplashPhase::Hold)),
+    );
+    life.extend(
+        ages()
+            .take_while(|&a| a <= end + 2.0 * FRAME_S)
             .map(|a| Some(SplashPhase::Vanish(a))),
     );
     life.extend((0..12).map(|_| None));

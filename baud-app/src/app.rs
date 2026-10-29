@@ -619,9 +619,9 @@ struct App {
     chase: crate::trail::Chase<HostTime>,
     last_cursor_cell: Option<(Row, Col)>,
     tick_target: f64,
-    /// **The launch splash's timing** (`splash.rs`): held from the first
-    /// frame, vanishing on the first visible output or the cap, read off
-    /// `tick_target` like the trail.
+    /// **The launch splash's timing** (`splash.rs`): emerging from the
+    /// first frame, held, then vanishing, read off `tick_target` like the
+    /// trail.
     splash: crate::splash::Splash,
     /// Whether the plasma's pipeline was built while the splash was held.
     splash_warm: Done,
@@ -1756,9 +1756,11 @@ impl App {
             None => None,
         };
         self.renderer.set_screen_fade(veil);
-        // The launch splash, off `tick_target` like the fade: held, vanishing
-        // or gone. The synchronous first frame comes before the display
-        // link's first tick, so it holds the logo and starts no clock.
+        // The launch splash, off `tick_target` like the fade: emerging,
+        // held, vanishing or gone. The synchronous first frame comes before
+        // the display link's first tick, so it draws the emerge's first
+        // frame -- or the held logo, under reduced motion -- and starts no
+        // clock.
         let now = self.last_tick.map(|_| self.tick_target);
         let splash = self.splash.look(now, &self.term, self.motion);
         self.renderer.set_splash(splash);
@@ -10019,9 +10021,11 @@ impl Responder for Driver {
         if self.app.trail.is_some() || self.app.transition.is_some() {
             self.app.pending = Pending::Dirty;
         }
-        // The launch splash owes every frame while it vanishes, and the one
-        // its cap runs out on. While its logo is held the plasma's pipeline
-        // is built, once, so the frame its vanish starts on does not pay.
+        // The launch splash owes every frame while it emerges or vanishes,
+        // and the one its hold ends on. The emerge builds the plasma's
+        // pipeline on the first frame; a launch under reduced motion builds
+        // it while the logo is held, once, so a plasma vanish -- full
+        // motion back before it starts -- does not pay on its first frame.
         if self.app.splash.owes(target) == crate::splash::Owes::Frame {
             self.app.pending = Pending::Dirty;
         }

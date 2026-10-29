@@ -1,7 +1,7 @@
 //! The launch splash on the CPU path, which the Linux driver draws with
-//! (note AJ): what holds the effect's slot while it vanishes, the colour
-//! its plasma is drawn in, the trail it holds back, and the rows it
-//! repaints.
+//! (note AJ): what holds the effect's slot while it emerges and vanishes,
+//! the colour its plasma is drawn in, the trail it holds back, and the
+//! rows it repaints.
 
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
@@ -85,8 +85,9 @@ fn cursor_fire(age: f32) -> TrailLook {
     })
 }
 
-/// **While it vanishes the splash's plasma is the frame's effect, in the
-/// lockup's amber**, on each half, and the trail the cursor lit meanwhile
+/// **While it emerges or vanishes the splash's plasma is the frame's
+/// effect, in the lockup's amber**, on each half, and the trail the cursor
+/// lit meanwhile
 /// is held back -- not drawn when the plasma is over, but from the frame
 /// after it lands (`set_trail(None)`). Held, the splash takes no slot: the
 /// cursor's trail draws. The controls: the effect's records before and
@@ -107,13 +108,15 @@ fn the_vanish_holds_the_effects_slot_in_amber() {
             Some(Effect::Fire),
             "held: the cursor's"
         );
-        r.set_splash(look(SplashPhase::Vanish(0.1)));
-        let v = r.vfx().expect("the splash's plasma");
-        assert_eq!(v.effect, Effect::Plasma);
-        let bands: Vec<_> = r.trail().iter().filter(|i| i.kind == Kind::Band).collect();
-        assert!(!bands.is_empty());
-        for b in bands {
-            assert_eq!(b.color.with_alpha(amber.a()), amber, "the lockup's amber");
+        for phase in [SplashPhase::Emerge(0.1), SplashPhase::Vanish(0.1)] {
+            r.set_splash(look(phase));
+            let v = r.vfx().expect("the splash's plasma");
+            assert_eq!(v.effect, Effect::Plasma, "{phase:?}");
+            let bands: Vec<_> = r.trail().iter().filter(|i| i.kind == Kind::Band).collect();
+            assert!(!bands.is_empty());
+            for b in bands {
+                assert_eq!(b.color.with_alpha(amber.a()), amber, "the lockup's amber");
+            }
         }
         r.set_trail(Some(cursor_fire(0.1)));
         assert_eq!(r.vfx().map(|v| v.effect), Some(Effect::Plasma));
@@ -206,4 +209,36 @@ fn its_size_is_the_first_frames() {
     assert_eq!(size(&r), first, "the same glyph sizes");
     assert_ne!(at(&r), before, "centred again");
     assert!(end() > 0.5);
+}
+
+/// **The emerge's first frame shows the whole logo, faintly, in the
+/// plasma**: every record drawn at the ghost's opacity of its colour, and
+/// the plasma lit; at its end every record whole. The control: held, every
+/// record is whole.
+#[test]
+fn the_emerges_first_frame_shows_the_logo_faintly_in_the_plasma() {
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let mut r = renderer(&faces, Theme::dark());
+    let alphas = |r: &Renderer<'_, '_>| -> Vec<u8> {
+        r.splash().iter().map(|i| i.color.a().get()).collect()
+    };
+    r.set_splash(look(SplashPhase::Hold));
+    assert_eq!(alphas(&r), vec![255; 6], "the control: held, whole");
+    r.set_splash(look(SplashPhase::Emerge(0.0)));
+    let ghost = baud_render::splash::at_alpha(DARK.amber, baud_render::splash::GHOST)
+        .a()
+        .get();
+    assert_eq!(
+        alphas(&r),
+        vec![ghost; 6],
+        "every record, on the first frame"
+    );
+    assert_eq!(r.vfx().map(|v| v.effect), Some(Effect::Plasma));
+    r.set_splash(look(SplashPhase::Emerge(end())));
+    assert!(alphas(&r).iter().all(|&a| a >= 254), "{:?}", alphas(&r));
+    assert_eq!(r.vfx(), None, "its plasma out");
 }
