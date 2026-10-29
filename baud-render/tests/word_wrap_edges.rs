@@ -642,3 +642,322 @@ fn a_change_past_the_window_repaints_the_line_it_is_drawn_on() {
     );
     assert!(kept == washed, "the find: painted over is painted whole");
 }
+
+/// The reported paragraph's three parts: Hebrew, an English run the
+/// terminal's wrap cuts as "mid|dle" at 44 columns, Hebrew.
+const HE1: &str =
+    "\u{5D6}\u{5D5} \u{5E4}\u{5E1}\u{5E7}\u{5D4} \u{5D1}\u{5E2}\u{5D1}\u{5E8}\u{5D9}\u{5EA} ";
+const EN: &str = "with English words in the middle, ";
+const HE2: &str = "\u{5E9}\u{5DE}\u{5DE}\u{5E9}\u{5D9}\u{5DB}\u{5D4} \u{5DC}\u{5E9}\u{5D5}\u{5E8}\u{5D4} \u{5D4}\u{5D1}\u{5D0}\u{5D4}.";
+
+/// A stream over window rows `from` to `to`, every column, numbered as
+/// the selection's text reads it.
+fn whole_rows(t: &Term<'_>, from: usize, to: usize) -> (Selection, Scrolled) {
+    let scrolled = Scrolled::START.advanced(t.looking_back(Rows::of_index(usize::MAX)));
+    let line = |r: usize| scrolled.line(Rows::ZERO, Row::from_index(r));
+    let row = |r: usize| t.view(Rows::ZERO).row(Row::from_index(r)).to_vec();
+    let last = Col::at_index(t.view(Rows::ZERO).cols().index() - 1);
+    let mut sel = Selection::at(Span::cell(&row(from), line(from), Col::ZERO), Grain::Cell);
+    sel.extend(Span::cell(&row(to), line(to), last));
+    (sel, scrolled)
+}
+
+/// **`?96` copies the cut the window keeps at the top of the history**:
+/// the reported paragraph on the first two lines the history keeps, at
+/// four rows, would push a line where nothing scrolls to it if it were
+/// re-broken, so the window draws it as the terminal cut it, and the copy
+/// reads those rows, each from its right edge -- what the stored rows'
+/// copy reads. The same paragraph with lines of history above it is drawn
+/// at its words, and its copy reads its display lines, the control.
+#[test]
+fn decrlcm_copies_the_cut_the_window_keeps_at_the_top_of_the_history() {
+    let ws = WinSize {
+        ws_row: 4,
+        ws_col: 44,
+    };
+    let copy = |above: u16| {
+        let bytes = format!("{}{HE1}{EN}{HE2}\r\n{PROMPT}\x1b[?96h", history(above));
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        feed(&mut t, &bytes);
+        let mut o = baud_render::Reorder::new();
+        o.lay_out(&t, Rows::ZERO);
+        let drawn = o.orders().display().is_some();
+        // The paragraph's two rows sit above the prompt's.
+        let prompt = usize::from(ws.ws_row) - 2 + usize::from(above.min(1));
+        let (sel, scrolled) = whole_rows(&t, prompt - 2, prompt - 1);
+        (
+            drawn,
+            sel.text_as(&t, scrolled, WordWrap::On),
+            sel.text_as(&t, scrolled, WordWrap::Off),
+        )
+    };
+    let (drawn, on, stored) = copy(0);
+    assert!(!drawn, "the premise: the window keeps the cut");
+    assert!(stored.contains("dim eht"), "the premise: {stored}");
+    assert_eq!(on, stored, "the cut drawn is the cut copied");
+    let (drawn, on, stored) = copy(4);
+    assert!(drawn, "the control: re-broken with history above");
+    assert_eq!(
+        on,
+        format!("{HE1}{}{HE2}", EN.chars().rev().collect::<String>()),
+        "the control: by its display lines"
+    );
+    assert_ne!(on, stored);
+}
+
+/// **A block under `?96` copies the display lines as they are drawn**:
+/// the block over columns 1 to 10 of the reported paragraph's two stored
+/// rows selects cells the display draws on all three of its lines -- the
+/// first ten of the Hebrew before the run, "dle, " at the end of the
+/// English line, and the first five letters of the Hebrew after it -- and
+/// the copy reads each of those lines from its right edge, a newline
+/// between each two as a block breaks at every line. Over columns 41 to
+/// 44 it selects " mid" on the English line alone, the Hebrew lines none
+/// of their cells, and the copy is that one line. Read by the stored
+/// rows, two lines, the cut "mid|dle" inside them, the control.
+#[test]
+fn decrlcm_reads_a_block_by_the_display_lines_it_selects() {
+    let ws = WinSize {
+        ws_row: 6,
+        ws_col: 44,
+    };
+    let bytes = format!("{}{HE1}{EN}{HE2}\r\n{PROMPT}\x1b[?96h", history(8));
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
+    feed(&mut t, &bytes);
+    let scrolled = Scrolled::START.advanced(t.looking_back(Rows::of_index(usize::MAX)));
+    let line = |r: usize| scrolled.line(Rows::ZERO, Row::from_index(r));
+    let row = |r: usize| t.view(Rows::ZERO).row(Row::from_index(r)).to_vec();
+    let mut sel = Selection::block(Span::cell(&row(3), line(3), Col::ZERO), Grain::Cell);
+    sel.extend(Span::cell(&row(4), line(4), Col::at_index(9)));
+    let first: String = HE1.chars().take(10).collect();
+    let last: String = HE2.chars().take(5).collect();
+    let want = format!("{first}\n ,eld\n{last}");
+    assert_eq!(sel.text_as(&t, scrolled, WordWrap::On), want);
+    let stored = sel.text_as(&t, scrolled, WordWrap::Off);
+    assert_eq!(stored.lines().count(), 2, "the control: {stored}");
+    assert_ne!(stored, want);
+    let mut mid = Selection::block(Span::cell(&row(3), line(3), Col::at_index(40)), Grain::Cell);
+    mid.extend(Span::cell(&row(4), line(4), Col::at_index(43)));
+    assert_eq!(mid.text_as(&t, scrolled, WordWrap::On), "dim ");
+}
+
+/// kitty's first placeholder diacritic, U+0305: row or column 0.
+const D0: char = '\u{305}';
+
+/// A two-by-one red picture held as virtual placement 1 (`U=1`) of image
+/// 1, two cells by one.
+fn virtual_red() -> String {
+    "\x1b_Ga=t,f=32,s=2,v=1,i=1,q=2;/wAA//8AAP8=\x1b\\\x1b_Ga=p,U=1,i=1,q=2,c=2,r=1\x1b\\"
+        .to_owned()
+}
+
+/// Two placeholder cells naming it: the first at row 0 and column 0, the
+/// second inheriting both from it.
+fn placeholders() -> String {
+    format!("\x1b[38;5;1m\u{10EEEE}{D0}{D0}\u{10EEEE}\x1b[0m")
+}
+
+/// The draw row of every picture strip a frame of the window `back`
+/// lines up places, top down: -1 for the leaving row above the top.
+fn strip_rows(r: &mut Renderer<'_, '_>, t: &Term<'_>, back: Rows) -> Vec<i16> {
+    let ch = i16::try_from(r.metrics().cell_h.value()).unwrap();
+    r.set_images(t, back);
+    let mut ys: Vec<i16> = r
+        .image_placements()
+        .iter()
+        .map(|p| p.y.div_euclid(ch))
+        .collect();
+    ys.sort_unstable();
+    ys
+}
+
+/// **The leaving row's placeholders are the display's**: the line a
+/// smooth scroll slides out above the window is the first line of the
+/// window one line up as the display draws it. With a finished paragraph
+/// below that the display draws on one line more, the stored row above
+/// the window is pushed out of that window and its first line is "x1".
+/// Placeholders on the stored row above the window then place no strip
+/// on the leaving row, and placeholders on "x1", pushed out of the
+/// window itself, place theirs there, one row above the top. With the
+/// setting off the stored row above is the leaving row, the control.
+#[test]
+fn the_leaving_rows_placeholders_are_the_line_the_display_draws() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let fillers: String = (2..=7).map(|i| format!("x{i}\r\n")).collect();
+    let scene = |on_above: bool| {
+        let (above, x1) = match on_above {
+            true => (placeholders(), "x1".to_owned()),
+            false => ("up".to_owned(), format!("x1{}", placeholders())),
+        };
+        format!(
+            "\x1b[?25l{}{}{above}\r\n{x1}\r\n{fillers}{SEVEN}\r\n{PROMPT}",
+            history(10),
+            virtual_red()
+        )
+    };
+    let mut ys = Vec::new();
+    for on_above in [true, false] {
+        for wrap in [WordWrap::On, WordWrap::Off] {
+            let mut r = renderer(&faces);
+            r.set_word_wrap(wrap);
+            let m = r.metrics();
+            let mut owned = Owned::new(&WS).with_images(baud_domain::ImageBudget::of(4096));
+            let mut t = Term::new(owned.storage(), &WS);
+            t.set_cell_size(
+                baud_domain::ImagePx::of(u16::try_from(m.cell_w.value()).unwrap()),
+                baud_domain::ImagePx::of(u16::try_from(m.cell_h.value()).unwrap()),
+            );
+            feed(&mut t, &scene(on_above));
+            ys.push(strip_rows(&mut r, &t, Rows::ZERO));
+        }
+    }
+    assert_eq!(ys[1], vec![-1], "the control, off: the stored row above");
+    assert_eq!(
+        ys[0],
+        Vec::<i16>::new(),
+        "on: pushed out of the leaving line"
+    );
+    assert_eq!(
+        ys[3],
+        vec![0],
+        "the control, off: x1 on the window's top row"
+    );
+    assert_eq!(ys[2], vec![-1], "on: x1 is the leaving line");
+}
+
+/// A Sixel 40 pixels wide and 6 tall, all red.
+fn red_strip() -> String {
+    "\x1bP0;1;0q\"1;1;40;6#0;2;100;0;0!40~\x1b\\".to_owned()
+}
+
+/// **A picture is mirrored by the line the display draws its row on**:
+/// in a Hebrew paragraph at 20 columns, an English run the terminal
+/// stored on two rows of its own is longer than a line, so the display
+/// gives it lines of its own, left to right. A picture anchored on the
+/// run's first stored row, at its first column, which the display draws
+/// at the same column of the run's first line, is placed there, left to
+/// right; the stored row's paragraph runs right to left, and with the
+/// setting off the picture is placed mirrored by it, against the right
+/// edge, the control.
+#[test]
+fn a_picture_is_mirrored_by_the_direction_of_its_display_line() {
+    let ws = WinSize {
+        ws_row: 8,
+        ws_col: 20,
+    };
+    let he = "\u{5D0}\u{5D1}\u{5D2}\u{5D3} \u{5D4}\u{5D5}\u{5D6}\u{5D7} \u{5D8}\u{5D9}\u{5DB}\u{5DC} \u{5DE}\u{5E0}\u{5E1}\u{5E2} ";
+    let en = "aaaa bbbb cccc dddd eeee ffff gggg hhhh ";
+    let end = "\u{5E9}\u{5DC}\u{5D5}\u{5DD}.";
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut placed = Vec::new();
+    let mut grid_w = 0;
+    for wrap in [WordWrap::On, WordWrap::Off] {
+        let mut r = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(ws.ws_col)),
+            Rows::of_index(usize::from(ws.ws_row)),
+        )
+        .unwrap();
+        r.set_word_wrap(wrap);
+        let m = r.metrics();
+        grid_w = i64::from(m.cell_w.value()) * i64::from(ws.ws_col);
+        let mut owned = Owned::new(&ws).with_images(baud_domain::ImageBudget::of(1 << 16));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(
+            baud_domain::ImagePx::of(u16::try_from(m.cell_w.value()).unwrap()),
+            baud_domain::ImagePx::of(u16::try_from(m.cell_h.value()).unwrap()),
+        );
+        feed(&mut t, &format!("{}{he}{en}{end}\r\n{PROMPT}", history(8)));
+        let vp = t.view(Rows::ZERO);
+        let first = |y: usize| vp.row(Row::from_index(y))[0].content.as_codepoint();
+        let run = (0..8)
+            .find(|&y| first(y).is_some_and(|c| c.value() == u32::from('a')))
+            .expect("the premise: the run's first stored row");
+        let prompt = run + 3;
+        feed(
+            &mut t,
+            &format!("\x1b[{};1H{}\x1b[{};3H", run + 1, red_strip(), prompt + 1),
+        );
+        let mut o = baud_render::Reorder::new();
+        o.set_word_wrap(wrap);
+        o.lay_out(&t, Rows::ZERO);
+        let shown = o.view(&t, Rows::ZERO);
+        let starts_run = (0..8).any(|y| {
+            let row = shown.row(Row::from_index(y));
+            let text: String = row
+                .iter()
+                .filter_map(|c| c.content.as_codepoint())
+                .filter_map(|c| char::from_u32(c.value()))
+                .collect();
+            text.starts_with("aaaa bbbb")
+        });
+        assert!(
+            starts_run,
+            "the premise: the run's line is drawn ({wrap:?})"
+        );
+        r.set_images(&t, Rows::ZERO);
+        let p = r.image_placements();
+        assert_eq!(p.len(), 1, "the premise: one placement ({wrap:?})");
+        placed.push((
+            i64::from(p[0].x),
+            i64::from(p[0].w),
+            o.orders().display().is_some(),
+        ));
+    }
+    let (on, off) = (placed[0], placed[1]);
+    assert!(on.2, "the premise: on re-breaks the paragraph");
+    assert_eq!(
+        off.0,
+        grid_w - off.1,
+        "the control, off: mirrored by its row"
+    );
+    assert_eq!(on.0, 0, "on: left to right, as its display line runs");
+}
+
+/// **Beside a paragraph the window re-breaks, one it keeps at its cut
+/// is copied as it is drawn**: at the top of what the history keeps, at
+/// 20 columns, five English words on two rows would be drawn on three
+/// lines, pushing a line where nothing scrolls to it, so the window keeps
+/// their cut; the Hebrew paragraph below, whose English run takes lines
+/// of its own on as many lines as it is stored on, is drawn at its words.
+/// Under `?96` the first copies by its stored rows, as the window draws
+/// it, and the second by its display lines, the control.
+#[test]
+fn decrlcm_copies_a_kept_paragraph_beside_a_re_broken_one() {
+    let ws = WinSize {
+        ws_row: 8,
+        ws_col: 20,
+    };
+    let five = "aaaaaaa bbbbbbb ccccccc ddddddd eeeeeee";
+    let he = "\u{5D0}\u{5D1}\u{5D2}\u{5D3} \u{5D4}\u{5D5}\u{5D6}\u{5D7} \u{5D8}\u{5D9}\u{5DB}\u{5DC} \u{5DE}\u{5E0}\u{5E1}\u{5E2} ";
+    let en = "aaaa bbbb cccc dddd eeee ffff gggg hhhh ";
+    let end = "\u{5E9}\u{5DC}\u{5D5}\u{5DD}.";
+    let bytes = format!("{five}\r\n{he}{en}{end}\r\n{PROMPT}\x1b[?96h");
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
+    feed(&mut t, &bytes);
+    let mut o = baud_render::Reorder::new();
+    o.lay_out(&t, Rows::ZERO);
+    let d = o.orders().display().expect("the premise: a display");
+    assert_eq!(d.same(Row::ZERO), Some(Row::ZERO), "the premise: kept");
+    assert_eq!(d.same(Row::from_index(2)), None, "the premise: re-broken");
+    let (kept, scrolled) = whole_rows(&t, 0, 1);
+    assert_eq!(
+        kept.text_as(&t, scrolled, WordWrap::On),
+        kept.text_as(&t, scrolled, WordWrap::Off),
+        "the kept paragraph: by its stored rows"
+    );
+    let (broken, scrolled) = whole_rows(&t, 2, 5);
+    assert_ne!(
+        broken.text_as(&t, scrolled, WordWrap::On),
+        broken.text_as(&t, scrolled, WordWrap::Off),
+        "the control: the re-broken one by its display lines"
+    );
+}

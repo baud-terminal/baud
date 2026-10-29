@@ -80,10 +80,14 @@ the screen; step 3 joins Arabic letters.
   mouse report over one names the nearest window cell, since a program
   addresses no line past the window. A copy gives the stored text in logical
   order, soft wraps joined; under `?96` it reads each display line from
-  its right edge. A picture moves with its text as on a scroll, anchored
-  on a row the display pushed out of the window or above it as well, and
-  a line a smooth scroll slides out, the cells a trail's flash bound reads
-  and a placeholder's run are the display's. All three draw paths read the one display:
+  its right edge, a block each line it selects a cell of, and a paragraph
+  the window keeps at the terminal's cut by that cut. A picture moves with
+  its text as on a scroll, anchored on a row the display pushed out of the
+  window or above it as well, and is mirrored by the direction of the line
+  its row is drawn on, so on an English run given lines of its own it
+  stays left to right; and a line a smooth scroll slides out, the cells a
+  trail's flash bound reads and a placeholder's run, on the window and on
+  that sliding line, are the display's. All three draw paths read the one display:
   `a_re_broken_paragraph_draws_the_same_on_every_arm`. **A departure, a choice the project made**: UAX #9 resolves a paragraph at one level and orders each line
   by it (section 3, L1-L2); a moved run's line is laid out at its own
   direction's level, and each piece of the paragraph between moved runs is
@@ -353,7 +357,10 @@ the screen; step 3 joins Arabic letters.
 - **A picture after a Hebrew caption sits after it.** A Sixel, a kitty
   picture or an iTerm2 image anchored on a row drawn right to left is
   placed mirrored, its box `cols - (col + w)` from the left, by the
-  direction of the row it is anchored on, and its pixels are not flipped:
+  direction of the row it is anchored on -- where the display draws that
+  row's paragraph at its words, the line the row is drawn on
+  (`a_picture_is_mirrored_by_the_direction_of_its_display_line`) -- and
+  its pixels are not flipped:
   terminal-wg's "images must not be flipped by default in RTL mode ... In
   paragraphs of RTL direction, the overall layout should be the mirrored
   version of the LTR one by default" (`[[source:
@@ -367,7 +374,10 @@ the screen; step 3 joins Arabic letters.
   (`a_picture_on_a_table_row_keeps_its_place`). kitty's placeholder cells
   are characters, ordered with the text, and each strip is drawn over its
   cells where they are drawn
-  (`a_placeholder_strip_is_drawn_over_its_cells_where_they_are_drawn`).
+  (`a_placeholder_strip_is_drawn_over_its_cells_where_they_are_drawn`), on
+  the line a smooth scroll slides out above the window as well
+  (`a_placeholder_strip_on_the_leaving_row_is_drawn_where_its_cells_are`,
+  `the_leaving_rows_placeholders_are_the_line_the_display_draws`).
 - **A program can choose how the text it writes after is drawn** (SAPV,
   `CSI Ps... SP ]`, `[[source: ecma48]]` 8.3.108): Arabic-Indic digits
   (2), a decimal number's point drawn as a comma (10), a letter drawn in
@@ -521,7 +531,7 @@ was weighed on are in `docs/research/notes/ab/step2/`.
 | an erased cell between letters | transparent, as the boundary neutral it is given |
 | a lam and an alef erased cells part | the ligature, centred over the cells from one to the other |
 | the host-writable status line | laid out as a line of its own under the terminal's BDSM and the direction set on it (ECMA-48 7.2.1's IMPLICIT; DEC STD 070 ch. 14 says nothing on direction) |
-| a picture on a row drawn right to left | its whole box mirrored by its anchor row's direction, unflipped (terminal-wg's images section; UAX #9 3.2); not stored, not row by row |
+| a picture on a row drawn right to left | its whole box mirrored by its anchor row's direction, or the direction of the display line that row is drawn on, unflipped (terminal-wg's images section; UAX #9 3.2); not stored, not row by row |
 | SAPV 9 and 10's decimal mark | the FULL STOP between two digits (UAX #9 W4 reads a separator between numbers) |
 | an alaph after a space or ZWNJ | isolated, as at a line's start: S2's character to its right is a letter of the word, as HarfBuzz and CoreText read it |
 
@@ -830,9 +840,9 @@ eight rounds with the first dropped, on mains:
   side margins keep it too, rather than be re-broken inside its margins; the scroll
   position, the scrollbar and the wheel count stored lines; a link's
   preview and its Cmd-click over a cell the display draws from a line
-  past the window read the nearest window cell. A copy under
-  `?96` of a paragraph the window keeps at its cut at the top of what the
-  history keeps reads it by its words, not by the cut drawn.
+  past the window read the nearest window cell. A picture anchored on a
+  row the display draws at its words keeps its stored column, where the
+  display draws the anchor's cell at another column of its line.
 - **A paragraph a soft wrap splits mid-word, with `[screen] wrap_words` off**
   ("the wrap line looks bad"): an English word the wrap split lands at
   opposite ends of its two rows. UAX #9 breaks a paragraph into

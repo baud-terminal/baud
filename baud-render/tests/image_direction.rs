@@ -262,3 +262,34 @@ fn a_placeholder_strip_is_drawn_over_its_cells_where_they_are_drawn() {
     let cols = i64::from(WS.ws_col);
     assert_eq!(p[0].0, (cols - 8) * cw + dx, "over its cells as drawn");
 }
+
+/// **On the leaving row too**: the same strip after a Hebrew word, its
+/// row scrolled just into the history, is the line a smooth scroll slides
+/// out above the window, and is placed over its cells as that line was
+/// drawn on screen, one row above the top; after a Latin word at column
+/// 4, the control.
+#[test]
+fn a_placeholder_strip_on_the_leaving_row_is_drawn_where_its_cells_are() {
+    let b64 = kitty_pixels();
+    let setup = |caption: &str| {
+        let mut v = b"\x1b_Ga=t,f=32,s=4,v=4,i=7,q=2;".to_vec();
+        v.extend_from_slice(&b64);
+        v.extend_from_slice(b"\x1b\\\x1b_Ga=p,U=1,i=7,c=4,r=1,q=2\x1b\\");
+        v.extend_from_slice(caption.as_bytes());
+        v.extend_from_slice(b"\x1b[38;5;7m");
+        for c in 0..4 {
+            v.extend_from_slice(format!("\u{10EEEE}{}{}", d(0), d(c)).as_bytes());
+        }
+        v.extend_from_slice(format!("\x1b[0m\x1b[{};1H\n", WS.ws_row).as_bytes());
+        v
+    };
+    let (latin, cw) = placed(&setup("abc "), 0);
+    assert_eq!(latin.len(), 1, "one strip");
+    assert!(latin[0].1 < 0, "the premise: on the leaving row, {latin:?}");
+    let dx = latin[0].0 - 4 * cw;
+    assert!((0..4 * cw).contains(&dx), "the control: column 4, {dx} in");
+    let (p, cw) = placed(&setup(HEBREW), 0);
+    assert_eq!(p.len(), 1, "one strip");
+    let cols = i64::from(WS.ws_col);
+    assert_eq!(p[0].0, (cols - 8) * cw + dx, "over its cells as drawn");
+}

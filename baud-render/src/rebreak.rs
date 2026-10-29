@@ -437,6 +437,11 @@ pub struct Display {
     above: Rows,
     cells: Vec<PackedCell>,
     used: Vec<RowExtent>,
+    /// **The direction each line the display lays out runs**, by the same
+    /// index as `used`: a line of a paragraph drawn at its words, at its
+    /// paragraph's level or its moved run's direction; none for a line
+    /// drawn as a stored row.
+    runs: Vec<Option<BidiDirection>>,
     /// For each window display cell, the stored cell it shows: a window
     /// row's, or one of a line past the window that a paragraph runs on
     /// from or into.
@@ -452,6 +457,10 @@ pub struct Display {
     past_to: Vec<Option<(Row, Col)>>,
     /// For each window display line drawn as a stored row, that row.
     same: Vec<Option<Row>>,
+    /// **For each stored window row, whether its paragraph is drawn at its
+    /// words or as the terminal cut it**, wherever its lines are placed:
+    /// in the window or pushed above it.
+    rows_drawn: Vec<Rebroken>,
     /// **Where each stored row of the window's paragraphs starts**, the
     /// rows above the window and below it included: its row counted from
     /// the window's top, negative above it, and the display line its first
@@ -557,10 +566,7 @@ impl Display {
     /// the window up as a block, as a scroll moves it; a row the layout
     /// gave no line of its own, as the nearest row above it that has one.
     pub(crate) fn shift(&self, at: crate::renderer::Anchor) -> isize {
-        let r = match at {
-            crate::renderer::Anchor::At(y) => isize::try_from(y.index()).unwrap_or(isize::MAX),
-            crate::renderer::Anchor::Above(n) => -isize::try_from(n.index()).unwrap_or(isize::MAX),
-        };
+        let r = Self::stored_of(at);
         let at = match self.starts.iter().rposition(|&(s, _)| s <= r) {
             Some(i) => self.starts[i],
             None => match self.starts.first() {
@@ -571,9 +577,35 @@ impl Display {
         at.1 - at.0
     }
 
+    /// Stored row `at` counted from the window's top, negative above it.
+    fn stored_of(at: crate::renderer::Anchor) -> isize {
+        match at {
+            crate::renderer::Anchor::At(y) => isize::try_from(y.index()).unwrap_or(isize::MAX),
+            crate::renderer::Anchor::Above(n) => -isize::try_from(n.index()).unwrap_or(isize::MAX),
+        }
+    }
+
+    /// **The direction of the line stored row `at` is drawn on**, the line
+    /// [`Display::shift`] moves it to, where the display lays that line out
+    /// at its words: its paragraph's level, or its moved run's direction.
+    /// None where the line is drawn as a stored row, or not held: that
+    /// row's own paragraph says then.
+    pub(crate) fn line_direction(&self, at: crate::renderer::Anchor) -> Option<BidiDirection> {
+        let line = Self::stored_of(at) + self.shift(at);
+        let k = usize::try_from(line + isize::try_from(self.above.index()).ok()?).ok()?;
+        self.runs.get(k).copied().flatten()
+    }
+
     /// The stored row display row `y` is a copy of, where it is one.
     pub fn same(&self, y: Row) -> Option<Row> {
         self.same.get(y.index()).copied().flatten()
+    }
+
+    /// **Whether stored window row `r`'s paragraph is drawn as the
+    /// terminal cut it**, its lines in the window or pushed above it: what
+    /// a copy in drawn order (`?96`) asks of the window that shows it.
+    pub(crate) fn keeps_cut(&self, r: Row) -> bool {
+        self.rows_drawn.get(r.index()) != Some(&Rebroken::Yes)
     }
 
     /// Paragraphs re-broken, runs given lines of their own, and words
@@ -1323,11 +1355,13 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
         above: Rows::of_count(start - top),
         cells: vec![PackedCell::EMPTY; total * n],
         used: vec![RowExtent::of(n); total],
+        runs: vec![None; total],
         from: vec![None; nrows * n],
         to: vec![None; nrows * n],
         past: (Rows::ZERO, Rows::ZERO),
         past_to: Vec::new(),
         same: vec![None; nrows],
+        rows_drawn: vec![Rebroken::No; nrows],
         starts: starts(groups, placed),
         rebroken: Tally::of(
             groups
@@ -1417,6 +1451,7 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
                     .with_path(path)
                     .with_autodetect(Autodetect::Off);
                 let e = RowExtent::of(n).with_bidi(bidi);
+                d.runs[k] = Some(dir);
                 d.used[k] = match l.piece {
                     Piece::Continues => e.wrapping(n),
                     Piece::Ends => e,
@@ -1426,6 +1461,13 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
     }
     for g in groups.iter().filter(|g| g.rebroken == Rebroken::Yes) {
         d.emergency.add(g.broken.emergency);
+    }
+    for g in groups {
+        for r in g.rows.iter().filter_map(|s| s.window) {
+            if let Some(at) = d.rows_drawn.get_mut(r.index()) {
+                *at = g.rebroken;
+            }
+        }
     }
     // The reverse of `from` for the lines past the window, by index.
     let top = WindowLine::of(Row::ZERO);

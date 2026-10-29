@@ -1816,6 +1816,9 @@ pub struct Renderer<'f, 'a> {
     /// before the frame's own layout: made at the first frame that holds a
     /// virtual placement.
     placeholder_bidi: Option<Box<crate::bidi::Reorder>>,
+    /// The window one line up, laid out for the placeholders of its first
+    /// line, the leaving row a smooth scroll slides out.
+    placeholder_leaving: Option<Box<crate::bidi::Reorder>>,
     /// **What that layout reads besides the window's cells** (`Beside`),
     /// made the first time a frame has any: one pointer on a renderer that
     /// never composes, predicts or slides.
@@ -2283,6 +2286,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             pictures: Pictures::new(),
             bidi: crate::bidi::Reorder::new(),
             placeholder_bidi: None,
+            placeholder_leaving: None,
             beside: None,
             bidi_cells: Vec::new(),
             joins_prev: Vec::new(),
@@ -5088,7 +5092,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     usize::try_from(origin.top.value() - p.line.value()).unwrap_or(0),
                 )),
             };
-            let x0 = match self.anchor_direction(term, back, anchor) {
+            // Where the display re-broke the anchor row's paragraph
+            // ([`crate::rebreak`]), the direction of the line the row is
+            // drawn on, the one it moves the picture to below: a run the
+            // display gave lines of its own runs its own way.
+            let dir = shown
+                .as_ref()
+                .and_then(|d| d.line_direction(anchor))
+                .unwrap_or_else(|| self.anchor_direction(term, back, anchor));
+            let x0 = match dir {
                 BidiDirection::Rtl => grid_w - x0 - i64::from(dest.w),
                 BidiDirection::Ltr => x0,
             };
@@ -5148,32 +5160,35 @@ impl<'f, 'a> Renderer<'f, 'a> {
             order.set_word_wrap(self.word_wrap);
             order.lay_out_as(term, back, crate::bidi::Joins::Unseen);
             let vp = order.view(term, back);
-            // The leaving row too, draw row -1: the line above the window,
-            // `view(back + 1).row(0)`, the cells the cell path slides in
-            // from the ring, resolved from those cells as when that line
-            // was on screen. Only where the history holds one: the clamp
-            // would read the screen's own first row there.
+            // The leaving row too, draw row -1: the line the cell path
+            // slides in above the window, the first line of the window one
+            // line up as its layout draws it ([`Renderer::copy_leaving`]),
+            // in that order -- where the display re-broke a paragraph below
+            // it, that display line, not the stored row above the window.
+            // Only where the history holds one: the clamp would read the
+            // screen's own first row there.
             let above = Rows::of_count(back.index() + 1);
-            let leaving = (term.looking_back(above) == above).then(|| {
-                let up = term.view(above);
-                (up.row(Row::from_index(0)), up.rendition(Row::from_index(0)))
+            let mut up = self.placeholder_leaving.take().unwrap_or_default();
+            let leaving = term.looking_back(above) == above;
+            if leaving {
+                up.set_word_wrap(self.word_wrap);
+                up.lay_out_top(term, above, crate::bidi::Joins::Unseen);
+            }
+            let up_vp = up.view(term, above);
+            let leaving = leaving.then(|| {
+                let top = Row::ZERO;
+                let drawn = up.orders().reordered(top).then(|| (up.orders(), top));
+                (-1, up_vp.row(top), up_vp.rendition(top), drawn)
             });
             let rows = (0..self.main.index()).map(|r| {
                 let y = Row::from_index(r);
-                (r as i64, vp.row(y), vp.rendition(y))
+                let drawn = order.orders().reordered(y).then(|| (order.orders(), y));
+                (r as i64, vp.row(y), vp.rendition(y), drawn)
             });
-            for (r, row, size) in leaving
-                .map(|(row, size)| (-1, row, size))
-                .into_iter()
-                .chain(rows)
-            {
-                let drawn = usize::try_from(r)
-                    .ok()
-                    .map(Row::from_index)
-                    .filter(|&y| order.orders().reordered(y))
-                    .map(|y| (order.orders(), y));
+            for (r, row, size, drawn) in leaving.into_iter().chain(rows) {
                 self.place_placeholders(term, imgs, epoch, (r, row, size), drawn, snap);
             }
+            self.placeholder_leaving = Some(up);
             self.placeholder_bidi = Some(order);
             self.place_under_virtuals(imgs, epoch, origin.screen, snap);
         }

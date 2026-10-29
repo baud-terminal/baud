@@ -21,6 +21,8 @@
 use baud_core::{SurfaceLine, Term, TextMoved, WatchedLines};
 use baud_domain::{Col, Cols, Content, CopyDirection, PackedCell, Row, Rows, Viewport, Wrap};
 
+use std::rc::Rc;
+
 use crate::Reorder;
 
 /// A line of the live surface, numbered from the start of the session: the
@@ -647,13 +649,17 @@ impl Selection {
     }
 
     /// [`Selection::text`] under the display's wrap `wrap`, the
-    /// `wrap_words` setting the window is drawn with: under `?96`, a stream
-    /// over a finished paragraph the display draws at its words
+    /// `wrap_words` setting the window is drawn with: under `?96`, a
+    /// selection over a finished paragraph the display draws at its words
     /// ([`crate::rebreak`]) reads each of that paragraph's display lines,
     /// the lines as they are drawn, from its right edge -- the same cells,
-    /// a line's cells drawn there whichever row stores them -- and joins
-    /// them as a soft wrap joins rows. A block reads the stored rows, as it
-    /// cuts them.
+    /// a line's cells drawn there whichever row stores them. A stream joins
+    /// the lines as a soft wrap joins rows; a block, which breaks at every
+    /// line, reads the lines it selects a cell of, a newline between each
+    /// two. A
+    /// paragraph the window [`Term::window_back`] shows is read as that
+    /// window draws it: at the top of what the history keeps, where the
+    /// window keeps a paragraph at the terminal's cut, by its stored rows.
     pub fn text_as(&self, term: &Term<'_>, scrolled: Scrolled, wrap: crate::WordWrap) -> String {
         let (start, end) = self.ordered();
         let block = self.region == Region::Block;
@@ -667,9 +673,9 @@ impl Selection {
         let mut plain: Option<AbsLine> = None;
         let mut line = start.line;
         loop {
-            let asks = !block && wrap == crate::WordWrap::On && plain.is_none_or(|p| line > p);
+            let asks = wrap == crate::WordWrap::On && plain.is_none_or(|p| line > p);
             if let (Some(d), true) = (drawn.as_mut(), asks) {
-                match d.rebroken(term, scrolled, line, (start, end), &mut out) {
+                match d.rebroken(term, scrolled, line, (start, end), self.region, &mut out) {
                     Para::Drawn(last) => {
                         if last == end.line {
                             break;
@@ -822,6 +828,8 @@ fn row_in(top: AbsLine, line: AbsLine) -> Row {
 struct Drawn {
     live: Option<Reorder>,
     para: Option<(Reorder, crate::rebreak::Breaker)>,
+    /// The window [`Term::window_back`] shows, as the display draws it.
+    window: Option<Option<Rc<crate::rebreak::Display>>>,
 }
 
 /// What [`Drawn::rebroken`] did with a line's paragraph: read it as the
@@ -837,24 +845,53 @@ impl Drawn {
         Drawn {
             live: None,
             para: None,
+            window: None,
         }
+    }
+
+    /// **Whether the window shown draws the paragraph of stored lines
+    /// `first` to `last` as the terminal cut it**, where it shows one of
+    /// them: at the top of what the history keeps, a paragraph re-broken
+    /// alone could be one the window keeps at its cut. None where the
+    /// window shows none of its lines.
+    fn window_keeps_cut(
+        &mut self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        (first, last): (AbsLine, AbsLine),
+    ) -> Option<bool> {
+        let back = term.window_back();
+        let top = scrolled.top(back);
+        let nrows = u64::try_from(term.view(back).rows().index()).unwrap_or(u64::MAX);
+        let y = (first.0..=last.0).find_map(|l| l.checked_sub(top.0).filter(|&y| y < nrows))?;
+        let y = Row::from_index(usize::try_from(y).unwrap_or(usize::MAX));
+        let shown = self.window.get_or_insert_with(|| {
+            let mut work = crate::rebreak::Breaker::default();
+            crate::rebreak::lay_out(term, back, crate::WordWrap::On, &mut work)
+        });
+        // No display: the window draws every row as stored.
+        Some(shown.as_ref().is_none_or(|d| d.keeps_cut(y)))
     }
 
     /// **The selected cells of `line`'s paragraph, line by display line**,
     /// where the display draws it at its words: each display line's cells
-    /// from its right edge to its left, the cells a stream from `start` to
-    /// `end` selects -- on each stored row, those before its last selected
-    /// content, as the stored rows' copy takes them -- with no break
-    /// between the lines, as a soft wrap joins rows. Nothing is written
-    /// where the paragraph is drawn as stored: not finished (in the
-    /// history, or above the latest prompt while the shell waits at it),
-    /// or one the display keeps at the terminal's cut.
+    /// from its right edge to its left, the cells a selection from `start`
+    /// to `end` of `region` selects -- on each stored row, those before its
+    /// last selected content, as the stored rows' copy takes them. A
+    /// stream puts no break between the lines, as a soft wrap joins rows;
+    /// a block reads the lines it selects a cell of, a newline between
+    /// each two. Nothing is written where the
+    /// paragraph is drawn as stored: not finished (in the history, or
+    /// above the latest prompt while the shell waits at it), or one the
+    /// display keeps at the terminal's cut -- the window shown, where it
+    /// shows the paragraph.
     fn rebroken(
         &mut self,
         term: &Term<'_>,
         scrolled: Scrolled,
         line: AbsLine,
         (start, end): (Point, Point),
+        region: Region,
         out: &mut String,
     ) -> Para {
         let Some((here, mark)) = marked_row(term, scrolled, line) else {
@@ -894,7 +931,7 @@ impl Drawn {
         let finished =
             live < i128::from(i64::try_from(crate::rebreak::finished_before(term)).unwrap_or(0));
         let shown_to = last.min(end.line);
-        if !finished {
+        if !finished || self.window_keeps_cut(term, scrolled, (first, last)) == Some(true) {
             return Para::Stored(last);
         }
         let (order, breaker) = self
@@ -914,12 +951,13 @@ impl Drawn {
                 if at < start.line || at > end.line || cells.is_empty() {
                     return None;
                 }
-                let from = if at == start.line {
+                let block = region == Region::Block;
+                let from = if block || at == start.line {
                     start.col.index()
                 } else {
                     0
                 };
-                let to = match at == end.line {
+                let to = match block || at == end.line {
                     true => end.col.index().min(cells.len() - 1),
                     false => cells.len() - 1,
                 };
@@ -933,8 +971,13 @@ impl Drawn {
             })
             .collect();
         let n = d.window().rows().index();
+        // A block's lines are those it selects a cell of, a newline between
+        // each two.
+        let mut lines = 0;
         for y in 0..n {
             let y = Row::from_index(y);
+            let mut selects = false;
+            let mut line = String::new();
             for v in (0..cols).rev() {
                 let l = order.orders().logical_col(y, Col::at_index(v));
                 let Some((r, c)) = d.stored(y, l) else {
@@ -947,9 +990,17 @@ impl Drawn {
                     .flatten()
                     .is_some_and(|(a, b)| c >= a && c <= b)
                 {
-                    push_cell(out, term, rows[p].0[c]);
+                    selects = true;
+                    push_cell(&mut line, term, rows[p].0[c]);
                 }
             }
+            if region == Region::Block && selects && lines > 0 {
+                out.push('\n');
+            }
+            if selects {
+                lines += 1;
+            }
+            out.push_str(&line);
         }
         Para::Drawn(shown_to)
     }
