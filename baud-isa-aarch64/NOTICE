@@ -3,9 +3,9 @@ Third-party material in the baud-isa-aarch64 crate
 The licence of baud-isa-aarch64 is LICENSE. This file lists the material
 from other projects that files in this crate carry: for each, the files by
 their paths in this crate, the licence it keeps, and where the notice that
-licence asks for is. It is generated from docs/research/third-party.toml in
-baud's repository, whose THIRD_PARTY.md lists every such file in the
-repository.
+licence asks for is. It is generated from baud's record of third-party
+files, in its repository at https://github.com/i-am-logger/baud, whose
+THIRD_PARTY.md lists every such file there.
 
-No file in this crate carries third-party material that
-docs/research/third-party.toml records.
+No file in this crate carries material from another project that baud's
+record of third-party files lists.

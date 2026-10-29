@@ -3,47 +3,41 @@ Third-party material in the baud-render crate
 The licence of baud-render is LICENSE. This file lists the material from
 other projects that files in this crate carry: for each, the files by their
 paths in this crate, the licence it keeps, and where the notice that licence
-asks for is. It is generated from docs/research/third-party.toml in baud's
-repository, whose THIRD_PARTY.md lists every such file in the repository.
+asks for is. It is generated from baud's record of third-party files, in its
+repository at https://github.com/i-am-logger/baud, whose THIRD_PARTY.md
+lists every such file there.
 
-The test helper sfte in trail.rs's test module, ported line for line from
+sfte, a test helper in trail.rs's test module, ported line for line from
 sfte's _sfte_render_trail and marked as a port
   Files:   src/trail.rs
+  Holder:  Patryk Pujanek (sfte)
   Licence: Zlib
   Notice:  LICENSES/sfte-Zlib.txt
   Status:  kept: redistributable, and its notice is satisfied
-  From:    baud's repository, docs/research/sources/sfte.h
+  From:    https://raw.githubusercontent.com/nihiL7331/sfte/5d7ac25a4180a4adbb049ec228dc89e03dae2690/sfte.h
 
-The OKLab conversions and Hue in color.rs (the cusp,
+The OKLab conversions and hue in color.rs (the cusp,
 compute_max_saturation's polynomial and Halley step, the gamut
 intersection), re-expressed from Björn Ottosson's sRGB gamut clipping code,
-whose page puts all of it under MIT; the OKLab post offers the same
-conversions in the public domain
+which his page puts under MIT
   Files:   src/color.rs
+  Holder:  Björn Ottosson
   Licence: MIT
   Notice:  LICENSES/ottosson-MIT.txt
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://bottosson.github.io/posts/gamutclipping/ and
            https://bottosson.github.io/posts/oklab/
 
-Tables generated from the Unicode Character Database files pinned in the
-manifest: grapheme clusters, widths, the two merged into one table,
-canonical composition, Default_Ignorable_Code_Point (twice: baud-domain's
-and baud-font's), the bidirectional classes and brackets, cursive joining
-and the Arabic presentation forms, line breaking, the text-default emoji a
-VS16 widens, full case folding for family names, Script and
-Script_Extensions (with the OpenType script tags each script selects, which
-are identifiers from Microsoft's registry and carry no licence), the search
-keys (full case folding from CaseFolding.txt and canonical decomposition
-from UnicodeData.txt, scripts/gen-search-tables.py), what SGR 64's stress
-mark skips with the separators and combining characters it reads
-(scripts/gen-stress-table.py), and the named emoji sequences' trie,
-generated from emoji-sequences.txt, emoji-zwj-sequences.txt and
-emoji-variation-sequences.txt by scripts/gen-sequence-table.py. Of
-shaders.metal only the block between its BEGIN GENERATED and END GENERATED
-stress-mark markers is generated, and baud.metallib carries those bytes
-compiled
+Tables generated from the Unicode Character Database and Unicode's emoji
+data files: grapheme clusters, widths, canonical composition,
+default-ignorable code points, bidirectional classes and brackets, cursive
+joining and the Arabic presentation forms, line breaking, emoji
+presentation, case folding and decomposition, scripts, and the named emoji
+sequences. The OpenType script tags beside the scripts are identifiers from
+Microsoft's registry and carry no licence. Where such a table sits in a file
+with other code, only its marked generated block is generated
   Files:   src/stress_data.rs
+  Holder:  Unicode, Inc.
   Licence: Unicode-3.0
   Notice:  LICENSES/Unicode-3.0.txt
   Status:  kept: redistributable, and its notice is satisfied
@@ -60,14 +54,12 @@ protectable is unverified
   Status:  open: an open question, recorded where the file is
   From:    https://github.com/protesilaos/modus-themes
 
-The quad cursor trail follows kitty's design -- four corners chasing the
-cursor's at per-corner rates -- with kitty's defaults (decay 0.1 s and 0.4
-s, a start threshold of two cells) and its half-pixel end. Its rate choice,
-which had followed kitty's cursor_trail.c term for term, was re-derived on
-2026-10-25 from the derivation in note W, section 8, after a line-by-line
-audit against kitty v0.49.2, and so were the copies of it in four research
-prototypes under note W; no line of kitty's is ported
+The quad cursor trail follows kitty's design, four corners chasing the
+cursor's at per-corner rates, with kitty's defaults (decays of 0.1 s and 0.4
+s, a start threshold of two cells) and its half-pixel end. Its rate rule is
+derived anew, and no line of kitty's code is used
   Files:   src/trail.rs
+  Holder:  baud's author; the design it follows is Kovid Goyal's (kitty)
   Licence: none claimed; kitty is GPL-3.0-only
   Notice:  none needed
   Status:  kept: redistributable, and its notice is satisfied

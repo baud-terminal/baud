@@ -300,7 +300,7 @@ they were built from.
 - **From:** https://github.com/tinted-theming/tinted-xresources/blob/b97e7eca0fd20a80110f82d7485114db2387c368/xresources/base16-0x96f.Xresources
 - **Files:** [tests/themes/base16-0x96f.Xresources](tests/themes/base16-0x96f.Xresources), [tests/themes/base16-0x96f.cpp](tests/themes/base16-0x96f.cpp)
 
-### National Replacement Character Sets, generated from xterm's charsets.h macros with their keysyms resolved through X.Org's keysymdef.h
+### National Replacement Character Sets, generated from xterm's charsets.h macros with their keysyms resolved through X.Org's keysymdef.h. Open: the NOTICE names The Open Group (keysymdef.h) as a holder, and the only notice this row lists is xterm's COPYING; keysymdef.h's own notices, The Open Group's and Digital's, are in docs/research/sources/xorg-keysymdef.h, which no crate carries
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11

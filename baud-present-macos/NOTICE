@@ -3,28 +3,20 @@ Third-party material in the baud-present-macos crate
 The licence of baud-present-macos is LICENSE. This file lists the material
 from other projects that files in this crate carry: for each, the files by
 their paths in this crate, the licence it keeps, and where the notice that
-licence asks for is. It is generated from docs/research/third-party.toml in
-baud's repository, whose THIRD_PARTY.md lists every such file in the
-repository.
+licence asks for is. It is generated from baud's record of third-party
+files, in its repository at https://github.com/i-am-logger/baud, whose
+THIRD_PARTY.md lists every such file there.
 
-Tables generated from the Unicode Character Database files pinned in the
-manifest: grapheme clusters, widths, the two merged into one table,
-canonical composition, Default_Ignorable_Code_Point (twice: baud-domain's
-and baud-font's), the bidirectional classes and brackets, cursive joining
-and the Arabic presentation forms, line breaking, the text-default emoji a
-VS16 widens, full case folding for family names, Script and
-Script_Extensions (with the OpenType script tags each script selects, which
-are identifiers from Microsoft's registry and carry no licence), the search
-keys (full case folding from CaseFolding.txt and canonical decomposition
-from UnicodeData.txt, scripts/gen-search-tables.py), what SGR 64's stress
-mark skips with the separators and combining characters it reads
-(scripts/gen-stress-table.py), and the named emoji sequences' trie,
-generated from emoji-sequences.txt, emoji-zwj-sequences.txt and
-emoji-variation-sequences.txt by scripts/gen-sequence-table.py. Of
-shaders.metal only the block between its BEGIN GENERATED and END GENERATED
-stress-mark markers is generated, and baud.metallib carries those bytes
-compiled
+Tables generated from the Unicode Character Database and Unicode's emoji
+data files: grapheme clusters, widths, canonical composition,
+default-ignorable code points, bidirectional classes and brackets, cursive
+joining and the Arabic presentation forms, line breaking, emoji
+presentation, case folding and decomposition, scripts, and the named emoji
+sequences. The OpenType script tags beside the scripts are identifiers from
+Microsoft's registry and carry no licence. Where such a table sits in a file
+with other code, only its marked generated block is generated
   Files:   src/baud.metallib, src/shaders.metal
+  Holder:  Unicode, Inc.
   Licence: Unicode-3.0
   Notice:  LICENSES/Unicode-3.0.txt
   Status:  kept: redistributable, and its notice is satisfied

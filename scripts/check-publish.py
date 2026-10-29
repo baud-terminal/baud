@@ -44,6 +44,13 @@ has to be able to fail:
     in the crate, the files by their paths in the crate, each one's
     licence, and where its notice is in the crate (--write-notices writes
     them);
+  - what a NOTICE prints of a settled entry is its `public` and `holder`
+    and the URLs it came from, and none of it names a research note, an
+    ISO date, who decided, a hyphenated source key of MANIFEST.toml or
+    any key written as [[source: key]], or a repository path the crate
+    does not carry (wording()); an entry whose status is one of UNSETTLED is
+    reported on the awaiting path instead, since --release refuses it and
+    it is reworded when it is settled;
   - with --size or --verify, every .crate is under crates.io's 10 MiB
     upload limit;
   - with --verify, every crate builds from its .crate alone, as `cargo
@@ -95,7 +102,29 @@ CATEGORIES = {
     "text-processing",
 }
 KEYWORD = re.compile(r"^[A-Za-z][A-Za-z0-9_+-]{0,19}$")
+SOURCES = "docs/research/sources/"
+# What a NOTICE must not say. It goes to crates.io, where a version stays
+# as it was uploaded, to a reader who has only the crate: no research note,
+# no ISO date a decision was taken, no word about who decided what, no
+# hyphenated source key (g_keys) and no key written as [[source: key]].
+# The rows' `what`, which THIRD_PARTY.md shows in the repository, may
+# say all of these; a NOTICE prints a row's `public` instead.
+PROCESS = (
+    re.compile(r"\b[Nn]ote [A-Z]{1,2}\b"),
+    re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
+    # "lane" in lower case only: Thomas G. Lane is the IJG's holder.
+    re.compile(r"\b(?:[Dd]ecided|[Dd]ecision|[Rr]ecommendation|[Oo]wner|lane|[Rr]efuter|[Mm]anifest|MANIFEST|Jev|TODO)\b"),
+    # The repository's citation form, whatever key it names.
+    re.compile(r"\[\[source:"),
+)
+URL = re.compile(r"^https?://\S+$")
 DEP_TABLES = ("dependencies", "build-dependencies")
+# Each source file's URL, by its name under SOURCES; set by check().
+g_url = {}
+# The source keys of MANIFEST.toml a NOTICE must not name bare; set by
+# check(). Only the hyphenated ones: a one-word key such as xterm or
+# wayland is also the word, and a NOTICE may say it.
+g_keys = set()
 
 
 def load(path):
@@ -174,13 +203,51 @@ def gen_third_party():
     return mod
 
 
-def notice(name, entries, src, g):
-    """The NOTICE of crate `name`: each sidecar entry with a file in the
-    crate, by the paths the crate gives its files. `src` maps a repository
-    path to the crate's path for it, both a file's own path and the one a
-    link resolves to. Every [[tree]] entry with a file here is listed; a
-    source group is left out when each of its files here is already listed
-    under a [[tree]] entry, as the target of a link is."""
+def unshipped(text, src, tops):
+    """The repository paths `text` names that the crate does not carry: a
+    token with a slash, URLs aside, under a directory that never ships
+    (`tops`), or naming a file or directory of the repository that is not
+    in the crate under that name. An upstream project's own path, such as
+    OT/glyf/Glyph.hh, names nothing here and passes."""
+    shipped = set(src.values())
+    bad = []
+    for tok in re.sub(r"https?://\S+", " ", text).split():
+        tok = tok.strip(".,;:()'\"")
+        if "/" not in tok:
+            continue
+        here = tok.rstrip("/")
+        if not re.search(r"[A-Za-z0-9]", here):
+            continue
+        carried = here in shipped or any(f.startswith(here + "/") for f in shipped)
+        if tok.startswith(tops) or (not carried and os.path.exists(os.path.join(ROOT, here))):
+            bad.append(tok)
+    return bad
+
+
+def keys(text):
+    """The hyphenated source keys `text` names as a word of its own, URLs
+    aside."""
+    toks = (t.strip(".,;:()[]'\"`") for t in re.sub(r"https?://\S+", " ", text).split())
+    return [t for t in toks if t in g_keys]
+
+
+def wording(text, src, tops):
+    """What `text` says that a NOTICE must not: process wording, source
+    keys and repository-only paths."""
+    found = [m.group(0) for rx in PROCESS for m in rx.finditer(text)]
+    return found + keys(text) + unshipped(text, src, tops)
+
+
+def notice(name, entries, src, g, repo, tops):
+    """The NOTICE of crate `name`, and what is wrong with it: each sidecar
+    entry with a file in the crate, by the paths the crate gives its files.
+    `src` maps a repository path to the crate's path for it, both a file's
+    own path and the one a link resolves to. Every [[tree]] entry with a
+    file here is listed; a source group is left out when each of its files
+    here is already listed under a [[tree]] entry, as the target of a link
+    is. The second value is (status, what, finding) for each thing
+    wording() finds in what the NOTICE prints of an entry, and for the
+    header ("own")."""
     wrap = lambda label, text: textwrap.fill(
         text, width=76, initial_indent=f"  {label:<9}", subsequent_indent=" " * 11, break_on_hyphens=False,
         break_long_words=False,
@@ -192,19 +259,30 @@ def notice(name, entries, src, g):
             f"The licence of {name} is LICENSE. This file lists the material from other "
             "projects that files in this crate carry: for each, the files by their paths "
             "in this crate, the licence it keeps, and where the notice that licence asks "
-            "for is. It is generated from docs/research/third-party.toml in baud's "
-            "repository, whose THIRD_PARTY.md lists every such file in the repository.",
+            f"for is. It is generated from baud's record of third-party files, "
+            f"in its repository at {repo}, whose THIRD_PARTY.md lists every such file "
+            "there.",
             width=76,
+            break_long_words=False,
+            break_on_hyphens=False,
         ),
     ]
+    found = [("own", "the header", f) for f in wording("\n".join(o), src, tops)]
     shown = set()
     count = 0
-    for what, paths, note, status, lic, origin, kind in entries:
+    for e in entries:
+        what, paths, note, status, lic, kind = (
+            e["what"], e["paths"], e["notice"], e["status"], e["licence"], e["kind"],
+        )
         files = sorted({src[p] for p in paths if p in src})
         if not files or (kind == "source" and set(files) <= shown):
             continue
         shown |= set(files)
         count += 1
+        text = e.get("public") or what
+        origin = e.get("from") or ([e["upstream"]] if e["upstream"] else [])
+        # A file of baud's sources is named by the URL it was copied from.
+        origin = [g_url.get(x[len(SOURCES):], x) if x.startswith(SOURCES) else x for x in origin]
         if note.startswith("LICENSES/") or note == "LICENSE":
             where = note
         elif is_path(note):
@@ -217,22 +295,33 @@ def notice(name, entries, src, g):
                 "none needed": "none needed",
                 "none": "none",
             }.get(note, note)
-        o += [
+        block = [
             "",
-            textwrap.fill(what, width=76, break_on_hyphens=False, break_long_words=False),
+            textwrap.fill(text, width=76, break_on_hyphens=False, break_long_words=False),
             wrap("Files:", ", ".join(files)),
+        ]
+        if e.get("holder"):
+            block.append(wrap("Holder:", e["holder"]))
+        block += [
             wrap("Licence:", lic),
             wrap("Notice:", where),
             wrap("Status:", f"{status}: {g.STATUS[status]}"),
         ]
         if origin:
-            # A path in baud's repository, which is not in the crate.
-            if os.path.exists(os.path.join(ROOT, origin.split()[0].rstrip(","))):
-                origin = f"baud's repository, {origin}"
-            o.append(wrap("From:", origin))
+            block.append(wrap("From:", " and ".join(origin)))
+        o += block
+        said = "\n".join([text, e.get("holder", ""), lic, where])
+        found += [(status, what, f) for f in wording(said, src, tops)]
+        found += [(status, what, f"From: {x}") for x in origin if not URL.match(x)]
+        # A settled row says in its own words what it is and whose.
+        found += [(status, what, f"no {k} field") for k in ("public", "holder") if not e.get(k)]
     if not count:
-        o += ["", "No file in this crate carries third-party material that", "docs/research/third-party.toml records."]
-    return "\n".join(o) + "\n"
+        o += [
+            "",
+            "No file in this crate carries material from another project that baud's",
+            "record of third-party files lists.",
+        ]
+    return "\n".join(o) + "\n", found
 
 
 def check(size, verify, write):
@@ -290,14 +379,21 @@ def check(size, verify, write):
                 )
 
     side = load(SIDECAR)
-    entries = [
-        (t["what"], t["paths"], t["notice"], t["status"], t["licence"], t["upstream"], "tree") for t in side["tree"]
-    ]
+    entries = [{**t, "kind": "tree"} for t in side["tree"]]
     entries += [
-        (e["name"], [f"docs/research/sources/{f}" for f in e["files"]], e["notice"], e["status"], e["licence"], "", "source")
-        for g, e in sorted(side["upstream"].items())
+        {**e, "what": e["name"], "paths": [f"{SOURCES}{f}" for f in e["files"]], "upstream": "", "kind": "source"}
+        for _, e in sorted(side["upstream"].items())
     ]
     g = gen_third_party()
+    global g_url, g_keys
+    manifest = load(SOURCES + "MANIFEST.toml")["sources"]
+    g_url = {s["file"]: s["url"] for s in manifest.values() if s.get("file")}
+    g_keys = {k for k in manifest if "-" in k}
+    if len(g_keys) < 100:
+        errs.append(f"only {len(g_keys)} hyphenated source keys in MANIFEST.toml: the key check has stopped working")
+    repo = ws["workspace"]["package"]["repository"]
+    # Directories of the repository no crate is packaged from.
+    tops = tuple(f"{d}/" for d in ("docs", "scripts", ".github", "nix", "packaging", *ws["workspace"]["members"]))
     for n in sorted(want):
         d, _ = mem[n]
         files, err = listed(n)
@@ -315,7 +411,12 @@ def check(size, verify, write):
                 errs.append(f"{n}: {f} links to {r}, which is not a file in the repository")
             src.setdefault(r, f)
             src.setdefault(os.path.normpath(os.path.join(d, f)), f)
-        want_notice = notice(n, entries, src, g)
+        want_notice, found = notice(n, entries, src, g, repo, tops)
+        for status, what, f in found:
+            line = f"{n}: NOTICE says {f!r} ({what[:50]}...)"
+            # A row awaiting the owner is refused at release anyway, and is
+            # reworded when it is settled.
+            (awaiting if status in UNSETTLED else errs).append(line)
         path = os.path.join(ROOT, d, "NOTICE")
         if write:
             with open(path, "w", encoding="utf-8") as fh:
@@ -328,8 +429,8 @@ def check(size, verify, write):
             errs.append(f"{n}: {done}NOTICE is not in the package: add /NOTICE to its include")
         elif open(path, encoding="utf-8").read() != want_notice:
             errs.append(f"{n}: NOTICE is not what its files' rows give: run scripts/check-publish.py --write-notices")
-        for what, paths, notice_at, status, _, _, _ in entries:
-            what = what[:50]
+        for e in entries:
+            what, paths, notice_at, status = e["what"][:50], e["paths"], e["notice"], e["status"]
             hit = [p for p in paths if p in src]
             if hit and status in UNSETTLED:
                 awaiting.append(f"{n}: ships {', '.join(src[p] for p in hit)} ({what}...), status {status}")

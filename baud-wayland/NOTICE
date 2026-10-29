@@ -3,12 +3,12 @@ Third-party material in the baud-wayland crate
 The licence of baud-wayland is LICENSE. This file lists the material from
 other projects that files in this crate carry: for each, the files by their
 paths in this crate, the licence it keeps, and where the notice that licence
-asks for is. It is generated from docs/research/third-party.toml in baud's
-repository, whose THIRD_PARTY.md lists every such file in the repository.
+asks for is. It is generated from baud's record of third-party files, in its
+repository at https://github.com/i-am-logger/baud, whose THIRD_PARTY.md
+lists every such file there.
 
-baud-wayland's build reads the Wayland and wayland-protocols XMLs into its
-interface tables, through links in baud-wayland/protocols/ to the copies in
-docs/research/sources/, which the published crate carries as the files
+The Wayland and wayland-protocols XML files, carried unmodified, which the
+build reads into its interface tables
   Files:   protocols/wayland.xml, protocols/wp-commit-timing-v1.xml,
            protocols/wp-cursor-shape-v1.xml, protocols/wp-fifo-v1.xml,
            protocols/wp-fractional-scale-v1.xml,
@@ -20,16 +20,18 @@ docs/research/sources/, which the published crate carries as the files
            protocols/wp-xdg-decoration-unstable-v1.xml,
            protocols/wp-xdg-shell.xml, protocols/xdg-activation-v1.xml,
            protocols/xdg-system-bell-v1.xml
+  Holder:  The holders each file's copyright block names (Kristian Høgsberg,
+           Intel, Collabora, Red Hat, Valve and others)
   Licence: MIT
   Notice:  in each file
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://gitlab.freedesktop.org/wayland/wayland-protocols
 
-baud-wayland's build reads text-input-unstable-v3 the same way, through a
-link to its copy in docs/research/sources/; its copyright block grants the
-historical permission with the right to sell (Intel, Jan Arne Petersen, Red
-Hat, Purism), not MIT
+wayland-protocols' text-input-unstable-v3 XML, carried unmodified and read
+the same way; its copyright block grants the historical permission with the
+right to sell, not MIT
   Files:   protocols/wp-text-input-unstable-v3.xml
+  Holder:  Intel, Jan Arne Petersen, Red Hat and Purism
   Licence: HPND-sell-variant
   Notice:  in each file
   Status:  kept: redistributable, and its notice is satisfied

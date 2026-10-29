@@ -3,27 +3,27 @@ Third-party material in the baud crate
 The licence of baud is LICENSE. This file lists the material from other
 projects that files in this crate carry: for each, the files by their paths
 in this crate, the licence it keeps, and where the notice that licence asks
-for is. It is generated from docs/research/third-party.toml in baud's
-repository, whose THIRD_PARTY.md lists every such file in the repository.
+for is. It is generated from baud's record of third-party files, in its
+repository at https://github.com/i-am-logger/baud, whose THIRD_PARTY.md
+lists every such file there.
 
-STIX Two Math 2.13 b171, embedded in the app, unmodified
+STIX Two Math 2.13 b171, a math font embedded in the app, unmodified
   Files:   fonts/stix-two-math/STIXTwoMath-Regular.otf
+  Holder:  The STIX Fonts Project Authors
   Licence: OFL-1.1
   Notice:  fonts/stix-two-math/OFL.txt
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://github.com/stipub/stixfonts/tree/v2.13b171
 
-Symbols Nerd Font Mono 3.5.1, embedded in the app, unmodified; its icon sets
-are under their own licences, which README.md lists and icon-licences/
-holds, copied from nerd-fonts v3.5.1 src/glyphs/ and, for the five MIT sets
-it ships no licence file for (Devicons, extraglyphs, Font Awesome Extension,
-Seti, Power Symbols IEC), from each set's own project (its SOURCE gives each
-URL and sha256): OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons
-packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT
-(Octicons and the rest) and Unlicense (Font Logos)
+Symbols Nerd Font Mono 3.5.1, an icon font embedded in the app, unmodified.
+Its icon sets keep their own licences, which its README.md lists and its
+icon-licences directory holds: OFL-1.1 (Pomicons, Weather Icons, Font
+Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0
+(Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)
   Files:   fonts/symbols-nerd-font/README.md,
            fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf,
            fonts/symbols-nerd-font/icon-licences/SOURCE
+  Holder:  Ryan L McIntyre (Nerd Fonts), and each icon set's authors
   Licence: MIT AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0 AND Unlicense
   Notice:  fonts/symbols-nerd-font/LICENSE
   Status:  kept: redistributable, and its notice is satisfied
@@ -42,22 +42,21 @@ its repository's licence; FONTLOG.txt records it as open
   From:    https://github.com/JetBrains/JetBrainsMono and
            https://github.com/microsoft/cascadia-code
 
-The app compiles in ncurses' xterm-256color terminfo entry (infocmp output)
-to read the flash's padding
+ncurses' xterm-256color terminfo entry, compiled into the app, which reads
+the visual bell's padding from it
   Files:   src/bell.rs, terminfo/xterm-256color.ti
+  Holder:  Thomas E. Dickey and the Free Software Foundation (ncurses)
   Licence: X11
   Notice:  LICENSES/ncurses-COPYING.txt
   Status:  kept: redistributable, and its notice is satisfied
-  From:    baud's repository,
-           docs/research/sources/terminfo/xterm-256color.ti
+  From:    https://invisible-island.net/ncurses/
 
-The readline click in readline.rs: boundary(), the column a click names, is
-xterm's eventColBetween formula, and point_move(), the cursor keys it sends,
-is ReadLineMovePoint's count over rowOnCurrentLine's wrapped rows (button.c,
-xterm patch #411), re-expressed; xterm's documentation gives neither. The
-paste's body() and quoted() follow the documented ctlseqs text, not this
-code
+The readline click in readline.rs: the column a click names is xterm's
+eventColBetween formula, and the cursor keys it sends are
+ReadLineMovePoint's count over wrapped rows (button.c, xterm patch #411),
+re-expressed
   Files:   src/readline.rs
+  Holder:  Thomas E. Dickey (xterm)
   Licence: X11
   Notice:  LICENSES/xterm-COPYING.txt
   Status:  kept: redistributable, and its notice is satisfied
