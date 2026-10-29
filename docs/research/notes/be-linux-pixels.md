@@ -3,8 +3,10 @@
 The Linux app's frames, taken from a real compositor, against the same
 frames drawn by the CPU renderer on this Mac; the Linux clipboard
 against a compositor's; and, in section 6, a pointer moved over the app
-on two compositors (2026-10-29). Taken 2026-10-26 at `ef519585` plus this note's
-commits, by `scripts/linux-pixels.sh`, which any later run repeats. The rule is that text looks the same on both systems (2026-10-01).
+on two compositors (2026-10-29). Sections 1-5 were taken 2026-10-26 at
+`ef519585` plus this note's commits, by `scripts/linux-pixels.sh`, which
+any later run repeats. The rule is that text looks the same on both
+systems (2026-10-01).
 
 ## 1. What was compared
 
@@ -214,8 +216,8 @@ one for each fix below and two more for the second:
   `CSI < 0;11;3 M`: no Ctrl, no Alt, and Shift's click reported where it
   selects. It is a race: the Alt drag, whose Alt is let go after the
   release, failed on the first run of the base and passed on later ones,
-  as the modifier and the click fell in one read or two. On a desktop that is Ctrl let go just after a click, while the
-  app is busy drawing. wl_keyboard.modifiers "notifies clients that the
+  as the modifier and the click fell in one read or two. On a desktop
+  that is Ctrl let go just after a click, while the app is busy drawing. wl_keyboard.modifiers "notifies clients that the
   modifier and/or group state has changed" (`[[source: wayland]]`), at
   its place in the stream; each pointer event now carries the modifiers
   held when its frame came, and `a_pointer_event_carries_the_modifiers_of_its_moment`
@@ -232,7 +234,10 @@ one for each fix below and two more for the second:
 **Checks of the harness.** `hand2` mapped to `default` failed the trixie
 arm's shape check and passed bookworm's, which draws the arrow for both;
 each pointer event given the modifiers held at `next_event` failed the
-unit test.
+unit test. The history drawn under the wheel and the thumb is held only
+by the harness's three pixel checks: the Linux driver has no source or
+unit guard like the one `app.rs` has for its `.render_at(` call, so an
+edit back to `render` would be caught only by a compositor run.
 
 **Found and left.** After a key hides the pointer, the program's next
 `OSC 22` is set twice, the same shape in two requests, harmless: the read
