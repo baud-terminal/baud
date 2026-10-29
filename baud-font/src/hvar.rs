@@ -1,6 +1,6 @@
 //! `HVAR`: how each glyph's advance moves across the variation space. Step
-//! 3 of note Z. The format is `[[source: ms-opentype-hvar]]`; the reader is
-//! HarfBuzz 12.3.0's (`[[source: harfbuzz-12-3-0-hvar]]`): a table whose
+//! 3 of note Z. The format is `[[source: ms-opentype-hvar]]`; it accepts what
+//! HarfBuzz 12.3.0 accepts (`[[source: harfbuzz-12-3-0-hvar]]`): a table whose
 //! major version is not 1, or any of whose subtables -- the store, the
 //! advance map, the side-bearing maps -- does not check out, is absent, and
 //! the face then takes its advances from `gvar`'s phantom points. A
