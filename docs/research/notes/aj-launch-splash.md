@@ -2226,7 +2226,8 @@ writes the logo and trailing edge erases it, never whole at once
 ([[source: aj-obs-plasma-strip-b]]).
 
 **Not fixed.** The CPU path's frames cost what they did (26 ms at 2x,
-84 ms at 6K), and now more of them carry a plasma. The first plasma's
+84 ms at 6K), and now more of them carry a plasma. (Section 14 brings
+the 2x frames within 60 Hz.) The first plasma's
 ions stop on the frame the second lights (0.30 s) rather than fading out.
 The seen-plasma figures are from the CPU path, which the pixel oracle
 holds the GPU arms to; the GPU cross-check ran at 120x10 cells and counts
@@ -2302,9 +2303,11 @@ animated before, and the gap on a real launch, are not measured.
 
 ## 14. The plasma within a frame at 2x on the CPU path (2026-10-29)
 
-**What the user sees.** On Linux, and on macOS under `BAUD_GPU=0`, the
-launch logo's plasma no longer hitches in a 2x window: every frame of it
-is drawn within a 60 Hz frame. It looks and moves exactly as before,
+**What the user sees.** On the CPU path, which the Linux driver draws
+with and macOS under `BAUD_GPU=0`, every frame of the launch logo's
+plasma in a 2x window is drawn within a 60 Hz frame on the machine
+measured (an Apple M5 Max under macOS; the CPU path on a Linux box is
+unmeasured). It looks and moves exactly as before,
 because every frame's pixels are the same at every age. The request,
 verbatim (2026-10-29): "ok so don't slow the plasma, it should be as
 before".

@@ -369,7 +369,8 @@ impl<'p> Target<'p> {
     /// **Paints an effect's records over the pixels**, each clipped to the
     /// buffer and the rows of `band`, as the GPU's viewport and its effect
     /// pipeline draw them: a band's pixel at the effect's light at the
-    /// pixel's centre ([`Vfx::light`]), a particle's at its shape where the
+    /// pixel's centre ([`Vfx::light`]'s bits, through [`Vfx::shade`], which
+    /// leaves out only pixels whose light is zero), a particle's at its shape where the
     /// pixel sits in its record, -1 to 1 on each axis ([`Vfx::particle`]),
     /// each times the record's alpha -- which carries a particle's glow and
     /// a repeat pass's flash cap -- in the record's colour, in order, so a
