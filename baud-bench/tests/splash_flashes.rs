@@ -178,8 +178,9 @@ fn luminance(p: u32) -> f32 {
 /// every frame from two 60 Hz frames before the end is within 0.10 of it
 /// at every pixel, and a frame in the last 60 Hz interval differs by at
 /// most a quarter of what the sweep's end does -- on the four grounds, at
-/// 60 and 120 frames a second -- so the remainder fades rather than being
-/// cut, and the splash's going is no transition by WCAG's definition even
+/// 60 and 120 frames a second -- so what is left after the sweep only
+/// fades (a cut at the sweep's end itself is held by baud-render's
+/// `the_plasma_is_full_strength_and_its_remainder_fades_out`), and the splash's going is no transition by WCAG's definition even
 /// after a dropped frame. The control: a twentieth of a second in, some
 /// pixel is not within 0.10.
 #[test]

@@ -186,7 +186,7 @@ pub fn placed(r: Rect, at: Pt, scale: f32) -> Rect {
     }
 }
 
-/// **The ignition the vanish is**: from the emitter's left, on its centre
+/// **The ignition the plasma is**: from the emitter's left, on its centre
 /// line, to the block, its unit the block's height.
 pub fn ignition(at: Pt, scale: f32) -> Ignition {
     let e = placed(EMITTER, at, scale);

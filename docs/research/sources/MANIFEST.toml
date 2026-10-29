@@ -21261,8 +21261,8 @@ year   = 2026
 venue  = "local capture or measurement"
 url    = "set_splash, sync_styles and the instance arm's Gpu::draw timed per frame headless, baud-render's CPU path read per frame, and baud_bench::flash::Census over the splash's whole life, 2026-10-29, from c98a05ab and with the change applied"
 file   = "aj-observed/snappy-measure.txt"
-sha256 = "ad5e0a209b6726b5105d54f9702fa97465eabaf61adb7f4e2dc50557dc1f0d6a"
-bytes  = 9718
+sha256 = "2e7545beaaf8f8de766b2cfaec9e5b269f367193a1847a35ea3062032ee637fa"
+bytes  = 9825
 status = "retrieved"
 group  = "AJ"
 

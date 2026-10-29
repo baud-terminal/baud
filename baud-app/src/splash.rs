@@ -665,9 +665,10 @@ mod tests {
     }
 
     /// **Every frame the logo owes moves**: from its first frame to the one
-    /// that clears it, none is drawn the same as the frame before, so it
-    /// never stands still while it holds the frame loop. At 60 and 120
-    /// frames a second.
+    /// that clears it, none repeats the frame before bit for bit -- a
+    /// bit-identity check, not a visible-change threshold: the last frames,
+    /// 0.43-0.50 s, change by under 0.025 of relative luminance as the
+    /// remainder fades. At 60 and 120 frames a second.
     #[test]
     fn every_frame_the_splash_owes_moves() {
         for rate in [60.0, 120.0] {
