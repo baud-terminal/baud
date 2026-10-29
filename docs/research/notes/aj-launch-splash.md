@@ -2255,7 +2255,7 @@ clock and curve, the second lit 0.27 s in with a seed of its own
 (`each_pass_is_kittys_plasma_at_kittys_pace`, red on the slowed build).
 The light coming in is what it was at 24540262 on every ground
 (`the_plasma_is_seen_carrying_the_logo_in_and_out`: 13.54, 59.54, 11.32,
-12.64 pt²·s at 1x), and going out is 0.76-0.79 of it, where before the
+12.64 pt²·s at 1x), and going out is 0.76-0.79 of it at 60 Hz, where before the
 logo left in no plasma. What is left of the second plasma fades from
 0.54 s to 0.62 s, 0.35 s after it lights and before its own end, as
 the single plasma's remainder faded before section 12.
@@ -2268,11 +2268,15 @@ four grounds; both verdicts pass. Strips:
 **Fully rendered.** AppKit animates a window as `orderFront` shows it,
 "based on its inference of a window's type", and posts no notification
 when that ends ([[source: apple-nswindow-animationbehavior]],
-[[source: apple-nswindow]]); the occlusion notification marks only the
-window becoming visible, the animation's start. Setting the window's
+[[source: apple-nswindow]]); the occlusion state says only that "at
+least part of the window is visible"
+([[source: apple-nswindow-occlusionstate]]), which an opening window
+already is. Setting the window's
 `animationBehavior` to none, which Apple suggests when "that animation
 interferes with an animation that your application implements"
-([[source: apple-nswindow-animationbehavior-none]]), makes on screen whole
+([[source: apple-nswindow-animationbehavior]]; the value itself: "No
+automatic animation used",
+[[source: apple-nswindow-animationbehavior-none]]), makes on screen whole
 on screen, so the gate of section 10 now means fully rendered: the first
 frame on the layer, the plasma's pipeline built on the tick before (never
 the first tick), `isVisible` and occlusion `.visible`; the first plasma
