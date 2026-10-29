@@ -4,7 +4,8 @@
 (section 9); its start and its turn 2026-10-29 (section 10); the sweep,
 gone in half a second, 2026-10-29 (section 11); a plasma carrying it in
 and a second carrying it out, 2026-10-29 (section 12); both at kitty's
-pace again, after a window that opens whole, 2026-10-29 (section 13). The
+pace again, after a window that opens whole, 2026-10-29 (section 13); the
+plasma within a frame at 2x on the CPU path, 2026-10-29 (section 14). The
 questions as built:**
 
 - **1. When.** Nothing of it until the window is whole on screen
@@ -2298,3 +2299,55 @@ first frame` is the window's time on screen before the logo.
 
 **Unmeasured.** No window was opened for this: whether the window
 animated before, and the gap on a real launch, are not measured.
+
+## 14. The plasma within a frame at 2x on the CPU path (2026-10-29)
+
+**What the user sees.** On Linux, and on macOS under `BAUD_GPU=0`, the
+launch logo's plasma no longer hitches in a 2x window: every frame of it
+is drawn within a 60 Hz frame. It looks and moves exactly as before,
+because every frame's pixels are the same at every age. The request,
+verbatim (2026-10-29): "ok so don't slow the plasma, it should be as
+before".
+
+**Where the time went** ([[source: aj-obs-cpu-measure]]). The CPU path
+drew each band record at the plasma's light at every pixel. At the
+splash's largest frames that is 669,060 pixels at 2x and 2,158,300 at 6K.
+Each pixel ran 3.39 exponentials and sines on average, through `det`'s
+`f64` series, and measured the quad. The light and the distance were most of the
+frame's samples.
+
+**How it is built.** The compositor draws a band through `Vfx::shade`,
+and the plasma's form, `plasma::shade`, gives `plasma::light`'s bits at
+every pixel while computing each value once where pixels share it: once
+a frame, a column (the braid's sines) or a row (the distance's terms).
+The blend keeps its last result.
+
+**Measured**, with incremental damage, rotated rounds, base against now
+(worst frame, then frames over the budget):
+
+| Size and rate | Worst frame, ms | Over the budget |
+|---|---|---|
+| 200x50 at 2x, 60 Hz | 25.9-29.7 to 8.8-9.8 | 5-6 of 38 to none |
+| 200x50 at 2x, 120 Hz | 26.0-31.8 to 8.8-9.5 | 33-52 of 75 to 1-4 |
+| 6120x3330 px, 60 Hz | 82.3-97.5 to 27.3-33.5 | all 38 to 8-12 |
+| 64x20 at 1x, 60 Hz | 0.76-0.79 to 0.42-0.46 | none |
+
+With `Damage::Full`, as sections 11 and 12 measured: 25.8-26.0 to
+8.7-8.9 ms at 2x, 82.0-86.8 to 27.1-31.3 at 6K. The light and glass
+pages measure as the dark. The rest of the frame, the bands drawing
+nothing: 1.46 ms at 2x, 3.89 at 6K.
+
+**Held.** Every frame's pixel hash equals the base's on all six arms.
+`shade_is_the_light_at_every_pixel` holds `plasma::shade` to
+`plasma::light` bit for bit, over the splash and cursor trails;
+`a_2x_splash_frame_runs_a_fraction_of_its_pixels_math` holds the largest
+2x frame under 0.65 series and distances a band pixel (2,265,119 series
+over 669,060 pixels on the old path). The light digests and the flash
+census are unchanged.
+
+**Not fixed.** At 2x and 120 Hz, 1-4 frames of 75 stay over 8.3 ms (at
+most 9.5); at 6K, 8-12 of 38 over 16.7 ms (the worst 27-34). With the
+quad's distance replaced by its box's, wrong by construction, a 6K frame
+still takes 21.3 ms: the filaments' exponentials, the blend and the
+pixel walk remain. Drawing the bands on more than one thread is the step
+not taken.

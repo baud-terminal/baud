@@ -515,6 +515,40 @@ impl Vfx {
         }
     }
 
+    /// **The effect's light over a band's pixels**, `xs` by `ys` in whole
+    /// pixels: `each(x, y, light)` for every pixel the light may be above
+    /// zero at, the light [`Vfx::light`] at the pixel's centre, bit for
+    /// bit. A pixel it is zero at may be left out. The CPU compositor draws
+    /// a band by it (`Target::effect`); the plasma's has a form of its own
+    /// ([`plasma::shade`]), every other effect is the light at each pixel.
+    pub fn shade(
+        &self,
+        xs: core::ops::Range<usize>,
+        ys: core::ops::Range<usize>,
+        mut each: impl FnMut(usize, usize, f32),
+    ) {
+        match self.effect {
+            Effect::Plasma => plasma::shade(self, xs, ys, each),
+            _ => {
+                // A pixel's centre, as the compositor reads it.
+                let centre = |v: usize| f32::from(u16::try_from(v).unwrap_or(u16::MAX)) + 0.5;
+                for y in ys {
+                    let cy = centre(y);
+                    for x in xs.clone() {
+                        each(
+                            x,
+                            y,
+                            self.light(Pt {
+                                x: centre(x),
+                                y: cy,
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// **A particle's opacity at `uv`**, -1 to 1 on each axis of its
     /// record, before the record's alpha: the ice's hexagonal shard, the
     /// ufo's exhaust ring, every other effect's soft disc.
@@ -554,6 +588,8 @@ impl Vfx {
 /// non-zero winding rule: `fx_distance` in the shader, which an effect
 /// measures its reach by.
 pub fn distance(p: Pt, c: &Corners) -> f32 {
+    #[cfg(test)]
+    crate::det::tally::count(&crate::det::tally::DISTANCES);
     let q = c.0;
     let (mut d, mut winding) = (f32::INFINITY, 0i32);
     for i in 0..4 {

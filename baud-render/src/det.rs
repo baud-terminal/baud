@@ -116,6 +116,35 @@ impl Det for f32 {
     }
 }
 
+/// **How much of the trails' math a test's thread has run**: every
+/// exponential and every sine and cosine ([`SERIES`]), and every distance to
+/// a quad the plasma measured ([`DISTANCES`]) -- the work a frame's light
+/// costs, counted where a wall clock would read the machine's load. Tests
+/// only.
+#[cfg(test)]
+pub(crate) mod tally {
+    use std::cell::Cell;
+    use std::thread::LocalKey;
+
+    std::thread_local! {
+        pub(crate) static SERIES: Cell<u64> = const { Cell::new(0) };
+        pub(crate) static DISTANCES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(crate) fn count(c: &'static LocalKey<Cell<u64>>) {
+        c.with(|v| v.set(v.get() + 1));
+    }
+
+    /// What `f` ran: its series and its distances.
+    pub(crate) fn of(f: impl FnOnce()) -> (u64, u64) {
+        let read = || (SERIES.with(Cell::get), DISTANCES.with(Cell::get));
+        let before = read();
+        f();
+        let after = read();
+        (after.0 - before.0, after.1 - before.1)
+    }
+}
+
 /// ln 2 split as fdlibm splits it: a high part whose product with any
 /// exponent below 2^20 is exact, and the rest.
 const LN2_HI: f64 = 0.6931471803691238;
@@ -177,6 +206,8 @@ fn scale(y: f64, k: f64) -> f64 {
 /// e^x: `x = k ln 2 + r` with `|r| <= ln 2 / 2`, then e^r by its Taylor
 /// series to the eleventh power, whose remainder is below 1e-14 of it.
 fn exp(x: f64) -> f64 {
+    #[cfg(test)]
+    tally::count(&tally::SERIES);
     if x.is_nan() {
         return x;
     }
@@ -281,6 +312,8 @@ fn log2(x: f64) -> f64 {
 /// pi / 2, then the sine's series to the 15th power and the cosine's to
 /// the 16th, each remainder below 1e-14, and the quadrant's swap and signs.
 fn sin_cos(x: f64) -> (f64, f64) {
+    #[cfg(test)]
+    tally::count(&tally::SERIES);
     if !x.is_finite() {
         return (f64::NAN, f64::NAN);
     }

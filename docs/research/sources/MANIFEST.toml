@@ -21422,6 +21422,17 @@ bytes  = 4521
 status = "retrieved"
 group  = "AJ"
 
+[sources.aj-obs-cpu-measure]
+key    = "aj-obs-cpu-measure"
+title  = "The launch splash's frames on the CPU path, before and after its plasma computes each value once: the worst and median frame and the frames over budget at four sizes and rates and three grounds, the frames' pixels hashed, where the time went, the work a frame counted, and ceiling arms"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's splash bench, base and change built from git archive at one path, rotated rounds, sample and baud-render's own counts, 2026-10-29"
+file   = "aj-observed/cpu-measure.txt"
+sha256 = "e738fa42e5f90b0d09053369fecf139f3eaeabc49365525aace68e27e7d26528"
+bytes  = 6702
+
 [sources.aj-obs-kitty-strip-dark]
 key    = "aj-obs-kitty-strip-dark"
 title  = "The splash at kitty's pace: a plasma carries the logo in, whole at 0.27 s, a second carries it out, the block last, gone 0.62 s, dark theme"

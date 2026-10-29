@@ -156,6 +156,506 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
     })
 }
 
+/// **The plasma's light over a band's pixels**, [`Vfx::shade`]'s: [`light`]
+/// at each pixel centre, bit for bit, at a fraction of its math. Every
+/// value is the same function of the same numbers; what changes is how
+/// often each is computed:
+///
+/// * **What a frame shares is computed once**: the parameters, the seven
+///   hashes, the filaments' widths and phases, each quad edge's vector and
+///   length ([`Quad`]).
+/// * **What a column shares is computed once a column**: the braid's three
+///   filaments and their knots are functions of `s`, the distance behind the
+///   head along the axis, alone -- nine sines -- and are kept a column by
+///   the bits of `s`'s numerator, so a pixel whose numerator is another's
+///   reads its waves and any other computes its own. Along a level axis,
+///   the splash's, every pixel of a column shares them, and every pixel of
+///   a row shares the offset across the axis, kept the same way.
+/// * **What the distance gives is kept by the distance's bits**, the last
+///   of the row and the last of the column -- the distance in cells, the
+///   tube's fill and the sheath's exponential: beside a level edge the
+///   distance is one along a row, or down a column. At distance zero,
+///   inside the quad, the exponential is 1, the series' exact value there.
+/// * **A division is taken only where its quotient is not already known**:
+///   a projection onto an edge at or before its start is 0 and at or past
+///   its end 1, a ramp's step below it 0 and past it 1, as a correctly
+///   rounded quotient gives them.
+/// * **A pixel deep inside a convex quad is not measured**: at least a
+///   twentieth of a cell and a pixel inside each edge's line, it is
+///   farther than 0.03 cells inside the quad, where every term the distance
+///   enters is exactly what it is at any such depth -- the tube whole, the
+///   sheath's exponential 1, the braid's edge fade 1.
+/// * **A pixel the reach cannot meet is not visited**: each row runs only
+///   over the columns within the reach and two pixels of the quad's
+///   bounding box, a pixel wider, and each pixel is tested against the box
+///   again; farther from the box is farther from the quad, which lies
+///   inside it, so its light is zero.
+/// * **A filament's term is not computed where it is zero**: past 10.3
+///   widths across, `x * x` is past 105 and the exponential under e^-105,
+///   which is under half of `f32`'s least subnormal, 2^-149, and rounds to
+///   zero; adding zero leaves the sum.
+///
+/// `shade_is_the_light_at_every_pixel` holds it to [`light`]'s bits.
+pub fn shade(
+    vfx: &Vfx,
+    xs: core::ops::Range<usize>,
+    ys: core::ops::Range<usize>,
+    mut each: impl FnMut(usize, usize, f32),
+) {
+    let Some(frame) = Frame::of(vfx) else {
+        return;
+    };
+    // A pixel's centre, as the compositor reads it.
+    let centre = |v: usize| f32::from(u16::try_from(v).unwrap_or(u16::MAX)) + 0.5;
+    let mut start = xs.start;
+    while start < xs.end {
+        let cols = start..(start + COLUMNS).min(xs.end);
+        let mut braids = [None::<Braid>; COLUMNS];
+        let mut sheaths = [None::<Kept>; COLUMNS];
+        for y in ys.clone() {
+            let cy = centre(y);
+            let Some((lo, hi)) = frame.reach(cy) else {
+                continue;
+            };
+            // The columns whose centres lie from `lo` to `hi`, a pixel wide
+            // of each: the centre of column `x` is `x + 0.5`.
+            let column = |v: f32| usize::try_from(v.max(0.0) as i64).unwrap_or(usize::MAX);
+            let span =
+                column(lo - 1.5).max(cols.start)..column(hi + 0.5).saturating_add(1).min(cols.end);
+            let mut row = Row::default();
+            let deep = frame.deep(cy);
+            for x in span {
+                let i = x - cols.start;
+                let p = Pt {
+                    x: centre(x),
+                    y: cy,
+                };
+                let depth = match deep.is_some_and(|(lo, hi)| p.x >= lo && p.x <= hi) {
+                    true => Depth::Deep,
+                    false => Depth::Near,
+                };
+                if let Some(v) = frame.light(p, depth, &mut braids[i], &mut sheaths[i], &mut row) {
+                    each(x, y, v);
+                }
+            }
+        }
+        start = cols.end;
+    }
+}
+
+/// Columns [`shade`] keeps the braids and distances of at once, on the
+/// stack.
+const COLUMNS: usize = 128;
+
+/// **A quad, measured from many pixels**: its corners and each edge's
+/// vector and squared length, which [`effect::distance`] recomputes a pixel.
+struct Quad {
+    corners: [Pt; 4],
+    edges: [Pt; 4],
+    lengths: [f32; 4],
+}
+
+impl Quad {
+    fn of(c: &crate::trail::Corners) -> Quad {
+        let q = c.0;
+        let edges = core::array::from_fn(|i| {
+            let (a, b) = (q[i], q[(i + 1) % 4]);
+            Pt {
+                x: b.x - a.x,
+                y: b.y - a.y,
+            }
+        });
+        let lengths = core::array::from_fn(|i| {
+            let e: Pt = edges[i];
+            (e.x * e.x + e.y * e.y).max(1e-6)
+        });
+        Quad {
+            corners: q,
+            edges,
+            lengths,
+        }
+    }
+
+    /// **The quad's edges as lines, if it is convex**: each edge's inward
+    /// unit normal and offset, every turn between edges the same way and
+    /// none of them straight or folded; none otherwise.
+    fn lines(&self) -> Option<[(Pt, f32); 4]> {
+        let e = self.edges;
+        let turns: [f32; 4] = core::array::from_fn(|i| {
+            let (a, b) = (e[i], e[(i + 1) % 4]);
+            (a.x * b.y - a.y * b.x) / (self.lengths[i] * self.lengths[(i + 1) % 4]).sqrt()
+        });
+        let sense = if turns.iter().all(|&t| t > 1e-3) {
+            1.0
+        } else if turns.iter().all(|&t| t < -1e-3) {
+            -1.0
+        } else {
+            return None;
+        };
+        Some(core::array::from_fn(|i| {
+            let len = self.lengths[i].sqrt();
+            let n = Pt {
+                x: -sense * e[i].y / len,
+                y: sense * e[i].x / len,
+            };
+            let a = self.corners[i];
+            (n, n.x * a.x + n.y * a.y)
+        }))
+    }
+
+    /// [`effect::distance`] to the quad, bit for bit: the least squared
+    /// distance to an edge, then its root -- a correctly rounded square
+    /// root never decreases, so the root of the least is the least of the
+    /// roots.
+    fn distance(&self, p: Pt) -> f32 {
+        #[cfg(test)]
+        crate::det::tally::count(&crate::det::tally::DISTANCES);
+        let (mut d2, mut winding) = (f32::INFINITY, 0i32);
+        for i in 0..4 {
+            let (a, b) = (self.corners[i], self.corners[(i + 1) % 4]);
+            let (bx, by) = (self.edges[i].x, self.edges[i].y);
+            let (px, py) = (p.x - a.x, p.y - a.y);
+            // `(dot / length).clamp(0, 1)`, dividing only between the ends:
+            // a correctly rounded quotient is at most 0 for a dot at most 0
+            // and at least 1 for a dot at least the length. A zero's sign
+            // leaves `dx * dx + dy * dy` as it is.
+            let dot = px * bx + py * by;
+            let h = if dot <= 0.0 {
+                0.0
+            } else if dot >= self.lengths[i] {
+                1.0
+            } else {
+                dot / self.lengths[i]
+            };
+            let (dx, dy) = (px - bx * h, py - by * h);
+            d2 = d2.min(dx * dx + dy * dy);
+            let side = bx * py - by * px;
+            if a.y <= p.y {
+                if b.y > p.y && side > 0.0 {
+                    winding += 1;
+                }
+            } else if b.y <= p.y && side < 0.0 {
+                winding -= 1;
+            }
+        }
+        let d = d2.sqrt();
+        if winding != 0 { -d } else { d }
+    }
+}
+
+/// **A float's bits**, what [`shade`] keeps a value by: the same bits give
+/// the same value through the same arithmetic.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Bits(u32);
+
+impl Bits {
+    fn of(v: f32) -> Bits {
+        Bits(v.to_bits())
+    }
+}
+
+/// Whether a pixel is deep inside the quad ([`Frame::deep`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Depth {
+    Deep,
+    Near,
+}
+
+/// A column's braid: its three filaments' offsets across the axis and
+/// their knots, and the braid's fade-in behind the head, at the `s` whose
+/// bits are `key`.
+#[derive(Clone, Copy)]
+struct Braid {
+    key: Bits,
+    along: [f32; 3],
+    knot: [f32; 3],
+    gate: f32,
+}
+
+/// What the distance gives a pixel at the distance whose bits are `key`:
+/// the distance in cells, the tube's fill and the sheath's exponential.
+#[derive(Clone, Copy)]
+struct Kept {
+    key: Bits,
+    d0: f32,
+    inside: f32,
+    sheath: f32,
+}
+
+/// What a row keeps from its last pixel: its distance's terms, and the
+/// braid's offset across the axis by its numerator's bits.
+#[derive(Clone, Copy, Default)]
+struct Row {
+    near: Option<Kept>,
+    across: Option<(Bits, f32)>,
+}
+
+/// **What every pixel of a frame's plasma shares**, as [`parts`] computes
+/// it at each one.
+struct Frame {
+    hole: crate::trail::Rect,
+    quad: Quad,
+    /// A convex quad's edges as lines: the inward unit normal and its
+    /// offset, `n . p - offset` the distance inside; none for a quad that is
+    /// not convex.
+    lines: Option<[(Pt, f32); 4]>,
+    /// How far inside every line a pixel is deep, pixels.
+    depth: f32,
+    /// The quad's bounding box, and the square of the reach and two pixels.
+    bounds: crate::trail::Rect,
+    far: f32,
+    unit: f32,
+    env: f32,
+    /// `-DECAY (1 + 1.5 k)`, the sheath's exponent a cell.
+    rate: f32,
+    q: [f32; effect::PARAMS],
+    centre: Pt,
+    amp: f32,
+    ph: [f32; 3],
+    ph2: [f32; 3],
+    fa: [f32; 3],
+    fa2: [f32; 3],
+    kn: f32,
+    thirds: [f32; 3],
+    knot_age: f32,
+    wid: [f32; 3],
+    /// 10.3 filament widths: farther than this across from a filament its
+    /// term is zero ([`shade`]).
+    gone: [f32; 3],
+}
+
+/// MSL's `smoothstep` over a rising ramp, `e1 > e0`, dividing only inside
+/// it: below or at `e0` the quotient is at most 0 and the step 0, at or past
+/// `e1` at least 1 and the step 1, as [`smoothstep`] gives them.
+fn ramp(e0: f32, e1: f32, x: f32) -> f32 {
+    let (rise, span) = (x - e0, e1 - e0);
+    if rise <= 0.0 {
+        0.0
+    } else if rise >= span {
+        1.0
+    } else {
+        smoothstep(e0, e1, x)
+    }
+}
+
+impl Frame {
+    /// The frame's constants, or none once the body is out.
+    fn of(vfx: &Vfx) -> Option<Frame> {
+        let (e, f) = (vfx.emitter, vfx.ignition);
+        let k = f.age / LIFE;
+        if k >= 1.0 {
+            return None;
+        }
+        let c = f.unit;
+        let q = params(vfx);
+        let salt = f.seed.0 ^ 0xA511_E9B3;
+        let hashed = |n: u32| Hash(salt.wrapping_add(n)).next().unit();
+        let xs = e.corners.0.map(|p| p.x);
+        let ys = e.corners.0.map(|p| p.y);
+        let lo = |v: [f32; 4]| v.iter().copied().fold(f32::INFINITY, f32::min);
+        let hi = |v: [f32; 4]| v.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let far = REACH * c + 2.0;
+        let quad = Quad::of(&e.corners);
+        Some(Frame {
+            hole: e.hole,
+            lines: quad.lines(),
+            depth: 0.05 * c + 1.0,
+            quad,
+            bounds: crate::trail::Rect {
+                left: lo(xs),
+                top: lo(ys),
+                right: hi(xs),
+                bottom: hi(ys),
+            },
+            far: far * far,
+            unit: c,
+            env: (1.0 - k) * (1.0 - k),
+            rate: -q[5] * (1.0 + 1.5 * k),
+            q,
+            centre: Pt {
+                x: 0.5 * (e.hole.left + e.hole.right),
+                y: 0.5 * (e.hole.top + e.hole.bottom),
+            },
+            amp: q[0] * 0.62,
+            ph: [0, 1, 2].map(hashed),
+            ph2: [16, 17, 18].map(hashed),
+            fa: core::array::from_fn(|i| PX_F[i] * f.age),
+            fa2: core::array::from_fn(|i| PX_F2[i] * f.age),
+            kn: hashed(8),
+            // `n as f32 / 3.0` for n of 0, 1 and 2: each whole number is
+            // exact as an `f32`.
+            thirds: [0.0f32, 1.0, 2.0].map(|n| n / 3.0),
+            knot_age: q[7] * f.age,
+            wid: core::array::from_fn(|i| (PX_W[i] * (1.0 - 0.5 * k)).max(1.1 / c)),
+            gone: core::array::from_fn(|i| 10.3 * (PX_W[i] * (1.0 - 0.5 * k)).max(1.1 / c)),
+        })
+    }
+
+    /// **The pixels of the row at `y` the reach may meet**: the centres
+    /// from the bounding box's left less the reach to its right and the
+    /// reach, as [`Frame::light`]'s first test reads it, a pixel wider; none
+    /// for a row past the reach.
+    fn reach(&self, y: f32) -> Option<(f32, f32)> {
+        let b = &self.bounds;
+        let dy = (b.top - y).max(y - b.bottom).max(0.0);
+        let left = self.far - dy * dy;
+        if left < 0.0 {
+            return None;
+        }
+        let half = left.sqrt() + 1.0;
+        Some((b.left - half, b.right + half))
+    }
+
+    /// **The pixels of the row at `y` deep inside the quad**: the centres
+    /// from the first to the last that are at least [`Frame::depth`] inside
+    /// every line, a pixel short at each end, or none.
+    fn deep(&self, y: f32) -> Option<(f32, f32)> {
+        let (mut lo, mut hi) = (f32::NEG_INFINITY, f32::INFINITY);
+        for (n, offset) in self.lines? {
+            // n.x x + n.y y - offset >= depth.
+            let rest = self.depth + offset - n.y * y;
+            if n.x.abs() < 1e-6 {
+                if rest > 0.0 {
+                    return None;
+                }
+            } else if n.x > 0.0 {
+                lo = lo.max(rest / n.x);
+            } else {
+                hi = hi.min(rest / n.x);
+            }
+        }
+        (lo + 1.0 <= hi - 1.0).then_some((lo + 1.0, hi - 1.0))
+    }
+
+    /// The braid at `-along / unit`, as [`parts`] computes it at that `s`,
+    /// kept by `along`'s bits.
+    fn braid(&self, along_axis: f32) -> Braid {
+        let s = -along_axis / self.unit;
+        let amp = self.amp * smoothstep(0.0, 2.0, s);
+        let mut along = [0.0f32; 3];
+        let mut knot = [0.0f32; 3];
+        for i in 0..3 {
+            along[i] = amp
+                * ((1.0 - PX_M[i]) * wave(PX_K[i] * s + self.ph[i] + self.fa[i])
+                    + PX_M[i] * wave(PX_K2[i] * s + self.ph2[i] + self.fa2[i]));
+            knot[i] = 0.72 + 0.28 * wave(0.45 * s + self.kn + self.thirds[i] + self.knot_age);
+        }
+        Braid {
+            key: Bits::of(along_axis),
+            along,
+            knot,
+            gate: smoothstep(0.0, 0.3, s),
+        }
+    }
+
+    /// **The distance's terms at `dist` pixels from the quad**, kept by the
+    /// row and the column: the distance in cells, the tube's fill and the
+    /// sheath's exponential (none is read past the reach), which is 1 at
+    /// distance zero, inside the quad,
+    /// the series' exact value there. Beside a level edge the distance is
+    /// one along a row, or down a column.
+    fn near(&self, dist: f32, column: &mut Option<Kept>, row: &mut Option<Kept>) -> Kept {
+        let key = Bits::of(dist);
+        for kept in [&*row, &*column].into_iter().flatten() {
+            if kept.key == key {
+                return *kept;
+            }
+        }
+        let d0 = dist / self.unit;
+        let z = d0.max(0.0);
+        let kept = Kept {
+            key,
+            d0,
+            inside: 1.0 - ramp(-0.03, 0.03, d0),
+            // Past the reach the pixel draws nothing and the exponential is
+            // never read.
+            sheath: if z == 0.0 || d0 > REACH {
+                1.0
+            } else {
+                (self.rate * z).det_exp()
+            },
+        };
+        *row = Some(kept);
+        *column = Some(kept);
+        kept
+    }
+
+    /// [`light`] at `p`, or none where it is zero, at the `depth` the row
+    /// puts it.
+    fn light(
+        &self,
+        p: Pt,
+        depth: Depth,
+        braid: &mut Option<Braid>,
+        column: &mut Option<Kept>,
+        row: &mut Row,
+    ) -> Option<f32> {
+        let b = &self.bounds;
+        let dx = (b.left - p.x).max(p.x - b.right).max(0.0);
+        let dy = (b.top - p.y).max(p.y - b.bottom).max(0.0);
+        if dx * dx + dy * dy > self.far || self.hole.contains(p) {
+            return None;
+        }
+        let c = self.unit;
+        let q = &self.q;
+        // Deep inside, every term the distance enters is 1: the tube's
+        // `1 - smoothstep(-0.03, 0.03, d0)`, the sheath's e^0 and the
+        // braid's `1 - smoothstep(-0.02, 0.15, d0)`.
+        let (d0, inside, sheath) = if depth == Depth::Deep {
+            (-1.0, 1.0, 1.0)
+        } else {
+            let k = self.near(self.quad.distance(p), column, &mut row.near);
+            if k.d0 > REACH {
+                return None;
+            }
+            (k.d0, k.inside, k.sheath)
+        };
+        let tube = q[3] * inside + q[4] * sheath;
+        let mut fil = 0.0f32;
+        if d0 < 0.15 {
+            let (ax, ay) = (q[1], q[2]);
+            let (rx, ry) = (p.x - self.centre.x, p.y - self.centre.y);
+            // `s` is `-along / c` and `w` is `across / c`, each kept by its
+            // numerator's bits: the braid's by the column, `w` by the row.
+            let (along, across) = (rx * ax + ry * ay, ax * ry - ay * rx);
+            let key = Bits::of(along);
+            let waves = match *braid {
+                Some(kept) if kept.key == key => kept,
+                _ => *braid.insert(self.braid(along)),
+            };
+            let w = match row.across {
+                Some((k, w)) if k == Bits::of(across) => w,
+                _ => {
+                    let w = across / c;
+                    row.across = Some((Bits::of(across), w));
+                    w
+                }
+            };
+            let widths = self.gone.iter().zip(&self.wid);
+            let filaments = PX_G.iter().zip(&waves.along).zip(&waves.knot);
+            for (((&gain, &along), &knot), (&gone, &wid)) in filaments.zip(widths) {
+                let off = w - along;
+                // Past 10.3 widths `x * x` is past 105 whatever the rounding.
+                if off.abs() > gone {
+                    continue;
+                }
+                let x = off / wid;
+                if x * x > 105.0 {
+                    continue;
+                }
+                fil += gain * (-x * x).det_exp() * knot;
+            }
+            let edge = if depth == Depth::Deep {
+                1.0
+            } else {
+                1.0 - ramp(-0.02, 0.15, d0)
+            };
+            fil = fil.clamp(0.0, 1.0) * q[6] * edge * waves.gate;
+        }
+        Some((self.env * (tube + (1.0 - tube) * fil)).clamp(0.0, 1.0))
+    }
+}
+
 /// Ions a unit of path, and the least and most an ignition sheds.
 const IONS_PER_UNIT: f32 = 3.0;
 
@@ -281,9 +781,16 @@ pub fn ions(ignition: &Ignition) -> impl Iterator<Item = Particle> + '_ {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::atlas::Kind;
+    use crate::color::Argb;
+    use crate::det::tally;
     use crate::effect::tests::{CELL, cell, ignition};
     use crate::effect::{Effect, Seed};
-    use crate::trail::{Shape, Smear};
+    use crate::splash;
+    use crate::trail::{Rect, Segment, Shape, Smear};
+    use crate::units::Tally;
+    use baud_font::Px;
+    use core::ops::Range;
 
     /// **The closed form is the motion it names**: a fine numeric
     /// integration of `v0 e^(-D a) R(w a)` lands where the closed form puts
@@ -397,6 +904,157 @@ mod tests {
             "a bar's width"
         );
         assert_eq!(&params(&vfx)[3..], &[TUBE, SHEATH, DECAY, FILAMENT, KNOT]);
+    }
+
+    /// Every band record of `vfx` over a `w` by `h` frame, clipped to it as
+    /// the compositor clips them: its columns and its rows.
+    fn bands(vfx: &Vfx, (w, h): (Px, Px)) -> Vec<(Range<usize>, Range<usize>)> {
+        let mut out = Vec::new();
+        vfx.instances((w, h), Argb(0xFFF4_A32C), &mut out);
+        let (w, h) = (w.value(), h.value());
+        let at = |v: i16| usize::try_from(v.max(0)).unwrap_or(0);
+        let end = |v: i16, d: u16, lim: u32| {
+            usize::try_from(i32::from(v) + i32::from(d))
+                .unwrap_or(0)
+                .min(usize::try_from(lim).unwrap_or(0))
+        };
+        out.iter()
+            .filter(|r| r.kind == Kind::Band)
+            .map(|r| {
+                (
+                    at(r.x.0)..end(r.x.0, r.w.0, w),
+                    at(r.y.0)..end(r.y.0, r.h.0, h),
+                )
+            })
+            .collect()
+    }
+
+    /// [`shade`] over every band record of `vfx` in a `w` by `h` frame
+    /// against [`light`] at each of their pixels: the same bits wherever it
+    /// shades, a light of zero wherever it does not, each pixel once.
+    fn shades_as_it_lights(vfx: &Vfx, frame: (Px, Px), what: &str) -> Tally {
+        let centre = |v: usize| f32::from(u16::try_from(v).unwrap_or(u16::MAX)) + 0.5;
+        let mut lit = Tally::default();
+        for (xs, ys) in bands(vfx, frame) {
+            let mut got = vec![None::<f32>; xs.len() * ys.len()];
+            vfx.shade(xs.clone(), ys.clone(), |x, y, v| {
+                assert!(xs.contains(&x) && ys.contains(&y), "{what}: ({x}, {y})");
+                let i = (y - ys.start) * xs.len() + (x - xs.start);
+                assert!(got[i].replace(v).is_none(), "{what}: ({x}, {y}) twice");
+            });
+            for y in ys.clone() {
+                for x in xs.clone() {
+                    let want = light(
+                        vfx,
+                        Pt {
+                            x: centre(x),
+                            y: centre(y),
+                        },
+                    );
+                    match got[(y - ys.start) * xs.len() + (x - xs.start)] {
+                        Some(v) => {
+                            assert_eq!(v.to_bits(), want.to_bits(), "{what}: ({x}, {y})");
+                            if v > 0.0 {
+                                lit.bump();
+                            }
+                        }
+                        None => assert_eq!(want, 0.0, "{what}: ({x}, {y}) left out"),
+                    }
+                }
+            }
+        }
+        lit
+    }
+
+    /// **The band path is the light, bit for bit**: [`shade`] gives
+    /// [`light`]'s bits at every pixel of every band record and leaves out
+    /// only pixels whose light is zero -- over the launch logo's plasma at
+    /// every age its census draws at 60 frames a second at 1x, at its
+    /// largest frames at 2x, and over cursor trails across, down, on the
+    /// diagonal and back, a bar's and a block's, from the quad's first
+    /// frame to past the plasma's life, on the axes the driver hands.
+    /// Perturbation: one operation of [`Frame::braid`] reordered fails it.
+    #[test]
+    fn shade_is_the_light_at_every_pixel() {
+        let mut lit = Tally::default();
+        for ((w, h), ages) in [((544u16, 380u16), 60u16), ((3400, 1850), 0)] {
+            let frame = (f32::from(w), f32::from(h));
+            let px = (Px::of(u32::from(w)), Px::of(u32::from(h)));
+            let s = splash::scale(frame);
+            let at = splash::origin(frame, s);
+            let census = (0u16..)
+                .map(|n| f32::from(n) / f32::from(ages.max(1)))
+                .take_while(|&a| ages > 0 && a < splash::GONE);
+            for age in census.chain([0.0, splash::OUT]) {
+                let what = format!("the splash {w}x{h} at {age}");
+                lit.add(shades_as_it_lights(&splash::vfx(at, s, age), px, &what));
+            }
+        }
+        let bar = |r: Rect| Rect {
+            right: r.left + 2.0,
+            ..r
+        };
+        let moves = [
+            (cell(2.0, 3.0), cell(30.0, 3.0), Pt { x: 1.0, y: 0.0 }),
+            (cell(30.0, 3.0), cell(4.0, 3.0), Pt { x: -1.0, y: 0.0 }),
+            (cell(6.0, 1.0), cell(6.0, 9.0), Pt { x: 0.0, y: 1.0 }),
+            (cell(3.0, 2.0), cell(20.0, 9.0), Pt { x: 0.95, y: 0.31 }),
+            (
+                cell(25.0, 9.0),
+                bar(cell(5.0, 2.0)),
+                Pt { x: -0.8, y: -0.6 },
+            ),
+        ];
+        for (from, to, axis) in moves {
+            let f = ignition(from, to, Seed(7));
+            for t in [0.0f32, 0.02, 0.05, 0.1, 0.2, 0.4, 0.54, 0.6] {
+                let vfx = Vfx {
+                    effect: Effect::Plasma,
+                    emitter: Smear {
+                        corners: Segment::new(from.corners(), to).at(t),
+                        hole: to,
+                        shape: Shape::Quad,
+                        strength: crate::flash::Strength::Full,
+                    },
+                    ignition: f.at(t),
+                    axis,
+                };
+                let what = format!("{from:?} to {to:?} at {t}");
+                lit.add(shades_as_it_lights(&vfx, (Px::of(640), Px::of(400)), &what));
+            }
+        }
+        assert!(lit.value() > 100_000, "the positive control: {lit:?} lit");
+    }
+
+    /// **A 2x splash frame's plasma is a fraction of its pixels' math**:
+    /// the first frame of the launch logo's plasma at 200 by 50 cells at 2x,
+    /// its largest, shaded over its band records as the CPU path draws it,
+    /// runs under 0.65 exponentials or sines a band pixel and measures the
+    /// quad from under 0.65 of them (0.57 and 0.57), where the light at each
+    /// pixel ran 3.39 and measured from every one. With the braid kept by
+    /// no column the series are 2.56 a pixel, with the distance's terms
+    /// kept by no row or column 0.99, and with no deep interior the
+    /// distances are 0.71.
+    /// What the CPU path's frames cost is the `splash` bench's.
+    #[test]
+    fn a_2x_splash_frame_runs_a_fraction_of_its_pixels_math() {
+        let frame = (3400.0, 1850.0);
+        let s = splash::scale(frame);
+        let vfx = splash::vfx(splash::origin(frame, s), s, 0.0);
+        let records = bands(&vfx, (Px::of(3400), Px::of(1850)));
+        let pixels: usize = records.iter().map(|(xs, ys)| xs.len() * ys.len()).sum();
+        let (series, distances) = tally::of(|| {
+            for (xs, ys) in &records {
+                vfx.shade(xs.clone(), ys.clone(), |_, _, _| {});
+            }
+        });
+        let per = |n: u64| n as f64 / pixels as f64;
+        assert!(pixels > 600_000, "the frame's band pixels: {pixels}");
+        assert!(per(series) < 0.65, "{series} series over {pixels} pixels");
+        assert!(
+            per(distances) < 0.65,
+            "{distances} distances over {pixels} pixels"
+        );
     }
 
     /// **The sheath is under half a step at the reach**, which is why the

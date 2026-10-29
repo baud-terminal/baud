@@ -401,18 +401,38 @@ impl<'p> Target<'p> {
                     .min(width);
             let alpha = f32::from(r.color.a().get()) / 255.0;
             let color = r.color.with_alpha(Chan::from_u8(0xFF));
+            if r.kind == Kind::Band {
+                // The last pixel's blend, by its opacity's bits and the word
+                // under it: beside a level edge one light runs along a row
+                // over one ground.
+                let pixels = &mut *self.pixels;
+                let mut kept: Option<(u32, u32, u32)> = None;
+                vfx.shade(xs, ys, |x, y, v| {
+                    let a = alpha * v;
+                    if a > 0.0 {
+                        let i = y * stride + x;
+                        let (key, under) = (a.to_bits(), pixels[i]);
+                        pixels[i] = match kept {
+                            Some((k, u, out)) if k == key && u == under => out,
+                            _ => {
+                                let out = blend.over_unit(color, Argb(under), a, page).0;
+                                kept = Some((key, under, out));
+                                out
+                            }
+                        };
+                    }
+                });
+                continue;
+            }
             for y in ys {
                 let row = &mut self.pixels[y * stride..y * stride + width];
                 let cy = f32::from(u16::try_from(y).unwrap_or(u16::MAX)) + 0.5;
                 for x in xs.clone() {
                     let cx = f32::from(u16::try_from(x).unwrap_or(u16::MAX)) + 0.5;
-                    let v = match r.kind {
-                        Kind::Particle => vfx.particle(Pt {
-                            x: (cx - x0 as f32) / w * 2.0 - 1.0,
-                            y: (cy - y0 as f32) / h * 2.0 - 1.0,
-                        }),
-                        _ => vfx.light(Pt { x: cx, y: cy }),
-                    };
+                    let v = vfx.particle(Pt {
+                        x: (cx - x0 as f32) / w * 2.0 - 1.0,
+                        y: (cy - y0 as f32) / h * 2.0 - 1.0,
+                    });
                     let a = alpha * v;
                     if a > 0.0 {
                         row[x] = blend.over_unit(color, Argb(row[x]), a, page).0;

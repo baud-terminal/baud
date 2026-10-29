@@ -157,6 +157,12 @@ harness = false
 name = "frame_gpu"
 harness = false
 
+# The launch logo's frames on the CPU path, timed one by one, with a hash
+# over their pixels (note AJ section 14); prints and asserts nothing.
+[[bench]]
+name = "splash"
+harness = false
+
 # One frame of a stream as the Linux app draws it, written to a PAM, for
 # scripts/linux-pixels.sh to compare across systems. Times nothing.
 [[bench]]
