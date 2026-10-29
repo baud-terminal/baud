@@ -5,7 +5,8 @@
 gone in half a second, 2026-10-29 (section 11); a plasma carrying it in
 and a second carrying it out, 2026-10-29 (section 12); both at kitty's
 pace again, after a window that opens whole, 2026-10-29 (section 13); the
-plasma within a frame at 2x on the CPU path, 2026-10-29 (section 14). The
+plasma within a frame at 2x on the CPU path, 2026-10-29 (section 14); the
+plasma over the word as well as the mark, 2026-10-29 (section 15). The
 questions as built:**
 
 - **1. When.** Nothing of it until the window is whole on screen
@@ -2354,3 +2355,52 @@ quad's distance replaced by its box's, wrong by construction, a 6K frame
 still takes 21.3 ms: the filaments' exponentials, the blend and the
 pixel walk remain. Drawing the bands on more than one thread is the step
 not taken.
+
+## 15. The plasma over the word as well as the mark (2026-10-29)
+
+**What the user sees.** Once the window is on screen the amber plasma
+lights over the whole lockup and stays over it while `baud ❯` is drawn
+inside it from left to right, then lands on the block, which comes in
+last; the logo is whole at 0.37 s. A second plasma lights over the whole
+logo on that frame and takes the letters out inside it, left to right,
+then lands on the block, which goes last; the logo is gone at 0.78 s and
+the glow at 0.82 s. The plasma itself is unchanged: kitty's pace, its
+filaments, ions and colours. Before, the plasma had left the word within
+about 0.07 s, `b` turned whole outside it, and the letters left with none
+over them; the splash was over at 0.62 s. Keys, output under the logo and
+Reduce Motion are as before.
+
+The request, verbatim (2026-10-29): "is the plasma only on the logo or
+also on the word baud ? it should be both, and there is still a wait that
+is too long".
+
+**How it is built.** Each pass's box, the wordmark's pen to the block,
+holds for `HOLD` (0.10 s) while an even edge crosses the letters, then
+collapses into the block on kitty's curve from where the hold ends; the
+ignition runs on kitty's clock from the frame each pass lights. Only where
+the plasma is changes (`each_pass_is_kittys_plasma_at_kittys_pace`).
+`every_letter_is_drawn_and_taken_under_the_plasma` holds that on every
+frame a letter grows or fades the quad covers at least half of it, and
+each letter has the plasma over it at least 0.08 s each way, at 60 and
+120 Hz; it failed before the change at `b`'s first frame.
+
+**Measured** ([[source: aj-obs-word-measure]]): plasma over `b` 0.12 s
+coming in and 0.10 s going out (before 0.017 and 0), `d` 0.17 and 0.13,
+`❯` 0.22 and 0.18; every letter's reveal frames under it, 18 of 18 each
+way at 60 Hz (before 13 of 19 and 13 of 20). The light seen coming in is
+1.85-1.93 times what it was, going out 0.88 of coming in. Census: at most
+403 pt² of the 21,824 allowed (1.8%, light page, 6K) and 5,393 (24.7%) on
+the chained reading; a fifth flash at a few pixels at 2x 120 Hz on the
+light page; both verdicts pass at 1x 60 Hz, 2x 60 and 120 Hz and 6K on
+four grounds.
+
+**The choice, from strips** ([[source: aj-obs-word-strip-dark]],
+[[source: aj-obs-word-strip-light]]): a 0.10 s span, the lean, over a
+0.15 s span, gone 0.92 s ([[source: aj-obs-word-strip-span15]]), and over
+today's timing with each letter drawn one letter ahead of the trailing
+edge, which still leaves the word in about 0.07 s
+([[source: aj-obs-word-strip-lead]]).
+
+**Not fixed.** On the CPU path more frames carry the largest quad: at 2x,
+27-28 of the splash's frames take over 8.3 ms and 17 over 16.7 ms (15-17
+and 5 before); at 6K, 50 over 16.7 ms (38 before).

@@ -24,8 +24,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 314 | 42 | redistributable, and its notice is satisfied |
-| own | 234 | 7 | the work of baud's author |
-| total | 565 | 54 | |
+| own | 239 | 7 | the work of baud's author |
+| total | 570 | 54 | |
 
 ## Licence texts in LICENSES/
 
@@ -1732,7 +1732,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 228
+- **Files:** 233
 
 | file | copied from |
 |---|---|
@@ -1862,6 +1862,11 @@ notice is, and the URL each file was copied from.
 | [aj-observed/turn-strip-at-end-dark.png](docs/research/sources/aj-observed/turn-strip-at-end-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied, the vanish started at 0.63 s |
 | [aj-observed/turn-strip-dark.png](docs/research/sources/aj-observed/turn-strip-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied |
 | [aj-observed/turn-strip-light.png](docs/research/sources/aj-observed/turn-strip-light.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, light theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied |
+| [aj-observed/word-measure.txt](docs/research/sources/aj-observed/word-measure.txt) | baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, 2026-10-29, with the change applied, and the placements weighed beside it |
+| [aj-observed/word-strip-dark.png](docs/research/sources/aj-observed/word-strip-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 17 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
+| [aj-observed/word-strip-lead-dark.png](docs/research/sources/aj-observed/word-strip-lead-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 13 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that placement built in a scratch tree |
+| [aj-observed/word-strip-light.png](docs/research/sources/aj-observed/word-strip-light.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), light theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 17 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
+| [aj-observed/word-strip-span15-dark.png](docs/research/sources/aj-observed/word-strip-span15-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 19 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that placement built in a scratch tree |
 | [ak-observed/lossy-out.txt](docs/research/sources/ak-observed/lossy-out.txt) | output of ak-obs-lossy-rs |
 | [ak-observed/lossy.rs](docs/research/sources/ak-observed/lossy.rs) | test source, compiled and run locally |
 | [ak-observed/observations.txt](docs/research/sources/ak-observed/observations.txt) | shell commands, each printed before its output |

@@ -359,12 +359,12 @@ mod tests {
         assert_eq!(s.look(Some(5.0 + gone() + 0.02), &t, full), None);
     }
 
-    /// **Its times are the renderer's**: gone 0.62 s after it starts, the
+    /// **Its times are the renderer's**: gone 0.82 s after it starts, the
     /// plasma that carries the logo out lighting before, and both before
     /// that plasma's own end, which it does not wait for.
     #[test]
     fn it_is_gone_by_the_renderers_end() {
-        assert!((gone() - 0.62).abs() < 1e-6, "{}", gone());
+        assert!((gone() - 0.82).abs() < 1e-6, "{}", gone());
         assert!(out() < gone(), "{} {}", out(), gone());
         assert!(gone() < f64::from(baud_render::splash::end()));
     }
@@ -685,14 +685,14 @@ mod tests {
     }
 
     /// **The logo is gone at its end**: from its first frame to the one
-    /// that clears it, at most 0.62 s and a frame, at 60 and 120 frames a
+    /// that clears it, at most 0.82 s and a frame, at 60 and 120 frames a
     /// second.
     #[test]
     fn the_splash_is_gone_at_its_end() {
         for rate in [60.0, 120.0] {
             let frames = life(rate);
             let on = (frames.len() - 1) as f64 / rate;
-            assert!(on <= 0.62 + 1.0 / rate + 1e-9, "{rate} Hz: {on} s");
+            assert!(on <= 0.82 + 1.0 / rate + 1e-9, "{rate} Hz: {on} s");
         }
     }
 

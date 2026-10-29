@@ -21459,6 +21459,71 @@ bytes  = 53579
 status = "retrieved"
 group  = "AJ"
 
+[sources.aj-obs-word-measure]
+key    = "aj-obs-word-measure"
+title  = "The launch splash with the plasma over the word: each pass's box spans the lockup for 0.10 s while the letters are drawn or taken inside it, then lands on the block; the flash census at four sizes and rates on four grounds, the plasma over each letter, and the CPU path's slow frames"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, 2026-10-29, with the change applied, and the placements weighed beside it"
+file   = "aj-observed/word-measure.txt"
+sha256 = "ce844faa044ff94c3b73015e58e9a9a78cacd6b9b3e13565a5008dbd16114ec8"
+bytes  = 8491
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-word-strip-dark]
+key    = "aj-obs-word-strip-dark"
+title  = "The splash with the plasma over the word: the box spans the lockup while the letters come in, lands on the block, and a second does the same taking them out, gone 0.82 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 17 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/word-strip-dark.png"
+sha256 = "9e58bf9351e31b1788660d409d314e31da11207d9053b05aa8fa1d3b056fb2f8"
+bytes  = 73566
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-word-strip-light]
+key    = "aj-obs-word-strip-light"
+title  = "The splash with the plasma over the word, light theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), light theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 17 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/word-strip-light.png"
+sha256 = "10a7f6b831c678f5ebdb994d211540c04f1219fafd0d00e23ff032a6d1782768"
+bytes  = 74907
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-word-strip-lead]
+key    = "aj-obs-word-strip-lead"
+title  = "A placement weighed and not taken: the box collapsing from its first frame as before, each letter drawn one letter ahead of its trailing edge, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 13 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that placement built in a scratch tree"
+file   = "aj-observed/word-strip-lead-dark.png"
+sha256 = "118bac7b670456c3ebdddd4e3480fb40f34d8b3b1f4ddabe88603c3598760211"
+bytes  = 51532
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-word-strip-span15]
+key    = "aj-obs-word-strip-span15"
+title  = "A placement weighed and not taken: the box spanning the lockup for 0.15 s rather than 0.10, gone 0.92 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 19 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that placement built in a scratch tree"
+file   = "aj-observed/word-strip-span15-dark.png"
+sha256 = "fbb0b1413721553ffddc4df60ddf49446bb9f900631b73f16cfb2c1743c33fd6"
+bytes  = 85403
+status = "retrieved"
+group  = "AJ"
+
 [sources.apple-nswindow-isvisible]
 key    = "apple-nswindow-isvisible"
 title  = "NSWindow isVisible -- whether the window is visible onscreen, even when obscured by other windows (documentation JSON)"

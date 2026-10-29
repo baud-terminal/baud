@@ -1,0 +1,59 @@
+# The launch splash with the plasma over the word: each pass's box spans the lockup
+# for 0.10 s while the letters are drawn (or taken) inside it, then collapses into the
+# block on kitty's curve; the plasma itself at kitty's pace from the frame each pass
+# lights. Measured 2026-10-29 on an Apple M5 Max under macOS 27.0, release build, on
+# baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle).
+# Frames: 0.2 s blank, the splash's life, 0.2 s blank, at 60 or 120 a second.
+# Census columns as in kitty-measure.txt: 'general', 'red', 'red-enc': the most flashes
+# at one pixel in any second; 'area': the most of any 341x256-point field flashing more
+# than three times in one second (WCAG 2.2's area clause; the limit is 21,824 pt2);
+# 'strict': the same on the chained reading of a flash. 'seen in' / 'out': the
+# plasma's own light over the bare page in pt2*s; 'whole', 'logo gone', 'gone':
+# seconds into the splash. 360x90 cells at 28 px at 2x is the 6120x3330 px frame.
+200x50@2x 120Hz 1a: general 4 red 1 red-enc 1 area 12.0 strict 282.8 (0.05%/1.3% of 21824) | seen in 212.90 out 205.92 after 0.02 pt2*s, peak in 2209 out 2163 pt2 | whole 0.369 logo gone 0.779 gone 0.825 s
+200x50@2x 120Hz cd: general 4 red 1 red-enc 1 area 4.0 strict 120.0 (0.02%/0.5% of 21824) | seen in 197.99 out 190.45 after 0.01 pt2*s, peak in 1937 out 1898 pt2 | whole 0.369 logo gone 0.779 gone 0.825 s
+200x50@2x 120Hz dark: general 4 red 0 red-enc 0 area 12.5 strict 295.2 (0.06%/1.4% of 21824) | seen in 231.60 out 222.85 after 0.02 pt2*s, peak in 2354 out 2300 pt2 | whole 0.369 logo gone 0.779 gone 0.825 s
+200x50@2x 120Hz light: general 5 red 0 red-enc 0 area 214.2 strict 3033.0 (0.98%/13.9% of 21824) | seen in 1140.81 out 1086.74 after 0.15 pt2*s, peak in 9529 out 9329 pt2 | whole 0.369 logo gone 0.779 gone 0.825 s
+200x50@2x 60Hz 1a: general 4 red 1 red-enc 1 area 2.8 strict 181.0 (0.01%/0.8% of 21824) | seen in 222.60 out 196.82 after 0.02 pt2*s, peak in 2209 out 2035 pt2 | whole 0.369 logo gone 0.779 gone 0.833 s
+200x50@2x 60Hz cd: general 3 red 1 red-enc 1 area 0.0 strict 61.8 (0.00%/0.3% of 21824) | seen in 206.25 out 182.36 after 0.02 pt2*s, peak in 1937 out 1781 pt2 | whole 0.369 logo gone 0.779 gone 0.833 s
+200x50@2x 60Hz dark: general 4 red 0 red-enc 0 area 3.2 strict 190.0 (0.01%/0.9% of 21824) | seen in 241.86 out 213.04 after 0.02 pt2*s, peak in 2354 out 2178 pt2 | whole 0.369 logo gone 0.779 gone 0.833 s
+200x50@2x 60Hz light: general 4 red 0 red-enc 0 area 141.2 strict 2558.2 (0.65%/11.7% of 21824) | seen in 1181.78 out 1047.86 after 0.20 pt2*s, peak in 9529 out 9002 pt2 | whole 0.369 logo gone 0.779 gone 0.833 s
+360x90@2x 60Hz 1a: general 4 red 1 red-enc 1 area 10.5 strict 468.5 (0.05%/2.1% of 21824) | seen in 718.02 out 635.11 after 0.07 pt2*s, peak in 7139 out 6575 pt2 | whole 0.370 logo gone 0.782 gone 0.833 s
+360x90@2x 60Hz cd: general 3 red 1 red-enc 1 area 0.0 strict 159.0 (0.00%/0.7% of 21824) | seen in 665.89 out 588.82 after 0.06 pt2*s, peak in 6262 out 5759 pt2 | whole 0.370 logo gone 0.782 gone 0.833 s
+360x90@2x 60Hz dark: general 4 red 0 red-enc 0 area 12.2 strict 499.5 (0.06%/2.3% of 21824) | seen in 780.42 out 687.54 after 0.07 pt2*s, peak in 7608 out 7037 pt2 | whole 0.370 logo gone 0.782 gone 0.833 s
+360x90@2x 60Hz light: general 4 red 0 red-enc 0 area 402.5 strict 5393.0 (1.84%/24.7% of 21824) | seen in 3823.26 out 3390.11 after 0.64 pt2*s, peak in 30844 out 29140 pt2 | whole 0.370 logo gone 0.782 gone 0.833 s
+64x20@1x 60Hz 1a: general 4 red 1 red-enc 1 area 1.0 strict 32.0 (0.00%/0.1% of 21824) | seen in 23.39 out 20.62 after 0.02 pt2*s, peak in 225 out 207 pt2 | whole 0.349 logo gone 0.750 gone 0.833 s
+64x20@1x 60Hz cd: general 3 red 1 red-enc 1 area 0.0 strict 12.0 (0.00%/0.1% of 21824) | seen in 21.17 out 18.69 after 0.02 pt2*s, peak in 194 out 178 pt2 | whole 0.349 logo gone 0.750 gone 0.817 s
+64x20@1x 60Hz dark: general 4 red 0 red-enc 0 area 1.0 strict 33.0 (0.00%/0.2% of 21824) | seen in 25.22 out 22.18 after 0.02 pt2*s, peak in 238 out 220 pt2 | whole 0.349 logo gone 0.750 gone 0.833 s
+64x20@1x 60Hz light: general 4 red 0 red-enc 0 area 33.0 strict 334.0 (0.15%/1.5% of 21824) | seen in 114.49 out 101.81 after 0.19 pt2*s, peak in 904 out 854 pt2 | whole 0.349 logo gone 0.750 gone 0.833 s
+#
+# Plasma over each letter. A letter's reveal frames are the frames its opacity rose
+# coming in, or fell going out; it has plasma over it when the plasma burns and its
+# quad covers at least half the letter's width (the tube and the filaments are inside
+# the quad); the block has it while the quad has not landed on it. Per letter:
+# covered/reveal frames in, covered/reveal frames out, then seconds under the plasma
+# in and out.
+200x50@2x 120Hz 1a: in 30/30 out 30/30 | b:3/3 3/3 0.108s 0.100s; a:3/3 3/3 0.125s 0.108s; u:3/3 2/2 0.142s 0.125s; d:2/2 3/3 0.158s 0.142s; prompt:2/2 2/2 0.217s 0.192s; block:17/17 17/17 0.375s 0.367s;
+200x50@2x 120Hz cd: in 30/30 out 30/30 | b:3/3 3/3 0.108s 0.100s; a:3/3 3/3 0.125s 0.108s; u:3/3 2/2 0.142s 0.125s; d:2/2 3/3 0.158s 0.142s; prompt:2/2 2/2 0.217s 0.192s; block:17/17 17/17 0.375s 0.367s;
+200x50@2x 120Hz dark: in 30/30 out 30/30 | b:3/3 3/3 0.108s 0.100s; a:3/3 3/3 0.125s 0.108s; u:3/3 2/2 0.142s 0.125s; d:2/2 3/3 0.158s 0.142s; prompt:2/2 2/2 0.217s 0.192s; block:17/17 17/17 0.375s 0.367s;
+200x50@2x 120Hz light: in 30/30 out 30/30 | b:3/3 3/3 0.108s 0.100s; a:3/3 3/3 0.125s 0.108s; u:3/3 2/2 0.142s 0.125s; d:2/2 3/3 0.158s 0.142s; prompt:2/2 2/2 0.217s 0.192s; block:17/17 17/17 0.375s 0.367s;
+200x50@2x 60Hz 1a: in 18/18 out 18/18 | b:2/2 2/2 0.117s 0.100s; a:2/2 2/2 0.133s 0.100s; u:2/2 2/2 0.150s 0.117s; d:2/2 2/2 0.167s 0.133s; prompt:1/1 1/1 0.217s 0.183s; block:9/9 9/9 0.383s 0.367s;
+200x50@2x 60Hz cd: in 18/18 out 18/18 | b:2/2 2/2 0.117s 0.100s; a:2/2 2/2 0.133s 0.100s; u:2/2 2/2 0.150s 0.117s; d:2/2 2/2 0.167s 0.133s; prompt:1/1 1/1 0.217s 0.183s; block:9/9 9/9 0.383s 0.367s;
+200x50@2x 60Hz dark: in 18/18 out 18/18 | b:2/2 2/2 0.117s 0.100s; a:2/2 2/2 0.133s 0.100s; u:2/2 2/2 0.150s 0.117s; d:2/2 2/2 0.167s 0.133s; prompt:1/1 1/1 0.217s 0.183s; block:9/9 9/9 0.383s 0.367s;
+200x50@2x 60Hz light: in 18/18 out 18/18 | b:2/2 2/2 0.117s 0.100s; a:2/2 2/2 0.133s 0.100s; u:2/2 2/2 0.150s 0.117s; d:2/2 2/2 0.167s 0.133s; prompt:1/1 1/1 0.217s 0.183s; block:9/9 9/9 0.383s 0.367s;
+360x90@2x 60Hz 1a: in 18/18 out 18/18 | b:2/2 2/2 0.117s 0.100s; a:2/2 2/2 0.133s 0.100s; u:2/2 2/2 0.150s 0.117s; d:2/2 2/2 0.167s 0.133s; prompt:1/1 1/1 0.217s 0.183s; block:9/9 9/9 0.383s 0.367s;
+360x90@2x 60Hz cd: in 18/18 out 18/18 | b:2/2 2/2 0.117s 0.100s; a:2/2 2/2 0.133s 0.100s; u:2/2 2/2 0.150s 0.117s; d:2/2 2/2 0.167s 0.133s; prompt:1/1 1/1 0.217s 0.183s; block:9/9 9/9 0.383s 0.367s;
+360x90@2x 60Hz dark: in 18/18 out 18/18 | b:2/2 2/2 0.117s 0.100s; a:2/2 2/2 0.133s 0.100s; u:2/2 2/2 0.150s 0.117s; d:2/2 2/2 0.167s 0.133s; prompt:1/1 1/1 0.217s 0.183s; block:9/9 9/9 0.383s 0.367s;
+360x90@2x 60Hz light: in 18/18 out 18/18 | b:2/2 2/2 0.117s 0.100s; a:2/2 2/2 0.133s 0.100s; u:2/2 2/2 0.150s 0.117s; d:2/2 2/2 0.167s 0.133s; prompt:1/1 1/1 0.217s 0.183s; block:9/9 9/9 0.383s 0.367s;
+#
+# The same at 2x, 60 Hz, dark, for the placements weighed:
+box collapsing from its first frame (before): 200x50@2x 60Hz dark: in 13/19 out 13/20 | b:0/1 0/1 0.017s 0.000s; a:1/2 1/2 0.033s 0.017s; u:1/2 1/2 0.050s 0.033s; d:1/2 1/3 0.067s 0.050s; prompt:1/3 1/3 0.117s 0.100s; block:9/9 9/9 0.283s 0.267s;
+letters drawn one letter ahead of the trailing edge: 200x50@2x 60Hz dark: in 18/18 out 13/17 | b:1/1 0/1 0.017s 0.000s; a:2/2 0/1 0.033s 0.000s; u:2/2 1/2 0.050s 0.017s; d:2/2 1/2 0.067s 0.033s; prompt:2/2 2/2 0.117s 0.083s; block:9/9 9/9 0.283s 0.267s;
+span 0.15 s: 200x50@2x 60Hz dark: in 20/20 out 19/19 | b:2/2 2/2 0.167s 0.150s; a:3/3 2/2 0.183s 0.150s; u:2/2 3/3 0.200s 0.167s; d:2/2 2/2 0.217s 0.183s; prompt:2/2 1/1 0.267s 0.233s; block:9/9 9/9 0.433s 0.417s;
+letters ahead, 360x90@2x 60Hz: not measured: the measure found no millisecond with all six parts whole there and stopped.
+span 0.15 s, 360x90@2x 60Hz light: general 5 red 0 red-enc 0 area 599.0 strict 6219.8 (2.74%/28.5% of 21824)
+#
+# CPU path, frames slower than a 120 Hz and a 60 Hz interval over the splash's life at
+# 60 Hz, dark (two runs each agreed within two frames):
+# before: 2x 15-17 over 8.3 ms, 5 over 16.7 ms, worst 26-27 ms; 6K 38 and 38, worst 85-86 ms
+# now:    2x 27-28 over 8.3 ms, 17 over 16.7 ms, worst 27-29 ms; 6K 50 and 50, worst 87-89 ms
