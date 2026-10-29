@@ -76,7 +76,7 @@ sha256  = "dccda9eb9533f5c65624a1106536c6cfde46008d58e60b3faf154e8b9fd5b46e"
 licence = "LicenseRef-Ecma-Copyright"
 from    = "https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/, the default notice and two FAQ answers (the page as read 2026-10-28, sha256 65a0efe7612cbb306c994a6a5362abc354786de020158052c6abd05f4df113ab)"
 how     = "built"
-sha256  = "10d441ecf5f12a238ec4c9cd304422605b211bce1a7e5ddbd33f52f69aba519e"
+sha256  = "f50315ecd161bcaf579f1c446b119623e476df834f38e312a4b1de9dc8b0c0a3"
 
 [text."fontdue-MIT.txt"]
 licence = "MIT"
@@ -422,19 +422,28 @@ files   = [
 ]
 
 # Ecma's text copyright policy (manifest ecma-text-copyright-policy and
-# ecma-text-copyright-policy-page) applies its default notice to the
-# standards older than the notice: such a standard may be copied and
-# distributed, unchanged and up to date, with the notice. Both files are
-# the current edition, byte for byte what Ecma served on 2026-10-28.
-# LICENSES/ecma-copyright-notice.txt carries the notice and the answers.
+# ecma-text-copyright-policy-page): its FAQ says the default notice "has
+# been included into every new Ecma standard and Technical report since
+# 2009. However, we have not retrospectively inserted this copyright notice
+# in the older standards. But in practice the same principle also applies
+# to them", and that the deliverables under it may be republished "unchanged,
+# and up to date". It names "older standards" only; TR/53, a Technical
+# Report of 1992, is kept on the reading that the principle covers it too,
+# since the policy calls its Standards and Technical Reports alike "Ecma
+# deliverables" and says "Ecma publishes specifications which must be
+# covered by an Ecma copyright notice". The three files are the current
+# edition (for TR/53, manifest ecma-tr53-page), byte for byte what Ecma
+# served on 2026-10-28. LICENSES/ecma-copyright-notice.txt carries the
+# notice and the answers.
 [upstream.ecma]
-name    = "Ecma International standards ECMA-35 and ECMA-48, under Ecma's default copyright notice"
+name    = "Ecma International standards ECMA-35 and ECMA-48 and technical report TR/53, under Ecma's default copyright notice"
 licence = "LicenseRef-Ecma-Copyright"
 notice  = "LICENSES/ecma-copyright-notice.txt"
 status  = "kept"
 files   = [
   "ecma-35-6th-1994.pdf",
   "ecma-48-5th-1991.pdf",
+  "ecma-tr53-2nd-1992.pdf",
 ]
 
 [upstream.linux]

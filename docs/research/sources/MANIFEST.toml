@@ -5150,6 +5150,11 @@ group  = "C"
 # deliverable under it may be republished "unchanged, and up to date". A web
 # page, so its hash may move with the site; the notice text it carries is the
 # PDF's. Read and hash-verified on 2026-10-28, fetched twice to the same hash.
+# A later fetch the same day hashes to
+# b72428f381fd9229f643db57d42a226031821c69019ea208f9f4ecdf7198996c, 93695
+# bytes as before, twice over: both FAQ sentences quoted above, and every
+# paragraph LICENSES/ecma-copyright-notice.txt copies, are still on the page.
+# The policy PDF still hashes to its pinned sha256.
 
 [sources.ecma-tr53]
 key    = "ecma-tr53"
@@ -5158,16 +5163,20 @@ author = "Ecma International"
 year   = 1992
 venue  = "Ecma Technical Report TR/53"
 url    = "https://ecma-international.org/wp-content/uploads/ECMA_TR-53_2nd_edition_june_1992.pdf"
-file   = ""
+file   = "ecma-tr53-2nd-1992.pdf"
 sha256 = "912dfcdb813716bfa8ca5f2886896cbd4a3c1e4fc31ac3b21dae1b064f920e99"
 bytes  = 96531
-status = "external"
+status = "retrieved"
 group  = "J"
 # Section 7.1 on BDSM: EXPLICIT for 'bi-directionality-aware' applications,
 # IMPLICIT for 'bi-directionality-unaware' ones, the reset state EXPLICIT.
 # Its text extracts letter-spaced; read after stripping the non-alphanumerics.
-# Read and hash-verified on 2026-10-24; not committed. Re-fetch at the pinned
-# url and compare the sha256.
+# Read and hash-verified on 2026-10-24. Committed on 2026-10-28, re-fetched at
+# the url to the same hash, under Ecma's default copyright notice
+# (LICENSES/ecma-copyright-notice.txt): Ecma's TR/53 page
+# (ecma-tr53-page) lists this 2nd edition as the report and the 1st under
+# Archives, and the text carries no notice of its own, only "available free
+# of charge" (scripts/extract-ecma35.py, its positive control hitting).
 # Re-read 2026-10-26 (lane b220), the sha256 matching, through scripts/extract-ecma35.py
 # (its streams are LZWDecode): 7.1 DCSM, 7.2 SDS and SRS, 7.3's DCSM list, and Annex A's
 # worked examples 1-3 and note A.1, the test vectors for SRS, SDS and DCSM.
@@ -5177,6 +5186,23 @@ group  = "J"
 # have CUP and CHA address the data columns (line 3: CUP(3;11) inserts between m and n, where
 # presentation position 11 holds v); its PRESENTATION line 4's data and presentation tables
 # disagree with each other under any one rule.
+
+[sources.ecma-tr53-page]
+key    = "ecma-tr53-page"
+title  = "ECMA TR/53, Ecma's page for the report: the 2nd edition, June 1992, with the 1st edition under Archives"
+author = "Ecma International"
+year   = 2026
+venue  = "Ecma International, technical reports"
+url    = "https://ecma-international.org/publications-and-standards/technical-reports/ecma-tr-53/"
+file   = ""
+sha256 = "71beffc943f344bae6ea5b283e97fda446bdf5303dd1b3974b563f2d3bf5d14b"
+bytes  = 85187
+status = "external"
+group  = "C"
+# The evidence that ecma-tr53 is the current edition: the page offers "2nd
+# edition, June 1992" for download and lists "ECMA TR/53, 1st edition,
+# December 1990" under Archives. A web page, so its hash may move with the
+# site. Read on 2026-10-28, fetched twice to the same hash.
 
 [sources.ghostty-font-shaper-run]
 key    = "ghostty-font-shaper-run"

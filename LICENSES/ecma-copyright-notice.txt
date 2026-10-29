@@ -8,13 +8,18 @@ https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/
 and the same notice in the policy's PDF:
 https://ecma-international.org/wp-content/uploads/Ecma_text_copyright_policy_version_3.pdf
 (sha256 2dcbec958059c8b512b6798ee1f0b8416c33d507a21f5bd9a20c19e68218776f).
-The text below the line is copied from the page unchanged.
+The text below the line is copied from the page unchanged. A later fetch
+of the page, on 2026-10-28 as well, hashes to
+b72428f381fd9229f643db57d42a226031821c69019ea208f9f4ecdf7198996c (93695
+bytes, as before); every paragraph below the line is still on it, and the
+PDF still hashes to the value above.
 
 It covers docs/research/sources/ecma-35-6th-1994.pdf (ECMA-35, 6th edition,
-December 1994) and docs/research/sources/ecma-48-5th-1991.pdf (ECMA-48, 5th
-edition, June 1991). Each is the current edition, and each is byte for byte
-the file Ecma serves at its URL in docs/research/sources/MANIFEST.toml, as
-checked on 2026-10-28.
+December 1994), docs/research/sources/ecma-48-5th-1991.pdf (ECMA-48, 5th
+edition, June 1991) and docs/research/sources/ecma-tr53-2nd-1992.pdf (ECMA
+TR/53, 2nd edition, June 1992). Each is the current edition, and each is
+byte for byte the file Ecma serves at its URL in
+docs/research/sources/MANIFEST.toml, as checked on 2026-10-28.
 
 ----------------------------------------------------------------------------
 
