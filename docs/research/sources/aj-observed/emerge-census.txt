@@ -69,18 +69,6 @@ LEAD pace 1 hold 0.6 dark: general 2 red 0 red-encoded 0, area 0, strict 0
 LEAD pace 1 hold 0.6 light: general 3 red 0 red-encoded 0, area 0, strict 16
 LEAD pace 1 hold 0.6 #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0
 LEAD pace 1 hold 0.6 #1A0000: general 2 red 0 red-encoded 0, area 0, strict 0
-200x50@2x 60fps error: variable `FRAME_S` should have a snake case name
-200x50@2x 60fps error: could not compile `baud-bench` (test "zz_census") due to 1 previous error
-200x50@2x 120fps error: variable `FRAME_S` should have a snake case name
-200x50@2x 120fps error: could not compile `baud-bench` (test "zz_census") due to 1 previous error
-200x50@2x 60fps error: variable `FRAME_S` should have a snake case name
-200x50@2x 60fps error: could not compile `baud-bench` (test "zz_census") due to 1 previous error
-200x50@2x 120fps error: variable `FRAME_S` should have a snake case name
-200x50@2x 120fps error: could not compile `baud-bench` (test "zz_census") due to 1 previous error
-200x50@2x 60fps error: variable `FRAME_S` should have a snake case name
-200x50@2x 60fps error: could not compile `baud-bench` (test "zz_census") due to 1 previous error
-200x50@2x 120fps error: variable `FRAME_S` should have a snake case name
-200x50@2x 120fps error: could not compile `baud-bench` (test "zz_census") due to 1 previous error
 200x50@2x 60fps pace 1 hold 0.4 dark: general 3 red 0 red-encoded 0, area 0, strict 2
 200x50@2x 60fps pace 1 hold 0.4 light: general 3 red 0 red-encoded 0, area 0, strict 90.75
 200x50@2x 60fps pace 1 hold 0.4 #CD0000: general 2 red 1 red-encoded 1, area 0, strict 0

@@ -21118,8 +21118,8 @@ year   = 2026
 venue  = "local capture or measurement"
 url    = "baud_bench::flash::Census over the splash's whole life on baud-render's CPU path, as baud-bench/tests/splash_flashes.rs counts it, with the emerge's pace and the hold varied, 2026-10-28, from c10174a0 with the emerge built"
 file   = "aj-observed/emerge-census.txt"
-sha256 = "3cb3593f3d7b807c4b3c3e62167dfaabb195a67a707a8e2a9898b2173148a900"
-bytes  = 10481
+sha256 = "55db2f09cc42ca04b8e5860fab165244094f27172315bb753ca9d645abc68b27"
+bytes  = 9461
 status = "retrieved"
 group  = "AJ"
 

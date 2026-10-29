@@ -3,7 +3,7 @@
 **Status: built 2026-10-24 (roadmap F1-19); the emerge built 2026-10-28
 (section 9). The questions as built:**
 
-- **1. When.** Under full motion, on the clock alone since 2026-10-28:
+- **1. When.** Under full motion, on the clock alone since 2026-10-28 (the lean):
   the emerge for the plasma's length, the logo held whole 0.4 s, and the
   vanish on the frame after (section 9). Under reduced motion, as first
   built: on the shell's first visible cell or a 0.5 s cap, whichever
@@ -1994,7 +1994,7 @@ The status line records what was decided.
 **What the user sees.** The logo is on screen from the first frame,
 faint inside a burst of the amber plasma, and is drawn whole from its
 left edge to its right as the plasma's tail sweeps across it, the block
-last; it holds whole for 0.4 s, then goes back into the plasma from its
+last, whole about 0.25 s after the first frame; once the emerge's plasma ends at 0.63 s it holds whole for 0.4 s, then goes back into the plasma from its
 left edge to its right, the block last again; all of it gone about 1.7 s
 after the first frame. Keys go to the shell and its output draws under the logo
 throughout. Under Reduce Motion it is as before: whole, then the fade.
@@ -2041,10 +2041,10 @@ and faster emerges flash up to six. The shortest passing holds tried:
 - **Reduce Motion: the logo whole**, R2 unchanged, over a 0.15 s fade-in:
   the request asks for the logo at once, and a fade-in is an animation R2
   does not have.
-- **Trigger: the clock alone.** The first visible cell or the cap always
+- **Trigger: the clock alone, the lean.** The first visible cell or the cap always
   falls before 0.5 s and the hold ends at 1.03 s, so keeping them would
   change no frame; under Reduce Motion, which has no emerge, they stay.
 
-**Unmeasured.** The plasma's pipeline now builds on the first frame, not
+**Unmeasured.** This replaces section 6's placement: under full motion the emerge draws the plasma on the first frame, so its pipeline's build is on the launch path; under Reduce Motion it is still built while the logo is held. The plasma's pipeline now builds on the first frame, not
 on the vanish's first: section 6's late build (7.5 ms cold, 0.1 ms warm,
 inferred) lands on the first present. No launch was timed for this change.

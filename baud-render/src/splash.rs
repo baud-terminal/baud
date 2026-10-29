@@ -29,8 +29,9 @@
 //!
 //! **Everything is a pure function of the phase**: the driver hands
 //! [`SplashLook`] -- so many seconds into the emerge, the logo held, so
-//! many seconds into the vanish, or so far into the fade -- computed from the display link's timestamp, and
-//! this derives the records and the effect. No clock and no state, as
+//! many seconds into the vanish, or so far into the fade -- computed from
+//! the display link's timestamp, and this derives the records and the
+//! effect. No clock and no state, as
 //! [`crate::effect`].
 
 use crate::color::Argb;
@@ -211,8 +212,10 @@ pub fn vfx(at: Pt, scale: f32, age: f32) -> Vfx {
 
 /// **Seconds from the emerge's or the vanish's start to when nothing of
 /// its plasma is left**: the plasma's end -- its life, or its last ion's
-/// death -- which the block, starving with the tube, never outlasts. The ion count reads the path's
-/// length in units, so this is the same at every size.
+/// death -- which the vanish's block, starving with the tube, never
+/// outlasts; in the emerge the block fills and does not starve. The ion
+/// count reads the path's length in units, so this is the same at every
+/// size.
 pub fn end() -> f32 {
     Effect::Plasma.end(&ignition(Pt { x: 0.0, y: 0.0 }, 1.0))
 }

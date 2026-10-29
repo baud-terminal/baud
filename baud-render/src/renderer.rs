@@ -3349,7 +3349,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.splash_inst
     }
 
-    /// The splash's plasma this frame, while it vanishes.
+    /// The splash's plasma this frame, while it emerges or vanishes.
     fn splash_vfx(&self) -> Option<Vfx> {
         let look = self.splash?;
         let (scale, at) = self.splash_place()?;
