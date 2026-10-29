@@ -98,7 +98,27 @@ the screen; step 3 joins Arabic letters.
   cells move between rows.
 - **A paragraph is the rows a soft wrap joins.** Its levels are resolved
   over all of them, rows above the window and below it included, so an
-  override or an embedding on one row reaches the next. A paragraph longer
+  override or an embedding on one row reaches the next. **Text written
+  inside DECSLRM side margins is laid out inside them**: a row that
+  wrapped at side margins narrower than the page keeps the margins it
+  wrapped at, and its paragraph is its cells inside them and the next
+  row's inside the same, one paragraph across its rows, while each run of
+  cells outside them -- another pane's text -- is a paragraph of its own,
+  ordered in its own columns, as a table row's cells are (DECSLRM "sets
+  the left and right margins to define the scrolling region",
+  `[[source: vt510-decslrm]]`; that the cells outside are no part of the
+  paragraph is baud's reading;
+  `a_paragraph_inside_side_margins_is_laid_out_inside_them`, and on every
+  arm `a_paragraph_inside_side_margins_draws_alike_on_every_arm`). The
+  margins move with the paragraph's cells when a wrap at the bottom
+  margin, `IL` or `DL` scrolls the rectangle under the margins it
+  wrapped at (`a_paragraph_the_rectangle_scrolls_keeps_its_margins`), and stop
+  applying once the row wraps again at the page's edge or wraps no
+  longer (`a_row_wrapped_again_at_the_page_edge_is_read_whole`,
+  `a_row_that_no_longer_wraps_is_read_whole`). A paragraph past
+  `baud_render::CONTEXT` codepoints, resolved in pieces, gives the runs
+  outside the margins of its later pieces its first piece's level, where
+  UAX #9 P2-P3 gives each its own: an open departure. A paragraph longer
   than 18,432 codepoints (`baud_render::CONTEXT`, a row at the widest grid
   with full clusters) is resolved over the rows drawn and as many whole rows
   around them as fit.
@@ -842,7 +862,13 @@ eight rounds with the first dropped, on mains:
   preview and its Cmd-click over a cell the display draws from a line
   past the window read the nearest window cell. A picture anchored on a
   row the display draws at its words keeps its stored column, where the
-  display draws the anchor's cell at another column of its line.
+  display draws the anchor's cell at another column of its line. A row a
+  write from right of the right margin wrapped keeps the margins, so the
+  cells it wrote between the margin and the edge are read as a paragraph
+  of their own; a wide character a side margin cuts is ordered with the
+  run that holds its lead; a rectangle scrolled under margins other than
+  those a paragraph wrapped at moves its cells and leaves its margins on
+  the rows it held.
 - **A paragraph a soft wrap splits mid-word, with `[screen] wrap_words` off**
   ("the wrap line looks bad"): an English word the wrap split lands at
   opposite ends of its two rows. UAX #9 breaks a paragraph into

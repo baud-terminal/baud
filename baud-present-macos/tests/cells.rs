@@ -13430,3 +13430,88 @@ fn arabic_decrlm_wrote_draws_joined_with_its_forms_on_every_arm() {
         }
     }
 }
+
+/// **A paragraph inside DECSLRM side margins draws alike on every arm**:
+/// twenty Hebrew letters and "12" written inside margins 1 to 20, the
+/// digits wrapped to the next line's left margin, with "xy" and "zw"
+/// right of the margins, are laid out inside them as one paragraph and
+/// the letters outside them where they were written (`[[source:
+/// vt510-decslrm]]`, `[[source: uax9-bidi]]`) -- the same pixels on the
+/// cell, copied and CPU arms as the same cells written in that visual
+/// order with BDSM reset. The control: the same letters written with no
+/// margins, each row read whole, draws otherwise. Written from the bottom
+/// margin, the last row, so the wrap scrolls the rectangle, the
+/// paragraph draws so on the last two rows.
+#[test]
+fn a_paragraph_inside_side_margins_draws_alike_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    let he: String = (0..20)
+        .map(|i| char::from_u32(0x5D0 + i).unwrap())
+        .collect();
+    let back: String = he.chars().rev().collect();
+    arms!(fresh() => arms, t);
+    feed(
+        &mut t,
+        format!(
+            "\x1bc\x1b[?25l\x1b[?69h\x1b[1;20s\x1b[1;1H{he}12\x1b[1;21Hxy\x1b[2;21Hzw\x1b[4;1H"
+        )
+        .as_bytes(),
+    );
+    let got = three(&mut arms, &mut t, "inside the margins");
+    feed(
+        &mut t,
+        format!("\x1bc\x1b[?25l\x1b[8l\x1b[1;1H{back}xy\x1b[2;19H12zw\x1b[4;1H").as_bytes(),
+    );
+    let want = three(&mut arms, &mut t, "the visual order, BDSM reset");
+    assert_eq!(differing(&got, &want), 0, "laid out inside the margins");
+    feed(
+        &mut t,
+        format!("\x1bc\x1b[?25l\x1b[1;1H{he}\x1b[2;1H12\x1b[1;21Hxy\x1b[2;21Hzw\x1b[4;1H")
+            .as_bytes(),
+    );
+    let whole = three(&mut arms, &mut t, "no margins");
+    assert!(differing(&whole, &want) > 0, "the control: read whole");
+    // Written from the bottom margin, the wrap to the digits scrolls the
+    // rectangle a row up and the margins move with it.
+    feed(
+        &mut t,
+        format!(
+            "\x1bc\x1b[?25l\x1b[?69h\x1b[1;20s\x1b[10;1H{he}12\x1b[9;21Hxy\x1b[10;21Hzw\x1b[1;1H"
+        )
+        .as_bytes(),
+    );
+    let scrolled = three(&mut arms, &mut t, "scrolled inside the margins");
+    feed(
+        &mut t,
+        format!("\x1bc\x1b[?25l\x1b[8l\x1b[9;1H{back}xy\x1b[10;19H12zw\x1b[1;1H").as_bytes(),
+    );
+    let want = three(&mut arms, &mut t, "the visual order on the last two rows");
+    assert_eq!(differing(&scrolled, &want), 0, "scrolled with its margins");
+}

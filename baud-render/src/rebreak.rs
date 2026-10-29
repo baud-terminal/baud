@@ -716,13 +716,17 @@ impl Kept {
 /// ZERO WIDTH SPACE, of class BN, as [`crate::bidi`] gives it.
 const ERASED: char = '\u{200B}';
 
-/// A stored row's mark as a view reads it: its paragraph properties, its
-/// rendition and whether it wraps.
+/// A stored row's mark as a view reads it: its paragraph properties, the
+/// side margins it wrapped at, its rendition and whether it wraps.
 pub(crate) fn mark_of(vp: &Viewport<'_>, r: Row) -> RowExtent {
     let cols = vp.cols();
     let e = RowExtent::of(cols.index())
         .with_bidi(vp.bidi(r))
         .with_rendition(vp.rendition(r), cols);
+    let e = match vp.margins(r) {
+        Some(m) => e.with_margins(m),
+        None => e,
+    };
     match vp.wrapped(r) {
         Wrap::Continues => e.wrapping(cols.index()),
         Wrap::Ended => e,

@@ -141,9 +141,11 @@ pub struct RunRange {
 /// un-rotation -- permute the marks in the same loop that permutes the rows.
 ///
 /// The word is a `u16` rather than `Col`'s `usize`: `MAX_COLS` is 2048 so it
-/// fits, and with the path beside it an entry is 4 bytes, so at `MAX_ROWS`
-/// entries per buffer and two buffers the narrow form is 5 KB of working set
-/// against the 20 KB a `usize` word and its padding would take. That is the
+/// fits, and with the path and the side margins a row wrapped at beside it
+/// ([`WrapMargins`]) an entry is 8 bytes, so at `MAX_ROWS` entries per
+/// buffer and two buffers the narrow form is 10 KB of working set against
+/// the 20 KB a `usize` word and its padding would take; a line of the
+/// history holds one too, 8 bytes beside its cells' 8 a column. That is the
 /// "thousands are stored" case `CONTRIBUTING.md` names as the one where
 /// narrowing earns its place, and it is read once per row operation rather than
 /// once per cell.
@@ -167,6 +169,46 @@ pub struct RunRange {
 pub struct RowExtent {
     word: u16,
     bidi: LineBidi,
+    margins: WrapMargins,
+}
+
+/// **The side margins a row wrapped at** ([`WrappedAt::Margins`]): the
+/// DECSLRM left margin the next line started at and the right margin of
+/// the row's line, so the display reads the row's paragraph inside them
+/// and each run of cells outside them as a paragraph of its own. Read only
+/// while the row's mark says it wraps, at margins
+/// ([`RowExtent::margins`]); a later wrap at other margins writes the
+/// newer pair, and a later wrap at the page's edge drops them
+/// ([`RowExtent::at_edge`]). Two columns, each at most [`RowExtent::MAX_MARK`].
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[repr(C)]
+pub struct WrapMargins {
+    left: u16,
+    right: u16,
+}
+
+impl WrapMargins {
+    /// None recorded: a row that has not wrapped at margins.
+    pub const NONE: WrapMargins = WrapMargins { left: 0, right: 0 };
+
+    /// The margins from column `left` to column `right`, both inclusive.
+    pub fn of(left: Col, right: Col) -> WrapMargins {
+        let at = |c: Col| u16::try_from(c.index()).unwrap_or(RowExtent::MARK);
+        WrapMargins {
+            left: at(left),
+            right: at(right),
+        }
+    }
+
+    /// The left margin: the first column inside.
+    pub fn left(self) -> Col {
+        Col::at_index(usize::from(self.left))
+    }
+
+    /// The right margin: the last column inside.
+    pub fn right(self) -> Col {
+        Col::at_index(usize::from(self.right))
+    }
 }
 
 /// **Which way a line's characters run**: SCP's `Ps1`, ECMA-48 8.3.111's
@@ -248,9 +290,10 @@ pub enum RowWritten {
     RightToLeft,
 }
 
-/// **Where a row has wrapped since it was last erased whole**: only at
-/// the page's edge, or at DECSLRM side margins narrower than the page,
-/// where the next line starts at the left margin. DECSLRM "sets the left
+/// **Where a row last wrapped since it was last erased whole**: at the
+/// page's edge, or at DECSLRM side margins narrower than the page, where
+/// the next line starts at the left margin; a wrap at the edge after one
+/// at margins leaves the edge. DECSLRM "sets the left
 /// and right margins to define the scrolling region"
 /// (`[[source: vt510-decslrm]]`) and says nothing of the cells outside
 /// them; that they are no part of a paragraph wrapped inside the margins
@@ -274,7 +317,7 @@ impl LineBidi {
     /// The row wrapped at side margins narrower than the page.
     const MARGINED: u8 = 0b10_0000;
 
-    /// **Where the row has wrapped since it was last erased whole**
+    /// **Where the row last wrapped since it was last erased whole**
     /// ([`WrappedAt`]).
     pub fn wrapped_at(self) -> WrappedAt {
         match self.0 & Self::MARGINED {
@@ -371,6 +414,7 @@ impl RowExtent {
     pub const ZERO: RowExtent = RowExtent {
         word: 0,
         bidi: LineBidi::POWER_ON,
+        margins: WrapMargins::NONE,
     };
     /// **The row continues onto the next one**: text reached its last column
     /// and wrapped, rather than ending at a newline. The fact a reflow needs
@@ -421,7 +465,7 @@ impl RowExtent {
             word: self
                 .word
                 .max(u16::try_from(to).unwrap_or(Self::MARK).min(Self::MARK)),
-            bidi: self.bidi,
+            ..self
         }
     }
     /// The mark: where the row stops being uniform.
@@ -434,6 +478,7 @@ impl RowExtent {
         RowExtent {
             word: u16::try_from(n).unwrap_or(Self::MARK).min(Self::MARK),
             bidi: LineBidi::POWER_ON,
+            margins: WrapMargins::NONE,
         }
     }
     /// **What a fill leaves**: the mark at `n` with no wrap and no
@@ -441,6 +486,7 @@ impl RowExtent {
     pub fn refilled(self, n: usize) -> RowExtent {
         RowExtent {
             bidi: self.bidi,
+            margins: self.margins,
             ..RowExtent::of(n)
         }
     }
@@ -455,6 +501,7 @@ impl RowExtent {
                 .bidi
                 .with_written(RowWritten::InOrder)
                 .with_wrapped_at(WrappedAt::Edge),
+            margins: WrapMargins::NONE,
             ..self
         }
     }
@@ -469,6 +516,34 @@ impl RowExtent {
     /// The mark with paragraph properties `b`: the word as it is.
     pub fn with_bidi(self, b: LineBidi) -> RowExtent {
         RowExtent { bidi: b, ..self }
+    }
+    /// **The side margins the row wrapped at**, where it wraps and wrapped
+    /// at margins narrower than the page ([`WrappedAt::Margins`]); none
+    /// where it wrapped only at the page's edge, and none once it wraps no
+    /// longer -- a newline ended it, or a fill to its end -- since a row
+    /// that wraps nowhere has no paragraph past it to confine.
+    pub fn margins(self) -> Option<WrapMargins> {
+        (self.wrapped() && self.bidi.wrapped_at() == WrappedAt::Margins).then_some(self.margins)
+    }
+    /// **The mark of a row that wrapped at the page's edge**: no side
+    /// margins, its wrap and the rest of its paragraph properties as they
+    /// are. What every wrap writes first, so margins a row wrapped at once
+    /// stop applying when it wraps again where the page ends.
+    pub fn at_edge(self) -> RowExtent {
+        RowExtent {
+            bidi: self.bidi.with_wrapped_at(WrappedAt::Edge),
+            margins: WrapMargins::NONE,
+            ..self
+        }
+    }
+    /// The mark of a row that wrapped at side margins `m`: marked so, and
+    /// `m` the margins it wrapped at, the newer of two wraps' kept.
+    pub fn with_margins(self, m: WrapMargins) -> RowExtent {
+        RowExtent {
+            bidi: self.bidi.with_wrapped_at(WrappedAt::Margins),
+            margins: m,
+            ..self
+        }
     }
     pub fn wrapped(self) -> bool {
         self.word & Self::WRAP != 0

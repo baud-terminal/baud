@@ -792,6 +792,48 @@ struct Owner {
 struct ParaRow<'t> {
     cells: &'t [PackedCell],
     window: Option<Row>,
+    /// The side margins the row wrapped at, where it wrapped at margins
+    /// narrower than the page ([`baud_domain::WrapMargins`]).
+    margins: Option<baud_domain::WrapMargins>,
+}
+
+/// **A run of a row's cells outside the side margins its paragraph is
+/// confined to** ([`paragraph_columns`]): a paragraph of its own, its row,
+/// its text, and its columns `from..to`, its text ending at `end`.
+struct Alone {
+    row: Row,
+    text: core::ops::Range<usize>,
+    from: Col,
+    end: Col,
+    to: Col,
+}
+
+/// **The columns of each paragraph row its paragraph holds**, `from..to`:
+/// the whole row, or, where the row or the one before it wrapped at side
+/// margins narrower than the page, the columns inside those margins -- the
+/// row's own where it wrapped at them, else the row before's, whose wrap
+/// started it at their left margin. DECSLRM "sets the left and right
+/// margins to define the scrolling region" (`[[source: vt510-decslrm]]`)
+/// and says nothing of the cells outside them; that they are no part of
+/// the paragraph is baud's reading, which the display's word wrap keeps
+/// too ([`baud_domain::WrappedAt`]). Margins a change of width left past
+/// the row, and a pair one column wide or less, which DECSLRM never sets
+/// -- what a change of width that re-cuts the row leaves of them -- give
+/// the whole row.
+fn paragraph_columns(rows: &[ParaRow<'_>]) -> Vec<(usize, usize)> {
+    rows.iter()
+        .enumerate()
+        .map(|(k, row)| {
+            let n = row.cells.len();
+            let before = k.checked_sub(1).and_then(|j| rows[j].margins);
+            match row.margins.or(before) {
+                Some(m) if m.left().index() < m.right().index() && m.left().index() < n => {
+                    (m.left().index(), (m.right().index() + 1).min(n))
+                }
+                _ => (0, n),
+            }
+        })
+        .collect()
 }
 
 /// How many codepoints a row gives the algorithm.
@@ -1817,7 +1859,8 @@ impl Reorder {
         // when the paragraph reaches the window's edge -- so a paragraph
         // inside the window that holds no right-to-left character costs
         // its rows' test and nothing else.
-        let mut above: Vec<&[PackedCell]> = Vec::new();
+        type ContextRows<'c> = Vec<(&'c [PackedCell], Option<baud_domain::WrapMargins>)>;
+        let mut above: ContextRows<'_> = Vec::new();
         if let (0, Context::Display(up, _)) = (first.index(), context) {
             let mut k = 1;
             while k <= up.index() && above.len() < budget {
@@ -1825,7 +1868,7 @@ impl Reorder {
                 if v.wrapped(Row::ZERO) != Wrap::Continues {
                     break;
                 }
-                above.push(v.row(Row::ZERO));
+                above.push((v.row(Row::ZERO), v.margins(Row::ZERO)));
                 k += 1;
             }
         }
@@ -1840,11 +1883,11 @@ impl Reorder {
                 if v.wrapped(Row::ZERO) != Wrap::Continues {
                     break;
                 }
-                above.push(v.row(Row::ZERO));
+                above.push((v.row(Row::ZERO), v.margins(Row::ZERO)));
                 k += 1;
             }
         }
-        let mut below: Vec<&[PackedCell]> = Vec::new();
+        let mut below: ContextRows<'_> = Vec::new();
         if let Context::Display(_, down) = context {
             let mut k = 1;
             while last.index() + 1 == nrows
@@ -1852,7 +1895,8 @@ impl Reorder {
                 && k <= down.index()
                 && below.len() < budget
             {
-                below.push(vp.row(Row::from_index(nrows - 1 + k)));
+                let at = Row::from_index(nrows - 1 + k);
+                below.push((vp.row(at), vp.margins(at)));
                 k += 1;
             }
         }
@@ -1865,7 +1909,7 @@ impl Reorder {
                 // `of_count`: at `k == back` the live screen, view 0.
                 let v = term.view(Rows::of_count(back.index() - k));
                 let at = Row::from_index(nrows - 1);
-                below.push(v.row(at));
+                below.push((v.row(at), v.margins(at)));
                 if v.wrapped(at) != Wrap::Continues {
                     break;
                 }
@@ -1884,8 +1928,8 @@ impl Reorder {
         let any_opens = path.path() == CharacterPath::RightToLeft
             || strung
             || drawn_opens
-            || above.iter().any(|c| opens(c))
-            || below.iter().any(|c| opens(c));
+            || above.iter().any(|c| opens(c.0))
+            || below.iter().any(|c| opens(c.0));
         // A paragraph that nothing reorders but whose drawn rows hold a
         // joining letter -- Mongolian, whose class is L -- is joined in its
         // stored order, every character at the paragraph's level, and drawn
@@ -1899,6 +1943,7 @@ impl Reorder {
             .map(|y| ParaRow {
                 cells: row_of(Row::from_index(y)),
                 window: Some(Row::from_index(y)),
+                margins: vp.margins(Row::from_index(y)),
             })
             .collect();
         // The drawn rows in chunks that fit, each with the context that
@@ -1932,24 +1977,26 @@ impl Reorder {
             if start == 0 {
                 let mut take = 0;
                 for c in &above {
-                    let n = chars_of(term, c);
+                    let n = chars_of(term, c.0);
                     if Chars(used.0 + n.0) > cap {
                         break;
                     }
                     used = Chars(used.0 + n.0);
                     take += 1;
                 }
-                rows.extend(above[..take].iter().rev().map(|c| ParaRow {
+                rows.extend(above[..take].iter().rev().map(|&(c, m)| ParaRow {
                     cells: c,
                     window: None,
+                    margins: m,
                 }));
             }
             rows.extend(drawn[start..end].iter().map(|r| ParaRow {
                 cells: r.cells,
                 window: r.window,
+                margins: r.margins,
             }));
             if end == drawn.len() {
-                for c in &below {
+                for &(c, m) in &below {
                     let n = chars_of(term, c);
                     if Chars(used.0 + n.0) > cap {
                         break;
@@ -1958,6 +2005,7 @@ impl Reorder {
                     rows.push(ParaRow {
                         cells: c,
                         window: None,
+                        margins: m,
                     });
                 }
             }
@@ -2016,10 +2064,46 @@ impl Reorder {
         let mut open = [StringId::NONE; STRING_DEPTH];
         let mut open_n = 0;
         let mut last: Option<Owner> = None;
-        for (p, row) in rows.iter().enumerate() {
+        // **Each row's cells in its paragraph's columns**
+        // ([`paragraph_columns`]), as `(row, from, its text's end, to)`, in
+        // row order; then, where a row's paragraph is confined to side
+        // margins, each run of its cells outside them, after a paragraph
+        // separator, so each is a paragraph of its own (P1), ordered in its
+        // own columns as a table row's cells are.
+        let columns = paragraph_columns(rows);
+        let text_end =
+            |cells: &[PackedCell], (a, b): (usize, usize)| a + row_end(&cells[a..b]).index();
+        let mut pieces: Vec<(usize, usize, usize, usize)> = columns
+            .iter()
+            .enumerate()
+            .map(|(p, &(a, b))| (p, a, text_end(rows[p].cells, (a, b)), b))
+            .collect();
+        for (p, (&(a, b), row)) in columns.iter().zip(rows).enumerate() {
+            for (from, to) in [(0, a), (b, row.cells.len())] {
+                if from < to && (a, b) != (0, row.cells.len()) {
+                    pieces.push((p, from, text_end(row.cells, (from, to)), to));
+                }
+            }
+        }
+        // The runs outside the margins: their row, text and columns.
+        let mut outside: Vec<Alone> = Vec::new();
+        for (k, &(p, from, end, to)) in pieces.iter().enumerate() {
+            let row = &rows[p];
+            let alone = k >= rows.len();
+            if alone {
+                // A paragraph's end ends every isolate in it (BD9).
+                open_n = 0;
+                self.text.push(PARAGRAPH_SEPARATOR);
+                self.owner.push(Owner {
+                    col: Col::at_index(from),
+                    lead: Lead::Attached,
+                    row: Row::from_index(p),
+                });
+                self.rule.push(Rule::No);
+            }
             let begin = self.text.len();
-            let end = row_end(row.cells);
-            for (c, &cell) in row.cells[..end.index()].iter().enumerate() {
+            for (c, &cell) in row.cells[from..end].iter().enumerate() {
+                let c = from + c;
                 let at = |lead| Owner {
                     col: Col::at_index(c),
                     lead,
@@ -2096,8 +2180,28 @@ impl Reorder {
                     }
                 }
             }
-            ranges.push((begin..self.text.len(), end));
+            match alone {
+                false => ranges.push((begin..self.text.len(), Col::at_index(end))),
+                true => outside.push(Alone {
+                    row: Row::from_index(p),
+                    text: begin..self.text.len(),
+                    from: Col::at_index(from),
+                    end: Col::at_index(end),
+                    to: Col::at_index(to),
+                }),
+            }
         }
+        // Each row's text: its paragraph's, then the runs outside it.
+        let lines_of = |p: usize| -> Vec<core::ops::Range<usize>> {
+            core::iter::once(ranges[p].0.clone())
+                .chain(
+                    outside
+                        .iter()
+                        .filter(|o| o.row.index() == p)
+                        .map(|o| o.text.clone()),
+                )
+                .collect()
+        };
         let cell_of = |o: Owner| {
             let row = rows.get(o.row.index());
             let cell = row
@@ -2113,7 +2217,7 @@ impl Reorder {
             let joined = self.join_text(None, None);
             for (p, row) in rows.iter().enumerate() {
                 if let Some(y) = row.window {
-                    self.store_joins(term, (y, &ranges[p].0), &joined, |c| c, cell_of);
+                    self.store_joins(term, (y, &lines_of(p)), &joined, |c| c, cell_of);
                 }
             }
             return None;
@@ -2139,7 +2243,6 @@ impl Reorder {
         };
         let levels: Vec<BidiLevel> = self.bidi.levels().to_vec();
         let joined = self.join_text(Some(&levels), None);
-        let rtl = level.direction() == baud_domain::BidiDirection::Rtl;
         let cols = self.orders.cols.index();
         for (p, row) in rows.iter().enumerate() {
             let Some(y) = row.window else { continue };
@@ -2150,13 +2253,44 @@ impl Reorder {
             // runs against the half's right edge. The columns past it,
             // which nothing is written in or drawn from, follow in order.
             let width = vp.rendition(y).end_of_line(vp.cols()).index().min(cols);
-            let end = ranges[p].1.index().min(width);
-            let line = ranges[p].0.clone();
-            let begin = line.start;
-            if self.order_line(line).is_none() {
-                continue;
-            }
-            let levels = core::mem::take(&mut self.levels);
+            // **The row's runs in column order**, each ordered in its own
+            // columns: its paragraph's, and on a row confined to side
+            // margins the runs outside them, each at its own paragraph's
+            // level -- `(text, from, its text's end, to, level)`.
+            let (a, b) = columns[p];
+            let inside = (
+                ranges[p].0.clone(),
+                a.min(width),
+                ranges[p].1.index().min(b).min(width),
+                b.min(width),
+                level,
+            );
+            let alone = |o: &Alone| {
+                let at = self
+                    .bidi
+                    .paragraph_level(o.text.start)
+                    .filter(|_| !o.text.is_empty())
+                    .unwrap_or(BidiLevel::LTR);
+                (
+                    o.text.clone(),
+                    o.from.index().min(width),
+                    o.end.index().min(width),
+                    o.to.index().min(width),
+                    at,
+                )
+            };
+            let mut runs: Vec<_> = outside
+                .iter()
+                .filter(|o| o.row.index() == p && o.from.index() < a)
+                .map(alone)
+                .collect();
+            runs.push(inside);
+            runs.extend(
+                outside
+                    .iter()
+                    .filter(|o| o.row.index() == p && o.from.index() >= b)
+                    .map(alone),
+            );
             let mut out = RowOrder {
                 from: Vec::with_capacity(cols),
                 to: vec![Col::ZERO; cols],
@@ -2166,62 +2300,79 @@ impl Reorder {
                 slants: Vec::new(),
                 drawn: Cols::of_index(width),
             };
-            // The erased cells past the text go at the line's end in the
-            // paragraph direction: before the text on a right-to-left line,
-            // nearest the text last.
-            if rtl {
-                for c in (end..width).rev() {
-                    out.from.push(Col::at_index(c));
-                    out.level.push(level);
-                }
-            }
-            let mut reorders = rtl;
-            for &t in &self.order {
-                let t = usize::from(t);
-                let own = self.owner[t];
-                if own.lead != Lead::First {
-                    continue;
-                }
-                let l = levels[t - begin];
-                let odd = l.direction() == baud_domain::BidiDirection::Rtl;
-                reorders |= odd;
-                out.from.push(own.col);
-                out.level.push(l);
-                let cell = row.cells[own.col.index()];
-                if odd {
-                    let v = Col::at_index(out.from.len() - 1);
-                    let span = crate::cellmap::CellSpan::at(row.cells, own.col);
-                    match mirror(term, cell, (path.box_mirror(), span)) {
-                        Mirror::Glyph(m) => out.swaps.push((v, m)),
-                        Mirror::Flipped(alone) => {
-                            if let Some(base) = alone {
-                                out.swaps.push((v, base));
-                            }
-                            out.mirrors.push((v, Mirrored::Flipped));
-                        }
-                        Mirror::Under(m) => out.mirrors.push((v, Mirrored::Under(m))),
-                        Mirror::Not => {}
+            let mut reorders = false;
+            let mut ordered = true;
+            for (line, _, end, to, at) in runs {
+                // The erased cells past a run's text go at its end in its
+                // paragraph's direction: before the text where that runs
+                // right to left, nearest the text last.
+                let rtl = at.direction() == baud_domain::BidiDirection::Rtl;
+                reorders |= rtl;
+                if rtl {
+                    for c in (end..to).rev() {
+                        out.from.push(Col::at_index(c));
+                        out.level.push(at);
                     }
                 }
-                if row
-                    .cells
-                    .get(own.col.index() + 1)
-                    .is_some_and(|n| n.content.is_wide_tail())
-                {
-                    out.from.push(Col::at_index(own.col.index() + 1));
+                let begin = line.start;
+                if self.order_line(line).is_none() {
+                    ordered = false;
+                    break;
+                }
+                let levels = core::mem::take(&mut self.levels);
+                for &t in &self.order {
+                    let t = usize::from(t);
+                    let own = self.owner[t];
+                    if own.lead != Lead::First {
+                        continue;
+                    }
+                    let l = levels[t - begin];
+                    let odd = l.direction() == baud_domain::BidiDirection::Rtl;
+                    reorders |= odd;
+                    out.from.push(own.col);
                     out.level.push(l);
+                    let cell = row.cells[own.col.index()];
+                    if odd {
+                        let v = Col::at_index(out.from.len() - 1);
+                        let span = crate::cellmap::CellSpan::at(row.cells, own.col);
+                        match mirror(term, cell, (path.box_mirror(), span)) {
+                            Mirror::Glyph(m) => out.swaps.push((v, m)),
+                            Mirror::Flipped(alone) => {
+                                if let Some(base) = alone {
+                                    out.swaps.push((v, base));
+                                }
+                                out.mirrors.push((v, Mirrored::Flipped));
+                            }
+                            Mirror::Under(m) => out.mirrors.push((v, Mirrored::Under(m))),
+                            Mirror::Not => {}
+                        }
+                    }
+                    if row
+                        .cells
+                        .get(own.col.index() + 1)
+                        .is_some_and(|n| n.content.is_wide_tail())
+                    {
+                        out.from.push(Col::at_index(own.col.index() + 1));
+                        out.level.push(l);
+                    }
+                }
+                self.levels = levels;
+                if !rtl {
+                    for c in end..to {
+                        out.from.push(Col::at_index(c));
+                        out.level.push(at);
+                    }
                 }
             }
-            let past = match rtl {
-                true => width,
-                false => end,
-            };
-            for c in past..cols {
+            if !ordered {
+                continue;
+            }
+            for c in width..cols {
                 out.from.push(Col::at_index(c));
                 out.level.push(level);
             }
             if !reorders || out.from.len() != cols {
-                self.store_joins(term, (y, &ranges[p].0), &joined, |c| c, cell_of);
+                self.store_joins(term, (y, &lines_of(p)), &joined, |c| c, cell_of);
                 continue;
             }
             for (v, l) in out.from.iter().enumerate() {
@@ -2232,7 +2383,7 @@ impl Reorder {
             let to = out.to.clone();
             self.store_joins(
                 term,
-                (y, &ranges[p].0),
+                (y, &lines_of(p)),
                 &joined,
                 |c| to.get(c.index()).copied().unwrap_or(c),
                 cell_of,
@@ -2380,7 +2531,7 @@ impl Reorder {
     fn store_joins(
         &mut self,
         term: &Term<'_>,
-        (y, line): (Row, &core::ops::Range<usize>),
+        (y, lines): (Row, &[core::ops::Range<usize>]),
         joined: &JoinedText,
         to: impl Fn(Col) -> Col,
         cell_of: impl Fn(Owner) -> (PackedCell, Drawn),
@@ -2388,7 +2539,7 @@ impl Reorder {
         let cols = self.orders.cols.index();
         let asks = term.variants_seen();
         let mut row: Option<RowJoins> = None;
-        for t in line.clone() {
+        for t in lines.iter().flat_map(Clone::clone) {
             let Some(&own) = self.owner.get(t) else {
                 continue;
             };
@@ -2425,12 +2576,13 @@ impl Reorder {
             }
         }
         if let (Some(r), false) = (row.as_mut(), self.reach.is_zero()) {
-            self.store_words(term, r, line, joined, &to, &cell_of);
+            self.store_words(term, r, lines, joined, &to, &cell_of);
         }
         if let Some(slots) = row.as_mut().map(|r| &mut r.cells) {
             for p in &joined.pairs {
                 let (lam, alef) = (self.owner[p.lam.0], self.owner[p.alef.0]);
-                let (lam_here, alef_here) = (line.contains(&p.lam.0), line.contains(&p.alef.0));
+                let here = |t: usize| lines.iter().any(|l| l.contains(&t));
+                let (lam_here, alef_here) = (here(p.lam.0), here(p.alef.0));
                 let mut set = |at: Col, part: PairPart| {
                     if let Some(Some(j)) = slots.get_mut(to(at).index()) {
                         j.pair = Some((part, p.kind));
@@ -2465,7 +2617,7 @@ impl Reorder {
     }
 
     /// **The words around a row's joined cells**, into `row`: for each run
-    /// holding a cell of the row's text `line` that `row` holds a form of,
+    /// holding a cell of the row's text `lines` that `row` holds a form of,
     /// joined or asked, the run's cells in
     /// logical order -- the cells whose letters are given, erased cells
     /// left out, a column rule cutting the run -- from `reach` before the
@@ -2475,15 +2627,16 @@ impl Reorder {
         &self,
         term: &Term<'_>,
         row: &mut RowJoins,
-        line: &core::ops::Range<usize>,
+        lines: &[core::ops::Range<usize>],
         joined: &JoinedText,
         to: &impl Fn(Col) -> Col,
         cell_of: &impl Fn(Owner) -> (PackedCell, Drawn),
     ) {
         let reach = usize::try_from(self.reach.value()).unwrap_or(usize::MAX);
         let varies = term.variants_seen();
+        let here = |t: usize| lines.iter().any(|l| l.contains(&t));
         for run in &joined.runs {
-            if run.end <= line.start || run.start >= line.end {
+            if !lines.iter().any(|l| run.start < l.end && l.start < run.end) {
                 continue;
             }
             // The run's cells, cut at a column rule into the pieces a
@@ -2510,7 +2663,7 @@ impl Reorder {
                 let mine: Vec<usize> = piece
                     .clone()
                     .filter(|&i| {
-                        line.contains(&cells[i])
+                        here(cells[i])
                             && row
                                 .cells
                                 .get(to(self.owner[cells[i]].col).index())
@@ -2572,7 +2725,13 @@ impl Reorder {
             let cell = cells.get(o.col.index()).copied();
             (cell.unwrap_or(PackedCell::EMPTY), Drawn::Yes)
         };
-        self.store_joins(term, (r, &line), &joined, |c| c, cell_of);
+        self.store_joins(
+            term,
+            (r, core::slice::from_ref(&line)),
+            &joined,
+            |c| c,
+            cell_of,
+        );
         if !ltr {
             return;
         }
@@ -2580,7 +2739,13 @@ impl Reorder {
         self.displayed_text(term, cells, 0..end, Reading::LeftToRight);
         let joined = self.join_text(None, Some(Reading::LeftToRight));
         let line = 0..self.text.len();
-        self.store_joins(term, (r, &line), &joined, |c| c, cell_of);
+        self.store_joins(
+            term,
+            (r, core::slice::from_ref(&line)),
+            &joined,
+            |c| c,
+            cell_of,
+        );
         // Each cell's letter is one reading's, so the two never both name
         // a form for one cell.
         let Some(slot) = self.orders.joins.get_mut(r.index()) else {

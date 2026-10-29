@@ -102,6 +102,9 @@ fn the_whole_storage_requirement_is_fixed_and_stated() {
     let tmpl = NSTYLE * core::mem::size_of::<Option<StyleWord>>();
     let tmpl_max = NSTYLE_MAX * core::mem::size_of::<Option<StyleWord>>();
     let tabs = MAX_COLS;
+    // The mark, the paragraph properties and the side margins a row
+    // wrapped at.
+    assert_eq!(core::mem::size_of::<RowExtent>(), 8);
     let used = MAX_ROWS * core::mem::size_of::<RowExtent>();
     let total = arena + grid + cells3 + tmpl + tabs + used;
     // 1 MiB arena, 10 MiB grid, 2 MiB permutation table, 24 KB renditions floor.

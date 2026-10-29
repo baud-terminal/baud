@@ -506,6 +506,12 @@ impl<'a> Viewport<'a> {
         self.used[self.phys(y.index())].bidi()
     }
 
+    /// **The side margins screen row `y` wrapped at**, where it wrapped at
+    /// margins narrower than the page ([`crate::WrapMargins`]).
+    pub fn margins(&self, y: Row) -> Option<crate::WrapMargins> {
+        self.used[self.phys(y.index())].margins()
+    }
+
     /// Screen row `y`'s line rendition: how wide, and which half tall, its
     /// characters are drawn ([`LineRendition`]). A line not single-width
     /// holds [`LineRendition::end_of_line`] characters, each drawn two
@@ -746,7 +752,9 @@ impl<'a> View<'a> {
     }
 
     /// Row `r` continues onto the next: its text reached the last column and
-    /// wrapped. Set by the writer at the wrap, on the row being left.
+    /// wrapped. Set by the writer at the wrap, on the row being left, at the
+    /// page's edge ([`RowExtent::at_edge`]): a wrap at side margins writes
+    /// them after ([`View::set_margins`]).
     ///
     /// Out of line, and so is `set_ended`: both are once-a-line events, and
     /// inlined into the writers they grew the per-byte body by enough to
@@ -756,7 +764,7 @@ impl<'a> View<'a> {
     #[inline(never)]
     pub fn set_wrapped(&mut self, r: Row) {
         let p = self.phys(r);
-        self.used[p] = self.used[p].wrapping(self.cols.index());
+        self.used[p] = self.used[p].wrapping(self.cols.index()).at_edge();
     }
 
     /// Row `r` ends where it stops: a newline left it. Clears the wrap.
@@ -1486,6 +1494,18 @@ impl<'a> View<'a> {
         }
         let p = self.phys(r);
         self.used[p] = self.used[p].with_bidi(to);
+    }
+
+    /// **Screen row `r` wrapped at side margins `m`**, narrower than the
+    /// page: marked so, with the margins ([`RowExtent::with_margins`]).
+    #[cold]
+    #[inline(never)]
+    pub fn set_margins(&mut self, r: Row, m: crate::WrapMargins) {
+        if r.index() >= self.rows.index() {
+            return;
+        }
+        let p = self.phys(r);
+        self.used[p] = self.used[p].with_margins(m);
     }
 
     /// The paragraph properties of the row `back` rows behind the window's
@@ -2894,8 +2914,13 @@ impl<'a> View<'a> {
     /// **Each row in it is marked to `right` (to `right + 1` where an erase
     /// reached past it)**: cells copied or blanked inside the rectangle can
     /// differ from what the row was uniform with past its mark, and the mark
-    /// only rises, the safe direction. The rows keep their wrap state: a row
-    /// whose middle moved is still the line it was.
+    /// only rises, the safe direction. **A row that wrapped at the
+    /// rectangle's own side margins moves its wrap and its margins with its
+    /// cells** ([`RowExtent::margins`]): its paragraph is the cells inside
+    /// them, which are what move. A row the rectangle writes over that held
+    /// such a paragraph, and one it blanks, ends and keeps none. Every
+    /// other row keeps its wrap state: a row whose middle moved is still
+    /// the line it was.
     ///
     /// Rows are distinct, so each copy is of one row's span into another's,
     /// in the order that reads a row before it is overwritten. Cold: only a
@@ -2937,10 +2962,25 @@ impl<'a> View<'a> {
             self.reached(row, far);
         }
         let w = r - l;
+        let inside = crate::WrapMargins::of(left, Col::at_index(r - 1));
+        let ours = move |e: RowExtent| e.margins() == Some(inside);
         let copy = |v: &mut Self, from: usize, to: usize| {
-            let src = v.phys(Row::from_index(from)) * s + l;
-            let dst = v.phys(Row::from_index(to)) * s + l;
-            v.cells.copy_within(src..src + w, dst);
+            let (ps, pd) = (v.phys(Row::from_index(from)), v.phys(Row::from_index(to)));
+            v.cells.copy_within(ps * s + l..ps * s + l + w, pd * s + l);
+            let (src, dst) = (v.used[ps], v.used[pd]);
+            v.used[pd] = match (ours(src), ours(dst)) {
+                (true, _) => dst.wrapping(cols).with_margins(inside),
+                (false, true) => dst.ended().at_edge(),
+                (false, false) => dst,
+            };
+        };
+        let blank_row = |v: &mut Self, y: usize| {
+            let a = v.at(Row::from_index(y), left);
+            v.cells[a..a + w].fill(blank);
+            let p = v.phys(Row::from_index(y));
+            if ours(v.used[p]) {
+                v.used[p] = v.used[p].ended().at_edge();
+            }
         };
         match way {
             BandMove::Up => {
@@ -2948,8 +2988,7 @@ impl<'a> View<'a> {
                     copy(self, y + n, y);
                 }
                 for y in bot + 1 - n..=bot {
-                    let a = self.at(Row::from_index(y), left);
-                    self.cells[a..a + w].fill(blank);
+                    blank_row(self, y);
                 }
             }
             BandMove::Down => {
@@ -2957,8 +2996,7 @@ impl<'a> View<'a> {
                     copy(self, y - n, y);
                 }
                 for y in cy..cy + n {
-                    let a = self.at(Row::from_index(y), left);
-                    self.cells[a..a + w].fill(blank);
+                    blank_row(self, y);
                 }
             }
         }

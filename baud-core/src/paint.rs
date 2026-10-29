@@ -2048,9 +2048,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// (070-7 § 7.3.7, "or LF if Auto Wrap"); the row the wrap brings in
     /// takes the direction of the paragraph it joins (`crate::path`). **A
     /// wrap at side margins narrower than the page marks the row it leaves**
-    /// ([`baud_domain::WrappedAt::Margins`]): the next line starts at the
-    /// left margin (`[[source: vt510-decslrm]]`), and the display keeps the
-    /// paragraph at its cut, since by baud's reading the row's cells outside
+    /// ([`baud_domain::WrappedAt::Margins`]) **with the margins**
+    /// ([`baud_domain::WrapMargins`]), the left one the next line starts at
+    /// (`[[source: vt510-decslrm]]`) and the line's right one, each wrap's
+    /// written over the last and a wrap at margins as wide as the page
+    /// leaving none ([`baud_domain::View::set_wrapped`]): the display keeps the paragraph at its cut and
+    /// reads it inside them, since by baud's reading the row's cells outside
     /// the margins are not the paragraph's.
     #[cold]
     #[inline(never)]
@@ -2058,15 +2061,12 @@ impl<'a, 'b> Paint<'a, 'b> {
         if self.cold.modes.is_set(ModeBit::AutoPrint) {
             self.autoprint(crate::print::LineEnd::LineFeed);
         }
+        self.view.set_wrapped(self.cy);
         if self.cold.left != Col::ZERO || self.cold.right.index() + 1 < self.cols.index() {
-            let b = self.view.bidi(self.cy);
-            if b.wrapped_at() != baud_domain::WrappedAt::Margins {
-                self.view
-                    .set_bidi(self.cy, b.with_wrapped_at(baud_domain::WrappedAt::Margins));
-            }
+            let m = baud_domain::WrapMargins::of(self.cold.left, self.fence_of_line());
+            self.view.set_margins(self.cy, m);
         }
         self.cx = CursorCol::moved(self.cold.left);
-        self.view.set_wrapped(self.cy);
         self.index();
         if self.cold.modes.is_set(ModeBit::PathSelected) {
             self.wrapped_into_path();
