@@ -6,6 +6,9 @@
 #
 #   scripts/linux-pointer.sh <outdir>
 #
+# BAUD_POINTER_TAG names the images and volumes it makes (by default
+# baud-linux-pointer), so two runs on one engine keep apart.
+#
 # Needs docker with an aarch64 Linux engine (colima's default VM on an
 # Apple silicon Mac), and the repository under a directory the engine
 # mounts. Nothing opens a window here: the compositor is headless, inside
@@ -32,9 +35,13 @@
 #
 # The window floats at 640x408 at the origin of a 1024x768 output: 80x24
 # cells of 8x17 px, so a cell's centre is (8c + 4, 17r + 8), and a point
-# past (640, 408) is off the window. Every check prints "ok" or "FAILED"
-# with what was read; the script exits non-zero when one failed or a step
-# could not run.
+# past (640, 408) is off the window. Each arm runs again with the output
+# at scale 2 and at scale 1.5, its mode 2048x1536 and 1536x1152, so the
+# layout is 1024x768 logical pixels at every scale and so are the window
+# and every point above; those runs take the pointer to the grid's edges
+# and read what the app draws its pointer and its window at. Every check
+# prints "ok" or "FAILED" with what was read; the script exits non-zero
+# when one failed or a step could not run.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -44,18 +51,19 @@ out=$(cd "$out" && pwd)
 
 toolchain=$(rustc -Vv | sed -n 's/^commit-hash: //p')
 nightly=${BAUD_NIGHTLY:-nightly-2026-04-11}
-docker build -q -t baud-linux-pointer-build - >/dev/null <<EOF
+tag=${BAUD_POINTER_TAG:-baud-linux-pointer}
+docker build -q -t "$tag-build" - >/dev/null <<EOF
 FROM rustlang/rust:nightly-bookworm
 RUN rustup toolchain install $nightly --profile minimal \
     && rustup default $nightly
 EOF
-there=$(docker run --rm baud-linux-pointer-build rustc -Vv | sed -n 's/^commit-hash: //p')
+there=$(docker run --rm "$tag-build" rustc -Vv | sed -n 's/^commit-hash: //p')
 if [ "$there" != "$toolchain" ]; then
   echo "the container's rustc is $there, this Mac's $toolchain; set BAUD_NIGHTLY" >&2
   exit 1
 fi
 for arm in bookworm trixie; do
-  docker build -q -t baud-linux-pointer-$arm - >/dev/null <<EOF
+  docker build -q -t "$tag-$arm" - >/dev/null <<EOF
 FROM debian:$arm
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     --no-install-recommends sway grim wl-clipboard libxkbcommon-tools \
@@ -63,12 +71,12 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     && rm -rf /var/lib/apt/lists/* && useradd -m baud
 EOF
 done
-docker volume create baud-linux-pointer-target >/dev/null
-docker volume create baud-linux-pointer-registry >/dev/null
+docker volume create "$tag-target" >/dev/null
+docker volume create "$tag-registry" >/dev/null
 docker run --rm -v "$root":/src:ro \
-  -v baud-linux-pointer-target:/target \
-  -v baud-linux-pointer-registry:/usr/local/cargo/registry \
-  baud-linux-pointer-build bash -c \
+  -v "$tag-target":/target \
+  -v "$tag-registry":/usr/local/cargo/registry \
+  "$tag-build" bash -c \
   'cd /src && CARGO_TARGET_DIR=/target RUSTFLAGS="-D warnings" cargo build -q --release -p baud --bin baud'
 
 # One arm, as the user baud (sway will not run as root). Results go to
@@ -79,8 +87,9 @@ set -u
 mkdir -p /tmp/out && D=$(mktemp -d) && cd "$D"
 O=/tmp/out
 export XDG_RUNTIME_DIR=$D/xdg && mkdir -m 0700 "$XDG_RUNTIME_DIR"
+W=$(awk "BEGIN { print 1024 * $SCALE }") H=$(awk "BEGIN { print 768 * $SCALE }")
 cat > sway.conf <<C
-output HEADLESS-1 resolution 1024x768 position 0 0
+output HEADLESS-1 resolution ${W}x${H} position 0 0 scale $SCALE
 default_border none
 default_floating_border none
 seat seat0 xcursor_theme DMZ-Black 24
@@ -94,7 +103,7 @@ export WAYLAND_DISPLAY=wayland-1
 export SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock)
 {
   sway -v
-  wayland-info | grep -E "'(wl_seat|wp_cursor_shape_manager_v1|zwlr_virtual_pointer_manager_v1|zwp_virtual_keyboard_manager_v1|zwp_primary_selection_device_manager_v1)'" |
+  wayland-info | grep -E "'(wl_compositor|wl_output|wp_fractional_scale_manager_v1|wp_viewporter|wl_seat|wp_cursor_shape_manager_v1|zwlr_virtual_pointer_manager_v1|zwp_virtual_keyboard_manager_v1|zwp_primary_selection_device_manager_v1)'" |
     sed 's/, name: *[0-9]*//; s/  */ /g'
 } > $O/compositor.txt
 xkbcli compile-keymap --layout us > keymap.xkb
@@ -141,6 +150,8 @@ session() {
   cp "$S/baud.log" $O/baud-$1.log
 }
 
+# The sessions at scale 1; at another scale only the edges, below.
+if [ "$SCALE" = 1 ]; then
 # A stream drag, Ctrl+Shift+C, an Alt drag for a block, a double and a
 # triple click, two clicks too far apart to be a double, and the pointer
 # leaving and coming back. Each selection is read back from the
@@ -503,6 +514,211 @@ sleep 300
 P
 check "?2001: a click six columns back is six Lefts" $D/readline/got '\033[D\033[D\033[D\033[D\033[D\033[D'
 
+# The side and extra buttons under ?1000 ?1006: buttons 8 to 11, "adding
+# 128 (for buttons 8 through 11)" (ctlseqs), pressed and released at
+# column 11, row 3; BTN_TASK, X's twelfth, which no encoding names, sends
+# nothing; a drag under ?1002 adds the motion 32; ?1000 alone writes X10's
+# bytes, whose release names no button.
+session side '
+printf "\033[?1002h\033[?1006h"; touch $S/ready
+until [ -e $S/go1 ]; do sleep 0.05; done; printf "\033[?1006l"; touch $S/did1
+exec cat > $S/got' <<'P'
+move 84 42
+click side
+click extra
+click forward
+click back
+click task
+press side
+move 92 42
+release side
+sh touch $S/go1
+waitfor [ -e $S/did1 ]
+sleep 200
+click side
+sleep 300
+P
+check "the side buttons: 128 to 131, past them nothing, a drag 160, X10" $D/side/got \
+  '\033[<128;11;3M\033[<128;11;3m\033[<129;11;3M\033[<129;11;3m\033[<130;11;3M\033[<130;11;3m\033[<131;11;3M\033[<131;11;3m\033[<128;11;3M\033[<160;12;3M\033[<128;12;3m\033[M\240,#\033[M#,#'
+
+# DEC's locator (DEC STD 070-13): the program asks and the pointer answers.
+# The child reads its stdin in the background and writes each request
+# when the pointer script says go, so a request lands between the
+# pointer's events. DSR ?55 and ?56 answer a locator ready and a mouse;
+# DECELR 1;2 reports in cells and DECSLE 1;3 asks for presses and
+# releases: DECLRP Pe;Pb;Pr;Pc, the left button 2 and 3 with 4 held, the
+# side button the fourth, 8 and 9 with 8 held, the extra button not one of
+# the four, and Shift's click the selection's. DECEFR around the pointer
+# reports event 10 once the pointer leaves it, and not again; DECRQLP
+# answers event 1 where it is, in cells and under DECELR 1;1 in pixels
+# from 1:1; DECELR 2 sends one report and stops; DECEFR with no corners is
+# the pointer's own cell, and the pointer leaving the window reports it
+# with the position omitted; DECELR 0 and DECRQLP answer 0, "not enabled".
+session locator '
+exec 3<&0; cat <&3 > $S/got & touch $S/ready
+go() { until [ -e $S/go$1 ]; do sleep 0.05; done; printf "$2"; touch $S/did$1; }
+go 1 "\033[?55n\033[?56n\033[1;2\047z\033[1;3\047{"
+go 2 "\033[2;10;4;14\047w"
+go 3 "\033[\047|"
+go 4 "\033[1;1\047z\033[1\047|"
+go 5 "\033[2;2\047z"
+go 6 "\033[1;2\047z\033[\047w"
+go 7 "\033[0\047z\033[\047|"
+wait' <<'P'
+move 84 42
+sh touch $S/go1
+waitfor [ -e $S/did1 ]
+sleep 200
+click left
+click side
+click extra
+mods shift
+tick 1000
+click left
+mods none
+sh touch $S/go2
+waitfor [ -e $S/did2 ]
+sleep 200
+move 108 42
+move 124 42
+move 140 42
+sh touch $S/go3
+waitfor [ -e $S/did3 ]
+sh touch $S/go4
+waitfor [ -e $S/did4 ]
+sleep 200
+tick 1000
+click left
+sh touch $S/go5
+waitfor [ -e $S/did5 ]
+sleep 200
+tick 1000
+click left
+tick 1000
+click left
+sh touch $S/go6
+waitfor [ -e $S/did6 ]
+sleep 200
+move 900 700
+sleep 200
+move 140 42
+sh touch $S/go7
+waitfor [ -e $S/did7 ]
+sleep 300
+P
+check "DEC's locator: DSR, presses, the fourth, a filter, requests, pixels, one-shot, leaving, off" $D/locator/got \
+  '\033[?50n\033[?57;1n\033[2;4;3;11&w\033[3;0;3;11&w\033[8;8;3;11&w\033[9;0;3;11&w\033[10;0;3;16&w\033[1;0;3;18&w\033[1;0;43;141&w\033[2;4;43;141&w\033[3;0;43;141&w\033[2;4;3;18&w\033[10;0&w\033[0&w'
+
+# The OSC 133 prompt's click (the semantic-prompts proposal): with cl=line
+# a click on the line being typed moves the cursor by characters, a wide
+# one counted once, a click in the left prompt counted as the input's
+# first character and one past the input as just after it, and a click on
+# another row is not the prompt's; it takes the click over ?2001, which
+# would count columns. The input is "ab", a wide character and "cd" after
+# a two-column prompt, so the cursor is five characters in. Then, each
+# after a command that ran and ended (C, D), a prompt with kitty's
+# click_events=1 is sent a left press at the screen's row, and one with
+# click_events=2 at its row counted from the prompt's top line, both
+# 1-based.
+session prompt '
+printf "\033[?2001h\033]133;A;cl=line\033\\\\$ \033]133;B\033\\\\ab\344\270\255cd"
+exec 3<&0; cat <&3 > $S/got & touch $S/ready
+until [ -e $S/go1 ]; do sleep 0.05; done
+printf "\r\n\033]133;C\033\\\\\033]133;D;0\033\\\\\033]133;A;click_events=1\033\\\\> \033]133;B\033\\\\xy"; touch $S/did1
+until [ -e $S/go2 ]; do sleep 0.05; done
+printf "\r\n\033]133;C\033\\\\\033]133;D;0\033\\\\\033]133;A;click_events=2\033\\\\> \033]133;B\033\\\\xy"; touch $S/did2
+wait' <<'P'
+move 28 8
+click left
+move 44 8
+tick 1000
+click left
+move 4 8
+tick 1000
+click left
+move 164 8
+tick 1000
+click left
+move 28 42
+tick 1000
+click left
+sh touch $S/go1
+waitfor [ -e $S/did1 ]
+sleep 200
+move 28 25
+tick 1000
+click left
+sh touch $S/go2
+waitfor [ -e $S/did2 ]
+sleep 200
+move 28 42
+tick 1000
+click left
+sleep 300
+P
+check "the prompt's click: characters, a wide one once, the prompt, past the input, another row; click_events 1 and 2" $D/prompt/got \
+  '\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[<0;4;2M\033[<0;4;1M'
+fi
+
+# The grid's edges at every scale, under ?1000 ?1006 on the alternate
+# screen, where no history puts the scrollbar's thumb beside the last
+# column: the first cell; the last column and row from the window's last
+# pixel and from the first pixel of the last cell; the cell before it; and
+# the same two from half pixels, the extent doubled. Then the pixel
+# report, ?1016, from the first and the last pixel.
+session edges '
+printf "\033[?1049h\033[?1000h\033[?1006h"; touch $S/ready
+until [ -e $S/go1 ]; do sleep 0.05; done; printf "\033[?1016h"; touch $S/did1
+exec cat > $S/got' <<'P'
+move 0 0
+click left
+move 639 407
+tick 1000
+click left
+move 632 391
+tick 1000
+click left
+move 631 390
+tick 1000
+click left
+extent 2048 1536
+move 1279 815
+tick 1000
+click left
+move 1263 781
+tick 1000
+click left
+extent 1024 768
+sh touch $S/go1
+waitfor [ -e $S/did1 ]
+sleep 200
+move 0 0
+tick 1000
+click left
+move 639 407
+tick 1000
+click left
+sleep 300
+P
+check "at scale $SCALE, the edges: 1;1, the last cell three ways, the one before twice, pixels" $D/edges/got \
+  '\033[<0;1;1M\033[<0;1;1m\033[<0;80;24M\033[<0;80;24m\033[<0;80;24M\033[<0;80;24m\033[<0;79;23M\033[<0;79;23m\033[<0;80;24M\033[<0;80;24m\033[<0;79;23M\033[<0;79;23m\033[<0;1;1M\033[<0;1;1m\033[<0;640;408M\033[<0;640;408m'
+# What the app drew its surfaces at: the window's buffer and any buffer
+# scale it set, and the pointer's image, drawn here on sway 1.7 only, its
+# buffer and scale.
+grep '^surface' $O/trace-edges.txt | awk '!seen[$0]++' > $D/edges/surfaces
+cat $D/edges/surfaces | sed 's/^/        /'
+if grep -q wp_cursor_shape_manager_v1 $O/compositor.txt; then
+  grep '^surface pointer' $D/edges/surfaces > $D/edges/drawn || true
+  check "at scale $SCALE, the pointer is named, not drawn" $D/edges/drawn ''
+else
+  want=$(awk "BEGIN { s = $SCALE; c = (s == int(s)) ? s : int(s) + 1; print c }")
+  printf 'surface pointer attach %sx%s\nsurface pointer buffer_scale %s\n' \
+    $((24 * want)) $((24 * want)) $want > $D/edges/drawn-want
+  grep '^surface pointer' $D/edges/surfaces > $D/edges/drawn || true
+  check "at scale $SCALE, the pointer drawn at scale $want" $D/edges/drawn \
+    "$(cat $D/edges/drawn-want)\n"
+fi
+
 # Every shape and hide named the serial of the enter before it.
 cat $O/trace-*.txt | grep -c "NOT the last" > $D/stale
 check "every set_cursor and set_shape carries the last enter's serial" $D/stale '0\n'
@@ -514,13 +730,15 @@ INNER
 )
 
 status=0
-for arm in bookworm trixie; do
-  mkdir -p "$out/$arm"
-  echo "== $arm"
-  docker run --rm -i -v "$root":/src:ro -v baud-linux-pointer-target:/target:ro \
-    baud-linux-pointer-$arm bash -c \
-    'cat > /tmp/arm.sh && chmod 755 /tmp/arm.sh && runuser -u baud -- bash /tmp/arm.sh > /tmp/results.txt 2>&1; s=$?; mkdir -p /tmp/out; cp /tmp/results.txt /tmp/out/; tar -C /tmp/out -c .; exit $s' \
-    <<<"$inner" 2>"$out/$arm/container.log" | tar -C "$out/$arm" -x || status=1
-  cat "$out/$arm/results.txt"
+for run in bookworm:1 trixie:1 bookworm:2 trixie:2 bookworm:1.5 trixie:1.5; do
+  arm=${run%:*} scale=${run#*:}
+  dir=$arm && [ "$scale" = 1 ] || dir=$arm-x$scale
+  mkdir -p "$out/$dir"
+  echo "== $arm, scale $scale"
+  docker run --rm -i -e SCALE="$scale" -v "$root":/src:ro -v "$tag-target":/target:ro \
+    "$tag-$arm" bash -c \
+    'cat > /tmp/arm.sh && chmod 755 /tmp/arm.sh && runuser -u baud -- env SCALE="$SCALE" bash /tmp/arm.sh > /tmp/results.txt 2>&1; s=$?; mkdir -p /tmp/out; cp /tmp/results.txt /tmp/out/; tar -C /tmp/out -c .; exit $s' \
+    <<<"$inner" 2>"$out/$dir/container.log" | tar -C "$out/$dir" -x || status=1
+  cat "$out/$dir/results.txt"
 done
 exit $status

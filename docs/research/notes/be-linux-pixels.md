@@ -178,7 +178,7 @@ cells of 8x17 px. What is read: the bytes the program receives,
 wl-paste's primary selection and clipboard, the arguments a stand-in
 `xdg-open` writes down instead of opening anything, the app's pointer
 requests in sway's `WAYLAND_DEBUG=server` log, and grim's screenshots.
-Each arm's 27 checks and its traffic are in
+Each arm's 32 checks and its traffic are in
 `[[source: be-obs-pointer-bookworm]]` and `[[source: be-obs-pointer-trixie]]`.
 Both arms read the same on every check but the image's:
 
@@ -199,12 +199,70 @@ Both arms read the same on every check but the image's:
 | a click six columns left of the cursor under `?2001` | six `CSI D` |
 | the shape, through no `OSC 22`, a key, `hand2`, `left_ptr`, `watch`, an empty `OSC 22`, a leave and an enter, and a new pointer | sway 1.10.1: text, hidden, pointer, hidden, default, hidden, wait, hidden, text, then text after each enter (`[[source: be-obs-pointer-trixie-hand2]]`); sway 1.7: the I-beam, and the arrow for the three named (`[[source: be-obs-pointer-bookworm-hand2]]`) |
 | every set_cursor and set_shape | the serial of the last enter, as both requests require |
+| the side, extra, forward and back buttons under `?1000` `?1006`; `BTN_TASK`; the side button dragged under `?1002`, then `?1000` alone | `CSI < 128;11;3 M` and `m` to `131`, nothing for the twelfth, `160` for the drag, X10's byte 160 and a release that names no button |
+| DEC's locator: DSR `?55` `?56`, DECELR 1;2 and DECSLE 1;3, a left click, a side click, an extra click, Shift's click; DECEFR 2;10;4;14 and a move out of it; DECRQLP; DECELR 1;1 and DECRQLP, a click; DECELR 2 and two clicks; DECELR 1;2 with DECEFR's corners omitted and the pointer leaving the window; DECELR 0 and DECRQLP | `CSI ?50n` `CSI ?57;1n`, `CSI 2;4;3;11&w` `CSI 3;0;3;11&w`, `8;8` and `9;0`, nothing, nothing; `CSI 10;0;3;16&w` once; `CSI 1;0;3;18&w`; `CSI 1;0;43;141&w` and the click at pixel 141, row 43; one report; `CSI 10;0&w`, the position omitted; `CSI 0&w` |
+| the `OSC 133` prompt: `cl=line` over `?2001`, the input "ab", a wide character and "cd"; clicks on "b", the wide character's right half, the left prompt, past the input and a row below; then prompts with `click_events=1` and `=2`, each after a `C` and a `D` | four, three, five and no `CSI D`, nothing for the row below; `CSI < 0;4;2 M` at the screen's row, `CSI < 0;4;1 M` from the prompt's top |
+| the grid's corners under `?1000` `?1006` on the alternate screen, at scale 1, 2 and 1.5 | `1;1` at (0, 0); `80;24` at (639, 407), (632, 391) and (639.5, 407.5); `79;23` at (631, 390) and (631.5, 390.5); under `?1016` pixels `1;1` and `640;408`, at every scale |
+
+Every check of the locator, the prompt and the side buttons reads bytes
+the program asked for and the DEC, semantic-prompts and xterm texts
+give: DECLRP Pe;Pb;Pr;Pc with no page (070-13, `[[source: dec-std-070]]`),
+`cl=`'s "double-width characters only count one"
+(`[[source: semantic-prompts]]`), kitty's absolute and relative rows
+(`[[source: kitty-shell-integration]]`), "adding 128 (for buttons 8
+through 11)" (`[[source: ctlseqs]]`).
+
+**At another scale** each arm runs again with the output at 2048x1536
+scale 2 and 1536x1152 scale 1.5, so the layout, the window and every
+point above stay in 1024x768 logical pixels; the virtual pointer's
+extent doubled reaches the half pixels between. The corners read the
+same at every scale on both arms, the half pixels included
+(`[[source: be-obs-pointer-scale]]`). The window's buffer stays
+640x408 with no buffer scale at either: sway scales it up, and the app
+binds no fractional-scale global, though sway 1.10.1 offers
+wp_fractional_scale_manager_v1 and wp_viewporter. sway 1.10.1
+sends `preferred_buffer_scale` 2 at both scales and names the pointer's
+shape; sway 1.7, at `wl_compositor` 4, has no `preferred_buffer_scale`,
+and the app draws its pointer at 48x48, buffer scale 2, at both.
 
 The new pointer is the seat losing its pointer and keyboard and gaining
 new ones: the app releases the old wl_pointer, destroys its shape device,
 asks for the new one and sets the I-beam at its enter.
 
-**What the run found, and what changed.** Four checks failed on the
+**What the second run found, and what changed.** On the binary built
+from `487d78bc`, both arms (`[[source: be-obs-pointer-base2]]`):
+
+- *The side buttons reached a program as a release.* `BTN_SIDE` to
+  `BTN_BACK` and every button past them were reported as "3=release":
+  `CSI < 3;11;3 M` for a press, a drag with one held not reported, and
+  in X10 a press that read as a release. ctlseqs gives buttons 8 to 11
+  "by adding 128", and xterm's `BtnCode` adds 128 for the bit 8
+  (`[[source: xterm-button-c]]`). They are X's numbers -- the kernel's
+  codes as "8 + b - BTN_SIDE" (`[[source: xf86-input-libinput-btn]]`),
+  AppKit's `buttonNumber` 3 to 6 as XQuartz numbers them
+  (`[[source: xquartz-x11application]]`) -- on both apps, and a button
+  past the eleventh, where "the encoding is ambiguous", sends nothing and
+  is counted in `mouse_unencodable`. `buttons_8_to_11_add_128`,
+  `a_button_past_the_eleventh_is_refused_and_counted`,
+  `the_side_button_is_button_8_to_a_tracking_child` and
+  `appkits_buttons_past_the_three_are_xs_8_to_11` hold it.
+- *On sway 1.7 at scale 2 and 1.5 the pointer was drawn at 24x24, buffer
+  scale 1*, and sway scaled it up: the app took its scale only from
+  `preferred_buffer_scale`, which a compositor below version 6 never
+  sends. `set_buffer_scale` asks for "the same buffer scale as the scale
+  of the output that the surface is displayed on" (`[[source: wayland]]`):
+  the window binds each `wl_output` for its `scale` and draws the pointer
+  at the largest scale of the outputs its surface entered, which
+  `an_old_compositor_draws_the_pointer_at_its_outputs_scale` holds over a
+  socket pair.
+
+Checks of the harness: on the base binary the side check and the drawn
+pointer's check failed on their arms and every other check passed; the
+seat's test failed with the side button reported as button 9, and with
+the twelfth reported as "3=release"; the socket-pair test failed with the
+output's scale read as one, and with its leave ignored.
+
+**What the first run found, and what changed.** Four checks failed on the
 binary built from `12a190d1`, on both arms (`[[source: be-obs-pointer-base]]`),
 one for each fix below and two more for the second:
 
@@ -243,10 +301,20 @@ edit back to `render` would be caught only by a compositor run.
 `OSC 22` is set twice, the same shape in two requests, harmless: the read
 shows it and then the read's unhide shows it again. The pointer keeps
 the I-beam over a link while Ctrl shows the link, on both apps, as
-`docs/input-coverage.md` records. Not run on a compositor: DEC's
-locator and the `OSC 133` prompt's click, which take a program that
-asks for them and are held by `seat.rs`'s tests; the side button; a
-scale other than one.
+`docs/input-coverage.md` records. A second `OSC 133 ; A` on the row after
+an input line, with no `C` or `D` between, was taken by the app on sway
+as a redraw: after `$ `, `B`, "ab", a wide character and "cd" on row 0,
+the bytes `\r\n`, `A;click_events=1`, `> `, `B` and "xy" drew the new
+prompt over row 0, where the core fed the same bytes, at 80x24 and after
+the app's 100x35 to 80x24, opens it on row 1; the child's `stty size`
+read 24 80 throughout. Unexplained; the prompt session now sends `C` and
+`D` between its prompts, as a shell does. The thumb dragged to the top
+read "line 12" once, on the bookworm arm, while the host compiled; every
+run without that load read "line 1". Not run on a compositor: the window
+drawn at a scale other than one, which the app does not do on Linux
+(its buffer is the window's size in logical pixels and the compositor
+scales it), and so no pixels compared against the CPU renderer at a
+scale.
 
 ## 7. Open
 
@@ -254,4 +322,8 @@ scale other than one.
 - Everything here is over a black background; a desktop with a
   wallpaper, and a screen, are not.
 - The GPU half of Linux.
+- The window drawn at the output's scale: its buffer at the scale and
+  the grid in device pixels, through `preferred_buffer_scale` or
+  wp_fractional_scale_v1 with wp_viewporter, as the macOS app draws
+  at the backing scale.
 - One run of each fixture at one size and one font size.

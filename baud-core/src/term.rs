@@ -5704,6 +5704,14 @@ impl<'b> Term<'b> {
             },
             _ => e,
         };
+        // **A button past the eleventh is refused and counted**: "Past
+        // button 11, the encoding is ambiguous" (`[[source: ctlseqs]]`),
+        // so no encoding names it -- where xterm sends 192 to 195 for 12 to
+        // 15 under SGR, codes ctlseqs does not define.
+        if e.button == MouseButton::Beyond {
+            self.mouse_unencodable += 1;
+            return false;
+        }
         let encoding = self.cold.mouse_encoding;
         if let Some(max) = encoding.max_ordinate() {
             let (r, c) = (e.row.one_based().get(), e.col.one_based().get());

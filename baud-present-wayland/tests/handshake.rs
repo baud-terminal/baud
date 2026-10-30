@@ -1687,6 +1687,20 @@ struct Pointed {
 /// the cursor-shape manager, advertised at 2 -- the seat at `seat_version`,
 /// and its capabilities naming the keyboard and the pointer.
 fn pointer_session(seat_version: u32, shapes: Shapes) -> Pointed {
+    pointer_session_at(seat_version, shapes, Scales::Preferred)
+}
+
+/// How the compositor tells a client its scale.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scales {
+    /// `wl_compositor` version 6: `preferred_buffer_scale`.
+    Preferred,
+    /// Version 4, sway 1.7's, and one `wl_output`: its `scale`.
+    Outputs,
+}
+
+/// [`pointer_session`] with the compositor's scales told as `scales` says.
+fn pointer_session_at(seat_version: u32, shapes: Shapes, scales: Scales) -> Pointed {
     let (c, s) = UnixStream::pair().unwrap();
     let mut conn = Connection::over(c);
     let mut server = Server::new(s);
@@ -1701,14 +1715,21 @@ fn pointer_session(seat_version: u32, shapes: Shapes) -> Pointed {
         .insert(registry, Interface::named("wl_registry").unwrap());
     let r = server.expect("wl_display", "sync");
     let Val::New(sync) = r.args[0] else { panic!() };
+    let compositor = match scales {
+        Scales::Preferred => 6,
+        Scales::Outputs => 4,
+    };
     let mut globals = vec![
-        (1u32, "wl_compositor", 6u32),
+        (1u32, "wl_compositor", compositor),
         (2, "wl_shm", 2),
         (3, "xdg_wm_base", 6),
         (4, "wl_seat", seat_version),
     ];
     if shapes == Shapes::Offered {
         globals.push((5, "wp_cursor_shape_manager_v1", 2));
+    }
+    if scales == Scales::Outputs {
+        globals.push((6, "wl_output", 4));
     }
     for (name, iface, version) in globals {
         server.send(
@@ -2141,6 +2162,81 @@ fn an_old_pointer_reports_at_once_and_no_global_draws_its_own() {
         Drawing {
             side: 48,
             scale: 2,
+            hotspot: (4, 3),
+            image: baud_present_wayland::cursor::Drawn::Arrow,
+        },
+        Some(cursor),
+    );
+}
+
+/// **Below `wl_compositor` version 6 the drawn pointer takes its scale
+/// from the outputs the window is on**: "It is intended that you pick the
+/// same buffer scale as the scale of the output that the surface is
+/// displayed on" (`wl_surface.set_buffer_scale`, `[[source: wayland]]`),
+/// which sway 1.7 leaves to `wl_output.scale` and `wl_surface.enter`, having
+/// no `preferred_buffer_scale`. Each output is bound at version 2, the
+/// first with `scale`; the window on an output at two draws the I-beam at
+/// two, and once it has left it, the arrow at one.
+#[test]
+fn an_old_compositor_draws_the_pointer_at_its_outputs_scale() {
+    let Pointed {
+        mut conn,
+        mut server,
+        mut w,
+        pointer,
+        surface,
+        ..
+    } = pointer_session_at(7, Shapes::Absent, Scales::Outputs);
+    let output = server
+        .objects
+        .iter()
+        .find(|(_, i)| i.name == "wl_output")
+        .map(|(id, _)| *id)
+        .expect("the output bound");
+    server.send(output, "wl_output", "scale", &[Arg::Int(2)]);
+    server.send(output, "wl_output", "done", &[]);
+    server.send(surface, "wl_surface", "enter", &[Arg::Object(output)]);
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(3), Arg::Object(surface), fixed(1.0), fixed(2.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    use protocol::wp_cursor_shape_device_v1::shape;
+    let cursor = drawn_pointer(
+        &mut conn,
+        &mut server,
+        &mut w,
+        (CursorShape(shape::TEXT), 3),
+        Drawing {
+            side: 48,
+            scale: 2,
+            hotspot: (12, 12),
+            image: baud_present_wayland::cursor::Drawn::IBeam,
+        },
+        None,
+    );
+    server.send(surface, "wl_surface", "leave", &[Arg::Object(output)]);
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(5), Arg::Object(surface), fixed(1.0), fixed(2.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    drawn_pointer(
+        &mut conn,
+        &mut server,
+        &mut w,
+        (CursorShape(shape::POINTER), 5),
+        Drawing {
+            side: 24,
+            scale: 1,
             hotspot: (4, 3),
             image: baud_present_wayland::cursor::Drawn::Arrow,
         },

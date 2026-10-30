@@ -19,10 +19,15 @@ read with are the seat's while it happens.
 
 One command a line:
 
-  move X Y           motion_absolute to output pixel (X, Y), then frame
+  move X Y           motion_absolute to (X, Y) of the extent, then frame
+  extent W H         the extent later moves are given in: the layout's
+                     size in logical pixels by default (POINTER_W and
+                     POINTER_H, else 1024x768); twice it, to reach the
+                     half pixels between
   press B | release B | click B
-                     B is left, right, middle or side; click is a press
-                     and a release
+                     B is left, right, middle, side, extra, forward, back
+                     or task (BTN_SIDE to BTN_TASK, 0x113 to 0x117);
+                     click is a press and a release
   wheel N            N detents down (negative up): axis_discrete, value
                      15 a detent, as libinput reports a wheel, then frame
   across N           the same on the horizontal axis
@@ -53,7 +58,16 @@ import subprocess
 import sys
 import time
 
-BUTTONS = {"left": 0x110, "right": 0x111, "middle": 0x112, "side": 0x113}
+BUTTONS = {
+    "left": 0x110,
+    "right": 0x111,
+    "middle": 0x112,
+    "side": 0x113,
+    "extra": 0x114,
+    "forward": 0x115,
+    "back": 0x116,
+    "task": 0x117,
+}
 MODS = {"shift": 1 << 0, "ctrl": 1 << 2, "alt": 1 << 3}
 
 # Opcodes, in each interface's order in its XML.
@@ -224,6 +238,8 @@ def main():
             k = int(rest)
             w.send(keyboard, VK_KEY, at() + u32(k) + u32(1))
             w.send(keyboard, VK_KEY, at() + u32(k) + u32(0))
+        elif cmd == "extent":
+            extent = tuple(int(v) for v in rest.split())
         elif cmd == "tick":
             clock += int(rest)
         elif cmd == "sleep":

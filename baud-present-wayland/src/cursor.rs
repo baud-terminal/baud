@@ -103,7 +103,9 @@ const RIM: f64 = 1.0;
 /// Samples a pixel takes in each direction.
 const SAMPLES: u32 = 4;
 
-/// A whole-number buffer scale, the compositor's `preferred_buffer_scale`.
+/// A whole-number buffer scale: the compositor's `preferred_buffer_scale`,
+/// or below `wl_compositor` version 6 the largest `wl_output.scale` of the
+/// outputs the window is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Scale(pub u32);
 

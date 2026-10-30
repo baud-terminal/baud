@@ -122,13 +122,36 @@ pub enum Rung {
 }
 
 /// Whether the compositor's surfaces take `set_buffer_scale`, which
-/// `wl_surface` has from version 3.
+/// `wl_surface` has from version 3, and how the scale to draw at is
+/// learnt: from version 6 the compositor says it,
+/// `wl_surface.preferred_buffer_scale`; before, "It is intended that you
+/// pick the same buffer scale as the scale of the output that the surface
+/// is displayed on" (`set_buffer_scale`, `[[source: wayland]]`), the
+/// outputs the surface has entered and each one's `wl_output.scale`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Scaling {
-    Buffer,
+    /// Version 6 or later: `preferred_buffer_scale`.
+    Preferred,
+    /// Versions 3 to 5: the outputs' scales.
+    Outputs,
     #[default]
     None,
 }
+
+/// A `wl_output` bound, by its registry name, and the scale it last said:
+/// one until it says, "If it is not sent, the client should assume a scale
+/// of 1".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Output {
+    name: GlobalName,
+    id: ObjectId,
+    scale: Scale,
+}
+
+/// A global's numeric name in the registry, which `global_remove` names
+/// it by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GlobalName(u32);
 
 /// Whether the compositor can send `xdg_toplevel.configure_bounds`, from
 /// the `xdg_wm_base` version bound ([`Window::configure_bounds`]).
@@ -252,6 +275,9 @@ struct Globals {
     /// the `xdg-activation-v1` global, where the compositor offers it.
     activation: Option<ObjectId>,
     scaling: Scaling,
+    /// Every `wl_output`, bound at version 2 for its `scale` event, which
+    /// the pointer's image is drawn at below `wl_compositor` version 6.
+    outputs: Vec<Output>,
 }
 
 /// The longest gap between two frame callbacks read as a frame's length:
@@ -297,6 +323,10 @@ pub struct Window {
     /// `wl_surface.preferred_buffer_scale` on the window's surface, the
     /// scale the pointer is drawn at; one until the compositor says.
     preferred: Scale,
+    /// The outputs the window's surface is on, from `wl_surface.enter` and
+    /// `leave`: below version 6, the pointer is drawn at the largest of
+    /// their scales.
+    on: Vec<ObjectId>,
     gather: Gather,
     /// The size the last toplevel configure asked for, or our default.
     pending: (Px, Px),
@@ -393,6 +423,7 @@ impl Window {
             cursor_surface: None,
             cursor_images: None,
             preferred: Scale(1),
+            on: Vec::new(),
             gather: Gather::new(Framing::Framed),
             pending: (Px(800), Px(600)),
             size: None,
@@ -510,6 +541,24 @@ impl Window {
         }
     }
 
+    /// **The scale the pointer is drawn at**: the compositor's preferred
+    /// scale from version 6, the largest scale of the outputs the window is
+    /// on before it, and one where surfaces take no buffer scale.
+    fn pointer_scale(&self) -> Scale {
+        match self.globals.scaling {
+            Scaling::Preferred => self.preferred,
+            Scaling::Outputs => self
+                .globals
+                .outputs
+                .iter()
+                .filter(|o| self.on.contains(&o.id))
+                .map(|o| o.scale)
+                .max_by_key(|s| s.0)
+                .unwrap_or(Scale(1)),
+            Scaling::None => Scale(1),
+        }
+    }
+
     /// **The pointer drawn here**: the surface made once, the two images
     /// drawn at the window's buffer scale into one pool -- again when the
     /// scale changes -- and the one asked for attached, at that scale, and
@@ -525,10 +574,7 @@ impl Window {
         ) else {
             return Shaped::Unavailable;
         };
-        let scale = match self.globals.scaling {
-            Scaling::Buffer => self.preferred,
-            Scaling::None => Scale(1),
-        };
+        let scale = self.pointer_scale();
         let surface = match self.cursor_surface {
             Some(c) => c,
             None => {
@@ -581,7 +627,7 @@ impl Window {
             Opcode(protocol::wl_surface::request::ATTACH),
             &[Arg::Object(buffer), Arg::Int(0), Arg::Int(0)],
         );
-        if self.globals.scaling == Scaling::Buffer {
+        if self.globals.scaling != Scaling::None {
             let _ = s.request(
                 surface,
                 Opcode(protocol::wl_surface::request::SET_BUFFER_SCALE),
@@ -1300,9 +1346,10 @@ impl Handler for Window {
                 match *iface {
                     "wl_compositor" => {
                         let version = version.min(6);
-                        self.globals.scaling = match version >= 3 {
-                            true => Scaling::Buffer,
-                            false => Scaling::None,
+                        self.globals.scaling = match version {
+                            6.. => Scaling::Preferred,
+                            3.. => Scaling::Outputs,
+                            _ => Scaling::None,
                         };
                         self.globals.compositor =
                             Window::bind(s, self.registry, name, iface, version)
@@ -1378,6 +1425,18 @@ impl Handler for Window {
                     }
                     // Version 1: its 34 shapes are every one `pointer::shape`
                     // names.
+                    // An output's scale, which a compositor older than
+                    // version 6 leaves the pointer's image to: `wl_output`
+                    // has `scale` from version 2.
+                    "wl_output" if version >= 2 => {
+                        if let Some(id) = Window::bind(s, self.registry, name, iface, 2) {
+                            self.globals.outputs.push(Output {
+                                name: GlobalName(name),
+                                id,
+                                scale: Scale(1),
+                            });
+                        }
+                    }
                     "wp_cursor_shape_manager_v1" => {
                         self.globals.cursor_shape =
                             Window::bind(s, self.registry, name, iface, version.min(1));
@@ -1394,6 +1453,29 @@ impl Handler for Window {
                 if Some(ev.object) == self.surface =>
             {
                 self.preferred = Scale(u32::try_from(*f).unwrap_or(1).max(1));
+            }
+            ("wl_surface", "enter", [Read::Object(o)])
+                if Some(ev.object) == self.surface && !self.on.contains(o) =>
+            {
+                self.on.push(*o);
+            }
+            ("wl_surface", "leave", [Read::Object(o)]) if Some(ev.object) == self.surface => {
+                self.on.retain(|on| on != o);
+            }
+            // "The compositor will emit a non-zero, positive value for
+            // scale."
+            ("wl_output", "scale", [Read::Int(f)]) => {
+                if let Some(o) = self.globals.outputs.iter_mut().find(|o| o.id == ev.object) {
+                    o.scale = Scale(u32::try_from(*f).unwrap_or(1).max(1));
+                }
+            }
+            // An output unplugged: its scale counts no more.
+            ("wl_registry", "global_remove", [Read::Uint(name)]) => {
+                let name = GlobalName(*name);
+                if let Some(at) = self.globals.outputs.iter().position(|o| o.name == name) {
+                    let gone = self.globals.outputs.remove(at);
+                    self.on.retain(|on| *on != gone.id);
+                }
             }
             ("xdg_wm_base", "ping", [Read::Uint(serial)]) => {
                 let _ = s.request(

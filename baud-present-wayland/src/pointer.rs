@@ -44,9 +44,15 @@ pub struct EventCode(pub u32);
 
 impl EventCode {
     /// `BTN_SIDE`, 0x113, the first button past the three (`[[source:
-    /// linux-input-event-codes]]` line 359): the one DEC's locator reports
-    /// as its fourth.
+    /// linux-input-event-codes]]` line 359): X's button 8, and the one
+    /// DEC's locator reports as its fourth.
     pub const SIDE: EventCode = EventCode(0x113);
+    /// `BTN_EXTRA`, `BTN_FORWARD` and `BTN_BACK`, 0x114 to 0x116 (lines
+    /// 360 to 362): X's buttons 9 to 11, "8 + b - BTN_SIDE"
+    /// (`[[source: xf86-input-libinput-btn]]`).
+    pub const EXTRA: EventCode = EventCode(0x114);
+    pub const FORWARD: EventCode = EventCode(0x115);
+    pub const BACK: EventCode = EventCode(0x116);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

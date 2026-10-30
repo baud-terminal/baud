@@ -34,22 +34,32 @@ pub(crate) enum Pressed {
     Left,
     Middle,
     Right,
-    /// The first button past the three -- macOS's `buttonNumber` 3, the
-    /// Wayland seat's `BTN_SIDE` -- which DEC's locator reports as its
-    /// fourth.
-    Fourth,
+    /// X's button 8, the first past the three -- macOS's `buttonNumber`
+    /// 3, the Wayland seat's `BTN_SIDE` -- which DEC's locator reports as
+    /// its fourth.
+    Button8,
+    /// X's buttons 9 to 11: `buttonNumber` 4 to 6, `BTN_EXTRA`,
+    /// `BTN_FORWARD` and `BTN_BACK`.
+    Button9,
+    Button10,
+    Button11,
+    /// A button past the eleventh, which no report names.
     Other,
 }
 
 impl Pressed {
-    /// The button a report carries: none for one the protocol has no code
-    /// for.
+    /// The button a report carries: past the eleventh one no encoding
+    /// names, which the core refuses and counts.
     pub(crate) fn reported(self) -> MouseButton {
         match self {
             Pressed::Left => MouseButton::Left,
             Pressed::Middle => MouseButton::Middle,
             Pressed::Right => MouseButton::Right,
-            Pressed::Fourth | Pressed::Other => MouseButton::None,
+            Pressed::Button8 => MouseButton::Button8,
+            Pressed::Button9 => MouseButton::Button9,
+            Pressed::Button10 => MouseButton::Button10,
+            Pressed::Button11 => MouseButton::Button11,
+            Pressed::Other => MouseButton::Beyond,
         }
     }
 
@@ -59,8 +69,8 @@ impl Pressed {
             Pressed::Left => Some(LocatorButton::Left),
             Pressed::Middle => Some(LocatorButton::Middle),
             Pressed::Right => Some(LocatorButton::Right),
-            Pressed::Fourth => Some(LocatorButton::Fourth),
-            Pressed::Other => None,
+            Pressed::Button8 => Some(LocatorButton::Fourth),
+            Pressed::Button9 | Pressed::Button10 | Pressed::Button11 | Pressed::Other => None,
         }
     }
 }

@@ -5343,6 +5343,30 @@ mod alt_window_tests {
 }
 
 #[cfg(test)]
+mod button_tests {
+    use super::{Pressed, ViewButton, mouse_button};
+
+    /// **AppKit's buttons past the three are X's 8 to 11**, as XQuartz
+    /// gives "additional mouse buttons (4 and higher in AppKit) to buttons
+    /// 8 and higher in X11": `buttonNumber` 3 to 6, and nothing past them.
+    #[test]
+    fn appkits_buttons_past_the_three_are_xs_8_to_11() {
+        let got = [3, 4, 5, 6, 7].map(|n| mouse_button(ViewButton::Other(n)));
+        assert_eq!(
+            got,
+            [
+                Pressed::Button8,
+                Pressed::Button9,
+                Pressed::Button10,
+                Pressed::Button11,
+                Pressed::Other
+            ]
+        );
+        assert_eq!(mouse_button(ViewButton::Middle), Pressed::Middle);
+    }
+}
+
+#[cfg(test)]
 mod locator_tests {
     use super::tell_locator;
     use super::{LineFrame, LocatorHalf, LocatorOwed, Reply, To, ViewButton, ViewMouseKind};
@@ -13557,9 +13581,14 @@ fn mouse_button(b: ViewButton) -> Pressed {
         ViewButton::Left => Pressed::Left,
         ViewButton::Middle => Pressed::Middle,
         ViewButton::Right => Pressed::Right,
-        // `NSEvent.buttonNumber` 3, the first past the three: DEC's
+        // `NSEvent.buttonNumber` 3 to 6, X's buttons 8 to 11, as XQuartz
+        // numbers "additional mouse buttons (4 and higher in AppKit)"
+        // (`[[source: xquartz-x11application]]`); the first, DEC's
         // locator's fourth.
-        ViewButton::Other(3) => Pressed::Fourth,
+        ViewButton::Other(3) => Pressed::Button8,
+        ViewButton::Other(4) => Pressed::Button9,
+        ViewButton::Other(5) => Pressed::Button10,
+        ViewButton::Other(6) => Pressed::Button11,
         ViewButton::Other(_) => Pressed::Other,
     }
 }

@@ -1003,6 +1003,8 @@ mod tests {
     }
 
     const NONE: Modifiers = Modifiers::NONE;
+    const SIDE: Pressed = Pressed::Button8;
+    const PAST: Pressed = Pressed::Other;
 
     /// **A press that selects moves a GIF frame waiting for the user on**,
     /// "processing will continue when user input is entered", "Mouse
@@ -1229,6 +1231,38 @@ mod tests {
         assert_eq!(t.window_back().index(), 0);
     }
 
+    /// **The side button is button 8 to a tracking child**, "adding 128
+    /// (for buttons 8 through 11)" (`[[source: ctlseqs]]`): its press and
+    /// release in SGR, its drag under `?1002` with the motion 32 added,
+    /// and X10's bytes, whose release names no button; a button past the
+    /// eleventh, which no encoding names, sends nothing rather than a
+    /// press of "3=release", and the core counts it.
+    #[test]
+    fn the_side_button_is_button_8_to_a_tracking_child() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b[?1002h\x1b[?1006h");
+        let mut seat = Seat::new();
+        let ms = Ms::of_millis;
+        put(&mut seat, &mut t, Input::Moved(25.0, 15.0), NONE);
+        let (_, sent) = put(&mut seat, &mut t, down(SIDE, ms(10)), NONE);
+        assert_eq!(sent, b"\x1b[<128;3;2M");
+        let (_, sent) = put(&mut seat, &mut t, Input::Moved(35.0, 15.0), NONE);
+        assert_eq!(sent, b"\x1b[<160;4;2M", "a drag with it held");
+        let (_, sent) = put(&mut seat, &mut t, up(SIDE, ms(20)), NONE);
+        assert_eq!(sent, b"\x1b[<128;4;2m");
+        let (_, sent) = put(&mut seat, &mut t, down(PAST, ms(30)), NONE);
+        assert_eq!(sent, b"", "past the eleventh, nothing");
+        let (_, sent) = put(&mut seat, &mut t, up(PAST, ms(40)), NONE);
+        assert_eq!(sent, b"");
+        assert_eq!(t.mouse_unencodable, 2, "and counted");
+        feed(&mut t, b"\x1b[?1006l\x1b[?1000h");
+        let (_, sent) = put(&mut seat, &mut t, down(SIDE, ms(50)), NONE);
+        assert_eq!(sent, b"\x1b[M\xa0$\"", "X10: 32 + 128");
+        let (_, sent) = put(&mut seat, &mut t, up(SIDE, ms(60)), NONE);
+        assert_eq!(sent, b"\x1b[M#$\"", "a release names no button");
+    }
+
     /// **A tracking child gets the buttons and the wheel as its reports**,
     /// at the cell under the pointer; Shift takes the press for the
     /// selection instead, as xterm's override does.
@@ -1290,9 +1324,9 @@ mod tests {
         put(&mut seat, &mut t, Input::Entered(25.0, 15.0), NONE);
         let (_, sent) = put(&mut seat, &mut t, down(Pressed::Left, ms(10)), NONE);
         assert_eq!(sent, b"\x1b[2;4;2;3&w");
-        let (_, sent) = put(&mut seat, &mut t, down(Pressed::Fourth, ms(15)), NONE);
+        let (_, sent) = put(&mut seat, &mut t, down(Pressed::Button8, ms(15)), NONE);
         assert_eq!(sent, b"\x1b[8;12;2;3&w", "the side button is the fourth");
-        put(&mut seat, &mut t, up(Pressed::Fourth, ms(16)), NONE);
+        put(&mut seat, &mut t, up(Pressed::Button8, ms(16)), NONE);
         let (_, sent) = put(&mut seat, &mut t, up(Pressed::Left, ms(20)), NONE);
         assert_eq!(sent, b"\x1b[3;0;2;3&w");
         let shift = Modifiers::NONE.with(Modifiers::SHIFT);

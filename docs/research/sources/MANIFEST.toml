@@ -32475,6 +32475,39 @@ group  = "J"
 # Fetched 2026-10-20 (lane b114). Lines 355-358, the mouse buttons. Read, not copied.
 # Re-fetched 2026-10-20 (lane b117), the sha256 matching: line 359, BTN_SIDE 0x113.
 
+[sources.xf86-input-libinput-btn]
+key    = "xf86-input-libinput-btn"
+title  = "xf86-input-libinput 1.5.0, src/xf86libinput.c -- btn_linux2xorg, the kernel's button codes as X's button numbers: BTN_SIDE and after are 8 + b - BTN_SIDE"
+author = "Red Hat, Inc. and the xf86-input-libinput contributors (MIT)"
+year   = 2024
+venue  = "gitlab.freedesktop.org/xorg/driver/xf86-input-libinput, tag xf86-input-libinput-1.5.0"
+url    = "https://gitlab.freedesktop.org/xorg/driver/xf86-input-libinput/-/raw/xf86-input-libinput-1.5.0/src/xf86libinput.c"
+file   = ""
+sha256 = "1b97307fa2d83e39fd3feee79898304281b16dd23689924c5bffbd3889e9c7bb"
+bytes  = 187576
+status = "external"
+group  = "H"
+# Fetched 2026-10-29. Lines 252-272, btn_linux2xorg: BTN_LEFT 1, BTN_MIDDLE 2,
+# BTN_RIGHT 3, the default "button = 8 + b - BTN_SIDE"; line 1711, every pointer
+# button through it. Read, not copied.
+
+[sources.xquartz-x11application]
+key    = "xquartz-x11application"
+title  = "xorg-server 21.1.13, hw/xquartz/X11Application.m -- AppKit's buttonNumber as X's button: the middle 2, buttonNumber 3 and up 8 and up"
+author = "Apple Inc. and the X.Org contributors (MIT)"
+year   = 2024
+venue  = "gitlab.freedesktop.org/xorg/xserver, tag xorg-server-21.1.13"
+url    = "https://gitlab.freedesktop.org/xorg/xserver/-/raw/xorg-server-21.1.13/hw/xquartz/X11Application.m"
+file   = ""
+sha256 = "58c8c26febfc709aaf68008c399b5a42d0689d27bcf321afb2d2efe1320d1e06"
+bytes  = 45647
+status = "external"
+group  = "H"
+# Fetched 2026-10-29. Lines 1016-1025, NSOtherMouseDown: "ev_button = [e
+# buttonNumber] + 1", then "translate additional mouse buttons (4 and higher in
+# AppKit) to buttons 8 and higher in X11"; the release (1040-1045) and the drag
+# (1057-1062) the same. Read, not copied.
+
 [sources.foot-2705e36-selection]
 key    = "foot-2705e36-selection"
 title  = "foot 2705e36, selection.c -- the five text types offered (2011-2015), UTF-8 preferred on receive (2596-2640), a 2 s receive timeout re-armed on every read (2206, 2337)"
@@ -38451,27 +38484,27 @@ group  = "BE"
 
 [sources.be-obs-pointer-bookworm]
 key    = "be-obs-pointer-bookworm"
-title  = "The Linux app under a virtual pointer on sway 1.7: the compositor, the 27 checks and the pointer traffic of each session"
+title  = "The Linux app under a virtual pointer on sway 1.7: the compositor, the 32 checks and the pointer traffic of each session"
 author = "baud research (note BE)"
 year   = 2026
 venue  = "local capture or measurement"
 url    = "scripts/linux-pointer.sh, the bookworm arm: sway 1.7 headless, the app drawing its own pointer"
 file   = "be-observed/pointer-bookworm.txt"
-sha256 = "a31fc46aca06e3d3f84127db69faed2c0565909702f199d68bb07e21a3c02af4"
-bytes  = 7619
+sha256 = "c084564da213452ae70a1da1b1b2a300b3257e03ebd544b9c29bcc98028f60f9"
+bytes  = 13560
 status = "retrieved"
 group  = "BE"
 
 [sources.be-obs-pointer-trixie]
 key    = "be-obs-pointer-trixie"
-title  = "The Linux app under a virtual pointer on sway 1.10.1: the compositor, the 27 checks and the pointer traffic of each session"
+title  = "The Linux app under a virtual pointer on sway 1.10.1: the compositor, the 32 checks and the pointer traffic of each session"
 author = "baud research (note BE)"
 year   = 2026
 venue  = "local capture or measurement"
 url    = "scripts/linux-pointer.sh, the trixie arm: sway 1.10.1 headless, cursor-shape-v1"
 file   = "be-observed/pointer-trixie.txt"
-sha256 = "7c892153cc6fd3146dcc1f57a808914bab101e86b13d4860635097cf0c147fa9"
-bytes  = 8078
+sha256 = "cc1ddfe9e5060efe33ca306ec4df788fe8ce86bc0d1965c15924e1ea9eef9d5e"
+bytes  = 13060
 status = "retrieved"
 group  = "BE"
 
@@ -38485,6 +38518,32 @@ url    = "scripts/linux-pointer.sh on the base binary, both arms"
 file   = "be-observed/pointer-base.txt"
 sha256 = "a04efbc495fe7ebda403a603ad809ad48a9f59f24648c4af57bab4300612ac51"
 bytes  = 5987
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-scale]
+key    = "be-obs-pointer-scale"
+title  = "The Linux app under a virtual pointer with the output at scale 2 and 1.5, on sway 1.7 and 1.10.1: the compositor, the grid's corners, the surfaces' buffers and scales, and the pointer traffic"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pointer.sh, both arms at scale 2 and 1.5"
+file   = "be-observed/pointer-scale.txt"
+sha256 = "f0c6471d84c87735ef2317413f226ba13ab053c3524b131447f1fa1648a3c675"
+bytes  = 7240
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-base2]
+key    = "be-obs-pointer-base2"
+title  = "The same checks on the binary built from 487d78bc: the side buttons fail on each arm and the drawn pointer at scale 2 and 1.5 on sway 1.7"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pointer.sh on the base binary, both arms, at scale 1, 2 and 1.5"
+file   = "be-observed/pointer-base2.txt"
+sha256 = "3c41c8aca411fc2f64312961181805cf049e76472788b3f98482ca345dedc9d5"
+bytes  = 11793
 status = "retrieved"
 group  = "BE"
 

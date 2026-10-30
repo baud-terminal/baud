@@ -1275,7 +1275,10 @@ impl Driver {
                     Button::Left => Pressed::Left,
                     Button::Middle => Pressed::Middle,
                     Button::Right => Pressed::Right,
-                    Button::Other(EventCode::SIDE) => Pressed::Fourth,
+                    Button::Other(EventCode::SIDE) => Pressed::Button8,
+                    Button::Other(EventCode::EXTRA) => Pressed::Button9,
+                    Button::Other(EventCode::FORWARD) => Pressed::Button10,
+                    Button::Other(EventCode::BACK) => Pressed::Button11,
                     Button::Other(_) => Pressed::Other,
                 };
                 match press {
@@ -2293,8 +2296,9 @@ impl Driver {
         // compositor configured, which is the whole window -- nothing here
         // asks for server-side decorations, so none frame it. The rest is
         // not known: xdg-shell tells a client neither its position nor
-        // whether it is minimized, and no `wl_output` is bound, so those
-        // reports stay silent rather than guessed.
+        // whether it is minimized, and the outputs the window crate binds
+        // say only their scale, so those reports stay silent rather than
+        // guessed.
         self.term.set_window(baud_core::WindowFacts {
             window: Some(baud_core::PixelSize {
                 width: baud_core::ImagePx::of(u16::try_from(width.0).unwrap_or(u16::MAX)),

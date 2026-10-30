@@ -2,10 +2,13 @@
 
 ## the compositor
 sway version 1.7
+interface: 'wl_compositor', version: 4
 interface: 'zwp_primary_selection_device_manager_v1', version: 1
+interface: 'wp_viewporter', version: 1
 interface: 'zwp_virtual_keyboard_manager_v1', version: 1
 interface: 'zwlr_virtual_pointer_manager_v1', version: 2
 interface: 'wl_seat', version: 7
+interface: 'wl_output', version: 4
 
 ## the checks
 ok      a stream drag, the primary selection: [beta gamma
@@ -41,11 +44,25 @@ https://example.com/plain
 https://example.org/p14]
 ok      under tracking a Ctrl click on a link is the link's, elsewhere the program's: [^[[<16;38;4M^[[<16;38;4m]
 ok      ?2001: a click six columns back is six Lefts: [^[[D^[[D^[[D^[[D^[[D^[[D]
+ok      the side buttons: 128 to 131, past them nothing, a drag 160, X10: [^[[<128;11;3M^[[<128;11;3m^[[<129;11;3M^[[<129;11;3m^[[<130;11;3M^[[<130;11;3m^[[<131;11;3M^[[<131;11;3m^[[<128;11;3M^[[<160;12;3M^[[<128;12;3m^[[MM- ,#^[[M#,#]
+ok      DEC's locator: DSR, presses, the fourth, a filter, requests, pixels, one-shot, leaving, off: [^[[?50n^[[?57;1n^[[2;4;3;11&w^[[3;0;3;11&w^[[8;8;3;11&w^[[9;0;3;11&w^[[10;0;3;16&w^[[1;0;3;18&w^[[1;0;43;141&w^[[2;4;43;141&w^[[3;0;43;141&w^[[2;4;3;18&w^[[10;0&w^[[0&w]
+ok      the prompt's click: characters, a wide one once, the prompt, past the input, another row; click_events 1 and 2: [^[[D^[[D^[[D^[[D^[[D^[[D^[[D^[[D^[[D^[[D^[[D^[[D^[[<0;4;2M^[[<0;4;1M]
+ok      at scale 1, the edges: 1;1, the last cell three ways, the one before twice, pixels: [^[[<0;1;1M^[[<0;1;1m^[[<0;80;24M^[[<0;80;24m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;1;1M^[[<0;1;1m^[[<0;640;408M^[[<0;640;408m]
+        surface window attach 800x600
+        surface window attach 640x408
+        surface pointer attach 24x24
+        surface pointer buffer_scale 1
+ok      at scale 1, the pointer drawn at scale 1: [surface pointer attach 24x24
+surface pointer buffer_scale 1]
 ok      every set_cursor and set_shape carries the last enter's serial: [0]
 
 ## the pointer traffic: select
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 52 8
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 button left pressed
 motion 60 25
@@ -86,8 +103,12 @@ capabilities none
 release
 
 ## the pointer traffic: wheel
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 620 200
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 axis_source 0
 axis_discrete vertical -3
@@ -149,6 +170,8 @@ capabilities none
 release
 
 ## the pointer traffic: alt
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 300 200
 axis_source 0
@@ -157,6 +180,8 @@ axis vertical -45
 axis_source 0
 axis_discrete vertical 2
 axis vertical 30
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 leave
 capabilities keyboard
@@ -164,6 +189,8 @@ capabilities none
 release
 
 ## the pointer traffic: sgr
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 84 42
 button left pressed
@@ -190,15 +217,19 @@ button left pressed
 button left released
 button left pressed
 button left released
-set_cursor the I-beam
 motion 92 42
 motion 100 59
+surface pointer attach 24x24
+surface pointer buffer_scale 1
+set_cursor the I-beam
 leave
 capabilities keyboard
 capabilities none
 release
 
 ## the pointer traffic: drag
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 84 42
 motion 92 42
@@ -208,6 +239,8 @@ motion 100 42
 motion 108 59
 button left released
 motion 116 59
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 leave
 capabilities keyboard
@@ -215,11 +248,15 @@ capabilities none
 release
 
 ## the pointer traffic: any
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 84 42
 motion 86 42
 motion 92 42
 motion 92 59
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 leave
 capabilities keyboard
@@ -227,10 +264,14 @@ capabilities none
 release
 
 ## the pointer traffic: x10
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 84 42
 button left pressed
 button left released
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 leave
 capabilities keyboard
@@ -238,24 +279,46 @@ capabilities none
 release
 
 ## the pointer traffic: shape
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 300 200
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 set_cursor hidden
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the arrow
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the arrow
 set_cursor hidden
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the arrow
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the arrow
 set_cursor hidden
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the arrow
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the arrow
 motion 310 200
 set_cursor hidden
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 leave
 enter 300 200
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 leave
 leave
@@ -267,6 +330,8 @@ capabilities pointer keyboard
 get_pointer
 enter 300 200
 motion 320 210
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 leave
 capabilities keyboard
@@ -274,10 +339,14 @@ capabilities none
 release
 
 ## the pointer traffic: paste
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 84 42
 button middle pressed
 button middle released
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 leave
 leave
@@ -286,8 +355,12 @@ capabilities none
 release
 
 ## the pointer traffic: link
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 52 8
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 button left pressed
 button left released
@@ -296,8 +369,12 @@ button left pressed
 button left released
 leave
 enter 300 200
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 set_cursor hidden
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
 motion 52 8
 button left pressed
@@ -311,11 +388,147 @@ capabilities none
 release
 
 ## the pointer traffic: readline
+surface window attach 800x600
+surface window attach 640x408
 get_pointer
 enter 34 8
 button left pressed
 button left released
+surface pointer attach 24x24
+surface pointer buffer_scale 1
 set_cursor the I-beam
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: side
+surface window attach 800x600
+surface window attach 640x408
+get_pointer
+enter 84 42
+button side pressed
+button side released
+button extra pressed
+button extra released
+button forward pressed
+button forward released
+button back pressed
+button back released
+button task pressed
+button task released
+button side pressed
+motion 92 42
+button side released
+surface pointer attach 24x24
+surface pointer buffer_scale 1
+set_cursor the I-beam
+button side pressed
+button side released
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: locator
+surface window attach 800x600
+surface window attach 640x408
+get_pointer
+enter 84 42
+surface pointer attach 24x24
+surface pointer buffer_scale 1
+set_cursor the I-beam
+button left pressed
+button left released
+button side pressed
+button side released
+button extra pressed
+button extra released
+button left pressed
+button left released
+motion 108 42
+motion 124 42
+motion 140 42
+button left pressed
+button left released
+button left pressed
+button left released
+button left pressed
+button left released
+leave
+enter 140 42
+surface pointer attach 24x24
+surface pointer buffer_scale 1
+set_cursor the I-beam
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: prompt
+surface window attach 800x600
+surface window attach 640x408
+get_pointer
+enter 28 8
+button left pressed
+button left released
+motion 44 8
+button left pressed
+button left released
+motion 4 8
+button left pressed
+button left released
+motion 164 8
+button left pressed
+button left released
+motion 28 42
+button left pressed
+button left released
+surface pointer attach 24x24
+surface pointer buffer_scale 1
+set_cursor the I-beam
+motion 28 25
+button left pressed
+button left released
+motion 28 42
+button left pressed
+button left released
+leave
+capabilities keyboard
+capabilities none
+release
+
+## the pointer traffic: edges
+surface window attach 800x600
+surface window attach 640x408
+get_pointer
+enter 0 0
+button left pressed
+button left released
+motion 639 407
+button left pressed
+button left released
+motion 632 391
+button left pressed
+button left released
+motion 631 390
+button left pressed
+button left released
+motion 639.5 407.5
+button left pressed
+button left released
+motion 631.5 390.5
+button left pressed
+button left released
+surface pointer attach 24x24
+surface pointer buffer_scale 1
+set_cursor the I-beam
+motion 0 0
+button left pressed
+button left released
+motion 639 407
+button left pressed
+button left released
 leave
 capabilities keyboard
 capabilities none

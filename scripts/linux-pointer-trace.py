@@ -15,13 +15,31 @@ must match -- "The serial parameter must match the latest
 wl_pointer.enter serial number sent to the client. Otherwise the request
 will be ignored" (wp-cursor-shape-v1.xml; wayland.xml says the same of
 set_cursor) -- and each is marked when it does not.
+
+What the app's surfaces are drawn at is kept too, as lines that begin
+"surface": the window's surface (the one given an xdg_surface) and the
+pointer's (the one set_cursor names), each buffer scale the app sets on
+them, the size of each buffer it attaches to the pointer's and of the
+window's when it changes, and the
+preferred_buffer_scale the compositor sends the window. The app is the one
+client here that makes surfaces: grim, wl-paste and the virtual devices
+make none.
 """
 
 import re
 import sys
 
 LINE = re.compile(r"^\[\s*[\d.]+\]\s+(?:\{[^}]*\}\s+)?(->\s+)?([\w]+)[@#](\d+)\.(\w+)\((.*)\)\s*$")
-BUTTONS = {"272": "left", "273": "right", "274": "middle", "275": "side"}
+BUTTONS = {
+    "272": "left",
+    "273": "right",
+    "274": "middle",
+    "275": "side",
+    "276": "extra",
+    "277": "forward",
+    "278": "back",
+    "279": "task",
+}
 # wp_cursor_shape_device_v1.shape, version 1's entries, from the pinned XML.
 SHAPES = """default context_menu help pointer progress wait cell crosshair text
 vertical_text alias copy move no_drop not_allowed grab grabbing e_resize
@@ -41,12 +59,42 @@ def main():
     seat = None
     pointers = set()
     serial = None
+    window = cursor = drawn = None
+    buffers = {}
+    # Lines for a surface not yet named by set_cursor: the app attaches and
+    # scales the pointer's surface before it sets it.
+    pending = {}
+
+    def surface(sid, what):
+        if sid == window:
+            print("surface window", what)
+        elif sid == cursor:
+            print("surface pointer", what)
+        else:
+            pending.setdefault(sid, []).append(what)
     for raw in sys.stdin:
         m = LINE.match(raw.strip())
         if not m:
             continue
         event, iface, oid, name, args = m.groups()
         a = [x.strip() for x in args.split(",")] if args else []
+        if iface == "xdg_wm_base" and name == "get_xdg_surface" and not event:
+            window = re.search(r"wl_surface[@#](\d+)", args).group(1)
+        elif iface == "wl_shm_pool" and name == "create_buffer" and not event:
+            bid = re.search(r"wl_buffer[@#](\d+)", args).group(1)
+            buffers[bid] = f"{a[2]}x{a[3]}"
+        elif iface == "wl_surface" and not event and name == "set_buffer_scale":
+            surface(oid, f"buffer_scale {a[0]}")
+        elif iface == "wl_surface" and not event and name == "attach":
+            bid = re.search(r"wl_buffer[@#](\d+)", args)
+            size = buffers.get(bid.group(1), "?") if bid else None
+            # The window attaches a buffer a frame: its size when it changes.
+            if size and (oid != window or size != drawn):
+                surface(oid, f"attach {size}")
+                if oid == window:
+                    drawn = size
+        elif iface == "wl_surface" and event and name == "preferred_buffer_scale" and oid == window:
+            print("surface window preferred_buffer_scale", a[0])
         if iface == "wl_seat" and name == "get_pointer" and seat in (None, oid):
             seat = oid
             pointers.add(re.search(r"wl_pointer[@#](\d+)", args).group(1))
@@ -80,6 +128,11 @@ def main():
                     print(name, axis.get(a[0], a[0]), a[1])
         elif iface == "wl_pointer" and name == "set_cursor":
             mark = "" if a[0] == serial else "  (NOT the last enter's serial)"
+            named = re.search(r"wl_surface[@#](\d+)", args)
+            if named and named.group(1) != cursor:
+                cursor = named.group(1)
+                for what in pending.pop(cursor, []):
+                    print("surface pointer", what)
             if a[1] == "nil":
                 print("set_cursor hidden" + mark)
             else:

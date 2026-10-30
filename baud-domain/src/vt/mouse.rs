@@ -590,6 +590,23 @@ pub enum MouseButton {
     WheelLeft,
     /// Button 7, the wheel toward the right.
     WheelRight,
+    /// Buttons 8 to 11, the side and extra buttons: X's numbers, which
+    /// Linux's `BTN_SIDE`, `BTN_EXTRA`, `BTN_FORWARD` and `BTN_BACK` are
+    /// as X's input driver numbers them, "8 + b - BTN_SIDE"
+    /// (`[[source: xf86-input-libinput-btn]]`), and AppKit's
+    /// `buttonNumber` 3 to 6 are as XQuartz does, "additional mouse
+    /// buttons (4 and higher in AppKit) to buttons 8 and higher in X11"
+    /// (`[[source: xquartz-x11application]]`).
+    Button8,
+    Button9,
+    Button10,
+    Button11,
+    /// A button past the eleventh: "Past button 11, the encoding is
+    /// ambiguous because the same code may correspond to different
+    /// button/modifier combinations". No report names it:
+    /// `Term::mouse_report` counts it in `Term::mouse_unencodable` and
+    /// sends nothing, as it refuses an X10 position past 223.
+    Beyond,
     /// No button — the "3=release" code, and the button field of a bare motion
     /// event in any-event tracking.
     None,
@@ -612,6 +629,15 @@ impl MouseButton {
             // xterm's `BtnCode` adds 64 to the low two bits.
             MouseButton::WheelLeft => 66,
             MouseButton::WheelRight => 67,
+            // "by adding 128 (for buttons 8 through 11)": xterm's
+            // `BtnCode` adds 128 for the bit 8 and the low two bits, so 8
+            // is 128 and 11 is 131 (`[[source: xterm-button-c]]`).
+            MouseButton::Button8 => 128,
+            MouseButton::Button9 => 129,
+            MouseButton::Button10 => 130,
+            MouseButton::Button11 => 131,
+            // Never encoded: the core refuses it before a report is built.
+            MouseButton::Beyond => 3,
         }
     }
 }

@@ -1431,6 +1431,8 @@ files   = [
   "be-observed/pointer-bookworm.txt",
   "be-observed/pointer-trixie.txt",
   "be-observed/pointer-base.txt",
+  "be-observed/pointer-scale.txt",
+  "be-observed/pointer-base2.txt",
   "be-observed/pointer-bookworm-block.png",
   "be-observed/pointer-bookworm-hand2.png",
   "be-observed/pointer-trixie-hand2.png",

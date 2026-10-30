@@ -688,6 +688,91 @@ fn buttons_6_and_7_are_encoded_like_the_wheel() {
     }
 }
 
+/// **Buttons 8 to 11, the side and extra buttons, add 128**: "by adding
+/// 128 (for buttons 8 through 11)" (`[[source: ctlseqs]]`), 128 to 131 in
+/// every encoding, X10's byte 32 more and `?1005`'s two UTF-8 bytes past
+/// 127, as xterm's `EmitButtonCode` writes them (`[[source:
+/// xterm-button-c]]`). Their releases are reported, as xterm's
+/// `EditorButton` reports a release of any button past 5 -- SGR keeps the
+/// button, the X10 family names none -- a drag with one held adds the
+/// motion 32, and `?9` reports none of them ("button > 3").
+#[test]
+fn buttons_8_to_11_add_128() {
+    let side = ev(MouseButton::Button8, MouseKind::Press, 4, 2);
+    for (b, code) in [
+        (MouseButton::Button8, 128),
+        (MouseButton::Button9, 129),
+        (MouseButton::Button10, 130),
+        (MouseButton::Button11, 131),
+    ] {
+        let want = format!("\x1b[<{code};5;3M");
+        assert_eq!(sent(SGR, ev(b, MouseKind::Press, 4, 2)).0, want.as_bytes());
+        let want = format!("\x1b[<{code};5;3m");
+        assert_eq!(
+            sent(SGR, ev(b, MouseKind::Release, 4, 2)).0,
+            want.as_bytes()
+        );
+        assert!(
+            sent(b"\x1b[?9h", ev(b, MouseKind::Press, 0, 0))
+                .0
+                .is_empty(),
+            "?9"
+        );
+    }
+    assert_eq!(sent(b"\x1b[?1000h", side).0, b"\x1b[M\xa0%#");
+    let up = MouseEvent {
+        kind: MouseKind::Release,
+        ..side
+    };
+    assert_eq!(sent(b"\x1b[?1000h", up).0, b"\x1b[M#%#", "no button");
+    assert_eq!(sent(b"\x1b[?1000h\x1b[?1005h", side).0, b"\x1b[M\xc2\xa0%#");
+    assert_eq!(sent(b"\x1b[?1000h\x1b[?1015h", side).0, b"\x1b[160;5;3M");
+    let drag = MouseEvent {
+        kind: MouseKind::Motion,
+        ..side
+    };
+    assert_eq!(sent(b"\x1b[?1002h\x1b[?1006h", drag).0, b"\x1b[<160;5;3M");
+    let ctrl = MouseEvent {
+        mods: MouseMods::CONTROL,
+        ..side
+    };
+    assert_eq!(sent(SGR, ctrl).0, b"\x1b[<144;5;3M", "128 + 16");
+}
+
+/// **A button past the eleventh is refused and counted**: "Past button
+/// 11, the encoding is ambiguous because the same code may correspond to
+/// different button/modifier combinations" (`[[source: ctlseqs]]`). Its
+/// press, its release and a drag with it held send nothing in every
+/// encoding and each counts in `mouse_unencodable`, as a position past
+/// X10's 223 does; `?9`, which reports buttons 1 to 3 alone, neither sends
+/// nor counts it.
+#[test]
+fn a_button_past_the_eleventh_is_refused_and_counted() {
+    let beyond = ev(MouseButton::Beyond, MouseKind::Press, 4, 2);
+    for setup in [
+        SGR,
+        b"\x1b[?1000h".as_slice(),
+        b"\x1b[?1000h\x1b[?1005h",
+        b"\x1b[?1000h\x1b[?1015h",
+        b"\x1b[?1000h\x1b[?1016h",
+    ] {
+        for kind in [MouseKind::Press, MouseKind::Release] {
+            let (bytes, refused) = sent(setup, MouseEvent { kind, ..beyond });
+            assert!(bytes.is_empty(), "{setup:02x?} sent {bytes:02x?}");
+            assert_eq!(refused, 1, "{setup:02x?} {kind:?}");
+        }
+    }
+    let drag = MouseEvent {
+        kind: MouseKind::Motion,
+        ..beyond
+    };
+    assert_eq!(sent(b"\x1b[?1002h\x1b[?1006h", drag), (Vec::new(), 1));
+    assert_eq!(sent(b"\x1b[?9h", beyond), (Vec::new(), 0), "?9");
+    // Positive control: the eleventh is sent.
+    let eleventh = ev(MouseButton::Button11, MouseKind::Press, 4, 2);
+    assert_eq!(sent(SGR, eleventh), (b"\x1b[<131;5;3M".to_vec(), 0));
+}
+
 /// **`?1005` is X10 with its bytes UTF-8 encoded.** `[[source: ctlseqs]]`,
 /// "UTF-8 (1005)": "This enables UTF-8 encoding for Cx and Cy under all
 /// tracking modes, expanding the maximum encodable position from 223 to
