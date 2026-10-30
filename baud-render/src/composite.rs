@@ -795,7 +795,7 @@ impl<'p> Target<'p> {
 /// 6K worst frame, 18.85-19.15 ms, less the 4.0 ms with the bands shading
 /// nothing, over 2,158,300 band pixels), a thread's start and join 9 to 64
 /// us on that machine (best and mean of 2,000 scopes of one; note AJ
-/// section 22), so a share under this, about 0.4 ms of light, is drawn on
+/// section 22), so a share under this, about 0.45 ms of light, is drawn on
 /// a thread already running.
 pub(crate) const SHARE: u64 = 1 << 16;
 

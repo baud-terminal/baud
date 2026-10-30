@@ -2778,8 +2778,7 @@ over. At 2x and 120 Hz 6.49-7.68 to 1.70-1.80, none over 8.3; at 1x
 0.43-0.47 to 0.25-0.26. It looks and moves exactly as before: the
 hash over every frame's pixels equals the base's, on all six arms, in
 both damage modes (the bench prints one FNV-1a over the whole life of
-each arm, not one hash per frame), as asked (2026-10-29): "ok so don't
-slow the plasma, it should be as before".
+each arm, not one hash per frame).
 
 **How it is built.** A changed splash had made the frame full, every row
 repainted, text included. A row dirty only for the trail's or the
@@ -2796,7 +2795,7 @@ the bands tile the rows (section 21), so the pixels are one thread's.
 it can raise the cap past `available_parallelism()` as well as lower
 it; baud-core is untouched. The cap is the machine's threads, not a
 fixed eight, none or a pool: a thread is started only for `SHARE`
-record pixels, about 0.4 ms of light against a 9-64 us start, and a
+record pixels, about 0.45 ms of light against a 9-64 us start, and a
 pool is unmeasured.
 
 **Held.** `the_splash_repaints_only_the_columns_its_records_reach`
