@@ -58,7 +58,8 @@ each names its gap.** `no_row_is_unfinished` in `baud-core/tests/coverage.rs`
 holds all three, in this file, `input-coverage.md` and every file under
 `docs/protocols`, and reads a status in any spelling, bold or bare and in any
 case: a `parsed` or `todo` row fails it, so does a `partial` row whose cell
-says nothing after the status, and the rows at `partial` must equal the count
+names its gap in fewer than twelve characters after the status, the
+length `every_out_row_states_a_reason` holds an `out` reason to, and the rows at `partial` must equal the count
 the legend and this paragraph state
 (`the_vt_coverage_partial_counts_equal_its_partial_rows`), so a row that gains
 or loses the status moves both or the test fails. The legend is the first
@@ -108,11 +109,10 @@ while it blinked at 5's slow rate. GR bytes under `ESC % @`, the `escape` and
 carried it from 2026-10-10 to 2026-10-11. Each row at `partial` names
 work that is not finished. `out` is the only status that
 means "not implemented", and `every_out_row_states_a_reason` requires each one
-to say why **in the row** — because otherwise "nothing is partial" would be a
-word game, satisfiable by relabelling anything inconvenient as out of scope.
+to say why **in the row** — because otherwise "no row is `parsed` or `todo`"
+would be a word game, satisfiable by relabelling anything inconvenient as out of scope.
 The check cannot judge whether a reason is *good*; that is review. It can insist
-one exists where a reader will find it. `out` is the only status
-that means "not implemented", and it requires a reason in the row. Do not
+one exists where a reader will find it. Do not
 relabel an unfinished operation as `out` to satisfy the check: reaching for
 `partial` is the signal that the operation is not done, and the fix is the
 operation.
