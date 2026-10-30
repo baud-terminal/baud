@@ -38737,3 +38737,92 @@ status = "external"
 group  = "BU"
 # Fetched 2026-10-29: prior art for the link's pointer over a program's
 # OSC 22 shape. GPL-3.0; read, not copied, and not committed.
+
+[sources.aj-obs-fork-wait]
+key    = "aj-obs-fork-wait"
+title  = "Where a fork at launch waits: forkpty and fork beside hostName, the Metal device, a directory walk and a slow dlopen; libc's fork against the kernel's __fork; the blocked fork's stack and the GPU thread's; each pthread_atfork prepare handler timed; baud's launch order in three arms"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "C and Objective-C probes in fresh processes, three of them quoted in the file, Apple M5 Max, macOS 27.0, 2026-10-30; no window opened"
+file   = "aj-observed/fork-wait.txt"
+sha256 = "bf22248d6d73f55258ea094618ddf03cd770ac8a369639d014d0edb6aca2ecb5"
+bytes  = 9742
+status = "retrieved"
+group  = "AJ"
+
+[sources.apple-libsystem-init-c]
+key    = "apple-libsystem-init-c"
+title  = "Apple Libsystem-1356 (c23b511), init.c -- libSystem_atfork_prepare: the dlopen lock first ('dlopen has to be done first, before even the pthread handlers'), then the pthread_atfork prepare handlers, then libSystem's own"
+author = "Apple"
+year   = 2013
+venue  = "apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/Libsystem/c23b51183e46e613375dc7639fb4bf11fbf59ba8/init.c"
+file   = ""
+sha256 = "329d8f27565ebcc332336b15fecd86bcde7728237d5da14cdbed81d7c804f88a"
+bytes  = 26334
+status = "external"
+group  = "AJ"
+# Fetched 2026-10-30 for where a fork at launch waits (note AJ section 20).
+# APSL 2.0; read, not copied, and not committed.
+
+[sources.apple-libpthread-atfork-c]
+key    = "apple-libpthread-atfork-c"
+title  = "Apple libpthread-539.100.4 (1f4f526), src/pthread_atfork.c -- _pthread_atfork_prepare_handlers takes pthread_atfork_lock and runs each prepare handler, last registered first"
+author = "Apple"
+year   = 2012
+venue  = "apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/libpthread/1f4f5265b319111142f1bf3a27d4484ef5a98314/src/pthread_atfork.c"
+file   = ""
+sha256 = "1ea6a2de7158740b7d3c4971030f7a2546159bd200d3ae79cbe565f73c840ea9"
+bytes  = 5601
+status = "external"
+group  = "AJ"
+# Fetched 2026-10-30 for where a fork at launch waits (note AJ section 20).
+# APSL 2.0; read, not copied, and not committed.
+
+[sources.apple-libinfo-mdns-module-c]
+key    = "apple-libinfo-mdns-module-c"
+title  = "Apple Libinfo-600 (39b70c5), lookup.subproj/mdns_module.c -- _mdns_atfork_prepare locks _mdns_mutex 'so that we know all other threads have drained'; _mdns_search holds it across DNSServiceCreateConnection and the query start"
+author = "Apple"
+year   = 2025
+venue  = "apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/Libinfo/39b70c515baee5b609e7e91693edbd934b6845a1/lookup.subproj/mdns_module.c"
+file   = ""
+sha256 = "403c92c27c27882c5bf262ced0ca09fb1123b02cd6213e1290a8809e2b12672a"
+bytes  = 55404
+status = "external"
+group  = "AJ"
+# Fetched 2026-10-30 for where a fork at launch waits (note AJ section 20).
+# APSL 2.0; read, not copied, and not committed.
+
+[sources.apple-libinfo-ds-module-c]
+key    = "apple-libinfo-ds-module-c"
+title  = "Apple Libinfo-600 (39b70c5), lookup.subproj/ds_module.c -- _od_fork_prepare locks the mutex _od_xpc_pipe holds while it makes opendirectoryd's pipe, registered on the first directory lookup"
+author = "Apple"
+year   = 2022
+venue  = "apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/Libinfo/39b70c515baee5b609e7e91693edbd934b6845a1/lookup.subproj/ds_module.c"
+file   = ""
+sha256 = "cad61148882a468a19318831afc5d6478f2f40df27a26cb3c39753e61f448826"
+bytes  = 60246
+status = "external"
+group  = "AJ"
+# Fetched 2026-10-30 for where a fork at launch waits (note AJ section 20).
+# APSL 2.0; read, not copied, and not committed.
+
+[sources.apple-nswindow-didchangeocclusionstatenotification]
+key    = "apple-nswindow-didchangeocclusionstatenotification"
+title  = "NSWindow didChangeOcclusionStateNotification -- indicates a change in the window's occlusion state; no word on an initial report (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didchangeocclusionstatenotification.json"
+file   = ""
+sha256 = "972cf56922c8a4c9f57f7950e1327e1a8b405927789dac5bdff7ebb6d9e6333e"
+bytes  = 38409
+status = "external"
+group  = "AJ"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as didchangeocclusionstatenotification.json, and the digest is of that copy.
+# Fetched 2026-10-30 for the launch splash's start (note AJ, section 20).

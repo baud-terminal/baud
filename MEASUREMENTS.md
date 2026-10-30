@@ -601,6 +601,31 @@ Under the row's 20 ms floor on every metric; reverted. The `scale` mark shows
 the display-scale query at 23.6 ms (the first CoreGraphics call), the inset at
 1.2 -- what precedes the spawn.
 
+## The shell's fork behind the machine's name
+
+Taken 2026-10-30. Apple M5 Max, macOS 27.0, on AC. Probes in fresh
+processes, no window: CoreGraphics' display-scale call, then `forkpty`
+about 1.8 ms after it, with a thread reading `NSProcessInfo.hostName` and
+one making the Metal device started before or after the fork. Eight
+launches an arm, arms interleaved, milliseconds.
+
+| arm | `forkpty` | the device's own time |
+|---|---|---|
+| both threads before the fork (the base) | 1.22-24.52 | 10.6-48.7 |
+| the base, an earlier batch of eight | 2.09-71.19 | 10.2-88.5 |
+| the names after, the device before | 1.60-5.44 | 8.6-41.5 |
+| both after (this change) | 1.31-4.54 | 7.1-30.9 |
+
+In the both-after arm the probe waits for its child before starting the
+device, so the device starts about 7 ms after the scale; baud does not
+wait.
+
+The wait is `_mdns_atfork_prepare()`, 2.66-32.92 ms timed alone; the
+kernel's `__fork()` beside the same thread never took over 0.37 ms. The
+`BAUD_STARTUP=1` launch log before the change read `renderer` at 14.9 ms
+and `pty` at 77.0. `docs/research/notes/aj-launch-splash.md` section 20 and
+`docs/research/sources/aj-observed/fork-wait.txt` have the rest.
+
 ## Overlapping sharedApplication with the CoreGraphics connection (row 4, reverted)
 
 Taken at `a6b01a2`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `scripts/startup-bench.py --rounds 7 --arm

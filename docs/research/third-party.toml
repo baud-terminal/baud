@@ -1541,6 +1541,7 @@ files   = [
   "aj-observed/flash_area.txt",
   "aj-observed/font_probe.py",
   "aj-observed/font_probe.txt",
+  "aj-observed/fork-wait.txt",
   "aj-observed/glyph-measure.txt",
   "aj-observed/glyph-seam-blend.png",
   "aj-observed/glyph-seam-cut.png",

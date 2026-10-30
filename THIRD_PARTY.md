@@ -24,8 +24,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 314 | 42 | redistributable, and its notice is satisfied |
-| own | 251 | 7 | the work of baud's author |
-| total | 582 | 54 | |
+| own | 252 | 7 | the work of baud's author |
+| total | 583 | 54 | |
 
 ## Licence texts in LICENSES/
 
@@ -1732,7 +1732,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 245
+- **Files:** 246
 
 | file | copied from |
 |---|---|
@@ -1836,6 +1836,7 @@ notice is, and the URL each file was copied from.
 | [aj-observed/flash_area.txt](docs/research/sources/aj-observed/flash_area.txt) | python3 docs/research/sources/aj-observed/flash_area.py, run from the repository root at ccb8aaa |
 | [aj-observed/font_probe.py](docs/research/sources/aj-observed/font_probe.py) | a Python script written for note AJ, run from the repository root |
 | [aj-observed/font_probe.txt](docs/research/sources/aj-observed/font_probe.txt) | python3 docs/research/sources/aj-observed/font_probe.py, run from the repository root at ccb8aaa |
+| [aj-observed/fork-wait.txt](docs/research/sources/aj-observed/fork-wait.txt) | C and Objective-C probes in fresh processes, three of them quoted in the file, Apple M5 Max, macOS 27.0, 2026-10-30; no window opened |
 | [aj-observed/glyph-measure.txt](docs/research/sources/aj-observed/glyph-measure.txt) | baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, 2026-10-29, with the change applied, and the placements weighed beside it |
 | [aj-observed/glyph-seam-blend.png](docs/research/sources/aj-observed/glyph-seam-blend.png) | the splash rendered on baud-render's CPU path over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), JetBrains Mono, the region from 'u' to the block at full scale, the frames at 0.00 s and 0.05 s side by side, the dark theme above and the light below; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
 | [aj-observed/glyph-seam-cut.png](docs/research/sources/aj-observed/glyph-seam-cut.png) | the splash rendered on baud-render's CPU path over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), JetBrains Mono, the region from 'u' to the block at full scale, the frames at 0.00 s and 0.10 s side by side, the dark theme above and the light below; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that seam built in a scratch tree |

@@ -382,7 +382,7 @@ impl LaunchLog {
         let median = gaps.get(gaps.len() / 2).map_or(0.0, |g| g.0);
         let mut lines = vec![match worst {
             Some((w, end)) => format!(
-                "splash: {} frames over {:.1} ms; intervals {median:.1} ms median, {w:.1} worst, ending {:.1} ms in",
+                "splash: {} frames over {:.1} ms; intervals {median:.1} ms median, {w:.1} worst, the worst ending {:.1} ms in",
                 self.frames.len(),
                 ms(last, first),
                 ms(end, first)
@@ -936,7 +936,7 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "splash: 4 frames over 41.0 ms; intervals 8.0 ms median, 25.0 worst, ending 33.0 ms in",
+                "splash: 4 frames over 41.0 ms; intervals 8.0 ms median, 25.0 worst, the worst ending 33.0 ms in",
                 "splash: the shell's first visible cell drawn 33.0 ms in, 25.0 ms after the frame before",
                 "splash: reads (ms in, bytes, ms to their frame): -5.0 144 B +5.0; +12.0 478 B +21.0; worst 21.0",
                 "splash: longest main-thread turn 3.1 ms, 1.0 ms in",

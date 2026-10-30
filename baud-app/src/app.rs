@@ -699,14 +699,14 @@ struct App {
 }
 
 /// What launch prepares before a window or a grid exists -- the cache
-/// geometry, the GPU, the config, the faces and the renderer -- so the
-/// child shell can be spawned and AppKit started with all of it done.
+/// geometry, the GPU path asked for, the config, the faces and the
+/// renderer -- so the child shell can be spawned and AppKit started with
+/// all of it done; the GPU's probe starts after the spawn (`start_probe`).
 /// Under six milliseconds together; the point is what it lets overlap.
 struct Boot {
     request: Request,
     geom: baud_domain::CacheGeometry,
     pitch: baud_domain::Stride,
-    probe: std::thread::JoinHandle<Option<Gpu>>,
     renderer: Renderer<'static, 'static>,
     /// The faces a program's `OSC 50` can name.
     fonts: crate::fonts::Fonts,
@@ -829,59 +829,6 @@ impl Boot {
             pitch.index(),
             pitch.bytes()
         );
-        // The Metal device on its own thread: creating it is 10-30 ms on
-        // this box, and AppKit's initialisation on the main thread is what
-        // it overlaps -- the probe is joined once the window exists.
-        let probe = std::thread::spawn(move || {
-            let t0 = Instant::now();
-            let mut g = match request {
-                Request::Force(Path::Cpu) => None,
-                _ => Gpu::new(),
-            };
-            if let Some(g) = &mut g {
-                let b = g.build();
-                let t1 = Instant::now();
-                g.warm();
-                // The shader-cache question of note N's row 1, as numbers:
-                // the library compile and the five pipelines are what a
-                // cold cache makes expensive, and the device and the warm
-                // pass are the same on every launch.
-                startup_note(&format!(
-                    "gpu build: device {:.1} ms, library {:.1} ({:?}), pipelines {:.1}, warm pass {:.1}, probe {:.1}",
-                    b.device.as_secs_f64() * 1e3,
-                    b.library.as_secs_f64() * 1e3,
-                    b.library_from,
-                    b.pipelines.as_secs_f64() * 1e3,
-                    t1.elapsed().as_secs_f64() * 1e3,
-                    t0.elapsed().as_secs_f64() * 1e3,
-                ));
-                // **A second line, not a wider first one.** The five are the
-                // answer to row 1's leftover +28.5 ms, and
-                // `scripts/shader-cache-bench.py` anchors a regex on the
-                // whole line above -- appending to it would take the gate
-                // with the finding.
-                startup_note(&format!(
-                    "gpu pipelines: bg {:.1} ms, glyph {:.1}, cell_bg {:.1}, cell_glyph {:.1}, cell_shape {:.1}",
-                    b.each[0].as_secs_f64() * 1e3,
-                    b.each[1].as_secs_f64() * 1e3,
-                    b.each[2].as_secs_f64() * 1e3,
-                    b.each[3].as_secs_f64() * 1e3,
-                    b.each[4].as_secs_f64() * 1e3,
-                ));
-                // **The launch logo's plasma beside them**, so the tick
-                // that starts the logo waits on no pipeline and its first
-                // frame pays for none.
-                let t2 = Instant::now();
-                let built = g.warm_effect(baud_render::effect::Effect::Plasma);
-                startup_note(&format!(
-                    "gpu plasma: {:.2} ms{}",
-                    t2.elapsed().as_secs_f64() * 1e3,
-                    if built { "" } else { ", not built" }
-                ));
-            }
-            g
-        });
-        startup_mark("gpu probing");
         // **The watch before the read** (`reload::Watch::around`), so an
         // edit that lands while the config is read is heard; the themes
         // and fonts it names are read below, under it.
@@ -963,7 +910,6 @@ impl Boot {
             request,
             geom,
             pitch,
-            probe,
             renderer,
             fonts,
             font_changes: cfg.font_changes,
@@ -1009,6 +955,66 @@ impl Boot {
         }
     }
 
+    /// **The GPU's probe, on its own thread**, started by `run` once the
+    /// shell is spawned (note AJ section 20): a `fork` waits for any
+    /// `dlopen` in flight, and the probe loads the GPU's driver.
+    fn start_probe(request: Request) -> std::thread::JoinHandle<Option<Gpu>> {
+        // The Metal device on its own thread: creating it is 10-30 ms on
+        // this box, and AppKit's initialisation on the main thread is what
+        // it overlaps -- the probe is joined once the window exists.
+        let probe = std::thread::spawn(move || {
+            let t0 = Instant::now();
+            let mut g = match request {
+                Request::Force(Path::Cpu) => None,
+                _ => Gpu::new(),
+            };
+            if let Some(g) = &mut g {
+                let b = g.build();
+                let t1 = Instant::now();
+                g.warm();
+                // The shader-cache question of note N's row 1, as numbers:
+                // the library compile and the five pipelines are what a
+                // cold cache makes expensive, and the device and the warm
+                // pass are the same on every launch.
+                startup_note(&format!(
+                    "gpu build: device {:.1} ms, library {:.1} ({:?}), pipelines {:.1}, warm pass {:.1}, probe {:.1}",
+                    b.device.as_secs_f64() * 1e3,
+                    b.library.as_secs_f64() * 1e3,
+                    b.library_from,
+                    b.pipelines.as_secs_f64() * 1e3,
+                    t1.elapsed().as_secs_f64() * 1e3,
+                    t0.elapsed().as_secs_f64() * 1e3,
+                ));
+                // **A second line, not a wider first one.** The five are the
+                // answer to row 1's leftover +28.5 ms, and
+                // `scripts/shader-cache-bench.py` anchors a regex on the
+                // whole line above -- appending to it would take the gate
+                // with the finding.
+                startup_note(&format!(
+                    "gpu pipelines: bg {:.1} ms, glyph {:.1}, cell_bg {:.1}, cell_glyph {:.1}, cell_shape {:.1}",
+                    b.each[0].as_secs_f64() * 1e3,
+                    b.each[1].as_secs_f64() * 1e3,
+                    b.each[2].as_secs_f64() * 1e3,
+                    b.each[3].as_secs_f64() * 1e3,
+                    b.each[4].as_secs_f64() * 1e3,
+                ));
+                // **The launch logo's plasma beside them**, so the tick
+                // that starts the logo waits on no pipeline and its first
+                // frame pays for none.
+                let t2 = Instant::now();
+                let built = g.warm_effect(baud_render::effect::Effect::Plasma);
+                startup_note(&format!(
+                    "gpu plasma: {:.2} ms{}",
+                    t2.elapsed().as_secs_f64() * 1e3,
+                    if built { "" } else { ", not built" }
+                ));
+            }
+            g
+        });
+        startup_mark("gpu probing");
+        probe
+    }
+
     fn metrics_cell(&self) -> (f64, f64) {
         let m = self.renderer.metrics();
         (f64::from(m.cell_w.value()), f64::from(m.cell_h.value()))
@@ -1016,7 +1022,15 @@ impl Boot {
 }
 
 impl App {
-    fn new(ws: WinSize, sizing: Sizing, scale: CGFloat, waker: Waker, pty: Pty, boot: Boot) -> App {
+    fn new(
+        ws: WinSize,
+        sizing: Sizing,
+        scale: CGFloat,
+        waker: Waker,
+        pty: Pty,
+        boot: Boot,
+        probe: std::thread::JoinHandle<Option<Gpu>>,
+    ) -> App {
         // The display's wrap `prepare` gave the renderer, which a copy
         // under `?96` reads its lines by.
         let wrap_words = boot.renderer.word_wrap();
@@ -1024,7 +1038,6 @@ impl App {
             request,
             geom,
             pitch,
-            probe,
             mut renderer,
             fonts,
             font_changes,
@@ -6139,6 +6152,51 @@ mod drag_tests {
             "on a thread of its own"
         );
     }
+
+    /// **The shell is spawned before the GPU's probe and the read of the
+    /// machine's names** (note AJ section 20): `fork` first takes dyld's
+    /// `dlopen` lock and then runs every `pthread_atfork` handler, and
+    /// libinfo's mDNS handler waits for a lookup in flight, so a thread
+    /// reading the machine's name, or one loading the GPU's driver, held
+    /// the shell's start for as long as it took. Both start once
+    /// `Pty::spawn` has returned, and `Boot::prepare`, which runs before
+    /// it, starts none; the font scan `main()` starts is the one thread at
+    /// the fork. The launch is AppKit-bound, so the source is what can
+    /// fail.
+    #[test]
+    fn the_shell_is_spawned_before_the_launchs_threads() {
+        const SRC: &str = include_str!("app.rs");
+        let launch = SRC
+            .split_once(concat!("\npub fn ", "run() {"))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(body, _)| body)
+            .expect("the launch");
+        let spawn = launch
+            .find(concat!("Pty::", "spawn("))
+            .expect("the control: the shell is spawned in the launch");
+        for start in [
+            concat!("Hosts::", "start()"),
+            concat!("Boot::", "start_probe("),
+        ] {
+            let at = launch
+                .find(start)
+                .unwrap_or_else(|| panic!("{start} in the launch"));
+            assert!(spawn < at, "{start} before the shell is spawned");
+        }
+        let prepare = SRC
+            .split_once(concat!("fn prepare(scale: ", "CGFloat) -> Boot {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("the boot");
+        assert!(
+            prepare.contains(concat!("Config::", "launch()")),
+            "the control: the boot reads the config"
+        );
+        assert!(
+            !prepare.contains(concat!("thread::", "spawn")),
+            "the boot starts a thread before the shell is spawned"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -10674,8 +10732,6 @@ pub fn run() {
         refuse(message);
     }
     let mtm = MainThreadMarker::new().expect("run() on the main thread");
-    // This machine's names, read while the launch goes on (`Hosts`).
-    let hosts = Hosts::start();
     let size = NSSize::new(960.0, 600.0);
     // What the grid needs before a window exists: the display's scale, and
     // the titlebar's height -- the window is FullSizeContentView, so its
@@ -10768,6 +10824,18 @@ pub fn run() {
     })
     .expect("pty");
     startup_mark("pty");
+    // **The launch's threads after the shell** (note AJ section 20):
+    // `fork` takes dyld's `dlopen` lock and then runs each `pthread_atfork`
+    // handler, libinfo's mDNS one waiting out a lookup in flight
+    // ([[source: apple-libsystem-init-c]], [[source: apple-libinfo-mdns-module-c]]).
+    // With the machine's names read first, `hostName`'s lookup held the
+    // shell's start 3.8-36.9 ms in probes and the GPU's thread behind
+    // it; the GPU's probe loads its driver. Started here, neither is in
+    // either at the fork, and the probe starts 2-3 ms later.
+    let gpu_probe = Boot::start_probe(boot.request);
+    // This machine's names, read while the launch goes on (`Hosts`).
+    let hosts = Hosts::start();
+    startup_mark("hosts");
     // The process events the derived title is checked on (`fg::Watch`),
     // waking the main thread as the pty's reader does.
     let wake_watch = Arc::clone(&late);
@@ -10864,6 +10932,7 @@ pub fn run() {
         view.waker(),
         pty,
         boot,
+        gpu_probe,
     );
     // A transparent container fills the glass; the terminal view sits inside it
     // inset below the titlebar, so the glass still fills the strip the traffic

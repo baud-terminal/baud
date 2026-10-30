@@ -2654,3 +2654,58 @@ frame takes 4.0 ms. The cursor trails draw by the same code on the CPU
 path, their pixels held by the same tests, their time unmeasured.
 Drawing the bands on more than one thread is the step not taken.
 
+
+## 20. The shell starts with the launch again (2026-10-30)
+
+**What the user sees.** The shell is started as soon as the renderer
+is built, before the GPU's probe and the read of the machine's names,
+instead of waiting behind the lookup of the machine's name: in a `BAUD_STARTUP=1` launch of
+2026-10-30, `renderer` read 14.9 ms and `pty` 77.0, with `gpu build:
+device 69.8 ms` against 14.1 in the run before section 16, whose `pty`
+read 14.2. The logo starts when it did. `BAUD_STARTUP=1` prints `gpu probing` and `hosts` after `pty`, and
+the splash's first line says which interval it times: "8.8 worst, the
+worst ending 66.7 ms in".
+
+**Why it waited.** A `fork` first takes dyld's `dlopen()` lock and then
+runs each `pthread_atfork()` prepare handler under libpthread's lock
+([[source: apple-libsystem-init-c]], [[source: apple-libpthread-atfork-c]]).
+libinfo's mDNS handler locks the mutex its lookup holds while it connects
+to mDNSResponder and starts the query ([[source: apple-libinfo-mdns-module-c]]),
+and section 16 started the read of `hostName` at the launch's first line.
+In fresh processes ([[source: aj-obs-fork-wait]]): a `fork` beside a
+first `hostName` waited 3.8-36.9 ms, the kernel's `__fork()` beside it
+never over 0.37 ms, and `_mdns_atfork_prepare()` timed alone 2.66-32.92
+ms. While the `fork` waited, the GPU's thread waited on the locks it held:
+in `pthread_atfork()`, registered by libinfo's directory module on the
+device's first `getpwuid()` ([[source: apple-libinfo-ds-module-c]]), and
+in the `dlopen()` of the Metal driver. The device alone never held a
+`fork` over 1.2 ms; a control `dlopen()` whose initialiser runs 50 ms
+held one for all of it.
+
+**How it is built.** `Boot::prepare` starts no thread. `run` spawns the
+shell, then starts the GPU's probe (`start_probe`) and the read of the
+names; the probe starts 2-3 ms later than it did and is joined once
+the window exists. In a probe in baud's order, eight runs
+an arm: `forkpty` 1.22-24.52 ms as built (2.09-71.19 in a second batch),
+1.60-5.44 with only the names after, and 1.31-4.54 with both after.
+`the_shell_is_spawned_before_the_launchs_threads` failed on the base.
+`posix_spawn` ran no handler (0.13-1.02 ms in every arm) and was not
+taken: it changes how the child is created, and the one thread left at
+the spawn is the font scan, which reads files (a `forkpty` beside a
+directory walk took 0.78-1.10 ms). The Linux driver starts no thread
+before its spawn but that scan.
+
+**The logo's start is unchanged.** It waited one display-link tick past
+the first (`first tick` 171.5, `window visible` 179.8). The texts give
+no state for "not yet reported": unset is "the entire window is
+occluded" ([[source: macos-sdk-nswindow-h]],
+[[source: apple-nswindow-occlusionstate]]); the change notification says
+nothing of a first report
+([[source: apple-nswindow-didchangeocclusionstatenotification]]); and
+none says an active app's key window is uncovered. So the gate still
+waits for `.visible`, and a window ordered front behind another shows
+no logo until it is seen.
+
+**Unmeasured.** No window was opened: the next `BAUD_STARTUP=1` run
+reads the `pty` mark against `faces`. Whether the Metal driver's
+`dlopen()` is long on a cold launch needs a purged cache.
