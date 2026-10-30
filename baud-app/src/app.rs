@@ -633,6 +633,9 @@ struct App {
     /// window to be shown, emerging, then vanishing, read off
     /// `tick_target` like the trail.
     splash: crate::splash::Splash,
+    /// What the logo's frames and the shell's first reads did, said under
+    /// `BAUD_STARTUP=1` once the logo is gone (`splash::LaunchLog`).
+    launch_log: crate::splash::LaunchLog,
     /// Whether a frame has reached the layer: one of what the tick's gate
     /// reads before it shows the window to the splash (`Driver::frame`),
     /// with the window visible. The plasma's pipeline is built at launch,
@@ -1410,6 +1413,11 @@ impl App {
                 std::env::var("BAUD_SPLASH").ok().as_deref(),
                 launch_splash,
             )),
+            // Under the flag `startup_begin` reads.
+            launch_log: crate::splash::LaunchLog::new(match std::env::var_os("BAUD_STARTUP") {
+                Some(_) => crate::splash::Logging::On,
+                None => crate::splash::Logging::Off,
+            }),
             layer_shown: Done::No,
             screen_transition,
             transition: None,
@@ -1863,6 +1871,10 @@ impl App {
         {
             startup_first("splash first frame", &FIRST_SPLASH);
         }
+        let logo = match splash {
+            Some(_) => crate::splash::Logo::Drawn,
+            None => crate::splash::Logo::None,
+        };
         self.renderer.set_splash(splash);
         // The input manager's composition, at the cursor of the live view:
         // the instance and CPU paths draw it in their convert, the cell path
@@ -2545,7 +2557,14 @@ impl App {
         }
         self.blink_present = self.renderer.blink_seen();
         match shown {
-            Presented::Yes => self.bell.commit(bell),
+            Presented::Yes => {
+                self.bell.commit(bell);
+                // The first frame after the logo says what its frames did.
+                let said = self.launch_log.committed(host_now(), logo, &self.term);
+                for line in said.into_iter().flatten() {
+                    startup_note(&line);
+                }
+            }
             Presented::No => self.bell.refused(bell),
         }
         // The blink's phase is taken either way: not taking it would owe a
@@ -3535,6 +3554,7 @@ struct Driver {
     /// (`Hosts`), and the home directory a folder is spelled from
     /// (`title.rs`).
     hosts: Hosts,
+    title_waits: TitleWaits,
     home: Option<Vec<u8>>,
     /// Whether a key hid the pointer, and what the core said when it was
     /// last asked (`hide.rs`).
@@ -9484,6 +9504,11 @@ impl Driver {
         }
         self.apply_style();
         let drained = self.app.pty.drain();
+        for chunk in &drained.chunks {
+            self.app
+                .launch_log
+                .read(chunk.at, baud_domain::ReadLen::of(&chunk.bytes));
+        }
         if !drained.chunks.is_empty() {
             startup_first("first bytes", &FIRST_BYTES);
             // RD: the latest read's own stamp, taken by the reader as the
@@ -10305,6 +10330,7 @@ impl Responder for Driver {
     }
 
     fn frame(&mut self, target: f64) {
+        let (began, start) = (host_now(), Instant::now());
         self.expire_predictions();
         // The vsync this tick's work is due at, announced before anything
         // this tick presents so a surface set from here on is bounded by it.
@@ -10473,6 +10499,7 @@ impl Responder for Driver {
         // early bound takes it as the late one.
         self.app.latency.tick(|| HostTime::of_secs(target));
         startup_first("first tick done", &FIRST_TICK_DONE);
+        self.app.launch_log.turn(began, start.elapsed());
     }
 
     /// The system's light/dark flipped, or the window moved under a
@@ -10494,7 +10521,9 @@ impl Responder for Driver {
         {
             startup_first("first completion", &FIRST_DONE);
         }
+        let (began, start) = (host_now(), Instant::now());
         self.pump(Trigger::Wake);
+        self.app.launch_log.turn(began, start.elapsed());
     }
 
     /// The window gained or lost focus. Reported to the child only if it
@@ -10903,6 +10932,7 @@ pub fn run() {
         derive: crate::title::Derive::new(),
         watch,
         hosts,
+        title_waits: TitleWaits::No,
         home: std::env::var_os("HOME")
             .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
         hiding,
@@ -12148,13 +12178,17 @@ impl Driver {
     /// The title when a program set none: the folder and program
     /// (`title::Derive::title`), else "baud". A report naming another
     /// host, refused, is logged once (`Derive::refusal`).
+    /// While this machine's names are still being read, a report naming
+    /// a host cannot be judged, and the title shown stays until they are
+    /// (`TitleWaits`).
     fn derived_title(&mut self) -> String {
+        let cwd = self.app.term.working_directory();
+        let Some(names) = judged_by(self.hosts.names(), cwd) else {
+            self.title_waits = TitleWaits::Names;
+            return self.titles.sent().unwrap_or("baud").to_string();
+        };
         let refused = self.derive.refused;
-        let title = self.derive.title(
-            self.app.term.working_directory(),
-            self.hosts.names(),
-            self.home.as_deref(),
-        );
+        let title = self.derive.title(cwd, names, self.home.as_deref());
         if self.derive.refused != refused {
             crate::info!("{}", self.derive.refusal());
         }
@@ -12196,8 +12230,15 @@ impl Driver {
     /// (`title::Derive`). After a process event the last group's children
     /// are watched before the group is read, so a job that takes the
     /// terminal and execs after the read still says so (`fg::Watch`);
-    /// the group read is watched after it.
+    /// the group read is watched after it. A title that waited for this
+    /// machine's names is sent once they are read.
     fn title_check(&mut self) {
+        // A title that waited for this machine's names, once they are read
+        // (`TitleWaits`).
+        if self.title_waits == TitleWaits::Names && self.hosts.names().is_some() {
+            self.title_waits = TitleWaits::No;
+            self.send_title();
+        }
         if self.derive.owed() == crate::title::Owed::No {
             return;
         }
@@ -15565,8 +15606,10 @@ impl PrinterList {
 /// among the thread-unsafe classes
 /// ([[source: apple-thread-safety-summary]]); the class reference is the
 /// current text, and this rests on it. The names are taken at the first
-/// derived title, on the shell's first output (`derived_title`), joined
-/// then if the thread is still out.
+/// derived title once the thread has ended, never waited for: the first
+/// title is derived on the shell's first output, which comes while the
+/// launch logo plays, and a wait there holds the logo's frames for as long
+/// as the name takes to read (`derived_title`, note AJ section 18).
 enum Hosts {
     Reading(std::thread::JoinHandle<Vec<String>>),
     Read(Vec<String>),
@@ -15585,18 +15628,49 @@ impl Hosts {
         }
     }
 
-    /// The names, waited for if they are still being read.
-    fn names(&mut self) -> &[String] {
-        if let Hosts::Reading(_) = self {
-            if let Hosts::Reading(h) = core::mem::replace(self, Hosts::Read(Vec::new())) {
-                *self = Hosts::Read(h.join().unwrap_or_else(|_| machine_names()));
+    /// The names, once the thread that reads them has ended; `None` while
+    /// it reads, never waited for. A thread that ended in a panic leaves
+    /// `gethostname`'s, which no lookup waits on.
+    fn names(&mut self) -> Option<&[String]> {
+        if let Hosts::Reading(h) = self {
+            if h.is_finished() {
+                if let Hosts::Reading(h) = core::mem::replace(self, Hosts::Read(Vec::new())) {
+                    *self =
+                        Hosts::Read(h.join().unwrap_or_else(|_| {
+                            crate::hostlog::machine_name().into_iter().collect()
+                        }));
+                }
             }
         }
         match self {
-            Hosts::Read(names) => names,
-            Hosts::Reading(_) => &[],
+            Hosts::Read(names) => Some(names),
+            Hosts::Reading(_) => None,
         }
     }
+}
+
+/// **The names a shell's report is judged by**: this machine's once read;
+/// none for a report naming no host, which needs none; and `None`, wait,
+/// for a report naming a host while they are still being read, which
+/// judged against no names would be refused as another machine's.
+fn judged_by<'n>(
+    names: Option<&'n [String]>,
+    cwd: Option<baud_core::WorkingDirectory<'_>>,
+) -> Option<&'n [String]> {
+    match (names, cwd.map(|d| d.host)) {
+        (Some(names), _) => Some(names),
+        (None, Some(baud_core::FileHost::Named(_))) => None,
+        (None, _) => Some(&[]),
+    }
+}
+
+/// Whether a title waits for this machine's names: the shell's `OSC 7`
+/// named a host while they were still being read (`Hosts`), and the title
+/// is derived again once they are.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TitleWaits {
+    No,
+    Names,
 }
 
 /// **This machine's names, either of which an `OSC 7` may name.**
@@ -15618,8 +15692,60 @@ fn machine_names() -> Vec<String> {
 
 #[cfg(test)]
 mod host_tests {
-    use super::machine_names;
+    use super::{Hosts, judged_by, machine_names};
     use baud_core::{FileHost, WorkingDirectory};
+
+    /// **The names are never waited for** (note AJ section 18): the first
+    /// title is derived on the shell's first output, while the launch logo
+    /// plays on the same thread, so taking the names while their thread
+    /// still reads answers at once with none -- here a thread held until
+    /// after the answer -- and gives them once it has ended. Before, the
+    /// take joined the thread, and the logo's frames waited on the read.
+    #[test]
+    fn the_machines_names_are_never_waited_for() {
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let reading = std::thread::spawn(move || {
+            let _ = held.recv();
+            vec!["here".to_string()]
+        });
+        let mut hosts = Hosts::Reading(reading);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let taker = std::thread::spawn(move || {
+            let _ = tx.send(hosts.names().map(<[String]>::to_vec));
+            hosts
+        });
+        let answer = rx.recv_timeout(std::time::Duration::from_secs(2));
+        release.send(()).expect("the read is held");
+        let mut hosts = taker.join().expect("the take returns");
+        assert_eq!(answer, Ok(None), "answered at once, with none");
+        let names = loop {
+            if let Some(n) = hosts.names() {
+                break n.to_vec();
+            }
+            std::thread::yield_now();
+        };
+        assert_eq!(names, ["here"], "the names once the read has ended");
+    }
+
+    /// **A report naming a host waits for the names**, where one naming
+    /// none needs none: judged against no names, `OSC 7` naming this
+    /// machine would be refused as another's.
+    #[test]
+    fn a_report_naming_a_host_waits_for_the_names() {
+        let named = WorkingDirectory {
+            host: FileHost::Named(b"here"),
+            path: b"/tmp",
+        };
+        let local = WorkingDirectory {
+            host: FileHost::Local,
+            path: b"/tmp",
+        };
+        let names = ["here".to_string()];
+        assert_eq!(judged_by(None, Some(named)), None, "waits");
+        assert_eq!(judged_by(None, Some(local)), Some(&[][..]));
+        assert_eq!(judged_by(None, None), Some(&[][..]));
+        assert_eq!(judged_by(Some(&names), Some(named)), Some(&names[..]));
+    }
 
     /// **An `OSC 7` naming the machine as a shell names it is local**: the
     /// name `/bin/hostname` prints, which is `gethostname`'s and zsh's

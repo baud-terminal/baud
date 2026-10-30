@@ -28,7 +28,11 @@
 use crate::config::{LaunchSplash, SystemMotion};
 use baud_core::Term;
 use baud_domain::{Content, Row};
+#[cfg(any(target_os = "macos", test))]
+use baud_domain::{HostTime, ReadLen};
 use baud_render::{SplashLook, SplashPhase};
+#[cfg(any(target_os = "macos", test))]
+use std::time::Duration;
 
 /// **Seconds from the window's being shown after which the logo vanishes
 /// though the shell has drawn nothing**, under reduced motion: a slow
@@ -254,6 +258,174 @@ pub(crate) fn splash_override(env: Option<&str>, config: LaunchSplash) -> Launch
     }
 }
 
+/// **What the launch logo's frames and the shell's first reads did**, for
+/// `BAUD_STARTUP=1` (note AJ section 18): each frame committed while the
+/// logo is drawn, the first frame with a visible cell, each read that
+/// arrived before the logo ended and the frame that drew it, and the
+/// longest turn of the main thread, said once, when the logo is gone. So
+/// a launch shows whether the logo's frames kept their interval while the
+/// shell started, and whether the shell's output waited for them. Off, it
+/// records nothing.
+#[cfg(any(target_os = "macos", test))]
+pub(crate) struct LaunchLog {
+    state: Logging,
+    /// The commit of each frame that drew the logo.
+    frames: Vec<HostTime>,
+    /// The first frame committed with a visible cell, and the interval it
+    /// ended.
+    visible: Option<(HostTime, Option<HostTime>)>,
+    /// Each read before the logo ended, at most [`LaunchLog::READS`]: when
+    /// it arrived, its length, and the commit of the frame that drew it.
+    reads: Vec<(HostTime, ReadLen, Option<HostTime>)>,
+    /// The main thread's longest turn while the logo was drawn: how long,
+    /// and when it began.
+    turn: Option<(Duration, HostTime)>,
+}
+
+/// Whether a [`LaunchLog`] records, has said what it recorded, or never
+/// records.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Logging {
+    On,
+    Said,
+    Off,
+}
+
+/// Whether a committed frame drew the logo.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Logo {
+    Drawn,
+    None,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl LaunchLog {
+    /// The reads kept: a shell's start is a dozen.
+    const READS: usize = 32;
+
+    pub(crate) fn new(state: Logging) -> LaunchLog {
+        LaunchLog {
+            state,
+            frames: Vec::new(),
+            visible: None,
+            reads: Vec::new(),
+            turn: None,
+        }
+    }
+
+    /// A read that arrived at `at`, `len` bytes long.
+    pub(crate) fn read(&mut self, at: HostTime, len: ReadLen) {
+        if self.state == Logging::On && self.reads.len() < Self::READS {
+            self.reads.push((at, len, None));
+        }
+    }
+
+    /// **A frame committed at `at`**: it drew every read before it, and
+    /// `logo` says whether it drew the logo. The first frame without it
+    /// after frames with it gives the lines to say ([`LaunchLog::ended`]).
+    pub(crate) fn committed(
+        &mut self,
+        at: HostTime,
+        logo: Logo,
+        term: &Term<'_>,
+    ) -> Option<Vec<String>> {
+        if self.state != Logging::On {
+            return None;
+        }
+        for r in self.reads.iter_mut().filter(|r| r.2.is_none()) {
+            r.2 = Some(at);
+        }
+        if self.visible.is_none() && drawn(term) {
+            self.visible = Some((at, self.frames.last().copied()));
+        }
+        match logo {
+            Logo::Drawn => {
+                self.frames.push(at);
+                None
+            }
+            Logo::None => self.ended(),
+        }
+    }
+
+    /// A turn of the main thread that began at `at` and took `took`, kept
+    /// while the logo is drawn.
+    pub(crate) fn turn(&mut self, at: HostTime, took: Duration) {
+        if self.state == Logging::On
+            && !self.frames.is_empty()
+            && self.turn.is_none_or(|(t, _)| took > t)
+        {
+            self.turn = Some((took, at));
+        }
+    }
+
+    /// **The lines to say once the logo is gone**, once; none before the
+    /// logo has drawn a frame, or when off.
+    fn ended(&mut self) -> Option<Vec<String>> {
+        let (&first, &last) = self.frames.first().zip(self.frames.last())?;
+        if self.state != Logging::On {
+            return None;
+        }
+        self.state = Logging::Said;
+        let ms = |a: HostTime, b: HostTime| (a.nanos() as f64 - b.nanos() as f64) / 1e6;
+        let mut gaps: Vec<(f64, HostTime)> = self
+            .frames
+            .windows(2)
+            .map(|w| (ms(w[1], w[0]), w[1]))
+            .collect();
+        let worst = gaps.iter().copied().max_by(|a, b| a.0.total_cmp(&b.0));
+        gaps.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let median = gaps.get(gaps.len() / 2).map_or(0.0, |g| g.0);
+        let mut lines = vec![match worst {
+            Some((w, end)) => format!(
+                "splash: {} frames over {:.1} ms; intervals {median:.1} ms median, {w:.1} worst, ending {:.1} ms in",
+                self.frames.len(),
+                ms(last, first),
+                ms(end, first)
+            ),
+            None => "splash: 1 frame".to_string(),
+        }];
+        lines.push(match self.visible {
+            Some((at, since)) => format!(
+                "splash: the shell's first visible cell drawn {:.1} ms in{}",
+                ms(at, first),
+                since.map_or(String::new(), |s| format!(
+                    ", {:.1} ms after the frame before",
+                    ms(at, s)
+                ))
+            ),
+            None => "splash: no visible cell drawn while the logo played".to_string(),
+        });
+        let reads: Vec<String> = self
+            .reads
+            .iter()
+            .map(|&(at, len, drawn)| match drawn {
+                Some(d) => format!("{:+.1} {} B {:+.1}", ms(at, first), len.index(), ms(d, at)),
+                None => format!("{:+.1} {} B undrawn", ms(at, first), len.index()),
+            })
+            .collect();
+        let late = self
+            .reads
+            .iter()
+            .filter_map(|&(at, _, d)| d.map(|d| ms(d, at)))
+            .max_by(f64::total_cmp);
+        lines.push(format!(
+            "splash: reads (ms in, bytes, ms to their frame): {}{}",
+            reads.join("; "),
+            late.map_or(String::new(), |l| format!("; worst {l:.1}"))
+        ));
+        if let Some((took, at)) = self.turn {
+            lines.push(format!(
+                "splash: longest main-thread turn {:.1} ms, {:.1} ms in",
+                took.as_secs_f64() * 1e3,
+                ms(at, first)
+            ));
+        }
+        Some(lines)
+    }
+}
+
 /// Whether the screen shows anything: a cell holding a character other
 /// than a space.
 fn drawn(term: &Term<'_>) -> bool {
@@ -270,7 +442,7 @@ fn drawn(term: &Term<'_>) -> bool {
 mod tests {
     use super::*;
     use baud_core::Owned;
-    use baud_domain::{BytePos, ReadLen, WinSize};
+    use baud_domain::{BytePos, WinSize};
 
     const WS: WinSize = WinSize {
         ws_col: 40,
@@ -733,6 +905,48 @@ mod tests {
                 .trim_start()
                 .starts_with("match self.splash.shown() {"),
             "Timed::shown starts the splash"
+        );
+    }
+
+    /// **The launch log says what the logo's frames and the shell's reads
+    /// did** (note AJ section 18): the frames and their worst interval and
+    /// where it ended, the frame the shell's first visible cell was drawn
+    /// on and the interval before it, each read's arrival and the wait for
+    /// the frame that drew it, and the main thread's longest turn -- once,
+    /// on the first frame after the logo, and nothing when off.
+    #[test]
+    fn the_launch_log_says_the_logos_frames_and_the_shells_reads() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let at = |ms: f64| HostTime::of_nanos((1e9 + ms * 1e6) as u64);
+        let mut log = LaunchLog::new(Logging::On);
+        log.read(at(-5.0), ReadLen::from_index(144));
+        assert_eq!(log.committed(at(0.0), Logo::Drawn, &t), None);
+        log.turn(at(1.0), Duration::from_micros(3_100));
+        log.turn(at(2.0), Duration::from_micros(900));
+        assert_eq!(log.committed(at(8.0), Logo::Drawn, &t), None);
+        log.read(at(12.0), ReadLen::from_index(478));
+        feed(&mut t, b"zsh ~");
+        assert_eq!(log.committed(at(33.0), Logo::Drawn, &t), None);
+        assert_eq!(log.committed(at(41.0), Logo::Drawn, &t), None);
+        let lines = log.committed(at(49.0), Logo::None, &t).expect("said");
+        assert_eq!(
+            lines,
+            [
+                "splash: 4 frames over 41.0 ms; intervals 8.0 ms median, 25.0 worst, ending 33.0 ms in",
+                "splash: the shell's first visible cell drawn 33.0 ms in, 25.0 ms after the frame before",
+                "splash: reads (ms in, bytes, ms to their frame): -5.0 144 B +5.0; +12.0 478 B +21.0; worst 21.0",
+                "splash: longest main-thread turn 3.1 ms, 1.0 ms in",
+            ]
+        );
+        assert_eq!(log.committed(at(57.0), Logo::None, &t), None, "once");
+        let mut off = LaunchLog::new(Logging::Off);
+        off.read(at(0.0), ReadLen::ONE);
+        assert_eq!(off.committed(at(0.0), Logo::Drawn, &t), None);
+        assert_eq!(
+            off.committed(at(9.0), Logo::None, &t),
+            None,
+            "off says nothing"
         );
     }
 }

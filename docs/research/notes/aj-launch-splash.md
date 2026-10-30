@@ -2521,3 +2521,68 @@ faint line at each band edge on every path, before this change too. The
 colour test covers both glass pages, but no strips were rendered on
 them and the census cannot count them, because it needs an opaque
 ground.
+
+## 18. The logo and the shell, side by side (2026-10-29)
+
+**What the user sees.** Nothing new on screen: the shell starts as the
+launch begins, its output is drawn under the logo on the frame after it
+arrives, and the logo plays on its own clock, as before. Two things
+change. The window's title no longer makes the logo wait: the machine's
+name, read for the title on a thread of its own, was waited for on the
+shell's first output, which comes while the logo plays; it is now taken
+once read, and the title shown stays until then. And `BAUD_STARTUP=1`
+now says, once the logo is gone, which of the two was late: the logo's
+frames and their worst interval, the frame the shell's first visible cell
+was drawn on, each read's arrival and its wait for a frame, and the main
+thread's longest turn.
+
+The request, verbatim (2026-10-29): "looks better but the logo animations
+seems to happen before the shell is fully ready and it seems to halt it?
+shouldn't they be in parallel ?"
+
+**The shell alone.** `scripts/record-shell-start.py` starts the login
+shell as baud does, through a pty with nothing of baud behind it. In 15
+of 17 recordings of zsh on this Mac its first output came 131-157 ms
+after the fork and its prompt 217-252 ms; in the other two, each the
+first of its batch, at 505 and 612 ms and its prompt at 681 and 717. It asks the terminal
+nothing, so it waits on no answer. In the last `BAUD_STARTUP=1` run,
+before sections 16 and 17, the logo started about 0.21 s after the shell
+was spawned (`pty` 14.2 ms, `splash first frame` 227.6); it is gone 0.55 s
+after it starts (section 17), and when it starts in this build is for the
+next run. At that start a warm shell's prompt lands in the logo's first
+frames and a cold one's in its last 0.08 s: the two run side by side, and
+on a cold start the shell is the slower.
+
+**The frames.** `baud-bench/benches/splash_shell.rs` replays a recording
+under the logo, the reads fed by their times before each frame. A frame a
+read was fed on cost no more than the logo's own: on the CPU path at
+120x36 cells and 2x, at most 3.3 ms at 60 and 120 Hz; the instance path's
+convert at most 0.28 ms. At 200x50 and 2x, 120 Hz, the CPU path runs over
+its 8.3 ms on 0-2 of 66 frames whether or not a read landed, section 14's
+cost. On the cell path, the one macOS draws by default, the prompt's frame
+with every glyph new to the atlas (20 map misses, 120x36 at 28 px, the
+embedded faces) took 0.28-0.38 ms of the CPU and 0.21-0.25 ms of the GPU
+in `baud-bench/benches/frame_gpu.rs`. No splash frame waits on the GPU on
+the main thread (only the launch's first frame, before the window is
+shown), and the pty is read on its own thread and fed on every turn.
+
+**The one wait.** The machine's names were joined on the main thread at
+the first derived title, the shell's `OSC 7`. `hostName` took 7.6-24.8 ms
+in 12 fresh processes, and the read starts at launch, so on this Mac the
+join found it done; where a name lookup is slow it held the logo as long.
+`Hosts` takes the names once the thread has ended; a report naming a host
+before then leaves the title as it is, and the first tick after they land
+derives it. `the_machines_names_are_never_waited_for` failed with the
+join put back (no answer in 2 s), and
+`a_report_naming_a_host_waits_for_the_names` fails when such a report is
+judged against no names; `the_launch_log_says_the_logos_frames_and_the_shells_reads`
+holds the new lines.
+
+**Linux.** The driver reads `gethostname` once, reads the pty on its loop
+and paints on the compositor's next frame, with the bench's CPU painter;
+its launch log is not built.
+
+**Unmeasured.** No window was opened: the app's own intervals while a
+shell starts, and the GPU's time for a splash frame on the cell path, are
+for the next `BAUD_STARTUP=1` run; why a shell's start is sometimes cold
+is the shell's.

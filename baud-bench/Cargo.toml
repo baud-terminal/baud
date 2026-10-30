@@ -163,6 +163,12 @@ harness = false
 name = "splash"
 harness = false
 
+# A shell's recorded start under the launch logo, frame by frame (note AJ,
+# section 18).
+[[bench]]
+name = "splash_shell"
+harness = false
+
 # One frame of a stream as the Linux app draws it, written to a PAM, for
 # scripts/linux-pixels.sh to compare across systems. Times nothing.
 [[bench]]
