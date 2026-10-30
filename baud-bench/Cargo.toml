@@ -163,6 +163,13 @@ harness = false
 name = "splash"
 harness = false
 
+# A cursor trail's frames on the CPU path, every trail at three sizes,
+# timed one by one, with a hash over their pixels (note AJ section 23);
+# prints and asserts nothing.
+[[bench]]
+name = "trail"
+harness = false
+
 # A shell's recorded start under the launch logo, frame by frame (note AJ,
 # section 18).
 [[bench]]
