@@ -38921,3 +38921,174 @@ group  = "AJ"
 # Not in the repository: no grant to redistribute it was found (Apple's
 # documentation). It was read as didchangeocclusionstatenotification.json, and the digest is of that copy.
 # Fetched 2026-10-30 for the launch splash's start (note AJ, section 20).
+
+[sources.harfbuzz-12-3-0-set-digest]
+key    = "harfbuzz-12-3-0-set-digest"
+title  = "HarfBuzz 12.3.0, hb-set-digest.hh -- hb_set_digest_t: three 64-bit masks over shifted glyph ids, shifts 4, 0 and 6"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 12.3.0, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-set-digest.hh"
+file   = ""
+sha256 = "acc09dc0f0356ef5429c410dbd5ef9e6e77ccea2263991b3c7c88fac329a10df"
+bytes  = 5454
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of layout.rs's Digest (note BG);
+# not committed.
+
+[sources.harfbuzz-10-2-0-set-digest]
+key    = "harfbuzz-10-2-0-set-digest"
+title  = "HarfBuzz 10.2.0, hb-set-digest.hh -- hb_set_digest_t as a combiner of three bits-pattern filters on unsigned long, shifts 4, 0 and 9, the last release before 10.3.0's 4, 0 and 6"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 10.2.0, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/10.2.0/src/hb-set-digest.hh"
+file   = ""
+sha256 = "cb8b0061b0f425456f5daf890359893bcf76bc99dbdbfae3f7a956915b54a8be"
+bytes  = 7096
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of layout.rs's Digest (note BG);
+# not committed. The same three shifts are in 2.6.4 and 8.0.0.
+
+[sources.ttf-parser-0-25-1-cff-charset]
+key    = "ttf-parser-0-25-1-cff-charset"
+title  = "ttf-parser 0.25.1, src/tables/cff/charset.rs -- the predefined charsets, sid_to_gid and parse_charset"
+author = "Yevhenii Reizner and the ttf-parser contributors (MIT OR Apache-2.0)"
+year   = 2026
+venue  = "harfbuzz/ttf-parser, tag v0.25.1; the crate baud-font's tests use as their oracle"
+url    = "https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/src/tables/cff/charset.rs"
+file   = ""
+sha256 = "4f9f8d857012a8136e8577cfbefdcf133e04f1300a371c802434c081e1983b8d"
+bytes  = 8331
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of cff.rs (note BG); not committed.
+
+[sources.ttf-parser-0-25-1-cmap]
+key    = "ttf-parser-0-25-1-cmap"
+title  = "ttf-parser 0.25.1, src/tables/cmap/mod.rs -- Subtable::is_unicode"
+author = "Yevhenii Reizner and the ttf-parser contributors (MIT OR Apache-2.0)"
+year   = 2026
+venue  = "harfbuzz/ttf-parser, tag v0.25.1"
+url    = "https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/src/tables/cmap/mod.rs"
+file   = ""
+sha256 = "d28bee77c6fba712877da53512ff520ec21d8f3cee5facd8fc7f2ac207576a95"
+bytes  = 9900
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of cmap.rs (note BG); not committed.
+
+[sources.ttf-parser-0-25-1-var-store]
+key    = "ttf-parser-0-25-1-var-store"
+title  = "ttf-parser 0.25.1, src/var_store.rs -- RegionAxisCoordinatesRecord::evaluate_axis"
+author = "Yevhenii Reizner and the ttf-parser contributors (MIT OR Apache-2.0)"
+year   = 2026
+venue  = "harfbuzz/ttf-parser, tag v0.25.1"
+url    = "https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/src/var_store.rs"
+file   = ""
+sha256 = "2ddf2e3543fc8c5842217d7cb1f84d45320c5c5956226ab42f4317afe0a79564"
+bytes  = 6217
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of ivs.rs (note BG); not committed.
+
+[sources.ttf-parser-0-25-1-lib]
+key    = "ttf-parser-0-25-1-lib"
+title  = "ttf-parser 0.25.1, src/lib.rs -- Transform and the OutlineBuilder trait"
+author = "Yevhenii Reizner and the ttf-parser contributors (MIT OR Apache-2.0)"
+year   = 2026
+venue  = "harfbuzz/ttf-parser, tag v0.25.1"
+url    = "https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/src/lib.rs"
+file   = ""
+sha256 = "694779e7f8a52ba4b9ff22c2b3c3082fdebca00277c2e82be777abf189bd1dc4"
+bytes  = 79851
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of outline.rs (note BG); not
+# committed.
+
+[sources.ttf-parser-0-25-1-cff-charstring]
+key    = "ttf-parser-0-25-1-cff-charstring"
+title  = "ttf-parser 0.25.1, src/tables/cff/charstring.rs -- CharStringParser: the Type 2 path operators, parse_move_to through parse_hflex1"
+author = "Yevhenii Reizner and the ttf-parser contributors (MIT OR Apache-2.0)"
+year   = 2026
+venue  = "harfbuzz/ttf-parser, tag v0.25.1"
+url    = "https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/src/tables/cff/charstring.rs"
+file   = ""
+sha256 = "2272a9661804882c18c88b9184946e3401943316d1998c42b21d39ef6076ddd1"
+bytes  = 17483
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of cff.rs's Pen (note BG); not committed.
+
+[sources.ttf-parser-0-25-1-cff1]
+key    = "ttf-parser-0-25-1-cff1"
+title  = "ttf-parser 0.25.1, src/tables/cff/cff1.rs -- _parse_char_string, seac_code_to_glyph_id and FDSelect::font_dict_index"
+author = "Yevhenii Reizner and the ttf-parser contributors (MIT OR Apache-2.0)"
+year   = 2026
+venue  = "harfbuzz/ttf-parser, tag v0.25.1"
+url    = "https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/src/tables/cff/cff1.rs"
+file   = ""
+sha256 = "352c4b3fe57eba059556abdd171746de0cf7f7f34e4a8b3c9a89209f45116704"
+bytes  = 34932
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of cff.rs's interpreter (note BG); not committed.
+
+[sources.ttf-parser-0-25-1-cff-mod]
+key    = "ttf-parser-0-25-1-cff-mod"
+title  = "ttf-parser 0.25.1, src/tables/cff/mod.rs -- calc_subroutine_bias and conv_subroutine_index"
+author = "Yevhenii Reizner and the ttf-parser contributors (MIT OR Apache-2.0)"
+year   = 2026
+venue  = "harfbuzz/ttf-parser, tag v0.25.1"
+url    = "https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/src/tables/cff/mod.rs"
+file   = ""
+sha256 = "b5c66ed90beae78ba4dcc79c5461a7c4528261f00363b3a3f5bf586aa8592c35"
+bytes  = 3157
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of cff.rs's bias() and subr_index() (note BG); not committed.
+
+[sources.ttf-parser-0-25-1-cff2]
+key    = "ttf-parser-0-25-1-cff2"
+title  = "ttf-parser 0.25.1, src/tables/cff/cff2.rs -- the CFF2 _parse_char_string and its blend"
+author = "Yevhenii Reizner and the ttf-parser contributors (MIT OR Apache-2.0)"
+year   = 2026
+venue  = "harfbuzz/ttf-parser, tag v0.25.1"
+url    = "https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/src/tables/cff/cff2.rs"
+file   = ""
+sha256 = "98bb5d09b5ccfb5d7ac8b70609449b35dadf1e40d1b04329f695f5c11cfa58a2"
+bytes  = 18585
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of cff2.rs (note BG); not committed.
+
+[sources.ttf-parser-0-25-1-glyf]
+key    = "ttf-parser-0-25-1-glyf"
+title  = "ttf-parser 0.25.1, src/tables/glyf.rs -- Builder::push_point and finish_contour, CoordsIter and resolve_coords_len"
+author = "Yevhenii Reizner and the ttf-parser contributors (MIT OR Apache-2.0)"
+year   = 2026
+venue  = "harfbuzz/ttf-parser, tag v0.25.1"
+url    = "https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/src/tables/glyf.rs"
+file   = ""
+sha256 = "6a03b8d92f12566fd1dc244f4fd0cd9a8babb7f79917d9cf5812eef1350df809"
+bytes  = 20604
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of glyf.rs's contour builder (note BG); not committed.
+
+[sources.ttf-parser-0-25-1-gvar]
+key    = "ttf-parser-0-25-1-gvar"
+title  = "ttf-parser 0.25.1, src/tables/gvar.rs -- infer_deltas and infer_delta"
+author = "Yevhenii Reizner and the ttf-parser contributors (MIT OR Apache-2.0)"
+year   = 2026
+venue  = "harfbuzz/ttf-parser, tag v0.25.1"
+url    = "https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/src/tables/gvar.rs"
+file   = ""
+sha256 = "8b2de50aa93c81cd3298f9c59c641bd7a9d63bae180f351d2096ae63461412cc"
+bytes  = 63344
+status = "external"
+group  = "BG"
+# Read and hash-verified for the provenance of gvar.rs's inference (note BG); not committed.

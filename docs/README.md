@@ -107,6 +107,7 @@ its filename's prefix, and several notes share one.
 | [bd-bidi-wrap.md](research/notes/bd-bidi-wrap.md) | BD. A right-to-left paragraph that wraps | open |
 | [be-linux-pixels.md](research/notes/be-linux-pixels.md) | BE. Linux draws what macOS draws, pixel for pixel, given the same faces and floor | open |
 | [bf-unsupported-walk.md](research/notes/bf-unsupported-walk.md) | BF. What baud still counts as unsupported, walked again | open |
+| [bg-font-provenance.md](research/notes/bg-font-provenance.md) | BG. Where baud-font's code came from: each file transcribed, matched or its own, and the notice a transcription ships | done 2026-10-30, `0dc9a368` |
 | [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `158996a` |
 | [d-memory-hierarchy.md](research/notes/d-memory-hierarchy.md) | Memory hierarchy — why a read cost 2.5× where a write did not | open |
 | [e-tty-layer.md](research/notes/e-tty-layer.md) | The tty layer — why a PTY read is 1024 bytes on Darwin and 4095 on Linux | open |
@@ -177,6 +178,7 @@ their entries' titles:
 | AX | notifications and progress from programs: `OSC 9`, `777`, `99`, `9;4` and `1337`, and where each platform shows them |
 | AZ | a window in the background: the unfocused cursor, the inactive selection, theme cursor colours |
 | BE | the Linux app under a pointer: the virtual pointer and keyboard protocols a headless sway takes, and what the app did there (note BE) |
+| BG | where baud-font's code came from: HarfBuzz 10.2.0's and 12.3.0's hb-set-digest.hh and the ttf-parser 0.25.1 files the provenance note reads (note BG) |
 | BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (no note; `baud-app/src/bell.rs` cites them) |
 | BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (no note; `baud-app/src/link.rs` cites them) |
 | CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (no note; `baud-app/src/reload.rs` cites them) |

@@ -19,6 +19,10 @@ The checks, each of which has to be able to fail:
     this script knows, names that URI in each of its files: the URI is
     what a Creative Commons licence asks a copy to carry, and a header the
     generator stopped writing would otherwise pass;
+  - every file the provenance note (PROVENANCE) classes (a), transcribed
+    from another project, is in a [[tree]] entry whose notice is the text
+    the note names; every file of PROVENANCE_DIRS has a class there, and
+    every file the note names exists (see provenance);
   - THIRD_PARTY.md is byte for byte what this script writes.
 
 The sidecar's header says what each field means. Nothing here decides a
@@ -94,6 +98,69 @@ def gather():
         if e.get("status") == "retrieved" and e.get("file"):
             url.setdefault(e["file"], e["url"])
     return side, url
+
+
+# The note that classes each font file by where its code came from: (a)
+# transcribed from another project, (b) written from the specification with
+# behaviour matched, (c) neither. Its table rows read
+# | `path` | a | `LICENSES/text` | ... or | `path` | b | -- | ...
+PROVENANCE = "docs/research/notes/bg-font-provenance.md"
+PROVENANCE_DIRS = ("baud-font/src",)
+# The note classes at least this many files: the control for a row pattern
+# that stopped matching, which would find no unrowed transcription and pass.
+PROVENANCE_FLOOR = 32
+
+
+def provenance(side):
+    """What the provenance note's table says against the sidecar: a file
+    classed (a) whose notice text is under no [[tree]] entry naming it, a
+    file of PROVENANCE_DIRS the note does not class, and a row naming a
+    file that is not there or a class the note does not define."""
+    import re
+
+    errs = []
+    path = os.path.join(ROOT, PROVENANCE)
+    if not os.path.exists(path):
+        return [f"{PROVENANCE} is missing, so no transcribed file can be checked"]
+    row = re.compile(r"^\| `([^`]+)` \| ([^|]*?) \| ([^|]*?) \|")
+    classed = {}
+    with open(path, encoding="utf-8") as f:
+        for n, line in enumerate(f, 1):
+            m = row.match(line)
+            if not m:
+                continue
+            p, cls, notice = m.group(1), m.group(2).strip(), m.group(3).strip()
+            if not os.path.exists(os.path.join(ROOT, p)):
+                errs.append(f"{PROVENANCE}:{n} classes {p}, which does not exist")
+                continue
+            if p in classed:
+                errs.append(f"{PROVENANCE}:{n} classes {p} a second time")
+            classed[p] = cls
+            if cls not in ("a", "b", "c"):
+                errs.append(f"{PROVENANCE}:{n} gives {p} class {cls!r}, not a, b or c")
+            elif cls != "a" and notice != "--":
+                errs.append(f"{PROVENANCE}:{n}: {p} is ({cls}) and names a notice, {notice}")
+            elif cls == "a":
+                texts = re.findall(r"`(LICENSES/[^`]+)`", notice)
+                if not texts:
+                    errs.append(f"{PROVENANCE}:{n}: {p} is (a) and names no text in LICENSES/")
+                for t in texts:
+                    if not any(e["notice"] == t and p in e["paths"] for e in side["tree"]):
+                        errs.append(
+                            f"{PROVENANCE}:{n}: {p} is transcribed (a), and no [[tree]] entry "
+                            f"of {SIDECAR} lists it under {t}"
+                        )
+    if len(classed) < PROVENANCE_FLOOR:
+        errs.append(
+            f"{PROVENANCE} classes {len(classed)} files, fewer than {PROVENANCE_FLOOR}: "
+            "the row pattern has stopped matching, or the floor is stale"
+        )
+    for d in PROVENANCE_DIRS:
+        for name in sorted(os.listdir(os.path.join(ROOT, d))):
+            p = f"{d}/{name}"
+            if name.endswith(".rs") and p not in classed:
+                errs.append(f"{p} has no class in {PROVENANCE}: read it against what it cites and add its row")
+    return errs
 
 
 # LICENSE names at least this many paths from the repository root. The floor
@@ -180,6 +247,7 @@ def check(side, url):
                 full = os.path.join(ROOT, p)
                 if os.path.isfile(full) and uri.encode() not in open(full, "rb").read():
                     errs.append(f"[[tree]] {i}: {p} is {t['licence']} with its notice in the file, and does not name {uri}")
+    errs += provenance(side)
     return errs
 
 

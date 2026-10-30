@@ -23,9 +23,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 | open | 0 | 5 | an open question, recorded where the file is |
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 314 | 42 | redistributable, and its notice is satisfied |
+| kept | 314 | 45 | redistributable, and its notice is satisfied |
 | own | 256 | 7 | the work of baud's author |
-| total | 587 | 54 | |
+| total | 587 | 57 | |
 
 ## Licence texts in LICENSES/
 
@@ -75,6 +75,7 @@ they were built from.
 | [tinted-home-MIT.txt](LICENSES/tinted-home-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417ea86f1e354c628fc2d2aeb5d96/LICENSE | 4e287e2ce0ff0679 |
 | [tinted-shell-MIT.txt](LICENSES/tinted-shell-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/tinted-shell/d1a0085b06670b770b818b00592b1f1e37d65bc5/LICENSE | f17613282ac66e6b |
 | [tinted-xresources-MIT.txt](LICENSES/tinted-xresources-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/tinted-xresources/b97e7eca0fd20a80110f82d7485114db2387c368/LICENSE.md | f22c838ab1f27f24 |
+| [ttf-parser-MIT.txt](LICENSES/ttf-parser-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/LICENSE-MIT | f3c9fe731c701ed7 |
 | [Unicode-3.0.txt](LICENSES/Unicode-3.0.txt) | Unicode-3.0 | fetched: https://web.archive.org/web/20261009185036id_/https://www.unicode.org/license.txt | e7a93b009565cfce |
 | [vma-MIT.txt](LICENSES/vma-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/3aa921224c154a0d2c43912bc88e1c42ce1f7607/LICENSE.txt | 52df2c03d6cfc9ff |
 | [vttest-COPYING.txt](LICENSES/vttest-COPYING.txt) | MIT | fetched: https://raw.githubusercontent.com/ThomasDickey/vttest-snapshots/0229d7171a8574a2bf406c6ce14549f65d810e51/COPYING | cc6c4b5fc68b6c26 |
@@ -380,13 +381,37 @@ they were built from.
 - **From:** https://bottosson.github.io/posts/oklab/
 - **Files:** [baud-domain/src/themefile/oklab.rs](baud-domain/src/themefile/oklab.rs)
 
-### Code transcribed from HarfBuzz: morx.rs's extended state machine and its ligature, contextual, insertion and rearrangement subtables (hb-aat-layout-common.hh and hb-aat-layout-morx-table.hh at 64e2b53, two of whose comments it repeats nearly word for word); gvar.rs's delta application, inference loop, tuple scalar and packed point and delta readers (hb-ot-var-gvar-table.hh, hb-ot-var-common.hh and hb-open-type.hh at 12.3.0); and ivs.rs's region scalar, factor(), whose six tests are VarRegionAxis::evaluate's, in its order and with its arithmetic (hb-ot-layout-common.hh:2470-2494 at 12.3.0); shape.rs's fallback mark placement, BaseBox and fallback_marks(), which are position_around_base() and position_mark() of hb-ot-shape-fallback.cc case for case, with the same formulas and tests and four of their comments paraphrased, the Hebrew cases of recategorize_combining_class() there, hb-unicode.hh's modified combining classes 10-26 and compose_hebrew()'s presentation forms (hb-ot-shaper-hebrew.cc), all at 64e2b53; and, re-expressed in baud's own code, glyf.rs's phantom-point walk, which follows Glyph::get_points()'s phantom_only path step for step (OT/glyf/Glyph.hh at 12.3.0). The holders those files name are all in HarfBuzz's COPYING, the same file at both commits
+### Code transcribed from HarfBuzz: morx.rs's extended state machine and its ligature, contextual, insertion and rearrangement subtables (hb-aat-layout-common.hh and hb-aat-layout-morx-table.hh at 64e2b53, two of whose comments it repeats nearly word for word); gvar.rs's delta application, inference loop, tuple scalar and packed point and delta readers (hb-ot-var-gvar-table.hh, hb-ot-var-common.hh and hb-open-type.hh at 12.3.0); and ivs.rs's region scalar, factor(), whose six tests are VarRegionAxis::evaluate's, in its order and with its arithmetic (hb-ot-layout-common.hh:2470-2494 at 12.3.0); shape.rs's fallback mark placement, BaseBox and fallback_marks(), which are position_around_base() and position_mark() of hb-ot-shape-fallback.cc case for case, with the same formulas and tests and four of their comments paraphrased, the Hebrew cases of recategorize_combining_class() there, hb-unicode.hh's modified combining classes 10-26 and compose_hebrew()'s presentation forms (hb-ot-shaper-hebrew.cc), all at 64e2b53; and, re-expressed in baud's own code, glyf.rs's phantom-point walk, which follows Glyph::get_points()'s phantom_only path step for step (OT/glyf/Glyph.hh at 12.3.0); and layout.rs's Digest, hb_set_digest_t as HarfBuzz 10.2.0 builds it (the same shifts in 2.6.4, as hb_set_digest_lowest_bits_t, and 8.0.0), three 64-bit bits-pattern masks at its shifts 4, 0 and 9, with its add, its range test that fills a mask when a range spans 63 or more, and its intersection (hb-set-digest.hh at 10.2.0, manifest harfbuzz-10-2-0-set-digest; read in note BG). The holders those files name are all in HarfBuzz's COPYING, the same file at all three releases
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT-Modern-Variant
 - **Notice:** [LICENSES/harfbuzz-COPYING.txt](LICENSES/harfbuzz-COPYING.txt)
 - **From:** https://github.com/harfbuzz/harfbuzz/tree/12.3.0
-- **Files:** [baud-font/src/morx.rs](baud-font/src/morx.rs), [baud-font/src/gvar.rs](baud-font/src/gvar.rs), [baud-font/src/ivs.rs](baud-font/src/ivs.rs), [baud-font/src/shape.rs](baud-font/src/shape.rs), [baud-font/src/glyf.rs](baud-font/src/glyf.rs)
+- **Files:** [baud-font/src/morx.rs](baud-font/src/morx.rs), [baud-font/src/gvar.rs](baud-font/src/gvar.rs), [baud-font/src/ivs.rs](baud-font/src/ivs.rs), [baud-font/src/shape.rs](baud-font/src/shape.rs), [baud-font/src/glyf.rs](baud-font/src/glyf.rs), [baud-font/src/layout.rs](baud-font/src/layout.rs)
+
+### Code transcribed from ab_glyph_rasterizer 0.1.10, which forks font-rs: raster.rs's Canvas, whose line(), quad(), cubic() and coverage() are draw_line_scalar(), draw_quad() and tessellate_cubic() (raster.rs, manifest ab-glyph-raster) and font-rs's scalar accumulate() (accumulate.rs) line for line, with their constants: the quadratic's 0.333 cut and count of 1 + floor((3 devsq)^1/4), the cubic's 0.35 flatness and depth 16, which ab_glyph adapted from stb_truetype (public domain or MIT, at the user's choice). raster.rs's header carries the copyright lines of ab_glyph_rasterizer's file and says what was changed, as Apache-2.0 4(b) and 4(c) ask; neither project ships a NOTICE file. Read in note BG
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** Apache-2.0
+- **Notice:** [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt)
+- **From:** https://crates.io/crates/ab_glyph_rasterizer/0.1.10
+- **Files:** [baud-font/src/raster.rs](baud-font/src/raster.rs)
+
+### Code transcribed from ttf-parser 0.25.1, which is offered under MIT or Apache-2.0 and is taken here under MIT: cff.rs's charstring interpreter, whose Pen operators are CharStringParser's parse_curve_to() to parse_hflex1() step for step (src/tables/cff/charstring.rs 175-580, the flexes' absolute points named dx1 to dy5 and flex1's end-point test included), whose Run::exec() is _parse_char_string() with its operator order, its odd-count width rule, its stem and mask counting and its seac branch (src/tables/cff/cff1.rs 417-690), whose seac_glyph() is seac_code_to_glyph_id() (692-709), whose format 3 FdSelect::index_of() is font_dict_index() (725-757), and whose Charset is ttf-parser's Charset, sid_to_gid() and parse_charset() (src/tables/cff/charset.rs 73-128, 193-238); glyf.rs's contour builder, Contour::push(), finish() and mid(), which are Builder::push_point(), finish_contour() and Point::lerp() (src/tables/glyf.rs 75-137, 391-396), its coordinate decoder Coords::next(), which is CoordsIter::next() (362-380), and coord_lengths(), the unrolled form of resolve_coords_len() (521-571); and outline.rs's Sink and Transform, which have OutlineBuilder's five methods and signatures and Transform's fields, combine() and apply_to() (src/lib.rs 415-499, 577-596). glyf.rs's phantom-point walk is HarfBuzz's and is under its row. Read in note BG
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/ttf-parser-MIT.txt](LICENSES/ttf-parser-MIT.txt)
+- **From:** https://github.com/harfbuzz/ttf-parser/tree/v0.25.1
+- **Files:** [baud-font/src/cff.rs](baud-font/src/cff.rs), [baud-font/src/glyf.rs](baud-font/src/glyf.rs), [baud-font/src/outline.rs](baud-font/src/outline.rs)
+
+### Code transcribed from fontTools 4.63.0: bake.rs's variation arithmetic, normalize(), piecewise(), tent(), iup() and infer(), which are normalizeValue(), piecewiseLinearMap() and supportScalar() (varLib/models.py) and iup_segment() and, re-expressed, iup_contour() (varLib/iup.py), term for term, fontTools' extrapolation past the avar map's ends included. The table writer is baud's. Read in note BG
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/fonttools-MIT.txt](LICENSES/fonttools-MIT.txt)
+- **From:** https://github.com/fonttools/fonttools/tree/4.63.0
+- **Files:** [baud-font/src/bake.rs](baud-font/src/bake.rs)
 
 ### CFF Standard Encoding, a 256-entry code-to-SID table generated by scripts/gen-cff-standard-encoding.py from Appendix B of Adobe's technical note 5176, which Adobe licenses under CC BY-ND 4.0 (manifest adobe-font-tech-notes-license). The appendix's code and SID columns are reproduced in part and unmodified, written as bytes, a format change the licence's 2(a)(4) says never produces Adapted Material; the file's header carries the creator, TN 5176's copyright line, the licence and its URI, the disclaimer and the source's URL, as 3(a)(1) asks
 
