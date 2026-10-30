@@ -170,7 +170,7 @@ under two sways:
 
 | arm | compositor | wl_seat | the pointer's image | a wheel detent |
 |---|---|---|---|---|
-| bookworm | sway 1.7 | 7 | no cursor-shape global: baud draws its I-beam or arrow and sets it with wl_pointer.set_cursor | axis_discrete |
+| bookworm | sway 1.7 | 7 | no cursor-shape global: baud draws its I-beam, its pointing hand (since the run in "The hand over a link" below) or its arrow and sets it with wl_pointer.set_cursor | axis_discrete |
 | trixie | sway 1.10.1 | 9 | wp_cursor_shape_device_v1.set_shape (`[[source: wp-cursor-shape-v1]]`) | axis_value120 |
 
 The window floats at 640x408 at the origin of a 1024x768 output: 80x24
@@ -299,9 +299,8 @@ edit back to `render` would be caught only by a compositor run.
 
 **Found and left.** After a key hides the pointer, the program's next
 `OSC 22` is set twice, the same shape in two requests, harmless: the read
-shows it and then the read's unhide shows it again. The pointer keeps
-the I-beam over a link while Ctrl shows the link, on both apps, as
-`docs/input-coverage.md` records. A second `OSC 133 ; A` on the row after
+shows it and then the read's unhide shows it again (closed by the run
+below, as is the I-beam kept over a link while Ctrl shows it). A second `OSC 133 ; A` on the row after
 an input line, with no `C` or `D` between, was taken by the app on sway
 as a redraw: after `$ `, `B`, "ab", a wide character and "cd" on row 0,
 the bytes `\r\n`, `A;click_events=1`, `> `, `B` and "xy" drew the new
@@ -314,7 +313,34 @@ run without that load read "line 1". Not run on a compositor: the window
 drawn at a scale other than one, which the app does not do on Linux
 (its buffer is the window's size in logical pixels and the compositor
 scales it), and so no pixels compared against the CPU renderer at a
-scale.
+scale; and the pointer over a link under the scrollbar's strip, which
+keeps its shape while the thumb shows and is held by
+`over_the_scrollbar_a_link_keeps_the_programs_pointer`.
+
+**The hand over a link.** Run again on 2026-10-29 with three checks
+added or changed (`[[source: be-obs-pointer-hand]]`): the link session gained a
+second row, an `OSC 8` link to an `ftp:` address, which the app refuses,
+and its pointer requests are compared, folded as the shape session's
+are. All 28 checks pass on each arm:
+
+| arm | Ctrl over the `https` link, over the refused one, off the window, then under `?1000` after a key |
+|---|---|
+| sway 1.10.1 | text, pointer, text, leave, enter, text, hidden, text, pointer, text, leave (`[[source: be-obs-pointer-trixie-link-hand]]`) |
+| sway 1.7 | the I-beam, the hand, the I-beam, leave, enter, the I-beam, hidden, the I-beam, the hand, the I-beam, leave (`[[source: be-obs-pointer-bookworm-link-hand]]`) |
+
+The shape session's `hand2` on sway 1.7 is now the hand the app draws,
+where it was the arrow; sway 1.10 names `pointer` as before. The
+harness tells the drawn hand by its hotspot, (9, 2). The same script on
+the base binary, `487d78bc`, fails exactly the three expectations this
+run added or changed and passes the other 53: neither compositor is sent the pointer shape
+while Ctrl is held over the link, and sway 1.7 draws the arrow for
+`hand2`. In the shape session's raw trace, which is not committed and
+which the folded check cannot show, the double set above is gone: after
+a key hid the pointer, the base sent each of `pointer`, `default` and
+`wait` twice and the change sends each once, since a hidden pointer is
+no longer given a shape until what shows it. An earlier run of the change, whose
+two new expectations lacked the session's closing leave, sent the same
+folded requests on both arms.
 
 ## 7. Open
 

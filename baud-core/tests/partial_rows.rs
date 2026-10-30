@@ -153,11 +153,10 @@ fn the_vt_coverage_partial_counts_equal_its_partial_rows() {
 fn the_input_coverage_partial_count_equals_its_partial_rows() {
     let src = doc("input-coverage.md");
     let rows = partial_rows(&src);
-    let count = stated(
-        &src,
-        "is an operation whose gap is named.",
-        "rows carry `**partial**`",
-    );
+    let lead = "is an operation whose gap is named.";
+    // "Two rows carry", or "One row carries" once one is left.
+    let count = stated(&src, lead, "rows carry `**partial**`")
+        .or_else(|_| stated(&src, lead, "row carries `**partial**`"));
     assert_eq!(
         count,
         Ok(rows.len()),

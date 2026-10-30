@@ -46,9 +46,9 @@ vertical_text alias copy move no_drop not_allowed grab grabbing e_resize
 n_resize ne_resize nw_resize s_resize se_resize sw_resize w_resize ew_resize
 ns_resize nesw_resize nwse_resize col_resize row_resize all_scroll zoom_in
 zoom_out""".split()
-# The two images the app draws without cursor-shape-v1, by their hotspot
-# (baud-present-wayland's cursor.rs).
-DRAWN = {("12", "12"): "the I-beam", ("4", "3"): "the arrow"}
+# The three images the app draws without cursor-shape-v1, by their
+# hotspot (baud-present-wayland's cursor.rs).
+DRAWN = {("12", "12"): "the I-beam", ("4", "3"): "the arrow", ("9", "2"): "the hand"}
 
 
 def num(s):

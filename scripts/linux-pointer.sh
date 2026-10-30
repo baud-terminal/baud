@@ -435,15 +435,15 @@ move 320 210
 sleep 300
 P
 # What the app asked the compositor to show, a request a line and repeats
-# folded: on sway 1.7 its own two images, on sway 1.10 the shapes by name.
+# folded: on sway 1.7 its own three images, on sway 1.10 the shapes by name.
 grep -E '^(enter|leave|set_|capabilities)' $O/trace-shape.txt | sed 's/ [0-9]* [0-9]*$//' |
   uniq | tr '\n' ';' > $D/shape/seq
 if grep -q wp_cursor_shape_manager_v1 $O/compositor.txt; then
   check "the shapes, named: I-beam, hidden, hand, hidden, arrow, hidden, watch, hidden, I-beam" $D/shape/seq \
     'enter;set_shape text;set_cursor hidden;set_shape pointer;set_cursor hidden;set_shape default;set_cursor hidden;set_shape wait;set_cursor hidden;set_shape text;leave;enter;set_shape text;leave;capabilities keyboard;capabilities none;capabilities pointer;capabilities pointer keyboard;enter;set_shape text;leave;capabilities keyboard;capabilities none;'
 else
-  check "the shapes, drawn: the I-beam, and the arrow for hand, arrow and watch" $D/shape/seq \
-    'enter;set_cursor the I-beam;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the I-beam;leave;enter;set_cursor the I-beam;leave;capabilities keyboard;capabilities none;capabilities pointer;capabilities pointer keyboard;enter;set_cursor the I-beam;leave;capabilities keyboard;capabilities none;'
+  check "the shapes, drawn: the I-beam, the hand for hand2, the arrow for arrow and watch" $D/shape/seq \
+    'enter;set_cursor the I-beam;set_cursor hidden;set_cursor the hand;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the arrow;set_cursor hidden;set_cursor the I-beam;leave;enter;set_cursor the I-beam;leave;capabilities keyboard;capabilities none;capabilities pointer;capabilities pointer keyboard;enter;set_cursor the I-beam;leave;capabilities keyboard;capabilities none;'
 fi
 
 # The middle button pastes the primary selection; Shift+Insert too; with
@@ -463,12 +463,15 @@ P
 check "the middle button and Shift+Insert paste the primary" $D/paste/got \
   '\033[200~from the primary\033[201~\033[200~from the primary\033[201~'
 
-# Links: Ctrl held over an OSC 8 link previews it, a Ctrl click opens it
-# with xdg-open, and a Ctrl click on a URI in the text opens that; the
-# pointer leaving takes the preview away. Under ?1000 ?1006 the Ctrl
-# click on a link is still the link's, and elsewhere the program's.
+# Links: Ctrl held over an OSC 8 link previews it and shows the pointing
+# hand, a Ctrl click opens it with xdg-open, and a Ctrl click on a URI in
+# the text opens that; over a link that will not open, an ftp one, the
+# preview says why and the hand goes; the pointer leaving takes the
+# preview away. Under ?1000 ?1006 the Ctrl click on a link is still the
+# link's, with the hand, and elsewhere the program's.
 session link '
 printf "see \033]8;;https://example.org/p14\033\\\\this link\033]8;;\033\\\\ or https://example.com/plain\r\n"
+printf "\033]8;;ftp://example.org/refused\033\\\\refused\033]8;;\033\\\\\r\n"
 touch $S/ready; head -c 1 > /dev/null; printf "\033[?1000h\033[?1006h"; touch $S/tracking
 exec cat > $S/got' <<'P'
 move 52 8
@@ -481,6 +484,9 @@ move 196 8
 tick 1000
 click left
 waitfor [ $(wc -l < $D/opened) = 2 ]
+move 20 25
+sleep 300
+sh shot link-refused
 move 900 700
 sleep 300
 sh shot link-left
@@ -503,6 +509,18 @@ check "Ctrl clicks run xdg-open with each link" $D/opened \
   'https://example.org/p14\nhttps://example.com/plain\nhttps://example.org/p14\n'
 check "under tracking a Ctrl click on a link is the link's, elsewhere the program's" $D/link/got \
   '\033[<16;38;4M\033[<16;38;4m'
+# The hand while Ctrl is held over a link that opens, under tracking too,
+# and the I-beam again over the refused link, off the window and off the
+# link: on sway 1.10 the shapes by name, on sway 1.7 the app's images.
+grep -E '^(enter|leave|set_)' $O/trace-link.txt | sed 's/ [0-9]* [0-9]*$//' |
+  uniq | tr '\n' ';' > $D/link/seq
+if grep -q wp_cursor_shape_manager_v1 $O/compositor.txt; then
+  check "Ctrl over a link that opens: the pointer shape, named" $D/link/seq \
+    'enter;set_shape text;set_shape pointer;set_shape text;leave;enter;set_shape text;set_cursor hidden;set_shape text;set_shape pointer;set_shape text;leave;'
+else
+  check "Ctrl over a link that opens: the hand, drawn" $D/link/seq \
+    'enter;set_cursor the I-beam;set_cursor the hand;set_cursor the I-beam;leave;enter;set_cursor the I-beam;set_cursor hidden;set_cursor the I-beam;set_cursor the hand;set_cursor the I-beam;leave;'
+fi
 
 # ?2001: a click on the cursor's line moves the shell's point with the
 # cursor keys.

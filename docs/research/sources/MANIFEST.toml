@@ -38626,3 +38626,103 @@ status = "retrieved"
 group  = "BE"
 # Local evidence for note BE, made 2026-10-29 in colima's aarch64 VM; not fetched --
 # the url says how it was made.
+
+[sources.be-obs-pointer-hand]
+key    = "be-obs-pointer-hand"
+title  = "The Linux app under a virtual pointer with the hand checks: both arms' compositors, checks and link-session pointer traffic, and the base binary's failures under the same script"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pointer.sh on sway 1.7 and 1.10.1, the change and the base binary"
+file   = "be-observed/pointer-hand.txt"
+sha256 = "1bc82e35f5909060f13570e93c7f6db36b394e55d0ebd6d8e3bf58d909d2d46f"
+bytes  = 9066
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-bookworm-link-hand]
+key    = "be-obs-pointer-bookworm-link-hand"
+title  = "Ctrl held over an OSC 8 link on sway 1.7: the preview's bar and underline, and the pointing hand the app draws itself"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "grim -c after mods ctrl in the link session, bookworm arm"
+file   = "be-observed/pointer-bookworm-link-hand.png"
+sha256 = "1e6eeaae990046e0d4d7cea243c96bf92e599e4df6db9d7903ed6205428955ce"
+bytes  = 11350
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-trixie-link-hand]
+key    = "be-obs-pointer-trixie-link-hand"
+title  = "Ctrl held over an OSC 8 link on sway 1.10.1: the preview, and the compositor's pointer shape for 'pointer'"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "grim -c after mods ctrl in the link session, trixie arm"
+file   = "be-observed/pointer-trixie-link-hand.png"
+sha256 = "f762e2cea0c5928e4eec9d1c66191bb3cd75b7c43a5db591159a02e4a038c77b"
+bytes  = 10803
+status = "retrieved"
+group  = "BE"
+# Local evidence for note BE, made 2026-10-29 in colima's aarch64 VM; not fetched --
+# the url says how it was made.
+
+[sources.apple-hig-pointing-devices-2026-10-29]
+key    = "apple-hig-pointing-devices-2026-10-29"
+title  = "Human Interface Guidelines, Pointing devices, as fetched 2026-10-29 -- the macOS pointer table: 'Pointing hand: The content beneath the pointer is a URL link to a webpage, document, or other item'; 'Operation not allowed: A dragged item can't be dropped in the current location'; SwiftUI's link style, 'appropriate for content opens a URL link ... when clicked'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com, Human Interface Guidelines (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/pointing-devices.json"
+file   = ""
+sha256 = "e11d24e1d40696f6054011c8d023821dc941ffcf662f57f744a46b68a1c774c9"
+bytes  = 115573
+status = "external"
+group  = "BU"
+# Fetched 2026-10-29 for the pointer over a link (baud-app/src/link.rs,
+# Hover::pointer). Read, not copied.
+
+[sources.apple-nscursor-pointinghand]
+key    = "apple-nscursor-pointinghand"
+title  = "NSCursor.pointingHand -- 'Returns the pointing-hand system cursor'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nscursor/pointinghand.json"
+file   = ""
+sha256 = "378b893933d9adbc21f452382e9820ad8b977727c90bdeda3ae2a62967dd1b3e"
+bytes  = 25110
+status = "external"
+group  = "BU"
+# Fetched 2026-10-29 for the pointer over a link on macOS. Read, not copied.
+
+[sources.ghostty-d9840f3-surface]
+key    = "ghostty-d9840f3-surface"
+title  = "Ghostty d9840f3, src/Surface.zig -- over a link the mouse shape is .pointer; leaving the link sets the terminal's own mouse_shape, the program's OSC 22 shape, again"
+author = "Mitchell Hashimoto and Ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty on GitHub"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/Surface.zig"
+file   = ""
+sha256 = "2095e33bc2d4c914275076f031bd512d3d988e6036e9c5124bf3a08c62aaa136"
+bytes  = 240643
+status = "external"
+group  = "BU"
+# Fetched 2026-10-29: prior art for the link's pointer over a program's
+# OSC 22 shape. Read, not copied.
+
+[sources.kitty-mouse-c-0-43-1]
+key    = "kitty-mouse-c-0-43-1"
+title  = "kitty v0.43.1, kitty/mouse.c -- detect_url: a URL under the mouse sets POINTER_POINTER, else set_mouse_cursor_for_screen, which takes the program's pointer shape when one is set"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty on GitHub"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.43.1/kitty/mouse.c"
+file   = ""
+sha256 = "6884727c47e4ef9d1e558226c390a3c82cd6bcb930e27d05b7dd228c1d023534"
+bytes  = 56256
+status = "external"
+group  = "BU"
+# Fetched 2026-10-29: prior art for the link's pointer over a program's
+# OSC 22 shape. GPL-3.0; read, not copied, and not committed.

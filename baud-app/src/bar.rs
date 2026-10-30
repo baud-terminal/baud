@@ -302,6 +302,27 @@ pub(crate) fn press(
     Answer::of(Took::Yes, hover, Did::Scrolled(moved))
 }
 
+/// **Who a left press in `strip` would go to now**, by [`press`]'s rule:
+/// the scrollbar's when it would take the press -- under the overlay style
+/// while any of the thumb is drawn and there is history, under the legacy
+/// one always -- else the cells'. On the knob or off it the press is the
+/// scrollbar's either way, so the pointer's height is not asked. Read for
+/// the pointer over a link, which a Command or Ctrl click under the strip
+/// does not open.
+pub(crate) fn left_press(term: &Term<'_>, strip: Place, c: Ctx) -> crate::link::LeftPress {
+    use crate::link::LeftPress;
+    if c.shown == ScrollbarShown::Hidden || c.now.is_none() {
+        return LeftPress::Cells;
+    }
+    let f = c.frame;
+    let win = crate::effects::window_of(term);
+    let knob = thumb(win, f.size, f.cell_h, f.widths, c.drawn.hover).map(|_| Knob::On);
+    match crate::reveal::press(c.scroller, strip, c.drawn.shown, knob, Button::Left).grabs() {
+        Grab::Bar => LeftPress::Scrollbar,
+        Grab::Free => LeftPress::Cells,
+    }
+}
+
 /// A pointer event as the Linux driver hands it to [`Bar::input`], at a
 /// surface point: the Linux frame draws the grid from its first pixel at a
 /// scale of one, so a surface point is a frame pixel.
@@ -359,6 +380,24 @@ impl Bar {
     /// The style the thumb is drawn in.
     pub(crate) fn scroller(&self) -> Scroller {
         self.scroller
+    }
+
+    /// Who a left press where the pointer last was would go to at `now`,
+    /// against the look the last frame drew ([`left_press`]).
+    pub(crate) fn left_press(
+        &self,
+        term: &Term<'_>,
+        f: Frame,
+        now: HostTime,
+    ) -> crate::link::LeftPress {
+        let c = Ctx {
+            scroller: self.scroller,
+            shown: term.scrollbar_shown(),
+            frame: f,
+            drawn: self.drawn,
+            now: Some(now),
+        };
+        left_press(term, self.pointer, c)
     }
 
     /// The look at `now`, as the next frame draws it.
@@ -538,6 +577,74 @@ mod tests {
             left: Left::Yes,
         };
         assert_eq!(b.input(&mut t, cells, f, at(MS * 4)).0, Took::No);
+    }
+
+    /// **Who a left press would go to is what [`press`] does with one**:
+    /// over every style, `?30` shown and hidden, the thumb drawn and not,
+    /// with history and without, the clock known and not, in the strip and
+    /// over the grid, on the knob and off it, [`left_press`] answers the
+    /// scrollbar's exactly where a left press is taken. The control: both
+    /// answers occur. Perturbation: drop the `?30` test from `left_press`
+    /// -- the cases with the scrollbar hidden fail.
+    #[test]
+    fn a_left_press_is_the_scrollbars_where_press_takes_it() {
+        use crate::link::LeftPress;
+        let f = frame();
+        let t0 = at(Duration::ZERO);
+        let mut seen = (0, 0);
+        for scroller in [Scroller::Overlay, Scroller::Legacy] {
+            for hidden in [false, true] {
+                for drawn in [false, true] {
+                    for history in [false, true] {
+                        for now in [Some(t0), None] {
+                            for (x, y) in [(195, 1), (195, 90), (20, 1)] {
+                                let mut s = Owned::new(&WS);
+                                let mut t = Term::new(s.storage(), &WS);
+                                if history {
+                                    with_history(&mut t);
+                                }
+                                if hidden {
+                                    feed(&mut t, b"\x1b[?30l");
+                                }
+                                let mut reveal = Reveal::HIDDEN;
+                                reveal.reveal(t0);
+                                let c = Ctx {
+                                    scroller,
+                                    shown: t.scrollbar_shown(),
+                                    frame: f,
+                                    drawn: match drawn {
+                                        true => reveal.look_under(scroller, t0),
+                                        false => Look::HIDDEN,
+                                    },
+                                    now,
+                                };
+                                let strip = place(Px::of(x), f.size.0, f.widths);
+                                let left = left_press(&t, strip, c);
+                                let e = At {
+                                    x: Px::of(x),
+                                    y: Px::of(y),
+                                    kind: Kind::Pressed { left: Left::Yes },
+                                };
+                                let (mut hold, mut pointer) = (Hold::FREE, Place::Grid);
+                                let took =
+                                    press(&mut hold, &mut reveal, &mut pointer, &mut t, e, c).took;
+                                let case = (scroller, hidden, drawn, history, now, x, y);
+                                match left {
+                                    LeftPress::Scrollbar => seen.0 += 1,
+                                    LeftPress::Cells => seen.1 += 1,
+                                }
+                                assert_eq!(
+                                    took == Took::Yes,
+                                    left == LeftPress::Scrollbar,
+                                    "{case:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(seen.0 > 0 && seen.1 > 0, "the control: {seen:?}");
     }
 
     /// **A press in the strip off the knob jumps there; with nothing drawn

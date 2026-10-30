@@ -449,6 +449,10 @@ struct App {
     /// The host a `file:` link is local to, for the preview: read once
     /// when Command goes down and kept while it is held (`preview_host`).
     hover_host: Option<String>,
+    /// The pointer the window last showed for a program's `OSC 22` or a
+    /// link a click opens (`pointer.rs`), unknown while the pointer is
+    /// outside it.
+    pointer_shown: crate::pointer::Shown,
     /// What the field left when it last closed, which Command-G reopens it
     /// on when the find pasteboard still holds its query; and the query
     /// last written to the find pasteboard.
@@ -466,6 +470,12 @@ struct App {
     /// pointer -- a wheel, a key, a paste, a jump -- drops the hover there,
     /// and one that leaves it takes the hover up.
     pointer: Place,
+    /// Where the pointer was at the last mouse event: what a frame tests a
+    /// left press against. `pointer` is the
+    /// scrollbar's, set only after the preview has read the event, so a
+    /// frame the preview presents would otherwise test the press where the
+    /// pointer was the event before.
+    strip: Place,
     /// The scroller "Show scroll bars" asked for when the window was last
     /// laid out: under the legacy style the grid gives up a gutter to it.
     scroller: Scroller,
@@ -1326,11 +1336,13 @@ impl App {
             finding: None,
             hover: crate::link::Hover::default(),
             hover_host: None,
+            pointer_shown: crate::pointer::Shown::Unknown,
             find_left: None,
             find_written: Vec::new(),
             reveal: Reveal::HIDDEN,
             drawn_look: Look::HIDDEN,
             pointer: Place::Grid,
+            strip: Place::Grid,
             scroller,
             bar_shown: baud_core::ScrollbarShown::Shown,
             status_rows: Rows::ZERO,
@@ -1575,13 +1587,76 @@ impl App {
             false => crate::link::Chord::Other,
         };
         let host = self.preview_host(chord);
-        self.hover.refresh(
+        let changed = self.hover.refresh(
             &self.term,
             self.scrolled,
             chord,
             self.focus,
             crate::link::Host(&host),
+        );
+        if changed {
+            self.reshape_pointer();
+        }
+        changed
+    }
+
+    /// **The pointer over the text**: the pointing hand while the link
+    /// preview shows a link a click opens, else the shape a program named
+    /// with `OSC 22` (`link::Hover::pointer`), as the nearest system
+    /// cursor (`pointer.rs`), set only when it changes and never for a
+    /// session that names none and points at no link.
+    fn show_pointer(&mut self) {
+        use crate::pointer::{Shown, system_pointer, to_set};
+        let want = self
+            .hover
+            .pointer(self.term.pointer_shape())
+            .map(system_pointer);
+        if let Some(p) = to_set(want, self.pointer_shown) {
+            system_cursor(p).set();
+        }
+        self.pointer_shown = match want {
+            Some(w) => Shown::Set(w),
+            None => Shown::System,
+        };
+    }
+
+    /// A view point in frame pixels: the frame is centred in the surface
+    /// and the thumb's geometry is in frame pixels, so a point comes in
+    /// from view pixels less the letterbox margin.
+    fn frame_px(&self, x: f64, y: f64) -> (Px, Px) {
+        let scale = self.scale;
+        let at = |v: f64| Px::of(u32::try_from((v * scale).max(0.0) as i64).unwrap_or(0));
+        let (px, py) = self.pad_px;
+        (
+            Px::of(at(x).value().saturating_sub(px.value())),
+            Px::of(at(y).value().saturating_sub(py.value())),
         )
+    }
+
+    /// What the scrollbar's press rules read besides the event (`bar.rs`).
+    fn bar_ctx(&self) -> crate::bar::Ctx {
+        crate::bar::Ctx {
+            scroller: self.scroller,
+            shown: self.bar_shown,
+            frame: crate::bar::Frame {
+                size: self.renderer.frame_size(),
+                cell_h: self.renderer.metrics().cell_h,
+                widths: crate::reveal::widths(crate::reveal::Scale(self.scale)),
+            },
+            // A press is tested against what is on the screen: the look
+            // the last frame drew, not the one the hover will draw.
+            drawn: self.drawn_look,
+            now: HostTime::of_secs(self.tick_target),
+        }
+    }
+
+    /// The pointer shown again after what decides it changed -- a read, the
+    /// link preview -- while the pointer is over the window; outside it,
+    /// the next move in shows it.
+    fn reshape_pointer(&mut self) {
+        if self.pointer_shown != crate::pointer::Shown::Unknown {
+            self.show_pointer();
+        }
     }
 
     /// **The host the preview admits a `file:` link against**,
@@ -1665,6 +1740,12 @@ impl App {
         // much as the reveal says at the display link's last target.
         let look = HostTime::of_secs(self.tick_target).map_or(Look::HIDDEN, |now| self.look(now));
         self.drawn_look = look;
+        // The thumb this frame draws decides who a left press goes to, so
+        // the pointer over a link under its strip is read again with it.
+        let left = crate::bar::left_press(&self.term, self.strip, self.bar_ctx());
+        if self.hover.set_left_press(left) {
+            self.reshape_pointer();
+        }
         // None while a program has hidden it (`?30`).
         self.renderer.set_scrollbar(match self.bar_shown {
             baud_core::ScrollbarShown::Shown => Some(ScrollBar {
@@ -3455,9 +3536,6 @@ struct Driver {
     /// (`title.rs`).
     hosts: Hosts,
     home: Option<Vec<u8>>,
-    /// The pointer the window last showed for a program's `OSC 22`
-    /// (`pointer.rs`), unknown while the pointer is outside it.
-    pointer_shown: crate::pointer::Shown,
     /// Whether a key hid the pointer, and what the core said when it was
     /// last asked (`hide.rs`).
     hiding: crate::hide::Hiding,
@@ -9571,9 +9649,7 @@ impl Driver {
             self.send_title();
             // A program's pointer shape, shown at once while the pointer is
             // over the window; outside it, the next move in shows it.
-            if self.pointer_shown != crate::pointer::Shown::Unknown {
-                self.show_pointer();
-            }
+            self.app.reshape_pointer();
             // Tracking turned on, a new shape or `RIS` shows a pointer a
             // key hid (`hide.rs`).
             hide_pointer(self.hiding.read(&self.app.term));
@@ -9844,6 +9920,7 @@ impl Responder for Driver {
         // window crate hands no modifier change of its own.
         if (!key.modifiers.command || key.modifiers.shift) && self.app.hover.clear() {
             self.app.pending = Pending::Dirty;
+            self.app.reshape_pointer();
         }
         if key.modifiers.command {
             // Menu territory: a key equivalent the menu carries never gets
@@ -10000,10 +10077,6 @@ impl Responder for Driver {
     /// report a cell.
     fn mouse(&mut self, event: &Mouse) {
         self.poll_focus();
-        match event.kind {
-            ViewMouseKind::Exited => self.pointer_shown = crate::pointer::Shown::Unknown,
-            _ => self.show_pointer(),
-        }
         // A move shows a pointer a key hid -- AppKit has already, "until
         // the mouse moves" -- and so does a press, any button, as xterm(1)
         // documents `pointerMode`; a crossing shows it but at mode 3
@@ -10034,6 +10107,14 @@ impl Responder for Driver {
         let owed = tell_locator(&mut self.app.term, pointer, half, at, self.buttons);
         self.locator_owed(owed);
         self.hover_mouse(event);
+        // The pointer over the window, after the preview it may show. On
+        // the way out the preview has just taken its hand back, while the
+        // pointer was still the window's; past that, what it crosses may
+        // set another, so what shows is unknown.
+        match event.kind {
+            ViewMouseKind::Exited => self.app.pointer_shown = crate::pointer::Shown::Unknown,
+            _ => self.app.show_pointer(),
+        }
         if self.scrollbar(event) == Took::Yes {
             return;
         }
@@ -10824,7 +10905,6 @@ pub fn run() {
         hosts,
         home: std::env::var_os("HOME")
             .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
-        pointer_shown: crate::pointer::Shown::Unknown,
         hiding,
         // Placed once the window is shown, which lays out the traffic
         // lights it is placed against.
@@ -12012,6 +12092,7 @@ impl Driver {
             hide_pointer(self.hiding.crossed(&self.app.term));
             if self.app.hover.clear() {
                 self.app.pending = Pending::Dirty;
+                self.app.reshape_pointer();
             }
         }
         // A gain reads the system's caret again -- a change made in System
@@ -12214,11 +12295,29 @@ impl Driver {
         };
         let at = (event.kind != ViewMouseKind::Exited).then(|| self.cell_under(event.x, event.y));
         let app = &mut self.app;
+        // Over the scrollbar's strip while it takes a left press, a click
+        // scrolls and opens nothing (`bar::left_press`); off the window
+        // nothing is under the pointer.
+        let strip = match event.kind {
+            ViewMouseKind::Exited => Place::Grid,
+            _ => {
+                let (x, _) = app.frame_px(event.x, event.y);
+                let f = app.bar_ctx().frame;
+                baud_render::place(x, f.size.0, f.widths)
+            }
+        };
+        app.strip = strip;
+        let pressed =
+            app.hover
+                .set_left_press(crate::bar::left_press(&app.term, strip, app.bar_ctx()));
         let host = app.preview_host(chord);
-        if app
+        let hovered = app
             .hover
-            .update(&app.term, at, app.scrolled, chord, app.focus, Host(&host))
-        {
+            .update(&app.term, at, app.scrolled, chord, app.focus, Host(&host));
+        if hovered || pressed {
+            app.reshape_pointer();
+        }
+        if hovered {
             app.pending = Pending::Dirty;
             app.present(&self.view, Show::Event);
         }
@@ -12455,14 +12554,7 @@ impl Driver {
     /// inverse geometry.
     fn scrollbar(&mut self, event: &Mouse) -> Took {
         use crate::bar::{At, Did, Held, Hover, Kind, Left, Moved};
-        let scale = self.app.scale;
-        let at = |v: f64| Px::of(u32::try_from((v * scale).max(0.0) as i64).unwrap_or(0));
-        // The frame is centred in the surface; the thumb's geometry is in
-        // frame pixels, so the pointer comes in from view pixels less the
-        // letterbox margin.
-        let (px, py) = self.app.pad_px;
-        let x = Px::of(at(event.x).value().saturating_sub(px.value()));
-        let y = Px::of(at(event.y).value().saturating_sub(py.value()));
+        let (x, y) = self.app.frame_px(event.x, event.y);
         let kind = match event.kind {
             ViewMouseKind::Down => Kind::Pressed {
                 left: match event.button {
@@ -12476,19 +12568,7 @@ impl Driver {
             ViewMouseKind::Entered => Kind::Entered,
             ViewMouseKind::Exited => Kind::Left,
         };
-        let c = crate::bar::Ctx {
-            scroller: self.app.scroller,
-            shown: self.app.bar_shown,
-            frame: crate::bar::Frame {
-                size: self.app.renderer.frame_size(),
-                cell_h: self.app.renderer.metrics().cell_h,
-                widths: crate::reveal::widths(crate::reveal::Scale(scale)),
-            },
-            // A press is tested against what is on the screen: the look
-            // the last frame drew, not the one the hover will draw.
-            drawn: self.app.drawn_look,
-            now: HostTime::of_secs(self.app.tick_target),
-        };
+        let c = self.app.bar_ctx();
         let a = crate::bar::press(
             &mut self.bar_hold,
             &mut self.app.reveal,
@@ -13235,31 +13315,6 @@ impl Driver {
         self.app.flush_reply();
     }
 
-    /// The pointer a program named with `OSC 22`, as the nearest system
-    /// cursor (`pointer.rs`), set only when it changes and never for a
-    /// session that names none.
-    fn show_pointer(&mut self) {
-        use crate::pointer::{Shown, SystemPointer, system_pointer, to_set};
-        let want = self.app.term.pointer_shape().map(system_pointer);
-        if let Some(p) = to_set(want, self.pointer_shown) {
-            let cursor = match p {
-                SystemPointer::Arrow => NSCursor::arrowCursor(),
-                SystemPointer::IBeam => NSCursor::IBeamCursor(),
-                SystemPointer::PointingHand => NSCursor::pointingHandCursor(),
-                SystemPointer::OpenHand => NSCursor::openHandCursor(),
-                SystemPointer::ClosedHand => NSCursor::closedHandCursor(),
-                SystemPointer::Crosshair => NSCursor::crosshairCursor(),
-                SystemPointer::NotAllowed => NSCursor::operationNotAllowedCursor(),
-                SystemPointer::ContextualMenu => NSCursor::contextualMenuCursor(),
-            };
-            cursor.set();
-        }
-        self.pointer_shown = match want {
-            Some(w) => Shown::Set(w),
-            None => Shown::System,
-        };
-    }
-
     /// The cell under a point in the view, clamped to the grid: the view
     /// is the terminal's area below the titlebar inset, in points, and the
     /// grid is in pixels of the cell size.
@@ -13459,6 +13514,25 @@ fn window_facts(p: &Placed) -> baud_core::WindowFacts {
         text_area: top_left(p.view, p.pad),
         window: Some(size(p.frame)),
         screen: p.screen.map(size),
+    }
+}
+
+/// **The AppKit cursor a pointer is shown as**: the pointing hand is
+/// `NSCursor.pointingHand`, "Returns the pointing-hand system cursor"
+/// (`[[source: apple-nscursor-pointinghand]]`), the pointer the HIG gives
+/// to "a URL link to a webpage, document, or other item"
+/// (`[[source: apple-hig-pointing-devices-2026-10-29]]`).
+fn system_cursor(p: crate::pointer::SystemPointer) -> Retained<NSCursor> {
+    use crate::pointer::SystemPointer;
+    match p {
+        SystemPointer::Arrow => NSCursor::arrowCursor(),
+        SystemPointer::IBeam => NSCursor::IBeamCursor(),
+        SystemPointer::PointingHand => NSCursor::pointingHandCursor(),
+        SystemPointer::OpenHand => NSCursor::openHandCursor(),
+        SystemPointer::ClosedHand => NSCursor::closedHandCursor(),
+        SystemPointer::Crosshair => NSCursor::crosshairCursor(),
+        SystemPointer::NotAllowed => NSCursor::operationNotAllowedCursor(),
+        SystemPointer::ContextualMenu => NSCursor::contextualMenuCursor(),
     }
 }
 
@@ -15768,7 +15842,7 @@ mod scrollbar_mode_tests {
         once(concat!("baud_core::ScrollbarShown::Hidden => ", "None,"));
         // The press rules are `bar::press`, which reads `?30` as the
         // driver last acted on it, before the strip takes a press.
-        once(concat!("shown: self.app.", "bar_shown,"));
+        once(concat!("shown: self.", "bar_shown,"));
         once(concat!("crate::bar::", "press("));
         const BAR: &str = include_str!("bar.rs");
         let in_bar = |needle: &str| {
@@ -15865,5 +15939,194 @@ mod deferred_tests {
             .expect("the frame's");
         let frame = pump[..dirty].rfind("if ").expect("its gate");
         assert_eq!(pump[frame..dirty].trim(), fed, "the frame's gate");
+    }
+}
+
+#[cfg(test)]
+mod link_pointer_tests {
+    use super::*;
+
+    /// **A function's body in `src`**, from its head to the first line that
+    /// closes at its indent; one head of it in the file.
+    fn body<'a>(src: &'a str, head: &str) -> &'a str {
+        assert_eq!(src.matches(head).count(), 1, "one {head}");
+        let b = src.split(head).nth(1).expect(head);
+        &b[..b.find("\n    }\n").expect("the function ends")]
+    }
+
+    /// **The functions of `src`, by name, each with its code collapsed**:
+    /// comment lines and whitespace left out. A function starts at a line
+    /// that opens one at the top level or in an `impl`.
+    fn functions(src: &str) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for line in src.lines() {
+            let indent = line.len() - line.trim_start().len();
+            let t = line.trim_start();
+            let head = ["fn ", "pub fn ", "pub(crate) fn "]
+                .iter()
+                .find_map(|h| t.strip_prefix(h))
+                .filter(|_| indent <= 4);
+            if let Some(rest) = head {
+                out.push((
+                    rest.chars().take_while(|c| *c != '(').collect(),
+                    String::new(),
+                ));
+            } else if !t.starts_with("//") {
+                if let Some((_, code)) = out.last_mut() {
+                    code.extend(t.chars().filter(|c| !c.is_whitespace()));
+                }
+            }
+        }
+        out
+    }
+
+    /// **The pointing hand is AppKit's**: the pointer the window wants
+    /// over a link a click opens is the pointing hand, over a program's
+    /// `OSC 22` too, and the cursor set for it is `NSCursor.pointingHand`.
+    /// AppKit's cursors are not asked for here -- off the main thread and
+    /// with no application, `+[NSCursor arrowCursor]` answered NULL -- so
+    /// the call is held in the source. Perturbation: the hand shown as the
+    /// arrow -- the source assertion fails.
+    #[test]
+    fn a_link_a_click_opens_shows_appkits_pointing_hand() {
+        use crate::link::{Chord, Host, Hover};
+        use crate::pointer::{SystemPointer, system_pointer};
+        const SRC: &str = include_str!("app.rs");
+        let cursor = body(
+            SRC,
+            concat!(
+                "fn system_",
+                "cursor(p: crate::pointer::SystemPointer) -> Retained<NSCursor> {"
+            ),
+        );
+        assert!(
+            cursor.contains(concat!(
+                "SystemPointer::PointingHand => ",
+                "NSCursor::pointingHandCursor(),"
+            )),
+            "the hand is not AppKit's pointing hand"
+        );
+        let ws = baud_core::WinSize {
+            ws_row: 4,
+            ws_col: 40,
+        };
+        let mut owned = baud_core::Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let bytes = b"\x1b]22;crosshair\x1b\\\x1b]8;;https://h.example/\x1b\\web\x1b]8;;\x1b\\";
+        t.write_at(baud_core::BytePos::ZERO, bytes);
+        t.feed(
+            baud_core::BytePos::ZERO,
+            baud_core::ReadLen::from_index(bytes.len()),
+        );
+        let mut h = Hover::default();
+        let at = Some((Row::ZERO, Col::ZERO));
+        let s = Scrolled::START;
+        let _ = h.update(&t, at, s, Chord::Cmd, baud_core::Focus::Gained, Host(""));
+        let want = h.pointer(t.pointer_shape()).map(system_pointer);
+        assert_eq!(want, Some(SystemPointer::PointingHand));
+        let _ = h.update(&t, at, s, Chord::Other, baud_core::Focus::Gained, Host(""));
+        let want = h.pointer(t.pointer_shape()).map(system_pointer);
+        assert_eq!(want, Some(SystemPointer::Crosshair), "the chord let go");
+    }
+
+    /// **Every change of the link preview shows the pointer again**, and
+    /// the pointer shown is the preview's: the mouse handler shows it after
+    /// the preview reads the move, every function that updates, refreshes
+    /// or clears the preview, or tells it who a left press goes to -- a
+    /// move, the display-link tick and a frame's read, the frame's thumb,
+    /// a key without Command, the keyboard lost -- shows it again,
+    /// leaving takes the hand back before what shows is unknown, and
+    /// showing it asks the preview with the program's `OSC 22` shape.
+    /// AppKit-bound, so this holds the source; `link.rs`'s
+    /// `the_hand_shows_while_a_click_would_open_the_link` holds the
+    /// decision. Perturbations: drop the show from `read_hover` -- the tick
+    /// and a frame's read keep the hand after Command goes up -- or show
+    /// the program's shape alone, or mark the pointer unknown before the
+    /// preview reads the exit; each fails here.
+    #[test]
+    fn every_change_of_the_preview_shows_the_pointer_again() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        let calls = [
+            concat!("hover.", "update("),
+            concat!("hover.", "refresh("),
+            concat!("hover.", "clear()"),
+            concat!("hover.", "set_left_press("),
+        ];
+        let found: Vec<(String, String)> = functions(SRC)
+            .into_iter()
+            .filter(|(_, code)| calls.iter().any(|c| code.contains(c)))
+            .collect();
+        let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            ["read_hover", "present", "key", "set_focus", "hover_mouse"],
+            "a new site: it must show the pointer too"
+        );
+        for (name, code) in &found {
+            assert!(
+                code.contains(concat!("reshape_", "pointer()")),
+                "{name} changes the preview and does not show the pointer"
+            );
+        }
+        let show = body(SRC, concat!("    fn show_", "pointer(&mut self) {"));
+        assert!(
+            show.contains(concat!(".pointer(self.term.pointer_", "shape())"))
+                && show.contains(concat!("system_cursor(p).", "set()")),
+            "the pointer shown is not the preview's"
+        );
+        // A move shows the pointer after the preview reads it, and leaving
+        // marks it unknown only after the preview's clear has taken the
+        // hand back: marked first, the clear sets nothing and the hand
+        // stays as the pointer leaves, and over the window when it comes
+        // back without a shape to set.
+        let mouse = body(SRC, concat!("    fn mouse(&mut self, ", "event: &Mouse) {"));
+        let at = |s: &str| mouse.find(s).unwrap_or_else(|| panic!("{s}"));
+        let hover = at(concat!("self.hover_", "mouse(event);"));
+        assert!(hover < at(concat!("self.app.show_", "pointer()")));
+        assert_eq!(mouse.matches(concat!("Shown::", "Unknown")).count(), 1);
+        assert!(
+            hover < at(concat!("Shown::", "Unknown")),
+            "the pointer is marked unknown before the preview takes its hand back"
+        );
+    }
+
+    /// **A frame tests a left press where the preview last read the
+    /// pointer**: the hover's own read of the event comes before the
+    /// scrollbar's (`mouse`), and a frame it presents runs before the
+    /// scrollbar has moved `pointer` to this event, so testing the press at
+    /// `pointer` would keep the hand over the legacy gutter, whose click the
+    /// scrollbar takes, and drop it over a link a click opens.
+    #[test]
+    fn a_frame_tests_the_press_where_the_preview_read_the_pointer() {
+        const SRC: &str = include_str!("app.rs");
+        let present = body(
+            SRC,
+            concat!(
+                "    fn present(&mut self, ",
+                "screen: &DrawableView, show: Show) {"
+            ),
+        );
+        assert!(
+            present.contains(concat!("left_press(&self.term, self.", "strip,")),
+            "a frame tests the press at the scrollbar's stale place"
+        );
+        let hover = body(
+            SRC,
+            concat!("    fn hover_", "mouse(&mut self, event: &Mouse) {"),
+        );
+        let set = hover
+            .find(concat!("app.strip = ", "strip;"))
+            .expect("the preview's place is kept");
+        let first = hover
+            .find(concat!(".set_left_", "press("))
+            .expect("the press is tested");
+        let shown = hover
+            .find(concat!("app.", "present("))
+            .expect("a changed preview is shown");
+        assert!(
+            set < first && set < shown,
+            "the press is tested before the place is kept"
+        );
     }
 }

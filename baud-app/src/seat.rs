@@ -331,6 +331,23 @@ impl Seat {
         self.hover.look()
     }
 
+    /// Who a left press where the pointer rests goes to now, the
+    /// scrollbar's strip read by the driver (`bar::left_press`): whether
+    /// that changed, which may change the pointer.
+    pub(crate) fn hover_press(&mut self, left: crate::link::LeftPress) -> bool {
+        self.hover.set_left_press(left)
+    }
+
+    /// The pointer's shape over the text for a program's `asked` one: the
+    /// hand while a click on the link previewed opens it
+    /// (`link::Hover::pointer`).
+    pub(crate) fn pointer_shape(
+        &self,
+        asked: Option<baud_core::PointerShape>,
+    ) -> Option<baud_core::PointerShape> {
+        self.hover.pointer(asked)
+    }
+
     /// The link a [`Owed::Link`] opens, once.
     pub(crate) fn take_link(&mut self) -> Option<crate::link::Under> {
         self.opening.take()
@@ -2488,5 +2505,241 @@ mod tests {
         let off = seat.selected_text(&t).expect("text");
         assert!(off.contains("dim eht"), "{off}");
         assert!(!off.contains("elddim"), "{off}");
+    }
+
+    /// **The functions of `src`, by name, each with its code collapsed**:
+    /// comment lines and whitespace left out. A function starts at a line
+    /// that opens one at the top level or in an `impl`.
+    fn functions(src: &str) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for line in src.lines() {
+            let indent = line.len() - line.trim_start().len();
+            let t = line.trim_start();
+            let head = ["fn ", "pub fn ", "pub(crate) fn "]
+                .iter()
+                .find_map(|h| t.strip_prefix(h))
+                .filter(|_| indent <= 4);
+            if let Some(rest) = head {
+                out.push((
+                    rest.chars().take_while(|c| *c != '(').collect(),
+                    String::new(),
+                ));
+            } else if !t.starts_with("//") {
+                if let Some((_, code)) = out.last_mut() {
+                    code.extend(t.chars().filter(|c| !c.is_whitespace()));
+                }
+            }
+        }
+        out
+    }
+
+    /// **Ctrl held over a link a click opens names the hand**, over a
+    /// program's `OSC 22` crosshair and under its tracking; the crosshair
+    /// again when Ctrl is let go and when the keyboard goes. Perturbation:
+    /// the program's shape alone -- the first assertion fails.
+    #[test]
+    fn ctrl_over_a_link_names_the_hand() {
+        use crate::link::Host;
+        use baud_core::PointerShape;
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(
+            &mut t,
+            b"\x1b]22;crosshair\x1b\\\x1b[?1000h\x1b]8;;https://example.com/\x1b\\link\x1b]8;;\x1b\\",
+        );
+        let asked = t.pointer_shape();
+        let mut seat = Seat::new();
+        seat.focused(Focus::Gained);
+        let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
+        put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
+        assert!(seat.hover(&t, ctrl, G, Host("")));
+        assert_eq!(seat.pointer_shape(asked), Some(PointerShape::Hand2));
+        assert!(seat.hover(&t, NONE, G, Host("")));
+        assert_eq!(seat.pointer_shape(asked), asked, "Ctrl let go");
+        assert!(seat.hover(&t, ctrl, G, Host("")));
+        seat.focused(Focus::Lost);
+        assert_eq!(seat.pointer_shape(asked), asked, "the keyboard gone");
+    }
+
+    /// **Over the scrollbar's strip, while it takes a left press, the
+    /// pointer keeps its shape over a link**, in the Linux driver's order
+    /// -- the scrollbar told of a move, then who a left press goes to,
+    /// then the preview, and again at each frame with the thumb it draws.
+    /// Ctrl held over a link on a window three lines up the history: one
+    /// column left of the strip the hand (the control); in the strip
+    /// before a frame has drawn the thumb, the hand, since a press there
+    /// is still the cells'; the frame that draws it, the program's
+    /// crosshair, since a click jumps the thumb (`bar::press`); out and
+    /// back over the same link, the hand and the crosshair, though the
+    /// preview does not change; on the live screen, with the pointer
+    /// resting in the strip, the crosshair while the thumb fades and the
+    /// hand on the frame that draws it gone. Perturbations: the hand
+    /// whoever takes the press -- the crosshair assertions fail; the
+    /// change of who takes it not told -- the frame's assertion fails.
+    #[test]
+    fn over_the_scrollbar_a_link_keeps_the_programs_pointer() {
+        use crate::bar::{Bar, Event, Frame, Held, Took};
+        use crate::link::Host;
+        use baud_core::PointerShape;
+        use core::time::Duration;
+        let mut owned = Owned::with_history(
+            &WS,
+            &baud_core::CacheGeometry::UNKNOWN,
+            baud_core::Depth::of(50),
+        );
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut bytes = b"\x1b]22;crosshair\x1b\\".to_vec();
+        for n in 0..14 {
+            bytes.extend_from_slice(
+                format!(
+                    "\x1b]8;;http://l{n}/\x1b\\{}\x1b]8;;\x1b\\\r\n",
+                    "x".repeat(19)
+                )
+                .as_bytes(),
+            );
+        }
+        feed(&mut t, &bytes);
+        t.set_window_back(baud_domain::Rows::of_count(3));
+        let asked = t.pointer_shape();
+        assert_eq!(asked, Some(PointerShape::Crosshair));
+        let f = Frame {
+            size: (baud_font::Px::of(200), baud_font::Px::of(60)),
+            cell_h: baud_font::Px::of(10),
+            widths: crate::reveal::widths(crate::reveal::Scale(1.0)),
+        };
+        let at = |ms: u64| {
+            baud_domain::HostTime::of_secs(100.0)
+                .expect("a time")
+                .plus(Duration::from_millis(ms))
+        };
+        let (ctrl, host) = (Modifiers::NONE.with(Modifiers::CTRL), Host(""));
+        let mut seat = Seat::new();
+        seat.focused(Focus::Gained);
+        let mut b = Bar::new();
+        // A move: the scrollbar, who a left press goes to, the preview.
+        let step = |seat: &mut Seat, t: &mut Term<'_>, b: &mut Bar, x: f64, ms: u64| {
+            seat.input_beside(
+                t,
+                Input::Moved(x, 5.0),
+                ctrl,
+                G,
+                |_| {},
+                |term, beside| match beside.input {
+                    Input::Moved(x, y) => {
+                        let e = Event::Moved {
+                            x,
+                            y,
+                            held: Held::No,
+                        };
+                        b.input(term, e, f, at(ms)).0
+                    }
+                    _ => Took::No,
+                },
+            );
+            let pressed = seat.hover_press(b.left_press(t, f, at(ms)));
+            let hovered = seat.hover(t, ctrl, G, host);
+            (pressed, hovered)
+        };
+        // A frame: the thumb drawn, who a left press goes to read again.
+        let frame = |seat: &mut Seat, t: &Term<'_>, b: &mut Bar, ms: u64| {
+            let _ = b.turn(at(ms), t);
+            b.drawn = b.look(at(ms));
+            seat.hover_press(b.left_press(t, f, at(ms)))
+        };
+        let _ = step(&mut seat, &mut t, &mut b, 175.0, 0);
+        assert!(seat.hover_look().is_some(), "a link under the pointer");
+        assert_eq!(
+            seat.pointer_shape(asked),
+            Some(PointerShape::Hand2),
+            "the control: beside the strip"
+        );
+        assert_eq!(step(&mut seat, &mut t, &mut b, 185.0, 1), (false, false));
+        assert_eq!(
+            seat.pointer_shape(asked),
+            Some(PointerShape::Hand2),
+            "no thumb drawn yet"
+        );
+        assert!(frame(&mut seat, &t, &mut b, 2), "the thumb drawn");
+        assert_eq!(seat.pointer_shape(asked), asked, "a click scrolls");
+        assert_eq!(step(&mut seat, &mut t, &mut b, 175.0, 3), (true, false));
+        assert_eq!(seat.pointer_shape(asked), Some(PointerShape::Hand2));
+        assert_eq!(
+            step(&mut seat, &mut t, &mut b, 185.0, 4),
+            (true, false),
+            "back in over the same link"
+        );
+        assert_eq!(seat.pointer_shape(asked), asked);
+        // The wheel to the live screen reveals the thumb, which then fades
+        // under the resting pointer.
+        t.set_window_back(baud_domain::Rows::of_count(0));
+        b.reveal.reveal(at(5));
+        let _ = frame(&mut seat, &t, &mut b, 5);
+        let _ = seat.hover_refresh(&t, ctrl, host);
+        assert!(seat.hover_look().is_some(), "a link on the live screen");
+        assert_eq!(seat.pointer_shape(asked), asked, "the thumb held");
+        let gone = (5..=2000)
+            .step_by(16)
+            .find(|ms| frame(&mut seat, &t, &mut b, *ms))
+            .expect("the thumb fades");
+        assert_eq!(b.drawn.shown.get(), 0, "gone at {gone} ms");
+        assert_eq!(
+            seat.pointer_shape(asked),
+            Some(PointerShape::Hand2),
+            "a click opens"
+        );
+    }
+
+    /// **The Linux driver shows the pointer again at every change of the
+    /// link preview, and keeps a hidden one hidden**: every function of
+    /// `linux.rs` that moves the preview -- a pointer event, a change of
+    /// the modifiers, a frame's read, the keyboard's coming and going --
+    /// shows the pointer again; showing it asks the seat with the
+    /// program's `OSC 22` shape and sends nothing while a key has it
+    /// hidden, since a shape set shows it (`[[source: wayland]]`). The
+    /// driver runs only on Linux, so this holds its source.
+    /// Perturbations: drop the show after a change of the modifiers, or
+    /// the hidden guard; each fails here.
+    #[test]
+    fn the_linux_driver_shows_the_pointer_at_every_change_of_the_preview() {
+        const SRC: &str = include_str!("linux.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        let calls = [
+            concat!("seat.", "hover("),
+            concat!("seat.", "hover_refresh("),
+            concat!("seat.", "focused("),
+            concat!("seat.", "hover_press("),
+        ];
+        let mut names = Vec::new();
+        for (name, code) in functions(SRC) {
+            if calls.iter().any(|c| code.contains(c)) {
+                let after = calls
+                    .iter()
+                    .filter_map(|c| code.rfind(c))
+                    .max()
+                    .expect("a call");
+                assert!(
+                    code[after..].contains(concat!(".show_", "pointer()")),
+                    "{name} moves the preview and does not show the pointer after"
+                );
+                names.push(name);
+            }
+        }
+        assert_eq!(names.len(), 4, "the four sites: {names:?}");
+        let head = concat!("    fn show_", "pointer(&mut self) {");
+        assert_eq!(SRC.matches(head).count(), 1);
+        let show = SRC.split(head).nth(1).expect(head);
+        let show = &show[..show.find("\n    }\n").expect("the function ends")];
+        let code: String = show.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(
+            code.contains(concat!("self.hiding.hidden()==", "PointerHides::Yes")),
+            "a hidden pointer is shown by a shape"
+        );
+        assert!(
+            code.contains(concat!(
+                "self.seat.pointer_shape(self.term.",
+                "pointer_shape())"
+            )),
+            "the shape is not the preview's"
+        );
     }
 }

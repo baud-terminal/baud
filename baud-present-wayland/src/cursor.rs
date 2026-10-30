@@ -4,7 +4,9 @@
 //! setting an appropriate pointer image with the set_cursor request"
 //! (`[[source: wayland]]`) -- and with no shape global the only way is a
 //! surface of the client's own. No cursor theme is read and no library
-//! draws it: two images, the I-beam over text and the arrow for every
+//! draws it: three images, the I-beam over text, the pointing hand for
+//! `pointer` -- "pointer that indicates a link or another interactive
+//! element" (`[[source: wp-cursor-shape-v1]]`) -- and the arrow for every
 //! other shape, drawn here at the window's buffer scale.
 //!
 //! **24 logical pixels**, GNOME's `cursor-size` default (`[[source:
@@ -19,31 +21,39 @@ use baud_wayland::protocol;
 /// The cursor's side in logical pixels.
 pub const SIZE: u32 = 24;
 
-/// The two images drawn.
+/// The three images drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Drawn {
     IBeam,
     Arrow,
+    Hand,
 }
 
 impl Drawn {
+    /// Every image, in the order a window keeps their buffers.
+    pub const ALL: [Drawn; 3] = [Drawn::IBeam, Drawn::Arrow, Drawn::Hand];
+
     /// **The image for a shape**: the I-beam for `text` and
-    /// `vertical-text`, the arrow for the rest -- the nearest of the two,
-    /// as the macOS app falls back to the arrow.
+    /// `vertical-text`, the pointing hand for `pointer` -- a link, as the
+    /// macOS app shows AppKit's pointing hand -- and the arrow for the
+    /// rest, the nearest of the three, as the macOS app falls back to the
+    /// arrow.
     pub fn of(shape: CursorShape) -> Drawn {
         use protocol::wp_cursor_shape_device_v1::shape as C;
         match shape.0 {
             C::TEXT | C::VERTICAL_TEXT => Drawn::IBeam,
+            C::POINTER => Drawn::Hand,
             _ => Drawn::Arrow,
         }
     }
 
     /// The hotspot, in logical pixels: the I-beam's middle, the arrow's
-    /// tip.
+    /// tip, the tip of the hand's pointing finger.
     pub fn hotspot(self) -> (i32, i32) {
         match self {
             Drawn::IBeam => (12, 12),
             Drawn::Arrow => (4, 3),
+            Drawn::Hand => (9, 2),
         }
     }
 
@@ -68,6 +78,61 @@ impl Drawn {
                 (10.0, 14.0),
                 (15.0, 14.0),
             ]],
+            // The index finger up from the palm to the hotspot, the other
+            // three folded below it with a gap between each, so the rim
+            // draws them apart, and the thumb out to the left.
+            Drawn::Hand => &[
+                &[
+                    (7.5, 14.0),
+                    (7.5, 3.0),
+                    (8.25, 2.0),
+                    (9.35, 2.0),
+                    (10.1, 3.0),
+                    (10.1, 14.0),
+                ],
+                &[
+                    (10.9, 14.0),
+                    (10.9, 9.0),
+                    (11.65, 8.0),
+                    (12.35, 8.0),
+                    (13.1, 9.0),
+                    (13.1, 14.0),
+                ],
+                &[
+                    (13.9, 14.0),
+                    (13.9, 10.0),
+                    (14.65, 9.0),
+                    (15.35, 9.0),
+                    (16.1, 10.0),
+                    (16.1, 14.0),
+                ],
+                &[
+                    (16.9, 14.0),
+                    (16.9, 11.5),
+                    (17.5, 10.5),
+                    (18.4, 10.5),
+                    (19.0, 11.5),
+                    (19.0, 14.0),
+                ],
+                &[
+                    (7.5, 13.0),
+                    (19.0, 13.0),
+                    (19.0, 17.0),
+                    (17.5, 20.5),
+                    (17.5, 22.0),
+                    (9.5, 22.0),
+                    (9.5, 20.5),
+                    (7.5, 18.0),
+                ],
+                &[
+                    (7.6, 13.6),
+                    (5.5, 11.8),
+                    (4.3, 11.8),
+                    (3.6, 12.8),
+                    (4.0, 14.0),
+                    (7.6, 19.0),
+                ],
+            ],
         }
     }
 }
@@ -147,16 +212,22 @@ pub fn draw(d: Drawn, scale: Scale) -> Vec<u32> {
 mod tests {
     use super::*;
 
-    /// **The I-beam over text, the arrow for the rest**: `text` and
-    /// `vertical-text` are the beam, and every other of version 1's 34
-    /// shapes is the arrow.
+    /// **The I-beam over text, the hand over a link, the arrow for the
+    /// rest**: `text` and `vertical-text` are the beam, `pointer` -- the
+    /// link's shape -- the hand, and every other of version 1's 34 shapes
+    /// the arrow. Perturbation: `pointer` drawn as the arrow -- the hands
+    /// fail.
     #[test]
-    fn text_is_the_beam_and_the_rest_the_arrow() {
+    fn text_is_the_beam_pointer_the_hand_and_the_rest_the_arrow() {
         use protocol::wp_cursor_shape_device_v1::shape as C;
-        let beams: Vec<u32> = (1..=34)
-            .filter(|&v| Drawn::of(CursorShape(v)) == Drawn::IBeam)
-            .collect();
-        assert_eq!(beams, [C::TEXT, C::VERTICAL_TEXT]);
+        let of = |d: Drawn| -> Vec<u32> {
+            (1..=34)
+                .filter(|&v| Drawn::of(CursorShape(v)) == d)
+                .collect()
+        };
+        assert_eq!(of(Drawn::IBeam), [C::TEXT, C::VERTICAL_TEXT]);
+        assert_eq!(of(Drawn::Hand), [C::POINTER]);
+        assert_eq!(of(Drawn::Arrow).len(), 31);
     }
 
     /// **Each image is black within a white rim on a clear ground**, its
@@ -165,7 +236,7 @@ mod tests {
     /// pixels a side.
     #[test]
     fn each_image_is_black_in_a_white_rim() {
-        for d in [Drawn::IBeam, Drawn::Arrow] {
+        for d in Drawn::ALL {
             for scale in [1, 2] {
                 let img = draw(d, Scale(scale));
                 let side = SIZE * scale;
@@ -191,9 +262,18 @@ mod tests {
                 assert_eq!(at(x, y), at(SIZE - 1 - x, y), "mirrored at ({x}, {y})");
             }
         }
-        let (one, two) = (draw(Drawn::Arrow, Scale(1)), draw(Drawn::Arrow, Scale(2)));
         let ink = |img: &[u32]| img.iter().map(|p| u64::from(p >> 24)).sum::<u64>();
-        let ratio = ink(&two) as f64 / ink(&one) as f64;
-        assert!((3.8..4.2).contains(&ratio), "four times the ink: {ratio}");
+        for d in [Drawn::Arrow, Drawn::Hand] {
+            let (one, two) = (draw(d, Scale(1)), draw(d, Scale(2)));
+            let ratio = ink(&two) as f64 / ink(&one) as f64;
+            assert!(
+                (3.8..4.2).contains(&ratio),
+                "{d:?}: four times the ink: {ratio}"
+            );
+        }
+        // The hotspots tell the images apart, as a compositor's log shows
+        // them (`scripts/linux-pointer-trace.py`).
+        let spots: std::collections::HashSet<_> = Drawn::ALL.map(Drawn::hotspot).into();
+        assert_eq!(spots.len(), 3);
     }
 }

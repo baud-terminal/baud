@@ -87,8 +87,8 @@ pub enum Event {
 pub enum Shaped {
     /// Named through `cursor-shape-v1`.
     Set,
-    /// No cursor-shape global, so drawn here (`cursor.rs`): the I-beam or
-    /// the arrow, the nearest of the two.
+    /// No cursor-shape global, so drawn here (`cursor.rs`): the I-beam, the
+    /// pointing hand or the arrow, the nearest of the three.
     Drawn,
     /// No pointer, or the pointer is not over the surface: no `enter`
     /// serial to name; or no buffer could be made for the image.
@@ -316,10 +316,11 @@ pub struct Window {
     /// over it: what `set_shape` and `set_cursor` must name.
     entered: Option<u32>,
     /// The pointer image drawn here, without the shape global: its surface,
-    /// made at the first need, and the two images at the scale they were
-    /// drawn at, the I-beam's buffer first.
+    /// made at the first need, and the three images at the scale they were
+    /// drawn at, in `cursor::Drawn::ALL`'s order, in two pools of two
+    /// buffers, the second's last one unused.
     cursor_surface: Option<ObjectId>,
-    cursor_images: Option<(Scale, Pool, [ObjectId; 2])>,
+    cursor_images: Option<(Scale, [Pool; 2], [ObjectId; 3])>,
     /// `wl_surface.preferred_buffer_scale` on the window's surface, the
     /// scale the pointer is drawn at; one until the compositor says.
     preferred: Scale,
@@ -498,8 +499,8 @@ impl Window {
     /// request will be ignored." **Without the global the image is drawn
     /// here** and set with `wl_pointer.set_cursor`, whose serial "must
     /// match the latest wl_pointer.enter serial number" too: the I-beam for
-    /// the text shapes and the arrow for the rest (`cursor::Drawn::of`), so
-    /// the image is never left undefined.
+    /// the text shapes, the hand for `pointer` and the arrow for the rest
+    /// (`cursor::Drawn::of`), so the image is never left undefined.
     pub fn set_pointer_shape(&mut self, s: &mut Sender<'_>, shape: CursorShape) -> Shaped {
         let Some(serial) = self.entered else {
             return Shaped::Unavailable;
@@ -595,17 +596,28 @@ impl Window {
             .is_none_or(|(drawn_at, _, _)| *drawn_at != scale)
         {
             if let Some((_, old, _)) = self.cursor_images.take() {
-                old.destroy(s);
+                for pool in old {
+                    pool.destroy(s);
+                }
             }
-            let Ok(mut pool) = Pool::new(s, shm, Px(side), Px(side)) else {
-                return Shaped::Unavailable;
+            let first = Pool::new(s, shm, Px(side), Px(side));
+            let second = Pool::new(s, shm, Px(side), Px(side));
+            let (mut first, mut second) = match (first, second) {
+                (Ok(a), Ok(b)) => (a, b),
+                (a, b) => {
+                    for pool in [a, b].into_iter().flatten() {
+                        pool.destroy(s);
+                    }
+                    return Shaped::Unavailable;
+                }
             };
-            let stride = pool.stride();
+            let stride = first.stride();
             let wide = usize::try_from(side).unwrap_or(0);
-            let mut ids = [ObjectId::NULL; 2];
-            for ((id, pixels), (slot, image)) in pool
+            let mut ids = [ObjectId::NULL; 3];
+            for ((id, pixels), (slot, image)) in first
                 .buffers_mut()
-                .zip(ids.iter_mut().zip([Drawn::IBeam, Drawn::Arrow]))
+                .chain(second.buffers_mut())
+                .zip(ids.iter_mut().zip(Drawn::ALL))
             {
                 let drawn = cursor::draw(image, scale);
                 for (row, src) in pixels.chunks_mut(stride).zip(drawn.chunks(wide)) {
@@ -613,14 +625,16 @@ impl Window {
                 }
                 *slot = id;
             }
-            self.cursor_images = Some((scale, pool, ids));
+            self.cursor_images = Some((scale, [first, second], ids));
         }
         let Some((_, _, ids)) = &self.cursor_images else {
             return Shaped::Unavailable;
         };
+        // In `Drawn::ALL`'s order, as the buffers were filled.
         let buffer = match d {
             Drawn::IBeam => ids[0],
             Drawn::Arrow => ids[1],
+            Drawn::Hand => ids[2],
         };
         let _ = s.request(
             surface,

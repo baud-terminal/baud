@@ -41,17 +41,17 @@
 //!   gesture's modifier is held over it: its cells underlined and its
 //!   address in a bar ([`preview`]), escaped a byte at a time
 //!   ([`escaped`]), shortened to keep the end of its host ([`shortened`]),
-//!   and with the reason in words when a click will not open it.
+//!   and with the reason in words when a click will not open it; and the
+//!   pointer a pointing hand while a click would open it ([`Hover::pointer`]).
 //!
 //! What this does not do, stated: a URI outside such a wrapper broken
-//! across a hard line break is read only up to the break; and the pointer
-//! keeps its shape over a link. On macOS, where the window crate hands no
+//! across a hard line break is read only up to the break. On macOS, where the window crate hands no
 //! modifier change of its own, a press or release of Command alone is
 //! read from `NSEvent.modifierFlags` at the next display-link tick, which
 //! owes a frame when the preview changes.
 #![forbid(unsafe_code)]
 
-use baud_core::{Focus, LINK_MAX, Term};
+use baud_core::{Focus, LINK_MAX, PointerShape, Term};
 
 use baud_domain::{Attrs, Codepoint, Col, Cols, LinkId, PackedCell, Row, Rows, Wrap};
 use baud_render::{AbsLine, Field, Hints, LinkLook, LinkSpan, Point, Scrolled, row_of};
@@ -941,13 +941,7 @@ pub fn shortened(address: &str, room: Cols) -> String {
 /// for the room is cut to "Won't open".
 pub fn preview_text(link: &Under, term: &Term<'_>, host: Host<'_>, room: Cols) -> Option<String> {
     let room = room.index();
-    let (uri, verdict) = match link {
-        Under::Osc8(id) => {
-            let uri = term.link_uri(*id)?;
-            (uri, admit(uri, host).map(|_| ()))
-        }
-        Under::Bare(b) => (b.text(), b.uri().and_then(|u| admit(u, host).map(|_| ()))),
-    };
+    let (uri, verdict) = verdict(link, term, host)?;
     let address = escaped(uri);
     let label = match verdict {
         Ok(()) => String::new(),
@@ -964,6 +958,23 @@ pub fn preview_text(link: &Under, term: &Term<'_>, host: Host<'_>, room: Cols) -
         "{label}{}",
         shortened(&address, Cols::of_index(left))
     ))
+}
+
+/// **The bytes a link shows and whether a click opens it**: an `OSC 8`
+/// link's URI, or the text of a URI read from the cells, and [`admit`]'s
+/// answer for it; none for an `OSC 8` slot whose link is gone.
+fn verdict<'a>(
+    link: &'a Under,
+    term: &'a Term<'_>,
+    host: Host<'_>,
+) -> Option<(&'a [u8], Result<(), Refused>)> {
+    Some(match link {
+        Under::Osc8(id) => {
+            let uri = term.link_uri(*id)?;
+            (uri, admit(uri, host).map(|_| ()))
+        }
+        Under::Bare(b) => (b.text(), b.uri().and_then(|u| admit(u, host).map(|_| ()))),
+    })
 }
 
 /// The link under the pointer while the link gesture's modifier is held:
@@ -1115,6 +1126,29 @@ pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: Host<'_>) -> Opt
 pub struct Hover {
     at: Option<(Row, Col)>,
     look: Option<LinkLook>,
+    opens: Opens,
+    left: LeftPress,
+}
+
+/// **Who a left press where the pointer rests would go to**: the cells' --
+/// the link gesture's, a selection's or the program's -- or the
+/// scrollbar's, whose strip lies over the grid's last columns and takes a
+/// left press while its thumb shows (`bar::left_press`), so a click there
+/// scrolls rather than opens the link under it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LeftPress {
+    #[default]
+    Cells,
+    Scrollbar,
+}
+
+/// Whether a click on the link the preview shows opens it: one [`admit`]
+/// refuses opens nothing, and the bar says why.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Opens {
+    #[default]
+    No,
+    Yes,
 }
 
 impl Hover {
@@ -1133,15 +1167,25 @@ impl Hover {
         host: Host<'_>,
     ) -> bool {
         self.at = at;
-        let look = at
+        let found = at
             .filter(|_| chord == Chord::Cmd && focus == Focus::Gained)
             .and_then(|(row, col)| {
                 let s = spot_now(term, scrolled, row, col)?;
                 let link = hovered(term, s)?;
-                preview(term, s, &link, host)
+                let look = preview(term, s, &link, host)?;
+                let opens = match verdict(&link, term, host) {
+                    Some((_, Ok(()))) => Opens::Yes,
+                    _ => Opens::No,
+                };
+                Some((look, opens))
             });
-        let changed = look != self.look;
+        let (look, opens) = match found {
+            Some((look, opens)) => (Some(look), opens),
+            None => (None, Opens::No),
+        };
+        let changed = look != self.look || opens != self.opens;
         self.look = look;
+        self.opens = opens;
         changed
     }
 
@@ -1164,9 +1208,18 @@ impl Hover {
         }
     }
 
+    /// **Who a left press where the pointer rests goes to now**, after a
+    /// pointer event or a frame -- the strip under the pointer, the thumb
+    /// shown or gone -- and whether that changed, which may change the
+    /// pointer ([`Hover::pointer`]).
+    pub fn set_left_press(&mut self, left: LeftPress) -> bool {
+        core::mem::replace(&mut self.left, left) != left
+    }
+
     /// Nothing previewed, until the next update or refresh.
     /// Whether what the frame draws changed.
     pub fn clear(&mut self) -> bool {
+        self.opens = Opens::No;
         self.look.take().is_some()
     }
 
@@ -1179,6 +1232,19 @@ impl Hover {
     /// What the next frame draws, or none.
     pub fn look(&self) -> Option<&LinkLook> {
         self.look.as_ref()
+    }
+
+    /// **The pointer's shape over the text**: the pointing hand while the
+    /// preview shows a link a click opens -- the platform's link pointer,
+    /// which each driver shows for xterm's "hand2" -- and otherwise the
+    /// program's `OSC 22` shape, `asked`, or none for the driver's own.
+    /// Over the scrollbar's strip while it takes a left press, a click
+    /// scrolls, so the pointer keeps its shape there.
+    pub fn pointer(&self, asked: Option<PointerShape>) -> Option<PointerShape> {
+        match (&self.look, self.opens, self.left) {
+            (Some(_), Opens::Yes, LeftPress::Cells) => Some(PointerShape::Hand2),
+            _ => asked,
+        }
     }
 }
 
@@ -2495,5 +2561,73 @@ mod tests {
         let _ = h.update(&t, at, s, Chord::Other, Focus::Lost, NONE);
         let _ = h.refresh(&t, s, Chord::Cmd, Focus::Lost, NONE);
         assert!(h.look().is_none(), "no keyboard, no preview");
+    }
+
+    /// **The pointing hand shows exactly while a click would open the
+    /// link**: the chord held without Shift, in a key window, over a link
+    /// the preview shows and [`admit`] lets open -- over a program's
+    /// `OSC 22` crosshair too, and under its mouse tracking, which a click
+    /// on a link never reaches. The program's shape comes back when the
+    /// chord is let go, off the link, without the keyboard and when the
+    /// preview is cleared; over a refused link the preview says why and
+    /// the pointer keeps the program's shape, as it does while a left
+    /// press would be the scrollbar's. The control: with no `OSC 22`, the
+    /// driver's own pointer, none. Perturbations: the hand for any
+    /// previewed link -- the refused case fails; the program's shape over
+    /// the hand -- the first assertion fails; the hand whoever takes a
+    /// left press -- "a click scrolls" fails.
+    #[test]
+    fn the_hand_shows_while_a_click_would_open_the_link() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(
+            &mut t,
+            b"\x1b]8;;https://h.example/\x1b\\web\x1b]8;;\x1b\\ \x1b]8;;ftp://f.example/x\x1b\\ftp\x1b]8;;\x1b\\ plain",
+        );
+        let (web, ftp, plain) = (
+            Some((Row::ZERO, Col::ZERO)),
+            Some((Row::ZERO, Col::at_index(4))),
+            Some((Row::ZERO, Col::at_index(9))),
+        );
+        let (s, key) = (Scrolled::START, Focus::Gained);
+        let mut h = Hover::default();
+        assert_eq!(h.pointer(None), None, "the control: nothing asked");
+        let _ = h.update(&t, web, s, Chord::Cmd, key, NONE);
+        assert_eq!(
+            h.pointer(None),
+            Some(PointerShape::Hand2),
+            "over an opening link"
+        );
+        feed(&mut t, b"\x1b]22;crosshair\x1b\\");
+        let asked = t.pointer_shape();
+        assert_eq!(asked, Some(PointerShape::Crosshair));
+        assert_eq!(h.pointer(asked), Some(PointerShape::Hand2), "over OSC 22");
+        feed(&mut t, b"\x1b[?1000h\x1b[?1006h");
+        assert!(!h.refresh(&t, s, Chord::Cmd, key, NONE));
+        assert_eq!(
+            h.pointer(asked),
+            Some(PointerShape::Hand2),
+            "under tracking"
+        );
+        assert!(h.refresh(&t, s, Chord::Other, key, NONE));
+        assert_eq!(h.pointer(asked), asked, "the chord let go");
+        assert_eq!(h.pointer(None), None);
+        let _ = h.update(&t, web, s, Chord::Cmd, Focus::Lost, NONE);
+        assert_eq!(h.pointer(asked), asked, "no keyboard");
+        let _ = h.update(&t, plain, s, Chord::Cmd, key, NONE);
+        assert_eq!(h.pointer(asked), asked, "off the link");
+        let _ = h.update(&t, ftp, s, Chord::Cmd, key, NONE);
+        assert!(h.look().is_some(), "a refused link is previewed");
+        assert_eq!(h.pointer(asked), asked, "and keeps the program's shape");
+        assert_eq!(h.pointer(None), None);
+        let _ = h.update(&t, web, s, Chord::Cmd, key, NONE);
+        assert_eq!(h.pointer(asked), Some(PointerShape::Hand2));
+        assert!(h.set_left_press(LeftPress::Scrollbar), "told");
+        assert_eq!(h.pointer(asked), asked, "a click scrolls");
+        assert!(!h.set_left_press(LeftPress::Scrollbar), "no change");
+        assert!(h.set_left_press(LeftPress::Cells));
+        assert_eq!(h.pointer(asked), Some(PointerShape::Hand2));
+        assert!(h.clear());
+        assert_eq!(h.pointer(asked), asked, "cleared");
     }
 }

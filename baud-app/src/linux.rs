@@ -330,18 +330,22 @@ fn thumb(
         (Input::Left, _) => Bar::Left,
         _ => return crate::bar::Took::No,
     };
-    let m = renderer.metrics();
-    let f = crate::bar::Frame {
-        size: renderer.frame_size(),
-        cell_h: m.cell_h,
-        widths: crate::reveal::widths(crate::reveal::Scale(1.0)),
-    };
+    let f = bar_frame(renderer);
     let now = timed.clock.host(Instant::now());
     let (took, owes) = timed.bar.input(term, e, f, now);
     if owes == crate::bar::Owes::Frame {
         *pending = Pending::Dirty;
     }
     took
+}
+
+/// The frame the thumb is drawn in: the grid's, at a scale of one.
+fn bar_frame(renderer: &Renderer<'_, '_>) -> crate::bar::Frame {
+    crate::bar::Frame {
+        size: renderer.frame_size(),
+        cell_h: renderer.metrics().cell_h,
+        widths: crate::reveal::widths(crate::reveal::Scale(1.0)),
+    }
 }
 
 /// Whether a one-time line has been logged.
@@ -911,6 +915,9 @@ pub fn run() {
                         let act = d.hiding.crossed(&d.term);
                         d.hide_pointer(act);
                     }
+                    // Without the keyboard no link is previewed, and the
+                    // hand goes with it.
+                    d.show_pointer();
                     d.pending = Pending::Dirty;
                 }
                 Event::Pointer(p, mods) => d.pointer(p, mods),
@@ -1325,10 +1332,20 @@ impl Driver {
         if self.term.primary_window_back() != back {
             self.reveal_thumb();
         }
-        // The link preview, under the pointer where it is now.
+        // The link preview, under the pointer where it is now, and the
+        // pointer's shape for it: over the scrollbar's strip while it takes
+        // a left press, a click scrolls and opens nothing.
+        let now = self.timed.clock.host(Instant::now());
+        let f = bar_frame(&self.renderer);
+        let left = self.timed.bar.left_press(&self.term, f, now);
+        let pressed = self.seat.hover_press(left);
         let host = crate::link::Host(&self.host);
-        if self.seat.hover(&self.term, mods, g, host) {
+        let hovered = self.seat.hover(&self.term, mods, g, host);
+        if hovered {
             self.pending = Pending::Dirty;
+        }
+        if hovered || pressed {
+            self.show_pointer();
         }
         match owed {
             Owed::Nothing => {}
@@ -1400,6 +1417,7 @@ impl Driver {
         let host = crate::link::Host(&self.host);
         if self.seat.hover(&self.term, mods, g, host) {
             self.pending = Pending::Dirty;
+            self.show_pointer();
         }
     }
 
@@ -2097,16 +2115,21 @@ impl Driver {
         self.flush_reply();
     }
 
-    /// **The pointer's shape for the program's `OSC 22`, or the I-beam**
-    /// (`baud_present_wayland::pointer::shape`), set once a change while
-    /// the pointer is over the window. Without the cursor-shape global the
-    /// window draws the image itself, the I-beam or the arrow
+    /// **The pointer's shape: the hand over a link a click opens, else
+    /// the program's `OSC 22`, else the I-beam** (`link::Hover::pointer`,
+    /// `baud_present_wayland::pointer::shape`), set once a change while
+    /// the pointer is over the window and shown. A hidden pointer stays
+    /// hidden: a set shape shows it, so the shape waits for what shows it
+    /// (`hide.rs`), which sets it then. Without the cursor-shape global the
+    /// window draws the image itself, the I-beam, the hand or the arrow
     /// (`baud_present_wayland::cursor`), and that is said once.
     fn show_pointer(&mut self) {
-        if !self.seat.inside() {
+        if !self.seat.inside() || self.hiding.hidden() == PointerHides::Yes {
             return;
         }
-        let want = baud_present_wayland::pointer::shape(self.term.pointer_shape());
+        let want = baud_present_wayland::pointer::shape(
+            self.seat.pointer_shape(self.term.pointer_shape()),
+        );
         if self.shape == Some(want) {
             return;
         }
@@ -2117,7 +2140,7 @@ impl Driver {
                 if self.shapeless == Said::Not {
                     self.shapeless = Said::Once;
                     crate::info!(
-                        "the compositor offers no cursor-shape global: baud draws its own pointer, an I-beam or an arrow, and a program's OSC 22 shape is the nearer of the two"
+                        "the compositor offers no cursor-shape global: baud draws its own pointer, an I-beam, a pointing hand or an arrow, and a program's OSC 22 shape is the nearest of the three"
                     );
                 }
             }
@@ -2427,7 +2450,9 @@ impl Driver {
         // held: a read may have changed what is under it.
         let host = crate::link::Host(&self.host);
         let mods = self.window.modifiers();
-        let _ = self.seat.hover_refresh(&self.term, mods, host);
+        if self.seat.hover_refresh(&self.term, mods, host) {
+            self.show_pointer();
+        }
         self.renderer.set_link(self.seat.hover_look().cloned());
         // The input method's composition at the live cursor, and where
         // its candidate window opens -- at the input method's own cursor
@@ -2480,6 +2505,16 @@ impl Driver {
             crate::reveal::widths(crate::reveal::Scale(1.0)),
         );
         self.renderer.set_scrollbar(plan.scroll);
+        // The thumb this frame draws decides who a left press goes to, so
+        // the pointer over a link under its strip is read again with it.
+        let now = self.timed.clock.host(seen_at);
+        let left = self
+            .timed
+            .bar
+            .left_press(&self.term, bar_frame(&self.renderer), now);
+        if self.seat.hover_press(left) {
+            self.show_pointer();
+        }
         self.renderer.set_screen_fade(plan.fade);
         self.renderer.set_blink(plan.blink);
         self.renderer.set_trail(plan.trail);

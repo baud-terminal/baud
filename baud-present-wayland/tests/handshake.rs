@@ -2138,8 +2138,8 @@ fn an_old_pointer_reports_at_once_and_no_global_draws_its_own() {
         None,
     );
     // The window's surface asks for twice the pixels: the next enter's
-    // image is drawn again at two, on the same surface, and the arrow for a
-    // shape that is not text.
+    // image is drawn again at two, on the same surface, and the hand for
+    // `pointer`, a link's shape.
     server.send(
         surface,
         "wl_surface",
@@ -2162,6 +2162,34 @@ fn an_old_pointer_reports_at_once_and_no_global_draws_its_own() {
         Drawing {
             side: 48,
             scale: 2,
+            hotspot: (9, 2),
+            image: baud_present_wayland::cursor::Drawn::Hand,
+        },
+        Some(cursor),
+    );
+    // Back at one, the arrow for a shape that is neither text nor a link.
+    server.send(
+        surface,
+        "wl_surface",
+        "preferred_buffer_scale",
+        &[Arg::Int(1)],
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(6), Arg::Object(surface), fixed(1.0), fixed(2.0)],
+    );
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    drawn_pointer(
+        &mut conn,
+        &mut server,
+        &mut w,
+        (CursorShape(shape::WAIT), 6),
+        Drawing {
+            side: 24,
+            scale: 1,
             hotspot: (4, 3),
             image: baud_present_wayland::cursor::Drawn::Arrow,
         },
@@ -2233,7 +2261,7 @@ fn an_old_compositor_draws_the_pointer_at_its_outputs_scale() {
         &mut conn,
         &mut server,
         &mut w,
-        (CursorShape(shape::POINTER), 5),
+        (CursorShape(shape::DEFAULT), 5),
         Drawing {
             side: 24,
             scale: 1,
@@ -2245,7 +2273,8 @@ fn an_old_compositor_draws_the_pointer_at_its_outputs_scale() {
 }
 
 /// What one drawn pointer should come to: the image's side in pixels, its
-/// scale, its hotspot, and which image, the pool holding the I-beam first.
+/// scale, its hotspot, and which image, the pools holding them in
+/// `Drawn::ALL`'s order.
 struct Drawing {
     side: i32,
     scale: i32,
@@ -2306,8 +2335,8 @@ fn the_pointer_hides_with_no_surface_and_a_shape_shows_it() {
 }
 
 /// **The requests a drawn pointer makes, and its pixels**: the cursor's
-/// surface made once, a pool of two images at the scale -- the old pool
-/// destroyed when the scale changed -- the image attached at its scale and
+/// surface made once, two pools of two buffers for the three images at the
+/// scale -- the old pools destroyed when the scale changed -- the image attached at its scale and
 /// damaged in logical pixels, the cursor role given with the enter's
 /// serial and the hotspot, and a commit. The pixels are read back from the
 /// pool's file: the image's hotspot pixel is opaque black. Returns the
@@ -2328,9 +2357,11 @@ fn drawn_pointer(
     conn.flush().unwrap();
     let cursor = match surface {
         Some(c) => {
-            server.expect("wl_buffer", "destroy");
-            server.expect("wl_buffer", "destroy");
-            server.expect("wl_shm_pool", "destroy");
+            for _ in 0..2 {
+                server.expect("wl_buffer", "destroy");
+                server.expect("wl_buffer", "destroy");
+                server.expect("wl_shm_pool", "destroy");
+            }
             c
         }
         None => {
@@ -2339,32 +2370,38 @@ fn drawn_pointer(
             c
         }
     };
-    server.expect("wl_shm", "create_pool");
-    let pool = std::fs::File::from(server.fds.pop_front().expect("the pool's file"));
     let mut buffers = Vec::new();
     for _ in 0..2 {
-        let r = server.expect("wl_shm_pool", "create_buffer");
-        let [
-            Val::New(id),
-            Val::Int(offset),
-            Val::Int(wide),
-            Val::Int(high),
-            Val::Int(stride),
-            Val::Uint(format),
-        ] = r.args[..]
-        else {
-            panic!("{:?}", r.args)
-        };
-        assert_eq!((wide, high), (want.side, want.side));
-        assert_eq!(format, protocol::wl_shm::format::ARGB8888);
-        buffers.push((id, offset, stride));
+        server.expect("wl_shm", "create_pool");
+        // The request just read put its file at the back; a second pool's
+        // may be in front of it, received in the same read.
+        let file = std::fs::File::from(server.fds.pop_back().expect("the pool's file"));
+        let file = std::rc::Rc::new(file);
+        for _ in 0..2 {
+            let r = server.expect("wl_shm_pool", "create_buffer");
+            let [
+                Val::New(id),
+                Val::Int(offset),
+                Val::Int(wide),
+                Val::Int(high),
+                Val::Int(stride),
+                Val::Uint(format),
+            ] = r.args[..]
+            else {
+                panic!("{:?}", r.args)
+            };
+            assert_eq!((wide, high), (want.side, want.side));
+            assert_eq!(format, protocol::wl_shm::format::ARGB8888);
+            buffers.push((id, offset, stride, std::rc::Rc::clone(&file)));
+        }
     }
     let r = server.expect("wl_surface", "attach");
     assert_eq!(r.sender, cursor);
-    let (buffer, offset, stride) = match want.image {
-        baud_present_wayland::cursor::Drawn::IBeam => buffers[0],
-        baud_present_wayland::cursor::Drawn::Arrow => buffers[1],
-    };
+    let (buffer, offset, stride, pool) = buffers[baud_present_wayland::cursor::Drawn::ALL
+        .iter()
+        .position(|d| *d == want.image)
+        .expect("one of the three")]
+    .clone();
     assert!(
         matches!(r.args[0], Val::Obj(b) if b == buffer),
         "{:?}",
@@ -2395,7 +2432,9 @@ fn drawn_pointer(
     assert_eq!(
         u32::from_ne_bytes(word),
         0xff00_0000,
-        "opaque black at the hotspot"
+        "{:?} at {}: opaque black at the hotspot",
+        want.image,
+        want.scale
     );
     cursor
 }
