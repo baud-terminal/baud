@@ -91,3 +91,186 @@
 #          1.9 1.9 1.8 1.8 1.8 1.8 1.7 1.6 1.6 1.7 1.6 1.5 1.5 1.5
 # t1       16.4 15.6 15.5 15.6 15.4 15.6 15.4 15.0 15.0 14.9 14.8 14.7 14.5 12.4 10.7
 #          9.4 8.5 7.8 7.3 6.8 6.5 6.3 6.1 5.9 5.7 5.6 5.5 5.5 5.4 5.4 5.4 5.2 5.2
+#
+# --- Section 23: one thread's whole frame, the trails, a thread's start (2026-10-30) ---
+#
+# Arms: 'base' 47fda97c, 'master' 0dc9a368 (section 22), 'fix' the change (fix1 its
+# A/A, cmp identical), each from git archive at one path, -align-all-functions=6;
+# the splash and trail benches carried into the base arm with set_threads left out.
+#
+# Instructions one splash life retires, one thread (proc_pid_rusage's ri_instructions
+# on the exited bench, three rounds less one, halved; two runs of one binary agree to
+# 13,051 in 35,822,679,394). "2x 60 Hz dark" is the 2x and the 6K dark arms together.
+#   size                 damage            base           master              fix
+#   1x                   full       346,443,701      362,437,897      339,252,400
+#   2x 60 Hz dark + 6K   full    24,160,909,417   24,810,507,282   23,989,412,044
+#   2x 120 Hz            full    11,770,944,825   12,117,138,247   11,656,353,749
+#   2x light             full     5,939,576,226    6,114,035,990    5,881,384,181
+#   2x glass             full     6,064,345,266    6,237,433,952    6,003,341,346
+#   6K                   full    17,872,786,167   18,333,013,268   17,769,316,175
+#   1x                   incr       346,814,120      191,077,546      184,829,659
+#   2x 60 Hz dark + 6K   incr    24,160,349,751   19,500,688,041   19,300,643,025
+#   2x 120 Hz            incr    11,771,454,796    9,229,190,653    9,107,750,245
+#   2x light             incr     5,939,706,461    4,670,246,744    4,607,369,492
+#   2x glass             incr     6,064,308,509    4,686,143,202    4,622,207,989
+#   6K                   incr    17,873,115,167   14,639,565,024   14,509,595,246
+# The 6K full frame by perturbation arm, one thread, instructions a life: master
+# 18,334,334,084; with only over_by's column test hoisted 18,058,553,446; with only
+# fill_band's whole-row loop 18,046,939,638; both 17,768,608,470 (base 17,874,558,100).
+# The 2x glass page: 6,240,445,246; 6,093,554,210; 6,148,912,333; 6,004,416,861
+# (base 6,064,176,329). The trail bench's 6K jump lightning, one thread: master
+# 81,054,251,739 incremental and 82,605,340,158 full; fix 80,898,769,674 and
+# 82,264,345,450.
+#
+# Where the time went, `sample` 15 s at 6K, Damage::Full, one thread, samples by
+# caller under paint_rows (master's scaled by the hash's samples, 6692/6632): base
+# effect 3737, fill (inlined) 520, glyphs 329, overlays 67; master effect 3674,
+# fill_band 596, glyphs 421, overlays 92. xctrace CPU Counters over the whole process:
+# cache misses (idx8) 61.7 M base, 57.4 M master; dispatched work (idx1) 324.1 G and
+# 332.6 G, but base read 334.1 G on a second run, so the counters do not resolve this.
+#
+# One splash life's milliseconds, Damage::Full, one thread, rotated rounds 2-6 of 6,
+# each process's first round dropped, sum over the life (worst frame):
+#   load 1.7, 'AB' the fix's composite.rs built before the trail bench existed:
+#   6K   base 430.8-442.5 (18.77-19.62)  master 441.0-447.2 (19.15-20.16)
+#        master1 440.2-446.2  AB 425.9-434.5 (18.63-19.41)
+#   2x glass  base 149.4-154.1 (6.44-6.75)  master 153.6-158.4 (6.53-7.00)
+#        master1 153.6-161.0  AB 147.7-150.9 (6.38-6.83)
+#   load 3.5-4.6, the fix's binary: 6K base 444.4-803.1, master 453.0-473.3, fix
+#        438.6-448.4, fix1 438.2-457.7; glass base 156.4-211.1, master 160.4-222.2,
+#        fix 154.0-174.1, fix1 153.9-172.6. At 6K fix sits below master apart;
+#        every other pair here, fix1 and base among them, overlaps.
+# Every hash, every arm, size and mode, one thread and the machine's, equals the
+# lines above.
+#
+# Starting threads each frame (a probe build timing Target::effect_over's scope, the
+# change at the machine's 18 threads, 5 rounds): 1x starts none; 2x 120 Hz 3-10
+# threads, the scope 891-975 us median, its cost past its longest share 42-66 us
+# median (p90 98-114); 6K 12-18 threads, 1328-1552 us, 111-142 us (p90 138-188). The
+# incremental arms had a share start up to 4.8 ms (2x) and 9.5 ms (6K) late, once each.
+#
+# The trail bench (baud-bench/benches/trail.rs), worst frame ms (frames over the
+# budget: 16.7 ms at 1x and 6K, 8.3 at 2x) over rounds 2-4 of 4, base / master / fix,
+# load 2.4-5.4, the frames a life after the trail, and whether every arm's hash is
+# equal. Damage::Incremental, the machine's threads:
+#   64x20@1x  jump fire       51    1.69-  1.72 (0-0)    1.67-  1.72 (0-0)    1.64-  1.70 (0-0)  equal
+#   64x20@1x  jump plasma     38    0.72-  0.74 (0-0)    0.67-  0.69 (0-0)    0.65-  0.69 (0-0)  equal
+#   64x20@1x  jump lightning  21    5.67-  6.34 (0-0)    5.60-  5.71 (0-0)    5.60-  8.06 (0-0)  equal
+#   64x20@1x  jump ice        51    2.87-  2.88 (0-0)    2.79-  2.82 (0-0)    2.76-  3.92 (0-0)  equal
+#   64x20@1x  jump ufo        55    1.31-  1.33 (0-0)    1.27-  1.28 (0-0)    1.26-  1.33 (0-0)  equal
+#   64x20@1x  jump orb        32    1.13-  1.14 (0-0)    1.08-  1.16 (0-0)    1.06-  1.19 (0-0)  equal
+#   64x20@1x  jump liquid     24    1.87-  1.88 (0-0)    1.81-  1.88 (0-0)    1.81-  1.90 (0-0)  equal
+#   64x20@1x  jump ghost       7    0.04-  0.04 (0-0)    0.02-  0.03 (0-0)    0.02-  0.02 (0-0)  equal
+#   64x20@1x  jump sweep      42    0.42-  0.44 (0-0)    0.43-  0.43 (0-0)    0.41-  0.42 (0-0)  equal
+#   64x20@1x  jump quad       25    0.43-  0.43 (0-0)    0.38-  0.39 (0-0)    0.38-  0.44 (0-0)  equal
+#   64x20@1x  step fire       50    1.07-  1.08 (0-0)    1.05-  1.06 (0-0)    1.03-  1.06 (0-0)  equal
+#   64x20@1x  step plasma     38    0.42-  0.43 (0-0)    0.40-  0.41 (0-0)    0.39-  0.40 (0-0)  equal
+#   64x20@1x  step lightning  21    3.23-  3.26 (0-0)    3.18-  3.22 (0-0)    3.15-  3.20 (0-0)  equal
+#   64x20@1x  step ice        50    1.49-  1.54 (0-0)    1.43-  1.48 (0-0)    1.42-  1.45 (0-0)  equal
+#   64x20@1x  step ufo        47    0.52-  0.53 (0-0)    0.50-  0.51 (0-0)    0.50-  0.53 (0-0)  equal
+#   64x20@1x  step orb        28    0.60-  0.62 (0-0)    0.58-  0.62 (0-0)    0.57-  0.61 (0-0)  equal
+#   64x20@1x  step liquid     21    0.95-  0.96 (0-0)    0.94-  0.96 (0-0)    0.92-  0.94 (0-0)  equal
+#   64x20@1x  step ghost       7    0.03-  0.03 (0-0)    0.02-  0.02 (0-0)    0.01-  0.02 (0-0)  equal
+#   64x20@1x  step sweep      39    0.11-  0.13 (0-0)    0.10-  0.11 (0-0)    0.10-  0.10 (0-0)  equal
+#   64x20@1x  step quad       23    0.12-  0.12 (0-0)    0.10-  0.10 (0-0)    0.09-  0.09 (0-0)  equal
+#   200x50@2x jump fire      100   20.81- 20.99 (13-13)    5.71-  5.80 (0-0)    5.64-  5.68 (0-0)  equal
+#   200x50@2x jump plasma     75    8.64-  8.76 (2-2)    3.59-  3.68 (0-0)    3.55-  3.59 (0-0)  equal
+#   200x50@2x jump lightning  40   79.84- 83.86 (39-39)    7.99-  8.73 (0-3)    8.14-  9.09 (0-1)  equal
+#   200x50@2x jump ice       100   40.37- 41.10 (99-99)    7.29-  8.04 (0-0)    7.29-  7.30 (0-0)  equal
+#   200x50@2x jump ufo       115   36.26- 36.57 (28-28)   10.52- 10.64 (3-4)   10.42- 11.46 (4-22)  equal
+#   200x50@2x jump orb        67   13.83- 13.89 (57-57)    3.13-  3.34 (0-0)    3.07-  3.23 (0-0)  equal
+#   200x50@2x jump liquid     62   25.37- 25.61 (7-7)    7.54-  7.67 (0-0)    7.57-  9.39 (0-1)  equal
+#   200x50@2x jump ghost      13    0.16-  0.17 (0-0)    0.06-  0.10 (0-0)    0.05-  0.06 (0-0)  equal
+#   200x50@2x jump sweep     107   13.85- 13.90 (4-4)   14.18- 14.53 (4-4)   14.15- 14.26 (4-4)  equal
+#   200x50@2x jump quad       62   14.36- 14.59 (5-5)   14.05- 14.32 (5-5)   14.18- 14.24 (5-5)  equal
+#   200x50@2x step fire       99    4.46-  4.51 (0-0)    4.29-  4.44 (0-0)    4.35-  4.36 (0-0)  equal
+#   200x50@2x step plasma     75    1.52-  1.55 (0-0)    1.42-  1.45 (0-0)    1.41-  1.44 (0-0)  equal
+#   200x50@2x step lightning  40   13.53- 13.77 (36-36)    6.90-  6.97 (0-0)    6.90-  6.96 (0-0)  equal
+#   200x50@2x step ice        99    6.22-  6.30 (0-0)    6.08-  6.13 (0-0)    6.06-  6.14 (0-0)  equal
+#   200x50@2x step ufo        92    2.16-  2.17 (0-0)    2.08-  2.15 (0-0)    2.08-  2.12 (0-0)  equal
+#   200x50@2x step orb        55    2.43-  2.48 (0-0)    2.33-  2.42 (0-0)    2.32-  3.15 (0-0)  equal
+#   200x50@2x step liquid     49    3.96-  3.98 (0-0)    3.86-  3.94 (0-0)    3.88-  5.98 (0-0)  equal
+#   200x50@2x step ghost      13    0.09-  0.11 (0-0)    0.05-  0.06 (0-0)    0.04-  0.06 (0-0)  equal
+#   200x50@2x step sweep      85    0.39-  0.40 (0-0)    0.33-  0.33 (0-0)    0.32-  0.33 (0-0)  equal
+#   200x50@2x step quad       49    0.41-  0.46 (0-0)    0.32-  0.36 (0-0)    0.32-  0.33 (0-0)  equal
+#   360x90@2x jump fire       51   37.18- 37.33 (6-6)    5.24-  6.26 (0-0)    6.04-  6.21 (0-0)  equal
+#   360x90@2x jump plasma     38   16.69- 17.17 (1-1)    3.66-  3.80 (0-0)    3.57-  3.74 (0-0)  equal
+#   360x90@2x jump lightning  21  145.34-147.04 (20-20)   15.95- 18.67 (0-17)   17.41- 25.36 (16-18)  equal
+#   360x90@2x jump ice        51   75.88- 76.91 (50-50)    8.51-  8.70 (0-0)    8.30- 11.46 (0-0)  equal
+#   360x90@2x jump ufo        58  111.77-113.05 (16-16)   11.19- 13.65 (0-0)   11.44- 19.17 (0-2)  equal
+#   360x90@2x jump orb        34   25.89- 26.28 (28-28)    4.56-  4.70 (0-0)    4.16-  4.62 (0-0)  equal
+#   360x90@2x jump liquid     34   47.66- 47.94 (4-4)   11.84- 12.09 (0-0)   11.85- 11.92 (0-0)  equal
+#   360x90@2x jump ghost       7    0.22-  0.24 (0-0)    0.10-  0.12 (0-0)    0.10-  0.10 (0-0)  equal
+#   360x90@2x jump sweep      58   46.39- 46.85 (4-4)   47.91- 48.55 (4-4)   47.47- 47.71 (4-4)  equal
+#   360x90@2x jump quad       34   46.14- 46.68 (4-4)   46.08- 60.81 (4-4)   46.03- 46.24 (4-4)  equal
+#   360x90@2x step fire       50    4.47- 17.21 (0-1)    4.37-  6.46 (0-0)    4.29-  4.38 (0-0)  equal
+#   360x90@2x step plasma     38    1.57-  3.31 (0-0)    1.44-  1.47 (0-0)    1.42-  1.42 (0-0)  equal
+#   360x90@2x step lightning  21   13.65- 13.84 (0-0)    6.99-  9.96 (0-0)    6.92-  6.98 (0-0)  equal
+#   360x90@2x step ice        50    6.32-  6.43 (0-0)    6.19-  9.15 (0-0)    6.06-  6.86 (0-0)  equal
+#   360x90@2x step ufo        47    2.20-  2.28 (0-0)    2.14-  3.13 (0-0)    2.09-  3.23 (0-0)  equal
+#   360x90@2x step orb        28    2.55-  2.58 (0-0)    2.40-  3.68 (0-0)    2.34-  3.05 (0-0)  equal
+#   360x90@2x step liquid     25    4.06-  4.10 (0-0)    3.93-  5.40 (0-0)    3.88-  4.04 (0-0)  equal
+#   360x90@2x step ghost       7    0.17-  0.18 (0-0)    0.09-  0.12 (0-0)    0.07-  0.09 (0-0)  equal
+#   360x90@2x step sweep      43    0.46-  0.46 (0-0)    0.36-  0.39 (0-0)    0.33-  0.52 (0-0)  equal
+#   360x90@2x step quad       25    0.50-  0.52 (0-0)    0.37-  0.55 (0-0)    0.35-  0.50 (0-0)  equal
+# Damage::Full, one thread:
+#   64x20@1x  jump fire       51    1.69-  1.74 (0-0)    1.73-  1.76 (0-0)    1.68-  1.74 (0-0)  equal
+#   64x20@1x  jump plasma     38    0.75-  0.77 (0-0)    0.74-  0.78 (0-0)    0.72-  1.07 (0-0)  equal
+#   64x20@1x  jump lightning  21    5.66-  5.84 (0-0)    5.60-  5.69 (0-0)    5.58-  6.23 (0-0)  equal
+#   64x20@1x  jump ice        51    2.85-  2.89 (0-0)    2.82-  2.88 (0-0)    2.80-  2.98 (0-0)  equal
+#   64x20@1x  jump ufo        55    1.32-  1.36 (0-0)    1.32-  1.38 (0-0)    1.29-  1.35 (0-0)  equal
+#   64x20@1x  jump orb        32    1.14-  1.15 (0-0)    1.16-  1.17 (0-0)    1.13-  1.20 (0-0)  equal
+#   64x20@1x  jump liquid     24    1.83-  1.90 (0-0)    1.85-  1.93 (0-0)    1.78-  1.91 (0-0)  equal
+#   64x20@1x  jump ghost       7    0.15-  0.16 (0-0)    0.17-  0.18 (0-0)    0.15-  0.16 (0-0)  equal
+#   64x20@1x  jump sweep      42    0.44-  0.46 (0-0)    0.46-  0.48 (0-0)    0.44-  0.45 (0-0)  equal
+#   64x20@1x  jump quad       25    0.50-  0.51 (0-0)    0.48-  0.50 (0-0)    0.45-  0.47 (0-0)  equal
+#   64x20@1x  step fire       50    1.10-  1.12 (0-0)    1.10-  1.15 (0-0)    1.09-  1.11 (0-0)  equal
+#   64x20@1x  step plasma     38    0.51-  0.54 (0-0)    0.53-  0.54 (0-0)    0.50-  0.51 (0-0)  equal
+#   64x20@1x  step lightning  21    3.22-  3.24 (0-0)    3.21-  3.28 (0-0)    3.20-  3.25 (0-0)  equal
+#   64x20@1x  step ice        50    1.52-  1.55 (0-0)    1.51-  1.54 (0-0)    1.49-  1.52 (0-0)  equal
+#   64x20@1x  step ufo        47    0.62-  0.63 (0-0)    0.64-  0.65 (0-0)    0.61-  0.65 (0-0)  equal
+#   64x20@1x  step orb        28    0.67-  0.68 (0-0)    0.65-  0.72 (0-0)    0.65-  0.67 (0-0)  equal
+#   64x20@1x  step liquid     21    1.00-  1.04 (0-0)    1.05-  1.06 (0-0)    0.99-  1.33 (0-0)  equal
+#   64x20@1x  step ghost       7    0.16-  0.17 (0-0)    0.17-  0.18 (0-0)    0.15-  0.15 (0-0)  equal
+#   64x20@1x  step sweep      39    0.21-  0.21 (0-0)    0.23-  0.23 (0-0)    0.19-  0.20 (0-0)  equal
+#   64x20@1x  step quad       23    0.21-  0.23 (0-0)    0.22-  0.25 (0-0)    0.19-  0.20 (0-0)  equal
+#   200x50@2x jump fire      100   20.72- 20.97 (13-13)   20.88- 21.30 (13-13)   20.65- 20.99 (13-13)  equal
+#   200x50@2x jump plasma     75    8.79-  8.95 (2-2)    8.92-  9.21 (2-4)    8.63-  8.96 (2-3)  equal
+#   200x50@2x jump lightning  40   80.44- 86.10 (39-39)   80.72- 81.75 (39-39)   78.97- 88.57 (39-39)  equal
+#   200x50@2x jump ice       100   40.41- 40.67 (99-99)   40.16- 40.79 (99-99)   39.89- 42.71 (99-99)  equal
+#   200x50@2x jump ufo       115   36.31- 36.77 (28-28)   36.46- 37.01 (28-28)   36.30- 38.15 (28-28)  equal
+#   200x50@2x jump orb        67   13.69- 13.94 (57-57)   13.80- 14.15 (57-57)   13.87- 16.93 (57-57)  equal
+#   200x50@2x jump liquid     62   24.99- 25.48 (8-8)   25.25- 25.91 (8-8)   25.52- 25.60 (8-8)  equal
+#   200x50@2x jump ghost      13    1.16-  1.24 (0-0)    1.34-  1.49 (0-0)    1.12-  1.19 (0-0)  equal
+#   200x50@2x jump sweep     107   13.84- 14.00 (4-4)   14.02- 14.29 (4-4)   14.05- 14.08 (4-4)  equal
+#   200x50@2x jump quad       62   14.82- 14.98 (6-6)   14.78- 15.14 (6-6)   14.53- 16.19 (6-6)  equal
+#   200x50@2x step fire       99    5.24-  5.41 (0-0)    5.37-  5.58 (0-0)    5.16-  5.32 (0-0)  equal
+#   200x50@2x step plasma     75    2.44-  2.60 (0-0)    2.71-  2.76 (0-0)    2.42-  2.55 (0-0)  equal
+#   200x50@2x step lightning  40   14.22- 14.60 (36-36)   14.35- 14.67 (36-36)   14.22- 14.63 (36-36)  equal
+#   200x50@2x step ice        99    7.04-  7.27 (0-0)    7.32-  7.36 (0-0)    7.08-  7.15 (0-0)  equal
+#   200x50@2x step ufo        92    3.19-  3.24 (0-0)    3.24-  3.38 (0-0)    3.07-  3.18 (0-0)  equal
+#   200x50@2x step orb        55    3.31-  3.48 (0-0)    3.42-  3.63 (0-0)    3.34-  3.57 (0-0)  equal
+#   200x50@2x step liquid     49    4.88-  4.96 (0-0)    5.02-  5.09 (0-0)    4.84-  4.90 (0-0)  equal
+#   200x50@2x step ghost      13    1.22-  1.28 (0-0)    1.32-  1.37 (0-0)    1.10-  1.17 (0-0)  equal
+#   200x50@2x step sweep      85    1.36-  1.44 (0-0)    1.51-  1.60 (0-0)    1.29-  1.56 (0-0)  equal
+#   200x50@2x step quad       49    1.40-  1.50 (0-0)    1.52-  1.64 (0-0)    1.38-  1.39 (0-0)  equal
+#   360x90@2x jump fire       51   37.13- 37.63 (6-6)   37.71- 38.55 (6-6)   37.17- 37.75 (6-6)  equal
+#   360x90@2x jump plasma     38   16.98- 17.41 (1-1)   17.85- 18.25 (2-2)   17.36- 21.36 (1-2)  equal
+#   360x90@2x jump lightning  21  145.31-149.11 (20-20)  144.38-156.80 (20-20)  147.82-152.86 (20-20)  equal
+#   360x90@2x jump ice        51   75.25- 76.36 (50-50)   75.64- 76.35 (50-50)   74.75- 83.18 (50-50)  equal
+#   360x90@2x jump ufo        58  112.43-114.21 (16-16)  112.51-114.05 (16-16)  113.78-115.13 (16-16)  equal
+#   360x90@2x jump orb        34   25.66- 26.45 (28-28)   26.14- 26.46 (28-28)   25.79- 26.93 (28-28)  equal
+#   360x90@2x jump liquid     34   47.07- 48.09 (4-4)   47.46- 48.36 (4-4)   47.75- 48.72 (4-4)  equal
+#   360x90@2x jump ghost       7    2.95-  3.12 (0-0)    3.16-  3.43 (0-0)    2.91-  3.01 (0-0)  equal
+#   360x90@2x jump sweep      58   46.39- 46.92 (4-4)   47.09- 47.61 (4-5)   47.04- 47.63 (4-4)  equal
+#   360x90@2x jump quad       34   47.17- 47.85 (4-4)   47.15- 48.04 (4-4)   47.45- 47.77 (4-5)  equal
+#   360x90@2x step fire       50    6.87-  7.18 (0-0)    7.26-  7.37 (0-0)    7.07-  7.39 (0-0)  equal
+#   360x90@2x step plasma     38    4.27-  4.42 (0-0)    4.65-  4.77 (0-0)    4.31-  5.25 (0-0)  equal
+#   360x90@2x step lightning  21   15.93- 16.39 (0-0)   16.35- 16.60 (0-0)   16.20- 16.65 (0-0)  equal
+#   360x90@2x step ice        50    8.84-  9.02 (0-0)    9.09-  9.26 (0-0)    8.79- 12.26 (0-0)  equal
+#   360x90@2x step ufo        47    4.87-  5.02 (0-0)    5.13-  5.31 (0-0)    4.89-  6.79 (0-0)  equal
+#   360x90@2x step orb        28    5.04-  5.28 (0-0)    5.34-  5.48 (0-0)    5.11-  8.21 (0-0)  equal
+#   360x90@2x step liquid     25    6.45-  6.81 (0-0)    6.95-  7.06 (0-0)    6.61-  8.09 (0-0)  equal
+#   360x90@2x step ghost       7    2.95-  3.24 (0-0)    3.10-  5.46 (0-0)    2.92-  4.72 (0-0)  equal
+#   360x90@2x step sweep      43    3.16- 14.33 (0-0)    3.33- 13.27 (0-0)    3.06-  4.88 (0-0)  equal
+#   360x90@2x step quad       25    3.15-  3.28 (0-0)    3.35- 13.40 (0-0)    3.13-  4.80 (0-0)  equal

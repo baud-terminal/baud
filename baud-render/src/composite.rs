@@ -138,6 +138,25 @@ impl<'p> Target<'p> {
         let cell_w = slots(cell_w);
         let (stride, width) = (slots(self.stride), slots(self.width));
         let xs = self.cols.clone();
+        // Every column: the loop with no clip to take.
+        if xs.start == 0 && xs.end == width {
+            for y in self.rows_of(band) {
+                let row = &mut self.pixels[y * stride..y * stride + width];
+                let mut x = 0;
+                for &c in bg {
+                    let end = (x + cell_w).min(width);
+                    if x >= end {
+                        break;
+                    }
+                    row[x..end].fill(c.0);
+                    x = end;
+                }
+                if x < width {
+                    row[x..].fill(margin.0);
+                }
+            }
+            return;
+        }
         // The first cell the columns reach, and where it starts.
         let first = match cell_w {
             0 => 0,
@@ -305,7 +324,15 @@ impl<'p> Target<'p> {
         let (u, v) = (usize::from(inst.u.0), usize::from(inst.v.0));
         let rows = self.rows_of(band);
         let (stride, width) = (slots(self.stride), slots(self.width));
-        let xs = self.cols.clone();
+        // The record's columns inside the columns drawn, once a record, and
+        // the screen column the first of them lands on.
+        let x0 = i64::from(inst.x.0);
+        let at = |v: usize| i64::try_from(v).unwrap_or(i64::MAX);
+        let lo = (at(self.cols.start) - x0).max(0);
+        let hi = (at(self.cols.end) - x0).min(at(w));
+        let to = |v: i64| usize::try_from(v).unwrap_or(0);
+        let mxs = to(lo)..to(hi).max(to(lo));
+        let left = to(x0 + lo);
         let color = inst.color;
         let mask_side = slots(Px::of(atlas.side().value()));
         let color_side = slots(Px::of(atlas.color_side().value()));
@@ -318,14 +345,7 @@ impl<'p> Target<'p> {
                 continue;
             }
             let row = &mut self.pixels[y * stride..y * stride + width];
-            for mx in 0..w {
-                let Ok(x) = usize::try_from(i32::from(inst.x.0) + i32::try_from(mx).unwrap_or(0))
-                else {
-                    continue;
-                };
-                if !xs.contains(&x) {
-                    continue;
-                }
+            for (mx, x) in mxs.clone().zip(left..) {
                 let dst = Argb(row[x]);
                 let out = match inst.kind {
                     Kind::Mask => {
@@ -1200,6 +1220,104 @@ fn luts() -> &'static Luts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A record clipped to the columns drawn is each pixel's own test**:
+    /// a quadrant block's mask, whose columns differ, and a solid, at every
+    /// left edge from 12 pixels off the buffer's left to past its right,
+    /// over the whole width and over windows of columns inside it, at its
+    /// edges and empty, through [`Target::over`] on both pages -- each
+    /// pixel the one a record pixel at the buffer, the band's rows and the
+    /// columns drawn gives, and every other pixel the ground. The control:
+    /// the record drew.
+    #[test]
+    fn a_record_clipped_to_the_columns_drawn_is_each_pixels_own_test() {
+        use crate::instance::Screen;
+        use baud_domain::Codepoint;
+        use baud_domain::contrast::CurveRow;
+        let mut atlas = Atlas::new();
+        let cell = crate::boxes::Cell {
+            w: Px::of(9),
+            h: Px::of(18),
+        };
+        let slot = atlas
+            .synthetic(Codepoint::new(0x259A).unwrap(), cell, Px::of(14))
+            .expect("a block element's mask");
+        let (w, h) = (40u32, 24u32);
+        let ground: Vec<u32> = (0..w * h)
+            .map(|i| 0xFF00_0000 | ((i * 0x0001_0203) & 0x00FF_FFFF))
+            .collect();
+        let band = Band {
+            top: Px::of(2),
+            bottom: Px::of(20),
+        };
+        let side = slots(Px::of(atlas.side().value()));
+        let mut drew = false;
+        for kind in [Kind::Mask, Kind::Solid] {
+            for page in [Page::Opaque, Page::Glass] {
+                for x in -12i16..44 {
+                    for (left, right) in [(0, u32::MAX), (5, 17), (0, 3), (31, 40), (11, 11)] {
+                        let inst = Instance {
+                            x: Screen(x),
+                            y: Screen(1),
+                            w: slot.w,
+                            h: slot.h,
+                            u: slot.x,
+                            v: slot.y,
+                            color: Argb(0xFF20_80F0),
+                            kind,
+                            curve: CurveRow::default(),
+                        };
+                        let mut got = ground.clone();
+                        {
+                            let mut t =
+                                Target::new(&mut got, Px::of(w), Px::of(w), Px::of(h)).unwrap();
+                            let mut t = t.within(Px::of(left), Px::of(right));
+                            t.over(&inst, &atlas, Blend::Native, page, band);
+                        }
+                        let mut want = ground.clone();
+                        let cols = slots(Px::of(left))..slots(Px::of(right.min(w)));
+                        for my in 0..usize::from(slot.h.0) {
+                            for mx in 0..usize::from(slot.w.0) {
+                                let px = i64::from(x) + i64::try_from(mx).unwrap();
+                                let py = 1 + my;
+                                let Ok(px) = usize::try_from(px) else {
+                                    continue;
+                                };
+                                if !cols.contains(&px) || !(2..20).contains(&py) {
+                                    continue;
+                                }
+                                let cov = match kind {
+                                    Kind::Mask => atlas.pixels()[(usize::from(slot.y.0) + my)
+                                        * side
+                                        + usize::from(slot.x.0)
+                                        + mx],
+                                    _ => 255,
+                                };
+                                if cov == 0 {
+                                    continue;
+                                }
+                                let i = py * slots(Px::of(w)) + px;
+                                let (src, dst) = (inst.color, Argb(want[i]));
+                                let c = Coverage(match kind {
+                                    Kind::Mask => inst.curve.apply(cov),
+                                    _ => cov,
+                                });
+                                want[i] = match page {
+                                    Page::Opaque => Blend::Native.over(src, dst, c),
+                                    Page::Glass => Blend::Native.over_glass(src, dst, c),
+                                }
+                                .0;
+                            }
+                        }
+                        drew |= want != ground;
+                        let off = got.iter().zip(&want).filter(|(a, b)| a != b).count();
+                        assert_eq!(off, 0, "{kind:?} {page:?} at {x}, columns {left}..{right}");
+                    }
+                }
+            }
+        }
+        assert!(drew, "the control: the record drew");
+    }
 
     /// **The effect on any number of threads is the one thread's, bit for
     /// bit**: the splash's plasma at a 2x frame (200 by 50 cells at 28 px,

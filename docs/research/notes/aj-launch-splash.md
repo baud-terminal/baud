@@ -2815,3 +2815,58 @@ than the base's, 20.01-20.43 ms against 19.70-19.78, and on the 2x
 glass page, 6.92-9.54 against 6.80-6.87, not attributed. Threads are
 started each frame, 9-64 us for one and 94-144 for seventeen (best and
 mean), against a pool unmeasured; the cursor trails' time is unmeasured.
+
+## 23. One thread's whole frame as fast as before the threads (2026-10-30)
+
+**What the user sees.** On the CPU path with one thread and every frame
+drawn whole -- what the Linux driver runs on a one-core machine -- the
+launch plasma is no slower than before section 22 again: at 6K a life's
+frames sum to 425.9-434.5 ms against 430.8-442.5 before section 22 and
+441.0-447.2 after it, and the 2x glass page to 147.7-150.9 against
+149.4-154.1 and 153.6-158.4, on a quiet machine; under load the
+committed binary's 6K life, 438.6-448.4, stays apart from section 22's,
+453.0-473.3, while its A/A copy and every other pair overlap. Every
+cursor trail draws the same pixels as before; with the machine's threads,
+on a jump across the window the effects' worst 2x and 6K frames are 2.4
+to 10 times shorter than before section 22, and on a short step up to
+ten percent shorter but lightning's, half.
+
+**Why it was slower.** More work, not more memory: a 6K life at one thread
+retires 18.33 G instructions against 17.87 G before section 22, the 2x
+glass page 6.24 G against 6.06 G (`proc_pid_rusage()`, two runs of one
+binary 13,051 apart in 35.8 G). Section 22 gave a target its columns, and
+two loops paid for them when the columns are the whole row: `over_by`
+tested every glyph pixel against both edges, and `fill_band` clipped every
+cell. `sample` put the cost there (fill 520 samples to 596, glyphs 329 to
+421, the plasma's light flat); the whole-process cache-miss counter fell,
+and the dispatched-work counter cannot resolve two percent here. dtrace's
+`profile` provider needs sudo, which was not available.
+
+**The fix.** `over_by` meets a record's columns with the target's once a
+record, so its inner loop tests no column at all, and `fill_band` runs its
+whole-row loop when the columns are the row. Each alone takes back about
+half (276 M and 287 M instructions a 6K life), both 565 M, 106 M under the
+base; every size in both damage modes now retires fewer instructions
+than before section 22 and than section 22, with every hash equal
+([[source: aj-obs-cpu-6k-measure]]).
+
+**A thread's start.** A frame's threads cost 42-66 us past its longest
+share at 2x and 111-142 us at 6K (medians), against section 22's A/A
+worst-frame spread of 0.27 ms (2x at 60 Hz) and 0.41 ms (6K); 1x starts
+none. A pool saves at most that, and keeping a thread past the call needs
+`unsafe`, which baud-render forbids, or a dependency, to hand it the
+borrowed frame: not built.
+
+**Held.** `a_record_clipped_to_the_columns_drawn_is_each_pixels_own_test`
+fails when the hoisted clip loses its floor at the record's first column
+or starts drawing at the record's own left instead of the clipped one;
+the splash tests fail when the whole-row fill runs on any row that starts
+at column 0. The `trail`
+bench times every trail at three sizes and two moves.
+
+**Not fixed.** At 6K a jump across the window still misses 60 Hz with the
+quad and the sweep (46-48 ms, 4 frames, as before section 22) and with
+lightning (16-25 ms, most frames); at 2x the quad and the sweep miss
+120 Hz on 4-5 frames and the ufo on 3 or more. One thread drawing whole
+frames misses the budget on a jump at 2x and 6K with every trail but the
+ghost, on 1 to 99 frames, as before section 22.

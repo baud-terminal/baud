@@ -21478,14 +21478,14 @@ bytes  = 8180
 
 [sources.aj-obs-cpu-6k-measure]
 key    = "aj-obs-cpu-6k-measure"
-title  = "The launch splash's frames on the CPU path before and after a row the plasma's records reach repaints only their columns and the bands are drawn on more than one thread: the worst and median frame and the frames over budget at four sizes and rates and three grounds, both damage modes, the frames' pixels hashed, a thread-cap sweep at 6K, a thread's start, where the time went and the pixels repainted"
+title  = "The launch splash's frames on the CPU path before and after a row the plasma's records reach repaints only their columns and the bands are drawn on more than one thread: the worst and median frame and the frames over budget at four sizes and rates and three grounds, both damage modes, the frames' pixels hashed, a thread-cap sweep at 6K, a thread's start, where the time went and the pixels repainted; then one thread's whole frame by the instructions each arm retires, a profile, perturbation arms and timings, the cost of starting threads each frame, and every cursor trail's worst frame at three sizes"
 author = "baud research (note AJ)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "baud-bench's splash bench, 47fda97c, base and change built from git archive at one path, rotated rounds, sample and baud-render's own tests, 2026-10-30"
+url    = "baud-bench's splash and trail benches, 47fda97c and 0dc9a368, base and change built from git archive at one path, rotated rounds, sample, xctrace, proc_pid_rusage and baud-render's own tests, 2026-10-30"
 file   = "aj-observed/cpu-6k-measure.txt"
-sha256 = "27cb15ad84b8576e027c3f624e02931fd94084f72badee66487b587edb768446"
-bytes  = 8645
+sha256 = "6a46320b3fa5dacf9df4ca4ec3113ba388d13d65146546de9baa0e464e2777ce"
+bytes  = 25437
 
 [sources.aj-obs-kitty-strip-dark]
 key    = "aj-obs-kitty-strip-dark"
