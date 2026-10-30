@@ -10869,7 +10869,7 @@ pub fn run() {
     // the display link ticks only for a view on a display
     // ([[source: sdk27-nsview-h]]), so a window shown before `run()` stood
     // on screen through all of it, empty and then without its logo (note
-    // AJ, section 15). Everything below keeps the order it had: the first
+    // AJ, section 16). Everything below keeps the order it had: the first
     // frame, the window, its titlebar icon, the glass, the style observer,
     // first responder, and the responder last, so nothing here re-enters a
     // responder holding the view's borrow.
@@ -15453,14 +15453,6 @@ impl PrinterList {
     }
 }
 
-/// **This machine's names, either of which an `OSC 7` may name.**
-///
-/// The name `gethostname` gives, which is what shells send (zsh's `$HOST`,
-/// bash's `$HOSTNAME`, fish's `$hostname`), and `NSProcessInfo`'s
-/// `hostName`, which on macOS can be a different name, such as
-/// `<name>.local`. On a Mac with `HostName` set the two can be the same;
-/// the code accepts either. RFC 8089 § 3's "resolves to the machine"
-/// holds of both (`[[source: rfc8089]]`).
 /// **This machine's names, read off the main thread**: `NSProcessInfo`'s
 /// `hostName` took 5-29 ms on its first call in five runs of a probe on
 /// this box, and it was read on the main thread between the window's
@@ -15470,7 +15462,8 @@ impl PrinterList {
 /// among the thread-unsafe classes
 /// ([[source: apple-thread-safety-summary]]); the class reference is the
 /// current text, and this rests on it. The names are taken at the first
-/// `OSC 7`, joined then if the thread is still out.
+/// derived title, on the shell's first output (`derived_title`), joined
+/// then if the thread is still out.
 enum Hosts {
     Reading(std::thread::JoinHandle<Vec<String>>),
     Read(Vec<String>),
@@ -15503,6 +15496,14 @@ impl Hosts {
     }
 }
 
+/// **This machine's names, either of which an `OSC 7` may name.**
+///
+/// The name `gethostname` gives, which is what shells send (zsh's `$HOST`,
+/// bash's `$HOSTNAME`, fish's `$hostname`), and `NSProcessInfo`'s
+/// `hostName`, which on macOS can be a different name, such as
+/// `<name>.local`. On a Mac with `HostName` set the two can be the same;
+/// the code accepts either. RFC 8089 § 3's "resolves to the machine"
+/// holds of both (`[[source: rfc8089]]`).
 fn machine_names() -> Vec<String> {
     let mut names: Vec<String> = crate::hostlog::machine_name().into_iter().collect();
     let process = baud_present_macos::link::host_name();

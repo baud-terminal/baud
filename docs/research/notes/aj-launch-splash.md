@@ -6,7 +6,8 @@ gone in half a second, 2026-10-29 (section 11); a plasma carrying it in
 and a second carrying it out, 2026-10-29 (section 12); both at kitty's
 pace again, after a window that opens whole, 2026-10-29 (section 13); the
 plasma within a frame at 2x on the CPU path, 2026-10-29 (section 14); the
-plasma over the word as well as the mark, 2026-10-29 (section 15). The
+plasma over the word as well as the mark, 2026-10-29 (section 15); the
+window shown with its first frame, 2026-10-29 (section 16). The
 questions as built:**
 
 - **1. When.** Nothing of it until the window is whole on screen
@@ -2363,7 +2364,8 @@ lights over the whole lockup and stays over it while `baud ❯` is drawn
 inside it from left to right, then lands on the block, which comes in
 last; the logo is whole at 0.37 s. A second plasma lights over the whole
 logo on that frame and takes the letters out inside it, left to right,
-then lands on the block, which goes last; the logo is gone at 0.78 s and
+then lands on the block, which goes last; the last frame with any of the
+logo is at 0.78 s (the block under 0.02 of its opacity from 0.74 s) and
 the glow at 0.82 s. The plasma itself is unchanged: kitty's pace, its
 filaments, ions and colours. Before, the plasma had left the word within
 about 0.07 s, `b` turned whole outside it, and the letters left with none
@@ -2405,14 +2407,14 @@ edge, which still leaves the word in about 0.07 s
 27-28 of the splash's frames take over 8.3 ms and 17 over 16.7 ms (15-17
 and 5 before); at 6K, 50 over 16.7 ms (38 before).
 
-## 15. The window shown whole, and the logo with it (2026-10-29)
+## 16. The window shown whole, and the logo with it (2026-10-29)
 
 **What the user sees.** The window appears once the app has finished
-launching, already showing its first frame, and the logo starts on the
-next display refresh. Before, the window stood on screen about 0.16 s
+launching, already showing its first frame, and the logo is to start on
+the display link's first tick after it (unmeasured; see below). Before, the window stood on screen about 0.16 s
 before the logo: about 0.09 s with none of baud's frames in it, then about
 0.07 s with its first frame and no logo. The window now appears later in
-the launch than it did, never empty and never without the logo. Keys,
+the launch than it did, never empty. Keys,
 output under the logo and Reduce Motion are as before.
 
 The request, verbatim (2026-10-29): "there is still a wait that is too
@@ -2422,7 +2424,10 @@ long", measured with `BAUD_STARTUP=1`: `shown` 65.9 ms, `first frame`
 **Why it waited.** Three things stood between the window and the logo.
 The window was ordered front before its first frame was drawn, and the
 machine's name was read in that gap: `NSProcessInfo`'s `hostName` took
-5-29 ms on its first call in five runs of a probe. The display link that
+5-29 ms on its first call in five runs of a probe; the rest of the 92 ms
+between `shown` and `first frame` is unmeasured, and the new `first draw`
+mark brackets the first draw's GPU wait with `first frame`, so the next
+run of `BAUD_STARTUP=1` reads it. The display link that
 starts the logo ticks only for a view on a display ([[source:
 sdk27-nsview-h]]), and `run()` calls `finishLaunching`, which activates
 the app, before it starts the event loop ([[source:
@@ -2437,7 +2442,7 @@ frame onto the layer, then orders the window front with no open
 animation, then installs the glass, the observers and the responder, in
 the order they had. The plasma's pipeline is built on the GPU's own
 thread beside the other five; the machine's names are read on a thread of
-their own and taken at the first `OSC 7` (`ProcessInfo` "is thread-safe
+their own and taken at the first title the shell's output derives (`ProcessInfo` "is thread-safe
 in macOS 10.7 and later", [[source: apple-processinfo]]; the archived
 guide lists it as unsafe, [[source: apple-thread-safety-summary]]). `the_window_is_shown_once_launched_with_its_first_frame`,
 `the_plasmas_pipeline_is_built_at_launch` and

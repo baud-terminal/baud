@@ -5,7 +5,7 @@
 //! completed launching and is ready to run", on the main actor
 //! ([[source: apple-nsapplication-didfinishlaunchingnotification]]).
 //!
-//! The window is shown from here (note AJ, section 15): the display link
+//! The window is shown from here (note AJ, section 16): the display link
 //! that starts the launch logo ticks only for a view on a display
 //! ([[source: sdk27-nsview-h]]), and `finishLaunching`, which activates the
 //! app, comes between a launch that ends before `run()` and the event loop,
