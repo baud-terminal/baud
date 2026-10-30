@@ -10,7 +10,9 @@ plasma over the word as well as the mark, 2026-10-29 (section 15); the
 window shown with its first frame, 2026-10-29 (section 16); the plasma
 in each glyph's colour, and one movement in and out, 2026-10-29 (section
 17); the logo and the shell side by side, 2026-10-29 (section 18); every
-2x frame within 120 Hz on the CPU path, 2026-10-29 (section 19). The
+2x frame within 120 Hz on the CPU path, 2026-10-29 (section 19); the
+shell started before the launch's threads, 2026-10-30 (section 20); the
+plasma's bands meeting without a line, 2026-10-30 (section 21). The
 questions as built:**
 
 - **1. When.** Nothing of it until the window is whole on screen
@@ -2519,7 +2521,8 @@ where 4 were).
 
 **Not fixed.** Adjacent band rows share a pixel row (a record's top is
 rounded down and its bottom up), so that row's plasma is drawn twice, a
-faint line at each band edge on every path, before this change too. The
+faint line at each band edge on every path, before this change too
+(fixed in section 21: the bands now share their edges). The
 colour test covers both glass pages, but no strips were rendered on
 them and the census cannot count them, because it needs an opaque
 ground.
@@ -2710,3 +2713,57 @@ no logo until it is seen.
 **Unmeasured.** No window was opened: the next `BAUD_STARTUP=1` run
 reads the `pty` mark against `faces`. Whether the Metal driver's
 `dlopen()` is long on a cold launch needs a purged cache.
+
+## 21. The plasma's bands meet without a line (2026-10-30)
+
+**What the user sees.** The faint horizontal lines across the launch
+logo's plasma are gone: one at each of the three band edges the plasma
+crosses on every frame, at 1x and 2x, a brighter line on the dark page
+and a darker one on the light page. Nothing else on screen
+changes: every pixel but those rows is what it was. Cursor trails never
+had the lines and draw exactly as before.
+
+**Why it was there.** The plasma is drawn as bands, one a unit of rows,
+each a record of whole pixels (section 17's "Not fixed"). Each record
+rounded its own top down and its own bottom up, so where the splash's
+unit (the block's height at the lockup's scale) put a band edge between
+pixel rows, both records covered that row and it was composited twice,
+on every path, since every path draws the same records.
+
+**How it is built.** `Vfx::instances` rounds each edge once and gives it
+to both bands, the one above's bottom and the one below's top, to the
+first row whose centre is not above it, `ceil(e - 0.5)`: a row belongs
+to the band whose span holds its centre. That is how a GPU covers a
+pixel, by one sample at its centre, 0.5 by 0.5 from its top-left corner
+([[source: apple-metal-sample-positions]]; the origin
+[[source: apple-msl-spec]] p. 23), and the centre the light is taken at.
+The records stay whole pixels, so the CPU path and both GPU paths cover
+the same rows. At a whole-pixel unit, every cursor trail's (the cell's
+height), each edge is a whole row and the records are unchanged.
+Rounding to the row the edge falls in would draw a row with the columns
+of a band whose span its centre is not in, which is all a band's columns
+are worked out for; snapping the bands to whole pixels would lay them
+at another unit than the plasma's. The tests hold the tiling; the centre
+rule rests on the GPU's sample position, since with the reach's margin a
+shared floor lights the same pixels.
+`the_bands_tile_the_rows_at_any_unit` and
+`each_pixel_of_the_plasma_is_in_one_band` failed before (a row in two
+records at a unit of 33.6; 600 pixels twice on the splash's first 1x
+frame); a top rounded down and a bottom up fails both, a top up and a
+bottom down fails both by the row left out.
+
+**Measured** ([[source: aj-obs-seam-measure]], strip
+[[source: aj-obs-seam-strip]]): every 60 Hz frame differs from the
+base only at the pixels two records covered, three rows a frame,
+10,740 pixel-frames at 1x and 70,758 at 2x on each page. There the doubled row was up to 0.32 brighter (dark)
+or 0.20 darker (light) in relative luminance; its step against the rows
+above and below falls from a mean of 0.0149 to 0.00042 at 2x on the
+dark page, the plasma's own 0.00030 three rows up. The census: every
+flash count and verdict area unchanged; the strict area at 2x moves
+494.0 to 489.5 pt² at 60 Hz and 1,797.8 to 1,791.0 at 6K light, all
+passing. The CPU path's first 2x frame shades 663,750 band pixels where
+it shaded 669,060, 0.634 series a pixel where 0.633. The cursor trails'
+census through Metal, plasma, fire, ice and liquid at 13 pt 2x and 32 pt
+1x, hashes every frame the same as before ([[source: aj-obs-seam-probe]]
+and [[source: aj-obs-seam-strip-tool]] reproduce the rest); note AL's
+figures do not move.

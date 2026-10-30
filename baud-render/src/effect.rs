@@ -322,7 +322,10 @@ impl Vfx {
     /// cursor's colour: one band a cell row over the emitter's reach -- the
     /// pixels within [`Effect::reach`] cells of it, which is everywhere the
     /// effect's fragment function can draw -- clipped to the frame, then one
-    /// soft disc a live particle, at its glow.
+    /// soft disc a live particle, at its glow. **The bands tile the pixel
+    /// rows**: a row is in the one band whose span holds its centre, so no
+    /// row is drawn twice, at a unit of whole pixels (every cursor trail's,
+    /// the cell's height) or not (the launch logo's).
     pub fn instances(&self, frame: (Px, Px), fill: Argb, out: &mut Vec<Instance>) {
         let unit = self.ignition.unit.max(1.0);
         let r = self.effect.reach() * unit;
@@ -338,6 +341,15 @@ impl Vfx {
         let y0 = (y0 - r).max(0.0);
         let y1 = (y1 + r).min(fh);
         let mut band = (y0 / unit).floor() * unit;
+        // A band's rows are those whose centre is in its span: an edge at
+        // `e` is the row `ceil(e - 0.5)`, the first whose centre is not above
+        // it -- the rule a GPU covers a pixel by, its one sample at the
+        // pixel's centre ([[source: apple-metal-sample-positions]]), and the
+        // centre the light is taken at. Each edge is rounded once and shared,
+        // a band's top the last one's bottom, so the bands tile the rows and
+        // none is drawn twice where a unit puts an edge between rows.
+        let row = |e: f32| (e - 0.5).ceil();
+        let mut top = row(band.max(0.0));
         while band < y1 {
             let (lo, hi) = (band - r, band + unit + r);
             let (mut xmin, mut xmax) = (f32::INFINITY, f32::NEG_INFINITY);
@@ -366,7 +378,7 @@ impl Vfx {
                 }
             }
             let (x0, x1) = ((xmin - r).max(0.0).floor(), (xmax + r).min(fw).ceil());
-            let (top, bottom) = (band.max(0.0).floor(), (band + unit).min(fh).ceil());
+            let bottom = row((band + unit).min(fh));
             if xmin <= xmax && x1 > x0 && bottom > top {
                 out.push(Instance {
                     x: screen(x0),
@@ -381,6 +393,7 @@ impl Vfx {
                 });
             }
             band += unit;
+            top = bottom;
         }
         self.particles(|s| {
             let side = (2.0 * s.radius).ceil().max(2.0);
@@ -826,6 +839,73 @@ pub(crate) mod tests {
                 );
             }
         }
+    }
+
+    /// **The bands tile the rows**: each band record starts on the row the
+    /// one before it ends, so every pixel row is in one band and none is
+    /// drawn twice -- for every effect, mid-chase on a hop, a diagonal, a
+    /// long vertical and a move up and left, at a unit of whole pixels and
+    /// at units that put edges between rows, as the launch logo's does
+    /// (`each_pixel_of_the_plasma_is_in_one_band` holds its records). At a
+    /// whole unit, which every cursor trail is lit at (the cell's height),
+    /// each band is a unit of rows on the unit's grid, as it was before the
+    /// edges were shared. Perturbations: a record's top
+    /// rounded down and its bottom up overlaps a row at each fractional
+    /// edge; a top rounded up and a bottom down leaves one out.
+    #[test]
+    fn the_bands_tile_the_rows_at_any_unit() {
+        let frame = (Px::of(2040), Px::of(340));
+        let units = [CELL.1, 33.6, 17.25, 28.8];
+        let mut edges = 0usize;
+        for unit in units {
+            for effect in Effect::ALL {
+                for (from, to, t) in [
+                    (cell(10.0, 4.0), cell(40.0, 4.0), 0.05),
+                    (cell(5.0, 0.0), cell(100.0, 9.0), 0.08),
+                    (cell(60.0, 0.0), cell(62.0, 9.0), 0.03),
+                    (cell(90.0, 8.0), cell(20.0, 1.0), 0.12),
+                ] {
+                    let lit = Ignition::ignite(from.center(), to, Seed(3), unit);
+                    let vfx = Vfx {
+                        effect,
+                        emitter: Smear {
+                            corners: Segment::new(from.corners(), to).at(t),
+                            hole: to,
+                            shape: Shape::Quad,
+                            strength: crate::flash::Strength::Full,
+                        },
+                        ignition: lit.at(t),
+                        axis: lit.dir,
+                    };
+                    let mut bands = Vec::new();
+                    vfx.instances(frame, Argb(0xFF10_2030), &mut bands);
+                    bands.retain(|r| r.kind == Kind::Band);
+                    let what = format!("{effect:?} at a unit of {unit}, {from:?} to {to:?}");
+                    assert!(!bands.is_empty(), "{what}: no band");
+                    for p in bands.windows(2) {
+                        let end = i32::from(p[0].y.0) + i32::from(p[0].h.0);
+                        assert_eq!(
+                            i32::from(p[1].y.0),
+                            end,
+                            "{what}: {:?} then {:?}",
+                            p[0],
+                            p[1]
+                        );
+                        edges += 1;
+                    }
+                    if unit.fract() == 0.0 {
+                        let u = unit as i32;
+                        let last = bands.len() - 1;
+                        for (i, b) in bands.iter().enumerate() {
+                            assert_eq!(i32::from(b.y.0) % u, 0, "{what}: {b:?}");
+                            let clipped = i == last && i32::from(b.y.0) + i32::from(b.h.0) == 340;
+                            assert!(i32::from(b.h.0) == u || clipped, "{what}: {b:?}");
+                        }
+                    }
+                }
+            }
+        }
+        assert!(edges > 100, "{edges} band edges");
     }
 
     /// **The records are the cursor's colour**, for every effect. The

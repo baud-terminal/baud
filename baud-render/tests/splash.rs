@@ -246,6 +246,89 @@ fn the_plasma_is_the_colour_of_the_glyph_it_is_over() {
     }
 }
 
+/// **Each pixel of the plasma is in one band record**: on every frame of
+/// the splash at 60 Hz, at 1x and 2x, on the dark and the light page, the
+/// band records the renderer hands every path -- the trail's, which the
+/// CPU path composites, and the same records among the instances a GPU
+/// path uploads -- cover no pixel twice, so no row of the glow is drawn
+/// twice and no line shows where one band meets the next, and no row
+/// between the first band and the last is left out. The lockup's scale
+/// puts its band edges between pixel rows at both sizes. The control: the
+/// bands cover the logo's rows on every frame.
+#[test]
+fn each_pixel_of_the_plasma_is_in_one_band() {
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    for (size, theme) in [
+        (14.0, Theme::dark()),
+        (14.0, Theme::light()),
+        (28.0, Theme::dark()),
+        (28.0, Theme::light()),
+    ] {
+        let mut r = Renderer::new(
+            Stack::with_roles(
+                &faces,
+                &[FaceRole::Fallback, FaceRole::Style(FaceStyle::Bold)],
+            )
+            .unwrap(),
+            PxSize::of(size).unwrap(),
+            theme.clone(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap();
+        let (w, h) = r.pixel_size();
+        let (w, h) = (
+            usize::try_from(w.value()).unwrap(),
+            usize::try_from(h.value()).unwrap(),
+        );
+        let cover = |recs: &mut dyn Iterator<Item = &baud_render::Instance>| {
+            let mut n = vec![0u8; w * h];
+            for i in recs.filter(|i| i.kind == Kind::Band) {
+                let at = |v: i16| usize::try_from(v.max(0)).unwrap();
+                let (x0, y0) = (at(i.x.0), at(i.y.0));
+                let x1 = (x0 + usize::from(i.w.0)).min(w);
+                let y1 = (y0 + usize::from(i.h.0)).min(h);
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        n[y * w + x] += 1;
+                    }
+                }
+            }
+            n
+        };
+        for f in 0u16.. {
+            let age = f32::from(f) / 60.0;
+            if age >= GONE {
+                break;
+            }
+            r.set_splash(look(SplashPhase::Plasma(age)));
+            let what = format!("{size} px, {:?} at {age}", theme.polarity());
+            for (path, n) in [
+                ("the trail's", cover(&mut r.trail().iter())),
+                ("the instances'", cover(&mut r.instances())),
+            ] {
+                let twice = n.iter().filter(|&&c| c > 1).count();
+                let once = n.iter().filter(|&&c| c == 1).count();
+                assert!(once > 1000, "{what}: {path} bands cover {once} pixels");
+                assert_eq!(twice, 0, "{what}: {path} bands cover {twice} pixels twice");
+                let rows: Vec<usize> = (0..h)
+                    .filter(|&y| n[y * w..(y + 1) * w].iter().any(|&c| c > 0))
+                    .collect();
+                assert_eq!(
+                    rows.last().unwrap() - rows[0] + 1,
+                    rows.len(),
+                    "{what}: {path} bands leave a row out"
+                );
+            }
+        }
+    }
+}
+
 /// **The held logo stays over output drawn under it, and goes whole**:
 /// the shell's prompt drawn on the rows under the logo, painted
 /// incrementally, keeps the logo over it -- the frame equals one painted

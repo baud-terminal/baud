@@ -8,8 +8,9 @@
 //! fragment multiplies its alpha by its record's and draws the record's
 //! colour, so where one record covers a pixel, no alpha it can draw there
 //! makes a WCAG 2.3.1 transition from the ground. **One record a pixel is
-//! what a repeat pass keeps**: its bands, one a cell row and disjoint, and
-//! not its particles, which stack over the bands and over each other, and
+//! what a repeat pass keeps**: its bands, one a cell row, which tile the
+//! pixel rows so each pixel is under one ([`crate::effect::Vfx::instances`]),
+//! and not its particles, which stack over the bands and over each other, and
 //! whose alphas compound under source-over past any one record's cap. **The
 //! ground is every colour the cells under the pass draw** -- their
 //! backgrounds, and over text every mixture of the text over its background

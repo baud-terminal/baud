@@ -3486,9 +3486,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 v.instances(frame, effect_fill, &mut self.trail_inst);
                 // A repeat pass keeps the bands, a cell row each, and not
                 // the particles that stack over them, whose alphas would
-                // compound past the cap. Where a band edge falls between
-                // pixel rows the two bands share that row (a top rounds
-                // down, a bottom up), so that row is drawn twice.
+                // compound past the cap. The bands tile the pixel rows
+                // (`Vfx::instances`), so each pixel is under one record.
                 if v.emitter.strength == Strength::UnderThreshold {
                     self.trail_inst.retain(|r| r.kind == Kind::Band);
                 }

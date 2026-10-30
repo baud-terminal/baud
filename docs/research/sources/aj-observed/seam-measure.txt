@@ -1,0 +1,185 @@
+# The launch splash's plasma where one band record meets the next, before and after
+# the bands' edges were shared. Before, each band record rounded its own top down and
+# its own bottom up, so where the plasma's unit (the block's height at the lockup's
+# scale) put an edge between pixel rows, that row was in two records and composited
+# twice. After, each edge is rounded once, to the first row whose centre is not above
+# it, and shared by the two bands. Measured 2026-10-30 on an Apple M5 Max under macOS
+# 27.0, release build, on baud-render's CPU path (the pixels the GPU arms are held to
+# by the pixel oracle), with seam_probe.rs; base and change built from one tree.
+#
+# Every frame at 60 Hz of the splash's life (33), on a blank window: 64x20 cells at
+# 14 px (1x) and 200x50 at 28 px (2x), dark and light pages. 'doubled': pixel-frames
+# covered by two band records. 'masked-hash mismatches': frames whose pixels, with the
+# base's doubled pixels left out, hash differently between base and change (0: the
+# change moves no other pixel). '|step|': a pixel's relative luminance against the
+# mean of the one above and the one below, at the base's doubled pixels; 'control':
+# the same three rows up, where one record covers. 'base minus fix': the relative
+# luminance the doubled pixels lose (dark) or gain (light).
+1x-dark (512x360 px) before: doubled pixel-frames 10740 in 33 of 33 frames; |step| at the base's doubled pixels mean 0.01588 max 0.57007 over 10740; control 3 rows up mean 0.00765 over 10740; masked-hash mismatches 0; base minus fix at the base's doubled pixels mean 0.00000 max 0.00000 over 0, brighter in the base at 0
+1x-light (512x360 px) before: doubled pixel-frames 10740 in 33 of 33 frames; |step| at the base's doubled pixels mean 0.02999 max 0.32548 over 10740; control 3 rows up mean 0.00687 over 10740; masked-hash mismatches 0; base minus fix at the base's doubled pixels mean 0.00000 max 0.00000 over 0, brighter in the base at 0
+2x-dark (3400x1850 px) before: doubled pixel-frames 70758 in 33 of 33 frames; |step| at the base's doubled pixels mean 0.01492 max 0.34476 over 70758; control 3 rows up mean 0.00030 over 70758; masked-hash mismatches 0; base minus fix at the base's doubled pixels mean 0.00000 max 0.00000 over 0, brighter in the base at 0
+2x-light (3400x1850 px) before: doubled pixel-frames 70758 in 33 of 33 frames; |step| at the base's doubled pixels mean 0.02647 max 0.21066 over 70758; control 3 rows up mean 0.00048 over 70758; masked-hash mismatches 0; base minus fix at the base's doubled pixels mean 0.00000 max 0.00000 over 0, brighter in the base at 0
+1x-dark (512x360 px) after: doubled pixel-frames 0 in 0 of 33 frames; |step| at the base's doubled pixels mean 0.00721 max 0.50265 over 10740; control 3 rows up mean 0.00765 over 10740; masked-hash mismatches 0; base minus fix at the base's doubled pixels mean 0.01404 max 0.31530 over 10740, brighter in the base at 5854
+1x-light (512x360 px) after: doubled pixel-frames 0 in 0 of 33 frames; |step| at the base's doubled pixels mean 0.00609 max 0.35367 over 10740; control 3 rows up mean 0.00687 over 10740; masked-hash mismatches 0; base minus fix at the base's doubled pixels mean 0.02943 max 0.20442 over 10740, brighter in the base at 0
+2x-dark (3400x1850 px) after: doubled pixel-frames 0 in 0 of 33 frames; |step| at the base's doubled pixels mean 0.00042 max 0.32278 over 70758; control 3 rows up mean 0.00030 over 70758; masked-hash mismatches 0; base minus fix at the base's doubled pixels mean 0.01480 max 0.31704 over 70758, brighter in the base at 43379
+2x-light (3400x1850 px) after: doubled pixel-frames 0 in 0 of 33 frames; |step| at the base's doubled pixels mean 0.00051 max 0.22004 over 70758; control 3 rows up mean 0.00048 over 70758; masked-hash mismatches 0; base minus fix at the base's doubled pixels mean 0.02639 max 0.20482 over 70758, brighter in the base at 0
+#
+# The flash census (baud_bench::flash::Census over the splash's whole life, 0.2 s
+# blank either side, as note AJ section 17 took it): before, then after.
+64x20@1x 60Hz dark: general 4 red 0 red-enc 0 area 2.0 strict 52.0 (0.01%/0.2% of 21824) translucent 0
+64x20@1x 60Hz light: general 3 red 0 red-enc 0 area 0.0 strict 64.0 (0.00%/0.3% of 21824) translucent 0
+64x20@1x 60Hz cd: general 4 red 1 red-enc 1 area 1.0 strict 36.0 (0.00%/0.2% of 21824) translucent 0
+64x20@1x 60Hz 1a: general 4 red 2 red-enc 2 area 2.0 strict 49.0 (0.01%/0.2% of 21824) translucent 0
+200x50@2x 60Hz dark: general 4 red 0 red-enc 0 area 6.5 strict 494.0 (0.03%/2.3% of 21824) translucent 0
+200x50@2x 60Hz light: general 3 red 0 red-enc 0 area 0.0 strict 761.5 (0.00%/3.5% of 21824) translucent 0
+200x50@2x 60Hz cd: general 4 red 1 red-enc 1 area 5.5 strict 368.5 (0.03%/1.7% of 21824) translucent 0
+200x50@2x 60Hz 1a: general 4 red 2 red-enc 2 area 7.0 strict 478.8 (0.03%/2.2% of 21824) translucent 0
+200x50@2x 120Hz dark: general 4 red 0 red-enc 0 area 10.0 strict 613.2 (0.05%/2.8% of 21824) translucent 0
+200x50@2x 120Hz light: general 4 red 0 red-enc 0 area 19.8 strict 1554.0 (0.09%/7.1% of 21824) translucent 0
+200x50@2x 120Hz cd: general 4 red 2 red-enc 1 area 6.8 strict 471.2 (0.03%/2.2% of 21824) translucent 0
+200x50@2x 120Hz 1a: general 4 red 2 red-enc 2 area 9.8 strict 598.2 (0.04%/2.7% of 21824) translucent 0
+360x90@2x 60Hz dark: general 4 red 0 red-enc 0 area 23.5 strict 1368.0 (0.11%/6.3% of 21824) translucent 0
+360x90@2x 60Hz light: general 4 red 0 red-enc 0 area 1.8 strict 1797.8 (0.01%/8.2% of 21824) translucent 0
+360x90@2x 60Hz cd: general 4 red 1 red-enc 1 area 19.2 strict 1041.8 (0.09%/4.8% of 21824) translucent 0
+360x90@2x 60Hz 1a: general 4 red 2 red-enc 2 area 24.5 strict 1333.5 (0.11%/6.1% of 21824) translucent 0
+#
+64x20@1x 60Hz dark: general 4 red 0 red-enc 0 area 2.0 strict 52.0 (0.01%/0.2% of 21824) translucent 0
+64x20@1x 60Hz light: general 3 red 0 red-enc 0 area 0.0 strict 64.0 (0.00%/0.3% of 21824) translucent 0
+64x20@1x 60Hz cd: general 4 red 1 red-enc 1 area 1.0 strict 36.0 (0.00%/0.2% of 21824) translucent 0
+64x20@1x 60Hz 1a: general 4 red 2 red-enc 2 area 2.0 strict 49.0 (0.01%/0.2% of 21824) translucent 0
+200x50@2x 60Hz dark: general 4 red 0 red-enc 0 area 6.5 strict 489.5 (0.03%/2.2% of 21824) translucent 0
+200x50@2x 60Hz light: general 3 red 0 red-enc 0 area 0.0 strict 757.5 (0.00%/3.5% of 21824) translucent 0
+200x50@2x 60Hz cd: general 4 red 1 red-enc 1 area 5.5 strict 364.2 (0.03%/1.7% of 21824) translucent 0
+200x50@2x 60Hz 1a: general 4 red 2 red-enc 2 area 7.0 strict 473.8 (0.03%/2.2% of 21824) translucent 0
+200x50@2x 120Hz dark: general 4 red 0 red-enc 0 area 10.0 strict 608.0 (0.05%/2.8% of 21824) translucent 0
+200x50@2x 120Hz light: general 4 red 0 red-enc 0 area 19.8 strict 1553.8 (0.09%/7.1% of 21824) translucent 0
+200x50@2x 120Hz cd: general 4 red 2 red-enc 1 area 6.8 strict 466.8 (0.03%/2.1% of 21824) translucent 0
+200x50@2x 120Hz 1a: general 4 red 2 red-enc 2 area 9.8 strict 593.2 (0.04%/2.7% of 21824) translucent 0
+360x90@2x 60Hz dark: general 4 red 0 red-enc 0 area 23.5 strict 1365.0 (0.11%/6.3% of 21824) translucent 0
+360x90@2x 60Hz light: general 4 red 0 red-enc 0 area 1.8 strict 1791.0 (0.01%/8.2% of 21824) translucent 0
+360x90@2x 60Hz cd: general 4 red 1 red-enc 1 area 19.2 strict 1040.5 (0.09%/4.8% of 21824) translucent 0
+360x90@2x 60Hz 1a: general 4 red 2 red-enc 2 area 24.5 strict 1330.0 (0.11%/6.1% of 21824) translucent 0
+#
+# The CPU path's per-pixel work (a_2x_splash_frame_runs_a_fraction_of_its_pixels_math's
+# counts at its first frames), before then after: records, band pixels, series, distances.
+200x50 at 0: 40 records, 669060 band pixels, 423428 series, 0 distances, 0.6329 0.0000
+360x90 at 0: 40 records, 2158300 band pixels, 1333456 series, 0 distances, 0.6178 0.0000
+200x50 at 0: 40 records, 663750 band pixels, 420699 series, 0 distances, 0.6338 0.0000
+360x90 at 0: 40 records, 2150660 band pixels, 1328554 series, 0 distances, 0.6177 0.0000
+#
+# Cursor trails, lit at the cell's height (whole pixels), have no edge between rows:
+# baud-bench's flash bench with FLASH_HASH=1 on the Metal cell path, plasma, fire, ice
+# and liquid, 13 pt at 2x and 32 pt at 1x, 60 Hz, the default ink on the dark page,
+# every motion: all 61 rows, the frames' FNV-1a hashes among them, equal on base and
+# change but for the wall-clock column.
+#
+# The strip's crops (seam-strip.png), the frame at 0.05 s, and the mean luminance down
+# each crop, before and after:
+1x-dark: 512x360 px, rows that differ 3: [164, 188, 211]
+  crop x 130..330, y 176..200, the seam row 188, magnified 4x
+  row  mean luminance before  after
+   176  0.19125  0.19125
+   177  0.19992  0.19992
+   178  0.20060  0.20060
+   179  0.18338  0.18338
+   180  0.16312  0.16312
+   181  0.16935  0.16935
+   182  0.18473  0.18473
+   183  0.18123  0.18123
+   184  0.17407  0.17407
+   185  0.19770  0.19770
+   186  0.19767  0.19767
+   187  0.17726  0.17726
+   188  0.23078  0.18920  <- the doubled row
+   189  0.20811  0.20811
+   190  0.18703  0.18703
+   191  0.15075  0.15075
+   192  0.04122  0.04122
+   193  0.02777  0.02777
+   194  0.01676  0.01676
+   195  0.01357  0.01357
+   196  0.01135  0.01135
+   197  0.00973  0.00973
+   198  0.00857  0.00857
+   199  0.00771  0.00771
+1x-light: 512x360 px, rows that differ 2: [164, 188]
+  crop x 130..330, y 176..200, the seam row 188, magnified 4x
+  row  mean luminance before  after
+   176  0.56809  0.56809
+   177  0.55268  0.55268
+   178  0.54531  0.54531
+   179  0.55250  0.55250
+   180  0.57100  0.57100
+   181  0.57278  0.57278
+   182  0.56712  0.56712
+   183  0.57072  0.57072
+   184  0.56385  0.56385
+   185  0.54040  0.54040
+   186  0.53941  0.53941
+   187  0.56692  0.56692
+   188  0.51729  0.56973  <- the doubled row
+   189  0.56655  0.56655
+   190  0.58221  0.58221
+   191  0.60619  0.60619
+   192  0.68111  0.68111
+   193  0.70849  0.70849
+   194  0.75827  0.75827
+   195  0.77873  0.77873
+   196  0.79540  0.79540
+   197  0.80966  0.80966
+   198  0.82016  0.82016
+   199  0.82966  0.82966
+2x-dark: 3400x1850 px, rows that differ 3: [782, 938, 1094]
+  crop x 1602..1802, y 926..950, the seam row 938, magnified 4x
+  row  mean luminance before  after
+   926  0.24639  0.24639
+   927  0.24089  0.24089
+   928  0.23736  0.23736
+   929  0.23339  0.23339
+   930  0.22991  0.22991
+   931  0.22719  0.22719
+   932  0.22550  0.22550
+   933  0.22455  0.22455
+   934  0.22426  0.22426
+   935  0.22444  0.22444
+   936  0.22511  0.22511
+   937  0.22621  0.22621
+   938  0.33612  0.22777  <- the doubled row
+   939  0.22995  0.22995
+   940  0.23271  0.23271
+   941  0.23626  0.23626
+   942  0.24064  0.24064
+   943  0.24573  0.24573
+   944  0.25173  0.25173
+   945  0.25795  0.25795
+   946  0.26413  0.26413
+   947  0.26939  0.26939
+   948  0.27344  0.27344
+   949  0.27642  0.27642
+2x-light: 3400x1850 px, rows that differ 3: [782, 938, 1094]
+  crop x 1671..1871, y 926..950, the seam row 938, magnified 4x
+  row  mean luminance before  after
+   926  0.45959  0.45959
+   927  0.46356  0.46356
+   928  0.46559  0.46559
+   929  0.46674  0.46674
+   930  0.46796  0.46796
+   931  0.46929  0.46929
+   932  0.47083  0.47083
+   933  0.47261  0.47261
+   934  0.47438  0.47438
+   935  0.47600  0.47600
+   936  0.47708  0.47708
+   937  0.47760  0.47760
+   938  0.32585  0.47730  <- the doubled row
+   939  0.47577  0.47577
+   940  0.47276  0.47276
+   941  0.46804  0.46804
+   942  0.46148  0.46148
+   943  0.45330  0.45330
+   944  0.44424  0.44424
+   945  0.43462  0.43462
+   946  0.42531  0.42531
+   947  0.41709  0.41709
+   948  0.41000  0.41000
+   949  0.40390  0.40390

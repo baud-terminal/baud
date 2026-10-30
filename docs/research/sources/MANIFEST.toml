@@ -3727,6 +3727,38 @@ group  = "J"
 # documentation). It was read as apple-metal-resource-options.html, and the
 # digest is of that copy.
 
+[sources.apple-metal-sample-positions]
+key    = "apple-metal-sample-positions"
+title  = "Positioning samples programmatically (documentation JSON): the default one-sample position is 0.5, 0.5 of a pixel, its origin the top-left corner"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/positioning-samples-programmatically.json"
+file   = ""
+sha256 = "2a0871cc22ea58d3bc5defe3dc1b8403c1c32200dfb3d1524bda6c2d717c90d2"
+bytes  = 17176
+status = "external"
+group  = "J"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as positioning-samples-programmatically.json,
+# and the digest is of that copy.
+
+[sources.apple-msl-spec]
+key    = "apple-msl-spec"
+title  = "Metal Shading Language Specification, 2026-06-04: viewport coordinates in pixels, the origin the viewport's top-left corner (p. 23)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/metal"
+url    = "https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf"
+file   = ""
+sha256 = "41538b30d2f1140a5b2a0c84ce0a9f7b67bf0c707e224cfea0bfe5a44aa26cf5"
+bytes  = 14564497
+status = "external"
+group  = "J"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as Metal-Shading-Language-Specification.pdf,
+# 383 pages, its text through pdftotext, and the digest is of that copy.
+
 [sources.apple-storage-mode-apple-gpus]
 key    = "apple-storage-mode-apple-gpus"
 title  = "Choosing a resource storage mode for Apple GPUs (documentation JSON)"
@@ -21868,6 +21900,58 @@ url    = "bash docs/research/sources/aj-observed/logo_probe.sh, run from the rep
 file   = "aj-observed/logo_probe.txt"
 sha256 = "e93dead3d7b677bac53813f66e01a6a13a8ec2092f9a1afc555c3fc7b0d14850"
 bytes  = 372
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-seam-probe]
+key    = "aj-obs-seam-probe"
+title  = "The band seam's probe: the splash's plasma at every 60 Hz frame, the pixels two band records cover and the luminance step there, the flash census, and whole frames for the strip"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a test written for note AJ section 21, run in baud-bench/tests/ with --ignored on the base and on the change, 2026-10-30"
+file   = "aj-observed/seam_probe.rs"
+sha256 = "614d0c2374dd2a07f596a47552b205b502fe5a7ed3a04907b2e39a82671b3c59"
+bytes  = 13808
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-seam-strip-tool]
+key    = "aj-obs-seam-strip-tool"
+title  = "The band seam's strip: the frame before the change above the frame after it, cropped where they differ most and magnified, and the mean luminance down each crop"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a Python script written for note AJ section 21; reads the probe's whole frames"
+file   = "aj-observed/seam_strip.py"
+sha256 = "db8bf3bb38ff1ed87e6cfef488d2851d84956eecd1c77de4207e6c6906f3a941"
+bytes  = 3045
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-seam-measure]
+key    = "aj-obs-seam-measure"
+title  = "The splash's plasma where one band meets the next, before and after the bands' edges were shared: pixels drawn twice, the luminance step there, the flash census at four sizes and rates on four grounds, the CPU path's per-pixel work, and the cursor trails' frame hashes"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "seam_probe.rs and seam_strip.py on baud-render's CPU path, and baud-bench's flash bench with FLASH_HASH=1 on the Metal cell path, base and change, 2026-10-30"
+file   = "aj-observed/seam-measure.txt"
+sha256 = "898f0d137174309ef64013177ca671f44501c71f774da6cbe8ce44591671a8d7"
+bytes  = 11556
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-seam-strip]
+key    = "aj-obs-seam-strip"
+title  = "The launch logo's plasma at 0.05 s where one band meets the next: 1x dark, 1x light, 2x dark and 2x light, top to bottom, each the base above the change, cropped 200 by 24 pixels at the band edge whose rows differ most and magnified four times"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 64x20-cell window at 14 px (1x) and 200x50 at 28 px (2x), JetBrains Mono; made 2026-10-30 on an Apple M5 Max under macOS 27.0"
+file   = "aj-observed/seam-strip.png"
+sha256 = "dac8ba3b36027913bc0da40f02f02624212ebd90478c58088f5938ae5e51c0ff"
+bytes  = 55843
 status = "retrieved"
 group  = "AJ"
 
