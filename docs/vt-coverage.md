@@ -54,16 +54,21 @@ handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
 **No row carries `parsed` or `todo`. Twenty-six carry `**partial**`, and
-`no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
-Since 2026-10-23 `the_vt_coverage_partial_counts_equal_its_partial_rows`
-counts them: the legend's number and this one must equal the rows whose
-status is `partial`, bold or bare, so a row that gains or loses the status
-moves both or the test fails. Until then the legend read twenty-eight, and
-named kitty graphics' file mediums, done since 2026-10-16.
-This paragraph said no row carried any of the three and that the test fails if
-one ever does. The test matches a status cell that starts with the bare word,
-and these start with `**`, so it passes with DECSC, DECRC and the DEC Special
-Graphics glyph table all at `**partial**`, and
+each names its gap.** `no_row_is_unfinished` in `baud-core/tests/coverage.rs`
+holds all three, in this file, `input-coverage.md` and every file under
+`docs/protocols`, and reads a status in any spelling, bold or bare and in any
+case: a `parsed` or `todo` row fails it, so does a `partial` row whose cell
+says nothing after the status, and the rows at `partial` must equal the count
+the legend and this paragraph state
+(`the_vt_coverage_partial_counts_equal_its_partial_rows`), so a row that gains
+or loses the status moves both or the test fails. The legend is the first
+table in this file and is passed over by its place, not its words; it must
+hold the five statuses and nothing else. Until 2026-10-30 the test matched
+only a cell that began with the bare word, so every bold row passed it unseen,
+and it did not read `input-coverage.md`. Until 2026-10-23 the legend read
+twenty-eight, and named kitty graphics' file mediums, done since 2026-10-16.
+The rows that carry it are DECSC, DECRC and the DEC Special Graphics glyph
+table, and
 since 2026-10-12 five DEC character set rows: JIS-Roman, DEC
 Technical, the three VT500 supplementals, DEC Cyrillic, and SCS and Russian
 NRCS, which read `done` while every one of them drew its byte, and the
@@ -71,15 +76,18 @@ national sets' translation, which read `done` beside a gate DEC's texts
 disagree on, and since 2026-10-14 DECNCSM and DECSCPP, whose width change
 the embedder's resize reflows, and since 2026-10-16 kitty graphics' `a=p`,
 whose resampling filter and default-background readings are interim, and
-since 2026-10-18 three SGR rows, 10-19, 20, 26 and 50, recorded and drawn
-by no path, and since 2026-10-19 DECAUPSS, whose ISO Latin-1 assignment is not
+since 2026-10-19 DECAUPSS, whose ISO Latin-1 assignment is not
 acted on, and `OSC 22`, whose shapes macOS sets as the nearest
 system cursor and the Linux driver as the nearest `cursor-shape-v1` shape, and
 ReGIS, built a part at a time, and since 2026-10-21 `OSC 1337 ;
 RequestAttention`, whose `fireworks` is not built, and kitty's `OSC 99`,
 whose JPEG and GIF icons Linux does not show and whose close macOS
 reports untracked before permission is known, and since 2026-10-22
-kitty's `OSC 21`, whose visual bell takes no colour, iTerm2's `Notification`, which drops a subtitle and a picture, iTerm2's `File`, which decodes PNG alone, and `OSC 1337 ; SetBadgeFormat`, which evaluates user variables alone and draws no outline. `?30` carried it from 2026-10-20 to
+kitty's `OSC 21`, whose visual bell takes no colour, iTerm2's `Notification`, which drops a subtitle and a picture, iTerm2's `File`, which decodes PNG alone, and `OSC 1337 ; SetBadgeFormat`, which evaluates user variables alone and draws no outline, and since
+2026-10-20 DECSWBV and DECSMBV, since 2026-10-24 BDSM and since 2026-10-26
+DECRLM and DCSM, each with its gap in its row. Three SGR rows, 10-19, 20,
+26 and 50, carried it from 2026-10-18 to 2026-10-23, recorded and drawn by
+no path until each was drawn. `?30` carried it from 2026-10-20 to
 2026-10-21, until the Linux driver drew its scrollbar. The `dcs_passthrough`
 state carried it from 2026-10-09 to 2026-10-23, until a `SUB` there drew the
 error character under its setting. DECSCL carried it from
@@ -97,9 +105,8 @@ its origin ignored the left margin and then while its columns were not
 confined. SGR 6's rapid blink carried it from 2026-10-10 to 2026-10-14,
 while it blinked at 5's slow rate. GR bytes under `ESC % @`, the `escape` and
 `escape_intermediate` states and `DEL` in `csi_entry` or `csi_intermediate`
-carried it from 2026-10-10 to 2026-10-11. A check that saw them
-would fail on all twenty-seven, and that is
-the right answer: each row names work that is not finished. `out` is the only status that
+carried it from 2026-10-10 to 2026-10-11. Each row at `partial` names
+work that is not finished. `out` is the only status that
 means "not implemented", and `every_out_row_states_a_reason` requires each one
 to say why **in the row** — because otherwise "nothing is partial" would be a
 word game, satisfiable by relabelling anything inconvenient as out of scope.

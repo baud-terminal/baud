@@ -213,7 +213,7 @@ the build instead:
 
 | check | what it holds |
 |---|---|
-| `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is a plain `partial`, `parsed` or `todo`, though a bold `**partial**` passes it, an open defect; **every `out` row states a reason**; the operation counts quoted in README and MEASUREMENTS.md match the table |
+| `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is `parsed` or `todo`, bold or bare, every `partial` row names its gap, and the rows at `partial` equal the counts `vt-coverage.md` and `input-coverage.md` state; **every `out` row states a reason**; the operation counts quoted in README and MEASUREMENTS.md match the table |
 | `baud-core/tests/conformance/enumerated.rs` | every **done** row's sequence, synthesised from the table and fed to a real `Term`, reaches a handler rather than being counted unsupported |
 | `baud-core/tests/conformance/spec_inventory.rs` | the reverse direction: every plain CSI final, every CSI *form* (markers and intermediates), every `ESC Fe`, **every `ESC` form with an intermediate — including all four G-slots × every charset final**, every `OSC Ps` and every `DCS` form that **`[[source: ctlseqs]]` defines** is either acted on or counted; and a final byte the specification gives two *arities* means two things — so an operation baud never enumerated cannot be silently swallowed |
 | `baud-core/tests/encoding/graphemes.rs` | all 766 cases of Unicode's `GraphemeBreakTest.txt`, and the generated tables still match the pinned data |

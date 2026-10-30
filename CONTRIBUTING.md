@@ -323,7 +323,9 @@ source of truth for what baud implements, and
 [docs/input-coverage.md](docs/input-coverage.md) is its twin for keys and the
 mouse. Read the table before adding an operation and update it in the same
 commit; a row moves to **done** only when a test exists that would fail if the
-operation regressed.
+operation regressed. No row is `parsed` or `todo`; a row at `partial` names
+its gap in the row and moves the count its file states, and
+`no_row_is_unfinished` fails otherwise.
 
 A sequence the parser recognises and then **drops** is worse than one it does
 not implement: the terminal accepts it, does nothing, and gives the
