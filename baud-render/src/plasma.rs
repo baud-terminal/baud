@@ -786,6 +786,7 @@ mod tests {
     use crate::det::tally;
     use crate::effect::tests::{CELL, cell, ignition};
     use crate::effect::{Effect, Seed};
+    use crate::instance::Instance;
     use crate::splash;
     use crate::trail::{Rect, Segment, Shape, Smear};
     use crate::units::Tally;
@@ -911,6 +912,11 @@ mod tests {
     fn bands(vfx: &Vfx, (w, h): (Px, Px)) -> Vec<(Range<usize>, Range<usize>)> {
         let mut out = Vec::new();
         vfx.instances((w, h), Argb(0xFFF4_A32C), &mut out);
+        ranges(&out, (w, h))
+    }
+
+    /// The pixel ranges of the band records in `out`, in a `w` by `h` frame.
+    fn ranges(out: &[Instance], (w, h): (Px, Px)) -> Vec<(Range<usize>, Range<usize>)> {
         let (w, h) = (w.value(), h.value());
         let at = |v: i16| usize::try_from(v.max(0)).unwrap_or(0);
         let end = |v: i16, d: u16, lim: u32| {
@@ -1028,9 +1034,11 @@ mod tests {
 
     /// **A 2x splash frame's plasma is a fraction of its pixels' math**:
     /// the first frame of the launch logo's plasma at 200 by 50 cells at 2x,
-    /// its largest, shaded over its band records as the CPU path draws it,
-    /// runs under 0.65 exponentials or sines a band pixel and measures the
-    /// quad from under 0.65 of them (0.57 and 0.57), where the light at each
+    /// its largest, shaded over its band records as the CPU path draws it --
+    /// split where its colour turns from the word's to the amber, 40 records
+    /// where they were 4, 0.6% more series -- runs under 0.65 exponentials
+    /// or sines a band pixel and measures the quad from under 0.65 of them
+    /// (0.57 and 0.57), where the light at each
     /// pixel ran 3.39 and measured from every one. With the braid kept by
     /// no column the series are 2.56 a pixel, with the distance's terms
     /// kept by no row or column 0.99, and with no deep interior the
@@ -1040,8 +1048,14 @@ mod tests {
     fn a_2x_splash_frame_runs_a_fraction_of_its_pixels_math() {
         let frame = (3400.0, 1850.0);
         let s = splash::scale(frame);
-        let vfx = splash::vfx(splash::origin(frame, s), s, 0.0);
-        let records = bands(&vfx, (Px::of(3400), Px::of(1850)));
+        let at = splash::origin(frame, s);
+        let vfx = splash::vfx(at, s, 0.0);
+        let size = (Px::of(3400), Px::of(1850));
+        // Split where the plasma's colour turns, as the splash draws it.
+        let mut out = Vec::new();
+        vfx.instances(size, Argb(0xFFF4_A32C), &mut out);
+        splash::paint(&mut out, at, s, splash::DARK);
+        let records = ranges(&out, size);
         let pixels: usize = records.iter().map(|(xs, ys)| xs.len() * ys.len()).sum();
         let (series, distances) = tally::of(|| {
             for (xs, ys) in &records {

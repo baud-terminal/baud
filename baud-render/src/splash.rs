@@ -1,19 +1,25 @@
 //! **The launch splash**: baud's colour lockup, `baud ❯ █`, in the middle
-//! of the window once it is shown -- carried in by the plasma from its
-//! left edge to its right, every letter drawn inside it, whole at [`OUT`],
-//! 0.37 s in, then carried out by a second plasma from its left edge to its
-//! right, every letter taken inside it, the logo gone at [`LEFT`], 0.74 s
-//! in, and what is left of the plasma at [`GONE`], 0.82 s in (note AJ).
+//! of the window once it is shown -- drawn by the plasma from its left
+//! edge to its right, whole at [`OUT`], 0.10 s in, and on that frame a
+//! second plasma lights over it and carries it straight back out from its
+//! left edge to its right, every glyph taken inside it, the logo gone at
+//! [`LEFT`], 0.47 s in, and what is left of the plasma at [`GONE`], 0.55 s
+//! in: one movement, with no frame where the logo stands still (note AJ).
 //! The lockup is
 //! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s geometry and
 //! colours, without the dark one's baked ground, which would be a
 //! rectangle on the glass; the half is the theme's by the rule `CSI ? 996
 //! n` answers with ([`crate::Theme::polarity`]).
 //!
-//! **Its plasma is the lockup's amber**: the logo carries the colour on the
-//! splash, and the cursor trails keep the cursor's colour. It goes where it
-//! stands rather than flying its block to the shell's cursor. It is drawn
-//! as the lockup's own pixels, not as cells.
+//! **Its plasma is the colour of the glyph it is over** ([`paint`]): the
+//! word's ink over `baud` -- near-white on the dark page, dark on the
+//! light -- and the amber over `❯` and the block, stepping from the one
+//! to the other across the gap between them. Every path draws it
+//! source-over in its record's colour, so on the light page the word's
+//! plasma is a dark glow by the same tube, filaments and ions. The cursor
+//! trails keep the cursor's colour. It goes where it stands rather than
+//! flying its block to the shell's cursor. It is drawn as the lockup's
+//! own pixels, not as cells.
 //!
 //! **It is the plasma trail's own model, at kitty's pace**,
 //! [`crate::plasma`]: the lockup's block is a cursor, and the box from the
@@ -21,16 +27,16 @@
 //! collapses into the cell a cursor reached ([`Segment`]), the tube
 //! filling it, the filaments braiding into the block and the ions peeling
 //! off, on kitty's constants and kitty's clock. **Where it is over time is
-//! the splash's own**: each pass's box spans the whole lockup for
-//! [`HOLD`] while an even edge crosses the letters inside it, then
-//! collapses into the block on kitty's curve, so the plasma is over the
-//! word as well as the mark. **Two passes, at full strength**: the first
-//! draws the logo, which stands faintly in it from its first frame
-//! ([`GHOST`]), each letter whole where the edge has passed; the second
-//! lights over the whole logo on the frame it is whole and takes each
-//! letter away where its own edge has passed, the block last each time, as
-//! the box lands on it, and what is left of it fades to nothing by
-//! [`GONE`].
+//! the splash's own**: the first pass's box spans the whole lockup for
+//! [`HOLD`] while an even edge crosses the glyphs inside it, the block
+//! last, so the logo is drawn inside the plasma, which it stands faintly
+//! in from its first frame ([`GHOST`]); the second pass lights over the
+//! whole logo on the frame the block is drawn, its edge takes each letter
+//! through its own [`HOLD`], and its box then collapses into the block on
+//! kitty's curve, the block going as the box lands on it, and what is left
+//! of it fades to nothing by [`GONE`]. Each frame has one effect, so the
+//! second pass replaces the first, as it did when it lit at the first's
+//! landing.
 //! The two passes put a fourth flash into one second at a few pixels, an
 //! area the general and red flash thresholds allow by a wide margin
 //! (`baud-bench/tests/splash_flashes.rs`); no pass is capped, so nothing
@@ -44,9 +50,11 @@
 //! this derives the records and the effect. No clock and no state, as
 //! [`crate::effect`].
 
+use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
 use crate::effect::{Effect, Ignition, Seed, Vfx, smoothstep};
 use crate::flash::Strength;
+use crate::instance::{Instance, Screen};
 use crate::trail::{Pt, Rect, Segment, Shape, Smear};
 use baud_domain::Chan;
 
@@ -127,26 +135,27 @@ pub const SEED: Seed = Seed(0xBA0D_276F);
 /// Seconds the fade lasts: the screen transition's (`TRANSITION_S`).
 pub const FADE_S: f32 = 0.15;
 
-/// **Seconds each pass's plasma spans the whole lockup before it
-/// collapses**: the box from the wordmark's pen to the block holds while
-/// an even edge crosses the letters inside it ([`reveal`]), so each letter
-/// is drawn, and later taken, under the plasma, which then lands on the
-/// block on kitty's curve. 0.10 rather than 0.15 or none: none left the
-/// word's letters outside the plasma as they were drawn, `b` under it for
-/// one 60 Hz frame and not at all as it left (note AJ, section 15).
+/// **Seconds each pass's plasma spans the whole lockup**: the box from the
+/// wordmark's pen to the block holds while an even edge crosses the glyphs
+/// inside it ([`reveal`]), so each is drawn, and later taken, under the
+/// plasma; the second pass's box then lands on the block on kitty's curve.
+/// 0.10 rather than 0.15 or none: none left the word's letters outside the
+/// plasma as they were drawn, `b` under it for one 60 Hz frame and not at
+/// all as it left (note AJ, section 15).
 pub const HOLD: f32 = 0.10;
 
-/// **Seconds the box takes from the end of the hold to land on the
-/// block**: kitty's trailing corner, 0.4 s to close all but `2^-10` of its
+/// **Seconds the second pass's box takes from the end of its hold to land
+/// on the block**: kitty's trailing corner, 0.4 s to close all but `2^-10` of its
 /// gap, has brought the block to 0.986-0.995 of its opacity, from a
 /// 6120-pixel frame to a 640.
 pub const LAND: f32 = 0.27;
 
 /// **Seconds into the splash at which the plasma that carries it out
-/// lights**: the first pass has drawn the letters in its hold and landed
-/// on the block, and the second pass lights over the whole logo on that
-/// frame, so nothing stands still.
-pub const OUT: f32 = HOLD + LAND;
+/// lights**: the first pass's edge has drawn the last glyph, the block, in
+/// its hold, and the second pass lights over the whole logo on that frame
+/// and starts to take it on the next, so the logo is drawn and leaves in
+/// one movement, never standing still between (note AJ, section 17).
+pub const OUT: f32 = HOLD;
 
 /// **Seconds into the splash at which the logo is gone**: the second
 /// pass's edge has taken every letter in its hold, and its box, on kitty's
@@ -191,6 +200,71 @@ pub const LIGHT: Colours = Colours {
     wordmark: Argb(0xFF1E_2128),
     amber: Argb(0xFFC8_801F),
 };
+
+/// **Where the word's letters end and the mark's begin**, in the lockup's
+/// units: the wordmark's pen plus four advances, each with its tracking,
+/// and the prompt's pen. Nothing is drawn between them.
+pub const SEAM: (f32, f32) = (
+    WORDMARK.x + 4.0 * (WORDMARK.size * 0.6 + WORDMARK.tracking),
+    PROMPT.x,
+);
+
+/// **How many slivers the plasma's colour turns in across the [`SEAM`]**,
+/// each its own colour stepped from the word's ink to the amber: a blend
+/// over the gap, where a cut at its middle drew a straight colour edge
+/// through the sheath above and below the lockup (note AJ, section 17).
+pub const SLIVERS: u8 = 8;
+
+/// **The plasma's records in the colour of the glyph each is over**: a
+/// band, a row of the plasma across the whole lockup, is split at the
+/// [`SEAM`]'s slivers, each part in its colour -- the word's ink over
+/// `baud`, near-white on the dark page and dark on the light, the amber
+/// over `❯` and the block, and the steps between them over the gap -- and
+/// an ion takes the colour where its centre is. Only the colour changes:
+/// the light at each pixel is the effect's, whichever record draws it, so
+/// the bands still cover the same pixels once each, in the same order. On
+/// every path the plasma is drawn source-over in its record's colour, so
+/// a dark ink is a dark glow on the light page.
+pub fn paint(records: &mut Vec<Instance>, at: Pt, scale: f32, colours: Colours) {
+    let n = f32::from(SLIVERS);
+    let (l, r) = (at.x + SEAM.0 * scale, at.x + SEAM.1 * scale);
+    // The pixel columns where the colour changes: the word's ink before
+    // the first, the amber from the last, and a step between each two.
+    let cuts: Vec<i32> = (0..=SLIVERS)
+        .map(|i| (l + (r - l) * f32::from(i) / n).round() as i32)
+        .collect();
+    let tone = |x: i32| match cuts.iter().take_while(|&&c| c <= x).count() {
+        0 => colours.wordmark,
+        k if k >= cuts.len() => colours.amber,
+        k => colours
+            .amber
+            .mix(colours.wordmark, Chan::from_unit((k as f32 - 0.5) / n)),
+    };
+    let mut out = Vec::with_capacity(records.len() + cuts.len() * 4);
+    for rec in records.drain(..) {
+        let x0 = i32::from(rec.x.0);
+        let x1 = x0 + i32::from(rec.w.0);
+        match rec.kind {
+            Kind::Band => {
+                let mut from = x0;
+                for &c in cuts.iter().filter(|&&c| c > x0 && c < x1).chain([&x1]) {
+                    out.push(Instance {
+                        x: Screen(i16::try_from(from).unwrap_or(i16::MAX)),
+                        w: Tex(u16::try_from(c - from).unwrap_or(0)),
+                        color: tone(from).with_alpha(rec.color.a()),
+                        ..rec
+                    });
+                    from = c;
+                }
+            }
+            _ => out.push(Instance {
+                color: tone(x0 + i32::from(rec.w.0) / 2).with_alpha(rec.color.a()),
+                ..rec
+            }),
+        }
+    }
+    *records = out;
+}
 
 /// **Device pixels a lockup unit** over a frame `w` by `h`: the lockup
 /// [`FRACTION`] of the window wide, or less where the window is short.
@@ -315,18 +389,13 @@ fn edge(v: &Vfx) -> f32 {
         .fold(f32::INFINITY, f32::min)
 }
 
-/// The prompt's right edge in the lockup's units, where the letters end:
-/// `❯`'s pen and its advance at the lockup's size, JetBrains Mono's 0.6
-/// em.
-const LETTERS: f32 = PROMPT.x + PROMPT.size * 0.6;
-
-/// **The edge the letters follow `t` seconds into a pass**, in frame
-/// pixels: from the wordmark's pen to the prompt's right edge at one speed
+/// **The edge the glyphs follow `t` seconds into a pass**, in frame
+/// pixels: from the wordmark's pen to the block's right edge at one speed
 /// through the pass's [`HOLD`], while the plasma spans the lockup, and past
-/// every letter after it.
+/// every glyph after it.
 pub fn reveal(at: Pt, scale: f32, t: f32) -> f32 {
     match t < HOLD {
-        true => at.x + (WORDMARK.x + (LETTERS - WORDMARK.x) * t.max(0.0) / HOLD) * scale,
+        true => at.x + (EMITTER.left + (EMITTER.right - EMITTER.left) * t.max(0.0) / HOLD) * scale,
         false => f32::INFINITY,
     }
 }
@@ -347,8 +416,8 @@ pub fn ink(look: SplashLook, at: Pt, scale: f32, left: f32, right: f32) -> f32 {
 }
 
 /// **The block's opacity**: whole while held; drawn last, as the first
-/// pass's edge closes the block's own width short of it, and gone last, as
-/// the second pass's does; and the fade's.
+/// pass's edge crosses it, and gone last, as the second pass's box lands
+/// on it; and the fade's.
 pub fn block(look: SplashLook, at: Pt, scale: f32) -> f32 {
     let b = placed(BLOCK, at, scale);
     // Arrived within half a pixel, as a trail's corner is.
@@ -357,7 +426,7 @@ pub fn block(look: SplashLook, at: Pt, scale: f32) -> f32 {
         SplashPhase::Hold => 1.0,
         SplashPhase::Fade(p) => 1.0 - p.clamp(0.0, 1.0),
         SplashPhase::Plasma(age) if age < OUT => {
-            GHOST + (1.0 - GHOST) * near(edge(&vfx(at, scale, age)))
+            GHOST + (1.0 - GHOST) * smoothstep(b.left, b.right, reveal(at, scale, age))
         }
         SplashPhase::Plasma(age) => (1.0 - near(edge(&vfx(at, scale, age)))) * glow(age),
     }
@@ -420,14 +489,15 @@ mod tests {
         assert!(BOX.0 * t < short.0 * FRACTION.0);
     }
 
-    /// **Both passes collapse into the block**: at each one's start, and
-    /// through its [`HOLD`], the emitter is the box from the wordmark to the
-    /// block, the hole the block, drawn at full strength, the second with a
-    /// seed of its own; half a second of its own clock after the hold, each
-    /// has landed on the block, within a pixel; and the second's own end,
-    /// the same at every size, comes after the splash is gone.
+    /// **Both passes span the lockup, and the second lands on the block**:
+    /// at each one's start, and through its [`HOLD`], the emitter is the box
+    /// from the wordmark to the block, the hole the block, drawn at full
+    /// strength, the second with a seed of its own; the first is the box on
+    /// every frame before the second lights; half a second of the second's
+    /// clock after its hold, it has landed on the block, within a pixel; and
+    /// its own end, the same at every size, comes after the splash is gone.
     #[test]
-    fn both_passes_collapse_into_the_block() {
+    fn both_passes_span_the_lockup_and_the_second_lands_on_the_block() {
         let s = scale(FRAME);
         let o = origin(FRAME, s);
         let e = placed(EMITTER, o, s);
@@ -445,13 +515,17 @@ mod tests {
             let held = vfx(o, s, start + HOLD - 1e-3);
             assert_eq!(held.emitter.corners, e.corners(), "held at {start}");
             assert!(held.ignition.age > 0.09, "its clock runs through the hold");
-            let late = pass(o, s, seed, HOLD + 0.5).emitter.corners.0;
-            assert!(
-                late.iter()
-                    .all(|p| p.x >= b.left - 1.0 && p.x <= b.right + 1.0),
-                "{start}: {late:?}"
-            );
         }
+        for ms in 0u8..100 {
+            let age = f32::from(ms) / 1000.0;
+            assert!(age >= OUT || vfx(o, s, age).emitter.corners == e.corners());
+        }
+        let late = vfx(o, s, OUT + HOLD + 0.5).emitter.corners.0;
+        assert!(
+            late.iter()
+                .all(|p| p.x >= b.left - 1.0 && p.x <= b.right + 1.0),
+            "{late:?}"
+        );
         let out = end();
         assert!(GONE < out, "{GONE} {out}");
         assert_eq!(
@@ -611,6 +685,73 @@ mod tests {
             ink(midway, o, s, g[0].0, g[0].1) > ink(midway, o, s, g[4].0, g[4].1) + 0.2,
             "the left drawn before the right"
         );
+    }
+
+    /// **The logo leaves as it is drawn, with no wait between**: at 60 and
+    /// 120 frames a second, no two frames in a row show every letter of
+    /// `baud ❯` whole and still with the block unchanged by an 8-bit step,
+    /// each letter stands whole for no more than
+    /// a pass's [`HOLD`], and on the frame after the first that shows the
+    /// whole logo, the block too, some of it has started to leave. Before,
+    /// the letters stood whole and still from about 0.10 s to 0.37 s while
+    /// the block landed. The control: a held logo is whole and still.
+    #[test]
+    fn the_logo_leaves_as_it_is_drawn() {
+        let s = scale(FRAME);
+        let o = origin(FRAME, s);
+        let g = glyphs(o, s);
+        let inks = |look: SplashLook| -> Vec<f32> {
+            let mut v: Vec<f32> = g.iter().map(|&(l, r)| ink(look, o, s, l, r)).collect();
+            v.push(block(look, o, s));
+            v
+        };
+        let still = |a: &[f32], b: &[f32]| {
+            a[..5]
+                .iter()
+                .zip(&b[..5])
+                .all(|(&x, &y)| x > 1.0 - 1e-3 && (x - y).abs() < 1e-4)
+                && (a[5] - b[5]).abs() < 1.0 / 255.0
+        };
+        let held = inks(SplashLook {
+            phase: SplashPhase::Hold,
+        });
+        assert!(still(&held, &held), "the control");
+        for rate in [60u16, 120] {
+            let frames: Vec<Vec<f32>> = (0u16..)
+                .map(|f| f32::from(f) / f32::from(rate))
+                .take_while(|&a| a < GONE)
+                .map(|a| {
+                    inks(SplashLook {
+                        phase: SplashPhase::Plasma(a),
+                    })
+                })
+                .collect();
+            for (f, p) in frames.windows(2).enumerate() {
+                assert!(
+                    !still(&p[0], &p[1]),
+                    "{rate} Hz: frames {f} and {} stand whole and still: {:?}",
+                    f + 1,
+                    p[1]
+                );
+            }
+            for i in 0..5 {
+                let whole = frames.iter().filter(|v| v[i] > 1.0 - 1e-3).count();
+                let secs = whole as f32 / f32::from(rate);
+                assert!(secs <= HOLD + 1e-3, "{rate} Hz: letter {i} whole {secs} s");
+            }
+            let first = frames
+                .iter()
+                .position(|v| v.iter().all(|&x| x > 0.99))
+                .expect("the logo whole on some frame");
+            assert!(
+                frames[first + 1]
+                    .iter()
+                    .zip(&frames[first])
+                    .any(|(&n, &w)| n < w - 1e-3),
+                "{rate} Hz: whole at frame {first}, and the next: {:?}",
+                frames[first + 1]
+            );
+        }
     }
 
     /// **Every letter is drawn and taken under the plasma**: at 60 and 120

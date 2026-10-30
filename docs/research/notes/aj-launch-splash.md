@@ -7,14 +7,16 @@ and a second carrying it out, 2026-10-29 (section 12); both at kitty's
 pace again, after a window that opens whole, 2026-10-29 (section 13); the
 plasma within a frame at 2x on the CPU path, 2026-10-29 (section 14); the
 plasma over the word as well as the mark, 2026-10-29 (section 15); the
-window shown with its first frame, 2026-10-29 (section 16). The
-questions as built:**
+window shown with its first frame, 2026-10-29 (section 16); the plasma
+in each glyph's colour, and one movement in and out, 2026-10-29 (section
+17). The questions as built:**
 
 - **1. When.** Nothing of it until the window is whole on screen
   (sections 10 and 13). Under
   full motion, on the clock alone since 2026-10-28 (the lean): carried in
-  by one plasma, whole at 0.27 s, then carried out by a second, the logo
-  all but gone at 0.54 s and the glow at 0.62 s (section 13). Under reduced motion, as first built: on the
+  by one plasma, whole at 0.10 s, then carried straight back out by a
+  second, the letters gone by 0.20 s, the logo at 0.48-0.51 s and the glow
+  at 0.55 s (section 17). Under reduced motion, as first built: on the
   shell's first visible cell or a 0.5 s cap from the window's being shown,
   whichever is first (E2 and a cap of 0.5 s; the cap is the lean);
   the vanish starts on the frame after that one.
@@ -24,9 +26,10 @@ questions as built:**
   wordmark to the block collapses into the block on kitty's quad
   constants (chosen over a slower collapse); two passes, each kitty's
   plasma at kitty's pace (section 13).
-- **3. Colour.** C1, the lockup's amber (chosen over C2, the cursor's
-  colour that the 2026-09-25 rule gives every effect); the logo in the lockup's
-  colours on the half the theme's polarity names.
+- **3. Colour.** Each glyph's own colour: the word's ink over `baud`, the
+  amber over the mark, blended across the gap (section 17; C1, the
+  lockup's amber throughout, before); the logo in the lockup's colours on
+  the half the theme's polarity names.
 - **4. Cells or pixels.** L2, against L1 with renders (from text on 2026-10-09): the lockup's geometry
   at 0.30 of the window's width, in the embedded
   JetBrains Mono Bold: weight 700 where the lockup asks 500, the one
@@ -2461,3 +2464,60 @@ launch takes to reach `launched`, and whether the first frame's layer
 contents are committed before the window is ordered front are for the
 next run of `BAUD_STARTUP=1`. The launch-to-first-frame figure of
 `scripts/startup-bench.py` now includes `finishLaunching`.
+
+## 17. The plasma in each glyph's colour, and one movement in and out (2026-10-29)
+
+**What the user sees.** A burst of plasma draws `baud ❯ █` from left to
+right, whole at 0.10 s; on that frame a second lights over it and carries
+it straight back out, the letters gone by 0.20 s, the block last as the
+plasma lands on it, the glow gone at 0.55 s (0.82 s before). The logo
+never stands still: before, the letters stood whole from about 0.10 s to
+0.37 s while the block landed. The plasma is the colour of the glyph it
+is over: the word's near-white over `baud` on the dark page, its dark ink
+on the light page (on each glass page as on its page), the amber over `❯`
+and the block, stepping between them across the gap. The plasma runs on
+kitty's clock as before; the edge that draws now crosses to the block's
+right edge in the same 0.10 s, about 1.19 times as fast over the letters,
+so the block appears between two 60 Hz frames, and the second plasma
+relights at full strength over the same box at 0.10 s.
+
+The requests, verbatim (2026-10-29): "but the plasma is only orange from
+the glyph, it shoudl be like from each letter that is disposed right? so
+plasma shoudl be both white and yellow right? white or if its light mode
+dark no?", "remember that it needs to be both light and dark", "i don'
+tthink there should be a wait between drawing the logo (word + glyph) and
+when it leaves , its like one single animation if that makes sense".
+
+**How it is built.** Every path composites the plasma source-over in its
+record's colour (`Target::effect`; Metal's premultiplied OVER), so the
+dark ink draws a dark glow with no shader change. `splash::paint` splits
+each band at eight slivers across the gap and colours each ion by its
+centre: a blend over the gap, because a cut at its middle draws a
+straight colour edge through the sheath above and below the lockup
+([[source: aj-obs-glyph-seam-cut]] against
+[[source: aj-obs-glyph-seam-blend]]). `OUT` is `HOLD`: the first pass's
+edge crosses the whole lockup, the block last, and the second lights on
+that frame. Of the other placements, one plasma whose landing takes the
+logo carries it out in its dimmer half, 0.30 of the light seen arriving
+([[source: aj-obs-glyph-strip-one]]), and a second plasma lit halfway
+never shows the logo whole at once
+([[source: aj-obs-glyph-strip-overlap]]). Strips:
+[[source: aj-obs-glyph-strip-dark]], [[source: aj-obs-glyph-strip-light]].
+`the_plasma_is_the_colour_of_the_glyph_it_is_over` and
+`the_logo_leaves_as_it_is_drawn` failed before the change.
+
+**Measured** ([[source: aj-obs-glyph-measure]]): each letter whole
+0.086-0.094 s, the block 0.231 s (0.357 and 0.231 before); light seen
+leaving 1.32-1.41 times arriving at 60 Hz, 1.30-1.36 at 2x 120 Hz.
+Census at 1x 60 Hz, 2x 60 and 120 Hz and 6K on four grounds: at most
+24.5 pt² of 21,824 (0.11%), 1,798 (8.2%) on the chained reading, four
+flashes at a pixel, two red on #1A0000 and on #CD0000 at 2x 120 Hz; both
+verdicts pass. The 2x CPU frame runs 0.6% more series (40 band records
+where 4 were).
+
+**Not fixed.** Adjacent band rows share a pixel row (a record's top is
+rounded down and its bottom up), so that row's plasma is drawn twice, a
+faint line at each band edge on every path, before this change too. The
+colour test covers both glass pages, but no strips were rendered on
+them and the census cannot count them, because it needs an opaque
+ground.

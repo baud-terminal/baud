@@ -1,0 +1,55 @@
+# The launch splash with the plasma in each glyph's colour and the logo leaving as it is
+# drawn: the first pass's box spans the lockup for 0.10 s while an even edge draws every
+# glyph, the block last; on that frame the second pass lights over the whole logo, its edge
+# takes the letters over 0.10 s and its box lands on the block on kitty's curve. The plasma
+# is the word's ink over 'baud', the amber over the mark, stepped across the gap in 8
+# slivers. Measured 2026-10-29 on an Apple M5 Max under macOS 27.0, release build, on
+# baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle).
+# Frames: 0.2 s blank, the splash's life, 0.2 s blank, at 60 or 120 a second.
+# Census columns as in kitty-measure.txt: 'general', 'red', 'red-enc': the most flashes at
+# one pixel in any second; 'area': the most of any 341x256-point field flashing more than
+# three times in one second (WCAG 2.2's area clause; the limit is 21,824 pt2); 'strict':
+# the same on the chained reading of a flash. 'seen in' / 'out': the plasma's own light
+# over the bare page in pt2*s, each record's own colour laid over the page in order;
+# 'whole', 'logo gone', 'gone': seconds into the splash. 360x90 cells at 28 px at 2x is
+# the 6120x3330 px frame. Grounds: dark, light, cd (#CD0000), 1a (#1A0000).
+64x20@1x 60Hz dark: general 4 red 0 red-enc 0 area 2.0 strict 52.0 (0.01%/0.2% of 21824) | seen in 29.66 out 39.47 after 0.02 pt2*s, peak in 384 out 387 pt2 | whole 0.100 logo gone 0.480 gone 0.550 s
+64x20@1x 60Hz light: general 3 red 0 red-enc 0 area 0.0 strict 64.0 (0.00%/0.3% of 21824) | seen in 123.54 out 173.95 after 0.23 pt2*s, peak in 1429 out 1409 pt2 | whole 0.100 logo gone 0.480 gone 0.550 s
+64x20@1x 60Hz cd: general 4 red 1 red-enc 1 area 1.0 strict 36.0 (0.00%/0.2% of 21824) | seen in 24.88 out 33.34 after 0.02 pt2*s, peak in 322 out 325 pt2 | whole 0.100 logo gone 0.480 gone 0.550 s
+64x20@1x 60Hz 1a: general 4 red 2 red-enc 2 area 2.0 strict 49.0 (0.01%/0.2% of 21824) | seen in 26.95 out 35.80 after 0.02 pt2*s, peak in 354 out 357 pt2 | whole 0.100 logo gone 0.480 gone 0.550 s
+200x50@2x 60Hz dark: general 4 red 0 red-enc 0 area 6.5 strict 494.0 (0.03%/2.3% of 21824) | seen in 285.58 out 378.31 after 0.02 pt2*s, peak in 3781 out 3838 pt2 | whole 0.100 logo gone 0.509 gone 0.550 s
+200x50@2x 60Hz light: general 3 red 0 red-enc 0 area 0.0 strict 761.5 (0.00%/3.5% of 21824) | seen in 1300.26 out 1812.22 after 0.21 pt2*s, peak in 15156 out 15010 pt2 | whole 0.100 logo gone 0.509 gone 0.550 s
+200x50@2x 60Hz cd: general 4 red 1 red-enc 1 area 5.5 strict 368.5 (0.03%/1.7% of 21824) | seen in 239.89 out 320.35 after 0.02 pt2*s, peak in 3173 out 3225 pt2 | whole 0.100 logo gone 0.509 gone 0.550 s
+200x50@2x 60Hz 1a: general 4 red 2 red-enc 2 area 7.0 strict 478.8 (0.03%/2.2% of 21824) | seen in 256.65 out 339.60 after 0.02 pt2*s, peak in 3451 out 3515 pt2 | whole 0.100 logo gone 0.509 gone 0.550 s
+200x50@2x 120Hz dark: general 4 red 0 red-enc 0 area 10.0 strict 613.2 (0.05%/2.8% of 21824) | seen in 277.52 out 360.86 after 0.01 pt2*s, peak in 3781 out 3838 pt2 | whole 0.100 logo gone 0.509 gone 0.550 s
+200x50@2x 120Hz light: general 4 red 0 red-enc 0 area 19.8 strict 1554.0 (0.09%/7.1% of 21824) | seen in 1279.76 out 1744.83 after 0.16 pt2*s, peak in 15156 out 15010 pt2 | whole 0.100 logo gone 0.509 gone 0.550 s
+200x50@2x 120Hz cd: general 4 red 2 red-enc 1 area 6.8 strict 471.2 (0.03%/2.2% of 21824) | seen in 233.17 out 305.85 after 0.01 pt2*s, peak in 3173 out 3225 pt2 | whole 0.100 logo gone 0.509 gone 0.550 s
+200x50@2x 120Hz 1a: general 4 red 2 red-enc 2 area 9.8 strict 598.2 (0.04%/2.7% of 21824) | seen in 248.95 out 323.61 after 0.01 pt2*s, peak in 3451 out 3515 pt2 | whole 0.100 logo gone 0.509 gone 0.550 s
+360x90@2x 60Hz dark: general 4 red 0 red-enc 0 area 23.5 strict 1368.0 (0.11%/6.3% of 21824) | seen in 922.08 out 1220.78 after 0.06 pt2*s, peak in 12219 out 12400 pt2 | whole 0.100 logo gone 0.512 gone 0.550 s
+360x90@2x 60Hz light: general 4 red 0 red-enc 0 area 1.8 strict 1797.8 (0.01%/8.2% of 21824) | seen in 4208.43 out 5863.18 after 0.67 pt2*s, peak in 49059 out 48592 pt2 | whole 0.100 logo gone 0.512 gone 0.550 s
+360x90@2x 60Hz cd: general 4 red 1 red-enc 1 area 19.2 strict 1041.8 (0.09%/4.8% of 21824) | seen in 774.56 out 1033.89 after 0.05 pt2*s, peak in 10254 out 10419 pt2 | whole 0.100 logo gone 0.512 gone 0.550 s
+360x90@2x 60Hz 1a: general 4 red 2 red-enc 2 area 24.5 strict 1333.5 (0.11%/6.1% of 21824) | seen in 828.38 out 1095.47 after 0.05 pt2*s, peak in 11150 out 11355 pt2 | whole 0.100 logo gone 0.512 gone 0.550 s
+#
+# Seconds each glyph stands whole (opacity 252/255 or more, 1 ms steps) -- b a u d prompt
+# block -- and the seconds the whole logo stands whole at once, at 1x, 2x and 6K.
+whole-at-once 0.002s, best min alpha 255, per glyph 0.087 0.086 0.087 0.087 0.092 0.231
+whole-at-once 0.003s, best min alpha 255, per glyph 0.088 0.089 0.089 0.089 0.094 0.231
+whole-at-once 0.003s, best min alpha 255, per glyph 0.089 0.089 0.089 0.089 0.094 0.231
+#
+# Before (today's timing, the plasma all amber, aj-obs-word-measure): every letter stood
+# whole 0.357 s and the block 0.231 s, the whole logo from 0.369 s, the last of it at
+# 0.779 s and the glow at 0.825-0.833 s.
+#
+# The placements weighed, 2x 60 Hz dark (6K light for the census), the colour cut at the
+# gap's middle in these arms:
+#   today:   glyph whole 0.357 0.356 0.357 0.357 0.362 0.232 s; gone 0.83 s; seen in 372 out 326; area 3.3% strict 44.6%; 4 flashes at a pixel
+#   one:     one plasma, drawn in its span, taken by its trailing edge: 0.087 0.083 0.081 0.085 0.116 0.131 s; gone 0.45 s; seen in 286 out 86; area 0.0% strict 1.7%; 3 flashes
+#   relay:   (taken) 0.088 0.089 0.089 0.089 0.094 0.231 s; gone 0.55 s; seen in 286 out 379; area 0.01% strict 8.3%; 4 flashes
+#   overlap: the second pass at 0.05 s, never whole at once: 0.038 0.039 0.039 0.039 0.044 0.181 s; gone 0.50 s; area 0.0% strict 5.4%; 3 flashes
+# The seam, today's timing, 6K light: cut area 715 pt2 (3.3%) strict 9,741 (44.6%); blend
+# 713 (3.3%) and 9,756 (44.7%); amber throughout (before) 403 (1.8%) and 5,393 (24.7%).
+#
+# The CPU path's per-pixel work (a_2x_splash_frame_runs_a_fraction_of_its_pixels_math, the
+# first 2x frame): 4 band records, 380,141 series and 380,173 distances over 669,060
+# pixels before; 40 records, 382,346 series and 380,173 distances split at the seam.
+# Records a frame at most: 22 before, 54 now.

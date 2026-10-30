@@ -15,13 +15,13 @@
 //! The census's verdict is that rule, the field Note 1's 341 by 256 pixels
 //! read in points; this test held the splash to at most three flashes at
 //! every pixel, which is the rule's first half alone, stricter than the
-//! text. The two passes, at kitty's pace and 0.37 s apart, each spanning
-//! the lockup for a tenth of a second, put a fourth flash into one second
-//! at a few pixels of the box they both cross, and at 120 Hz on the light
-//! page a fifth; the most of any field that flashes more than three times
-//! is under 2% of the limit on every ground and size counted, and under
-//! 25% on the chained reading of a flash (the census's strict verdict),
-//! which is asserted too. Both are printed with their margin.
+//! text. The two passes, at kitty's pace and a tenth of a second apart,
+//! each spanning the lockup for a tenth of a second, the plasma in the
+//! colour of the glyph it is over, put a fourth flash into one second at a
+//! few pixels of the box they both cross; the most of any field that
+//! flashes more than three times is under 0.2% of the limit on every
+//! ground and size counted, and under 10% on the chained reading of a
+//! flash (the census's strict verdict), which is asserted too. Both are printed with their margin.
 //! This window is small, 64 by 20 cells at 1x, for the debug suite. At
 //! this size the whole lockup covers less than the area limit, so the
 //! verdict alone cannot fail here, and the margin assertion is what holds
@@ -246,17 +246,18 @@ fn the_plasmas_remainder_fades_into_the_page() {
 
 /// **How much of the plasma is seen, coming in and going out**: the
 /// plasma's own light over the bare page -- each pixel's relative
-/// luminance with the amber at the alpha its records draw there, against
-/// the page's -- summed over the pixels and the frames, in points squared
-/// and seconds. Split where the logo starts to leave,
-/// [`baud_render::splash::OUT`]: coming in before it, going out from it to
-/// the last frame that draws any of the logo. At 64 by 20 cells at 1x, 60
-/// frames a second, on the four grounds. Coming in was 13.54, 59.54,
-/// 11.32 and 12.64 with the box collapsing from its first frame, the
-/// word's letters outside the plasma within a few frames; spanning the
-/// lockup while the letters are drawn, it is at least 1.5 times that
-/// (1.85 to 1.93 measured), and going out is at least 0.7 of coming in
-/// (0.88 measured): a second plasma at the same pace and place.
+/// luminance with each record's own colour laid over the page in order at
+/// the alpha it draws there, against the page's -- summed over the pixels
+/// and the frames, in points squared and seconds. Split where the logo
+/// starts to leave, [`baud_render::splash::OUT`]: coming in before it,
+/// going out from it to the last frame that draws any of the logo. At 64
+/// by 20 cells at 1x, 60 frames a second, on the four grounds. Coming in
+/// was 13.54, 59.54, 11.32 and 12.64 in amber with the box collapsing from
+/// its first frame, the word's letters outside the plasma within a few
+/// frames; the plasma spanning the lockup while the glyphs are drawn, in
+/// each one's colour, it is at least 1.5 times that (29.66, 123.54, 24.88
+/// and 26.95 measured), and going out is at least 0.7 of coming in (1.33
+/// to 1.41 measured): a second plasma at the same pace and place.
 #[test]
 fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
     use baud_render::{Kind, Pt};
@@ -312,11 +313,15 @@ fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
             r.set_splash(phase.map(|phase| SplashLook { phase }));
             let mut target = Target::new(&mut px, w, w, h).unwrap();
             r.render(&mut t, &mut target, Damage::Full);
-            let mut alpha = vec![0f32; wu * hu];
+            // Each record's own colour, source-over in order over the page,
+            // as the frame draws it: the word's ink over the word, the
+            // amber over the mark, the steps between.
+            let pg = [page.r(), page.g(), page.b()].map(|c| f32::from(c.get()));
+            let mut mixed: Vec<[f32; 3]> = vec![pg; wu * hu];
+            let mut lit = vec![false; wu * hu];
             let v = r.vfx().expect("the splash's plasma");
-            let mut amber = page;
             for rec in r.trail() {
-                amber = rec.color;
+                let c = [rec.color.r(), rec.color.g(), rec.color.b()].map(|c| f32::from(c.get()));
                 let (x0, y0) = (i32::from(rec.x.0), i32::from(rec.y.0));
                 let (rw, rh) = (f32::from(rec.w.0), f32::from(rec.h.0));
                 let a0 = f32::from(rec.color.a().get()) / 255.0;
@@ -332,25 +337,23 @@ fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
                             _ => v.light(Pt { x: cx, y: cy }),
                         };
                         let a = (a0 * l).clamp(0.0, 1.0);
-                        let i = usize::try_from(y).unwrap() * wu + usize::try_from(x).unwrap();
-                        alpha[i] = 1.0 - (1.0 - alpha[i]) * (1.0 - a);
+                        if a > 0.0 {
+                            let i = usize::try_from(y).unwrap() * wu + usize::try_from(x).unwrap();
+                            for k in 0..3 {
+                                mixed[i][k] = c[k] * a + mixed[i][k] * (1.0 - a);
+                            }
+                            lit[i] = true;
+                        }
                     }
                 }
             }
-            let seen: f64 = alpha
+            let seen: f64 = mixed
                 .iter()
-                .filter(|&&a| a > 0.0)
-                .map(|&a| {
-                    let mix = |c: Chan, d: Chan| {
-                        Chan::from_unit(
-                            (f32::from(c.get()) * a + f32::from(d.get()) * (1.0 - a)) / 255.0,
-                        )
-                    };
-                    let m = Argb::rgb(
-                        mix(amber.r(), page.r()),
-                        mix(amber.g(), page.g()),
-                        mix(amber.b(), page.b()),
-                    );
+                .zip(&lit)
+                .filter(|&(_, &on)| on)
+                .map(|(m, _)| {
+                    let q = |v: f32| Chan::from_unit(v / 255.0);
+                    let m = Argb::rgb(q(m[0]), q(m[1]), q(m[2]));
                     f64::from((luminance(m.0) - ground).abs())
                 })
                 .sum();

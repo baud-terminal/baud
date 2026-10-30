@@ -21524,6 +21524,97 @@ bytes  = 85403
 status = "retrieved"
 group  = "AJ"
 
+[sources.aj-obs-glyph-measure]
+key    = "aj-obs-glyph-measure"
+title  = "The launch splash with the plasma in each glyph's colour and the logo leaving as it is drawn: the flash census at four sizes and rates on four grounds, how long each glyph stands whole, the placements weighed, and the CPU path's per-pixel work"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, 2026-10-29, with the change applied, and the placements weighed beside it"
+file   = "aj-observed/glyph-measure.txt"
+sha256 = "6830f4b44c85b1e472f144b131af1e6b0417e6e0d471e5967ec95473aef0b050"
+bytes  = 6460
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-glyph-strip-dark]
+key    = "aj-obs-glyph-strip-dark"
+title  = "The splash with the plasma in each glyph's colour, drawn and carried straight back out in one movement, gone 0.55 s, dark theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 11 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/glyph-strip-dark.png"
+sha256 = "4b716bd1fba4c3b84b2c7e7cd12a63b90e498aeadd9827b9a05b7e93e21d806e"
+bytes  = 67208
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-glyph-strip-light]
+key    = "aj-obs-glyph-strip-light"
+title  = "The splash with the plasma in each glyph's colour, drawn and carried straight back out in one movement, light theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), light theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 11 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/glyph-strip-light.png"
+sha256 = "a546451652c33d4b197ec93793022b6398f153436a74b9c5f07bbaecc4bf93c9"
+bytes  = 67489
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-glyph-seam-blend]
+key    = "aj-obs-glyph-seam-blend"
+title  = "The plasma's colour stepping from the word's ink to the amber across the gap in eight slivers, dark and light theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), JetBrains Mono, the region from 'u' to the block at full scale, the frames at 0.00 s and 0.05 s side by side, the dark theme above and the light below; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied"
+file   = "aj-observed/glyph-seam-blend.png"
+sha256 = "2406b9a8f4807982f01f62c6c43c61aa7fd3356187d29c16ab5c4309baf1780c"
+bytes  = 107663
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-glyph-seam-cut]
+key    = "aj-obs-glyph-seam-cut"
+title  = "A colour seam weighed and not taken: the plasma cut from the word's ink to the amber at the gap's middle, today's timing, dark and light theme"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), JetBrains Mono, the region from 'u' to the block at full scale, the frames at 0.00 s and 0.10 s side by side, the dark theme above and the light below; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that seam built in a scratch tree"
+file   = "aj-observed/glyph-seam-cut.png"
+sha256 = "f885ce7753f678b152893d972cdd926c8d6994631bcdc1989dfe9c2daff1b7a1"
+bytes  = 100416
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-glyph-strip-one]
+key    = "aj-obs-glyph-strip-one"
+title  = "A placement weighed and not taken: one plasma, the logo drawn in its span and taken by its trailing edge as it lands, gone 0.45 s, dark theme above and light below"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme above and light theme below, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 9 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that placement built in a scratch tree"
+file   = "aj-observed/glyph-strip-one.png"
+sha256 = "98d3db7395d39ad0767e8f5001ce23578d9f4505455133ba1a80d0de6a541bf7"
+bytes  = 110869
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-glyph-strip-overlap]
+key    = "aj-obs-glyph-strip-overlap"
+title  = "A placement weighed and not taken: the second plasma lit halfway through the first's span, the logo never whole at once, gone 0.50 s, dark theme above and light below"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme above and light theme below, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 10 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that placement built in a scratch tree"
+file   = "aj-observed/glyph-strip-overlap.png"
+sha256 = "414f4cc2b6a5abda49e8ccca958eee6d41e3d8b76843ecd10ef394f7667a979c"
+bytes  = 109161
+status = "retrieved"
+group  = "AJ"
+
 [sources.apple-nswindow-isvisible]
 key    = "apple-nswindow-isvisible"
 title  = "NSWindow isVisible -- whether the window is visible onscreen, even when obscured by other windows (documentation JSON)"

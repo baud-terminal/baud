@@ -3469,8 +3469,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn build_trail(&mut self) {
         self.trail_inst.clear();
         let frame = self.pixel_size();
-        // The splash's plasma is the logo's amber; every trail the cursor's
-        // colour.
+        // The splash's plasma is the colour of the glyph it is over (the
+        // records split where the word ends, `splash::paint`); every trail
+        // the cursor's colour.
         let splash = self.splash_vfx();
         let effect_fill = match splash {
             Some(_) => self.splash_colours().amber,
@@ -3483,9 +3484,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .push(trail::quad_instance(s, self.cursor_fill)),
             Some(Drawn::Vfx(v, top, bottom)) => {
                 v.instances(frame, effect_fill, &mut self.trail_inst);
-                // A repeat pass keeps one record a pixel: the bands, a cell
-                // row each and disjoint, and not the particles that stack
-                // over them, whose alphas would compound past the cap.
+                // A repeat pass keeps the bands, a cell row each, and not
+                // the particles that stack over them, whose alphas would
+                // compound past the cap. Where a band edge falls between
+                // pixel rows the two bands share that row (a top rounds
+                // down, a bottom up), so that row is drawn twice.
                 if v.emitter.strength == Strength::UnderThreshold {
                     self.trail_inst.retain(|r| r.kind == Kind::Band);
                 }
@@ -3502,6 +3505,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 };
             }
             None => {}
+        }
+        if let (Some(_), Some((scale, at))) = (splash, self.splash_place()) {
+            let colours = self.splash_colours();
+            splash::paint(&mut self.trail_inst, at, scale, colours);
         }
         if self.strength() == Strength::UnderThreshold {
             let k = self.flash_cap;

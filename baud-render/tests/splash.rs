@@ -85,21 +85,20 @@ fn cursor_fire(age: f32) -> TrailLook {
     })
 }
 
-/// **While it plays the splash's plasma is the frame's effect, in the
-/// lockup's amber**, on each half, and the trail the cursor
-/// lit meanwhile
+/// **While it plays the splash's plasma is the frame's effect**, on each
+/// half, and the trail the cursor lit meanwhile
 /// is held back -- not drawn when the plasma is over, but from the frame
 /// after it lands (`set_trail(None)`). Held, the splash takes no slot: the
 /// cursor's trail draws. The controls: the effect's records before and
 /// after are the cursor's, in its colour.
 #[test]
-fn the_plasma_holds_the_effects_slot_in_amber() {
+fn the_plasma_holds_the_effects_slot() {
     let (regular, bold) = (
         font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
         font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
     );
     let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
-    for (theme, amber) in [(Theme::dark(), DARK.amber), (Theme::light(), LIGHT.amber)] {
+    for theme in [Theme::dark(), Theme::light()] {
         let mut r = renderer(&faces, theme);
         r.set_trail(Some(cursor_fire(0.05)));
         r.set_splash(look(SplashPhase::Hold));
@@ -112,11 +111,7 @@ fn the_plasma_holds_the_effects_slot_in_amber() {
             r.set_splash(look(phase));
             let v = r.vfx().expect("the splash's plasma");
             assert_eq!(v.effect, Effect::Plasma, "{phase:?}");
-            let bands: Vec<_> = r.trail().iter().filter(|i| i.kind == Kind::Band).collect();
-            assert!(!bands.is_empty());
-            for b in bands {
-                assert_eq!(b.color.with_alpha(amber.a()), amber, "the lockup's amber");
-            }
+            assert!(r.trail().iter().any(|i| i.kind == Kind::Band));
         }
         r.set_trail(Some(cursor_fire(0.1)));
         assert_eq!(r.vfx().map(|v| v.effect), Some(Effect::Plasma));
@@ -131,6 +126,122 @@ fn the_plasma_holds_the_effects_slot_in_amber() {
             r.vfx().map(|v| v.effect),
             Some(Effect::Fire),
             "the next one draws"
+        );
+    }
+}
+
+/// **The plasma is the colour of the glyph it is over**: on every frame of
+/// the splash at 60 Hz, a record of the plasma left of the word's last
+/// letter's right edge is the word's ink -- near-white on the dark page,
+/// on the glass page over it too, and dark on the light page and its
+/// glass -- and one
+/// right of `❯`'s pen the amber, an ion by where its centre is; between
+/// them the colour steps from the one to the other, never leaving the
+/// span between the two, in steps of no more than an eighth of the way
+/// ([`SLIVERS`]), so no straight colour edge crosses the glow. Each band
+/// row is still one span, split without a gap or an overlap. The controls: both colours are drawn, on the frames
+/// the plasma is over the word; and a cursor's trail is in the cursor's
+/// colour, as before.
+#[test]
+fn the_plasma_is_the_colour_of_the_glyph_it_is_over() {
+    use baud_render::splash::{PROMPT, SLIVERS, WORDMARK, origin, scale};
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let glass = Theme {
+        bg_alpha: baud_domain::Chan::from_u8(0xC0),
+        ..Theme::dark()
+    };
+    let light_glass = Theme {
+        bg_alpha: baud_domain::Chan::from_u8(0xC0),
+        ..Theme::light()
+    };
+    for (name, theme, c) in [
+        ("dark", Theme::dark(), DARK),
+        ("glass", glass, DARK),
+        ("light", Theme::light(), LIGHT),
+        ("light glass", light_glass, LIGHT),
+    ] {
+        let mut r = renderer(&faces, theme);
+        let (w, h) = r.pixel_size();
+        let side = |v: u32| f32::from(u16::try_from(v).unwrap());
+        let frame = (side(w.value()), side(h.value()));
+        let s = scale(frame);
+        let o = origin(frame, s);
+        let word = o.x + (WORDMARK.x + 4.0 * (WORDMARK.size * 0.6 + WORDMARK.tracking)) * s;
+        let mark = o.x + PROMPT.x * s;
+        let between = |x: baud_render::Argb| {
+            let ch = |v: baud_render::Argb| [v.r().get(), v.g().get(), v.b().get()];
+            ch(x)
+                .iter()
+                .zip(ch(c.wordmark).iter().zip(ch(c.amber)))
+                .all(|(&v, (&a, b))| v >= a.min(b) && v <= a.max(b))
+        };
+        let (mut inked, mut ambered) = (0, 0);
+        for f in 0u16.. {
+            let age = f32::from(f) / 60.0;
+            if age >= GONE {
+                break;
+            }
+            r.set_splash(look(SplashPhase::Plasma(age)));
+            let recs = r.trail();
+            assert!(!recs.is_empty(), "{name} at {age}");
+            for i in recs {
+                let (l, rt) = (f32::from(i.x.0), f32::from(i.x.0) + f32::from(i.w.0));
+                let at = match i.kind {
+                    Kind::Band => (l, rt),
+                    _ => ((l + rt) * 0.5, (l + rt) * 0.5),
+                };
+                let colour = i.color.with_alpha(c.amber.a());
+                if at.1 <= word {
+                    assert_eq!(colour, c.wordmark, "{name} at {age}: {i:?} over the word");
+                    inked += 1;
+                } else if at.0 >= mark {
+                    assert_eq!(colour, c.amber, "{name} at {age}: {i:?} over the mark");
+                    ambered += 1;
+                } else {
+                    assert!(between(colour), "{name} at {age}: {i:?} over the gap");
+                }
+            }
+            let mut bands: Vec<_> = recs.iter().filter(|i| i.kind == Kind::Band).collect();
+            bands.sort_by_key(|i| (i.y.0, i.x.0));
+            let ch = |v: baud_render::Argb| [v.r().get(), v.g().get(), v.b().get()].map(i32::from);
+            let most = ch(c.wordmark)
+                .iter()
+                .zip(ch(c.amber))
+                .map(|(&a, b)| (a - b).abs() / i32::from(SLIVERS) + 1)
+                .collect::<Vec<_>>();
+            for p in bands.windows(2) {
+                if p[0].y.0 == p[1].y.0 {
+                    assert_eq!(
+                        i32::from(p[0].x.0) + i32::from(p[0].w.0),
+                        i32::from(p[1].x.0),
+                        "{name} at {age}: a band row is one span"
+                    );
+                    let step = ch(p[0].color)
+                        .iter()
+                        .zip(ch(p[1].color))
+                        .zip(&most)
+                        .all(|((&a, b), &m)| (a - b).abs() <= m);
+                    assert!(
+                        step,
+                        "{name} at {age}: {:?} to {:?} in one step",
+                        p[0].color, p[1].color
+                    );
+                }
+            }
+        }
+        assert!(inked > 0 && ambered > 0, "{name}: {inked} {ambered}");
+        r.set_splash(None);
+        r.set_trail(Some(cursor_fire(0.05)));
+        let cursor = r.trail()[0].color;
+        assert!(
+            r.trail()
+                .iter()
+                .all(|i| i.color.with_alpha(cursor.a()) == cursor),
+            "{name}: the cursor's trail in one colour"
         );
     }
 }

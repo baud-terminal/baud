@@ -1309,9 +1309,9 @@ macro_rules! arms {
 }
 
 /// **The launch splash draws alike on every arm** (note AJ): the lockup
-/// held, the plasma at four ages as the logo comes out, three as the
-/// second plasma carries it out, one as what is left of it fades, and its
-/// end, and the fade
+/// held, the plasma at three ages as the logo comes out, three as the
+/// second plasma carries it out from the frame it lights, one as what is
+/// left of it fades, and its end, and the fade
 /// at half, over a prompt and a line of text under the logo, on the dark
 /// and the light
 /// half. The cell arm draws what the instance arm draws, pixel for pixel;
@@ -1358,7 +1358,7 @@ fn the_splash_draws_alike_on_every_arm() {
             SplashPhase::Hold,
             SplashPhase::Plasma(0.0),
             SplashPhase::Plasma(0.03),
-            SplashPhase::Plasma(0.1),
+            SplashPhase::Plasma(0.07),
             SplashPhase::Plasma(out),
             SplashPhase::Plasma(out + 0.05),
             SplashPhase::Plasma(out + 0.1),
