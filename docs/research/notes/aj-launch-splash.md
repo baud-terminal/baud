@@ -2659,11 +2659,12 @@ Drawing the bands on more than one thread is the step not taken.
 
 **What the user sees.** The shell is started as soon as the renderer
 is built, before the GPU's probe and the read of the machine's names,
-instead of waiting behind the lookup of the machine's name: in a `BAUD_STARTUP=1` launch of
-2026-10-30, `renderer` read 14.9 ms and `pty` 77.0, with `gpu build:
-device 69.8 ms` against 14.1 in the run before section 16, whose `pty`
-read 14.2. The logo starts when it did. `BAUD_STARTUP=1` prints `gpu probing` and `hosts` after `pty`, and
-the splash's first line says which interval it times: "8.8 worst, the
+instead of waiting behind the lookup of the machine's name: in a
+`BAUD_STARTUP=1` launch of 2026-10-30, `renderer` read 14.9 ms and `pty`
+77.0, with `gpu build: device 69.8 ms` against 14.1 in the run before
+section 16, whose `pty` read 14.2. The logo starts when it did.
+`BAUD_STARTUP=1` prints `gpu probing` and `hosts` after `pty`, and the
+splash's first line says which interval it times: "8.8 worst, the
 worst ending 66.7 ms in".
 
 **Why it waited.** A `fork` first takes dyld's `dlopen()` lock and then
@@ -2690,8 +2691,8 @@ an arm: `forkpty` 1.22-24.52 ms as built (2.09-71.19 in a second batch),
 1.60-5.44 with only the names after, and 1.31-4.54 with both after.
 `the_shell_is_spawned_before_the_launchs_threads` failed on the base.
 `posix_spawn` ran no handler (0.13-1.02 ms in every arm) and was not
-taken: it changes how the child is created, and the one thread left at
-the spawn is the font scan, which reads files (a `forkpty` beside a
+taken: it changes how the child is created, and the one thread that
+can still be alive at the spawn is the font scan, which reads files (a `forkpty` beside a
 directory walk took 0.78-1.10 ms). The Linux driver starts no thread
 before its spawn but that scan.
 

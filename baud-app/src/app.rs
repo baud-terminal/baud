@@ -6160,8 +6160,8 @@ mod drag_tests {
     /// reading the machine's name, or one loading the GPU's driver, held
     /// the shell's start for as long as it took. Both start once
     /// `Pty::spawn` has returned, and `Boot::prepare`, which runs before
-    /// it, starts none; the font scan `main()` starts is the one thread at
-    /// the fork. The launch is AppKit-bound, so the source is what can
+    /// it, starts none; the font scan `main()` starts is the one thread
+    /// that can still be alive at the fork. The launch is AppKit-bound, so the source is what can
     /// fail.
     #[test]
     fn the_shell_is_spawned_before_the_launchs_threads() {
