@@ -24,6 +24,10 @@
 //! Placement of the instance buffer is a per-architecture startup decision
 //! (D3), and nothing here maps the live grid as a GPU buffer (D4).
 #![forbid(unsafe_code)]
+// An effect pixel's blend forms its three channels and its alpha in one
+// four-lane vector, each lane by the scalar's own operations
+// (`Blend::over_unit`), as `baud-domain` and `baud-core` use `core::simd`.
+#![feature(portable_simd)]
 
 mod atlas;
 mod badge;

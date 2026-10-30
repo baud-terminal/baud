@@ -2586,3 +2586,60 @@ its launch log is not built.
 shell starts, and the GPU's time for a splash frame on the cell path, are
 for the next `BAUD_STARTUP=1` run; why a shell's start is sometimes cold
 is the shell's.
+
+## 19. Every 2x frame of the plasma within a 120 Hz frame on the CPU path (2026-10-29)
+
+**What the user sees.** On the CPU path, which the Linux driver draws
+with and macOS under `BAUD_GPU=0`, every frame of the launch logo's
+plasma in a 2x window is drawn within a 120 Hz frame on the machine
+measured (an Apple M5 Max under macOS; a Linux box is unmeasured), and a
+6K frame in about three quarters of the time it took. Both drivers read
+the shell and draw on one thread, so a shorter frame holds the shell's
+next read for less. It looks and moves exactly as before: every frame's
+pixels are the base's at every age. The request, verbatim (2026-10-29):
+"ok so don't slow the plasma, it should be as before".
+
+**How it is built.** The splash's quad is level on every frame, each
+edge along a row or down a column, so each edge's squared distance is a
+column's square plus a row's, the very operations of the distance it
+replaces, and a row's pixels are measured eight at a time (`Level`).
+A row's filament exponentials are gathered and taken four at a time by
+`det`'s own series in each lane (`exp_f32s`), each pixel then summing
+its own in the filaments' order. An effect pixel's blend forms its
+three channels and its alpha in one four-lane vector, and a byte's
+fraction is read from a table built by the same division (`UNIT`).
+Any other quad is measured whole, as before.
+
+**Held.** Every frame's pixel hash equals the base's on all six arms in
+both damage modes. `shade_is_the_light_at_every_pixel`,
+`the_vector_exp_is_the_scalar`, `an_effect_pixels_vector_blend_is_the_scalar`
+and `the_unit_table_is_the_division` hold each part to the scalar it
+replaces bit for bit; `a_2x_splash_frame_runs_a_fraction_of_its_pixels_math`
+now counts over the renderer's own cell-row bands at every 60 Hz frame
+at 2x and the largest at 6K, and measures no pixel's quad whole; it
+failed on all 36 frames before (0.56 to 0.63 a band pixel).
+
+**Measured** ([[source: aj-obs-cpu-simd-measure]]), incremental damage,
+worst frame, base to now:
+
+| Size and rate | Worst frame, ms | Over the budget |
+|---|---|---|
+| 200x50 at 2x, 60 Hz | 8.50-8.70 to 6.30-6.37 | none |
+| 200x50 at 2x, 120 Hz | 8.53-8.84 to 6.25-6.41 | 9-22 of 66 to none |
+| 6120x3330 px, 60 Hz | 26.50-26.92 to 18.85-19.15 | 16 of 33 to 13 |
+| 64x20 at 1x, 60 Hz | 0.42-0.43 to 0.43-0.44 | none |
+
+With `Damage::Full`: 6.34-6.86 ms at 2x 120 Hz, none over, and
+19.19-20.65 at 6K, 13-14 over. Sections 14 and 15 together, at
+487d78bc, before section 17: 8.40-8.73 ms at 2x 120 Hz with 2-7 of 99
+frames over, 26.15-26.38 at 6K with 19 of 50.
+
+**Not fixed.** At 6K, 13 of 33 frames stay over 16.7 ms, the 13 that
+carry the lockup-wide quad through each pass's hold (17.6-18.8 ms in one run). At 1x the median frame is
+0.01-0.05 ms slower (the per-call buffers), inside every budget. Every
+row the plasma's records reach is repainted across the whole window
+each frame, its text included; with the bands shading nothing a 6K
+frame takes 4.0 ms. The cursor trails draw by the same code on the CPU
+path, their pixels held by the same tests, their time unmeasured.
+Drawing the bands on more than one thread is the step not taken.
+

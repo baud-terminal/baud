@@ -21433,6 +21433,17 @@ file   = "aj-observed/cpu-measure.txt"
 sha256 = "e738fa42e5f90b0d09053369fecf139f3eaeabc49365525aace68e27e7d26528"
 bytes  = 6702
 
+[sources.aj-obs-cpu-simd-measure]
+key    = "aj-obs-cpu-simd-measure"
+title  = "The launch splash's frames on the CPU path before and after its level quad, filament exponentials and effect blend were vectorised: the worst and median frame and the frames over budget at four sizes and rates and three grounds, both damage modes, the frames' pixels hashed, where the time went, ceiling arms and the work counted"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's splash bench, 487d78bc, base and change built from git archive at one path, rotated rounds, Time Profiler and baud-render's own counts, 2026-10-29"
+file   = "aj-observed/cpu-simd-measure.txt"
+sha256 = "c451d3f10f1fb01f839d8d20a42d8b444cac445c05b7aee86c086aa4df01611c"
+bytes  = 8180
+
 [sources.aj-obs-kitty-strip-dark]
 key    = "aj-obs-kitty-strip-dark"
 title  = "The splash at kitty's pace: a plasma carries the logo in, whole at 0.27 s, a second carries it out, the block last, gone 0.62 s, dark theme"

@@ -228,6 +228,54 @@ fn exp(x: f64) -> f64 {
     scale(p, k)
 }
 
+/// **e^x for many `f32`s, rounded to `f32`**, four at a time: each lane
+/// runs [`exp`]'s operations in [`exp`]'s order -- the reduction by
+/// `round`, ties away from zero as `f64::round`, the series by Horner's
+/// rule, the two powers of two from the exponent's bits -- and takes
+/// [`exp`]'s edges, so `out[i]` is `args[i].det_exp()` bit for bit
+/// (`the_vector_exp_is_the_scalar`). Four independent series in flight
+/// where the scalar's one waited on each step. `out` is at least as long
+/// as `args`.
+pub(crate) fn exp_f32s(args: &[f32], out: &mut [f32]) {
+    use core::simd::Select;
+    use core::simd::prelude::{SimdFloat, SimdInt, SimdOrd, SimdPartialOrd, f64x4, i64x4};
+    use std::simd::StdFloat;
+    #[cfg(test)]
+    for _ in args {
+        tally::count(&tally::SERIES);
+    }
+    let pow2 = |k: f64x4| -> f64x4 {
+        let e =
+            (k.cast::<i64>() + i64x4::splat(1023)).simd_clamp(i64x4::splat(1), i64x4::splat(2046));
+        f64x4::from_bits(e.cast::<u64>() << 52)
+    };
+    for (args, out) in args.chunks(4).zip(out.chunks_mut(4)) {
+        let mut lanes = [0.0f64; 4];
+        for (lane, &a) in lanes.iter_mut().zip(args) {
+            *lane = f64::from(a);
+        }
+        let x = f64x4::from_array(lanes);
+        let k = (x * f64x4::splat(LOG2_E)).round();
+        let r = (x - k * f64x4::splat(LN2_HI)) - k * f64x4::splat(LN2_LO);
+        let mut p = f64x4::splat(INV_FACT[11]);
+        let mut i = 11;
+        while i > 0 {
+            i -= 1;
+            p = p * r + f64x4::splat(INV_FACT[i]);
+        }
+        let half = (k * f64x4::splat(0.5)).floor();
+        let y = p * pow2(half) * pow2(k - half);
+        let y = x.simd_lt(f64x4::splat(-745.2)).select(f64x4::splat(0.0), y);
+        let y = x
+            .simd_gt(f64x4::splat(709.7))
+            .select(f64x4::splat(f64::INFINITY), y);
+        let y = x.is_nan().select(x, y);
+        for (o, v) in out.iter_mut().zip(y.cast::<f32>().to_array()) {
+            *o = v;
+        }
+    }
+}
+
 /// 2^x: the whole part exactly, the rest through [`exp`].
 fn exp2(x: f64) -> f64 {
     if x.is_nan() {
@@ -482,6 +530,89 @@ mod tests {
             // The positive control: the scan reads the source it names.
             assert!(src.contains(".det_"), "{name} calls none of det's");
         }
+    }
+
+    /// **The four-lane exponential is the scalar one**, bit for bit: over
+    /// every `f32` from -105 to 0 a 997th apart -- the filaments' range --
+    /// over the `f32`s nearest where `x log2 e` is a half, either side of
+    /// the reduction's rounding, over both ends of the range and past
+    /// them, the subnormal results, a NaN and the infinities, and at
+    /// several lengths, so a part-filled last vector is read too. No `f32`
+    /// puts `x log2 e` on a half exactly, so the lanes' rounding is held to
+    /// `f64::round` at the halves themselves, ties away from zero.
+    /// Perturbation: the reduction's `round` spelled `floor` fails it.
+    #[test]
+    fn the_vector_exp_is_the_scalar() {
+        let mut args: Vec<f32> = (0..=104_685u32).map(|i| -(i as f32) / 997.0).collect();
+        // The `f32`s nearest each half of `x log2 e`, and the ones beside.
+        for k in -160i32..160 {
+            let x = ((f64::from(k) + 0.5) / super::LOG2_E) as f32;
+            args.extend([
+                f32::from_bits(x.to_bits() - 1),
+                x,
+                f32::from_bits(x.to_bits() + 1),
+            ]);
+        }
+        args.extend([
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            88.7,
+            88.8,
+            -87.3,
+            -103.9,
+            -104.0,
+            -149.0,
+            -745.1,
+            -745.3,
+            709.6,
+            709.8,
+            f32::MAX,
+            f32::MIN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+            f32::MIN_POSITIVE,
+            -f32::MIN_POSITIVE,
+        ]);
+        let mut out = vec![0.0f32; args.len()];
+        for len in [
+            args.len(),
+            args.len() - 1,
+            args.len() - 2,
+            args.len() - 3,
+            1,
+            2,
+            3,
+            5,
+        ] {
+            super::exp_f32s(&args[..len], &mut out[..len]);
+            for (&a, &v) in args[..len].iter().zip(&out[..len]) {
+                assert_eq!(v.to_bits(), a.det_exp().to_bits(), "e^{a}");
+            }
+        }
+        // The lanes' rounding at the halves, against the scalar's.
+        {
+            use core::simd::f64x4;
+            use std::simd::StdFloat;
+            for k in -1100i32..1100 {
+                let h = f64::from(k) + 0.5;
+                let lanes = f64x4::from_array([h, -h, h + 1.0, f64::from(k)]).round();
+                for (v, x) in lanes
+                    .to_array()
+                    .into_iter()
+                    .zip([h, -h, h + 1.0, f64::from(k)])
+                {
+                    assert_eq!(v.to_bits(), x.round().to_bits(), "round({x})");
+                }
+            }
+        }
+        // The positive control: the series reached its subnormal results.
+        assert!(args.iter().any(|&a| {
+            let v = a.det_exp();
+            v > 0.0 && !v.is_normal()
+        }));
     }
 
     /// **As accurate as std's, to an ulp**: every function against std's

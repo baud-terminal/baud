@@ -17,6 +17,8 @@ use crate::trail::{Pt, Smear};
 use crate::units::{Band, Coverage, slots};
 use baud_domain::{Chan, Cols, ImageAlpha, ImageGround, ImageView, Pixel};
 use baud_font::Px;
+use core::simd::prelude::{SimdFloat, f32x4, u32x4};
+use std::simd::StdFloat;
 
 /// How coverage mixes a glyph colour into the background.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -789,25 +791,32 @@ impl Blend {
             |v: f32| u32::try_from((v * 255.0).round().clamp(0.0, 255.0) as i64).unwrap_or(0);
         match self {
             Blend::Native => {
+                // Each channel's `co` and the alpha's `ao` in a lane of one
+                // vector, by the same operations a lane: `Cs a + pb (1 -
+                // a)` for a channel, and `1 a + ab (1 - a)` for the alpha,
+                // `1 a` being `a` exactly; then each rounded to a byte as
+                // `byte` rounds, ties away from zero, a NaN to 0.
                 let ab = dst.a();
-                let unit = |c: Chan| f32::from(c.get()) / 255.0;
-                let ao = byte(a + unit(ab) * (1.0 - a));
+                let unit = |c: Chan| UNIT[c.index()];
+                let pb = |d: Chan| unit(baud_domain::premultiply_chan(d, ab));
+                let s = f32x4::from_array([unit(src.r()), unit(src.g()), unit(src.b()), 1.0]);
+                let b = f32x4::from_array([pb(dst.r()), pb(dst.g()), pb(dst.b()), unit(ab)]);
+                let v = s * f32x4::splat(a) + b * f32x4::splat(1.0 - a);
+                let bytes: u32x4 = (v * f32x4::splat(255.0))
+                    .round()
+                    .simd_clamp(f32x4::splat(0.0), f32x4::splat(255.0))
+                    .cast();
+                let [r, g, bl, ao] = bytes.to_array();
                 if ao == 0 {
                     return Argb(0);
                 }
                 let m = u64::from(RECIP[usize::try_from(ao & 0xFF).unwrap_or(0)]);
-                let mix = |s: Chan, d: Chan| -> Chan {
-                    let pb = baud_domain::premultiply_chan(d, ab);
-                    let co = byte(unit(s) * a + unit(pb) * (1.0 - a));
+                let mix = |co: u32| -> Chan {
                     let v = (u64::from(co * 255 + ao / 2) * m) >> 24;
                     Chan::from_u8(u8::try_from(v).unwrap_or(255))
                 };
-                Argb::rgb(
-                    mix(src.r(), dst.r()),
-                    mix(src.g(), dst.g()),
-                    mix(src.b(), dst.b()),
-                )
-                .with_alpha(Chan::from_u8(u8::try_from(ao).unwrap_or(255)))
+                Argb::rgb(mix(r), mix(g), mix(bl))
+                    .with_alpha(Chan::from_u8(u8::try_from(ao).unwrap_or(255)))
             }
             Blend::Linear => {
                 let cov = Coverage(u8::try_from(byte(a)).unwrap_or(255));
@@ -895,6 +904,20 @@ impl Blend {
     }
 }
 
+/// `UNIT[c]` is `c / 255` as an `f32`, a byte's fraction, built at compile
+/// time by the division the blend took a channel: three channels, the
+/// backdrop's three and its alpha were seven divisions an effect pixel.
+/// `the_unit_table_is_the_division` holds its bits to the division's.
+const UNIT: [f32; 256] = {
+    let mut t = [0.0f32; 256];
+    let mut i = 0;
+    while i < 256 {
+        t[i] = i as f32 / 255.0;
+        i += 1;
+    }
+    t
+};
+
 /// `RECIP[d]` is `ceil(2^24 / d)`: `(n * RECIP[d]) >> 24` is `n / d` for
 /// every `n` below `2^16` and `d` from 1 to 255, since `n` times the
 /// rounding error, at most `d - 1`, stays under `2^24`. What
@@ -970,6 +993,80 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// The scalar blend [`Blend::over_unit`] formed a channel at a time
+    /// before its lanes, kept as the reference its vector is held to.
+    fn over_unit_scalar(src: Argb, dst: Argb, a: f32) -> Argb {
+        let byte =
+            |v: f32| u32::try_from((v * 255.0).round().clamp(0.0, 255.0) as i64).unwrap_or(0);
+        let ab = dst.a();
+        let unit = |c: Chan| f32::from(c.get()) / 255.0;
+        let ao = byte(a + unit(ab) * (1.0 - a));
+        if ao == 0 {
+            return Argb(0);
+        }
+        let m = u64::from(RECIP[usize::try_from(ao & 0xFF).unwrap_or(0)]);
+        let mix = |s: Chan, d: Chan| -> Chan {
+            let pb = baud_domain::premultiply_chan(d, ab);
+            let co = byte(unit(s) * a + unit(pb) * (1.0 - a));
+            let v = (u64::from(co * 255 + ao / 2) * m) >> 24;
+            Chan::from_u8(u8::try_from(v).unwrap_or(255))
+        };
+        Argb::rgb(
+            mix(src.r(), dst.r()),
+            mix(src.g(), dst.g()),
+            mix(src.b(), dst.b()),
+        )
+        .with_alpha(Chan::from_u8(u8::try_from(ao).unwrap_or(255)))
+    }
+
+    /// **An effect pixel's vector blend is the scalar one**, word for word,
+    /// on both pages: every source channel over every backdrop channel at
+    /// eleven backdrop alphas, at 1,021 source alphas spread over 0 to 1
+    /// and the 256 byte fractions, the ties of the rounding among them, and
+    /// past both ends.
+    /// Perturbation: the alpha's lane formed as `ab a + (1 - a)` fails it.
+    #[test]
+    fn an_effect_pixels_vector_blend_is_the_scalar() {
+        let mut alphas: Vec<f32> = (0..=1020u16).map(|i| f32::from(i) / 1020.0).collect();
+        alphas.extend((0..=255u8).map(|c| f32::from(c) / 255.0));
+        // A byte and a half: `v * 255` lands on a tie.
+        alphas.extend((0..255u8).map(|c| (f32::from(c) + 0.5) / 255.0));
+        alphas.extend([-0.5, 0.0, 1.0, 1.5, f32::MIN_POSITIVE, 1.0 - f32::EPSILON]);
+        let mut checked = 0u64;
+        for ab in [0u8, 1, 2, 64, 127, 128, 192, 200, 253, 254, 255] {
+            for s in (0..=255u8).step_by(3) {
+                let src = Argb::rgb(Chan::from_u8(s), Chan::from_u8(!s), Chan::from_u8(s / 2));
+                for d in (0..=255u8).step_by(5) {
+                    let dst = Argb::rgb(Chan::from_u8(d), Chan::from_u8(!d), Chan::from_u8(d / 3))
+                        .with_alpha(Chan::from_u8(ab));
+                    for &a in &alphas {
+                        for page in [Page::Opaque, Page::Glass] {
+                            assert_eq!(
+                                Blend::Native.over_unit(src, dst, a, page),
+                                over_unit_scalar(src, dst, a),
+                                "{s} over {d} at {ab}, {a}"
+                            );
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked > 10_000_000, "{checked}");
+    }
+
+    /// **`UNIT` is the division it replaced**, bit for bit, at every byte,
+    /// against the division at run time: built at compile time, the table
+    /// must not be a nearer or a farther rounding of the same quotient.
+    /// Perturbation: the table built as `c * (1 / 255)` fails it.
+    #[test]
+    fn the_unit_table_is_the_division() {
+        for c in 0..=255u8 {
+            let run = core::hint::black_box(f32::from(c)) / core::hint::black_box(255.0f32);
+            assert_eq!(UNIT[usize::from(c)].to_bits(), run.to_bits(), "{c}");
         }
     }
 
