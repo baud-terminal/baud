@@ -13,12 +13,12 @@ in each glyph's colour, and one movement in and out, 2026-10-29 (section
 
 - **1. When.** Nothing of it until the window is whole on screen
   (sections 10 and 13). Under
-  full motion, on the clock alone since 2026-10-28 (the lean): carried in
+  full motion, on the clock alone since 2026-10-28: carried in
   by one plasma, whole at 0.10 s, then carried straight back out by a
   second, the letters gone by 0.20 s, the logo at 0.48-0.51 s and the glow
   at 0.55 s (section 17). Under reduced motion, as first built: on the
   shell's first visible cell or a 0.5 s cap from the window's being shown,
-  whichever is first (E2 and a cap of 0.5 s; the cap is the lean);
+  whichever is first (E2 and a cap of 0.5 s);
   the vanish starts on the frame after that one.
 - **2. Which plasma.** P1, against P2 with renders (from text on 2026-10-09). P4 was not offered: it needs a shader nothing in baud
   draws, and the plasma the trails use is baud's one plasma. P1 is built
