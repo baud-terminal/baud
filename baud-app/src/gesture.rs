@@ -38,10 +38,11 @@ pub(crate) enum Pressed {
     /// 3, the Wayland seat's `BTN_SIDE` -- which DEC's locator reports as
     /// its fourth.
     Button8,
-    /// X's buttons 9 to 11: `buttonNumber` 4 to 6, `BTN_EXTRA`,
-    /// `BTN_FORWARD` and `BTN_BACK`.
+    /// X's button 9: `buttonNumber` 4, `BTN_EXTRA`.
     Button9,
+    /// X's button 10: `buttonNumber` 5, `BTN_FORWARD`.
     Button10,
+    /// X's button 11: `buttonNumber` 6, `BTN_BACK`.
     Button11,
     /// A button past the eleventh, which no report names.
     Other,

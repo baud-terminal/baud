@@ -1423,8 +1423,6 @@ impl Handler for Window {
                         self.globals.activation =
                             Window::bind(s, self.registry, name, iface, version.min(1));
                     }
-                    // Version 1: its 34 shapes are every one `pointer::shape`
-                    // names.
                     // An output's scale, which a compositor older than
                     // version 6 leaves the pointer's image to: `wl_output`
                     // has `scale` from version 2.
@@ -1437,6 +1435,8 @@ impl Handler for Window {
                             });
                         }
                     }
+                    // Version 1: its 34 shapes are every one `pointer::shape`
+                    // names.
                     "wp_cursor_shape_manager_v1" => {
                         self.globals.cursor_shape =
                             Window::bind(s, self.registry, name, iface, version.min(1));
