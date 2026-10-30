@@ -958,4 +958,84 @@ mod tests {
         let p = fx.plan(t0 + Duration::from_millis(15), &t, rect, CELL, widths());
         assert_eq!(p.trail, None, "nor back on the live screen");
     }
+
+    /// **Looking back drops every trail in flight, and the way back draws
+    /// none stale**: the ghost, the two smears and the seven effects, each
+    /// caught drawing a long move when the window scrolls back three lines.
+    /// While it looks back no frame draws a trail, and no turn owes more
+    /// than the same turn with the trail off; output then moves the cursor,
+    /// and on the live screen again neither the first sighting nor the
+    /// frames after the dwell trail from where the cursor was before the
+    /// reader looked away. The controls: each trail draws on the live
+    /// screen, and the window is still back after the output.
+    /// Perturbations: the chase not snapped and the cursor followed while
+    /// looking back -- every chase trail is drawn over the history; the
+    /// snap alone removed -- the chase keeps the cell it last saw and
+    /// trails from it once the dwell has passed on the way back; the ghost
+    /// kept while looking back -- it is drawn over the history.
+    #[test]
+    fn looking_back_drops_every_trail_in_flight() {
+        let ms = |n: u64| Duration::from_millis(n);
+        let trails = [
+            CursorTrail::Ghost,
+            CursorTrail::Sweep,
+            CursorTrail::Quad,
+            CursorTrail::Fire,
+            CursorTrail::Plasma,
+            CursorTrail::Lightning,
+            CursorTrail::Ice,
+            CursorTrail::Ufo,
+            CursorTrail::Orb,
+            CursorTrail::Liquid,
+        ];
+        let run = |trail: CursorTrail, check: &mut dyn FnMut(&str, u64, &Plan, Owes)| {
+            let t0 = Instant::now();
+            let mut s = Owned::new(&WS);
+            let mut t = Term::new(s.storage(), &WS);
+            let lines: Vec<u8> = (0..30)
+                .flat_map(|i| format!("{i}\r\n").into_bytes())
+                .collect();
+            feed(&mut t, &lines);
+            let mut fx = Timed::new(t0, TrailPick::Named(trail), ScreenTransition::Off);
+            let _ = fx.plan(t0, &t, rect, CELL, widths());
+            feed(&mut t, b"\x1b[1;30H");
+            let _ = fx.plan(t0 + ms(5), &t, rect, CELL, widths());
+            let p = fx.plan(t0 + ms(20), &t, rect, CELL, widths());
+            let o = fx.turn(t0 + ms(21), &mut t);
+            check("live", 20, &p, o);
+            t.set_window_back(baud_domain::Rows::of_count(3));
+            feed(&mut t, b"\x1b[10;1H");
+            assert_eq!(t.window_back().index(), 3, "{trail:?}: still back");
+            for n in [30, 45, 60] {
+                let p = fx.plan(t0 + ms(n), &t, rect, CELL, widths());
+                let o = fx.turn(t0 + ms(n + 1), &mut t);
+                check("back", n, &p, o);
+            }
+            t.window_live();
+            for n in [70, 85, 100, 130] {
+                let p = fx.plan(t0 + ms(n), &t, rect, CELL, widths());
+                let o = fx.turn(t0 + ms(n + 1), &mut t);
+                check("returned", n, &p, o);
+            }
+        };
+        // What each turn owes with the trail off, whatever else moves.
+        let mut off = Vec::new();
+        run(CursorTrail::Off, &mut |_, _, p, o| {
+            assert_eq!(p.trail, None, "off draws none");
+            off.push(o);
+        });
+        for trail in trails {
+            let mut i = 0;
+            run(trail, &mut |at, n, p, o| {
+                match at {
+                    "live" => assert!(p.trail.is_some(), "{trail:?}: the control, drawn live"),
+                    _ => {
+                        assert_eq!(p.trail, None, "{trail:?}: none {at} at {n} ms");
+                        assert_eq!(o, off[i], "{trail:?}: owes {at} at {n} ms as off does");
+                    }
+                }
+                i += 1;
+            });
+        }
+    }
 }

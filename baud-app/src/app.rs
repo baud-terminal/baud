@@ -1830,20 +1830,18 @@ impl App {
             | crate::config::CursorTrail::Ufo
             | crate::config::CursorTrail::Orb
             | crate::config::CursorTrail::Liquid => {
-                // Looking back forgets where the cursor was, as a resize
-                // does: output may have moved it meanwhile, and a trail on
-                // the way back would come from a place the reader never saw
-                // it leave. A hidden cursor keeps it -- `trail.rs`.
-                if self.term.window_back().index() != 0 {
-                    self.chase.snap();
-                }
                 let style = self.term.cursor_style();
                 let rect = followed.map(|f| {
                     let (r, c) = f.cell();
                     self.renderer.cursor_rect(r, c, f.style(style))
                 });
-                HostTime::of_secs(self.tick_target)
-                    .and_then(|now| self.chase.frame(rect, now, cell, height))
+                chase_frame(
+                    &mut self.chase,
+                    &self.term,
+                    rect,
+                    HostTime::of_secs(self.tick_target),
+                    (cell, height),
+                )
             }
             crate::config::CursorTrail::Off => None,
         };
@@ -3682,6 +3680,25 @@ fn ghost_frame(trail: &mut Option<TrailState>, term: &Term<'_>, now: f64) -> Opt
     })
 }
 
+/// **The chase trail this frame draws**, toward `cursor`, the rectangle
+/// of the cursor `trail_cursor` follows, at `now`, the display link's
+/// clock. Looking back forgets where the cursor was, as a resize does:
+/// output may have moved it meanwhile, and a trail on the way back would
+/// come from a place the reader never saw it leave. A hidden cursor keeps
+/// it -- `trail.rs`.
+fn chase_frame(
+    chase: &mut crate::trail::Chase<HostTime>,
+    term: &Term<'_>,
+    cursor: Option<baud_render::Rect>,
+    now: Option<HostTime>,
+    (cell, height): ((f32, f32), baud_render::Points),
+) -> Option<TrailLook> {
+    if term.window_back().index() != 0 {
+        chase.snap();
+    }
+    now.and_then(|now| chase.frame(cursor, now, cell, height))
+}
+
 /// The cursor to draw: the live screen's, while the window is on it, and
 /// on the status line's row below the grid while DECSASD selects the line
 /// (`Term::status_line`), where the main display's is not drawn.
@@ -3819,6 +3836,83 @@ mod ghost_tests {
         assert!(back.is_none(), "and dropped");
         t.window_live();
         assert_eq!(ghost_frame(&mut back, &t, 1.06), None, "not back on return");
+    }
+
+    /// **Looking back drops a chase trail in flight, and the way back
+    /// draws none stale**: the two smears and the seven effects, each
+    /// caught drawing a long move when the window scrolls back three lines.
+    /// While it looks back no frame draws one; output then moves the
+    /// cursor, and on the live screen again neither the first sighting nor
+    /// the frames after the dwell trail from where the cursor was before
+    /// the reader looked away. The controls: each trail draws on the live
+    /// screen, and the window is still back after the output.
+    /// Perturbation: the snap removed -- the chase keeps the cell it last
+    /// saw and trails from it once the dwell has passed on the way back.
+    #[test]
+    fn looking_back_snaps_the_chase_in_flight() {
+        use super::{TrailCursor, chase_frame, trail_cursor};
+        use crate::config::CursorTrail;
+        use baud_domain::HostTime;
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 10,
+        };
+        let size = ((10.0, 20.0), baud_render::Points(20.0));
+        let rect = |f: TrailCursor| {
+            let (r, c) = f.cell();
+            let (x, y) = (c.index() as f32 * 10.0, r.index() as f32 * 20.0);
+            baud_render::Rect {
+                left: x,
+                top: y,
+                right: x + 10.0,
+                bottom: y + 20.0,
+            }
+        };
+        let ms = |n: u64| Some(HostTime::of_nanos(n * 1_000_000));
+        let feed = |t: &mut Term<'_>, b: &[u8]| {
+            t.write_at(BytePos::ZERO, b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        };
+        for trail in [
+            CursorTrail::Sweep,
+            CursorTrail::Quad,
+            CursorTrail::Fire,
+            CursorTrail::Plasma,
+            CursorTrail::Lightning,
+            CursorTrail::Ice,
+            CursorTrail::Ufo,
+            CursorTrail::Orb,
+            CursorTrail::Liquid,
+        ] {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let lines: Vec<u8> = (0..30)
+                .flat_map(|i| format!("{i}\r\n").into_bytes())
+                .collect();
+            feed(&mut t, &lines);
+            let mut chase = crate::trail::Chase::new(trail.style());
+            let mut frame = |t: &Term<'_>, n: u64| {
+                let cursor = trail_cursor(t).map(rect);
+                chase_frame(&mut chase, t, cursor, ms(n), size)
+            };
+            let _ = frame(&t, 1);
+            feed(&mut t, b"\x1b[1;30H");
+            let _ = frame(&t, 5);
+            assert!(
+                frame(&t, 20).is_some(),
+                "{trail:?}: the control, drawn live"
+            );
+            t.set_window_back(Rows::of_count(3));
+            feed(&mut t, b"\x1b[10;1H");
+            assert_eq!(t.window_back().index(), 3, "{trail:?}: still back");
+            for n in [30, 45, 60] {
+                assert_eq!(frame(&t, n), None, "{trail:?}: none back at {n} ms");
+            }
+            t.window_live();
+            for n in [70, 85, 100, 130] {
+                assert_eq!(frame(&t, n), None, "{trail:?}: none returned at {n} ms");
+            }
+        }
     }
 }
 
