@@ -107,7 +107,7 @@ its filename's prefix, and several notes share one.
 | [bd-bidi-wrap.md](research/notes/bd-bidi-wrap.md) | BD. A right-to-left paragraph that wraps | open |
 | [be-linux-pixels.md](research/notes/be-linux-pixels.md) | BE. Linux draws what macOS draws, pixel for pixel, given the same faces and floor | open |
 | [bf-unsupported-walk.md](research/notes/bf-unsupported-walk.md) | BF. What baud still counts as unsupported, walked again | open |
-| [bg-font-provenance.md](research/notes/bg-font-provenance.md) | BG. Where baud-font's code came from: each file transcribed, matched or its own, and the notice a transcription ships | done 2026-10-30, `0dc9a368` |
+| [bg-font-provenance.md](research/notes/bg-font-provenance.md) | BG. Where baud-font's code came from: each file transcribed, matched or its own, and the notice a transcription ships | done 2026-10-30, `81e645f3` |
 | [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `158996a` |
 | [d-memory-hierarchy.md](research/notes/d-memory-hierarchy.md) | Memory hierarchy — why a read cost 2.5× where a write did not | open |
 | [e-tty-layer.md](research/notes/e-tty-layer.md) | The tty layer — why a PTY read is 1024 bytes on Darwin and 4095 on Linux | open |
