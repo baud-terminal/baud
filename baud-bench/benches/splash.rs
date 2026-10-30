@@ -18,6 +18,10 @@
 //! frames byte for byte. The first round is a warm-up and should be
 //! dropped; `splash <rounds>` sets how many (default 5).
 //! `SPLASH_DAMAGE=full` renders every frame with [`Damage::Full`].
+//! `SPLASH_THREADS=<n>` draws the plasma on at most `n` threads
+//! ([`Renderer::set_threads`]; the machine's by default),
+//! `SPLASH_SIZE=<text>` runs only the sizes whose name holds it, and
+//! `SPLASH_FRAMES=1` prints each frame's milliseconds after its line.
 //! Two arms more at 2x and 60 Hz: the light theme, and the dark theme's
 //! page translucent, as the glass draws it.
 
@@ -150,6 +154,12 @@ fn life(faces: &[Face<'_>], size: &Size, damage: Damage) -> (Vec<f64>, u64) {
         Rows::of_index(usize::from(ws.ws_row)),
     )
     .unwrap();
+    if let Some(n) = std::env::var("SPLASH_THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+    {
+        r.set_threads(n);
+    }
     let mut owned = Owned::new(&ws);
     let mut t = Term::new(owned.storage(), &ws);
     let mut text = Vec::new();
@@ -202,9 +212,12 @@ fn main() {
         _ => Damage::Incremental,
     };
     println!("round\tsize\tframes\tworst_ms\tmedian_ms\tover_budget\tbudget_ms\tfnv");
+    let only = std::env::var("SPLASH_SIZE").unwrap_or_default();
+    let frames_too = std::env::var("SPLASH_FRAMES").is_ok_and(|v| v == "1");
     for round in 0..rounds {
-        for size in &SIZES {
+        for size in SIZES.iter().filter(|s| s.name.contains(only.as_str())) {
             let (mut ms, hash) = life(&faces, size, damage);
+            let each: Vec<String> = ms.iter().map(|m| format!("{m:.1}")).collect();
             let budget = 1e3 / f64::from(size.rate.0);
             let over = ms.iter().filter(|&&m| m > budget).count();
             let frames = ms.len();
@@ -215,6 +228,9 @@ fn main() {
                 ms[frames - 1],
                 ms[frames / 2],
             );
+            if frames_too {
+                println!("#\t{}", each.join(" "));
+            }
         }
     }
 }

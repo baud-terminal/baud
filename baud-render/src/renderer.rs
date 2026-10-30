@@ -1270,6 +1270,29 @@ enum Indexed {
     Yes,
 }
 
+/// **How much of a dirty row a frame repaints**: the whole of it, or,
+/// when only the trail's or the splash's records changed over it, the
+/// columns from the leftmost pixel one of them reaches on the row, in this
+/// frame or the last, to the rightmost. The rest of the row is the last
+/// frame's: no record was over it in either, and nothing else on it
+/// changed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Repaint {
+    Whole,
+    Cols { left: Px, right: Px },
+}
+
+/// Whether any of `records` meets the pixel rows of `band`.
+fn records_meet(records: &[Instance], band: Band) -> bool {
+    records.iter().any(|r| record_meets(r, band))
+}
+
+/// Whether `r`'s pixel rows meet `band`'s.
+fn record_meets(r: &Instance, band: Band) -> bool {
+    let (top, h) = (i64::from(r.y.0), i64::from(r.h.0));
+    h > 0 && top < i64::from(band.bottom.value()) && top + h > i64::from(band.top.value())
+}
+
 /// Nothing: no placement is under the text.
 struct NoUnder;
 
@@ -1945,6 +1968,11 @@ pub struct Renderer<'f, 'a> {
     trail: Option<Drawn>,
     last_trail: Option<Drawn>,
     trail_inst: Vec<Instance>,
+    /// The trail's and the splash's records the last convert drew: a row
+    /// dirty only for them repaints the columns they and this frame's
+    /// reach on it ([`Repaint::Cols`]).
+    last_trail_inst: Vec<Instance>,
+    last_splash_inst: Vec<Instance>,
     /// The trail the driver asked for, which [`Renderer::trail`] draws
     /// unless the splash's plasma holds the effect's slot, and whether a
     /// trail lit while it did is still being held back.
@@ -2132,6 +2160,11 @@ pub struct Renderer<'f, 'a> {
     ink_refused: Tally,
     /// Which rows the last `convert` found changed; what `paint` repaints.
     dirty: Vec<bool>,
+    /// How much of each dirty row `paint` repaints.
+    repaint: Vec<Repaint>,
+    /// **The threads a CPU frame draws an effect on, at most**: the
+    /// machine's, unless [`Renderer::set_threads`] said otherwise.
+    threads: core::num::NonZeroUsize,
     /// **What every convert since the last [`Renderer::take_redraw`]
     /// changed**, for a GPU path that draws into surfaces it keeps: the
     /// rows dirty only for the cursor, its blink animation, its trail or
@@ -2331,6 +2364,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             trail: None,
             last_trail: None,
             trail_inst: Vec::new(),
+            last_trail_inst: Vec::new(),
+            last_splash_inst: Vec::new(),
             asked_trail: None,
             held_trail: HeldTrail::No,
             splash: None,
@@ -2395,6 +2430,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             marks_unmapped: Tally::of(0),
             ink_refused: Tally::of(0),
             dirty: Vec::new(),
+            repaint: Vec::new(),
+            threads: std::thread::available_parallelism().unwrap_or(core::num::NonZeroUsize::MIN),
             redraw: crate::Redraw::Whole,
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
             ink_scratch: Vec::new(),
@@ -4856,12 +4893,42 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.reach = vec![Reach::NONE; rows.index()];
         self.reach_was = vec![Reach::NONE; rows.index()];
         self.dirty = vec![false; rows.index()];
+        self.repaint = vec![Repaint::Whole; rows.index()];
         self.known = Prev::Unknown;
     }
 
     fn row_cells(&self, r: Row) -> core::ops::Range<usize> {
         let cols = self.cols.index();
         r.index() * cols..(r.index() + 1) * cols
+    }
+
+    /// **The columns the trail's and the splash's records reach on
+    /// `band`'s rows**, this frame's and the last's: [`Repaint::Cols`], empty
+    /// when none of them meets it.
+    fn records_on(&self, band: Band) -> Repaint {
+        let (mut lo, mut hi) = (i64::MAX, i64::MIN);
+        for r in self
+            .trail_inst
+            .iter()
+            .chain(&self.last_trail_inst)
+            .chain(&self.splash_inst)
+            .chain(&self.last_splash_inst)
+            .filter(|r| record_meets(r, band))
+        {
+            lo = lo.min(i64::from(r.x.0));
+            hi = hi.max(i64::from(r.x.0) + i64::from(r.w.0));
+        }
+        let px = |v: i64| Px::of(u32::try_from(v.max(0)).unwrap_or(u32::MAX));
+        match lo < hi {
+            true => Repaint::Cols {
+                left: px(lo),
+                right: px(hi),
+            },
+            false => Repaint::Cols {
+                left: Px::of(0),
+                right: Px::of(0),
+            },
+        }
     }
 
     fn band(&self, r: Row) -> Band {
@@ -6283,7 +6350,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || sync.pass == Pass::Full
             || sync.evicted == Evicted::Yes
             || self.fade != self.last_fade
-            || self.splash != self.last_splash
             || clusters != self.last_clusters;
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let find_changed = self.find != self.last_find;
@@ -6293,8 +6359,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut exceptions = Exceptions::default();
         // Whether a row is dirty for anything but the cursor, its blink
         // animation, its trail or the cursor guide, which makes this frame's
-        // redraw whole.
-        let mut beyond_cursor = full;
+        // redraw whole -- and so does the splash, whose records a GPU path
+        // draws whole while it changes.
+        let mut beyond_cursor = full || self.splash != self.last_splash;
+        // The splash's records changed: a row they meet, now or in the last
+        // frame, is dirty, for them alone.
+        let splash_changed = self.splash_inst != self.last_splash_inst;
         // Which placements left and arrived, and whether one under the
         // text arrived or changed, and whether one partly transparent is
         // over it: once a frame, so a frame with none asks no row about it.
@@ -6394,6 +6464,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 |d: Option<Drawn>| d.is_some_and(|d| d.overlaps(band.top, band.bottom));
             let trail_moved = under_trail(self.trail) != under_trail(self.last_trail)
                 || (under_trail(self.trail) && self.trail != self.last_trail);
+            let splashed = splash_changed
+                && (records_meet(&self.splash_inst, band)
+                    || records_meet(&self.last_splash_inst, band));
             // A picture is the block's, so a row can move in or out of one
             // without a cell of its own changing.
             let pictured = self.pictures.row_changed(row);
@@ -6477,8 +6550,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || remirrored
                 || reslanted;
             beyond_cursor |= beyond;
-            self.dirty[r] =
-                full || beyond || cursor_moved || glow_moved || guide_moved || trail_moved;
+            let whole = full || beyond || cursor_moved || glow_moved || guide_moved;
+            self.dirty[r] = whole || trail_moved || splashed;
+            // A row dirty only for the trail or the splash repaints the
+            // columns their records reach on it, now and in the last frame:
+            // every other pixel of it is the last frame's.
+            self.repaint[r] = match (whole, self.dirty[r]) {
+                (false, true) => self.records_on(band),
+                _ => Repaint::Whole,
+            };
         }
         self.place_diff = diff;
         if rejoin.is_some() {
@@ -6579,6 +6659,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         for r in reached {
             self.dirty[r] = true;
+            self.repaint[r] = Repaint::Whole;
         }
         let this = match beyond_cursor {
             true => crate::Redraw::Whole,
@@ -6607,8 +6688,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_highlight = self.highlight;
         self.last_bar = self.bar;
         self.last_trail = self.trail;
+        self.last_trail_inst.clone_from(&self.trail_inst);
         self.last_fade = self.fade;
         self.last_splash = self.splash;
+        self.last_splash_inst.clone_from(&self.splash_inst);
         self.last_clusters = clusters;
         self.last_composition = composition;
         self.last_find.clone_from(&self.find);
@@ -6629,6 +6712,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             for (d, was) in self.dirty.iter_mut().zip(dirtied) {
                 *d |= was;
             }
+            // The second pass reads this frame's records as the last's.
+            self.repaint.fill(Repaint::Whole);
             // Both passes' rows and time.
             again.rows_dirty.add(rows_dirty);
             again.convert = t0.elapsed();
@@ -6728,6 +6813,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             let band = self.band(row);
             let margin = self.clear_color();
+            let mut target = self.repainted(target, r);
+            let target = &mut target;
             target.fill_band(
                 band,
                 &self.bg[self.row_cells(row)],
@@ -6776,27 +6863,58 @@ impl<'f, 'a> Renderer<'f, 'a> {
             for inst in &self.compose_inst {
                 target.over(inst, &self.atlas, self.blend, page, band);
             }
-            // A repeat pass's quad carries the cap, as its record does; an
-            // effect's records carry it in their colour.
-            let fill = match self.strength() {
-                Strength::Full => self.cursor_fill,
-                Strength::UnderThreshold => self
-                    .cursor_fill
-                    .with_alpha(flash::capped(self.cursor_fill.a(), self.flash_cap)),
-            };
-            match self.trail {
-                Some(Drawn::Smear(s)) => {
-                    target.quad(&s, fill, self.blend, page, band);
-                }
-                Some(Drawn::Vfx(v, ..)) => {
-                    target.effect(&v, &self.trail_inst, self.blend, page, band);
-                }
-                _ => {
-                    for inst in &self.trail_inst {
-                        target.over(inst, &self.atlas, self.blend, page, band);
+        }
+        // The trail over every repainted row, then the cursor's glow: each
+        // draw clipped to its row's band, so a pixel is drawn over in the
+        // order a row's own pass would draw it. An effect's records are
+        // drawn over all the rows at once, on as many threads as their
+        // pixels are worth (`Target::effect_over`).
+        // A repeat pass's quad carries the cap, as its record does; an
+        // effect's records carry it in their colour.
+        let fill = match self.strength() {
+            Strength::Full => self.cursor_fill,
+            Strength::UnderThreshold => self
+                .cursor_fill
+                .with_alpha(flash::capped(self.cursor_fill.a(), self.flash_cap)),
+        };
+        let dirty = (0..self.rows.index()).filter(|&r| self.dirty[r]);
+        match self.trail {
+            Some(Drawn::Vfx(v, ..)) => {
+                let pieces: Vec<(Band, Px, Px)> = dirty
+                    .map(|r| {
+                        let band = self.band(Row::from_index(r));
+                        match self.repaint.get(r) {
+                            Some(&Repaint::Cols { left, right }) => (band, left, right),
+                            _ => (band, Px::of(0), Px::of(u32::MAX)),
+                        }
+                    })
+                    .collect();
+                target.effect_over(
+                    &v,
+                    &self.trail_inst,
+                    (self.blend, page),
+                    &pieces,
+                    self.threads,
+                );
+            }
+            trail => {
+                for r in dirty {
+                    let band = self.band(Row::from_index(r));
+                    let mut target = self.repainted(target, r);
+                    match trail {
+                        Some(Drawn::Smear(s)) => target.quad(&s, fill, self.blend, page, band),
+                        _ => {
+                            for inst in &self.trail_inst {
+                                target.over(inst, &self.atlas, self.blend, page, band);
+                            }
+                        }
                     }
                 }
             }
+        }
+        for r in (0..self.rows.index()).filter(|&r| self.dirty[r]) {
+            let band = self.band(Row::from_index(r));
+            let mut target = self.repainted(target, r);
             for inst in &self.glow_inst {
                 target.over(inst, &self.atlas, self.blend, page, band);
             }
@@ -6811,6 +6929,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         for r in (0..self.rows.index()).filter(|&r| self.dirty[r]) {
             let band = self.band(Row::from_index(r));
+            let mut target = self.repainted(target, r);
             for inst in self
                 .chrome_inst
                 .iter()
@@ -6825,6 +6944,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
         frame.cache = self.cache.stats();
         frame.atlas = self.atlas.stats();
         frame
+    }
+
+    /// **The threads a CPU frame draws an effect on, at most**, from the
+    /// next frame: one draws every effect on the thread that renders. The
+    /// pixels are the same at any number.
+    pub fn set_threads(&mut self, n: core::num::NonZeroUsize) {
+        self.threads = n;
+    }
+
+    /// `target` over what dirty row `r` repaints ([`Repaint`]).
+    fn repainted<'t>(&self, target: &'t mut Target<'_>, r: usize) -> Target<'t> {
+        match self.repaint.get(r) {
+            Some(&Repaint::Cols { left, right }) => target.within(left, right),
+            _ => target.within(Px::of(0), Px::of(u32::MAX)),
+        }
     }
 
     /// Every instance of the current frame, row by row: what a GPU path

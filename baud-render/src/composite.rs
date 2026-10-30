@@ -46,11 +46,18 @@ pub enum Page {
 /// The caller's pixel buffer: `width` by `height` pixels of `Argb`, rows
 /// `stride` pixels apart. What an `IOSurface`, a `wl_shm` map or an
 /// upload heap hands over.
+///
+/// **Every draw writes only the columns `cols`**, the whole width unless
+/// a frame repaints part of a row ([`Target::within`]): a row's fill and
+/// every record drawn over it are clipped alike, so the pixels inside are
+/// what the whole row's repaint gives and the pixels outside are the
+/// frame before's.
 pub struct Target<'p> {
     pixels: &'p mut [u32],
     stride: Px,
     width: Px,
     height: Px,
+    cols: core::ops::Range<usize>,
 }
 
 impl<'p> Target<'p> {
@@ -62,6 +69,7 @@ impl<'p> Target<'p> {
             stride,
             width,
             height,
+            cols: 0..w,
         })
     }
 
@@ -92,7 +100,30 @@ impl<'p> Target<'p> {
             stride: self.stride,
             width,
             height: self.height,
+            cols: 0..w,
         })
+    }
+
+    /// **The columns from `left` to `right` only**, as a target over the
+    /// same pixels: what a row repaints when only the records over part of
+    /// it changed. Each draw through it writes those columns and no other,
+    /// in the same coordinates.
+    pub fn within(&mut self, left: Px, right: Px) -> Target<'_> {
+        let start = self.cols.start.max(slots(left));
+        let end = self.cols.end.min(slots(right)).max(start);
+        Target {
+            pixels: &mut *self.pixels,
+            stride: self.stride,
+            width: self.width,
+            height: self.height,
+            cols: start..end,
+        }
+    }
+
+    /// The pixels of `xs` inside the columns drawn.
+    fn drawn(&self, xs: core::ops::Range<usize>) -> core::ops::Range<usize> {
+        let start = xs.start.max(self.cols.start);
+        start..xs.end.min(self.cols.end).max(start)
     }
 
     fn rows_of(&self, band: Band) -> core::ops::Range<usize> {
@@ -106,19 +137,25 @@ impl<'p> Target<'p> {
     pub fn fill_band(&mut self, band: Band, bg: &[Argb], cell_w: Px, margin: Argb) {
         let cell_w = slots(cell_w);
         let (stride, width) = (slots(self.stride), slots(self.width));
+        let xs = self.cols.clone();
+        // The first cell the columns reach, and where it starts.
+        let first = match cell_w {
+            0 => 0,
+            w => (xs.start / w).min(bg.len()),
+        };
         for y in self.rows_of(band) {
             let row = &mut self.pixels[y * stride..y * stride + width];
-            let mut x = 0;
-            for &c in bg {
-                let end = (x + cell_w).min(width);
+            let mut x = first * cell_w;
+            for &c in &bg[first..] {
+                let end = (x + cell_w).min(xs.end);
                 if x >= end {
                     break;
                 }
-                row[x..end].fill(c.0);
+                row[x.max(xs.start)..end].fill(c.0);
                 x = end;
             }
-            if x < width {
-                row[x..].fill(margin.0);
+            if x < xs.end {
+                row[x.max(xs.start)..xs.end].fill(margin.0);
             }
         }
     }
@@ -131,15 +168,13 @@ impl<'p> Target<'p> {
         let cell_w = slots(cell_w);
         let (stride, width) = (slots(self.stride), slots(self.width));
         for y in self.rows_of(band) {
-            let row = &mut self.pixels[y * stride..y * stride + width];
             for (c, w) in bg.iter().enumerate() {
-                let x = c * cell_w;
-                let end = (x + cell_w).min(width);
-                if x >= end {
+                let xs = self.drawn(c * cell_w..(c + 1) * cell_w);
+                if c * cell_w >= self.cols.end {
                     break;
                 }
                 if set(c) {
-                    row[x..end].fill(w.0);
+                    self.pixels[y * stride..y * stride + width][xs].fill(w.0);
                 }
             }
         }
@@ -152,15 +187,13 @@ impl<'p> Target<'p> {
         let cell_w = slots(cell_w);
         let (stride, width) = (slots(self.stride), slots(self.width));
         for y in self.rows_of(band) {
-            let row = &mut self.pixels[y * stride..y * stride + width];
             for c in 0..cols.index() {
-                let x = c * cell_w;
-                let end = (x + cell_w).min(width);
-                if x >= end {
+                let xs = self.drawn(c * cell_w..(c + 1) * cell_w);
+                if c * cell_w >= self.cols.end {
                     break;
                 }
                 if set(c) {
-                    row[x..end].fill(0);
+                    self.pixels[y * stride..y * stride + width][xs].fill(0);
                 }
             }
         }
@@ -183,15 +216,13 @@ impl<'p> Target<'p> {
         let cell_w = slots(cell_w);
         let (stride, width) = (slots(self.stride), slots(self.width));
         for y in self.rows_of(band) {
-            let row = &mut self.pixels[y * stride..y * stride + width];
             for (c, &w) in bg.iter().enumerate() {
-                let x = c * cell_w;
-                let end = (x + cell_w).min(width);
-                if x >= end {
+                let xs = self.drawn(c * cell_w..(c + 1) * cell_w);
+                if c * cell_w >= self.cols.end {
                     break;
                 }
                 if set(c) {
-                    for d in &mut row[x..end] {
+                    for d in &mut self.pixels[y * stride..y * stride + width][xs] {
                         *d = blend.over_glass(w, Argb(*d), Coverage(255)).0;
                     }
                 }
@@ -274,6 +305,7 @@ impl<'p> Target<'p> {
         let (u, v) = (usize::from(inst.u.0), usize::from(inst.v.0));
         let rows = self.rows_of(band);
         let (stride, width) = (slots(self.stride), slots(self.width));
+        let xs = self.cols.clone();
         let color = inst.color;
         let mask_side = slots(Px::of(atlas.side().value()));
         let color_side = slots(Px::of(atlas.color_side().value()));
@@ -291,7 +323,7 @@ impl<'p> Target<'p> {
                 else {
                     continue;
                 };
-                if x >= width {
+                if !xs.contains(&x) {
                     continue;
                 }
                 let dst = Argb(row[x]);
@@ -351,7 +383,7 @@ impl<'p> Target<'p> {
         let rows = self.rows_of(band);
         let (stride, width) = (slots(self.stride), slots(self.width));
         let ys = slots(y0).max(rows.start)..slots(y1).min(rows.end);
-        let xs = slots(x0)..slots(x1).min(width);
+        let xs = slots(x0).max(self.cols.start)..slots(x1).min(self.cols.end);
         for y in ys {
             let row = &mut self.pixels[y * stride..y * stride + width];
             let cy = f32::from(u16::try_from(y).unwrap_or(u16::MAX)) + 0.5;
@@ -369,14 +401,15 @@ impl<'p> Target<'p> {
     }
 
     /// **Paints an effect's records over the pixels**, each clipped to the
-    /// buffer and the rows of `band`, as the GPU's viewport and its effect
-    /// pipeline draw them: a band's pixel at the effect's light at the
-    /// pixel's centre ([`Vfx::light`]'s bits, through [`Vfx::shade`], which
-    /// leaves out only pixels whose light is zero), a particle's at its shape where the
-    /// pixel sits in its record, -1 to 1 on each axis ([`Vfx::particle`]),
-    /// each times the record's alpha -- which carries a particle's glow and
-    /// a repeat pass's flash cap -- in the record's colour, in order, so a
-    /// particle lands over the band under it.
+    /// buffer, the columns drawn and the rows of `band`, as the GPU's
+    /// viewport and its effect pipeline draw them: a band's pixel at the
+    /// effect's light at the pixel's centre ([`Vfx::light`]'s bits, through
+    /// [`Vfx::shade`], which leaves out only pixels whose light is zero), a
+    /// particle's at its shape where the pixel sits in its record, -1 to 1
+    /// on each axis ([`Vfx::particle`]), each times the record's alpha --
+    /// which carries a particle's glow and a repeat pass's flash cap -- in
+    /// the record's colour, in order, so a particle lands over the band
+    /// under it.
     pub fn effect(
         &mut self,
         vfx: &Vfx,
@@ -385,64 +418,105 @@ impl<'p> Target<'p> {
         page: Page,
         band: Band,
     ) {
-        let rows = self.rows_of(band);
-        let (stride, width) = (slots(self.stride), slots(self.width));
-        let at = |v: i16| usize::try_from(v.max(0)).unwrap_or(0);
-        for r in records
+        let (left, right) = (self.cols.start, self.cols.end);
+        let piece = Piece {
+            rows: self.rows_of(band),
+            cols: left..right,
+        };
+        let mut rows = Rows {
+            pixels: &mut *self.pixels,
+            first: Px::of(0),
+            stride: self.stride,
+            width: self.width,
+        };
+        rows.effect(vfx, records, (blend, page), piece);
+    }
+
+    /// **[`Target::effect`] over many rows at once, on up to `threads`
+    /// threads**: each of `pieces`, a band's rows and the columns drawn on
+    /// them, clipped to the buffer and the columns drawn. The pixel rows are
+    /// cut into runs of about equal work -- the record pixels over them --
+    /// one a thread, none under [`SHARE`]: every pixel is under the same
+    /// records in the same order whichever run it falls in, and its light is
+    /// its own ([`Vfx::shade`]), so the pixels are the one thread's bit for
+    /// bit.
+    pub(crate) fn effect_over(
+        &mut self,
+        vfx: &Vfx,
+        records: &[Instance],
+        (blend, page): (Blend, Page),
+        pieces: &[(Band, Px, Px)],
+        threads: core::num::NonZeroUsize,
+    ) {
+        let pieces: Vec<Piece> = pieces
             .iter()
-            .filter(|r| matches!(r.kind, Kind::Band | Kind::Particle))
-        {
-            let (x0, y0) = (i32::from(r.x.0), i32::from(r.y.0));
-            let (w, h) = (f32::from(r.w.0), f32::from(r.h.0));
-            let ys = at(r.y.0).max(rows.start)
-                ..usize::try_from(y0 + i32::from(r.h.0))
-                    .unwrap_or(0)
-                    .min(rows.end);
-            let xs = at(r.x.0)
-                ..usize::try_from(x0 + i32::from(r.w.0))
-                    .unwrap_or(0)
-                    .min(width);
-            let alpha = f32::from(r.color.a().get()) / 255.0;
-            let color = r.color.with_alpha(Chan::from_u8(0xFF));
-            if r.kind == Kind::Band {
-                // The last pixel's blend, by its opacity's bits and the word
-                // under it: beside a level edge one light runs along a row
-                // over one ground.
-                let pixels = &mut *self.pixels;
-                let mut kept: Option<(u32, u32, u32)> = None;
-                vfx.shade(xs, ys, |x, y, v| {
-                    let a = alpha * v;
-                    if a > 0.0 {
-                        let i = y * stride + x;
-                        let (key, under) = (a.to_bits(), pixels[i]);
-                        pixels[i] = match kept {
-                            Some((k, u, out)) if k == key && u == under => out,
-                            _ => {
-                                let out = blend.over_unit(color, Argb(under), a, page).0;
-                                kept = Some((key, under, out));
-                                out
-                            }
-                        };
-                    }
-                });
-                continue;
+            .map(|&(band, left, right)| {
+                let start = slots(left).max(self.cols.start);
+                Piece {
+                    rows: self.rows_of(band),
+                    cols: start..slots(right).min(self.cols.end).max(start),
+                }
+            })
+            .filter(|p| !p.rows.is_empty() && !p.cols.is_empty())
+            .collect();
+        let (stride, width) = (self.stride, self.width);
+        let row = |y: usize| Px::of(u32::try_from(y).unwrap_or(u32::MAX));
+        // One thread draws on this one, with no rows to cut and no scope.
+        let cuts = match threads.get() {
+            1 => Vec::new(),
+            _ => cuts(records, &pieces, self.height, threads),
+        };
+        if cuts.is_empty() {
+            let mut all = Rows {
+                pixels: &mut *self.pixels,
+                first: Px::of(0),
+                stride,
+                width,
+            };
+            for p in pieces {
+                all.effect(vfx, records, (blend, page), p);
             }
-            for y in ys {
-                let row = &mut self.pixels[y * stride..y * stride + width];
-                let cy = f32::from(u16::try_from(y).unwrap_or(u16::MAX)) + 0.5;
-                for x in xs.clone() {
-                    let cx = f32::from(u16::try_from(x).unwrap_or(u16::MAX)) + 0.5;
-                    let v = vfx.particle(Pt {
-                        x: (cx - x0 as f32) / w * 2.0 - 1.0,
-                        y: (cy - y0 as f32) / h * 2.0 - 1.0,
-                    });
-                    let a = alpha * v;
-                    if a > 0.0 {
-                        row[x] = blend.over_unit(color, Argb(row[x]), a, page).0;
-                    }
+            return;
+        }
+        let mut rest = &mut *self.pixels;
+        let mut first = 0;
+        let mut shares = Vec::with_capacity(cuts.len() + 1);
+        for &cut in &cuts {
+            let (head, tail) = rest.split_at_mut((cut - first) * slots(stride));
+            shares.push(Rows {
+                pixels: head,
+                first: row(first),
+                stride,
+                width,
+            });
+            (rest, first) = (tail, cut);
+        }
+        shares.push(Rows {
+            pixels: rest,
+            first: row(first),
+            stride,
+            width,
+        });
+        let draw = |mut share: Rows<'_>| {
+            let start = slots(share.first);
+            let end = start + share.pixels.len().div_ceil(slots(stride).max(1));
+            for p in &pieces {
+                let rows = p.rows.start.max(start)..p.rows.end.min(end);
+                if rows.start < rows.end {
+                    let cols = p.cols.clone();
+                    share.effect(vfx, records, (blend, page), Piece { rows, cols });
                 }
             }
-        }
+        };
+        let last = shares.pop();
+        std::thread::scope(|scope| {
+            for share in shares {
+                scope.spawn(move || draw(share));
+            }
+            if let Some(share) = last {
+                draw(share);
+            }
+        });
     }
 
     /// Blits a placement's drawn pixels over the buffer: `blit.at` is the
@@ -604,7 +678,11 @@ impl<'p> Target<'p> {
         let top = i64::from(blit.band.top.value()).min(i64::from(self.height.value()));
         let bottom = i64::from(blit.band.bottom.value()).min(i64::from(self.height.value()));
         let (j0, j1) = ((top - y).max(0), (bottom - y).min(h));
-        let (i0, i1) = ((-x).max(0), (i64::from(self.width.value()) - x).min(w));
+        let (left, right) = (
+            i64::try_from(self.cols.start).unwrap_or(i64::MAX),
+            i64::try_from(self.cols.end).unwrap_or(i64::MAX),
+        );
+        let (i0, i1) = ((left - x).max(0), (right - x).min(w));
         let at = |v: i64| usize::try_from(v).ok();
         let px = |v: i64| u32::try_from(v).ok().map(Px::of);
         if j0 >= j1 || i0 >= i1 {
@@ -707,6 +785,156 @@ impl<'p> Target<'p> {
                     continue;
                 }
                 *d = mix(Argb(p.bits()), Argb(*d)).0;
+            }
+        }
+    }
+}
+
+/// **The record pixels a thread is worth starting for**: the plasma's
+/// band pixels cost about 7 ns each on the CPU path (note AJ section 19's
+/// 6K worst frame, 18.85-19.15 ms, less the 4.0 ms with the bands shading
+/// nothing, over 2,158,300 band pixels), a thread's start and join 9 to 64
+/// us on that machine (best and mean of 2,000 scopes of one; note AJ
+/// section 22), so a share under this, about 0.4 ms of light, is drawn on
+/// a thread already running.
+pub(crate) const SHARE: u64 = 1 << 16;
+
+/// The rows of a band an effect draws and the columns drawn on them.
+struct Piece {
+    rows: core::ops::Range<usize>,
+    cols: core::ops::Range<usize>,
+}
+
+/// **Some whole pixel rows of the buffer**, from row `first` on: one
+/// thread's share of [`Target::effect_over`].
+struct Rows<'p> {
+    pixels: &'p mut [u32],
+    first: Px,
+    stride: Px,
+    width: Px,
+}
+
+/// **Where [`Target::effect_over`] cuts the pixel rows**, ascending, at
+/// most `threads - 1` cuts: the rows where the record pixels over the
+/// pieces, taken top to bottom, pass each equal share of their total --
+/// none when the total is under two [`SHARE`]s.
+fn cuts(
+    records: &[Instance],
+    pieces: &[Piece],
+    height: Px,
+    threads: core::num::NonZeroUsize,
+) -> Vec<usize> {
+    let mut work = vec![0u64; slots(height)];
+    for p in pieces {
+        for r in records
+            .iter()
+            .filter(|r| matches!(r.kind, Kind::Band | Kind::Particle))
+        {
+            let (x0, y0) = (i64::from(r.x.0), i64::from(r.y.0));
+            let span = |a: i64, b: i64, lo: usize, hi: usize| {
+                let lo = i64::try_from(lo).unwrap_or(i64::MAX);
+                let hi = i64::try_from(hi).unwrap_or(i64::MAX);
+                (a.max(lo), b.min(hi))
+            };
+            let (c0, c1) = span(x0, x0 + i64::from(r.w.0), p.cols.start, p.cols.end);
+            let (r0, r1) = span(y0, y0 + i64::from(r.h.0), p.rows.start, p.rows.end);
+            if c0 >= c1 || r0 >= r1 {
+                continue;
+            }
+            let w = u64::try_from(c1 - c0).unwrap_or(0);
+            let ys = usize::try_from(r0).unwrap_or(0)..usize::try_from(r1).unwrap_or(0);
+            for row in &mut work[ys] {
+                *row += w;
+            }
+        }
+    }
+    let total: u64 = work.iter().sum();
+    let n = u64::try_from(threads.get())
+        .unwrap_or(1)
+        .min(total / SHARE)
+        .max(1);
+    let mut out = Vec::new();
+    let mut seen = 0u64;
+    for (y, &w) in work.iter().enumerate() {
+        let next = u64::try_from(out.len() + 1).unwrap_or(u64::MAX);
+        if next >= n {
+            break;
+        }
+        if seen >= total * next / n && y > out.last().copied().unwrap_or(0) {
+            out.push(y);
+        }
+        seen += w;
+    }
+    out
+}
+
+impl Rows<'_> {
+    /// [`Target::effect`] over `piece`, its rows within this share's.
+    fn effect(
+        &mut self,
+        vfx: &Vfx,
+        records: &[Instance],
+        (blend, page): (Blend, Page),
+        piece: Piece,
+    ) {
+        let (stride, width, first) = (slots(self.stride), slots(self.width), slots(self.first));
+        let (rows, cols) = (piece.rows, piece.cols);
+        let at = |v: i16| usize::try_from(v.max(0)).unwrap_or(0);
+        for r in records
+            .iter()
+            .filter(|r| matches!(r.kind, Kind::Band | Kind::Particle))
+        {
+            let (x0, y0) = (i32::from(r.x.0), i32::from(r.y.0));
+            let (w, h) = (f32::from(r.w.0), f32::from(r.h.0));
+            let ys = at(r.y.0).max(rows.start)
+                ..usize::try_from(y0 + i32::from(r.h.0))
+                    .unwrap_or(0)
+                    .min(rows.end);
+            let xs = at(r.x.0).max(cols.start)
+                ..usize::try_from(x0 + i32::from(r.w.0))
+                    .unwrap_or(0)
+                    .min(cols.end)
+                    .min(width);
+            let alpha = f32::from(r.color.a().get()) / 255.0;
+            let color = r.color.with_alpha(Chan::from_u8(0xFF));
+            if r.kind == Kind::Band {
+                // The last pixel's blend, by its opacity's bits and the word
+                // under it: beside a level edge one light runs along a row
+                // over one ground.
+                let pixels = &mut *self.pixels;
+                let mut kept: Option<(u32, u32, u32)> = None;
+                vfx.shade(xs, ys, |x, y, v| {
+                    let a = alpha * v;
+                    if a > 0.0 {
+                        let i = (y - first) * stride + x;
+                        let (key, under) = (a.to_bits(), pixels[i]);
+                        pixels[i] = match kept {
+                            Some((k, u, out)) if k == key && u == under => out,
+                            _ => {
+                                let out = blend.over_unit(color, Argb(under), a, page).0;
+                                kept = Some((key, under, out));
+                                out
+                            }
+                        };
+                    }
+                });
+                continue;
+            }
+            for y in ys {
+                let at = (y - first) * stride;
+                let row = &mut self.pixels[at..at + width];
+                let cy = f32::from(u16::try_from(y).unwrap_or(u16::MAX)) + 0.5;
+                for x in xs.clone() {
+                    let cx = f32::from(u16::try_from(x).unwrap_or(u16::MAX)) + 0.5;
+                    let v = vfx.particle(Pt {
+                        x: (cx - x0 as f32) / w * 2.0 - 1.0,
+                        y: (cy - y0 as f32) / h * 2.0 - 1.0,
+                    });
+                    let a = alpha * v;
+                    if a > 0.0 {
+                        row[x] = blend.over_unit(color, Argb(row[x]), a, page).0;
+                    }
+                }
             }
         }
     }
@@ -972,6 +1200,104 @@ fn luts() -> &'static Luts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The effect on any number of threads is the one thread's, bit for
+    /// bit**: the splash's plasma at a 2x frame (200 by 50 cells at 28 px,
+    /// 3400 by 1850), at its first frame, through the emerge and the sweep,
+    /// over a ground of every cell row's own colour, drawn by
+    /// [`Target::effect_over`] on 1, 2, 3, 7 and 18 threads, each the
+    /// pixels a cell row at a time by [`Target::effect`] give -- over the
+    /// whole width and over a few columns of it, as a row repainted in part
+    /// draws it. The control: at 7 threads the rows are cut once a
+    /// [`SHARE`] of record pixels, 6 times on the first frame, each cut
+    /// inside the records' rows; at 1 not at all.
+    #[test]
+    fn the_effect_on_any_number_of_threads_is_one_threads() {
+        use crate::splash;
+        let (w, h) = (Px::of(3400), Px::of(1850));
+        let cell = 56;
+        let frame = (3400.0, 1850.0);
+        let scale = splash::scale(frame);
+        let at = splash::origin(frame, scale);
+        let ground: Vec<u32> = (0..1850 * 3400u32)
+            .map(|i: u32| 0xFF00_0000 | (i / 3400 / cell * 0x0003_0507))
+            .collect();
+        let bands: Vec<Band> = (0..1850u32.div_ceil(56))
+            .map(|r| Band {
+                top: Px::of(r * 56),
+                bottom: Px::of((r * 56 + 56).min(1850)),
+            })
+            .collect();
+        for age in [0.0, splash::OUT, splash::OUT + splash::HOLD, splash::LEFT] {
+            let vfx = splash::vfx(at, scale, age);
+            let mut records = Vec::new();
+            vfx.instances((w, h), Argb(0xFFF4_A32C), &mut records);
+            splash::paint(&mut records, at, scale, splash::DARK);
+            for (left, right) in [(Px::of(0), Px::of(u32::MAX)), (Px::of(1500), Px::of(1900))] {
+                let mut want = ground.clone();
+                {
+                    let mut t = Target::new(&mut want, w, w, h).unwrap();
+                    let mut t = t.within(left, right);
+                    for &band in &bands {
+                        t.effect(&vfx, &records, Blend::Native, Page::Opaque, band);
+                    }
+                }
+                let pieces: Vec<(Band, Px, Px)> = bands.iter().map(|&b| (b, left, right)).collect();
+                for n in [1usize, 2, 3, 7, 18] {
+                    let mut got = ground.clone();
+                    let mut t = Target::new(&mut got, w, w, h).unwrap();
+                    t.effect_over(
+                        &vfx,
+                        &records,
+                        (Blend::Native, Page::Opaque),
+                        &pieces,
+                        core::num::NonZeroUsize::new(n).unwrap(),
+                    );
+                    let off = got.iter().zip(&want).filter(|(a, b)| a != b).count();
+                    assert_eq!(off, 0, "{age} s, {n} threads, columns {left:?}..{right:?}");
+                }
+                assert!(want != ground, "{age} s: the control, the effect drew");
+            }
+            let pieces: Vec<Piece> = bands
+                .iter()
+                .map(|b| Piece {
+                    rows: slots(b.top)..slots(b.bottom),
+                    cols: 0..3400,
+                })
+                .collect();
+            let top = records
+                .iter()
+                .map(|r| usize::try_from(r.y.0).unwrap())
+                .min()
+                .unwrap();
+            let bottom = records
+                .iter()
+                .map(|r| usize::try_from(i32::from(r.y.0) + i32::from(r.h.0)).unwrap())
+                .max()
+                .unwrap();
+            // A thread a [`SHARE`] of record pixels, at most seven.
+            let total: u64 = records
+                .iter()
+                .filter(|r| matches!(r.kind, Kind::Band | Kind::Particle))
+                .map(|r| u64::from(r.w.0) * u64::from(r.h.0))
+                .sum();
+            let n = |k: usize| core::num::NonZeroUsize::new(k).unwrap();
+            let seven = cuts(&records, &pieces, h, n(7));
+            let want = (total / SHARE).clamp(1, 7) - 1;
+            assert_eq!(
+                u64::try_from(seven.len()).unwrap(),
+                want,
+                "{age} s: {seven:?}"
+            );
+            assert!(age > 0.0 || want == 6, "the first frame is worth seven");
+            assert!(
+                seven.windows(2).all(|c| c[0] < c[1])
+                    && seven.iter().all(|&c| top < c && c < bottom),
+                "{age} s: {seven:?} not inside {top}..{bottom}"
+            );
+            assert!(cuts(&records, &pieces, h, n(1)).is_empty());
+        }
+    }
 
     /// **Over an opaque backdrop the glass blend is the opaque one**, bit
     /// for bit, under both blends: what lets `paint` choose the page once a

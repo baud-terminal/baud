@@ -9,8 +9,8 @@ use baud_font::Face;
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::splash::{DARK, GONE, LEFT, LIGHT, OUT, glow};
 use baud_render::{
-    Blend, Damage, FaceRole, FaceStyle, Kind, PxSize, Rect, Renderer, Segment, Shape, Smear,
-    SplashLook, SplashPhase, Stack, Strength, Target, Theme, TrailLook,
+    Blend, Damage, FaceRole, FaceStyle, Instance, Kind, PxSize, Rect, Renderer, Segment, Shape,
+    Smear, SplashLook, SplashPhase, Stack, Strength, Target, Theme, TrailLook,
 };
 
 const WS: WinSize = WinSize {
@@ -484,5 +484,349 @@ fn the_plasma_is_full_strength_and_its_remainder_fades_out() {
         );
         r.set_splash(look(SplashPhase::Plasma(GONE)));
         assert_eq!(r.vfx(), None, "out at its end");
+    }
+}
+
+/// Text on every row of the window, so a row the splash repaints in part
+/// has glyphs on both sides of its records.
+fn text_everywhere(t: &mut Term<'_>) {
+    let line = "lorem ipsum dolor sit amet, consectetur adipiscing elit ".repeat(2);
+    for r in 1..=WS.ws_row {
+        let at = usize::from(r) % 7;
+        let text = &line[at..at + usize::from(WS.ws_col)];
+        feed(t, format!("\x1b[{r};1H{text}").as_bytes());
+    }
+}
+
+/// The pixels of a `width`-wide frame each cell row `cell_h` high may
+/// repaint for `records`: on each row, the columns from the leftmost pixel
+/// a record meeting it reaches to the rightmost.
+fn reach_of(records: &[Instance], width: usize, rows: usize, cell_h: usize) -> Vec<bool> {
+    let mut out = vec![false; width * rows * cell_h];
+    for row in 0..rows {
+        let (top, bottom) = (row * cell_h, (row + 1) * cell_h);
+        let meets = records.iter().filter(|r| {
+            let y = i64::from(r.y.0);
+            y < i64::try_from(bottom).unwrap() && y + i64::from(r.h.0) > i64::try_from(top).unwrap()
+        });
+        let (lo, hi) = meets.fold((i64::MAX, i64::MIN), |(lo, hi), r| {
+            let x = i64::from(r.x.0);
+            (lo.min(x), hi.max(x + i64::from(r.w.0)))
+        });
+        let clip = |v: i64| usize::try_from(v.max(0)).unwrap().min(width);
+        if lo < hi {
+            for y in top..bottom {
+                out[y * width + clip(lo)..y * width + clip(hi)].fill(true);
+            }
+        }
+    }
+    out
+}
+
+/// **The splash repaints only the columns its records reach**: on every
+/// frame of its life at 60 Hz, and on the frame it is gone, an incremental
+/// frame writes no pixel outside, on each cell row, the columns from the
+/// leftmost pixel one of its records (the plasma's and the logo's, this
+/// frame's and the last's) reaches on the row to the rightmost -- every
+/// other pixel is the last frame's, so a pixel there is left as it was,
+/// even one no frame drew. Over text on every row. The control: the
+/// repaint drew the plasma, a pixel inside changed on every frame it
+/// burns.
+#[test]
+fn the_splash_repaints_only_the_columns_its_records_reach() {
+    const POISON: u32 = 0x1234_5678;
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    text_everywhere(&mut t);
+    let mut r = renderer(&faces, Theme::dark());
+    let mut px = Vec::new();
+    let _ = paint(&mut r, &mut t, &mut px, Damage::Full);
+    let width = usize::try_from(r.pixel_size().0.value()).unwrap();
+    let cell_h = usize::try_from(r.metrics().cell_h.value()).unwrap();
+    let rows = usize::from(WS.ws_row);
+    let mut last: Vec<Instance> = Vec::new();
+    let (mut outside, mut records, mut frames) = (0usize, 0usize, 0usize);
+    let ages = (0u16..)
+        .map(|f| f32::from(f) / 60.0)
+        .take_while(|&a| a < GONE)
+        .map(Some)
+        .chain([None]);
+    for age in ages {
+        r.set_splash(age.and_then(|a| look(SplashPhase::Plasma(a))));
+        let now: Vec<Instance> = r.trail().iter().chain(r.splash()).copied().collect();
+        let both: Vec<Instance> = now.iter().chain(&last).copied().collect();
+        let reach = reach_of(&both, width, rows, cell_h);
+        for (p, &inside) in px.iter_mut().zip(&reach) {
+            if !inside {
+                *p = POISON;
+            }
+        }
+        let before = px.clone();
+        let _ = paint(&mut r, &mut t, &mut px, Damage::Incremental);
+        outside += px
+            .iter()
+            .zip(&reach)
+            .filter(|&(&p, &inside)| !inside && p != POISON)
+            .count();
+        let drawn = px
+            .iter()
+            .zip(&before)
+            .zip(&reach)
+            .any(|((a, b), &i)| i && a != b);
+        assert!(
+            drawn || age.is_none_or(|a| a >= LEFT),
+            "the control at {age:?}"
+        );
+        records += now
+            .iter()
+            .map(|i| usize::from(i.w.0) * usize::from(i.h.0))
+            .sum::<usize>();
+        frames += 1;
+        last = now;
+    }
+    assert_eq!(
+        outside, 0,
+        "{outside} pixels repainted outside the records' columns over {frames} frames, \
+         whose records cover {records}"
+    );
+}
+
+/// **Every frame of the splash drawn incrementally is the whole frame**,
+/// pixel for pixel, over text on every row: under full motion every frame
+/// of its life at 60 Hz, with a cursor trail lit under the plasma and held
+/// until it lands, and the next one drawn once it is gone, over the text;
+/// under reduced motion the held logo, its
+/// fade and the frame it is gone -- on the dark, light and glass pages. A
+/// frame drawn in part keeps every pixel no record moved over, and draws
+/// the rest as the whole frame does. The control: the splash drew, and
+/// differently from frame to frame.
+#[test]
+fn every_splash_frame_drawn_incrementally_is_the_whole_frame() {
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let glass = Theme {
+        bg_alpha: baud_domain::Chan::from_u8(0xC0),
+        ..Theme::dark()
+    };
+    for theme in [Theme::dark(), Theme::light(), glass] {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        text_everywhere(&mut t);
+        let (mut inc, mut full) = (renderer(&faces, theme.clone()), renderer(&faces, theme));
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        let _ = paint(&mut inc, &mut t, &mut a, Damage::Full);
+        let bare = a.clone();
+        let plasma = (0u16..)
+            .map(|f| f32::from(f) / 60.0)
+            .take_while(|&a| a < GONE)
+            .map(|a| {
+                (
+                    look(SplashPhase::Plasma(a)),
+                    (a > 0.2).then(|| cursor_fire(a - 0.2)),
+                )
+            });
+        // Gone, the trail lit under it held until it lands, then the next
+        // one drawn.
+        let gone = [Some(0.05f32), None, Some(0.0), Some(0.05), Some(0.1)]
+            .map(|a| (None, a.map(cursor_fire)));
+        let reduced = [0.0f32, 0.3, 0.6, 1.0]
+            .map(|k| look(SplashPhase::Fade(k)))
+            .into_iter()
+            .chain([look(SplashPhase::Hold), None, None])
+            .map(|s| (s, None));
+        let mut frames = Vec::new();
+        for (i, (splash, trail)) in plasma.chain(gone).chain(reduced).enumerate() {
+            for r in [&mut inc, &mut full] {
+                r.set_splash(splash);
+                r.set_trail(trail);
+            }
+            let drawn = paint(&mut inc, &mut t, &mut a, Damage::Incremental);
+            let whole = paint(&mut full, &mut t, &mut b, Damage::Full);
+            let off = drawn.iter().zip(&whole).filter(|(x, y)| x != y).count();
+            assert_eq!(
+                off, 0,
+                "frame {i} ({splash:?}): {off} pixels off the whole frame"
+            );
+            frames.push(drawn);
+        }
+        assert!(frames[0] != bare, "the control: the splash drew");
+        assert!(frames[0] != frames[10], "the control: it moved");
+        // The gone frames start 12 from the end: the next trail's second
+        // frame against the frame with none.
+        let gone = frames.len() - 12;
+        assert!(
+            frames[gone + 3] != frames[gone + 1],
+            "the control: the next trail drew"
+        );
+    }
+}
+
+/// **A 2x splash drawn on threads is drawn as on one**: a 200 by 50 cell
+/// window at 28 px (3400 by 1850), over text on every row, its renderer
+/// at seven threads and at one, every frame incremental after a full one
+/// -- the first frame, through each pass's hold, the sweep and the frame
+/// it is gone -- pixel for pixel. The control: the first frame's band and
+/// particle records cover at least two of the 65,536 pixels a thread is
+/// started for, so the frame is cut into runs.
+#[test]
+fn a_2x_splash_on_threads_is_drawn_as_on_one() {
+    const WIDE: WinSize = WinSize {
+        ws_col: 200,
+        ws_row: 50,
+    };
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let mut owned = Owned::new(&WIDE);
+    let mut t = Term::new(owned.storage(), &WIDE);
+    let line = "lorem ipsum dolor sit amet, consectetur adipiscing elit ".repeat(5);
+    for r in 1..=WIDE.ws_row {
+        let at = usize::from(r) % 7;
+        let text = &line[at..at + usize::from(WIDE.ws_col)];
+        feed(&mut t, format!("\x1b[{r};1H{text}").as_bytes());
+    }
+    let wide = || {
+        Renderer::new(
+            Stack::with_roles(
+                &faces,
+                &[FaceRole::Fallback, FaceRole::Style(FaceStyle::Bold)],
+            )
+            .unwrap(),
+            PxSize::of(28.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WIDE.ws_col)),
+            Rows::of_index(usize::from(WIDE.ws_row)),
+        )
+        .unwrap()
+    };
+    let (mut one, mut seven) = (wide(), wide());
+    one.set_threads(core::num::NonZeroUsize::new(1).unwrap());
+    seven.set_threads(core::num::NonZeroUsize::new(7).unwrap());
+    let (mut a, mut b) = (Vec::new(), Vec::new());
+    let _ = paint(&mut one, &mut t, &mut a, Damage::Full);
+    let _ = paint(&mut seven, &mut t, &mut b, Damage::Full);
+    let ages = [0.0, 1.0 / 60.0, 0.1, 0.2, 0.3, 0.4, LEFT]
+        .map(Some)
+        .into_iter()
+        .chain([None]);
+    for (i, age) in ages.enumerate() {
+        for r in [&mut one, &mut seven] {
+            r.set_splash(age.and_then(|a| look(SplashPhase::Plasma(a))));
+        }
+        if i == 0 {
+            let lit: usize = seven
+                .trail()
+                .iter()
+                .filter(|r| matches!(r.kind, Kind::Band | Kind::Particle))
+                .map(|r| usize::from(r.w.0) * usize::from(r.h.0))
+                .sum();
+            assert!(lit >= 2 * 65_536, "the control: {lit} record pixels");
+        }
+        let x = paint(&mut one, &mut t, &mut a, Damage::Incremental);
+        let y = paint(&mut seven, &mut t, &mut b, Damage::Incremental);
+        let off = x.iter().zip(&y).filter(|(p, q)| p != q).count();
+        assert_eq!(off, 0, "frame {i} ({age:?}): {off} pixels off one thread's");
+    }
+}
+
+/// The cell at column `c` and row `r` of the splash tests' window.
+fn trail_cell(c: f32, r: f32) -> Rect {
+    Rect {
+        left: c * 8.0,
+        top: r * 17.0,
+        right: c * 8.0 + 8.0,
+        bottom: r * 17.0 + 17.0,
+    }
+}
+
+/// The ignition of [`cursor_trail`]'s move.
+fn trail_ignition() -> Ignition {
+    let to = trail_cell(60.0, 9.0);
+    Ignition::ignite(baud_render::Pt { x: 20.0, y: 25.5 }, to, Seed(5), 17.0)
+}
+
+/// A cursor trail of `effect` at `strength`, a move down and across the
+/// window from row 1 to row 9.
+fn cursor_trail(effect: Effect, strength: Strength, age: f32) -> TrailLook {
+    let (from, to) = (trail_cell(2.0, 1.0), trail_cell(60.0, 9.0));
+    let ig = trail_ignition();
+    TrailLook::Vfx(Vfx {
+        effect,
+        emitter: Smear {
+            corners: Segment::new(from.corners(), to).at(age),
+            hole: to,
+            shape: Shape::Quad,
+            strength,
+        },
+        ignition: ig.at(age),
+        axis: ig.dir,
+    })
+}
+
+/// **Every frame of every effect's trail drawn incrementally is the whole
+/// frame**, pixel for pixel, over text on every row: each effect at full
+/// strength and as a repeat pass (its bands alone, under the cap), from
+/// its first frame at 60 Hz until it ends and on the frame it is gone. A
+/// row its records leave keeps every pixel no record of this frame or the
+/// last was over. The control: each trail drew, and moved.
+#[test]
+fn every_trail_frame_drawn_incrementally_is_the_whole_frame() {
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    text_everywhere(&mut t);
+    for effect in Effect::ALL {
+        for strength in [Strength::Full, Strength::UnderThreshold] {
+            let (mut inc, mut full) = (
+                renderer(&faces, Theme::dark()),
+                renderer(&faces, Theme::dark()),
+            );
+            let (mut a, mut b) = (Vec::new(), Vec::new());
+            let bare = paint(&mut inc, &mut t, &mut a, Damage::Full);
+            let end = effect.end(&trail_ignition());
+            let ages = (0u16..)
+                .map(|f| f32::from(f) / 60.0)
+                .take_while(|&a| a <= end + 1.0 / 60.0)
+                .map(Some)
+                .chain([None]);
+            let mut frames = Vec::new();
+            for (i, age) in ages.enumerate() {
+                let look = age.map(|a| cursor_trail(effect, strength, a));
+                for r in [&mut inc, &mut full] {
+                    r.set_trail(look);
+                }
+                let drawn = paint(&mut inc, &mut t, &mut a, Damage::Incremental);
+                let whole = paint(&mut full, &mut t, &mut b, Damage::Full);
+                let off = drawn.iter().zip(&whole).filter(|(x, y)| x != y).count();
+                assert_eq!(
+                    off, 0,
+                    "{effect:?} {strength:?} frame {i}: {off} pixels off the whole frame"
+                );
+                frames.push(drawn);
+            }
+            assert!(
+                frames[2] != bare,
+                "the control: {effect:?} {strength:?} drew"
+            );
+            assert!(
+                frames[2] != frames[8],
+                "the control: {effect:?} {strength:?} moved"
+            );
+        }
     }
 }

@@ -2767,3 +2767,52 @@ census through Metal, plasma, fire, ice and liquid at 13 pt 2x and 32 pt
 1x, hashes every frame the same as before ([[source: aj-obs-seam-probe]]
 and [[source: aj-obs-seam-strip-tool]] reproduce the rest); note AL's
 figures do not move.
+
+## 22. Every 6K frame of the plasma within 60 Hz on the CPU path (2026-10-30)
+
+**What the user sees.** On the CPU path (the Linux driver's; macOS under
+`BAUD_GPU=0`), every frame of the launch plasma in a 6K window is drawn
+within a 60 Hz frame on the machine measured (an Apple M5 Max; Linux is
+unmeasured): worst 19.40-19.94 ms, 13 of 33 over, to 4.07-6.75, none
+over. At 2x and 120 Hz 6.49-7.68 to 1.70-1.80, none over 8.3; at 1x
+0.43-0.47 to 0.25-0.26. It looks and moves exactly as before: the
+hash over every frame's pixels equals the base's, on all six arms, in
+both damage modes (the bench prints one FNV-1a over the whole life of
+each arm, not one hash per frame), as asked (2026-10-29): "ok so don't
+slow the plasma, it should be as before".
+
+**How it is built.** A changed splash had made the frame full, every row
+repainted, text included. A row dirty only for the trail's or the
+splash's records, this frame's or the last's, now repaints the columns
+from the leftmost pixel one reaches on it to the rightmost (`Repaint`,
+`Target::within`), fill, glyphs and records clipped alike. The bands'
+light, the rest of the frame, is then drawn over every repainted row at
+once (`effect_over`): the pixel rows cut into runs of equal record
+pixels, one a thread under `std::thread::scope()`, up to
+`available_parallelism()` and one for each 65,536 record pixels
+(`SHARE`), so a 1x frame starts none. Each pixel's light is its own and
+the bands tile the rows (section 21), so the pixels are one thread's.
+`Renderer::set_threads` sets the cap: it takes any `NonZeroUsize`, so
+it can raise the cap past `available_parallelism()` as well as lower
+it; baud-core is untouched. The cap is the machine's threads, not a
+fixed eight, none or a pool: a thread is started only for `SHARE`
+record pixels, about 0.4 ms of light against a 9-64 us start, and a
+pool is unmeasured.
+
+**Held.** `the_splash_repaints_only_the_columns_its_records_reach`
+failed on the base (8,758,314 pixels outside over 34 frames whose
+records cover 567,058; 2,099,754 with dirty rows whole).
+`every_splash_frame_drawn_incrementally_is_the_whole_frame` and
+`every_trail_frame_drawn_incrementally_is_the_whole_frame` fail when the
+last frame's records leave the columns;
+`the_effect_on_any_number_of_threads_is_one_threads` and
+`a_2x_splash_on_threads_is_drawn_as_on_one` when a run starts a row
+early. At one thread the 6K worst frame is 15.79-17.75 ms, so the
+threads are what hold it ([[source: aj-obs-cpu-6k-measure]]: the arms,
+the cap sweep, the profile, each frame).
+
+**Not fixed.** At one thread with `Damage::Full` the 6K frame is slower
+than the base's, 20.01-20.43 ms against 19.70-19.78, and on the 2x
+glass page, 6.92-9.54 against 6.80-6.87, not attributed. Threads are
+started each frame, 9-64 us for one and 94-144 for seventeen (best and
+mean), against a pool unmeasured; the cursor trails' time is unmeasured.
