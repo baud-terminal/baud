@@ -9,7 +9,9 @@ plasma within a frame at 2x on the CPU path, 2026-10-29 (section 14); the
 plasma over the word as well as the mark, 2026-10-29 (section 15); the
 window shown with its first frame, 2026-10-29 (section 16); the plasma
 in each glyph's colour, and one movement in and out, 2026-10-29 (section
-17). The questions as built:**
+17); the logo and the shell side by side, 2026-10-29 (section 18); every
+2x frame within 120 Hz on the CPU path, 2026-10-29 (section 19). The
+questions as built:**
 
 - **1. When.** Nothing of it until the window is whole on screen
   (sections 10 and 13). Under
@@ -2533,8 +2535,8 @@ shell's first output, which comes while the logo plays; it is now taken
 once read, and the title shown stays until then. And `BAUD_STARTUP=1`
 now says, once the logo is gone, which of the two was late: the logo's
 frames and their worst interval, the frame the shell's first visible cell
-was drawn on, each read's arrival and its wait for a frame, and the main
-thread's longest turn.
+was drawn on, each read's arrival and its wait for a frame, and the
+longest display-link tick or wake on the main thread.
 
 The request, verbatim (2026-10-29): "looks better but the logo animations
 seems to happen before the shell is fully ready and it seems to halt it?
@@ -2544,8 +2546,8 @@ shouldn't they be in parallel ?"
 shell as baud does, through a pty with nothing of baud behind it. In 15
 of 17 recordings of zsh on this Mac its first output came 131-157 ms
 after the fork and its prompt 217-252 ms; in the other two, each the
-first of its batch, at 505 and 612 ms and its prompt at 681 and 717. It asks the terminal
-nothing, so it waits on no answer. In the last `BAUD_STARTUP=1` run,
+first of its batch, at 505 and 612 ms and its prompt at 681 and 717.
+It asks the terminal nothing, so it waits on no answer. In the last `BAUD_STARTUP=1` run,
 before sections 16 and 17, the logo started about 0.21 s after the shell
 was spawned (`pty` 14.2 ms, `splash first frame` 227.6); it is gone 0.55 s
 after it starts (section 17), and when it starts in this build is for the
@@ -2554,7 +2556,11 @@ frames and a cold one's in its last 0.08 s: the two run side by side, and
 on a cold start the shell is the slower.
 
 **The frames.** `baud-bench/benches/splash_shell.rs` replays a recording
-under the logo, the reads fed by their times before each frame. A frame a
+under the logo, the reads fed by their times before each frame. The
+bench drives the renderer and the splash's phase, not the app's launch
+state machine or frame loop: when the logo starts in this build, and the
+app's own frame intervals while a shell starts, are what the next
+`BAUD_STARTUP=1` run's new lines show. A frame a
 read was fed on cost no more than the logo's own: on the CPU path at
 120x36 cells and 2x, at most 3.3 ms at 60 and 120 Hz; the instance path's
 convert at most 0.28 ms. At 200x50 and 2x, 120 Hz, the CPU path runs over
@@ -2587,15 +2593,19 @@ shell starts, and the GPU's time for a splash frame on the cell path, are
 for the next `BAUD_STARTUP=1` run; why a shell's start is sometimes cold
 is the shell's.
 
-## 19. Every 2x frame of the plasma within a 120 Hz frame on the CPU path (2026-10-29)
+## 19. Every 2x frame of the plasma within 120 Hz on the CPU path (2026-10-29)
 
 **What the user sees.** On the CPU path, which the Linux driver draws
 with and macOS under `BAUD_GPU=0`, every frame of the launch logo's
-plasma in a 2x window is drawn within a 120 Hz frame on the machine
-measured (an Apple M5 Max under macOS; a Linux box is unmeasured), and a
-6K frame in about three quarters of the time it took. Both drivers read
-the shell and draw on one thread, so a shorter frame holds the shell's
-next read for less. It looks and moves exactly as before: every frame's
+plasma in a 2x window is drawn within a 120 Hz frame on the dark ground
+measured at 120 Hz, on the machine measured (an Apple M5 Max under
+macOS; a Linux box is unmeasured); the light and glass grounds, measured
+at 60 Hz, took 6.3-7.2 ms but for one glass round at 8.65 ms. A 6K frame
+takes about three quarters of the time it took. The Linux driver reads
+the shell and draws on one thread, and the macOS app feeds what its
+reader thread read on the thread that draws, so a shorter frame holds the
+shell's output back for less. It looks and moves exactly as before:
+every frame's
 pixels are the base's at every age. The request, verbatim (2026-10-29):
 "ok so don't slow the plasma, it should be as before".
 
@@ -2635,8 +2645,9 @@ With `Damage::Full`: 6.34-6.86 ms at 2x 120 Hz, none over, and
 frames over, 26.15-26.38 at 6K with 19 of 50.
 
 **Not fixed.** At 6K, 13 of 33 frames stay over 16.7 ms, the 13 that
-carry the lockup-wide quad through each pass's hold (17.6-18.8 ms in one run). At 1x the median frame is
-0.01-0.05 ms slower (the per-call buffers), inside every budget. Every
+carry the lockup-wide quad through each pass's hold (17.6-18.8 ms in one
+run). At 1x the median frame is 0.01-0.05 ms slower (the per-call
+buffers), inside every budget. Every
 row the plasma's records reach is repainted across the whole window
 each frame, its text included; with the bands shading nothing a 6K
 frame takes 4.0 ms. The cursor trails draw by the same code on the CPU

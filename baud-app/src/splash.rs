@@ -262,7 +262,10 @@ pub(crate) fn splash_override(env: Option<&str>, config: LaunchSplash) -> Launch
 /// `BAUD_STARTUP=1` (note AJ section 18): each frame committed while the
 /// logo is drawn, the first frame with a visible cell, each read that
 /// arrived before the logo ended and the frame that drew it, and the
-/// longest turn of the main thread, said once, when the logo is gone. So
+/// longest display-link tick or wake on the main thread, said once, when
+/// the logo is gone. Under Reduce Motion the launch's first frame, drawn
+/// with the logo held before the window is shown, counts as one of the
+/// logo's frames, so the first interval runs from it to the first tick. So
 /// a launch shows whether the logo's frames kept their interval while the
 /// shell started, and whether the shell's output waited for them. Off, it
 /// records nothing.

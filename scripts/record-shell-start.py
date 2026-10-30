@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Record a login shell's start through a pty, with each read's time.
 
-The shell is started as baud starts it (note AJ, section 18): `$SHELL` as
-a login shell (argv[0] `-zsh` for zsh) in the home directory, `TERM`
-xterm-256color, `COLORTERM` truecolor and `TERM_PROGRAM` baud, on a 120 by
-36 pty. It is read for the given seconds and then sent `exit`.
+The shell is started much as baud starts it (note AJ, section 18):
+`$SHELL` as a login shell (argv[0] `-zsh` for zsh) in the home directory,
+on a 120 by 36 pty, with `TERM` xterm-256color, `COLORTERM` truecolor and
+`TERM_PROGRAM` baud. The rest of the caller's environment is kept,
+including the outer terminal's own variables, which baud's spawn removes
+(`OUTER` in baud-app/src/pty.rs). It is read for the given seconds and then sent `exit`.
 
 Usage: record-shell-start.py <out> [seconds]
 
