@@ -730,6 +730,100 @@ pub fn dock_bar(p: Progress) -> Option<DockBar> {
     })
 }
 
+/// How urgent a window's bar is on the one Dock tile, most urgent first:
+/// the Windows taskbar's order for a group, `TBPF_ERROR`, `TBPF_PAUSED`,
+/// `TBPF_NORMAL`, `TBPF_INDETERMINATE` (see [`DockBars`]). A bar with no
+/// fraction draws as running with none, which is indeterminate's.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Urgent {
+    Error,
+    Paused,
+    Determinate,
+    Indeterminate,
+}
+
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+impl Urgent {
+    fn of(b: &DockBar) -> Urgent {
+        match (b.tone, b.fraction) {
+            (DockTone::Error, _) => Urgent::Error,
+            (DockTone::Paused, _) => Urgent::Paused,
+            (DockTone::Normal, Some(_)) => Urgent::Determinate,
+            (DockTone::Normal, None) => Urgent::Indeterminate,
+        }
+    }
+}
+
+/// **The one Dock tile's bar, over every window's progress**, keyed by
+/// window. The app has one tile and each window its own progress, so the
+/// tile shows the rule the Windows taskbar applies when one button stands
+/// for several windows -- the system `OSC 9;4` was made for ("set error
+/// state in progress on Windows 7 taskbar", `[[source:
+/// conemu-ansi-escape-codes]]`): "The taskbar button can show a progress
+/// indicator for only one window at a time ... the taskbar button chooses
+/// its progress display based on state priority", error, paused, normal,
+/// indeterminate, and "In the case of a priority collision between two
+/// windows that are broadcasting determinate progress, the window with the
+/// least progress is used" (`[[source:
+/// ms-itaskbarlist3-setprogressstate]]`). Windows Terminal orders its
+/// tabs by the same state priority, keeping the first tab on a tie
+/// (`TaskbarState::Priority`, `[[source: wt-6676c6f-taskbarstate]]`).
+/// The least-progress tie-break is the taskbar's own. A window's close
+/// takes its bar with it.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[derive(Clone, Debug)]
+pub struct DockBars<K> {
+    each: Vec<(K, DockBar)>,
+    shown: Option<DockBar>,
+}
+
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+impl<K: PartialEq> DockBars<K> {
+    pub const fn new() -> DockBars<K> {
+        DockBars {
+            each: Vec::new(),
+            shown: None,
+        }
+    }
+
+    /// Window `k`'s bar is now `bar`, `None` when it shows no progress;
+    /// the tile's bar when that changes it.
+    pub fn set(&mut self, k: K, bar: Option<DockBar>) -> Option<Option<DockBar>> {
+        self.each.retain(|(w, _)| *w != k);
+        if let Some(b) = bar {
+            self.each.push((k, b));
+        }
+        self.chosen()
+    }
+
+    /// Window `k` has closed; the tile's bar when that changes it.
+    pub fn gone(&mut self, k: K) -> Option<Option<DockBar>> {
+        self.set(k, None)
+    }
+
+    /// The tile's bar, and whether it changed since the last shown.
+    fn chosen(&mut self) -> Option<Option<DockBar>> {
+        let top = self.each.iter().map(|(_, b)| Urgent::of(b)).min();
+        let pick = top.and_then(|u| {
+            self.each
+                .iter()
+                .map(|(_, b)| *b)
+                .filter(|b| Urgent::of(b) == u)
+                .min_by(|x, y| match (x.fraction, y.fraction) {
+                    (Some(a), Some(b)) => a.total_cmp(&b),
+                    (Some(_), None) => core::cmp::Ordering::Less,
+                    (None, Some(_)) => core::cmp::Ordering::Greater,
+                    (None, None) => core::cmp::Ordering::Equal,
+                })
+        });
+        (pick != self.shown).then(|| {
+            self.shown = pick;
+            pick
+        })
+    }
+}
+
 /// The extension an image's first bytes name: kitty's three formats.
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 pub fn image_kind(b: &[u8]) -> Option<&'static str> {
@@ -904,6 +998,70 @@ pub fn escape_markup(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::{DockBar, DockBars, DockTone};
+
+    fn bar(tone: DockTone, fraction: Option<f64>) -> Option<DockBar> {
+        Some(DockBar { fraction, tone })
+    }
+
+    /// **The one Dock tile shows the most urgent window's bar, the Windows
+    /// taskbar's group rule**: error over paused over determinate over
+    /// indeterminate; among determinate, the least progress; indeterminate
+    /// only while every window with progress is; a window that clears its
+    /// progress or closes takes its bar away and the next one shows. The
+    /// control: one window's bar alone is the tile's.
+    #[test]
+    fn the_dock_shows_the_most_urgent_windows_progress() {
+        use DockTone::{Error, Normal, Paused};
+        let mut d = DockBars::new();
+        assert_eq!(
+            d.set(1, bar(Normal, Some(0.7))),
+            Some(bar(Normal, Some(0.7))),
+            "the control"
+        );
+        assert_eq!(
+            d.set(2, bar(Normal, None)),
+            None,
+            "a determinate bar over an indeterminate one"
+        );
+        assert_eq!(
+            d.set(3, bar(Normal, Some(0.2))),
+            Some(bar(Normal, Some(0.2))),
+            "the least"
+        );
+        assert_eq!(
+            d.set(4, bar(Paused, Some(0.9))),
+            Some(bar(Paused, Some(0.9)))
+        );
+        assert_eq!(
+            d.set(5, bar(Error, None)),
+            Some(bar(Error, None)),
+            "an error over all"
+        );
+        assert_eq!(
+            d.set(3, bar(Normal, Some(0.25))),
+            None,
+            "a change under the error shows nothing new"
+        );
+        assert_eq!(
+            d.gone(5),
+            Some(bar(Paused, Some(0.9))),
+            "the error's window closed"
+        );
+        assert_eq!(
+            d.set(4, None),
+            Some(bar(Normal, Some(0.25))),
+            "paused cleared: the least again"
+        );
+        assert_eq!(d.gone(3), Some(bar(Normal, Some(0.7))));
+        assert_eq!(
+            d.gone(1),
+            Some(bar(Normal, None)),
+            "indeterminate once it is all there is"
+        );
+        assert_eq!(d.gone(2), Some(None), "the last window's bar gone: no bar");
+        assert_eq!(d.gone(2), None, "a second close changes nothing");
+    }
     use super::*;
     use baud_core::{NoticeBudget, Owned, Term};
     use baud_domain::{BytePos, HostTime, ReadLen, WinSize};

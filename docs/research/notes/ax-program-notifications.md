@@ -175,3 +175,37 @@ A window takes its clicks on its display link's tick, and the tick pauses
 while the window is covered or minimised. So a click on a hidden window's
 notification raises that window and reaches its program only once the
 window is uncovered. Open.
+
+**Progress.** The Dock tile showed whichever window's progress changed
+last, and a window closed while showing progress left its bar on the tile.
+The texts: `OSC 9;4` is ConEmu's, made for the Windows taskbar ("set error
+state in progress on Windows 7 taskbar", `[[source:
+conemu-ansi-escape-codes]]`), and the taskbar documents what one button
+shows for several windows: "The taskbar button can show a progress
+indicator for only one window at a time ... the taskbar button chooses its
+progress display based on state priority", error, paused, normal,
+indeterminate, and "In the case of a priority collision between two windows
+that are broadcasting determinate progress, the window with the least
+progress is used" (`[[source: ms-itaskbarlist3-setprogressstate]]`).
+Apple's Dock tile has no progress of its own (`[[source: apple-nsdocktile]]`).
+
+| terminal | several windows' progress |
+|---|---|
+| Windows Terminal | every tab combined by the taskbar's priority, "lowest priority wins" (`TaskbarState::Priority`, `[[source: wt-6676c6f-taskbarstate]]`; `TerminalPage::TaskbarState`, `[[source: wt-terminalpage]]` 4233-4261) |
+| kitty | the Dock bar is the mean percent of every window with one, else indeterminate, else none; an error alone shows nothing (`update_progress_in_dock()`, `[[source: kitty-1e1486e-boss]]` 4075-4093) |
+| Ghostty | each surface's bar in its own view; the Dock tile only for the bell badge (`[[source: ghostty-d9840f3-surface-progress-bar]]`) |
+| iTerm2 | each session's bar in its view and its tab; the Dock tile only for badges (`[[source: iterm2-269f725-tab-bar-control-view]]`) |
+| Terminal.app | closed source; no progress support found; not weighed |
+
+Decided: the tile shows the most urgent window's bar by the taskbar's
+group rule, over kitty's mean and over the key window's own, and a
+window's close takes its bar with it (`notify::DockBars`). A failed build in a window behind the others shows
+red on the Dock until that window clears it or closes.
+
+Among error or paused bars, the tile also shows the one with the least
+progress. That is baud's own extension: Microsoft's text gives the
+least-progress rule only for determinate bars.
+
+**Linux** is not combined: each window is its own process and sends the
+launcher's `progress` for itself under the one application id, and what a
+dock makes of several is the dock's. Not built.

@@ -34,7 +34,9 @@
 //! **Each window's notifications are its own**: their identifiers carry
 //! the window's key ([`WindowId::notice_prefix`]), so two windows' first
 //! posts do not replace each other, and a click goes to the window that
-//! posted it, or nowhere once it has closed ([`clicked`]).
+//! posted it, or nowhere once it has closed ([`clicked`]). **The Dock
+//! tile is the app's**, one for every window, and shows the most urgent
+//! window's progress (`notify::DockBars`).
 //!
 //! **A new window starts in the directory of the window it was opened
 //! from**: the one its shell's `OSC 7` names on this machine, else the one

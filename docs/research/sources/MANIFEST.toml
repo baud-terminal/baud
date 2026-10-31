@@ -39462,3 +39462,82 @@ status = "external"
 group  = "WN"
 # Fetched 2026-10-31: what a client does with the socket a compositor hands it,
 # before a new window's process is started. Read, not copied.
+
+[sources.ms-itaskbarlist3-setprogressstate]
+key    = "ms-itaskbarlist3-setprogressstate"
+title  = "ITaskbarList3::SetProgressState -- 'How the Taskbar Button Chooses the Progress Indicator for a Group': error, paused, normal, indeterminate; 'the window with the least progress is used'"
+author = "Microsoft"
+year   = 2026
+venue  = "Microsoft Learn, Win32 API, shobjidl_core.h"
+url    = "https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-itaskbarlist3-setprogressstate"
+file   = ""
+sha256 = "45eee3f01dd48bda55e3e3ed041c14315554778f89b09d479f0cd0c7c0ed1a8c"
+bytes  = 57974
+status = "external"
+group  = "AX"
+# Fetched 2026-10-31: the taskbar ConEmu's OSC 9;4 drives, and the one text
+# for several windows behind one progress indicator; the rule the Dock tile
+# follows across baud's windows. The page is rendered HTML; its hash moves
+# with the site's markup.
+
+[sources.wt-6676c6f-taskbarstate]
+key    = "wt-6676c6f-taskbarstate"
+title  = "Windows Terminal 6676c6f, src/cascadia/TerminalApp/TaskbarState.cpp -- Priority(): Error 1, Paused 2, Set 3, Indeterminate 4, Clear 5, after the taskbar's group rule"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal @ 6676c6f (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/6676c6f938f7e98ad680f0cecedd3bafb6529734/src/cascadia/TerminalApp/TaskbarState.cpp"
+file   = ""
+sha256 = "d89a815e330c42f7a7eea038faabc8fb96cc906955f5438ba2b07dd62d2a795c"
+bytes  = 1463
+status = "external"
+group  = "AX"
+# Fetched 2026-10-31 with wt-terminalpage, whose TaskbarState() (4233-4261)
+# combines every tab by this priority, "lowest priority wins". Read, not copied.
+
+[sources.kitty-1e1486e-boss]
+key    = "kitty-1e1486e-boss"
+title  = "kitty 1e1486e, kitty/boss.py -- update_progress_in_dock() (4075-4093): the Dock bar is the mean percent of every window with one, else indeterminate, else none"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 1e1486e (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/boss.py"
+file   = ""
+sha256 = "2b15e80776e5ec0af5871584f18f04ee0891d88a415d74a20833fb75611e5858"
+bytes  = 174976
+status = "external"
+group  = "AX"
+# Fetched 2026-10-31: practice for one Dock tile over several windows'
+# progress. Read, not copied.
+
+[sources.ghostty-d9840f3-surface-progress-bar]
+key    = "ghostty-d9840f3-surface-progress-bar"
+title  = "Ghostty d9840f3, macos/Sources/Ghostty/Surface View/SurfaceProgressBar.swift -- a surface's progress drawn in its own view"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty @ d9840f3 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/macos/Sources/Ghostty/Surface%20View/SurfaceProgressBar.swift"
+file   = ""
+sha256 = "abcfb097b9d40f7edb48e74c20b34910e186297bd1ba9adf493a0f2186a8cae7"
+bytes  = 3605
+status = "external"
+group  = "AX"
+# Fetched 2026-10-31: Ghostty's macOS sources at this commit touch NSApp's
+# dockTile only for the bell badge (AppDelegate.swift 755-763), never for
+# progress. Read, not copied.
+
+[sources.iterm2-269f725-tab-bar-control-view]
+key    = "iterm2-269f725-tab-bar-control-view"
+title  = "iTerm2 269f725, sources/TerminalView/iTermTabBarControlView.m -- a tab's progress bar (302-351)"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2 @ 269f725 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/269f72560863fd0af809c72ad2251b60ee763c47/sources/TerminalView/iTermTabBarControlView.m"
+file   = ""
+sha256 = "9ad09dddfbefcc209c11ca09e6bae05d795e8eeb5b82e9f72a5c856fcc1a5975"
+bytes  = 16230
+status = "external"
+group  = "AX"
+# Fetched 2026-10-31: iTerm2's sources at this commit draw progress in the
+# session and its tab; NSApp.dockTile is set only for the bell badge and a
+# suite name. Read, not copied.

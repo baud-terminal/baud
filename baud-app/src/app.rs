@@ -3990,6 +3990,16 @@ thread_local! {
     /// window is opened and closed.
     static OPEN: std::cell::RefCell<crate::windows::Windows<Open>> =
         const { std::cell::RefCell::new(crate::windows::Windows::new()) };
+    /// **Every window's progress, for the one Dock tile** (`notify::DockBars`).
+    static DOCK: std::cell::RefCell<crate::notify::DockBars<crate::windows::WindowId>> =
+        const { std::cell::RefCell::new(crate::notify::DockBars::new()) };
+}
+
+/// The Dock tile's bar drawn again, when the windows' progress changed it.
+fn show_dock(mtm: MainThreadMarker, changed: Option<Option<crate::notify::DockBar>>) {
+    if let Some(bar) = changed {
+        baud_present_macos::notify::show_bar(mtm, bar.map(dock_bar));
+    }
 }
 
 /// **A window opened after the launch**, by Command-N: the same boot,
@@ -4038,6 +4048,10 @@ fn closed(id: crate::windows::WindowId) {
     open.view.stop_display_link();
     open.view.set_responder(Box::new(Gone));
     drop(open);
+    // Its progress leaves the Dock tile with it.
+    if let Some(mtm) = MainThreadMarker::new() {
+        show_dock(mtm, DOCK.with_borrow_mut(|d| d.gone(id)));
+    }
     match left {
         crate::windows::Left::Others(n) => crate::info!("a window closed; {n} still open"),
         crate::windows::Left::None => crate::info!("the last window closed"),
@@ -12461,7 +12475,13 @@ impl Driver {
                             .after(when, move || baud_present_macos::notify::remove_by_id(&id));
                     }
                 }
-                MacCall::Bar(bar) => baud_present_macos::notify::show_bar(mtm, bar.map(dock_bar)),
+                // The Dock tile is the app's: it shows the most urgent
+                // window's bar (`notify::DockBars`).
+                MacCall::Bar(bar) => {
+                    if let Some(id) = self.window_id {
+                        show_dock(mtm, DOCK.with_borrow_mut(|d| d.set(id, bar)));
+                    }
+                }
                 MacCall::Attention(a) => {
                     use baud_present_macos::notify::Ask;
                     if let Some(id) = self.app.attention.take() {
