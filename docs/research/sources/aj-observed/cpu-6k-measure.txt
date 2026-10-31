@@ -274,3 +274,10 @@
 #   360x90@2x step ghost       7    2.95-  3.24 (0-0)    3.10-  5.46 (0-0)    2.92-  4.72 (0-0)  equal
 #   360x90@2x step sweep      43    3.16- 14.33 (0-0)    3.33- 13.27 (0-0)    3.06-  4.88 (0-0)  equal
 #   360x90@2x step quad       25    3.15-  3.28 (0-0)    3.35- 13.40 (0-0)    3.13-  4.80 (0-0)  equal
+# Two Damage::Full one-thread rows read the fix's worst frame above the base with
+# ranges apart: 2x jump liquid 25.52-25.60 against 24.99-25.48, and 2x jump sweep
+# 14.05-14.08 against 13.84-14.00. Instructions a trail's life, one thread, full,
+# base / fix, on the jump: 2x fire 13.58 G / 13.40 G, liquid 9.90 G / 9.82 G, ice
+# 76.21-76.26 G / 76.27 G (inside the base's spread over two runs); 6K lightning
+# 83.38 G / 82.32 G, ice 75.01-75.12 G / 75.13 G (inside the base's spread). No
+# row retires more work than the base.

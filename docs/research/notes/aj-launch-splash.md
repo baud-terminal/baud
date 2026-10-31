@@ -2812,7 +2812,8 @@ the cap sweep, the profile, each frame).
 
 **Not fixed.** At one thread with `Damage::Full` the 6K frame is slower
 than the base's, 20.01-20.43 ms against 19.70-19.78, and on the 2x
-glass page, 6.92-9.54 against 6.80-6.87, not attributed. Threads are
+glass page, 6.92-9.54 against 6.80-6.87, not attributed here; section 23
+attributes it and takes it back. Threads are
 started each frame, 9-64 us for one and 94-144 for seventeen (best and
 mean), against a pool unmeasured; the cursor trails' time is unmeasured.
 
@@ -2826,10 +2827,11 @@ frames sum to 425.9-434.5 ms against 430.8-442.5 before section 22 and
 149.4-154.1 and 153.6-158.4, on a quiet machine; under load the
 committed binary's 6K life, 438.6-448.4, stays apart from section 22's,
 453.0-473.3, while its A/A copy and every other pair overlap. Every
-cursor trail draws the same pixels as before; with the machine's threads,
-on a jump across the window the effects' worst 2x and 6K frames are 2.4
-to 10 times shorter than before section 22, and on a short step up to
-ten percent shorter but lightning's, half.
+cursor trail draws the same pixels as before. Section 22's threads, which
+this change keeps, make the effects' worst 2x and 6K frames on a jump
+across the window 2.4 to 10 times shorter than before section 22; on a
+short step no longer, and up to ten percent shorter where the ranges
+part, with lightning's halved.
 
 **Why it was slower.** More work, not more memory: a 6K life at one thread
 retires 18.33 G instructions against 17.87 G before section 22, the 2x
@@ -2865,7 +2867,9 @@ at column 0. The `trail`
 bench times every trail at three sizes and two moves.
 
 **Not fixed.** At 6K a jump across the window still misses 60 Hz with the
-quad and the sweep (46-48 ms, 4 frames, as before section 22) and with
+quad and the sweep (46-48 ms, as many frames over as before section 22;
+the worst frame's 1-3% gap is not resolved under load 2.4-5.4, and the
+fix retires fewer instructions than the base) and with
 lightning (16-25 ms, most frames); at 2x the quad and the sweep miss
 120 Hz on 4-5 frames and the ufo on 3 or more. One thread drawing whole
 frames misses the budget on a jump at 2x and 6K with every trail but the
