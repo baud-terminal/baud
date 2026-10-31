@@ -1296,12 +1296,12 @@ fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Coun
                 not(feature = "route-stride"),
                 not(all(feature = "neon-scan", target_arch = "aarch64"))
             ))]
-            let n = Vectorized::<Printable>::load(&s[3 * k..]).stride_three_run();
+            let n = Vectorized::<Utf8>::load(&s[3 * k..]).stride_three_run();
             #[cfg(all(
                 feature = "route-stride",
                 not(all(feature = "neon-scan", target_arch = "aarch64"))
             ))]
-            let n = Vectorized::<Printable>::load(&s[3 * k..])
+            let n = Vectorized::<Utf8>::load(&s[3 * k..])
                 .routes()
                 .stride_three();
             k += n;
@@ -1506,10 +1506,9 @@ fn put_run(
     if len == 3 {
         'quads: while done + 4 <= k && 3 * done + LANE_COUNT <= left {
             let at = from.index() + 3 * done;
-            let quad = Vectorized::<Printable>::load(StreamByte::slice_from(
-                &p.arena[at..at + LANE_COUNT],
-            ))
-            .stride_three_quad();
+            let quad =
+                Vectorized::<Utf8>::load(StreamByte::slice_from(&p.arena[at..at + LANE_COUNT]))
+                    .stride_three_quad();
             for (j, cp) in quad.iter().enumerate() {
                 // An ill-formed lane ends the run before it (see the doc).
                 let Some(cp) = cp else {

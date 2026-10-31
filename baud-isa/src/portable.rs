@@ -57,7 +57,7 @@ impl Portable {
     /// The stride-four run, as `baud-domain` defines it.
     fn stride_four_portable(buf: &[StreamByte]) -> Count {
         match buf.len() >= LANES {
-            true => Count::of(Vectorized::<Printable>::load(&buf[..LANES]).stride_four_run()),
+            true => Count::of(Vectorized::<Utf8>::load(&buf[..LANES]).stride_four_run()),
             false => Count::ZERO,
         }
     }
@@ -71,7 +71,7 @@ impl Portable {
     /// table, and a hand-written `SGR` grammar beside `SgrAttr::parse`.
     fn stride_three_portable(buf: &[StreamByte]) -> Count {
         match buf.len() >= LANES {
-            true => Count::of(Vectorized::<Printable>::load(&buf[..LANES]).stride_three_run()),
+            true => Count::of(Vectorized::<Utf8>::load(&buf[..LANES]).stride_three_run()),
             false => Count::ZERO,
         }
     }

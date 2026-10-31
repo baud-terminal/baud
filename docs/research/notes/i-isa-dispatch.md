@@ -264,3 +264,50 @@ one of them answered against this note's own suggested instrument.**
   but "which scan, and is its extraction on the critical path" -- and the
   x86-64 counterpart does not exist, because `pmovmskb` is already the cheap
   form there. Both results are the last section's.
+
+## The three-byte vectors say they are UTF-8 (2026-10-31)
+
+Nothing a user sees changes: the same cells, from the same machine code.
+What changed is what the type claims. A `Vectorized` block carries a tag
+for how its sixteen bytes are read, and the scans and the decode CJK,
+Hangul and box-drawing text runs through -- `stride_three_run`,
+`stride_four_run`, `routes` and `stride_three_quad` -- sat on
+`Vectorized<Printable>` or on every tag, though they ask only about UTF-8
+leads and continuations, which printable ASCII never holds. They are on
+`Vectorized<Utf8>` now, beside `leads` and `decode`.
+
+**The tag is true because of where the call comes from.** `baud-core`
+calls three of them only from `Act::Char3`, and `stride_four_run` not at
+all; only the UTF-8 graph has that edge, since under ISO 8859-1
+`baud-core/src/graph.rs` returns before the lead match, a high byte being a
+C1 control or one character (`Act::Latin1`). The tag names the encoding,
+not well-formedness: the scans and the quad decode are what check that.
+
+**Refused at compile time.** Four doctests on `Vectorized` ask each of the
+four of a printable block and must fail with E0599, beside one that asks
+them of a UTF-8 block and must pass. Turned to `Utf8`, each of the four
+reported "Test compiled successfully, but it's marked compile_fail";
+naming E0425 on one reported the expected code missing. Each call site put
+back on `Printable` stops the build with E0599: the quad decode in the
+default build, the direct stride scan without `neon-scan`, the route map
+under `route-stride`, and `Portable::stride_three` in `baud-isa`.
+
+**Free by the machine code, so not timed.** `ingest2`, built from
+`git archive` of base and change at one path with an A/A copy of the change,
+on three arms -- default (`neon-scan`, only the quad decode live), the portable
+scan every build off aarch64 ships, and `route-stride`, has a
+`__TEXT,__text` that `cmp` finds identical across the three builds of each
+arm, every section keeping its size and address. The base differs only in
+panic locations' line and column numbers, the UUID and the signature, so it
+rebuilt; the arms' texts differ from one another, so each is what it says.
+`Neon::stride_three` is still the default scan, the AVX2 crate is
+untouched, and `neon_agrees_with_portable_on_every_prefix_of_a_four_symbol_alphabet`
+holds the retyped portable scan to NEON's; its AVX2 twin runs only in CI.
+
+**Found, not fixed.** `--no-default-features` on `baud-bench` no longer
+reaches the portable scan: `baud-render` and `baud-present-macos` take
+`baud-core` with its defaults through the workspace dependency, so
+`neon-scan` comes back on (`cargo tree -e features -i baud-core`); the two
+non-default arms above set that dependency to `default-features = false`,
+the same edit on every build. `in_range` and `either` still read control
+sequences and control strings as `Vectorized<Printable>`.

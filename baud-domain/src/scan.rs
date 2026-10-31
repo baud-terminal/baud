@@ -346,6 +346,49 @@ pub const LANE_COUNT: usize = 16;
 /// does not compile. A runtime tag would put every method on one type, allow
 /// the wrong call, and cost a branch in a loop measured in single percent.
 ///
+/// **The three-byte path is UTF-8's, and its type says so.** The two stride
+/// scans, the route map and the four-character decode ask about leads and
+/// continuations, which printable ASCII (`0x20..=0x7e`) never holds, and
+/// `baud-core` calls them only from `Act::Char3` (`stride_four_run` not at
+/// all), an edge only the UTF-8 graph has: under ISO 8859-1 a high byte is a
+/// C1 control or a character of its own. They sat on `Vectorized<Printable>`,
+/// a tag that said the opposite of the bytes, and now live on
+/// `Vectorized<Utf8>` beside `leads()`. The tag names how the bytes are read,
+/// not that they are well formed -- these operations are what check that. On
+/// a printable block each one is refused:
+///
+/// ```
+/// # use baud_domain::*;
+/// let b = Vectorized::<Utf8>::load(StreamByte::slice_from("世界世界世界".as_bytes()));
+/// assert_eq!((b.stride_three_run(), b.stride_four_run()), (5, 0));
+/// assert_eq!(b.stride_three_quad()[1], Codepoint::new(0x754c));
+/// assert_eq!(b.routes().stride_three(), 5);
+/// ```
+///
+/// ```compile_fail,E0599
+/// # use baud_domain::*;
+/// let b = Vectorized::<Printable>::load(StreamByte::slice_from("世界世界世界".as_bytes()));
+/// b.stride_three_run();
+/// ```
+///
+/// ```compile_fail,E0599
+/// # use baud_domain::*;
+/// let b = Vectorized::<Printable>::load(StreamByte::slice_from("世界世界世界".as_bytes()));
+/// b.stride_four_run();
+/// ```
+///
+/// ```compile_fail,E0599
+/// # use baud_domain::*;
+/// let b = Vectorized::<Printable>::load(StreamByte::slice_from("世界世界世界".as_bytes()));
+/// b.stride_three_quad();
+/// ```
+///
+/// ```compile_fail,E0599
+/// # use baud_domain::*;
+/// let b = Vectorized::<Printable>::load(StreamByte::slice_from("世界世界世界".as_bytes()));
+/// b.routes();
+/// ```
+///
 /// `repr(transparent)` over the vector, so this costs nothing: the newtypes in
 /// this crate lower to the same instructions, measured on the ingest path with
 /// every range overlapping.
@@ -387,6 +430,19 @@ impl<K: Kind> Vectorized<K> {
         Simd::from_array(self.v)
     }
 
+    /// Load one block. The caller has checked there are `LANE_COUNT` bytes.
+    #[inline(always)]
+    pub fn load(buf: &[StreamByte]) -> Vectorized<K> {
+        let mut v = [0u8; LANE_COUNT];
+        v.copy_from_slice(&StreamByte::slice_as_bytes(buf)[..LANE_COUNT]);
+        Vectorized {
+            v,
+            _kind: PhantomData,
+        }
+    }
+}
+
+impl Vectorized<Utf8> {
     /// How many consecutive three-byte characters this block begins with,
     /// **without building a route map**.
     ///
@@ -448,17 +504,6 @@ impl<K: Kind> Vectorized<K> {
         let ok = (at_lead & is_lead) | (!at_lead & is_cont);
         // Leading run of correct lanes; four lanes to a character.
         (ok.to_bitmask().trailing_ones() as usize / 4).min(4)
-    }
-
-    /// Load one block. The caller has checked there are `LANE_COUNT` bytes.
-    #[inline(always)]
-    pub fn load(buf: &[StreamByte]) -> Vectorized<K> {
-        let mut v = [0u8; LANE_COUNT];
-        v.copy_from_slice(&StreamByte::slice_as_bytes(buf)[..LANE_COUNT]);
-        Vectorized {
-            v,
-            _kind: PhantomData,
-        }
     }
 }
 
@@ -667,7 +712,7 @@ static ROUTE_FROM_INDEX: [Route; 7] = [
     Route::Lead4,
 ];
 
-impl Vectorized<Printable> {
+impl Vectorized<Utf8> {
     /// **Four three-byte characters, decoded in vectors.**
     ///
     /// The route map has already established that this block begins with four
@@ -1129,7 +1174,7 @@ mod stride_direct {
                                 let mut buf = [0x81u8; LANE_COUNT];
                                 buf[..6].copy_from_slice(&[a, b, c, d, e, f]);
                                 let bytes = StreamByte::slice_from(&buf);
-                                let k = Vectorized::<Printable>::load(bytes).stride_three_run();
+                                let k = Vectorized::<Utf8>::load(bytes).stride_three_run();
                                 assert!(k <= 5, "at most five characters fit");
                                 for i in 0..k {
                                     let (x, y, z) = (buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
@@ -1162,7 +1207,7 @@ mod stride_direct {
             buf[3 * i + 2] = 0x80;
         }
         buf[15] = 0x41;
-        let n = Vectorized::<Printable>::load(StreamByte::slice_from(&buf)).stride_three_run();
+        let n = Vectorized::<Utf8>::load(StreamByte::slice_from(&buf)).stride_three_run();
         assert_eq!(n, 5);
     }
 }

@@ -22,7 +22,7 @@ fn the_block_classifier_agrees_with_the_scalar_route() {
             };
             let mut block = [StreamByte::from_stream(filler); LANE_COUNT];
             block[pos] = StreamByte::from_stream(raw);
-            let r = Vectorized::<Printable>::load(&block).routes();
+            let r = Vectorized::<Utf8>::load(&block).routes();
             assert_eq!(
                 r.at(pos),
                 Route::of(StreamByte::from_stream(raw)),
@@ -62,7 +62,7 @@ fn the_route_width_matches_the_lead_byte() {
 #[test]
 fn a_run_of_text_is_one_route() {
     let block = [StreamByte::from_stream(b'x'); LANE_COUNT];
-    let r = Vectorized::<Printable>::load(&block).routes();
+    let r = Vectorized::<Utf8>::load(&block).routes();
     assert!(
         r.is_not(Route::Text).first().is_none(),
         "no lane may differ"
@@ -77,7 +77,7 @@ fn block_of(bytes: &[u8]) -> RouteBlock {
     for (i, x) in bytes.iter().take(LANE_COUNT).enumerate() {
         b[i] = StreamByte::from_stream(*x);
     }
-    Vectorized::<Printable>::load(&b).routes()
+    Vectorized::<Utf8>::load(&b).routes()
 }
 
 /// Five three-byte characters fill a block exactly, and the sixteenth byte
@@ -175,7 +175,7 @@ fn the_quad_decode_agrees_with_one_at_a_time() {
                     raw[3 * i..3 * i + 3].copy_from_slice(&s);
                     want[i] = scalar(&s);
                 }
-                let block = Vectorized::<Printable>::load(StreamByte::slice_from(&raw));
+                let block = Vectorized::<Utf8>::load(StreamByte::slice_from(&raw));
                 assert_eq!(
                     block.stride_three_quad(),
                     want,
@@ -196,8 +196,8 @@ fn the_quad_ignores_the_bytes_past_its_run() {
     }
     let mut b = a;
     b[12..].copy_from_slice(&[0xff, 0xff, 0xff, 0xff]);
-    let qa = Vectorized::<Printable>::load(StreamByte::slice_from(&a)).stride_three_quad();
-    let qb = Vectorized::<Printable>::load(StreamByte::slice_from(&b)).stride_three_quad();
+    let qa = Vectorized::<Utf8>::load(StreamByte::slice_from(&a)).stride_three_quad();
+    let qb = Vectorized::<Utf8>::load(StreamByte::slice_from(&b)).stride_three_quad();
     assert_eq!(qa, qb);
     assert_eq!(qa, [Codepoint::new(0x4e16); 4]);
 }
@@ -209,7 +209,7 @@ fn the_lead_mask_is_the_union_of_the_three_lengths() {
     for raw in 0u8..=255 {
         let mut b = [StreamByte::from_stream(b'!'); LANE_COUNT];
         b[0] = StreamByte::from_stream(raw);
-        let r = Vectorized::<Printable>::load(&b).routes();
+        let r = Vectorized::<Utf8>::load(&b).routes();
         let want = matches!(
             Route::of(StreamByte::from_stream(raw)),
             Route::Lead2 | Route::Lead3 | Route::Lead4
