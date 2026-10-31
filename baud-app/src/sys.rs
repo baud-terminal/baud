@@ -542,10 +542,94 @@ unsafe extern "C" {
     pub static TIS_CATEGORY_KEYBOARD_INPUT_SOURCE: CfString;
 }
 
+// **What a key types with no modifier on the active layout**, kitty's key
+// identity (`layouts::unshifted`): the layout's own table, read through
+// `UCKeyTranslate` as kitty's macOS layer reads it.
+#[cfg(target_os = "macos")]
+#[link(name = "Carbon", kind = "framework")]
+unsafe extern "C" {
+    /// The keyboard layout in use, a `TISInputSourceRef` the caller
+    /// releases, or null.
+    pub fn TISCopyCurrentKeyboardLayoutInputSource() -> CfObject;
+    /// The physical keyboard's type, which `UCKeyTranslate` is asked for.
+    pub fn LMGetKbdType() -> PhysicalKeyboard;
+    /// The characters `code` types under `modifiers` with `layout`'s
+    /// `uchr` table: `noErr`, 0, or an error.
+    pub fn UCKeyTranslate(
+        layout: *const c_void,
+        code: VirtualKeyCode,
+        action: KeyAction,
+        modifiers: ModifierKeyState,
+        keyboard: KeyboardType,
+        options: OptionBits,
+        dead: *mut DeadKeyState,
+        max: UniCharCount,
+        actual: *mut UniCharCount,
+        chars: *mut UniChar,
+    ) -> OsStatus;
+    /// A layout's `uchr` table, a `CFDataRef` the source owns.
+    #[link_name = "kTISPropertyUnicodeKeyLayoutData"]
+    pub static TIS_PROPERTY_UNICODE_KEY_LAYOUT_DATA: CfString;
+    /// A source's identifier, a `CFStringRef` such as
+    /// `com.apple.keylayout.US`: the tests find the US layout by it.
+    #[cfg(test)]
+    #[link_name = "kTISPropertyInputSourceID"]
+    pub static TIS_PROPERTY_INPUT_SOURCE_ID: CfString;
+}
+
+/// A Mac's virtual key code, `NSEvent.keyCode`'s `UInt16`.
+#[cfg(target_os = "macos")]
+pub type VirtualKeyCode = u16;
+
+/// `UCKeyTranslate`'s key action, a `UInt16`.
+#[cfg(target_os = "macos")]
+pub type KeyAction = u16;
+
+/// `kUCKeyActionDisplay`: the characters a key's cap shows, the action
+/// kitty's layer asks for.
+#[cfg(target_os = "macos")]
+pub const UC_KEY_ACTION_DISPLAY: KeyAction = 3;
+
+/// The Carbon modifier state `UCKeyTranslate` reads, a `UInt32`: none
+/// is 0.
+#[cfg(target_os = "macos")]
+pub type ModifierKeyState = u32;
+
+/// `LMGetKbdType`'s `UInt8`.
+#[cfg(target_os = "macos")]
+pub type PhysicalKeyboard = u8;
+
+/// The keyboard type `UCKeyTranslate` takes, a `UInt32`.
+#[cfg(target_os = "macos")]
+pub type KeyboardType = u32;
+
+/// Carbon's `OptionBits`, a `UInt32`.
+#[cfg(target_os = "macos")]
+pub type OptionBits = u32;
+
+/// `kUCKeyTranslateNoDeadKeysMask`: a dead key types its own character
+/// rather than starting a sequence.
+#[cfg(target_os = "macos")]
+pub const UC_KEY_TRANSLATE_NO_DEAD_KEYS_MASK: OptionBits = 1;
+
+/// The dead-key state `UCKeyTranslate` carries between calls, a `UInt32`.
+#[cfg(target_os = "macos")]
+pub type DeadKeyState = u32;
+
+/// Carbon's `UniCharCount`, an `unsigned long`.
+#[cfg(target_os = "macos")]
+pub type UniCharCount = c_ulong;
+
+/// Carbon's `OSStatus`, an `SInt32`: `noErr` is 0.
+#[cfg(target_os = "macos")]
+pub type OsStatus = i32;
+
 #[cfg(target_os = "macos")]
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     pub fn CFArrayGetCount(array: *const c_void) -> CfIndex;
+    /// The bytes of a `CFData`, which the data owns.
+    pub fn CFDataGetBytePtr(data: *const c_void) -> *const u8;
     /// The element, which the array owns.
     pub fn CFArrayGetValueAtIndex(array: *const c_void, index: CfIndex) -> *const c_void;
     pub fn CFEqual(a: *const c_void, b: *const c_void) -> CfBoolean;
@@ -1134,6 +1218,7 @@ mod tests {
 #include <time.h>
 #include <unistd.h>
 #ifdef __APPLE__
+#include <Carbon/Carbon.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreText/CoreText.h>
 #include <mach/mach.h>
@@ -1264,6 +1349,13 @@ int main(void) {
     printf("CFTypeRef.size=%zu\n", sizeof(CFTypeRef));
     printf("UniChar.size=%zu\n", sizeof(UniChar));
     printf("UniChar.signed=%d\n", (UniChar)-1 < 0);
+    printf("UniCharCount.size=%zu\n", sizeof(UniCharCount));
+    printf("UniCharCount.signed=%d\n", (UniCharCount)-1 < 0);
+    printf("OptionBits.size=%zu\n", sizeof(OptionBits));
+    printf("OSStatus.size=%zu\n", sizeof(OSStatus));
+    printf("OSStatus.signed=%d\n", (OSStatus)-1 < 0);
+    printf("kUCKeyActionDisplay=%lld\n", (long long)kUCKeyActionDisplay);
+    printf("kUCKeyTranslateNoDeadKeysMask=%lld\n", (long long)kUCKeyTranslateNoDeadKeysMask);
     printf("CGGlyph.size=%zu\n", sizeof(CGGlyph));
     printf("CGFloat.size=%zu\n", sizeof(CGFloat));
     printf("CFRange.size=%zu\n", sizeof(CFRange));
@@ -1444,6 +1536,16 @@ int main(void) {
             assert_eq!(h["CFTypeRef.size"], size_of::<CfObject>() as i128);
             assert_eq!(h["UniChar.size"], size_of::<UniChar>() as i128);
             assert_eq!(h["UniChar.signed"], 0, "UniChar is unsigned");
+            assert_eq!(h["UniCharCount.size"], size_of::<UniCharCount>() as i128);
+            assert_eq!(h["UniCharCount.signed"], 0, "UniCharCount is unsigned");
+            assert_eq!(h["OptionBits.size"], size_of::<OptionBits>() as i128);
+            assert_eq!(h["OSStatus.size"], size_of::<OsStatus>() as i128);
+            assert_eq!(h["OSStatus.signed"], 1, "OSStatus is signed");
+            assert_eq!(h["kUCKeyActionDisplay"], i128::from(UC_KEY_ACTION_DISPLAY));
+            assert_eq!(
+                h["kUCKeyTranslateNoDeadKeysMask"],
+                i128::from(UC_KEY_TRANSLATE_NO_DEAD_KEYS_MASK)
+            );
             assert_eq!(h["CGGlyph.size"], size_of::<CgGlyph>() as i128);
             assert_eq!(h["CGFloat.size"], size_of::<CgFloat>() as i128);
             assert_eq!(h["CFRange.size"], size_of::<CfRange>() as i128);

@@ -868,8 +868,10 @@ pub struct KeyEvent {
     /// key, `a` -> `A`) and the *base-layout* codepoint (the same physical key
     /// in the standard PC-101 layout, so a Cyrillic `С` reports `c`). Both are
     /// what the platform supplies; `None` when it does not, or for a key with
-    /// no such variant. Read only by the kitty encoder, and the shifted key is
-    /// emitted only when shift is also in the modifiers.
+    /// no such variant. The kitty encoder emits the shifted key only when
+    /// shift is also in the modifiers; with shift held the base layer folds
+    /// and numbers it in place of the key, as xterm's keysym is the shifted
+    /// one. The base-layout key is read only by the kitty encoder.
     pub shifted: Option<Codepoint>,
     pub base_layout: Option<Codepoint>,
     /// **The key's ASCII character under Control, where the active

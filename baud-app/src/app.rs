@@ -2890,13 +2890,21 @@ fn decimal(key: &KeyPress) -> baud_domain::KeypadKey {
 /// what it typed as its text, its PC-101 character as kitty's base layout
 /// key, and under Control on a key whose identity is not ASCII the
 /// character the layout's own Control layer gives (`control_of`).
-fn chord(key: &KeyPress, m: Modifiers) -> Option<KeyEvent> {
+fn chord(key: &KeyPress, m: Modifiers, unshifted: Option<Codepoint>) -> Option<KeyEvent> {
     let c = key
         .unmodified
         .chars()
         .next()
         .and_then(|c| Codepoint::new(u32::from(c)))?;
+    // With Shift, `charactersIgnoringModifiers` is the key shifted: the key
+    // is the one Shift was on, and that character its shifted key, as
+    // kitty's macOS layer takes it (`add_alternate_keys`).
+    let (c, shifted) = match key.modifiers.shift {
+        true => shifted_key(c, unshifted).map_or((c, None), |(k, s)| (k, Some(s))),
+        false => (c, None),
+    };
     let mut e = KeyEvent::press(KeyCode::Char(c), m);
+    e.shifted = shifted.filter(|&s| s != c);
     e.text = key
         .characters
         .chars()
@@ -2904,10 +2912,12 @@ fn chord(key: &KeyPress, m: Modifiers) -> Option<KeyEvent> {
         .filter(|ch| !ch.is_control())
         .and_then(|ch| Codepoint::new(u32::from(ch)));
     // Sent where it differs from the key's own unshifted character, which
-    // `charactersIgnoringModifiers` gives with Shift applied.
+    // `charactersIgnoringModifiers` gives with Shift applied, and from the
+    // key Shift was found to be on.
     let own = key.unmodified.chars().flat_map(char::to_lowercase).next();
-    e.base_layout =
-        pc101(key).filter(|&b| Some(b) != own.and_then(|o| Codepoint::new(u32::from(o))));
+    e.base_layout = pc101(key)
+        .filter(|&b| Some(b) != own.and_then(|o| Codepoint::new(u32::from(o))))
+        .filter(|&b| b != c);
     if key.modifiers.control && c.value() > 0x7f {
         e.control = control_of(&key.characters);
     }
@@ -2999,26 +3009,81 @@ fn pc101(key: &KeyPress) -> Option<Codepoint> {
     Some(Codepoint::from_char(c))
 }
 
+/// **The keystroke handed to the input manager**, until `text` answers:
+/// what it typed, its PC-101 character, the modifiers held -- of which
+/// only Shift reaches here, Command, Control and Option being kept from
+/// the input manager -- and, with Shift, the character the layout types
+/// on the key without it (`layouts::unshifted`).
+struct Keyed {
+    typed: String,
+    base: Option<Codepoint>,
+    mods: Modifiers,
+    unshifted: Option<Codepoint>,
+}
+
+/// **The key a Shift-held keystroke names**: the character the layout
+/// types on it without Shift, and the one it typed as kitty's shifted key
+/// (`[[source: kitty-keyboard]]`: the key is "the lower-case (or more
+/// technically, un-shifted) version", "the shifted key is simply the
+/// upper-case version"), so Shift+1 is the `1` key with `!` shifted.
+/// Where the layout gave nothing, a capital's lower case is its key; a
+/// character with no case is then left as it was typed, with no Shift,
+/// rather than as a key Shift would have to be on.
+fn shifted_key(typed: Codepoint, unshifted: Option<Codepoint>) -> Option<(Codepoint, Codepoint)> {
+    let lower = char::from_u32(typed.value())
+        .and_then(|ch| ch.to_lowercase().next())
+        .and_then(|l| Codepoint::new(u32::from(l)));
+    unshifted
+        .or(lower.filter(|&l| l != typed))
+        .map(|key| (key, typed))
+}
+
 /// **What the input manager's text types**: a key per character, its
 /// lower case as the identity and itself as the text. When the text is
-/// exactly what the keystroke that went to the input manager typed, that
-/// key's PC-101 character rides as kitty's base layout key; an input
-/// method's commit, a paste or a composed character is not that key's.
-fn typed_text(text: &str, keyed: Option<&(String, Codepoint)>) -> Vec<KeyEvent> {
-    let base = keyed
-        .filter(|(typed, _)| typed == text && text.chars().count() == 1)
-        .map(|&(_, b)| b);
+/// exactly what the keystroke that went to the input manager typed, it is
+/// that key's: its PC-101 character rides as kitty's base layout key, and
+/// Shift held is reported beside the key Shift was on ([`shifted_key`]),
+/// as kitty reports `shift+a`, `CSI 97 ; 2 u`. An input method's commit,
+/// a paste or a composed character is not that key's, and carries
+/// neither.
+fn typed_text(text: &str, keyed: Option<&Keyed>) -> Vec<KeyEvent> {
+    let own = keyed.filter(|k| k.typed == text && text.chars().count() == 1);
+    let base = own.and_then(|k| k.base);
+    let shift = own.filter(|k| k.mods.has(Modifiers::SHIFT));
     text.chars()
         .filter_map(|ch| {
             let c = Codepoint::new(u32::from(ch))?;
             let lower = ch.to_lowercase().next().unwrap_or(ch);
             let identity = Codepoint::new(u32::from(lower)).unwrap_or(c);
-            let mut e = KeyEvent::press(KeyCode::Char(identity), Modifiers::NONE);
+            let mut e = match shift.and_then(|k| shifted_key(c, k.unshifted)) {
+                Some((key, typed)) => {
+                    let mut e = KeyEvent::press(KeyCode::Char(key), Modifiers::SHIFT);
+                    e.shifted = Some(typed).filter(|&t| t != key);
+                    e
+                }
+                None => KeyEvent::press(KeyCode::Char(identity), Modifiers::NONE),
+            };
             e.text = Some(c);
-            e.base_layout = base.filter(|&b| b != identity);
+            e.base_layout = base.filter(|&b| KeyCode::Char(b) != e.code);
             Some(e)
         })
         .collect()
+}
+
+/// **Whether a key's modifiers make it a chord**, whose bytes are not its
+/// text: anything but Shift, whose capital is the text the base layer
+/// sends.
+fn is_chord(held: Modifiers) -> bool {
+    held.without(Modifiers::SHIFT) != Modifiers::NONE
+}
+
+/// The character the layout types on `key` without Shift, asked only
+/// while Shift is held: the one case its own characters do not say.
+fn shift_unshifted(key: &KeyPress) -> Option<Codepoint> {
+    match key.modifiers.shift {
+        true => crate::layouts::unshifted(key),
+        false => None,
+    }
 }
 
 /// The event for a key [`special`] named, carrying `m`.
@@ -3489,7 +3554,7 @@ struct Driver {
     /// What the keystroke handed to the input manager typed and its PC-101
     /// character, until `text` answers: the base layout key of a key the
     /// input manager types as itself (`typed_text`).
-    keyed: Option<(String, Codepoint)>,
+    keyed: Option<Keyed>,
     /// A Cmd press over a link, until its release: the gesture is the
     /// terminal's, and `crate::link::gesture` says what each event means.
     armed: Option<crate::link::Armed>,
@@ -9440,11 +9505,12 @@ impl Driver {
         let app = &mut self.app;
         let printable =
             char::from_u32(c.value()).is_some_and(|ch| ch == ' ' || ch.is_ascii_graphic());
-        let refused = if held != Modifiers::NONE {
+        let refused = if is_chord(held) {
             // A control or option chord carries text -- the unmodified
             // character -- and `send` writes the *chord*, so the glyph
-            // would not be the byte. Only the input manager's `text` path,
-            // which builds its events at `Modifiers::NONE`, predicts.
+            // would not be the byte. Only the input manager's `text` path
+            // predicts, whose events carry Shift at most, and Shift's
+            // capital is the text the base layer sends.
             Some("mods")
         } else if app.hold != Hold::Open {
             Some("hold")
@@ -10155,7 +10221,7 @@ impl Responder for Driver {
             pressed(code, key, m)
         } else if key.modifiers.control || key.modifiers.option {
             // A control or alt chord: the key's identity, folded by the core.
-            let Some(e) = chord(key, m) else {
+            let Some(e) = chord(key, m, shift_unshifted(key)) else {
                 return Handled::Consumed;
             };
             e
@@ -10164,7 +10230,12 @@ impl Responder for Driver {
             // the keystroke themselves; a record opened here as well would
             // be one no write ever completes. What the key typed and its
             // PC-101 character wait for `text`, for the base layout key.
-            self.keyed = pc101(key).map(|b| (key.characters.clone(), b));
+            self.keyed = Some(Keyed {
+                typed: key.characters.clone(),
+                base: pc101(key),
+                mods: m,
+                unshifted: shift_unshifted(key),
+            });
             return Handled::Interpret;
         };
         self.typed(e);
@@ -14424,7 +14495,7 @@ mod tests {
             (0x08, "\u{3}", "\u{5d1}", 'c'),
             (0x08, "\u{3}", "\u{3c8}", 'c'),
         ] {
-            let e = chord(&key(code, chars, plain, ctrl), mods(ctrl)).expect(plain);
+            let e = chord(&key(code, chars, plain, ctrl), mods(ctrl), None).expect(plain);
             assert_eq!(
                 e.code,
                 KeyCode::Char(Codepoint::from_char(plain.chars().next().unwrap()))
@@ -14436,17 +14507,22 @@ mod tests {
                 "{plain}"
             );
         }
-        let es = chord(&key(0x08, "\u{3}", "\u{441}", ctrl), mods(ctrl)).unwrap();
+        let es = chord(&key(0x08, "\u{3}", "\u{441}", ctrl), mods(ctrl), None).unwrap();
         assert_eq!(sent(b"\x1b[=5u", es), b"\x1b[1089::99;5u");
-        let alt = chord(&key(0x08, "\u{2260}", "\u{441}", option), mods(option)).unwrap();
+        let alt = chord(
+            &key(0x08, "\u{2260}", "\u{441}", option),
+            mods(option),
+            None,
+        )
+        .unwrap();
         assert_eq!((alt.control, alt.base_layout), (None, cp('c')));
-        let us = chord(&key(0x08, "\u{3}", "c", ctrl), mods(ctrl)).unwrap();
+        let us = chord(&key(0x08, "\u{3}", "c", ctrl), mods(ctrl), None).unwrap();
         assert_eq!((us.control, us.base_layout), (None, None));
         let shift = Held {
             shift: true,
             ..ctrl
         };
-        let us_shift = chord(&key(0x08, "\u{3}", "C", shift), mods(shift)).unwrap();
+        let us_shift = chord(&key(0x08, "\u{3}", "C", shift), mods(shift), None).unwrap();
         assert_eq!(
             us_shift.base_layout, None,
             "Shift does not make the key another"
@@ -14499,16 +14575,168 @@ mod tests {
     #[test]
     fn the_input_managers_text_carries_the_keys_base_layout_key() {
         let c = Codepoint::from_char('c');
-        let es = typed_text("\u{441}", Some(&("\u{441}".to_string(), c)));
+        let es = typed_text("\u{441}", Some(&keyed("\u{441}", c, Modifiers::NONE, None)));
         assert_eq!(es.len(), 1);
         assert_eq!(es[0].base_layout, Some(c));
-        let commit = typed_text("\u{6f22}\u{5b57}", Some(&("\u{20}".to_string(), c)));
+        let commit = typed_text(
+            "\u{6f22}\u{5b57}",
+            Some(&keyed("\u{20}", c, Modifiers::NONE, None)),
+        );
         assert!(commit.iter().all(|e| e.base_layout.is_none()));
-        let same = typed_text("c", Some(&("c".to_string(), c)));
+        let same = typed_text("c", Some(&keyed("c", c, Modifiers::NONE, None)));
         assert_eq!(same[0].base_layout, None, "the key's own");
         let src = include_str!("app.rs");
-        assert!(src.contains(concat!("let Some(e) = ", "chord(key, m) else")));
+        assert!(src.contains(concat!(
+            "let Some(e) = ",
+            "chord(key, m, shift_unshifted(key)) else"
+        )));
         assert!(src.contains(concat!("for e in ", "typed_text(text, keyed.as_ref())")));
+    }
+
+    /// The keystroke the input manager was handed, as `key` records it,
+    /// on a layout whose key types `unshifted` without Shift.
+    fn keyed(typed: &str, base: Codepoint, mods: Modifiers, unshifted: Option<char>) -> Keyed {
+        Keyed {
+            typed: typed.to_string(),
+            base: Some(base),
+            mods,
+            unshifted: unshifted.map(Codepoint::from_char),
+        }
+    }
+
+    /// What the core sends for `e` once `modes` is fed.
+    fn core_sends(modes: &[u8], e: KeyEvent) -> Vec<u8> {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        t.write_at(baud_domain::BytePos::ZERO, modes);
+        t.feed(
+            baud_domain::BytePos::ZERO,
+            baud_domain::ReadLen::from_index(modes.len()),
+        );
+        t.clear_reply();
+        let mut out = Vec::new();
+        crate::reads::input(&mut t, |t| t.key(e), |b| out.extend_from_slice(b));
+        out
+    }
+
+    /// **Shift on a key the input manager types is reported beside the key
+    /// it is on**, as kitty reports it (`[[source: kitty-keyboard]]`: the
+    /// key is "the lower-case (or more technically, un-shifted) version",
+    /// modifiers `1 + 1` for Shift, "the shifted key is simply the
+    /// upper-case version"): Shift+a is `CSI 97 ; 2 u` under "report all
+    /// keys", where it went out as `CSI 97 u`, and Shift+1 the `1` key with
+    /// `!` shifted, `CSI 49 ; 2 u`, by the layout's own unshifted character.
+    /// The legacy layer sends the text as before; `modifyOtherKeys` 2
+    /// numbers the shifted character as xterm numbers its keysym. With no
+    /// layout answer a capital's key is its lower case and `!` is left as
+    /// typed; a commit that is not the keystroke's own carries no Shift.
+    /// Perturbation: build the events at `Modifiers::NONE` again and every
+    /// kitty row reads no Shift; drop the layout's character and Shift+1
+    /// reads `CSI 33 u`.
+    #[test]
+    fn shift_on_a_typed_key_is_reported_beside_the_key_it_is_on() {
+        let shift = Modifiers::SHIFT;
+        let typed = |text: &str, base: char, unshifted: Option<char>| {
+            typed_text(
+                text,
+                Some(&keyed(text, Codepoint::from_char(base), shift, unshifted)),
+            )[0]
+        };
+        let a = typed("A", 'a', Some('a'));
+        let one = typed("!", '1', Some('1'));
+        let space = typed(" ", ' ', Some(' '));
+        for (e, modes, want) in [
+            (a, b"".as_slice(), b"A".as_slice()),
+            (a, b"\x1b[>1u", b"A"),
+            (a, b"\x1b[>8u", b"\x1b[97;2u"),
+            (a, b"\x1b[>11u", b"\x1b[97;2u"),
+            (a, b"\x1b[>12u", b"\x1b[97:65;2u"),
+            (a, b"\x1b[>24u", b"\x1b[97;2;65u"),
+            (a, b"\x1b[>4;2m", b"\x1b[27;2;65~"),
+            (one, b"", b"!"),
+            (one, b"\x1b[>1u", b"!"),
+            (one, b"\x1b[>8u", b"\x1b[49;2u"),
+            (one, b"\x1b[>12u", b"\x1b[49:33;2u"),
+            (one, b"\x1b[>24u", b"\x1b[49;2;33u"),
+            (one, b"\x1b[>4;2m", b"\x1b[27;2;33~"),
+            (space, b"", b" "),
+            (space, b"\x1b[>8u", b"\x1b[32;2u"),
+        ] {
+            assert_eq!(
+                core_sends(modes, e),
+                want,
+                "{:?} after {:?}",
+                e.text,
+                String::from_utf8_lossy(modes)
+            );
+        }
+        // No answer from the layout: the capital's lower case, and `!` as
+        // it was typed.
+        assert_eq!(
+            core_sends(b"\x1b[>8u", typed("A", 'a', None)),
+            b"\x1b[97;2u"
+        );
+        assert_eq!(core_sends(b"\x1b[>8u", typed("!", '1', None)), b"\x1b[33u");
+        // Not the keystroke's own text: an input method's commit.
+        let commit = typed_text(
+            "A",
+            Some(&keyed("a", Codepoint::from_char('a'), shift, Some('a'))),
+        );
+        assert_eq!(commit[0].mods, Modifiers::NONE);
+        assert_eq!(core_sends(b"\x1b[>8u", commit[0]), b"\x1b[97u");
+        // Shift alone is not a chord: its capital is predicted as typed.
+        assert!(!is_chord(shift));
+        assert!(is_chord(Modifiers::CTRL.with(shift)));
+    }
+
+    /// **A Control or Option chord with Shift names the key Shift is on**,
+    /// `charactersIgnoringModifiers`' character being its shifted key, as
+    /// kitty's macOS layer takes it: Control+Shift+a is `CSI 97 ; 6 u`
+    /// under "report all keys", where it went out as `CSI 65 ; 6 u`, and
+    /// still `^A` on the legacy layer; Control+Shift+2 is the `2` key
+    /// (`CSI 50 ; 6 u`) and still NUL, the `@` key's, on the legacy layer.
+    /// Perturbation: keep the shifted character as the key and the kitty
+    /// rows read `65` and `64`.
+    #[test]
+    fn a_chord_with_shift_names_the_key_shift_is_on() {
+        use macos_liquid_glass::drawable::Modifiers as Held;
+        let held = Held {
+            control: true,
+            shift: true,
+            ..Held::default()
+        };
+        let key = |code: u16, chars: &str, plain: &str| KeyPress {
+            key_code: code,
+            characters: chars.to_string(),
+            unmodified: plain.to_string(),
+            modifiers: held,
+            repeat: false,
+        };
+        let cp = |c: char| Some(Codepoint::from_char(c));
+        let a = chord(&key(0x00, "\u{1}", "A"), mods(held), cp('a')).expect("a");
+        let two = chord(&key(0x13, "\u{0}", "@"), mods(held), cp('2')).expect("2");
+        for (e, modes, want) in [
+            (a, b"".as_slice(), b"\x01".as_slice()),
+            (a, b"\x1b[>8u", b"\x1b[97;6u"),
+            (a, b"\x1b[>12u", b"\x1b[97:65;6u"),
+            (a, b"\x1b[>4;2m", b"\x1b[27;6;65~"),
+            (two, b"", b"\x00"),
+            (two, b"\x1b[>8u", b"\x1b[50;6u"),
+            (two, b"\x1b[>12u", b"\x1b[50:64;6u"),
+            (two, b"\x1b[>4;2m", b"\x1b[27;6;64~"),
+        ] {
+            assert_eq!(
+                core_sends(modes, e),
+                want,
+                "{:?} after {:?}",
+                e.code,
+                String::from_utf8_lossy(modes)
+            );
+        }
     }
 
     /// What `key` sends for `k` once `modes` is fed: the event it builds,

@@ -734,11 +734,22 @@ fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     // which builds its string from the keysym it fell back to: the
     // identity every legacy form below folds or numbers, and the text a
     // key with no control form sends.
-    let (code, text) = match (e.code, e.control) {
-        (KeyCode::Char(id), Some(c)) if e.mods.has(Modifiers::CTRL) && id.value() > 0x7f => {
+    //
+    // **A key Shift is held on is its shifted character here**, where the
+    // platform supplied one ([`KeyEvent::shifted`]): xterm's legacy forms
+    // fold and number the keysym the lookup gave, which Shift has already
+    // chosen -- Control-Shift-2 is the `@` key's NUL, and under
+    // `modifyOtherKeys` 2, where "all of the modifiers apply", Shift-a is
+    // `CSI 27 ; 2 ; 65 ~` (`[[source: xterm-input-c]]`, the `input_char`
+    // of `kd.keysym`). The kitty layers report the unshifted key instead.
+    let (code, text) = match (e.code, e.control, e.shifted) {
+        (KeyCode::Char(id), Some(c), _) if e.mods.has(Modifiers::CTRL) && id.value() > 0x7f => {
             (KeyCode::Char(c), Some(c))
         }
-        (code, _) => (code, e.text),
+        (KeyCode::Char(_), _, Some(s)) if e.mods.has(Modifiers::SHIFT) => {
+            (KeyCode::Char(s), e.text)
+        }
+        (code, _, _) => (code, e.text),
     };
     let mut o = KeyBytes::new();
     // **VT52 is a different keyboard, not a different introducer.**
