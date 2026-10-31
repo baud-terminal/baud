@@ -13383,28 +13383,24 @@ impl Driver {
     /// read on the first tick -- after the first present, so a launch's
     /// first frame does not wait for it, and where a scripted launch, whose
     /// window is never key, still pays and measures it -- and at every focus
-    /// gain. Not observed: a change made while baud keeps focus lands at the
-    /// next gain.
+    /// gain (`Caret::read_system`). Not observed: a change made while baud
+    /// keeps focus lands at the next gain.
     fn read_caret_system(&mut self) {
         let start = Instant::now();
         let cycle = os_cycle(self.app.blink_interval);
-        let switch = if os_at_least_15() {
-            crate::pty::prefers_steady_caret()
-        } else {
-            NonBlinking::Off
-        };
-        let took = start.elapsed();
-        self.app
+        let (switch, overridden) = self
+            .app
             .caret
-            .set_system(cycle, Gate::of(self.app.blink_choice, switch));
+            .read_system(cycle, self.app.blink_choice, || match os_at_least_15() {
+                true => crate::pty::prefers_steady_caret(),
+                false => NonBlinking::Off,
+            });
+        let took = start.elapsed();
         crate::info!(
             "caret: {cycle}, switch {switch:?}, read in {} us",
             took.as_micros()
         );
-        if switch == NonBlinking::On
-            && self.app.blink_choice == crate::config::BlinkChoice::On
-            && self.app.warned_blink == Done::No
-        {
+        if overridden == crate::caret::Overridden::Yes && self.app.warned_blink == Done::No {
             crate::warn!(
                 "baud: [cursor] blink = true overrides the system's non-blinking caret; \
                  blink = \"auto\" honours it"
@@ -17553,7 +17549,7 @@ mod link_pointer_tests {
 
     /// **A function's body in `src`**, from its head to the first line that
     /// closes at its indent; one head of it in the file.
-    fn body<'a>(src: &'a str, head: &str) -> &'a str {
+    pub(super) fn body<'a>(src: &'a str, head: &str) -> &'a str {
         assert_eq!(src.matches(head).count(), 1, "one {head}");
         let b = src.split(head).nth(1).expect(head);
         &b[..b.find("\n    }\n").expect("the function ends")]
@@ -17732,6 +17728,48 @@ mod link_pointer_tests {
         assert!(
             set < first && set < shown,
             "the press is tested before the place is kept"
+        );
+    }
+}
+
+#[cfg(test)]
+mod driver_rule_tests {
+    use super::link_pointer_tests::body;
+
+    /// **The window reads the system's caret at every focus gain, through
+    /// the rule a test reaches** (`Caret::read_system`, held by
+    /// `a_switch_turned_in_the_background_lands_at_the_focus_gain`): the
+    /// gain's arm of `set_focus` asks `read_caret_system`, after the early
+    /// return for no change, and that hands the rule the system's switch.
+    /// Perturbation: the gain's read dropped, or the switch read outside
+    /// the rule, fails this.
+    #[test]
+    fn a_focus_gain_reads_the_system_caret_through_the_rule() {
+        const SRC: &str = include_str!("app.rs");
+        let focus = body(
+            SRC,
+            concat!("    fn set_", "focus(&mut self, f: baud_core::Focus) {"),
+        );
+        let unchanged = focus
+            .find(concat!("if self.app.focus == f {\n", "            return;"))
+            .expect("a poll with no change returns");
+        let gained = focus
+            .find(concat!(
+                "if f == baud_core::Focus::",
+                "Gained {\n            self.read_caret_system();"
+            ))
+            .expect("a gain reads the system's caret");
+        assert!(unchanged < gained, "read only on the change");
+        let read = body(SRC, concat!("    fn read_caret_", "system(&mut self) {"));
+        assert!(
+            read.contains(concat!(".read_", "system(cycle, self.app.blink_choice,"))
+                && read.contains(concat!("crate::pty::prefers_steady_", "caret()")),
+            "the switch is not read through the rule"
+        );
+        assert_eq!(
+            read.matches(concat!("set_", "system(")).count(),
+            0,
+            "set around the rule"
         );
     }
 }

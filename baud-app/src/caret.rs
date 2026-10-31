@@ -287,6 +287,15 @@ pub enum NonBlinking {
     On,
 }
 
+/// Whether `[cursor] blink = true` overrides the system's non-blinking
+/// switch, which is on ([`Caret::read_system`]).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Overridden {
+    Yes,
+    No,
+}
+
 /// Whether the drawing is held steady whatever the style asks.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Gate {
@@ -410,6 +419,30 @@ impl<M: Moment> Caret<M> {
     pub fn set_system(&mut self, cycle: Cycle, gate: Gate) {
         self.cycle = cycle;
         self.gate = gate;
+    }
+
+    /// **The system's caret read into the blink**: the rate the driver
+    /// read, and the non-blinking switch asked of `switch` -- fresh at each
+    /// call -- folded with `[cursor] blink` into the gate ([`Gate::of`]).
+    /// The macOS driver runs it with the system's readers on its first
+    /// tick, at every focus gain and when the config is read again, so a
+    /// switch turned while baud was in the background lands at the gain.
+    /// It also says whether `blink = true` is blinking a caret the switch
+    /// asks to hold steady, which the driver says once.
+    #[cfg(any(target_os = "macos", test))]
+    pub fn read_system(
+        &mut self,
+        cycle: Cycle,
+        choice: crate::config::BlinkChoice,
+        switch: impl FnOnce() -> NonBlinking,
+    ) -> (NonBlinking, Overridden) {
+        let switch = switch();
+        self.set_system(cycle, Gate::of(choice, switch));
+        let overridden = match (switch, choice) {
+            (NonBlinking::On, crate::config::BlinkChoice::On) => Overridden::Yes,
+            _ => Overridden::No,
+        };
+        (switch, overridden)
     }
 
     /// `[cursor] stop_blinking_after`, read again with the config
@@ -556,6 +589,112 @@ mod tests {
         Cycle::Blinks {
             on: Phase(on),
             off: Phase(off),
+        }
+    }
+
+    /// The frames a 120 Hz display link draws from `from` to `to` ms after
+    /// `t0`, as the driver ticks: a frame when one is owed, of a blinking
+    /// block in a window with `focus`; whether any showed it hidden.
+    fn hides(c: &mut Caret<Instant>, t0: Instant, (from, to): (u64, u64), focus: Focus) -> bool {
+        let style = CursorStyle::of(
+            baud_core::CursorShape::Block,
+            baud_core::CursorBlink::Blinking,
+        );
+        let mut hid = false;
+        for tick in from * 120 / 1000..to * 120 / 1000 {
+            let now = t0 + Duration::from_nanos(tick * 1_000_000_000 / 120);
+            let b = blinks(style, focus, Some(()));
+            if c.due(now, b) == Owes::Frame {
+                let p = c.plan(now, b);
+                c.commit(p);
+                hid |= p != SHOWN;
+            }
+        }
+        hid
+    }
+
+    /// **The system's switch turned while baud is in the background lands
+    /// at the focus gain**, the driver's path (`Caret::read_system`, run by
+    /// `read_caret_system` at every gain): blinking with the switch off; no
+    /// blink and no read behind another window, where the switch is turned
+    /// on; steady from the gain that reads it; and blinking again from the
+    /// gain after it is turned off. The switch is a stub the test turns, as
+    /// System Settings would, and `[cursor] blink` is the default, `auto`.
+    /// Perturbations: a read that ignores the switch blinks after the
+    /// second gain; one that reads nothing at a gain stays steady after the
+    /// third.
+    #[test]
+    fn a_switch_turned_in_the_background_lands_at_the_focus_gain() {
+        use crate::config::BlinkChoice;
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + MS * u32::try_from(ms).unwrap();
+        let rate = cycle(MS * 333, MS * 333);
+        let mut c = caret(t0);
+        let system = std::cell::Cell::new(NonBlinking::Off);
+        let gain = |c: &mut Caret<Instant>, ms| {
+            let read = c.read_system(rate, BlinkChoice::Auto, || system.get());
+            c.input(at(ms));
+            read
+        };
+        assert_eq!(gain(&mut c, 0), (NonBlinking::Off, Overridden::No));
+        assert!(
+            hides(&mut c, t0, (0, 2000), Focus::Gained),
+            "blinks with the switch off"
+        );
+        assert!(
+            !hides(&mut c, t0, (2000, 4000), Focus::Lost),
+            "behind another window"
+        );
+        system.set(NonBlinking::On);
+        assert!(
+            !hides(&mut c, t0, (4000, 6000), Focus::Lost),
+            "turned on, unread"
+        );
+        assert_eq!(gain(&mut c, 6000), (NonBlinking::On, Overridden::No));
+        assert!(
+            !hides(&mut c, t0, (6000, 9000), Focus::Gained),
+            "steady from the gain"
+        );
+        assert!(!hides(&mut c, t0, (9000, 10000), Focus::Lost));
+        system.set(NonBlinking::Off);
+        gain(&mut c, 10000);
+        assert!(
+            hides(&mut c, t0, (10000, 12000), Focus::Gained),
+            "blinks again"
+        );
+    }
+
+    /// **`[cursor] blink = true` overrides the switch, and says so; `auto`
+    /// and `false` honour it**: `true` "blinks whatever that switch says,
+    /// with a warning" (`config.toml.example`), and `false`, which starts
+    /// the cursor steady, holds a blink a program asks for steady under the
+    /// switch as `auto` does (`Gate::of`). Perturbation: a gate that lets `true`
+    /// honour the switch fails the first arm, and one that lets `false`
+    /// override it the third.
+    #[test]
+    fn blink_true_overrides_the_switch_and_auto_and_false_honour_it() {
+        use crate::config::BlinkChoice;
+        let rate = cycle(MS * 333, MS * 333);
+        for (choice, hid, said) in [
+            (BlinkChoice::On, true, Overridden::Yes),
+            (BlinkChoice::Auto, false, Overridden::No),
+            (BlinkChoice::Off, false, Overridden::No),
+        ] {
+            let t0 = Instant::now();
+            let mut c = caret(t0);
+            let read = c.read_system(rate, choice, || NonBlinking::On);
+            assert_eq!(read, (NonBlinking::On, said), "{choice:?}");
+            assert_eq!(
+                hides(&mut c, t0, (0, 2000), Focus::Gained),
+                hid,
+                "{choice:?}"
+            );
+            let read = c.read_system(rate, choice, || NonBlinking::Off);
+            assert_eq!(read.1, Overridden::No, "{choice:?} with the switch off");
+            assert!(
+                hides(&mut c, t0, (2000, 4000), Focus::Gained),
+                "{choice:?} off"
+            );
         }
     }
 
