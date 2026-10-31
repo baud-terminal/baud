@@ -1513,7 +1513,7 @@ proptest! {
         }
         t.clear_reply();
         let kind = KeyEventKind::Release;
-        let sent = t.key(KeyEvent { code, mods, kind, text: None, shifted: None, base_layout: None, control: None });
+        let sent = t.key(KeyEvent { code, mods, kind, text: None, chord_text: None, shifted: None, base_layout: None, control: None });
         prop_assert!(!sent);
         prop_assert!(t.reply().is_empty());
     }

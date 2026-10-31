@@ -863,6 +863,16 @@ pub struct KeyEvent {
     /// combination. A single codepoint; a multi-codepoint IME commit is a later
     /// widening.
     pub text: Option<Codepoint>,
+    /// **What the key types under a Control, Alt or Super chord, where the
+    /// platform counts it as no text**: on Linux the character the keymap's
+    /// lookup gives, which kitty's keyboard layer withholds from such a key
+    /// ("xkb returns text even if alt and/or super are pressed",
+    /// `[[source: kitty-xkb-glfw-c]]`), so it is never
+    /// `[[source: kitty-keyboard]]`'s associated text. Read only by the
+    /// base layer, where [`KeyEvent::text`] is `None`: xterm sends the
+    /// lookup's string, `ESC a` for Alt+a and `1` for Control+1, which no
+    /// fold of the key makes.
+    pub chord_text: Option<Codepoint>,
     /// `[[source: kitty-keyboard]]`'s alternate keys (flag 4), for shortcut
     /// matching: the *shifted* codepoint (the layout's shifted version of the
     /// key, `a` -> `A`) and the *base-layout* codepoint (the same physical key
@@ -905,6 +915,7 @@ impl KeyEvent {
                 KeyCode::Char(cp) => Some(cp),
                 _ => None,
             },
+            chord_text: None,
             shifted: None,
             base_layout: None,
             control: None,

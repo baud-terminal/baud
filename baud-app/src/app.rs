@@ -14825,10 +14825,10 @@ mod tests {
                         )),
                     )[0]
                 }
-                "ctrl+shift" => {
+                "ctrl+shift" | "ctrl" => {
                     let held = Held {
                         control: true,
-                        shift: true,
+                        shift: chord_of == "ctrl+shift",
                         ..Held::default()
                     };
                     let control = char::from_u32(u32::from(typed) & 0x1f).expect("C0");
@@ -14844,7 +14844,11 @@ mod tests {
                 _ => panic!("{chord_of}"),
             };
             assert_eq!(e.code, KeyCode::Char(Codepoint::from_char(key)), "{line}");
-            assert!(e.mods.has(Modifiers::SHIFT), "{line}");
+            assert_eq!(
+                e.mods.has(Modifiers::SHIFT),
+                chord_of.contains("shift"),
+                "{line}"
+            );
             assert_eq!(
                 e.shifted,
                 Some(Codepoint::from_char(typed)).filter(|_| typed != key),
@@ -14859,7 +14863,7 @@ mod tests {
             assert_eq!(core_sends(modes.as_bytes(), e), unescape(want), "{line}");
             rows += 1;
         }
-        assert_eq!(rows, 24, "the table's every row");
+        assert_eq!(rows, 28, "the table's every row");
     }
 
     /// What `key` sends for `k` once `modes` is fed: the event it builds,

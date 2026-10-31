@@ -175,12 +175,13 @@ fn the_shift_table_is_what_the_wayland_driver_sends() {
         let held = match chord {
             "shift" => SHIFT,
             "ctrl+shift" => CTRL | SHIFT,
+            "ctrl" => CTRL,
             _ => panic!("{chord}"),
         };
         let (key, typed) = (character(key), character(typed));
         let e = press(&km, 0, held, 0, us_key(&km, key));
         assert_eq!(e.code, KeyCode::Char(Codepoint::from_char(key)), "{line}");
-        assert!(e.mods.has(Modifiers::SHIFT), "{line}");
+        assert_eq!(e.mods.has(Modifiers::SHIFT), held & SHIFT != 0, "{line}");
         assert_eq!(
             e.shifted,
             Some(Codepoint::from_char(typed)).filter(|_| typed != key),
@@ -189,7 +190,7 @@ fn the_shift_table_is_what_the_wayland_driver_sends() {
         assert_eq!(sent(e, mode), unescape(want), "{line}");
         rows += 1;
     }
-    assert_eq!(rows, 24, "the table's every row");
+    assert_eq!(rows, 28, "the table's every row");
 }
 
 /// One key and what it sends under each mode.
@@ -379,6 +380,116 @@ fn another_layouts_key_is_its_own_and_altgr_keeps_its_character() {
                 ("legacy", "С".as_bytes()),
                 ("kitty=12", b"\x1b[1089:1057:99;2u"),
             ],
+        ),
+    );
+}
+
+/// Super, Mod4 on the pinned keymaps.
+const SUPER: ModMask = 1 << 6;
+
+/// **A Control, Alt or Super chord carries no associated text**, as
+/// kitty's keyboard layer gives a key none while any of them is held
+/// ("xkb returns text even if alt and/or super are pressed", `[[source:
+/// kitty-xkb-glfw-c]]`) and foot counts no text where a modifier it
+/// reports was not consumed (`[[source: foot-2705e36-input]]`): Control+a
+/// is `CSI 97 ; 5 u` under "report associated text", where it went out as
+/// `CSI 97 ; 5 ; 97 u`, and Alt+a `CSI 97 ; 3 u`. The legacy layer sends
+/// what it sent, the character the keymap's lookup gives: Alt+a `ESC a`,
+/// Control+1 `1`, Caps Lock and Alt+a `ESC A`. Shift alone, Caps Lock and
+/// AltGr keep the text, which is what they typed. Perturbation: give a
+/// chord its text again and every chord row reads its codepoint third;
+/// send the lookup's character nowhere and Alt+a sends nothing.
+#[test]
+fn a_control_alt_or_super_chord_carries_no_associated_text() {
+    let km = keymap("keymap-us.xkb");
+    let key = |km: &Keymap, n: &str| km.keycode_named(n).expect(n);
+    let a = key(&km, "AC01");
+    let ctrl = press(&km, 0, CTRL, 0, a);
+    assert_eq!(ctrl.text, None);
+    check(
+        "Ctrl+a",
+        (
+            ctrl,
+            &[
+                ("legacy", b"\x01"),
+                ("kitty=1", b"\x1b[97;5u"),
+                ("kitty=24", b"\x1b[97;5u"),
+                ("kitty=28", b"\x1b[97;5u"),
+                ("mok=2", b"\x1b[27;5;97~"),
+            ],
+        ),
+    );
+    check(
+        "Alt+a",
+        (
+            press(&km, 0, ALT, 0, a),
+            &[
+                ("legacy", b"\x1ba"),
+                ("kitty=1", b"\x1b[97;3u"),
+                ("kitty=24", b"\x1b[97;3u"),
+            ],
+        ),
+    );
+    check(
+        "Super+a",
+        (
+            press(&km, 0, SUPER, 0, a),
+            &[("legacy", b"a"), ("kitty=24", b"\x1b[97;9u")],
+        ),
+    );
+    check(
+        "Ctrl+1",
+        (
+            press(&km, 0, CTRL, 0, key(&km, "AE01")),
+            &[("legacy", b"1"), ("kitty=24", b"\x1b[49;5u")],
+        ),
+    );
+    check(
+        "Ctrl+Shift+a",
+        (
+            press(&km, 0, CTRL | SHIFT, 0, a),
+            &[("legacy", b"\x01"), ("kitty=24", b"\x1b[97;6u")],
+        ),
+    );
+    check(
+        "Alt+Shift+a",
+        (
+            press(&km, 0, ALT | SHIFT, 0, a),
+            &[
+                ("legacy", b"\x1bA"),
+                ("kitty=24", b"\x1b[97;4u"),
+                ("kitty=28", b"\x1b[97:65;4u"),
+            ],
+        ),
+    );
+    check(
+        "Caps+Alt+a",
+        (
+            press(&km, 0, ALT, LOCK, a),
+            &[("legacy", b"\x1bA"), ("kitty=24", b"\x1b[97;67u")],
+        ),
+    );
+    // What Shift, Caps Lock and AltGr typed is the text.
+    check(
+        "Shift+a",
+        (
+            press(&km, 0, SHIFT, 0, a),
+            &[("kitty=24", b"\x1b[97;2;65u")],
+        ),
+    );
+    check(
+        "Caps+a",
+        (
+            press(&km, 0, 0, LOCK, a),
+            &[("kitty=24", b"\x1b[97;65;65u")],
+        ),
+    );
+    let de = keymap("keymap-de.xkb");
+    check(
+        "German AltGr+q",
+        (
+            press(&de, 0, ALTGR, 0, key(&de, "AD01")),
+            &[("legacy", b"@"), ("kitty=24", b"\x1b[64;1;64u")],
         ),
     );
 }

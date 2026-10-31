@@ -742,14 +742,17 @@ fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     // `modifyOtherKeys` 2, where "all of the modifiers apply", Shift-a is
     // `CSI 27 ; 2 ; 65 ~` (`[[source: xterm-input-c]]`, the `input_char`
     // of `kd.keysym`). The kitty layers report the unshifted key instead.
+    //
+    // **A chord's character is what this layer sends where the key has no
+    // text** ([`KeyEvent::chord_text`]): Alt+a is `ESC a` though the
+    // platform counted no text for it.
+    let typed = e.text.or(e.chord_text);
     let (code, text) = match (e.code, e.control, e.shifted) {
         (KeyCode::Char(id), Some(c), _) if e.mods.has(Modifiers::CTRL) && id.value() > 0x7f => {
             (KeyCode::Char(c), Some(c))
         }
-        (KeyCode::Char(_), _, Some(s)) if e.mods.has(Modifiers::SHIFT) => {
-            (KeyCode::Char(s), e.text)
-        }
-        (code, _, _) => (code, e.text),
+        (KeyCode::Char(_), _, Some(s)) if e.mods.has(Modifiers::SHIFT) => (KeyCode::Char(s), typed),
+        (code, _, _) => (code, typed),
     };
     let mut o = KeyBytes::new();
     // **VT52 is a different keyboard, not a different introducer.**

@@ -224,6 +224,7 @@ fn event_types_are_reported_only_when_enabled() {
         shifted: None,
         base_layout: None,
         control: None,
+        chord_text: None,
     };
     let repeat = KeyEvent {
         code: up,
@@ -233,6 +234,7 @@ fn event_types_are_reported_only_when_enabled() {
         shifted: None,
         base_layout: None,
         control: None,
+        chord_text: None,
     };
 
     // Disambiguate only: a release is silent, a repeat looks like a press.
@@ -362,6 +364,7 @@ fn text_key(
         shifted: shifted.map(Codepoint::from_char),
         base_layout: base.map(Codepoint::from_char),
         control: None,
+        chord_text: None,
     }
 }
 
@@ -436,6 +439,40 @@ fn a_release_carries_no_associated_text_and_a_repeat_does() {
         ..shifted
     };
     assert_eq!(pressed(b"\x1b[=30u", release), b"\x1b[97:65;2:3u");
+}
+
+/// **A chord's character is the base layer's, never associated text**
+/// ([`KeyEvent::chord_text`]): Alt+a with no text and `a` as its chord's
+/// character is `ESC a` on the legacy layer and `CSI 97 ; 3 u` under
+/// "report associated text", where a key Linux typed under Alt carried
+/// `CSI 97 ; 3 ; 97 u`, as kitty's keyboard layer gives such a key no text
+/// (`[[source: kitty-xkb-glfw-c]]`). Control+1, which no fold makes a
+/// control code, sends its `1`. The control: the same key with `a` as its
+/// text carries it.
+#[test]
+fn a_chords_character_is_the_base_layers_and_never_associated_text() {
+    let chord = |ch: char, mods| KeyEvent {
+        chord_text: Some(Codepoint::from_char(ch)),
+        ..text_key(ch, mods, None, None, None)
+    };
+    assert_eq!(pressed(b"", chord('a', Modifiers::ALT)), b"\x1ba");
+    assert_eq!(
+        pressed(b"\x1b[=24u", chord('a', Modifiers::ALT)),
+        b"\x1b[97;3u"
+    );
+    assert_eq!(pressed(b"", chord('1', Modifiers::CTRL)), b"1");
+    assert_eq!(
+        pressed(b"\x1b[=24u", chord('1', Modifiers::CTRL)),
+        b"\x1b[49;5u"
+    );
+    assert_eq!(
+        pressed(
+            b"\x1b[=24u",
+            text_key('a', Modifiers::ALT, Some('a'), None, None)
+        ),
+        b"\x1b[97;3;97u",
+        "the control"
+    );
 }
 
 /// **Alternate keys (flag 4): shifted only under shift, base as an empty-slot

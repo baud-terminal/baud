@@ -1,12 +1,14 @@
-# What a key typed with Shift sends, the same from either keyboard: the
-# Wayland driver's, on the pinned US keymap, and the macOS app's, on the
-# US layout. Each row is read by both drivers' tests.
+# What a key typed with Shift or in a Control chord sends, the same from
+# either keyboard: the Wayland driver's, on the pinned US keymap, and the
+# macOS app's, on the US layout. Each row is read by both drivers' tests.
 #
 #   chord  key  typed | mode | sent
 #
-# chord: shift, or ctrl+shift. key: the key's unshifted character on the
-# US layout, typed: what it types with the chord's Shift, both as a
-# character or the word "space". mode: legacy (power-on), kitty=N (the
+# chord: shift, ctrl+shift or ctrl. key: the key's unshifted character on
+# the US layout, typed: what it types with the chord's Shift (the key
+# itself without one), both as a character or the word "space". A Control
+# chord types no text, so "report associated text" (kitty=24) carries
+# none. mode: legacy (power-on), kitty=N (the
 # flags CSI > N u pushes) or mok=N (modifyOtherKeys N, CSI > 4 ; N m).
 # sent: the bytes, \e for ESC and \xNN for any byte.
 shift a A | legacy | A
@@ -33,3 +35,7 @@ ctrl+shift 2 @ | legacy | \x00
 ctrl+shift 2 @ | kitty=8 | \e[50;6u
 ctrl+shift 2 @ | kitty=12 | \e[50:64;6u
 ctrl+shift 2 @ | mok=2 | \e[27;6;64~
+ctrl a a | legacy | \x01
+ctrl a a | kitty=1 | \e[97;5u
+ctrl a a | kitty=24 | \e[97;5u
+ctrl+shift a A | kitty=24 | \e[97;6u

@@ -540,16 +540,11 @@ fn a_window_opens_shows_a_frame_and_types() {
             // Shift-q: the `q` key with Shift, as kitty names it, its
             // capital the text and the shifted key.
             shifted('q', 'Q', KeyEventKind::Press),
-            Event::Key(KeyEvent::press(
-                KeyCode::Char(Codepoint::from_char('q')),
-                Modifiers::CTRL
-            )),
+            // Control-q: a chord, whose `q` is no text.
+            chorded('q', Modifiers::CTRL, KeyEventKind::Press),
             // The release of the Control-q, delivered as one: the core sends
             // it only where kitty's event types asked for releases.
-            Event::Key(KeyEvent {
-                kind: KeyEventKind::Release,
-                ..KeyEvent::press(KeyCode::Char(Codepoint::from_char('q')), Modifiers::CTRL)
-            }),
+            chorded('q', Modifiers::CTRL, KeyEventKind::Release),
             Event::Key(KeyEvent::press(KeyCode::Up, Modifiers::NONE)),
             Event::Key(KeyEvent::press(KeyCode::Enter, Modifiers::NONE)),
             Event::Key(KeyEvent::press(
@@ -1282,6 +1277,18 @@ fn typed(c: char, mods: baud_domain::Modifiers, kind: baud_domain::KeyEventKind)
     use baud_domain::{Codepoint, KeyCode, KeyEvent};
     Event::Key(KeyEvent {
         kind,
+        ..KeyEvent::press(KeyCode::Char(Codepoint::from_char(c)), mods)
+    })
+}
+
+/// The key `c` in a Control, Alt or Super chord: no text, `c` the chord's
+/// character.
+fn chorded(c: char, mods: baud_domain::Modifiers, kind: baud_domain::KeyEventKind) -> Event {
+    use baud_domain::{Codepoint, KeyCode, KeyEvent};
+    Event::Key(KeyEvent {
+        kind,
+        text: None,
+        chord_text: Some(Codepoint::from_char(c)),
         ..KeyEvent::press(KeyCode::Char(Codepoint::from_char(c)), mods)
     })
 }
@@ -3225,7 +3232,7 @@ fn the_clipboard_keys_are_kept_from_the_program() {
     pump(&mut conn, &mut w);
     assert_eq!(
         drain(&mut w),
-        [typed(
+        [chorded(
             'c',
             Modifiers::NONE.with(Modifiers::CTRL),
             KeyEventKind::Press
@@ -3287,7 +3294,7 @@ fn ctrl_shift_f_is_the_find_fields() {
     pump(&mut conn, &mut w);
     assert_eq!(
         drain(&mut w),
-        [typed(
+        [chorded(
             'f',
             Modifiers::NONE.with(Modifiers::CTRL),
             KeyEventKind::Press

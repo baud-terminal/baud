@@ -81,7 +81,16 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
     };
     let mut e = KeyEvent::press(code, mods);
     if let KeyCode::Char(id) = code {
-        e.text = typed.map(Codepoint::from_char);
+        // **A Control, Alt or Super chord types no text**, as kitty's
+        // keyboard layer gives a key none while one is held ("xkb returns
+        // text even if alt and/or super are pressed", `[[source:
+        // kitty-xkb-glfw-c]]`), so it is no associated text: what the
+        // lookup gave is the chord's character, which the legacy layer
+        // sends (Alt+a `ESC a`).
+        let typed = typed.map(Codepoint::from_char);
+        let chord = CHORDS.iter().any(|m| mods.has(*m));
+        e.text = typed.filter(|_| !chord);
+        e.chord_text = typed.filter(|_| chord);
         // kitty's shifted key, "the shifted version, in the currently
         // active keyboard layout", sent "only if shift is also present in
         // the modifiers" (`[[source: kitty-keyboard]]`): the keysym the
@@ -117,14 +126,18 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
     // The numeric column sends that text (`keypad_numeric`); the application
     // column reads the key.
     if let KeyCode::Keypad(_) = code {
-        let held = [Modifiers::CTRL, Modifiers::ALT, Modifiers::SUPER];
         e.text = state
             .text(keycode)
-            .filter(|c| !c.is_control() && !held.iter().any(|m| mods.has(*m)))
+            .filter(|c| !c.is_control() && !CHORDS.iter().any(|m| mods.has(*m)))
             .map(Codepoint::from_char);
     }
     Some(e)
 }
+
+/// The modifiers under which a key types no text, as kitty's keyboard
+/// layer reads them (`[[source: kitty-xkb-glfw-c]]`): Control, Alt and
+/// Super; Hyper and Meta are none [`modifiers`] reports.
+const CHORDS: [Modifiers; 3] = [Modifiers::CTRL, Modifiers::ALT, Modifiers::SUPER];
 
 /// The real modifiers by their bits: Shift, Lock and Control.
 const SHIFT: baud_xkb::ModMask = 1 << 0;
