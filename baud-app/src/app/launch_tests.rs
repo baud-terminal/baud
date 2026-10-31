@@ -292,7 +292,8 @@ impl Session {
 /// launchd does not set (`docs/research/notes/aa-shell-locale.md` section 2,
 /// measured with `launchctl getenv LANG` and two launchd-started apps'
 /// environments) -- with launchd's `XPC_FLAGS` (`[[source:
-/// aa-obs-cwdprobe-run]]`).
+/// aa-obs-cwdprobe-run]]`; its `XPC_SERVICE_NAME`, which names the app, is
+/// left out: no locale rule reads it).
 pub(super) fn launchd_environment() -> Vec<(OsString, OsString)> {
     let mut env: Vec<(OsString, OsString)> = [
         "HOME",
@@ -647,13 +648,15 @@ fn kitty_previews(seen: &[u8]) -> (usize, Option<(u32, u32)>) {
 
 /// **Every yazi preview arrives as a picture the terminal keeps**, with real
 /// yazi on the app's pty over a folder of generated files: PNGs and JPEGs
-/// small, wide, tall and photo-sized -- the photo's body past the 256 KiB
-/// the Sixel limit once was -- and a two-page PDF where `pdftoppm`, yazi's
+/// small, wide, tall and photo-sized -- the photo's preview, about 620 KiB as
+/// yazi sends it, past the 256 KiB the image body limit (`body_kb`) once held
+/// -- and a two-page PDF where `pdftoppm`, yazi's
 /// PDF previewer, is installed. yazi asks what the terminal is, the core
 /// answers as the app sends it, and yazi picks kitty's graphics protocol:
 /// baud answers its probe `OK` and claims no Sixel by default. Each file
 /// is reached as a user reaches it, `j` typed through the responder's text
-/// path, and its preview -- an `a=T` sent in chunks -- is waited for whole.
+/// path, and its preview -- an `a=T`, or an `a=t` that `a=p` places, sent in
+/// chunks -- is waited for whole.
 /// Then the core has refused nothing, places one picture, the one yazi
 /// declared, and its pixels are not one colour. On the PDF, `J` seeks
 /// to its second page, whose preview arrives the same way and is not the

@@ -419,7 +419,8 @@ guide = "off"
 # output above the prompt you are at; the line you are typing, a command
 # still running and full-screen programs keep the program's lines, and so
 # does output the window was narrowed past while the shell waited at its
-# prompt. Copying gives the text as the program wrote it either way. "on"
+# prompt. Copying gives the text as the program wrote it either way, except
+# while a program has set ?96, when a copy follows the lines as drawn. "on"
 # by default.
 [screen]
 transition = "off"
