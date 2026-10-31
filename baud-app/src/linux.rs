@@ -442,51 +442,10 @@ pub fn run() {
         Rows::of_index(usize::from(FIRST.ws_row)),
     )
     .expect("cell metrics");
-    renderer.set_emoji_default(cfg.emoji);
-    // The exit-status strip before the first size: the grid gives it a
-    // column, as on macOS.
-    renderer.set_status_marks(cfg.exit_status);
-    renderer.set_word_wrap(cfg.wrap_words);
-    // And the config's notice, whose row the grid gives up below it.
-    renderer.set_notice(notice.codepoints());
+    crate::host::set_up_renderer(&mut renderer, &cfg, &notice);
     // The window starts without the keyboard, until `wl_keyboard.enter`.
     renderer.set_cursor_look(crate::caret::look(Focus::Lost, cfg.unfocused_cursor));
-    crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
-    // The cell height for the Sixel cursor advance, before the first feed;
-    // re-set on every `configure`.
-    term.set_cell_size(
-        cell_px(renderer.metrics().cell_w),
-        cell_px(renderer.metrics().cell_h),
-    );
-    // The window binds no fractional-scale global, so a point is a pixel:
-    // what `OSC 1337 ; ReportCellSize` divides by.
-    term.set_backing_scale(baud_domain::BackingScale::of(1.0));
-    term.set_sixel_claim(cfg.sixel);
-    crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
-    crate::host::set_checksum(&mut term, cfg.checksum);
-    crate::host::set_up(&mut term, cfg.set_up);
-    crate::host::set_substitute(&mut term, cfg.substitute);
-    crate::host::set_prompt_at_bottom(&mut term, cfg.prompt_at_bottom);
-    crate::host::set_window_ops(&mut term, cfg.window_ops);
-    crate::host::set_window_abilities(
-        &mut term,
-        crate::winops::wayland_abilities(crate::winops::BoundsEvent::Never),
-        cfg.clipboard.osc52,
-    );
-    crate::host::set_term_name(&mut term);
-    crate::host::set_logging(&mut term, cfg.logging);
-    // **No print panel in this driver**: the core is told there is no
-    // printer, so DSR `?15` answers "no printer" and a print is ignored and
-    // counted, whatever `[screen] printing` says (`print.rs`; note AW).
-    crate::print::set_printer(&mut term, cfg.printing, crate::print::Printers::None);
-    term.set_graphics_print(cfg.graphics_print);
-    crate::host::set_pointer_mode(&mut term, cfg.pointer_mode);
-    crate::host::set_font_changes(&mut term, cfg.font_changes);
-    crate::host::tell_font(&mut term, &fonts, cfg.font_size, cfg.font_size);
-    term.set_initial_cursor_style(baud_core::CursorStyle::of(
-        cfg.cursor_shape,
-        cfg.cursor_blink.power_on(),
-    ));
+    let term = crate::host::set_up_term(term, &cfg, &renderer, &fonts);
     startup_mark("renderer");
     let pty = Pty::spawn_polled(&FIRST, renderer.metrics().cell_w, renderer.metrics().cell_h)
         .expect("pty");

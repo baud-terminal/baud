@@ -1,0 +1,965 @@
+//! **A launch, headless, with a real program on its pty.** What the app
+//! makes when it starts -- the config read from no file, as a user with none
+//! launches; the faces it names; the renderer, set up as both drivers set
+//! one (`host::set_up_renderer`); the terminal, set up as the Linux driver
+//! sets one (`host::set_up_term`); and the program spawned through the
+//! app's own spawn (`Pty::spawn_given`, which is `Pty::spawn` with the
+//! environment given) -- and then the reads fed, the keys sent and the
+//! frames drawn through the functions the drivers call: `reads::paced` for
+//! a read, `typed_text` and `reads::input` for typed text, as the
+//! responder's `insertText:` sends it, and `Renderer::render_at` for a
+//! frame of the window where it sits, on the CPU, as the CPU path's
+//! `present` draws one. No window opens, no GPU is asked for, and nothing
+//! of the system's is read but the fonts and the locale CoreFoundation
+//! gives; nothing is changed.
+//!
+//! **Waits are bounded and never sleeps.** The pty's reader thread wakes
+//! the test once a batch, as it wakes the run loop, and a wait that has not
+//! seen what it waits for in [`WAIT`] fails, saying what the program wrote.
+
+use super::{theme_for, typed_text};
+use crate::host::{MAX_GRID, host_geometry};
+use crate::pty::{Outbox, Parent, Pty, Stream};
+use baud_core::{Owned, Term};
+use baud_domain::{Col, Cols, ImagePx, KeyCode, KeyEvent, Modifiers, Row, Rows, WinSize};
+use baud_render::{Blend, Damage, PxSize, Renderer, Target};
+use macos_liquid_glass::drawable::Appearance;
+use std::ffi::OsString;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::time::{Duration, Instant};
+
+/// The longest any one wait runs before the test fails: far past what a
+/// shell or yazi takes to answer here, so only a program that never
+/// answers reaches it.
+pub(super) const WAIT: Duration = Duration::from_secs(30);
+
+/// How many times the program has written something ([`Session::written`]).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub(super) struct Times(pub(super) usize);
+
+/// **A launched window, headless**: the renderer, the terminal and the
+/// program on its pty, with what the app owes the program.
+pub(super) struct Session {
+    pub(super) renderer: Renderer<'static, 'static>,
+    pub(super) term: Term<'static>,
+    /// The faces' files and the font state the terminal was told about,
+    /// held for as long as the renderer draws from them.
+    _fonts: crate::fonts::Fonts,
+    pty: Pty,
+    outbox: Outbox,
+    woken: Receiver<()>,
+    pace: crate::reads::Pace,
+    /// Every byte the program wrote, in order: what a failure shows.
+    pub(super) seen: Vec<u8>,
+    closed: Stream,
+}
+
+impl Session {
+    /// The launch, at `ws`, running `cmd` under `/bin/sh -c`, as
+    /// `BAUD_CMD` runs one, in the environment `parent` -- what baud's own
+    /// would be -- started by `started_by`.
+    pub(super) fn start(
+        ws: &WinSize,
+        cmd: &str,
+        parent: Vec<(OsString, OsString)>,
+        started_by: Parent,
+    ) -> Session {
+        let launched = crate::config::Config::launch_at(&[]);
+        assert_eq!(launched.config.source, None, "no config file was read");
+        let notice = crate::live::Notice::of(&launched.said);
+        let cfg = launched.config;
+        let (data, mut held) = crate::host::map_faces(&cfg);
+        let faces = crate::host::parse_faces(&cfg, &data, &mut held);
+        let fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
+        let (mut halves, _) = crate::palette::load_halves(
+            cfg.palette_light.as_deref(),
+            cfg.palette_dark.as_deref(),
+            &crate::palette::Dirs::from_env(None),
+        );
+        halves.selection = cfg.selection;
+        halves.cursor = cfg.cursor;
+        let theme = theme_for(Appearance::Dark, &cfg.glass, cfg.theme, cfg.floor, &halves);
+        let mut renderer = Renderer::new(
+            crate::host::stack(&cfg, faces),
+            PxSize::of(cfg.font_size).expect("size"),
+            theme,
+            Blend::Native,
+            Cols::of_index(usize::from(ws.ws_col)),
+            Rows::of_index(usize::from(ws.ws_row)),
+        )
+        .expect("cell metrics");
+        crate::host::set_up_renderer(&mut renderer, &cfg, &notice);
+        let owned: &'static mut Owned = Box::leak(Box::new(
+            Owned::with_geometry(&MAX_GRID, &host_geometry())
+                .with_images(cfg.images)
+                .with_clipboard(cfg.clipboard.budget)
+                .with_notices(crate::notify::BUDGET),
+        ));
+        let mut term = Term::new(owned.storage(), ws);
+        term.set_kitty_files(Box::leak(Box::new(crate::kitty_files::LocalFiles::new())));
+        term.set_regis_font(crate::regis_font::glyph);
+        term.set_regis_hold(baud_core::RegisHold::On);
+        crate::reads::hold_replies(&mut term);
+        renderer.fit(&term);
+        let term = crate::host::set_up_term(term, &cfg, &renderer, &fonts);
+        let (tx, woken) = channel();
+        let m = renderer.metrics();
+        let pty = Pty::spawn_given(
+            ws,
+            (m.cell_w, m.cell_h),
+            cmd,
+            parent,
+            started_by,
+            move || {
+                let _ = tx.send(());
+            },
+        )
+        .expect("forkpty");
+        Session {
+            renderer,
+            term,
+            _fonts: fonts,
+            pty,
+            outbox: Outbox::default(),
+            woken,
+            pace: crate::reads::Pace::new(),
+            seen: Vec::new(),
+            closed: Stream::Open,
+        }
+    }
+
+    /// What the program wrote since the last pump, fed as the pump feeds
+    /// it, and the answers sent.
+    pub(super) fn pump(&mut self) {
+        let drained = self.pty.drain();
+        if drained.stream == Stream::Closed {
+            self.closed = Stream::Closed;
+        }
+        for c in &drained.chunks {
+            self.seen.extend_from_slice(&c.bytes);
+        }
+        let (term, outbox) = (&mut self.term, &mut self.outbox);
+        let _ = crate::reads::paced(
+            term,
+            &mut self.pace,
+            Instant::now(),
+            drained.chunks.iter().map(|c| &c.bytes[..]),
+            |b| outbox.push(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        self.pty.follow(self.term.input_encoding());
+        self.flush();
+    }
+
+    /// What the core answered, behind what is owed, as much as the kernel
+    /// takes: `App::flush_reply`.
+    fn flush(&mut self) {
+        self.outbox.push(self.term.reply());
+        self.term.clear_reply();
+        let _ = self.pty.write(&mut self.outbox);
+    }
+
+    /// Pumps until `done` holds of the terminal, or fails after [`WAIT`]
+    /// naming `what`.
+    pub(super) fn until(&mut self, what: &str, mut done: impl FnMut(&Session) -> bool) {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            self.pump();
+            if done(self) {
+                return;
+            }
+            assert!(
+                self.closed == Stream::Open,
+                "the program ended before {what}: {}",
+                self.tail()
+            );
+            let left = deadline.saturating_duration_since(Instant::now());
+            match self.woken.recv_timeout(left) {
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => {}
+                Err(RecvTimeoutError::Timeout) => panic!("never {what}: {}", self.tail()),
+            }
+        }
+    }
+
+    /// The last of what the program wrote, for a failure's message.
+    pub(super) fn tail(&self) -> String {
+        let from = self.seen.len().saturating_sub(2000);
+        format!("{:?}", String::from_utf8_lossy(&self.seen[from..]))
+    }
+
+    /// How many times the program has written `needle`.
+    pub(super) fn written(&self, needle: &[u8]) -> Times {
+        Times(
+            self.seen
+                .windows(needle.len())
+                .filter(|w| *w == needle)
+                .count(),
+        )
+    }
+
+    /// Text typed as the input manager hands it to `insertText:`: each
+    /// character the key `typed_text` makes, sent as `App::send` sends one.
+    pub(super) fn type_text(&mut self, text: &str) {
+        for e in typed_text(text, None) {
+            self.key(e);
+        }
+    }
+
+    /// Return, as `keyDown:` sends it.
+    pub(super) fn enter(&mut self) {
+        self.key(KeyEvent::press(KeyCode::Enter, Modifiers::NONE));
+    }
+
+    /// A key to the core and its bytes on to the program: `App::send`.
+    pub(super) fn key(&mut self, e: KeyEvent) {
+        let outbox = &mut self.outbox;
+        crate::reads::input(&mut self.term, |t| t.key(e), |b| outbox.push(b));
+        self.flush();
+    }
+
+    /// The whole frame, drawn on the CPU from nothing, of the window where
+    /// it sits: what the CPU path's `present` draws.
+    pub(super) fn frame(&mut self) -> Vec<u32> {
+        let (w, h) = self.renderer.whole_size();
+        let area = baud_font::Extent::new(w, h).cells().expect("an area");
+        let mut frame = vec![0u32; area];
+        let mut target = Target::new(&mut frame, w, w, h).expect("a target");
+        let back = self.term.window_back();
+        let _ = self
+            .renderer
+            .render_at(&mut self.term, back, &mut target, Damage::Full);
+        frame
+    }
+
+    /// The pixels of the cell at `row`, `col` of `frame`, top left first.
+    pub(super) fn cell_pixels(&self, frame: &[u32], (row, col): (Row, Col)) -> Vec<u32> {
+        let m = self.renderer.metrics();
+        let n = |p: baud_font::Px| usize::try_from(p.value()).expect("a size");
+        let (cw, ch, w) = (n(m.cell_w), n(m.cell_h), n(self.renderer.whole_size().0));
+        // The grid is drawn the exit-status strip in from the left, from
+        // the top (`Renderer::whole_size`).
+        let x0 = n(self.renderer.strip());
+        (0..ch)
+            .flat_map(|y| {
+                let at = (row.index() * ch + y) * w + x0 + col.index() * cw;
+                frame[at..at + cw].to_vec()
+            })
+            .collect()
+    }
+
+    /// The text of the live screen's row `y`, blanks trimmed: what the
+    /// cells hold.
+    pub(super) fn row_text(&self, y: Row) -> String {
+        self.term
+            .view(Rows::ZERO)
+            .row(y)
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|p| char::from_u32(p.value()))
+                    .unwrap_or(' ')
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    }
+
+    /// Every row of the live screen, as [`Session::row_text`] reads it.
+    pub(super) fn screen_text(&self) -> Vec<String> {
+        (0..self.term.geometry().1.index())
+            .map(|y| self.row_text(Row::from_index(y)))
+            .collect()
+    }
+}
+
+/// **What launchd gives an app the Dock starts**, as
+/// `scripts/locale/dock_launch_check.py` launches one: `HOME`, `USER`,
+/// `LOGNAME`, `TMPDIR` and `__CF_USER_TEXT_ENCODING` as this process has
+/// them, a system `PATH` and `SHELL` -- and no `LANG` or `LC_*`, which
+/// launchd does not set (`docs/research/notes/aa-shell-locale.md` section 2,
+/// measured with `launchctl getenv LANG` and two launchd-started apps'
+/// environments) -- with launchd's `XPC_FLAGS` (`[[source:
+/// aa-obs-cwdprobe-run]]`).
+pub(super) fn launchd_environment() -> Vec<(OsString, OsString)> {
+    let mut env: Vec<(OsString, OsString)> = [
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "TMPDIR",
+        "__CF_USER_TEXT_ENCODING",
+    ]
+    .into_iter()
+    .filter_map(|k| std::env::var_os(k).map(|v| (OsString::from(k), v)))
+    .collect();
+    env.extend(
+        [
+            ("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
+            ("SHELL", "/bin/zsh"),
+            ("XPC_FLAGS", "0x0"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (OsString::from(k), OsString::from(v))),
+    );
+    env
+}
+
+/// **A shell a Dock launch starts draws a typed Hebrew letter, and names a
+/// UTF-8 locale.** The launch is the app's: no config file, the spawn with
+/// exactly what launchd gives an app ([`launchd_environment`], which names
+/// no locale) and launchd as baud's parent, so the shell's locale is the
+/// one CoreFoundation's preferences give (`shell_locale`), as on a Dock
+/// launch, and the shell starts home. The shell is zsh with no startup
+/// file (`-f`), so nothing of the user's is read, and interactive, so its
+/// line editor runs: once it reads (bracketed paste on, as it starts each
+/// line), yod, U+05D9, is typed through the responder's text path. The
+/// screen then holds the letter, drawn with ink in its cell, and no U+FFFD
+/// or `<0099>` -- what zsh in the C locale echoes for the letter's two bytes
+/// (`docs/research/notes/aa-shell-locale.md` section 1). Then Return (zsh
+/// names the letter as a command it cannot find) and `echo $LANG`, whose
+/// answer names a `.UTF-8` locale; which one is the user's preference, so
+/// only its codeset is checked.
+#[test]
+fn a_dock_launched_shell_draws_a_typed_hebrew_letter() {
+    const READING: &[u8] = b"\x1b[?2004h";
+    let ws = WinSize {
+        ws_col: 80,
+        ws_row: 24,
+    };
+    let mut s = Session::start(
+        &ws,
+        "exec /bin/zsh -f -i",
+        launchd_environment(),
+        Parent::Launchd,
+    );
+    s.until("zsh reads a line", |s| s.written(READING) >= Times(1));
+    s.type_text("\u{05D9}");
+    // Echoed: whole, or as the C locale's escape or a decoder's U+FFFD.
+    let echoed = |s: &Session| {
+        s.screen_text()
+            .iter()
+            .any(|l| l.contains(['\u{05D9}', '\u{FFFD}']) || l.contains("<0099>"))
+    };
+    s.until("the letter is echoed", echoed);
+    let screen = s.screen_text();
+    assert!(
+        screen
+            .iter()
+            .all(|l| !l.contains('\u{FFFD}') && !l.contains("<0099>")),
+        "no replacement character and no escape: {screen:?}"
+    );
+    let row = screen
+        .iter()
+        .position(|l| l.contains('\u{05D9}'))
+        .expect("the letter's row");
+    let col = screen[row]
+        .chars()
+        .position(|c| c == '\u{05D9}')
+        .expect("the letter's column");
+    let frame = s.frame();
+    let cell = s.cell_pixels(&frame, (Row::from_index(row), Col::at_index(col)));
+    assert!(
+        cell.iter().any(|&p| p != cell[0]),
+        "the letter's cell holds ink: row {row}, column {col}"
+    );
+    // Return runs the letter as a command, which zsh says it cannot find,
+    // and the next line reads `$LANG`.
+    s.enter();
+    s.until("zsh reads the next line", |s| {
+        s.written(READING) >= Times(2)
+    });
+    s.type_text("echo $LANG");
+    s.enter();
+    s.until("zsh reads the line after", |s| {
+        s.written(READING) >= Times(3)
+    });
+    let screen = s.screen_text();
+    let asked = screen
+        .iter()
+        .position(|l| l.ends_with("echo $LANG"))
+        .unwrap_or_else(|| panic!("the command on the screen: {screen:?}"));
+    let lang = &screen[asked + 1];
+    assert!(
+        lang.ends_with(".UTF-8") && !lang.contains(' '),
+        "the shell's LANG names a UTF-8 locale: {lang:?} in {screen:?}"
+    );
+    assert!(
+        screen
+            .iter()
+            .all(|l| !l.contains('\u{FFFD}') && !l.contains("<0099>")),
+        "zsh's answer names the letter whole: {screen:?}"
+    );
+}
+
+/// **No trail is drawn over the history the wheel scrolls back to**, end to
+/// end: a real program's output moves the cursor, every trail starts, and
+/// the wheel, through the scroll handler's route and its history step
+/// (`wheel::route`, `scroll_history`), scrolls the window back three lines
+/// while the trail is in flight. Each frame is the one `present` builds:
+/// the trail `frame_trail` gives at the display link's target, handed to
+/// the renderer and drawn on the CPU, and compared with the same frame
+/// drawn with no trail. The control: before the wheel, the trail's frame
+/// differs from the trail-less one. Then, for every frame while back, the
+/// two are the same pixels, and no trail reaches the renderer at all, so no
+/// path draws one. The trails are each named one and the default
+/// a launch with no config draws (`TrailPick::effective` at full motion,
+/// so the system's Reduce Motion is not read).
+#[test]
+fn no_frame_draws_a_trail_over_the_history_the_wheel_scrolls_to() {
+    use crate::config::{CursorTrail, SystemMotion};
+    use crate::wheel::{Delta, Route, Travel};
+    let ws = WinSize {
+        ws_col: 60,
+        ws_row: 12,
+    };
+    let cmd = "/bin/stty -echo; i=0; while [ $i -lt 40 ]; do echo \"line $i\"; \
+               i=$((i+1)); done; printf ready; read x; printf '\\033[3;30H'; read y";
+    let parent = vec![
+        (OsString::from("LANG"), OsString::from("en_US.UTF-8")),
+        (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),
+    ];
+    let default = crate::config::Config::launch_at(&[])
+        .config
+        .cursor_trail
+        .effective(SystemMotion::Full);
+    for kind in [
+        default,
+        CursorTrail::Ghost,
+        CursorTrail::Quad,
+        CursorTrail::Sweep,
+        CursorTrail::Fire,
+        CursorTrail::Plasma,
+        CursorTrail::Lightning,
+        CursorTrail::Ice,
+        CursorTrail::Ufo,
+        CursorTrail::Orb,
+        CursorTrail::Liquid,
+    ] {
+        let mut s = Session::start(&ws, cmd, parent.clone(), Parent::Other);
+        s.until("the program is ready", |s| {
+            s.screen_text().iter().any(|l| l == "ready")
+        });
+        let mut chase = crate::trail::Chase::new(kind.style());
+        let (mut trail, mut last) = (None, None);
+        // A frame at `t` seconds: its trail drawn, and the same frame
+        // drawn without one.
+        let mut frame = |s: &mut Session, t: f64| {
+            let look = super::frame_trail(
+                kind,
+                &s.term,
+                &s.renderer,
+                1.0,
+                t,
+                (&mut chase, &mut trail, &mut last),
+            );
+            s.renderer.set_trail(look);
+            let with = s.frame();
+            s.renderer.set_trail(None);
+            let without = s.frame();
+            (look.is_some(), with == without)
+        };
+        let _ = frame(&mut s, 1.0);
+        s.enter();
+        s.until("the cursor moves", |s| {
+            s.term.cursor() == (Row::from_index(2), baud_domain::Col::at_index(29))
+        });
+        let _ = frame(&mut s, 1.005);
+        let (drawn, same) = frame(&mut s, 1.020);
+        assert!(drawn && !same, "{kind:?}: the control, a trail drawn live");
+        let lines = Travel::default().lines(Delta::Lines(3.0));
+        assert_eq!(
+            crate::wheel::route(&s.term, baud_domain::MouseMods::NONE),
+            Route::History,
+            "{kind:?}: the wheel scrolls the history"
+        );
+        assert_eq!(
+            super::scroll_history(&mut s.term, lines),
+            Some(Rows::of_count(3)),
+            "{kind:?}: three lines back"
+        );
+        for n in 0..30 {
+            let t = 1.030 + 0.016 * f64::from(n);
+            let (drawn, same) = frame(&mut s, t);
+            assert!(same, "{kind:?}: a trail pixel over the history at {t:.3} s");
+            assert!(
+                !drawn,
+                "{kind:?}: a trail handed to the renderer at {t:.3} s"
+            );
+        }
+    }
+}
+
+/// A PNG of `w` by `h` RGB pixels `px` gives, written whole: zlib's stored
+/// blocks, so no compressor is needed and the file is what its pixels are.
+fn write_png(
+    path: &std::path::Path,
+    (w, h): (ImagePx, ImagePx),
+    mut px: impl FnMut(u32, u32) -> [u8; 3],
+) {
+    let (w, h) = (u32::from(w.raw()), u32::from(h.raw()));
+    // PNG's CRC-32 (ISO 3309), over a chunk's type and data.
+    let crc = |data: &[u8]| {
+        let mut c = 0xffff_ffffu32;
+        for &b in data {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 != 0 {
+                    0xedb8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
+            }
+        }
+        !c
+    };
+    let mut raw = Vec::new();
+    for y in 0..h {
+        raw.push(0);
+        for x in 0..w {
+            raw.extend_from_slice(&px(x, y));
+        }
+    }
+    let mut z = vec![0x78, 0x01];
+    let chunks: Vec<&[u8]> = raw.chunks(65535).collect();
+    for (i, c) in chunks.iter().enumerate() {
+        z.push(u8::from(i + 1 == chunks.len()));
+        let n = u16::try_from(c.len()).expect("a stored block");
+        z.extend_from_slice(&n.to_le_bytes());
+        z.extend_from_slice(&(!n).to_le_bytes());
+        z.extend_from_slice(c);
+    }
+    let (mut a, mut b) = (1u32, 0u32);
+    for &x in &raw {
+        a = (a + u32::from(x)) % 65521;
+        b = (b + a) % 65521;
+    }
+    z.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut chunk = |t: &[u8], d: &[u8]| {
+        out.extend_from_slice(&u32::try_from(d.len()).expect("a chunk").to_be_bytes());
+        let mut td = t.to_vec();
+        td.extend_from_slice(d);
+        out.extend_from_slice(&td);
+        out.extend_from_slice(&crc(&td).to_be_bytes());
+    };
+    let mut ihdr = w.to_be_bytes().to_vec();
+    ihdr.extend_from_slice(&h.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+    chunk(b"IHDR", &ihdr);
+    chunk(b"IDAT", &z);
+    chunk(b"IEND", &[]);
+    std::fs::write(path, out).expect("the PNG");
+}
+
+/// A PDF of `pages` pages, each a 300 by 400 point page filled with a
+/// rectangle of its own colour: the smallest file a PDF previewer renders.
+fn write_pdf(path: &std::path::Path, pages: &[[f32; 3]]) {
+    let mut objs: Vec<String> = vec![
+        "<</Type/Catalog/Pages 2 0 R>>".into(),
+        format!(
+            "<</Type/Pages/Kids[{}]/Count {}>>",
+            (0..pages.len())
+                .map(|k| format!("{} 0 R", 3 + 2 * k))
+                .collect::<Vec<_>>()
+                .join(" "),
+            pages.len()
+        ),
+    ];
+    for (k, [r, g, b]) in pages.iter().enumerate() {
+        let draw = format!("{r} {g} {b} rg 20 20 260 360 re f");
+        objs.push(format!(
+            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 400]/Contents {} 0 R>>",
+            4 + 2 * k
+        ));
+        objs.push(format!(
+            "<</Length {}>>\nstream\n{draw}\nendstream",
+            draw.len()
+        ));
+    }
+    let mut out = String::from("%PDF-1.4\n");
+    let mut at = Vec::new();
+    for (k, o) in objs.iter().enumerate() {
+        at.push(out.len());
+        out.push_str(&format!("{} 0 obj\n{o}\nendobj\n", k + 1));
+    }
+    let xref = out.len();
+    out.push_str(&format!(
+        "xref\n0 {}\n0000000000 65535 f \n",
+        objs.len() + 1
+    ));
+    for a in at {
+        out.push_str(&format!("{a:010} 00000 n \n"));
+    }
+    out.push_str(&format!(
+        "trailer\n<</Size {}/Root 1 0 R>>\nstartxref\n{xref}\n%%EOF\n",
+        objs.len() + 1
+    ));
+    std::fs::write(path, out).expect("the PDF");
+}
+
+/// Whether `prog` is a file in one of `path`'s directories.
+fn on_path(path: &std::ffi::OsStr, prog: &str) -> bool {
+    std::env::split_paths(path).any(|d| d.join(prog).is_file())
+}
+
+/// **The previews a kitty graphics program has finished sending** in
+/// `seen`: each transmission -- `a=T`, which places as it stores, or `a=t`,
+/// placed after by `a=p` -- counted when its last chunk (`m=0`, or a
+/// command with no `m=1`) has arrived to its `ST`; and the pixel size the
+/// last one declared, `s` by `v`.
+fn kitty_previews(seen: &[u8]) -> (usize, Option<(u32, u32)>) {
+    let text = String::from_utf8_lossy(seen);
+    let (mut done, mut open, mut size) = (0, false, None);
+    for rest in text.split("\x1b_G").skip(1) {
+        let keys = &rest[..rest.find(';').or_else(|| rest.find('\x1b')).unwrap_or(0)];
+        let has = |k: &str| keys.split(',').any(|kv| kv == k);
+        let value = |k: &str| {
+            keys.split(',')
+                .find_map(|kv| kv.strip_prefix(k).and_then(|v| v.strip_prefix('=')))
+                .and_then(|v| v.parse::<u32>().ok())
+        };
+        if has("a=T") || has("a=t") {
+            size = value("s").zip(value("v"));
+            match (has("m=1"), rest.contains("\x1b\\")) {
+                (true, _) => open = true,
+                (false, true) => done += 1,
+                (false, false) => {}
+            }
+        } else if open && has("m=0") && rest.contains("\x1b\\") {
+            open = false;
+            done += 1;
+        }
+    }
+    (done, size)
+}
+
+/// **Every yazi preview arrives as a picture the terminal keeps**, with real
+/// yazi on the app's pty over a folder of generated files: PNGs and JPEGs
+/// small, wide, tall and photo-sized -- the photo's body past the 256 KiB
+/// the Sixel limit once was -- and a two-page PDF where `pdftoppm`, yazi's
+/// PDF previewer, is installed. yazi asks what the terminal is, the core
+/// answers as the app sends it, and yazi picks kitty's graphics protocol:
+/// baud answers its probe `OK` and claims no Sixel by default. Each file
+/// is reached as a user reaches it, `j` typed through the responder's text
+/// path, and its preview -- an `a=T` sent in chunks -- is waited for whole.
+/// Then the core has refused nothing, places one picture, the one yazi
+/// declared, and its pixels are not one colour. On the PDF, `J` seeks
+/// to its second page, whose preview arrives the same way and is not the
+/// first's.
+///
+/// yazi is kept from the user's files: its home, config, cache and
+/// temporary directories are a fresh folder's. Where yazi is not installed
+/// the test says so and checks nothing.
+#[test]
+fn every_yazi_preview_arrives_as_a_picture_the_terminal_keeps() {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    if !on_path(&path, "yazi") {
+        eprintln!("yazi is not installed: no preview to check");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("baud-yazi-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let files = dir.join("files");
+    for d in ["files", "home", "config", "tmp", "src"] {
+        std::fs::create_dir_all(dir.join(d)).expect("a folder");
+    }
+    // A seeded generator: noise is what makes a picture's body long.
+    let mut seed = 20_261_031u32;
+    let mut noise = move || {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        seed.to_be_bytes()[0]
+    };
+    let shade = |v: u32, of: u32| u8::try_from(v * 255 / of).unwrap_or(255);
+    write_png(
+        &files.join("a-small.png"),
+        (ImagePx::of(96), ImagePx::of(64)),
+        |x, y| [shade(x, 96), shade(y, 64), 128],
+    );
+    write_png(
+        &files.join("b-wide.png"),
+        (ImagePx::of(2000), ImagePx::of(400)),
+        |x, y| [shade(x, 2000), noise(), shade(y, 400)],
+    );
+    write_png(
+        &files.join("c-photo.png"),
+        (ImagePx::of(1200), ImagePx::of(1600)),
+        |x, y| {
+            let n = noise();
+            [shade(x, 1200) ^ (n & 0x1f), shade(y, 1600), n]
+        },
+    );
+    write_png(
+        &dir.join("src/flat.png"),
+        (ImagePx::of(800), ImagePx::of(600)),
+        |x, y| [shade(x, 800), 90, shade(y, 600)],
+    );
+    write_png(
+        &files.join("f-tall.png"),
+        (ImagePx::of(300), ImagePx::of(2000)),
+        |x, y| [noise(), shade(y, 2000), shade(x, 300)],
+    );
+    for (from, to) in [
+        ("files/c-photo.png", "d-photo.jpg"),
+        ("src/flat.png", "e-flat.jpg"),
+    ] {
+        let made = std::process::Command::new("/usr/bin/sips")
+            .args(["-s", "format", "jpeg"])
+            .arg(dir.join(from))
+            .arg("--out")
+            .arg(files.join(to))
+            .output()
+            .expect("sips");
+        assert!(made.status.success(), "sips made {to}");
+    }
+    let pdf = on_path(&path, "pdftoppm");
+    match pdf {
+        true => write_pdf(
+            &files.join("g-pages.pdf"),
+            &[[0.2, 0.4, 0.8], [0.8, 0.3, 0.2]],
+        ),
+        false => eprintln!("pdftoppm is not installed: yazi previews no PDF, so none is checked"),
+    }
+    let names: Vec<String> = {
+        let mut n: Vec<String> = std::fs::read_dir(&files)
+            .expect("the files")
+            .map(|e| {
+                e.expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        n.sort();
+        n
+    };
+    let big = std::fs::metadata(files.join("c-photo.png"))
+        .expect("the photo")
+        .len();
+    assert!(big > 1 << 18, "the photo is past 256 KiB: {big}");
+    let ws = WinSize {
+        ws_col: 117,
+        ws_row: 40,
+    };
+    let at = |k: &str, p: &std::path::Path| (OsString::from(k), p.as_os_str().to_owned());
+    let parent = vec![
+        at("HOME", &dir.join("home")),
+        at("YAZI_CONFIG_HOME", &dir.join("config")),
+        at("XDG_CONFIG_HOME", &dir.join("config")),
+        at("XDG_CACHE_HOME", &dir.join("tmp")),
+        at("XDG_STATE_HOME", &dir.join("tmp")),
+        at("XDG_DATA_HOME", &dir.join("tmp")),
+        at("TMPDIR", &dir.join("tmp")),
+        (OsString::from("LANG"), OsString::from("en_US.UTF-8")),
+        (OsString::from("PATH"), path.clone()),
+    ];
+    let cmd = format!("cd '{}' && exec yazi", files.display());
+    let mut s = Session::start(&ws, &cmd, parent, Parent::Other);
+    let mut previews = 0;
+    let mut check = |s: &mut Session, what: &str| {
+        previews += 1;
+        let want = previews;
+        // Sent whole, and then placed or refused: a refusal is said below.
+        s.until(&format!("the preview of {what}"), |s| {
+            let imgs = s.term.images();
+            kitty_previews(&s.seen).0 >= want
+                && (imgs.placements().next().is_some() || imgs.images_refused > 0)
+        });
+        let imgs = s.term.images();
+        assert_eq!(imgs.refusals, baud_domain::ImageRefusals::NONE, "{what}");
+        assert_eq!(imgs.images_refused, 0, "{what}: nothing refused");
+        // One placement where the picture is placed whole, one a cell where
+        // a client places it cell by cell: every one this picture.
+        let placed: Vec<_> = imgs.placements().map(|(_, p)| p.image).collect();
+        assert!(
+            placed.iter().all(|&i| i == placed[0]),
+            "{what}: one picture placed: {placed:?}"
+        );
+        let v = imgs.image(placed[0]).expect("placed means kept");
+        let declared = kitty_previews(&s.seen).1.expect("a size declared");
+        let got = (u32::from(v.width.raw()), u32::from(v.height.raw()));
+        assert_eq!(got, declared, "{what}: the picture yazi sent");
+        assert!(
+            v.pixels.iter().any(|&p| p != v.pixels[0]),
+            "{what}: the picture is not one colour"
+        );
+        v.pixels.to_vec()
+    };
+    let mut last = Vec::new();
+    for (k, name) in names.iter().enumerate() {
+        if k > 0 {
+            s.type_text("j");
+        }
+        last = check(&mut s, name);
+    }
+    if pdf {
+        s.type_text("J");
+        let second = check(&mut s, "the PDF's second page");
+        assert!(second != last, "the second page is not the first");
+    }
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+impl Session {
+    /// The lines the renderer's last layout drew, in drawn order, where it
+    /// re-broke a paragraph at its words (`baud_render::Display`); `None`
+    /// where it drew every row as the terminal cut it.
+    pub(super) fn drawn_lines(&self) -> Option<Vec<String>> {
+        let orders = self.renderer.bidi();
+        let vp = orders.display()?.window();
+        Some(
+            (0..vp.rows().index())
+                .map(|y| {
+                    let r = Row::from_index(y);
+                    let mut out = vec![baud_domain::PackedCell::EMPTY; vp.cols().index()];
+                    orders.permute(r, vp.row(r), &mut out);
+                    out.iter()
+                        .map(|c| {
+                            c.content
+                                .as_codepoint()
+                                .and_then(|p| char::from_u32(p.value()))
+                                .unwrap_or(' ')
+                        })
+                        .collect::<String>()
+                        .trim_end()
+                        .to_string()
+                })
+                .collect(),
+        )
+    }
+}
+
+/// The paragraph the word-wrap tests print: no word longer than a line,
+/// and long enough to wrap three times at forty columns.
+const PARAGRAPH: &str = "Every finished paragraph is drawn at its words, so a word \
+                         that does not fit at the end of a line moves whole to the next";
+
+/// Whether `lines`, read as words, are [`PARAGRAPH`]'s, in order and each
+/// whole: a word split across two lines reads as two that are not its.
+fn words_whole(lines: &[String]) -> bool {
+    let read = lines.join(" ");
+    read.split_whitespace().eq(PARAGRAPH.split_whitespace())
+}
+
+/// The screen's rows that hold [`PARAGRAPH`]'s words, top to bottom.
+fn paragraph_rows(lines: &[String]) -> Vec<String> {
+    let first = lines.iter().position(|l| l.starts_with("Every finished"));
+    let Some(first) = first else {
+        return Vec::new();
+    };
+    lines[first..]
+        .iter()
+        .take_while(|l| !l.is_empty() && !l.contains('%'))
+        .cloned()
+        .collect()
+}
+
+/// zsh with no startup file, at forty columns, its prompt `% `, with
+/// thirty lines of history behind its second prompt.
+fn zsh_at_forty() -> Session {
+    let ws = WinSize {
+        ws_col: 40,
+        ws_row: 12,
+    };
+    let parent = vec![
+        (OsString::from("LANG"), OsString::from("en_US.UTF-8")),
+        (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),
+    ];
+    let mut s = Session::start(&ws, "PS1='%% ' exec /bin/zsh -f -i", parent, Parent::Other);
+    s.until("zsh reads a line", |s| {
+        s.written(b"\x1b[?2004h") >= Times(1)
+    });
+    // A screenful of history first: at the top of what the history keeps,
+    // a re-broken paragraph keeps the terminal's cut rather than push a
+    // line where nothing scrolls to it.
+    s.type_text("print -l {1..30}");
+    s.enter();
+    s.until("zsh reads the next line", |s| {
+        s.written(b"\x1b[?2004h") >= Times(2)
+    });
+    s
+}
+
+/// **With no config, a marked shell's paragraph is drawn at its words.**
+/// zsh, with no startup file, is given the marks a shell integration sends
+/// -- `OSC 133 ; A` as each prompt starts, `C` as a command runs, `D` as it
+/// ends -- and prints a paragraph longer than the line. The terminal's own
+/// cut splits a word (the control); the frame the renderer then draws with
+/// the config's default, read from no file, breaks every line at a space,
+/// each word whole, and the words in order are the paragraph's.
+#[test]
+fn with_no_config_a_marked_shells_paragraph_is_drawn_at_its_words() {
+    let mut s = zsh_at_forty();
+    s.type_text(
+        "precmd() { print -n '\\e]133;D\\a\\e]133;A\\a' }; \
+         preexec() { print -n '\\e]133;C\\a' }",
+    );
+    s.enter();
+    s.until("the marked prompt", |s| {
+        s.written(b"\x1b]133;A\x07") >= Times(1)
+    });
+    s.until("zsh reads the next line", |s| {
+        s.written(b"\x1b[?2004h") >= Times(3)
+    });
+    s.type_text(&format!("print -r -- '{PARAGRAPH}'"));
+    s.enter();
+    s.until("zsh reads the line after", |s| {
+        s.written(b"\x1b[?2004h") >= Times(4)
+    });
+    let stored = paragraph_rows(&s.screen_text());
+    assert!(
+        !words_whole(&stored),
+        "the control: the terminal's cut splits a word: {stored:?}"
+    );
+    let _ = s.frame();
+    let drawn = s
+        .drawn_lines()
+        .unwrap_or_else(|| panic!("the paragraph is re-broken: {:?}", s.screen_text()));
+    let lines = paragraph_rows(&drawn);
+    assert!(words_whole(&lines), "every word whole, in order: {lines:?}");
+}
+
+/// **With no config and no marks, the paragraph is drawn at its words
+/// once it is history**, and the live screen keeps the terminal's cut:
+/// without a shell's `OSC 133` marks nothing tells the renderer which rows
+/// a program is done with (`baud_render::rebreak`). zsh with no startup
+/// file prints the paragraph, and the frame draws it as stored. Twenty
+/// more lines move it into the history, the wheel scrolls the window back
+/// to it through the scroll handler's history step (`scroll_history`), and
+/// the frame then breaks every line at a space.
+#[test]
+fn with_no_config_an_unmarked_paragraph_is_drawn_at_its_words_in_the_history() {
+    let mut s = zsh_at_forty();
+    s.type_text(&format!("print -r -- '{PARAGRAPH}'"));
+    s.enter();
+    s.until("zsh reads the next line", |s| {
+        s.written(b"\x1b[?2004h") >= Times(3)
+    });
+    let _ = s.frame();
+    assert_eq!(
+        s.drawn_lines(),
+        None,
+        "the live screen as the terminal cut it"
+    );
+    let stored = paragraph_rows(&s.screen_text());
+    assert!(!words_whole(&stored), "the control: {stored:?}");
+    s.type_text("print -l {1..20}");
+    s.enter();
+    s.until("zsh reads the line after", |s| {
+        s.written(b"\x1b[?2004h") >= Times(4)
+    });
+    // The paragraph's three rows sit 22 to 24 lines above the prompt's;
+    // fifteen lines back holds them and the twelve rows of the window.
+    let lines = crate::wheel::Travel::default().lines(crate::wheel::Delta::Lines(15.0));
+    assert_eq!(
+        super::scroll_history(&mut s.term, lines),
+        Some(Rows::of_count(15))
+    );
+    let _ = s.frame();
+    let drawn = s
+        .drawn_lines()
+        .unwrap_or_else(|| panic!("the history is re-broken: {:?}", s.screen_text()));
+    let lines = paragraph_rows(&drawn);
+    assert!(words_whole(&lines), "every word whole, in order: {lines:?}");
+}

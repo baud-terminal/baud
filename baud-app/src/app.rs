@@ -75,6 +75,9 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+mod launch_tests;
+
 /// How a frame reaches the screen: through the GPU's completion and the
 /// run loop, as every frame in the loop does, or on this thread with the
 /// GPU waited for -- the first frame at launch, before a run loop exists.
@@ -952,13 +955,7 @@ impl Boot {
             Rows::of_index(24),
         )
         .expect("cell metrics");
-        renderer.set_emoji_default(cfg.emoji);
-        // The exit-status strip before any size is taken: the window's
-        // arithmetic counts it as it counts the gutter.
-        renderer.set_status_marks(cfg.exit_status);
-        renderer.set_word_wrap(cfg.wrap_words);
-        // And the config's notice, whose row the grid gives up the same way.
-        renderer.set_notice(notice.codepoints());
+        crate::host::set_up_renderer(&mut renderer, &cfg, &notice);
         startup_mark("renderer");
         Boot {
             request,
@@ -1991,71 +1988,14 @@ impl App {
         // The quad's rules are `trail.rs`'s; the ghost sweeps on any move.
         // The cursor it follows is `trail_cursor`'s: the one drawn, or where a
         // program placed a cursor it hid and draws its own.
-        let followed = trail_cursor(&self.term);
-        let cursor_cell = followed.map(TrailCursor::cell);
-        let m = self.renderer.metrics();
-        let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
-        let cell = (side(m.cell_w), side(m.cell_h));
-        // The cell's height in points, the flash bound's size gate.
-        let height = baud_render::Points(cell.1 / self.scale as f32);
-        if self.cursor_trail == crate::config::CursorTrail::Ghost {
-            let rect = |(r, c): (Row, Col)| {
-                self.renderer
-                    .cursor_rect(r, c, baud_core::CursorStyle::SteadyBlock)
-            };
-            let sweep = HostTime::of_secs(self.tick_target).and_then(|now| {
-                crate::trail::ghost_sweep(
-                    self.chase.ledger(),
-                    self.last_cursor_cell,
-                    cursor_cell,
-                    now,
-                    rect,
-                    (cell, height),
-                )
-            });
-            if let Some(sw) = sweep {
-                self.trail = Some(TrailState {
-                    from: sw.from,
-                    to: sw.to,
-                    start: self.tick_target,
-                    origin_dy: 0.0,
-                    ride: GhostRide::Riding(0.0),
-                    strength: sw.strength,
-                });
-            }
-        }
-        self.last_cursor_cell = cursor_cell;
-        let ghost = ghost_frame(&mut self.trail, &self.term, self.tick_target);
-        let look = match self.cursor_trail {
-            crate::config::CursorTrail::Ghost => ghost.map(TrailLook::Ghost),
-            crate::config::CursorTrail::Quad
-            | crate::config::CursorTrail::Sweep
-            | crate::config::CursorTrail::Fire
-            | crate::config::CursorTrail::Plasma
-            | crate::config::CursorTrail::Lightning
-            | crate::config::CursorTrail::Ice
-            | crate::config::CursorTrail::Ufo
-            | crate::config::CursorTrail::Orb
-            | crate::config::CursorTrail::Liquid => {
-                let style = self.term.cursor_style();
-                let rect = followed.map(|f| {
-                    let (r, c) = f.cell();
-                    self.renderer.cursor_rect(r, c, f.style(style))
-                });
-                chase_frame(
-                    &mut self.chase,
-                    &self.term,
-                    rect,
-                    HostTime::of_secs(self.tick_target),
-                    (cell, height),
-                )
-            }
-            crate::config::CursorTrail::Off => None,
-        };
-        // Handed to the renderer below, once the presenter has settled and
-        // the slide's pan is read -- the one read the lift, the scene and the
-        // shader's slide all take.
-        let trail_look = look;
+        let trail_look = frame_trail(
+            self.cursor_trail,
+            &self.term,
+            &self.renderer,
+            self.scale,
+            self.tick_target,
+            (&mut self.chase, &mut self.trail, &mut self.last_cursor_cell),
+        );
         // The alternate-screen switch: the new screen sliding in over the
         // old one, or the veil under Reduce Motion, advanced and cleared off
         // `tick_target` like the trail. Settled, this frame draws neither --
@@ -4164,6 +4104,97 @@ fn live_moved(term: &Term<'_>, before: Before) -> Ring {
     term.moved_since(before.live)
 }
 
+/// **The wheel over the history**: the primary's window `lines` further
+/// back, or forward where they are negative, held between the live
+/// screen and the oldest line the history keeps; and how far back it then
+/// is, or `None` where it already was, and nothing moved. The scroll
+/// handler's `Route::History`, where a test reaches it.
+fn scroll_history(term: &mut Term<'_>, lines: crate::wheel::Lines) -> Option<Rows> {
+    let step = lines.get();
+    let retained = i64::try_from(term.scrollback().len()).unwrap_or(i64::MAX);
+    let was = term.primary_window_back();
+    let now = i64::try_from(was.index()).unwrap_or(0);
+    let back = Rows::of_count(usize::try_from((now + step).clamp(0, retained)).unwrap_or(0));
+    if back.index() == was.index() {
+        return None;
+    }
+    term.set_window_back(back);
+    Some(back)
+}
+
+/// **The trail a frame draws** at `now`, the display link's target, for
+/// the cursor [`trail_cursor`] follows, under the trail `kind`: the ghost's
+/// sweep, spawned on a move and advanced ([`ghost_frame`]), or the chase's
+/// ([`chase_frame`]), with the cell the cursor was last seen in moved on.
+/// `present` hands it to the renderer once the slide's pan is read, and a
+/// test draws what it gives through the same renderer.
+fn frame_trail(
+    kind: crate::config::CursorTrail,
+    term: &Term<'_>,
+    renderer: &Renderer<'_, '_>,
+    scale: CGFloat,
+    now: f64,
+    (chase, trail, last_cursor_cell): (
+        &mut crate::trail::Chase<HostTime>,
+        &mut Option<TrailState>,
+        &mut Option<(Row, Col)>,
+    ),
+) -> Option<TrailLook> {
+    let followed = trail_cursor(term);
+    let cursor_cell = followed.map(TrailCursor::cell);
+    let m = renderer.metrics();
+    let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
+    let cell = (side(m.cell_w), side(m.cell_h));
+    // The cell's height in points, the flash bound's size gate.
+    let height = baud_render::Points(cell.1 / scale as f32);
+    if kind == crate::config::CursorTrail::Ghost {
+        let rect =
+            |(r, c): (Row, Col)| renderer.cursor_rect(r, c, baud_core::CursorStyle::SteadyBlock);
+        let sweep = HostTime::of_secs(now).and_then(|now| {
+            crate::trail::ghost_sweep(
+                chase.ledger(),
+                *last_cursor_cell,
+                cursor_cell,
+                now,
+                rect,
+                (cell, height),
+            )
+        });
+        if let Some(sw) = sweep {
+            *trail = Some(TrailState {
+                from: sw.from,
+                to: sw.to,
+                start: now,
+                origin_dy: 0.0,
+                ride: GhostRide::Riding(0.0),
+                strength: sw.strength,
+            });
+        }
+    }
+    *last_cursor_cell = cursor_cell;
+    let ghost = ghost_frame(trail, term, now);
+    match kind {
+        crate::config::CursorTrail::Ghost => ghost.map(TrailLook::Ghost),
+        crate::config::CursorTrail::Quad
+        | crate::config::CursorTrail::Sweep
+        | crate::config::CursorTrail::Fire
+        | crate::config::CursorTrail::Plasma
+        | crate::config::CursorTrail::Lightning
+        | crate::config::CursorTrail::Ice
+        | crate::config::CursorTrail::Ufo
+        | crate::config::CursorTrail::Orb
+        | crate::config::CursorTrail::Liquid => {
+            let style = term.cursor_style();
+            let rect = followed.map(|f| {
+                let (r, c) = f.cell();
+                renderer.cursor_rect(r, c, f.style(style))
+            });
+            chase_frame(chase, term, rect, HostTime::of_secs(now), (cell, height))
+        }
+        crate::config::CursorTrail::Off => None,
+    }
+}
+
 /// **The ghost this frame draws**, from the sweep in flight at `now`, the
 /// display link's clock: none once it has landed -- this frame draws
 /// `set_trail(None)`, whose `trail_moved` dirties the ghost's last rows to
@@ -5855,12 +5886,13 @@ mod alt_window_tests {
         // which both drivers call: a thumb is drawn only off a live
         // primary.
         const ALLOWED: [(&str, &str); 1] = [(
-            "let was = self.app.term.primary_window_back();",
-            "the wheel over the history: the alternate screen returned arrow keys above",
+            "let was = term.primary_window_back();",
+            "the wheel over the history (`scroll_history`): the alternate screen returned arrow keys before it",
         )];
         let raw_tokens = [
             concat!("self.app.term.", "primary_window_back("),
             concat!("self.term.", "primary_window_back("),
+            concat!(" term.", "primary_window_back("),
         ];
         let mut raw: Vec<&str> = SRC
             .lines()
@@ -9040,10 +9072,9 @@ mod motion_tests {
         }
     }
 
-    /// **The app weighs the ghost on the chase's ledger**: the frame that
-    /// starts a sweep is AppKit-bound, so the source is what can fail. Each
-    /// call of the ghost's rule on the app's own state names the one
-    /// ledger, and there is such a call.
+    /// **The app weighs the ghost on the chase's ledger**: each call of
+    /// the ghost's rule on the app's own state -- `frame_trail`'s, handed
+    /// the app's chase -- names the one ledger, and there is such a call.
     #[test]
     fn the_app_weighs_the_ghost_on_the_chases_ledger() {
         const SRC: &str = include_str!("app.rs");
@@ -9052,12 +9083,12 @@ mod motion_tests {
         let calls: Vec<&str> = bare
             .split(concat!("crate::trail::ghost_", "sweep("))
             .skip(1)
-            .filter(|rest| rest.starts_with("self.") || rest.starts_with("&mutself."))
+            .filter(|rest| rest.starts_with("self.") || rest.starts_with("chase."))
             .collect();
         assert!(!calls.is_empty(), "the control: the app sweeps the ghost");
         for rest in calls {
             assert!(
-                rest.starts_with("self.chase.ledger(),"),
+                rest.starts_with("chase.ledger(),"),
                 "a ghost weighed apart: {}",
                 &rest[..40.min(rest.len())]
             );
@@ -11137,14 +11168,9 @@ impl Responder for Driver {
         if scroller_style() != self.app.scroller {
             let _ = self.relayout(self.view.frame().size, self.app.scale);
         }
-        let retained = i64::try_from(self.app.term.scrollback().len()).unwrap_or(i64::MAX);
-        let was = self.app.term.primary_window_back();
-        let now = i64::try_from(was.index()).unwrap_or(0);
-        let back = Rows::of_count(usize::try_from((now + step).clamp(0, retained)).unwrap_or(0));
-        if back.index() == was.index() {
+        let Some(back) = scroll_history(&mut self.app.term, lines) else {
             return;
-        }
-        self.app.term.set_window_back(back);
+        };
         // A wheel that moved the window reveals the thumb, as AppKit's
         // does -- the one that lands on the live screen too, which shows it
         // at the bottom of its travel and fades it.

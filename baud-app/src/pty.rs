@@ -825,7 +825,7 @@ const CHILD_TERMINAL: crate::sys::Fd = 0;
 
 /// **Who started baud**, as far as where its shell starts goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Parent {
+pub(crate) enum Parent {
     /// launchd, which is the parent of an app `open` starts (measured), and
     /// so, inferred, of one the Dock or Finder starts, which LaunchServices
     /// starts the same way. Never read on Linux.
@@ -1343,6 +1343,17 @@ impl Pty {
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
         let master = Pty::fork(told, at)?;
+        Some(Pty::reading(master, told, wake))
+    }
+
+    /// The pty over `master`, a child's manager the fork told `told`,
+    /// with the thread that reads it.
+    #[cfg(target_os = "macos")]
+    fn reading(
+        master: crate::sys::Fd,
+        told: crate::sys::Winsize,
+        wake: impl Fn() + Send + 'static,
+    ) -> Pty {
         // Before the reader starts, so it never sees the master block.
         make_nonblocking(master);
         let (tx, rx) = channel();
@@ -1350,14 +1361,41 @@ impl Pty {
         let flag = Arc::clone(&signalled);
         let (held, closing) = Reading::of(master);
         std::thread::spawn(move || reader(held, tx, flag, wake));
-        Some(Pty {
+        Pty {
             master,
             told,
             line: LineDiscipline::of(master),
             rx,
             signalled,
             closing,
-        })
+        }
+    }
+
+    /// **The app's pty over a child a test names**: [`Pty::spawn`] with the
+    /// command, the parent's environment and who started baud given rather
+    /// than read from this process, the locale asked as a launch asks it
+    /// ([`shell_locale`]), and the reader thread, which calls `wake` once a
+    /// batch -- so a test runs a real program through the spawn a Dock
+    /// launch runs.
+    #[cfg(all(test, target_os = "macos"))]
+    pub(crate) fn spawn_given(
+        size: &WinSize,
+        (cell_w, cell_h): (Px, Px),
+        cmd: &str,
+        parent: Vec<(OsString, OsString)>,
+        started_by: Parent,
+        wake: impl Fn() + Send + 'static,
+    ) -> Option<Pty> {
+        let told = text_area(size, cell_w, cell_h);
+        let master = Pty::fork_from(
+            told,
+            Some(cmd.into()),
+            parent,
+            shell_locale,
+            started_by,
+            None,
+        )?;
+        Some(Pty::reading(master, told, wake))
     }
 
     /// The pty with no thread: the caller waits on `as_fd` beside whatever

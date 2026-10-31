@@ -188,6 +188,85 @@ pub fn stack<'f, 'a>(cfg: &Config, faces: &'f [Face<'a>]) -> baud_render::Stack<
         .expect("the config's faces: a fallback first, each style once")
 }
 
+/// **What the config sets on a new renderer**, before any size is taken:
+/// the emoji default, the exit-status strip, which the window's
+/// arithmetic counts as it counts the gutter, the display's word wrap and
+/// the config's notice, whose row the grid gives up the same way. Both
+/// drivers set them here, and so does a test that draws as a launch does.
+pub fn set_up_renderer(
+    renderer: &mut baud_render::Renderer<'_, '_>,
+    cfg: &Config,
+    notice: &crate::live::Notice,
+) {
+    renderer.set_emoji_default(cfg.emoji);
+    renderer.set_status_marks(cfg.exit_status);
+    renderer.set_word_wrap(cfg.wrap_words);
+    renderer.set_notice(notice.codepoints());
+}
+
+/// **What the Linux driver tells a new terminal from the config**, before
+/// its first feed: the defaults the theme gives, the cell's size, the
+/// claims, the window's abilities and the font. The driver runs it, and so
+/// does a test that puts a real program under the terminal a launch makes.
+#[cfg(any(target_os = "linux", test))]
+pub fn set_up_term<'t>(
+    mut term: baud_core::Term<'t>,
+    cfg: &Config,
+    renderer: &baud_render::Renderer<'_, '_>,
+    fonts: &crate::fonts::Fonts,
+) -> baud_core::Term<'t> {
+    crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
+    // The cell height for the Sixel cursor advance, before the first feed;
+    // re-set on every `configure`.
+    term.set_cell_size(
+        cell_px(renderer.metrics().cell_w),
+        cell_px(renderer.metrics().cell_h),
+    );
+    // The window binds no fractional-scale global, so a point is a pixel:
+    // what `OSC 1337 ; ReportCellSize` divides by.
+    term.set_backing_scale(baud_domain::BackingScale::of(1.0));
+    term.set_sixel_claim(cfg.sixel);
+    crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
+    crate::host::set_checksum(&mut term, cfg.checksum);
+    crate::host::set_up(&mut term, cfg.set_up);
+    crate::host::set_substitute(&mut term, cfg.substitute);
+    crate::host::set_prompt_at_bottom(&mut term, cfg.prompt_at_bottom);
+    crate::host::set_window_ops(&mut term, cfg.window_ops);
+    crate::host::set_window_abilities(
+        &mut term,
+        crate::winops::wayland_abilities(crate::winops::BoundsEvent::Never),
+        cfg.clipboard.osc52,
+    );
+    crate::host::set_term_name(&mut term);
+    crate::host::set_logging(&mut term, cfg.logging);
+    // **No print panel in this driver**: the core is told there is no
+    // printer, so DSR `?15` answers "no printer" and a print is ignored and
+    // counted, whatever `[screen] printing` says (`print.rs`; note AW).
+    crate::print::set_printer(&mut term, cfg.printing, crate::print::Printers::None);
+    term.set_graphics_print(cfg.graphics_print);
+    crate::host::set_pointer_mode(&mut term, cfg.pointer_mode);
+    crate::host::set_font_changes(&mut term, cfg.font_changes);
+    crate::host::tell_font(&mut term, fonts, cfg.font_size, cfg.font_size);
+    term.set_initial_cursor_style(baud_core::CursorStyle::of(
+        cfg.cursor_shape,
+        cfg.cursor_blink.power_on(),
+    ));
+    term
+}
+
+/// **The Linux driver's launch as source**, for the tests that read which
+/// settings it tells the core: `linux.rs`, and [`set_up_term`]'s body, where
+/// it says most of them.
+#[cfg(test)]
+pub(crate) fn linux_driver_src() -> String {
+    let host = include_str!("host.rs");
+    let from = host
+        .find(concat!("pub fn ", "set_up_term<"))
+        .expect("set_up_term");
+    let len = host[from..].find("\n}\n").expect("its end");
+    format!("{}{}", include_str!("linux.rs"), &host[from..from + len])
+}
+
 /// Every face the config names, mapped and parsed. Each face's bytes are
 /// a read-only mapping for the life of the process, because the faces
 /// borrow them and a read of the whole file was the launch's largest
@@ -1518,7 +1597,7 @@ mod tests {
         const CALL: &str = concat!("crate::host::", "set_checksum(&mut term, ");
         for (driver, src, arg) in [
             ("macOS", include_str!("app.rs"), "checksum);"),
-            ("Linux", include_str!("linux.rs"), "cfg.checksum);"),
+            ("Linux", &super::linux_driver_src(), "cfg.checksum);"),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
             let rest = src.split(CALL).nth(1).expect("the call");
@@ -1586,7 +1665,7 @@ mod tests {
             ),
             (
                 "Linux",
-                include_str!("linux.rs"),
+                &super::linux_driver_src(),
                 "cfg.set_up);",
                 "term.change_set_up(c.set_up),",
             ),
@@ -1653,7 +1732,7 @@ mod tests {
         const CALL: &str = concat!("crate::host::", "set_substitute(&mut term, ");
         for (driver, src, arg) in [
             ("macOS", include_str!("app.rs"), "substitute);"),
-            ("Linux", include_str!("linux.rs"), "cfg.substitute);"),
+            ("Linux", &super::linux_driver_src(), "cfg.substitute);"),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
             let rest = src.split(CALL).nth(1).expect("the call");
@@ -1694,7 +1773,11 @@ mod tests {
         const CALL: &str = concat!("crate::host::", "set_prompt_at_bottom(&mut term, ");
         for (driver, src, arg) in [
             ("macOS", include_str!("app.rs"), "prompt_at_bottom);"),
-            ("Linux", include_str!("linux.rs"), "cfg.prompt_at_bottom);"),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "cfg.prompt_at_bottom);",
+            ),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
             let rest = src.split(CALL).nth(1).expect("the call");
@@ -1776,7 +1859,7 @@ mod tests {
             ),
             (
                 "Linux",
-                include_str!("linux.rs"),
+                &super::linux_driver_src(),
                 "cfg.window_ops);",
                 "    fn feed(&mut self, bytes: &[u8]) {",
             ),
@@ -1856,7 +1939,7 @@ mod tests {
             ),
             (
                 "Linux",
-                include_str!("linux.rs"),
+                &super::linux_driver_src(),
                 "crate::winops::wayland_abilities(crate::winops::BoundsEvent::Never),",
                 "cfg.clipboard.osc52,",
             ),
@@ -1868,7 +1951,7 @@ mod tests {
             assert!(args.contains(osc52), "{driver} tells its setting");
         }
         // Linux tells it again once the bound `xdg_wm_base` is known.
-        let linux = include_str!("linux.rs");
+        let linux = &super::linux_driver_src();
         let told = linux
             .split("match d.window.configure_bounds()")
             .nth(1)
@@ -1910,7 +1993,7 @@ mod tests {
             ),
             (
                 "Linux",
-                include_str!("linux.rs"),
+                &super::linux_driver_src(),
                 "&mut d.term, d.window.pointer_device());",
             ),
         ] {
@@ -1918,7 +2001,7 @@ mod tests {
             let rest = src.split(CALL).nth(1).expect("the call");
             assert!(rest.starts_with(arg), "{driver} says what it has");
         }
-        let linux = include_str!("linux.rs");
+        let linux = &super::linux_driver_src();
         let events = linux
             .split_once(concat!("while let Some(e) = ", "d.window.next_event()"))
             .expect("the event loop")
@@ -1958,7 +2041,7 @@ mod tests {
         const CALL: &str = concat!("crate::host::", "set_term_name(");
         for (driver, src) in [
             ("macOS", include_str!("app.rs")),
-            ("Linux", include_str!("linux.rs")),
+            ("Linux", &super::linux_driver_src()),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
         }
@@ -1997,7 +2080,7 @@ mod tests {
             ),
             (
                 "Linux",
-                include_str!("linux.rs"),
+                &super::linux_driver_src(),
                 "cfg.logging);",
                 "            &mut self.hostlog,\n        );",
             ),
@@ -2062,7 +2145,7 @@ mod tests {
             ),
             (
                 "Linux",
-                include_str!("linux.rs"),
+                &super::linux_driver_src(),
                 "cfg.pointer_mode);",
                 concat!("let act = self.hiding.", "key(&self.term);"),
                 concat!("let act = self.hiding.", "read(&self.term);"),
@@ -2129,9 +2212,9 @@ mod tests {
             ),
             (
                 "Linux",
-                include_str!("linux.rs"),
+                &super::linux_driver_src(),
                 "crate::host::set_font_changes(&mut term, cfg.font_changes);",
-                "crate::host::tell_font(&mut term, &fonts, cfg.font_size, cfg.font_size);",
+                "crate::host::tell_font(&mut term, fonts, cfg.font_size, cfg.font_size);",
                 concat!(
                     "fonts_asked.extend_from_slice(t.font_requests());\n",
                     "                t.clear_font_requests();"

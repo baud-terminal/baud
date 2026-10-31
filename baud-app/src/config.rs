@@ -970,7 +970,7 @@ impl Config {
     /// written: a family name not yet resolved.
     #[cfg(test)]
     fn read() -> Config {
-        let (c, said) = Config::read_saying();
+        let (c, said) = Config::read_saying(&lookup());
         for said in said {
             crate::warn!("{said}");
         }
@@ -981,10 +981,10 @@ impl Config {
     /// than logged: a line that is not `key = value`, skipped as it always
     /// was (at launch no earlier config exists to keep), and each key
     /// [`Config::apply`] could not act on.
-    fn read_saying() -> (Config, Vec<String>) {
+    fn read_saying(paths: &[std::path::PathBuf]) -> (Config, Vec<String>) {
         let mut c = Config::defaults();
         let mut said = Vec::new();
-        if let Some((path, text)) = read_first() {
+        if let Some((path, text)) = read_first(paths) {
             if let Some(broken) = syntax(&text) {
                 said.push(broken.said(&path, Fault::Skipped));
             }
@@ -1022,7 +1022,14 @@ impl Config {
     /// installed faces ([`Config::resolve`]); the sentences it logged, for
     /// the window to show; and the files it pulls in, for the watch.
     pub fn launch() -> Launched {
-        let (mut c, said) = Config::read_saying();
+        Config::launch_at(&lookup())
+    }
+
+    /// [`Config::launch`] over the lookup `paths`, in their order: the
+    /// launch a test runs with no file in the way, as a user with none
+    /// launches.
+    pub(crate) fn launch_at(paths: &[std::path::PathBuf]) -> Launched {
+        let (mut c, said) = Config::read_saying(paths);
         for s in &said {
             crate::warn!("{s}");
         }
@@ -2629,10 +2636,10 @@ pub fn lookup() -> Vec<std::path::PathBuf> {
 }
 
 /// The first config file that reads, by the path it was read at.
-fn read_first() -> Option<(std::path::PathBuf, String)> {
-    lookup()
-        .into_iter()
-        .find_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
+fn read_first(paths: &[std::path::PathBuf]) -> Option<(std::path::PathBuf, String)> {
+    paths
+        .iter()
+        .find_map(|p| std::fs::read_to_string(p).ok().map(|t| (p.clone(), t)))
 }
 
 /// **Where a config file is looked for**, in order: `given`, from

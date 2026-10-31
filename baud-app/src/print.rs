@@ -592,7 +592,7 @@ mod tests {
         let mac = include_str!("app.rs");
         assert!(mac.contains("crate::print::set_printer(&mut term, printing, printers_listed());"));
         assert!(mac.contains(".with_printer(crate::print::budget(printing))"));
-        let linux = include_str!("linux.rs");
+        let linux = &crate::host::linux_driver_src();
         assert!(linux.contains(
             "crate::print::set_printer(&mut term, cfg.printing, crate::print::Printers::None);"
         ));
