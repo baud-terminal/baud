@@ -3048,8 +3048,8 @@ fn pc101(key: &KeyPress) -> Option<Codepoint> {
 /// **The keystroke handed to the input manager**, until `text` answers:
 /// what it typed, its PC-101 character, the modifiers held -- of which
 /// only Shift and Caps Lock reach here, Command, Control and Option being
-/// kept from the input manager -- and, with Shift, the character the layout types
-/// on the key without it (`layouts::unshifted`).
+/// kept from the input manager -- and, with Shift, the character the
+/// layout types on the key without it (`layouts::unshifted`).
 struct Keyed {
     typed: String,
     base: Option<Codepoint>,
