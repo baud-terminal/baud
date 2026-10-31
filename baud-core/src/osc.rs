@@ -20,7 +20,7 @@
 //! hand-written suites, `tests/xterm/osc.rs` and `tests/xterm/hyperlinks.rs`.
 
 use crate::paint::Paint;
-use crate::storage::{LINK_MAX, NLINK, OSC_MAX, StyleLog};
+use crate::storage::{LINK_MAX, OSC_MAX, StyleLog};
 use crate::term::Cold;
 use baud_domain::*;
 
@@ -748,14 +748,16 @@ impl Paint<'_, '_> {
             // what lets the write happen at all -- the same borrow split
             // `baud-core2` made here for the same reason.
             //
-            // **A slot is never overwritten and a clipped URI is never
-            // interned**, because a click opens what the slot holds. The
-            // table used to evict on collision like the style table, and
-            // that is wrong for a link: a later `OSC 8` from *any* program
-            // -- an empty run that writes no cell -- landed in the slot an
-            // honest link already on screen resolves through, and the screen
-            // did not change while its target did. The style table's
+            // **A slot a cell names is never given another target and a
+            // clipped URI is never interned**, because a click opens what the
+            // slot holds. The table used to evict on collision like the style
+            // table, and that is wrong for a link: a later `OSC 8` from *any*
+            // program -- an empty run that writes no cell -- landed in the
+            // slot an honest link already on screen resolves through, and the
+            // screen did not change while its target did. The style table's
             // degradation is a wrong colour; this one is a wrong destination.
+            // A slot is freed only by a sweep that finds nothing naming it
+            // (`links.rs`).
             Osc::Hyperlink { id, uri } => {
                 let len = uri.len();
                 if len == 0 {
@@ -771,33 +773,12 @@ impl Paint<'_, '_> {
                     self.link = LinkId::NONE;
                     self.links_clipped += 1;
                 } else {
-                    let slot = LinkId::bucket(id, uri, NLINK);
-                    let at = slot.index() * LINK_MAX;
-                    let have = self.strs.link_len[slot.index()].index();
-                    if have == 0 {
-                        let mut tmp = [0u8; LINK_MAX];
-                        tmp[..len].copy_from_slice(uri);
-                        self.strs.links[at..at + len].copy_from_slice(&tmp[..len]);
-                        self.strs.link_len[slot.index()] = ByteLen::from_index(len);
-                        self.link = slot;
-                    } else if self.strs.links[at..at + have] == *uri {
-                        // The same URI is already here -- resent, or a second
-                        // `id` hashing to the same slot -- and one slot for
-                        // one target is exactly right.
-                        self.link = slot;
-                    } else {
-                        // Occupied by a different URI: refused, and the cells
-                        // that follow are plain text. The `ClusterStore` rule
-                        // -- a wrong cluster is not a wrong colour -- and it
-                        // bounds the table at 127 distinct targets for the
-                        // storage's life, which `links_refused` says when it
-                        // is reached. Freed only by `RIS`, which erases every
-                        // cell that could name a slot first: freed while one
-                        // did, a slot taken by a new link would give that cell
-                        // the new target.
-                        self.link = LinkId::NONE;
-                        self.links_refused += 1;
-                    }
+                    // Copied out of the body first: the table and the body
+                    // are both `strs`.
+                    let key = LinkKey::of(id, uri);
+                    let mut tmp = [0u8; LINK_MAX];
+                    tmp[..len].copy_from_slice(uri);
+                    self.link = self.intern_link(key, &tmp[..len]);
                 }
                 self.refresh_flags();
             }

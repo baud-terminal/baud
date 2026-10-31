@@ -13454,12 +13454,13 @@ impl Driver {
                 .to_string()
         };
         let uri = match link {
-            Under::Osc8(id) => match self.app.term.link_uri(*id) {
+            Under::Osc8(link) => match link.uri(&self.app.term) {
                 Some(uri) => uri,
                 None => {
-                    // The table never frees a slot, so a link that resolved
-                    // at the press resolves at the release; counted rather
-                    // than trusted.
+                    // Gone: a sweep freed a slot of the link table after
+                    // the link was read (`crate::link::Osc8`), so the index
+                    // may name another target now; counted, and not
+                    // opened.
                     self.app.links.refused.bump();
                     crate::warn!("link refused (gone)");
                     return;

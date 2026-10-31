@@ -403,6 +403,9 @@ pub struct StrBuf<'b> {
     /// array flattened into a slice is exactly where a silent stride bug lives.
     pub(crate) links: &'b mut [u8],
     pub(crate) link_len: &'b mut [ByteLen],
+    /// Each link slot's key, and when the table may next be swept
+    /// (`links.rs`).
+    pub(crate) link_book: baud_domain::LinkBook,
     /// `OSC 52` writes: two areas of [`ClipboardBudget::text`] octets, the
     /// copy being collected in the first half and the last one finished in
     /// the second (`clip.rs`). **Empty by default**, the image arena's
@@ -624,6 +627,7 @@ impl<'b> StrBuf<'b> {
             palette,
             links,
             link_len,
+            link_book: baud_domain::LinkBook::NEW,
             clip_area: clip,
             clip: crate::clip::Clip::NEW,
             sixel,
@@ -970,6 +974,7 @@ impl Owned {
                 palette: &mut self.palette,
                 links: &mut self.links,
                 link_len: &mut self.link_len,
+                link_book: baud_domain::LinkBook::NEW,
                 clip_area: &mut self.clip,
                 clip: crate::clip::Clip::NEW,
                 sixel: &mut self.sixel,
@@ -1064,6 +1069,7 @@ impl Owned {
                 palette: &mut self.palette,
                 links: &mut self.links,
                 link_len: &mut self.link_len,
+                link_book: baud_domain::LinkBook::NEW,
                 clip_area: &mut self.clip,
                 clip: crate::clip::Clip::NEW,
                 sixel: &mut self.sixel,
@@ -1269,13 +1275,15 @@ pub(crate) const SPECIAL_PALETTE: usize = 512;
 /// which has seven bits for it, and seven bits is 128 -- 127 usable, since
 /// zero is "no link". Bounded because a URI is attacker-supplied content used
 /// as a key, and a growable table keyed on that is the content-addressing
-/// failure mode this repo already records. **It refuses on collision rather
-/// than evicting**, unlike the style table: an evicted style is a wrong colour
+/// failure mode this repo already records. **It refuses rather than
+/// evicting**, unlike the style table: an evicted style is a wrong colour
 /// on the next frame, an evicted link is a wrong *destination* under a cell
 /// whose text did not change -- and a later `OSC 8` run that writes no cell
-/// at all could have retargeted it. A refused link is counted
-/// (`Term::links_refused`) and its cells are plain text.
-pub const NLINK: usize = 128;
+/// at all could have retargeted it. A target probes sixteen slots;
+/// when all hold others, the table is swept of the slots nothing names, and
+/// a link still without one is counted (`Term::links_refused`) and its cells
+/// are plain text (`links.rs`).
+pub const NLINK: usize = baud_domain::LinkBook::SLOTS;
 
 /// The longest URI kept, and the stride of the flat `links` slice.
 pub const LINK_MAX: usize = 256;

@@ -254,6 +254,7 @@ impl Term<'_> {
             self.cx = p.cx;
             let rots = (p.view.rot(), p.other.rot);
             self.cells_written += p.cells.index();
+            p.strs.link_book.read_ends(p.cells, n);
             self.set_rots(rots);
             return;
         }
@@ -404,6 +405,7 @@ impl Term<'_> {
         self.checksums_refused += p.checksums_refused;
         self.marks_dropped = p.clusters.refused;
         self.cells_written += p.cells.index();
+        p.strs.link_book.read_ends(p.cells, n);
         #[cfg(feature = "diag")]
         {
             self.iters += iters;

@@ -72,6 +72,7 @@ mod component;
 mod extent;
 mod kitty;
 mod leftward;
+mod links;
 mod locator;
 mod logging;
 mod margin;
@@ -171,7 +172,8 @@ pub use baud_domain::{BidiDirection, BidiSupport};
 /// the video a frame is drawn in, which `Term::cursor_color_in` takes.
 pub use baud_domain::{
     Chan, ClipboardBudget, ClipboardContent, ClipboardRefusals, ClipboardWrite, ColorWord,
-    DynamicColor, LinkId, Osc, Selection, Selections, StringTerm, Video, XColor,
+    DynamicColor, LinkEpoch, LinkId, LinkSweeps, Osc, Selection, Selections, StringTerm, Video,
+    XColor,
 };
 /// `OSC 133`'s vocabulary: how a command ended, what a click at a prompt
 /// sends ([`Term::prompt_click`]), and what a prompt entry holds.

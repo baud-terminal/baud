@@ -121,12 +121,15 @@ bits of `CellFlags`, above its three flags and below the six bits of the cluster
 index, because `PackedCell` is eight bytes *by measurement* and a ninth would
 round it to twelve. The URI table is bounded at `NLINK`, 128, because a URI is
 attacker-supplied content used as a key, and a structure keyed on that which
-grows without limit is the content-addressing failure mode. **It refuses a
-collision rather than evicting**, unlike the style table: an evicted link would
-be a wrong destination under a cell whose text did not change. A refused link
+grows without limit is the content-addressing failure mode. **It never gives
+a slot something names to another target**, unlike the style table: an evicted
+link would be a wrong destination under a cell whose text did not change. A
+target probes sixteen slots, and when all hold others the table is swept of
+the slots no cell, open link or parked display names; a link still without one
 is counted in `links_refused` and its cells are plain text. This said the link
 took fourteen bits, and that the table evicts on collision and an evicted link
-renders as an ordinary cell.
+renders as an ordinary cell; until 2026-10-31 a target had one slot and a slot
+was freed only by a reset.
 
 **Mouse reports go in the encoding the application chose, and a position the
 encoding cannot name is refused.** `?9`, `?1000`, `?1002` and `?1003` select

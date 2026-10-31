@@ -2200,8 +2200,13 @@ impl Paint<'_, '_> {
             return;
         }
         let keep = Rows::of_count(self.rows.index() + self.book.hidden.index());
-        let n = self.on_primary(|v| v.erase_outside(keep));
+        let (n, links) = self.on_primary(|v| v.erase_outside(keep));
         self.cells = self.cells.plus(n);
+        // Only an erase of rows that held links pays for the sweep after it:
+        // one of a history holding none frees nothing a sweep could find.
+        if links == RowLinks::May {
+            self.strs.link_book.history_erased();
+        }
         self.book.hist = Rows::ZERO;
         // The lines a window over the history showed are gone, so it is on
         // the live screen, from either screen.
@@ -2740,6 +2745,9 @@ impl Paint<'_, '_> {
         };
         let base = base.with_received(Received::of(self.charset));
         self.flags = base.with_link(self.link);
+        // An open link sends every text write through the hook that marks
+        // its row ([`Paint::overwrote`]).
+        self.rehook();
     }
 
     /// REP: repeat the last graphic character. Bounded by the row, so
@@ -5037,9 +5045,7 @@ impl Paint<'_, '_> {
         // because a slot a cell still names must not take another target; no
         // cell names one now, so a table filled before the reset takes links
         // after it.
-        for len in self.strs.link_len.iter_mut() {
-            *len = ByteLen::ZERO;
-        }
+        self.strs.link_book.reset(self.strs.link_len);
         // Images go with the clusters and for the same reason: `RIS` is the one
         // point where every cell is gone, so a placement outliving a mere clear
         // is correct -- an image is content a program may redraw over -- and

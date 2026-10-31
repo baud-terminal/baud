@@ -153,7 +153,7 @@ argument — and [CONTRIBUTING.md](../../CONTRIBUTING.md) carries the fuller lis
 | `Content::EMPTY` is a reserved value, not `U+0020` | "Nothing written" and "a space was written" differ for selection, reflow and equality. Storing 32 for blank breaks copy/paste of trailing whitespace. |
 | `StyleId::bucket` takes the **high** bits | SGR colours are multiples of `0x101010`; masking the low bits collided them. 112,144 interns at 51.6% hit → 0 interns at 100%. |
 | `Col`/`Row` are `usize`-backed | A `u16` cursor adds zero-extension and masking to every op on x86-64, at a cost unmeasured here. Narrow types earn their place only where thousands are stored. |
-| Bounded tables (`tmpl`, `links`) | Both key on what an application sends, so both are bounded. `tmpl` is sized to the screen and frees the slots no cell names, so it evicts only once every slot is named, and a cell still naming the evicted slot is recoloured -- an open bug. The link table refuses a collision and counts it in `links_refused`, because an evicted link is a wrong destination. |
+| Bounded tables (`tmpl`, `links`) | Both key on what an application sends, so both are bounded. `tmpl` is sized to the screen and frees the slots no cell names, so it evicts only once every slot is named, and a cell still naming the evicted slot is recoloured -- an open bug. The link table frees only a slot nothing names, by a sweep when a target's sixteen slots are held, and refuses and counts in `links_refused` a link it still has no slot for, because an evicted link is a wrong destination. |
 
 ## The two invariants
 

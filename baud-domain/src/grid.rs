@@ -715,7 +715,8 @@ impl<'a> View<'a> {
         let (to, bidi) = (self.used[p].index(), self.used[p].bidi());
         let mark = self
             .mark_after_fill(base, to, cell, RowExtent::of(a))
-            .with_bidi(bidi);
+            .with_bidi(bidi)
+            .with_links(links_after(self.used[p], cell));
         // From column 0 the row is erased whole, and DECRLM's mark goes.
         self.used[p] = match a == 0 {
             true => mark.erased(),
@@ -1021,17 +1022,24 @@ impl<'a> View<'a> {
     /// What `CSI 3 J` leaves, for [`View::erase_ring`]'s reason: a reader of
     /// the whole ring reaches every row, and a re-cut that spills past the
     /// screen writes into them without clearing past its width. The rotation
-    /// stays, because nothing scrolled. Returns the cells written.
-    pub fn erase_outside(&mut self, keep: Rows) -> usize {
+    /// stays, because nothing scrolled. Returns the cells written, and
+    /// whether a row it erased may have held a linked cell ([`RowLinks`]):
+    /// what lets the link table count the erase as paying for the sweep
+    /// after it.
+    pub fn erase_outside(&mut self, keep: Rows) -> (usize, RowLinks) {
+        let mut links = RowLinks::None;
         let (ring, s) = (self.ring.index(), self.stride.index());
         let mut n = 0;
         for k in keep.index().min(ring)..ring {
             let p = self.rot.advance(k, self.ring).index();
             self.cells[p * s..(p + 1) * s].fill(PackedCell::EMPTY);
+            if self.used[p].links() == RowLinks::May {
+                links = RowLinks::May;
+            }
             self.used[p] = RowExtent::ZERO;
             n += s;
         }
-        n
+        (n, links)
     }
 
     /// Turn every character DECSCA left erasable in the `hist` rows behind
@@ -1595,13 +1603,40 @@ impl<'a> View<'a> {
         self.phys(r) * self.stride.index() + c.index()
     }
 
+    /// One cell, at `(r, c)`: a rectangle's copy or fill, an attribute
+    /// changed in place. **A linked cell marks its row** ([`RowLinks`]):
+    /// `DECCRA` carries cells, links and all, to rows that held none.
     #[inline(always)]
     pub fn put(&mut self, r: Row, c: Col, cell: PackedCell) {
         if r.index() < self.rows.index() && c.index() < self.cols.index() {
             let p = self.phys(r);
             self.cells[p * self.stride.index() + c.index()] = cell;
-            self.used[p] = self.used[p].reached(c.index() + 1);
+            self.used[p] = self.used[p]
+                .reached(c.index() + 1)
+                .with_links(links_after(self.used[p], cell));
         }
+    }
+
+    /// **Row `r` may hold a linked cell** ([`RowLinks`]): what a text write
+    /// under an open `OSC 8` link tells the row it lands on.
+    pub fn link_row(&mut self, r: Row) {
+        if r.index() < self.rows.index() {
+            let p = self.phys(r);
+            self.used[p] = self.used[p].with_links(RowLinks::May);
+        }
+    }
+
+    /// **Every link a cell of this surface may name, marked in `live`**: the
+    /// rows [`RowLinks::May`] says may hold one, each to its mark and its
+    /// last live cell ([`mark_linked_rows`]). Returns what it read.
+    pub fn mark_links(&mut self, live: &mut LinkLive) -> Cells {
+        mark_linked_rows(
+            self.cells,
+            self.used,
+            self.stride.index(),
+            self.cols.index(),
+            live,
+        )
     }
     #[inline(always)]
     pub fn get(&self, r: Row, c: Col) -> PackedCell {
@@ -2222,6 +2257,11 @@ impl<'a> View<'a> {
         self.used[p] = self.used[p].reached(c.col().index() + 1);
     }
 
+    /// The pitch: cells from one row of the buffer to the next.
+    pub fn stride(&self) -> Stride {
+        self.stride
+    }
+
     /// Every cell of this surface's buffer -- the screen, the history behind
     /// it and the rows held past a narrower edge -- for the cluster store's
     /// sweep, which must see every cell that can name a slot.
@@ -2410,6 +2450,9 @@ impl<'a> View<'a> {
         let p = self.phys(r);
         let cols = self.cols.index();
         let base = p * self.stride.index();
+        // A span is erased or filled with a character no link names
+        // (`DECFRA` drops it), so its row's `RowLinks` stands.
+        debug_assert!(cell.flags.link().is_none());
         let to_end = cell.content == Content::EMPTY && b >= cols;
         // **A fill that runs to the end of the row can stop at the mark**, on
         // exactly the condition `fill_row` uses: everything from the extent to
@@ -2541,8 +2584,17 @@ impl<'a> View<'a> {
             true => 0,
             false => cols,
         };
+        // A blank names no link, so a row erased whole holds none; `DECALN`
+        // under an open link writes one into every cell.
+        debug_assert!(fill == RowFill::Erased || cell.flags.link().is_none());
         self.used[p] = match fill {
-            RowFill::Erased => self.used[p].refilled(mark).erased(),
+            RowFill::Erased => {
+                let e = self.used[p].refilled(mark).erased();
+                e.with_links(match blanking {
+                    true => RowLinks::None,
+                    false => links_after(e, cell),
+                })
+            }
             RowFill::New => RowExtent::of(mark),
         };
         RowExtent::of(to)
@@ -2644,6 +2696,7 @@ impl<'a> View<'a> {
         self.used[p] = self
             .mark_after_fill(base, to, cell, low)
             .with_bidi(bidi)
+            .with_links(links_after(self.used[p], cell))
             .erased();
         to
     }
@@ -2975,10 +3028,15 @@ impl<'a> View<'a> {
             let (ps, pd) = (v.phys(Row::from_index(from)), v.phys(Row::from_index(to)));
             v.cells.copy_within(ps * s + l..ps * s + l + w, pd * s + l);
             let (src, dst) = (v.used[ps], v.used[pd]);
-            v.used[pd] = match (ours(src), ours(dst)) {
+            let moved = match (ours(src), ours(dst)) {
                 (true, _) => dst.wrapping(cols).with_margins(inside),
                 (false, true) => dst.ended().at_edge(),
                 (false, false) => dst,
+            };
+            // The band's cells carry their links to the row they land on.
+            v.used[pd] = match src.links() {
+                RowLinks::May => moved.with_links(RowLinks::May),
+                RowLinks::None => moved,
             };
         };
         let blank_row = |v: &mut Self, y: usize| {
@@ -3009,4 +3067,61 @@ impl<'a> View<'a> {
         }
         written + (bot + 1 - cy) * w
     }
+}
+
+/// The [`RowLinks`] a row has once `cell` is written into it: `May` for a
+/// linked cell, else what `was` said.
+#[inline(always)]
+fn links_after(was: RowExtent, cell: PackedCell) -> RowLinks {
+    match cell.flags.link().is_none() {
+        true => was.links(),
+        false => RowLinks::May,
+    }
+}
+
+/// **Every link the cells of `cells` may name, marked in `live`**: one row
+/// a [`RowExtent`] of `used`, `stride` cells apart, `cols` of them live.
+///
+/// **Only the rows [`RowLinks::May`] says may hold one, and each only to
+/// its mark** ([`RowExtent::index`]) **and its last live cell.** A linked
+/// cell is written, and a write raises the mark over it; past the mark the
+/// row is uniform to the live edge -- every cell its last -- so the last
+/// live cell stands for the rest. Past the live edge a row of the primary
+/// holds what a narrower screen cut off, which the caller reads
+/// (`baud-core`'s `links.rs`), and the alternate screen's is blanked
+/// before a growth shows it ([`View::widened`]). A row read and found to
+/// name none is marked [`RowLinks::None`], so a row that held a link once
+/// costs one read and no more. Returns the cells read, every row's mark
+/// counted as one.
+///
+/// No program the tests run leaves a linked cell past a row's mark, so the
+/// read of the last live cell is kept as the safe direction, and no test
+/// yet fails without it.
+pub fn mark_linked_rows(
+    cells: &[PackedCell],
+    used: &mut [RowExtent],
+    stride: usize,
+    cols: usize,
+    live: &mut LinkLive,
+) -> Cells {
+    let rows = used.len().min(cells.len() / stride.max(1));
+    let mut read = rows;
+    for (p, e) in used.iter_mut().enumerate().take(rows) {
+        if e.links() == RowLinks::None {
+            continue;
+        }
+        let base = p * stride;
+        let to = e.index().min(stride);
+        let mut named = live.mark(&cells[base..base + to]);
+        read += to;
+        let last = cols.min(stride);
+        if to < last {
+            named |= live.mark(&cells[base + last - 1..base + last]);
+            read += 1;
+        }
+        if !named {
+            *e = e.with_links(RowLinks::None);
+        }
+    }
+    Cells::of(read)
 }

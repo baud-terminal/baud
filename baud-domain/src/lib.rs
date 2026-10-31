@@ -48,6 +48,7 @@ mod cell;
 mod cluster_data;
 mod colour_name;
 pub mod contrast;
+mod link_table;
 
 /// One entry of the UAX #29 transition table: bit 7 is the break decision,
 /// bits 0..7 the next state. Exposed so
@@ -133,6 +134,7 @@ pub use kitty::*;
 pub use layout::*;
 pub use line::*;
 pub use linebreak::*;
+pub use link_table::*;
 pub use merged::*;
 pub use nrcs_data::*;
 pub use placeholder::*;

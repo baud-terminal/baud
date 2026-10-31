@@ -122,6 +122,20 @@ pub(crate) struct Parked {
 }
 
 impl Parked {
+    /// The link indexes the parked display keeps -- its open link and the
+    /// pen built from it -- for the link table's sweep (`links.rs`), which
+    /// must not free a slot it will write with again.
+    pub(crate) fn links(&self) -> [LinkId; 2] {
+        [self.link, self.flags.link()]
+    }
+
+    /// The main display's reach past the live edge and its screen, while
+    /// the line is the one written: where the link table's sweep finds the
+    /// primary's cells past a narrower edge (`links.rs`).
+    pub(crate) fn past_edge(&self) -> (Cols, Screen) {
+        (self.reach, self.screen)
+    }
+
     /// The line as a type change leaves it: home, the default rendition,
     /// the power-up sets, origin mode reset, the cursor on, nothing saved,
     /// margins at its edges.

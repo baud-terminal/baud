@@ -35133,6 +35133,45 @@ bytes  = 72846
 status = "external"
 group  = "BU"
 
+[sources.kitty-hyperlink-pool]
+key    = "kitty-hyperlink-pool"
+title  = "kitty c93279d, kitty/hyperlink.c -- get_id_for_hyperlink and _screen_garbage_collect_hyperlink_pool: 16-bit ids, a collection that walks the history and both screens and renumbers every 8,192 adds and at exhaustion, history links dropped before a link is refused"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/c93279d8569018262e51c1da87fd1114de92ef6b/kitty/hyperlink.c"
+file   = ""
+sha256 = "0098a48ae4e89ec8f89f133548456763f272fb83de67419fc81f99bfd36f8913"
+bytes  = 6612
+status = "external"
+group  = "BU"
+
+[sources.iterm2-url-store]
+key    = "iterm2-url-store"
+title  = "iTerm2 269f725, sources/ExternalSessionState/iTermURLStore.m -- codeForURL:withParams:, retainCode: and releaseCode:: a code per URL and params, reference-counted by the cells, freed at zero, refused at USHRT_MAX - 1 live"
+author = "George Nachman"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/269f72560863fd0af809c72ad2251b60ee763c47/sources/ExternalSessionState/iTermURLStore.m"
+file   = ""
+sha256 = "a98281e1d6bc08779f55d9e77cc11b57d0bb2c6609c1b6abe8310a88447d0178"
+bytes  = 10675
+status = "external"
+group  = "BU"
+
+[sources.foot-grid-uri-ranges]
+key    = "foot-grid-uri-ranges"
+title  = "foot 152487e, grid.c -- grid_row_uri_range_put and grid_row_uri_range_erase: a row's URI ranges, each its own address and id, freed with the row; no bound on their number"
+author = "Daniel Eklof"
+year   = 2026
+venue  = "foot (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/152487e494993ad7fb5633a27c7d7ad0f8810ea5/grid.c"
+file   = ""
+sha256 = "9d15dd635b75f66c74d7dfe7f02f8e130825857c5683eb678b4eb518103a3e14"
+bytes  = 55962
+status = "external"
+group  = "BU"
+
 [sources.kitty-sanitize-url]
 key    = "kitty-sanitize-url"
 title  = "kitty v0.43.1, kitty/utils.py -- sanitize_url_for_display_to_user: the host IDNA-encoded, the path percent-decoded"

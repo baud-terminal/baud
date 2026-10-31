@@ -67,9 +67,11 @@ shape this design exists to avoid.
 * An OSC payload past `OSC_MAX` is truncated, and counted in
   `string_truncations`.
 * An `OSC 8` hyperlink URI goes in a table of `NLINK` slots of at most
-  `LINK_MAX` bytes, which **refuses** a colliding link rather than evicting
-  one, because an evicted link would retarget cells already on screen. A
-  refusal is counted in `links_refused`.
+  `LINK_MAX` bytes, which frees only a slot nothing names and **refuses** a
+  link it has no slot for rather than evicting one, because an evicted link
+  would retarget cells already on screen. A refusal is counted in
+  `links_refused`; a click held across a sweep that freed a slot opens
+  nothing.
 * The rendition table (at least `NSTYLE` slots, sized to the screen) evicts only once
   every slot is filled, and a cell still naming the evicted slot is recoloured
   -- an open bug, a wrong colour and never an out-of-bounds read.

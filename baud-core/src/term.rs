@@ -2359,10 +2359,14 @@ pub struct Term<'b> {
     /// Being unable to tell that one arrived is a different thing, and is what
     /// these turn from a bare `=> {}` into a number.
     pub string_truncations: usize,
-    /// `OSC 8` links refused because their slot already held a different
-    /// URI. A slot is taken once for the storage's life, so a cell never
-    /// resolves to a target other than the one written under its index;
-    /// past 127 distinct targets every new link is refused and this says so.
+    /// `OSC 8` links refused because every slot they could take held
+    /// another target that something still names -- a cell of either
+    /// screen, the history or the status line, the open link and its pen,
+    /// or the parked display's -- after a sweep, when one was due
+    /// ([`Term::link_sweeps`]). A slot is never given another target
+    /// while anything names it, so a cell never resolves to a target other
+    /// than the one written under its index; with 127 slots, the 128th
+    /// target named at once is refused and this says so.
     pub links_refused: usize,
     /// `OSC 8` links refused because the URI may have been cut -- past
     /// `LINK_MAX`, or a body that filled `OSC_MAX` -- and a cut URL is a
@@ -2816,6 +2820,20 @@ impl<'b> Term<'b> {
             self.expire_images();
         }
         self.resize_report(rows, cols);
+        // **Every row may hold a link after a change of geometry**: a re-cut
+        // moves cells from row to row and builds each row's mark afresh, and
+        // a growth shows cells past the old edge, so the link table's next
+        // sweep reads every row once and keeps the mark only where it finds
+        // one ([`baud_domain::RowLinks`]). The alternate screen's rows are
+        // marked as the safe direction: no test yet fails without them,
+        // because `Term::links_unread` checks to the live width.
+        if (rows, cols) != (old_rows, old_cols) {
+            for used in [&mut *self.store.used, &mut *self.store.alt.used] {
+                for e in used.iter_mut() {
+                    *e = e.with_links(RowLinks::May);
+                }
+            }
+        }
         self.status_resized(old_cols);
         let resized = match over {
             true => Resized::Truncated { cols, rows },
@@ -4169,6 +4187,9 @@ impl<'b> Term<'b> {
         p.pin_prompt_block();
         self.cy = p.cy;
         self.cells_written += p.cells.index();
+        p.strs
+            .link_book
+            .read_ends(p.cells, baud_domain::ReadLen::ZERO);
     }
 
     /// What [`Term::set_prompt_at_bottom`] last set.
@@ -5517,6 +5538,53 @@ impl<'b> Term<'b> {
         self.store.clusters.sweeps()
     }
 
+    /// Moves whenever a slot of the `OSC 8` link table may have been given
+    /// to another target: a sweep that freed one, or a reset. A reader
+    /// holding a [`LinkId`] across reads resolves it only while this is the
+    /// epoch it read it under ([`Term::link_uri`]).
+    pub fn link_epoch(&self) -> LinkEpoch {
+        self.store.strs.link_book.epoch()
+    }
+
+    /// How many sweeps the link table has run, how many slots they freed
+    /// and how many cells they read, summed: the reclaim `links_refused` is
+    /// the other side of.
+    pub fn link_sweeps(&self) -> LinkSweeps {
+        self.store.strs.link_book.sweeps()
+    }
+
+    /// **The linked cells a link-table sweep would not read**, over every
+    /// row of both screens' buffers, to the live width (it reads the status
+    /// line whole): a cell naming a slot on a row its mark says holds none
+    /// ([`RowLinks`]), or past the row's mark and unlike its last live cell.
+    /// Zero, or a sweep could free a slot such a cell names and the cell
+    /// would open whatever target took it; what a test asserts after a
+    /// program.
+    pub fn links_unread(&self) -> Cells {
+        let (s, cols) = (self.stride.index(), self.cols.index());
+        let mut n = 0;
+        for (cells, used) in [
+            (&*self.store.vp, &*self.store.used),
+            (&*self.store.alt.cells, &*self.store.alt.used),
+        ] {
+            for (p, e) in used.iter().enumerate() {
+                let Some(row) = cells.get(p * s..p * s + cols) else {
+                    continue;
+                };
+                let Some(&last) = row.last() else {
+                    continue;
+                };
+                for (x, c) in row.iter().enumerate() {
+                    let read = e.links() == RowLinks::May && (x < e.index() || *c == last);
+                    if !c.flags.link().is_none() && !read {
+                        n += 1;
+                    }
+                }
+            }
+        }
+        Cells::of(n)
+    }
+
     /// What tracking the application asked for: `?9`, `?1000`, `?1001`, `?1002` or
     /// `?1003`, or DEC's locator by DECELR, one at a time, and off after a reset
     /// of any of them or DECELR 0.
@@ -6397,11 +6465,17 @@ impl<'b> Term<'b> {
     /// The index comes off the cell -- `CellFlags::link` -- rather than from a
     /// position, which is what makes it survive a scroll: the grid rotates and
     /// the cell carries its link with it. **A cell never resolves to a URI
-    /// other than the one written under its index**: a slot is taken once for
-    /// the storage's life and a colliding link is refused rather than written
-    /// over it (`links_refused`), because a click opens what the slot holds
-    /// and a wrong destination is not a wrong colour. `LinkId::NONE` and a
-    /// slot nothing took resolve to `None`.
+    /// other than the one written under its index**: a slot is freed only
+    /// when nothing names it and a link with no free slot is refused rather
+    /// than written over another (`links_refused`), because a click opens
+    /// what the slot holds and a wrong destination is not a wrong colour.
+    /// `LinkId::NONE` and a free slot resolve to `None`.
+    ///
+    /// **An index read from a cell is the cell's while the cells are**: a
+    /// reader that keeps one past the borrow -- a press waiting for its
+    /// release -- resolves it only while [`Term::link_epoch`] is the one it
+    /// was read under, since a sweep may have given its slot to another
+    /// target since.
     pub fn link_uri(&self, l: LinkId) -> Option<&[u8]> {
         if l.is_none() {
             return None;

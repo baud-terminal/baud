@@ -1443,7 +1443,7 @@ impl Driver {
                 .to_string()
         };
         let uri = match link {
-            Under::Osc8(id) => match self.term.link_uri(*id) {
+            Under::Osc8(link) => match link.uri(&self.term) {
                 Some(uri) => uri,
                 None => {
                     crate::warn!("link refused (gone)");

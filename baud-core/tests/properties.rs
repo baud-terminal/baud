@@ -1269,6 +1269,69 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // `OSC 8`, opened under two targets and closed, and the operations that
+    // carry a linked cell to another row or write one without the text
+    // writer: what the link table's sweep must still read.
+    Atom {
+        name: "osc8-open",
+        bytes: b"\x1b]8;;http://p.example/a\x1b\\",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "osc8-open-id",
+        bytes: b"\x1b]8;id=k;http://p.example/b\x1b\\",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "osc8-close",
+        bytes: b"\x1b]8;;\x1b\\",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "il",
+        bytes: b"\x1b[2L",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "dl",
+        bytes: b"\x1b[2M",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decaln",
+        bytes: b"\x1b#8",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decstbm-decslrm",
+        bytes: b"\x1b[3;12r\x1b[?69h\x1b[4;15s",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "su",
+        bytes: b"\x1b[3S",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "alt1049-enter",
+        bytes: b"\x1b[?1049h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "alt1049-leave",
+        bytes: b"\x1b[?1049l",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -2345,6 +2408,35 @@ proptest! {
     fn a_program_agrees_with_the_same_atoms_fed_one_at_a_time(prog in program(), w in policy()) {
         let b = bytes_of(&prog);
         prop_assert_eq!(drive_at(&b, 4096, w), drive_atomwise(&prog, w));
+    }
+
+    /// **Every linked cell is on a row a link-table sweep reads**
+    /// (`Term::links_unread`): written by text, a rectangle's copy or
+    /// `DECALN`, carried by `IL`, `DL`, a scroll inside margins or a screen
+    /// switch, and across a narrowing and a growth back. A cell a sweep does
+    /// not read is one whose slot it may give away.
+    #[test]
+    fn every_linked_cell_is_on_a_row_a_sweep_reads(prog in program(), cut in 0usize..40) {
+        let w = ws();
+        let mut owned = Owned::new(&w);
+        let mut t = Term::new(owned.storage(), &w);
+        let cut = cut.min(prog.len());
+        let feed = |t: &mut Term<'_>, p: &[usize]| {
+            let b = bytes_of(p);
+            t.write_at(BytePos::ZERO, &b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        };
+        feed(&mut t, &prog[..cut]);
+        prop_assert_eq!(t.links_unread(), baud_domain::Cells::of(0), "after {} atoms", cut);
+        // Three rows and seven columns fewer than `ws`.
+        let narrow = WinSize { ws_row: 47, ws_col: 13 };
+        prop_assert_eq!(t.resize(&narrow), Resized::Ok);
+        feed(&mut t, &prog[cut..]);
+        prop_assert_eq!(t.links_unread(), baud_domain::Cells::of(0), "narrowed");
+        prop_assert_eq!(t.resize(&w), Resized::Ok);
+        prop_assert_eq!(t.links_unread(), baud_domain::Cells::of(0), "grown back");
+        feed(&mut t, &prog);
+        prop_assert_eq!(t.links_unread(), baud_domain::Cells::of(0), "after all again");
     }
 
     /// **A cell that claims continuations must have them.**

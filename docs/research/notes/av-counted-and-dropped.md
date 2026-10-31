@@ -115,7 +115,7 @@ each has a decision behind it.
 | `clipboard_reads_refused` | `OSC 52` reads | answering would hand a remote program the user's clipboard | **keep** |
 | `clipboard_writes_refused` | `OSC 52` writes with no clipboard provisioned, no selection named, or a body past half the area (`Term::clipboard_refusals` splits them) | the area is the embedder's | **keep** |
 | `checksums_refused` | DECRQCRA while the embedder turned the checksum off | the embedder's switch | **keep** |
-| `links_refused`, `links_clipped` | `OSC 8` past 127 targets, and a URI that may have been cut | a refused link is plain text; a reclaimed slot could send a cell to another address | **open**, already on the list: reclaim past 127, or keep refusing |
+| `links_refused`, `links_clipped` | `OSC 8` past 127 targets named at once, and a URI that may have been cut | a refused link is plain text; a slot is reclaimed only once nothing names it, so no cell is sent to another address | **decided** 2026-10-31: probe and reclaim (`links.rs`); the 128th target named at once is still refused |
 | `title_reports_refused` | XTWINOPS 20 and 21, and since 2026-10-20 XTSMTITLE's query modes 1 and 3 | the reply types a program's text back | **keep** |
 | `mouse_unencodable` | X10 reports past column or row 223 | X10 would name a different cell | **keep**; `?1006` has no limit |
 | `marks_dropped` | combining marks past the cluster store | note AB's Q7 | **keep** open there |
@@ -163,3 +163,65 @@ notes and rows.
   thread with xterm's ownership and mode checks; `-` standard output, `|` refused, as in xterm's default build; no name, a generated one where the shell started, and a
   relative name read from there;
   `DECRQM ?46` `4` with `[screen] logging = "off"`; `RIS` keeps it.
+
+## The link table reclaims, 2026-10-31
+
+**A listing links every entry the table can hold, and a later listing
+links again.** Each target had one slot, freed only by `RIS`, so `ls
+--hyperlink` of a 37-entry directory left 3 entries plain and after 127
+targets every link of the session was plain; `[[source: osc8-spec]]`
+bounds the URI and the `id`, not how many links a screen holds. A target
+now probes sixteen slots keyed by `id` and address, and when all hold
+others the table is swept of the slots no cell, open link or parked
+display names (`links.rs`); nothing named is freed, and a press holds its
+link with `Term::link_epoch`. Prior art: kitty walks the history and both
+screens (`[[source: kitty-hyperlink-pool]]`), iTerm2 counts references
+(`[[source: iterm2-url-store]]`), foot frees a row's ranges with the row
+(`[[source: foot-grid-uri-ranges]]`). The cell's sixteen flag bits are all
+taken, so the index cannot widen.
+
+GNU `ls` 9.11 `--hyperlink=always --color=always -1` through a pty, at
+200x50 (`/usr/share` 42 entries, 7 refused before, 0 now):
+
+| capture | links | refused before | refused now |
+|---|---|---|---|
+| `/bin` | 37 | 3 | 0 |
+| `/usr/sbin` | 227, naming 202 targets | 101 (101 targets linked) | 83 (127 linked) |
+| `/usr/bin` | 934 | 802 | 796 (all still named) |
+| `ls /usr/bin; clear; ls /usr/sbin` | 1,161 | 1,029, none after the clear | 879, 127 after it |
+| `ls /usr/sbin; seq 3000; ls /usr/share` | 269 | 136 | 83, all 42 of the second |
+
+**A sweep reads the rows that hold links, not the buffer** (940,000 cells
+in the app's storage, which a byte credit could not pay for: after three
+man1 listings the listing after `clear` was plain for 235 KB). A linked
+cell marks its row (`RowLinks`, in the padding byte of the row's mark):
+text through the per-write hook an open link turns on, `DECCRA`, `DECALN`,
+a scroll inside side margins, and every row after a resize; the sweep reads
+each marked row to its mark and unmarks one holding none
+(`every_linked_cell_is_on_a_row_a_sweep_reads`, 20,000 cases). It spends a
+byte read for each four cells it reads; one that frees nothing makes the
+next wait for up to 127 links or a screen of cells; `ED 3` of rows that held
+links, or `RIS`, pays off the debt from a quarter of the bytes read and
+not yet spent on a payoff, so the sweeps read at most five cells a byte beside
+a fixed allowance. In the app's storage at 80x24, three man1 listings,
+`ls /usr/bin`, `clear` and `ls /usr/sbin` link 127 after the clear, each
+listing sweeping 9-13 times. Hostile, counted at 4.0 cells a byte where the
+gate on cells read 1,354: every row marked, `DECALN` and eight new targets
+a round, 13.8-14.1 ns a byte at 200x50 against 7.1-7.5, 11.5-11.9 in the
+app's storage against 4.8-5.1; with `ED 3` for `DECALN`, 108.9-109.5
+against 102.5-102.8 (four rotated rounds, the first dropped). An `ED 3`
+that paid off the whole debt let a stream sweep every 65-byte round, the
+127 targets held on the alternate screen and each round scrolling one
+linked row into the history before `ED 3` and a new target: 143-178 cells
+read a byte, 29-43 times the base with a history of 1 or 10 lines. It
+reads 5.4-6.0 now, the allowance included: 12.0-12.2 ns a byte against
+4.6-4.7 with a history of one line, 14.5-14.6 against 6.6-7.0 with ten,
+and no cost the timing resolves with the default history or in the app's
+storage, where the base's own `ED 3` costs 410-840 ns a byte. A `RIS` that
+paid off the whole debt let a stream of `RIS`, the 127 targets and a
+`DECALN` under a link through the history sweep the buffer each cycle, 57
+cells read a byte; now 5.4-5.5, 20.6-20.7 ns a byte against 16.7-16.8 at
+200x50 and 22.2-22.6 against 18.5-18.7 in the app's storage. `ingest2` on the
+man1 and `/usr/bin` captures: 204-216 and 213-232 MB/s against 239-259 and
+257-260; on `cat`, `cat-cjk`, `btop`, `vim`, `less` and `less-cjk` the same
+cells and instructions a rep as the base, within their spread.

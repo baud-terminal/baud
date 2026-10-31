@@ -169,7 +169,31 @@ pub struct RunRange {
 pub struct RowExtent {
     word: u16,
     bidi: LineBidi,
+    links: RowLinks,
     margins: WrapMargins,
+}
+
+/// **Whether a row may hold a cell that names an `OSC 8` link**, for the
+/// link table's sweep, which reads only the rows that may
+/// (`baud-core`'s `links.rs`). In the byte the row's mark left as padding,
+/// so every move of a row carries it as it carries the mark, and the entry
+/// stays eight bytes.
+///
+/// **Too many is the safe direction**, as for the mark: a row marked
+/// [`RowLinks::May`] that holds none costs the sweep a read of it, and the
+/// sweep, finding none, marks it [`RowLinks::None`]. A row marked `None`
+/// that holds one would let the sweep free a slot a cell still names, and
+/// that cell would open whatever target took the slot next. So a write of
+/// a linked cell marks its row, and only a sweep's read, a new line, or an
+/// erase of the row from column 0 at the whole pitch says `None`.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[repr(u8)]
+pub enum RowLinks {
+    /// No cell of the row names a link.
+    #[default]
+    None = 0,
+    /// A cell of the row may name one.
+    May = 1,
 }
 
 /// **The side margins a row wrapped at** ([`WrappedAt::Margins`]): the
@@ -414,6 +438,7 @@ impl RowExtent {
     pub const ZERO: RowExtent = RowExtent {
         word: 0,
         bidi: LineBidi::POWER_ON,
+        links: RowLinks::None,
         margins: WrapMargins::NONE,
     };
     /// **The row continues onto the next one**: text reached its last column
@@ -478,17 +503,29 @@ impl RowExtent {
         RowExtent {
             word: u16::try_from(n).unwrap_or(Self::MARK).min(Self::MARK),
             bidi: LineBidi::POWER_ON,
+            links: RowLinks::None,
             margins: WrapMargins::NONE,
         }
     }
     /// **What a fill leaves**: the mark at `n` with no wrap and no
-    /// rendition, and the row's paragraph properties kept.
+    /// rendition, and the row's paragraph properties kept -- and its
+    /// [`RowLinks`], since the cells before `n` are kept, and past the live
+    /// edge a fill may stop short of what the row holds.
     pub fn refilled(self, n: usize) -> RowExtent {
         RowExtent {
             bidi: self.bidi,
+            links: self.links,
             margins: self.margins,
             ..RowExtent::of(n)
         }
+    }
+    /// Whether a cell of the row may name a link ([`RowLinks`]).
+    pub fn links(self) -> RowLinks {
+        self.links
+    }
+    /// The mark with [`RowLinks`] `l`: the rest as it is.
+    pub fn with_links(self, l: RowLinks) -> RowExtent {
+        RowExtent { links: l, ..self }
     }
     /// **What a fill over the whole row leaves of the paragraph
     /// properties**: the row is no longer one DECRLM wrote

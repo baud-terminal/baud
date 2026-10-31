@@ -53,7 +53,7 @@
 
 use baud_core::{Focus, LINK_MAX, PointerShape, Term};
 
-use baud_domain::{Attrs, Codepoint, Col, Cols, LinkId, PackedCell, Row, Rows, Wrap};
+use baud_domain::{Attrs, Codepoint, Col, Cols, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap};
 use baud_render::{AbsLine, Field, Hints, LinkLook, LinkSpan, Point, Scrolled, row_of};
 use core::ops::Range;
 
@@ -719,9 +719,9 @@ pub fn under(
 ) -> Option<Under> {
     let view = term.view(spot.back);
     let cell = *view.row(spot.row).get(spot.col.index())?;
-    let id = cell.flags.link();
-    if term.link_uri(id).is_some() {
-        return Some(Under::Osc8(id));
+    let link = Osc8::of(term, cell);
+    if link.uri(term).is_some() {
+        return Some(Under::Osc8(link));
     }
     let read = match (press, armed) {
         (Press::Down, None) => chord == Chord::Cmd && focus == Focus::Gained,
@@ -740,8 +740,42 @@ pub fn under(
 /// What a press is over: an `OSC 8` run, or a URI in the text.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Under {
-    Osc8(LinkId),
+    Osc8(Osc8),
     Bare(Bare),
+}
+
+/// **An `OSC 8` link as a gesture holds it**: the cell's index, and the
+/// link table's epoch it was read under.
+///
+/// The core frees a slot once nothing names it and gives it to the next
+/// target (`Term::link_epoch`), so an index kept from a press to its
+/// release, or under a held preview, can come to name another link's
+/// target while the cell it was read from is gone. It resolves only while
+/// the epoch is the one it was read under, and two are the same link only
+/// if both agree: a release over a cell that took the freed slot is not
+/// the link that was pressed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Osc8 {
+    id: LinkId,
+    epoch: LinkEpoch,
+}
+
+impl Osc8 {
+    /// The link `cell` names, as read now.
+    pub fn of(term: &Term<'_>, cell: PackedCell) -> Osc8 {
+        Osc8 {
+            id: cell.flags.link(),
+            epoch: term.link_epoch(),
+        }
+    }
+
+    /// Its target, while no sweep has freed a slot since it was read.
+    pub fn uri<'a>(&self, term: &'a Term<'_>) -> Option<&'a [u8]> {
+        match term.link_epoch() == self.epoch {
+            true => term.link_uri(self.id),
+            false => None,
+        }
+    }
 }
 
 /// A mouse event's kind, as the gesture reads it.
@@ -969,8 +1003,8 @@ fn verdict<'a>(
     host: Host<'_>,
 ) -> Option<(&'a [u8], Result<(), Refused>)> {
     Some(match link {
-        Under::Osc8(id) => {
-            let uri = term.link_uri(*id)?;
+        Under::Osc8(link) => {
+            let uri = link.uri(term)?;
             (uri, admit(uri, host).map(|_| ()))
         }
         Under::Bare(b) => (b.text(), b.uri().and_then(|u| admit(u, host).map(|_| ()))),
@@ -984,9 +1018,9 @@ fn verdict<'a>(
 pub fn hovered(term: &Term<'_>, spot: Spot) -> Option<Under> {
     let view = term.view(spot.back);
     let cell = *view.row(spot.row).get(spot.col.index())?;
-    let id = cell.flags.link();
-    if term.link_uri(id).is_some() {
-        return Some(Under::Osc8(id));
+    let link = Osc8::of(term, cell);
+    if link.uri(term).is_some() {
+        return Some(Under::Osc8(link));
     }
     let line = spot.scrolled.line(spot.back, spot.row);
     window(term, spot.scrolled, line, spot.col)?
@@ -1006,12 +1040,14 @@ pub fn link_spans(term: &Term<'_>, spot: Spot, link: &Under) -> Vec<LinkSpan> {
     let (rows, cols) = (view.rows().index(), view.cols().index());
     let mut out = Vec::new();
     match link {
-        Under::Osc8(id) => {
+        // A link whose slot was freed since names none of the cells.
+        Under::Osc8(link) if link.uri(term).is_none() => {}
+        Under::Osc8(link) => {
             for y in 0..rows {
                 let row = view.row(Row::from_index(y));
                 let mut run: Option<usize> = None;
                 for x in 0..=cols.min(row.len()) {
-                    let on = row.get(x).is_some_and(|c| c.flags.link() == *id);
+                    let on = row.get(x).is_some_and(|c| c.flags.link() == link.id);
                     match (on, run) {
                         (true, None) => run = Some(x),
                         (false, Some(a)) => {
@@ -1402,12 +1438,18 @@ mod tests {
 
     #[allow(non_snake_case)]
     fn L() -> Under {
-        Under::Osc8(LinkId::from_index(3))
+        Under::Osc8(Osc8 {
+            id: LinkId::from_index(3),
+            epoch: LinkEpoch::ZERO,
+        })
     }
 
     #[allow(non_snake_case)]
     fn M() -> Under {
-        Under::Osc8(LinkId::from_index(4))
+        Under::Osc8(Osc8 {
+            id: LinkId::from_index(4),
+            epoch: LinkEpoch::ZERO,
+        })
     }
 
     fn armed(clicks: Clicks) -> Option<Armed> {
@@ -2079,6 +2121,80 @@ mod tests {
             up.as_ref(),
         );
         assert_eq!(g, Gesture::Drop);
+    }
+
+    /// **A press on a link whose slot a sweep gave to another target opens
+    /// nothing.** The core frees a link table slot once nothing names it,
+    /// and the next target may take it; here the pressed link's cell is
+    /// erased while the press is held and another link lands on the same
+    /// cell under the same index, so the release is over a cell naming the
+    /// pressed index -- and another target. The epoch the press was read
+    /// under has moved, so it is not the link that was pressed.
+    /// Perturbation: read every link under the first epoch -- the release
+    /// opens the other target.
+    #[test]
+    fn a_press_on_a_link_whose_slot_was_given_away_opens_nothing() {
+        let link = |uri: &str, text: &str| format!("\x1b]8;;{uri}\x1b\\{text}\x1b]8;;\x1b\\");
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, link("https://pressed.example/", "A").as_bytes());
+        let at = spot(Scrolled::START, Row::from_index(0), Col::at_index(0));
+        let down = under(&t, at, Press::Down, Chord::Cmd, Focus::Gained, None);
+        let Some(Under::Osc8(pressed)) = down.clone() else {
+            panic!("the press is over the link: {down:?}")
+        };
+        let Gesture::Arm(armed) = gesture(
+            Press::Down,
+            Chord::Cmd,
+            Clicks::Single,
+            Focus::Gained,
+            None,
+            down.as_ref(),
+        ) else {
+            panic!("armed")
+        };
+        // While the press is held: fill the table, erase everything, write
+        // a screen of text, and link the pressed cell again and again until
+        // its new target took the pressed one's slot.
+        for i in 0..254 {
+            feed(
+                &mut t,
+                link(&format!("https://fill.example/{i}"), "f").as_bytes(),
+            );
+        }
+        feed(&mut t, b"\x1b[H\x1b[2J\x1b[3J");
+        feed(&mut t, &[b'.'; 20 * 6]);
+        feed(&mut t, b"\x1b[H\x1b[2J");
+        let mut took = false;
+        for i in 0..400 {
+            let next = format!("\x1b[H{}", link(&format!("https://other.example/{i}"), "B"));
+            feed(&mut t, next.as_bytes());
+            let cell = t.view(Rows::ZERO).row(Row::from_index(0))[0];
+            if cell.flags.link() == pressed.id {
+                took = true;
+                break;
+            }
+        }
+        assert!(took, "the control: another target took the pressed slot");
+        let up = under(&t, at, Press::Up, Chord::Other, Focus::Gained, Some(&armed));
+        let uri = match &up {
+            Some(Under::Osc8(l)) => l.uri(&t),
+            _ => None,
+        };
+        assert!(
+            uri.is_some_and(|u| u.starts_with(b"https://other.example/")),
+            "the control: the release is over the other target, {up:?}"
+        );
+        let g = gesture(
+            Press::Up,
+            Chord::Other,
+            Clicks::Single,
+            Focus::Gained,
+            Some(&armed),
+            up.as_ref(),
+        );
+        assert_eq!(g, Gesture::Drop);
+        assert_eq!(pressed.uri(&t), None, "and the pressed link is gone");
     }
 
     /// An `OSC 8` cell is the `OSC 8` link's, and it ends the text around

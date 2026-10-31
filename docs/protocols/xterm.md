@@ -102,9 +102,11 @@ leave the previous title showing with nothing to say why.
 
 `OSC 8` hyperlink URIs live in a bounded table, `NLINK` slots of at most
 `LINK_MAX` bytes -- a URI is attacker-supplied content used as a key. It
-**refuses** a colliding link rather than evicting the occupant, because an
-evicted link would retarget cells already on screen; a refusal is counted in
-`links_refused` and its cells are plain text. The link index rides in spare
+**never gives a slot something names to another target**, because an evicted
+link would retarget cells already on screen: a target probes sixteen slots,
+the table is swept of the slots nothing names when they are all held, and a
+link still without one is counted in `links_refused` and its cells are plain
+text. The link index rides in spare
 `CellFlags` bits, because `PackedCell` is eight bytes by measurement and a ninth
 would round it to twelve.
 

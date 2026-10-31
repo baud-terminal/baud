@@ -426,7 +426,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             images,
             ..
         } = store;
-        let hooks = WriteHooks::of(images, cold.watched, cold.bell.armed);
+        let hooks = WriteHooks::of(images, cold.watched, cold.bell.armed, flags);
         // **The live surface by which screen is up.** The primary is the
         // ring -- the screen's capacity plus the scrollback -- and the
         // alternate is a ring of the capacity alone, so a scroll there
@@ -2374,8 +2374,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     pub(crate) fn overwrote(&mut self, start: Col, end: Col) {
         if self.hooks == WriteHooks::Off {
             debug_assert!(
-                WriteHooks::of(self.images, self.cold.watched, self.cold.bell.armed)
-                    == WriteHooks::Off
+                WriteHooks::of(
+                    self.images,
+                    self.cold.watched,
+                    self.cold.bell.armed,
+                    self.flags
+                ) == WriteHooks::Off
             );
             return;
         }
@@ -2385,6 +2389,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn overwrote_hooked(&mut self, start: Col, end: Col) {
+        // Under an open link the row now holds a linked cell, which the link
+        // table's sweep must read (`links.rs`).
+        if !self.flags.link().is_none() {
+            self.view.link_row(self.cy);
+        }
         self.overwrite_images(start, end);
         self.wrote_rows(self.cy, self.cy);
         self.margin_bell(start, end);
@@ -2447,7 +2456,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// [`Paint::hooks`] read again, after anything that may have placed an
     /// image and on the hooked path itself.
     pub(crate) fn rehook(&mut self) {
-        self.hooks = WriteHooks::of(self.images, self.cold.watched, self.cold.bell.armed);
+        self.hooks = WriteHooks::of(
+            self.images,
+            self.cold.watched,
+            self.cold.bell.armed,
+            self.flags,
+        );
     }
 
     /// Rows `from` to `to` of the live screen written or erased, told to the
@@ -2674,8 +2688,13 @@ impl WriteHooks {
         images: &ImageStore<'_>,
         watched: crate::term::Watched,
         armed: Option<crate::margin::Line>,
+        flags: CellFlags,
     ) -> WriteHooks {
-        match images.any_placed() || watched == crate::term::Watched::Rows || armed.is_some() {
+        match images.any_placed()
+            || watched == crate::term::Watched::Rows
+            || armed.is_some()
+            || !flags.link().is_none()
+        {
             true => WriteHooks::On,
             false => WriteHooks::Off,
         }

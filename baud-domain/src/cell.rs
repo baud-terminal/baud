@@ -237,13 +237,126 @@ impl LinkId {
     /// the same `id` be one logical link across lines; distinct ids must not
     /// collapse into a single slot merely because their URIs match.
     pub fn bucket(id: &[u8], uri: &[u8], buckets: usize) -> LinkId {
+        LinkKey::of(id, uri).home(buckets)
+    }
+}
+
+/// **What a link table slot is looked up by**: the FNV-1a state over the
+/// `id` and the URI, and the slot a probe starts from.
+///
+/// The URI alone is the destination; the key is what keeps two `id`s apart
+/// that share one. `[[source: osc8-spec]]`: "Character cells that have the
+/// same target URI and the same nonempty `id` are always underlined
+/// together on mouseover", and two runs with different ids are two links.
+/// A slot matches only on both its key and its bytes, so a key collision
+/// can at worst join two runs of the *same* URI, never give a cell another
+/// destination.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct LinkKey(u64);
+
+impl LinkKey {
+    pub fn of(id: &[u8], uri: &[u8]) -> LinkKey {
         let mut h: u64 = FNV_OFFSET;
         for &b in id.iter().chain(uri) {
             h ^= b as u64;
             h = h.wrapping_mul(FNV_PRIME);
         }
-        let spread = h.wrapping_mul(FIBONACCI) >> 32;
+        LinkKey(h)
+    }
+    /// The slot a probe for this key starts at, in `1..buckets`: the
+    /// **high** bits of the finalized hash, as [`LinkId::bucket`] says.
+    pub fn home(self, buckets: usize) -> LinkId {
+        let spread = self.0.wrapping_mul(FIBONACCI) >> 32;
         LinkId::from_index(1 + (spread as usize) % (buckets - 1))
+    }
+    /// The word a slot keeps to compare against.
+    pub fn word(self) -> u32 {
+        (self.0 ^ (self.0 >> 32)) as u32
+    }
+}
+
+/// Moves whenever a slot of the `OSC 8` link table may have been given to
+/// another target: a sweep that freed one, or a reset.
+///
+/// **What a reader holding a [`LinkId`] across reads compares.** A sweep
+/// frees only slots no cell names, so every cell keeps its target; but an
+/// index copied out of a cell -- a press waiting for its release, a held
+/// preview -- names whatever took the slot after it was freed. A reader
+/// that resolves a held index only while the epoch is the one it was read
+/// under can never open another link's target.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct LinkEpoch(u32);
+
+impl LinkEpoch {
+    /// A table's first epoch.
+    pub const ZERO: LinkEpoch = LinkEpoch(0);
+    /// The epoch after this one.
+    pub fn next(self) -> LinkEpoch {
+        LinkEpoch(self.0.wrapping_add(1))
+    }
+}
+
+/// What the link table's sweeps have done: how many ran, how many slots
+/// they freed, and how many cells they read, row marks counted as cells,
+/// each summed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct LinkSweeps {
+    pub sweeps: usize,
+    pub freed: usize,
+    pub read: usize,
+}
+
+/// Which link slots something names, for a sweep: one bit a slot.
+pub struct LinkLive {
+    bits: [u64; LinkLive::SLOTS / 64],
+}
+
+impl LinkLive {
+    /// Every index a cell's link bits can spell, `NONE`'s included.
+    pub const SLOTS: usize = CellFlags::LINK_MASK as usize + 1;
+    pub fn new() -> LinkLive {
+        LinkLive {
+            bits: [0; LinkLive::SLOTS / 64],
+        }
+    }
+    /// Every slot a cell of `cells` names; whether any does.
+    ///
+    /// **Sixteen cells at a time, and a block naming none is skipped**:
+    /// nearly every cell names no link, and the one test a block -- the
+    /// link bits of sixteen flag words OR-ed -- is what keeps a sweep from
+    /// paying a dependent read-modify-write of `bits` a cell.
+    pub fn mark(&mut self, cells: &[PackedCell]) -> bool {
+        const LINKS: u16 = CellFlags::LINK_MASK << CellFlags::LINK_SHIFT;
+        let mut any = false;
+        for block in cells.chunks(16) {
+            if block.iter().fold(0, |a, c| a | c.flags.0) & LINKS == 0 {
+                continue;
+            }
+            for c in block {
+                let l = c.flags.link();
+                if !l.is_none() {
+                    self.name(l);
+                    any = true;
+                }
+            }
+        }
+        any
+    }
+    /// The slot `l` names, as live; `LinkId::NONE` names none.
+    pub fn name(&mut self, l: LinkId) {
+        let i = l.index() & CellFlags::LINK_MASK as usize;
+        self.bits[i / 64] |= 1 << (i % 64);
+    }
+    /// Whether anything marked names slot `l`.
+    pub fn has(&self, l: LinkId) -> bool {
+        let i = l.index() & CellFlags::LINK_MASK as usize;
+        self.bits[i / 64] & (1 << (i % 64)) != 0
+    }
+}
+
+impl Default for LinkLive {
+    fn default() -> Self {
+        LinkLive::new()
     }
 }
 
