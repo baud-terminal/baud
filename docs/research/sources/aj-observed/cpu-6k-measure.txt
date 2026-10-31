@@ -282,7 +282,7 @@
 # 83.38 G / 82.32 G, ice 75.01-75.12 G / 75.13 G (inside the base's spread). No
 # row retires more work than the base.
 #
-# --- Section 24: every cursor trail's frame within its budget (2026-10-30) ---
+# --- Section 24: every cursor trail's incremental frame within its budget (2026-10-30) ---
 #
 # Arms: 'base' 0000c1d8, 'fix' the change and 'fix1' its A/A (cmp identical), each the trail
 # bench built from git archive at one path, -align-all-functions=6. Worst frame ms over rounds
@@ -546,11 +546,17 @@
 #   full 360x90 step ghost        1,673,052,126   1,673,710,421  1.000
 #   full 360x90 step sweep        9,366,467,143   9,358,320,637  0.999
 #   full 360x90 step quad         5,533,113,728   5,520,645,005  0.998
-# The lives above the base, run three times on each arm: ghost 1x jump incremental base
+# Four of the nine lives above the base, run three times on each arm: ghost 1x jump incremental base
 # 52,594,790-53,265,901, fix 52,514,981-52,694,588; ghost 2x step full 1,058,624,530-1,060,918,038
 # and 1,059,070,722-1,061,218,212; plasma 2x step incremental 3,805,842,341-3,807,502,903 and
 # 3,805,142,541-3,807,554,760; plasma 6K step full 8,687,707,891-8,689,991,373 and
-# 8,689,892,684-8,692,339,861. Every pair overlaps.
+# 8,689,892,684-8,692,339,861. Every pair overlaps. Four of the other five were not run again:
+# ghost 1x step incremental, ghost 6K jump incremental, ghost 6K jump full and ghost 6K step full.
+# The fifth, ghost 2x jump full, and ghost 2x step full were run again later, both arms built at
+# one path, 7 runs each over 2 rounds, one thread, at a count about twice the table's, so only the
+# arms compare: jump base 2,063.4-2,074.2 M, change 2,064.3-2,076.3 M; step base
+# 2,063.1-2,065.1 M, change 2,064.2-2,066.7 M. The ranges overlap; the change's median is about
+# 0.05% higher, from code generation, the ghost's source path being untouched.
 #
 # Where the time went, `sample` 6-8 s on the base at the machine's threads unless named, samples by
 # innermost function in the timed work (the bench's life left out, which holds its frame hash):

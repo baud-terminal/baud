@@ -121,7 +121,8 @@ impl Det for f32 {
 /// a quad the plasma measured ([`DISTANCES`]), every pixel a smear's
 /// coverage was measured at ([`COVERAGES`]), every vertex of a bolt
 /// ([`VERTICES`]), every pose of a saucer ([`POSES`]) and every state of a
-/// gel ([`STATES`]) -- the work a frame costs, counted where a wall clock would read the machine's load.
+/// gel ([`STATES`]) -- the work a frame costs, counted where a wall clock
+/// would read the machine's load.
 /// Tests only.
 #[cfg(test)]
 pub(crate) mod tally {

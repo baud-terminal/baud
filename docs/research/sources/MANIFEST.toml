@@ -21553,8 +21553,8 @@ year   = 2026
 venue  = "local capture or measurement"
 url    = "baud-bench's splash and trail benches, 47fda97c, 0dc9a368 and 0000c1d8, base and change built from git archive at one path, rotated rounds, sample, xctrace, proc_pid_rusage and baud-render's own tests, 2026-10-30"
 file   = "aj-observed/cpu-6k-measure.txt"
-sha256 = "03bf2436ee6beab1acf9deb754409952558b37ad5d72cfa48359a7a7dc051b73"
-bytes  = 51631
+sha256 = "03b7f4707801c752103cb9a9e6793d47ffe90b59a4247945b87424d7efae6b32"
+bytes  = 52250
 
 [sources.aj-obs-kitty-strip-dark]
 key    = "aj-obs-kitty-strip-dark"

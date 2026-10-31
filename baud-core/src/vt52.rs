@@ -117,14 +117,17 @@ impl Paint<'_, '_> {
     /// narrower repertory: "Only ASCII, national replacement characters,
     /// and DEC special graphics are available" (`[[source: vt220-rm-ch4]]`
     /// Table 4-3), and "In Level 1 operation character sets can only be
-    /// designated into G0 and G1" (070-5 SCS note 1). So a slot holding a
-    /// set SCS could not designate there at Level 1 takes ASCII, by the
-    /// same table SCS reads: G2 and G3 always, as §3.6.4.1's Level 1 state
-    /// has them, and G0 or G1 when it holds a set introduced above Level 1.
-    /// VT52's `ESC F` Line Drawing in G0 stays. GL and GR stay and are
-    /// resolved again. Before 2026-10-30 no set changed, and after leaving
-    /// VT52 from Level 4 `ESC N A` drew the supplemental `Á` at Level 1
-    /// until a DECSCL 61.
+    /// designated into G0 and G1, with G2 and G3 containing the ASCII
+    /// character set by default" (070-5 SCS note 1, p. 5-118). So a slot
+    /// holding a set SCS could not designate there at Level 1 takes ASCII,
+    /// by the same table SCS reads: G2 and G3 always, as §3.6.4.1's Level 1
+    /// state has them, and G0 or G1 when it holds a set introduced above
+    /// Level 1. VT52's `ESC F` Line Drawing stays when it went into G0 or
+    /// G1. GL and GR keep their slots. GL's set is resolved again through
+    /// `Paint::invoke`. GR needs nothing resolved, because a GR byte reads
+    /// its slot live. Before 2026-10-30 no set changed, and after leaving
+    /// VT52 from Level 2, 3 or 4 `ESC N A` drew the supplemental `Á` at
+    /// Level 1 until the sets were reset.
     fn level_one_sets(&mut self) {
         for slot in [GSlot::G0, GSlot::G1, GSlot::G2, GSlot::G3] {
             let i = slot.index();

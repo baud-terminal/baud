@@ -407,9 +407,9 @@ impl Smear {
     /// within `grow` of the hull -- half a pixel for a quad, none for a
     /// sweep -- has its nearest point in the rows' strip, `grow` past the
     /// centres, and its centre within `grow` of the strip's columns; a
-    /// quarter pixel more on each, for the rounding. On a jump across the window the bounds are the window and
-    /// the shape a strip a cell or two wide: what a CPU frame measures and
-    /// repaints.
+    /// quarter pixel more on each, for the rounding. On a jump across the
+    /// window the bounds are the window and the shape a strip a cell or two
+    /// wide: what a CPU frame measures and repaints.
     pub(crate) fn columns(&self, top: Px, bottom: Px) -> Option<(Px, Px)> {
         let c = self.corners.0;
         let (points, n, grow) = match self.shape {

@@ -2875,18 +2875,20 @@ lightning (16-25 ms, most frames); at 2x the quad and the sweep miss
 frames misses the budget on a jump at 2x and 6K with every trail but the
 ghost, on 1 to 99 frames, as before section 22.
 
-## 24. Every cursor trail's frame within its budget on the CPU path (2026-10-30)
+## 24. Every cursor trail's incremental frame within its budget on the CPU path (2026-10-30)
 
 **What the user sees.** On the CPU path (the Linux driver's; macOS under
-`BAUD_GPU=0`), a cursor jump across the window draws every frame of every
-trail within the display's frame on the machine measured (an Apple M5
+`BAUD_GPU=0`), a cursor jump across the window draws every incremental
+frame of every trail, the frames that path draws, within the display's
+frame on the machine measured (an Apple M5
 Max; Linux is unmeasured): the worst of all 60 lives 3.9 ms at 1x, 6.7 at
 2x against 8.3 at 120 Hz, and 11.2 at 6K against 16.7. The quad and the
 sweep took 46-50 ms on 4 frames at 6K and 14-17 ms on 4-6 at 2x, now
 1.1-2.7 and 0.6-1.6; at 2x the ufo's 11.6-13.2 ms is 0.7-1.2, the
 lightning's 8.5-31.3 is 4.4-6.7, the ice's 8.7-9.3 is 4.6-6.1. They look
 exactly as before: one FNV-1a over each life's frames equals the base's on
-all 60 lives, in both damage modes, on one thread and the machine's.
+all 60 lives, in both damage modes, on one thread and the machine's. A
+frame drawn whole can still go over in some runs (Measured, below).
 
 **Where the time went** (`sample`; dtrace's `profile` needs sudo, not
 available). A smear's one record is its bounds, the window on a jump, and
@@ -2901,8 +2903,11 @@ and the ice its crystals.
 its shape can cover (`Smear::columns`): the hull of the quad's corners
 within half a pixel; for the sweep, of the cursor's box and its tail's
 chord across the move, where its alpha starts. The lightning, ice, ufo,
-orb and liquid take what is the same at every pixel once a band, each
-vertex and crystal once, by the code the light at one pixel runs; each
+orb and liquid take what is the same at every pixel once a band, each of
+the bolt's vertices once a band, and each of the first 64 crystals from
+the band's start along the path (`ice::shade` keeps 64 slots; past them
+a crystal is computed again each time a pixel reads it), by the code the
+light at one pixel runs; each
 effect has a loop of its own (`lights`), the fire's light as before.
 
 **Held.** `a_jump_repaints_only_the_columns_its_smear_covers`,
@@ -2916,8 +2921,9 @@ on two seeds, hashes as the base's.
 
 **Measured** ([[source: aj-obs-cpu-6k-measure]]: rotated rounds, an A/A
 copy, load 3.9-4.5). At one thread every life retires fewer instructions,
-0.22-0.61 of the base's for the ufo, lightning and ice on a jump, or as
-many within three runs' spread (the ghost, the plasma). Drawn whole, the
+0.22-0.61 of the base's for the ufo, lightning and ice on a jump, or
+within 0.7% of the base's (the ghost and the plasma, whose code is
+unchanged). Drawn whole, the
 change's two copies, one binary, went over on 20 frames in three of their
 six runs, up to 35 ms at 6K, the unchanged plasma among them; the base on 56-84 a
 round. **Not fixed.** The fire's light at each pixel, and the lightning's
