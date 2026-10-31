@@ -459,6 +459,18 @@ reaches, as `Term::resize` once had no caller anywhere and, once reached, gave
 up three bugs, one a panic on window shrink. The exemption list is empty on
 purpose.
 
+**Every named field of every struct in `baud-core` is read somewhere**
+(`every_state_field_is_read_somewhere`, in `baud-core/tests/state_fields.rs`).
+A field that is only ever assigned is state the terminal pays for and never
+acts on, and `rustc` stays silent about it, because it counts an assignment
+as a use. The test reads the source: a read is any use but as an
+assignment's target, including passing, borrowing, comparing, matching and a
+method call. A read inside `#[cfg(test)]` code does not count, except for a
+`pub` field of a `pub` struct, which an embedder may read and so may be read
+from any crate or test. Remove the field, or write the code that acts on it.
+Its exemption list is empty on purpose: a field goes there only with a
+written reason that reading it from code is impossible.
+
 **Correctness comes before a benchmark.** Read the counters and the
 differentials (`baud-difftest` against alacritty, `baud-sfte-difftest` against
 sfte, cell for cell) before any rate; a test that only prints cannot fail.
