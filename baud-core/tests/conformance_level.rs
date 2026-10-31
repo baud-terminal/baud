@@ -597,6 +597,59 @@ fn level_one_single_shifts_draw_ascii() {
     });
 }
 
+/// **Leaving VT52 leaves only Level 1's sets**: `ESC <` returns to Level 1
+/// (`[[source: dec-std-070]]` 070-0A p. A-15), whose character sets 070-0A
+/// A.5.5 leaves "undefined ... when entering and exiting VT52 Mode", and
+/// at Level 1 "Only ASCII, national replacement characters, and DEC special
+/// graphics are available" (`[[source: vt220-rm-ch4]]` Table 4-3), with
+/// nothing designated into G2 or G3 (070-5 SCS note 1). So the
+/// user-preference set in G2 and G3 becomes ASCII, and `ESC N A` and `ESC O
+/// B` draw `A` and `B`, from Level 4 and from Level 2; a GL locked to G2
+/// draws ASCII; a Level 2 set in G1 becomes ASCII; and DEC Special
+/// Graphics in G2 and G3 becomes ASCII too, the slots not Level 1's.
+#[test]
+fn leaving_vt52_leaves_only_level_one_sets() {
+    for (bytes, drawn) in [
+        (&b"\x1b[?2l\x1b<\x1bNA\x1bOB"[..], "AB"),
+        (b"\x1b[62;1\"p\x1b[?2l\x1b<\x1bNA\x1bOB", "AB"),
+        (b"\x1bn\x1b[?2l\x1b<AB", "AB"),
+        (b"\x1b-A\x1b[?2l\x1b<\x0eAB", "AB"),
+        (b"\x1b*0\x1b+0\x1b[?2l\x1b<\x1bNq\x1bOq", "qq"),
+    ] {
+        every_read_size(bytes, |t, n| {
+            assert_eq!(text(t, 0), drawn, "{bytes:?} read size {n}");
+        });
+    }
+}
+
+/// **The Level 1 sets in G0 and G1 stay**: VT52's `ESC F` Line Drawing in
+/// G0 and a Line Drawing G1 still draw `q` as U+2500 after `ESC <`, and a
+/// DECSCL 62 after it loads the supplemental set again.
+#[test]
+fn leaving_vt52_keeps_level_one_sets_in_g0_and_g1() {
+    every_read_size(b"\x1b[?2l\x1bFq\x1b<q", |t, n| {
+        assert_eq!(text(t, 0), "\u{2500}\u{2500}", "read size {n}");
+    });
+    every_read_size(b"\x1b)0\x1b[?2l\x1b<\x0eq", |t, n| {
+        assert_eq!(text(t, 0), "\u{2500}", "read size {n}");
+    });
+    every_read_size(b"\x1b[?2l\x1b<\x1b[62\"p\x1bNA", |t, n| {
+        assert_eq!(text(t, 0), "\u{c1}", "read size {n}");
+    });
+}
+
+/// **A `DECRC` after `ESC <` restores what the `DECSC` before VT52
+/// saved**, the supplemental set in G2 included: 070-5 DECRC (p. 5-189)
+/// restores "the currently designated G0, G1, G2, and G3 sets" that DECSC
+/// stored, at Level 1 as at every level, and `ESC <` leaves the save
+/// buffer as it was.
+#[test]
+fn a_decrc_after_leaving_vt52_restores_the_saved_sets() {
+    every_read_size(b"\x1b7\x1b[?2l\x1b<\x1b8\x1bNA", |t, n| {
+        assert_eq!(text(t, 0), "\u{c1}", "read size {n}");
+    });
+}
+
 /// **Levels 2, 3 and 4 keep the User Preference Supplemental Set in G2 and
 /// G3**: 070-3 §3.6.4.3, which a Level 3 device's Level 2 takes too, the
 /// 8-bit Interface Architecture being its "implicit extension to Level 2"

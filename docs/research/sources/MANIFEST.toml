@@ -470,6 +470,14 @@ group  = "C"
 # "attempts to enter characters beyond the right line boundary are handled by
 # overwriting the character at the last column in the line". Searched for double-width
 # characters, Kanji, two-byte and two-position characters: none takes two positions.
+# Re-fetched 2026-10-30 for leaving VT52, the sha256 matching, on the text layer [text]:
+# 070-0A A.5.5 and A.5.6, 'undefined results and states both when entering and exiting
+# VT52 Mode emulation', Character Sets among them (p. A-11, PDF 1061); EXIT VT52 EMULATION
+# MODE, 'State Affected: EMULATION MODE' (p. A-15, PDF 1065); ENTER and EXIT GRAPHICS MODE
+# (pp. A-20, A-22, PDF 1070, 1072); A.9.2, 'always returns to level 1 operation' (p. A-45,
+# PDF 1095); 070-0C Category 2 (p. C-28, PDF 1171); 070-3 §3.6.2 and §3.6.4 (PDF 167-168);
+# 070-1 §1.6.2 and §1.7.2, SELECT CHARACTER SET to G0, G1 at Level 1 (PDF 58, 63); 070-5
+# DECRC (p. 5-189, PDF 444).
 
 # Read 2026-10-18 for the line renditions (lane b92), the copy whose sha256 matches, on
 # the text layer [text]: § 5.4.1's display structure (p. 5-20); DECLRMM, which resets
@@ -626,6 +634,9 @@ group  = "C"
 # every cell it wrote, skipping only SOH, its marker for a cell it never wrote;
 # tst_VT420_rectangle's title adds "(should not work)" for a terminal whose
 # DA is below level 4.
+# Re-fetched 2026-10-30, the sha256 matching: vt52.c's tst_vt52, which after ESC < checks
+# that DECRQSS for DECSCL and S8C1T are not recognised, 'A real VT420 goes to VT100 mode', and
+# no character set; setup.c's set_level.
 
 [sources.vt510-decsed]
 key    = "vt510-decsed"
@@ -15738,6 +15749,9 @@ group  = "J"
 # DECSCL and 4.4 SCS, with 4.4.3 locking and 4.4.4 single shifts: a re-fetch that day
 # matched the recorded sha256 byte for byte. The title read "Received Character Processing" until then,
 # which is the VT102 User Guide's chapter 5 heading; the page's h1 is "4 Received Codes".
+# Re-fetched 2026-10-30, the sha256 matching: Table 4-3, Level 1 'Only ASCII, national
+# replacement characters, and DEC special graphics are available'; 4.4, 'You cannot designate
+# a G2 and G3 set in VT100 mode' and 'GR is available only in VT200 mode'; 4.20, VT52 mode.
 
 [sources.vt510-rm-ch4]
 key    = "vt510-rm-ch4"
@@ -16487,6 +16501,11 @@ group  = "C"
 # effect on' them); Table 4-1, which
 # lists DECSTUI, DECDMAC, DECINVM and DECCKSR among the functions a Level 1 VT420 ignores;
 # DECDLD, p. 114 on. DECPFK and DECPAK are in none of its pages.
+# Re-fetched 2026-10-30, the sha256 matching, on the text layer [text]: Appendix A, Notes
+# on DECANM, 'The DEC Supplemental Graphic, ISO Latin-1 supplemental, and NRC sets are not
+# available' (p. 327, PDF 349), and Exiting VT52 Mode, 'the terminal returns to the mode it
+# was in before entering VT52 mode', Table A-1 'Exit VT52 mode. (Enter VT100 mode.)' (p. 328,
+# PDF 350).
 
 [sources.vt510-rm-b]
 key    = "vt510-rm-b"
@@ -16557,6 +16576,9 @@ group  = "C"
 # 5-103); DECRQTSR (p. 5-113); DECCTR (p. 5-114), 'Pu 0 Illegal', its Response printed
 # 'DCS 2 $ p'; DECRSTS and DECRSTS of the colour table (pp. 5-117, 5-118); DECTSR and its
 # colour table report, 'DCS 2 $ s' (pp. 5-160, 5-161).
+# Re-fetched 2026-10-30, the sha256 matching [text]: DECANM Exit, 'When the terminal exits
+# VT52 mode, it returns to the previous mode before entering VT52 mode' (PDF 173), and 2.10.1's
+# soft reset on entering VT52 from VT500 mode (PDF 66).
 
 # No `year`: the scan carries no date on its cover (PDF p. 1), the blank p. 2, the
 # contents (p. 3) or its last two pages (Appendix C, pp. C-1 and C-2), and none is

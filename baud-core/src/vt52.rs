@@ -89,12 +89,14 @@ impl Paint<'_, '_> {
             // operation", whatever level it left (070-0C Category 2, p.
             // C-28), and "Level 1 operation is 7-bits only" (070-3
             // §3.6.4.1). xterm returns to its level 1 and keeps an `S8C1T`,
-            // a departure not followed.
+            // a departure not followed. **And to Level 1's sets**
+            // (`Paint::level_one_sets`).
             Vt52::ExitVt52 => {
                 let was = self.cold.strips();
                 self.cold.terminal = TerminalMode::Ansi;
                 self.cold.level = ConformanceLevel::One;
                 self.cold.replies = self.cold.replies.with_c1(C1Transmit::SevenBit);
+                self.level_one_sets();
                 *node = crate::graph::Node::AfterControl;
                 self.restrip_from(was, node);
             }
@@ -106,6 +108,33 @@ impl Paint<'_, '_> {
             Vt52::Print(m) => self.media_copy(m, node),
             Vt52::Unsupported => self.vt52_unsupported += 1,
         }
+    }
+
+    /// **What `ESC <` leaves in G0 to G3: only what Level 1 can hold.**
+    /// `[[source: dec-std-070]]` 070-0A A.5.5 (p. A-11) leaves "Character
+    /// Sets" with "undefined results and states both when entering and
+    /// exiting VT52 Mode emulation", and the level it returns to has a
+    /// narrower repertory: "Only ASCII, national replacement characters,
+    /// and DEC special graphics are available" (`[[source: vt220-rm-ch4]]`
+    /// Table 4-3), and "In Level 1 operation character sets can only be
+    /// designated into G0 and G1" (070-5 SCS note 1). So a slot holding a
+    /// set SCS could not designate there at Level 1 takes ASCII, by the
+    /// same table SCS reads: G2 and G3 always, as §3.6.4.1's Level 1 state
+    /// has them, and G0 or G1 when it holds a set introduced above Level 1.
+    /// VT52's `ESC F` Line Drawing in G0 stays. GL and GR stay and are
+    /// resolved again. Before 2026-10-30 no set changed, and after leaving
+    /// VT52 from Level 4 `ESC N A` drew the supplemental `Á` at Level 1
+    /// until a DECSCL 61.
+    fn level_one_sets(&mut self) {
+        for slot in [GSlot::G0, GSlot::G1, GSlot::G2, GSlot::G3] {
+            let i = slot.index();
+            let one = ConformanceLevel::One;
+            if !(slot.designable(one) && self.cold.g[i].introduced().admits(one)) {
+                self.cold.g[i] = Charset::Ascii;
+                self.cold.desig[i] = Designation::ASCII;
+            }
+        }
+        self.invoke();
     }
 
     /// `ESC F` / `ESC G`: designate into the active slot and invoke it.
