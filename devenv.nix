@@ -304,9 +304,11 @@ in
   # succeeded, and `@completed` runs it once that one has finished or been
   # skipped, whatever its exit code. fmt, clippy, check and unit are chained
   # by plain edges, so a formatting error skips clippy, check and unit, and
-  # a compile error skips unit, with no test build. The six gates after
+  # a compile error skips unit, with no test build. The five gates after
   # unit are chained by `@completed` (note V, V21 B), so they run after a
   # red or a skipped unit and one push reports every independent failure;
+  # paths needs no build and runs right after fmt, beside sources and
+  # changelog (note V, V21 add-on 1);
   # after a compile error, bare and linux can fail again on it. The run still
   # exits non-zero: see the comment above `enterTest`.
   tasks = {
@@ -422,9 +424,13 @@ in
     # were green -- one by never being built, one by not being a workspace
     # member -- so this is the gate that says which machine a tree can be
     # built on rather than leaving it to a failure somewhere else.
+    # It needs no build, so it runs right after formatting, as sources and
+    # changelog do, and a path that leaves the repository is reported in the
+    # first minutes of a run rather than at the end of the chain (note V,
+    # V21 add-on 1). A plain edge: a formatting failure skips it.
     "test:paths" = {
       exec = "bash ./scripts/check-paths.sh";
-      after = [ "test:features@completed" ];
+      after = [ "test:fmt" ];
     };
 
     # What crates.io would receive: `baud` and the crates it is built from,
@@ -435,7 +441,10 @@ in
     # through a release.
     "test:publish" = {
       exec = "python3 ./scripts/check-publish.py --verify";
-      after = [ "test:paths@completed" ];
+      # After the features gate, not after paths: `cargo package` takes the
+      # same lock over ./target that clippy, check and unit hold, so it must
+      # wait for the cargo chain to finish.
+      after = [ "test:features@completed" ];
     };
 
     # RustSec advisories, which SECURITY.md asks reporters for. Run by hand
