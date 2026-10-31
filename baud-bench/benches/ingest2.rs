@@ -296,6 +296,7 @@ fn main() {
     let mut tmpl = vec![None; NSTYLE];
     let mut order = vec![baud_domain::StyleId::DEFAULT; NSTYLE];
     let mut book = baud_core::StyleBook::new();
+    let mut reach = vec![baud_domain::Reach::ZERO; NSTYLE];
     let mut tabs = vec![false; MAX_COLS];
     let mut reply = vec![0u8; REPLY];
     let mut alt = vec![PackedCell::EMPTY; span.len()];
@@ -342,6 +343,7 @@ fn main() {
                 slots: &mut tmpl,
                 order: &mut order,
                 book: &mut book,
+                reach: &mut reach,
             },
             &mut tabs,
             &mut reply,

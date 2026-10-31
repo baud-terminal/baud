@@ -13,6 +13,46 @@ impl StyleId {
     pub const DEFAULT: StyleId = StyleId(0);
 }
 
+/// **How far past one bucket of the rendition table the farthest rendition
+/// homed there lies**, one a slot, beside the table. A probe for a
+/// rendition homed at `h` that has read `reach[h] + 1` slots from `h`
+/// without finding it has proved it is in no slot, so a miss on a table
+/// with no empty slot reads that many and not the whole table. A
+/// [`StyleId`] is two bytes, so a rendition lies at most 65,535 slots past
+/// its bucket, which two bytes hold.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Debug)]
+#[repr(transparent)]
+pub struct Reach(u16);
+
+impl Reach {
+    /// No rendition past its bucket, which is a new table's every slot.
+    pub const ZERO: Reach = Reach(0);
+    /// `n` slots past the bucket; `n` is below the table's length.
+    pub fn of(n: usize) -> Reach {
+        debug_assert!(
+            n <= usize::from(u16::MAX),
+            "a rendition lies within the table"
+        );
+        Reach(n as u16)
+    }
+    /// The slots a probe from the bucket reads to prove a miss.
+    pub fn slots(self) -> usize {
+        usize::from(self.0) + 1
+    }
+}
+
+/// **Slots the rendition table's long probes have read**, a count that only
+/// grows ([`SweepBook::probes`]).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Debug)]
+pub struct SlotsRead(u64);
+
+impl SlotsRead {
+    /// The slots read since the count was `then`.
+    pub fn since(self, then: SlotsRead) -> u64 {
+        self.0 - then.0
+    }
+}
+
 /// Character rendition bits.
 ///
 /// No public field, no `From<u32>`, no `BitOr<u32>`. `Attrs` and [`LineFlags`]
@@ -642,6 +682,10 @@ pub struct SweepBook {
     pub tombs: usize,
     pub swept_at: StyleWrites,
     pub reclaims: Reclaims,
+    /// Slots read by every probe that went past the inline
+    /// [`SweepBook::INLINE`], each counted whole, and by the walks behind a
+    /// miss to an empty slot or a tombstone.
+    pub probes: SlotsRead,
 }
 
 impl SweepBook {
@@ -649,6 +693,10 @@ impl SweepBook {
     /// a linear probe's miss averages 32.5 slots (Knuth's `(1 + 1/(1-a)^2)/2`)
     /// and is still climbing towards the whole table's walk at full load.
     pub const LOAD: (usize, usize) = (7, 8);
+    /// The slots the inline probe reads before the cold half takes over:
+    /// twice the 7/8 miss's 32.5, so a table below [`SweepBook::LOAD`]
+    /// almost never leaves it.
+    pub const INLINE: usize = 64;
     /// Whether `len / 16` writes have passed since the last sweep, so a
     /// table whose cells name nearly every slot is not swept a rendition at
     /// a time.
@@ -658,6 +706,10 @@ impl SweepBook {
     /// Whether one more filled slot passes [`SweepBook::LOAD`].
     pub fn over_load(&self, len: usize) -> bool {
         (self.filled + 1) * SweepBook::LOAD.1 > len * SweepBook::LOAD.0
+    }
+    /// The cold half of a probe read `n` slots.
+    pub fn probed(&mut self, n: usize) {
+        self.probes.0 += n as u64;
     }
     /// A miss filled an empty slot.
     pub fn filled_one(&mut self) {

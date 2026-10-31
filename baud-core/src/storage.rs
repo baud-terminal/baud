@@ -707,6 +707,7 @@ pub struct Owned {
     tmpl: alloc::vec::Vec<Option<StyleWord>>,
     order: alloc::vec::Vec<StyleId>,
     book: StyleBook,
+    reach: alloc::vec::Vec<Reach>,
     tabs: alloc::vec::Vec<bool>,
     reply: alloc::vec::Vec<u8>,
     alt: alloc::vec::Vec<PackedCell>,
@@ -798,6 +799,7 @@ impl Owned {
             tmpl: vec![None; styles],
             order: vec![StyleId::DEFAULT; styles],
             book: StyleBook::new(),
+            reach: vec![Reach::ZERO; styles],
             tabs: vec![false; MAX_COLS],
             reply: vec![0u8; REPLY],
             alt: vec![PackedCell::EMPTY; span.len()],
@@ -961,6 +963,7 @@ impl Owned {
                 slots: &mut self.tmpl,
                 order: &mut self.order,
                 book: &mut self.book,
+                reach: &mut self.reach,
             },
             &mut self.tabs,
             &mut self.reply,
@@ -1056,6 +1059,7 @@ impl Owned {
                 slots: &mut self.tmpl,
                 order: &mut self.order,
                 book: &mut self.book,
+                reach: &mut self.reach,
             },
             &mut self.tabs,
             &mut self.reply,
@@ -1404,12 +1408,16 @@ pub struct StyleTable<'b> {
     /// One entry a slot.
     pub order: &'b mut [StyleId],
     pub book: &'b mut StyleBook,
+    /// One entry a slot: how far past it the farthest rendition homed there
+    /// lies, which bounds a miss's probe.
+    pub reach: &'b mut [Reach],
 }
 
 /// The log half of a [`StyleTable`], which the write path carries.
 pub(crate) struct StyleLog<'b> {
     pub(crate) order: &'b mut [StyleId],
     pub(crate) book: &'b mut StyleBook,
+    pub(crate) reach: &'b mut [Reach],
 }
 
 impl StyleLog<'_> {
@@ -1565,6 +1573,10 @@ impl<'b> Storage<'b> {
             "the rendition table's log is one entry a slot"
         );
         assert!(
+            styles.reach.len() == tmpl.len(),
+            "the rendition table's reach is one entry a slot"
+        );
+        assert!(
             styles.book.writes == StyleWrites::NEVER
                 || tmpl[StyleId::DEFAULT.index()] == Some(StyleWord::DEFAULT),
             "a written rendition table holds the default in slot 0"
@@ -1586,6 +1598,7 @@ impl<'b> Storage<'b> {
             style_log: StyleLog {
                 order: styles.order,
                 book: styles.book,
+                reach: styles.reach,
             },
             tabs,
             reply,

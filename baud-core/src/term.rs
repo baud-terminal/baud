@@ -4853,6 +4853,15 @@ impl<'b> Term<'b> {
         self.store.style_log.book.sweep.reclaims
     }
 
+    /// **Slots read by the rendition table's long probes**: every probe
+    /// that went past the inline [`SweepBook::INLINE`], counted whole, and
+    /// the walks behind a miss to an empty slot or a tombstone. A miss on a
+    /// table with no empty slot reads to its bucket's [`Reach`], not the
+    /// whole table.
+    pub fn style_probes(&self) -> SlotsRead {
+        self.store.style_log.book.sweep.probes
+    }
+
     /// **The slots written since a count**, oldest first, as up to two slices
     /// of the log: or [`Written::Every`] when the reader is more than the
     /// table's length behind, and the ring has overwritten what it missed. A
