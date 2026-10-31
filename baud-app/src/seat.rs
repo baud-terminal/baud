@@ -821,14 +821,14 @@ impl Seat {
     /// without one, the text output took a selection's highlight away from
     /// while `?1040` kept it (`keep::KeptText`); `None` for none or no text.
     pub(crate) fn selected_text(&self, term: &Term<'_>) -> Option<String> {
-        let text = match self.selection {
-            Some(s) => match self.kept.text(Some(&s)) {
-                Some(t) => t.to_owned(),
-                None => s.text_as(term, self.scrolled, self.kept.word_wrap()),
-            },
-            None => self.kept.text(None)?.to_owned(),
-        };
-        (!text.is_empty()).then_some(text)
+        let wrap = self.kept.word_wrap();
+        crate::keep::copied(
+            self.selection.as_ref(),
+            &self.kept,
+            term,
+            self.scrolled,
+            wrap,
+        )
     }
 
     /// **A key snaps the window back to the live screen**, where its effect

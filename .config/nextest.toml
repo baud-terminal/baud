@@ -1,0 +1,8 @@
+# The tests that run real programs in a pty (baud-app/src/programs.rs)
+# were marked leaky, passing, at nextest's default leak timeout of 100 ms
+# in 3 of 45 runs, and in none of 30 at two seconds. Each waits for the
+# child it forked before it ends, and the child holds only its pty; what
+# holds the output open is not known.
+[[profile.default.overrides]]
+filter = 'package(baud) & test(/^programs::/)'
+leak-timeout = "2s"

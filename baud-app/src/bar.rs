@@ -351,6 +351,37 @@ pub(crate) enum Event {
     Left,
 }
 
+/// **A seat's input as the scrollbar reads it**, or `None` for one it
+/// never takes (the wheel): at the position the seat last had for a press
+/// or a release, a move a drag while a button is down. The thumb's
+/// geometry is in frame pixels, the grid's, so a surface point comes in
+/// less `strip`, the exit-status strip at the frame's left.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn event_beside(beside: crate::seat::Beside, strip: f64) -> Option<Event> {
+    use crate::gesture::Pressed;
+    use crate::seat::Input;
+    let at = beside.at.map(|(x, y)| (x - strip, y));
+    Some(match (beside.input, at) {
+        (Input::Entered(x, y), _) => Event::Entered { x: x - strip, y },
+        (Input::Moved(x, y), _) => Event::Moved {
+            x: x - strip,
+            y,
+            held: beside.held,
+        },
+        (Input::Pressed { button, .. }, Some((x, y))) => Event::Pressed {
+            x,
+            y,
+            left: match button {
+                Pressed::Left => Left::Yes,
+                _ => Left::No,
+            },
+        },
+        (Input::Released { .. }, Some((x, y))) => Event::Released { x, y },
+        (Input::Left, _) => Event::Left,
+        _ => return None,
+    })
+}
+
 /// **The thumb's state between the Linux driver's events**: its reveal,
 /// the look the last frame drew, where the pointer is and the press held.
 #[cfg(any(target_os = "linux", test))]
@@ -826,5 +857,56 @@ mod tests {
         assert_eq!(b.turn(at(MS * fading), &t), Owes::Frame, "fading");
         b.drawn = b.look(at(MS * 2000));
         assert_eq!(b.turn(at(MS * 2000), &t), Owes::Nothing, "gone");
+    }
+
+    /// **A surface point reaches the thumb less the exit-status strip**,
+    /// as the Linux driver's `thumb` hands it the seat's input: a move and
+    /// an entry at their own points, a press and a release at the seat's,
+    /// each `strip` to the left, and the wheel none of the thumb's.
+    /// Perturbation: drop `- strip` from the move's arm, the entry's or
+    /// the seat's point -- that arm's assertion fails.
+    #[test]
+    fn a_point_beside_reaches_the_thumb_less_the_strip() {
+        use crate::gesture::Pressed;
+        use crate::seat::{Beside, Input};
+        let at = Some((107.0, 30.0));
+        let of = |input, held| event_beside(Beside { input, at, held }, 7.0);
+        let time = baud_domain::EventMillis::of_millis(5);
+        assert_eq!(
+            of(Input::Moved(57.0, 40.0), Held::Yes),
+            Some(Event::Moved {
+                x: 50.0,
+                y: 40.0,
+                held: Held::Yes
+            })
+        );
+        assert_eq!(
+            of(Input::Entered(17.0, 20.0), Held::No),
+            Some(Event::Entered { x: 10.0, y: 20.0 })
+        );
+        let button = Pressed::Left;
+        assert_eq!(
+            of(Input::Pressed { button, time }, Held::No),
+            Some(Event::Pressed {
+                x: 100.0,
+                y: 30.0,
+                left: Left::Yes
+            })
+        );
+        let button = Pressed::Right;
+        assert_eq!(
+            of(Input::Pressed { button, time }, Held::No),
+            Some(Event::Pressed {
+                x: 100.0,
+                y: 30.0,
+                left: Left::No
+            })
+        );
+        assert_eq!(
+            of(Input::Released { button, time }, Held::No),
+            Some(Event::Released { x: 100.0, y: 30.0 })
+        );
+        assert_eq!(of(Input::Left, Held::No), Some(Event::Left));
+        assert_eq!(of(Input::Steps(1.0), Held::No), None, "the wheel");
     }
 }

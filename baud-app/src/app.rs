@@ -8304,12 +8304,11 @@ mod restart_tests {
         let copy = SRC.split(COPY).nth(1).expect("copy");
         let copy = &copy[..copy.find("\n    }\n").expect("copy ends")];
         assert!(
-            copy.contains("Some(sel) => match self.app.kept.text(Some(&sel)) {"),
-            "Cmd-C with a selection copies the text taken when it was made: {copy}"
-        );
-        assert!(
-            copy.contains("None => match self.app.kept.text(None) {"),
-            "Cmd-C without a selection copies the kept text: {copy}"
+            copy.contains("crate::keep::copied(sel, &app.kept, &app.term, app.scrolled, wrap)")
+                && copy.contains("clipboard::write_text(&text);")
+                && !copy.contains("text_as("),
+            "Cmd-C puts on the pasteboard what the copy rule a test reaches says \
+             (`keep::copied`): the text taken when it was made, or the kept text: {copy}"
         );
         const SELECT: &str = concat!("    fn select(", "&mut self, event: &Mouse) {");
         let select = SRC.split(SELECT).nth(1).expect("select");
@@ -14405,21 +14404,9 @@ impl Driver {
     /// a selection's highlight away from while `?1040` kept it
     /// (`keep::KeptText`).
     fn copy(&mut self) {
-        let text = match self.app.selection {
-            Some(sel) => match self.app.kept.text(Some(&sel)) {
-                Some(t) => t.to_owned(),
-                None => sel.text_as(
-                    &self.app.term,
-                    self.app.scrolled,
-                    self.app.renderer.word_wrap(),
-                ),
-            },
-            None => match self.app.kept.text(None) {
-                Some(t) => t.to_owned(),
-                None => return,
-            },
-        };
-        if !text.is_empty() {
+        let app = &self.app;
+        let (sel, wrap) = (app.selection.as_ref(), app.renderer.word_wrap());
+        if let Some(text) = crate::keep::copied(sel, &app.kept, &app.term, app.scrolled, wrap) {
             clipboard::write_text(&text);
         }
     }

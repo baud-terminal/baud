@@ -264,6 +264,29 @@ impl KeptText {
     }
 }
 
+/// **What a copy copies** -- Cmd-C on macOS, Ctrl+Shift+C and a finished
+/// drag on Linux: the selection's text, or the text taken when it was made
+/// while `?1040` kept it, however a read carried it since; without one, the
+/// text output or a click took a selection's highlight away from while
+/// `?1040` kept it ([`KeptText`]); `None` for none, or no text. The driver
+/// hands what this returns to its clipboard, the one call this leaves.
+pub(crate) fn copied(
+    sel: Option<&Selection>,
+    kept: &KeptText,
+    term: &Term<'_>,
+    scrolled: Scrolled,
+    wrap: baud_render::WordWrap,
+) -> Option<String> {
+    let text = match sel {
+        Some(s) => match kept.text(Some(s)) {
+            Some(t) => t.to_owned(),
+            None => s.text_as(term, scrolled, wrap),
+        },
+        None => kept.text(None)?.to_owned(),
+    };
+    (!text.is_empty()).then_some(text)
+}
+
 /// **Whether a read scrolled the selection off the top while `?1040` is
 /// reset**: the lines the primary retired took its first line above the
 /// screen while its last was on it, where xterm's reset disowns the

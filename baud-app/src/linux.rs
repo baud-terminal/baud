@@ -308,39 +308,9 @@ fn thumb(
     term: &mut Term<'_>,
     beside: crate::seat::Beside,
 ) -> crate::bar::Took {
-    use crate::bar::{Event as Bar, Left};
-    use crate::gesture::Pressed;
-    use crate::seat::Input;
-    // The thumb's geometry is in frame pixels, the grid's: a surface point
-    // comes in less the exit-status strip at the frame's left.
     let strip = f64::from(renderer.strip().value());
-    let beside = crate::seat::Beside {
-        at: beside.at.map(|(x, y)| (x - strip, y)),
-        input: match beside.input {
-            Input::Entered(x, y) => Input::Entered(x - strip, y),
-            Input::Moved(x, y) => Input::Moved(x - strip, y),
-            other => other,
-        },
-        ..beside
-    };
-    let e = match (beside.input, beside.at) {
-        (Input::Entered(x, y), _) => Bar::Entered { x, y },
-        (Input::Moved(x, y), _) => Bar::Moved {
-            x,
-            y,
-            held: beside.held,
-        },
-        (Input::Pressed { button, .. }, Some((x, y))) => Bar::Pressed {
-            x,
-            y,
-            left: match button {
-                Pressed::Left => Left::Yes,
-                _ => Left::No,
-            },
-        },
-        (Input::Released { .. }, Some((x, y))) => Bar::Released { x, y },
-        (Input::Left, _) => Bar::Left,
-        _ => return crate::bar::Took::No,
+    let Some(e) = crate::bar::event_beside(beside, strip) else {
+        return crate::bar::Took::No;
     };
     let f = bar_frame(renderer);
     let now = timed.clock.host(Instant::now());

@@ -488,7 +488,7 @@ fn names_a_locale(parent: &[(OsString, OsString)]) -> bool {
 /// was multi-threaded a moment ago, and it is not async-signal-safe. The
 /// child runs only [`utf8_erase`], the `chdir` [`start_in`] decided, a
 /// test of what it returned, the exec and, if the exec fails, `_exit`.
-fn child_env(parent: Vec<(OsString, OsString)>, locale: Option<&str>) -> Vec<CString> {
+pub(crate) fn child_env(parent: Vec<(OsString, OsString)>, locale: Option<&str>) -> Vec<CString> {
     let fill = locale.filter(|_| !names_a_locale(&parent));
     let dropped = |k: &[u8]| {
         OUTER.iter().any(|o| o.as_bytes() == k)
@@ -1202,35 +1202,50 @@ impl Pty {
         };
         let stay = spawn_env(parent, locale);
         let home = with_pwd(stay.clone(), &start);
-        Pty::fork_in(ws, cmd, &home, &stay, &start)
+        Pty::fork_in(ws, cmd, &home, &stay, &start).map(|(_, master)| master)
     }
 
     /// [`Pty::fork_in`] where baud is, for the tests that hand the child a
     /// parent environment of their own and read back what it saw or the
     /// terminal it was given.
     #[cfg(test)]
-    fn fork_with(
+    pub(crate) fn fork_with(
         ws: crate::sys::Winsize,
         cmd: Option<String>,
         env: Vec<CString>,
     ) -> Option<crate::sys::Fd> {
+        Pty::fork_child(ws, cmd, env).map(|(_, master)| master)
+    }
+
+    /// [`Pty::fork_with`] with the child's pid beside the master, for a
+    /// test that waits for that child: libtest runs the tests as threads of
+    /// one process, so a wait for any child (`waitpid(-1)`) can take a
+    /// child of a test running beside it, whose own wait then fails with
+    /// `ECHILD`.
+    #[cfg(test)]
+    pub(crate) fn fork_child(
+        ws: crate::sys::Winsize,
+        cmd: Option<String>,
+        env: Vec<CString>,
+    ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
         Pty::fork_in(ws, cmd, &env, &env, &StartIn::Inherited)
     }
 
     /// [`Pty::fork`] with the command, the environments and the start
-    /// directory given rather than read. `home` is the environment of a
-    /// child whose `chdir` to `start`'s directory succeeded, and `stay`
-    /// that of a child left where baud is -- because `start` said so, or
-    /// because the `chdir` failed -- so a `PWD` naming `HOME` reaches only
-    /// a shell that is in it, as XBD 8 has `PWD` name "the current working
-    /// directory" (`[[source: posix-xbd-8]]`).
+    /// directory given rather than read: the child's pid and the master.
+    /// `home` is the environment of a child whose `chdir` to `start`'s
+    /// directory succeeded, and `stay` that of a child left where baud is
+    /// -- because `start` said so, or because the `chdir` failed -- so a
+    /// `PWD` naming `HOME` reaches only a shell that is in it, as XBD 8 has
+    /// `PWD` name "the current working directory"
+    /// (`[[source: posix-xbd-8]]`).
     fn fork_in(
         ws: crate::sys::Winsize,
         cmd: Option<String>,
         home: &[CString],
         stay: &[CString],
         start: &StartIn,
-    ) -> Option<crate::sys::Fd> {
+    ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
         let shell = match &cmd {
             Some(_) => "/bin/sh".to_string(),
             None => std::env::var("SHELL").unwrap_or_else(|_| DEFAULT_SHELL.to_string()),
@@ -1309,7 +1324,7 @@ impl Pty {
                 std::io::Error::last_os_error()
             );
         }
-        Some(master)
+        Some((pid, master))
     }
 
     /// The pty with a thread reading it: each chunk crosses a channel and

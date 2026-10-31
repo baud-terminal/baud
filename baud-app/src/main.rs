@@ -162,6 +162,9 @@ mod print;
 // its tests run on every platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod palette;
+// Real programs in a pty under the seat, for the tests only.
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod programs;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
 // ReGIS's built-in alphabet, drawn with the embedded face: both drivers
