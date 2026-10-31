@@ -39541,3 +39541,21 @@ group  = "AX"
 # Fetched 2026-10-31: iTerm2's sources at this commit draw progress in the
 # session and its tab; NSApp.dockTile is set only for the bell badge and a
 # suite name. Read, not copied.
+
+[sources.sdk27-nswindow-h]
+key    = "sdk27-nswindow-h"
+title  = "macOS SDK 27.2, AppKit NSWindow.h -- allowsAutomaticWindowTabbing 'applications can explicitly opt out of all automatic tabbing by setting it to NO' (686-688); tabbingMode (694-696); NSWindowTabbingModeDisallowed (262-271)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSWindow.h"
+file   = ""
+sha256 = "38908989c3f43a900e0831067a3ab23882ad602828522e54a205e3a9246034ab"
+bytes  = 81526
+status = "external"
+group  = "WN"
+# Read 2026-10-31 from Xcode 27.2 (27B52), macOS SDK 27.2; hash recorded
+# only, not committed -- a vendor header. Compare the sha256 of the file at
+# the url. A second key for the header macos-sdk-nswindow-h pins, because
+# the two are different SDK releases: that entry hashed SDK 27.0's copy
+# (81,525 bytes), this one SDK 27.2's (81,526).

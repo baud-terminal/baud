@@ -6779,6 +6779,29 @@ mod drag_tests {
         assert!(shown < installed, "the responder last");
     }
 
+    /// **Automatic tabbing is off before the first window is made**, so a
+    /// Command-N window is never merged into a tab group (`windows.rs`):
+    /// the class setting comes before the launch's
+    /// window is built, and nothing turns it back on.
+    #[test]
+    fn automatic_tabbing_is_off_before_the_first_window() {
+        const SRC: &str = include_str!("app.rs");
+        let off = concat!("NSWindow::setAllowsAutomatic", "WindowTabbing(false, mtm);");
+        assert_eq!(SRC.matches(off).count(), 1, "once");
+        assert_eq!(
+            SRC.matches(concat!("setAllowsAutomatic", "WindowTabbing(true"))
+                .count(),
+            0,
+            "never back on"
+        );
+        let run = body(SRC, concat!("\npub fn ", "run() {"), "");
+        let at = run.find(off).expect("in the launch");
+        let built = run
+            .find(concat!("Opening::", "new("))
+            .expect("the launch builds its window");
+        assert!(at < built, "before the window is built");
+    }
+
     /// **A window's close takes down that window alone, and the shell's
     /// exit closes its window rather than quitting the app**: the app
     /// terminates itself in one place, the close of a window, and only
@@ -11533,6 +11556,11 @@ pub fn run() {
     let shell = Shell::start(scale, size, inset, None);
     let ns_app = NSApplication::sharedApplication(mtm);
     ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    // **A Command-N window is a window of its own, never a tab**
+    // (`windows.rs`): the window crate builds each one refusing tabs,
+    // and the app opts out of automatic tabbing as a whole before the
+    // first is made.
+    NSWindow::setAllowsAutomaticWindowTabbing(false, mtm);
     startup_mark("nsapp");
     // Which AppKit these numbers were taken against -- and the reference
     // that keeps AppKit linked under the dead-strip `build.rs` asks for.

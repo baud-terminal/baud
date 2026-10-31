@@ -31,6 +31,18 @@
 //! `[[source: foot-terminal-cb27717]]`): each window is its own
 //! `xdg_toplevel`, and its process exits when its window closes.
 //!
+//! **A Command-N window is a window of its own, never merged into a tab
+//! group**, whatever the system's "Prefer tabs when opening documents"
+//! says: the window crate builds every window with
+//! `NSWindowTabbingModeDisallowed`, "The window explicitly should not
+//! prefer to tab when shown", because a tab bar "on top of the material
+//! ... undoes the whole effect", and the app opts out of AppKit's
+//! automatic tabbing as a whole before its first window: "applications
+//! can explicitly opt out of all automatic tabbing by setting it to NO"
+//! (`[[source: sdk27-nswindow-h]]` 262-271, 686-688). Only a window left
+//! at `NSWindowTabbingModeAutomatic` follows the system's preference, and
+//! baud has no tabs of its own for one to join.
+//!
 //! **Each window's notifications are its own**: their identifiers carry
 //! the window's key ([`WindowId::notice_prefix`]), so two windows' first
 //! posts do not replace each other, and a click goes to the window that
