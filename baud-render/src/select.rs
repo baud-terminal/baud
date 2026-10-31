@@ -894,7 +894,7 @@ impl Drawn {
         region: Region,
         out: &mut String,
     ) -> Para {
-        let Some((here, mark)) = marked_row(term, scrolled, line) else {
+        let Some((here, mark, past)) = marked_row(term, scrolled, line) else {
             return Para::Stored(line);
         };
         let cols = here.len().max(1);
@@ -902,11 +902,12 @@ impl Drawn {
         // The paragraph's rows: up while the row above wraps, down while
         // the row wraps.
         let mut first = line;
-        let mut up: Vec<(&[PackedCell], baud_domain::RowExtent)> = Vec::new();
+        let mut up: Vec<(&[PackedCell], baud_domain::RowExtent, baud_domain::PastEdge)> =
+            Vec::new();
         while let Some(prev) = first.0.checked_sub(1).map(AbsLine) {
             match marked_row(term, scrolled, prev) {
-                Some((cells, m)) if m.wrapped() && up.len() < budget => {
-                    up.push((cells, m));
+                Some((cells, m, p)) if m.wrapped() && up.len() < budget => {
+                    up.push((cells, m, p));
                     first = prev;
                 }
                 _ => break,
@@ -914,9 +915,9 @@ impl Drawn {
         }
         up.reverse();
         let mut rows = up;
-        rows.push((here, mark));
+        rows.push((here, mark, past));
         let mut last = line;
-        while rows.last().is_some_and(|(_, m)| m.wrapped()) && rows.len() <= budget {
+        while rows.last().is_some_and(|(_, m, _)| m.wrapped()) && rows.len() <= budget {
             let next = last.plus(Rows::of_count(1));
             match marked_row(term, scrolled, next) {
                 Some(r) => {
@@ -946,7 +947,7 @@ impl Drawn {
         let taken: Vec<Option<(usize, usize)>> = rows
             .iter()
             .enumerate()
-            .map(|(p, (cells, _))| {
+            .map(|(p, (cells, _, _))| {
                 let at = AbsLine(first.0 + u64::try_from(p).unwrap_or(u64::MAX));
                 if at < start.line || at > end.line || cells.is_empty() {
                     return None;
@@ -1101,12 +1102,17 @@ pub fn row_of<'t>(
 }
 
 /// [`row_of`] with the row's mark -- its paragraph properties, rendition
-/// and wrap -- as the display's layout reads a row.
+/// and wrap -- and whether it holds text past the live width, as the
+/// display's layout reads a row.
 fn marked_row<'t>(
     term: &'t Term<'_>,
     scrolled: Scrolled,
     line: AbsLine,
-) -> Option<(&'t [PackedCell], baud_domain::RowExtent)> {
+) -> Option<(
+    &'t [PackedCell],
+    baud_domain::RowExtent,
+    baud_domain::PastEdge,
+)> {
     let live = term.viewport();
     if line.0 >= scrolled.0 {
         let y = usize::try_from(line.0 - scrolled.0).ok()?;
@@ -1114,7 +1120,11 @@ fn marked_row<'t>(
             return None;
         }
         let y = Row::from_index(y);
-        return Some((live.row(y), crate::rebreak::mark_of(&live, y)));
+        return Some((
+            live.row(y),
+            crate::rebreak::mark_of(&live, y),
+            live.text_past_edge(y),
+        ));
     }
     let back = Rows::of_count(usize::try_from(scrolled.0 - line.0).ok()?);
     if term.looking_back(back) != back {
@@ -1124,6 +1134,7 @@ fn marked_row<'t>(
     Some((
         view.row(Row::ZERO),
         crate::rebreak::mark_of(&view, Row::ZERO),
+        view.text_past_edge(Row::ZERO),
     ))
 }
 

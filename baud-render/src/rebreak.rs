@@ -34,8 +34,14 @@
 //! history. A table row (a box-drawing rule), a line not single-width, a
 //! row DECRLM wrote, a row that wrapped at DECSLRM side margins
 //! (`baud_domain::WrappedAt`; by baud's reading its cells outside the
-//! margins are no part of its paragraph), a paragraph holding an SDS or SRS string, and one
-//! longer than [`crate::CONTEXT`] codepoints keep the terminal's cut.
+//! margins are no part of its paragraph), a paragraph holding an SDS or SRS string, one
+//! longer than [`crate::CONTEXT`] codepoints, and one with a row holding
+//! text past the live width keep the terminal's cut. The last is a
+//! narrowing the core did not re-cut -- the shell waiting at a marked
+//! prompt, whose rows it will redraw (`Term::primary_zone`) -- which keeps
+//! each row's cells past the new edge to show again: read from the cells
+//! the window shows, the paragraph's text would join each row's first part
+//! to the next row's and draw words the program never wrote.
 //!
 //! **Where the extra lines go.** A paragraph drawn on more lines than it
 //! is stored in pushes the text above it up: the window's last row stays
@@ -72,8 +78,8 @@ use std::rc::Rc;
 use baud_core::{BidiSupport, PromptLine, Screen, Term, Zone};
 use baud_domain::{
     Autodetect, Bidi, BidiClass, BidiDirection, BidiLevel, BidiProps, CharacterPath, Col, Cols,
-    LineBreak, LineRendition, PackedCell, Row, RowExtent, RowRot, RowWritten, Rows, Stride,
-    Viewport, Wrap, WrappedAt, is_table_rule, line_breaks,
+    LineBreak, LineRendition, PackedCell, PastEdge, Row, RowExtent, RowRot, RowWritten, Rows,
+    Stride, Viewport, Wrap, WrappedAt, is_table_rule, line_breaks,
 };
 
 use crate::select::WindowLine;
@@ -374,6 +380,9 @@ pub(crate) fn foreign_runs(
 struct Source<'t> {
     cells: &'t [PackedCell],
     used: RowExtent,
+    /// Whether the row holds text past the live width
+    /// (`Viewport::text_past_edge`): its cells here are not all its text.
+    past: PastEdge,
     window: Option<Row>,
 }
 
@@ -853,7 +862,7 @@ pub(crate) fn lay_out(
 /// lines from (`?96`).
 pub(crate) fn paragraph_display(
     term: &Term<'_>,
-    rows: &[(&[PackedCell], RowExtent)],
+    rows: &[(&[PackedCell], RowExtent, PastEdge)],
     work: &mut Breaker,
 ) -> Option<Rc<Display>> {
     if term.screen() != Screen::Normal
@@ -867,9 +876,10 @@ pub(crate) fn paragraph_display(
         rows: rows
             .iter()
             .enumerate()
-            .map(|(p, &(cells, used))| Source {
+            .map(|(p, &(cells, used, past))| Source {
                 cells,
                 used,
+                past,
                 window: Some(Row::from_index(p)),
             })
             .collect(),
@@ -976,6 +986,7 @@ fn place_window(
                 rows.push(Source {
                     cells: v.row(Row::ZERO),
                     used: mark_of(&v, Row::ZERO),
+                    past: v.text_past_edge(Row::ZERO),
                     window: None,
                 });
                 k += 1;
@@ -987,6 +998,7 @@ fn place_window(
             rows.push(Source {
                 cells: vp.row(row),
                 used: mark_of(vp, row),
+                past: vp.text_past_edge(row),
                 window: Some(row),
             });
         }
@@ -1008,6 +1020,7 @@ fn place_window(
                 rows.push(Source {
                     cells: v.row(at),
                     used: mark_of(&v, at),
+                    past: v.text_past_edge(at),
                     window: None,
                 });
                 end += 1;
@@ -1097,6 +1110,7 @@ fn rebreak(term: &Term<'_>, g: &mut Group<'_>, cols: Cols, work: &mut Breaker) {
         if row.used.rendition() != LineRendition::Single
             || row.used.bidi().written() == RowWritten::RightToLeft
             || row.used.bidi().wrapped_at() == WrappedAt::Margins
+            || row.past == PastEdge::Held
         {
             return;
         }

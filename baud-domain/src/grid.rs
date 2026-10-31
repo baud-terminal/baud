@@ -527,6 +527,25 @@ impl<'a> Viewport<'a> {
         self.used[self.phys(y.index())]
     }
 
+    /// **Whether screen row `y` holds text past the view's width**: a
+    /// written cell between the width and the row's mark, which a narrowing
+    /// that did not re-cut the row keeps there, to show again if the width
+    /// comes back ([`View::held_past_edge`]). [`Viewport::row`] stops at the
+    /// width, so a reader that lays a paragraph's text out from the cells it
+    /// returns asks this first: such a row's visible cells are not all of
+    /// its text. A row whose mark lies within the width reads nothing.
+    pub fn text_past_edge(&self, y: Row) -> PastEdge {
+        let row = self.pitch_row(y.index());
+        let end = self.extent(y).index().min(row.len());
+        let held = row
+            .get(self.cols.index()..end)
+            .is_some_and(|past| past.iter().any(|c| !c.content.is_empty()));
+        match held {
+            true => PastEdge::Held,
+            false => PastEdge::Clear,
+        }
+    }
+
     /// Screen row `y` at the full pitch, which is what an index at the pitch
     /// addresses.
     fn pitch_row(&self, y: usize) -> &'a [PackedCell] {

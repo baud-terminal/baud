@@ -411,6 +411,16 @@ guide = "off"
 # 133 A and B, as fish, nushell and Ghostty's shell integration send) and
 # leaves full-screen programs alone. Turned on at a prompt, that prompt
 # moves down at once. "off" by default: the prompt follows the output down.
+#
+# wrap_words: finished text wraps at its words. A word that does not fit at
+# the end of a line moves whole to the next one, where "off" cuts it at the
+# last column as the program wrote it. It covers text you scroll back to
+# and, with a shell that marks its prompts (shell integration, OSC 133), the
+# output above the prompt you are at; the line you are typing, a command
+# still running and full-screen programs keep the program's lines, and so
+# does output the window was narrowed past while the shell waited at its
+# prompt. Copying gives the text as the program wrote it either way. "on"
+# by default.
 [screen]
 transition = "off"
 checksum = "on"
@@ -426,6 +436,7 @@ badge = "on"
 substitute_mark = "off"
 substitute_character = "\u2426"
 prompt_at_bottom = "off"
+wrap_words = "on"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast

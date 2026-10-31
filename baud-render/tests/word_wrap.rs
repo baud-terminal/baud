@@ -727,3 +727,64 @@ fn at_the_top_of_the_history_a_paragraph_that_shrinks_keeps_its_cut() {
     assert!(o.orders().display().is_none(), "{got:#?}");
     assert_eq!(got[2], ltr("$ ", 10));
 }
+
+/// **A narrowing at a marked prompt keeps the cut of the rows it did not
+/// re-cut.** While the shell waits at a marked prompt the core re-cuts
+/// nothing on a change of width (`Term::primary_zone`): each row keeps its
+/// cells past the new edge, to show again. Read from the cells the window
+/// shows, the paragraph's text joined each row's first part to the next
+/// row's and drew words never written -- `the quic` and `own fox ` read as
+/// `the`, `quicown`, `fox s` -- so the paragraph keeps the terminal's cut,
+/// every visible cell where it is. The controls: at the
+/// width it was written at the paragraph is drawn at its words, and after
+/// the narrowing its rows hold text past the edge.
+#[test]
+fn a_narrowing_at_a_marked_prompt_keeps_the_cut_of_rows_it_did_not_re_cut() {
+    let wide = WinSize {
+        ws_row: 5,
+        ws_col: 12,
+    };
+    let bytes = format!("{}the quick brown fox jumps\r\n{PROMPT}", history(6));
+    let mut owned = Owned::new(&wide);
+    let mut t = Term::new(owned.storage(), &wide);
+    feed(&mut t, &bytes);
+    let mut o = Reorder::new();
+    o.set_word_wrap(WordWrap::On);
+    o.lay_out(&t, Rows::ZERO);
+    assert!(o.orders().display().is_some(), "the control, at twelve");
+    let _ = t.resize(&WinSize {
+        ws_row: 5,
+        ws_col: 8,
+    });
+    let vp = t.view(Rows::ZERO);
+    let stored: Vec<String> = (0..vp.rows().index())
+        .map(|y| {
+            vp.row(Row::from_index(y))
+                .iter()
+                .map(|c| {
+                    c.content
+                        .as_codepoint()
+                        .and_then(|p| char::from_u32(p.value()))
+                        .unwrap_or('.')
+                })
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        stored,
+        ["h5......", "the quic", "own fox ", "s.......", "$ ......"],
+        "the rows as the terminal cut them at twelve, shown to eight"
+    );
+    assert_eq!(
+        (1..3)
+            .map(|y| vp.text_past_edge(Row::from_index(y)))
+            .collect::<Vec<_>>(),
+        [baud_domain::PastEdge::Held, baud_domain::PastEdge::Held],
+        "the control: text held past the edge"
+    );
+    o.lay_out(&t, Rows::ZERO);
+    assert!(
+        o.orders().display().is_none(),
+        "every row drawn as the terminal cut it"
+    );
+}

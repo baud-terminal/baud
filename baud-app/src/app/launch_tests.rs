@@ -206,6 +206,17 @@ impl Session {
         }
     }
 
+    /// The window's grid made `ws`, as a relayout makes it: the terminal
+    /// resized, the renderer fitted to it, and the child told
+    /// (`App::tell_pty`).
+    pub(super) fn resize(&mut self, ws: &WinSize) {
+        let _ = self.term.resize(ws);
+        self.renderer.fit(&self.term);
+        let m = self.renderer.metrics();
+        self.pty.resize(ws, m.cell_w, m.cell_h);
+        self.flush();
+    }
+
     /// Return, as `keyDown:` sends it.
     pub(super) fn enter(&mut self) {
         self.key(KeyEvent::press(KeyCode::Enter, Modifiers::NONE));
@@ -887,7 +898,9 @@ fn zsh_at_forty() -> Session {
 /// ends -- and prints a paragraph longer than the line. The terminal's own
 /// cut splits a word (the control); the frame the renderer then draws with
 /// the config's default, read from no file, breaks every line at a space,
-/// each word whole, and the words in order are the paragraph's.
+/// each word whole, and the words in order are the paragraph's. Narrowed
+/// to thirty columns while zsh waits at its prompt, every row keeps the
+/// terminal's cut, as the core left it.
 #[test]
 fn with_no_config_a_marked_shells_paragraph_is_drawn_at_its_words() {
     let mut s = zsh_at_forty();
@@ -918,6 +931,21 @@ fn with_no_config_a_marked_shells_paragraph_is_drawn_at_its_words() {
         .unwrap_or_else(|| panic!("the paragraph is re-broken: {:?}", s.screen_text()));
     let lines = paragraph_rows(&drawn);
     assert!(words_whole(&lines), "every word whole, in order: {lines:?}");
+    // Narrower, while zsh waits at its marked prompt: the core re-cuts
+    // nothing there, each row keeping its cells past the new edge, so the
+    // paragraph keeps the terminal's cut rather than join what each row
+    // shows into words the program never wrote.
+    s.resize(&WinSize {
+        ws_col: 30,
+        ws_row: 12,
+    });
+    let stored = paragraph_rows(&s.screen_text());
+    assert!(!words_whole(&stored), "the control at thirty: {stored:?}");
+    let _ = s.frame();
+    let lines = s
+        .drawn_lines()
+        .map_or_else(|| stored.clone(), |d| paragraph_rows(&d));
+    assert_eq!(lines, stored, "drawn as the terminal cut it at thirty");
 }
 
 /// **With no config and no marks, the paragraph is drawn at its words

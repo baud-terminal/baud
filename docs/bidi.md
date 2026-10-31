@@ -55,7 +55,12 @@ the screen; step 3 joins Arabic letters.
   it. **Only finished text**: on the main screen, a paragraph wholly in the
   history, or wholly above the latest prompt while the shell waits at it
   (`OSC 133`); never the line being typed, a running command's rows, the
-  alternate screen, or the live screen of a shell that sends no marks.
+  alternate screen, or the live screen of a shell that sends no marks. A
+  paragraph with a row holding text past the window's edge keeps the
+  terminal's cut: a narrowing while the shell waits at a marked prompt
+  re-cuts no row and keeps each row's cells past the new edge, and the
+  cells the window shows, read as the paragraph's text, would join into
+  words the program never wrote.
   With BDSM reset nothing is re-broken (ECMA-48 7.2.1's EXPLICIT: the
   program addresses the presentation lines). **The lines a paragraph gains
   push the text above it up**: the window's last row stays, so the cursor,

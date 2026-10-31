@@ -961,3 +961,64 @@ fn decrlcm_copies_a_kept_paragraph_beside_a_re_broken_one() {
         "the control: the re-broken one by its display lines"
     );
 }
+
+/// **`?96` copies the cut kept for rows held past the edge**: a paragraph
+/// cut at twelve columns, then the window narrowed to eight while the
+/// shell waits at its marked prompt, which re-cuts no row, and five lines
+/// more move the paragraph above the live window. Its rows hold text past the
+/// edge, so the display keeps their cut, and the copy in drawn order reads
+/// those rows -- what the stored rows' copy reads -- not the cells shown
+/// joined into words never written. Not narrowed, the paragraph's copy
+/// reads its display lines, the control.
+#[test]
+fn decrlcm_copies_the_cut_kept_for_rows_held_past_the_edge() {
+    let copy = |narrowed: bool| {
+        let ws = WinSize {
+            ws_row: 5,
+            ws_col: 12,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let bytes = format!(
+            "{}the quick brown fox jumps\r\n{PROMPT}\x1b[?96h",
+            history(6)
+        );
+        feed(&mut t, &bytes);
+        if narrowed {
+            let _ = t.resize(&WinSize {
+                ws_row: 5,
+                ws_col: 8,
+            });
+        }
+        feed(&mut t, "\r\n\r\n\r\n\r\n\r\n");
+        // The paragraph's three rows sit above the prompt's row and the
+        // five below it, four lines above the window: the view four lines
+        // up holds them on its rows 0 to 2.
+        let back = Rows::of_count(4);
+        assert_eq!(t.window_back(), Rows::ZERO, "the window is live");
+        let scrolled = Scrolled::START.advanced(t.looking_back(Rows::of_index(usize::MAX)));
+        let view = t.view(back);
+        let line = |r: usize| scrolled.line(back, Row::from_index(r));
+        let row = |r: usize| view.row(Row::from_index(r)).to_vec();
+        let first: String = row(0)
+            .iter()
+            .filter_map(|c| c.content.as_codepoint())
+            .filter_map(|p| char::from_u32(p.value()))
+            .collect();
+        assert!(
+            first.starts_with("the quic"),
+            "the paragraph's row: {first:?}"
+        );
+        let last = Col::at_index(view.cols().index() - 1);
+        let mut sel = Selection::at(Span::cell(&row(0), line(0), Col::ZERO), Grain::Cell);
+        sel.extend(Span::cell(&row(2), line(2), last));
+        (
+            sel.text_as(&t, scrolled, WordWrap::On),
+            sel.text_as(&t, scrolled, WordWrap::Off),
+        )
+    };
+    let (on, stored) = copy(true);
+    assert_eq!(on, stored, "the cut kept is the cut copied");
+    let (on, stored) = copy(false);
+    assert_ne!(on, stored, "the control: by its display lines");
+}
