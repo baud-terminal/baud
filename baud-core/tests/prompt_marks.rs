@@ -389,6 +389,35 @@ fn an_i_input_ends_with_its_line() {
     });
 }
 
+/// **A shrink that takes an `I` input's row off the screen ends its
+/// line**, and the width step of the same resize re-cuts it. Whether the
+/// primary re-cuts is asked after the height step, which retires the
+/// rows: asked before it, the input's row is still on the screen, its
+/// line has not ended, and the history keeps the old width's cut.
+#[test]
+fn a_shrink_that_retires_an_i_input_re_cuts_its_line() {
+    support::with_term(&WS, |t| {
+        for i in 0..6 {
+            support::feed(t, format!("line{i}\r\n").as_bytes());
+        }
+        support::feed(t, b"\x1b]133;A\x07> \x1b]133;I\x07");
+        support::feed(t, "x".repeat(45).as_bytes());
+        assert_eq!(t.zone(), Zone::Prompt, "the input wraps onto the last row");
+        assert_eq!(t.cursor().0.index(), 7);
+        let _ = t.resize(&WinSize {
+            ws_col: 20,
+            ws_row: 1,
+        });
+        assert_eq!(row_text(t, 0), "xxxxxxx");
+        assert_eq!(
+            top_text(t, 1),
+            "x".repeat(20),
+            "the input's line is re-cut at the new width"
+        );
+        assert_eq!(top_text(t, 2), format!("> {}", "x".repeat(18)));
+    });
+}
+
 /// **A full log forgets its oldest prompts, counted**, and a jump back
 /// stops at the oldest it kept.
 #[test]

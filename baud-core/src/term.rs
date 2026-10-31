@@ -16,6 +16,16 @@ pub enum Screen {
     Alternate,
 }
 
+/// The geometry a [`Term::resize`] goes from and to, after the clamps:
+/// what each of its steps reads.
+#[derive(Clone, Copy)]
+struct ResizeGeometry {
+    old_rows: Rows,
+    old_cols: Cols,
+    rows: Rows,
+    cols: Cols,
+}
+
 /// Which cursor a resize anchors the primary on; see
 /// [`Term::primary_cursor`].
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2727,6 +2737,12 @@ impl<'b> Term<'b> {
         let rows = want_rows.clamp(MAX_ROWS).clamp(cap.index());
         let over = cols.index() != want_cols.index() || rows.index() != want_rows.index();
         let (old_rows, old_cols) = (self.rows, self.cols);
+        let g = ResizeGeometry {
+            old_rows,
+            old_cols,
+            rows,
+            cols,
+        };
         // Where the cursor was, which an open aligned string left it at.
         let before = (self.cy, self.cx);
         // A change of geometry moves or re-cuts the cells a placement names
@@ -2743,18 +2759,6 @@ impl<'b> Term<'b> {
         let back = self.store.book.window_back();
         let mut held = (back.index() > 0).then_some(back);
 
-        // **The primary's height changes the way xterm's does, and it is
-        // rotation arithmetic over the ring.** A shorter screen keeps the
-        // cursor's rows: the rows below the cursor are cut from the bottom
-        // and stay where they are past the live height, and only what the
-        // cursor needs is retired -- the window advances over the top rows,
-        // which become lines behind it without moving. A taller screen shows
-        // the cut rows first, then retreats the window over the retired
-        // ones, newest nearest the old top, and blanks whatever rows are
-        // left: they hold lines already behind the window, which would show
-        // twice. Applied to the primary whichever screen is up, around the
-        // cursor the primary has -- its own, or the one it was saved with --
-        // so an exit from the alternate screen has nothing to catch up on.
         // **The lines full-screen scrolls brought in since the passes past
         // the edge last ran, cleared there before anything here moves a row
         // or a growth shows one** (`View::clear_swept_past_edge`): found by
@@ -2771,188 +2775,16 @@ impl<'b> Term<'b> {
         }
         let top_before = self.store.book.top;
         // The width a cut row is read at when a growth asks what it holds.
+        // Asked here, before the height step moves the cursor and the
+        // rotation that the width step's own asking reads.
         let shown = match cols.index() != old_cols.index() && self.primary_recuts() {
             true => old_cols,
             false => cols,
         };
         if rows.index() != old_rows.index() {
-            let ring = self.store.ring_rows();
-            let spare = ring.index() - rows.index();
-            let (from, to) = (old_rows.index(), rows.index());
-            let at = self.primary_cursor();
-            let mut cy = match at {
-                PrimaryCursor::Live | PrimaryCursor::Shared => self.cy.index(),
-                PrimaryCursor::Saved => self.cold.saved_other.map_or(0, |s| s.cy.index()),
-            }
-            .min(from - 1);
-            let (mut hist, mut hidden) =
-                (self.store.book.hist.index(), self.store.book.hidden.index());
-            if to < from {
-                let k = from - to;
-                // **The anchor is the bottom, and rows come off the top.**
-                //
-                // Taking them off the bottom instead kept the first line
-                // still -- which is what it was for -- and moved the
-                // cursor to a row that was not the one it was on. The
-                // shell's next redraw then landed *there*, over output,
-                // and no later growth can restore a cell that was
-                // overwritten rather than hidden: a reported `ls`
-                // deleted, ten of twelve lines, and
-                // `a_shrink_does_not_let_the_prompt_overwrite_output`
-                // reproduces it.
-                //
-                // A shrink means the content no longer fits, and content
-                // that no longer fits pushes into the history -- a
-                // refinement of the invariant. So the cursor keeps its
-                // row, the prompt stays the last line, and the growth
-                // below brings the rows back.
-                let cut = k.min(from - 1 - cy);
-                let retire = k - cut;
-                self.rot = self.rot.advance(retire, ring);
-                // The window's top line moves on with it, so an image on a
-                // retired row keeps its row -- it is behind the window now.
-                self.store.book.top = self.store.book.top.plus(Rows::of_count(retire));
-                hist = (hist + retire).min(spare);
-                hidden = (hidden + cut).min(spare - hist);
-                cy -= retire;
-                cy = cy.min(to - 1);
-                // **The primary's `ESC 7` follows its row** (note V, V4):
-                // up by the rows retired, onto the top row when its own
-                // went into the history, and kept on a row the shrink cut,
-                // which the restore clamps while it stays hidden.
-                if let Some(s) = self.primary_slot(at) {
-                    s.cy = Row::from_index(s.cy.index().saturating_sub(retire));
-                }
-            } else {
-                let k = to - from;
-                // **Content first, blanks last.** xterm reveals the rows a
-                // shrink cut below the cursor before it pulls anything
-                // back from above, whatever those rows hold; here a cut
-                // row that is blank is not content, and a growth that
-                // showed blank rows under the prompt while the line the
-                // shrink pushed into the history stayed there changed the
-                // first line for no reason -- the rule is the other way:
-                // pull down to the bottom, and blank-fill only when
-                // nothing is left to pull. So the cut rows come back as
-                // far as the last one that holds anything, the history is
-                // pulled next, and the blank cut rows last -- which are
-                // what a fresh blank would be anyway.
-                //
-                // **A cut row holds something when it holds a written
-                // character** (note V, V9): a space counts and colour alone
-                // does not, by the test the prompt's retreat asks
-                // (`View::ring_row_holds`). The row's mark was asked until
-                // 2026-10-20, and a mark says where a row stops being
-                // uniform: a run of blanks erased in a foreground colour
-                // came back as a row that shows nothing while a history
-                // line stayed behind. Read at the width the row will be
-                // shown at: the old one when the width step below re-cuts
-                // it, so text the re-cut wraps into view counts, and the
-                // new one otherwise.
-                let v = View::new(
-                    self.store.vp,
-                    self.store.used,
-                    self.stride,
-                    old_cols,
-                    rows,
-                    ring,
-                    self.rot,
-                );
-                let content = (0..hidden)
-                    .rev()
-                    .find(|i| {
-                        v.ring_row_holds(self.rot.advance(from + i, ring), shown) == Holds::Text
-                    })
-                    .map_or(0, |i| i + 1);
-                let reveal = k.min(content);
-                hidden -= reveal;
-                // **And a growth brings them back**, which is the other
-                // half of a bottom anchor: the window sits at the end of
-                // the content, so a taller one shows more of it above.
-                //
-                // Refusing to here was tried, to stop a drag through a
-                // very short window revealing the prompts the shell drew
-                // and scrolled away at that size. It cost the `ls`: rows
-                // a shrink retired are the reader's content far more
-                // often than they are a stray prompt, and leaving them
-                // behind is a loss where showing them is at worst a
-                // duplicate. The duplicate is pinned in
-                // `resize_recorded.rs` as the open bug it is.
-                let pull = (k - reveal).min(hist);
-                self.rot = self.rot.retreat(pull, ring);
-                hist -= pull;
-                // Back with the window; `pull` is within the history, and the
-                // top line is never below the history's depth.
-                self.store.book.top = self
-                    .store
-                    .book
-                    .top
-                    .minus(Rows::of_count(pull))
-                    .unwrap_or(LineIdx::FIRST);
-                cy += pull;
-                if let Some(s) = self.primary_slot(at) {
-                    s.cy = Row::from_index(s.cy.index() + pull);
-                }
-                // The blank cut rows, after the history: revealed rather
-                // than counted as hidden, and blanked below all the same.
-                let rest = (k - reveal - pull).min(hidden);
-                hidden -= rest;
-                let mut v = View::new(
-                    self.store.vp,
-                    self.store.used,
-                    self.stride,
-                    Cols::of_index(old_cols.index().max(cols.index())),
-                    rows,
-                    ring,
-                    self.rot,
-                );
-                let mut n = 0;
-                for y in from + reveal + pull..to {
-                    n += v.fill_row(Row::from_index(y), PackedCell::EMPTY).index();
-                }
-                self.cells_written += n;
-                hist = hist.min(spare);
-                hidden = hidden.min(spare - hist);
-            }
-            // A change of height moves lines past the window's top one for
-            // one: the window follows them, as it does output.
-            let now = self.store.book.top;
-            held = held
-                .map(|b| {
-                    let at = match now.since(top_before) {
-                        Some(n) => b.index().saturating_add(n.index()),
-                        None => b
-                            .index()
-                            .saturating_sub(top_before.since(now).map_or(0, |n| n.index())),
-                    };
-                    Rows::of_count(at.min(hist))
-                })
-                .filter(|b| b.index() > 0);
-            self.store.book.hist = Rows::of_count(hist);
-            self.store.book.hidden = Rows::of_count(hidden);
-            match at {
-                PrimaryCursor::Live => self.cy = Row::from_index(cy),
-                PrimaryCursor::Saved => {
-                    if let Some(s) = self.cold.saved_other.as_mut() {
-                        s.cy = Row::from_index(cy.min(to - 1));
-                    }
-                }
-                // The alternate screen's cursor too, and this step does not
-                // move the alternate screen's rows.
-                PrimaryCursor::Shared => {}
-            }
+            held = self.resize_primary_height(g, shown, top_before, held);
         }
 
-        // **A change of width reflows the primary**: its lines are re-cut
-        // to the new width in place, through the history, and the window
-        // and the cursor follow their cells (`View::reflow`). The
-        // alternate screen is cell-addressed rather than reflowed -- a
-        // full-screen program is told and redraws -- and a wider one blanks
-        // the columns it reveals (`View::widened`): the program owns the
-        // screen and repaints it a frame later, so showing the frame it drew
-        // when it was last this wide, under the incoming one, is two images
-        // at once. Blanking also raises the mark, so a fill taken while
-        // narrow is not trusted past the edge it stopped at.
         // **The shell's half of the screen is not re-cut.** See [`Zone`]:
         // between a prompt mark and the output that follows it, the rows
         // on screen are ones the shell will redraw, and it redraws them by
@@ -2968,123 +2800,184 @@ impl<'b> Term<'b> {
         // which the measure reads whole (`Reflowed::blanked`).
         let mut blanked = Rows::ZERO;
         if cols.index() != old_cols.index() && self.primary_recuts() {
-            let at = self.primary_cursor();
-            let cursor = match at {
-                PrimaryCursor::Live | PrimaryCursor::Shared => (self.cy, self.cx.col()),
-                PrimaryCursor::Saved => self
-                    .cold
-                    .saved_other
-                    .map_or((Row::ZERO, Col::ZERO), |s| (s.cy, s.cx)),
-            };
-            // **The primary's images follow their rows through the re-cut.**
-            // Each is staged at its row counted from the oldest retained line,
-            // mapped as the reflow visits its line -- before the line is
-            // copied, while its cells can still be read -- and written back
-            // against the same origin, which a reflow keeps. A line the reflow
-            // drops takes its image with it, counted.
-            let ring = self.store.ring_rows();
-            let floor = self
+            (blanked, held) = self.resize_primary_width(g, held);
+        }
+        self.resize_growth(g);
+        self.resize_alternate_height(g);
+
+        self.rows = rows;
+        self.cols = cols;
+        self.resize_measure(old_cols, kept, blanked);
+        self.resize_cursor_and_margins(before);
+        // **An image whose row the resize took away goes with it**: a row
+        // past what the primary's ring now retains, or past the bottom of a
+        // shorter alternate screen, which keeps nothing below it.
+        if self.store.images.any_placed() {
+            self.expire_images();
+        }
+        self.resize_report(rows, cols);
+        self.status_resized(old_cols);
+        let resized = match over {
+            true => Resized::Truncated { cols, rows },
+            false => Resized::Ok,
+        };
+        let held = held.unwrap_or(Rows::ZERO);
+        // Both steps bound it by the history they leave: the height by its
+        // own clamp, the re-cut because a kept row lands no further back
+        // than the oldest kept.
+        debug_assert!(held.index() <= self.store.book.hist.index());
+        self.store.book.set_window_back(held);
+        resized
+    }
+
+    /// **The primary's height changes the way xterm's does, and it is
+    /// rotation arithmetic over the ring.** A shorter screen keeps the
+    /// cursor's rows: the rows below the cursor are cut from the bottom
+    /// and stay where they are past the live height, and only what the
+    /// cursor needs is retired -- the window advances over the top rows,
+    /// which become lines behind it without moving. A taller screen shows
+    /// the cut rows first, then retreats the window over the retired
+    /// ones, newest nearest the old top, and blanks whatever rows are
+    /// left: they hold lines already behind the window, which would show
+    /// twice. Applied to the primary whichever screen is up, around the
+    /// cursor the primary has -- its own, or the one it was saved with --
+    /// so an exit from the alternate screen has nothing to catch up on.
+    ///
+    /// The first step of [`Term::resize`], taken only when the height
+    /// changes; `shown` is the width a cut row is read at, and the window
+    /// over the history, `held`, comes back moved with the lines.
+    fn resize_primary_height(
+        &mut self,
+        g: ResizeGeometry,
+        shown: Cols,
+        top_before: LineIdx,
+        mut held: Option<Rows>,
+    ) -> Option<Rows> {
+        let ResizeGeometry {
+            old_rows,
+            old_cols,
+            rows,
+            cols,
+        } = g;
+        let ring = self.store.ring_rows();
+        let spare = ring.index() - rows.index();
+        let (from, to) = (old_rows.index(), rows.index());
+        let at = self.primary_cursor();
+        let mut cy = match at {
+            PrimaryCursor::Live | PrimaryCursor::Shared => self.cy.index(),
+            PrimaryCursor::Saved => self.cold.saved_other.map_or(0, |s| s.cy.index()),
+        }
+        .min(from - 1);
+        let (mut hist, mut hidden) = (self.store.book.hist.index(), self.store.book.hidden.index());
+        if to < from {
+            let k = from - to;
+            // **The anchor is the bottom, and rows come off the top.**
+            //
+            // Taking them off the bottom instead kept the first line
+            // still -- which is what it was for -- and moved the
+            // cursor to a row that was not the one it was on. The
+            // shell's next redraw then landed *there*, over output,
+            // and no later growth can restore a cell that was
+            // overwritten rather than hidden: a reported `ls`
+            // deleted, ten of twelve lines, and
+            // `a_shrink_does_not_let_the_prompt_overwrite_output`
+            // reproduces it.
+            //
+            // A shrink means the content no longer fits, and content
+            // that no longer fits pushes into the history -- a
+            // refinement of the invariant. So the cursor keeps its
+            // row, the prompt stays the last line, and the growth
+            // below brings the rows back.
+            let cut = k.min(from - 1 - cy);
+            let retire = k - cut;
+            self.rot = self.rot.advance(retire, ring);
+            // The window's top line moves on with it, so an image on a
+            // retired row keeps its row -- it is behind the window now.
+            self.store.book.top = self.store.book.top.plus(Rows::of_count(retire));
+            hist = (hist + retire).min(spare);
+            hidden = (hidden + cut).min(spare - hist);
+            cy -= retire;
+            cy = cy.min(to - 1);
+            // **The primary's `ESC 7` follows its row** (note V, V4):
+            // up by the rows retired, onto the top row when its own
+            // went into the history, and kept on a row the shrink cut,
+            // which the restore clamps while it stays hidden.
+            if let Some(s) = self.primary_slot(at) {
+                s.cy = Row::from_index(s.cy.index().saturating_sub(retire));
+            }
+        } else {
+            let k = to - from;
+            // **Content first, blanks last.** xterm reveals the rows a
+            // shrink cut below the cursor before it pulls anything
+            // back from above, whatever those rows hold; here a cut
+            // row that is blank is not content, and a growth that
+            // showed blank rows under the prompt while the line the
+            // shrink pushed into the history stayed there changed the
+            // first line for no reason -- the rule is the other way:
+            // pull down to the bottom, and blank-fill only when
+            // nothing is left to pull. So the cut rows come back as
+            // far as the last one that holds anything, the history is
+            // pulled next, and the blank cut rows last -- which are
+            // what a fresh blank would be anyway.
+            //
+            // **A cut row holds something when it holds a written
+            // character** (note V, V9): a space counts and colour alone
+            // does not, by the test the prompt's retreat asks
+            // (`View::ring_row_holds`). The row's mark was asked until
+            // 2026-10-20, and a mark says where a row stops being
+            // uniform: a run of blanks erased in a foreground colour
+            // came back as a row that shows nothing while a history
+            // line stayed behind. Read at the width the row will be
+            // shown at: the old one when the width step below re-cuts
+            // it, so text the re-cut wraps into view counts, and the
+            // new one otherwise.
+            let v = View::new(
+                self.store.vp,
+                self.store.used,
+                self.stride,
+                old_cols,
+                rows,
+                ring,
+                self.rot,
+            );
+            let content = (0..hidden)
+                .rev()
+                .find(|i| v.ring_row_holds(self.rot.advance(from + i, ring), shown) == Holds::Text)
+                .map_or(0, |i| i + 1);
+            let reveal = k.min(content);
+            hidden -= reveal;
+            // **And a growth brings them back**, which is the other
+            // half of a bottom anchor: the window sits at the end of
+            // the content, so a taller one shows more of it above.
+            //
+            // Refusing to here was tried, to stop a drag through a
+            // very short window revealing the prompts the shell drew
+            // and scrolled away at that size. It cost the `ls`: rows
+            // a shrink retired are the reader's content far more
+            // often than they are a stray prompt, and leaving them
+            // behind is a loss where showing them is at worst a
+            // duplicate. The duplicate is pinned in
+            // `resize_recorded.rs` as the open bug it is.
+            let pull = (k - reveal).min(hist);
+            self.rot = self.rot.retreat(pull, ring);
+            hist -= pull;
+            // Back with the window; `pull` is within the history, and the
+            // top line is never below the history's depth.
+            self.store.book.top = self
                 .store
                 .book
                 .top
-                .minus(self.store.book.hist)
+                .minus(Rows::of_count(pull))
                 .unwrap_or(LineIdx::FIRST);
-            let images = &mut self.store.images;
-            let staged = match images.any_placed() {
-                true => images.follow_begin(ImageScreen::Primary, floor),
-                false => 0,
-            };
-            // **And so do the prompts**, by the same three steps: a jump
-            // lands on the line its prompt was re-cut onto.
-            let prompts = &mut self.store.strs.prompts;
-            let marked = prompts.follow_begin(floor);
-            // Whether the reflow visited a line: one that returned before
-            // the re-cut visited none, and staged placements it never mapped
-            // are still where they were, not gone.
-            let mut visited = false;
-            // The window's first row, counted from the oldest retained row as
-            // the hook counts, and where the re-cut put it.
-            let hist = self.store.book.hist;
-            let view = held.map(|b| hist.index().saturating_sub(b.index()));
-            let mut landed: Option<Rows> = None;
-            // **And so does the prompt the shell is at, when it is re-cut**
-            // -- under `redraw=0`, or once an `I` line has ended: its block
-            // start, its input and its later line are ring rows, which name
-            // other cells once the rows move. Counted from the oldest
-            // retained row, as the hook counts.
-            let oldest = self.rot.retreat(hist.index(), ring);
-            let shell = match self.cold.screen {
-                Screen::Normal => &self.store.strs.shell,
-                Screen::Alternate => &self.store.strs.shell_other,
-            };
-            let counted = |r: RowRot| {
-                Rows::of_count((r.index() + ring.index() - oldest.index()) % ring.index())
-            };
-            let anchors: [Option<(Rows, Col)>; 3] = match shell.zone {
-                Zone::Prompt => [
-                    Some((counted(shell.block.start()), Col::ZERO)),
-                    match shell.input {
-                        crate::prompt::Input::At { row, col, .. } => Some((counted(row), col)),
-                        crate::prompt::Input::None => None,
-                    },
-                    match shell.secondary {
-                        crate::prompt::Later::At(row) => Some((counted(row), Col::ZERO)),
-                        crate::prompt::Later::None => None,
-                    },
-                ],
-                Zone::Output => [None; 3],
-            };
-            let mut moved: [Option<(Rows, Col)>; 3] = [None; 3];
-            // **And so does the primary's `ESC 7`** (note V, V4), as a point
-            // the re-cut moves and that moves nothing: from its cell, or
-            // from the last column when it waits to wrap there.
-            let old_last = Col::at_index(old_cols.index().saturating_sub(1));
-            let decsc = match at {
-                PrimaryCursor::Saved => None,
-                PrimaryCursor::Live | PrimaryCursor::Shared => match self.cold.screen {
-                    Screen::Normal => self.cold.saved,
-                    Screen::Alternate => self.cold.saved_other,
-                },
+            cy += pull;
+            if let Some(s) = self.primary_slot(at) {
+                s.cy = Row::from_index(s.cy.index() + pull);
             }
-            .map(|s| {
-                (
-                    Rows::of_count(hist.index() + s.cy.index()),
-                    s.cx.min(old_last),
-                )
-            });
-            let mut decsc_at: Option<(Rows, Col)> = None;
-            let mut hook = |from: Rows, n: Rows, land: &dyn Fn(Rows, Col) -> (Rows, Col)| {
-                visited = true;
-                if staged > 0 {
-                    images.follow_line(from, n, land);
-                }
-                if marked > 0 {
-                    prompts.follow_line(floor, from, n, land);
-                }
-                let line = from.index()..from.index() + n.index();
-                for (a, m) in anchors.iter().zip(moved.iter_mut()) {
-                    if let Some((r, c)) = *a {
-                        if line.contains(&r.index()) {
-                            *m = Some(land(r, c));
-                        }
-                    }
-                }
-                if let Some(v) = view {
-                    if (from.index()..from.index() + n.index()).contains(&v) {
-                        landed = Some(land(Rows::of_count(v), Col::ZERO).0);
-                    }
-                }
-                if let Some((r, c)) = decsc {
-                    if line.contains(&r.index()) {
-                        decsc_at = Some(land(r, c));
-                    }
-                }
-            };
-            let follow: Option<Follow<'_>> = match (staged, marked, view, anchors, decsc) {
-                (0, 0, None, [None, None, None], None) => None,
-                _ => Some(&mut hook),
-            };
-            let r = View::new(
+            // The blank cut rows, after the history: revealed rather
+            // than counted as hidden, and blanked below all the same.
+            let rest = (k - reveal - pull).min(hidden);
+            hidden -= rest;
+            let mut v = View::new(
                 self.store.vp,
                 self.store.used,
                 self.stride,
@@ -3092,102 +2985,309 @@ impl<'b> Term<'b> {
                 rows,
                 ring,
                 self.rot,
-            )
-            .reflow(
-                old_cols,
-                cols,
-                self.store.book.hist,
-                self.store.book.hidden,
-                cursor,
-                follow,
             );
-            match (staged, visited) {
-                (0, _) => {}
-                (_, true) => {
-                    self.store.images.follow_end(floor);
-                }
-                (_, false) => self.store.images.follow_cancel(),
+            let mut n = 0;
+            for y in from + reveal + pull..to {
+                n += v.fill_row(Row::from_index(y), PackedCell::EMPTY).index();
             }
-            match (marked, visited) {
-                (0, _) => {}
-                (_, true) => self.store.strs.prompts.follow_end(floor),
-                (_, false) => self.store.strs.prompts.follow_cancel(),
-            }
-            // The window over the history, from where its first row landed:
-            // lines from the new window top, which is the history's depth past
-            // what the re-cut dropped. A line that landed on the live screen
-            // or below it is the live screen; one the re-cut dropped is the
-            // oldest line kept.
-            held = held.map(|_| match landed {
-                Some(l) => {
-                    Rows::of_count((r.dropped.index() + r.hist.index()).saturating_sub(l.index()))
-                }
-                None => r.hist,
-            });
-            self.rot = r.rot;
-            // The anchors' rows, from the window's new top line.
-            let top = r.dropped.index() + r.hist.index();
-            let rot_of = |j: Rows| match j.index().checked_sub(top) {
-                Some(y) => r.rot.advance(y, ring),
-                None => r.rot.retreat(top - j.index(), ring),
-            };
-            let shell = match self.cold.screen {
-                Screen::Normal => &mut self.store.strs.shell,
-                Screen::Alternate => &mut self.store.strs.shell_other,
-            };
-            if let Some((j, _)) = moved[0] {
-                shell.block = crate::prompt::PromptBlock::at(rot_of(j));
-            }
-            if let (Some((j, c)), crate::prompt::Input::At { row, col, .. }) =
-                (moved[1], &mut shell.input)
-            {
-                (*row, *col) = (rot_of(j), c);
-            }
-            if let Some((j, _)) = moved[2] {
-                shell.secondary = crate::prompt::Later::At(rot_of(j));
-            }
-            // The saved row from the window's new top, the top row when the
-            // re-cut put it in the history or dropped its line, kept past
-            // the bottom when it landed on a hidden row.
-            if decsc.is_some() {
-                if let Some(s) = self.primary_slot(at) {
-                    let (y, x) =
-                        decsc_at.map_or((0, s.cx), |(j, c)| (j.index().saturating_sub(top), c));
-                    (s.cy, s.cx) = (Row::from_index(y), x);
+            self.cells_written += n;
+            hist = hist.min(spare);
+            hidden = hidden.min(spare - hist);
+        }
+        // A change of height moves lines past the window's top one for
+        // one: the window follows them, as it does output.
+        let now = self.store.book.top;
+        held = held
+            .map(|b| {
+                let at = match now.since(top_before) {
+                    Some(n) => b.index().saturating_add(n.index()),
+                    None => b
+                        .index()
+                        .saturating_sub(top_before.since(now).map_or(0, |n| n.index())),
+                };
+                Rows::of_count(at.min(hist))
+            })
+            .filter(|b| b.index() > 0);
+        self.store.book.hist = Rows::of_count(hist);
+        self.store.book.hidden = Rows::of_count(hidden);
+        match at {
+            PrimaryCursor::Live => self.cy = Row::from_index(cy),
+            PrimaryCursor::Saved => {
+                if let Some(s) = self.cold.saved_other.as_mut() {
+                    s.cy = Row::from_index(cy.min(to - 1));
                 }
             }
-            blanked = r.blanked;
-            self.store.book.hist = r.hist;
-            self.store.book.hidden = r.hidden;
-            // The oldest retained line moved on by what the reflow dropped,
-            // and the window's top is the history's depth after it.
-            self.store.book.top = floor.plus(r.dropped).plus(r.hist);
-            self.store.strs.reflow_dropped =
-                Rows::of_count(self.store.strs.reflow_dropped.index() + r.dropped.index());
-            match at {
-                // The margins go back to the screen's below, so the reflowed
-                // column carries no tag.
-                PrimaryCursor::Live => {
-                    let (cy, cx) = r.cursor;
-                    (self.cy, self.cx) = (cy, CursorCol::written(cx));
-                }
-                PrimaryCursor::Saved => {
-                    if let Some(s) = self.cold.saved_other.as_mut() {
-                        (s.cy, s.cx) = r.cursor;
+            // The alternate screen's cursor too, and this step does not
+            // move the alternate screen's rows.
+            PrimaryCursor::Shared => {}
+        }
+        held
+    }
+
+    /// **A change of width reflows the primary**: its lines are re-cut
+    /// to the new width in place, through the history, and the window
+    /// and the cursor follow their cells (`View::reflow`). The
+    /// alternate screen is cell-addressed rather than reflowed -- a
+    /// full-screen program is told and redraws -- and its revealed
+    /// columns are the growth step's ([`Term::resize_growth`]).
+    ///
+    /// The second step of [`Term::resize`], taken only when the width
+    /// changes and the primary re-cuts in its zone
+    /// ([`Term::primary_recuts`]). It returns the window's last rows the
+    /// re-cut blanked, and the window over the history, `held`, mapped
+    /// through the re-cut; the anchors the re-cut moves -- images,
+    /// prompts, the prompt the shell is at, the primary's `ESC 7` and the
+    /// window's first row -- are mapped inside it, as the re-cut visits
+    /// each line.
+    fn resize_primary_width(
+        &mut self,
+        g: ResizeGeometry,
+        mut held: Option<Rows>,
+    ) -> (Rows, Option<Rows>) {
+        let ResizeGeometry {
+            old_cols,
+            rows,
+            cols,
+            ..
+        } = g;
+        let at = self.primary_cursor();
+        let cursor = match at {
+            PrimaryCursor::Live | PrimaryCursor::Shared => (self.cy, self.cx.col()),
+            PrimaryCursor::Saved => self
+                .cold
+                .saved_other
+                .map_or((Row::ZERO, Col::ZERO), |s| (s.cy, s.cx)),
+        };
+        // **The primary's images follow their rows through the re-cut.**
+        // Each is staged at its row counted from the oldest retained line,
+        // mapped as the reflow visits its line -- before the line is
+        // copied, while its cells can still be read -- and written back
+        // against the same origin, which a reflow keeps. A line the reflow
+        // drops takes its image with it, counted.
+        let ring = self.store.ring_rows();
+        let floor = self
+            .store
+            .book
+            .top
+            .minus(self.store.book.hist)
+            .unwrap_or(LineIdx::FIRST);
+        let images = &mut self.store.images;
+        let staged = match images.any_placed() {
+            true => images.follow_begin(ImageScreen::Primary, floor),
+            false => 0,
+        };
+        // **And so do the prompts**, by the same three steps: a jump
+        // lands on the line its prompt was re-cut onto.
+        let prompts = &mut self.store.strs.prompts;
+        let marked = prompts.follow_begin(floor);
+        // Whether the reflow visited a line: one that returned before
+        // the re-cut visited none, and staged placements it never mapped
+        // are still where they were, not gone.
+        let mut visited = false;
+        // The window's first row, counted from the oldest retained row as
+        // the hook counts, and where the re-cut put it.
+        let hist = self.store.book.hist;
+        let view = held.map(|b| hist.index().saturating_sub(b.index()));
+        let mut landed: Option<Rows> = None;
+        // **And so does the prompt the shell is at, when it is re-cut**
+        // -- under `redraw=0`, or once an `I` line has ended: its block
+        // start, its input and its later line are ring rows, which name
+        // other cells once the rows move. Counted from the oldest
+        // retained row, as the hook counts.
+        let oldest = self.rot.retreat(hist.index(), ring);
+        let shell = match self.cold.screen {
+            Screen::Normal => &self.store.strs.shell,
+            Screen::Alternate => &self.store.strs.shell_other,
+        };
+        let counted =
+            |r: RowRot| Rows::of_count((r.index() + ring.index() - oldest.index()) % ring.index());
+        let anchors: [Option<(Rows, Col)>; 3] = match shell.zone {
+            Zone::Prompt => [
+                Some((counted(shell.block.start()), Col::ZERO)),
+                match shell.input {
+                    crate::prompt::Input::At { row, col, .. } => Some((counted(row), col)),
+                    crate::prompt::Input::None => None,
+                },
+                match shell.secondary {
+                    crate::prompt::Later::At(row) => Some((counted(row), Col::ZERO)),
+                    crate::prompt::Later::None => None,
+                },
+            ],
+            Zone::Output => [None; 3],
+        };
+        let mut moved: [Option<(Rows, Col)>; 3] = [None; 3];
+        // **And so does the primary's `ESC 7`** (note V, V4), as a point
+        // the re-cut moves and that moves nothing: from its cell, or
+        // from the last column when it waits to wrap there.
+        let old_last = Col::at_index(old_cols.index().saturating_sub(1));
+        let decsc = match at {
+            PrimaryCursor::Saved => None,
+            PrimaryCursor::Live | PrimaryCursor::Shared => match self.cold.screen {
+                Screen::Normal => self.cold.saved,
+                Screen::Alternate => self.cold.saved_other,
+            },
+        }
+        .map(|s| {
+            (
+                Rows::of_count(hist.index() + s.cy.index()),
+                s.cx.min(old_last),
+            )
+        });
+        let mut decsc_at: Option<(Rows, Col)> = None;
+        let mut hook = |from: Rows, n: Rows, land: &dyn Fn(Rows, Col) -> (Rows, Col)| {
+            visited = true;
+            if staged > 0 {
+                images.follow_line(from, n, land);
+            }
+            if marked > 0 {
+                prompts.follow_line(floor, from, n, land);
+            }
+            let line = from.index()..from.index() + n.index();
+            for (a, m) in anchors.iter().zip(moved.iter_mut()) {
+                if let Some((r, c)) = *a {
+                    if line.contains(&r.index()) {
+                        *m = Some(land(r, c));
                     }
                 }
-                PrimaryCursor::Shared => {}
+            }
+            if let Some(v) = view {
+                if (from.index()..from.index() + n.index()).contains(&v) {
+                    landed = Some(land(Rows::of_count(v), Col::ZERO).0);
+                }
+            }
+            if let Some((r, c)) = decsc {
+                if line.contains(&r.index()) {
+                    decsc_at = Some(land(r, c));
+                }
+            }
+        };
+        let follow: Option<Follow<'_>> = match (staged, marked, view, anchors, decsc) {
+            (0, 0, None, [None, None, None], None) => None,
+            _ => Some(&mut hook),
+        };
+        let r = View::new(
+            self.store.vp,
+            self.store.used,
+            self.stride,
+            Cols::of_index(old_cols.index().max(cols.index())),
+            rows,
+            ring,
+            self.rot,
+        )
+        .reflow(
+            old_cols,
+            cols,
+            self.store.book.hist,
+            self.store.book.hidden,
+            cursor,
+            follow,
+        );
+        match (staged, visited) {
+            (0, _) => {}
+            (_, true) => {
+                self.store.images.follow_end(floor);
+            }
+            (_, false) => self.store.images.follow_cancel(),
+        }
+        match (marked, visited) {
+            (0, _) => {}
+            (_, true) => self.store.strs.prompts.follow_end(floor),
+            (_, false) => self.store.strs.prompts.follow_cancel(),
+        }
+        // The window over the history, from where its first row landed:
+        // lines from the new window top, which is the history's depth past
+        // what the re-cut dropped. A line that landed on the live screen
+        // or below it is the live screen; one the re-cut dropped is the
+        // oldest line kept.
+        held = held.map(|_| match landed {
+            Some(l) => {
+                Rows::of_count((r.dropped.index() + r.hist.index()).saturating_sub(l.index()))
+            }
+            None => r.hist,
+        });
+        self.rot = r.rot;
+        // The anchors' rows, from the window's new top line.
+        let top = r.dropped.index() + r.hist.index();
+        let rot_of = |j: Rows| match j.index().checked_sub(top) {
+            Some(y) => r.rot.advance(y, ring),
+            None => r.rot.retreat(top - j.index(), ring),
+        };
+        let shell = match self.cold.screen {
+            Screen::Normal => &mut self.store.strs.shell,
+            Screen::Alternate => &mut self.store.strs.shell_other,
+        };
+        if let Some((j, _)) = moved[0] {
+            shell.block = crate::prompt::PromptBlock::at(rot_of(j));
+        }
+        if let (Some((j, c)), crate::prompt::Input::At { row, col, .. }) =
+            (moved[1], &mut shell.input)
+        {
+            (*row, *col) = (rot_of(j), c);
+        }
+        if let Some((j, _)) = moved[2] {
+            shell.secondary = crate::prompt::Later::At(rot_of(j));
+        }
+        // The saved row from the window's new top, the top row when the
+        // re-cut put it in the history or dropped its line, kept past
+        // the bottom when it landed on a hidden row.
+        if decsc.is_some() {
+            if let Some(s) = self.primary_slot(at) {
+                let (y, x) =
+                    decsc_at.map_or((0, s.cx), |(j, c)| (j.index().saturating_sub(top), c));
+                (s.cy, s.cx) = (Row::from_index(y), x);
             }
         }
-        // **A growth keeps both screens' marks honest, whatever the zone.**
-        // Only the primary's *re-cut* waits on its zone. The alternate
-        // screen's `widened` sat inside the same gate and nothing raised a
-        // primary mark outside it, so at a shell prompt a growth raised no
-        // mark on the primary -- a band erased in a colour while narrow
-        // survived the next default erase -- and left the alternate screen's
-        // revealed columns and marks as they were, so the next program's
-        // entry clear skipped them and the frame drawn when the screen was
-        // last that wide showed under the new one.
+        let blanked = r.blanked;
+        self.store.book.hist = r.hist;
+        self.store.book.hidden = r.hidden;
+        // The oldest retained line moved on by what the reflow dropped,
+        // and the window's top is the history's depth after it.
+        self.store.book.top = floor.plus(r.dropped).plus(r.hist);
+        self.store.strs.reflow_dropped =
+            Rows::of_count(self.store.strs.reflow_dropped.index() + r.dropped.index());
+        match at {
+            // The margins go back to the screen's below, so the reflowed
+            // column carries no tag.
+            PrimaryCursor::Live => {
+                let (cy, cx) = r.cursor;
+                (self.cy, self.cx) = (cy, CursorCol::written(cx));
+            }
+            PrimaryCursor::Saved => {
+                if let Some(s) = self.cold.saved_other.as_mut() {
+                    (s.cy, s.cx) = r.cursor;
+                }
+            }
+            PrimaryCursor::Shared => {}
+        }
+        (blanked, held)
+    }
+
+    /// **A growth keeps both screens' marks honest, whatever the zone.**
+    /// Only the primary's *re-cut* waits on its zone. The alternate
+    /// screen's `widened` sat inside the same gate and nothing raised a
+    /// primary mark outside it, so at a shell prompt a growth raised no
+    /// mark on the primary -- a band erased in a colour while narrow
+    /// survived the next default erase -- and left the alternate screen's
+    /// revealed columns and marks as they were, so the next program's
+    /// entry clear skipped them and the frame drawn when the screen was
+    /// last that wide showed under the new one.
+    ///
+    /// A wider alternate screen blanks the columns it reveals
+    /// (`View::widened`): the program owns the screen and repaints it a
+    /// frame later, so showing the frame it drew when it was last this
+    /// wide, under the incoming one, is two images at once. Blanking also
+    /// raises the mark, so a fill taken while narrow is not trusted past
+    /// the edge it stopped at.
+    ///
+    /// The third step of [`Term::resize`], after the primary's two: the
+    /// alternate screen's width, and the primary's marks beside it.
+    fn resize_growth(&mut self, g: ResizeGeometry) {
+        let ResizeGeometry {
+            old_cols,
+            rows,
+            cols,
+            ..
+        } = g;
         if cols.index() > old_cols.index() {
             View::new(
                 self.store.vp,
@@ -3210,18 +3310,27 @@ impl<'b> Term<'b> {
             )
             .widened(old_cols);
         }
-        // **And a taller alternate screen blanks the rows it reveals**, the
-        // height half of `widened`. Its ring is the provisioned height, so a
-        // line that scrolled off its top, or a row a shorter screen cut off
-        // its bottom, is still in the ring past the window; a growth moved
-        // the window's bottom edge over them, and the lines a program had
-        // scrolled away showed under its next frame until it repainted
-        // (`a_taller_alternate_screen_reveals_blank_rows_not_scrolled_ones`).
-        // A rule of baud's own, stated as one: what xterm's resize does to
-        // its alternate buffer is in `screen.c`, which is not pinned. Blanked
-        // to the wider of the two widths, as the primary's revealed rows
-        // are, and trusting marks that `widened` keeps true over the whole
-        // ring, so a tail past a narrower edge goes with them.
+    }
+
+    /// **And a taller alternate screen blanks the rows it reveals**, the
+    /// height half of `widened`. Its ring is the provisioned height, so a
+    /// line that scrolled off its top, or a row a shorter screen cut off
+    /// its bottom, is still in the ring past the window; a growth moved
+    /// the window's bottom edge over them, and the lines a program had
+    /// scrolled away showed under its next frame until it repainted
+    /// (`a_taller_alternate_screen_reveals_blank_rows_not_scrolled_ones`).
+    /// A rule of baud's own, stated as one: what xterm's resize does to
+    /// its alternate buffer is in `screen.c`, which is not pinned. Blanked
+    /// to the wider of the two widths, as the primary's revealed rows
+    /// are, and trusting marks that `widened` keeps true over the whole
+    /// ring, so a tail past a narrower edge goes with them.
+    fn resize_alternate_height(&mut self, g: ResizeGeometry) {
+        let ResizeGeometry {
+            old_rows,
+            old_cols,
+            rows,
+            cols,
+        } = g;
         if rows.index() > old_rows.index() {
             let mut v = View::new(
                 self.store.alt.cells,
@@ -3238,19 +3347,23 @@ impl<'b> Term<'b> {
             }
             self.cells_written += n;
         }
+    }
 
-        self.rows = rows;
-        self.cols = cols;
-        // **Raised by a growth, and lowered to what the ring holds.** Past
-        // the furthest cell any row holds, no row differs, so the repair
-        // carries nothing there; measured after the re-cut and the blanks
-        // above, which are the last writes past the live edge this makes.
-        // Each row's flag with it, which is what lets the passes past the
-        // edge skip a row with nothing there and lower the reach again.
-        // From the flags the resize began with, at the old width: a row clear
-        // there is read one cell deep on a narrowing and not at all
-        // otherwise, so a resize with nothing held and nothing narrower reads
-        // nothing (`View::held_past_edge`).
+    /// **Raised by a growth, and lowered to what the ring holds.** Past
+    /// the furthest cell any row holds, no row differs, so the repair
+    /// carries nothing there; measured after the re-cut and the blanks
+    /// above, which are the last writes past the live edge this makes.
+    /// Each row's flag with it, which is what lets the passes past the
+    /// edge skip a row with nothing there and lower the reach again.
+    /// From the flags the resize began with, at the old width: a row clear
+    /// there is read one cell deep on a narrowing and not at all
+    /// otherwise, so a resize with nothing held and nothing narrower reads
+    /// nothing (`View::held_past_edge`).
+    ///
+    /// A step of [`Term::resize`], taken once the new geometry is the
+    /// terminal's.
+    fn resize_measure(&mut self, old_cols: Cols, kept: Kept, blanked: Rows) {
+        let (rows, cols) = (self.rows, self.cols);
         let widest = Cols::of_index(self.store.book.reach.index().max(cols.index()));
         let ring = self.store.ring_rows();
         let book = &mut self.store.book;
@@ -3284,6 +3397,12 @@ impl<'b> Term<'b> {
             "the measure disagrees with a full read of the ring: {:?}",
             self.past_edge_check()
         );
+    }
+
+    /// **The cursor is clamped and the margins reset** to the new
+    /// geometry: a step of [`Term::resize`], after the measure.
+    fn resize_cursor_and_margins(&mut self, before: (Row, CursorCol)) {
+        let (rows, cols) = (self.rows, self.cols);
         self.cy = Row::from_index(self.cy.index().min(rows.index() - 1));
         // A clamp is a horizontal move, so it ends the pin as `Paint::set_col`
         // does: the cursor is no longer after the character written last.
@@ -3313,22 +3432,18 @@ impl<'b> Term<'b> {
         // A line limit set wider than the screen acts as its last column.
         self.cold.fence = crate::bounds::limited(own, &self.cold, self.cols);
         self.resize_ends_string(before);
-        // **An image whose row the resize took away goes with it**: a row
-        // past what the primary's ring now retains, or past the bottom of a
-        // shorter alternate screen, which keeps nothing below it.
-        if self.store.images.any_placed() {
-            self.expire_images();
-        }
-        // **The in-band report, after the resize is complete.** The
-        // specification is explicit that a terminal must not send one
-        // before its own resize has finished, which is why this is the
-        // last thing here: everything above has settled the geometry, the
-        // window and the cursor.
-        //
-        // It reports what the terminal *has*, not what was asked for --
-        // the clamps above are real -- for the same reason an embedder
-        // must send the child the settled size rather than the requested
-        // one.
+    }
+
+    /// **The in-band report, after the resize is complete.** The
+    /// specification is explicit that a terminal must not send one
+    /// before its own resize has finished, which is why it comes after
+    /// every step that settles the geometry and the cursor.
+    ///
+    /// It reports what the terminal *has*, not what was asked for --
+    /// the clamps above are real -- for the same reason an embedder
+    /// must send the child the settled size rather than the requested
+    /// one.
+    fn resize_report(&mut self, rows: Rows, cols: Cols) {
         if self.cold.modes.is_set(ModeBit::InbandResize) {
             self.queue(Report::inband(
                 rows,
@@ -3337,18 +3452,6 @@ impl<'b> Term<'b> {
                 self.cell_height,
             ));
         }
-        self.status_resized(old_cols);
-        let resized = match over {
-            true => Resized::Truncated { cols, rows },
-            false => Resized::Ok,
-        };
-        let held = held.unwrap_or(Rows::ZERO);
-        // Both steps bound it by the history they leave: the height by its
-        // own clamp, the re-cut because a kept row lands no further back
-        // than the oldest kept.
-        debug_assert!(held.index() <= self.store.book.hist.index());
-        self.store.book.set_window_back(held);
-        resized
     }
 
     /// Geometry comes from a [`WinSize`], which is the one place `ws_col` and

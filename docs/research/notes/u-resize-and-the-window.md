@@ -451,6 +451,17 @@ resize. The loss through narrow widths is a real trade-off, and it is open (Q5).
   6. the report, last.
 
   It makes the two-width-model seam visible in code. The path is cold.
+
+  **Built.** `resize_holding` became `Term::resize` with V2, and its body
+  now runs as private steps, in the order it always had: the primary's
+  height; the primary's width, behind the zone gate; on a growth, both
+  screens' marks and the alternate screen's revealed columns; the
+  alternate screen's revealed rows; the measure past the edge; the cursor
+  and margins; then the images, the in-band report, the status line and
+  the window. The anchors a re-cut moves are mapped inside the width
+  step, as the re-cut visits each line, so they are not a step of their
+  own: E1's list put them after the cursor; the order was kept instead,
+  because the re-cut maps each anchor as it visits that anchor's line.
 - **(E2) Re-cut by prompt scope (the M note's open item).** Re-cut
   everything except the prompt block's rows. kitty does this and truncates
   those rows when narrowing (`lineops.h:39`); baud's fixed pitch could hide
@@ -492,8 +503,8 @@ resize. The loss through narrow widths is a real trade-off, and it is open (Q5).
    `5be8d20`.** E1, splitting `resize_holding` into per-screen steps, was
    not done with them: the fix moved the alternate screen's `widened` out
    of the zone gate, which is the nesting bug, added `View::settle_growth`
-   for the primary beside it, and left the function whole. G3 waits for
-   Q4.
+   for the primary beside it, and left the function whole. E1 is built
+   since (§3). G3 waits for Q4.
 3. **Move the window into the core (B).** Ownership should follow
    knowledge:
    - The core already holds the numbering (`Book::top`), the clamp

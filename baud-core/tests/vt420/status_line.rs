@@ -539,6 +539,24 @@ fn the_line_is_the_main_displays_width() {
     });
 }
 
+/// **The indicator after a resize shows the cursor the resize left**: a
+/// narrower screen keeps the cursor inside its double-width line's half,
+/// 20 columns of 40, and the line is drawn again after that clamp, not
+/// before it.
+#[test]
+fn the_indicator_after_a_resize_shows_the_cursor_it_left() {
+    support::with_term(&WIDE, |t| {
+        support::feed(t, b"\x1b[1$~\x1b[5;1H\x1b#6\x1b[5;30H");
+        assert_eq!(&indicator(t)[..13], "    1(05,030)");
+        let narrow = WinSize {
+            ws_row: 6,
+            ws_col: 40,
+        };
+        assert_eq!(t.resize(&narrow), Resized::Ok);
+        assert_eq!(&indicator(t)[..13], "    1(05,020)");
+    });
+}
+
 // ---- the row ---------------------------------------------------------------
 
 /// **The line's row is the embedder's**, as every buffer the core writes
