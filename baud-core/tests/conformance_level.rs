@@ -584,3 +584,46 @@ fn the_level_one_keyboard() {
     );
     assert!(press(b"\x1b[61\"p\x1b=", kp(KeypadKey::Up)).0, "Up");
 }
+
+/// **At Level 1 a single shift draws ASCII**: "In Level 1 operation, the
+/// default character set designations will be ASCII in G0, G1, G2, and G3"
+/// (`[[source: dec-std-070]]` 070-3 §3.6.4.1), and SCS cannot move a set
+/// into G2 or G3 there, so `ESC N A` and `ESC O B` after DECSCL 61 are the
+/// ASCII `A` and `B`. RIS's own Level 4 power-up is the Level 2 case below.
+#[test]
+fn level_one_single_shifts_draw_ascii() {
+    every_read_size(b"\x1b[64\"p\x1b[61\"p\x1bNA\x1bOB", |t, n| {
+        assert_eq!(text(t, 0), "AB", "read size {n}");
+    });
+}
+
+/// **Levels 2, 3 and 4 keep the User Preference Supplemental Set in G2 and
+/// G3**: 070-3 §3.6.4.3, which a Level 3 device's Level 2 takes too, the
+/// 8-bit Interface Architecture being its "implicit extension to Level 2"
+/// (070-4, Implicit Extensions), as `host_state_init` puts the three
+/// levels in one case. So `ESC N A` is DEC Supplemental's `Á`, and a
+/// DECSCL from Level 1 brings the set back.
+#[test]
+fn levels_two_to_four_single_shift_the_supplemental_set() {
+    for level in [b"62", b"63", b"64"] {
+        let bytes = [&b"\x1b[61\"p\x1b["[..], level, b"\"p\x1bNA\x1bOB"].concat();
+        every_read_size(&bytes, |t, n| {
+            assert_eq!(text(t, 0), "\u{c1}\u{c2}", "read size {n}");
+        });
+    }
+}
+
+/// **`RIS` from Level 1 is the Level 4 power-up, sets and all**: the level
+/// returns to 4 before the reset loads the sets, so G2 and G3 hold the
+/// supplemental set again; and a `DECRC` with nothing saved at Level 1
+/// loads Level 1's, "Cursor Save Buffer: set to current level defaults"
+/// (070-4 DECSTR).
+#[test]
+fn a_full_reset_from_level_one_loads_the_level_four_sets() {
+    every_read_size(b"\x1b[61\"p\x1bc\x1bNA", |t, n| {
+        assert_eq!(text(t, 0), "\u{c1}", "read size {n}");
+    });
+    every_read_size(b"\x1b[61\"p\x1b8\x1bNA", |t, n| {
+        assert_eq!(text(t, 0), "A", "read size {n}");
+    });
+}

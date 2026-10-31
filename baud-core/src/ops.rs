@@ -509,18 +509,36 @@ impl Paint<'_, '_> {
         self.invoke();
     }
 
-    /// The power-on designations and invocations
-    /// ([`crate::term::POWER_UP_SETS`]): what DECSTR, RIS and a DECRC with
-    /// nothing saved establish. `[[source: dec-std-070]]` 070-4 p. 31,
-    /// DECSTR: "In Use Table (gl, gr) | set to current level defaults /
-    /// Designated Sets | set to current level defaults".
+    /// The current level's designations and invocations: what DECSTR,
+    /// DECSCL, RIS and a DECRC with nothing saved establish.
+    /// `[[source: dec-std-070]]` 070-4 p. 31, DECSTR: "In Use Table (gl,
+    /// gr) | set to current level defaults / Designated Sets | set to
+    /// current level defaults", and 070-3 §3.6.4: "The following
+    /// assignments will apply to the power-on and soft reset states of the
+    /// terminal". **Level 1's are ASCII in all four**
+    /// ([`crate::term::LEVEL_ONE_SETS`]), Levels 2 to 4's the power-up
+    /// sets ([`crate::term::POWER_UP_SETS`]). The texts differ on DECSCL
+    /// 61: its algorithm calls `soft_terminal_reset()`, whose body opens
+    /// `if (conformance level != LEVEL_1)`, the guard of DECSTR's note b
+    /// ("ignored when operating at Level 1"), and so would leave the sets
+    /// as they were, while DECSCL's note 3, "automatically places the
+    /// terminal into a known state", and §3.6.4.1 give Level 1's; baud
+    /// follows the two.
     pub(crate) fn reset_sets(&mut self) {
         // DECHEM with them: multinational, as DECSTR's table returns
         // DECNRCM, its opposite, to "Multinational set"
         // (`[[source: vt510-decstr]]`).
         self.cold.hebrew = HebrewEncoding::Multinational;
-        self.cold.g = crate::term::POWER_UP_SETS;
-        self.cold.desig = crate::term::POWER_UP_DESIGNATIONS;
+        (self.cold.g, self.cold.desig) = match self.cold.level {
+            ConformanceLevel::One => (
+                crate::term::LEVEL_ONE_SETS,
+                crate::term::LEVEL_ONE_DESIGNATIONS,
+            ),
+            _ => (
+                crate::term::POWER_UP_SETS,
+                crate::term::POWER_UP_DESIGNATIONS,
+            ),
+        };
         self.cold.gl = GSlot::G0;
         self.cold.gr = GSlot::G2;
     }
@@ -4660,8 +4678,11 @@ impl Paint<'_, '_> {
         };
         self.set_alt_screen(ModeChange::Reset, AltSwitch::SaveAndClear);
         // DECHEBM's power-on mapping, North American, before `soft_reset`
-        // invokes GL's set (`crate::hebrew_keys`).
+        // invokes GL's set (`crate::hebrew_keys`). **And Level 4 before it
+        // too**, which `soft_reset` loads the sets for: a reset from Level 1
+        // otherwise loaded Level 1's and then left Level 1.
         self.cold.hebrew_keyboard = HebrewKeyboard::NorthAmerican;
+        self.cold.level = ConformanceLevel::Four;
         self.soft_reset();
         // SDS's and SRS's table empties, the screens it named erased.
         self.reset_strings();
@@ -4835,8 +4856,7 @@ impl Paint<'_, '_> {
         // 070's Device Initialization takes both from NVM (`host_state_init`,
         // "conformance level = LEVEL 4"), which here is the power-up state,
         // Level 4 and seven-bit, the VT510's factory default. `RIS` kept an
-        // `S8C1T` before.
-        self.cold.level = ConformanceLevel::Four;
+        // `S8C1T` before. The level is set above, before the soft reset.
         self.cold.replies = self.cold.replies.with_c1(C1Transmit::SevenBit);
         // `RIS` "remove[s] qualified areas" (`[[source: ecma48]]` 8.3.105):
         // the screens were cleared above, and ED, EL and ECH take their

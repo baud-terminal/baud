@@ -79,6 +79,18 @@ pub(crate) const POWER_UP_DESIGNATIONS: [Designation; 4] = [
     Designation::UPSS,
     Designation::UPSS,
 ];
+/// **Level 1's sets**, which a soft reset there loads in place of the two
+/// above: "In Level 1 operation, the default character set designations
+/// will be ASCII in G0, G1, G2, and G3. Furthermore, the G0 set (ASCII)
+/// will be invoked into the GL position" (`[[source: dec-std-070]]` 070-3
+/// §3.6.4.1), and `host_state_init`'s Level 1 case puts ASCII in GR too
+/// (070-4 p. 14). Levels 2 and 3 take the power-up sets: §3.6.4.3 is
+/// "Level 3 (or Level 2 with 8-bit Interface Architecture Extension)",
+/// which a Level 3 or higher device has as an implicit extension at Level
+/// 2 (070-4, Implicit Extensions).
+pub(crate) const LEVEL_ONE_SETS: [Charset; 4] = [Charset::Ascii; 4];
+/// The same, as designated: `B` in all four.
+pub(crate) const LEVEL_ONE_DESIGNATIONS: [Designation; 4] = [Designation::ASCII; 4];
 
 /// What `DECSC` saves and `DECRC` restores.
 #[derive(Clone, Copy)]
