@@ -55,8 +55,8 @@ use baud_render::{
     Window, gutter,
 };
 use macos_liquid_glass::drawable::{
-    Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
-    MouseKind as ViewMouseKind, Rect, Responder, Scroll, Waker,
+    Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, ModifierChange,
+    Mouse, MouseKind as ViewMouseKind, Rect, Responder, Scroll, Waker,
 };
 use macos_liquid_glass::glass::{GlassError, GlassStyle, GlassSurface};
 use macos_liquid_glass::material::MaterialSurface;
@@ -1680,9 +1680,11 @@ impl App {
 
     /// **The link preview read again** while the pointer is over the
     /// text (`link::Hover::refresh`): on the view shown now, with the
-    /// modifiers AppKit says are held now, `NSEvent.modifierFlags`, since
-    /// the window crate hands no event for a press or release of Command
-    /// alone. Whether what the frame draws changed.
+    /// modifiers AppKit says are held now, `NSEvent.modifierFlags`. A
+    /// press or release of a modifier key alone is read as it happens
+    /// (`modifiers_changed`); this read, at each tick, follows the view as
+    /// output moves it under a held chord. Whether what the frame draws
+    /// changed.
     fn read_hover(&mut self) -> bool {
         if !self.hover.over_text() {
             return false;
@@ -1695,6 +1697,15 @@ impl App {
             true => crate::link::Chord::Cmd,
             false => crate::link::Chord::Other,
         };
+        self.read_hover_as(chord)
+    }
+
+    /// The link preview read again with `chord` held: what `read_hover`
+    /// does with the modifiers it reads.
+    fn read_hover_as(&mut self, chord: crate::link::Chord) -> bool {
+        if !self.hover.over_text() {
+            return false;
+        }
         let host = self.preview_host(chord);
         let changed = self.hover.refresh(
             &self.term,
@@ -3048,7 +3059,13 @@ fn slots(p: Px) -> usize {
 /// (`translateFlags`, `[[source: kitty-glfw-cocoa-window-851cb80]]`). A
 /// Mac has no NumLock, whose key is the keypad's Clear.
 fn held_with_locks(key: &KeyPress, flags: NSEventModifierFlags) -> Modifiers {
-    let m = mods(key.modifiers);
+    with_locks(mods(key.modifiers), flags)
+}
+
+/// `m` with Caps Lock's bit while an event's `flags` say the lock is on:
+/// a key's press and release ([`held_with_locks`]) and a modifier key's
+/// change ([`modifier_event`]) alike.
+fn with_locks(m: Modifiers, flags: NSEventModifierFlags) -> Modifiers {
     match flags.contains(NSEventModifierFlags::CapsLock) {
         true => m.with(Modifiers::CAPS_LOCK),
         false => m,
@@ -3056,8 +3073,10 @@ fn held_with_locks(key: &KeyPress, flags: NSEventModifierFlags) -> Modifiers {
 }
 
 /// **The key event's flags**: `modifierFlags` of `NSApplication`'s
-/// `currentEvent`, which inside `keyDown:` is that key event, as
-/// [`current_event_time`] reads its stamp. AppKit sets
+/// `currentEvent`, which inside `keyDown:`, `keyUp:` and `flagsChanged:`
+/// is that event, as [`current_event_time`] reads its stamp, and inside
+/// the monitor that hands the view a Command-held key-up is that key-up
+/// (`a_key_up_a_monitor_is_handed_is_the_current_event`). AppKit sets
 /// `NSEventModifierFlagCapsLock` there while the lock is on, "Set if Caps
 /// Lock key is pressed" (`[[source: macos-sdk-nsevent-h]]` line 168;
 /// `[[source: apple-nsevent-modifierflags]]`,
@@ -3086,6 +3105,15 @@ fn mods(m: macos_liquid_glass::drawable::Modifiers) -> Modifiers {
     out
 }
 
+/// The link's chord from the modifiers held: Command, and not Shift, which
+/// is the selection's.
+fn link_chord(m: macos_liquid_glass::drawable::Modifiers) -> crate::link::Chord {
+    match m.command && !m.shift {
+        true => crate::link::Chord::Cmd,
+        false => crate::link::Chord::Other,
+    }
+}
+
 /// What kind of key event AppKit delivered: a key the system repeats while it
 /// is held is marked, and the core reports it as a repeat only where
 /// `[[source: kitty-keyboard]]`'s event types asked for one -- everywhere else
@@ -3094,6 +3122,284 @@ fn kind_of(key: &KeyPress) -> KeyEventKind {
     match key.repeat {
         true => KeyEventKind::Repeat,
         false => KeyEventKind::Press,
+    }
+}
+
+/// **The presses the program got, by key code, until each one's release.**
+/// kitty's event types report "key repeat and key release events"
+/// (`[[source: kitty-keyboard]]`), and a release names the key its press
+/// named: the identity, base layout key and text the press carried, with
+/// the modifiers held when it comes up. A release whose press the program
+/// never got is dropped, and so is a second one: a Command chord is the
+/// menu's, a key the input manager takes into a composition or a dead key
+/// types nothing yet, and the find field takes what is typed into it, so
+/// none of those was sent and a release alone would tell the program of a
+/// key it never saw go down. kitty pairs them the same way
+/// (`[[source: kitty-glfw-input-c-851cb80]]`). The Mac's virtual key codes
+/// are below `0x80` (`[[source: macos-sdk-events-h]]`).
+struct Downs {
+    keys: [Option<KeyEvent>; 128],
+    /// Caps Lock's bit as the last key event the view was handed carried
+    /// it, a press, a release or a modifier key's change, the lock's own
+    /// among them: what the keys let go at a focus loss carry (`let_go`).
+    lock: Modifiers,
+}
+
+/// A Mac's virtual key code, `NSEvent.keyCode`: a physical key.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct VirtualKey(u16);
+
+/// Whose the keys are: the program's, or the find field's while it is
+/// open, which takes every key typed into it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum KeysTo {
+    Program,
+    FindField,
+}
+
+/// The key that typed a commit of the input manager, `text`: the key
+/// handed to it, `code`, when the commit is one character, and none for a
+/// commit of more, which is no one key's, so no press is recorded for it
+/// and no release follows.
+fn commit_key(code: Option<VirtualKey>, text: &str) -> Option<VirtualKey> {
+    code.filter(|_| text.chars().count() == 1)
+}
+
+/// **The key handed to the input manager, until what it typed arrives**:
+/// set by `key()` for a key it answers `Handled::Interpret` for, and taken
+/// by the `text()` or `command()` the input manager answers it with, whose
+/// press `typed()` records in [`Downs`] under it, so its release follows.
+/// The window crate's `insertText:` reports the composition ended,
+/// `marked_text("")`, before every commit, a key's own character among
+/// them, so an empty composition leaves the key handed: only a key that
+/// made the composition something -- a dead key's accent, an input
+/// method's first letter -- typed nothing itself and is dropped, and a key
+/// pressed while a composition is open is never handed
+/// (`composing_first`). The key coming up drops it too, so a commit after
+/// it -- the character palette's, an input method's on a click -- is no
+/// key's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Handed(Option<VirtualKey>);
+
+impl Handed {
+    const NONE: Handed = Handed(None);
+
+    /// `key` went to the input manager.
+    fn key(&mut self, key: VirtualKey) {
+        self.0 = Some(key);
+    }
+
+    /// The composition is `text` now: a key that made it something typed
+    /// nothing.
+    fn marked(&mut self, text: &str) {
+        if !text.is_empty() {
+            self.0 = None;
+        }
+    }
+
+    /// The key that typed the commit `text`, taken: the one handed when
+    /// the commit is one character ([`commit_key`]).
+    fn text(&mut self, text: &str) -> Option<VirtualKey> {
+        commit_key(self.0.take(), text)
+    }
+
+    /// The key the input manager made a command of, taken.
+    fn command(&mut self) -> Option<VirtualKey> {
+        self.0.take()
+    }
+
+    /// `key` came up.
+    fn up(&mut self, key: VirtualKey) {
+        if self.0 == Some(key) {
+            self.0 = None;
+        }
+    }
+}
+
+impl Downs {
+    const NONE: Downs = Downs {
+        keys: [None; 128],
+        lock: Modifiers::NONE,
+    };
+
+    /// A key event with `flags` was handed to the view: Caps Lock as it
+    /// says.
+    fn saw(&mut self, flags: NSEventModifierFlags) {
+        self.lock = with_locks(Modifiers::NONE, flags);
+    }
+
+    /// `e` went to the program for the key `key`.
+    fn pressed(&mut self, key: VirtualKey, e: KeyEvent) {
+        if let Some(slot) = self.keys.get_mut(usize::from(key.0)) {
+            *slot = Some(e);
+        }
+    }
+
+    /// The release of `key` with `mods` held, if its press went to the
+    /// program; the slot is free again after.
+    fn released(&mut self, key: VirtualKey, mods: Modifiers) -> Option<KeyEvent> {
+        let press = self.keys.get_mut(usize::from(key.0))?.take()?;
+        Some(KeyEvent {
+            kind: KeyEventKind::Release,
+            mods,
+            ..press
+        })
+    }
+
+    /// The release of the key that came up, `key`, with the modifiers
+    /// held as it does and Caps Lock from its event's `flags`, if its
+    /// press went to the program.
+    fn up(&mut self, key: &KeyPress, flags: NSEventModifierFlags) -> Option<KeyEvent> {
+        self.saw(flags);
+        self.released(VirtualKey(key.key_code), held_with_locks(key, flags))
+    }
+
+    /// What a modifier key alone, `e` on `key`, sends: its release when
+    /// its press went, and its press unless the find field has the keys,
+    /// recorded so its release follows it.
+    fn modifier(&mut self, key: VirtualKey, e: KeyEvent, to: KeysTo) -> Option<KeyEvent> {
+        match (e.kind, to) {
+            (KeyEventKind::Release, _) => self.released(key, e.mods),
+            (_, KeysTo::FindField) => None,
+            (_, KeysTo::Program) => {
+                self.pressed(key, e);
+                Some(e)
+            }
+        }
+    }
+
+    /// Every press still held, released, and the table empty after: the
+    /// window losing the keyboard, whose key-ups go to the window that took
+    /// it, so a program would hold those keys for good. No key is held
+    /// after, and Caps Lock's bit is set while the lock is on, as the last
+    /// key event said (`saw`): "if a modifier is active when the key event
+    /// occurs, i.e. if the key is pressed or the lock (for caps lock/num
+    /// lock) is enabled, the key event must have the bit for that modifier
+    /// set" (`[[source: kitty-keyboard]]`). The Linux driver lets go the
+    /// same way
+    /// (`crate::pressed::Pressed::let_go`); Ghostty releases on a focus
+    /// loss too (`[[source: ghostty-d9840f3-surface]]`, `focusCallback`),
+    /// and kitty builds the releases and drops them before the program
+    /// (`[[source: kitty-glfw-window-c-6d5d0c4]]`,
+    /// `[[source: kitty-glfw-c-6d5d0c4]]` line 605).
+    fn let_go(&mut self) -> impl Iterator<Item = KeyEvent> + '_ {
+        let lock = self.lock;
+        self.keys
+            .iter_mut()
+            .filter_map(Option::take)
+            .map(move |press| KeyEvent {
+                kind: KeyEventKind::Release,
+                mods: lock,
+                ..press
+            })
+    }
+}
+
+/// **A modifier key pressed or released alone**, as kitty's "report all
+/// keys as escape codes" reports it, "events for pressing modifier keys"
+/// (`[[source: kitty-keyboard]]`): its functional key, `LEFT_SHIFT` to
+/// `RIGHT_SUPER` and `CAPS_LOCK`, Command being super and Option alt ("the
+/// command key on mac keyboards", "the option key"). The modifiers are
+/// those held after the change, "the modifier state including the effect
+/// for the current event": Control set on a Control press, clear on its
+/// release, and still set when the other Control key holds it. Caps Lock's
+/// bit is set while the lock is on, read from the change's own `flags`
+/// as a key's is ([`held_with_locks`]): "if ... the lock (for caps
+/// lock/num lock) is enabled, the key event must have the bit for that
+/// modifier set". The lock's own key is pressed when the change turns the
+/// lock on and released when it turns it off, its bit set and clear with
+/// it, as kitty's macOS layer reads it
+/// (`[[source: kitty-glfw-cocoa-window-851cb80]]`, `flagsChanged:`). `fn`
+/// is none: kitty's layer reports nothing for it,
+/// and the protocol has no key for it. The core sends a modifier key only
+/// under "report all keys".
+fn modifier_event(
+    key: Option<macos_liquid_glass::drawable::ModifierKey>,
+    kind: KeyEventKind,
+    held: macos_liquid_glass::drawable::Modifiers,
+    flags: NSEventModifierFlags,
+) -> Option<KeyEvent> {
+    use baud_domain::PuaKey as P;
+    use macos_liquid_glass::drawable::ModifierKey as K;
+    let code = match key? {
+        K::LeftShift => P::LeftShift,
+        K::RightShift => P::RightShift,
+        K::LeftControl => P::LeftControl,
+        K::RightControl => P::RightControl,
+        K::LeftOption => P::LeftAlt,
+        K::RightOption => P::RightAlt,
+        K::LeftCommand => P::LeftSuper,
+        K::RightCommand => P::RightSuper,
+        K::CapsLock => P::CapsLock,
+        _ => return None,
+    };
+    let m = with_locks(mods(held), flags);
+    // The lock's own key carries the lock as the change leaves it.
+    let m = match (code, kind) {
+        (P::CapsLock, KeyEventKind::Release) => m.without(Modifiers::CAPS_LOCK),
+        (P::CapsLock, _) => m.with(Modifiers::CAPS_LOCK),
+        _ => m,
+    };
+    let mut e = KeyEvent::press(KeyCode::Pua(code), m);
+    e.kind = kind;
+    Some(e)
+}
+
+/// Whose a click is: the program's and the terminal's as any click is, or
+/// the one that brought the window forward.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Click {
+    Ours,
+    Activating,
+}
+
+/// **The left click into an inactive window activates it and does
+/// nothing else**: not reported to a program tracking the mouse, starting
+/// no selection, arming no link, and its drag and release go with it. The
+/// window crate accepts the first mouse, so the press reaches the view;
+/// Apple's guidance is that "most view objects refuse a click-through
+/// attempt, so the event simply activates the window"
+/// (`[[source: apple-nsview-acceptsfirstmouse]]`). Ghostty refuses it
+/// because accepting it would "encode the event to the pty"
+/// (`[[source: ghostty-d9840f3-surfaceview-appkit]]`), and iTerm2 by
+/// default reports no first click to the program and runs no Cmd-click
+/// action from it (`[[source: iterm2-7ce037e-advanced-settings]]`). A
+/// left press is the activating one when the window did not have the
+/// keyboard before it, `was` being the focus as last polled, read before
+/// this event polls it; a left drag or release belongs to the press it
+/// follows, `held`. The poll cannot see the window key before its press:
+/// AppKit makes the window key inside the dispatch of that same
+/// mouse-down, which Ghostty's monitor relies on ("If you return nil here
+/// then nobody gets a windowDidBecomeKey event"), and no tick runs inside
+/// a dispatch; that order is read from Ghostty's source, not measured.
+///
+/// **A right, middle or other press activates no window**, so it is the
+/// program's and the terminal's in the background as in front: Apple
+/// speaks of the "initial mouse-down event" a view is sent with
+/// `mouseDown(with:)`, iTerm2 brings the window forward on those buttons
+/// only under a preference that is off by default
+/// (`[[source: iterm2-7ce037e-pty-mouse-handler]]`,
+/// `[[source: iterm2-7ce037e-preferences]]`), and Ghostty's monitor
+/// looks only at the left button.
+fn click_of(held: Click, kind: ViewMouseKind, button: ViewButton, was: baud_core::Focus) -> Click {
+    match (kind, button) {
+        (ViewMouseKind::Down, ViewButton::Left) => match was {
+            baud_core::Focus::Lost => Click::Activating,
+            baud_core::Focus::Gained => Click::Ours,
+        },
+        (ViewMouseKind::Dragged | ViewMouseKind::Up, ViewButton::Left) => held,
+        _ => Click::Ours,
+    }
+}
+
+/// The left click held after `kind` of `button`, whose own click is
+/// `click`: a left press sets it and a left release ends it, and another
+/// button's press or release inside it leaves it as it was.
+fn click_held(held: Click, kind: ViewMouseKind, button: ViewButton, click: Click) -> Click {
+    match (kind, button) {
+        (ViewMouseKind::Down, ViewButton::Left) => click,
+        (ViewMouseKind::Up, ViewButton::Left) => Click::Ours,
+        _ => held,
     }
 }
 
@@ -3858,6 +4164,14 @@ struct Driver {
     /// character, until `text` answers: the base layout key of a key the
     /// input manager types as itself (`typed_text`).
     keyed: Option<Keyed>,
+    /// The key handed to the input manager, until the `text` or
+    /// `command` it answers with (`Handed`).
+    handed: Handed,
+    /// The presses the program got, until their releases (`Downs`).
+    downs: Downs,
+    /// Whether the click in progress is the one that activated the window,
+    /// which does nothing else (`click_of`).
+    click: Click,
     /// A Cmd press over a link, until its release: the gesture is the
     /// terminal's, and `crate::link::gesture` says what each event means.
     armed: Option<crate::link::Armed>,
@@ -3989,6 +4303,10 @@ struct Open {
     view: Retained<DrawableView>,
     _style: macos_liquid_glass::icon_style::StyleObserver,
     _closing: Option<baud_present_macos::closing::Closing>,
+    /// The monitor that hands the view the key-ups AppKit keeps while
+    /// Command is held (`baud_present_macos::keyup`), removed with the
+    /// window.
+    _keyups: Option<baud_present_macos::keyup::KeyUps>,
 }
 
 thread_local! {
@@ -5817,8 +6135,8 @@ mod alt_window_tests {
 
     /// **The display-link tick reads the link preview's modifiers**, so a
     /// press or release of Command with the pointer resting shows on an
-    /// idle screen: the window crate hands no modifier change of its own,
-    /// and a steady or hidden cursor draws no frame to read them in. The
+    /// idle screen even where no modifier change reaches the view, and a
+    /// steady or hidden cursor draws no frame to read them in. The
     /// tick branch is AppKit-bound and no test drives it, so this holds
     /// the source: the pump's tick branch polls the hover after the focus
     /// (a focus lost clears it first), and the poll reads the modifiers
@@ -5836,6 +6154,10 @@ mod alt_window_tests {
         const CALL: &str = concat!("self.poll_", "hover();");
         const POLL: &str = concat!("    fn poll_", "hover(&mut self) {");
         const READ: &str = concat!("    fn read_", "hover(&mut self) -> bool {");
+        const READ_AS: &str = concat!(
+            "    fn read_",
+            "hover_as(&mut self, chord: crate::link::Chord) -> bool {"
+        );
         let body = |head: &str| {
             assert_eq!(SRC.matches(head).count(), 1, "one {head}");
             let b = SRC.split(head).nth(1).expect(head);
@@ -5857,7 +6179,8 @@ mod alt_window_tests {
         let read = body(READ);
         assert!(
             read.contains(concat!("NSEvent::modifier", "Flags_class()"))
-                && read.contains(".refresh("),
+                && read.contains(concat!("self.read_", "hover_as(chord)"))
+                && body(READ_AS).contains(".refresh("),
             "the read does not refresh with the modifiers held now"
         );
     }
@@ -10168,12 +10491,17 @@ impl Driver {
     /// timestamp and this responder running, then the `write(2)` having
     /// returned. The wheel on the alternate screen sends its arrow keys
     /// through `Term::wheel_key` in `Route::Keys`, not here: it is not a
-    /// keystroke and is not stamped.
-    fn typed(&mut self, e: KeyEvent) {
+    /// keystroke and is not stamped. `key` is the key whose press it is,
+    /// recorded so its release follows (`Downs`); none for what no one key
+    /// pressed.
+    fn typed(&mut self, e: KeyEvent, key: Option<VirtualKey>) {
         let e = KeyEvent {
             kind: std::mem::take(&mut self.key_kind),
             ..e
         };
+        if let Some(code) = key {
+            self.downs.pressed(code, e);
+        }
         self.app.latency.key(current_event_time, host_now);
         let (text, held) = (e.text, e.mods);
         let typed = predicts(e.code, self.app.term.keypad());
@@ -10200,6 +10528,17 @@ impl Driver {
         } else if self.app.guess == Guess::Owed {
             // A prediction is owed its frame now, not at the next wake: the
             // keystroke is the event, and nothing else pumps the loop for it.
+            self.pump(Trigger::Wake);
+        }
+    }
+
+    /// A key event that is not a keystroke -- a release, a modifier key
+    /// alone -- sent to the core and on to the program, its frame owed now
+    /// when SRM reset has the core draw it.
+    fn sent_alone(&mut self, e: KeyEvent) {
+        let _ = self.app.send(e);
+        if self.app.term.local_echo() {
+            self.app.pending = Pending::Dirty;
             self.pump(Trigger::Wake);
         }
     }
@@ -10921,8 +11260,11 @@ impl Responder for Driver {
     fn key(&mut self, key: &KeyPress) -> Handled {
         self.key_kind = kind_of(key);
         self.keyed = None;
-        // A key without Command alone says it is no longer held: the
-        // window crate hands no modifier change of its own.
+        self.handed = Handed::NONE;
+        let flags = current_event_flags();
+        self.downs.saw(flags);
+        // A key without Command, or with Shift, says the link chord is not
+        // held, and the preview goes with this key rather than after it.
         if (!key.modifiers.command || key.modifiers.shift) && self.app.hover.clear() {
             self.app.pending = Pending::Dirty;
             self.app.reshape_pointer();
@@ -10986,7 +11328,7 @@ impl Responder for Driver {
                 None => Handled::Interpret,
             };
         }
-        let m = held_with_locks(key, current_event_flags());
+        let m = held_with_locks(key, flags);
         let e = if let Some(code) = special(key) {
             pressed(code, key, m)
         } else if key.modifiers.control || key.modifiers.option {
@@ -11006,9 +11348,10 @@ impl Responder for Driver {
                 mods: m,
                 unshifted: shift_unshifted(key),
             });
+            self.handed.key(VirtualKey(key.key_code));
             return Handled::Interpret;
         };
-        self.typed(e);
+        self.typed(e, Some(VirtualKey(key.key_code)));
         Handled::Consumed
     }
 
@@ -11019,10 +11362,51 @@ impl Responder for Driver {
             return;
         }
         let keyed = self.keyed.take();
+        // The key handed to the input manager pressed what it typed when
+        // that is one character; a commit of more is no one key's.
+        let code = self.handed.text(text);
         // One record per character: a paste through the input manager is
         // one `text` and as many keys as it has characters.
         for e in typed_text(text, keyed.as_ref()) {
-            self.typed(e);
+            self.typed(e, code);
+        }
+    }
+
+    /// A key came up. Its release goes to the program when its press did
+    /// (`Downs`), and the core sends it only where kitty's event types
+    /// asked for releases. A release is not a keystroke: the latency
+    /// instrument, the prediction and `?1011`'s snap leave it alone.
+    fn key_released(&mut self, key: &KeyPress) {
+        self.handed.up(VirtualKey(key.key_code));
+        if let Some(e) = self.downs.up(key, current_event_flags()) {
+            self.sent_alone(e);
+        }
+    }
+
+    /// A modifier key went down or came up alone. The link preview follows
+    /// Command now, not at the next tick, and the key goes to the program
+    /// as kitty's "report all keys" reports it (`modifier_event`): a press
+    /// unless the find field has the keys, a release when its press went.
+    fn modifiers_changed(&mut self, change: &ModifierChange) {
+        if self.app.read_hover_as(link_chord(change.modifiers)) {
+            self.app.pending = Pending::Dirty;
+            self.pump(Trigger::Wake);
+        }
+        let kind = match change.pressed {
+            true => KeyEventKind::Press,
+            false => KeyEventKind::Release,
+        };
+        let flags = current_event_flags();
+        self.downs.saw(flags);
+        let Some(e) = modifier_event(change.key, kind, change.modifiers, flags) else {
+            return;
+        };
+        let to = match self.app.finding {
+            Some(_) => KeysTo::FindField,
+            None => KeysTo::Program,
+        };
+        if let Some(e) = self.downs.modifier(VirtualKey(change.key_code), e, to) {
+            self.sent_alone(e);
         }
     }
 
@@ -11068,7 +11452,8 @@ impl Responder for Driver {
         } else {
             Modifiers::NONE
         };
-        self.typed(KeyEvent::press(code, m));
+        let key = self.handed.command();
+        self.typed(KeyEvent::press(code, m), key);
     }
 
     /// The input manager's composition changed: drawn at the cursor now,
@@ -11076,6 +11461,9 @@ impl Responder for Driver {
     /// the crate calls this with "" before it hands the committed text to
     /// `text`.
     fn marked_text(&mut self, text: &str) {
+        // A key that made the composition something typed nothing
+        // (`Handed`).
+        self.handed.marked(text);
         let composing = crate::marked::codepoints(text);
         if composing == self.app.composing {
             return;
@@ -11094,7 +11482,14 @@ impl Responder for Driver {
     /// here, several to a cell, so the core's cell is what keeps them to one
     /// report a cell.
     fn mouse(&mut self, event: &Mouse) {
+        // The left click that brought the window forward does nothing
+        // else (`click_of`), judged by the focus polled before it.
+        let click = click_of(self.click, event.kind, event.button, self.app.focus);
+        self.click = click_held(self.click, event.kind, event.button, click);
         self.poll_focus();
+        if click == Click::Activating {
+            return;
+        }
         // A move shows a pointer a key hid -- AppKit has already, "until
         // the mouse moves" -- and so does a press, any button, as xterm(1)
         // documents `pointerMode`; a crossing shows it but at mode 3
@@ -12051,6 +12446,9 @@ impl Opening {
             buttons: LocatorButtons::NONE,
             key_kind: KeyEventKind::Press,
             keyed: None,
+            handed: Handed::NONE,
+            downs: Downs::NONE,
+            click: Click::Ours,
             armed: None,
             bar_hold: crate::bar::Hold::FREE,
             owner: Owner::Free,
@@ -12365,6 +12763,7 @@ impl Opening {
                 view: view.clone(),
                 _style: style,
                 _closing: None,
+                _keyups: None,
             })
         });
         let closing = baud_present_macos::closing::when_closing(window.ns_window(), move || {
@@ -12377,6 +12776,15 @@ impl Opening {
         });
         driver.window_id = Some(id);
         view.set_responder(Box::new(driver));
+        // A key let go with Command held, which AppKit keeps from the view,
+        // until the window closes.
+        let keyups =
+            baud_present_macos::keyup::forward_command_key_ups(Retained::into_super(view.clone()));
+        OPEN.with_borrow_mut(|o| {
+            if let Some(open) = o.get_mut(id) {
+                open._keyups = Some(keyups);
+            }
+        });
         view.start_display_link();
         startup_mark("display link");
         view.waker().wake();
@@ -12581,8 +12989,9 @@ impl Driver {
     }
 
     /// **The link preview at each display-link tick**: a press or release
-    /// of Command with the pointer resting is seen by no event, so the
-    /// tick reads the modifiers held now (`App::read_hover`) and owes a
+    /// of Command alone is read as it happens (`modifiers_changed`), and
+    /// the tick reads the modifiers held now as well (`App::read_hover`),
+    /// for the view output moves under a held chord, and owes a
     /// frame when the preview changes, on an idle screen too -- a steady
     /// or hidden cursor draws no frame of its own to read them in. After
     /// `poll_focus`, so a focus lost has cleared the preview first.
@@ -13423,6 +13832,15 @@ impl Driver {
         // Losing the keyboard shows a pointer a key hid, but at mode 3,
         // as xterm's `unselectwindow` does on a focus-out.
         if f == baud_core::Focus::Lost {
+            // The keys still held are let go: their key-ups go elsewhere.
+            // Sent here and drawn by the next frame, not pumped: a poll
+            // can run inside the pump.
+            for e in self.downs.let_go() {
+                let _ = self.app.send(e);
+                if self.app.term.local_echo() {
+                    self.app.pending = Pending::Dirty;
+                }
+            }
             hide_pointer(self.hiding.crossed(&self.app.term));
             if self.app.hover.clear() {
                 self.app.pending = Pending::Dirty;
@@ -13635,10 +14053,11 @@ impl Driver {
     /// (and not Shift, the selection's), the link under the pointer is
     /// underlined and its address shown (`link::Hover`); a move without it,
     /// or the pointer leaving, takes them away. Mouse events carry the
-    /// modifiers, and the window crate hands no change of them alone, so a
-    /// press or release of Command with the pointer still is read at the
-    /// next display-link tick, from `NSEvent.modifierFlags`, which owes a
-    /// frame when the preview changes (`poll_hover`).
+    /// modifiers, and a press or release of Command alone with the pointer
+    /// still is read from the window's modifier change
+    /// (`modifiers_changed`) and again at each display-link tick, from
+    /// `NSEvent.modifierFlags`, which owes a frame when the preview changes
+    /// (`poll_hover`).
     /// The pointer's cell is kept whatever the modifiers, for that read.
     fn hover_mouse(&mut self, event: &Mouse) {
         use crate::link::{Chord, Host};
@@ -16040,10 +16459,21 @@ mod tests {
         assert_eq!(core_sends(b"\x1b[>12u", both), b"\x1b[97:65;66u");
         assert!(is_chord(Modifiers::CTRL.with(on)));
         let src = include_str!("app.rs");
-        assert!(src.contains(concat!(
-            "let m = held_with_locks(",
-            "key, current_event_flags());"
-        )));
+        let key = src
+            .split(concat!(
+                "    fn key(&mut self, key: ",
+                "&KeyPress) -> Handled {"
+            ))
+            .nth(1)
+            .expect("key");
+        let key = &key[..key.find("\n    }\n").expect("its end")];
+        let read = key
+            .find(concat!("let flags = ", "current_event_flags();"))
+            .expect("the dispatched event's flags");
+        let m = key
+            .find(concat!("let m = held_with_locks(", "key, flags);"))
+            .expect("the key's modifiers from them");
+        assert!(read < m);
     }
 
     /// What `key` sends for `k` once `modes` is fed: the event it builds,
@@ -16238,6 +16668,759 @@ mod tests {
         };
         assert_eq!(kind_of(&key(true)), KeyEventKind::Repeat);
         assert_eq!(kind_of(&key(false)), KeyEventKind::Press);
+    }
+
+    /// **A key's release reaches the core as its press let go**: the key
+    /// its press named, with the modifiers held at the release, sent only
+    /// where kitty's event types asked for releases -- `CSI 1;1:3A` for Up
+    /// and `CSI 97;1:3u` for `a` under "report all keys" -- and nothing on
+    /// the legacy layer, which has no release. Perturbation: send the
+    /// release as a press and the event-type rows read the press.
+    #[test]
+    fn a_key_release_reaches_the_core_as_its_press_let_go() {
+        use macos_liquid_glass::drawable::Modifiers as M;
+        let none = M::default();
+        let up = mac_key!(0x7E, "\u{f700}", none);
+        let press = pressed(special(&up).expect("Up"), &up, mods(none));
+        let a = Codepoint::from_char('a');
+        let typed = typed_text("a", Some(&keyed("a", a, Modifiers::NONE, None)))[0];
+        for (modes, code, e, want) in [
+            (b"".as_slice(), 0x7E, press, b"".as_slice()),
+            (b"\x1b[>3u", 0x7E, press, b"\x1b[1;1:3A"),
+            (b"\x1b[>11u", 0x00, typed, b"\x1b[97;1:3u"),
+            // Event types without "report all keys": a text key's release
+            // is not reported, as its press is its text.
+            (b"\x1b[>3u", 0x00, typed, b""),
+        ] {
+            let mut downs = Downs::NONE;
+            downs.pressed(VirtualKey(code), e);
+            let release = downs
+                .released(VirtualKey(code), mods(none))
+                .expect("its press went");
+            assert_eq!(release.kind, KeyEventKind::Release);
+            assert_eq!(release.code, e.code, "{code:#x}");
+            assert_eq!(
+                core_sends(modes, release),
+                want,
+                "{code:#x} after {:?}",
+                String::from_utf8_lossy(modes)
+            );
+        }
+    }
+
+    /// **A release goes to the program only when its press did, and
+    /// once**: a key whose press the program never got -- a Command chord,
+    /// a composition, the find field -- has nothing to release, and a
+    /// second release of one press is dropped. A repeat keeps the key held.
+    /// Perturbation: release whatever comes up and the orphan reads a key.
+    #[test]
+    fn a_release_without_its_press_or_a_second_one_sends_nothing() {
+        let none = Modifiers::NONE;
+        let up = VirtualKey(0x7E);
+        let mut downs = Downs::NONE;
+        assert_eq!(downs.released(up, none), None, "never pressed");
+        let mut e = KeyEvent::press(KeyCode::Up, none);
+        downs.pressed(up, e);
+        e.kind = KeyEventKind::Repeat;
+        downs.pressed(up, e);
+        let release = downs.released(up, Modifiers::SHIFT).expect("held");
+        assert_eq!(release.kind, KeyEventKind::Release);
+        assert_eq!(
+            release.mods,
+            Modifiers::SHIFT,
+            "the modifiers at the release"
+        );
+        assert_eq!(downs.released(up, none), None, "released twice");
+        // A key code past the table is no key the Mac names.
+        downs.pressed(VirtualKey(0x80), e);
+        assert_eq!(downs.released(VirtualKey(0x80), none), None);
+    }
+
+    /// **The keys still held when the window loses the keyboard are let
+    /// go**, each its press released with no key held, and once: the table
+    /// is empty after. Caps Lock's bit rides them while the lock is on, as
+    /// the last key event the view was handed said, kitty's "if ... the
+    /// lock (for caps lock/num lock) is enabled, the key event must have
+    /// the bit for that modifier set" (`[[source: kitty-keyboard]]`): with
+    /// the lock on, Command let go is `CSI 57444;65:3u` under "report all
+    /// keys" with event types, and with a key-up after that turned it off,
+    /// `CSI 57444;1:3u`. The handlers note every key event's flags, held in
+    /// the source. Perturbations: read the table without emptying it and
+    /// the second loss releases them again; let go with no lock and the
+    /// lock's row loses its `64`; note no lock at a key-up and the row
+    /// after the lock turned off keeps it.
+    #[test]
+    fn the_keys_held_when_the_window_loses_the_keyboard_are_let_go() {
+        let mut downs = Downs::NONE;
+        let up = KeyEvent::press(KeyCode::Up, Modifiers::SHIFT);
+        let shift = KeyEvent::press(
+            KeyCode::Pua(baud_domain::PuaKey::LeftShift),
+            Modifiers::SHIFT,
+        );
+        downs.pressed(VirtualKey(0x7E), up);
+        downs.pressed(VirtualKey(0x38), shift);
+        let gone: Vec<KeyEvent> = downs.let_go().collect();
+        assert_eq!(gone.len(), 2);
+        assert!(gone.iter().all(|e| e.kind == KeyEventKind::Release));
+        assert!(gone.iter().all(|e| e.mods == Modifiers::NONE));
+        // By key code: Left Shift is 0x38, Up 0x7E.
+        assert_eq!(core_sends(b"\x1b[>11u", gone[0]), b"\x1b[57441;1:3u");
+        assert_eq!(core_sends(b"\x1b[>3u", gone[1]), b"\x1b[1;1:3A");
+        assert_eq!(downs.let_go().count(), 0, "let go once");
+        assert_eq!(downs.released(VirtualKey(0x7E), Modifiers::NONE), None);
+        // Caps Lock on: the Command key went down with the lock on, then
+        // Command-Tab took the keyboard.
+        let (lock, off) = (NSEventModifierFlags::CapsLock, NSEventModifierFlags(0));
+        let all = b"\x1b[>11u".as_slice();
+        let command = KeyEvent::press(
+            KeyCode::Pua(baud_domain::PuaKey::LeftSuper),
+            Modifiers::SUPER.with(Modifiers::CAPS_LOCK),
+        );
+        downs.saw(lock);
+        downs.pressed(VirtualKey(0x37), command);
+        let gone: Vec<KeyEvent> = downs.let_go().collect();
+        assert_eq!(gone.len(), 1);
+        assert_eq!(core_sends(all, gone[0]), b"\x1b[57444;65:3u");
+        // A key-up after the lock turned off: the let-go carries no lock.
+        let a = KeyPress {
+            key_code: 0x00,
+            characters: "a".to_string(),
+            unmodified: "a".to_string(),
+            modifiers: macos_liquid_glass::drawable::Modifiers::default(),
+            repeat: false,
+        };
+        downs.saw(lock);
+        downs.pressed(VirtualKey(0x37), command);
+        assert_eq!(downs.up(&a, off), None, "a key never pressed");
+        let gone: Vec<KeyEvent> = downs.let_go().collect();
+        assert_eq!(core_sends(all, gone[0]), b"\x1b[57444;1:3u");
+        // Every key event's flags are noted: a press, a release, a change.
+        const SRC: &str = include_str!("app.rs");
+        let body = |head: &str| {
+            let b = SRC.split(head).nth(1).expect(head);
+            b[..b.find("\n    }\n").expect("its end")].to_string()
+        };
+        let key = body(concat!(
+            "    fn key(&mut self, key: ",
+            "&KeyPress) -> Handled {"
+        ));
+        assert!(key.contains(concat!("self.downs.", "saw(flags);")));
+        let changed = body(concat!(
+            "    fn modifiers_changed(&mut self, ",
+            "change: &ModifierChange) {"
+        ));
+        assert!(changed.contains(concat!("self.downs.", "saw(flags);")));
+        let up = body(concat!(
+            "    fn up(&mut self, key: &KeyPress, ",
+            "flags: NSEventModifierFlags) -> Option<KeyEvent> {"
+        ));
+        assert!(up.contains(concat!("self.", "saw(flags);")));
+    }
+
+    /// **A modifier key pressed while the find field is open sends
+    /// nothing**, and leaves no press for its release to name; with the
+    /// keys the program's, its press is sent and its release follows.
+    /// The source holds the handler to it. Perturbation: drop the find
+    /// field's arm and Shift reaches the program from the field.
+    #[test]
+    fn a_modifier_key_pressed_into_the_find_field_sends_nothing() {
+        let shift = KeyCode::Pua(baud_domain::PuaKey::LeftShift);
+        let down = KeyEvent::press(shift, Modifiers::SHIFT);
+        let up = KeyEvent {
+            kind: KeyEventKind::Release,
+            ..KeyEvent::press(shift, Modifiers::NONE)
+        };
+        let key = VirtualKey(0x38);
+        let mut downs = Downs::NONE;
+        assert_eq!(downs.modifier(key, down, KeysTo::FindField), None);
+        assert_eq!(downs.modifier(key, up, KeysTo::FindField), None);
+        assert_eq!(downs.modifier(key, up, KeysTo::Program), None);
+        assert_eq!(downs.modifier(key, down, KeysTo::Program), Some(down));
+        let released = downs
+            .modifier(key, up, KeysTo::Program)
+            .expect("its release");
+        assert_eq!(core_sends(b"\x1b[>11u", released), b"\x1b[57441;1:3u");
+        // A release the field saw go down still goes: the press was sent.
+        assert_eq!(downs.modifier(key, down, KeysTo::Program), Some(down));
+        assert!(downs.modifier(key, up, KeysTo::FindField).is_some());
+        // The source holds the handler to the field's arm.
+        const SRC: &str = include_str!("app.rs");
+        let changed = SRC
+            .split(concat!(
+                "    fn modifiers_changed(&mut self, ",
+                "change: &ModifierChange) {"
+            ))
+            .nth(1)
+            .expect("modifiers_changed");
+        let changed = &changed[..changed.find("\n    }\n").expect("its end")];
+        assert!(changed.contains(concat!("Some(_) => ", "KeysTo::FindField")));
+    }
+
+    /// **A commit of more than one character records no press**: it is no
+    /// one key's, so the key handed to the input manager gets no release
+    /// from it; a commit of one character is that key's. The source holds
+    /// `text` to it. Perturbation: keep the key for any commit and the
+    /// second character's press is recorded under it.
+    #[test]
+    fn a_commit_of_more_than_one_character_records_no_press() {
+        let a = VirtualKey(0x00);
+        assert_eq!(commit_key(Some(a), "a"), Some(a));
+        assert_eq!(commit_key(Some(a), "\u{e9}"), Some(a));
+        assert_eq!(commit_key(Some(a), "ab"), None);
+        assert_eq!(commit_key(Some(a), "\u{65e5}\u{672c}"), None);
+        assert_eq!(commit_key(None, "a"), None);
+        const SRC: &str = include_str!("app.rs");
+        let body = SRC
+            .split(concat!("    fn text(&mut self, ", "text: &str) {"))
+            .nth(1)
+            .expect("text");
+        let body = &body[..body.find("\n    }\n").expect("its end")];
+        assert!(body.contains(concat!("self.handed.", "text(text)")));
+    }
+
+    /// **A key the input manager types is released in the window crate's
+    /// own order**: its `keyDown:` hands the key to `key`, which answers
+    /// `Handled::Interpret`; `interpretKeyEvents:` reaches `insertText:`,
+    /// which calls `marked_text("")` and then `text`; its `keyUp:` reaches
+    /// `key_released`. That empty composition is no composition, so the
+    /// press of `a` is recorded under its key and its release sent,
+    /// `CSI 97;1:3u` under "report all keys" with event types, and Shift+a
+    /// `CSI 97;2u` and `CSI 97;2:3u`, and `a` with Caps Lock on
+    /// `CSI 97;65u` and `CSI 97;65:3u`. The source holds the handlers to
+    /// the order. Perturbation: drop the key at every composition change,
+    /// the empty one too, as the handler did, and no press is recorded and
+    /// no release sent.
+    #[test]
+    fn a_typed_key_is_released_in_the_window_crates_order() {
+        use macos_liquid_glass::drawable::Modifiers as M;
+        let all = b"\x1b[>11u".as_slice();
+        let none = M::default();
+        let shift = M {
+            shift: true,
+            ..none
+        };
+        let (lock, off) = (NSEventModifierFlags::CapsLock, NSEventModifierFlags(0));
+        let a = Codepoint::from_char('a');
+        for (typed, held, flags, mods, unshifted, down, up) in [
+            (
+                "a",
+                none,
+                off,
+                Modifiers::NONE,
+                None,
+                b"\x1b[97u".as_slice(),
+                b"\x1b[97;1:3u".as_slice(),
+            ),
+            (
+                "A",
+                shift,
+                off,
+                Modifiers::SHIFT,
+                Some('a'),
+                b"\x1b[97;2u",
+                b"\x1b[97;2:3u",
+            ),
+            (
+                "A",
+                none,
+                lock,
+                Modifiers::CAPS_LOCK,
+                None,
+                b"\x1b[97;65u",
+                b"\x1b[97;65:3u",
+            ),
+        ] {
+            let key = mac_key!(0x00, typed, held);
+            let (mut handed, mut downs) = (Handed::NONE, Downs::NONE);
+            // keyDown: `key` hands it to the input manager.
+            handed.key(VirtualKey(key.key_code));
+            // insertText: the crate's two calls, in its order.
+            handed.marked("");
+            let code = handed.text(typed);
+            assert_eq!(
+                code,
+                Some(VirtualKey(0x00)),
+                "{typed:?}: the key's own commit"
+            );
+            let k = keyed(typed, a, mods, unshifted);
+            let press = typed_text(typed, Some(&k))[0];
+            assert_eq!(core_sends(all, press), down, "{typed:?} {flags:?}");
+            if let Some(code) = code {
+                downs.pressed(code, press);
+            }
+            // keyUp.
+            handed.up(VirtualKey(key.key_code));
+            let release = downs.up(&key, flags).expect("its release is sent");
+            assert_eq!(core_sends(all, release), up, "{typed:?} {flags:?}");
+        }
+        // The handlers keep the order: the key handed at `key`, an empty
+        // composition leaving it, the commit taking it, the key-up
+        // dropping it.
+        const SRC: &str = include_str!("app.rs");
+        let body = |head: &str| {
+            let b = SRC.split(head).nth(1).expect(head);
+            b[..b.find("\n    }\n").expect("its end")].to_string()
+        };
+        let key = body(concat!(
+            "    fn key(&mut self, key: ",
+            "&KeyPress) -> Handled {"
+        ));
+        assert!(key.contains(concat!("self.handed = ", "Handed::NONE;")));
+        assert!(key.contains(concat!(
+            "self.handed.key(",
+            "VirtualKey(key.key_code));\n            return Handled::Interpret;"
+        )));
+        let marked = body(concat!("    fn marked_text(&mut self, ", "text: &str) {"));
+        assert!(marked.contains(concat!("self.handed.", "marked(text);")));
+        let text = body(concat!("    fn text(&mut self, ", "text: &str) {"));
+        assert!(text.contains(concat!("self.typed(", "e, code);")));
+        let released = body(concat!(
+            "    fn key_released(&mut self, ",
+            "key: &KeyPress) {"
+        ));
+        assert!(released.contains(concat!("self.handed.up(", "VirtualKey(key.key_code));")));
+    }
+
+    /// **A dead key and the letter it composes release nothing**, and a
+    /// commit while the dead key is still down is no key's: the dead key's
+    /// `keyDown:` makes the composition `´`, which drops the key handed,
+    /// and the letter after it, typed while the composition is open, is
+    /// never handed (`composing_first`), so its commit `é`, after the
+    /// crate's `marked_text("")`, records no press. Perturbation: keep the
+    /// key at a composition that is something and the commit while the
+    /// dead key is down is recorded under it.
+    #[test]
+    fn a_dead_key_and_the_letter_it_composes_release_nothing() {
+        let (quote, e) = (VirtualKey(0x27), VirtualKey(0x0E));
+        let mut handed = Handed::NONE;
+        let mut downs = Downs::NONE;
+        let off = NSEventModifierFlags(0);
+        let up = |code: VirtualKey| KeyPress {
+            key_code: code.0,
+            characters: String::new(),
+            unmodified: String::new(),
+            modifiers: macos_liquid_glass::drawable::Modifiers::default(),
+            repeat: false,
+        };
+        // The dead key: handed, then the composition it made.
+        handed.key(quote);
+        handed.marked("\u{b4}");
+        // Committed while the dead key is down: no key's.
+        let mut early = handed;
+        early.marked("");
+        assert_eq!(early.text("\u{b4}"), None, "the dead key typed nothing");
+        handed.up(quote);
+        assert_eq!(downs.up(&up(quote), off), None, "no release for it");
+        // The letter: `key` resets and returns before handing it.
+        handed = Handed::NONE;
+        handed.marked("");
+        let code = handed.text("\u{e9}");
+        assert_eq!(code, None, "the composed letter is no key's");
+        if let Some(code) = code {
+            downs.pressed(
+                code,
+                KeyEvent::press(
+                    KeyCode::Char(Codepoint::from_char('\u{e9}')),
+                    Modifiers::NONE,
+                ),
+            );
+        }
+        handed.up(e);
+        assert_eq!(downs.up(&up(e), off), None, "and no release for it");
+    }
+
+    /// **A commit after its key came up is no key's**: a key handed to the
+    /// input manager that typed nothing drops off when it comes up, so a
+    /// commit after -- the character palette's, an input method's on a
+    /// click -- records no press, while another key's key-up leaves it.
+    /// Perturbation: keep the key past its key-up and the palette's
+    /// character is recorded under it.
+    #[test]
+    fn a_commit_after_its_key_came_up_is_no_keys() {
+        let (a, b) = (VirtualKey(0x00), VirtualKey(0x0B));
+        let mut handed = Handed::NONE;
+        handed.key(a);
+        handed.up(b);
+        assert_eq!(handed, Handed(Some(a)), "another key's key-up");
+        handed.up(a);
+        assert_eq!(handed.text("x"), None, "the palette's character");
+        // The control: a command the input manager made of the key takes it.
+        handed.key(a);
+        assert_eq!(handed.command(), Some(a));
+        assert_eq!(handed.command(), None, "taken once");
+    }
+
+    /// The source holds where the keys are let go: on a focus change to
+    /// lost, in `set_focus`, which every poll and the crate's hook reach.
+    #[test]
+    fn a_focus_lost_lets_go_of_the_keys_held() {
+        const SRC: &str = include_str!("app.rs");
+        let head = concat!("    fn set_focus(&mut self, ", "f: baud_core::Focus) {");
+        let b = SRC.split(head).nth(1).expect("set_focus");
+        let b = &b[..b.find("\n    }\n").expect("its end")];
+        let lost = b
+            .find(concat!("if f == baud_core::", "Focus::Lost {"))
+            .expect("the lost branch");
+        let let_go = b
+            .find(concat!("self.downs.", "let_go()"))
+            .expect("the keys let go");
+        assert!(lost < let_go);
+    }
+
+    /// **A modifier key alone reaches the core as kitty's functional key**,
+    /// under "report all keys" and nowhere else: Left Shift `57441`, the
+    /// modifiers held after the change -- Shift set on its press, clear on
+    /// its release, Control still set when the other Control key holds it
+    /// -- Command as super, Option as alt, Caps Lock carrying its lock
+    /// while on, and `fn` none (`[[source: kitty-keyboard]]`,
+    /// `[[source: kitty-glfw-cocoa-window-851cb80]]`). Perturbation: swap
+    /// the left and right keys and the side rows read the other number.
+    #[test]
+    fn a_modifier_key_alone_reaches_the_core_under_report_all_keys() {
+        use macos_liquid_glass::drawable::{ModifierKey as K, Modifiers as M};
+        let none = M::default();
+        let shift = M {
+            shift: true,
+            ..none
+        };
+        let control = M {
+            control: true,
+            ..none
+        };
+        let command = M {
+            command: true,
+            ..none
+        };
+        let option = M {
+            option: true,
+            ..none
+        };
+        let all = b"\x1b[>11u".as_slice();
+        use KeyEventKind::{Press as Down, Release as Up};
+        for (modes, key, kind, held, want) in [
+            (all, K::LeftShift, Down, shift, b"\x1b[57441;2u".as_slice()),
+            (all, K::LeftShift, Up, none, b"\x1b[57441;1:3u"),
+            (all, K::RightShift, Down, shift, b"\x1b[57447;2u"),
+            (all, K::RightControl, Up, control, b"\x1b[57448;5:3u"),
+            (all, K::LeftControl, Down, control, b"\x1b[57442;5u"),
+            (all, K::LeftCommand, Down, command, b"\x1b[57444;9u"),
+            (all, K::RightCommand, Up, none, b"\x1b[57450;1:3u"),
+            (all, K::LeftOption, Down, option, b"\x1b[57443;3u"),
+            (all, K::RightOption, Down, option, b"\x1b[57449;3u"),
+            (all, K::CapsLock, Down, none, b"\x1b[57358;65u"),
+            (all, K::CapsLock, Up, none, b"\x1b[57358;1:3u"),
+            // "Report all keys" alone reports the press and no release.
+            (b"\x1b[>8u", K::LeftShift, Down, shift, b"\x1b[57441;2u"),
+            (b"\x1b[>8u", K::LeftShift, Up, none, b""),
+            // Below it, and on the legacy layer, a modifier key is silent.
+            (b"\x1b[>3u", K::LeftShift, Down, shift, b""),
+            (b"", K::LeftShift, Down, shift, b""),
+        ] {
+            // The lock is on after the change that turns it on.
+            let flags = match (key, kind) {
+                (K::CapsLock, Down) => NSEventModifierFlags::CapsLock,
+                _ => NSEventModifierFlags(0),
+            };
+            let e = modifier_event(Some(key), kind, held, flags).expect("a kitty key");
+            assert_eq!(
+                core_sends(modes, e),
+                want,
+                "{key:?} {kind:?} after {:?}",
+                String::from_utf8_lossy(modes)
+            );
+        }
+        let off = NSEventModifierFlags(0);
+        assert_eq!(modifier_event(Some(K::Function), Down, none, off), None);
+        assert_eq!(modifier_event(None, Down, command, off), None);
+    }
+
+    /// **A Shift+letter's press and release name one key**: Shift+a goes
+    /// down as the `a` key with Shift and comes up as it, `CSI 97;2u` and
+    /// `CSI 97;2:3u` under "report all keys" with event types, as kitty
+    /// reports `shift+a` (`[[source: kitty-keyboard]]`), and the release
+    /// after Shift is let go first carries no Shift, the modifiers "active
+    /// when the key event occurs". Perturbations: build the press without
+    /// the Shift the input manager's key held and it reads `CSI 97u`; take
+    /// the release's modifiers from its press and the late release keeps
+    /// the Shift already let go.
+    #[test]
+    fn a_shift_letters_press_and_release_name_one_key() {
+        use macos_liquid_glass::drawable::Modifiers as M;
+        let all = b"\x1b[>11u".as_slice();
+        let none = M::default();
+        let shift = M {
+            shift: true,
+            ..none
+        };
+        let a = Codepoint::from_char('a');
+        let press = typed_text("A", Some(&keyed("A", a, Modifiers::SHIFT, Some('a'))))[0];
+        assert_eq!(core_sends(all, press), b"\x1b[97;2u");
+        let up = |held| KeyPress {
+            key_code: 0x00,
+            characters: "A".to_string(),
+            unmodified: "A".to_string(),
+            modifiers: held,
+            repeat: false,
+        };
+        let off = NSEventModifierFlags(0);
+        let mut downs = Downs::NONE;
+        downs.pressed(VirtualKey(0x00), press);
+        let release = downs.up(&up(shift), off).expect("its press went");
+        assert_eq!(core_sends(all, release), b"\x1b[97;2:3u");
+        // Shift let go before the letter.
+        downs.pressed(VirtualKey(0x00), press);
+        let late = downs.up(&up(none), off).expect("its press went");
+        assert_eq!(core_sends(all, late), b"\x1b[97;1:3u");
+    }
+
+    /// **Caps Lock's bit rides a release and a modifier key while the lock
+    /// is on**, read from the event's own flags as a press's is
+    /// (`held_with_locks`): "if a modifier is active when the key event
+    /// occurs, i.e. if the key is pressed or the lock (for caps lock/num
+    /// lock) is enabled, the key event must have the bit for that modifier
+    /// set" (`[[source: kitty-keyboard]]`). With the lock on, `a` goes down
+    /// as `CSI 97;65u` and up as `CSI 97;65:3u`, and Shift alone as
+    /// `CSI 57441;66u` and `CSI 57441;65:3u`, under "report all keys" with
+    /// event types. The lock's own key carries the lock as the change
+    /// leaves it, set at the press that turns it on and clear at the
+    /// release that turns it off. The handlers read the dispatched event's
+    /// flags, held in the source. Perturbations: read the release's
+    /// modifiers from the window crate's alone and the release of `a`
+    /// loses its `64`; read no lock for a modifier key but the lock's own
+    /// and Shift's rows lose theirs.
+    #[test]
+    fn caps_lock_rides_a_release_and_a_modifier_key() {
+        use KeyEventKind::{Press as Down, Release as Up};
+        use macos_liquid_glass::drawable::{ModifierKey as K, Modifiers as M};
+        let all = b"\x1b[>11u".as_slice();
+        let none = M::default();
+        let shift = M {
+            shift: true,
+            ..none
+        };
+        let (lock, off) = (NSEventModifierFlags::CapsLock, NSEventModifierFlags(0));
+        // `a` with the lock on types `A`: the `a` key with Caps Lock's bit.
+        let a = Codepoint::from_char('a');
+        let press = typed_text("A", Some(&keyed("A", a, Modifiers::CAPS_LOCK, None)))[0];
+        assert_eq!(core_sends(all, press), b"\x1b[97;65u");
+        let up = KeyPress {
+            key_code: 0x00,
+            characters: "A".to_string(),
+            unmodified: "a".to_string(),
+            modifiers: none,
+            repeat: false,
+        };
+        let mut downs = Downs::NONE;
+        downs.pressed(VirtualKey(0x00), press);
+        let release = downs.up(&up, lock).expect("its press went");
+        assert_eq!(core_sends(all, release), b"\x1b[97;65:3u");
+        // The lock turned off while `a` was held: its release has no bit.
+        downs.pressed(VirtualKey(0x00), press);
+        let unlocked = downs.up(&up, off).expect("its press went");
+        assert_eq!(core_sends(all, unlocked), b"\x1b[97;1:3u");
+        for (key, kind, held, flags, want) in [
+            (
+                K::LeftShift,
+                Down,
+                shift,
+                lock,
+                b"\x1b[57441;66u".as_slice(),
+            ),
+            (K::LeftShift, Up, none, lock, b"\x1b[57441;65:3u"),
+            (K::RightShift, Down, shift, off, b"\x1b[57447;2u"),
+            (K::CapsLock, Down, none, lock, b"\x1b[57358;65u"),
+            (K::CapsLock, Up, none, off, b"\x1b[57358;1:3u"),
+        ] {
+            let e = modifier_event(Some(key), kind, held, flags).expect("a kitty key");
+            assert_eq!(core_sends(all, e), want, "{key:?} {kind:?} {flags:?}");
+        }
+        // Both handlers hand the dispatched event's flags on.
+        const SRC: &str = include_str!("app.rs");
+        let body = |head: &str| {
+            let b = SRC.split(head).nth(1).expect(head);
+            b[..b.find("\n    }\n").expect("its end")].to_string()
+        };
+        let released = body(concat!(
+            "    fn key_released(&mut self, ",
+            "key: &KeyPress) {"
+        ));
+        assert!(released.contains(concat!("self.downs.up(key, ", "current_event_flags())")));
+        let changed = body(concat!(
+            "    fn modifiers_changed(&mut self, ",
+            "change: &ModifierChange) {"
+        ));
+        assert!(changed.contains(concat!("let flags = ", "current_event_flags();")));
+        assert!(changed.contains(concat!(
+            "modifier_event(change.key, kind, change.modifiers, ",
+            "flags)"
+        )));
+    }
+
+    /// **The left click into an inactive window only activates it**: a
+    /// left press while the window lacked the keyboard is the activating
+    /// click, and its drag and release go with it, so neither a tracking
+    /// program nor the selection hears a release without its press; the
+    /// next press, with the keyboard, is a click like any other, and a
+    /// right, middle or other press is one in the background too.
+    /// Perturbations: judge the press by the focus after it and the
+    /// activating click is ours; ignore the button and a right press into
+    /// a background window is dropped.
+    #[test]
+    fn the_click_that_activates_the_window_does_nothing_else() {
+        use ViewButton::{Left, Middle, Other, Right};
+        use ViewMouseKind as V;
+        use baud_core::Focus::{Gained, Lost};
+        let down = click_of(Click::Ours, V::Down, Left, Lost);
+        assert_eq!(down, Click::Activating);
+        assert_eq!(click_of(down, V::Dragged, Left, Gained), Click::Activating);
+        assert_eq!(click_of(down, V::Up, Left, Gained), Click::Activating);
+        assert_eq!(click_of(Click::Ours, V::Down, Left, Gained), Click::Ours);
+        assert_eq!(click_of(Click::Ours, V::Up, Left, Gained), Click::Ours);
+        assert_eq!(click_of(down, V::Moved, Left, Gained), Click::Ours);
+        // A right, middle or other press activates no window: it is the
+        // program's and the terminal's, in the background as in front.
+        for b in [Right, Middle, Other(3)] {
+            assert_eq!(
+                click_of(Click::Ours, V::Down, b, Lost),
+                Click::Ours,
+                "{b:?}"
+            );
+            assert_eq!(click_of(Click::Ours, V::Up, b, Lost), Click::Ours, "{b:?}");
+            assert_eq!(click_of(down, V::Dragged, b, Gained), Click::Ours, "{b:?}");
+            assert_eq!(click_of(down, V::Up, b, Gained), Click::Ours, "{b:?}");
+        }
+    }
+
+    /// **Only the left button's press and release move the held click**:
+    /// a right press and its release while the activating left press is
+    /// held are the program's, and the left release that follows is still
+    /// the activating click's; the next left press, with the keyboard, is
+    /// ours. Perturbation: let any button's press set the held click and
+    /// the left release is reported without its press.
+    #[test]
+    fn a_right_click_inside_the_activating_click_leaves_it_whole() {
+        use ViewButton::{Left, Right};
+        use ViewMouseKind as V;
+        use baud_core::Focus::{Gained, Lost};
+        let mut held = Click::Ours;
+        let mut seen = Vec::new();
+        for (kind, button, was) in [
+            (V::Down, Left, Lost),
+            (V::Down, Right, Gained),
+            (V::Up, Right, Gained),
+            (V::Dragged, Left, Gained),
+            (V::Up, Left, Gained),
+            (V::Down, Left, Gained),
+        ] {
+            let click = click_of(held, kind, button, was);
+            held = click_held(held, kind, button, click);
+            seen.push(click);
+        }
+        use Click::{Activating as A, Ours as O};
+        assert_eq!(seen, [A, O, O, A, A, O]);
+        assert_eq!(held, O);
+    }
+
+    /// The pump's caller is AppKit, so this holds the source: the mouse
+    /// handler judges the click by the focus before it polls, and leaves
+    /// before the caret, the locator or anything that reports a press.
+    #[test]
+    fn the_mouse_handler_asks_whose_click_before_anything_takes_it() {
+        const SRC: &str = include_str!("app.rs");
+        const HEAD: &str = concat!("    fn mouse(&mut self, ", "event: &Mouse) {");
+        let body = SRC.split(HEAD).nth(1).expect("the mouse handler");
+        let body = &body[..body.find("\n    }\n").expect("its end")];
+        let at = |s: &str| body.find(s).unwrap_or_else(|| panic!("{s} in mouse"));
+        let judged = at(concat!(
+            "click_of(self.click, ",
+            "event.kind, event.button, self.app.focus)"
+        ));
+        let polled = at(concat!("self.poll_", "focus();"));
+        let left = at(concat!("if click == ", "Click::Activating {"));
+        let caret = at(concat!("self.app.caret.", "quiet("));
+        assert!(judged < polled, "judged by the focus before the click");
+        assert!(
+            polled < left && left < caret,
+            "left before anything takes it"
+        );
+    }
+
+    /// The source holds the release path apart from a keystroke's: a press
+    /// is recorded where `typed` sends it, and a release or a modifier key
+    /// goes through `sent_alone`, which neither stamps the latency
+    /// instrument nor takes the kind `key` left for `typed`.
+    #[test]
+    fn a_release_is_sent_alone_and_a_press_recorded_where_it_is_typed() {
+        const SRC: &str = include_str!("app.rs");
+        let body = |head: &str| {
+            let b = SRC.split(head).nth(1).expect(head);
+            b[..b.find("\n    }\n").expect("its end")].to_string()
+        };
+        let typed = body(concat!(
+            "    fn typed(&mut self, ",
+            "e: KeyEvent, key: Option<VirtualKey>) {"
+        ));
+        assert!(typed.contains(concat!("self.downs.", "pressed(code, e);")));
+        let released = body(concat!(
+            "    fn key_released(&mut self, ",
+            "key: &KeyPress) {"
+        ));
+        assert!(released.contains(concat!("self.downs.up(key, ", "current_event_flags())")));
+        assert!(released.contains(concat!("self.sent_", "alone(e);")));
+        assert!(!released.contains(concat!("self.", "typed(")));
+        let alone = body(concat!("    fn sent_alone(&mut self, ", "e: KeyEvent) {"));
+        assert!(!alone.contains("latency"), "a release is not a keystroke");
+        let changed = body(concat!(
+            "    fn modifiers_changed(&mut self, ",
+            "change: &ModifierChange) {"
+        ));
+        assert!(changed.contains(concat!(
+            "self.app.read_hover_as(",
+            "link_chord(change.modifiers))"
+        )));
+        assert!(changed.contains(concat!("self.sent_", "alone(e);")));
+    }
+
+    /// **Command held without Shift is the link's chord**, read from the
+    /// modifier change as from a key, so a press of Command alone lights a
+    /// link under a resting pointer at once.
+    #[test]
+    fn command_without_shift_is_the_links_chord() {
+        use crate::link::Chord;
+        use macos_liquid_glass::drawable::Modifiers as M;
+        let none = M::default();
+        let command = M {
+            command: true,
+            ..none
+        };
+        assert_eq!(link_chord(command), Chord::Cmd);
+        assert_eq!(
+            link_chord(M {
+                shift: true,
+                ..command
+            }),
+            Chord::Other
+        );
+        assert_eq!(link_chord(none), Chord::Other);
+    }
+
+    /// The monitor that hands AppKit's kept key-ups to the view is
+    /// installed once the responder is, so the first such key-up has a
+    /// responder to reach, and is kept with its window's entry in the open
+    /// windows, so the window's close removes it.
+    #[test]
+    fn the_command_key_up_monitor_follows_the_responder() {
+        const SRC: &str = include_str!("app.rs");
+        let set = SRC
+            .find(concat!("view.set_responder(", "Box::new(driver));"))
+            .expect("the responder installed");
+        let monitor = SRC
+            .find(concat!("keyup::forward_command_", "key_ups("))
+            .expect("the monitor installed");
+        let kept = SRC
+            .find(concat!("open._keyups = ", "Some(keyups);"))
+            .expect("the monitor kept with the window");
+        assert!(set < monitor && monitor < kept);
     }
 
     /// **While the input manager holds a composition, its keys are its**:
@@ -17836,7 +19019,7 @@ mod link_pointer_tests {
     /// showing it asks the preview with the program's `OSC 22` shape.
     /// AppKit-bound, so this holds the source; `link.rs`'s
     /// `the_hand_shows_while_a_click_would_open_the_link` holds the
-    /// decision. Perturbations: drop the show from `read_hover` -- the tick
+    /// decision. Perturbations: drop the show from `read_hover_as` -- the tick
     /// and a frame's read keep the hand after Command goes up -- or show
     /// the program's shape alone, or mark the pointer unknown before the
     /// preview reads the exit; each fails here.
@@ -17857,7 +19040,13 @@ mod link_pointer_tests {
         let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(
             names,
-            ["read_hover", "present", "key", "set_focus", "hover_mouse"],
+            [
+                "read_hover_as",
+                "present",
+                "key",
+                "set_focus",
+                "hover_mouse"
+            ],
             "a new site: it must show the pointer too"
         );
         for (name, code) in &found {

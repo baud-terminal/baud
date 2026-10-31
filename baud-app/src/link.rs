@@ -45,10 +45,7 @@
 //!   pointer a pointing hand while a click would open it ([`Hover::pointer`]).
 //!
 //! What this does not do, stated: a URI outside such a wrapper broken
-//! across a hard line break is read only up to the break. On macOS, where the window crate hands no
-//! modifier change of its own, a press or release of Command alone is
-//! read from `NSEvent.modifierFlags` at the next display-link tick, which
-//! owes a frame when the preview changes.
+//! across a hard line break is read only up to the break.
 #![forbid(unsafe_code)]
 
 use baud_core::{Focus, LINK_MAX, PointerShape, Term};

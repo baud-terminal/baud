@@ -37,7 +37,7 @@ baud-wayland = { path = "../baud-wayland" }
 baud-present-macos = { path = "../baud-present-macos", default-features = false }
 # `drag` implements the presenter's `Wake`, whose surface type is the
 # window crate's.
-macos-liquid-glass = { version = "1.0.0-beta.6", features = ["drawable"] }
+macos-liquid-glass = { version = "1.0.0-beta.7", features = ["drawable"] }
 
 # The cache probe, for `host_geometry`: the per-arch crate with `std` on, so
 # it may ask the kernel. Target-gated the way `baud-core` gates its scans.

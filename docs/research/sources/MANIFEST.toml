@@ -41675,3 +41675,113 @@ status = "external"
 group  = "G"
 # process_width, lines 227-290: a Prepended_Concatenation_Mark is Cf and not
 # default-ignorable, so it keeps the default width 1; an Mc keeps 1.
+
+
+[sources.kitty-glfw-cocoa-init-851cb80]
+key    = "kitty-glfw-cocoa-init-851cb80"
+title  = "kitty 851cb80, glfw/cocoa_init.m -- local event monitors for key-down, key-up and flags-changed, each handed to the key window's content view (869-905)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0; glfw's zlib licence)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/glfw/cocoa_init.m"
+file   = ""
+sha256 = "d262f6b7ee0318dda4fd191e2b9a8a904d570357bdb39d38e5dfc9afae218b8c"
+bytes  = 51377
+status = "external"
+group  = "H"
+# Fetched 2026-10-30 for a key released while Command is held: the
+# key-up monitor skips the key-up of a key-down that ran a menu shortcut
+# and hands every other to the view. Read, not copied.
+
+[sources.ghostty-d9840f3-surfaceview-appkit]
+key    = "ghostty-d9840f3-surfaceview-appkit"
+title  = "Ghostty d9840f3, macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift -- no acceptsFirstMouse, a local key-up monitor for Command-held key-ups (370-383, 675-716), and a focus-only click's release suppressed (905-916)"
+author = "Mitchell Hashimoto and Ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty on GitHub"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/macos/Sources/Ghostty/Surface%20View/SurfaceView_AppKit.swift"
+file   = ""
+sha256 = "c27e4c536ca3c13a512ae743366b9a6a4313d8be2d56861c2182fe9d1fa3144c"
+bytes  = 107434
+status = "external"
+group  = "AZ"
+# Fetched 2026-10-30 for the click into an inactive window and the
+# key-up AppKit keeps while Command is held. MIT; read, not copied.
+
+[sources.iterm2-7ce037e-pty-mouse-handler]
+key    = "iterm2-7ce037e-pty-mouse-handler"
+title  = "iTerm2 7ce037e, sources/TerminalView/PTYMouseHandler.m -- acceptsFirstMouse: YES remembering the event, the first click doing nothing more unless alwaysAcceptFirstMouse (165-203), no report of it unless reportOnFirstMouse (1511), and rightMouseDown: and otherMouseDown: activating the window only under FocusOnRightOrMiddleClick (959-963, 1051-1055)"
+author = "George Nachman and iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2 at 7ce037e (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/TerminalView/PTYMouseHandler.m"
+file   = ""
+sha256 = "d91c04641762d1c48aac794bfe0aa816e6887fdf8dacf72176a4a1799b4959b3"
+bytes  = 77094
+status = "external"
+group  = "AZ"
+# Fetched 2026-10-30 for the click into an inactive window. Read, not
+# copied.
+
+[sources.iterm2-7ce037e-advanced-settings]
+key    = "iterm2-7ce037e-advanced-settings"
+title  = "iTerm2 7ce037e, sources/Settings/iTermAdvancedSettingsModel.m -- alwaysAcceptFirstMouse YES, reportOnFirstMouse NO, cmdClickWhenInactiveInvokesSemanticHistory NO (372-378)"
+author = "George Nachman and iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2 at 7ce037e (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/Settings/iTermAdvancedSettingsModel.m"
+file   = ""
+sha256 = "0b70eb318b8a2752148ad47d2803b03d13bfcec622f39967d84ea01d5c3747c4"
+bytes  = 213642
+status = "external"
+group  = "AZ"
+# Fetched 2026-10-30: the defaults of the three first-click settings; the
+# third's text says "iTerm2 respects the OS standard that Cmd-click in an
+# app that doesn't have keyboard focus behaves like a non-Cmd click that
+# does not raise the window". Read, not copied.
+
+[sources.iterm2-7ce037e-preferences]
+key    = "iterm2-7ce037e-preferences"
+title  = "iTerm2 7ce037e, sources/Settings/iTermPreferences.m -- kPreferenceKeyFocusOnRightOrMiddleClick (189), default NO (904)"
+author = "George Nachman and iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2 at 7ce037e (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/Settings/iTermPreferences.m"
+file   = ""
+sha256 = "07593ada9a05a33802fbfec28e7b9a250a9ba58857b2bdb558421185c104c8db"
+bytes  = 90096
+status = "external"
+group  = "AZ"
+# Fetched 2026-10-30: a right or middle press into an inactive window
+# leaves it inactive unless this preference, off by default, is on.
+# Read, not copied.
+
+[sources.apple-nsview-acceptsfirstmouse]
+key    = "apple-nsview-acceptsfirstmouse"
+title  = "NSView acceptsFirstMouse(for:) -- click-through; \"Most view objects refuse a click-through attempt, so the event simply activates the window\"; the default returns false (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsview/acceptsfirstmouse(for:).json"
+file   = ""
+sha256 = "18647f30ff014faa913ac43e1da0f0bc85f4837d4a6699b10c4441b1d663627f"
+bytes  = 24540
+status = "external"
+group  = "AZ"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). Fetched 2026-10-30 for the click into an inactive window.
+
+[sources.kitty-glfw-input-c-851cb80]
+key    = "kitty-glfw-input-c-851cb80"
+title  = "kitty 851cb80, glfw/input.c -- _glfwInputKeyboard: a release with no recorded press is dropped, and a release takes its press's key, shifted and alternate keys (265-298)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0; glfw's zlib licence)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/glfw/input.c"
+file   = ""
+sha256 = "0a579673610e990d5a24ae19eb20d616eec01406b29d8023271b99a753379544"
+bytes  = 52633
+status = "external"
+group  = "H"
+# Fetched 2026-10-30: the pairing of a release with its press that baud's
+# macOS app keeps too. Read, not copied.

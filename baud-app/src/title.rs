@@ -742,7 +742,10 @@ mod tests {
         assert!(
             body(
                 MAC,
-                concat!("    fn typed(&mut self, ", "e: KeyEvent) {"),
+                concat!(
+                    "    fn typed(&mut self, ",
+                    "e: KeyEvent, key: Option<VirtualKey>) {"
+                ),
                 "    "
             )
             .contains(owe),

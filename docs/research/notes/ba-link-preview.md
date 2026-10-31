@@ -38,14 +38,15 @@ held over a link.
 
 ## The modifiers and the view
 
-On Linux a change of the modifiers is an event of its own; on macOS the
-window crate hands none, so the pointer's cell is kept whatever the
-modifiers, and each display-link tick, while the pointer is over the
-text, reads `NSEvent.modifierFlags` and refreshes the preview before it
-decides whether to draw, owing a frame when it changes: a press or
-release of Command alone shows at the next tick, on an idle screen with
-a steady or hidden cursor too
-(`a_press_of_command_alone_shows_on_the_next_frame`,
+A change of the modifiers is an event of its own on both systems: the
+seat's modifiers on Linux, and on macOS the window's modifier change,
+`flagsChanged:`, so a press or release of Command alone shows as it
+happens (`command_without_shift_is_the_links_chord`). The pointer's cell
+is kept whatever the modifiers, and on macOS each display-link tick,
+while the pointer is over the text, reads `NSEvent.modifierFlags` again
+and refreshes the preview before it decides whether to draw, owing a
+frame when it changes, on an idle screen with a steady or hidden cursor
+too (`a_press_of_command_alone_shows_on_the_next_frame`,
 `the_display_link_tick_reads_the_link_preview`). Every read builds its
 spot from the view shown then, as a click would, so a window held on its
 line while output retires lines, or moved by the wheel, previews the

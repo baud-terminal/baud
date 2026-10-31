@@ -1147,13 +1147,10 @@ shipped = ["2026-10-16-keypad-arrows-reach-kitty-protocol-programs"]
 id = "key-releases"
 area = "input"
 name = "Key releases"
-does = "Programs that ask are told when a key is let go."
-status = "partial"
-gap = "only the Linux version reports releases; the macOS app does not yet report releases or modifier keys pressed alone."
-platform = "linux"
-tests = ["baud-present-wayland/tests/handshake.rs::a_held_key_repeats_until_it_is_released"]
-behind = "the macOS app does not yet tell programs when a key is let go, or when a modifier key is pressed alone."
-roadmap = ["B1-01"]
+does = "Programs that ask are told when a key is let go, and when Shift, Control, Option, Command or Caps Lock is pressed or let go on its own. A key let go while Command is held is told too."
+status = "built"
+platform = "both"
+tests = ["baud-present-wayland/tests/handshake.rs::a_held_key_repeats_until_it_is_released", "baud-app/src/app.rs::a_key_release_reaches_the_core_as_its_press_let_go", "baud-app/src/app.rs::a_release_without_its_press_or_a_second_one_sends_nothing", "baud-app/src/app.rs::a_modifier_key_alone_reaches_the_core_under_report_all_keys", "baud-app/src/app.rs::the_keys_held_when_the_window_loses_the_keyboard_are_let_go", "baud-app/src/app.rs::a_shift_letters_press_and_release_name_one_key", "baud-app/src/app.rs::caps_lock_rides_a_release_and_a_modifier_key", "baud-app/src/app.rs::a_typed_key_is_released_in_the_window_crates_order", "baud-app/src/app.rs::a_dead_key_and_the_letter_it_composes_release_nothing", "baud-app/src/app.rs::a_commit_after_its_key_came_up_is_no_keys", "baud-present-macos/src/keyup.rs::only_a_command_key_up_in_our_window_is_forwarded", "baud-present-macos/src/keyup.rs::a_key_up_a_monitor_is_handed_is_the_current_event"]
 
 [[feature]]
 id = "key-repeat"
