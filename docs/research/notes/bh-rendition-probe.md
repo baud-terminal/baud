@@ -1,8 +1,8 @@
 # BH. A full rendition table's probe stops at its bucket's reach
 
-**Status: done 2026-10-31.** chafa printing pictures into the shell no
-longer falls behind it: 138 thumbnails that chafa wrote over 9.4 seconds
-took baud 8.4 to 9.8 seconds of CPU to ingest, and take 0.25 to 0.40 now.
+**Status: done 2026-10-31.** baud no longer falls behind chafa printing
+pictures into the shell: chafa wrote 138 thumbnails in about 1.2 seconds,
+baud took 8.4 to 9.8 seconds to ingest them, and takes 0.25 to 0.40 now.
 Every cell shows what it showed before.
 
 **The cause.** A linear probe stops at its rendition or at an empty slot.
@@ -20,7 +20,8 @@ took. The inline probe reads at most `SweepBook::INLINE` (64) slots, so a
 hit that near its bucket loads nothing new. The table grows 128 KB at
 65,536 slots, 8% of its 1.5 MB. One bound for the whole table reached
 64,843 slots on the thumbnails and left the ingest at 8.3 s; on their final
-table a bound per 64 buckets reads 17,213 slots a miss, one per bucket 426.
+table a bound per 64 buckets would read 17,213 slots a miss on average, and
+one per bucket 426.
 
 | | base | change |
 |---|---|---|
@@ -43,15 +44,23 @@ written equal on every arm, MB/s:
 | less-pager | 1318.2 [1296.9-1371.7] | 1334.8 [1268.3-1382.8] | 1314.3 [1294.6-1369.0] |
 | asciiquarium | 471.0 [470.4-484.3] | 473.1 [461.3-480.4] | 476.4 [468.2-480.8] |
 
-Every range overlaps: flat. Instructions a rep: asciiquarium -0.5%, cat
-+0.2 to +0.4%, btop -0.2%, vim-unicode and less-pager within the copy's
-spread. The timed build differs from this commit's only in four cold
-functions, `Paint::intern_far`, `Paint::intern_new`, `Paint::full_table`
-and `Paint::sweep_styles`; this commit's own run, under a load of 8 to 20,
+Every range overlaps: flat. Instructions a rep against the base, on the
+first and last rounds: asciiquarium -0.5%, cat +0.1 to +0.4%,
+btop -0.2 to -0.4%, vim-unicode -0.0 to -0.4%, less-pager within the
+copy's spread. The timed build differs from this commit's only in cold
+functions, once branch targets that layout moved are set aside;
+`Paint::apply_sgr` is the same instruction for instruction, branch targets
+and immediates included. This commit's own run, under a load of 8 to 20,
 overlaps on every recording. Tests:
 `a_miss_on_a_full_table_reads_to_its_buckets_reach`,
 `a_full_tables_renditions_are_found_however_far_they_lie`,
 `a_sweep_keeps_every_kept_rendition_findable`.
+
+**For embedders.** A `StyleTable` takes a `reach` as well, one
+`Reach::ZERO` a slot with a new table, and baud-domain's `SweepBook` has a
+`probes` field, so a struct literal of either adds one. Also new: `Reach`
+and `SlotsRead` (both from baud-domain), `SweepBook::INLINE`,
+`SweepBook::probed` and `Term::style_probes`.
 
 **Open:** a colour plane took 18 to 30 ms on the thumbnails when it was
 prototyped, a tenth of this. The overflow itself, cells recoloured once the

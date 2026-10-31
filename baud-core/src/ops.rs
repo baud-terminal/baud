@@ -2337,12 +2337,12 @@ impl Paint<'_, '_> {
     /// linear probe stops at its rendition or at an empty slot, and a full
     /// table has none, so each new colour there read all 65,536 slots: a
     /// picture viewer printing pictures into the shell took 8.4-9.8 s to
-    /// ingest what it wrote over 9.4 s, 95% of it in this loop. Each bucket
-    /// keeps how far past it its farthest rendition lies, so the probe stops
-    /// there, and the slot it picks is the one the walk to the end picked:
-    /// 0.25-0.40 s, the table and every cell as before (note BH). The inline part reads at
-    /// most [`SweepBook::INLINE`] slots, and the rest is out of line
-    /// ([`Paint::intern_far`]).
+    /// ingest what it wrote in about 1.2 s, 95% of it in this loop. Each
+    /// bucket keeps how far past it its farthest rendition lies, so the probe
+    /// stops there, and the slot it picks is the one the walk to the end
+    /// picked: 0.25-0.40 s, the table and every cell as before (note BH). The
+    /// inline part reads at most [`SweepBook::INLINE`] slots, and the rest is
+    /// out of line ([`Paint::intern_far`]).
     ///
     /// **The table is sized to the screen** (the screen-sizing in `Owned::with_history`), not fixed at
     /// 1024, because a text-drawn image preview mints one distinct truecolour

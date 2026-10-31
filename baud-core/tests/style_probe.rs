@@ -5,7 +5,7 @@
 //! A linear probe stops at the rendition it looks for or at an empty slot.
 //! A full table has no empty slot, so before the reach a miss there read
 //! all of it: 65,536 slots a new colour at the app's provisioning, which put
-//! a picture viewer printing into the shell 96% inside the probe. Each test
+//! a picture viewer printing into the shell 95% inside the probe. Each test
 //! names the mechanism it holds.
 
 #[path = "support/mod.rs"]

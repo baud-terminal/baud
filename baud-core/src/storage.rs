@@ -1392,7 +1392,7 @@ impl Default for StyleBook {
 }
 
 /// **The rendition table and its write log**, lent to [`Storage::new`] as one
-/// argument so the three cannot be lent apart.
+/// argument so the four cannot be lent apart.
 ///
 /// The log is a ring of `slots.len()` entries, one a write, naming the slot
 /// each write filled, evicted or freed. Until the table sweeps or evicts it
@@ -1409,7 +1409,11 @@ pub struct StyleTable<'b> {
     pub order: &'b mut [StyleId],
     pub book: &'b mut StyleBook,
     /// One entry a slot: how far past it the farthest rendition homed there
-    /// lies, which bounds a miss's probe.
+    /// lies, which bounds a miss's probe. Every entry is [`Reach::ZERO`] with
+    /// a new table, and the entries are lent with that same table ever after,
+    /// as `book` is: a reach shorter than how far past its bucket a rendition
+    /// lies makes a probe past [`SweepBook::INLINE`] miss a rendition the
+    /// table holds, and intern it again.
     pub reach: &'b mut [Reach],
 }
 

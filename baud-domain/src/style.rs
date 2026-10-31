@@ -694,8 +694,8 @@ impl SweepBook {
     /// and is still climbing towards the whole table's walk at full load.
     pub const LOAD: (usize, usize) = (7, 8);
     /// The slots the inline probe reads before the cold half takes over:
-    /// twice the 7/8 miss's 32.5, so a table below [`SweepBook::LOAD`]
-    /// almost never leaves it.
+    /// twice the 32.5 slots a miss reads on average at 7/8 load
+    /// ([`SweepBook::LOAD`]).
     pub const INLINE: usize = 64;
     /// Whether `len / 16` writes have passed since the last sweep, so a
     /// table whose cells name nearly every slot is not swept a rendition at
