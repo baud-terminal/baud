@@ -392,6 +392,116 @@ impl Smear {
         y0.value() < bottom.value() && y1.value() > top.value()
     }
 
+    /// **The columns the smear can cover on the pixel rows from `top` to
+    /// `bottom`**, left inclusive and right exclusive, inside its
+    /// [`Smear::bounds`]; none where it covers nothing. Every pixel
+    /// [`coverage`] is above zero at is inside, so a row drawn only there is
+    /// the row drawn over the bounds: a quad covers only within half a
+    /// pixel of the region its winding fills, which is inside its corners'
+    /// hull; a sweep only where its alpha is above zero, at a centre that
+    /// projects past the tail's centre onto the move: up to the cursor's
+    /// centre such a centre lies across the move from its projection,
+    /// within the cursor's box of it, and past it in the cursor's box --
+    /// inside the hull of the cursor's box and the chord across the move
+    /// through the tail's centre, as wide as the box. A pixel whose centre is
+    /// within `grow` of the hull -- half a pixel for a quad, none for a
+    /// sweep -- has its nearest point in the rows' strip, `grow` past the
+    /// centres, and its centre within `grow` of the strip's columns; a
+    /// quarter pixel more on each, for the rounding. On a jump across the window the bounds are the window and
+    /// the shape a strip a cell or two wide: what a CPU frame measures and
+    /// repaints.
+    pub(crate) fn columns(&self, top: Px, bottom: Px) -> Option<(Px, Px)> {
+        let c = self.corners.0;
+        let (points, n, grow) = match self.shape {
+            Shape::Quad => ([c[0], c[1], c[2], c[3], c[0], c[0], c[0], c[0]], 4, 0.5),
+            Shape::Sweep => {
+                // `sweep_alpha`'s centres and half-extents.
+                let (tl, br) = (c[3], c[1]);
+                let c0 = Pt {
+                    x: (tl.x + br.x) * 0.5,
+                    y: (tl.y + br.y) * 0.5,
+                };
+                let h = self.hole;
+                let (rx, ry) = ((h.right - h.left) * 0.5, (h.bottom - h.top) * 0.5);
+                let c1 = Pt {
+                    x: h.left + rx,
+                    y: h.top + ry,
+                };
+                // A tail on the cursor draws nothing, as `sweep_alpha` says.
+                let (ax, ay) = (c1.x - c0.x, c1.y - c0.y);
+                if ax * ax + ay * ay < 0.001 {
+                    return None;
+                }
+                let at = |p: Pt, sx: f32, sy: f32| Pt {
+                    x: p.x + sx * rx,
+                    y: p.y + sy * ry,
+                };
+                let corners = |p: Pt| {
+                    [
+                        at(p, -1.0, -1.0),
+                        at(p, 1.0, -1.0),
+                        at(p, 1.0, 1.0),
+                        at(p, -1.0, 1.0),
+                    ]
+                };
+                // The chord: from the tail's centre across the move, each way
+                // to the box's edge.
+                let l = (ax * ax + ay * ay).sqrt();
+                let (ux, uy) = (-ay / l, ax / l);
+                let s = (rx / ux.abs()).min(ry / uy.abs());
+                let chord = |k: f32| Pt {
+                    x: c0.x + k * s * ux,
+                    y: c0.y + k * s * uy,
+                };
+                let [e, f, g, k] = corners(c1);
+                ([chord(-1.0), chord(1.0), e, f, g, k, e, e], 6, 0.0)
+            }
+        };
+        let hull = &points[..n];
+        let row = |v: Px| f32::from(u16::try_from(v.value()).unwrap_or(u16::MAX));
+        let reach = grow + 0.25;
+        let (lo, hi) = (row(top) + 0.5 - reach, row(bottom) - 0.5 + reach);
+        let (mut xmin, mut xmax) = (f32::INFINITY, f32::NEG_INFINITY);
+        // The hull met with the strip: every segment between two of its
+        // points clipped to it, a point by itself among them -- the hull's
+        // edges are such segments, and the rest lie inside it.
+        for (i, &a) in hull.iter().enumerate() {
+            for &b in &hull[i..] {
+                let (mut t0, mut t1) = (0.0f32, 1.0f32);
+                let dy = b.y - a.y;
+                if dy.abs() < 1e-6 {
+                    if a.y < lo || a.y > hi {
+                        continue;
+                    }
+                } else {
+                    let (ta, tb) = ((lo - a.y) / dy, (hi - a.y) / dy);
+                    t0 = t0.max(ta.min(tb));
+                    t1 = t1.min(ta.max(tb));
+                    if t0 > t1 {
+                        continue;
+                    }
+                }
+                for t in [t0, t1] {
+                    let x = a.x + (b.x - a.x) * t;
+                    xmin = xmin.min(x);
+                    xmax = xmax.max(x);
+                }
+            }
+        }
+        if xmin > xmax {
+            return None;
+        }
+        let (x0, _, x1, _) = self.bounds();
+        // A centre at or past `xmin - reach` is pixel `xmin - reach - 0.5` or
+        // later; one at or before `xmax + reach`, pixel `xmax + reach - 0.5`
+        // or earlier.
+        let left = round_px((xmin - reach - 0.5).floor())
+            .value()
+            .max(x0.value());
+        let right = (round_px((xmax + reach - 0.5).floor()).value() + 1).min(x1.value());
+        (left < right).then(|| (Px::of(left), Px::of(right)))
+    }
+
     /// The smear as `quad_fragment` reads it: the four corners, the hole's
     /// left, top, right and bottom, in frame pixels, where the frame sits in
     /// the target, and which shape -- 0 a quad, 1 a sweep.
@@ -1032,6 +1142,93 @@ mod tests {
                 }
             }
             assert!(seen > 100, "{:?} covered {seen} pixels", s.shape);
+        }
+    }
+
+    /// **The columns hold every pixel the smear covers, on every row and
+    /// every band of rows**: a quad and a sweep on a jump down the frame's
+    /// diagonal, a hop along a row and a move up and left, from the first
+    /// frame to past the end, a dart, a bowtie and a bar-thin quad, each
+    /// pixel the coverage is above zero at is inside its own row's
+    /// [`Smear::columns`] and its band's, at bands of 17 and 34 rows. The
+    /// positive control: the jump's columns are a fraction of its bounds.
+    /// Perturbation: the quad's half pixel of edge left out fails it.
+    #[test]
+    fn a_smears_columns_hold_every_pixel_it_covers() {
+        let (w, h) = (612u16, 340u16);
+        let mut smears = Vec::new();
+        for (from, to) in [
+            (block(1.0, 0.0), block(33.0, 9.0)),
+            (block(4.0, 4.0), block(14.0, 4.0)),
+            (block(30.0, 8.0), block(3.0, 1.0)),
+        ] {
+            for t in [0.0f32, 0.016, 0.033, 0.066, 0.1, 0.2, 0.6] {
+                smears.push(smear(
+                    Segment::new(from.corners(), to).at(t).0.map(|p| (p.x, p.y)),
+                    to,
+                ));
+                smears.push(Smear {
+                    corners: Segment::sweep(from.corners(), to).at(t),
+                    ..sweep(from, to)
+                });
+            }
+        }
+        smears.push(smear(
+            [(140.0, 0.0), (140.0, 140.0), (0.0, 140.0), (105.0, 105.0)],
+            NO_HOLE,
+        ));
+        smears.push(smear(
+            [(300.0, 10.0), (300.0, 200.0), (20.0, 10.0), (20.0, 200.0)],
+            NO_HOLE,
+        ));
+        smears.push(smear(
+            [(400.3, 20.2), (401.1, 20.2), (10.6, 300.7), (9.8, 300.7)],
+            NO_HOLE,
+        ));
+        let mut covered = 0usize;
+        for s in &smears {
+            for y in 0..h {
+                let row = (Px::of(u32::from(y)), Px::of(u32::from(y) + 1));
+                let cols = s.columns(row.0, row.1);
+                let bands = [17u32, 34].map(|bh| {
+                    let top = u32::from(y) / bh * bh;
+                    s.columns(Px::of(top), Px::of(top + bh))
+                });
+                for x in 0..w {
+                    let p = Pt {
+                        x: f32::from(x) + 0.5,
+                        y: f32::from(y) + 0.5,
+                    };
+                    if coverage(s, p) <= 0.0 {
+                        continue;
+                    }
+                    covered += 1;
+                    let x = u32::from(x);
+                    for (what, c) in [("row", cols), ("17", bands[0]), ("34", bands[1])] {
+                        let inside = c.is_some_and(|(l, r)| x >= l.value() && x < r.value());
+                        assert!(
+                            inside,
+                            "{:?} {:?}: ({x}, {y}) covered, outside the {what} columns {c:?}",
+                            s.shape, s.corners
+                        );
+                    }
+                }
+            }
+        }
+        assert!(covered > 100_000, "the positive control: {covered} covered");
+        // The jump a frame in: its quad's and its sweep's.
+        for s in &smears[2..4] {
+            let (x0, y0, x1, y1) = s.bounds();
+            let spanned: u32 = (y0.value()..y1.value())
+                .filter_map(|y| s.columns(Px::of(y), Px::of(y + 1)))
+                .map(|(l, r)| r.value() - l.value())
+                .sum();
+            let bounded = (x1.value() - x0.value()) * (y1.value() - y0.value());
+            assert!(
+                spanned * 4 < bounded,
+                "the positive control: {:?} spans {spanned} of {bounded} bounded",
+                s.shape
+            );
         }
     }
 

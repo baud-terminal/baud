@@ -164,6 +164,8 @@ pub fn offset(u: f32, lv: Levels, f: &Ignition) -> f32 {
 
 /// The bolt's vertex `j`.
 pub fn vertex(j: Node, lv: Levels, f: &Ignition) -> Pt {
+    #[cfg(test)]
+    crate::det::tally::count(&crate::det::tally::VERTICES);
     let u = j.0 as f32 / lv.segments().0 as f32;
     let n = normal(f.dir);
     let y = offset(u, lv, f);
@@ -188,10 +190,16 @@ pub fn segment(p: Pt, a: Pt, b: Pt) -> f32 {
 /// by 0.28.
 pub fn channel(p: Pt, f: &Ignition) -> f32 {
     let lv = Levels::of(f.len, f.unit);
+    channel_by(p, f, lv, |j| vertex(j, lv, f))
+}
+
+/// [`channel`] on `lv` levels, each vertex `j` the one `vertex(j)` hands,
+/// which is [`vertex`]'s.
+fn channel_by(p: Pt, f: &Ignition, lv: Levels, mut vertex: impl FnMut(Node) -> Pt) -> f32 {
     let m = lv.segments().0;
     let u = ((p.x - f.tail.x) * f.dir.x + (p.y - f.tail.y) * f.dir.y) / f.len;
     let a0 = (((u * m as f32).floor() as i32).clamp(0, m - 1) - 1).max(0);
-    let w = [0, 1, 2, 3].map(|i| vertex(Node((a0 + i).min(m)), lv, f));
+    let w = [0, 1, 2, 3].map(|i| vertex(Node((a0 + i).min(m))));
     segment(p, w[0], w[1])
         .min(segment(p, w[1], w[2]))
         .min(segment(p, w[2], w[3]))
@@ -202,23 +210,39 @@ pub fn channel(p: Pt, f: &Ignition) -> f32 {
 /// segments and at most 1.2 cells long -- on a path of [`FORK_MIN`] cells
 /// or more.
 pub fn forks(p: Pt, f: &Ignition) -> f32 {
-    if f.len < FORK_MIN * f.unit {
-        return f32::INFINITY;
+    Forks::of(f).distance(p)
+}
+
+/// **The forks an ignition's bolt grows**, each its root, its bend and its
+/// tip, the same at every pixel: none on a path under [`FORK_MIN`] cells.
+struct Forks([Option<[Pt; 3]>; 3]);
+
+impl Forks {
+    fn of(f: &Ignition) -> Forks {
+        let mut out = [None; 3];
+        if f.len < FORK_MIN * f.unit {
+            return Forks(out);
+        }
+        let lv = Levels::of(f.len, f.unit);
+        let n = normal(f.dir);
+        let base = Hash(f.seed.0 ^ FORK_SALT).next().0;
+        for (k, fork) in (0..3u32).zip(&mut out) {
+            let h0 = Hash(k.wrapping_add(base)).next();
+            *fork = Self::fork(f, h0, 0.25 * (k + 1) as f32, (lv, n));
+        }
+        Forks(out)
     }
-    let lv = Levels::of(f.len, f.unit);
-    let n = normal(f.dir);
-    let base = Hash(f.seed.0 ^ FORK_SALT).next().0;
-    let mut d = f32::INFINITY;
-    for k in 0..3u32 {
-        let h0 = Hash(k.wrapping_add(base)).next();
+
+    /// The fork whose first hash is `h0`, rooted `q` of the way along the
+    /// path, if it grows.
+    fn fork(f: &Ignition, h0: Hash, q: f32, (lv, n): (Levels, Pt)) -> Option<[Pt; 3]> {
         if h0.unit() >= FORK_P {
-            continue;
+            return None;
         }
         let h1 = h0.next();
         let h2 = h1.next();
         let h3 = h2.next();
         let h4 = h3.next();
-        let q = 0.25 * (k + 1) as f32;
         let yr = offset(q, Levels(lv.0.min(2)), f);
         let side = if yr.abs() > 0.6 * f.unit {
             -yr.signum()
@@ -248,9 +272,17 @@ pub fn forks(p: Pt, f: &Ignition) -> f32 {
             x: r.x + fd.x * lf,
             y: r.y + fd.y * lf,
         };
-        d = d.min(segment(p, r, e).min(segment(p, e, t)));
+        Some([r, e, t])
     }
-    d
+
+    /// The distance from `p` to the nearest fork, [`forks`].
+    fn distance(&self, p: Pt) -> f32 {
+        let mut d = f32::INFINITY;
+        for &[r, e, t] in self.0.iter().flatten() {
+            d = d.min(segment(p, r, e).min(segment(p, e, t)));
+        }
+        d
+    }
 }
 
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
@@ -271,12 +303,65 @@ fn to_rect(p: Pt, r: Rect) -> f32 {
 /// fade takes it -- `bolt_light` in the shader.
 pub fn light(vfx: &Vfx, p: Pt) -> f32 {
     let f = &vfx.ignition;
+    let bolt = Bolt::of(f);
+    lit(vfx, p, &bolt, |j| vertex(j, bolt.lv, f))
+}
+
+/// **What an ignition's bolt is drawn from, the same at every pixel**: its
+/// levels, its region and its forks.
+struct Bolt {
+    lv: Levels,
+    region: Corners,
+    forks: Forks,
+}
+
+impl Bolt {
+    fn of(f: &Ignition) -> Bolt {
+        Bolt {
+            lv: Levels::of(f.len, f.unit),
+            region: region(f),
+            forks: Forks::of(f),
+        }
+    }
+}
+
+/// The vertices a bolt has at most: two to [`LEVELS`] segments, and one.
+pub(crate) const VERTICES: usize = (1 << LEVELS) + 1;
+
+/// **The bolt's light over a band's pixels**, `xs` by `ys` in whole pixels:
+/// `each(x, y, light)` at every pixel, [`light`] at its centre bit for bit,
+/// the bolt taken once and each vertex the first time a pixel reads it,
+/// where the light at each pixel takes the bolt and four vertices again.
+pub fn shade(
+    vfx: &Vfx,
+    xs: core::ops::Range<usize>,
+    ys: core::ops::Range<usize>,
+    each: impl FnMut(usize, usize, f32),
+) {
+    let f = &vfx.ignition;
+    let bolt = Bolt::of(f);
+    let mut taken = [None::<Pt>; VERTICES];
+    let light = |p| {
+        lit(vfx, p, &bolt, |j| {
+            match usize::try_from(j.0).ok().and_then(|i| taken.get_mut(i)) {
+                Some(slot) => *slot.get_or_insert_with(|| vertex(j, bolt.lv, f)),
+                None => vertex(j, bolt.lv, f),
+            }
+        })
+    };
+    effect::lights(xs, ys, light, each);
+}
+
+/// [`light`] from the ignition's `bolt`, each vertex `j` the one
+/// `vertex(j)` hands.
+fn lit(vfx: &Vfx, p: Pt, bolt: &Bolt, vertex: impl FnMut(Node) -> Pt) -> f32 {
+    let f = &vfx.ignition;
     let hole = vfx.emitter.hole;
     if hole.contains(p) || f.age >= LIFE {
         return 0.0;
     }
     let c = f.unit;
-    if crate::effect::distance(p, &region(f)) / c > REACH {
+    if crate::effect::distance(p, &bolt.region) / c > REACH {
         return 0.0;
     }
     let u = ((p.x - f.tail.x) * f.dir.x + (p.y - f.tail.y) * f.dir.y) / f.len;
@@ -286,8 +371,8 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
         return 0.0;
     }
     let fall = 1.0 - smoothstep(T_FALL, LIFE, f.age);
-    let dm = channel(p, f);
-    let df = forks(p, f);
+    let dm = channel_by(p, f, bolt.lv, vertex);
+    let df = bolt.forks.distance(p);
     let dh = to_rect(p, hole);
     let w = (W_CORE * c).max(1.0) * (0.45 + 0.55 * fall);
     let gw = W_GLOW * c;

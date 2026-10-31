@@ -4904,19 +4904,37 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// **The columns the trail's and the splash's records reach on
     /// `band`'s rows**, this frame's and the last's: [`Repaint::Cols`], empty
-    /// when none of them meets it.
+    /// when none of them meets it. A quad's or a sweep's one record is its
+    /// bounds, the window's width on a jump across it, so a smear gives the
+    /// columns its shape can cover on the rows instead ([`Smear::columns`]),
+    /// which hold every pixel it draws.
     fn records_on(&self, band: Band) -> Repaint {
+        let smear = |d: &Option<Drawn>| match d {
+            Some(Drawn::Smear(s)) => Some(*s),
+            _ => None,
+        };
+        let (now, was) = (smear(&self.trail), smear(&self.last_trail));
         let (mut lo, mut hi) = (i64::MAX, i64::MIN);
+        // `build_trail` puts a smear's record first.
         for r in self
             .trail_inst
             .iter()
-            .chain(&self.last_trail_inst)
+            .skip(usize::from(now.is_some()))
+            .chain(self.last_trail_inst.iter().skip(usize::from(was.is_some())))
             .chain(&self.splash_inst)
             .chain(&self.last_splash_inst)
             .filter(|r| record_meets(r, band))
         {
             lo = lo.min(i64::from(r.x.0));
             hi = hi.max(i64::from(r.x.0) + i64::from(r.w.0));
+        }
+        for (left, right) in now
+            .iter()
+            .chain(&was)
+            .filter_map(|s| s.columns(band.top, band.bottom))
+        {
+            lo = lo.min(i64::from(left.value()));
+            hi = hi.max(i64::from(right.value()));
         }
         let px = |v: i64| Px::of(u32::try_from(v.max(0)).unwrap_or(u32::MAX));
         match lo < hi {

@@ -174,6 +174,8 @@ fn omega(len: f32, c: f32) -> f32 {
 
 /// **The saucer at `a` seconds** -- `ufo_pose` in the shader.
 pub fn pose(fl: &Flight, a: f32) -> Pose {
+    #[cfg(test)]
+    crate::det::tally::count(&crate::det::tally::POSES);
     let c = fl.unit;
     let w = omega(fl.len, c);
     let sig = 1.0 - (1.0 + w * a) * (-w * a).det_exp();
@@ -363,10 +365,11 @@ fn wake_line(fl: &Flight, pz: &Pose, age: f32) -> Option<(Pt, Pt)> {
     Some((a, q.c))
 }
 
-/// **The wake at `p`**: a tapered streak along the saucer's last 60 ms.
-fn wake(p: Pt, fl: &Flight, pz: &Pose, age: f32) -> f32 {
+/// **The wake at `p`**: a tapered streak along the saucer's last 60 ms,
+/// whose segment is `line` ([`wake_line`]).
+fn wake(p: Pt, fl: &Flight, pz: &Pose, line: Option<(Pt, Pt)>) -> f32 {
     let c = fl.unit;
-    let Some((a, b)) = wake_line(fl, pz, age) else {
+    let Some((a, b)) = line else {
         return 0.0;
     };
     let l = length(pz.c.x - b.x, pz.c.y - b.y);
@@ -384,13 +387,67 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
     if vfx.emitter.hole.contains(p) || f.age >= end(f) {
         return 0.0;
     }
-    let fl = Flight::of(vfx);
-    let pz = pose(&fl, f.age);
-    let mut a = wake(p, &fl, &pz, f.age);
-    let b = beam(p, &pz, fl.hole, fl.unit, f.age);
+    lit(p, &Saucer::of(vfx))
+}
+
+/// **The ufo as a frame draws it, the same at every pixel**: its flight,
+/// its pose, its wake's segment and its age.
+struct Saucer {
+    fl: Flight,
+    pz: Pose,
+    wake: Option<(Pt, Pt)>,
+    age: f32,
+}
+
+impl Saucer {
+    fn of(vfx: &Vfx) -> Saucer {
+        let age = vfx.ignition.age;
+        let fl = Flight::of(vfx);
+        let pz = pose(&fl, age);
+        Saucer {
+            wake: wake_line(&fl, &pz, age),
+            fl,
+            pz,
+            age,
+        }
+    }
+}
+
+/// [`light`] at `p`, outside the cursor and before the end, from the
+/// frame's `saucer`.
+fn lit(p: Pt, saucer: &Saucer) -> f32 {
+    let (fl, pz) = (&saucer.fl, &saucer.pz);
+    let mut a = wake(p, fl, pz, saucer.wake);
+    let b = beam(p, pz, fl.hole, fl.unit, saucer.age);
     a = b + a * (1.0 - b);
-    let s = body(p, &pz, fl.unit);
+    let s = body(p, pz, fl.unit);
     s + a * (1.0 - s)
+}
+
+/// **The ufo's light over a band's pixels**, `xs` by `ys` in whole pixels:
+/// `each(x, y, light)` at every pixel, [`light`] at its centre bit for bit,
+/// the saucer posed once where the light at each pixel poses it twice.
+pub fn shade(
+    vfx: &Vfx,
+    xs: core::ops::Range<usize>,
+    ys: core::ops::Range<usize>,
+    each: impl FnMut(usize, usize, f32),
+) {
+    let f = &vfx.ignition;
+    if f.age >= end(f) {
+        return;
+    }
+    let saucer = Saucer::of(vfx);
+    let hole = vfx.emitter.hole;
+    effect::lights(
+        xs,
+        ys,
+        |p| match hole.contains(p) {
+            true => 0.0,
+            false => lit(p, &saucer),
+        },
+        each,
+    );
 }
 
 /// **The box the ufo draws in this frame**: the saucer's disc, the beam

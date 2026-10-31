@@ -137,21 +137,72 @@ fn length(x: f32, y: f32) -> f32 {
 /// sphere with its highlight, the halo and the comet, under one envelope --
 /// `orb_light` in the shader.
 pub fn light(vfx: &Vfx, p: Pt) -> f32 {
-    let f = &vfx.ignition;
     if vfx.emitter.hole.contains(p) {
         return 0.0;
     }
+    lit(vfx, p, &Flown::of(vfx))
+}
+
+/// **The orb as a frame draws it, the same at every pixel**: when it is
+/// out, the line it flies on, its envelope, where it is and where it was a
+/// comet's length ago.
+struct Flown {
+    end: f32,
+    line: Corners,
+    env: f32,
+    o: Pt,
+    q: Pt,
+}
+
+impl Flown {
+    fn of(vfx: &Vfx) -> Flown {
+        let f = &vfx.ignition;
+        let t = flight(f.len, f.unit);
+        let end = t + LINGER + FADE;
+        Flown {
+            end,
+            line: line(vfx),
+            env: smoothstep(0.0, APPEAR, f.age) * (1.0 - smoothstep(t + LINGER, end, f.age)),
+            o: centre(vfx, f.age),
+            q: centre(vfx, (f.age - COMET_S).max(0.0)),
+        }
+    }
+}
+
+/// **The orb's light over a band's pixels**, `xs` by `ys` in whole pixels:
+/// `each(x, y, light)` at every pixel, [`light`] at its centre bit for bit,
+/// the orb's line and places taken once where the light at each pixel
+/// takes them again.
+pub fn shade(
+    vfx: &Vfx,
+    xs: core::ops::Range<usize>,
+    ys: core::ops::Range<usize>,
+    each: impl FnMut(usize, usize, f32),
+) {
+    let flown = Flown::of(vfx);
+    let hole = vfx.emitter.hole;
+    effect::lights(
+        xs,
+        ys,
+        |p| match hole.contains(p) {
+            true => 0.0,
+            false => lit(vfx, p, &flown),
+        },
+        each,
+    );
+}
+
+/// [`light`] at `p`, outside the cursor, from the frame's `flown`.
+fn lit(vfx: &Vfx, p: Pt, flown: &Flown) -> f32 {
+    let f = &vfx.ignition;
     let c = f.unit;
-    let t = flight(f.len, c);
-    let end = t + LINGER + FADE;
-    if f.age >= end {
+    if f.age >= flown.end {
         return 0.0;
     }
-    if effect::distance(p, &line(vfx)) / c > REACH {
+    if effect::distance(p, &flown.line) / c > REACH {
         return 0.0;
     }
-    let env = smoothstep(0.0, APPEAR, f.age) * (1.0 - smoothstep(t + LINGER, end, f.age));
-    let o = centre(vfx, f.age);
+    let (env, o) = (flown.env, flown.o);
     let r = RADIUS * c;
     let d = length(p.x - o.x, p.y - o.y);
     let cov = (0.5 - (d - r)).clamp(0.0, 1.0);
@@ -161,7 +212,7 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
     let body = (0.45 + 0.30 * (1.0 - k * k) + 0.25 * (-hs * hs).det_exp()) * cov;
     let hd = (d - r).max(0.0) / (HALO_W * c);
     let halo = HALO * (-hd * hd).det_exp();
-    let q = centre(vfx, (f.age - COMET_S).max(0.0));
+    let q = flown.q;
     let (bx, by) = (q.x - o.x, q.y - o.y);
     let (px, py) = (p.x - o.x, p.y - o.y);
     let h = ((px * bx + py * by) / (bx * bx + by * by).max(1e-6)).clamp(0.0, 1.0);

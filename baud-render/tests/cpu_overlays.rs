@@ -429,6 +429,114 @@ fn moving_smear(faces: &[Face<'_>], t: &mut Term<'_>, shape: Shape) {
     assert!(drew, "the {shape:?} move drew nothing");
 }
 
+/// **A jump's smear repaints only the columns it covers**: a quad's and a
+/// sweep's jump from the top-left cell to the bottom-right, every frame at
+/// 60 Hz and the frame it is gone, over text: an incremental frame writes
+/// no pixel outside, on each cell row, the columns from two cells left of
+/// the leftmost pixel the smear covers on its rows and the one either side,
+/// or leaves bare for the cursor in its bounds, this frame or the last, to
+/// two cells right of the rightmost -- every other pixel is the last
+/// frame's, so a pixel there is left as it was, even one no frame drew.
+/// The smear's one record is its bounds, most of the window on this jump,
+/// and a row repainting the record's columns wrote 29,646 pixels outside
+/// over the quad's 23 frames and 117,990 over the sweep's 38 (note AJ
+/// section 24). The control: a pixel inside changed on most frames.
+#[test]
+fn a_jump_repaints_only_the_columns_its_smear_covers() {
+    const POISON: u32 = 0x1234_5678;
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    for shape in [Shape::Quad, Shape::Sweep] {
+        with_text(|t| {
+            let mut r = renderer(&faces);
+            let (w, h) = r.pixel_size();
+            let (width, height) = (px(w), px(h));
+            let (cell_w, cell_h) = (px(r.metrics().cell_w), px(r.metrics().cell_h));
+            let mut frame = vec![0u32; width * height];
+            r.set_trail(None);
+            paint(&mut r, t, &mut frame, Damage::Full);
+            let lasts = {
+                let style = baud_core::CursorStyle::SteadyBlock;
+                let rect = |row: usize, col: usize| {
+                    r.cursor_rect(Row::from_index(row), Col::at_index(col), style)
+                };
+                match shape {
+                    Shape::Quad => Segment::new(rect(0, 1).corners(), rect(9, 28)).lasts(),
+                    Shape::Sweep => Segment::sweep(rect(0, 1).corners(), rect(9, 28)).lasts(),
+                }
+            };
+            let (mut outside, mut frames, mut drew) = (0usize, 0usize, 0usize);
+            let mut last = None::<Smear>;
+            for f in 0u16.. {
+                let age = f32::from(f) / 60.0;
+                let now = (age <= lasts).then(|| smear(&r, shape, (0, 1), (9, 28), age));
+                let mut allowed = vec![false; width * height];
+                for row in 0..usize::from(WS.ws_row) {
+                    let ys = row * cell_h..(row + 1) * cell_h;
+                    let near = ys.start.saturating_sub(1)..(ys.end + 1).min(height);
+                    let (mut lo, mut hi) = (usize::MAX, 0usize);
+                    for s in now.iter().chain(&last) {
+                        let (x0, y0, x1, y1) = s.bounds();
+                        let bounded = |x: usize, y: usize| {
+                            (px(x0)..px(x1)).contains(&x) && (px(y0)..px(y1)).contains(&y)
+                        };
+                        for y in near.clone() {
+                            for x in 0..width {
+                                let p = Pt {
+                                    x: x as f32 + 0.5,
+                                    y: y as f32 + 0.5,
+                                };
+                                let bare = s.hole.contains(p) && bounded(x, y);
+                                if quad_coverage(s, p) > 0.0 || bare {
+                                    (lo, hi) = (lo.min(x), hi.max(x + 1));
+                                }
+                            }
+                        }
+                    }
+                    if lo < hi {
+                        let (l, r) = (lo.saturating_sub(2 * cell_w), (hi + 2 * cell_w).min(width));
+                        for y in ys {
+                            allowed[y * width + l..y * width + r].fill(true);
+                        }
+                    }
+                }
+                for (p, &inside) in frame.iter_mut().zip(&allowed) {
+                    if !inside {
+                        *p = POISON;
+                    }
+                }
+                let before = frame.clone();
+                r.set_trail(now.map(TrailLook::Smear));
+                paint(&mut r, t, &mut frame, Damage::Incremental);
+                outside += frame
+                    .iter()
+                    .zip(&allowed)
+                    .filter(|&(&p, &inside)| !inside && p != POISON)
+                    .count();
+                let drawn = frame
+                    .iter()
+                    .zip(&before)
+                    .zip(&allowed)
+                    .any(|((a, b), &i)| i && a != b);
+                drew += usize::from(drawn);
+                frames += 1;
+                if now.is_none() {
+                    break;
+                }
+                last = now;
+            }
+            assert!(
+                drew * 2 > frames,
+                "the control: {shape:?} drew {drew} of {frames}"
+            );
+            assert_eq!(
+                outside, 0,
+                "{shape:?}: {outside} pixels repainted outside the columns it covers over {frames} frames"
+            );
+        });
+    }
+}
+
 /// `src`, premultiplied and in channels 0 to 1, over the premultiplied
 /// pixel `dst`, rounded to bytes as the GPU's blend unit stores them:
 /// `over` in `baud-present-macos/tests/cells.rs`, the rule the GPU arms are

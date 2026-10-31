@@ -404,11 +404,21 @@ impl<'p> Target<'p> {
         let (stride, width) = (slots(self.stride), slots(self.width));
         let ys = slots(y0).max(rows.start)..slots(y1).min(rows.end);
         let xs = slots(x0).max(self.cols.start)..slots(x1).min(self.cols.end);
+        let px = |v: usize| Px::of(u32::try_from(v).unwrap_or(u32::MAX));
         for y in ys {
+            // Only the columns the smear can cover on this row
+            // (`Smear::columns`): every pixel left out covers nothing.
+            let Some((left, right)) = s.columns(px(y), px(y + 1)) else {
+                continue;
+            };
+            let start = slots(left).max(xs.start);
+            let xs = start..slots(right).min(xs.end).max(start);
             let row = &mut self.pixels[y * stride..y * stride + width];
             let cy = f32::from(u16::try_from(y).unwrap_or(u16::MAX)) + 0.5;
-            for x in xs.clone() {
+            for x in xs {
                 let cx = f32::from(u16::try_from(x).unwrap_or(u16::MAX)) + 0.5;
+                #[cfg(test)]
+                crate::det::tally::count(&crate::det::tally::COVERAGES);
                 let cover = crate::trail::coverage(s, Pt { x: cx, y: cy });
                 if cover <= 0.0 {
                     continue;
@@ -1220,6 +1230,66 @@ fn luts() -> &'static Luts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A jump's smear is measured only near its shape**: a quad and a
+    /// sweep from the top-left cell of a 612 by 340 frame to the
+    /// bottom-right, a frame and two frames in at 60 Hz, when their bounds
+    /// are most of the frame, measure the coverage at no more pixels than it
+    /// is above zero at and eight a row -- where measuring the bounds took
+    /// 6.4 to 7.6 times the pixels covered (note AJ section 24). The
+    /// positive control: each smear covers pixels.
+    #[test]
+    fn a_jump_measures_the_smear_only_near_its_shape() {
+        use crate::trail::{Rect, Segment, Shape};
+        let block = |col: f32, row: f32| Rect {
+            left: col * 17.0,
+            top: row * 34.0,
+            right: (col + 1.0) * 17.0,
+            bottom: (row + 1.0) * 34.0,
+        };
+        let (from, to) = (block(0.0, 0.0), block(35.0, 9.0));
+        let (w, h) = (612u32, 340u32);
+        let band = Band {
+            top: Px::of(0),
+            bottom: Px::of(h),
+        };
+        for shape in [Shape::Quad, Shape::Sweep] {
+            for t in [1.0f32 / 60.0, 2.0 / 60.0] {
+                let seg = match shape {
+                    Shape::Quad => Segment::new(from.corners(), to),
+                    Shape::Sweep => Segment::sweep(from.corners(), to),
+                };
+                let s = Smear {
+                    corners: seg.at(t),
+                    hole: to,
+                    shape,
+                    strength: crate::flash::Strength::Full,
+                };
+                let (_, y0, _, y1) = s.bounds();
+                let mut covered = 0u64;
+                for y in 0..h {
+                    for x in 0..w {
+                        let p = Pt {
+                            x: f32::from(u16::try_from(x).unwrap()) + 0.5,
+                            y: f32::from(u16::try_from(y).unwrap()) + 0.5,
+                        };
+                        covered += u64::from(crate::trail::coverage(&s, p) > 0.0);
+                    }
+                }
+                let mut px = vec![0xFF10_1010u32; slots(Px::of(w * h))];
+                let mut target = Target::new(&mut px, Px::of(w), Px::of(w), Px::of(h)).unwrap();
+                let measured = crate::det::tally::counted(&crate::det::tally::COVERAGES, || {
+                    target.quad(&s, Argb(0xFFE0_E0E0), Blend::Native, Page::Opaque, band);
+                });
+                let rows = u64::from(y1.value().min(h) - y0.value());
+                assert!(covered > 1_000, "the positive control: {shape:?} at {t}");
+                assert!(
+                    measured <= covered + 8 * rows,
+                    "{shape:?} at {t}: measured {measured} pixels, {covered} covered over {rows} rows"
+                );
+            }
+        }
+    }
 
     /// **A record clipped to the columns drawn is each pixel's own test**:
     /// a quadrant block's mask, whose columns differ, and a solid, at every

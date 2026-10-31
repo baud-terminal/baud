@@ -102,68 +102,199 @@ struct Frame {
     lu: f32,
 }
 
-/// **Crystal `k` at the frame's pixel**: its arms, side branches and plate,
-/// grown, held and melted by its place along the path -- `ice_crystal`.
-fn crystal(k: f32, fr: &Frame, w: f32, aa: f32, sbase: Hash, age: f32) -> f32 {
-    let h1 = Hash((k as i32).cast_unsigned().wrapping_add(sbase.0)).next();
-    let h2 = h1.next();
-    let h3 = h2.next();
-    let h4 = h3.next();
-    let h5 = h4.next();
-    let h6 = h5.next();
-    let along = (k + (h1.unit() - 0.5) * 0.5) * SPACING;
-    let across = (h2.unit() - 0.5) * 0.7;
-    let win = smoothstep(-0.25, 0.0, along) * (1.0 - smoothstep(fr.lu, fr.lu + 0.25, along));
-    if win <= 0.0 {
-        return 0.0;
+/// **Crystal `k`, the same at every pixel**: where it sits along and
+/// across the path, its arm's length, how far it exists, has melted and is
+/// windowed in, its turn's cosine and sine, and its plate's reach -- none
+/// where nothing of it is drawn. `ice_crystal`'s first half.
+#[derive(Clone, Copy)]
+struct Crystal {
+    along: f32,
+    across: f32,
+    l: f32,
+    exist: f32,
+    fade: f32,
+    win: f32,
+    cs: f32,
+    sn: f32,
+    pr: f32,
+}
+
+impl Crystal {
+    /// Crystal `k` on a path `lu` cells long, of lines `w` wide, from the
+    /// hash `sbase`, at `age`.
+    fn of(k: f32, lu: f32, w: f32, sbase: Hash, age: f32) -> Option<Crystal> {
+        let h1 = Hash((k as i32).cast_unsigned().wrapping_add(sbase.0)).next();
+        let h2 = h1.next();
+        let h3 = h2.next();
+        let h4 = h3.next();
+        let h5 = h4.next();
+        let h6 = h5.next();
+        let along = (k + (h1.unit() - 0.5) * 0.5) * SPACING;
+        let across = (h2.unit() - 0.5) * 0.7;
+        let win = smoothstep(-0.25, 0.0, along) * (1.0 - smoothstep(lu, lu + 0.25, along));
+        if win <= 0.0 {
+            return None;
+        }
+        let u = sat(along / lu);
+        let delay = 0.03 * h5.unit();
+        let x = sat((age - deposit(u) - delay) / GROW);
+        let grow = 1.0 - (1.0 - x) * (1.0 - x) * (1.0 - x);
+        let m = HOLD + SPREAD * u + delay;
+        let fade = 1.0 - smoothstep(m, m + MELT, age);
+        let l = ARM * (0.45 + 0.55 * h4.unit()) * grow * (0.35 + 0.65 * fade);
+        let exist = sat(l / (2.0 * w));
+        if exist <= 0.0 || fade <= 0.0 {
+            return None;
+        }
+        let s = 0.577_350_27 * h3.unit();
+        let den = 1.0 + s * s;
+        let (cs, sn) = ((1.0 - s * s) / den, 2.0 * s / den);
+        Some(Crystal {
+            along,
+            across,
+            l,
+            exist,
+            fade,
+            win,
+            cs,
+            sn,
+            pr: 0.10 + 0.30 * h6.unit() * h6.unit(),
+        })
     }
-    let u = sat(along / fr.lu);
-    let delay = 0.03 * h5.unit();
-    let x = sat((age - deposit(u) - delay) / GROW);
-    let grow = 1.0 - (1.0 - x) * (1.0 - x) * (1.0 - x);
-    let m = HOLD + SPREAD * u + delay;
-    let fade = 1.0 - smoothstep(m, m + MELT, age);
-    let l = ARM * (0.45 + 0.55 * h4.unit()) * grow * (0.35 + 0.65 * fade);
-    let exist = sat(l / (2.0 * w));
-    if exist <= 0.0 || fade <= 0.0 {
-        return 0.0;
+
+    /// **The crystal at the frame's pixel**: its arms, side branches and
+    /// plate, of lines `w` wide with `aa` of edge -- `ice_crystal`'s second
+    /// half.
+    fn at(&self, fr: &Frame, w: f32, aa: f32) -> f32 {
+        let (along, across, l) = (self.along, self.across, self.l);
+        let rx = fr.rel.0 - (fr.d.0 * along + fr.n.0 * across);
+        let ry = fr.rel.1 - (fr.d.1 * along + fr.n.1 * across);
+        let (cs, sn) = (self.cs, self.sn);
+        let (mut wx, mut wy) = ((cs * rx + sn * ry).abs(), (-sn * rx + cs * ry).abs());
+        for (nx, ny) in [(-0.866_025_4f32, 0.5f32), (-0.5, 0.866_025_4)] {
+            let t = 2.0 * (wx * nx + wy * ny).max(0.0);
+            wx -= t * nx;
+            wy -= t * ny;
+        }
+        let dm = length(wx - wx.clamp(0.0, l), wy);
+        let wm = w * (1.4 - 0.7 * sat(wx / l.max(1e-4)));
+        let main = 0.95 * line(dm, wm, aa);
+        let (ex, ey) = (0.5f32, 0.866_025_4f32);
+        let xr = wx - wy * 0.577_350_27;
+        let xj = (xr / BRANCH + 0.5).floor().max(1.0) * BRANCH;
+        let lj = (0.6 * (l - xj)).min(xj);
+        let (vx, vy) = (wx - xj, wy);
+        let h = (vx * ex + vy * ey).clamp(0.0, lj.max(0.0));
+        let ds = length(vx - h * ex, vy - h * ey);
+        let side = 0.60 * line(ds, w, aa) * sat(lj / (2.0 * w));
+        let dp = (wx * 0.866_025_4 + wy * 0.5) - self.pr * l * 0.866_025_4;
+        let plate = 0.30 * (1.0 - smoothstep(-aa, aa, dp));
+        main.max(side.max(plate)) * self.exist * self.fade * self.win
     }
-    let rx = fr.rel.0 - (fr.d.0 * along + fr.n.0 * across);
-    let ry = fr.rel.1 - (fr.d.1 * along + fr.n.1 * across);
-    let s = 0.577_350_27 * h3.unit();
-    let den = 1.0 + s * s;
-    let (cs, sn) = ((1.0 - s * s) / den, 2.0 * s / den);
-    let (mut wx, mut wy) = ((cs * rx + sn * ry).abs(), (-sn * rx + cs * ry).abs());
-    for (nx, ny) in [(-0.866_025_4f32, 0.5f32), (-0.5, 0.866_025_4)] {
-        let t = 2.0 * (wx * nx + wy * ny).max(0.0);
-        wx -= t * nx;
-        wy -= t * ny;
+}
+
+/// **The frost as a frame draws it, the same at every pixel**: the lines'
+/// width and edge, the crystals' hash, the glint's place, the rime's front
+/// and salt, and the pane's fade.
+struct Frost {
+    w: f32,
+    aa: f32,
+    sbase: Hash,
+    gp: f32,
+    front: f32,
+    s2: Hash,
+    pa: f32,
+}
+
+impl Frost {
+    fn of(f: &Ignition) -> Frost {
+        let (c, lu) = (f.unit, f.len / f.unit);
+        Frost {
+            w: WIDTH.max(0.75 / c),
+            aa: 0.5 / c,
+            sbase: Hash(f.seed.0.wrapping_add(ICE_SALT)).next(),
+            gp: (f.age - 0.4 * HOLD) / (0.6 * HOLD) * (lu + 2.0 * SPACING) - SPACING,
+            front: (lu + 0.6) * (1.0 - (-f.age / LEAD).det_exp2()) - 0.3,
+            s2: Hash(f.seed.0 ^ RIME_SALT),
+            pa: sat(1.0 - f.age / (0.6 * HOLD)),
+        }
     }
-    let dm = length(wx - wx.clamp(0.0, l), wy);
-    let wm = w * (1.4 - 0.7 * sat(wx / l.max(1e-4)));
-    let main = 0.95 * line(dm, wm, aa);
-    let (ex, ey) = (0.5f32, 0.866_025_4f32);
-    let xr = wx - wy * 0.577_350_27;
-    let xj = (xr / BRANCH + 0.5).floor().max(1.0) * BRANCH;
-    let lj = (0.6 * (l - xj)).min(xj);
-    let (vx, vy) = (wx - xj, wy);
-    let h = (vx * ex + vy * ey).clamp(0.0, lj.max(0.0));
-    let ds = length(vx - h * ex, vy - h * ey);
-    let side = 0.60 * line(ds, w, aa) * sat(lj / (2.0 * w));
-    let pr = 0.10 + 0.30 * h6.unit() * h6.unit();
-    let dp = (wx * 0.866_025_4 + wy * 0.5) - pr * l * 0.866_025_4;
-    let plate = 0.30 * (1.0 - smoothstep(-aa, aa, dp));
-    main.max(side.max(plate)) * exist * fade * win
 }
 
 /// **The ice's opacity at `p`**, 0 to 1, before the record's alpha: the
 /// pane over the quad, and over the path the crystals, their glint and the
 /// rime -- `ice_frost` in the shader.
 pub fn light(vfx: &Vfx, p: Pt) -> f32 {
-    let f = &vfx.ignition;
     if vfx.emitter.hole.contains(p) {
         return 0.0;
     }
+    let f = &vfx.ignition;
+    let frost = Frost::of(f);
+    lit(vfx, p, &frost, |k| {
+        Crystal::of(k, f.len / f.unit, frost.w, frost.sbase, f.age)
+    })
+}
+
+/// The crystals a band keeps at most, from one before the band's first:
+/// past them a crystal is taken where a pixel reads it.
+const CRYSTALS: usize = 64;
+
+/// **The ice's light over a band's pixels**, `xs` by `ys` in whole pixels:
+/// `each(x, y, light)` at every pixel, [`light`] at its centre bit for bit,
+/// the frost taken once and each crystal the first time a pixel reads it,
+/// where the light at each pixel takes the frost and three crystals again.
+pub fn shade(
+    vfx: &Vfx,
+    xs: core::ops::Range<usize>,
+    ys: core::ops::Range<usize>,
+    each: impl FnMut(usize, usize, f32),
+) {
+    let f = &vfx.ignition;
+    let frost = Frost::of(f);
+    let lu = f.len / f.unit;
+    // A pixel's place along the path, in cells, as `lit` reads it; least at
+    // a corner of the band, the place being linear in the pixel.
+    let centre = |v: usize| f32::from(u16::try_from(v).unwrap_or(u16::MAX)) + 0.5;
+    let along = |x: usize, y: usize| {
+        ((centre(x) - f.tail.x) / f.unit) * f.dir.x + ((centre(y) - f.tail.y) / f.unit) * f.dir.y
+    };
+    let (x1, y1) = (xs.end.saturating_sub(1), ys.end.saturating_sub(1));
+    let least = [
+        along(xs.start, ys.start),
+        along(x1, ys.start),
+        along(xs.start, y1),
+        along(x1, y1),
+    ]
+    .into_iter()
+    .fold(f32::INFINITY, f32::min);
+    let first = (least / SPACING + 0.5).floor() - 2.0;
+    let mut taken = [None::<Option<Crystal>>; CRYSTALS];
+    let hole = vfx.emitter.hole;
+    let mut crystal = |k: f32| {
+        let of = || Crystal::of(k, lu, frost.w, frost.sbase, f.age);
+        match usize::try_from((k - first) as i64)
+            .ok()
+            .and_then(|i| taken.get_mut(i))
+        {
+            Some(slot) => *slot.get_or_insert_with(of),
+            None => of(),
+        }
+    };
+    effect::lights(
+        xs,
+        ys,
+        |p| match hole.contains(p) {
+            true => 0.0,
+            false => lit(vfx, p, &frost, &mut crystal),
+        },
+        each,
+    );
+}
+
+/// [`light`] at `p`, outside the cursor, from the frame's `frost`, each
+/// crystal `k` the one `crystal(k)` hands.
+fn lit(vfx: &Vfx, p: Pt, frost: &Frost, mut crystal: impl FnMut(f32) -> Option<Crystal>) -> f32 {
+    let f = &vfx.ignition;
     let c = f.unit;
     let fr = Frame {
         rel: ((p.x - f.tail.x) / c, (p.y - f.tail.y) / c),
@@ -178,28 +309,25 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
     if dseg > REACH && dq / c > REACH {
         return 0.0;
     }
-    let pa = sat(1.0 - f.age / (0.6 * HOLD));
-    let pane = pa
+    let pane = frost.pa
         * (0.14 * (1.0 - smoothstep(-0.5, 0.5, dq)))
             .max(0.5 * (1.0 - smoothstep(0.5, 1.5, dq.abs())));
     let mut a = pane;
     if dseg <= REACH {
-        let w = WIDTH.max(0.75 / c);
-        let aa = 0.5 / c;
-        let sbase = Hash(f.seed.0.wrapping_add(ICE_SALT)).next();
+        let (w, aa) = (frost.w, frost.aa);
         let k0 = (along / SPACING + 0.5).floor();
-        let mut frost = 0.0f32;
+        let mut glint = 0.0f32;
         for dk in [-1.0f32, 0.0, 1.0] {
-            frost = frost.max(crystal(k0 + dk, &fr, w, aa, sbase, f.age));
+            glint = glint.max(crystal(k0 + dk).map_or(0.0, |k| k.at(&fr, w, aa)));
         }
-        let gp = (f.age - 0.4 * HOLD) / (0.6 * HOLD) * (fr.lu + 2.0 * SPACING) - SPACING;
-        frost = sat(frost * (1.0 + 0.3 * (1.0 - smoothstep(0.0, SPACING, (along - gp).abs()))));
+        let gp = frost.gp;
+        glint = sat(glint * (1.0 + 0.3 * (1.0 - smoothstep(0.0, SPACING, (along - gp).abs()))));
         let u = sat(along / fr.lu);
-        let front = (fr.lu + 0.6) * (1.0 - (-f.age / LEAD).det_exp2()) - 0.3;
+        let front = frost.front;
         let dep = 1.0 - smoothstep(front - 0.3, front + 0.3, along);
         let mr = HOLD + SPREAD * u;
         let rfade = 1.0 - smoothstep(mr, mr + MELT, f.age);
-        let s2 = f.seed.0 ^ RIME_SALT;
+        let s2 = frost.s2.0;
         let (qx, qy) = (
             0.8 * fr.rel.0 - 0.6 * fr.rel.1,
             0.6 * fr.rel.0 + 0.8 * fr.rel.1,
@@ -208,7 +336,7 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
             + 0.35 * effect::noise(qx * 6.7, qy * 6.7, Hash(s2.wrapping_add(0x9E37_79B9)));
         let rime =
             0.24 * (1.0 - smoothstep(0.15, 0.6, dseg)) * smoothstep(0.35, 0.75, n) * dep * rfade;
-        a = a.max(frost.max(rime));
+        a = a.max(glint.max(rime));
     }
     a
 }
@@ -391,7 +519,8 @@ mod tests {
             lu: f.len / c,
         };
         let sbase = Hash(f.seed.0.wrapping_add(ICE_SALT)).next();
-        crystal(k, &fr, WIDTH.max(0.75 / c), 0.5 / c, sbase, f.age)
+        let (w, aa) = (WIDTH.max(0.75 / c), 0.5 / c);
+        Crystal::of(k, fr.lu, w, sbase, f.age).map_or(0.0, |x| x.at(&fr, w, aa))
     }
 
     /// The most frost within a cell of the path at `u` of it.

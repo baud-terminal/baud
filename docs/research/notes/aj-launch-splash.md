@@ -2874,3 +2874,51 @@ lightning (16-25 ms, most frames); at 2x the quad and the sweep miss
 120 Hz on 4-5 frames and the ufo on 3 or more. One thread drawing whole
 frames misses the budget on a jump at 2x and 6K with every trail but the
 ghost, on 1 to 99 frames, as before section 22.
+
+## 24. Every cursor trail's frame within its budget on the CPU path (2026-10-30)
+
+**What the user sees.** On the CPU path (the Linux driver's; macOS under
+`BAUD_GPU=0`), a cursor jump across the window draws every frame of every
+trail within the display's frame on the machine measured (an Apple M5
+Max; Linux is unmeasured): the worst of all 60 lives 3.9 ms at 1x, 6.7 at
+2x against 8.3 at 120 Hz, and 11.2 at 6K against 16.7. The quad and the
+sweep took 46-50 ms on 4 frames at 6K and 14-17 ms on 4-6 at 2x, now
+1.1-2.7 and 0.6-1.6; at 2x the ufo's 11.6-13.2 ms is 0.7-1.2, the
+lightning's 8.5-31.3 is 4.4-6.7, the ice's 8.7-9.3 is 4.6-6.1. They look
+exactly as before: one FNV-1a over each life's frames equals the base's on
+all 60 lives, in both damage modes, on one thread and the machine's.
+
+**Where the time went** (`sample`; dtrace's `profile` needs sudo, not
+available). A smear's one record is its bounds, the window on a jump, and
+every pixel of it was measured and every row's columns of it repainted
+(`coverage` 1,402 of the quad's samples at 6K, the fill 61). The lightning
+built its bolt again at each pixel (`vertex` 9,824 samples beside the
+light's 11,077), the ufo posed its saucer twice a pixel (`pose` and its
+sines 3,523 of 3,738), the liquid took its state at each, the orb its aim
+and the ice its crystals.
+
+**How it is built.** A smear's rows repaint and measure only the columns
+its shape can cover (`Smear::columns`): the hull of the quad's corners
+within half a pixel; for the sweep, of the cursor's box and its tail's
+chord across the move, where its alpha starts. The lightning, ice, ufo,
+orb and liquid take what is the same at every pixel once a band, each
+vertex and crystal once, by the code the light at one pixel runs; each
+effect has a loop of its own (`lights`), the fire's light as before.
+
+**Held.** `a_jump_repaints_only_the_columns_its_smear_covers`,
+`a_jump_measures_the_smear_only_near_its_shape` and
+`a_bands_light_takes_the_frames_constants_once` failed on the base
+(117,990 pixels outside; 6.4-7.6 times those covered; 386,468 vertices
+over 8 bands). Perturbations: the quad's half pixel of edge, two vertices or two
+crystals in a slot, the ufo lighting the cursor's cell, the last frame's
+smear left out. Each effect's light over a frame, seven ages of four moves
+on two seeds, hashes as the base's.
+
+**Measured** ([[source: aj-obs-cpu-6k-measure]]: rotated rounds, an A/A
+copy, load 3.9-4.5). At one thread every life retires fewer instructions,
+0.22-0.61 of the base's for the ufo, lightning and ice on a jump, or as
+many within three runs' spread (the ghost, the plasma). Drawn whole, the
+change's two copies, one binary, went over on 20 frames in three of their
+six runs, up to 35 ms at 6K, the unchanged plasma among them; the base on 56-84 a
+round. **Not fixed.** The fire's light at each pixel, and the lightning's
+distance to its region, about a third of its light now.

@@ -533,32 +533,25 @@ impl Vfx {
     /// zero at, the light [`Vfx::light`] at the pixel's centre, bit for
     /// bit. A pixel it is zero at may be left out. The CPU compositor draws
     /// a band by it (`Target::effect`); the plasma's has a form of its own
-    /// ([`plasma::shade`]), every other effect is the light at each pixel.
+    /// ([`plasma::shade`]), the lightning's, the ice's, the ufo's, the orb's
+    /// and the liquid's take what is the same at every pixel once
+    /// ([`lightning::shade`], [`ice::shade`], [`ufo::shade`],
+    /// [`orb::shade`], [`liquid::shade`]), and the fire's is the light at
+    /// each pixel, each effect through a loop of its own ([`lights`]).
     pub fn shade(
         &self,
         xs: core::ops::Range<usize>,
         ys: core::ops::Range<usize>,
-        mut each: impl FnMut(usize, usize, f32),
+        each: impl FnMut(usize, usize, f32),
     ) {
         match self.effect {
             Effect::Plasma => plasma::shade(self, xs, ys, each),
-            _ => {
-                // A pixel's centre, as the compositor reads it.
-                let centre = |v: usize| f32::from(u16::try_from(v).unwrap_or(u16::MAX)) + 0.5;
-                for y in ys {
-                    let cy = centre(y);
-                    for x in xs.clone() {
-                        each(
-                            x,
-                            y,
-                            self.light(Pt {
-                                x: centre(x),
-                                y: cy,
-                            }),
-                        );
-                    }
-                }
-            }
+            Effect::Lightning => lightning::shade(self, xs, ys, each),
+            Effect::Ufo => ufo::shade(self, xs, ys, each),
+            Effect::Orb => orb::shade(self, xs, ys, each),
+            Effect::Liquid => liquid::shade(self, xs, ys, each),
+            Effect::Fire => lights(xs, ys, |p| fire::light(self, p), each),
+            Effect::Ice => ice::shade(self, xs, ys, each),
         }
     }
 
@@ -593,6 +586,32 @@ impl Vfx {
             Effect::Ufo => ufo::puffs(ig).for_each(&mut each),
             Effect::Orb => orb::sparks(self).for_each(&mut each),
             Effect::Liquid => {}
+        }
+    }
+}
+
+/// **`light` at the centre of every pixel of `xs` by `ys`**, handed to
+/// `each` with the pixel, rows top to bottom: an effect's band path, one
+/// loop for each effect's light, so no pixel asks which effect it is.
+pub(crate) fn lights(
+    xs: core::ops::Range<usize>,
+    ys: core::ops::Range<usize>,
+    mut light: impl FnMut(Pt) -> f32,
+    mut each: impl FnMut(usize, usize, f32),
+) {
+    // A pixel's centre, as the compositor reads it.
+    let centre = |v: usize| f32::from(u16::try_from(v).unwrap_or(u16::MAX)) + 0.5;
+    for y in ys {
+        let cy = centre(y);
+        for x in xs.clone() {
+            each(
+                x,
+                y,
+                light(Pt {
+                    x: centre(x),
+                    y: cy,
+                }),
+            );
         }
     }
 }
@@ -975,6 +994,150 @@ pub(crate) mod tests {
             assert_eq!(u[22].to_bits(), 0xDEAD_BEEF);
             assert_eq!(u[23], effect.reach());
             assert_eq!(&u[24..32], &vfx.params());
+        }
+    }
+
+    /// A hop, a diagonal down the frame, a long move up and left, and a
+    /// jump from corner to corner, on [`CELL`]s in a 600 by 240 frame.
+    const MOVES: [((f32, f32), (f32, f32)); 4] = [
+        ((10.0, 3.0), (16.0, 3.0)),
+        ((2.0, 0.0), (30.0, 5.0)),
+        ((32.0, 6.0), (4.0, 1.0)),
+        ((0.0, 0.0), (34.0, 6.0)),
+    ];
+
+    /// `effect` `share` of the way through its life on the move from cell
+    /// `(c0, r0)` to `(c1, r1)`.
+    fn lit_at(effect: Effect, ((c0, r0), (c1, r1)): ((f32, f32), (f32, f32)), share: f32) -> Vfx {
+        let (from, to) = (cell(c0, r0), cell(c1, r1));
+        let ig = ignition(from, to, Seed(11));
+        let t = effect.end(&ig) * share;
+        Vfx {
+            effect,
+            emitter: Smear {
+                corners: Segment::new(from.corners(), to).at(t),
+                hole: to,
+                shape: Shape::Quad,
+                strength: crate::flash::Strength::Full,
+            },
+            ignition: ig.at(t),
+            axis: ig.dir,
+        }
+    }
+
+    /// The pixels of each band record of `vfx` in the 600 by 240 frame.
+    fn band_pixels(vfx: &Vfx) -> Vec<(core::ops::Range<usize>, core::ops::Range<usize>)> {
+        let mut out = Vec::new();
+        vfx.instances((Px::of(600), Px::of(240)), Argb(0xFF10_2030), &mut out);
+        let at = |v: i16| usize::try_from(v.max(0)).unwrap_or(0);
+        let end = |v: i16, d: u16, lim: usize| {
+            usize::try_from(i32::from(v) + i32::from(d))
+                .unwrap_or(0)
+                .min(lim)
+        };
+        out.iter()
+            .filter(|r| r.kind == Kind::Band)
+            .map(|r| {
+                (
+                    at(r.x.0)..end(r.x.0, r.w.0, 600),
+                    at(r.y.0)..end(r.y.0, r.h.0, 240),
+                )
+            })
+            .collect()
+    }
+
+    /// **The lightning's, the ice's, the ufo's, the orb's and the liquid's
+    /// band paths are their light, bit for bit**: [`Vfx::shade`], which takes what is the same at
+    /// every pixel once, gives [`Vfx::light`]'s bits at every pixel of every
+    /// band record, each pixel once, and leaves out only pixels whose light
+    /// is zero -- on a hop, a diagonal, a move up and left and a jump across
+    /// the frame, from the first frame of each life to past its end.
+    /// Perturbations: two of the bolt's vertices kept in one slot, and the
+    /// ufo's band path lighting the cursor's own cell, each fail it.
+    #[test]
+    fn the_hoisted_band_paths_are_the_light() {
+        let centre = |v: usize| f32::from(u16::try_from(v).unwrap_or(u16::MAX)) + 0.5;
+        for effect in [
+            Effect::Lightning,
+            Effect::Ice,
+            Effect::Ufo,
+            Effect::Orb,
+            Effect::Liquid,
+        ] {
+            let mut lit = 0usize;
+            for (m, &mv) in MOVES.iter().enumerate() {
+                for share in [0.0f32, 0.05, 0.2, 0.45, 0.7, 0.95, 1.01] {
+                    let vfx = lit_at(effect, mv, share);
+                    for (xs, ys) in band_pixels(&vfx) {
+                        let mut got = vec![None::<f32>; xs.len() * ys.len()];
+                        vfx.shade(xs.clone(), ys.clone(), |x, y, v| {
+                            let i = (y - ys.start) * xs.len() + (x - xs.start);
+                            assert!(got[i].replace(v).is_none(), "{effect:?} ({x}, {y}) twice");
+                        });
+                        for y in ys.clone() {
+                            for x in xs.clone() {
+                                let p = Pt {
+                                    x: centre(x),
+                                    y: centre(y),
+                                };
+                                let want = vfx.light(p);
+                                let at = (y - ys.start) * xs.len() + (x - xs.start);
+                                let what = format!("{effect:?} move {m} at {share}: ({x}, {y})");
+                                match got[at] {
+                                    Some(v) => assert_eq!(v.to_bits(), want.to_bits(), "{what}"),
+                                    None => assert_eq!(want, 0.0, "{what} left out"),
+                                }
+                                lit += usize::from(want > 0.0);
+                            }
+                        }
+                    }
+                }
+            }
+            assert!(
+                lit > 5_000,
+                "the positive control: {effect:?} lit {lit} pixels"
+            );
+        }
+    }
+
+    /// **A band's light takes the frame's constants once a band**: shading
+    /// each band record of a jump across the frame, mid-life, the lightning
+    /// takes each of its bolt's vertices at most once a band, the ufo poses
+    /// its saucer twice a band (now, and 60 ms ago for its wake) and the
+    /// liquid takes its state once a band -- where the light at each pixel
+    /// took four vertices, two poses and a state again: 386,468 vertices
+    /// over the lightning's 8 bands, 8,432 poses over the ufo's 3 and 14,154
+    /// states over the liquid's 4 (note AJ section 24). The positive
+    /// control: each lit pixels.
+    #[test]
+    fn a_bands_light_takes_the_frames_constants_once() {
+        use crate::det::tally::{POSES, STATES, VERTICES, counted};
+        for (effect, counter, most, share) in [
+            (
+                Effect::Lightning,
+                &VERTICES,
+                u64::try_from(lightning::VERTICES).unwrap(),
+                0.4,
+            ),
+            (Effect::Ufo, &POSES, 2, 0.45),
+            (Effect::Liquid, &STATES, 1, 0.2),
+        ] {
+            let vfx = lit_at(effect, MOVES[3], share);
+            let bands = band_pixels(&vfx);
+            let mut lit = 0usize;
+            let taken = counted(counter, || {
+                for (xs, ys) in &bands {
+                    vfx.shade(xs.clone(), ys.clone(), |_, _, v| {
+                        lit += usize::from(v > 0.0)
+                    });
+                }
+            });
+            assert!(lit > 500, "the positive control: {effect:?} lit {lit}");
+            assert!(
+                taken <= most * u64::try_from(bands.len()).unwrap(),
+                "{effect:?}: {taken} taken over {} bands for {lit} lit pixels",
+                bands.len()
+            );
         }
     }
 

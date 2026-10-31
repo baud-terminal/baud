@@ -118,9 +118,11 @@ impl Det for f32 {
 
 /// **How much of the trails' math a test's thread has run**: every
 /// exponential and every sine and cosine ([`SERIES`]), and every distance to
-/// a quad the plasma measured ([`DISTANCES`]) -- the work a frame's light
-/// costs, counted where a wall clock would read the machine's load. Tests
-/// only.
+/// a quad the plasma measured ([`DISTANCES`]), every pixel a smear's
+/// coverage was measured at ([`COVERAGES`]), every vertex of a bolt
+/// ([`VERTICES`]), every pose of a saucer ([`POSES`]) and every state of a
+/// gel ([`STATES`]) -- the work a frame costs, counted where a wall clock would read the machine's load.
+/// Tests only.
 #[cfg(test)]
 pub(crate) mod tally {
     use std::cell::Cell;
@@ -129,10 +131,21 @@ pub(crate) mod tally {
     std::thread_local! {
         pub(crate) static SERIES: Cell<u64> = const { Cell::new(0) };
         pub(crate) static DISTANCES: Cell<u64> = const { Cell::new(0) };
+        pub(crate) static COVERAGES: Cell<u64> = const { Cell::new(0) };
+        pub(crate) static VERTICES: Cell<u64> = const { Cell::new(0) };
+        pub(crate) static POSES: Cell<u64> = const { Cell::new(0) };
+        pub(crate) static STATES: Cell<u64> = const { Cell::new(0) };
     }
 
     pub(crate) fn count(c: &'static LocalKey<Cell<u64>>) {
         c.with(|v| v.set(v.get() + 1));
+    }
+
+    /// How many times `f` counted `c`.
+    pub(crate) fn counted(c: &'static LocalKey<Cell<u64>>, f: impl FnOnce()) -> u64 {
+        let before = c.with(Cell::get);
+        f();
+        c.with(Cell::get) - before
     }
 
     /// What `f` ran: its series and its distances.

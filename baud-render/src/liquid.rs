@@ -142,6 +142,8 @@ fn tube(d: Pt, w: f32, h: f32) -> f32 {
 /// **The gel's state at the ignition's age**, from the emitter's corners,
 /// the cursor and the ignition alone.
 pub fn state(vfx: &Vfx) -> State {
+    #[cfg(test)]
+    crate::det::tally::count(&crate::det::tally::STATES);
     let f = &vfx.ignition;
     let c = f.unit;
     let d = f.dir;
@@ -371,15 +373,47 @@ fn field(p: Pt, s: &State) -> Field {
 /// body, the rim, the glint and the counter-glint on a squircle bevel --
 /// `liquid_light` in the shader.
 pub fn light(vfx: &Vfx, p: Pt) -> f32 {
-    let hole = vfx.emitter.hole;
-    if hole.contains(p) {
+    if vfx.emitter.hole.contains(p) {
         return 0.0;
     }
     let s = state(vfx);
-    let c = vfx.ignition.unit;
     if vfx.ignition.age >= s.end {
         return 0.0;
     }
+    lit(vfx, p, &s)
+}
+
+/// **The gel's light over a band's pixels**, `xs` by `ys` in whole pixels:
+/// `each(x, y, light)` at every pixel, [`light`] at its centre bit for bit,
+/// the gel's [`state`] taken once where the light at each pixel takes it
+/// again.
+pub fn shade(
+    vfx: &Vfx,
+    xs: core::ops::Range<usize>,
+    ys: core::ops::Range<usize>,
+    each: impl FnMut(usize, usize, f32),
+) {
+    let s = state(vfx);
+    if vfx.ignition.age >= s.end {
+        return;
+    }
+    let hole = vfx.emitter.hole;
+    effect::lights(
+        xs,
+        ys,
+        |p| match hole.contains(p) {
+            true => 0.0,
+            false => lit(vfx, p, &s),
+        },
+        each,
+    );
+}
+
+/// [`light`] at `p`, outside the cursor and before the end, from the
+/// frame's state `s`.
+fn lit(vfx: &Vfx, p: Pt, s: &State) -> f32 {
+    let hole = vfx.emitter.hole;
+    let c = vfx.ignition.unit;
     let (ex, ey) = (s.h.x - s.b.x, s.h.y - s.b.y);
     let u0 = (((p.x - s.b.x) * ex + (p.y - s.b.y) * ey) * s.inv_len2).clamp(0.0, 1.0);
     let ds = if s.inv_len2 > 0.0 {
@@ -392,7 +426,7 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
     if ds.min(length(ox, oy)) > REACH * c {
         return 0.0;
     }
-    let f = field(p, &s);
+    let f = field(p, s);
     let cov = (0.5 - f.d).clamp(0.0, 1.0);
     if cov <= 0.0 {
         return 0.0;
