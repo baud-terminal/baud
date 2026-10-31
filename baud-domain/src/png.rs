@@ -570,6 +570,113 @@ impl<'a> Png<'a> {
         Ok(self.size)
     }
 
+    /// **Every step of [`Png::decode`] that can refuse, in `raw` alone**:
+    /// the `IDAT` stream inflated, each reduced image's scanlines
+    /// reconstructed in place, and a palette image's every index checked
+    /// against `PLTE`. [`Png::write_rgba`] then makes the pixels from what
+    /// this leaves and refuses nothing, so a caller that must not touch the
+    /// place the pixels go until it knows they will be made -- a kitty file
+    /// medium, which deletes older images for that place -- runs this
+    /// first. It refuses what [`Png::decode`] refuses for the same bytes,
+    /// and writes the bytes it writes to `raw`.
+    pub fn reconstruct(&self, raw: &mut [u8]) -> Result<(), PngError> {
+        let raw_len = self.raw_len().ok_or(PngError::Buffer)?;
+        let raw = raw.get_mut(..raw_len).ok_or(PngError::Buffer)?;
+        self.inflate(raw)?;
+        if self.interlace == Interlace::Null {
+            // The whole image called on its own, as `decode` calls it.
+            let h = usize::try_from(self.size.height).map_err(|_| PngError::Buffer)?;
+            self.unfilter(raw, self.size, 0..h)?;
+            return self.indices_fit(raw, self.size, h);
+        }
+        let mut at = 0;
+        for &pass in self.passes() {
+            let Some(size) = pass.reduced(self.size) else {
+                continue;
+            };
+            let stride = usize::try_from(self.row_bytes(size).ok_or(PngError::Buffer)?)
+                .map_err(|_| PngError::Buffer)?
+                + 1;
+            let h = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
+            let part = raw.get_mut(at..at + stride * h).ok_or(PngError::Buffer)?;
+            self.unfilter(part, size, 0..h)?;
+            self.indices_fit(part, size, h)?;
+            at += stride * h;
+        }
+        Ok(())
+    }
+
+    /// **The pixels of the scanlines [`Png::reconstruct`] left in `raw`**,
+    /// into `rgba`: the rest of [`Png::decode`], and the same pixels.
+    /// Only a buffer shorter than [`Png::raw_len`] or [`Png::rgba_len`]
+    /// refuses.
+    pub fn write_rgba(&self, raw: &[u8], rgba: &mut [u8]) -> Result<Size, PngError> {
+        let raw_len = self.raw_len().ok_or(PngError::Buffer)?;
+        let rgba_len = self.rgba_len().ok_or(PngError::Buffer)?;
+        let raw = raw.get(..raw_len).ok_or(PngError::Buffer)?;
+        let rgba = rgba.get_mut(..rgba_len).ok_or(PngError::Buffer)?;
+        if self.interlace == Interlace::Null {
+            let h = usize::try_from(self.size.height).map_err(|_| PngError::Buffer)?;
+            self.expand(raw, rgba, self.size, Pass::WHOLE, 0..h)?;
+            return Ok(self.size);
+        }
+        let mut at = 0;
+        for &pass in self.passes() {
+            let Some(size) = pass.reduced(self.size) else {
+                continue;
+            };
+            let stride = usize::try_from(self.row_bytes(size).ok_or(PngError::Buffer)?)
+                .map_err(|_| PngError::Buffer)?
+                + 1;
+            let h = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
+            let part = raw.get(at..at + stride * h).ok_or(PngError::Buffer)?;
+            self.expand(part, rgba, size, pass, 0..h)?;
+            at += stride * h;
+        }
+        Ok(self.size)
+    }
+
+    /// Whether every palette index in the `h` reconstructed scanlines of a
+    /// reduced image of `size` names a `PLTE` entry: the one refusal
+    /// [`Png::expand`] makes of scanlines that reconstructed (`pixels`'
+    /// `Palette`). Read only for a palette shorter than the indices its
+    /// depth can spell, a whole byte at a time: each of the 256 bytes is
+    /// judged once, all its indices together, and a scanline's bytes looked
+    /// up, the pixels of its last byte, which may end in padding, one at a
+    /// time. A test of each pixel in turn took the decode of an 800x480
+    /// 4-bit image with 12 entries from 22.6 M instructions to 37.8 M.
+    fn indices_fit(&self, raw: &[u8], size: Size, h: usize) -> Result<(), PngError> {
+        if self.color != Color::Palette {
+            return Ok(());
+        }
+        let entries = self.palette.map_or(0, |p| p.len() / 3);
+        let depth = usize::from(self.depth);
+        if entries >= 1 << depth {
+            return Ok(());
+        }
+        let per = 8 / depth;
+        let mut fits = [false; 256];
+        for (b, f) in (0..=u8::MAX).zip(fits.iter_mut()) {
+            *f = (0..per).all(|x| usize::from(sample(&[b], x, depth)) < entries);
+        }
+        let rb = usize::try_from(self.row_bytes(size).ok_or(PngError::Buffer)?)
+            .map_err(|_| PngError::Buffer)?;
+        let w = usize::try_from(size.width).map_err(|_| PngError::Buffer)?;
+        let whole = w / per;
+        for r in 0..h {
+            let line = raw
+                .get(r * (rb + 1) + 1..(r + 1) * (rb + 1))
+                .ok_or(PngError::Buffer)?;
+            let bytes = line.get(..whole).ok_or(PngError::Buffer)?;
+            if !bytes.iter().all(|&b| fits[usize::from(b)])
+                || (whole * per..w).any(|x| usize::from(sample(line, x, depth)) >= entries)
+            {
+                return Err(PngError::Palette);
+            }
+        }
+        Ok(())
+    }
+
     /// The `IDAT` chunks in order, as one zlib stream, inflated into `raw`:
     /// each chunk's data is one slice of [`Inflate::run`]'s source, and a
     /// stream the chunks end inside is malformed.

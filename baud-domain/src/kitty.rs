@@ -1938,7 +1938,16 @@ impl KittyStream {
     }
 
     /// A PNG's bytes are all in the scratch: read its header, reserve, and
-    /// defer the decode.
+    /// defer the decode. **A file medium's is decoded now, and everything
+    /// in the decode that can refuse runs before the reserve**, in the
+    /// scratch alone ([`Png::reconstruct`]): the reserve deletes older
+    /// images for the space, and an image that does not decode is never
+    /// added, so nothing is deleted "to make space for the new one"
+    /// (`[[source: kitty-graphics-rst]]`, "Image persistence and storage
+    /// quotas"), as kitty decodes before it adds and applies its quota
+    /// after (`handle_add_command`, `[[source: kitty-graphics-c]]`). A
+    /// missing file deletes nothing either, and the one file error is all
+    /// either answers.
     fn png_ready(
         &mut self,
         len: usize,
@@ -1971,6 +1980,19 @@ impl KittyStream {
                 return None;
             }
         }
+        let now = cmd.read == KittyFileRead::Asked;
+        if now {
+            // The scanlines are made in `[len, len + raw)`.
+            self.scratch_hi = self.scratch_hi.max(len + raw);
+            let (data, rest) = scratch.split_at_mut(len);
+            if Png::reparse(data)
+                .and_then(|p| p.reconstruct(rest))
+                .is_err()
+            {
+                self.reply(&cmd, Err(KittyError::BAD_PNG));
+                return None;
+            }
+        }
         let owner = match cmd.act() {
             KittyAction::Query | KittyAction::Frame => {
                 ImageOwner::Kitty(KittyId::NONE, KittyNumber::NONE)
@@ -1988,6 +2010,30 @@ impl KittyStream {
                 return None;
             }
         };
+        if now {
+            // What is left cannot refuse: the pixels, then the conversion
+            // a stepped decode ends in.
+            let (data, rest) = scratch.split_at_mut(len);
+            let made = Png::reparse(data).and_then(|p| {
+                let px = store.decoding_mut(image).ok_or(PngError::Buffer)?;
+                p.write_rgba(rest, px.as_mut_bytes())
+            });
+            if made.is_err() {
+                store.free_decoding(image);
+                self.reply(&cmd, Err(KittyError::BAD_PNG));
+                return None;
+            }
+            let left = store
+                .size_of(image)
+                .map_or(0, |(w, h)| w.index() * h.index());
+            let d = Deferred::Convert {
+                image,
+                format: KittyFormat::Png,
+                left,
+                alpha: ImageAlpha::OpaqueOrClear,
+            };
+            return self.defer(d, cmd, at, store, scratch);
+        }
         self.png = Some(steps);
         // The decode makes its scanlines in `[len, len + raw)`.
         self.scratch_hi = self.scratch_hi.max(len + raw);

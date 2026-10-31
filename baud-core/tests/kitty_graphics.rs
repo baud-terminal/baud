@@ -2044,6 +2044,43 @@ fn a_file_medium_reads_through_the_embedder_and_decodes_as_direct() {
     }
 }
 
+/// **A PNG query and a PNG frame through a file medium decode as `t=d`'s
+/// do**: after a root image, `a=q` and `a=f` with `f=100` through `t=f`,
+/// `t=t` and `t=s` leave the replies, the placements, the frames and the
+/// new frame's pixels that the PNG sent in the payload leaves.
+#[test]
+fn a_png_query_and_a_png_frame_through_a_file_decode_as_direct() {
+    let p = png(6, 4, png::ColorType::Rgba, &bytes(6 * 4 * 4, 84), 37);
+    let root = apc("a=t,i=1,f=24,s=6,v=4,q=2", &b64(&bytes(6 * 4 * 3, 85)));
+    let run = |medium: Option<char>, keys: &str| {
+        let m = Mem::new(&[(b"/pics/p.png", &p)], 7);
+        with_files(256, &m, |t| {
+            let mut r = Vec::new();
+            feed(t, &root, &mut r);
+            let cmd = match medium {
+                None => apc(keys, &b64(&p)),
+                Some(c) => apc(&format!("{keys},t={c}"), &b64(b"/pics/p.png")),
+            };
+            feed(t, &cmd, &mut r);
+            settle(t, &mut r);
+            let imgs = t.images();
+            let img = imgs.kitty_image(baud_domain::KittyId::of(1)).unwrap();
+            let frames = imgs.kitty_frames(img).map(|f| f.0);
+            let px: Option<Vec<u32>> = imgs
+                .frame_pixels(img, baud_domain::FrameNo::of(2))
+                .map(|v| v.iter().map(|p| p.bits()).collect());
+            format!("{}frames {frames:?} {px:?}", state(t, &r))
+        })
+    };
+    for (keys, ok) in [("a=q,i=1,f=100", "i=1;OK"), ("a=f,i=1,f=100", "i=1,r=2;OK")] {
+        let direct = run(None, keys);
+        assert!(direct.contains(ok), "{keys}: {direct}");
+        for c in ['f', 't', 's'] {
+            assert_eq!(run(Some(c), keys), direct, "{keys} t={c}");
+        }
+    }
+}
+
 /// **An `a=f` frame reads through a file medium** as an image's data
 /// does: the reader asked once for the payload's path, the frame answered
 /// with its number, `i=1,r=2;OK`, the image two frames after, and the new
@@ -2813,6 +2850,198 @@ fn a_refusal_after_the_read_evicts_nothing_a_missing_file_keeps() {
         }
     }
     assert!(differ.is_empty(), "{} differ: {differ:#?}", differ.len());
+}
+
+/// CRC-32 of `bytes` (ISO 3309, PNG's), bit by bit: what a hand-built
+/// chunk carries.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut c = !0u32;
+    for &b in bytes {
+        c ^= u32::from(b);
+        for _ in 0..8 {
+            c = if c & 1 == 1 {
+                (c >> 1) ^ 0xEDB8_8320
+            } else {
+                c >> 1
+            };
+        }
+    }
+    !c
+}
+
+/// A PNG built by hand around `stream`: `IHDR` for a `w` x `h` image of
+/// colour type `color` at `depth` bits, a `PLTE` of `plte` if any, the
+/// stream cut into `IDAT` chunks of 50 bytes, every CRC right.
+fn png_around(w: u32, h: u32, color: u8, depth: u8, plte: &[u8], stream: &[u8]) -> Vec<u8> {
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut chunk = |kind: &[u8; 4], data: &[u8]| {
+        out.extend_from_slice(&u32::try_from(data.len()).unwrap().to_be_bytes());
+        let mut body = kind.to_vec();
+        body.extend_from_slice(data);
+        out.extend_from_slice(&body);
+        out.extend_from_slice(&crc32(&body).to_be_bytes());
+    };
+    let mut ihdr = w.to_be_bytes().to_vec();
+    ihdr.extend_from_slice(&h.to_be_bytes());
+    ihdr.extend_from_slice(&[depth, color, 0, 0, 0]);
+    chunk(b"IHDR", &ihdr);
+    if !plte.is_empty() {
+        chunk(b"PLTE", plte);
+    }
+    for part in stream.chunks(50) {
+        chunk(b"IDAT", part);
+    }
+    chunk(b"IEND", &[]);
+    out
+}
+
+/// **A file PNG that does not decode deletes nothing for space**: image 7
+/// takes 3614 of the arena's 4096 pixels with no placement, and a 21x23
+/// PNG read through `t=f`, `t=t` or `t=s`, direct or through zlib, sent
+/// `a=t` or `a=T`, whose header parses and whose data does not decode --
+/// a later `IDAT`'s CRC, a reserved block type, the Adler-32, the stream
+/// ending inside the `IDAT` run, a filter type past 4, a palette index
+/// past `PLTE` at 8 bits and at 2 -- leaves what a missing file leaves:
+/// the one error, and the `a=p` of image 7 after it answered `OK`. The
+/// image was never added, so nothing was deleted "to make space for the
+/// new one" ("Image persistence and storage quotas"), and what a file
+/// holds is not told by what it deletes ("The transmission medium"). The
+/// control that the arena is tight: the same PNG whole deletes image 7.
+/// The probe at every read size and every two-read split.
+#[test]
+fn a_file_png_that_does_not_decode_deletes_nothing_for_space() {
+    let (w, h) = (21u32, 23u32);
+    let good = png(w, h, png::ColorType::Rgba, &bytes(21 * 23 * 4, 7), 50);
+    let mut late = good.clone();
+    let at = late.len() - 12 - 4 - 10;
+    late[at] ^= 0xFF;
+    // Scanlines of filter type 0, and the same with one row's past 4.
+    let rgba_rows: Vec<u8> = (0..23)
+        .flat_map(|r| {
+            let mut row = vec![0u8];
+            row.extend(bytes(21 * 4, 40 + r));
+            row
+        })
+        .collect();
+    let mut bad_filter = rgba_rows.clone();
+    bad_filter[11 * (1 + 21 * 4)] = 5;
+    let z = zlib_mixed(&rgba_rows);
+    let mut adler = z.clone();
+    *adler.last_mut().unwrap() ^= 0x01;
+    let short = z[..z.len() / 2].to_vec();
+    // Two palette entries, and one pixel naming a third.
+    let plte = [255, 0, 0, 0, 0, 255];
+    let mut index8: Vec<u8> = (0..23)
+        .flat_map(|_| [vec![0u8], vec![1u8; 21]].concat())
+        .collect();
+    index8[20 * 22 + 5] = 2;
+    // Two bits a pixel, six bytes a row; index 3 at one pixel.
+    let mut index2: Vec<u8> = (0..23)
+        .flat_map(|_| [0u8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x40])
+        .collect();
+    index2[7 * 7 + 3] = 0x5D;
+    let broken: [(&str, Vec<u8>); 7] = [
+        ("a later IDAT's CRC", late),
+        (
+            "a reserved block type",
+            png_around(w, h, 6, 8, &[], &[0x78, 0x01, 0x07, 0, 0, 0, 0]),
+        ),
+        ("the Adler-32", png_around(w, h, 6, 8, &[], &adler)),
+        (
+            "the stream ending inside the IDAT run",
+            png_around(w, h, 6, 8, &[], &short),
+        ),
+        (
+            "a filter type past 4",
+            png_around(w, h, 6, 8, &[], &zlib_mixed(&bad_filter)),
+        ),
+        (
+            "a palette index past PLTE at 8 bits",
+            png_around(w, h, 3, 8, &plte, &zlib_mixed(&index8)),
+        ),
+        (
+            "a palette index past PLTE at 2 bits",
+            png_around(w, h, 3, 2, &plte, &zlib_mixed(&index2)),
+        ),
+    ];
+    // Image 7, 3614 pixels, beside which 482 are free.
+    let older = apc(
+        "a=t,i=7,f=24,s=139,v=26,o=z,q=2",
+        &b64(&zlib_mixed(&vec![0u8; 139 * 26 * 3])),
+    );
+    let mediums: [(char, &[u8]); 3] = [
+        ('f', b"/pics/a"),
+        ('t', b"/tmp/tty-graphics-protocol-a"),
+        ('s', b"/shm-a"),
+    ];
+    let stream = |keys: &str, path: &[u8]| {
+        let mut s = b"\x1b[3;4H".to_vec();
+        s.extend_from_slice(&older);
+        s.extend(apc(keys, &b64(path)));
+        s.extend(apc("a=p,i=7", b""));
+        s
+    };
+    let zipped = |data: &[u8]| (format!("f=100,o=z,S={}", data.len()), zlib_mixed(data));
+    for (medium, name) in mediums {
+        for act in ['t', 'T'] {
+            for (format, data) in [("f=100".to_string(), good.clone()), zipped(&good)] {
+                let keys = format!("a={act},i=1,t={medium},{format}");
+                let placed = file_state(4096, &[(name, &data)], &[&stream(&keys, name)]);
+                assert!(
+                    placed.contains("i=1;OK\\u{1b}\\\\\\u{1b}_Gi=7;ENOENT")
+                        && placed.contains("evicted 1"),
+                    "a={act} {format} t={medium}: the arena is tight: {placed}"
+                );
+            }
+        }
+    }
+    let mut differ = Vec::new();
+    for (what, data) in &broken {
+        assert!(
+            baud_domain::png::Png::parse(data).is_ok(),
+            "{what}: the header parses"
+        );
+        for (medium, name) in mediums {
+            for act in ['t', 'T'] {
+                for (format, data) in [("f=100".to_string(), data.clone()), zipped(data)] {
+                    let keys = format!("a={act},i=1,t={medium},{format}");
+                    let named: [(&[u8], &[u8]); 1] = [(name, &data)];
+                    let missing = file_state(4096, &named, &[&stream(&keys, b"/gone")]);
+                    assert!(
+                        missing.contains(
+                            "i=1;EBADF:Failed to read image file\\u{1b}\\\\\\u{1b}_Gi=7;OK"
+                        ),
+                        "{what} a={act} {format} t={medium}: the control: {missing}"
+                    );
+                    let read = file_state(4096, &named, &[&stream(&keys, name)]);
+                    if read != missing {
+                        let tail = |s: &str| s.lines().last().unwrap_or("").to_string();
+                        differ.push(format!(
+                            "{what} a={act} {format} t={medium}:\n{}\n{}",
+                            tail(&read),
+                            tail(&missing)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(differ.is_empty(), "{} differ: {differ:#?}", differ.len());
+    let (_, late) = &broken[0];
+    let named: [(&[u8], &[u8]); 1] = [(b"/pics/a", late)];
+    let s = stream("a=T,i=1,t=f,f=100", b"/pics/a");
+    let missing = file_state(4096, &named, &[&stream("a=T,i=1,t=f,f=100", b"/gone")]);
+    for n in 1..=s.len() {
+        let pieces: Vec<&[u8]> = s.chunks(n).collect();
+        assert_eq!(file_state(4096, &named, &pieces), missing, "read size {n}");
+    }
+    for cut in 1..s.len() {
+        assert_eq!(
+            file_state(4096, &named, &[&s[..cut], &s[cut..]]),
+            missing,
+            "cut at {cut}"
+        );
+    }
 }
 
 /// **A virtual placement whose image was freed is room for a file PNG's**:

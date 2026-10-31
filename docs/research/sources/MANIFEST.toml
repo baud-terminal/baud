@@ -9681,6 +9681,27 @@ group  = "C"
 # placeholder (`U+10EEEE`) grid lets an image scroll with text. Design in
 # `docs/research/notes/t-images.md`.
 
+[sources.kitty-graphics-rst]
+key    = "kitty-graphics-rst"
+title  = "kitty v0.49.2, docs/graphics-protocol.rst -- the graphics protocol page's source: the transmission mediums and the storage quota"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty, tag v0.49.2 @ b2cb871 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/graphics-protocol.rst"
+file   = ""
+sha256 = "3d5982b1adc57423d69a4db856aca9e739ba0b187b1c90866d1081eb4b3fe921"
+bytes  = 61463
+status = "external"
+group  = "C"
+# Pinned because `[[source: kitty-graphics]]`'s URL no longer serves the
+# copy its digest is of. Read 2026-10-30 for a file PNG that does not
+# decode: "Image persistence and storage quotas" (1049-1058), "When adding
+# a new image, if the total size exceeds the quota, the terminal emulator
+# should delete older images to make space for the new one", so an image
+# never added deletes nothing; "The transmission medium" (330-374), the
+# single, identical error for every failure to read a file. Fetched
+# 2026-10-30; the tag's copy and the commit's hash the same.
+
 [sources.kitty-icat-process]
 key    = "kitty-icat-process"
 title  = "kitty v0.49.2, kittens/icat/process_images.go -- what `kitten icat` sends: a PNG as-is or the pixels raw"
@@ -9829,6 +9850,13 @@ group  = "C"
 # `handle_animation_control_command`, `scan_active_animations` (2117-2152)
 # and `handle_compose_command` (2161-2246); `finish_command_response` adds
 # `,r=` to an `a=f` and an `a=a` reply.
+# Re-fetched and hash-verified 2026-10-30 for a PNG that does not decode:
+# `handle_add_command` (945-1031) inflates and decodes the PNG into the
+# load buffer (`process_image_data`, 841-883) before the image's data is
+# added to the cache, `used_storage` growing only then; the `t`, `T` and
+# `q` arm of `handle_command` (2641-2662) runs `apply_storage_quota`
+# (319) after the add, and only when `used_storage` is past the limit, so
+# a failed decode deletes nothing for space.
 
 [sources.kitty-simd-string-h]
 key    = "kitty-simd-string-h"

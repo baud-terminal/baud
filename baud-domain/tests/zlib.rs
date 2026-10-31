@@ -10,7 +10,7 @@
 //! one-read feed against the oracle, so a bug both feeds share is caught by
 //! the second comparison and a carry lost at a boundary by the first.
 
-use baud_domain::png::Png;
+use baud_domain::png::{Png, PngError};
 use baud_domain::zlib::{Inflate, Inflated, ZlibError};
 use miniz_oxide::deflate::core::{
     CompressionStrategy, CompressorOxide, TDEFLFlush, TDEFLStatus, compress_to_output,
@@ -691,6 +691,175 @@ proptest! {
             let theirs = miniz_oxide::inflate::decompress_to_vec_zlib(&z);
             prop_assert_eq!(theirs.ok(), Some(whole.out));
         }
+    }
+}
+
+/// CRC-32 (ISO 3309, PNG's), bit by bit: what a hand-built chunk carries.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut c = !0u32;
+    for &b in bytes {
+        c ^= u32::from(b);
+        for _ in 0..8 {
+            c = if c & 1 == 1 {
+                (c >> 1) ^ 0xEDB8_8320
+            } else {
+                c >> 1
+            };
+        }
+    }
+    !c
+}
+
+/// A PNG built by hand: a 3x5 image of colour type `color` at `depth`
+/// bits and interlace method `interlace`, a `PLTE` of `plte` if any, and
+/// `stream` cut into `IDAT` chunks of 50 bytes, every CRC right.
+fn png_around((color, depth, interlace): (u8, u8, u8), plte: &[u8], stream: &[u8]) -> Vec<u8> {
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut chunk = |kind: &[u8; 4], data: &[u8]| {
+        out.extend_from_slice(&u32::try_from(data.len()).unwrap().to_be_bytes());
+        let mut body = kind.to_vec();
+        body.extend_from_slice(data);
+        out.extend_from_slice(&body);
+        out.extend_from_slice(&crc32(&body).to_be_bytes());
+    };
+    let mut ihdr = 3u32.to_be_bytes().to_vec();
+    ihdr.extend_from_slice(&5u32.to_be_bytes());
+    ihdr.extend_from_slice(&[depth, color, 0, 0, interlace]);
+    chunk(b"IHDR", &ihdr);
+    if !plte.is_empty() {
+        chunk(b"PLTE", plte);
+    }
+    for part in stream.chunks(50) {
+        chunk(b"IDAT", part);
+    }
+    chunk(b"IEND", &[]);
+    out
+}
+
+/// PNGs whose header parses and whose data the decode refuses, one for
+/// each way it can, with the refusal: a reserved block type, the Adler-32,
+/// the stream ending inside the `IDAT` run, a filter type past 4, and a
+/// palette index past `PLTE` at 8 bits, at 2 and in an Adam7 pass.
+fn broken_pngs() -> Vec<(&'static str, Vec<u8>, PngError)> {
+    let z = |raw: &[u8]| miniz_oxide::deflate::compress_to_vec_zlib(raw, 6);
+    let rgba = (6, 8, 0);
+    let rows: Vec<u8> = (0..5u8)
+        .flat_map(|r| [vec![0u8], vec![r.wrapping_mul(37); 3 * 4]].concat())
+        .collect();
+    let mut adler = z(&rows);
+    *adler.last_mut().unwrap() ^= 1;
+    let whole = z(&rows);
+    let short = whole[..whole.len() / 2].to_vec();
+    let mut filter = rows.clone();
+    filter[3 * 13] = 5;
+    let plte = [255, 0, 0, 0, 0, 255];
+    let mut i8: Vec<u8> = (0..5).flat_map(|_| [0u8, 1, 0, 1]).collect();
+    i8[4 * 4 + 2] = 2;
+    // Two bits a pixel, a row's three in one byte's top six bits.
+    let mut i2: Vec<u8> = (0..5).flat_map(|_| [0u8, 0x54]).collect();
+    i2[2 * 2 + 1] = 0x5C;
+    // Adam7 at 3x5 and 8 bits, every reduced image's scanlines in turn,
+    // index 0 throughout but the last pixel of the last pass, index 2.
+    let reduced = [
+        (0, 8, 0, 8),
+        (4, 8, 0, 8),
+        (0, 4, 4, 8),
+        (2, 4, 0, 4),
+        (0, 2, 2, 4),
+        (1, 2, 0, 2),
+        (0, 1, 1, 2),
+    ];
+    let mut adam: Vec<u8> = Vec::new();
+    for (x0, dx, y0, dy) in reduced {
+        let (w, h) = ((3usize + dx - 1 - x0) / dx, (5usize + dy - 1 - y0) / dy);
+        if w == 0 || h == 0 {
+            continue;
+        }
+        for _ in 0..h {
+            adam.push(0);
+            adam.extend(std::iter::repeat_n(0u8, w));
+        }
+    }
+    *adam.last_mut().unwrap() = 2;
+    vec![
+        (
+            "a reserved block type",
+            png_around(rgba, &[], &[0x78, 0x01, 0x07, 0, 0, 0, 0]),
+            PngError::Deflate,
+        ),
+        (
+            "the Adler-32",
+            png_around(rgba, &[], &adler),
+            PngError::Adler,
+        ),
+        (
+            "the stream ending inside the IDAT run",
+            png_around(rgba, &[], &short),
+            PngError::Deflate,
+        ),
+        (
+            "a filter type past 4",
+            png_around(rgba, &[], &z(&filter)),
+            PngError::Deflate,
+        ),
+        (
+            "an index past PLTE at 8 bits",
+            png_around((3, 8, 0), &plte, &z(&i8)),
+            PngError::Palette,
+        ),
+        (
+            "an index past PLTE at 2 bits",
+            png_around((3, 2, 0), &plte, &z(&i2)),
+            PngError::Palette,
+        ),
+        (
+            "an index past PLTE in an Adam7 pass",
+            png_around((3, 8, 1), &plte, &z(&adam)),
+            PngError::Palette,
+        ),
+    ]
+}
+
+/// The one-shot decode of `bytes` against reconstructing then writing:
+/// the same refusal, or the same pixels. Whether it was refused.
+fn reconstructs_as_it_decodes(what: &str, png: &Png<'_>) -> bool {
+    let (r, a) = (png.raw_len().unwrap_or(0), png.rgba_len().unwrap_or(0));
+    let (mut raw, mut once) = (vec![0u8; r], vec![0u8; a]);
+    let whole = png.decode(&mut raw, &mut once);
+    let (mut raw, mut rgba) = (vec![0u8; r], vec![0u8; a]);
+    let first = png.reconstruct(&mut raw);
+    assert_eq!(first, whole.map(|_| ()), "{what}");
+    if first.is_err() {
+        return true;
+    }
+    assert_eq!(png.write_rgba(&raw, &mut rgba), whole, "{what}");
+    assert!(rgba == once, "{what}: the pixels differ");
+    false
+}
+
+/// **Reconstructing first and writing the pixels after is the one-shot
+/// decode**, on every PNG in the repository and every Adam7 fixture, and on
+/// a PNG broken each way the decode can refuse one whose header parsed: the
+/// reconstruct refuses what the decode refuses, the write after a
+/// reconstruct that passed refuses nothing, and the pixels are the same.
+/// A kitty file medium decodes this way, so that nothing is deleted for an
+/// image that will not decode.
+#[test]
+fn reconstructing_then_writing_is_the_one_shot_decode() {
+    let files = repo_pngs();
+    assert!(files.len() >= 185, "found {}", files.len());
+    for p in files {
+        let bytes = std::fs::read(&p).expect("readable");
+        let what = p.display().to_string();
+        if let Ok(png) = Png::parse(&bytes) {
+            assert!(!reconstructs_as_it_decodes(&what, &png), "{what}: refused");
+        }
+    }
+    for (what, bytes, why) in broken_pngs() {
+        let png = Png::parse(&bytes).unwrap_or_else(|e| panic!("{what}: {e:?}"));
+        let mut raw = vec![0u8; png.raw_len().unwrap()];
+        assert_eq!(png.reconstruct(&mut raw), Err(why), "{what}");
+        assert!(reconstructs_as_it_decodes(what, &png), "{what}");
     }
 }
 
