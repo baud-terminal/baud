@@ -306,6 +306,9 @@ pub enum Shortcut {
     ZoomReset,
     /// Ctrl+Shift+F: the find field, Ghostty's and Alacritty's binding.
     Find,
+    /// Ctrl+Shift+N: a new window, foot's `spawn-terminal`, kitty's
+    /// `new_os_window` and gnome-terminal's `new-window`.
+    NewWindow,
 }
 
 /// **The shortcut a press of `keycode` makes under `state`, if any.**
@@ -361,8 +364,12 @@ fn chord(mask: baud_xkb::ModMask) -> Modifiers {
     .fold(Modifiers::NONE, Modifiers::with)
 }
 
-/// The shortcut bound to `sym` under `chord`: foot's keysyms, `c`, `v` and
-/// `Insert`, lower case as its bindings name them, and foot's
+/// The shortcut bound to `sym` under `chord`: foot's keysyms, `c`, `v`,
+/// `n` and `Insert`, lower case as its bindings name them -- `n` is
+/// `spawn-terminal`'s "Control+Shift+n", which kitty's `new_os_window`
+/// (`kitty_mod+n`, `[[source: kitty-options-definition]]`) and
+/// gnome-terminal's `new-window` (`[[source: gnome-terminal-8a51402-gschema]]`)
+/// bind too -- and foot's
 /// `font-increase`, `font-decrease` and `font-reset` defaults, "Control+plus
 /// Control+equal Control+KP_Add", "Control+minus Control+KP_Subtract" and
 /// "Control+0 Control+KP_0" (`[[source: foot-2705e36-foot-ini-5]]`
@@ -382,6 +389,7 @@ fn bound(sym: Keysym, chord: Modifiers) -> Option<Shortcut> {
         (0x63, c) if c == ctrl_shift => Some(Shortcut::Copy),
         (0x76, c) if c == ctrl_shift => Some(Shortcut::Paste),
         (0x66, c) if c == ctrl_shift => Some(Shortcut::Find),
+        (0x6e, c) if c == ctrl_shift => Some(Shortcut::NewWindow),
         (INSERT, c) if c == Modifiers::SHIFT => Some(Shortcut::PasteSelection),
         (PLUS | EQUAL | KP_ADD, c) if c == ctrl => Some(Shortcut::ZoomIn),
         (MINUS | KP_SUBTRACT, c) if c == ctrl => Some(Shortcut::ZoomOut),

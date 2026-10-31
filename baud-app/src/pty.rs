@@ -58,6 +58,32 @@ pub struct Pty {
     /// been drained, so a flood of reads sends one wake, not one a read.
     #[cfg(target_os = "macos")]
     signalled: Arc<AtomicBool>,
+    /// The write end of the pipe the reader waits on beside the master:
+    /// dropped with the window's `Pty`, it ends the reader, which closes
+    /// its copy of the master (`Reading`). `None` when the reader shares this
+    /// `Pty`'s descriptor, which then stays open for the life of the
+    /// process.
+    #[cfg(target_os = "macos")]
+    closing: Option<std::io::PipeWriter>,
+}
+
+/// **A window's close hangs up its shell**, as the process's exit always
+/// has: the master's last close is a lost carrier, `ptcclose` calls the
+/// line discipline's modem routine with the carrier off (XNU's
+/// `tty_dev.c` 581, `[[source: xnu-tty-dev]]`), and `ttymodem` sends
+/// `SIGHUP` to the session's leader, the shell (`tty.c` 2041-2042,
+/// `[[source: xnu-tty]]`). On macOS the reader's copy is the other
+/// reference, and the pipe this `Pty` holds ends it after this.
+impl Drop for Pty {
+    fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        if self.closing.is_none() {
+            return;
+        }
+        // SAFETY: the descriptor is this `Pty`'s, open since the fork, and
+        // closed only here: the reader holds a copy of its own.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(self.master) });
+    }
 }
 
 /// Whether the child is still on the other end of the pty.
@@ -186,6 +212,9 @@ enum Waited {
     Unwatchable,
     /// `poll` itself failed, which a retry would only repeat.
     Failed,
+    /// The window's `Pty` dropped the pipe's write end: its window closed.
+    #[cfg(target_os = "macos")]
+    Closing,
 }
 
 /// Waits, as long as it takes, until the master has something to read or
@@ -209,6 +238,43 @@ fn readable(fd: crate::sys::Fd) -> Waited {
         // A signal, or `EAGAIN` -- which Darwin's page gives for "Allocation
         // of internal data structures fails. A subsequent request may
         // succeed." -- is waited again; anything else would only repeat.
+        match std::io::Error::last_os_error().kind() {
+            std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock => {}
+            _ => return Waited::Failed,
+        }
+    }
+}
+
+/// [`readable`], or until `closing` -- the read end of the pipe a
+/// window's [`Pty`] holds the other end of -- is readable or hung up,
+/// which only the window's close makes it.
+#[cfg(target_os = "macos")]
+fn readable_unless(fd: crate::sys::Fd, closing: Option<crate::sys::Fd>) -> Waited {
+    let Some(closing) = closing else {
+        return readable(fd);
+    };
+    let mut p = [
+        crate::sys::PollFd {
+            fd,
+            events: crate::sys::POLLIN,
+            revents: 0,
+        },
+        crate::sys::PollFd {
+            fd: closing,
+            events: crate::sys::POLLIN,
+            revents: 0,
+        },
+    ];
+    loop {
+        // SAFETY: two initialised records and their count; the kernel
+        // writes only `revents`, and the records outlive the call.
+        if unsafe { crate::sys::poll(p.as_mut_ptr(), 2, -1) } >= 0 {
+            return match (p[1].revents, p[0].revents & crate::sys::POLLNVAL) {
+                (0, 0) => Waited::Ready,
+                (0, _) => Waited::Unwatchable,
+                _ => Waited::Closing,
+            };
+        }
         match std::io::Error::last_os_error().kind() {
             std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock => {}
             _ => return Waited::Failed,
@@ -301,6 +367,9 @@ const DEFAULT_SHELL: &str = "/bin/sh";
 /// to chafa without ever reading baud's own device attributes; chafa read
 /// the same variable and drew in 240 colours rather than truecolour.
 ///
+/// One entry is baud's own, `windows::NEW_WINDOW`, which marks a process
+/// started as a new window and is not its shell's to inherit.
+///
 /// The list is every variable yazi 26.5.6's `Brand::from_env` reads
 /// (`yazi-emulator/src/brand.rs`), the rest of each named terminal's own
 /// family, the multiplexers yazi's `Mux` consults, and the three that
@@ -370,6 +439,9 @@ const OUTER: &[&str] = &[
     "ZELLIJ",
     "ZELLIJ_SESSION_NAME",
     "ZELLIJ_PANE_ID",
+    // baud's own: the process was started as a new window
+    // (`windows::spawn_window`), which its shell was not.
+    crate::windows::NEW_WINDOW,
     // The outer terminal's colours, window and terminfo.
     "COLORFGBG",
     "WINDOWID",
@@ -806,8 +878,9 @@ enum StartIn {
     /// Where baud is: the exec keeps the working directory
     /// (`[[source: posix-exec]]`), and the child changes nothing.
     Inherited,
-    /// `HOME`, changed to in the child before the exec.
-    Home(CString),
+    /// A directory changed to in the child before the exec: `HOME`, or
+    /// the directory a new window inherits (`windows::inherited`).
+    Dir(CString),
 }
 
 /// **Where a shell baud spawns starts**: in `HOME` when baud's parent is
@@ -828,7 +901,7 @@ fn start_in(started_by: Parent, parent_env: &[(OsString, OsString)]) -> StartIn 
             .map(|(_, v)| v.as_bytes())
             .filter(|v| v.first() == Some(&b'/'))
             .and_then(|v| CString::new(v).ok())
-            .map_or(StartIn::Inherited, StartIn::Home),
+            .map_or(StartIn::Inherited, StartIn::Dir),
     }
 }
 
@@ -839,7 +912,7 @@ fn start_in(started_by: Parent, parent_env: &[(OsString, OsString)]) -> StartIn 
 pub fn start_dir() -> std::path::PathBuf {
     let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
     match start_in(Parent::of_this_process(), &env) {
-        StartIn::Home(home) => {
+        StartIn::Dir(home) => {
             std::path::PathBuf::from(std::ffi::OsStr::from_bytes(home.as_bytes()))
         }
         StartIn::Inherited => {
@@ -857,7 +930,7 @@ pub fn start_dir() -> std::path::PathBuf {
 /// as Ghostty sets it (note AA section 9). A
 /// child that stays keeps its environment as it is.
 fn with_pwd(mut env: Vec<CString>, start: &StartIn) -> Vec<CString> {
-    if let StartIn::Home(dir) = start {
+    if let StartIn::Dir(dir) = start {
         env.retain(|e| !e.as_bytes().starts_with(b"PWD="));
         let mut entry = b"PWD=".to_vec();
         entry.extend_from_slice(dir.as_bytes());
@@ -1093,7 +1166,10 @@ impl Pty {
     /// -- yazi does, at startup -- would otherwise read zero, and the first
     /// resize after launch usually computes the grid the pty was spawned at,
     /// so it had nothing to send and the zero stood until the window changed.
-    fn fork(ws: crate::sys::Winsize) -> Option<crate::sys::Fd> {
+    ///
+    /// `at` is the directory a new window inherits, which wins over the
+    /// launch rule ([`start_in`]) when it is absolute.
+    fn fork(ws: crate::sys::Winsize, at: Option<&std::path::Path>) -> Option<crate::sys::Fd> {
         let cmd = std::env::var("BAUD_CMD").ok();
         Pty::fork_from(
             ws,
@@ -1101,6 +1177,7 @@ impl Pty {
             std::env::vars_os().collect(),
             shell_locale,
             Parent::of_this_process(),
+            at,
         )
     }
 
@@ -1114,8 +1191,15 @@ impl Pty {
         parent: Vec<(OsString, OsString)>,
         locale: impl FnOnce() -> Option<String>,
         started_by: Parent,
+        at: Option<&std::path::Path>,
     ) -> Option<crate::sys::Fd> {
-        let start = start_in(started_by, &parent);
+        let start = match at
+            .filter(|d| d.is_absolute())
+            .and_then(|d| CString::new(d.as_os_str().as_bytes()).ok())
+        {
+            Some(dir) => StartIn::Dir(dir),
+            None => start_in(started_by, &parent),
+        };
         let stay = spawn_env(parent, locale);
         let home = with_pwd(stay.clone(), &start);
         Pty::fork_in(ws, cmd, &home, &stay, &start)
@@ -1207,7 +1291,7 @@ impl Pty {
                 // environment of a child that stayed: the choice is a test
                 // of the `int` `chdir` returns, and allocates nothing.
                 let envp = match start {
-                    StartIn::Home(dir) if crate::sys::chdir(dir.as_ptr()) == 0 => &envp_home,
+                    StartIn::Dir(dir) if crate::sys::chdir(dir.as_ptr()) == 0 => &envp_home,
                     _ => &envp_stay,
                 };
                 crate::sys::execve(path_c.as_ptr(), argv.as_ptr(), envp.as_ptr());
@@ -1232,28 +1316,32 @@ impl Pty {
     /// `wake` runs once per batch, so a main thread that cannot wait on a
     /// descriptor -- the macOS run loop -- learns there is something to
     /// drain.
+    ///
+    /// `at` is the directory a new window's shell starts in (`fork`).
     #[cfg(target_os = "macos")]
     pub fn spawn(
         size: &WinSize,
         cell_w: Px,
         cell_h: Px,
+        at: Option<&std::path::Path>,
         wake: impl Fn() + Send + 'static,
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let master = Pty::fork(told)?;
+        let master = Pty::fork(told, at)?;
         // Before the reader starts, so it never sees the master block.
         make_nonblocking(master);
         let (tx, rx) = channel();
-        let fd = master;
         let signalled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&signalled);
-        std::thread::spawn(move || reader(fd, tx, flag, wake));
+        let (held, closing) = Reading::of(master);
+        std::thread::spawn(move || reader(held, tx, flag, wake));
         Some(Pty {
             master,
             told,
             line: LineDiscipline::of(master),
             rx,
             signalled,
+            closing,
         })
     }
 
@@ -1264,7 +1352,7 @@ impl Pty {
     #[cfg(target_os = "linux")]
     pub fn spawn_polled(size: &WinSize, cell_w: Px, cell_h: Px) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let master = Pty::fork(told)?;
+        let master = Pty::fork(told, None)?;
         make_nonblocking(master);
         Some(Pty {
             master,
@@ -1395,8 +1483,57 @@ impl Pty {
     }
 }
 
+/// **What the reader holds of the master.** A copy of its own and the
+/// read end of a pipe whose write end the window's [`Pty`] holds, so the
+/// window can close without closing a descriptor the reader is waiting
+/// on: a closed number can be handed to the next window's master, and the
+/// reader would read that window's bytes. The pipe's close is the
+/// reader's end, and the copy closes with it.
 #[cfg(target_os = "macos")]
-fn reader(fd: crate::sys::Fd, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
+enum Reading {
+    Own {
+        copy: std::os::fd::OwnedFd,
+        closing: std::io::PipeReader,
+    },
+    /// The window's own descriptor, when no copy or pipe could be made:
+    /// it is never closed, as every master was before windows could close.
+    Shared(crate::sys::Fd),
+}
+
+#[cfg(target_os = "macos")]
+impl Reading {
+    /// The reader's hold on `master`, and the write end the window keeps.
+    fn of(master: crate::sys::Fd) -> (Reading, Option<std::io::PipeWriter>) {
+        // SAFETY: open for as long as the window's `Pty`, which outlives
+        // this call; the copy is a descriptor of its own.
+        let copy = unsafe { std::os::fd::BorrowedFd::borrow_raw(master) }.try_clone_to_owned();
+        match (copy, std::io::pipe()) {
+            (Ok(copy), Ok((closing, close))) => (Reading::Own { copy, closing }, Some(close)),
+            (Err(e), _) | (_, Err(e)) => {
+                crate::warn!("pty: the master stays open until baud quits: {e}");
+                (Reading::Shared(master), None)
+            }
+        }
+    }
+
+    fn fd(&self) -> crate::sys::Fd {
+        match self {
+            Reading::Own { copy, .. } => copy.as_raw_fd(),
+            Reading::Shared(fd) => *fd,
+        }
+    }
+
+    fn closing(&self) -> Option<crate::sys::Fd> {
+        match self {
+            Reading::Own { closing, .. } => Some(closing.as_raw_fd()),
+            Reading::Shared(_) => None,
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
+    let fd = held.fd();
     let mut buf = vec![0u8; READ_CHUNK];
     // Debug tee: with BAUD_PTYLOG set, every byte the child writes is appended
     // to that file, so a scrambled Sixel can be captured as the exact input
@@ -1417,8 +1554,11 @@ fn reader(fd: crate::sys::Fd, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake
             // the end of the stream -- the rule every empty answer had while
             // the master blocked -- it would end the reader, and with it the
             // window, the first time the child paused.
-            Got::Nothing => match readable(fd) {
+            Got::Nothing => match readable_unless(fd, held.closing()) {
                 Waited::Ready => continue,
+                // The window closed: `held` drops here, and its copy of the
+                // master with it.
+                Waited::Closing => return,
                 // Darwin's `poll(2)` says it does not support devices; it
                 // watched the master on the Mac this was written on, and
                 // where it cannot, the master goes back to blocking -- the
@@ -2667,7 +2807,7 @@ mod tests {
     /// relative. The first `HOME` is the one used, as `getenv` reads it.
     #[test]
     fn the_child_starts_home_only_under_launchd_and_an_absolute_home() {
-        let home = |v: &str| StartIn::Home(CString::new(v).expect("no NUL"));
+        let home = |v: &str| StartIn::Dir(CString::new(v).expect("no NUL"));
         let with_home = env_of(&[("HOME", "/Users/u"), ("HOME", "/second")]);
         assert_eq!(start_in(Parent::Launchd, &with_home), home("/Users/u"));
         assert_eq!(start_in(Parent::Other, &with_home), StartIn::Inherited);
@@ -2693,7 +2833,7 @@ mod tests {
                 .map(|e| CString::new(e).expect("no NUL"))
                 .to_vec()
         };
-        let home = StartIn::Home(CString::new("/Users/u").expect("no NUL"));
+        let home = StartIn::Dir(CString::new("/Users/u").expect("no NUL"));
         assert_eq!(
             strings(&with_pwd(env(), &home)),
             ["BAUD_KEPT=yes", "OLDPWD=/before", "PWD=/Users/u"]
@@ -2737,6 +2877,7 @@ mod tests {
                 parent,
                 || None,
                 started_by,
+                None,
             )
             .expect("forkpty");
             String::from_utf8_lossy(&read_all(master))
@@ -2759,6 +2900,146 @@ mod tests {
         for d in [real, link.parent().expect("its directory").into()] {
             let _ = std::fs::remove_dir_all(d);
         }
+    }
+
+    /// **A new window's shell starts in the directory it inherits**
+    /// (`windows::inherited`), whoever started baud, with `PWD` naming it;
+    /// a relative one is not taken, and the launch rule stands. The
+    /// directory is a symbolic link, so the `PWD` the shell reports tells
+    /// baud's spelling from the one `pwd -P` resolves, and the control is
+    /// that the inherited directory is not where this test is.
+    #[test]
+    fn a_new_windows_shell_starts_in_the_directory_it_inherits() {
+        let real = scratch_dir("inherited");
+        let link = scratch_dir("inherited-link").join("dir");
+        std::os::unix::fs::symlink(&real, &link).expect("a link to it");
+        let here = std::env::current_dir()
+            .expect("a working directory")
+            .canonicalize()
+            .expect("it resolves");
+        assert_ne!(real, here, "the control: two directories to tell apart");
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let run = |started_by: Parent, at: &std::path::Path| -> Vec<String> {
+            let parent = env_of(&[
+                ("HOME", "/nowhere/home"),
+                ("PWD", "/where/baud/is"),
+                ("LANG", "C"),
+            ]);
+            let master = Pty::fork_from(
+                text_area(&size, Px::of(8), Px::of(16)),
+                Some("/bin/pwd -P; printf 'PWD=%s\\n' \"$PWD\"".into()),
+                parent,
+                || None,
+                started_by,
+                Some(at),
+            )
+            .expect("forkpty");
+            String::from_utf8_lossy(&read_all(master))
+                .lines()
+                .map(|l| l.trim_end_matches('\r').to_string())
+                .collect()
+        };
+        let want = [
+            real.display().to_string(),
+            format!("PWD={}", link.display()),
+        ];
+        assert_eq!(run(Parent::Other, &link), want);
+        assert_eq!(run(Parent::Launchd, &link), want, "over HOME");
+        assert_eq!(
+            run(Parent::Other, std::path::Path::new("relative"))[0],
+            here.display().to_string(),
+            "a relative directory is not inherited"
+        );
+        for d in [real, link.parent().expect("its directory").into()] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    /// **A window's close hangs up its shell**, as baud's exit does: the
+    /// window's `Pty` drops, its descriptor closes and the pipe it holds
+    /// ends the reader, which closes the other -- and the master's last
+    /// close sends the shell `SIGHUP`. The shell traps it and writes to a
+    /// FIFO, whose open waits until the trap runs: a pass is never timed,
+    /// and the bound on each wait only turns a regression's hang into a
+    /// failure. The control is the shell answering through the reader
+    /// before the close.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_closed_windows_pty_hangs_up_its_shell() {
+        let scratch = scratch_dir("hang-up");
+        let fifo = scratch.join("hup");
+        let made = std::process::Command::new("/usr/bin/mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success(), "a FIFO");
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let told = text_area(&size, Px::of(8), Px::of(16));
+        let master = Pty::fork_with(
+            told,
+            Some(format!(
+                "/bin/stty -echo; trap 'printf hup > {}; exit 0' HUP; echo ready; while :; do read x; echo \"got $x\"; done",
+                fifo.display()
+            )),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        read_until(master, "ready\r\n");
+        make_nonblocking(master);
+        let (tx, rx) = channel();
+        let signalled = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&signalled);
+        let (held, closing) = Reading::of(master);
+        assert!(
+            closing.is_some(),
+            "the control: the reader has its own copy"
+        );
+        let (ended, reader_ended) = channel();
+        std::thread::spawn(move || {
+            reader(held, tx, flag, || {});
+            let _ = ended.send(());
+        });
+        let opened = fifo.clone();
+        let (trapped, heard) = channel();
+        std::thread::spawn(move || {
+            let _ = trapped.send(std::fs::read_to_string(&opened));
+        });
+        let bound = std::time::Duration::from_secs(60);
+        let pty = Pty {
+            master,
+            told,
+            line: LineDiscipline::of(master),
+            rx,
+            signalled,
+            closing,
+        };
+        // The control: the reader's copy alone keeps the line up, so the
+        // shell still answers through it once a write reaches it.
+        let mut out = Outbox::default();
+        out.push(b"one\n");
+        assert_eq!(write_some(pty.master, &mut out), Wrote::All);
+        let mut echoed = Vec::new();
+        while !echoed.ends_with(b"got one\r\n") {
+            let read = pty
+                .rx
+                .recv_timeout(bound)
+                .expect("the reader passes the answer on");
+            echoed.extend_from_slice(&read.bytes);
+        }
+        assert_eq!(String::from_utf8_lossy(&echoed), "got one\r\n");
+        drop(pty);
+        reader_ended
+            .recv_timeout(bound)
+            .expect("the reader ends with the window");
+        let heard = heard.recv_timeout(bound).expect("the shell was hung up");
+        assert_eq!(heard.expect("the trap writes the FIFO"), "hup");
+        let _ = std::fs::remove_dir_all(scratch);
     }
 
     /// **A child whose `chdir` fails keeps the environment of one that
@@ -2799,6 +3080,7 @@ mod tests {
             parent,
             || None,
             Parent::Launchd,
+            None,
         )
         .expect("forkpty");
         let lines: Vec<String> = String::from_utf8_lossy(&read_all(master))
@@ -2850,7 +3132,7 @@ mod tests {
             ws_col: 80,
             ws_row: 24,
         };
-        let master = Pty::fork(text_area(&size, Px::of(8), Px::of(16))).expect("forkpty");
+        let master = Pty::fork(text_area(&size, Px::of(8), Px::of(16)), None).expect("forkpty");
         for line in String::from_utf8_lossy(&read_all(master)).lines() {
             println!("CHILD[{}]", line.trim_end_matches('\r'));
         }
@@ -3264,6 +3546,7 @@ mod tests {
                 outer_parent(),
                 move || locale,
                 Parent::Other,
+                None,
             )
             .expect("forkpty");
             String::from_utf8_lossy(&read_all(master)).replace(char::is_whitespace, "")
@@ -3304,6 +3587,7 @@ mod tests {
                 outer_parent(),
                 move || locale,
                 Parent::Other,
+                None,
             )
             .expect("forkpty");
             let (tx, rx) = channel::<Vec<u8>>();

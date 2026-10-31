@@ -54,12 +54,11 @@ dim, tint and shadow, `[text] ambiguous_width`, and what programs may do
 `[screen]`'s logging, checksum, substitute mark, notifications and print
 choices, `[pointer]`), and `[images] animation`.
 
-These keep their old value until baud is next started, because the open
-window was built with them: `colorspace`, `[glass] style`,
-`[images] pixels_mb` and `advertise_sixel`, `vs16_width`,
-`[screen] printing` and `[clipboard] body_kb`.
-baud opens one window each time it starts, so the next launch is quitting
-and reopening it.
+These keep their old value in the windows already open, because each was
+built with them, and a new window (Cmd-N, or Ctrl+Shift+N on Linux) takes
+the new one: `colorspace`, `[glass] style`, `[images] pixels_mb` and
+`advertise_sixel`, `vs16_width`, `[screen] printing` and
+`[clipboard] body_kb`.
 
 - **A new `ambiguous_width` measures the next character.** Text already
   on the screen keeps the columns it was written with.
@@ -222,7 +221,7 @@ unless you name a trail here.
 
 | key | values | default | what it changes |
 |---|---|---|---|
-| `splash` | `"on"`, `"off"` | `"on"` | Whether baud starts with its colour logo in the middle of the window once the window is on screen: a burst of plasma draws it from left to right and a second carries it straight back out from left to right, in one movement, gone about half a second after it starts, the plasma in the colour of each glyph it passes over. Your keys go to the shell the whole time, and the shell's output draws under the logo. On a Mac with Reduce Motion on, the logo shows whole and fades once your shell has drawn something, or half a second after the window is on screen if the shell draws nothing by then. It stays under the flash limits of the web accessibility guidelines (WCAG 2.3.1). `"off"` turns it off; saving `"off"` while the logo shows takes it down at once. |
+| `splash` | `"on"`, `"off"` | `"on"` | Whether baud starts with its colour logo in the middle of the window once the window is on screen: a burst of plasma draws it from left to right and a second carries it straight back out from left to right, in one movement, gone about half a second after it starts, the plasma in the colour of each glyph it passes over. Your keys go to the shell the whole time, and the shell's output draws under the logo. On a Mac with Reduce Motion on, the logo shows whole and fades once your shell has drawn something, or half a second after the window is on screen if the shell draws nothing by then. It stays under the flash limits of the web accessibility guidelines (WCAG 2.3.1). `"off"` turns it off; saving `"off"` while the logo shows takes it down at once. A window you open after the launch, with Cmd-N or Ctrl+Shift+N, opens without it. |
 
 ## [keyboard]
 

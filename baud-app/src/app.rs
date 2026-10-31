@@ -3967,6 +3967,119 @@ struct Driver {
     /// The `[glass]` settings the style observer applies on an appearance
     /// change, shared with it so a reload reaches the next one.
     glass_live: std::rc::Rc<std::cell::Cell<crate::config::Glass>>,
+    /// The window's key in the open windows, given as it is shown.
+    window_id: Option<crate::windows::WindowId>,
+    /// Whether the window's close has been asked for, once its shell has
+    /// gone, so the pump that sees it again asks nothing more.
+    close_asked: CloseAsked,
+}
+
+/// Whether a window's close has been asked for (`Driver::close_later`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CloseAsked {
+    No,
+    Yes,
+}
+
+/// **An open window, as the app holds it**: the window, the view whose
+/// responder is its driver, and the observers that go when it does --
+/// the style observer that tints its glass, and the one that hears it
+/// close (`baud_present_macos::closing`).
+struct Open {
+    window: GlassWindow,
+    view: Retained<DrawableView>,
+    _style: macos_liquid_glass::icon_style::StyleObserver,
+    _closing: Option<baud_present_macos::closing::Closing>,
+}
+
+thread_local! {
+    /// **The open windows** (`windows.rs`), on the main thread, where every
+    /// window is opened and closed.
+    static OPEN: std::cell::RefCell<crate::windows::Windows<Open>> =
+        const { std::cell::RefCell::new(crate::windows::Windows::new()) };
+}
+
+/// **A window opened after the launch**, by Command-N: the same boot,
+/// shell, window and first frame as the launch's own, on a main-queue turn
+/// of its own -- outside the key's callback, which holds the view's
+/// borrow that the new window's taking the keyboard re-enters -- with its
+/// shell started in `at` and the window cascaded from the key window, the
+/// one it was opened from. The Dock's icon and the launch logo are the
+/// launch's.
+fn open_window(at: Option<std::path::PathBuf>) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let after = NSApplication::sharedApplication(mtm)
+        .keyWindow()
+        .map(|w| w.frame());
+    let scale = NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor());
+    let inset = predicted_inset(mtm, WINDOW_SIZE);
+    let mut shell = Shell::start(scale, WINDOW_SIZE, inset, at.as_deref());
+    // A window, not a launch: the launch logo is the launch's
+    // (`windows::NEW_WINDOW`).
+    shell.boot.launch_splash = crate::config::LaunchSplash::Off;
+    let opening = Opening::new(mtm, WINDOW_SIZE, scale, inset, shell, icon(), None);
+    opening.show(mtm, scale, after);
+}
+
+/// **A window that has closed, taken down**: on a main-queue turn after
+/// its close, never inside one of its view's callbacks, which hold the
+/// borrow the responder is swapped under. Its display link stops, and the
+/// driver is replaced by a responder that does nothing, which drops the
+/// window's terminal, renderer and timers and its `Pty`, whose close hangs
+/// up the shell (`pty.rs`). The grid and history storage with its image
+/// store, and the kitty files store, are leaked for the life of the
+/// process (`Box::leak`), and the mapped font files and the faces parsed
+/// over them are held and never released (`pty::Held`), so a closed
+/// window's memory is not returned. The other windows go on; when it was
+/// the last, the app quits, for now (`windows::LAST_WINDOW`). A second
+/// close of the same window finds nothing.
+fn closed(id: crate::windows::WindowId) {
+    let Some((open, left)) = OPEN.with_borrow_mut(|o| o.close(id)) else {
+        return;
+    };
+    open.view.stop_display_link();
+    open.view.set_responder(Box::new(Gone));
+    drop(open);
+    match left {
+        crate::windows::Left::Others(n) => crate::info!("a window closed; {n} still open"),
+        crate::windows::Left::None => crate::info!("the last window closed"),
+    }
+    if crate::windows::after_close(left, crate::windows::LAST_WINDOW)
+        == crate::windows::AfterClose::Quit
+    {
+        if let Some(mtm) = MainThreadMarker::new() {
+            NSApplication::sharedApplication(mtm).terminate(None);
+        }
+    }
+}
+
+/// **The responder a closed window's view keeps**: the crate's waker
+/// retains the view for the life of the process, so a wake a thread still
+/// sends after the close reaches this, which does nothing.
+struct Gone;
+
+impl Responder for Gone {
+    fn key(&mut self, _: &KeyPress) -> Handled {
+        Handled::Consumed
+    }
+    fn text(&mut self, _: &str) {}
+    fn command(&mut self, _: &str) {}
+    fn marked_text(&mut self, _: &str) {}
+    fn mouse(&mut self, _: &Mouse) {}
+    fn scroll(&mut self, _: &Scroll) {}
+    fn resized(&mut self, _: NSSize, _: CGFloat) {}
+    fn frame(&mut self, _: f64) {}
+    fn focus(&mut self, _: Focus) {}
+    fn cursor_rect(&self) -> Rect {
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 0.0,
+            h: 0.0,
+        }
+    }
 }
 
 /// **The config's watch** (`reload.rs`): the kernel's events heard on the
@@ -6130,6 +6243,65 @@ mod locator_tests {
 #[cfg(test)]
 mod drag_tests {
     use super::{Builds, builds};
+
+    /// The body of the function whose signature line is `head`, to the
+    /// first line that closes at `indent`'s depth.
+    fn body<'a>(src: &'a str, head: &str, indent: &str) -> &'a str {
+        let close = format!("\n{indent}}}\n");
+        src.split_once(head)
+            .and_then(|(_, rest)| rest.split_once(close.as_str()))
+            .map(|(body, _)| body)
+            .unwrap_or_else(|| panic!("{head}"))
+    }
+
+    /// **The launch, in the order it runs**: `run` up to the callback it
+    /// registers for the end of the launch, with the shell's start and the
+    /// window's build where `run` calls them; then the callback, and the
+    /// window's `show`, which every window, the launch's and Command-N's,
+    /// is shown by.
+    struct Launch<'a> {
+        before: String,
+        callback: &'a str,
+        after: &'a str,
+        show: &'a str,
+    }
+
+    fn launch(src: &str) -> Launch<'_> {
+        let run = body(src, concat!("\npub fn ", "run() {"), "");
+        let (head, launched) = run
+            .split_once(concat!("launch::when_", "launched(move || {"))
+            .expect("shown once launched");
+        let (callback, after) = launched
+            .split_once("\n    });\n")
+            .expect("the callback ends");
+        let start = body(
+            src,
+            concat!("fn start(scale: CGFloat, size: NSSize, ", "inset: CGFloat,"),
+            "    ",
+        );
+        let build = body(
+            src,
+            concat!("    fn new(\n        mtm: ", "MainThreadMarker,"),
+            "    ",
+        );
+        let (to_shell, rest) = head
+            .split_once(concat!("Shell::", "start("))
+            .expect("run starts the shell");
+        let (to_build, rest) = rest
+            .split_once(concat!("Opening::", "new("))
+            .expect("run builds the window");
+        let show = body(
+            src,
+            concat!("fn show(self, mtm: MainThreadMarker, ", "scale: CGFloat,"),
+            "    ",
+        );
+        Launch {
+            before: format!("{to_shell}{start}{to_build}{build}{rest}"),
+            callback,
+            after,
+            show,
+        }
+    }
     use baud_present_macos::InFlight;
     use baud_render::Tally;
 
@@ -6470,11 +6642,7 @@ mod drag_tests {
     #[test]
     fn the_window_opens_whole_before_the_logo_starts() {
         const SRC: &str = include_str!("app.rs");
-        let launch = SRC
-            .split_once(concat!("\npub fn ", "run() {"))
-            .and_then(|(_, rest)| rest.split_once("\n}\n"))
-            .map(|(body, _)| body)
-            .expect("the launch");
+        let launch = launch(SRC).show;
         let set = concat!(
             ".setAnimation",
             "Behavior(NSWindowAnimationBehavior::None);"
@@ -6557,26 +6725,24 @@ mod drag_tests {
     #[test]
     fn the_window_is_shown_once_launched_with_its_first_frame() {
         const SRC: &str = include_str!("app.rs");
-        let launch = SRC
-            .split_once(concat!("\npub fn ", "run() {"))
-            .and_then(|(_, rest)| rest.split_once("\n}\n"))
-            .map(|(body, _)| body)
-            .expect("the launch");
-        let (before, launched) = launch
-            .split_once(concat!("launch::when_", "launched(move || {"))
-            .expect("shown once launched");
+        let launch = launch(SRC);
         let show = concat!("window.", "show();");
         assert!(
-            !before.contains(show),
+            !launch.before.contains(show),
             "shown before the app finished launching"
         );
-        let (inside, after) = launched
-            .split_once("\n    });\n")
-            .expect("the callback ends");
         assert!(
-            after.contains("ns_app.run();"),
+            launch.after.contains("ns_app.run();"),
             "registered before the app runs"
         );
+        assert!(
+            launch
+                .callback
+                .contains(concat!("opening.", "show(mtm, scale, None);")),
+            "the launch's window is shown there: {}",
+            launch.callback
+        );
+        let inside = launch.show;
         let drawn = inside
             .find(concat!("driver.app.present(&v, ", "Show::Now);"))
             .expect("the first frame is drawn there");
@@ -6588,6 +6754,102 @@ mod drag_tests {
         assert!(shown < installed, "the responder last");
     }
 
+    /// **A window's close takes down that window alone, and the shell's
+    /// exit closes its window rather than quitting the app**: the app
+    /// terminates itself in one place, the close of a window, and only
+    /// when it was the last and `windows::LAST_WINDOW` says to quit, after
+    /// the window's driver, and so its shell, is let go; the pump's end of
+    /// the stream asks for its own window's close and terminates nothing,
+    /// so a shell's exit in the last window quits through that close; every
+    /// window is put in the open windows, and its close heard, before its
+    /// responder is installed; and the close swaps the driver out on a
+    /// later turn, its display link stopped. Command-N, heard in the key
+    /// handler's Command arm, opens the window on a later turn too. The
+    /// windows are AppKit's, so the source is what can fail.
+    #[test]
+    fn a_window_closes_alone_and_its_shells_exit_closes_only_it() {
+        const SRC: &str = include_str!("app.rs");
+        let terminate = concat!(".termi", "nate(");
+        assert_eq!(
+            SRC.matches(terminate).count(),
+            1,
+            "the app terminates itself in one place"
+        );
+        let pump = body(
+            SRC,
+            concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
+            "    ",
+        );
+        let (_, closed) = pump
+            .split_once(concat!("if drained.stream == ", "Stream::Closed {"))
+            .expect("the control: the pump sees the end of the stream");
+        let arm = closed.split_once("\n        }\n").expect("its arm ends").0;
+        assert!(
+            arm.contains(concat!("self.close_", "later();")),
+            "the shell's exit closes its window"
+        );
+        assert!(!arm.contains(terminate), "and terminates nothing itself");
+        let show = launch(SRC).show;
+        let registered = show
+            .find(concat!("o.open(", "Open {"))
+            .expect("the window is put in the open windows");
+        let heard = show
+            .find(concat!("closing::when_", "closing("))
+            .expect("its close is heard");
+        let installed = show
+            .find(concat!("view.set_", "responder("))
+            .expect("the responder is installed");
+        assert!(registered < installed && heard < installed, "{show}");
+        let close = body(
+            SRC,
+            concat!("fn closed(id: crate::windows::", "WindowId) {"),
+            "",
+        );
+        let stopped = close
+            .find(concat!(".stop_display_", "link();"))
+            .expect("its display link stops");
+        let swapped = close
+            .find(concat!(".set_responder(Box::new(", "Gone));"))
+            .expect("its driver is swapped out");
+        assert!(stopped < swapped, "{close}");
+        let asked = close
+            .find(concat!(
+                "if crate::windows::after_close(left, ",
+                "crate::windows::LAST_WINDOW)"
+            ))
+            .expect("the close asks what the app does after it");
+        assert!(swapped < asked, "the driver let go first: {close}");
+        let quits = close[asked..]
+            .split_once(concat!("== crate::windows::AfterClose::", "Quit"))
+            .expect("and quits when told to")
+            .1;
+        assert!(
+            quits.contains(terminate),
+            "the last window's close quits the app: {close}"
+        );
+        assert!(
+            SRC.contains(concat!("exec_async(move || ", "closed(id));")),
+            "closed on a later turn"
+        );
+        let key = body(
+            SRC,
+            concat!("    fn key(&mut self, key: ", "&KeyPress) -> Handled {"),
+            "    ",
+        );
+        let (command, _) = key
+            .split_once("return Handled::Consumed;")
+            .expect("the Command arm");
+        assert!(
+            command.contains(concat!("self.new_", "window();")),
+            "Command-N in the Command arm"
+        );
+        let new = body(SRC, concat!("    fn new_", "window(&mut self) {"), "    ");
+        assert!(
+            new.contains(concat!("exec_async(move || ", "open_window(at));")),
+            "opened on a later turn: {new}"
+        );
+    }
+
     /// **This machine's names are read off the main thread**: the launch
     /// starts the read on a thread of its own and never reads them itself,
     /// so `hostName`'s first call, 5-29 ms measured, is not between the
@@ -6595,16 +6857,17 @@ mod drag_tests {
     #[test]
     fn the_machines_names_are_read_off_the_launch() {
         const SRC: &str = include_str!("app.rs");
-        let launch = SRC
-            .split_once(concat!("\npub fn ", "run() {"))
-            .and_then(|(_, rest)| rest.split_once("\n}\n"))
-            .map(|(body, _)| body)
-            .expect("the launch");
-        assert!(launch.contains("Hosts::start()"), "the read is started");
+        let launch = launch(SRC);
         assert!(
-            !launch.contains(concat!("machine_", "names()")),
-            "read on the launch's own thread"
+            launch.before.contains("Hosts::start()"),
+            "the read is started"
         );
+        for part in [launch.before.as_str(), launch.callback, launch.show] {
+            assert!(
+                !part.contains(concat!("machine_", "names()")),
+                "read on the launch's own thread"
+            );
+        }
         let start = SRC
             .split_once(concat!("fn start() -> ", "Hosts {"))
             .map(|(_, rest)| rest)
@@ -6632,11 +6895,7 @@ mod drag_tests {
     #[test]
     fn the_shell_is_spawned_before_the_launchs_threads() {
         const SRC: &str = include_str!("app.rs");
-        let launch = SRC
-            .split_once(concat!("\npub fn ", "run() {"))
-            .and_then(|(_, rest)| rest.split_once("\n}\n"))
-            .map(|(body, _)| body)
-            .expect("the launch");
+        let launch = launch(SRC).before;
         let spawn = launch
             .find(concat!("Pty::", "spawn("))
             .expect("the control: the shell is spawned in the launch");
@@ -10367,16 +10626,15 @@ impl Driver {
         if drained.stream == Stream::Closed {
             // The child is gone: the window has nothing left to show, once
             // the log has written what this read and the ones before it
-            // queued. Asked on the first turn after the close; the writer
+            // queued, and it closes; the other windows and their shells go
+            // on. Asked on the first turn after the close; the writer
             // wakes the loop when it is done, and the tick looks for the
             // bound (`HostLog::quit`).
             let waker = self.app.waker;
             if self.app.hostlog.quit(Instant::now(), move || waker.wake())
                 == crate::hostlog::Finished::Yes
             {
-                if let Some(mtm) = MainThreadMarker::new() {
-                    NSApplication::sharedApplication(mtm).terminate(None);
-                }
+                self.close_later();
             }
         }
         if self.app.pending != Pending::Dirty {
@@ -10496,6 +10754,14 @@ impl Responder for Driver {
             }
             if let Some(selector) = menu_missed(&key.characters, m) {
                 self.command(selector);
+            }
+            let held = match m.shift || m.option || m.control {
+                true => crate::windows::Command::WithOthers,
+                false => crate::windows::Command::Alone,
+            };
+            if crate::windows::mac_chord(&key.characters, held) == Some(crate::windows::Chord::New)
+            {
+                self.new_window();
             }
             // The find chords, which the menu carries no item for.
             if !(m.option || m.control) {
@@ -11213,7 +11479,7 @@ pub fn run() {
         refuse(message);
     }
     let mtm = MainThreadMarker::new().expect("run() on the main thread");
-    let size = NSSize::new(960.0, 600.0);
+    let size = WINDOW_SIZE;
     // What the grid needs before a window exists: the display's scale, and
     // the titlebar's height -- the window is FullSizeContentView, so its
     // content spans the frame behind the transparent titlebar and the
@@ -11228,12 +11494,7 @@ pub fn run() {
     // commit this one reverts.
     let early_scale = crate::pty::display_scale();
     startup_mark("scale");
-    let inset = {
-        let content = NSRect::new(NSPoint::new(0.0, 0.0), size);
-        let frame =
-            NSWindow::frameRectForContentRect_styleMask(content, NSWindowStyleMask::Titled, mtm);
-        (frame.size.height - size.height).max(0.0)
-    };
+    let inset = predicted_inset(mtm, size);
     startup_mark("screen");
     let scale = match early_scale {
         Some(s) => s,
@@ -11244,87 +11505,7 @@ pub fn run() {
             NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor())
         }
     };
-    let mut boot = Boot::prepare(scale);
-    // The config's watch and notice, for the driver (`reload.rs`).
-    let reload_from = boot.reload.take();
-    let notice = boot.notice.clone();
-    // The gutter in points: the grid floats inset from all four sides -- below
-    // the titlebar and in from the left, right and bottom -- with the glass in
-    // the margin. The pty and the renderer follow the inset area.
-    let padding = boot.padding;
-    let theme_choice = boot.theme;
-    let glass_cfg = boot.glass;
-    let floor = boot.floor;
-    let halves = boot.halves;
-    // `BAUD_GRID=COLSxROWS` runs at a grid rather than at the window's
-    // default, so a benchmark runs every terminal at one geometry. The pty
-    // is *spawned* at that grid: sized afterwards, the child sometimes read
-    // the default before the window's resize landed -- one row in fifteen.
-    let grid = std::env::var("BAUD_GRID").ok().and_then(|g| {
-        let (c, r) = g.split_once('x')?;
-        Some(WinSize {
-            ws_col: c.parse().ok()?,
-            ws_row: r.parse().ok()?,
-        })
-    });
-    let (cw, ch) = boot.metrics_cell();
-    // The exit-status strip takes its column from the start, so the child
-    // is spawned at the grid it keeps.
-    let strip = boot.renderer.strip();
-    let ws = grid.as_ref().map_or_else(
-        || {
-            // The config's notice row, when the launch has one, is the
-            // window's, as the status line's is (`Driver::relayout`).
-            crate::width::less_status(
-                grid_for(
-                    NSSize::new(
-                        (size.width - 2.0 * padding - f64::from(strip.value()) / scale).max(0.0),
-                        (size.height - inset - 2.0 * padding).max(0.0),
-                    ),
-                    scale,
-                    (cw, ch),
-                ),
-                boot.renderer.notice_rows(),
-            )
-        },
-        |ws| WinSize {
-            ws_col: ws.ws_col,
-            ws_row: ws.ws_row,
-        },
-    );
-    // The reader wakes the main thread through the view, which does not
-    // exist yet; bytes that arrive before it does wait in the channel and
-    // the first wake after the window is shown drains them.
-    let late: Arc<OnceLock<Waker>> = Arc::new(OnceLock::new());
-    let wake_late = Arc::clone(&late);
-    let cell = boot.renderer.metrics();
-    let pty = Pty::spawn(&ws, cell.cell_w, cell.cell_h, move || {
-        if let Some(w) = wake_late.get() {
-            w.wake();
-        }
-    })
-    .expect("pty");
-    startup_mark("pty");
-    // **The launch's threads after the shell** (note AJ section 20):
-    // `fork` takes dyld's `dlopen` lock and then runs each `pthread_atfork`
-    // handler, libinfo's mDNS one waiting out a lookup in flight
-    // ([[source: apple-libsystem-init-c]], [[source: apple-libinfo-mdns-module-c]]).
-    // With the machine's names read first, `hostName`'s lookup held the
-    // shell's start 3.8-36.9 ms in probes and the GPU's thread behind
-    // it; the GPU's probe loads its driver. Started here, neither is in
-    // either at the fork, and the probe starts 2-3 ms later.
-    let gpu_probe = Boot::start_probe(boot.request);
-    // This machine's names, read while the launch goes on (`Hosts`).
-    let hosts = Hosts::start();
-    startup_mark("hosts");
-    // The process events the derived title is checked on (`fg::Watch`),
-    // waking the main thread as the pty's reader does.
-    let wake_watch = Arc::clone(&late);
-    let watch = crate::fg::Watch::start(move || {
-        if let Some(w) = wake_watch.get() {
-            w.wake();
-        }
-    });
+    let shell = Shell::start(scale, size, inset, None);
     let ns_app = NSApplication::sharedApplication(mtm);
     ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
     startup_mark("nsapp");
@@ -11348,198 +11529,11 @@ pub fn run() {
         DockIcon::Bundled => "dock icon: the bundle's",
         DockIcon::Ours => "dock icon: set from the binary",
     });
-    let window = GlassWindow::new(mtm, size, "baud");
-    startup_mark("glass window");
-    // The inset predicted above, checked against the window that exists
-    // now; the window's own value is what the layout uses.
-    let measured = {
-        let w = window.ns_window();
-        let content_h = w
-            .contentView()
-            .map_or(size.height, |v| v.frame().size.height);
-        (content_h - w.contentLayoutRect().size.height).max(0.0)
+    let dock_icon = match dock {
+        DockIcon::Bundled => None,
+        DockIcon::Ours => icon.clone(),
     };
-    if (measured - inset).abs() > 0.5 {
-        startup_note(&format!(
-            "titlebar inset: predicted {inset:.1}, measured {measured:.1}"
-        ));
-    }
-    let inset = measured;
-    let frame = NSRect::new(NSPoint::new(0.0, 0.0), size);
-    // **The body is the config's, and it is chosen once.** `Standard`, the
-    // default, is `.underWindowBackground`: the HIG puts "Standard
-    // materials" behind "app backgrounds" and keeps Liquid Glass out of the
-    // content layer ([[source: apple-hig-materials]]; note AT), the default
-    // since 2026-10-18. `Regular` is the glass the HIG gives surfaces with
-    // "a significant amount of text"; `Clear` the more transparent glass.
-    // Unlike the dim, the tint and the shadow, the body does not change
-    // with the appearance -- the standard material follows the window's
-    // appearance and active state itself -- so it is a constructor argument
-    // and nothing else.
-    let glass = Body::of(mtm, frame, glass_cfg.style);
-    // Tinted before it is shown rather than after: the surface is not the
-    // window's content until the first frame is on the layer, so doing it
-    // here costs nothing and there is no frame in which an untinted
-    // material is visible.
-    apply_glass(&glass, &window, &glass_cfg, glass.appearance(&window));
-    let view = DrawableView::new(mtm, frame);
-    startup_mark("window");
-    let _ = late.set(view.waker());
-    if grid.is_some() {
-        // The window sized to the grid in points, from the cell metrics at
-        // this scale, before it is shown; its first resize callback then
-        // computes the same grid and changes nothing. The grid sits below
-        // the titlebar inset, so the window is that much taller than the
-        // grid; otherwise the inset would steal a row from the fixed
-        // geometry a benchmark asked for.
-        // A legacy scroller's gutter is beside the grid, so the window is
-        // that much wider; `relayout` then gives it the same gutter back.
-        let bar = gutter(scroller_style(), crate::reveal::widths(Scale(scale)));
-        let beside = f64::from(bar.value().saturating_add(strip.value()));
-        let wanted = NSSize::new(
-            f64::from(ws.ws_col) * cw / scale + 2.0 * padding + beside / scale,
-            f64::from(ws.ws_row) * ch / scale + inset + 2.0 * padding,
-        );
-        window.ns_window().setContentSize(wanted);
-    }
-    let probe = App::new(
-        ws,
-        if grid.is_some() {
-            Sizing::Fixed
-        } else {
-            Sizing::Window
-        },
-        scale,
-        view.waker(),
-        pty,
-        boot,
-        gpu_probe,
-    );
-    // A transparent container fills the glass; the terminal view sits inside it
-    // inset below the titlebar, so the glass still fills the strip the traffic
-    // lights float over while row 0 clears them. Autoresizing keeps the inset
-    // fixed as the window grows.
-    let full = frame.size;
-    let container = NSView::initWithFrame(
-        NSView::alloc(mtm),
-        NSRect::new(NSPoint::new(0.0, 0.0), full),
-    );
-    container.setAutoresizesSubviews(true);
-    view.setFrame(NSRect::new(
-        NSPoint::new(0.0, 0.0),
-        NSSize::new(full.width, (full.height - inset).max(0.0)),
-    ));
-    view.setAutoresizingMask(
-        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
-    );
-    container.addSubview(&view);
-    // The icon in the titlebar strip, just right of the traffic lights and
-    // centred in the inset. Pinned to the top-left so it stays as the window
-    // grows; the glass shows through around it.
-    // The icon in the titlebar strip is placed after `show()`, below,
-    // once the traffic-light buttons have been laid out.
-    // The container is the window's content until the first tick, when
-    // it moves under the glass; see `LateGlass`.
-    window.set_content_view(&container);
-    startup_mark("views");
-    window.set_accepts_mouse_moved(true);
-    window.set_min_size(NSSize::new(200.0, 100.0));
-    window.center();
-    startup_mark("centered");
-    // The cell the observer writes and `pump` reads; cloned into both.
-    let style = PendingStyle::default();
-    let hiding = crate::hide::Hiding::new(&probe.term);
-    let mut driver = Driver {
-        app: probe,
-        view: view.clone(),
-        dock_icon: match dock {
-            DockIcon::Bundled => None,
-            DockIcon::Ours => icon.clone(),
-        },
-        held: None,
-        buttons: LocatorButtons::NONE,
-        key_kind: KeyEventKind::Press,
-        keyed: None,
-        armed: None,
-        bar_hold: crate::bar::Hold::FREE,
-        owner: Owner::Free,
-        deferred: Deferred::Nothing,
-        style: style.clone(),
-        theme_choice,
-        glass_cfg,
-        themes: Themes::of(&glass_cfg, theme_choice, floor, &halves),
-        display: Display::default(),
-        settings: baud_present_macos::settings::Watch::start(),
-        window_facts: baud_core::WindowFacts::UNKNOWN,
-        status_took: crate::winops::StatusChange::Resize,
-        saved_frame: None,
-        performed: crate::winops::Performed::new(),
-        palette_for: None,
-        glass: glass.clone(),
-        window: window.clone(),
-        titles: crate::title::Shown::new(),
-        mini: crate::title::Mini::new(),
-        derive: crate::title::Derive::new(),
-        watch,
-        hosts,
-        title_waits: TitleWaits::No,
-        home: std::env::var_os("HOME")
-            .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
-        hiding,
-        // Placed once the window is shown, which lays out the traffic
-        // lights it is placed against.
-        icon: None,
-        icon_super: container.clone(),
-        icon_x: 0.0,
-        icon_size: 0.0,
-        icon_inset: inset,
-        lights: crate::lights::Strip::new(0.0),
-        lights_appearance: glass.appearance(&window),
-        reload: None,
-        notice,
-        glass_live: std::rc::Rc::new(std::cell::Cell::new(glass_cfg)),
-    };
-    // **The config's watch, heard on the main queue** (`reload.rs`): the
-    // dispatch source's handler drains the kqueue and wakes the view, and
-    // `pump` takes the mark. No thread of baud's waits on it.
-    if let Some((read, watch)) = reload_from {
-        let waker = view.waker();
-        let heard = watch.listen(dispatch2::DispatchQueue::main(), move || waker.wake());
-        // A change heard while the config was read is due a settle after
-        // it, woken here: no event may follow it.
-        if let Some(at) = watch.deadline() {
-            driver.wake_at(at);
-        }
-        driver.reload = Some(Reloading {
-            _heard: heard,
-            watch,
-            read,
-        });
-    }
-    startup_mark("driver");
-    // The first frame's geometry and settings now, before the run loop:
-    // the geometry the view's first resize callback would report. The
-    // frame itself is drawn once the app has finished launching, below.
-    // **The palette for the first frame, from the window rather than the
-    // observer.** The observer below fires once the moment it is built and
-    // would set this -- but it is built after the glass, which is after
-    // this frame, so a light-mode launch would draw one dark frame and
-    // correct it. The window knows its own appearance already.
-    if theme_choice == crate::config::ThemeChoice::Auto {
-        let appearance = appearance_of(&window);
-        driver.palette_for = Some(appearance);
-        driver.show_theme(appearance);
-        crate::host::tell_defaults(
-            &mut driver.app.term,
-            driver.app.renderer.theme(),
-            baud_core::Overrides::Keep,
-        );
-    }
-    // **The display settings before the first frame**, pinned theme or
-    // not, so a launch under Reduce Transparency never draws a dim frame.
-    driver.poll_display();
-    Responder::resized(&mut driver, view.frame().size, scale);
-    startup_mark("laid out");
+    let opening = Opening::new(mtm, size, scale, inset, shell, icon, dock_icon);
     // The menu before the run loop: key equivalents need it from the first
     // event, and nothing on screen waits for it.
     macos_liquid_glass::menu::install_main_menu(&ns_app, mtm, "baud");
@@ -11559,6 +11553,414 @@ pub fn run() {
     // responder holding the view's borrow.
     baud_present_macos::launch::when_launched(move || {
         startup_mark("launched");
+        opening.show(mtm, scale, None);
+    });
+    ns_app.activate();
+    startup_mark("activated");
+    ns_app.run();
+}
+
+/// The size a window opens at, in points.
+const WINDOW_SIZE: NSSize = NSSize::new(960.0, 600.0);
+
+/// The titlebar's height before a window exists: the window is
+/// FullSizeContentView, so its content spans the frame behind the
+/// transparent titlebar, and the terminal leaves that strip so row 0
+/// clears the traffic lights. A class-level answer; `Opening::new` checks
+/// it against the window once there is one.
+fn predicted_inset(mtm: MainThreadMarker, size: NSSize) -> CGFloat {
+    let content = NSRect::new(NSPoint::new(0.0, 0.0), size);
+    let frame =
+        NSWindow::frameRectForContentRect_styleMask(content, NSWindowStyleMask::Titled, mtm);
+    (frame.size.height - size.height).max(0.0)
+}
+
+/// **What a window needs before it exists**: the boot -- the config, the
+/// faces, the renderer -- the grid it opens at, and its shell, spawned at
+/// that grid, with the threads that start after the shell (`Shell::start`).
+struct Shell {
+    boot: Boot,
+    reload_from: Option<(crate::config::Config, crate::reload::Watch<Instant>)>,
+    notice: crate::live::Notice,
+    grid: Option<WinSize>,
+    ws: WinSize,
+    cw: f64,
+    ch: f64,
+    strip: baud_font::Px,
+    late: Arc<OnceLock<Waker>>,
+    pty: Pty,
+    gpu_probe: std::thread::JoinHandle<Option<Gpu>>,
+    hosts: Hosts,
+    watch: Option<crate::fg::Watch>,
+}
+
+impl Shell {
+    /// The boot and the shell, at `scale` for a window of `size` whose
+    /// titlebar is `inset` high; the shell starts in `at` when it is given
+    /// (`windows::inherited`).
+    fn start(scale: CGFloat, size: NSSize, inset: CGFloat, at: Option<&std::path::Path>) -> Shell {
+        let mut boot = Boot::prepare(scale);
+        // The config's watch and notice, for the driver (`reload.rs`).
+        let reload_from = boot.reload.take();
+        let notice = boot.notice.clone();
+        // The gutter in points: the grid floats inset from all four sides -- below
+        // the titlebar and in from the left, right and bottom -- with the glass in
+        // the margin. The pty and the renderer follow the inset area.
+        let padding = boot.padding;
+        // `BAUD_GRID=COLSxROWS` runs at a grid rather than at the window's
+        // default, so a benchmark runs every terminal at one geometry. The pty
+        // is *spawned* at that grid: sized afterwards, the child sometimes read
+        // the default before the window's resize landed -- one row in fifteen.
+        let grid = std::env::var("BAUD_GRID").ok().and_then(|g| {
+            let (c, r) = g.split_once('x')?;
+            Some(WinSize {
+                ws_col: c.parse().ok()?,
+                ws_row: r.parse().ok()?,
+            })
+        });
+        let (cw, ch) = boot.metrics_cell();
+        // The exit-status strip takes its column from the start, so the child
+        // is spawned at the grid it keeps.
+        let strip = boot.renderer.strip();
+        let ws = grid.as_ref().map_or_else(
+            || {
+                // The config's notice row, when the launch has one, is the
+                // window's, as the status line's is (`Driver::relayout`).
+                crate::width::less_status(
+                    grid_for(
+                        NSSize::new(
+                            (size.width - 2.0 * padding - f64::from(strip.value()) / scale)
+                                .max(0.0),
+                            (size.height - inset - 2.0 * padding).max(0.0),
+                        ),
+                        scale,
+                        (cw, ch),
+                    ),
+                    boot.renderer.notice_rows(),
+                )
+            },
+            |ws| WinSize {
+                ws_col: ws.ws_col,
+                ws_row: ws.ws_row,
+            },
+        );
+        // The reader wakes the main thread through the view, which does not
+        // exist yet; bytes that arrive before it does wait in the channel and
+        // the first wake after the window is shown drains them.
+        let late: Arc<OnceLock<Waker>> = Arc::new(OnceLock::new());
+        let wake_late = Arc::clone(&late);
+        let cell = boot.renderer.metrics();
+        let pty = Pty::spawn(&ws, cell.cell_w, cell.cell_h, at, move || {
+            if let Some(w) = wake_late.get() {
+                w.wake();
+            }
+        })
+        .expect("pty");
+        startup_mark("pty");
+        // **The launch's threads after the shell** (note AJ section 20):
+        // `fork` takes dyld's `dlopen` lock and then runs each `pthread_atfork`
+        // handler, libinfo's mDNS one waiting out a lookup in flight
+        // ([[source: apple-libsystem-init-c]], [[source: apple-libinfo-mdns-module-c]]).
+        // With the machine's names read first, `hostName`'s lookup held the
+        // shell's start 3.8-36.9 ms in probes and the GPU's thread behind
+        // it; the GPU's probe loads its driver. Started here, neither is in
+        // either at the fork, and the probe starts 2-3 ms later.
+        let gpu_probe = Boot::start_probe(boot.request);
+        // This machine's names, read while the launch goes on (`Hosts`).
+        let hosts = Hosts::start();
+        startup_mark("hosts");
+        // The process events the derived title is checked on (`fg::Watch`),
+        // waking the main thread as the pty's reader does.
+        let wake_watch = Arc::clone(&late);
+        let watch = crate::fg::Watch::start(move || {
+            if let Some(w) = wake_watch.get() {
+                w.wake();
+            }
+        });
+        Shell {
+            boot,
+            reload_from,
+            notice,
+            grid,
+            ws,
+            cw,
+            ch,
+            strip,
+            late,
+            pty,
+            gpu_probe,
+            hosts,
+            watch,
+        }
+    }
+}
+
+/// **A window built and laid out, its first frame not yet drawn**: what
+/// `show` puts on screen.
+struct Opening {
+    driver: Driver,
+    view: Retained<DrawableView>,
+    window: GlassWindow,
+    glass: Body,
+    container: Retained<NSView>,
+    icon: Option<Retained<NSImage>>,
+    full: NSSize,
+    inset: CGFloat,
+}
+
+impl Opening {
+    /// The window, its glass, its view and its driver for `shell`, laid
+    /// out at the first frame's geometry. `dock_icon` is the image the
+    /// first tick sets on the Dock, which only the launch's window sets.
+    fn new(
+        mtm: MainThreadMarker,
+        size: NSSize,
+        scale: CGFloat,
+        inset: CGFloat,
+        shell: Shell,
+        icon: Option<Retained<NSImage>>,
+        dock_icon: Option<Retained<NSImage>>,
+    ) -> Opening {
+        let Shell {
+            boot,
+            reload_from,
+            notice,
+            grid,
+            ws,
+            cw,
+            ch,
+            strip,
+            late,
+            pty,
+            gpu_probe,
+            hosts,
+            watch,
+        } = shell;
+        let padding = boot.padding;
+        let theme_choice = boot.theme;
+        let glass_cfg = boot.glass;
+        let floor = boot.floor;
+        let halves = boot.halves;
+        let window = GlassWindow::new(mtm, size, "baud");
+        startup_mark("glass window");
+        // The inset predicted above, checked against the window that exists
+        // now; the window's own value is what the layout uses.
+        let measured = {
+            let w = window.ns_window();
+            let content_h = w
+                .contentView()
+                .map_or(size.height, |v| v.frame().size.height);
+            (content_h - w.contentLayoutRect().size.height).max(0.0)
+        };
+        if (measured - inset).abs() > 0.5 {
+            startup_note(&format!(
+                "titlebar inset: predicted {inset:.1}, measured {measured:.1}"
+            ));
+        }
+        let inset = measured;
+        let frame = NSRect::new(NSPoint::new(0.0, 0.0), size);
+        // **The body is the config's, and it is chosen once.** `Standard`, the
+        // default, is `.underWindowBackground`: the HIG puts "Standard
+        // materials" behind "app backgrounds" and keeps Liquid Glass out of the
+        // content layer ([[source: apple-hig-materials]]; note AT), the default
+        // since 2026-10-18. `Regular` is the glass the HIG gives surfaces with
+        // "a significant amount of text"; `Clear` the more transparent glass.
+        // Unlike the dim, the tint and the shadow, the body does not change
+        // with the appearance -- the standard material follows the window's
+        // appearance and active state itself -- so it is a constructor argument
+        // and nothing else.
+        let glass = Body::of(mtm, frame, glass_cfg.style);
+        // Tinted before it is shown rather than after: the surface is not the
+        // window's content until the first frame is on the layer, so doing it
+        // here costs nothing and there is no frame in which an untinted
+        // material is visible.
+        apply_glass(&glass, &window, &glass_cfg, glass.appearance(&window));
+        let view = DrawableView::new(mtm, frame);
+        startup_mark("window");
+        let _ = late.set(view.waker());
+        if grid.is_some() {
+            // The window sized to the grid in points, from the cell metrics at
+            // this scale, before it is shown; its first resize callback then
+            // computes the same grid and changes nothing. The grid sits below
+            // the titlebar inset, so the window is that much taller than the
+            // grid; otherwise the inset would steal a row from the fixed
+            // geometry a benchmark asked for.
+            // A legacy scroller's gutter is beside the grid, so the window is
+            // that much wider; `relayout` then gives it the same gutter back.
+            let bar = gutter(scroller_style(), crate::reveal::widths(Scale(scale)));
+            let beside = f64::from(bar.value().saturating_add(strip.value()));
+            let wanted = NSSize::new(
+                f64::from(ws.ws_col) * cw / scale + 2.0 * padding + beside / scale,
+                f64::from(ws.ws_row) * ch / scale + inset + 2.0 * padding,
+            );
+            window.ns_window().setContentSize(wanted);
+        }
+        let probe = App::new(
+            ws,
+            if grid.is_some() {
+                Sizing::Fixed
+            } else {
+                Sizing::Window
+            },
+            scale,
+            view.waker(),
+            pty,
+            boot,
+            gpu_probe,
+        );
+        // A transparent container fills the glass; the terminal view sits inside it
+        // inset below the titlebar, so the glass still fills the strip the traffic
+        // lights float over while row 0 clears them. Autoresizing keeps the inset
+        // fixed as the window grows.
+        let full = frame.size;
+        let container = NSView::initWithFrame(
+            NSView::alloc(mtm),
+            NSRect::new(NSPoint::new(0.0, 0.0), full),
+        );
+        container.setAutoresizesSubviews(true);
+        view.setFrame(NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(full.width, (full.height - inset).max(0.0)),
+        ));
+        view.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewWidthSizable
+                | NSAutoresizingMaskOptions::ViewHeightSizable,
+        );
+        container.addSubview(&view);
+        // The icon in the titlebar strip, just right of the traffic lights and
+        // centred in the inset. Pinned to the top-left so it stays as the window
+        // grows; the glass shows through around it.
+        // The icon in the titlebar strip is placed after `show()`, below,
+        // once the traffic-light buttons have been laid out.
+        // The container is the window's content until the first tick, when
+        // it moves under the glass; see `LateGlass`.
+        window.set_content_view(&container);
+        startup_mark("views");
+        window.set_accepts_mouse_moved(true);
+        window.set_min_size(NSSize::new(200.0, 100.0));
+        window.center();
+        startup_mark("centered");
+        // The cell the observer writes and `pump` reads; cloned into both.
+        let style = PendingStyle::default();
+        let hiding = crate::hide::Hiding::new(&probe.term);
+        let mut driver = Driver {
+            app: probe,
+            view: view.clone(),
+            dock_icon,
+            held: None,
+            buttons: LocatorButtons::NONE,
+            key_kind: KeyEventKind::Press,
+            keyed: None,
+            armed: None,
+            bar_hold: crate::bar::Hold::FREE,
+            owner: Owner::Free,
+            deferred: Deferred::Nothing,
+            style: style.clone(),
+            theme_choice,
+            glass_cfg,
+            themes: Themes::of(&glass_cfg, theme_choice, floor, &halves),
+            display: Display::default(),
+            settings: baud_present_macos::settings::Watch::start(),
+            window_facts: baud_core::WindowFacts::UNKNOWN,
+            status_took: crate::winops::StatusChange::Resize,
+            saved_frame: None,
+            performed: crate::winops::Performed::new(),
+            palette_for: None,
+            glass: glass.clone(),
+            window: window.clone(),
+            titles: crate::title::Shown::new(),
+            mini: crate::title::Mini::new(),
+            derive: crate::title::Derive::new(),
+            watch,
+            hosts,
+            title_waits: TitleWaits::No,
+            home: std::env::var_os("HOME")
+                .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
+            hiding,
+            // Placed once the window is shown, which lays out the traffic
+            // lights it is placed against.
+            icon: None,
+            icon_super: container.clone(),
+            icon_x: 0.0,
+            icon_size: 0.0,
+            icon_inset: inset,
+            lights: crate::lights::Strip::new(0.0),
+            lights_appearance: glass.appearance(&window),
+            reload: None,
+            notice,
+            glass_live: std::rc::Rc::new(std::cell::Cell::new(glass_cfg)),
+            window_id: None,
+            close_asked: CloseAsked::No,
+        };
+        // **The config's watch, heard on the main queue** (`reload.rs`): the
+        // dispatch source's handler drains the kqueue and wakes the view, and
+        // `pump` takes the mark. No thread of baud's waits on it.
+        if let Some((read, watch)) = reload_from {
+            let waker = view.waker();
+            let heard = watch.listen(dispatch2::DispatchQueue::main(), move || waker.wake());
+            // A change heard while the config was read is due a settle after
+            // it, woken here: no event may follow it.
+            if let Some(at) = watch.deadline() {
+                driver.wake_at(at);
+            }
+            driver.reload = Some(Reloading {
+                _heard: heard,
+                watch,
+                read,
+            });
+        }
+        startup_mark("driver");
+        // The first frame's geometry and settings now, before the run loop:
+        // the geometry the view's first resize callback would report. The
+        // frame itself is drawn once the app has finished launching, below.
+        // **The palette for the first frame, from the window rather than the
+        // observer.** The observer below fires once the moment it is built and
+        // would set this -- but it is built after the glass, which is after
+        // this frame, so a light-mode launch would draw one dark frame and
+        // correct it. The window knows its own appearance already.
+        if theme_choice == crate::config::ThemeChoice::Auto {
+            let appearance = appearance_of(&window);
+            driver.palette_for = Some(appearance);
+            driver.show_theme(appearance);
+            crate::host::tell_defaults(
+                &mut driver.app.term,
+                driver.app.renderer.theme(),
+                baud_core::Overrides::Keep,
+            );
+        }
+        // **The display settings before the first frame**, pinned theme or
+        // not, so a launch under Reduce Transparency never draws a dim frame.
+        driver.poll_display();
+        Responder::resized(&mut driver, view.frame().size, scale);
+        startup_mark("laid out");
+        Opening {
+            driver,
+            view,
+            window,
+            glass,
+            container,
+            icon,
+            full,
+            inset,
+        }
+    }
+
+    /// **On screen**: the first frame drawn, the window ordered front --
+    /// cascaded from `after`, the frame of the window it was opened from
+    /// -- its titlebar icon, the glass, the style observer, first
+    /// responder, and the responder last, so nothing here re-enters a
+    /// responder holding the view's borrow.
+    fn show(self, mtm: MainThreadMarker, scale: CGFloat, after: Option<NSRect>) {
+        let Opening {
+            mut driver,
+            view,
+            window,
+            glass,
+            container,
+            icon,
+            full,
+            inset,
+        } = self;
         // The first frame, drawn now on this thread: one draw, which
         // waits on the GPU and sets the layer itself (`draw_now`); no
         // completion follows it. Before the window is ordered front, so
@@ -11591,6 +11993,16 @@ pub fn run() {
         window
             .ns_window()
             .setAnimationBehavior(NSWindowAnimationBehavior::None);
+        // A window opened from another is cascaded from it, as AppKit
+        // offsets one window from the last: placed at that window's top
+        // left, which hands back the point a step down and right, and then
+        // at that point (`[[source: apple-nswindow-cascadetopleftfrompoint]]`).
+        if let Some(f) = after {
+            let w = window.ns_window();
+            let next =
+                w.cascadeTopLeftFromPoint(NSPoint::new(f.origin.x, f.origin.y + f.size.height));
+            w.cascadeTopLeftFromPoint(next);
+        }
         window.show();
         startup_mark("shown");
         let mut icon_iv: Option<Retained<NSImageView>> = None;
@@ -11700,7 +12112,7 @@ pub fn run() {
         // full strength", which is why the example paints its wash in its own
         // `drawRect:` instead. The setter carries the material *darkening*
         // now, and nothing carries the wash -- see `apply_glass`.
-        {
+        let style = {
             let glass_cb = glass.clone();
             let window_cb = window.clone();
             let glass_now = std::rc::Rc::clone(&driver.glass_live);
@@ -11712,13 +12124,11 @@ pub fn run() {
                     glass_cb.appearance(&window_cb),
                 );
             });
-            // The window is never torn down before the process ends, so the
-            // observer outlives every reference by outliving the process --
-            // the alternative is a field on a driver that is about to be boxed
-            // into the view, which buys nothing a leak does not.
-            core::mem::forget(observer);
+            // The window's entry in the open windows holds it, and it goes
+            // with the window (`closed`).
             startup_mark("style observer");
-        }
+            observer
+        };
         // **First responder AFTER the glass, because installing it takes the
         // chain away.** `set_content_view` replaces the window's content view,
         // which tears down the hierarchy the old one rooted and resigns first
@@ -11736,14 +12146,33 @@ pub fn run() {
         // three commands with it, silently, because nothing asks a menu
         // whether it is enabled.
         window.make_first_responder(&view);
+        // **Into the open windows before the responder is installed**, so
+        // the driver knows the key its close is asked by (`close_later`),
+        // and the window's close is heard: on every close, the button,
+        // Command-W or the shell's exit, its observer asks for `closed` on
+        // a later turn, outside whatever callback the close came from.
+        let id = OPEN.with_borrow_mut(|o| {
+            o.open(Open {
+                window: window.clone(),
+                view: view.clone(),
+                _style: style,
+                _closing: None,
+            })
+        });
+        let closing = baud_present_macos::closing::when_closing(window.ns_window(), move || {
+            dispatch2::DispatchQueue::main().exec_async(move || closed(id));
+        });
+        OPEN.with_borrow_mut(|o| {
+            if let Some(open) = o.get_mut(id) {
+                open._closing = Some(closing);
+            }
+        });
+        driver.window_id = Some(id);
         view.set_responder(Box::new(driver));
         view.start_display_link();
         startup_mark("display link");
         view.waker().wake();
-    });
-    ns_app.activate();
-    startup_mark("activated");
-    ns_app.run();
+    }
 }
 
 /// The font sizes a zoom may reach, in points: below six nothing reads,
@@ -11752,6 +12181,40 @@ const ZOOM_MIN: f32 = crate::fonts::SIZE_MIN;
 const ZOOM_MAX: f32 = crate::fonts::SIZE_MAX;
 
 impl Driver {
+    /// **Command-N**: a new window, opened on a later turn of the main
+    /// queue (`open_window`), its shell started in this window's directory
+    /// (`windows::inherited`). Before this machine's names are read, an
+    /// `OSC 7` naming a host is judged against none.
+    fn new_window(&mut self) {
+        let names = self
+            .hosts
+            .names()
+            .map(<[String]>::to_vec)
+            .unwrap_or_default();
+        let at =
+            crate::windows::inherited(self.app.term.working_directory(), &names, self.derive.dir());
+        dispatch2::DispatchQueue::main().exec_async(move || open_window(at));
+    }
+
+    /// **The window's close, asked for once**, on a later turn of the main
+    /// queue: `close` posts the window's close notification at once, and
+    /// the shell's exit is heard inside the view's callback.
+    fn close_later(&mut self) {
+        if self.close_asked == CloseAsked::Yes {
+            return;
+        }
+        self.close_asked = CloseAsked::Yes;
+        let Some(id) = self.window_id else {
+            return;
+        };
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            let window = OPEN.with_borrow(|o| o.get(id).map(|w| w.window.clone()));
+            if let Some(w) = window {
+                w.close();
+            }
+        });
+    }
+
     /// Typing, and a paste, snap the window back to the live screen, where
     /// the keystroke's effect is.
     fn snap_to_live(&mut self) {
@@ -15823,9 +16286,12 @@ mod tests {
         );
         let call = concat!("setContent", "Size(");
         assert_eq!(code.matches(call).count(), 2, "launch and widen_later");
-        let run = code.split_once("\npub fn run() {").expect("run").1;
-        let run = &run[..run.find("\n}\n").expect("run ends")];
-        assert!(run.contains(call), "the launch sizing");
+        let build = code
+            .split_once(concat!("    fn new(\n        mtm: ", "MainThreadMarker,"))
+            .expect("the window's build")
+            .1;
+        let build = &build[..build.find("\n    }\n").expect("the build ends")];
+        assert!(build.contains(call), "the launch sizing");
         let widen = code
             .split_once(concat!(
                 "fn widen_",

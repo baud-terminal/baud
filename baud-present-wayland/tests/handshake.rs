@@ -3302,6 +3302,45 @@ fn ctrl_shift_f_is_the_find_fields() {
     );
 }
 
+const KEY_N: u32 = 49;
+
+/// **Ctrl+Shift+N asks for a new window** (foot's `spawn-terminal`,
+/// kitty's `new_os_window`, gnome-terminal's `new-window`): a shortcut,
+/// not a key, repeating and releasing nothing; Ctrl+N alone is the
+/// program's key.
+#[test]
+fn ctrl_shift_n_asks_for_a_new_window() {
+    use baud_domain::{KeyEventKind, Modifiers};
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        keyboard: kb,
+        ..
+    } = clip_session();
+    repeat_info(&mut server, kb, 25, 600);
+    let (shift, ctrl) = (1u32, 4u32);
+    depressed(&mut server, kb, ctrl | shift);
+    key_at(&mut server, kb, 3, KEY_N, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), [Event::Shortcut(Shortcut::NewWindow)]);
+    assert_eq!(w.repeat_deadline(), None, "a shortcut does not repeat");
+    key_at(&mut server, kb, 4, KEY_N, RELEASED);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), [], "nor release");
+    depressed(&mut server, kb, ctrl);
+    key_at(&mut server, kb, 5, KEY_N, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        drain(&mut w),
+        [chorded(
+            'n',
+            Modifiers::NONE.with(Modifiers::CTRL),
+            KeyEventKind::Press
+        )]
+    );
+}
+
 // evdev codes for the zoom keys.
 const KEY_0: u32 = 11;
 const KEY_MINUS: u32 = 12;

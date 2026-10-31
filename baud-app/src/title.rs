@@ -276,6 +276,13 @@ impl Derive {
         self.stale == Stale::Yes
     }
 
+    /// The foreground group's directory the last check read, which a new
+    /// window opened from this one starts in when no `OSC 7` names one
+    /// (`windows::inherited`).
+    pub fn dir(&self) -> Option<&std::path::Path> {
+        self.dir.as_deref()
+    }
+
     /// The foreground group the last check read.
     #[cfg(any(target_os = "macos", test))]
     pub fn group(&self) -> Option<Pid> {

@@ -55,6 +55,7 @@
 #   AX  notifications and progress from programs: OSC 9, 777, 99, 9;4 and 1337, and where each platform shows them
 #   AZ  a window in the background: the unfocused cursor, the inactive selection, theme cursor colours
 #   CR  the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (baud-app/src/reload.rs; no note)
+#   WN  more than one window: a new window, a window's close, the last window closed, the Dock's reopen (baud-app/src/windows.rs; no note)
 #
 # Notes K (selection), M (resize and reflow), S (Sixel) and T (images) have
 # no group of their own: what they cite is filed under C, and T's also under
@@ -39301,3 +39302,124 @@ status = "external"
 group  = "H"
 # Fetched 2026-10-30. The same line is in v0.33.0, v0.36.0, v0.42.0 and
 # v0.49.2 and not in v0.32.2: kitty issue 7196's change. Read, not copied.
+
+[sources.apple-nsapplicationdelegate-terminate-after-last-window-closed]
+key    = "apple-nsapplicationdelegate-terminate-after-last-window-closed"
+title  = "NSApplicationDelegate.applicationShouldTerminateAfterLastWindowClosed(_:) -- 'If your implementation returns NO, control returns to the main event loop and the application is not terminated' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsapplicationdelegate/applicationshouldterminateafterlastwindowclosed(_:).json"
+file   = ""
+sha256 = "9ebb535b3556e688b03d2a139b2745c04a055a5304cc4bcaa195f54e4bdc57d8"
+bytes  = 21047
+status = "external"
+group  = "WN"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as applicationshouldterminateafterlastwindowclosed.json, and the digest is of that copy.
+# Fetched 2026-10-31: what an app with no delegate does when its last window closes.
+
+[sources.apple-nsapplicationdelegate-should-handle-reopen]
+key    = "apple-nsapplicationdelegate-should-handle-reopen"
+title  = "NSApplicationDelegate.applicationShouldHandleReopen(_:hasVisibleWindows:) -- a Dock click on a running app with no visible window goes 'through the standard untitled document creation' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsapplicationdelegate/applicationshouldhandlereopen(_:hasvisiblewindows:).json"
+file   = ""
+sha256 = "09e0ab5a87a314cccf12fe1b7fa544064b8979fe99cb3ca9313293da75f828b6"
+bytes  = 22486
+status = "external"
+group  = "WN"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as applicationshouldhandlereopen.json, and the digest is of that copy.
+# Fetched 2026-10-31: the delegate answer a Dock click with no window needs.
+
+[sources.apple-nswindow-willclosenotification]
+key    = "apple-nswindow-willclosenotification"
+title  = "NSWindow.willCloseNotification -- 'A notification that the window object is about to close'; its object 'is the NSWindow object that's about to close' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/willclosenotification.json"
+file   = ""
+sha256 = "847229c3d7a7172de1e6178df87e6f6cbac6f54eedd071c43333e91e6609706b"
+bytes  = 37455
+status = "external"
+group  = "WN"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as willclosenotification.json, and the digest is of that copy.
+# Fetched 2026-10-31: how baud hears a window close with no window delegate.
+
+[sources.apple-nswindow-cascadetopleftfrompoint]
+key    = "apple-nswindow-cascadetopleftfrompoint"
+title  = "NSWindow.cascadeTopLeft(from:) -- 'The returned point can be passed to a subsequent invocation ... to position the next window so the title bars of both windows are fully visible' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/cascadetopleft(from:).json"
+file   = ""
+sha256 = "4467e782b7df09eb6f895c356b30381351a7e4aa82e7cf421bd4f6190e16f0b9"
+bytes  = 30750
+status = "external"
+group  = "WN"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as cascadetopleft.json, and the digest is of that copy.
+# Fetched 2026-10-31: where a window opened from another is placed.
+
+[sources.iterm2-269f725-application-delegate]
+key    = "iterm2-269f725-application-delegate"
+title  = "iTerm2 269f725, sources/AppKit/iTermApplicationDelegate.m -- applicationShouldTerminateAfterLastWindowClosed: returns the QuitWhenAllWindowsClosed preference (952-980); applicationShouldHandleReopen: (983-989)"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 @ 269f725 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/269f72560863fd0af809c72ad2251b60ee763c47/sources/AppKit/iTermApplicationDelegate.m"
+file   = ""
+sha256 = "18ee4c099654312eb6c1f6475c7d203c77c54ed894b0571d37d6939c4a83797f"
+bytes  = 220957
+status = "external"
+group  = "WN"
+# Fetched 2026-10-31: practice for the last window's close. Read, not copied.
+
+[sources.iterm2-269f725-preferences]
+key    = "iterm2-269f725-preferences"
+title  = "iTerm2 269f725, sources/Settings/iTermPreferences.m -- kPreferenceKeyQuitWhenAllWindowsClosed defaults to NO (731)"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 @ 269f725 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/269f72560863fd0af809c72ad2251b60ee763c47/sources/Settings/iTermPreferences.m"
+file   = ""
+sha256 = "12d04b9ea19219a6dfd82f2abd7d48aace41a575c54b80256ca54c773bd12d95"
+bytes  = 91069
+status = "external"
+group  = "WN"
+# Fetched 2026-10-31, with the delegate above. Read, not copied.
+
+[sources.gnome-terminal-8a51402-gschema]
+key    = "gnome-terminal-8a51402-gschema"
+title  = "gnome-terminal 8a51402, src/org.gnome.Terminal.gschema.xml -- the new-window shortcut defaults to <Control><Shift>n (375-378), close-window to <Control><Shift>q (395-398)"
+author = "The GNOME Project"
+year   = 2026
+venue  = "GNOME/gnome-terminal @ 8a51402 (GPL-3.0-or-later)"
+url    = "https://gitlab.gnome.org/GNOME/gnome-terminal/-/raw/8a514022bbd14bf7feade6c299cf861eef23e711/src/org.gnome.Terminal.gschema.xml"
+file   = ""
+sha256 = "9cfeddee7afd7b238c959ad3db3807d474567fa7b09b15449abea33eab394726"
+bytes  = 31903
+status = "external"
+group  = "WN"
+# Fetched 2026-10-31: practice for the new-window key on Linux. Read, not copied.
+
+[sources.libwayland-93c04ad-client]
+key    = "libwayland-93c04ad-client"
+title  = "Wayland 93c04ad, src/wayland-client.c -- wl_display_connect: a WAYLAND_SOCKET descriptor is made FD_CLOEXEC (1374-1378) and the variable unset (1379)"
+author = "Kristian Hoegsberg and the Wayland contributors"
+year   = 2026
+venue  = "wayland/wayland @ 93c04ad (MIT)"
+url    = "https://gitlab.freedesktop.org/wayland/wayland/-/raw/93c04ad3670633aea6f2435059378b75843b8e70/src/wayland-client.c"
+file   = ""
+sha256 = "b1d739ad819b9c306ef88f3076f3bc15604e18d55c9184c6b19fc9bcbc0bb980"
+bytes  = 81110
+status = "external"
+group  = "WN"
+# Fetched 2026-10-31: what a client does with the socket a compositor hands it,
+# before a new window's process is started. Read, not copied.

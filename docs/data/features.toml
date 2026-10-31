@@ -1509,7 +1509,7 @@ shipped = ["F1-49"]
 id = "launch-splash"
 area = "window"
 name = "A launch splash"
-does = "baud starts with its colour logo in the middle of the window once the window is on screen: a burst of plasma draws it from left to right and a second carries it straight back out from left to right, in one movement, gone about half a second after it starts. The plasma takes the colour of each glyph it passes over: the word's own white (dark on a light page) over \"baud\", the amber over the prompt and the block. Your keys go to the shell the whole time, and the shell's output draws under the logo. On a Mac with Reduce Motion on, the logo shows whole and fades instead. It stays under the flash limits of the web accessibility guidelines (WCAG 2.3.1), follows light and dark, and one setting turns it off."
+does = "baud starts with its colour logo in the middle of the window once the window is on screen: a burst of plasma draws it from left to right and a second carries it straight back out from left to right, in one movement, gone about half a second after it starts. The plasma takes the colour of each glyph it passes over: the word's own white (dark on a light page) over \"baud\", the amber over the prompt and the block. Your keys go to the shell the whole time, and the shell's output draws under the logo. On a Mac with Reduce Motion on, the logo shows whole and fades instead. It stays under the flash limits of the web accessibility guidelines (WCAG 2.3.1), follows light and dark, and one setting turns it off. A window you open after the launch opens without it."
 status = "built"
 platform = "both"
 tests = ["baud-present-macos/tests/cells.rs::the_splash_draws_alike_on_every_arm", "baud-render/tests/splash.rs::the_plasma_holds_the_effects_slot", "baud-render/tests/splash.rs::the_plasma_is_the_colour_of_the_glyph_it_is_over", "baud-render/src/splash.rs::the_logo_leaves_as_it_is_drawn", "baud-render/tests/splash.rs::the_first_frame_shows_the_logo_faintly_in_the_plasma", "baud-render/tests/splash.rs::the_held_logo_stays_over_output_and_goes_whole", "baud-bench/tests/splash_flashes.rs::the_splash_is_below_the_flash_thresholds", "baud-app/src/splash.rs::it_plays_on_the_clock_and_is_gone_at_its_end", "baud-app/src/splash.rs::the_plasma_waits_for_the_window_to_be_shown", "baud-app/src/splash.rs::under_reduced_motion_it_holds_until_the_shell_draws_then_fades", "baud-app/src/timed.rs::the_splash_waits_for_the_first_frame_then_plays_and_goes", "baud-render/tests/splash.rs::the_plasma_is_full_strength_and_its_remainder_fades_out", "baud-bench/tests/splash_flashes.rs::the_plasmas_remainder_fades_into_the_page", "baud-app/src/splash.rs::every_frame_the_splash_owes_moves", "baud-app/src/splash.rs::no_splash_frame_waits_on_a_cap_scan", "baud-app/src/splash.rs::the_splash_is_gone_at_its_end", "baud-app/src/config.rs::the_launch_splash_is_on_unless_turned_off"]
@@ -1607,6 +1607,19 @@ platform = "both"
 tests = ["baud-app/src/title.rs::a_local_osc_7_names_the_folder_and_a_remote_one_does_not", "baud-app/src/pty.rs::the_foreground_reads_name_the_program_and_its_folder", "baud-core/tests/working_directory.rs::apples_report_keeps_its_host_and_decodes_its_path"]
 rows = ["vt:`OSC 7 ; Pt`"]
 shipped = ["SQ-v1.0-09"]
+
+[[feature]]
+id = "new-window"
+area = "window"
+name = "More than one window"
+does = "Cmd-N opens another window with its own shell, in the folder the window you opened it from is in, a step down and to the right of it. Cmd-W or the close button closes one window and ends its shell, the others carry on, and a shell that exits closes only its own window; Cmd-Q quits them all. Closing the last window quits baud. On Linux, Ctrl+Shift+N opens a new baud in the same folder, as foot does."
+status = "partial"
+gap = "on a Mac, closing the last window quits baud until the window library baud's Mac window is built with offers a File menu with New Window and a reopen from the Dock icon; then baud will stay running with no window open, as Mac apps do. The Linux window has run only headless."
+platform = "both"
+tests = ["baud-app/src/windows.rs::closing_one_of_three_windows_leaves_the_other_two_their_own_terminals", "baud-app/src/windows.rs::closing_the_last_window_quits_and_closing_one_of_two_does_not", "baud-app/src/windows.rs::command_n_alone_opens_a_window", "baud-app/src/pty.rs::a_new_windows_shell_starts_in_the_directory_it_inherits", "baud-app/src/pty.rs::a_closed_windows_pty_hangs_up_its_shell", "baud-app/src/app.rs::a_window_closes_alone_and_its_shells_exit_closes_only_it", "baud-present-wayland/tests/handshake.rs::ctrl_shift_n_asks_for_a_new_window"]
+rows = ["input:A new window: Command-N on macOS, Ctrl+Shift+N on Linux; Command-W and the close button"]
+behind = "other Mac terminals open a new window from the File menu or the Dock icon after the last one closed."
+roadmap = ["SQ-v1.0-10"]
 
 [[feature]]
 id = "title-restore"
@@ -2160,12 +2173,6 @@ name = "Right-to-left text"
 area = "text"
 does = "Hebrew and Arabic lines are drawn right to left from the start: a line that starts in Hebrew or Arabic runs right to left against the window's right edge, with its closing period at its left end; a table drawn with box-drawing lines keeps its columns, a Hebrew name reading right to left in its cell; and the cursor, the selection and the mouse follow; a program that lays out its own right-to-left text turns it off with `CSI 8 l`. Arabic letters join into words, a program can set which way its lines run, a program can have box-drawing lines mirrored on a right-to-left line, and Left and Right follow a right-to-left line, and finished text wraps at its words, an English run the wrap would cut getting a line of its own. Still to come: the same for the line being typed and, without a shell that marks its prompts, for the screen before it scrolls back."
 roadmap = ["SQ-v1.0-01"]
-
-[[missing]]
-name = "More than one window"
-area = "window"
-does = "baud opens one window; Cmd-N for another is not built yet."
-roadmap = ["SQ-v1.0-10"]
 
 # --- Done roadmap items that are not a feature of their own -------------------
 

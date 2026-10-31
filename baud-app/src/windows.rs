@@ -1,0 +1,445 @@
+//! **The open windows, and what a window's close leaves.**
+//!
+//! The macOS app runs any number of windows in one process, each with
+//! its own shell, terminal, renderer and timers: Command-N opens one,
+//! Command-W or the close button closes one and hangs up its shell, and
+//! Command-Q quits them all. The HIG gives Command-N to "Open a new
+//! document" and Command-W to "Close the active window"
+//! (`[[source: apple-hig-keyboards]]`), and its menu bar puts both in the
+//! File menu (`[[source: apple-hig-the-menu-bar]]`).
+//!
+//! **For now the app quits when its last window closes**
+//! ([`LAST_WINDOW`]): the window crate has no New Window menu item and
+//! no Dock reopen, so an app left running with no window would have
+//! nothing that opens one. With those, it will stay running, AppKit's
+//! answer when no delegate says otherwise: `NO` from
+//! `applicationShouldTerminateAfterLastWindowClosed:`, and "control
+//! returns to the main event loop and the application is not terminated"
+//! (`[[source: apple-nsapplicationdelegate-terminate-after-last-window-closed]]`).
+//! Ghostty's `quit-after-last-window-closed` is false on macOS "since that
+//! is standard behavior for a macOS application" and true on Linux
+//! (`[[source: ghostty-config-d9840f3]]`), kitty "will stay running,
+//! even with no open windows, as is the expected behavior on macOS"
+//! (`[[source: kitty-options-definition]]`), and iTerm2's
+//! `QuitWhenAllWindowsClosed` defaults to `NO`
+//! (`[[source: iterm2-269f725-application-delegate]]`,
+//! `[[source: iterm2-269f725-preferences]]`).
+//!
+//! On Linux a new window is a new process, as foot's `spawn-terminal`
+//! (Control+Shift+n) starts one in the current directory
+//! (`[[source: foot-2705e36-foot-ini-5]]`, `term_spawn_new()` in
+//! `[[source: foot-terminal-cb27717]]`): each window is its own
+//! `xdg_toplevel`, and its process exits when its window closes.
+//!
+//! **A new window starts in the directory of the window it was opened
+//! from**: the one its shell's `OSC 7` names on this machine, else the one
+//! baud reads for the title, else where a launch starts. Ghostty's
+//! `window-inherit-working-directory` defaults to that, and foot's
+//! `spawn-terminal` does it.
+#![forbid(unsafe_code)]
+
+/// A window's key in the set, never reused while the process runs.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WindowId(u64);
+
+#[cfg(any(target_os = "macos", test))]
+impl WindowId {
+    const FIRST: WindowId = WindowId(0);
+
+    /// The key the next window opened gets.
+    fn after(self) -> WindowId {
+        WindowId(self.0 + 1)
+    }
+}
+
+/// What a close leaves open.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Left {
+    /// This many windows are still open.
+    Others(usize),
+    /// The window closed was the last.
+    None,
+}
+
+/// **What the app does when its last window closes.** One of the two is
+/// chosen ([`LAST_WINDOW`]), so the app never builds the other.
+#[cfg(any(target_os = "macos", test))]
+#[allow(
+    dead_code,
+    reason = "LAST_WINDOW chooses one; the other waits on the window crate"
+)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LastWindow {
+    /// The app quits, as it did when its one window's shell exited.
+    Quit,
+    /// The app keeps running with no window, as AppKit does with no
+    /// delegate; it waits on a way to open a window from there.
+    StayRunning,
+}
+
+/// **The last window's close quits the app, for now.** A Mac app that
+/// stays running with no window opens one again from File > New Window
+/// or a click on its Dock icon
+/// (`[[source: apple-nsapplicationdelegate-should-handle-reopen]]`), and
+/// the window crate (1.0.0-beta.6) offers neither: no File menu, no
+/// application delegate, so no `applicationShouldHandleReopen:` and no
+/// `applicationShouldTerminateAfterLastWindowClosed:`. Staying running
+/// would leave an app with no window and nothing that opens one; quitting
+/// is what the app did before it had more than one window. When the crate
+/// has a New Window item and the reopen hook, this becomes
+/// [`LastWindow::StayRunning`].
+#[cfg(any(target_os = "macos", test))]
+pub const LAST_WINDOW: LastWindow = LastWindow::Quit;
+
+/// What the app does after a window's close.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AfterClose {
+    /// The app goes on running.
+    Run,
+    /// The app quits.
+    Quit,
+}
+
+/// **What a close leaves the app doing**: it goes on while another
+/// window is open, and when none is, `last` says.
+#[cfg(any(target_os = "macos", test))]
+pub fn after_close(left: Left, last: LastWindow) -> AfterClose {
+    match (left, last) {
+        (Left::Others(_), _) | (Left::None, LastWindow::StayRunning) => AfterClose::Run,
+        (Left::None, LastWindow::Quit) => AfterClose::Quit,
+    }
+}
+
+/// **The open windows, each owning what it was opened with**: a
+/// window's shell, terminal and renderer are its own, so a close hands
+/// back that window's and touches no other.
+#[cfg(any(target_os = "macos", test))]
+pub struct Windows<W> {
+    open: Vec<(WindowId, W)>,
+    next: WindowId,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl<W> Windows<W> {
+    pub const fn new() -> Self {
+        Windows {
+            open: Vec::new(),
+            next: WindowId::FIRST,
+        }
+    }
+
+    /// Adds a window, under a key no other window has had.
+    pub fn open(&mut self, w: W) -> WindowId {
+        let id = self.next;
+        self.next = id.after();
+        self.open.push((id, w));
+        id
+    }
+
+    /// Takes the window out of the set and hands it back, with what is
+    /// left open; `None` when it is not open, which a second close of one
+    /// window finds.
+    pub fn close(&mut self, id: WindowId) -> Option<(W, Left)> {
+        let at = self.open.iter().position(|(i, _)| *i == id)?;
+        let (_, w) = self.open.remove(at);
+        let left = match self.open.len() {
+            0 => Left::None,
+            n => Left::Others(n),
+        };
+        Some((w, left))
+    }
+
+    pub fn get(&self, id: WindowId) -> Option<&W> {
+        self.open.iter().find(|(i, _)| *i == id).map(|(_, w)| w)
+    }
+
+    pub fn get_mut(&mut self, id: WindowId) -> Option<&mut W> {
+        self.open.iter_mut().find(|(i, _)| *i == id).map(|(_, w)| w)
+    }
+}
+
+/// What a key chord asks of the windows.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Chord {
+    /// Open a new window.
+    New,
+}
+
+/// Whether Command was held alone, or with Shift, Option or Control.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Command {
+    Alone,
+    WithOthers,
+}
+
+/// **The window chord a Command key names on macOS**: Command-N alone
+/// opens a window. Command-W and Command-Q are the menu's own (`Close`
+/// and `Quit`, which AppKit performs), so they never reach the view.
+#[cfg(any(target_os = "macos", test))]
+pub fn mac_chord(characters: &str, held: Command) -> Option<Chord> {
+    match (characters, held) {
+        ("n", Command::Alone) => Some(Chord::New),
+        _ => None,
+    }
+}
+
+/// **The directory a new window starts in**: the path the window's
+/// `OSC 7` names on this machine (`title::local`), else the directory
+/// read for its title, else `None`, where a launch starts. Only an
+/// absolute path is taken: a relative one would be read against wherever
+/// the new shell is.
+pub fn inherited(
+    cwd: Option<baud_core::WorkingDirectory<'_>>,
+    hosts: &[String],
+    read: Option<&std::path::Path>,
+) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    cwd.and_then(|d| crate::title::local(d, hosts))
+        .map(|p| std::path::PathBuf::from(std::ffi::OsStr::from_bytes(p)))
+        .or_else(|| read.map(std::path::Path::to_path_buf))
+        .filter(|p| p.is_absolute())
+}
+
+/// **The variable a new window's process is started with** on Linux, so
+/// it opens as a window rather than a launch: without the launch logo,
+/// which the HIG places at the launch ("Launching begins when someone
+/// opens your app ... and ends when the first screen is ready", and a
+/// splash screen at its end, `[[source: apple-hig-launching]]`). baud's
+/// own, and kept from its shell's environment (`pty::OUTER`).
+pub const NEW_WINDOW: &str = "BAUD_NEW_WINDOW";
+
+/// How this process was started: by a launch, or as a new window of
+/// another baud (`spawn_window`).
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Started {
+    Launch,
+    Window,
+}
+
+/// [`Started`], from [`NEW_WINDOW`] in `env`.
+#[cfg(any(target_os = "linux", test))]
+pub fn started(env: Option<&std::ffi::OsStr>) -> Started {
+    match env {
+        Some(_) => Started::Window,
+        None => Started::Launch,
+    }
+}
+
+/// **A new window on Linux: a new baud**, as foot's `spawn-terminal`
+/// execs a new foot in the terminal's directory. The same executable,
+/// with the environment this one has -- so the same config -- but for
+/// `WAYLAND_SOCKET`, started in `dir` with `PWD` naming it (XBD 8's `PWD`,
+/// `[[source: posix-xbd-8]]`);
+/// its own launch rule then keeps the shell there. The child is waited
+/// for on a thread of its own, so it never stays a zombie, and its exit
+/// says nothing to this window.
+#[cfg(target_os = "linux")]
+pub fn spawn_window(dir: Option<&std::path::Path>) {
+    let exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(e) => {
+            crate::warn!("new window: this program's path cannot be read: {e}");
+            return;
+        }
+    };
+    let mut cmd = std::process::Command::new(exe);
+    // A directory that has gone since would fail the spawn, so the new
+    // window starts where a launch starts instead.
+    if let Some(d) = dir.filter(|d| d.is_dir()) {
+        cmd.current_dir(d).env("PWD", d);
+    }
+    // The socket number a compositor handed this process names nothing of
+    // the child's: libwayland unsets it once taken (`[[source:
+    // libwayland-93c04ad-client]]` 1379), and the child connects by
+    // `WAYLAND_DISPLAY`.
+    cmd.env_remove("WAYLAND_SOCKET");
+    // Told it is a window rather than a launch, so it opens without the
+    // launch logo, as a macOS window opened by Command-N does.
+    cmd.env(NEW_WINDOW, "1");
+    match cmd.spawn() {
+        Ok(mut child) => {
+            let spawned = std::thread::Builder::new()
+                .name("baud new window".into())
+                .spawn(move || {
+                    let _ = child.wait();
+                });
+            if let Err(e) = spawned {
+                crate::warn!("new window: no thread to wait for it: {e}");
+            }
+        }
+        Err(e) => crate::warn!("new window: baud did not start: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AfterClose, Chord, Command, LAST_WINDOW, LastWindow, Left, Started, Windows, after_close,
+        inherited, mac_chord, started,
+    };
+    use baud_core::{FileHost, Owned, Term, WorkingDirectory};
+    use baud_domain::{BytePos, ReadLen, Row, WinSize};
+    use std::path::{Path, PathBuf};
+
+    const WS: WinSize = WinSize {
+        ws_col: 20,
+        ws_row: 4,
+    };
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    fn first_row(t: &Term<'_>) -> String {
+        t.row(Row::from_index(0))
+            .expect("row 0")
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or(' ')
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    }
+
+    /// **Three windows, each with its own terminal, and closing one leaves
+    /// the other two as they were.** Each terminal is fed its own text
+    /// after all three are open, so a set that kept one terminal for every
+    /// window, or replaced the last, shows another window's text or none.
+    #[test]
+    fn closing_one_of_three_windows_leaves_the_other_two_their_own_terminals() {
+        let mut stores: Vec<Owned> = (0..3).map(|_| Owned::new(&WS)).collect();
+        let mut set = Windows::new();
+        let ids: Vec<_> = stores
+            .iter_mut()
+            .map(|o| set.open(Term::new(o.storage(), &WS)))
+            .collect();
+        assert!(
+            ids.iter().all(|id| set.get(*id).is_some()),
+            "three windows open"
+        );
+        for (id, text) in ids.iter().zip([&b"one"[..], b"two", b"three"]) {
+            feed(set.get_mut(*id).expect("open"), text);
+        }
+        let (closed, left) = set.close(ids[1]).expect("the second was open");
+        assert_eq!(
+            first_row(&closed),
+            "two",
+            "the closed window's own terminal"
+        );
+        assert_eq!(left, Left::Others(2));
+        assert!(set.get(ids[1]).is_none(), "closed stays closed");
+        assert_eq!(first_row(set.get(ids[0]).expect("first")), "one");
+        assert_eq!(first_row(set.get(ids[2]).expect("third")), "three");
+        assert!(set.close(ids[1]).is_none(), "a second close finds nothing");
+        let (_, left) = set.close(ids[0]).expect("first");
+        assert_eq!(left, Left::Others(1));
+        let (last, left) = set.close(ids[2]).expect("third");
+        assert_eq!(first_row(&last), "three");
+        assert_eq!(left, Left::None, "the last window's close leaves none");
+        // A window opened after the last closed gets a key no closed one
+        // had, so a late close of an old key cannot take it.
+        let mut store = Owned::new(&WS);
+        let again = set.open(Term::new(store.storage(), &WS));
+        assert!(!ids.contains(&again), "keys are not reused");
+        assert!(set.close(ids[2]).is_none());
+        assert!(set.get(again).is_some());
+        let (_, left) = set.close(again).expect("the new one");
+        assert_eq!(left, Left::None, "it was the only one open");
+    }
+
+    /// **Closing one of two windows leaves the app running, and closing
+    /// the last quits it**, the interim until the window crate offers a
+    /// way to open a window with none open (`LAST_WINDOW`). The control is
+    /// the kept path: told to stay running, the last close leaves the app
+    /// running, so the quit comes from the choice and not the close.
+    #[test]
+    fn closing_the_last_window_quits_and_closing_one_of_two_does_not() {
+        let mut stores: Vec<Owned> = (0..2).map(|_| Owned::new(&WS)).collect();
+        let mut set = Windows::new();
+        let ids: Vec<_> = stores
+            .iter_mut()
+            .map(|o| set.open(Term::new(o.storage(), &WS)))
+            .collect();
+        let (_, left) = set.close(ids[0]).expect("the first was open");
+        assert_eq!(
+            after_close(left, LAST_WINDOW),
+            AfterClose::Run,
+            "one of two closed: the other goes on"
+        );
+        let (_, left) = set.close(ids[1]).expect("the second was open");
+        assert_eq!(
+            after_close(left, LastWindow::StayRunning),
+            AfterClose::Run,
+            "the control: the kept path stays running"
+        );
+        assert_eq!(
+            after_close(left, LAST_WINDOW),
+            AfterClose::Quit,
+            "the last window closed: the app quits"
+        );
+    }
+
+    /// A process started with the new window's variable is a window; one
+    /// started without it is a launch.
+    #[test]
+    fn a_process_started_as_a_new_window_is_not_a_launch() {
+        assert_eq!(started(Some(std::ffi::OsStr::new("1"))), Started::Window);
+        assert_eq!(started(None), Started::Launch);
+    }
+
+    /// Command-N alone opens a window; with another modifier, or another
+    /// key, nothing.
+    #[test]
+    fn command_n_alone_opens_a_window() {
+        assert_eq!(mac_chord("n", Command::Alone), Some(Chord::New));
+        assert_eq!(mac_chord("n", Command::WithOthers), None);
+        assert_eq!(mac_chord("w", Command::Alone), None);
+        assert_eq!(mac_chord("N", Command::Alone), None);
+    }
+
+    /// The `OSC 7` path wins over the directory read for the title, a
+    /// report naming another host is not taken, and a relative path is
+    /// never inherited.
+    #[test]
+    fn a_new_window_inherits_the_reported_directory_then_the_read_one() {
+        let hosts = vec!["here".to_string()];
+        let local = WorkingDirectory {
+            host: FileHost::Local,
+            path: b"/srv/reported",
+        };
+        let named = WorkingDirectory {
+            host: FileHost::Named(b"HERE"),
+            path: b"/srv/named",
+        };
+        let other = WorkingDirectory {
+            host: FileHost::Named(b"elsewhere"),
+            path: b"/srv/other",
+        };
+        let read = Path::new("/srv/read");
+        assert_eq!(
+            inherited(Some(local), &hosts, Some(read)),
+            Some(PathBuf::from("/srv/reported"))
+        );
+        assert_eq!(
+            inherited(Some(named), &hosts, None),
+            Some(PathBuf::from("/srv/named"))
+        );
+        assert_eq!(
+            inherited(Some(other), &hosts, Some(read)),
+            Some(PathBuf::from("/srv/read"))
+        );
+        assert_eq!(inherited(None, &hosts, None), None);
+        assert_eq!(inherited(None, &hosts, Some(Path::new("rel"))), None);
+    }
+}

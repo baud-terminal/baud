@@ -634,10 +634,18 @@ pub fn run() {
         pressed: crate::pressed::Pressed::default(),
         composing_caret: baud_render::Caret::End,
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition)
-            .with_splash(crate::splash::splash_override(
-                std::env::var("BAUD_SPLASH").ok().as_deref(),
-                cfg.launch_splash,
-            )),
+            .with_splash(
+                match crate::windows::started(
+                    std::env::var_os(crate::windows::NEW_WINDOW).as_deref(),
+                ) {
+                    // A new window's process: not a launch, so no logo.
+                    crate::windows::Started::Window => crate::config::LaunchSplash::Off,
+                    crate::windows::Started::Launch => crate::splash::splash_override(
+                        std::env::var("BAUD_SPLASH").ok().as_deref(),
+                        cfg.launch_splash,
+                    ),
+                },
+            ),
         bus,
         theme_choice: cfg.theme,
         half,
@@ -1992,9 +2000,11 @@ impl Driver {
         }
     }
 
-    /// **A clipboard or a zoom key** (`baud_present_wayland::keys::shortcut`):
+    /// **A clipboard, zoom or window key** (`baud_present_wayland::keys::shortcut`):
     /// Ctrl+Shift+C copies the selection to the clipboard, Ctrl+Shift+V
-    /// pastes the clipboard, and Shift+Insert pastes SELECT. A copy with
+    /// pastes the clipboard, Ctrl+Shift+N opens a new window in this
+    /// one's directory (`windows::spawn_window`), and Shift+Insert pastes
+    /// SELECT. A copy with
     /// nothing selected copies nothing. Ctrl+plus and Ctrl+minus zoom a
     /// step of the configured size at a time and Ctrl+0 returns to it, as
     /// Cmd does on macOS (`zoom`).
@@ -2012,6 +2022,14 @@ impl Driver {
             Shortcut::ZoomIn => self.zoom(crate::fonts::Zoom::In),
             Shortcut::ZoomOut => self.zoom(crate::fonts::Zoom::Out),
             Shortcut::ZoomReset => self.zoom(crate::fonts::Zoom::Reset),
+            Shortcut::NewWindow => {
+                let dir = crate::windows::inherited(
+                    self.term.working_directory(),
+                    std::slice::from_ref(&self.host),
+                    self.derive.dir(),
+                );
+                crate::windows::spawn_window(dir.as_deref());
+            }
             Shortcut::Find => {
                 if self.finding.is_none() {
                     self.finding = Some(crate::find::Finding::open(&self.term, Vec::new()));

@@ -247,11 +247,105 @@ pub fn recv(sock: &UnixStream, buf: &mut [u8], fds: &mut Vec<OwnedFd>) -> io::Re
 
 /// An inherited descriptor number as an owned one: `WAYLAND_SOCKET` is the
 /// contract by which a parent hands a client a socket it owns.
+///
+/// **Close-on-exec, as libwayland makes it**: `wl_display_connect` sets
+/// `FD_CLOEXEC` on the descriptor it is handed (`[[source:
+/// libwayland-93c04ad-client]]` 1374-1378), because a parent hands it
+/// over open across its `exec` and so without the flag. Without it a
+/// program the client starts -- a new window's baud -- would hold the
+/// compositor's connection open after the client exits, and the client's
+/// window would stay on screen. A copy made close-on-exec stands in for
+/// the number handed over, which is closed: the same flag with no `fcntl`.
 pub fn inherited(raw: RawFd) -> io::Result<OwnedFd> {
     if raw < 0 {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "negative fd"));
     }
-    // SAFETY: the parent gave us this descriptor to own, and nothing else
-    // in this process holds it.
-    Ok(unsafe { OwnedFd::from_raw_fd(raw) })
+    // SAFETY: borrowed only for the copy, which `F_DUPFD_CLOEXEC` makes;
+    // a number that is not open fails it with `EBADF` and is not owned.
+    let copy = unsafe { BorrowedFd::borrow_raw(raw) }.try_clone_to_owned()?;
+    // SAFETY: the copy succeeded, so `raw` is open, and the parent gave it
+    // to this process to own: nothing else here holds it.
+    drop(unsafe { OwnedFd::from_raw_fd(raw) });
+    Ok(copy)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inherited;
+    use std::os::fd::{AsRawFd, IntoRawFd};
+    use std::os::unix::net::UnixStream;
+
+    /// What a child sees of a descriptor after its exec.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Seen {
+        Open,
+        Closed,
+    }
+
+    /// Whether `/dev/fd/<fd>` names an open descriptor in a child.
+    fn in_a_child(fd: &impl AsRawFd) -> Seen {
+        let open = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(format!("test -e /dev/fd/{}", fd.as_raw_fd()))
+            .status()
+            .expect("sh runs")
+            .success();
+        match open {
+            true => Seen::Open,
+            false => Seen::Closed,
+        }
+    }
+
+    /// **The socket a parent hands over is kept close-on-exec, and the
+    /// number it came as is closed**, so a program the client starts holds
+    /// no copy of the compositor's connection. The control is that the
+    /// child's probe sees its own standard input. `UnixStream::pair`
+    /// already hands out close-on-exec descriptors, so a version that kept
+    /// the number it was given fails here on the number alone (3 and 3):
+    /// the exec assertion checks the copy's flag, and does not reproduce a
+    /// parent-handed socket that lacks `FD_CLOEXEC`.
+    #[test]
+    fn an_inherited_socket_is_kept_close_on_exec_under_a_new_number() {
+        assert_eq!(
+            in_a_child(&std::io::stdin()),
+            Seen::Open,
+            "the control: the probe sees an open descriptor"
+        );
+        let (ours, theirs) = UnixStream::pair().expect("a socket pair");
+        // Set while both ends are open: Darwin refuses it once the peer
+        // has gone.
+        theirs
+            .set_read_timeout(Some(std::time::Duration::from_secs(60)))
+            .expect("a read timeout");
+        let raw = ours.into_raw_fd();
+        let kept = inherited(raw).expect("an open descriptor");
+        assert_ne!(kept.as_raw_fd(), raw, "a copy stands in for it");
+        assert_eq!(
+            in_a_child(&kept),
+            Seen::Closed,
+            "the copy is not open across an exec"
+        );
+        // The copy is the socket: what is written reaches the other end.
+        use std::io::{Read, Write};
+        let mut kept = UnixStream::from(kept);
+        kept.write_all(b"hi").expect("write");
+        let mut got = [0u8; 2];
+        let mut theirs = theirs;
+        theirs.read_exact(&mut got).expect("read");
+        assert_eq!(&got, b"hi");
+        // **The number handed over was closed**: with the copy dropped, the
+        // other end reads the end of the stream, which it does only once
+        // every descriptor for this end is closed. The bound turns a leaked
+        // number's hang into a failure; a pass reads at once.
+        drop(kept);
+        let mut rest = [0u8; 1];
+        assert_eq!(
+            theirs
+                .read(&mut rest)
+                .expect("the end of the stream, not a timeout"),
+            0,
+            "no copy of the handed-over number is left open"
+        );
+        assert!(inherited(-1).is_err(), "a negative number is refused");
+    }
 }
