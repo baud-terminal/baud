@@ -768,7 +768,9 @@ impl Urgent {
 /// least progress is used" (`[[source:
 /// ms-itaskbarlist3-setprogressstate]]`). Windows Terminal orders its
 /// tabs by the same state priority, keeping the first tab on a tie
-/// (`TaskbarState::Priority`, `[[source: wt-6676c6f-taskbarstate]]`).
+/// (`TerminalPage::TaskbarState`, `[[source: wt-terminalpage]]`
+/// 4244-4262; the order is `TaskbarState::Priority`, `[[source:
+/// wt-6676c6f-taskbarstate]]`).
 /// The least-progress tie-break is the taskbar's own. A window's close
 /// takes its bar with it.
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
