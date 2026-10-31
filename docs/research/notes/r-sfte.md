@@ -174,5 +174,7 @@ readings, with truecolor reds the veil's inks do not name. Under Reduce Motion t
 fade alone. The old screen is the last frame drawn before the switch,
 drawn again at the switch with its cursor, its blink glow, the cursor guide
 and the trail taken off, as sfte's pass hides the cursor (36151), and
-unslid when a switch comes in the middle of a slide; `screen_slide.rs` and
-the pixel oracle's slide tests hold it on every path.
+unslid when a switch comes in the middle of a slide; `screen_slide.rs` holds
+it on the CPU path and the pixel oracle's slide tests on both Metal paths; the
+oracle drives the cell path's rebuild through its own copy of the app's,
+which no app-level test reaches.
