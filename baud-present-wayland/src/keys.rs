@@ -64,7 +64,27 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
     let mut clean = state.clone();
     clean.update(Mods::default(), state.group());
     let own = clean.lookup(keycode).and_then(|l| l.sym.to_char());
-    let (code, typed) = match code_of(sym) {
+    // **With NumLock off a keypad key is the one it is with no modifier**:
+    // kitty's keyboard layer names a key by its clean keysym and takes the
+    // lookup's for a keypad key only while NumLock is on (`[[source:
+    // kitty-xkb-glfw-c]]`), as the protocol has a text key's code "the
+    // lower-case (or more technically, un-shifted) version of the key"
+    // (`[[source: kitty-keyboard]]`). So on a keymap whose keypad type
+    // gives Shift the digits with NumLock off, `numpad(pc)` (`[[source:
+    // xkeyboard-config-numpad-193cc6c]]`), Shift with the keypad's 4 is
+    // `KP_LEFT` with Shift and the text `4`, which the base layer sends as
+    // the digit. A modifier the protocol does not carry, consumed, keeps
+    // the lookup's, as [`key_of`] does.
+    let clean_sym = clean.sym(keycode);
+    let named = match keypad
+        && eff & (1 << 4) == 0
+        && (0xff80..=0xffbd).contains(&clean_sym.0)
+        && lookup.consumed & eff & !REPORTED == 0
+    {
+        true => clean_sym,
+        false => sym,
+    };
+    let (code, typed) = match code_of(named) {
         Some(code) => (code, None),
         None => {
             let c = state.text(keycode)?;

@@ -32601,6 +32601,23 @@ status = "external"
 group  = "H"
 # Fetched 2026-10-20 (lane b109). Lines 1-10, the key's history; 30-35, "comma". Read, not copied.
 
+[sources.xkeyboard-config-numpad-193cc6c]
+key    = "xkeyboard-config-numpad-193cc6c"
+title  = "xkeyboard-config 193cc6c, types/numpad -- the keypad types by variant; pc, the XKB protocol's KEYPAD type: \"Shift selects the digits and cancels NumLock\""
+author = "the xkeyboard-config contributors"
+year   = 2026
+venue  = "xkeyboard-config/xkeyboard-config @ 193cc6c (MIT-style)"
+url    = "https://gitlab.freedesktop.org/xkeyboard-config/xkeyboard-config/-/raw/193cc6c8f7294976bf3b247caa434e3174e6727b/types/numpad"
+file   = ""
+sha256 = "9d92a9c8f13860f8e4fed8407679d22267b983773d7c96b6d682f024fbe0dc1e"
+bytes  = 13678
+status = "external"
+group  = "H"
+# Fetched 2026-10-30. The overview table at the top gives each variant's
+# level by NumLock and Shift; numlock_only_base is the default, and pc
+# gives Shift the digits with NumLock off. Read, not copied: the test that
+# plays pc writes its KEYPAD type as the compiled keymap carries a type.
+
 [sources.xkeyboard-config-de-193cc6c]
 key    = "xkeyboard-config-de-193cc6c"
 title  = "xkeyboard-config 193cc6c, symbols/de -- the German basic layout includes kpdl(comma) (line 35)"

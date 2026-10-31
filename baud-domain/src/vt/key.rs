@@ -752,6 +752,7 @@ fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
             (KeyCode::Char(c), Some(c))
         }
         (KeyCode::Char(_), _, Some(s)) if e.mods.has(Modifiers::SHIFT) => (KeyCode::Char(s), typed),
+        (KeyCode::Keypad(k), _, _) => (KeyCode::Keypad(keypad_typed(k, typed)), typed),
         (code, _, _) => (code, typed),
     };
     let mut o = KeyBytes::new();
@@ -775,6 +776,24 @@ fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     match ok && !eight && o.fit == Fit::Whole {
         true => Some(o),
         false => None,
+    }
+}
+
+/// **A keypad navigation key that typed a character is, on this layer, the
+/// key that types it**: the digit that shares its row, and the keypad's
+/// comma for a Delete that typed `,`, the `KP_Separator` of a German
+/// keypad. A keymap whose keypad type gives Shift the digits with NumLock
+/// off, xkeyboard-config's `numpad(pc)`, the XKB protocol's own `KEYPAD`
+/// type (`[[source: xkeyboard-config-numpad-193cc6c]]`), makes Shift with
+/// the keypad's 4 type `4` on the key kitty names `KP_LEFT` (`[[source:
+/// kitty-xkb-glfw-c]]`); xterm sends the keysym the lookup gave, `KP_4`:
+/// `4` on the numeric keypad and its application row under DECKPAM. A
+/// navigation key types nothing of its own, so this is that case alone.
+fn keypad_typed(k: KeypadKey, text: Option<Codepoint>) -> KeypadKey {
+    match (k.shares_row_with(), typed(text).map(|c| c.value())) {
+        (Some(KeypadKey::Period), Some(0x2c)) => KeypadKey::Comma,
+        (Some(digit), Some(_)) => digit,
+        _ => k,
     }
 }
 

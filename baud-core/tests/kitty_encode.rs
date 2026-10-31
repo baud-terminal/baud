@@ -318,6 +318,32 @@ fn a_keypad_key_that_types_keeps_its_text_under_disambiguate() {
     );
 }
 
+/// **A keypad navigation key that typed a character is the key that types
+/// it, except to kitty**: Shift with the keypad's 4 on a keymap whose keypad
+/// type gives Shift the digits with NumLock off is `KP_LEFT` with the text
+/// `4` (`[[source: kitty-xkb-glfw-c]]`), and the base layer sends `KP_4`'s
+/// bytes, as xterm reads the keysym the lookup gave: `4` on the numeric
+/// keypad, `SS3 2 t` under DECKPAM, `4` under disambiguate alone, and
+/// `CSI 57417 ; 2 u` under "report all keys". A Delete that typed `,` is
+/// the keypad's comma there, `SS3 2 l`. The control: the navigation key
+/// that typed nothing is the left arrow.
+#[test]
+fn a_keypad_navigation_key_that_typed_is_that_key_on_the_base_layer() {
+    let typed = |k, c| KeyEvent {
+        text: Some(Codepoint::from_char(c)),
+        ..KeyEvent::press(KeyCode::Keypad(k), Modifiers::SHIFT)
+    };
+    let four = typed(KeypadKey::Left, '4');
+    assert_eq!(pressed(b"", four), b"4");
+    assert_eq!(pressed(b"\x1b=", four), b"\x1bO2t");
+    assert_eq!(pressed(b"\x1b[=1u", four), b"4");
+    assert_eq!(pressed(b"\x1b[=8u", four), b"\x1b[57417;2u");
+    assert_eq!(pressed(b"\x1b=", typed(KeypadKey::Delete, ',')), b"\x1bO2l");
+    assert_eq!(pressed(b"\x1b=", typed(KeypadKey::Delete, '.')), b"\x1bO2n");
+    let left = KeyEvent::press(KeyCode::Keypad(KeypadKey::Left), Modifiers::SHIFT);
+    assert_eq!(pressed(b"", left), b"\x1b[1;2D", "the control");
+}
+
 /// **A `Char`'s number is its unshifted codepoint, which is the whole point of
 /// modelling `KeyCode::Char` as the identity.** `[[source: kitty-keyboard]]`:
 /// "the codepoint used is always the un-shifted version"; `ctrl+shift+a` "must
