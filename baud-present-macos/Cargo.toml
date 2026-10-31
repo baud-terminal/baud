@@ -55,3 +55,8 @@ block2 = "0.6"
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-quartz-core = "0.3.2"
 objc2-core-foundation = "0.3"
+
+# `baud-core`'s NEON scan, on, for the reason `baud-render` gives.
+[features]
+default = ["neon-scan"]
+neon-scan = ["baud-core/neon-scan"]

@@ -79,18 +79,26 @@ rust-version = "1.96"
 # asks crates.io for, because `cargo package` drops the path and refuses a
 # dependency that has no version. Both move with the workspace version.
 # `scripts/check-publish.py` holds every published crate to them.
+#
+# **The three crates that carry the NEON scan as a default come without
+# it**, `baud-core`, `baud-render` and `baud-present-macos`, so a binary
+# built here names the scan it runs. Cargo turns a feature on for every
+# crate in a build when any one of them asks: with the defaults inherited
+# here, `baud-render` and `baud-present-macos` asked, and `cargo bench -p
+# baud-bench --no-default-features` ran the NEON scan it was built to
+# leave out. Published, each library keeps the scan as its own default.
 [workspace.dependencies]
 baud-domain = { path = "baud-domain", version = "1.0.0-beta.1" }
 baud-isa = { path = "baud-isa", version = "1.0.0-beta.1" }
 baud-isa-aarch64 = { path = "baud-isa-aarch64", version = "1.0.0-beta.1" }
 baud-isa-x86-64 = { path = "baud-isa-x86-64", version = "1.0.0-beta.1" }
-baud-core = { path = "baud-core", version = "1.0.0-beta.1" }
+baud-core = { path = "baud-core", version = "1.0.0-beta.1", default-features = false }
 baud-font = { path = "baud-font", version = "1.0.0-beta.1" }
-baud-render = { path = "baud-render", version = "1.0.0-beta.1" }
+baud-render = { path = "baud-render", version = "1.0.0-beta.1", default-features = false }
 baud-xkb = { path = "baud-xkb", version = "1.0.0-beta.1" }
 baud-wayland = { path = "baud-wayland", version = "1.0.0-beta.1" }
 baud-present-wayland = { path = "baud-present-wayland", version = "1.0.0-beta.1" }
-baud-present-macos = { path = "baud-present-macos", version = "1.0.0-beta.1" }
+baud-present-macos = { path = "baud-present-macos", version = "1.0.0-beta.1", default-features = false }
 
 # **The debug suite optimises the four crates its time is spent in, and
 # every dependency.** At opt-level 0 the workspace nextest took 1531 s,

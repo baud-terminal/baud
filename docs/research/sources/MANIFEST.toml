@@ -2627,6 +2627,34 @@ group  = "I"
 # forum post). It was read as arm-neon-bitmask.html, and the digest is of that
 # copy.
 
+[sources.cargo-1ef25ea-features]
+key    = "cargo-1ef25ea-features"
+title  = "The Cargo Book, reference/features.md at 1ef25ea -- \"Feature unification\": a dependency is built with the union of every feature enabled on it; --no-default-features turns off the default feature of the selected packages"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/1ef25ea3d391374fe3bed4dcbe24f0d3be3ab8f9/doc/book/src/reference/features.md"
+file   = ""
+sha256 = "7dde8d4ec8faa1ab9fc06f185d88dada09bbfa5924a05f2fd303cd620a54c9d2"
+bytes  = 22491
+status = "external"
+group  = "I"
+
+[sources.cargo-1ef25ea-specifying-dependencies]
+key    = "cargo-1ef25ea-specifying-dependencies"
+title  = "The Cargo Book, reference/specifying-dependencies.md at 1ef25ea -- \"Inheriting a dependency from a workspace\": before Rust 1.99, or in earlier editions, a package-level default-features = false may be ignored unless the workspace dependency also disables default features"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/1ef25ea3d391374fe3bed4dcbe24f0d3be3ab8f9/doc/book/src/reference/specifying-dependencies.md"
+file   = ""
+sha256 = "c59e3a7489d1f28208648a36e44698a48b695d40051b92e88b463af73a35404e"
+bytes  = 25257
+status = "external"
+group  = "I"
+# Not in the repository: read, and hashed, at the commit the publish-field
+# entry pins. The two rules note I's portable-arm section rests on.
+
 [sources.shift-dfa]
 key    = "shift-dfa"
 title  = "Shift-based DFAs"

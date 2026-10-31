@@ -54,7 +54,7 @@ cd "$(dirname "$0")/.." || exit 1
 # repo's own rule -- a budget that is not equal to the count is not
 # measuring anything -- so the floors sit at the counts and a dropped arm
 # fails here. Adding a feature means changing the number beside it.
-CRATES="baud-bench:53 baud-core:49 baud-domain:7 baud-isa:1 baud-isa-aarch64:1 baud-isa-x86-64:1 baud-font:0 baud-render:3 baud-present-macos:0 baud-app:1 baud-wayland:0 baud-xkb:0 baud-present-wayland:0"
+CRATES="baud-bench:53 baud-core:49 baud-domain:7 baud-isa:1 baud-isa-aarch64:1 baud-isa-x86-64:1 baud-font:0 baud-render:4 baud-present-macos:1 baud-app:1 baud-wayland:0 baud-xkb:0 baud-present-wayland:0"
 
 # **The control on the list itself.** Every crate carrying a `[features]`
 # block must be named above, or the gate silently checks fewer crates than
@@ -192,6 +192,20 @@ for entry in $CRATES; do
       printf '%s\n' "$out" | grep -E "^error" | head -2 | sed 's/^/      /'
     fi
   done <<<"$feats"
+  # **And the build without the defaults, where a crate has them.** It is
+  # an arm too: `--no-default-features` on `baud-bench` is the portable
+  # scan's, and it ran NEON while a crate it depends on took `baud-core`'s
+  # defaults, because cargo turns a feature on for the whole build when one
+  # crate asks. `ingest2` will not compile when the scan it is built as is
+  # not the one `baud-core` runs, so this check is where that shows.
+  if grep -q '^default[[:space:]]*=' "$manifest"; then
+    total=$((total + 1))
+    if ! out=$(RUSTFLAGS="-D warnings" cargo check --release -q --manifest-path "$manifest" --all-targets --no-default-features 2>&1); then
+      fail=1
+      echo "  BROKEN  $crate --no-default-features"
+      printf '%s\n' "$out" | grep -E "^error" | head -2 | sed 's/^/      /'
+    fi
+  fi
 done
 
 if [ "$fail" -ne 0 ]; then

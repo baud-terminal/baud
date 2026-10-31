@@ -21,6 +21,12 @@ baud-core = { workspace = true, features = ["alloc"] }
 baud-font = { workspace = true }
 
 [features]
+# **`baud-core`'s NEON scan, on**, as the core's own default build has it,
+# so a program built on this crate runs the scan the core's default runs.
+# The binaries in this workspace take this crate without its defaults and
+# name `baud-core`'s themselves, so that a bench can leave the scan out.
+default = ["neon-scan"]
+neon-scan = ["baud-core/neon-scan"]
 # The `differs` count in `Exceptions`: what the cell shader would draw
 # wrong, measured on the path that shapes every run. A memo per codepoint,
 # so the bench enables it and the app does not.

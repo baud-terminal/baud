@@ -537,3 +537,20 @@ fn timed(t: &mut Term<'_>, data: &[u8], reps: usize) -> (usize, Vec<(f64, usize)
     }
     (fed, per_rep)
 }
+
+/// **The arm this binary is built as is the scan `baud-core` runs, or it
+/// does not build.** Cargo unifies features across a build, so a crate
+/// that takes `baud-core` with its defaults turns `neon-scan` back on
+/// under `--no-default-features`, and every portable-against-NEON A/B
+/// built that way timed NEON twice. `cargo tree -e features -i baud-core`
+/// names the crate that asked.
+const _: () = match (baud_bench::SCAN_ARM, RUN_SCAN) {
+    (RunScan::Portable, RunScan::Portable)
+    | (RunScan::Neon, RunScan::Neon)
+    | (RunScan::Avx2, RunScan::Avx2) => (),
+    (_, RunScan::Neon) => panic!("baud-core runs the NEON scan, and this arm names another"),
+    (_, RunScan::Avx2) => panic!("baud-core runs the AVX2 scan, and this arm names another"),
+    (_, RunScan::Portable) => {
+        panic!("baud-core runs the portable scan, and this arm names another")
+    }
+};

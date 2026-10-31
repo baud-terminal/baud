@@ -37,15 +37,17 @@ include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 # path -- which is why `x86_64-unknown-none` still builds and still forbids
 # `unsafe`.
 #
-# **To A/B it, `--no-default-features` on `baud-bench` does not turn it off.**
-# That flag disables `baud-bench`'s own defaults, not a dependency's, and the
-# first attempt at this comparison silently rebuilt nothing and measured a
-# cached binary against itself. `baud-bench` sets `default-features = false` on
-# this crate, but `baud-render` and `baud-present-macos` take `baud-core` with
-# its defaults through the workspace dependency (`[workspace.dependencies]` in
-# the root `Cargo.toml`), so an A/B of the portable scan also sets
-# `default-features = false` on that entry, on every arm. The check that
-# catches it is one `objdump`: no `shrn` in `main` means the arm is off.
+# **To A/B it, build `baud-bench` with `--no-default-features`, and no crate
+# in that build may take this one with its defaults.** The flag disables
+# only the bench's own, and cargo turns a feature on for the whole build when
+# any crate in it asks: while `baud-render` and `baud-present-macos` took
+# this crate's defaults, that arm ran NEON. The workspace dependency now
+# comes without them and the bench takes both libraries without theirs;
+# the app and the bench's default name this crate's `default`, and the two
+# libraries make `neon-scan` their own. `ingest2` does not compile when the
+# arm it is built as is not `RUN_SCAN`, and `scripts/check-features.sh`
+# builds it so. By disassembly, baud's own functions in `ingest2` carry 12
+# `shrn.8b` and 7 `addv.8h` with the scan, and none and 19 without.
 default = ["neon-scan"]
 # `Owned`, for hosts that have an allocator. The core itself never
 # allocates; this is a convenience for callers who would otherwise have to find
@@ -127,9 +129,9 @@ cell-table = []
 # **The aarch64 run scan through `baud-isa-aarch64::Neon` instead of
 # `core::simd`.** Not a width change -- NEON is 128-bit and `LANE_COUNT` is
 # already 16. It changes the *extraction*: `to_bitmask` lowers to `addv.8h`, a
-# horizontal reduction, where `shrn` carries no serial dependency, and
-# disassembling `ingest2` puts 11 `addv.8h` in `main` where `feed` inlines and
-# zero `shrn` in baud's own code.
+# horizontal reduction, where `shrn` carries no serial dependency. Without
+# the feature, baud's own functions in `ingest2` carry 19 `addv.8h` and no
+# `shrn` (2026-10-31; 11 `addv.8h` in `main` when `feed` inlined there).
 #
 # **It is on (see the top of `[features]`), and it costs no `unsafe` here.**
 # `Scan`'s methods are `unsafe fn` for `Avx2`'s sake; on aarch64 NEON is

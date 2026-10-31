@@ -11,22 +11,26 @@ description = "PTY benchmark harness for baud-core. Linux-only."
 publish = false
 
 [dependencies]
-# **`default-features = false`, without which the scan arm is out of reach.**
-# `baud-core`'s `neon-scan` is on by default, and `cargo build -p baud-bench
-# --no-default-features` does *not* turn it off -- that flag disables this
-# crate's defaults, not a dependency's. Without this line the A/B could not be
-# run at all, and the first attempt at it silently compared a cached binary
-# against itself. It is not enough on its own, either: see `neon-scan` below.
+# **`default-features = false` so the scan arm is this crate's to pick.**
+# `cargo build -p baud-bench --no-default-features` disables this crate's
+# defaults, not a dependency's, and cargo turns a feature on for the whole
+# build when any crate in it asks. So this line alone was not enough: while
+# `baud-render` and `baud-present-macos` took `baud-core` with its defaults
+# the portable arm ran NEON, and `cargo tree -e features -i baud-core` named
+# them. Both are taken here without their own defaults, which turn the scan
+# on, and `ingest2` does not compile when the scan this crate's features
+# name (`SCAN_ARM`, in `src/lib.rs`) is not the one `baud-core` runs
+# (`RUN_SCAN`).
 baud-core = { path = "../baud-core", default-features = false, features = ["alloc"] }
 baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }
-baud-render = { path = "../baud-render", features = ["exceptions"] }
+baud-render = { path = "../baud-render", default-features = false, features = ["exceptions"] }
 libc = "0.2"
 
 # `frame_gpu` draws the same frames through Metal; the crate compiles to
 # nothing elsewhere and the bin says so.
 [target.'cfg(target_os = "macos")'.dependencies]
-baud-present-macos = { path = "../baud-present-macos" }
+baud-present-macos = { path = "../baud-present-macos", default-features = false }
 # `drag` implements the presenter's `Wake`, whose surface type is the
 # window crate's.
 macos-liquid-glass = { version = "1.0.0-beta.6", features = ["drawable"] }
@@ -43,7 +47,10 @@ baud-isa-x86-64 = { path = "../baud-isa-x86-64", features = ["std"] }
 
 
 [features]
-default = ["neon-scan"]
+# `baud-core/default` beside `neon-scan`, so a default build takes the
+# core's default build, with the features cargo resolved for it before the
+# workspace dependency stopped turning them on.
+default = ["neon-scan", "baud-core/default"]
 # Forwarded so `cargo bench -p baud-bench --features diag --bench ingest2` prints
 # the cost map. Never on for a throughput figure -- see baud-core/Cargo.toml.
 diag = ["baud-core/diag"]
@@ -87,11 +94,9 @@ probe-warm-scroll = ["baud-core/probe-warm-scroll"]
 ascii-only = ["baud-core/ascii-only"]
 cell-table = ["baud-core/cell-table"]
 # The aarch64 run scan through `baud-isa-aarch64::Neon`; see baud-core. It is in
-# `default` here so `ingest2` measures what a default `baud-core` does.
-# `--no-default-features` on `baud-bench` does not turn it off: `baud-render`
-# and `baud-present-macos` take `baud-core` with its defaults through the
-# workspace dependency, so an A/B of the portable scan also sets
-# `default-features = false` on that dependency, on every arm.
+# `default` here so `ingest2` measures what a default `baud-core` does, and
+# `--no-default-features` is the arm that turns it off: no crate this one
+# depends on turns it back on.
 neon-scan = ["baud-core/neon-scan"]
 # **The x86-64 twin, and its absence is why the AVX2 path had never been
 # timed.** Every other `baud-core` arm in this list is forwarded; this one was

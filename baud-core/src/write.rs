@@ -1014,6 +1014,40 @@ pub(crate) fn act(
     }
 }
 
+/// Which instructions this build of the crate scans text runs with.
+///
+/// **Read off the build, because the feature that picks it is not the
+/// caller's alone.** Cargo turns a feature on for every crate in a build
+/// when any one of them asks, so a bench built `--no-default-features` ran
+/// NEON while `baud-render` took this crate's defaults, and nothing said
+/// so. `ingest2` holds the arm it is built as to [`RUN_SCAN`] at compile
+/// time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunScan {
+    /// `core::simd`, sixteen bytes a step: every build without an ISA arm.
+    Portable,
+    /// `baud-isa-aarch64`'s `Neon`, for the printable and the three-byte
+    /// runs: `neon-scan` on aarch64.
+    Neon,
+    /// `baud-isa-x86-64`'s `Avx2`, for the printable run, thirty-two bytes
+    /// a step: `avx2-scan` on x86-64, in a build that targets AVX2.
+    Avx2,
+}
+
+/// The scan [`run_of_text`] is compiled to. Its three `cfg`s are the
+/// three that pick that function's arm, spelled the same.
+#[cfg(all(feature = "neon-scan", target_arch = "aarch64"))]
+pub const RUN_SCAN: RunScan = RunScan::Neon;
+/// The scan [`run_of_text`] is compiled to.
+#[cfg(all(feature = "avx2-scan", target_arch = "x86_64", target_feature = "avx2"))]
+pub const RUN_SCAN: RunScan = RunScan::Avx2;
+/// The scan [`run_of_text`] is compiled to.
+#[cfg(not(any(
+    all(feature = "neon-scan", target_arch = "aarch64"),
+    all(feature = "avx2-scan", target_arch = "x86_64", target_feature = "avx2")
+)))]
+pub const RUN_SCAN: RunScan = RunScan::Portable;
+
 /// How far the printable-ASCII run starting here reaches, within the read.
 ///
 /// One subtract and one unsigned compare over sixteen bytes, then a scalar

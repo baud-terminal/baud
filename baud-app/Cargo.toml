@@ -29,7 +29,13 @@ include = ["/src/", "/build.rs", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES
 default-run = "baud"
 
 [dependencies]
-baud-core = { workspace = true, features = ["alloc"] }
+# **`default` by name, which is `neon-scan` on aarch64.** The workspace
+# takes `baud-core`, `baud-render` and `baud-present-macos` without their
+# defaults, so the binary is the crate that says which scan runs. It names
+# the core's `default` rather than `neon-scan`, and turns on none of the
+# libraries' own, so cargo resolves the features the app had: a different
+# set is a different `-C metadata`, and the machine code moves with it.
+baud-core = { workspace = true, features = ["alloc", "default"] }
 baud-domain = { workspace = true }
 baud-font = { workspace = true }
 baud-render = { workspace = true }

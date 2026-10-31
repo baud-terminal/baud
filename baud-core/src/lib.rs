@@ -241,6 +241,9 @@ pub use term::StatusLine;
 pub use term::{ClickHow, ClickKeys, PromptClick, PromptJump, PromptLine, PromptMark};
 pub use variants::VariantsRefused;
 pub use window::{PropertiesDropped, WINDOW_QUEUE, WindowOpsRefused, WindowRequestsDropped};
+/// Which scan this build runs text through, for a harness that has to
+/// know which arm it measured.
+pub use write::{RUN_SCAN, RunScan};
 
 /// What `Owned::with_history` takes beside a depth. Re-exported so a caller
 /// that chooses its scrollback -- which `multibench` must, to hand every core

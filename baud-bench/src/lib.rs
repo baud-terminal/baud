@@ -6,9 +6,27 @@
 //! makes an `ingest2` figure a figure about the shipping layout rather than
 //! about a bench's own.
 
+use baud_core::RunScan;
 use baud_domain::CacheGeometry;
 
 pub mod flash;
+
+/// The scan this crate's own features name, by the three `cfg`s that pick
+/// `baud_core::RUN_SCAN`, read over `neon-scan` and `avx2-scan` here.
+/// `ingest2` will not build when the two differ: a feature another crate
+/// in the build turned on in `baud-core` would make the arm measure a
+/// scan it is not named for.
+#[cfg(all(feature = "neon-scan", target_arch = "aarch64"))]
+pub const SCAN_ARM: RunScan = RunScan::Neon;
+/// The scan this crate's own features name.
+#[cfg(all(feature = "avx2-scan", target_arch = "x86_64", target_feature = "avx2"))]
+pub const SCAN_ARM: RunScan = RunScan::Avx2;
+/// The scan this crate's own features name.
+#[cfg(not(any(
+    all(feature = "neon-scan", target_arch = "aarch64"),
+    all(feature = "avx2-scan", target_arch = "x86_64", target_feature = "avx2")
+)))]
+pub const SCAN_ARM: RunScan = RunScan::Portable;
 
 /// The cache hierarchy of this machine, or `UNKNOWN` where the probe cannot
 /// ask -- which still resolves to a safe pitch.
