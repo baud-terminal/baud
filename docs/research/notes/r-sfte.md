@@ -128,3 +128,51 @@ A differential is silent on everything neither side implements, and sfte's
 surface is ~27-30 CSI finals against baud's ~99 sequence rows, so the silent
 region is most of the protocol. "N of 9 agree" is a statement about that
 intersection and must not stand as a coverage claim.
+
+## The alternate-screen slide, read at source, and what it flashes
+
+Read 2026-10-30 in `sfte.h` ([[source: sfte]]). `SFTE_TERM_ANIMATE_SCREEN`
+(13474-13478, off by default) starts on `?1047`/`?1049` set (34085-34089,
+`anim_dir = 1`) and reset (34152-34156, `anim_dir = -1`). Its offsets
+(36050-36078): `progress = elapsed / SFTE_TERM_ANIM_DUR_MS` (250, 13484),
+`ease = 1 - (1 - progress)^3`, `slide = (uint32_t)(ease * height)`; set,
+the outgoing screen at `-slide` and the incoming at `height - slide`;
+reset, `slide` and `slide - height`. The passes (36084-36166) wipe to the
+background, draw the parked grid at the outgoing offset with its cursor
+hidden, then the live grid over it at the incoming offset; output arriving
+meanwhile is drawn in the live pass at once. No trail is drawn while it
+runs (38264-38268). One line moves the outgoing screen back:
+`passes[0].y_off = (int32_t)ctx->term.scroll_y_offset;` (36161), after the
+two-pass block, under `SFTE_TERM_SCROLL_SMOOTH`, which defaults to 1
+(13532-13533). As built, sfte holds the old screen still and slides the
+new one over it, and that is what baud draws.
+
+**At full contrast it flashes.** Counted by the WCAG 2.3.1 census
+([[source: wcag22]]) on CPU frames at 60 a second, over dense screens,
+as a share of the 25%-of-a-field limit on the verdict's reading:
+
+| case | 1x, 64x20 cells | 2x, 120x40 cells |
+|---|---|---|
+| one slide, box drawing, dark | 30% | 103%, fails |
+| one slide, rows in reverse video | 22% | 164%, fails |
+| one slide, code, light | 47% | 51% |
+| in and back within a second, code, light | 185%, fails | 157%, fails |
+| in and back, box drawing | 145-157%, fails | 263-274%, fails |
+| in, then back instantly or veiled, box drawing | 51-82% | 158-181%, fails |
+
+Moving text crosses each pixel several times in a quarter of a second, so
+holding the slide to one a second does not bound it. baud slides the new
+screen in under a veil in the default background at the least alpha that
+leaves none of the palette's first 16 colours, the foreground or the colour
+cube's corners a transition from the background or from one another
+(`faint_alpha` in `baud-render/src/transition.rs`: 38 of 255 kept on the
+dark theme, 12 on the light, where the sliding screen is close to
+invisible), then fades the veil off over 0.15 s. Every case above, 1x and
+2x, both themes, then counts at most one flash at a pixel and 0.0% of the
+limit; `slide_flashes.rs` in `baud-bench/tests` holds the 1x cases on both
+readings, with truecolor reds the veil's inks do not name. Under Reduce Motion the switch is the
+fade alone. The old screen is the last frame drawn before the switch,
+drawn again at the switch with its cursor, its blink glow, the cursor guide
+and the trail taken off, as sfte's pass hides the cursor (36151), and
+unslid when a switch comes in the middle of a slide; `screen_slide.rs` and
+the pixel oracle's slide tests hold it on every path.

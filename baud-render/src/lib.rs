@@ -132,5 +132,9 @@ pub use stress_data::{STRESS_SKIP_BLOCKS, STRESS_SKIP_INDEX};
 pub use trail::{
     Corners, Pt, Rect, Segment, Shape, Smear, Trail, TrailLook, coverage as quad_coverage,
 };
-pub use transition::Transition;
+pub use transition::{
+    Frame as SlideFrame, Offsets, SLIDE_S, ScreenSlide, Toward, Transition, VeilFrom,
+    compose as compose_slide, faint_alpha, offsets as slide_offsets, source as slide_source,
+    travel as slide_travel,
+};
 pub use units::{Band, Coverage, Digest, Tally};

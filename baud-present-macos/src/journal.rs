@@ -310,6 +310,21 @@ impl Journal {
         self.abandoned.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// **Lands a frame drawn into no surface** -- a screen switch's kept
+    /// frame, which nothing presents: its set is free and it no longer
+    /// counts as flying, as [`Journal::land`] has it, and it is counted
+    /// as no frame landed or shown and queues no end for a present to take.
+    pub fn land_kept(&self, tag: FrameTag) {
+        if tag.set.is_some() {
+            self.wheel.landed(tag.frame);
+        }
+        self.flying
+            .fetch_update(Ordering::Release, Ordering::Relaxed, |n| {
+                Some(n.saturating_sub(1))
+            })
+            .ok();
+    }
+
     /// Whether the unringed memory may be written now.
     ///
     /// **Asking is what a caller does immediately before reshaping**, so an
@@ -489,6 +504,57 @@ mod tests {
         j.land(tag(live, first), &epoch, quiet());
         assert_eq!(j.reshape(), Reshape::Now);
         assert_eq!(j.counts().shown, 1);
+    }
+
+    /// **A kept frame lands into no surface**: its set is free and the
+    /// reshape no longer waits on it once it lands, and it is no frame
+    /// landed or shown and queues no end, so the next present takes the
+    /// end of its own frame. The control: a frame landed after it is
+    /// counted, and its end is the one taken.
+    #[test]
+    fn a_kept_frame_lands_into_no_surface() {
+        let epoch = SwapEpoch::new();
+        let j = Journal::default();
+        let set = j.wheel().building().expect("a free set");
+        let frame = FrameGen::FIRST.next();
+        j.commit(Some(set), frame);
+        assert_eq!(j.reshape(), Reshape::Wait, "a kept frame is reading");
+        assert_eq!(j.wheel().state(set), SetState::Held);
+        j.land_kept(FrameTag {
+            frame,
+            swap: epoch.current(),
+            set: Some(set),
+        });
+        assert_eq!(
+            j.reshape(),
+            Reshape::Now,
+            "nothing is reading once it lands"
+        );
+        assert_eq!(j.wheel().state(set), SetState::Free, "and its set is free");
+        let c = j.counts();
+        assert_eq!(
+            (c.landed, c.shown, c.abandoned),
+            (0, 0, 0),
+            "a kept frame is no frame landed, shown or given back"
+        );
+        assert_eq!(j.presented_end(), None, "and queues no end");
+        let next = FrameTag {
+            frame: frame.next(),
+            swap: epoch.current(),
+            set: None,
+        };
+        j.commit(None, next.frame);
+        j.land(
+            next,
+            &epoch,
+            Landing {
+                gpu: Duration::from_micros(30),
+                ended: HostTime::of_nanos(500),
+            },
+        );
+        assert_eq!(j.counts().shown, 1);
+        assert_eq!(j.presented_end(), Some(HostTime::of_nanos(500)));
+        assert_eq!(j.reshape(), Reshape::Now);
     }
 
     #[test]

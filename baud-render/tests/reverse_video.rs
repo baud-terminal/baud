@@ -630,7 +630,7 @@ fn the_overlays_follow_the_flip_on_the_frame_it_happens() {
             lift: Px::of(0),
             strength: baud_render::Strength::Full,
         })));
-        r.set_screen_fade(Some(Transition { progress: 0.5 }));
+        r.set_screen_fade(Some(Transition::fade(0.5)));
     };
     let colours = |r: &Renderer<'_, '_>| {
         (

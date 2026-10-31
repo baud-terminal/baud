@@ -1750,11 +1750,11 @@ tests = ["baud-app/src/config.rs::reduce_motion_turns_the_default_off_and_leaves
 [[feature]]
 id = "screen-fade"
 area = "window"
-name = "A fade for full-screen programs"
-does = "An optional fade when a full-screen program opens or exits, off by default."
+name = "A slide for full-screen programs"
+does = "An optional slide when a full-screen program opens or exits, off by default: its screen rises over the shell's, and the shell's comes back down over it, faint while it moves so nothing flashes; with Reduce Motion on, a fade instead."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/config.rs::the_screen_transition_is_off_unless_asked_for", "baud-render/tests/cpu_overlays.rs::the_cpu_path_draws_the_screen_fade"]
+tests = ["baud-app/src/config.rs::the_screen_transition_is_off_unless_asked_for", "baud-render/tests/screen_slide.rs::the_incoming_screen_slides_in_over_the_outgoing_one", "baud-present-macos/tests/cells.rs::the_slide_draws_alike_on_every_arm", "baud-render/tests/cpu_overlays.rs::the_cpu_path_draws_the_screen_fade", "baud-bench/tests/slide_flashes.rs::the_slide_is_below_the_flash_thresholds"]
 
 [[feature]]
 id = "bell"
@@ -1861,7 +1861,7 @@ shipped = ["2026-10-15-fire-and-ufo-cursor-blinks", "2026-10-15-the-cursor-blink
 id = "trails"
 area = "cursor"
 name = "Trails"
-does = "When the cursor jumps it can leave a short trail of plasma, fire, lightning, ice, a flying saucer and more; typing never leaves one, the fiery ones never strobe, and a trail follows helix even when helix hides its cursor, on its text as output scrolls. Each is shown in [the cursor gallery](../cursor.md), and Linux draws every one too (Trails and fades on Linux)."
+does = "When the cursor jumps it can leave a short trail of plasma, fire, lightning, ice, a flying saucer and more; typing never leaves one, the fiery ones never strobe, and a trail follows helix even when helix hides its cursor, on its text as output scrolls. Each is shown in [the cursor gallery](../cursor.md), and Linux draws every one too (Trails and slides on Linux)."
 status = "built"
 platform = "macos"
 tests = ["baud-app/src/trail.rs::two_cells_or_fewer_from_rest_snap", "baud-app/src/config.rs::the_cursor_page_shows_every_trail", "baud-app/src/app.rs::helix_trails_on_ge_and_gg", "baud-core/tests/placed_cursor.rs::a_placed_cursor_rides_output_that_scrolls_the_screen"]
@@ -1881,11 +1881,11 @@ shipped = ["2026-10-16-the-cursor-trail-and-see-through"]
 [[feature]]
 id = "trails-linux"
 area = "cursor"
-name = "Trails and fades on Linux"
-does = "The cursor trails when it jumps -- every trail a Mac draws, the fire, the plasma and the rest, with the same pixels -- and the full-screen fade plays when a program switches screens, as on a Mac."
+name = "Trails and slides on Linux"
+does = "The cursor trails when it jumps -- every trail a Mac draws, the fire, the plasma and the rest, with the same pixels -- and the full-screen slide plays when a program switches screens, as on a Mac."
 status = "built"
 platform = "linux"
-tests = ["baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off", "baud-app/src/timed.rs::a_long_move_trails_as_the_effect_and_lands", "baud-render/tests/cpu_overlays.rs::every_trail_draws_the_same_pixels_on_every_os", "baud-app/src/timed.rs::a_switch_fades_in_only_when_the_transition_is_on", "baud-app/src/timed.rs::the_ghost_sweeps_on_a_move_and_lands"]
+tests = ["baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off", "baud-app/src/timed.rs::a_long_move_trails_as_the_effect_and_lands", "baud-render/tests/cpu_overlays.rs::every_trail_draws_the_same_pixels_on_every_os", "baud-app/src/timed.rs::a_switch_slides_in_only_when_the_transition_is_on", "baud-app/src/timed.rs::the_ghost_sweeps_on_a_move_and_lands"]
 shipped = ["F2-05"]
 
 # --- Pictures -----------------------------------------------------------------

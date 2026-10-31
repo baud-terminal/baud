@@ -237,7 +237,7 @@ fn baud_s_own_overlays_are_drawn_over_an_image() {
         ),
         (
             "the fade",
-            Box::new(|r, _| r.set_screen_fade(Some(Transition { progress: 0.25 }))),
+            Box::new(|r, _| r.set_screen_fade(Some(Transition::fade(0.25)))),
             false,
         ),
     ];

@@ -1,5 +1,5 @@
 //! **The Linux driver's timed effects**: `SGR 5` and `SGR 6` text blink,
-//! the cursor trail, the alternate screen's fade and the scrollbar's thumb,
+//! the cursor trail, the alternate screen's slide and the scrollbar's thumb,
 //! each the macOS app's and each drawn by the CPU path the driver paints
 //! with. The clock is seconds since the driver started, where the macOS
 //! app reads the display link's timestamp; the loop has no tick, so an
@@ -9,7 +9,7 @@
 //!   bring it -- the next blink flip of a rate on screen, the end of a
 //!   trail's dwell, the end of the thumb's hold -- which bounds the loop's
 //!   one wait (`deadline`);
-//! * **every frame**, for motion in flight -- a trail sweeping, the fade,
+//! * **every frame**, for motion in flight -- a trail sweeping, the slide,
 //!   the thumb fading -- which the compositor's frame events pace: the loop
 //!   owes the next frame on each turn and presents it once the last one is
 //!   done, so a frame in flight never spins the wait.
@@ -89,6 +89,9 @@ pub(crate) struct Plan {
     pub(crate) scroll: Option<Scroll>,
     pub(crate) trail: Option<TrailLook>,
     pub(crate) fade: Option<Transition>,
+    /// The alternate-screen slide, which the driver composes from the live
+    /// frame and the frame it kept at the switch.
+    pub(crate) slide: Option<baud_render::ScreenSlide>,
     pub(crate) blink: BlinkPhases,
     pub(crate) splash: Option<baud_render::SplashLook>,
 }
@@ -121,7 +124,8 @@ pub(crate) struct Timed {
     ghost: Option<Ghost>,
     last_cell: Option<(Row, Col)>,
     transition: ScreenTransition,
-    fade: Option<f64>,
+    /// The switch being animated: when it began, and how it is drawn.
+    switch: Option<(f64, crate::effects::SwitchForm)>,
     /// The scrollbar's thumb (`bar.rs`).
     pub(crate) bar: crate::bar::Bar,
     /// The launch splash (`splash.rs`): gone unless [`Timed::with_splash`]
@@ -150,7 +154,7 @@ impl Timed {
             ghost: None,
             last_cell: None,
             transition,
-            fade: None,
+            switch: None,
             bar: crate::bar::Bar::new(),
             splash: crate::splash::Splash::new(crate::config::LaunchSplash::Off),
         }
@@ -293,7 +297,7 @@ impl Timed {
         let moving = thumb
             || splash
             || self.ghost.is_some()
-            || self.fade.is_some()
+            || self.switch.is_some()
             || self.chase.owes(host) == crate::caret::Owes::Frame;
         match (owes, moving) {
             (Owes::Full, _) => Owes::Full,
@@ -325,14 +329,25 @@ impl Timed {
         self.ghost = None;
     }
 
-    /// **Another surface came up**: no trail crosses the switch, and the
-    /// new screen fades in from the background when `[screen] transition`
-    /// is on.
-    pub(crate) fn switched(&mut self, now: Instant) {
+    /// **Another surface came up**, `screen`: no trail crosses the switch,
+    /// and when `[screen] transition` is on the new screen slides in over
+    /// the frame the driver keeps now, or is veiled under reduced motion
+    /// ([`crate::effects::switch_form`]).
+    ///
+    /// Returns the form it takes, so the driver keeps its frame for a slide;
+    /// `None` with the transition off.
+    pub(crate) fn switched(
+        &mut self,
+        now: Instant,
+        screen: baud_core::Screen,
+    ) -> Option<crate::effects::SwitchForm> {
         self.snap();
-        if self.transition == ScreenTransition::On {
-            self.fade = Some(self.clock.secs(now));
+        if self.transition == ScreenTransition::Off {
+            return None;
         }
+        let form = crate::effects::switch_form(screen, self.motion);
+        self.switch = Some((self.clock.secs(now), form));
+        Some(form)
     }
 
     /// **The next frame's effects at `now`**, the macOS frame's order: the
@@ -431,25 +446,22 @@ impl Timed {
                 self.chase.frame(r, host, cell.px, cell.height)
             }
         };
-        let fade = self.fade.and_then(|start| {
-            let p = ((secs - start) / crate::effects::TRANSITION_S) as f32;
-            match p >= 1.0 {
-                // Settled: this frame draws no veil, which repaints the
-                // screen once to clear it.
-                true => None,
-                false => Some(Transition {
-                    progress: p.max(0.0),
-                }),
-            }
-        });
-        if fade.is_none() {
-            self.fade = None;
+        // The switch: settled, this frame draws no veil, which repaints the
+        // screen once to clear it, and no slide, which goes whole.
+        let switch = self
+            .switch
+            .and_then(|(start, form)| crate::effects::switch_at(start, form, secs));
+        if switch.is_none() {
+            self.switch = None;
         }
+        let slide = switch.and_then(|f| f.slide);
         let splash = self.splash.look(Some(secs), term, self.motion);
         Plan {
             scroll,
-            trail,
-            fade,
+            // No trail while the screen slides, as sfte draws none.
+            trail: trail.filter(|_| slide.is_none()),
+            fade: switch.and_then(|f| f.veil),
+            slide,
             blink: self.blink,
             splash,
         }
@@ -843,29 +855,77 @@ mod tests {
         assert!(fx.deadline(back).is_some(), "it blinks again");
     }
 
-    /// **A switch fades the new screen in when `[screen] transition` is
-    /// on, and only then**, and the fade owes frames until it settles.
+    /// **A switch slides the new screen in when `[screen] transition` is
+    /// on, and only then**, toward the screen it brought up under the faint
+    /// veil, which fades off once it has landed, a quarter of a second on;
+    /// it owes frames until that settles 0.15 s later.
     #[test]
-    fn a_switch_fades_in_only_when_the_transition_is_on() {
+    fn a_switch_slides_in_only_when_the_transition_is_on() {
         let t0 = Instant::now();
         let mut s = Owned::new(&WS);
         let mut t = Term::new(s.storage(), &WS);
         for (on, want) in [(ScreenTransition::On, true), (ScreenTransition::Off, false)] {
             let mut fx = Timed::new(t0, TrailPick::Named(CursorTrail::Off), on);
-            fx.switched(t0);
+            let _ = fx.switched(t0, baud_core::Screen::Alternate);
             let p = fx.plan(t0 + Duration::from_millis(50), &t, rect, CELL, widths());
-            assert_eq!(p.fade.is_some(), want, "{on:?}");
+            assert_eq!(
+                p.slide.map(|s| s.toward),
+                want.then_some(baud_render::Toward::Alternate),
+                "{on:?}"
+            );
+            assert_eq!(
+                p.fade,
+                want.then_some(Transition::faint(0.0)),
+                "{on:?}: the faint veil while it slides"
+            );
             assert_eq!(
                 fx.turn(t0 + Duration::from_millis(60), &mut t) == Owes::Frame,
                 want
             );
             let p = fx.plan(t0 + Duration::from_millis(200), &t, rect, CELL, widths());
-            assert_eq!(p.fade, None, "settled");
+            assert_eq!(p.slide.is_some(), want, "{on:?}: still sliding at 0.2 s");
+            let p = fx.plan(t0 + Duration::from_millis(325), &t, rect, CELL, widths());
+            assert_eq!(p.slide, None, "{on:?}: landed");
             assert_eq!(
-                fx.turn(t0 + Duration::from_millis(210), &mut t),
+                p.fade.map(|f| f.from),
+                want.then_some(baud_render::VeilFrom::Faint),
+                "{on:?}: the faint veil fading off"
+            );
+            let p = fx.plan(t0 + Duration::from_millis(410), &t, rect, CELL, widths());
+            assert_eq!((p.slide, p.fade), (None, None), "settled");
+            assert_eq!(
+                fx.turn(t0 + Duration::from_millis(420), &mut t),
                 Owes::Nothing
             );
         }
+    }
+
+    /// **Back to the primary the slide comes from above, and under reduced
+    /// motion a switch is veiled instead**, the veil settling in 0.15 s.
+    #[test]
+    fn a_switch_back_slides_down_and_reduced_motion_veils() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let t = Term::new(s.storage(), &WS);
+        let mut fx = Timed::new(t0, TrailPick::Named(CursorTrail::Off), ScreenTransition::On);
+        let _ = fx.switched(t0, baud_core::Screen::Normal);
+        let p = fx.plan(t0 + Duration::from_millis(50), &t, rect, CELL, widths());
+        assert_eq!(
+            p.slide.map(|s| s.toward),
+            Some(baud_render::Toward::Primary)
+        );
+        let _ = fx.set_motion(SystemMotion::Reduced, t0 + Duration::from_millis(500));
+        let t1 = t0 + Duration::from_millis(600);
+        let _ = fx.switched(t1, baud_core::Screen::Alternate);
+        let p = fx.plan(t1 + Duration::from_millis(50), &t, rect, CELL, widths());
+        assert_eq!(p.slide, None, "no slide under reduced motion");
+        assert_eq!(
+            p.fade.map(|f| f.from),
+            Some(baud_render::VeilFrom::Fade),
+            "the fade instead"
+        );
+        let p = fx.plan(t1 + Duration::from_millis(160), &t, rect, CELL, widths());
+        assert_eq!(p.fade, None, "the veil settled");
     }
 
     /// **A config read again switches the trail and the transition**, as
@@ -879,9 +939,9 @@ mod tests {
         let t = Term::new(s.storage(), &WS);
         let mut fx = Timed::new(t0, TrailPick::Default, ScreenTransition::Off);
         assert_eq!(fx.trail(), CursorTrail::default(), "the control: trailed");
-        fx.switched(t0);
+        let _ = fx.switched(t0, baud_core::Screen::Alternate);
         let p = fx.plan(t0 + Duration::from_millis(50), &t, rect, CELL, widths());
-        assert_eq!(p.fade, None, "the control: no fade");
+        assert_eq!(p.slide, None, "the control: no slide");
         let _ = fx.set_config(
             TrailPick::Named(CursorTrail::Off),
             ScreenTransition::On,
@@ -889,9 +949,9 @@ mod tests {
         );
         assert_eq!(fx.trail(), CursorTrail::Off);
         let t1 = t0 + Duration::from_millis(400);
-        fx.switched(t1);
+        let _ = fx.switched(t1, baud_core::Screen::Alternate);
         let p = fx.plan(t1 + Duration::from_millis(50), &t, rect, CELL, widths());
-        assert!(p.fade.is_some(), "the switch fades now");
+        assert!(p.slide.is_some(), "the switch slides now");
     }
 
     /// **The ghost sweeps on any move and lands.** The control is no move.

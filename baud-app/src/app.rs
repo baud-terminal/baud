@@ -5,7 +5,10 @@ use crate::access::{Contrast, MotionSource, motion_override, system_motion};
 use crate::bar::Took;
 use crate::bell::{Bell, Rings, Update, UpdateClock};
 use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes};
-use crate::effects::{TRANSITION_S, TrailCursor, regis_phase, text_blink, trail_cursor, window_of};
+use crate::effects::{
+    Composed, SwitchForm, TrailCursor, regis_phase, switch_at, switch_form, text_blink,
+    trail_cursor, window_of,
+};
 use crate::gesture::{
     Kind, Owner, Pressed, Selected, Shift, To, held_after, locator_input, locator_under,
     pointer_route, pointer_under, shift_overrides,
@@ -45,8 +48,8 @@ use baud_render::Place;
 use baud_render::{
     Blend, BlinkPhases, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Instance, Look,
     MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar, Scrolled,
-    Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition,
-    WalkKey, Window, gutter,
+    Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme, Trail, TrailLook, WalkKey,
+    Window, gutter,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -94,11 +97,29 @@ enum Pending {
 const SYNC_MAX: Duration = Duration::from_millis(33);
 
 /// An alternate-screen switch being animated: the display-link timestamp
-/// the fade began at. `progress` is `(now - start) / TRANSITION_S`, off the
-/// same clock as the blink and the trail.
+/// it began at, and how it is drawn ([`switch_at`]), off the same clock
+/// as the blink and the trail.
 #[derive(Clone, Copy)]
 struct TransitionState {
     start: f64,
+    form: SwitchForm,
+}
+
+/// Whether the GPU path owes a screen switch's kept frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Keep {
+    Done,
+    Owed,
+}
+
+/// What [`App::draw_kept`] left the frame it was called from to do.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum KeptDraw {
+    /// Nothing is owed, or it could not be drawn: build the frame.
+    Build,
+    /// A frame is in flight, the kept one or another: the completion wakes
+    /// the responder to build this one.
+    Wait,
 }
 
 /// A cursor move being animated: the cell the cursor left, the cell it
@@ -275,6 +296,34 @@ struct CellMemory {
     /// read, while none is.
     bidi_cells: Vec<PackedCell>,
     bidi_used: Vec<baud_domain::RowExtent>,
+    /// What the last frame was built from, besides its set's buffers and
+    /// `records` and `grounds`, which hold it until the next is built.
+    last: Option<CellBuilt>,
+}
+
+/// **What the cell path's last frame was built from**, so a screen switch
+/// can build it again with no cursor for its slide's kept frame
+/// ([`App::draw_kept`]): the set its window was copied into, each row's
+/// mark as the walk read it, how many of `records` the walk wrote and
+/// which are the trail's and the blink animation's, and the rest of its
+/// input as it was handed over.
+struct CellBuilt {
+    at: baud_present_macos::journal::SetIx,
+    cols: Cols,
+    rows: Rows,
+    used: Vec<baud_domain::RowExtent>,
+    walked: Tally,
+    moving: (usize, usize),
+    stride: baud_domain::Stride,
+    ring: Rows,
+    highlight: Option<baud_render::Highlight>,
+    composition: Option<baud_render::Composition>,
+    chrome: Tally,
+    slide: Option<Px>,
+    table: StyleStamp,
+    map_gen: baud_render::MapGeneration,
+    reach: baud_render::Reach,
+    screen: baud_present_macos::screens::ScreenGen,
 }
 
 /// The glyph map and the buffer it is built over, which cannot be told
@@ -417,6 +466,18 @@ struct App {
     /// A program's log (`?46`, `OSC 46`), written off this thread.
     hostlog: crate::hostlog::HostLog,
     frame: Vec<u32>,
+    /// The CPU path's old screen, kept at a screen switch for its slide
+    /// with its cursor hidden, and the frame each slide frame is composed
+    /// into: the frame buffer itself stays the live frame, which the
+    /// renderer paints by rows. `slid` says the surfaces hold what the
+    /// frame buffer does not -- a composed frame, or the one before its
+    /// cursor was hidden -- so the next frame goes to them whole.
+    kept_frame: Vec<u32>,
+    composed: Vec<u32>,
+    slid: Composed,
+    /// The GPU path's kept frame, owed from a screen switch until the next
+    /// frame draws it ([`App::draw_kept`]).
+    keep: Keep,
     frame_w: Px,
     frame_h: Px,
     /// The whole view in pixels: the surface the grid is centred in.
@@ -641,9 +702,9 @@ struct App {
     /// with the window visible. The plasma's pipeline is built at launch,
     /// on the GPU's own thread beside the others.
     layer_shown: Done,
-    /// Whether an alternate-screen switch fades, from `[screen] transition`,
-    /// and the fade being animated. `Some` forces a frame the way a trail
-    /// does, so an idle terminal on either screen builds nothing.
+    /// Whether an alternate-screen switch slides, from `[screen]
+    /// transition`, and the switch being animated. `Some` forces a frame the
+    /// way a trail does, so an idle terminal on either screen builds nothing.
     screen_transition: crate::config::ScreenTransition,
     transition: Option<TransitionState>,
     /// Whether output scrolls smoothly, from `[scroll] mode`, and the live
@@ -744,7 +805,7 @@ struct Boot {
     badge: crate::config::BadgeShown,
     /// `[images] animation`.
     image_animation: crate::config::ImageAnimation,
-    /// Whether an alternate-screen switch fades, from `[screen] transition`.
+    /// Whether an alternate-screen switch slides, from `[screen] transition`.
     screen_transition: crate::config::ScreenTransition,
     /// Whether output scrolls smoothly, from `[scroll] mode`.
     scroll: crate::config::ScrollMode,
@@ -1198,6 +1259,7 @@ impl App {
                         screens: Screens::new(),
                         bidi_cells: Vec::new(),
                         bidi_used: Vec::new(),
+                        last: None,
                         maps: Maps {
                             buffers: [first_map, second_map],
                             at: MapSide::FIRST,
@@ -1338,6 +1400,10 @@ impl App {
             outbox: Outbox::default(),
             hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
             frame: vec![0; slots(frame_w) * slots(frame_h)],
+            kept_frame: Vec::new(),
+            composed: Vec::new(),
+            slid: Composed::No,
+            keep: Keep::Done,
             frame_w,
             frame_h,
             view_px: (frame_w, frame_h),
@@ -1702,6 +1768,141 @@ impl App {
         }
     }
 
+    /// **Keeps the old screen for a screen switch's slide**, drawn with its
+    /// cursor hidden, as sfte draws its outgoing screen: the last frame
+    /// drawn, unslid, with what the cursor brought taken off. On the CPU
+    /// path its rows under the cursor are painted again now and the frame
+    /// buffer copied; on the instance path they are converted again now,
+    /// from the renderer's copy of them; on the GPU paths the frame is
+    /// drawn before the next one ([`App::draw_kept`]).
+    fn keep_frame(&mut self) {
+        match (
+            self.presenter.as_ref().map(Presenter::mode),
+            self.cell.is_some(),
+        ) {
+            (Some(Mode::Gpu), cells) => {
+                if !cells {
+                    self.renderer.hide_cursor(&self.term);
+                }
+                self.keep = Keep::Owed;
+            }
+            _ => {
+                let (w, h) = (self.frame_w, self.frame_h);
+                if let Some(mut target) = Target::new(&mut self.frame, w, w, h) {
+                    self.renderer.render_hidden(&self.term, &mut target);
+                }
+                self.kept_frame.clone_from(&self.frame);
+                self.slid = Composed::Yes;
+            }
+        }
+    }
+
+    /// **The kept frame a screen switch owes, drawn before anything of the
+    /// next frame is set** ([`App::keep_frame`]): the instance path's
+    /// renderer as the switch left it, or the cell path's last frame built
+    /// again from its set with no cursor, no trail, no blink animation and
+    /// no cursor guide -- the window copied into the set read as a view of
+    /// its own, walked again for the records the cursor's block swapped,
+    /// and the records after the walk's the last frame's, but the trail's
+    /// and the blink animation's. While a frame is in flight nothing is
+    /// drawn and the completion wakes the responder, as for any frame.
+    fn draw_kept(&mut self) -> KeptDraw {
+        if self.keep == Keep::Done {
+            return KeptDraw::Build;
+        }
+        let waker = self.waker;
+        let Some(p) = self.presenter.as_mut().filter(|p| p.mode() == Mode::Gpu) else {
+            self.keep = Keep::Done;
+            return KeptDraw::Build;
+        };
+        if p.in_flight() == InFlight::Busy {
+            self.owed_in_flight.bump();
+            return KeptDraw::Wait;
+        }
+        let drawn = match self.cell.as_mut() {
+            None => p.keep_frame(waker, &mut self.renderer),
+            Some(cell) => match &cell.last {
+                None => None,
+                Some(b) => {
+                    let set = b.at.0;
+                    let n = b.rows.index() * b.stride.index();
+                    let view = baud_domain::Viewport::new(
+                        &cell.copies_mem[set][..n.min(cell.copies_mem[set].len())],
+                        &b.used,
+                        b.stride,
+                        b.cols,
+                        b.rows,
+                        b.rows,
+                        RowRot::NONE,
+                    );
+                    self.renderer.set_trail(None);
+                    self.renderer.set_cursor_glow_at(None);
+                    self.renderer.place_grounds(None, None);
+                    let mut records = Vec::new();
+                    cell.exceptions.ensure(
+                        &Scene {
+                            term: &self.term,
+                            view,
+                            styles: &cell.styles_mem[set][..],
+                            cursor: None,
+                            highlight: b.highlight,
+                            map: &cell.maps.live,
+                            candidates: &cell.candidates,
+                            pan: b.slide.unwrap_or(Px::of(0)),
+                            composition: b.composition.as_ref(),
+                        },
+                        &mut self.renderer,
+                        &mut cell.overlay_mem[set][..],
+                        &mut records,
+                    );
+                    let under = cell.exceptions.under();
+                    let walked = usize::try_from(b.walked.value()).unwrap_or(usize::MAX);
+                    let (ma, mb) = b.moving;
+                    let tail = cell.records.get(walked..).unwrap_or(&[]);
+                    let (ma, mb) = (ma.saturating_sub(walked), mb.saturating_sub(walked));
+                    let moving = records.len() + ma.min(tail.len());
+                    records.extend_from_slice(&tail[..ma.min(tail.len())]);
+                    records.extend_from_slice(&tail[mb.min(tail.len())..]);
+                    let grounds = self.renderer.badge().to_vec();
+                    let input = CellInput {
+                        grid: &cell.copies[set],
+                        styles: &cell.styles[set],
+                        map: cell.maps.buffer(),
+                        stride: b.stride,
+                        rotation: RowRot::NONE,
+                        ring: b.ring,
+                        cursor: None,
+                        highlight: b.highlight,
+                        overlay: &cell.overlay[set],
+                        records: &records,
+                        grounds: &grounds,
+                        under,
+                        chrome: b.chrome,
+                        slide: b.slide,
+                        set: b.at,
+                        table: b.table,
+                        map_gen: b.map_gen,
+                        reach: b.reach,
+                        moving: (moving, moving),
+                        screen: b.screen,
+                    };
+                    p.keep_cells(waker, &mut self.renderer, &input)
+                }
+            },
+        };
+        match drawn {
+            Some(Drawn::Busy) => KeptDraw::Wait,
+            Some(Drawn::Frame(_)) => {
+                self.keep = Keep::Done;
+                KeptDraw::Wait
+            }
+            None => {
+                self.keep = Keep::Done;
+                KeptDraw::Build
+            }
+        }
+    }
+
     fn present(&mut self, screen: &DrawableView, show: Show) {
         // Row 11's ceiling arm: what an idle tick would cost if the
         // preamble below were free. Incorrect by construction -- the
@@ -1709,6 +1910,13 @@ impl App {
         // bound on the saving rather than a change.
         #[cfg(feature = "ceiling-idle-skip")]
         if self.pending == Pending::Clean {
+            return;
+        }
+        // A screen switch's kept frame, before anything below sets what the
+        // next frame draws over the renderer's state, which is still the
+        // old screen's: drawn, it is in flight, and this frame is built
+        // when it lands.
+        if self.draw_kept() == KeptDraw::Wait {
             return;
         }
         // The surface is the renderer's size, so the renderer follows the
@@ -1854,26 +2062,22 @@ impl App {
         // the slide's pan is read -- the one read the lift, the scene and the
         // shader's slide all take.
         let trail_look = look;
-        // The alternate-screen fade: a veil over the new screen ramping to
-        // nothing, advanced and cleared off `tick_target` like the trail.
-        let veil = match self.transition {
-            Some(st) => {
-                let p = ((self.tick_target - st.start) / TRANSITION_S) as f32;
-                if p >= 1.0 {
-                    // Settled: this frame draws `set_screen_fade(None)`,
-                    // which repaints the whole screen once to clear it, and
-                    // the tick stops forcing frames.
-                    self.transition = None;
-                    None
-                } else {
-                    Some(Transition {
-                        progress: p.max(0.0),
-                    })
-                }
-            }
-            None => None,
-        };
-        self.renderer.set_screen_fade(veil);
+        // The alternate-screen switch: the new screen sliding in over the
+        // old one, or the veil under Reduce Motion, advanced and cleared off
+        // `tick_target` like the trail. Settled, this frame draws neither --
+        // the veil's end repaints the screen once, the slide's goes to the
+        // surfaces whole -- and the tick stops forcing frames.
+        let switch = self
+            .transition
+            .and_then(|st| switch_at(st.start, st.form, self.tick_target));
+        if switch.is_none() {
+            self.transition = None;
+        }
+        let slide = switch.and_then(|f| f.slide);
+        self.renderer.set_screen_fade(switch.and_then(|f| f.veil));
+        if let Some(p) = self.presenter.as_mut() {
+            p.set_slide(slide);
+        }
         // The launch splash, off `tick_target` like the fade: waiting for
         // the window, emerging, held, vanishing or gone. The synchronous
         // first frame comes before the window is shown, so it draws nothing
@@ -2041,8 +2245,12 @@ impl App {
             below_grid(&self.term, &self.renderer),
         ) && pan.value() > 0;
         let lift = if sliding { pan } else { Px::of(0) };
-        self.renderer
-            .set_trail(trail_look.map(|l| l.lifted(trail_lift(self.trail_scroll, lift))));
+        // No trail while the screen slides, as sfte draws none.
+        self.renderer.set_trail(
+            trail_look
+                .filter(|_| slide.is_none())
+                .map(|l| l.lifted(trail_lift(self.trail_scroll, lift))),
+        );
         // The exit-status marks on the window shown, for every path: on the
         // cell path's slide they ride with the grid, its leaving row too.
         let leaving = match sliding {
@@ -2272,6 +2480,7 @@ impl App {
                     &mut cell.overlay_mem[set][..],
                     &mut cell.records,
                 );
+                let walked = cell.records.len();
                 // Row 9: the predicted echoes, each a masked cell and a
                 // record in the rendition of the cell to its left, on the
                 // live view only. A cell the walk above already drew a
@@ -2439,6 +2648,29 @@ impl App {
                         self.stats.convert.as_secs_f64() * 1e3
                     ));
                 }
+                // What this frame is built from, for a screen switch's kept
+                // frame (`draw_kept`).
+                let mut used = cell.last.take().map(|b| b.used).unwrap_or_default();
+                used.clear();
+                used.extend((0..view.rows().index()).map(|y| view.extent(Row::from_index(y))));
+                cell.last = Some(CellBuilt {
+                    at,
+                    cols: view.cols(),
+                    rows: view.rows(),
+                    used,
+                    walked: Tally::of(walked),
+                    moving,
+                    stride: self.term.stride(),
+                    ring: Rows::of_index(vrows + lined + noticed + usize::from(sliding)),
+                    highlight,
+                    composition: composition.clone(),
+                    chrome,
+                    slide: sliding.then_some(pan),
+                    table: cell.style_stamps[set],
+                    map_gen: cell.maps.live.generation(),
+                    reach: cell.maps.live.reach(),
+                    screen: cell.screens.now(),
+                });
                 let input = CellInput {
                     // The copy, not the core's grid: flat, in screen order,
                     // so the shader's rotation is the identity and its ring
@@ -2552,12 +2784,49 @@ impl App {
                 // only the rows it and the frames since that surface was
                 // last copied changed.
                 let painted: Vec<baud_render::Band> = self.renderer.painted().collect();
-                let changed = match damage {
-                    Damage::Full => baud_present_macos::Changed::Whole,
-                    Damage::Incremental => baud_present_macos::Changed::Bands(&painted),
+                // A sliding frame is composed from the live frame and the
+                // kept one, and it and the frame after it go whole.
+                let slid = match slide {
+                    Some(s) if self.kept_frame.len() == self.frame.len() => {
+                        self.composed.resize(self.frame.len(), 0);
+                        let o = baud_render::slide_offsets(s, h);
+                        match baud_render::compose_slide(
+                            &self.frame,
+                            &self.kept_frame,
+                            &mut self.composed,
+                            w,
+                            h,
+                            o,
+                        ) {
+                            true => Composed::Yes,
+                            false => Composed::No,
+                        }
+                    }
+                    _ => {
+                        // Settled: the two frames go, so an idle window
+                        // holds nothing for the slide.
+                        if slide.is_none() && self.transition.is_none() {
+                            self.kept_frame = Vec::new();
+                            self.composed = Vec::new();
+                        }
+                        Composed::No
+                    }
+                };
+                let changed = match (damage, slid, self.slid) {
+                    (Damage::Full, _, _) | (_, Composed::Yes, _) | (_, _, Composed::Yes) => {
+                        baud_present_macos::Changed::Whole
+                    }
+                    (Damage::Incremental, Composed::No, Composed::No) => {
+                        baud_present_macos::Changed::Bands(&painted)
+                    }
+                };
+                self.slid = slid;
+                let frame = match slid {
+                    Composed::Yes => &self.composed,
+                    Composed::No => &self.frame,
                 };
                 if let Some(p) = &mut self.presenter {
-                    if p.present_changed(screen, &self.frame, w, clear, changed) == Presented::Yes {
+                    if p.present_changed(screen, frame, w, clear, changed) == Presented::Yes {
                         shown = Presented::Yes;
                         // On the layer now, as the first frame drawn on
                         // the GPU is; no completion follows a CPU frame.
@@ -10052,11 +10321,17 @@ impl Driver {
             self.app.chase.snap();
             self.app.last_cursor_cell = None;
             self.app.trail = None;
-            // The alternate screen swapped: fade the new one in from the
-            // background, off `tick_target` the way the trail is spawned.
+            // The alternate screen swapped: slide the new one in over the
+            // old one, kept now with its cursor hidden, off `tick_target` the
+            // way the trail is spawned -- or veil it, under Reduce Motion.
             if self.app.screen_transition == crate::config::ScreenTransition::On {
+                let form = switch_form(self.app.term.screen(), self.app.motion);
+                if let SwitchForm::Slide(_) = form {
+                    self.app.keep_frame();
+                }
                 self.app.transition = Some(TransitionState {
                     start: self.app.tick_target,
+                    form,
                 });
             }
         }

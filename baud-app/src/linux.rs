@@ -25,7 +25,7 @@
 //! `SGR 5` and `SGR 6` text blink at their own rates, the cursor trail --
 //! every one the macOS app draws, the fire, the plasma and the rest of the
 //! effects included, with the pixels its CPU path draws, under the same
-//! flash cap -- the alternate screen's fade under `[screen] transition`, and the
+//! flash cap -- the alternate screen's slide under `[screen] transition`, and the
 //! scrollbar's thumb, AppKit's overlay style, with its hover, drag and jump
 //! (`bar.rs`) and `?30`. A change on the clock with no event to bring it
 //! bounds the one wait; motion in flight owes a frame on each turn, which
@@ -149,6 +149,15 @@ struct Driver {
     /// last frame, with the cells' margin filled with the default
     /// background the screen draws.
     frame: Vec<u32>,
+    /// The old screen kept at a screen switch for its slide, drawn with its
+    /// cursor hidden, and the frame each slide frame is composed into:
+    /// `frame` stays the live frame, which the renderer paints by rows.
+    /// `slid` says the window holds what `frame` does not -- a composed
+    /// frame, or the one before its cursor was hidden -- so the next frame
+    /// goes to it whole.
+    kept: Vec<u32>,
+    composed: Vec<u32>,
+    slid: crate::effects::Composed,
     /// The frame's row pitch: the window's width.
     stride: Px,
     /// The default background at the window's opacity, for the margin
@@ -590,6 +599,9 @@ pub fn run() {
         widths,
         pace: crate::reads::Pace::new(),
         frame: Vec::new(),
+        kept: Vec::new(),
+        composed: Vec::new(),
+        slid: crate::effects::Composed::No,
         stride: Px::of(0),
         margin,
         pending: Pending::Clean,
@@ -1123,7 +1135,19 @@ impl Driver {
             self.pending = Pending::Dirty;
         }
         if after.surface == crate::seat::Surface::Switched {
-            self.timed.switched(Instant::now());
+            // The old screen kept for a slide: the frame last drawn, its
+            // rows under the cursor painted again with the cursor hidden,
+            // as sfte draws its outgoing screen, unslid. The frame after
+            // goes to the window whole. Nothing is kept for no slide.
+            let form = self.timed.switched(Instant::now(), self.term.screen());
+            if let Some(crate::effects::SwitchForm::Slide(_)) = form {
+                let (w, h) = self.renderer.whole_size();
+                if let Some(mut target) = Target::new(&mut self.frame, self.stride, w, h) {
+                    self.renderer.render_hidden(&self.term, &mut target);
+                }
+                self.kept.clone_from(&self.frame);
+                self.slid = crate::effects::Composed::Yes;
+            }
         }
         if after.thumb == crate::seat::Thumb::Reveal {
             self.reveal_thumb();
@@ -2609,17 +2633,57 @@ impl Driver {
                     bottom: px(b.bottom),
                 }),
         );
-        let changed = match whole {
-            Damage::Full => Changed::Whole,
-            Damage::Incremental => Changed::Strips(&self.strips),
+        let pitch = usize::try_from(self.stride.value()).unwrap_or(0);
+        // A sliding frame: the grid's rows composed from the live frame and
+        // the kept one, the margin below them the live frame's; it and the
+        // frame after it go whole.
+        let slid = match plan.slide {
+            Some(s) if self.kept.len() == self.frame.len() => {
+                self.composed.clone_from(&self.frame);
+                let rows = usize::try_from(h.value()).unwrap_or(0);
+                let n = (pitch * rows).min(self.frame.len());
+                let o = baud_render::slide_offsets(s, h);
+                match baud_render::compose_slide(
+                    &self.frame[..n],
+                    &self.kept[..n],
+                    &mut self.composed[..n],
+                    self.stride,
+                    h,
+                    o,
+                ) {
+                    true => crate::effects::Composed::Yes,
+                    false => crate::effects::Composed::No,
+                }
+            }
+            _ => {
+                // Settled: the two frames go, so an idle window holds
+                // nothing for the slide.
+                if plan.slide.is_none() {
+                    self.kept = Vec::new();
+                    self.composed = Vec::new();
+                }
+                crate::effects::Composed::No
+            }
+        };
+        let changed = match (whole, slid, self.slid) {
+            (Damage::Full, _, _)
+            | (_, crate::effects::Composed::Yes, _)
+            | (_, _, crate::effects::Composed::Yes) => Changed::Whole,
+            (Damage::Incremental, crate::effects::Composed::No, crate::effects::Composed::No) => {
+                Changed::Strips(&self.strips)
+            }
+        };
+        self.slid = slid;
+        let shown = match slid {
+            crate::effects::Composed::Yes => &self.composed,
+            crate::effects::Composed::No => &self.frame,
         };
         // The blink rates on screen, which bound the next wait.
         self.timed
             .drawn(self.renderer.blink_seen(), self.term.regis_blink());
-        let pitch = usize::try_from(self.stride.value()).unwrap_or(0);
         if self
             .window
-            .present(&mut self.conn.sender(), &self.frame, pitch, changed)
+            .present(&mut self.conn.sender(), shown, pitch, changed)
             == Presented::Yes
         {
             startup_first("first present", &FIRST_PRESENT);

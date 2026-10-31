@@ -77,6 +77,37 @@ impl<'p> Target<'p> {
         self.pixels
     }
 
+    /// The pixels of columns `xs` and rows `ys`, row by row, each held to
+    /// the target: what [`Target::put`] writes back.
+    pub(crate) fn take(
+        &self,
+        xs: core::ops::Range<usize>,
+        ys: core::ops::Range<usize>,
+    ) -> Vec<u32> {
+        let (s, w, h) = (slots(self.stride), slots(self.width), slots(self.height));
+        let xs = xs.start.min(w)..xs.end.min(w).max(xs.start.min(w));
+        let mut out = Vec::new();
+        for y in ys.start.min(h)..ys.end.min(h) {
+            out.extend_from_slice(&self.pixels[y * s + xs.start..y * s + xs.end]);
+        }
+        out
+    }
+
+    /// Writes back what [`Target::take`] took of `xs` and `ys`.
+    pub(crate) fn put(
+        &mut self,
+        xs: core::ops::Range<usize>,
+        ys: core::ops::Range<usize>,
+        px: &[u32],
+    ) {
+        let (s, w, h) = (slots(self.stride), slots(self.width), slots(self.height));
+        let xs = xs.start.min(w)..xs.end.min(w).max(xs.start.min(w));
+        let n = xs.len();
+        for (y, row) in (ys.start.min(h)..ys.end.min(h)).zip(px.chunks_exact(n.max(1))) {
+            self.pixels[y * s + xs.start..y * s + xs.end].copy_from_slice(&row[..n]);
+        }
+    }
+
     /// **`width` columns from column `x` on, as a target of their own** over
     /// the same rows and stride: the grid beside the strip a frame keeps for
     /// the exit-status marks ([`crate::status`]). `None` past the width.

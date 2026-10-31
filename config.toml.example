@@ -326,10 +326,15 @@ unfocused_hollow = "off"
 # trail = "plasma"
 guide = "off"
 
-# Whether switching to or from the alternate screen (opening or leaving a
-# full-screen program like vim or less) fades the new screen in from the
-# background. Off by default; opt-in polish, and an idle terminal pays
-# nothing for it.
+# transition: whether opening or leaving a full-screen program like vim or
+# less slides its screen in over the one before, in a quarter of a second:
+# the program's screen rises from below as it opens, and the shell's comes
+# back down from above as it exits. The screen slides in faint and comes up
+# to full once it lands, so moving text never flashes (it stays under the
+# flash limits of the web accessibility guidelines, WCAG 2.3.1). What the
+# program draws meanwhile shows at once, sliding with it. With macOS's
+# Reduce Motion on, the new screen fades in instead. "off" by default; an
+# idle terminal pays nothing for it.
 #
 # checksum: whether a program that asks for a checksum of part of the screen
 # (DECRQCRA) gets one. Test suites such as vttest check what they drew this
@@ -407,7 +412,7 @@ guide = "off"
 # leaves full-screen programs alone. Turned on at a prompt, that prompt
 # moves down at once. "off" by default: the prompt follows the output down.
 [screen]
-transition = false
+transition = "off"
 checksum = "on"
 logging = "on"
 printing = "on"

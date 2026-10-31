@@ -2047,6 +2047,10 @@ pub struct Renderer<'f, 'a> {
     /// veil covers the whole screen and the whole screen is what changed.
     fade: Option<Veil>,
     last_fade: Option<Veil>,
+    /// The slide's faint veil ([`transition::faint_alpha`]) and the
+    /// default background it was found over, found again only when that
+    /// changes.
+    faint: Option<(Argb, Chan)>,
     fade_inst: Vec<Instance>,
     /// The cluster store's epoch when `prev` was taken. A cell naming a slot
     /// a sweep or a reset freed and another cluster took keeps its word, so
@@ -2393,6 +2397,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             flash_caps: std::collections::HashMap::new(),
             fade: None,
             last_fade: None,
+            faint: None,
             fade_inst: Vec::new(),
             last_clusters: None,
             blink: BlinkPhases::SHOWN,
@@ -4037,14 +4042,50 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// of the background. The driver hands a `progress` it computed from the
     /// display link's timestamp; this only interpolates, so the pixel oracle
     /// can compare two GPU arms on it.
+    ///
+    /// The slide's veil ([`crate::VeilFrom::Faint`]) starts from the least
+    /// alpha that leaves none of these a flash from the background or from
+    /// one another: the 16 colours the palette starts with, the default
+    /// foreground, and the corners of the colour cube.
     pub fn set_screen_fade(&mut self, fade: Option<Transition>) {
         let (w, h) = self.pixel_size();
-        self.fade = fade.map(|t| transition::veil(t, w, h));
+        let faint = match fade.map(|t| t.from) {
+            Some(crate::VeilFrom::Faint) => self.faint_veil(),
+            _ => Chan::from_u8(0),
+        };
+        self.fade = fade.map(|t| transition::veil(t, w, h, faint));
         self.fade_inst.clear();
         if let Some(v) = self.fade {
             self.fade_inst
                 .push(transition::instance(v, self.defaults.1));
         }
+    }
+
+    /// The slide's faint veil's alpha over the default background drawn
+    /// now, found when that background changes.
+    fn faint_veil(&mut self) -> Chan {
+        let ground = self.defaults.1.with_alpha(Chan::from_u8(u8::MAX));
+        if let Some((g, a)) = self.faint {
+            if g == ground {
+                return a;
+            }
+        }
+        let c = |v: u8| Chan::from_u8(v);
+        let corners = (0u8..8).map(|k| {
+            let on = |b: u8| c(if k & b != 0 { u8::MAX } else { 0 });
+            Argb::rgb(on(1), on(2), on(4))
+        });
+        let inks: Vec<Argb> = self.theme.palette[..16]
+            .iter()
+            .copied()
+            .chain([self.theme.fg, self.defaults.0])
+            .chain(corners)
+            .map(|i| i.with_alpha(c(u8::MAX)))
+            .collect();
+        let keep = transition::faint_alpha(ground, &inks);
+        let veil = c(u8::MAX - keep.get());
+        self.faint = Some((ground, veil));
+        veil
     }
 
     /// The screen fade's instances, for a path that draws records of its
@@ -6772,6 +6813,164 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// a frame with it.
     pub fn take_redraw(&mut self) -> crate::Redraw {
         core::mem::replace(&mut self.redraw, crate::Redraw::NOTHING)
+    }
+
+    /// **The last frame's rows again with no cursor**, for a screen
+    /// switch's slide, whose old screen is drawn with its cursor hidden, as
+    /// sfte's outgoing pass is: the cursor, its blink animation, the cursor
+    /// guide and the trail taken off, and every row they were drawn on
+    /// converted again from this renderer's own copy of the last frame's
+    /// cells, which is the old screen however far the terminal has moved
+    /// on since. Nothing else of that frame changes. A GPU path then draws
+    /// [`Renderer::instances`] as they stand; the CPU path paints them with
+    /// [`Renderer::render_hidden`]. The next convert takes its change
+    /// against this frame. Nothing is converted before a first frame.
+    pub fn hide_cursor(&mut self, term: &Term<'_>) -> Converted {
+        let t0 = Instant::now();
+        let rows = self.rows.index();
+        let mut exceptions = Exceptions::default();
+        if self.known != Prev::Known || self.prev.len() < rows * self.cols.index() {
+            return Converted::default();
+        }
+        // What the cursor brought, as the last frame drew it, then gone.
+        let mut was: Vec<Instance> = Vec::new();
+        was.extend_from_slice(&self.glow_inst);
+        was.extend_from_slice(&self.guide_inst);
+        was.extend_from_slice(&self.trail_inst);
+        let trail_was = self.trail;
+        let cursor_was = self.last_cursor.map(|(r, _, _)| r.index());
+        self.set_trail(None);
+        self.set_cursor_glow_at(None);
+        self.place_grounds(None, None);
+        self.reach_was.clone_from(&self.reach);
+        core::mem::swap(&mut self.prev, &mut self.cur);
+        let mut converted = Tally::default();
+        for r in 0..rows {
+            let band = self.band(Row::from_index(r));
+            let under = cursor_was == Some(r)
+                || records_meet(&was, band)
+                || trail_was.is_some_and(|d| d.overlaps(band.top, band.bottom));
+            self.dirty[r] = under;
+            self.repaint[r] = Repaint::Whole;
+            if under {
+                self.convert_row(term, Row::from_index(r), None, &mut exceptions);
+                converted.bump();
+            }
+        }
+        core::mem::swap(&mut self.prev, &mut self.cur);
+        // A converted row's glyphs that reach into another row's band are
+        // painted there too, as a convert has them.
+        let mut reached: Vec<usize> = Vec::new();
+        for q in (0..rows).filter(|&q| self.dirty[q]) {
+            for e in [self.reach_was[q], self.reach[q]] {
+                if !e.leaves(self.band(Row::from_index(q))) {
+                    continue;
+                }
+                reached.extend(
+                    (0..rows).filter(|&r| r != q && e.meets(self.band(Row::from_index(r)))),
+                );
+            }
+        }
+        for r in reached {
+            self.dirty[r] = true;
+        }
+        self.last_cursor = None;
+        self.last_glow = None;
+        self.last_guide_at = self.guide_at;
+        self.last_badge_rect = self.badge_rect;
+        self.last_trail = None;
+        self.last_trail_inst.clear();
+        self.redraw = crate::Redraw::Whole;
+        Converted {
+            rows_dirty: converted,
+            rows_partial: Tally::default(),
+            rows: Tally::of(rows),
+            convert: t0.elapsed(),
+            exceptions,
+        }
+    }
+
+    /// [`Renderer::hide_cursor`], painted into `target`, which must still
+    /// hold the last frame: the grid's columns of it, past the exit-status
+    /// strip when one is kept, as [`Renderer::render_at`] paints them, and
+    /// the images on those rows. **An image the terminal no longer holds**
+    /// -- the alternate screen's, which leaving it deletes before the
+    /// switch is seen -- cannot be blitted again, so on the rows painted it
+    /// is kept as the last frame drew it: whole over the text, which the
+    /// cursor was under, and under the text but in the cursor's cell.
+    pub fn render_hidden(&mut self, term: &Term<'_>, target: &mut Target<'_>) -> Frame {
+        let cell = self.last_cursor.map(|(r, c, _)| {
+            let (x, y, w, h) = self.cursor_px(r, c, CursorStyle::SteadyBlock);
+            let at = |p: Px| usize::try_from(p.value()).unwrap_or(usize::MAX);
+            (
+                at(x)..at(x).saturating_add(at(w)),
+                at(y)..at(y).saturating_add(at(h)),
+            )
+        });
+        let converted = self.hide_cursor(term);
+        let strip = self.strip();
+        if strip.value() == 0 {
+            return self.paint_kept(term, target, converted, cell);
+        }
+        let (w, _) = self.frame_size();
+        match target.columns(strip, w) {
+            Some(mut grid) => self.paint_kept(term, &mut grid, converted, cell),
+            None => Frame::default(),
+        }
+    }
+
+    /// [`Renderer::render_hidden`]'s paint into the grid's columns, `cell`
+    /// the cursor's cell as the last frame drew it.
+    fn paint_kept(
+        &mut self,
+        term: &Term<'_>,
+        grid: &mut Target<'_>,
+        converted: Converted,
+        cell: Option<(core::ops::Range<usize>, core::ops::Range<usize>)>,
+    ) -> Frame {
+        let at = |v: i32| usize::try_from(v.max(0)).unwrap_or(0);
+        type Piece = (core::ops::Range<usize>, core::ops::Range<usize>, Vec<u32>);
+        let (mut under_gone, mut over_gone): (Vec<Piece>, Vec<Piece>) = (Vec::new(), Vec::new());
+        for p in self
+            .image_places
+            .iter()
+            .filter(|p| term.images().image(p.id).is_none())
+        {
+            let (x, y) = (i32::from(p.x), i32::from(p.y));
+            let xs = at(x)..at(x + i32::from(p.w));
+            for r in (0..self.rows.index()).filter(|&r| self.dirty[r]) {
+                let band = self.band(Row::from_index(r));
+                let top = at(y).max(usize::try_from(band.top.value()).unwrap_or(0));
+                let bottom =
+                    at(y + i32::from(p.h)).min(usize::try_from(band.bottom.value()).unwrap_or(0));
+                if top < bottom && !xs.is_empty() {
+                    let piece = (xs.clone(), top..bottom, grid.take(xs.clone(), top..bottom));
+                    match p.layer {
+                        ImageLayer::Over => over_gone.push(piece),
+                        ImageLayer::Under | ImageLayer::Below => under_gone.push(piece),
+                    }
+                }
+            }
+        }
+        let under = self.image_places.iter().any(|p| p.layer.under_text());
+        let over = Some(term.images());
+        let frame = match under {
+            true => self.paint_rows(grid, converted, UnderImages(term.images()), over),
+            false => self.paint_rows(grid, converted, NoUnder, over),
+        };
+        if !under_gone.is_empty() {
+            let fresh = cell.map(|(xs, ys)| (xs.clone(), ys.clone(), grid.take(xs, ys)));
+            for (xs, ys, px) in under_gone {
+                grid.put(xs, ys, &px);
+            }
+            if let Some((xs, ys, px)) = fresh {
+                grid.put(xs, ys, &px);
+            }
+        }
+        for (xs, ys, px) in over_gone {
+            grid.put(xs, ys, &px);
+        }
+        frame
     }
 
     /// Paints the rows the last [`Renderer::convert`] found dirty into

@@ -37,9 +37,10 @@ use baud_render::ufo;
 use baud_render::{
     Argb, Blend, Blink, BlinkPhases, Candidate, Caret, Composition, Corners, CursorLook,
     CursorPhase, Damage, FaceRole, FaceStyle, FontSlot, GlyphMap, Highlight, Hover, Instance, Kind,
-    Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment,
-    Shape, SixelBg, Smear, SplashLook, SplashPhase, Stack, StatusMarks, StyleStamp, Tally, Target,
-    Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window, quad_coverage,
+    Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, ScreenSlide, Scroll,
+    Scroller, Segment, Shape, SixelBg, Smear, SplashLook, SplashPhase, Stack, StatusMarks,
+    StyleStamp, Tally, Target, Theme, Toward, Trail, TrailLook, Transition, VideoFlash, Widths,
+    Window, compose_slide, quad_coverage, slide_offsets,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -179,6 +180,14 @@ struct Arms<'f, 'a> {
     /// frame's change against.
     screens: Screens,
     screen: Vec<PackedCell>,
+    /// What the cell arm's last frame was built from, beyond its buffers
+    /// and `records`, as the app keeps it for a screen switch's kept frame:
+    /// how many records the walk wrote, each row's mark as it read it, the
+    /// composition it walked and the ring the copy holds.
+    walked: Tally,
+    used: Vec<baud_domain::RowExtent>,
+    walked_composition: Option<Composition>,
+    ring: Rows,
 }
 
 /// Which grid the cell arm reads ([`Arms::reads`]).
@@ -229,6 +238,106 @@ impl Arms<'_, '_> {
             "the map holds the scene's glyphs"
         );
         (a, b)
+    }
+
+    /// The size `draw` draws its targets at.
+    fn target_size(&self) -> (Px, Px) {
+        let (fw, fh) = self.renderer.whole_size();
+        (
+            Px::of(fw.value() + self.margin.0),
+            Px::of(fh.value() + self.margin.1),
+        )
+    }
+
+    /// **Keeps the old screen for a screen switch's slide on the instance
+    /// path**, as the app keeps it once the switch is read: the rows under
+    /// the cursor converted again from the renderer's copy of the last
+    /// frame, and that frame drawn whole into the GPU's kept texture.
+    fn keep_instances(&mut self, t: &Term<'_>) {
+        self.renderer.hide_cursor(t);
+        let size = self.target_size();
+        let Some(Drawn::Frame(_)) = self.gpu.draw_kept(&mut self.renderer, size, Done::Wait) else {
+            panic!("the instance arm's kept frame");
+        };
+    }
+
+    /// **Keeps the old screen on the cell path**, as `App::draw_kept`
+    /// builds it once the switch is read: the last frame's window, copied
+    /// (`Reads::Copy`), read as a view of its own over the marks the walk
+    /// read, walked again with no cursor, the records after the walk's the
+    /// last frame's but the trail's and the blink animation's, the grounds
+    /// the badge alone, and drawn whole into the GPU's kept texture.
+    fn keep_cells(&mut self, t: &Term<'_>) {
+        assert_eq!(self.reads, Reads::Copy, "the kept frame reads the copy");
+        let (cols, rows) = (self.renderer.grid().0, Rows::of_count(self.used.len()));
+        let stride = t.stride();
+        let n = rows.index() * stride.index();
+        let view = baud_domain::Viewport::new(
+            &self.copy_mem[..n],
+            &self.used,
+            stride,
+            cols,
+            rows,
+            rows,
+            RowRot::NONE,
+        );
+        self.renderer.set_trail(None);
+        self.renderer.set_cursor_glow_at(None);
+        self.renderer.place_grounds(None, None);
+        let mut records = Vec::new();
+        self.exceptions.ensure(
+            &Scene {
+                term: t,
+                view,
+                styles: self.styles_mem,
+                cursor: None,
+                highlight: self.highlight,
+                map: &self.map,
+                candidates: &self.candidates,
+                pan: self.slide.unwrap_or(Px::of(0)),
+                composition: self.walked_composition.as_ref(),
+            },
+            &mut self.renderer,
+            self.overlay_mem,
+            &mut records,
+        );
+        let under = self.exceptions.under();
+        let walked = usize::try_from(self.walked.value()).unwrap();
+        let tail = &self.records[walked..];
+        let (ma, mb) = (self.moving.0 - walked, self.moving.1 - walked);
+        let moving = records.len() + ma;
+        records.extend_from_slice(&tail[..ma]);
+        records.extend_from_slice(&tail[mb..]);
+        let grounds = self.renderer.badge().to_vec();
+        let input = CellInput {
+            set: baud_present_macos::journal::SetIx(0),
+            grid: &self.copy,
+            styles: &self.styles,
+            map: &self.map_buffer,
+            stride,
+            rotation: RowRot::NONE,
+            ring: self.ring,
+            cursor: None,
+            highlight: self.highlight,
+            overlay: &self.overlay,
+            records: &records,
+            grounds: &grounds,
+            under,
+            chrome: self.chrome,
+            slide: self.slide,
+            table: self.stamp,
+            map_gen: self.map.generation(),
+            reach: self.map.reach(),
+            moving: (moving, moving),
+            screen: self.screens.now(),
+        };
+        let size = self.target_size();
+        let Some(Drawn::Frame(_)) =
+            self.gpu
+                .draw_cells_kept(&mut self.renderer, &input, size, Done::Wait)
+        else {
+            panic!("the cell arm's kept frame");
+        };
     }
 
     /// The cell arm's frame built as the app builds it -- the styles synced,
@@ -369,6 +478,11 @@ impl Arms<'_, '_> {
             self.overlay_mem,
             &mut self.records,
         );
+        self.walked = Tally::of(self.records.len());
+        self.used.clear();
+        self.used
+            .extend((0..view.rows().index()).map(|y| view.extent(Row::from_index(y))));
+        self.walked_composition = composition.clone();
         // The predicted echoes as the app draws them on the cell path: each
         // a masked cell and a record, in the rendition of the logical cell
         // to its left.
@@ -505,6 +619,7 @@ impl Arms<'_, '_> {
             }
             Reads::Core => (&self.grid, view.rotation(), t.ring()),
         };
+        self.ring = ring;
         let input = CellInput {
             set: baud_present_macos::journal::SetIx(0),
             grid,
@@ -1304,8 +1419,343 @@ macro_rules! arms {
             margin: (0, 0),
             screens: Screens::new(),
             screen: vec![PackedCell::EMPTY; owned_stride.index() * (usize::from(WS.ws_row) + 1)],
+            walked: Tally::default(),
+            used: Vec::new(),
+            walked_composition: None,
+            ring: Rows::ZERO,
         };
     };
+}
+
+/// **The alternate-screen slide draws alike on every arm**: entering the
+/// alternate screen and leaving it, on the dark and the light theme, with
+/// the frame at the target's origin and letterboxed by an odd margin, so
+/// the frame starts half a pixel in. The two GPU arms draw the same pixels,
+/// and each draws what `compose_slide` makes of its own unslid frame of the
+/// new screen and the frame kept before the switch -- the margin from the
+/// new frame, the new screen where the slide has brought it, the kept one
+/// under the rest -- and with no margin the CPU arm's slide is theirs,
+/// pixel for pixel.
+/// The new screen is drawn under the slide's faint veil, as a driver
+/// draws it. The old screen is kept by either GPU path's own rule once the
+/// switch is read, and is that screen drawn with its cursor hidden
+/// (`?25l`), though the frame shown before the switch drew a blinking
+/// block on a letter carrying a combining mark, its glow lit, the cursor
+/// guide on its row and a trail sweeping to it.
+/// The controls: the frame shown drew the cursor, and the slid frame is
+/// neither the new screen nor the kept one.
+#[test]
+fn the_slide_draws_alike_on_every_arm() {
+    let font = |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let regular = font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&regular).unwrap()];
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    // The window's copy, as the app binds it: the alternate screen is not
+    // in the shared ring's memory.
+    arms.reads = Reads::Copy;
+    // A blinking block on the `i` that carries U+0301, on the shell's
+    // third row: a cell the cell path draws by a record.
+    let shell = b"\x1b[1 q\x1b[32muser@host\x1b[0m:~$ ls\r\nbaud-app  baud-core  \x1b[44mdocs\x1b[0m\r\n$ vi\xcc\x81m\r\n\x1b[3;4H";
+    feed(&mut t, shell);
+    let program = b"\x1b[H\x1b[2J\x1b[33m  1 \x1b[0mfn main() {}\r\n\x1b[34m~\x1b[0m\r\n\x1b[10;1H\x1b[7m main.rs \x1b[0m\x1b[1;5H";
+    let band =
+        |frame: &[u32], w: usize, top: usize, h: usize| frame[top * w..(top + h) * w].to_vec();
+    let glowing = CursorPhase {
+        glow: Chan::from_u8(160),
+        ..CursorPhase::SHOWN
+    };
+    arms.guide = Some(baud_render::GuideLook {
+        colour: baud_render::CURSOR_GUIDE,
+        line: Px::of(1),
+    });
+    arms.renderer.set_cursor_blink(glowing);
+    for (half, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+        arms.renderer.set_theme(theme);
+        for margin in [(0, 0), (7, 5)] {
+            arms.margin = margin;
+            for (keeper, way, toward, switch) in [
+                ("instances", "enter", Toward::Alternate, &b"\x1b[?1049h"[..]),
+                ("instances", "leave", Toward::Primary, &b"\x1b[?1049l"[..]),
+                ("cells", "enter", Toward::Alternate, &b"\x1b[?1049h"[..]),
+                ("cells", "leave", Toward::Primary, &b"\x1b[?1049l"[..]),
+            ] {
+                let at = format!("{half}, margin {margin:?}, {keeper}, {way}");
+                // The old screen with its cursor hidden: what is kept.
+                feed(&mut t, b"\x1b[?25l");
+                let (kept_a, kept_b) = arms.draw(&mut t);
+                assert_eq!(
+                    differing(&kept_a, &kept_b),
+                    0,
+                    "{at}: the kept frames differ"
+                );
+                let kept_cpu = cpu_frame(&mut arms, &mut t);
+                feed(&mut t, b"\x1b[?25h");
+                // The frame shown before the switch, with the cursor, its
+                // glow, the guide and a trail.
+                let (row, col) = t.cursor();
+                arms.trail = Some(TrailLook::Ghost(Trail {
+                    from: (
+                        Row::from_index(row.index().saturating_sub(2)),
+                        Col::at_index(0),
+                    ),
+                    to: (row, col),
+                    progress: 0.4,
+                    origin_dy: 0.0,
+                    lift: Px::of(0),
+                    strength: baud_render::Strength::Full,
+                }));
+                let (shown_a, shown_b) = arms.draw(&mut t);
+                assert_eq!(
+                    differing(&shown_a, &shown_b),
+                    0,
+                    "{at}: the frames shown differ"
+                );
+                assert!(
+                    differing(&shown_a, &kept_a) > 0,
+                    "{at}: the frame shown draws the cursor"
+                );
+                feed(&mut t, switch);
+                if toward == Toward::Alternate {
+                    feed(&mut t, program);
+                }
+                match keeper {
+                    "instances" => arms.keep_instances(&t),
+                    _ => arms.keep_cells(&t),
+                }
+                // The new screen under the slide's faint veil, as a driver
+                // draws it while it slides, with no trail.
+                arms.trail = None;
+                arms.fade = Some(Transition::faint(0.0));
+                let (live_a, live_b) = arms.draw(&mut t);
+                assert_eq!(
+                    differing(&live_a, &live_b),
+                    0,
+                    "{at}: the new frames differ"
+                );
+                let live_cpu = cpu_frame(&mut arms, &mut t);
+                let (fw, fh) = arms.renderer.whole_size();
+                let (w, h) = (
+                    usize::try_from(fw.value() + margin.0).unwrap(),
+                    usize::try_from(fh.value() + margin.1).unwrap(),
+                );
+                let rows = usize::try_from(fh.value()).unwrap();
+                let top = (h - rows) / 2;
+                for p in [0.0, 0.3, 0.75] {
+                    let at = format!("{at} at {p}");
+                    let slide = ScreenSlide {
+                        progress: p,
+                        toward,
+                    };
+                    arms.gpu.set_slide(Some(slide));
+                    let (a, b) = arms.draw(&mut t);
+                    assert_eq!(differing(&a, &b), 0, "{at}: the GPU arms disagree");
+                    let o = slide_offsets(slide, fh);
+                    let mut want = live_a.clone();
+                    let mut mid = vec![0u32; w * rows];
+                    assert!(compose_slide(
+                        &band(&live_a, w, top, rows),
+                        &band(&kept_a, w, top, rows),
+                        &mut mid,
+                        Px::of(u32::try_from(w).unwrap()),
+                        fh,
+                        o,
+                    ));
+                    want[top * w..(top + rows) * w].copy_from_slice(&mid);
+                    assert_eq!(differing(&a, &want), 0, "{at}: not the slide of its frames");
+                    assert!(
+                        differing(&a, &live_a) > 0,
+                        "{at}: the slide drew the new frame"
+                    );
+                    // At the start the new screen is wholly below or above.
+                    assert_eq!(
+                        differing(&a, &kept_a) > 0,
+                        p > 0.0,
+                        "{at}: the kept frame, against the start"
+                    );
+                    if margin == (0, 0) {
+                        let fwu = usize::try_from(fw.value()).unwrap();
+                        let mut cpu = vec![0u32; fwu * rows];
+                        assert!(compose_slide(&live_cpu, &kept_cpu, &mut cpu, fw, fh, o));
+                        assert_eq!(differing(&cpu, &a), 0, "{at}: the CPU arm's slide differs");
+                    }
+                }
+                arms.gpu.set_slide(None);
+                arms.fade = None;
+            }
+        }
+    }
+}
+
+/// **A switch while the screen slides keeps the screen unslid**, as sfte's
+/// outgoing pass draws its parked screen at rest: into the alternate
+/// screen, a frame of the slide drawn, and then out of it before the slide
+/// is over. The screen kept is the alternate's, whole and in place with its
+/// cursor hidden, the Sixel on its cursor's row that leaving deleted
+/// included -- the CPU arm's `?25l` frame of it, which a frame of the
+/// slide at its start shows on either GPU path's keeping.
+#[test]
+fn a_switch_while_the_screen_slides_keeps_it_unslid() {
+    let font = |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let regular = font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&regular).unwrap()];
+    for keeper in ["instances", "cells"] {
+        let renderer = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap();
+        arms!(renderer => arms, t);
+        arms.reads = Reads::Copy;
+        let keep = |arms: &mut Arms<'_, '_>, t: &Term<'_>| match keeper {
+            "instances" => arms.keep_instances(t),
+            _ => arms.keep_cells(t),
+        };
+        feed(
+            &mut t,
+            b"user@host:~/src$ ls\r\nbaud-app  baud-core  baud-render  docs\r\n$ vim main.rs\r\n",
+        );
+        let _ = arms.draw(&mut t);
+        // The program's screen, a Sixel beside the cursor's row: leaving
+        // deletes it before the switch is seen.
+        let mut program =
+            b"\x1b[?1049h\x1b[33m  1 \x1b[0mfn main() { println!(\"hello\"); }\r\n\x1b[34m~\x1b[0m\x1b[1;34H"
+                .to_vec();
+        program.extend_from_slice(b"\x1bP0;1;0q\"1;1;24;36#1;2;90;10;10");
+        program.extend_from_slice("#1!24~-".repeat(6).as_bytes());
+        program.extend_from_slice(b"\x1b\\\x1b[1;5H");
+        feed(&mut t, &program);
+        keep(&mut arms, &t);
+        // The alternate screen with its cursor hidden, on the CPU arm.
+        feed(&mut t, b"\x1b[?25l");
+        let want = cpu_frame(&mut arms, &mut t);
+        let red = |frame: &[u32]| {
+            frame
+                .iter()
+                .filter(|&&p| {
+                    let [_, r, g, b] = p.to_be_bytes();
+                    r > 200 && g < 60 && b < 60
+                })
+                .count()
+        };
+        assert!(red(&want) > 0, "{keeper}: the Sixel is drawn");
+        feed(&mut t, b"\x1b[?25h");
+        // A frame of the slide in, drawn with the cursor: the last frame
+        // shown before the switch out.
+        arms.gpu.set_slide(Some(ScreenSlide {
+            progress: 0.3,
+            toward: Toward::Alternate,
+        }));
+        let (slid, _) = arms.draw(&mut t);
+        assert!(differing(&slid, &want) > 0, "{keeper}: the frame slid");
+        feed(&mut t, b"\x1b[?1049l");
+        keep(&mut arms, &t);
+        arms.gpu.set_slide(Some(ScreenSlide {
+            progress: 0.0,
+            toward: Toward::Primary,
+        }));
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(differing(&a, &b), 0, "{keeper}: the GPU arms disagree");
+        assert_eq!(
+            differing(&a, &want),
+            0,
+            "{keeper}: the screen kept is not the alternate's, in place, with no cursor"
+        );
+        arms.gpu.set_slide(None);
+    }
+}
+
+/// **No surface keeps a slid frame once the slide is over**: three targets
+/// rotated as the presenter's surfaces are, on both GPU paths, the frame
+/// before the switch drawn, the old screen kept, three frames of the slide, then the
+/// screen still for a turn of the surfaces and one more -- each frame after
+/// the slide read back against the new screen drawn whole. A surface whose
+/// last frame was slid must be drawn whole when it comes round, though
+/// nothing on the screen changed since.
+#[test]
+fn no_surface_keeps_a_slid_frame() {
+    let files = partial_faces();
+    let faces = files.each_ref().map(|f| Face::parse(f).unwrap());
+    for path in ["instances", "cells"] {
+        let renderer = partial_renderer(&faces);
+        arms!(renderer => arms, t);
+        arms.reads = Reads::Copy;
+        let size = arms.renderer.whole_size();
+        let n = usize::try_from(size.0.value() * size.1.value()).unwrap();
+        let whole = arms.gpu.offscreen(size.0, size.1).expect("target");
+        let mut rot = Rotation::new(&arms.gpu, size);
+        feed(&mut t, b"$ ls\r\nbaud-app  baud-core  docs\r\n$ vim\r\n");
+        // One frame into the rotation, drawn as `path` draws it.
+        let frame = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, rot: &mut Rotation| -> Vec<u32> {
+            let missing = rot.ages.missing(rot.next);
+            let f = match path {
+                "instances" => {
+                    arms.renderer.set_images(t, arms.back);
+                    arms.renderer.convert(t, arms.back, Damage::Incremental);
+                    arms.gpu
+                        .draw_since(&mut arms.renderer, rot.target(), Done::Wait, missing)
+                }
+                _ => arms.with_cells(t, |gpu, renderer, input| {
+                    gpu.draw_cells_since(renderer, input, rot.target(), Done::Wait, missing)
+                }),
+            };
+            let Some(Drawn::Frame(f)) = f else {
+                panic!("{path}: a frame");
+            };
+            let mut p = vec![0u32; n];
+            arms.gpu.read(rot.target(), &mut p).expect("read");
+            rot.drew(&f, Counted::No);
+            p
+        };
+        for _ in 0..SURFACES {
+            let _ = frame(&mut arms, &mut t, &mut rot);
+        }
+        feed(
+            &mut t,
+            b"\x1b[?1049h\x1b[H\x1b[2J  1 fn main() {}\r\n~\r\n~",
+        );
+        // The old screen kept as the path keeps it once the switch is read.
+        match path {
+            "instances" => arms.keep_instances(&t),
+            _ => arms.keep_cells(&t),
+        }
+        // The new screen, whole and unslid: the slide is set but not begun.
+        arms.renderer.convert(&t, arms.back, Damage::Full);
+        let Some(Drawn::Frame(_)) = arms.gpu.draw(&mut arms.renderer, &whole, Done::Wait) else {
+            panic!("draw");
+        };
+        let mut settled = vec![0u32; n];
+        arms.gpu.read(&whole, &mut settled).expect("read");
+        for p in [0.2, 0.5, 0.8] {
+            arms.gpu.set_slide(Some(ScreenSlide {
+                progress: p,
+                toward: Toward::Alternate,
+            }));
+            let slid = frame(&mut arms, &mut t, &mut rot);
+            assert!(differing(&slid, &settled) > 0, "{path} at {p}: slid");
+        }
+        arms.gpu.set_slide(None);
+        for k in 0..=SURFACES {
+            let p = frame(&mut arms, &mut t, &mut rot);
+            assert_eq!(
+                differing(&p, &settled),
+                0,
+                "{path}: frame {k} after the slide shows a slid frame"
+            );
+        }
+    }
 }
 
 /// **The launch splash draws alike on every arm** (note AJ): the lockup
@@ -3083,7 +3533,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // by both arms as one translucent solid over everything, and a change to
     // the pixels against the unveiled frame it was drawn over.
     let (unveiled, _) = arms.draw(&mut t);
-    arms.fade = Some(Transition { progress: 0.5 });
+    arms.fade = Some(Transition::fade(0.5));
     let (fade_a, fade_b) = arms.draw(&mut t);
     assert_eq!(
         differing(&fade_a, &fade_b),
@@ -3110,7 +3560,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&rev_a, &unveiled) > 0,
         "reverse video reached the pixels"
     );
-    arms.fade = Some(Transition { progress: 0.5 });
+    arms.fade = Some(Transition::fade(0.5));
     let (rev_fade_a, rev_fade_b) = arms.draw(&mut t);
     assert_eq!(
         differing(&rev_fade_a, &rev_fade_b),
@@ -3822,7 +4272,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         );
         assert!(bar_px(&a) == bar_px(bare), "{what} is drawn over the image");
     }
-    arms.fade = Some(Transition { progress: 0.5 });
+    arms.fade = Some(Transition::fade(0.5));
     let (a, b) = arms.draw(&mut t);
     arms.fade = None;
     assert_eq!(

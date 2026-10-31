@@ -569,6 +569,74 @@ impl Presenter {
         })
     }
 
+    /// **A screen switch's old screen, kept for its slide**, on the GPU
+    /// path: the renderer's frame drawn with its cursor hidden into a
+    /// texture of the targets' size ([`Gpu::draw_kept`]), and no surface,
+    /// so nothing is shown; the completion wakes the responder through the
+    /// view's waker to draw the frame after it. `None` on the CPU path,
+    /// which keeps its own frame buffer, or when a resource could not be
+    /// made; [`Drawn::Busy`] while a frame is in flight.
+    pub fn keep_frame<W: Wake>(
+        &mut self,
+        waker: W,
+        renderer: &mut Renderer<'_, '_>,
+    ) -> Option<Drawn> {
+        self.keep_with(waker, None, |gpu, size, done| {
+            gpu.draw_kept(renderer, size, done)
+        })
+    }
+
+    /// [`Presenter::keep_frame`] on the cell path: `input` the last frame,
+    /// built again with no cursor ([`Gpu::draw_cells_kept`]), its set held
+    /// until the GPU has read it.
+    pub fn keep_cells<W: Wake>(
+        &mut self,
+        waker: W,
+        renderer: &mut Renderer<'_, '_>,
+        input: &CellInput<'_>,
+    ) -> Option<Drawn> {
+        self.keep_with(waker, Some(input.set), |gpu, size, done| {
+            gpu.draw_cells_kept(renderer, input, size, done)
+        })
+    }
+
+    /// A kept frame tagged and drawn with `draw` at the targets' size: its
+    /// set held until it lands, and given back if it never will, as a
+    /// surface's frame is, but presented nowhere and counted as no frame
+    /// shown ([`Journal::land_kept`]).
+    fn keep_with<W: Wake>(
+        &mut self,
+        waker: W,
+        set: Option<SetIx>,
+        draw: impl FnOnce(&mut Gpu, (Px, Px), Done) -> Option<Drawn>,
+    ) -> Option<Drawn> {
+        let tag = self.tag(set);
+        let journal = Arc::clone(&self.journal);
+        let done = Done::Notify(Arc::new(move |_| {
+            journal.land_kept(tag);
+            waker.wake();
+        }));
+        let drawn = match &mut self.draw {
+            Draw::Gpu { gpu, targets } => targets
+                .first()
+                .map(Target::size)
+                .and_then(|size| draw(gpu, size, done)),
+            Draw::Cpu => None,
+        };
+        if !matches!(drawn, Some(Drawn::Frame(_))) {
+            self.journal.abandon(tag);
+        }
+        drawn
+    }
+
+    /// Where a screen switch's slide is for the next GPU frame, or none,
+    /// which ends it ([`Gpu::set_slide`]).
+    pub fn set_slide(&mut self, at: Option<baud_render::ScreenSlide>) {
+        if let Draw::Gpu { gpu, .. } = &mut self.draw {
+            gpu.set_slide(at);
+        }
+    }
+
     /// **Builds `effect`'s pipeline now** on the GPU path
     /// ([`Gpu::warm_effect`]); the CPU path has none to build.
     pub fn warm_effect(&mut self, effect: baud_render::effect::Effect) -> bool {

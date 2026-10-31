@@ -334,7 +334,8 @@ pub struct Config {
     /// (note AZ).
     pub unfocused_cursor: baud_render::CursorLook,
     /// `[screen] transition`: whether a switch to or from the alternate
-    /// screen fades the new one in from the background. Off by default.
+    /// screen slides the new one in over the old (veils it, under Reduce
+    /// Motion). Off by default.
     pub screen_transition: ScreenTransition,
     /// `[screen] exit_status`: whether each command's exit status, which a
     /// shell's prompt marks report (`OSC 133 ; D`), is shown as a mark in a
@@ -864,9 +865,9 @@ pub enum BellStyle {
     Nothing,
 }
 
-/// Whether switching to or from the alternate screen fades the new screen
-/// in from the background. Off by default, like the trail; a two-state enum
-/// for the reason `CursorTrail` is.
+/// Whether switching to or from the alternate screen slides the new screen
+/// in over the old one (veils it, under Reduce Motion). Off by default, as
+/// sfte's is; a two-state enum for the reason `CursorTrail` is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum ScreenTransition {
     #[default]
@@ -1635,13 +1636,15 @@ impl Config {
                     };
                 }
                 ("screen", "transition") => {
-                    self.screen_transition = match value.trim() {
-                        "true" => ScreenTransition::On,
-                        "false" => ScreenTransition::Off,
+                    // "on" and "off", as every switch here; true and false
+                    // as the setting was first spelled.
+                    self.screen_transition = match value.trim().trim_matches('"') {
+                        "on" | "true" => ScreenTransition::On,
+                        "off" | "false" => ScreenTransition::Off,
                         other => {
                             said.push(format!(
-                                "config: [screen] transition {other:?} is not true or false; \
-                                 using false"
+                                "config: [screen] transition {other:?} is not \"on\" or \"off\"; \
+                                 using \"off\""
                             ));
                             ScreenTransition::Off
                         }
@@ -4230,11 +4233,20 @@ mod reader {
         assert_eq!(read("shape = \"bar\"\n").cursor_shape, CursorShape::Block);
     }
 
-    /// The screen transition is off unless `[screen] transition = true`, and
-    /// a value that is neither leaves it off with a warning.
+    /// The screen transition is off unless `[screen] transition = "on"`
+    /// (or `true`, its first spelling), and a value that is neither leaves
+    /// it off with a warning.
     #[test]
     fn the_screen_transition_is_off_unless_asked_for() {
         assert_eq!(Config::defaults().screen_transition, ScreenTransition::Off);
+        assert_eq!(
+            read("[screen]\ntransition = \"on\"\n").screen_transition,
+            ScreenTransition::On
+        );
+        assert_eq!(
+            read("[screen]\ntransition = \"off\"\n").screen_transition,
+            ScreenTransition::Off
+        );
         assert_eq!(
             read("[screen]\ntransition = true\n").screen_transition,
             ScreenTransition::On
@@ -5617,7 +5629,7 @@ shadow     = "never"
         );
         assert!(
             text.contains(
-                "\n[screen]\ntransition = false\nchecksum = \"on\"\nlogging = \"on\"\nprinting = \"on\"\n"
+                "\n[screen]\ntransition = \"off\"\nchecksum = \"on\"\nlogging = \"on\"\nprinting = \"on\"\n"
             ),
             "the [screen] checksum, logging and printing"
         );

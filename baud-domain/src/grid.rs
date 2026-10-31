@@ -520,6 +520,13 @@ impl<'a> Viewport<'a> {
         self.used[self.phys(y.index())].rendition()
     }
 
+    /// Screen row `y`'s mark whole -- its extent, wrap, rendition, path and
+    /// paragraph -- for a reader that keeps a copy of the rows it read and
+    /// reads that copy again as a view of its own.
+    pub fn extent(&self, y: Row) -> RowExtent {
+        self.used[self.phys(y.index())]
+    }
+
     /// Screen row `y` at the full pitch, which is what an index at the pitch
     /// addresses.
     fn pitch_row(&self, y: usize) -> &'a [PackedCell] {

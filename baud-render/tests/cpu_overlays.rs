@@ -173,7 +173,7 @@ fn the_cpu_path_draws_the_screen_fade() {
         r.set_screen_fade(None);
         paint(&mut r, t, &mut bare, Damage::Full);
         let mut veiled = vec![0u32; width * height];
-        r.set_screen_fade(Some(Transition { progress: 0.25 }));
+        r.set_screen_fade(Some(Transition::fade(0.25)));
         paint(&mut r, t, &mut veiled, Damage::Full);
         // The veil is the default background, so over a default cell it
         // changes nothing: what it changes is the ink. Row 0's text and the

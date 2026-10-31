@@ -77,12 +77,13 @@ use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
 use objc2_io_surface::{IOSurface, IOSurfaceRef};
 use objc2_metal::{
-    MTLBlendFactor, MTLBuffer, MTLClearColor, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue,
-    MTLCreateSystemDefaultDevice, MTLDevice, MTLLibrary, MTLLoadAction, MTLOrigin, MTLPixelFormat,
-    MTLPrimitiveType, MTLRegion, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
-    MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSamplerDescriptor,
-    MTLSamplerMinMagFilter, MTLSamplerState, MTLScissorRect, MTLSize, MTLStorageMode,
-    MTLStoreAction, MTLTexture, MTLTextureDescriptor, MTLTextureUsage, MTLViewport,
+    MTLBlendFactor, MTLBlitCommandEncoder, MTLBuffer, MTLClearColor, MTLCommandBuffer,
+    MTLCommandEncoder, MTLCommandQueue, MTLCreateSystemDefaultDevice, MTLDevice, MTLLibrary,
+    MTLLoadAction, MTLOrigin, MTLPixelFormat, MTLPrimitiveType, MTLRegion, MTLRenderCommandEncoder,
+    MTLRenderPassDescriptor, MTLRenderPipelineDescriptor, MTLRenderPipelineState,
+    MTLResourceOptions, MTLSamplerDescriptor, MTLSamplerMinMagFilter, MTLSamplerState,
+    MTLScissorRect, MTLSize, MTLStorageMode, MTLStoreAction, MTLTexture, MTLTextureDescriptor,
+    MTLTextureUsage, MTLViewport,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -694,6 +695,35 @@ pub struct Gpu {
     /// The rectangle every scissor of the pass being encoded is held to:
     /// the band of rows a partial frame draws, or none.
     clip: Option<MTLScissorRect>,
+    /// **The alternate-screen slide** ([`baud_render::ScreenSlide`]): the
+    /// old screen kept at the switch, and while it slides, where a frame
+    /// is drawn before the two are composed into the target.
+    slide: Option<Sliding>,
+    /// **The frame after a slide goes whole**: the surface the last slid
+    /// frame went to holds the composition, not the frame its age says,
+    /// so the change it is redrawn by when it comes round must be the
+    /// whole, though nothing on the screen moved. So does the frame after
+    /// a kept one, whose change the renderer takes against the kept frame.
+    settle: Settle,
+}
+
+/// Whether the next frame is the first after a slide ended.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Settle {
+    No,
+    Owed,
+}
+
+/// A screen switch's two frames on the GPU: `kept`, the old screen drawn
+/// whole with its cursor hidden ([`Gpu::draw_kept`]), and `scratch`,
+/// which each frame of the slide is drawn into whole and then copied from
+/// at the slide's offset, the kept frame under it -- the rows
+/// [`baud_render::compose_slide`] copies on the CPU path, as two blits.
+struct Sliding {
+    kept: Texture,
+    scratch: Texture,
+    size: (Px, Px),
+    at: Option<baud_render::ScreenSlide>,
 }
 
 /// The last frame committed, as [`Gpu::draw_since`] or
@@ -1133,6 +1163,8 @@ impl Gpu {
             build,
             last: Last::None,
             clip: None,
+            slide: None,
+            settle: Settle::No,
         })
     }
 
@@ -1805,6 +1837,200 @@ impl Gpu {
         }
     }
 
+    /// **The target a screen switch's kept frame is drawn into**: the
+    /// slide's two textures at `size`, the targets' size -- made, or the
+    /// last slide's kept when they are that size -- and none sliding yet.
+    /// `None` when a texture could not be made.
+    fn kept_target(&mut self, size: (Px, Px)) -> Option<Target> {
+        let reuse = self.slide.take().filter(|s| s.size == size);
+        let (kept, scratch) = match reuse {
+            Some(s) => (s.kept, s.scratch),
+            None => (
+                texture(
+                    &self.device,
+                    MTLPixelFormat::BGRA8Unorm,
+                    size.0,
+                    size.1,
+                    MTLTextureUsage::RenderTarget,
+                )?,
+                texture(
+                    &self.device,
+                    MTLPixelFormat::BGRA8Unorm,
+                    size.0,
+                    size.1,
+                    MTLTextureUsage::RenderTarget,
+                )?,
+            ),
+        };
+        let target = Target {
+            texture: kept.clone(),
+            width: size.0,
+            height: size.1,
+        };
+        self.slide = Some(Sliding {
+            kept,
+            scratch,
+            size,
+            at: None,
+        });
+        Some(target)
+    }
+
+    /// **A screen switch's old screen, kept for its slide**: the
+    /// renderer's frame drawn whole into a texture of its own at `size`,
+    /// the targets' size, after [`Renderer::hide_cursor`] took its cursor
+    /// off, as sfte draws its outgoing screen. The surface the next frame
+    /// goes to is then drawn whole: the renderer's change is taken against
+    /// this frame, which no surface holds. [`Drawn::Busy`] while a frame
+    /// is in flight; `None` when a resource could not be made.
+    pub fn draw_kept(
+        &mut self,
+        renderer: &mut Renderer<'_, '_>,
+        size: (Px, Px),
+        done: Done,
+    ) -> Option<Drawn> {
+        if self.in_flight() == InFlight::Busy {
+            return Some(Drawn::Busy);
+        }
+        let target = self.kept_target(size)?;
+        let drawn = self.draw_since(renderer, &target, done, Redraw::Whole);
+        self.settle = Settle::Owed;
+        drawn
+    }
+
+    /// [`Gpu::draw_kept`] on the cell path: `input` is the last frame's,
+    /// built again with no cursor, no trail, no blink animation and no
+    /// cursor guide.
+    pub fn draw_cells_kept(
+        &mut self,
+        renderer: &mut Renderer<'_, '_>,
+        input: &CellInput<'_>,
+        size: (Px, Px),
+        done: Done,
+    ) -> Option<Drawn> {
+        if self.in_flight() == InFlight::Busy {
+            return Some(Drawn::Busy);
+        }
+        let target = self.kept_target(size)?;
+        let drawn = self.draw_cells_since(renderer, input, &target, done, Redraw::Whole);
+        self.settle = Settle::Owed;
+        drawn
+    }
+
+    /// **Where the slide is for the next frame**, or none: `None` ends it
+    /// and lets the two textures go. A slide with no kept frame, or one
+    /// kept at another size, draws as no slide.
+    pub fn set_slide(&mut self, at: Option<baud_render::ScreenSlide>) {
+        match at {
+            None => {
+                if self.slide.as_ref().is_some_and(|s| s.at.is_some()) {
+                    self.settle = Settle::Owed;
+                }
+                self.slide = None;
+            }
+            Some(at) => {
+                if let Some(s) = self.slide.as_mut() {
+                    s.at = Some(at);
+                }
+            }
+        }
+    }
+
+    /// The slide drawing into a target of `size`: one under way, with its
+    /// frame kept at that size.
+    fn slide_at(&self, size: (Px, Px)) -> Option<(&Sliding, baud_render::ScreenSlide)> {
+        let s = self.slide.as_ref().filter(|s| s.size == size)?;
+        Some((s, s.at?))
+    }
+
+    /// A frame's change while it slides, and the first after it: the
+    /// whole, since every row moves, and then every row moves back.
+    fn sliding(&mut self, changed: Redraw) -> Redraw {
+        let settle = core::mem::replace(&mut self.settle, Settle::No);
+        match (self.slide.as_ref().and_then(|s| s.at), settle) {
+            (Some(_), _) | (None, Settle::Owed) => Redraw::Whole,
+            (None, Settle::No) => changed,
+        }
+    }
+
+    /// The scratch target a sliding frame is drawn into before it is
+    /// composed into `target`, or none when it does not slide.
+    fn scratch_for(&self, target: &Target) -> Option<Target> {
+        let (s, _) = self.slide_at(target.size())?;
+        Some(Target {
+            texture: s.scratch.clone(),
+            width: target.width,
+            height: target.height,
+        })
+    }
+
+    /// **A sliding frame composed into `target`**: the margin above and
+    /// below the frame, `h` rows tall and centred as [`letterbox`] centres
+    /// it, from the scratch, and each row of the frame from the scratch at
+    /// the slide's offset where it lies, else from the kept frame --
+    /// [`baud_render::slide_source`], the rule the CPU path copies by. Every
+    /// copy is whole rows, so the left and right margins come with them.
+    fn compose_slide(&self, cmd: &ProtocolObject<dyn MTLCommandBuffer>, target: &Target, h: Px) {
+        let Some((s, at)) = self.slide_at(target.size()) else {
+            return;
+        };
+        let (tw, th) = (slots(target.width), slots(target.height));
+        let h = slots(h).min(th);
+        let top = (th - h) / 2;
+        let o = baud_render::slide_offsets(at, Px::of(u32::try_from(h).unwrap_or(0)));
+        let rows = Px::of(u32::try_from(h).unwrap_or(0));
+        // Runs of frame rows that read one texture at one offset.
+        let mut bands: Vec<(usize, usize, &Texture, usize)> = Vec::new();
+        for y in (0..rows.value()).map(Px::of) {
+            let Some((frame, r)) = baud_render::slide_source(o, y, rows) else {
+                continue;
+            };
+            let from = match frame {
+                baud_render::SlideFrame::Incoming => &s.scratch,
+                baud_render::SlideFrame::Outgoing => &s.kept,
+            };
+            let (y, r) = (slots(y), slots(r));
+            match bands.last_mut() {
+                Some((dst, n, tex, src))
+                    if core::ptr::eq(*tex, from) && *dst + *n == y && *src + *n == r =>
+                {
+                    *n += 1;
+                }
+                _ => bands.push((y, 1, from, r)),
+            }
+        }
+        let Some(blit) = cmd.blitCommandEncoder() else {
+            return;
+        };
+        let copy = |from: &Texture, src: usize, dst: usize, n: usize| {
+            if n == 0 {
+                return;
+            }
+            // SAFETY: both textures are the target's size and the rows
+            // `src..src + n` and `dst..dst + n` are inside it; Metal
+            // retains what an encoded copy names until the buffer completes.
+            unsafe {
+                blit.copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toTexture_destinationSlice_destinationLevel_destinationOrigin(
+                    from,
+                    0,
+                    0,
+                    MTLOrigin { x: 0, y: src, z: 0 },
+                    MTLSize { width: tw, height: n, depth: 1 },
+                    &target.texture,
+                    0,
+                    0,
+                    MTLOrigin { x: 0, y: dst, z: 0 },
+                );
+            }
+        };
+        copy(&s.scratch, 0, 0, top);
+        copy(&s.scratch, top + h, top + h, th - top - h);
+        for (dst, n, from, src) in bands {
+            copy(from, top + src, top + dst, n);
+        }
+        blit.endEncoding();
+    }
+
     /// A pass over `target`, cleared to `clear` -- the terminal's own
     /// background, so the margin around the grid is the same colour as a
     /// default cell rather than a see-through edge -- with the rasteriser
@@ -2027,6 +2253,7 @@ impl Gpu {
             }
             _ => Redraw::Whole,
         };
+        let changed = self.sliding(changed);
         let drawn = missing.union(changed);
         let clips: Vec<Option<MTLScissorRect>> = match drawn {
             Redraw::Whole => vec![None],
@@ -2036,7 +2263,9 @@ impl Gpu {
                 .collect(),
         };
         let upload_time = t0.elapsed();
-        let (cmd, enc) = self.encoder(target, clear, viewport, &drawn)?;
+        let scratch = self.scratch_for(target);
+        let (cmd, enc) =
+            self.encoder(scratch.as_ref().unwrap_or(target), clear, viewport, &drawn)?;
         let ubytes = NonNull::from(&uniforms).cast::<c_void>();
         let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
         for clip in clips {
@@ -2138,6 +2367,7 @@ impl Gpu {
         }
         self.clip = None;
         enc.endEncoding();
+        self.compose_slide(&cmd, target, renderer.whole_size().1);
         let (submit, gpu) = self.commit(&cmd, done);
         self.last = Last::Instances(key);
         renderer.take_redraw();
@@ -2434,6 +2664,7 @@ impl Gpu {
             },
             _ => Redraw::Whole,
         };
+        let changed = self.sliding(changed);
         let drawn = missing.union(changed);
         // **What the shape pass draws**: every cell's slots while a slot of
         // the table carries a decoration; else the cursor's slot alone when
@@ -2473,7 +2704,9 @@ impl Gpu {
                 .collect(),
         };
         let upload_time = t0.elapsed();
-        let (cmd, enc) = self.encoder(target, clear, viewport, &drawn)?;
+        let scratch = self.scratch_for(target);
+        let (cmd, enc) =
+            self.encoder(scratch.as_ref().unwrap_or(target), clear, viewport, &drawn)?;
         let ubytes = NonNull::from(&uniforms).cast::<c_void>();
         let ulen = core::mem::size_of::<CellUniforms>();
         // SAFETY: as in `draw` -- `uniforms` outlives the encoder and Metal
@@ -2753,6 +2986,7 @@ impl Gpu {
         }
         self.clip = None;
         enc.endEncoding();
+        self.compose_slide(&cmd, target, renderer.whole_size().1);
         let (submit, gpu) = self.commit(&cmd, done);
         // What the next frame is compared with: this one, its buffers kept
         // where a frame alike leaves them as they are.

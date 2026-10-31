@@ -172,9 +172,78 @@ pub(crate) fn regis_phase(slow: Blink) -> RegisPhase {
     }
 }
 
-/// How long the alternate-screen fade takes to reveal the new screen,
-/// seconds. Only paid on a screen switch when the transition is on.
+/// How long the alternate-screen veil takes to reveal the new screen,
+/// seconds: the switch's form under Reduce Motion. Only paid on a screen
+/// switch when the transition is on.
 pub(crate) const TRANSITION_S: f64 = 0.15;
+
+/// **How a screen switch is drawn**: the new screen sliding in over the
+/// old one toward the screen it brought up, or, under Reduce Motion, the
+/// veil -- a dissolve in place of the motion.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum SwitchForm {
+    Slide(baud_render::Toward),
+    Veil,
+}
+
+/// The form a switch to `screen` takes under `motion`.
+pub(crate) fn switch_form(
+    screen: baud_core::Screen,
+    motion: crate::config::SystemMotion,
+) -> SwitchForm {
+    match motion {
+        crate::config::SystemMotion::Reduced => SwitchForm::Veil,
+        crate::config::SystemMotion::Full => SwitchForm::Slide(match screen {
+            baud_core::Screen::Alternate => baud_render::Toward::Alternate,
+            baud_core::Screen::Normal => baud_render::Toward::Primary,
+        }),
+    }
+}
+
+/// **A switch's frame at `secs`** on the display link's clock, or `None`
+/// once it has settled. The slide: for [`baud_render::SLIDE_S`] the new
+/// screen slides in under the faint veil, and then the veil fades off over
+/// [`TRANSITION_S`]. The veil alone, under Reduce Motion: the fade over
+/// [`TRANSITION_S`].
+pub(crate) fn switch_at(start: f64, form: SwitchForm, secs: f64) -> Option<SwitchFrame> {
+    let t = (secs - start).max(0.0);
+    let slide_s = f64::from(baud_render::SLIDE_S);
+    match form {
+        SwitchForm::Slide(toward) if t < slide_s => Some(SwitchFrame {
+            slide: Some(baud_render::ScreenSlide {
+                progress: (t / slide_s) as f32,
+                toward,
+            }),
+            veil: Some(baud_render::Transition::faint(0.0)),
+        }),
+        SwitchForm::Slide(_) if t < slide_s + TRANSITION_S => Some(SwitchFrame {
+            slide: None,
+            veil: Some(baud_render::Transition::faint(
+                ((t - slide_s) / TRANSITION_S) as f32,
+            )),
+        }),
+        SwitchForm::Veil if t < TRANSITION_S => Some(SwitchFrame {
+            slide: None,
+            veil: Some(baud_render::Transition::fade((t / TRANSITION_S) as f32)),
+        }),
+        SwitchForm::Slide(_) | SwitchForm::Veil => None,
+    }
+}
+
+/// Whether a CPU frame was composed from a slide's two frames.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Composed {
+    No,
+    Yes,
+}
+
+/// A switch's frame: where the slide is, if it is still sliding, and the
+/// veil over the new screen.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct SwitchFrame {
+    pub(crate) slide: Option<baud_render::ScreenSlide>,
+    pub(crate) veil: Option<baud_render::Transition>,
+}
 
 /// Where the window sits in the ring, for the scrollback's thumb: the
 /// core's window as drawn (`Term::window_back`), which is the live screen on

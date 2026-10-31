@@ -194,6 +194,13 @@ fn over(ink: [Chan; 3], ground: [Chan; 3], a: f32) -> [Chan; 3] {
     ]
 }
 
+/// `ink` drawn at alpha `a` over the opaque `ground` as a frame blends it
+/// ([`over`]), opaque.
+pub(crate) fn over_ground(ink: Argb, ground: Argb, a: f32) -> Argb {
+    let [r, g, b] = over(rgb(ink), rgb(ground), a);
+    Argb::rgb(r, g, b)
+}
+
 fn rgb(c: Argb) -> [Chan; 3] {
     [c.r(), c.g(), c.b()]
 }
