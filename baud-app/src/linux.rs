@@ -485,6 +485,7 @@ pub fn run() {
     term.set_sixel_claim(cfg.sixel);
     crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
     crate::host::set_checksum(&mut term, cfg.checksum);
+    crate::host::set_up(&mut term, cfg.set_up);
     crate::host::set_substitute(&mut term, cfg.substitute);
     crate::host::set_prompt_at_bottom(&mut term, cfg.prompt_at_bottom);
     crate::host::set_window_ops(&mut term, cfg.window_ops);
@@ -1754,6 +1755,7 @@ impl Driver {
                     // rows in the core with no output to draw them.
                     self.damage = Damage::Full;
                 }
+                Part::Keyboard => self.term.change_set_up(c.set_up),
                 Part::Bell => self.bell_style = c.bell,
                 Part::Emoji => {
                     self.renderer.set_emoji_default(c.emoji);

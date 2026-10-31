@@ -66,6 +66,9 @@ pub enum Part {
     /// `[window] operations`, `[pointer] hide_while_typing`,
     /// `[font] changes` and `[clipboard] osc52`.
     TermOptions,
+    /// `[keyboard]`: the Set-up modes, each whose value changed taking it
+    /// in the running terminal now (`Term::change_set_up`).
+    Keyboard,
     Bell,
     Emoji,
     /// `[screen] notifications`.
@@ -117,6 +120,7 @@ impl Part {
             | Part::CursorGuide
             | Part::ImageAnimation
             | Part::TermOptions
+            | Part::Keyboard
             | Part::Bell
             | Part::Emoji
             | Part::Notifications
@@ -154,6 +158,7 @@ impl Part {
             Part::CursorGuide => "[cursor] guide",
             Part::ImageAnimation => "[images] animation",
             Part::TermOptions => "the terminal's options",
+            Part::Keyboard => "[keyboard]",
             Part::Bell => "bell",
             Part::Emoji => "emoji",
             Part::Notifications => "[screen] notifications",
@@ -238,6 +243,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         badge,
         wrap_words,
         cursor_guide,
+        set_up,
     } = new;
     let same = |old: &[crate::config::FaceSpec], new: &[crate::config::FaceSpec]| {
         old.len() == new.len()
@@ -307,6 +313,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
             || old.clipboard.osc52 != clipboard.osc52,
         Part::TermOptions,
     );
+    part(old.set_up != *set_up, Part::Keyboard);
     part(old.bell != *bell, Part::Bell);
     part(old.emoji != *emoji, Part::Emoji);
     part(old.notifications != *notifications, Part::Notifications);
@@ -507,6 +514,13 @@ mod tests {
             ("[window]\noperations = \"off\"\n", Part::TermOptions),
             ("[font]\nchanges = \"off\"\n", Part::TermOptions),
             ("[clipboard]\nosc52 = \"off\"\n", Part::TermOptions),
+            ("[keyboard]\nauto_repeat = \"off\"\n", Part::Keyboard),
+            (
+                "[keyboard]\napplication_cursor_keys = \"on\"\n",
+                Part::Keyboard,
+            ),
+            ("[keyboard]\napplication_keypad = \"on\"\n", Part::Keyboard),
+            ("[keyboard]\nnew_line = \"on\"\n", Part::Keyboard),
             ("bell = \"flash\"\n", Part::Bell),
             ("emoji = \"system\"\n", Part::Emoji),
             ("[screen]\nnotifications = \"off\"\n", Part::Notifications),

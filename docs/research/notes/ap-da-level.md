@@ -228,14 +228,16 @@ that list, so the row is `implemented` at Level 1.
 | 54 | Level 1 is 7-bit | §3.6.4.1: "Level 1 operation is 7-bits only". §3.7.5.1, p. 3-67 (PDF 172): "The high order bit of all 8-bit characters received will be stripped by the terminal before any processing occurs. All C1 controls will be transmitted by the terminal as ESC Fe sequences" | baud reads UTF-8 by default and ISO 8859-1 under `ESC % @`, and S8C1T makes it send 8-bit C1. No operation strips the eighth bit. Whether UTF-8 is inside 070-3 at all is note AE's premise P | missing |
 | 55 | Level 1 keys | 070-6 §6.2.1 a, p. 6-16 (PDF 503): "Shall implement all keys indicated in Level 1 Operation" | the main keys, cursor keys, numeric keypad and PF1-PF4 (`encode_key`) | implemented |
 | 56 | No other keys | §6.2.1 b and c: "Shall neither implement additional keys nor make operative keys that are not part of Level 1 Operation"; "Shall make inoperative all keys that are part of Level 2 operation only". §6.2.4, p. 6-19 (PDF 506): E1-E6, F6-F10 and F14-F20 "inoperative"; F11 sends ESC, F12 BS and F13 LF | `encode_key` sends the editing keypad (`CSI 2 ~` for Insert, and so on) and F1-F20 in their tilde forms. No mode restricts them | missing |
-| 57 | The four modes as Set-up features | §6.2.1 d: DECARM, DECCKM, DECKPAM/DECKPNM and LNM "for receipt from software application processes and as a local Set-up feature" | from the host, rows 20-24. `config.toml.example` has no key for any of the four | missing |
+| 57 | The four modes as Set-up features | §6.2.1 d: DECARM, DECCKM, DECKPAM/DECKPNM and LNM "for receipt from software application processes and as a local Set-up feature" | from the host, rows 20-24, and since 2026-10-30 as `[keyboard]` in `config.toml.example`: `auto_repeat`, `application_cursor_keys` and `new_line` are the power-up and `RIS` state, the three 070-4's Device Initialization lets the user store; `application_keypad` switches the keypad when it changes and is not kept, as the VT420's Set-up marks its keypad field "not saved". A change of any acts in the open windows at once (`launch_and_ris_take_the_saved_values_and_select_numeric`, `a_change_of_the_set_up_acts_on_what_it_changes`) | implemented |
 | 58 | Caps Lock | §6.2.1 f: "Caps/Shift Lock Mode as Caps Lock Operation; may optionally implement a local Set-up feature to change the mode" | whatever the platform's Caps Lock does; baud has no code for it. Not checked against "Caps Lock Operation" | unchecked |
 
-**The tally**, by `python3 -I` over the status column of the two tables:
+**The tally**, by `python3 -I` over the status column of the two tables,
+rows 53 and 57 as of 2026-10-30 and the rest as of 2026-10-15:
 
-* 40 implemented: rows 1-4, 8-10, 12, 18-20, 22-40, 42-48, 52, 53 and 55;
+* 41 implemented: rows 1-4, 8-10, 12, 18-20, 22-40, 42-48, 52, 53, 55
+  and 57;
 * 3 partial: rows 11, 17 and 41;
-* 14 missing: rows 5-7, 13-16, 21, 49-51, 54, 56 and 57, two of them
+* 13 missing: rows 5-7, 13-16, 21, 49-51, 54 and 56, two of them
   disputed;
 * 1 unchecked, row 58, not counted.
 

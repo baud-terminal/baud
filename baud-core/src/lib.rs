@@ -200,6 +200,9 @@ pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Mo
 pub use baud_domain::{
     LocatorAt, LocatorButton, LocatorButtons, LocatorDevice, LocatorInput, LocatorKind,
 };
+/// What [`Term::set_up_at_launch`] and [`Term::change_set_up`] take: the
+/// four Set-up modes, each a [`ModeChange`] but the keypad.
+pub use baud_domain::{ModeChange, SetUp};
 pub use baud_domain::{NEEDLE_MAX, Needle, NeedleRefused};
 /// Printing's vocabulary: what [`Term::set_printer`] takes and what
 /// [`Term::print_jobs`], [`Term::print_run`] and [`Term::print_refusals`]

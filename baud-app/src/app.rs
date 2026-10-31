@@ -762,6 +762,8 @@ struct Boot {
     vs16_width: baud_domain::Vs16Width,
     /// Whether DECRQCRA is answered, from `[screen] checksum`.
     checksum: baud_domain::ChecksumReport,
+    /// The Set-up modes, from `[keyboard]`.
+    set_up: baud_domain::SetUp,
     /// What a `SUB` draws, from `[screen] substitute_mark` and
     /// `substitute_character`.
     substitute: crate::config::Substitute,
@@ -937,6 +939,7 @@ impl Boot {
             sixel: cfg.sixel,
             vs16_width: cfg.vs16_width,
             checksum: cfg.checksum,
+            set_up: cfg.set_up,
             substitute: cfg.substitute,
             prompt_at_bottom: cfg.prompt_at_bottom,
             window_ops: cfg.window_ops,
@@ -1067,6 +1070,7 @@ impl App {
             sixel,
             vs16_width,
             checksum,
+            set_up,
             substitute,
             prompt_at_bottom,
             window_ops,
@@ -1254,6 +1258,7 @@ impl App {
         term.set_sixel_claim(sixel);
         crate::host::set_widths(&mut term, vs16_width, ambiguous_width);
         crate::host::set_checksum(&mut term, checksum);
+        crate::host::set_up(&mut term, set_up);
         crate::host::set_substitute(&mut term, substitute);
         crate::host::set_prompt_at_bottom(&mut term, prompt_at_bottom);
         crate::host::set_window_ops(&mut term, window_ops);
@@ -12118,6 +12123,7 @@ impl Driver {
                     // rows in the core with no output to draw them.
                     self.app.next_damage = Damage::Full;
                 }
+                Part::Keyboard => self.app.term.change_set_up(c.set_up),
                 Part::Bell => self.app.bell_style = c.bell,
                 Part::Emoji => {
                     self.app.renderer.set_emoji_default(c.emoji);

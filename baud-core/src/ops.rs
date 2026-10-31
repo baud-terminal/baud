@@ -4759,6 +4759,12 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.modes = Modes::default();
+        // **DECARM, DECCKM and LNM to their saved Set-up values**: "RIS
+        // replaces all set-up features with their saved settings"
+        // (`[[source: vt510-ris]]`), the embedder's `[keyboard]`
+        // (`Term::set_up_at_launch`); the keypad stays as `soft_reset` left
+        // it, Numeric, which is not a saved value (`[[source: vt510-deckpam]]`).
+        self.cold.restore_set_up();
         // **The input encoding back to UTF-8, and `?1007` back on**, the
         // state baud is made operational in (`Term::new`): `RIS` returns
         // the terminal "to its initial state, i.e. the state it has after

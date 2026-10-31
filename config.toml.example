@@ -520,6 +520,32 @@ activity_lights = "on"
 [launch]
 splash = "on"
 
+# How keys behave before a program asks otherwise, the four keyboard modes a
+# DEC terminal lets you set in its Set-Up screen. A program can still change
+# each one; saving a different value here while baud runs (with
+# config_reload on, the default) changes it in the open windows at once, and
+# leaves the rest as the program set them.
+#
+# auto_repeat: a held key repeats. "on" by default.
+# application_cursor_keys: the arrow keys send the codes programs ask for
+#   with DECCKM (ESC O A rather than ESC [ A). "off" by default.
+# new_line: Return sends a carriage return and a line feed, and a line feed
+#   received also returns to the first column (LNM). "off" by default.
+#
+# A new window starts with these three, and a full reset (RIS) returns to
+# them; a soft reset (DECSTR) turns application_cursor_keys off, as a DEC
+# terminal does, and keeps the other two.
+#
+# application_keypad: the numeric keypad sends the codes programs ask for
+#   with DECKPAM (ESC O p for 0) rather than its digits. As on the VT420 and
+#   VT510, it is not kept: changing it here switches the open windows'
+#   keypad, and a new window or a reset starts with digits. "off" by default.
+[keyboard]
+auto_repeat = "on"
+application_cursor_keys = "off"
+new_line = "off"
+application_keypad = "off"
+
 # Whether a key you type hides the mouse pointer until the mouse moves, as
 # xterm does. "on" by default: it hides unless a program is using the mouse
 # (vim with mouse support, htop, tmux), when the pointer stays so you can

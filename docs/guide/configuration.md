@@ -224,6 +224,17 @@ unless you name a trail here.
 |---|---|---|---|
 | `splash` | `"on"`, `"off"` | `"on"` | Whether baud starts with its colour logo in the middle of the window once the window is on screen: a burst of plasma draws it from left to right and a second carries it straight back out from left to right, in one movement, gone about half a second after it starts, the plasma in the colour of each glyph it passes over. Your keys go to the shell the whole time, and the shell's output draws under the logo. On a Mac with Reduce Motion on, the logo shows whole and fades once your shell has drawn something, or half a second after the window is on screen if the shell draws nothing by then. It stays under the flash limits of the web accessibility guidelines (WCAG 2.3.1). `"off"` turns it off; saving `"off"` while the logo shows takes it down at once. |
 
+## [keyboard]
+
+How keys behave before a program asks otherwise: the four keyboard modes a DEC terminal lets you set in its Set-Up screen. A program can still change each one. Saving a different value while baud runs, with `config_reload` on (the default), changes it in the open windows at once and leaves the other modes as the programs set them.
+
+| key | values | default | what it changes |
+|---|---|---|---|
+| `auto_repeat` | `"on"`, `"off"` | `"on"` | Whether a key held down repeats. A new window starts with this, and a full reset returns to it. |
+| `application_cursor_keys` | `"on"`, `"off"` | `"off"` | Whether the arrow keys send the codes a program asks for with application cursor keys (DECCKM), `ESC O A` rather than `ESC [ A`. A new window starts with this, and a full reset returns to it; a soft reset (DECSTR) turns it off, as a DEC terminal's does. |
+| `new_line` | `"on"`, `"off"` | `"off"` | Whether Return sends a carriage return and a line feed, and a line feed a program prints also goes back to the first column (new line mode, LNM). A new window starts with this, and a full reset returns to it. |
+| `application_keypad` | `"on"`, `"off"` | `"off"` | Whether the numeric keypad sends the codes a program asks for with the application keypad (DECKPAM), such as `ESC O p` for 0, rather than its digits. As on the VT420 and VT510, which do not keep this setting, it is not kept: changing it switches the open windows' keypad, and a new window or a reset starts with digits. |
+
 ## [pointer]
 
 | key | values | default | what it changes |

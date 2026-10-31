@@ -493,6 +493,14 @@ pub fn set_checksum(term: &mut baud_core::Term<'_>, checksum: baud_domain::Check
     term.set_checksum_report(checksum);
 }
 
+/// Tell the core the Set-up modes, from `[keyboard]`: DECARM, DECCKM and
+/// LNM as the power-up and `RIS` state, and the keypad's value kept for a
+/// later change (`Term::set_up_at_launch`). One function for both drivers,
+/// called after `Term::new` and before the first feed.
+pub fn set_up(term: &mut baud_core::Term<'_>, s: baud_domain::SetUp) {
+    term.set_up_at_launch(s);
+}
+
 /// Tell the core what a `SUB` draws, from `[screen] substitute_mark` and
 /// `substitute_character`. One function for both drivers, called after
 /// `Term::new` and before the first feed.
@@ -1517,6 +1525,80 @@ mod tests {
         assert_eq!(
             include_str!("app.rs")
                 .matches("checksum: cfg.checksum,")
+                .count(),
+            1,
+            "macOS carries it from the config"
+        );
+    }
+
+    /// **`[keyboard]` reaches the core, from both drivers.** The config
+    /// text read into a `Config`, handed to `set_up`, is the power-up
+    /// state: DECRQM reports DECARM, DECCKM and LNM as the config says and
+    /// the keypad Numeric, which power-up selects (`Term::set_up_at_launch`).
+    /// Both drivers start AppKit or Wayland, which no test drives, so their
+    /// call is held in the source: each calls `set_up` once with the
+    /// configured value, and hands a changed `[keyboard]` to
+    /// `Term::change_set_up`.
+    #[test]
+    fn the_keyboard_settings_reach_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let turned = "[keyboard]\nauto_repeat = \"off\"\napplication_cursor_keys = \"on\"\n\
+                      application_keypad = \"on\"\nnew_line = \"on\"\n";
+        for (text, want) in [
+            ("", [&b"?8;1"[..], b"?1;2", b"?66;2", b"20;2"]),
+            (turned, [&b"?8;2"[..], b"?1;1", b"?66;2", b"20;1"]),
+        ] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_up(&mut t, cfg.set_up);
+            for (ask, rpm) in [&b"\x1b[?8$p"[..], b"\x1b[?1$p", b"\x1b[?66$p", b"\x1b[20$p"]
+                .into_iter()
+                .zip(want)
+            {
+                t.clear_reply();
+                feed(&mut t, ask);
+                let mut answer = b"\x1b[".to_vec();
+                answer.extend_from_slice(rpm);
+                answer.extend_from_slice(b"$y");
+                assert_eq!(t.reply(), answer, "{text:?}");
+            }
+        }
+        // Spelled apart, so this test's own text is not what it finds.
+        const CALL: &str = concat!("crate::host::", "set_up(&mut term, ");
+        const CHANGE: &str = concat!("Part::Keyboard => ", "self.");
+        for (driver, src, arg, term) in [
+            (
+                "macOS",
+                include_str!("app.rs"),
+                "set_up);",
+                "app.term.change_set_up(c.set_up),",
+            ),
+            (
+                "Linux",
+                include_str!("linux.rs"),
+                "cfg.set_up);",
+                "term.change_set_up(c.set_up),",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+            assert_eq!(src.matches(CHANGE).count(), 1, "{driver} hands a change on");
+            let rest = src.split(CHANGE).nth(1).expect("the change");
+            assert!(rest.starts_with(term), "{driver} hands the new Set-up");
+        }
+        assert_eq!(
+            include_str!("app.rs")
+                .matches("set_up: cfg.set_up,")
                 .count(),
             1,
             "macOS carries it from the config"

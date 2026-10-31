@@ -544,6 +544,12 @@ group  = "C"
 # 5-185: 'Macros can invoke other macros with up to 16 levels of nesting, but cannot invoke
 # themselves recursively'; DECCKSR's data 'four hexadecimal digits', no algorithm given);
 # DECPFK and DECPAK are not in it.
+# Read 2026-10-30 on the text layer [text], the sha256 matching, for the Level 1
+# designations and the four Set-up modes: 070-3 §3.6.4.1-§3.6.4.3 (pp. 3-63,
+# 3-64); 070-4 Implicit Extensions and DECSCL (pp. 19-23), Device Initialization's
+# list of locally stored state and host_state_init (pp. 12-15), and DECSTR's
+# table and algorithm (pp. 31-33); 070-6 §6.2.1 (p. 6-16), DECARM (p. 6-41),
+# DECCKM, DECKPAM and DECKPNM (pp. 6-60 to 6-67).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -16710,6 +16716,47 @@ group  = "AW"
 # "Printer: Controller", "Printer: Busy", "Printer: Assigned to 1 (or 2)"; and its
 # footnote, "Field 4 is blank, unless you have a modem connected to the Comm1 RS-232
 # connector and Modem Control is selected in the Communication Set-Up screen".
+
+[sources.vt420-uu-ch5]
+key    = "vt420-uu-ch5"
+title  = "Installing and Using the VT420 Video Terminal, EK-VT420-UU-002, chapter 5: Using Set-Up -- changing, saving and recalling settings, and the General and Keyboard Set-Up screens"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1990
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt420-uu/chapter5.html"
+file   = ""
+sha256 = "61b8f11a2ffc5652cdb717793ec1d9ff2bccbc25bff627b84c460b67c2c6dcd4"
+bytes  = 78046
+status = "external"
+group  = "C"
+# Not in the repository: no grant to redistribute it was found (a DEC manual
+# as transcribed on vt100.net). It was read as vt420-uu-chapter5.html, and the
+# digest is of that copy.
+# Fetched 2026-10-30 for the four Set-up modes of DEC STD 070-6 section 6.2.1 d
+# [text]: "When you change a feature setting, the VT420 uses that setting until
+# you turn the terminal off or change the setting again", and Save "saves all
+# current settings"; General Set-Up's "Keypad mode" carries the footnote "The
+# setting is not saved in nonvolatile memory", where "Cursor key mode" and "New
+# line" do not, and Keyboard Set-Up has "Auto repeat".
+
+[sources.vt510-deckpam]
+key    = "vt510-deckpam"
+title  = "DECKPAM—Keypad Application Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECKPAM.html"
+file   = ""
+sha256 = "62ca4ee7ca6560a2e41c8a36655c207bac5928bfff212ee890c5423aa208c3f6"
+bytes  = 19391
+status = "external"
+group  = "C"
+# Not in the repository: no grant to redistribute it was found (a DEC manual
+# as transcribed on vt100.net). It was read as vt510-DECKPAM.html, and the
+# digest is of that copy.
+# Fetched 2026-10-30 for the keypad's Set-up value [text]: "The setting is not
+# saved in NVM. When you turn on or reset the terminal, it automatically selects
+# numeric keypad mode."
 
 [sources.vt100net-technical]
 key    = "vt100net-technical"

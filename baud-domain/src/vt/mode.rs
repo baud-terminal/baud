@@ -977,6 +977,45 @@ impl ConformanceLevel {
     }
 }
 
+/// **The four modes DEC STD 070 makes local Set-up features**: "Auto
+/// Repeat Mode (DECARM)", "Cursor Key Mode (DECCKM)", "Keypad Mode
+/// (DECKPAM/DECKPNM)" and "Line Feed/New Line Mode", each "for receipt from
+/// software application processes and as a local Set-up feature"
+/// (`[[source: dec-std-070]]` 070-6 §6.2.1 d), the embedder's
+/// `[keyboard]` settings. `Set` is DECARM's repeat, DECCKM's application
+/// keys and LNM's new line.
+///
+/// **Three are saved values and the keypad is not.** 070-4's Device
+/// Initialization lets "the state ... set and stored under local control"
+/// be "auto_repeat_mode", "cursor key mode" and "new line mode", and not
+/// the keypad, whose `host_state_init` is "keypad-mode = NUMERIC;"; the
+/// VT420's Set-up marks its keypad field "The setting is not saved in
+/// nonvolatile memory" (`[[source: vt420-uu-ch5]]`), and the VT510's
+/// DECKPAM, "When you turn on or reset the terminal, it automatically
+/// selects numeric keypad mode" (`[[source: vt510-deckpam]]`). So power-up
+/// and `RIS` take the three and select Numeric, and the keypad's value acts
+/// only when it changes, as a Set-up field switched by hand does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SetUp {
+    pub auto_repeat: ModeChange,
+    pub cursor_keys: ModeChange,
+    pub keypad: KeypadMode,
+    pub new_line: ModeChange,
+}
+
+impl SetUp {
+    /// The factory settings, the modes' power-up states: "auto repeat mode
+    /// = REPEAT ON", "cursor key mode = CURSOR", "keypad-mode = NUMERIC"
+    /// and "new line mode = NEW LINE OFF" (070-4 `host_state_init`), which
+    /// [`Modes`]'s default holds.
+    pub const FACTORY: SetUp = SetUp {
+        auto_repeat: ModeChange::Set,
+        cursor_keys: ModeChange::Reset,
+        keypad: KeypadMode::Numeric,
+        new_line: ModeChange::Reset,
+    };
+}
+
 /// The xterm resources a program can set with a private mode, each a switch
 /// baud acts on, kept apart from [`Modes`], whose bits the write loop reads.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

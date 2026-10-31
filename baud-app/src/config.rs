@@ -135,6 +135,33 @@ impl Substitute {
     }
 }
 
+/// **A `[keyboard]` mode's `"on"` or `"off"`**, quoted or bare: `Set` or
+/// `Reset`, and any other value the factory setting `factory` picks from
+/// [`baud_domain::SetUp::FACTORY`], said.
+fn set_up_mode(
+    value: &str,
+    key: &str,
+    said: &mut Vec<String>,
+    factory: impl Fn(baud_domain::SetUp) -> baud_domain::ModeChange,
+) -> baud_domain::ModeChange {
+    use baud_domain::ModeChange;
+    match value.trim().trim_matches('"') {
+        "on" => ModeChange::Set,
+        "off" => ModeChange::Reset,
+        other => {
+            let default = factory(baud_domain::SetUp::FACTORY);
+            let using = match default {
+                ModeChange::Set => "on",
+                ModeChange::Reset => "off",
+            };
+            said.push(format!(
+                "config: [keyboard] {key} {other:?} is not on or off; using {using}"
+            ));
+            default
+        }
+    }
+}
+
 /// **`[screen] substitute_character`'s value**: one character, written as
 /// itself or as TOML's `\uXXXX` or `\UXXXXXXXX` escape, that is one cell of
 /// its own (`baud_domain::ErrorCharacter::of`); anything else is `None`.
@@ -325,6 +352,13 @@ pub struct Config {
     /// own -- `"on"` by default, or `"off"`, which draws every row as the
     /// terminal cut it at the last column ([`baud_render::WordWrap`]).
     pub wrap_words: baud_render::WordWrap,
+    /// `[keyboard]`: the four modes DEC STD 070 makes Set-up features
+    /// (070-6 §6.2.1 d), each `"on"` or `"off"`: `auto_repeat` (DECARM),
+    /// `application_cursor_keys` (DECCKM), `application_keypad` (DECKPAM
+    /// on, DECKPNM off) and `new_line` (LNM), the factory settings by
+    /// default ([`baud_domain::SetUp::FACTORY`]): repeat on and the other
+    /// three off.
+    pub set_up: baud_domain::SetUp,
     /// `[screen] checksum`: whether a program's request for a checksum of
     /// the screen (DECRQCRA) is answered, `"on"` by default, or `"off"`,
     /// which leaves every request unanswered. A checksum of one cell at a
@@ -902,6 +936,7 @@ impl Config {
             exit_status: baud_render::StatusMarks::Off,
             badge: BadgeShown::On,
             wrap_words: baud_render::WordWrap::On,
+            set_up: baud_domain::SetUp::FACTORY,
             checksum: baud_domain::ChecksumReport::On,
             substitute: Substitute::DEFAULT,
             prompt_at_bottom: baud_domain::PromptAtBottom::Off,
@@ -1659,6 +1694,34 @@ impl Config {
                                  using off"
                             ));
                             baud_render::StatusMarks::Off
+                        }
+                    };
+                }
+                ("keyboard", "auto_repeat") => {
+                    self.set_up.auto_repeat = set_up_mode(&value, "auto_repeat", &mut said, |f| {
+                        f.auto_repeat
+                    });
+                }
+                ("keyboard", "application_cursor_keys") => {
+                    self.set_up.cursor_keys =
+                        set_up_mode(&value, "application_cursor_keys", &mut said, |f| {
+                            f.cursor_keys
+                        });
+                }
+                ("keyboard", "new_line") => {
+                    self.set_up.new_line =
+                        set_up_mode(&value, "new_line", &mut said, |f| f.new_line);
+                }
+                ("keyboard", "application_keypad") => {
+                    self.set_up.keypad = match value.trim().trim_matches('"') {
+                        "on" => baud_domain::KeypadMode::Application,
+                        "off" => baud_domain::KeypadMode::Numeric,
+                        other => {
+                            said.push(format!(
+                                "config: [keyboard] application_keypad {other:?} is not on or \
+                                 off; using off"
+                            ));
+                            baud_domain::KeypadMode::Numeric
                         }
                     };
                 }
@@ -4524,6 +4587,54 @@ mod reader {
         assert_eq!(
             read("exit_status = \"on\"\n").exit_status,
             StatusMarks::Off,
+            "not a top-level key"
+        );
+    }
+
+    /// **`[keyboard]` sets the four Set-up modes**, each `"on"` or `"off"`,
+    /// quoted or bare: the factory settings by default, repeat on and the
+    /// other three off; any other value keeps the factory setting and says
+    /// so, and the keys are the `[keyboard]` section's, not the top
+    /// level's.
+    #[test]
+    fn the_keyboard_section_sets_the_set_up_modes() {
+        use baud_domain::{KeypadMode, ModeChange, SetUp};
+        assert_eq!(Config::defaults().set_up, SetUp::FACTORY);
+        assert_eq!(read("").set_up, SetUp::FACTORY);
+        for (on, off) in [("\"on\"", "\"off\""), ("on", "off")] {
+            let text = format!(
+                "[keyboard]\nauto_repeat = {off}\napplication_cursor_keys = {on}\n\
+                 application_keypad = {on}\nnew_line = {on}\n"
+            );
+            let want = SetUp {
+                auto_repeat: ModeChange::Reset,
+                cursor_keys: ModeChange::Set,
+                keypad: KeypadMode::Application,
+                new_line: ModeChange::Set,
+            };
+            assert_eq!(read(&text).set_up, want, "{on}");
+        }
+        let mut c = Config::defaults();
+        let said = c.apply(
+            "[keyboard]\nauto_repeat = \"no\"\napplication_cursor_keys = \"yes\"\n\
+             application_keypad = \"application\"\nnew_line = 1\n",
+        );
+        assert_eq!(c.set_up, SetUp::FACTORY);
+        assert_eq!(said.len(), 4, "{said:?}");
+        for (line, key, using) in [
+            (0, "auto_repeat", "using on"),
+            (1, "application_cursor_keys", "using off"),
+            (2, "application_keypad", "using off"),
+            (3, "new_line", "using off"),
+        ] {
+            assert!(
+                said[line].contains(key) && said[line].ends_with(using),
+                "{said:?}"
+            );
+        }
+        assert_eq!(
+            read("new_line = \"on\"\n").set_up,
+            SetUp::FACTORY,
             "not a top-level key"
         );
     }

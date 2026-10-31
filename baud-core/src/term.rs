@@ -938,6 +938,19 @@ impl Cold {
             _ => Strip::Eight,
         }
     }
+
+    /// DECARM, DECCKM and LNM to their saved Set-up values, the power-up
+    /// and `RIS` state ([`Term::set_up_at_launch`]); the keypad is not a
+    /// saved value and is left to the reset.
+    pub(crate) fn restore_set_up(&mut self) {
+        let s = self.set_up;
+        self.modes
+            .apply(ModeBit::AutoRepeat, s.auto_repeat == ModeChange::Set);
+        self.modes
+            .apply(ModeBit::CursorKeys, s.cursor_keys == ModeChange::Set);
+        self.modes
+            .apply(ModeBit::LineFeedNewLine, s.new_line == ModeChange::Set);
+    }
 }
 
 /// Whether the rest of a read waits on the eighth-bit strip.
@@ -1049,6 +1062,10 @@ pub struct Cold {
     /// embedder's pointer, never here.
     pub(crate) pointer_mode: PointerMode,
     pub(crate) initial_pointer_mode: PointerMode,
+    /// The `[keyboard]` Set-up values ([`Term::set_up_at_launch`]): what
+    /// `RIS` returns DECARM, DECCKM and LNM to, and what a change of the
+    /// Set-up is compared with.
+    pub(crate) set_up: SetUp,
     /// **`?1001`'s handshake**: idle, a button-1 press owed the program's
     /// answer, or the region tracking the mouse until the release. The level
     /// is `mouse`'s, [`MouseTracking::Highlight`]; this is only where a
@@ -1535,10 +1552,12 @@ pub struct Cold {
 // `DL` and the fence and wraps of the writes `ModeBit::LineBounded` sends out
 // of line, never by the text path. The page functions' count (`pages_missing`)
 // landed in its padding: written by NP, PP, PPA, PPR and PPB, read by the
-// embedder, never by a glyph. Guarded off `sgr-table`, which adds
+// embedder, never by a glyph. The `[keyboard]` Set-up (`set_up`), four
+// bytes that alignment rounds to eight, took it to 1016: written by the
+// embedder, read by `RIS` and a change of the Set-up, never by a glyph. Guarded off `sgr-table`, which adds
 // `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 1008);
+const _: () = assert!(core::mem::size_of::<Cold>() == 1016);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1998,6 +2017,7 @@ impl Cold {
             shift_escape: ShiftEscape::Override,
             pointer_mode: PointerMode::UnlessTracking,
             initial_pointer_mode: PointerMode::UnlessTracking,
+            set_up: SetUp::FACTORY,
             defaults: [ColorWord::DEFAULT; DynamicColor::COUNT],
             dynamic: [ColorWord::DEFAULT; DynamicColor::COUNT],
             unset_selection_text: SelectionText::Reverse,
@@ -5460,6 +5480,51 @@ impl<'b> Term<'b> {
     pub fn set_initial_pointer_mode(&mut self, m: PointerMode) {
         self.cold.initial_pointer_mode = m;
         self.cold.pointer_mode = m;
+    }
+
+    /// **The `[keyboard]` Set-up at launch**: DEC STD 070's four Set-up
+    /// modes (070-6 §6.2.1 d, [`SetUp`]), the power-up of a terminal whose
+    /// saved settings these are. DECARM, DECCKM and LNM take their values
+    /// now and again at every `RIS`, as "RIS replaces all set-up features
+    /// with their saved settings" (`[[source: vt510-ris]]`); the keypad
+    /// stays Numeric, which power-up selects whatever the Set-up says
+    /// (`[[source: vt510-deckpam]]`), its value kept only to tell a later
+    /// change. DECSTR keeps its own table: DECCKM "reset (Cursor)" and the
+    /// keypad "reset (Numeric)", DECARM and LNM "NOT affected"
+    /// (`[[source: dec-std-070]]` 070-4 DECSTR). An embedder calls it once,
+    /// before the child writes anything; [`SetUp::FACTORY`] until then.
+    pub fn set_up_at_launch(&mut self, s: SetUp) {
+        self.cold.set_up = s;
+        self.cold.restore_set_up();
+    }
+
+    /// **A change of the `[keyboard]` Set-up in a running terminal**, as a
+    /// Set-up field switched by hand: "When you change a feature setting,
+    /// the VT420 uses that setting until you turn the terminal off or
+    /// change the setting again" (`[[source: vt420-uu-ch5]]`). Each mode
+    /// whose value differs from the last Set-up takes it now, the keypad
+    /// included, and a mode whose value is the same keeps what a program
+    /// set; the three saved values are what `RIS` restores from here on.
+    pub fn change_set_up(&mut self, s: SetUp) {
+        let was = self.cold.set_up;
+        for (m, now, then) in [
+            (ModeBit::AutoRepeat, s.auto_repeat, was.auto_repeat),
+            (ModeBit::CursorKeys, s.cursor_keys, was.cursor_keys),
+            (ModeBit::LineFeedNewLine, s.new_line, was.new_line),
+        ] {
+            if now != then {
+                self.cold.modes.apply(m, now == ModeChange::Set);
+            }
+        }
+        if s.keypad != was.keypad {
+            self.cold.keypad = s.keypad;
+        }
+        self.cold.set_up = s;
+    }
+
+    /// What [`Term::set_up_at_launch`] or [`Term::change_set_up`] last set.
+    pub fn set_up(&self) -> SetUp {
+        self.cold.set_up
     }
 
     /// `?1042`: whether a `BEL` should ask for the user's attention while
