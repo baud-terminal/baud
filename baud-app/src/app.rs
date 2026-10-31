@@ -4051,6 +4051,21 @@ fn closed(id: crate::windows::WindowId) {
     }
 }
 
+/// What begins every notification identifier this process posts.
+fn notice_base() -> String {
+    format!("baud-{}", std::process::id())
+}
+
+/// **What begins the identifiers of the notifications a window posts**
+/// (`windows::WindowId::notice_prefix`); a window not yet given its key,
+/// which posts nothing before it is shown, gets the process's alone.
+fn notice_prefix(window: Option<crate::windows::WindowId>) -> String {
+    match window {
+        Some(w) => w.notice_prefix(&notice_base()),
+        None => notice_base(),
+    }
+}
+
 /// **The responder a closed window's view keeps**: the crate's waker
 /// retains the view for the life of the process, so a wake a thread still
 /// sends after the close reaches this, which does nothing.
@@ -12415,7 +12430,7 @@ impl Driver {
             ),
             None => (F::Unfocused, Visible::Covered),
         };
-        let prefix = format!("baud-{}", std::process::id());
+        let prefix = notice_prefix(self.window_id);
         let outbox = &mut self.app.outbox;
         let calls = self.app.notes.mac(
             &mut self.app.term,
@@ -12519,7 +12534,28 @@ impl Driver {
             self.app.delivered_last = Some(now);
             c.ask_delivered();
         }
-        for click in c.clicks() {
+        // **Only the clicks on this window's own posts** (`windows::clicked`):
+        // the center and its delegate are the app's, and every window's
+        // clicks arrive there.
+        let base = notice_base();
+        let me = self.window_id;
+        // The windows open; while the set is being changed, every window
+        // counts as open, so no click is dropped for a window that is.
+        let open = OPEN.with(|o| o.try_borrow().map(|o| o.ids()).ok());
+        let whose = |id: &str| {
+            use baud_present_macos::notify::Whose;
+            let Some(me) = me else {
+                return Whose::Another;
+            };
+            let all = [me];
+            match crate::windows::clicked(id, &base, me, open.as_deref().unwrap_or(&all)) {
+                crate::windows::Clicked::This => Whose::This,
+                crate::windows::Clicked::Another => Whose::Another,
+                crate::windows::Clicked::Closed if open.is_none() => Whose::Another,
+                crate::windows::Clicked::Closed => Whose::Closed,
+            }
+        };
+        for click in c.clicks(whose) {
             let Some(token) = self.app.notes.shown.token(&click.id) else {
                 continue;
             };

@@ -31,6 +31,11 @@
 //! `[[source: foot-terminal-cb27717]]`): each window is its own
 //! `xdg_toplevel`, and its process exits when its window closes.
 //!
+//! **Each window's notifications are its own**: their identifiers carry
+//! the window's key ([`WindowId::notice_prefix`]), so two windows' first
+//! posts do not replace each other, and a click goes to the window that
+//! posted it, or nowhere once it has closed ([`clicked`]).
+//!
 //! **A new window starts in the directory of the window it was opened
 //! from**: the one its shell's `OSC 7` names on this machine, else the one
 //! baud reads for the title, else where a launch starts. Ghostty's
@@ -50,6 +55,48 @@ impl WindowId {
     /// The key the next window opened gets.
     fn after(self) -> WindowId {
         WindowId(self.0 + 1)
+    }
+
+    /// **What begins the identifier of every notification this window
+    /// posts**: the process's `base` and the window's key. Each window's
+    /// terminal numbers its own notifications from the first, so without
+    /// the key two windows' first posts had one identifier, and the
+    /// second replaced the first in Notification Center.
+    pub fn notice_prefix(self, base: &str) -> String {
+        format!("{base}-w{}", self.0)
+    }
+}
+
+/// **The window that posted the notification `id` names**, read back
+/// from its [`WindowId::notice_prefix`]: `None` for an identifier no
+/// window of this process made.
+#[cfg(any(target_os = "macos", test))]
+pub fn notice_poster(id: &str, base: &str) -> Option<WindowId> {
+    let (key, _) = id.strip_prefix(base)?.strip_prefix("-w")?.split_once('-')?;
+    key.parse().ok().map(WindowId)
+}
+
+/// Whose a notification's click is, for the window taking its turn.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Clicked {
+    /// This window posted it.
+    This,
+    /// Another window that is open did.
+    Another,
+    /// No window that is open did.
+    Closed,
+}
+
+/// **Whose the click on notification `id` is** for window `me`, with
+/// `open` the windows open: the click goes to the window that posted it,
+/// and one whose window has closed goes nowhere.
+#[cfg(any(target_os = "macos", test))]
+pub fn clicked(id: &str, base: &str, me: WindowId, open: &[WindowId]) -> Clicked {
+    match notice_poster(id, base) {
+        Some(w) if w == me => Clicked::This,
+        Some(w) if open.contains(&w) => Clicked::Another,
+        _ => Clicked::Closed,
     }
 }
 
@@ -158,6 +205,11 @@ impl<W> Windows<W> {
 
     pub fn get_mut(&mut self, id: WindowId) -> Option<&mut W> {
         self.open.iter_mut().find(|(i, _)| *i == id).map(|(_, w)| w)
+    }
+
+    /// The keys of the windows open, in the order they opened.
+    pub fn ids(&self) -> Vec<WindowId> {
+        self.open.iter().map(|(i, _)| *i).collect()
     }
 }
 
@@ -280,8 +332,8 @@ pub fn spawn_window(dir: Option<&std::path::Path>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AfterClose, Chord, Command, LAST_WINDOW, LastWindow, Left, Started, Windows, after_close,
-        inherited, mac_chord, started,
+        AfterClose, Chord, Clicked, Command, LAST_WINDOW, LastWindow, Left, Started, Windows,
+        after_close, clicked, inherited, mac_chord, started,
     };
     use baud_core::{FileHost, Owned, Term, WorkingDirectory};
     use baud_domain::{BytePos, ReadLen, Row, WinSize};
@@ -388,6 +440,46 @@ mod tests {
             AfterClose::Quit,
             "the last window closed: the app quits"
         );
+    }
+
+    /// **A notification's click goes to the window that posted it**: two
+    /// windows' first notifications, one token each, have two identifiers,
+    /// each read back to its own window; a click on one is the poster's
+    /// and not the other's, and once its window has closed it is nobody's.
+    /// An identifier another process or none made is nobody's either.
+    #[test]
+    fn a_notifications_click_goes_to_the_window_that_posted_it() {
+        let mut stores: Vec<Owned> = (0..3).map(|_| Owned::new(&WS)).collect();
+        let mut set = Windows::new();
+        let ids: Vec<_> = stores
+            .iter_mut()
+            .map(|o| set.open(Term::new(o.storage(), &WS)))
+            .collect();
+        let base = "baud-41";
+        let token = "NoticeToken(0)";
+        let [a, b, c] =
+            [ids[0], ids[1], ids[2]].map(|w| format!("{}-{token}", w.notice_prefix(base)));
+        assert_ne!(a, b, "one token, two windows, two identifiers");
+        let open = set.ids();
+        assert_eq!(clicked(&a, base, ids[0], &open), Clicked::This);
+        assert_eq!(clicked(&a, base, ids[1], &open), Clicked::Another);
+        assert_eq!(clicked(&b, base, ids[1], &open), Clicked::This);
+        assert_eq!(clicked(&b, base, ids[0], &open), Clicked::Another);
+        let _ = set.close(ids[2]);
+        let open = set.ids();
+        assert_eq!(clicked(&c, base, ids[0], &open), Clicked::Closed);
+        assert_eq!(clicked(&c, base, ids[1], &open), Clicked::Closed);
+        for other in [
+            format!("baud-42-w0-{token}"),
+            "baud-41".into(),
+            "nonsense".into(),
+        ] {
+            assert_eq!(
+                clicked(&other, base, ids[0], &open),
+                Clicked::Closed,
+                "{other}"
+            );
+        }
     }
 
     /// A process started with the new window's variable is a window; one

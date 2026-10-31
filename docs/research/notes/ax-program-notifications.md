@@ -153,3 +153,25 @@ one does.
   and then one a second; what the bound drops is logged once a burst,
   each line counting every drop since the one before, a burst ending
   when the bucket has filled again.
+
+## 6. Several windows, one center and one Dock tile
+
+Since Command-N, the macOS app runs several windows in one process, each
+with its own terminal, and the notification center and the Dock tile are
+still one each.
+
+**Notifications.** Each terminal numbers its notifications from the first,
+so two windows' first posts had one identifier and the second replaced the
+first in Notification Center; and each window set its own delegate on the
+app's one center, whose delegate property is `weak` (`[[source:
+macos-sdk-unusernotificationcenter-h]]` 42), so the newest window heard
+every click and, once it closed, no window held the delegate the center
+named. Now an identifier carries
+the window's key, every window's center shares the process's one
+delegate, and a click goes to the window whose key its identifier carries,
+or is dropped once that window has closed.
+
+A window takes its clicks on its display link's tick, and the tick pauses
+while the window is covered or minimised. So a click on a hidden window's
+notification raises that window and reaches its program only once the
+window is uncovered. Open.

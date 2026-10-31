@@ -23,7 +23,13 @@
 //!   assign an object to the delegate property before performing any
 //!   tasks"), so a notification shown while baud is active is presented
 //!   (`willPresentNotification`) and a click reaches the program
-//!   (`didReceiveNotificationResponse`).
+//!   (`didReceiveNotificationResponse`). **One delegate for the process**
+//!   ([`shared_delegate`]), however many windows open a [`Center`]: the
+//!   app has one center, and its delegate property is `weak`
+//!   (`[[source: macos-sdk-unusernotificationcenter-h]]` 42), so a
+//!   delegate a window owned left the others deaf when a newer window
+//!   took the center or closed. Each window takes only the clicks on its own
+//!   posts ([`Center::clicks`]).
 //! * **The Dock tile**: "Draw the tile content yourself ... you must
 //!   provide a custom content view" (`[[source: apple-nsdocktile]]`): the
 //!   application's icon and a bar under it.
@@ -89,11 +95,50 @@ pub struct Click {
     pub action: String,
 }
 
-/// The delegate's state: clicks heard, for the app's next turn. A `Mutex`,
-/// because the header does not say on which queue the delegate is called.
+/// The delegate's state: clicks heard, for the windows' next turns. A
+/// `Mutex`, because the header does not say on which queue the delegate
+/// is called.
 #[derive(Default)]
 pub struct Heard {
     clicks: Mutex<Vec<Click>>,
+}
+
+/// Whose a click is, as a window taking its clicks says ([`Center::clicks`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Whose {
+    /// This window posted it: taken.
+    This,
+    /// Another open window did: left for it.
+    Another,
+    /// No open window did -- the one that posted it has closed: dropped.
+    Closed,
+}
+
+impl Heard {
+    fn push(&self, click: Click) {
+        if let Ok(mut c) = self.clicks.lock() {
+            c.push(click);
+        }
+    }
+
+    /// The clicks `whose` says are this window's, taken in the order they
+    /// were heard; another open window's left for it, and a closed one's
+    /// dropped.
+    fn take(&self, mut whose: impl FnMut(&str) -> Whose) -> Vec<Click> {
+        let Ok(mut all) = self.clicks.lock() else {
+            return Vec::new();
+        };
+        let mut mine = Vec::new();
+        all.retain(|c| match whose(&c.id) {
+            Whose::This => {
+                mine.push(c.clone());
+                false
+            }
+            Whose::Another => true,
+            Whose::Closed => false,
+        });
+        mine
+    }
 }
 
 define_class!(
@@ -128,9 +173,7 @@ define_class!(
                 let id: Retained<NSString> = msg_send![&req, identifier];
                 (action.to_string(), id.to_string())
             };
-            if let Ok(mut c) = self.ivars().clicks.lock() {
-                c.push(Click { id, action });
-            }
+            self.ivars().push(Click { id, action });
             handler.call(());
         }
     }
@@ -142,6 +185,19 @@ impl Delegate {
         // SAFETY: `NSObject`'s `init`.
         unsafe { msg_send![super(this), init] }
     }
+}
+
+thread_local! {
+    /// The process's one delegate, made on the main thread the first time
+    /// a center is opened and kept for the life of the process.
+    static DELEGATE: std::cell::OnceCell<Retained<Delegate>> = const { std::cell::OnceCell::new() };
+}
+
+/// **The process's one delegate** ([`DELEGATE`]): every [`Center`] sets
+/// and holds this one, so the center's weak reference never outlives it
+/// and every window's clicks arrive in one place.
+fn shared_delegate() -> Retained<Delegate> {
+    DELEGATE.with(|d| d.get_or_init(Delegate::new).clone())
 }
 
 /// Why notifications cannot be posted.
@@ -224,7 +280,7 @@ pub struct Center {
 }
 
 impl Center {
-    /// The center, its delegate set, or why not.
+    /// The center, the process's delegate set, or why not.
     pub fn open(_mtm: MainThreadMarker) -> Result<Center, Unavailable> {
         // An identifier, and a bundle that is an app's: a binary run on
         // its own has neither, and an `Info.plist` linked into one would
@@ -239,9 +295,10 @@ impl Center {
         };
         // SAFETY: `+currentNotificationCenter`, nonnull.
         let center: Retained<AnyObject> = unsafe { msg_send![cls, currentNotificationCenter] };
-        let delegate = Delegate::new();
+        let delegate = shared_delegate();
         // SAFETY: `delegate` is `id <UNUserNotificationCenterDelegate>`,
-        // held weakly by the center and strongly here.
+        // held weakly by the center and strongly here and by the process
+        // ([`DELEGATE`]); setting the same one again changes nothing.
         unsafe {
             let _: () = msg_send![&center, setDelegate: &*delegate];
         }
@@ -367,14 +424,11 @@ impl Center {
         self.delivered.lock().ok().and_then(|mut d| d.take())
     }
 
-    /// The clicks heard since the last call.
-    pub fn clicks(&self) -> Vec<Click> {
-        self.delegate
-            .ivars()
-            .clicks
-            .lock()
-            .map(|mut c| c.drain(..).collect())
-            .unwrap_or_default()
+    /// **The clicks on this window's posts heard since the last call**:
+    /// `whose` reads each click's request identifier; another open
+    /// window's are left for it, and a closed window's dropped.
+    pub fn clicks(&self, whose: impl FnMut(&str) -> Whose) -> Vec<Click> {
+        self.delegate.ivars().take(whose)
     }
 
     /// **Close one**: removed from Notification Center, or before it shows.
@@ -679,6 +733,62 @@ mod tests {
     //! method's own encoding. Nothing here reaches the notification
     //! center, permission or the Dock.
     use super::*;
+
+    fn click(id: &str) -> Click {
+        Click {
+            id: id.into(),
+            action: DEFAULT_ACTION.into(),
+        }
+    }
+
+    /// **Every center shares the process's one delegate**, so a second
+    /// window's center does not take the clicks from the first's, and a
+    /// window's close leaves the others a delegate: a click heard through
+    /// one is there for a window holding the other. The control: two
+    /// delegates made apart are two objects.
+    #[test]
+    fn every_center_shares_one_delegate() {
+        let (a, b) = (shared_delegate(), shared_delegate());
+        assert!(Retained::as_ptr(&a) == Retained::as_ptr(&b), "one delegate");
+        let (x, y) = (Delegate::new(), Delegate::new());
+        assert!(
+            Retained::as_ptr(&x) != Retained::as_ptr(&y),
+            "the control: two made apart are two"
+        );
+        drop(a);
+        b.ivars().push(click("w0-1"));
+        let c = shared_delegate();
+        assert_eq!(c.ivars().take(|_| Whose::This), vec![click("w0-1")]);
+    }
+
+    /// **A click goes to the window that posted it**: each window takes
+    /// only its own, in the order heard, another open window's waits for
+    /// it, and a closed window's is dropped.
+    #[test]
+    fn a_click_goes_to_the_window_that_posted_it() {
+        let heard = Heard::default();
+        for id in ["w0-1", "w1-1", "w9-1", "w0-2"] {
+            heard.push(click(id));
+        }
+        let whose = |me: &'static str| {
+            move |id: &str| match id.split('-').next() {
+                Some(w) if w == me => Whose::This,
+                Some("w0" | "w1") => Whose::Another,
+                _ => Whose::Closed,
+            }
+        };
+        assert_eq!(heard.take(whose("w1")), vec![click("w1-1")]);
+        assert_eq!(
+            heard.take(whose("w0")),
+            vec![click("w0-1"), click("w0-2")],
+            "the first window's, though the second took its turn first"
+        );
+        assert_eq!(
+            heard.take(|_| Whose::This),
+            vec![],
+            "the closed window's dropped"
+        );
+    }
 
     #[test]
     fn a_post_and_its_category_build_without_the_center() {
