@@ -172,25 +172,28 @@ fn the_shift_table_is_what_the_wayland_driver_sends() {
         let [chord, key, typed] = keyed.split(' ').collect::<Vec<_>>()[..] else {
             panic!("{line}")
         };
-        let held = match chord {
-            "shift" => SHIFT,
-            "ctrl+shift" => CTRL | SHIFT,
-            "ctrl" => CTRL,
+        let (held, locked) = match chord {
+            "shift" => (SHIFT, 0),
+            "ctrl+shift" => (CTRL | SHIFT, 0),
+            "ctrl" => (CTRL, 0),
+            "caps" => (0, LOCK),
+            "caps+ctrl" => (CTRL, LOCK),
             _ => panic!("{chord}"),
         };
         let (key, typed) = (character(key), character(typed));
-        let e = press(&km, 0, held, 0, us_key(&km, key));
+        let e = press(&km, 0, held, locked, us_key(&km, key));
         assert_eq!(e.code, KeyCode::Char(Codepoint::from_char(key)), "{line}");
         assert_eq!(e.mods.has(Modifiers::SHIFT), held & SHIFT != 0, "{line}");
+        assert_eq!(e.mods.has(Modifiers::CAPS_LOCK), locked != 0, "{line}");
         assert_eq!(
             e.shifted,
-            Some(Codepoint::from_char(typed)).filter(|_| typed != key),
+            Some(Codepoint::from_char(typed)).filter(|_| typed != key && held & SHIFT != 0),
             "{line}"
         );
         assert_eq!(sent(e, mode), unescape(want), "{line}");
         rows += 1;
     }
-    assert_eq!(rows, 28, "the table's every row");
+    assert_eq!(rows, 37, "the table's every row");
 }
 
 /// One key and what it sends under each mode.

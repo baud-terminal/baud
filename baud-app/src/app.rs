@@ -2773,6 +2773,37 @@ fn slots(p: Px) -> usize {
     usize::try_from(p.value()).unwrap_or(0)
 }
 
+/// **The modifiers a key is encoded with**: those the window crate's key
+/// event carries, and Caps Lock from the event's own `modifierFlags`,
+/// which the crate's modifiers have no field for. "If a modifier is
+/// *active* when the key event occurs, i.e. if the key is pressed or the
+/// lock (for caps lock/num lock) is enabled, the key event must have the
+/// bit for that modifier set" (`[[source: kitty-keyboard]]`), as kitty's
+/// macOS layer reads `NSEventModifierFlagCapsLock` from the event
+/// (`translateFlags`, `[[source: kitty-glfw-cocoa-window-851cb80]]`). A
+/// Mac has no NumLock, whose key is the keypad's Clear.
+fn held_with_locks(key: &KeyPress, flags: NSEventModifierFlags) -> Modifiers {
+    let m = mods(key.modifiers);
+    match flags.contains(NSEventModifierFlags::CapsLock) {
+        true => m.with(Modifiers::CAPS_LOCK),
+        false => m,
+    }
+}
+
+/// **The key event's flags**: `modifierFlags` of `NSApplication`'s
+/// `currentEvent`, which inside `keyDown:` is that key event, as
+/// [`current_event_time`] reads its stamp. AppKit sets
+/// `NSEventModifierFlagCapsLock` there while the lock is on, "Set if Caps
+/// Lock key is pressed" (`[[source: macos-sdk-nsevent-h]]` line 168;
+/// `[[source: apple-nsevent-modifierflags]]`,
+/// `[[source: apple-nsevent-modifierflags-capslock]]`). None off the main thread or
+/// with no event being dispatched.
+fn current_event_flags() -> NSEventModifierFlags {
+    MainThreadMarker::new()
+        .and_then(|mtm| NSApplication::sharedApplication(mtm).currentEvent())
+        .map_or(NSEventModifierFlags(0), |e| e.modifierFlags())
+}
+
 fn mods(m: macos_liquid_glass::drawable::Modifiers) -> Modifiers {
     let mut out = Modifiers::NONE;
     if m.shift {
@@ -3016,8 +3047,8 @@ fn pc101(key: &KeyPress) -> Option<Codepoint> {
 
 /// **The keystroke handed to the input manager**, until `text` answers:
 /// what it typed, its PC-101 character, the modifiers held -- of which
-/// only Shift reaches here, Command, Control and Option being kept from
-/// the input manager -- and, with Shift, the character the layout types
+/// only Shift and Caps Lock reach here, Command, Control and Option being
+/// kept from the input manager -- and, with Shift, the character the layout types
 /// on the key without it (`layouts::unshifted`).
 struct Keyed {
     typed: String,
@@ -3048,13 +3079,15 @@ fn shifted_key(typed: Codepoint, unshifted: Option<Codepoint>) -> Option<(Codepo
 /// exactly what the keystroke that went to the input manager typed, it is
 /// that key's: its PC-101 character rides as kitty's base layout key, and
 /// Shift held is reported beside the key Shift was on ([`shifted_key`]),
-/// as kitty reports `shift+a`, `CSI 97 ; 2 u`. An input method's commit,
+/// as kitty reports `shift+a`, `CSI 97 ; 2 u`, and Caps Lock on beside
+/// it, `CSI 97 ; 65 u` for its `A`. An input method's commit,
 /// a paste or a composed character is not that key's, and carries
 /// neither.
 fn typed_text(text: &str, keyed: Option<&Keyed>) -> Vec<KeyEvent> {
     let own = keyed.filter(|k| k.typed == text && text.chars().count() == 1);
     let base = own.and_then(|k| k.base);
     let shift = own.filter(|k| k.mods.has(Modifiers::SHIFT));
+    let locks = own.map_or(Modifiers::NONE, |k| k.mods.without(Modifiers::SHIFT));
     text.chars()
         .filter_map(|ch| {
             let c = Codepoint::new(u32::from(ch))?;
@@ -3062,11 +3095,11 @@ fn typed_text(text: &str, keyed: Option<&Keyed>) -> Vec<KeyEvent> {
             let identity = Codepoint::new(u32::from(lower)).unwrap_or(c);
             let mut e = match shift.and_then(|k| shifted_key(c, k.unshifted)) {
                 Some((key, typed)) => {
-                    let mut e = KeyEvent::press(KeyCode::Char(key), Modifiers::SHIFT);
+                    let mut e = KeyEvent::press(KeyCode::Char(key), Modifiers::SHIFT.with(locks));
                     e.shifted = Some(typed).filter(|&t| t != key);
                     e
                 }
-                None => KeyEvent::press(KeyCode::Char(identity), Modifiers::NONE),
+                None => KeyEvent::press(KeyCode::Char(identity), locks),
             };
             e.text = Some(c);
             e.base_layout = base.filter(|&b| KeyCode::Char(b) != e.code);
@@ -3077,9 +3110,9 @@ fn typed_text(text: &str, keyed: Option<&Keyed>) -> Vec<KeyEvent> {
 
 /// **Whether a key's modifiers make it a chord**, whose bytes are not its
 /// text: anything but Shift, whose capital is the text the base layer
-/// sends.
+/// sends, and Caps Lock, whose capital is too.
 fn is_chord(held: Modifiers) -> bool {
-    held.without(Modifiers::SHIFT) != Modifiers::NONE
+    held.without(Modifiers::SHIFT).without(Modifiers::CAPS_LOCK) != Modifiers::NONE
 }
 
 /// The character the layout types on `key` without Shift, asked only
@@ -10224,7 +10257,7 @@ impl Responder for Driver {
                 None => Handled::Interpret,
             };
         }
-        let m = mods(key.modifiers);
+        let m = held_with_locks(key, current_event_flags());
         let e = if let Some(code) = special(key) {
             pressed(code, key, m)
         } else if key.modifiers.control || key.modifiers.option {
@@ -14812,46 +14845,57 @@ mod tests {
                 panic!("{line}")
             };
             let (key, typed) = (character(key), character(typed));
-            let e = match chord_of {
-                "shift" => {
+            let shift = chord_of.contains("shift");
+            let held = Held {
+                control: chord_of.contains("ctrl"),
+                shift,
+                ..Held::default()
+            };
+            // Caps Lock is in the key event's flags, which the window
+            // crate's modifiers do not carry.
+            let flags = match chord_of.contains("caps") {
+                true => NSEventModifierFlags::CapsLock,
+                false => NSEventModifierFlags(0),
+            };
+            let k = KeyPress {
+                key_code: code_of(key),
+                characters: match held.control {
+                    true => char::from_u32(u32::from(typed) & 0x1f).expect("C0"),
+                    false => typed,
+                }
+                .to_string(),
+                // `charactersIgnoringModifiers` keeps Shift and drops Caps
+                // Lock, as AppKit gives it.
+                unmodified: match shift {
+                    true => typed,
+                    false => key,
+                }
+                .to_string(),
+                modifiers: held,
+                repeat: false,
+            };
+            let m = held_with_locks(&k, flags);
+            let unshifted = Some(key).filter(|_| shift);
+            let e = match held.control {
+                false => {
                     let text = typed.to_string();
                     typed_text(
                         &text,
-                        Some(&keyed(
-                            &text,
-                            Codepoint::from_char(key),
-                            Modifiers::SHIFT,
-                            Some(key),
-                        )),
+                        Some(&keyed(&text, Codepoint::from_char(key), m, unshifted)),
                     )[0]
                 }
-                "ctrl+shift" | "ctrl" => {
-                    let held = Held {
-                        control: true,
-                        shift: chord_of == "ctrl+shift",
-                        ..Held::default()
-                    };
-                    let control = char::from_u32(u32::from(typed) & 0x1f).expect("C0");
-                    let k = KeyPress {
-                        key_code: code_of(key),
-                        characters: control.to_string(),
-                        unmodified: typed.to_string(),
-                        modifiers: held,
-                        repeat: false,
-                    };
-                    chord(&k, mods(held), Some(Codepoint::from_char(key))).expect("a chord")
-                }
-                _ => panic!("{chord_of}"),
+                true => chord(&k, m, unshifted.map(Codepoint::from_char)).expect("a chord"),
             };
             assert_eq!(e.code, KeyCode::Char(Codepoint::from_char(key)), "{line}");
+            assert_eq!(e.mods.has(Modifiers::SHIFT), shift, "{line}");
             assert_eq!(
-                e.mods.has(Modifiers::SHIFT),
-                chord_of.contains("shift"),
+                e.mods.has(Modifiers::CAPS_LOCK),
+                chord_of.contains("caps"),
                 "{line}"
             );
             assert_eq!(
                 e.shifted,
-                Some(Codepoint::from_char(typed)).filter(|_| typed != key),
+                Some(Codepoint::from_char(typed)).filter(|_| typed != key && shift),
                 "{line}"
             );
             let modes = match mode.split_once('=') {
@@ -14863,7 +14907,99 @@ mod tests {
             assert_eq!(core_sends(modes.as_bytes(), e), unescape(want), "{line}");
             rows += 1;
         }
-        assert_eq!(rows, 28, "the table's every row");
+        assert_eq!(rows, 37, "the table's every row");
+    }
+
+    /// **Caps Lock is read from the key event's flags**: AppKit sets
+    /// `NSEventModifierFlagCapsLock` in a key event made while the lock is
+    /// on, and the key is encoded with Caps Lock's bit, which the window
+    /// crate's modifiers do not carry. Asked of AppKit itself, as the
+    /// syscall layouts are asked of the headers: a probe compiled now turns
+    /// a keyboard event with the HID's lock flag, and one without, into
+    /// `NSEvent`s off screen, nothing posted, and prints the SDK's mask and
+    /// their flags. Caps Lock is no chord, so its capital is predicted as
+    /// typed. `key` reads the dispatched event's flags, held in the source:
+    /// off the main thread there is none. Perturbation: read no lock from
+    /// the flags and the Caps rows of the shared table lose their `64`.
+    #[test]
+    fn caps_lock_is_read_from_the_key_events_flags() {
+        // Indented: a `}` at the margin would end the test module where
+        // the tests that read this file look for its end.
+        const PROBE: &str = r#"
+            #import <AppKit/AppKit.h>
+            static unsigned long flags(CGEventFlags hid) {
+                CGEventRef cg = CGEventCreateKeyboardEvent(NULL, 0, true);
+                CGEventSetFlags(cg, hid);
+                unsigned long f = (unsigned long)[[NSEvent eventWithCGEvent:cg] modifierFlags];
+                CFRelease(cg);
+                return f;
+            }
+            int main(void) {
+                @autoreleasepool {
+                    printf("mask=%lu\n", (unsigned long)NSEventModifierFlagCapsLock);
+                    printf("on=%lu\n", flags(kCGEventFlagMaskAlphaShift));
+                    printf("off=%lu\n", flags(0));
+                }
+                return 0;
+            }
+"#;
+        let dir = std::env::temp_dir().join(format!("baud-caps-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let (src, bin) = (dir.join("probe.m"), dir.join("probe"));
+        std::fs::write(&src, PROBE).expect("write the probe");
+        let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+        let out = std::process::Command::new(&cc)
+            .args(["-fobjc-arc", "-framework", "AppKit", "-o"])
+            .arg(&bin)
+            .arg(&src)
+            .output()
+            .unwrap_or_else(|e| panic!("{cc} did not run: {e}"));
+        assert!(
+            out.status.success(),
+            "the probe did not compile:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = std::process::Command::new(&bin).output().expect("run it");
+        let _ = std::fs::remove_dir_all(&dir);
+        let text = String::from_utf8_lossy(&run.stdout).into_owned();
+        let said: std::collections::HashMap<&str, usize> = text
+            .lines()
+            .filter_map(|l| l.split_once('='))
+            .filter_map(|(k, v)| v.parse().ok().map(|n| (k, n)))
+            .collect();
+        assert_eq!(said.len(), 3, "the probe's three values: {text}");
+        assert_eq!(
+            said["mask"],
+            NSEventModifierFlags::CapsLock.0,
+            "the SDK's mask"
+        );
+        let k = KeyPress {
+            key_code: 0,
+            characters: "A".to_string(),
+            unmodified: "a".to_string(),
+            modifiers: macos_liquid_glass::drawable::Modifiers::default(),
+            repeat: false,
+        };
+        let on = held_with_locks(&k, NSEventModifierFlags(said["on"]));
+        let off = held_with_locks(&k, NSEventModifierFlags(said["off"]));
+        assert_eq!((on, off), (Modifiers::CAPS_LOCK, Modifiers::NONE));
+        assert!(!is_chord(on), "Caps Lock's capital is typed text");
+        // Caps Lock with Shift: AppKit types `A` on the US layout, the key
+        // Shift is on with both bits.
+        let a = Codepoint::from_char('a');
+        let both = typed_text(
+            "A",
+            Some(&keyed("A", a, Modifiers::SHIFT.with(on), Some('a'))),
+        )[0];
+        assert_eq!(core_sends(b"", both), b"A");
+        assert_eq!(core_sends(b"\x1b[>8u", both), b"\x1b[97;66u");
+        assert_eq!(core_sends(b"\x1b[>12u", both), b"\x1b[97:65;66u");
+        assert!(is_chord(Modifiers::CTRL.with(on)));
+        let src = include_str!("app.rs");
+        assert!(src.contains(concat!(
+            "let m = held_with_locks(",
+            "key, current_event_flags());"
+        )));
     }
 
     /// What `key` sends for `k` once `modes` is fed: the event it builds,

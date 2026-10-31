@@ -7345,6 +7345,41 @@ group  = "O"
 # How the app reaches the NSEvent behind a KeyPress the window crate hands it
 # without a timestamp.
 
+[sources.apple-nsevent-modifierflags]
+key    = "apple-nsevent-modifierflags"
+title  = "NSEvent.modifierFlags -- 'An integer bit field that indicates the pressed modifier keys' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/modifierflags-swift.property.json"
+file   = ""
+sha256 = "e1fc4dc73f32c57dd08db9433b841c64e5a277dcda2fe471929c72dfaa633ea2"
+bytes  = 10248
+status = "external"
+group  = "O"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nsevent-modifierflags.json, and the
+# digest is of that copy. Where the app reads Caps Lock for a key event,
+# which the window crate's modifiers do not carry; the bit is the SDK
+# header's NSEventModifierFlagCapsLock (macos-sdk-nsevent-h line 168).
+
+[sources.apple-nsevent-modifierflags-capslock]
+key    = "apple-nsevent-modifierflags-capslock"
+title  = "NSEvent.ModifierFlags.capsLock -- 'The Caps Lock key has been pressed' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/modifierflags-swift.struct/capslock.json"
+file   = ""
+sha256 = "1a34ac7c65c0f8bfd0379e12d18dd39f678f999fab8ec216a588f24de34d5230"
+bytes  = 20296
+status = "external"
+group  = "O"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nsevent-modifierflags-capslock.json,
+# and the digest is of that copy. The flag a key event carries while Caps
+# Lock is on, as a probe of eventWithCGEvent: shows AppKit setting it.
+
 [sources.apple-cgeventtimestamp]
 key    = "apple-cgeventtimestamp"
 title  = "CGEventTimestamp -- 'the elapsed time in nanoseconds since startup that a Quartz event occurred' (documentation JSON)"

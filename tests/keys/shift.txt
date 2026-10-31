@@ -4,11 +4,13 @@
 #
 #   chord  key  typed | mode | sent
 #
-# chord: shift, ctrl+shift or ctrl. key: the key's unshifted character on
-# the US layout, typed: what it types with the chord's Shift (the key
-# itself without one), both as a character or the word "space". A Control
-# chord types no text, so "report associated text" (kitty=24) carries
-# none. mode: legacy (power-on), kitty=N (the
+# chord: shift, ctrl+shift, ctrl, caps (Caps Lock on) or caps+ctrl. key:
+# the key's unshifted character on the US layout, typed: what it types
+# with the chord's Shift or Caps Lock (the key itself without either),
+# both as a character or the word "space". A Control chord types no text,
+# so "report associated text" (kitty=24) carries none. Caps Lock with
+# Shift is the layouts' own: the US keymap types a, the US Mac layout A.
+# mode: legacy (power-on), kitty=N (the
 # flags CSI > N u pushes) or mok=N (modifyOtherKeys N, CSI > 4 ; N m).
 # sent: the bytes, \e for ESC and \xNN for any byte.
 shift a A | legacy | A
@@ -39,3 +41,12 @@ ctrl a a | legacy | \x01
 ctrl a a | kitty=1 | \e[97;5u
 ctrl a a | kitty=24 | \e[97;5u
 ctrl+shift a A | kitty=24 | \e[97;6u
+caps a A | legacy | A
+caps a A | kitty=1 | A
+caps a A | kitty=8 | \e[97;65u
+caps a A | kitty=24 | \e[97;65;65u
+caps 1 1 | legacy | 1
+caps 1 1 | kitty=8 | \e[49;65u
+caps+ctrl a A | legacy | \x01
+caps+ctrl a A | kitty=1 | \e[97;69u
+caps+ctrl a A | kitty=24 | \e[97;69u
