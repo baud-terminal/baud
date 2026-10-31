@@ -1882,12 +1882,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         if self.cold.modes.is_set(ModeBit::PresentationEdits) && self.erase_line_presented(e) {
             return;
         }
-        let (cy, end) = (self.cy, self.line_cols());
-        let (a, b) = match e {
-            EraseExtent::ToStart => (Col::ZERO, Col::at_index(self.cx.col().index() + 1)),
-            EraseExtent::All => (Col::ZERO, Col::at_index(end.index())),
-            EraseExtent::ToEnd => (self.cx.col(), Col::at_index(end.index())),
-        };
+        let cy = self.cy;
+        let (a, b) = self.line_span(e);
         // To its end, the line is being cleared: what it held past a
         // narrower edge goes first (`Paint::clear_erased_past_edge`).
         let blank = self.blank();
@@ -1901,13 +1897,10 @@ impl<'a, 'b> Paint<'a, 'b> {
 
     /// Erase the screen. 0 below the cursor, 1 above it, 2 all of it.
     pub(crate) fn erase_display(&mut self, e: EraseExtent) {
-        let (rows, cols) = (self.rows.index(), Col::at_index(self.cols.index()));
+        let cols = Col::at_index(self.cols.index());
+        let (from, to) = self.display_rows(e);
+        let (from, to) = (from.index(), to.index());
         let blank = self.blank();
-        let (from, to) = match e {
-            EraseExtent::ToStart => (0, self.cy.index()),
-            EraseExtent::All => (0, rows),
-            EraseExtent::ToEnd => (self.cy.index() + 1, rows),
-        };
         // The rows covered whole are being cleared: what they held past a
         // narrower edge goes first (`Paint::clear_erased_rows_past_edge`).
         if self.past_edge() {

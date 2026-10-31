@@ -581,23 +581,6 @@ impl WindowOp {
     }
 }
 
-/// A half-open span of columns within one row, `[from, to)`.
-///
-/// A pair of `Col`s rather than two loose arguments: `fill(r, from, to)` and
-/// `fill(r, to, from)` both compile and one of them is silently empty.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct ColSpan {
-    pub from: Col,
-    pub to: Col,
-}
-
-/// A half-open span of rows, `[from, to)`. Same reasoning as [`ColSpan`].
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct RowSpan {
-    pub from: Row,
-    pub to: Row,
-}
-
 impl EraseExtent {
     pub fn from_param(p: Option<Param>) -> Option<EraseExtent> {
         match p.map_or(0, |x| x.0) {
@@ -605,71 +588,6 @@ impl EraseExtent {
             1 => Some(EraseExtent::ToStart),
             2 => Some(EraseExtent::All),
             _ => None,
-        }
-    }
-
-    /// The columns an erase covers **within a single row**, for EL and DECSEL.
-    ///
-    /// `[[source: ecma48]]` § 8.3.40 (EL): `Ps = 0` erases from the active
-    /// position to the end of the line, `Ps = 1` from the beginning up to *and
-    /// including* it, `Ps = 2` the whole line. The "and including" is why
-    /// `ToStart` ends at `cx.after()` and not at `cx`.
-    ///
-    /// The clamp is not decoration. With autowrap pending, the cursor legally
-    /// sits one past the last column — the deferred-wrap sentinel — so
-    /// `cx.after()` can be `cols + 1`.
-    pub fn line_span(self, cx: Col, cols: Cols) -> ColSpan {
-        let end = Col::at_index(cols.index());
-        match self {
-            EraseExtent::ToEnd => ColSpan { from: cx, to: end },
-            EraseExtent::ToStart => ColSpan {
-                from: Col::ZERO,
-                to: Col::at_index(cx.after().index().min(cols.index())),
-            },
-            EraseExtent::All => ColSpan {
-                from: Col::ZERO,
-                to: end,
-            },
-        }
-    }
-
-    /// The rows an erase covers **in full**, for ED and DECSED.
-    ///
-    /// `[[source: ecma48]]` § 8.3.39: the split is at the *cursor*, not at a
-    /// row boundary, so the cursor's own row is not in here for `ToEnd` or
-    /// `ToStart` — [`EraseExtent::cursor_span`] has it.
-    pub fn full_rows(self, cy: Row, rows: Rows) -> RowSpan {
-        let end = Row::from_index(rows.index());
-        match self {
-            EraseExtent::ToEnd => RowSpan {
-                from: cy.after(),
-                to: end,
-            },
-            EraseExtent::ToStart => RowSpan {
-                from: Row::ZERO,
-                to: cy,
-            },
-            EraseExtent::All => RowSpan {
-                from: Row::ZERO,
-                to: end,
-            },
-        }
-    }
-
-    /// The part of the **cursor's own row** an erase covers, for ED and DECSED.
-    ///
-    /// `None` for `All`, where the cursor's row is already covered in full by
-    /// [`EraseExtent::full_rows`] and erasing it twice would be the same cells
-    /// written a second time.
-    ///
-    /// ED erasing whole rows — ignoring this split — destroyed the text to the
-    /// left of the cursor on `CSI 0 J`, text the application had every reason
-    /// to believe was safe. It survived every existing ED test because they all
-    /// erased from column 0.
-    pub fn cursor_span(self, cx: Col, cols: Cols) -> Option<ColSpan> {
-        match self {
-            EraseExtent::All => None,
-            _ => Some(self.line_span(cx, cols)),
         }
     }
 }

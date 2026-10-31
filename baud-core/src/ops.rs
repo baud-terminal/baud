@@ -2265,7 +2265,13 @@ impl Paint<'_, '_> {
         r
     }
 
-    /// The span `EraseExtent` names on the cursor's row.
+    /// The span `EraseExtent` names on the cursor's row: EL's and DECSEL's,
+    /// and the cursor's row of ED and DECSED. The one definition of where
+    /// an erase splits the row, so the four cannot disagree.
+    /// `[[source: ecma48]]` § 8.3.40 (EL): `Ps = 1` erases from the
+    /// beginning of the line up to and including the active position,
+    /// which is why `ToStart` ends one past the cursor's column and not
+    /// at it.
     pub(crate) fn line_span(&self, e: EraseExtent) -> (Col, Col) {
         let cols = Col::at_index(self.line_cols().index());
         match e {
@@ -2275,7 +2281,9 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// The whole rows `EraseExtent` names, excluding the cursor's own.
+    /// The whole rows `EraseExtent` names, excluding the cursor's own: the
+    /// rows ED and DECSED erase whole. ED fills each to the row's end and
+    /// DECSED each to its line's end (`Paint::selective_erase_display`).
     ///
     /// A pair of `Row`s and not of integers: the two are a half-open span of
     /// *screen rows*, and the one place this repo let a row be a bare index it

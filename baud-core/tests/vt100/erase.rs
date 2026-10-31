@@ -138,8 +138,12 @@ fn erase_is_chunk_invariant() {
 ///
 /// They computed it independently, and the ECMA-48 § 8.3.39 bug above had to be
 /// fixed in each of them separately — the second one only because someone
-/// remembered it existed. `EraseExtent::full_rows` / `cursor_span` is now the
-/// single definition and this asserts the two stay on it.
+/// remembered it existed. `line_span` and `display_rows` in `ops.rs` are now
+/// the single definition, for ED, EL, DECSED and DECSEL alike, and this
+/// catches either side being given its own arithmetic again. A fault in the
+/// shared definition moves both sides together; the exact-screen tests
+/// (`ed_erases_whole_rows_on_the_correct_side`, `el_splits_at_the_cursor_too`,
+/// `selective_ed_splits_at_the_cursor`) catch that.
 ///
 /// With nothing protected, DECSED erases exactly the cells ED erases: DECSCA
 /// decides *which* cells are eligible, not *where* the boundary falls. DECSED
@@ -170,14 +174,13 @@ fn selective_erase_splits_the_row_where_plain_erase_does() {
 /// deferred-wrap sentinel — so "up to and including the active position" is the
 /// entire row, and `CSI 1 J` must land exactly where `CSI 2 K` does.
 ///
-/// Be precise about what this does **not** prove. `ToStart` ends at
-/// `cx.after()`, which is `cols + 1` here; two of the three call sites clamped
-/// that and `erase_display` did not. The difference was invisible, because
-/// `View::fill` clamps `to` again underneath — a downstream guard quietly
-/// covering an upstream inconsistency, which is why it survived. No test could
-/// have caught it from the outside. Consolidating into `line_span` is what
-/// fixes it: one definition, clamped once, and `fill`'s clamp stops being
-/// load-bearing for anything but its own bounds.
+/// Be precise about what this does **not** prove. `ToStart` ends one past
+/// the cursor's column, which is `cols + 1` here, and `line_span` does not
+/// clamp it: the clamp is in the grid underneath, where `View::snap` clamps
+/// it to the row and widens it to whole characters, for `fill` and
+/// `snap_span` alike. So the overshoot is invisible from the outside, and
+/// what keeps every erase form on the same span is that ED, EL, DECSED and
+/// DECSEL take it from the one `line_span`.
 #[test]
 fn erase_to_start_with_a_pending_wrap_covers_the_whole_row() {
     // `CSI 9999 G` clamps to the last column, so this needs no grid width:

@@ -125,9 +125,10 @@ sequence would fragment one match arm set into four.
 `graph.rs` is the automaton, `paint.rs` the one borrow of the grid a read
 writes through, `ops.rs` what a control sequence does to the grid. EL (VT100)
 and DECSEL (VT220) are one operation family, and separating them by vintage
-would put the two halves of one bug in different files. They are not yet one
-implementation: DECSEL takes its span from `line_span` in `ops.rs`, and EL's
-`erase_line` in `paint.rs` spells the same arithmetic again.
+would put the two halves of one bug in different files. They share one
+definition of where an erase falls: EL, ED, DECSEL and DECSED take the
+cursor row's span from `line_span`, and ED and DECSED take the rows they
+erase whole from `display_rows`, both in `ops.rs`.
 
 **Tests and docs are filed by protocol level** because that is what a
 specification *is*. "Does baud do VT220?" is the question a reader asks, and
