@@ -1977,7 +1977,7 @@ mod tests {
                 "Linux",
                 include_str!("linux.rs"),
                 "cfg.pointer_mode);",
-                concat!("let act = d.hiding.", "key(&d.term);"),
+                concat!("let act = self.hiding.", "key(&self.term);"),
                 concat!("let act = self.hiding.", "read(&self.term);"),
             ),
         ] {

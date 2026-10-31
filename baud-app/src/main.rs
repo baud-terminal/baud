@@ -134,6 +134,10 @@ mod notify;
 // platform.
 #[cfg(any(target_os = "linux", test))]
 mod opener;
+// Where the Linux driver sends a key's release: its tests run on every
+// platform.
+#[cfg(any(target_os = "linux", test))]
+mod pressed;
 // Freed image pages back to the system, which both drivers lend the core.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pages;

@@ -39092,3 +39092,34 @@ bytes  = 63344
 status = "external"
 group  = "BG"
 # Read and hash-verified for the provenance of gvar.rs's inference (note BG); not committed.
+
+[sources.kitty-glfw-input-c-6d5d0c4]
+key    = "kitty-glfw-input-c-6d5d0c4"
+title  = "kitty 6d5d0c4, glfw/input.c -- _glfwInputKeyboard: a release with no recorded press is dropped, and a release takes its press's key, shifted and alternate keys (265-298)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 6d5d0c4 (GPL-3.0; glfw's zlib licence)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/glfw/input.c"
+file   = ""
+sha256 = "3dc38e50f4b200fb471548e69298490250be3bf97e5da89ec40aa4cb94b19e96"
+bytes  = 52152
+status = "external"
+group  = "H"
+# Fetched 2026-10-30: practice for pairing a key's release with its press on
+# Linux. Read, not copied.
+
+[sources.foot-152487e-input]
+key    = "foot-152487e-input"
+title  = "foot 152487e, input.c -- keyboard_leave sends the program no release (768-815); while searching a key's release is dropped and its press goes to the search (1652-1662)"
+author = "Daniel Eklof and the foot contributors (MIT)"
+year   = 2026
+venue  = "foot terminal emulator, codeberg.org/dnkl/foot @ 152487e"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/152487e494993ad7fb5633a27c7d7ad0f8810ea5/input.c"
+file   = ""
+sha256 = "eb89aabd04678b57d21ae0e3fd331ba1e7817c9fc601cd896cde5d86bb5cd0cb"
+bytes  = 126998
+status = "external"
+group  = "H"
+# Fetched 2026-10-30: practice for a release while an overlay has the keys,
+# and on a focus loss. Read, not copied.
+

@@ -1331,12 +1331,59 @@ fn a_held_key_repeats_until_it_is_released() {
     pump(&mut conn, &mut w);
     assert_eq!(
         drain(&mut w),
-        [typed('Q', Modifiers::NONE, KeyEventKind::Release)],
-        "the release is delivered"
+        [typed('q', Modifiers::NONE, KeyEventKind::Release)],
+        "the release is delivered, naming the key its press named"
     );
     assert_eq!(w.repeat_deadline(), None, "and the repeat stops");
     w.tick(due + std::time::Duration::from_secs(5));
     assert!(drain(&mut w).is_empty());
+}
+
+/// **A release names the key its press named, and follows only a press
+/// the window sent**, as kitty's layer pairs them (`[[source:
+/// kitty-glfw-input-c-6d5d0c4]]`, `_glfwInputKeyboard`): `q` let go with
+/// Shift now held is `q`, not `Q`; a key already down when the keyboard
+/// entered, whose press was never sent, releases nothing, and nor does a
+/// key pressed before the keyboard left and let go after it came back.
+/// Perturbation: name the release by the keyboard's state at the release
+/// and the first assertion reads `Q`; send a release with no press and the
+/// second reads one.
+#[test]
+fn a_release_names_its_press_and_follows_only_a_press_sent() {
+    use baud_domain::{KeyEventKind, Modifiers};
+    let (mut conn, mut server, mut w, kb, surface) = keyboard_session();
+    key(&mut server, kb, KEY_Q, PRESSED);
+    depressed(&mut server, kb, 1);
+    key(&mut server, kb, KEY_Q, RELEASED);
+    depressed(&mut server, kb, 0);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        drain(&mut w),
+        [
+            typed('q', Modifiers::NONE, KeyEventKind::Press),
+            typed('q', Modifiers::NONE, KeyEventKind::Release)
+        ]
+    );
+    // Down before the keyboard entered: its release alone arrives.
+    key(&mut server, kb, KEY_E, RELEASED);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), [], "no press was sent");
+    // Pressed, the keyboard leaves and comes back, then let go.
+    key(&mut server, kb, KEY_E, PRESSED);
+    server.send(
+        kb,
+        "wl_keyboard",
+        "leave",
+        &[Arg::Uint(2), Arg::Object(surface)],
+    );
+    keyboard_enter(&mut server, kb, 3, surface);
+    key(&mut server, kb, KEY_E, RELEASED);
+    pump(&mut conn, &mut w);
+    let keys: Vec<Event> = drain(&mut w)
+        .into_iter()
+        .filter(|e| matches!(e, Event::Key(_)))
+        .collect();
+    assert_eq!(keys, [typed('e', Modifiers::NONE, KeyEventKind::Press)]);
 }
 
 /// **What else stops a repeat, each on its own:** another key's press takes
@@ -3611,7 +3658,8 @@ fn a_dead_key_composes_with_the_next_letter() {
         key(server, kb, code, PRESSED);
         key(server, kb, code, RELEASED);
     };
-    let text = |s: &str| -> Vec<Event> { s.chars().map(|c| Event::Key(keys::typed(c))).collect() };
+    let text =
+        |s: &str| -> Vec<Event> { s.chars().map(|c| Event::Typed(keys::typed(c))).collect() };
     // No table: the dead key is nothing, and the e is an e.
     tap(&mut server, KEY_APOSTROPHE);
     tap(&mut server, KEY_E);
@@ -3921,8 +3969,8 @@ fn an_input_method_composes_at_the_cursor_and_commits_text() {
         drain(&mut i.w),
         [
             Event::Preedit(Preedit::default()),
-            Event::Key(keys::typed('漢')),
-            Event::Key(keys::typed('字'))
+            Event::Typed(keys::typed('漢')),
+            Event::Typed(keys::typed('字'))
         ]
     );
     // A commit and a new preedit in one done.
@@ -3937,7 +3985,7 @@ fn an_input_method_composes_at_the_cursor_and_commits_text() {
     pump(&mut i.conn, &mut i.w);
     assert_eq!(
         drain(&mut i.w),
-        [Event::Key(keys::typed('a')), Event::Preedit("b".into())]
+        [Event::Typed(keys::typed('a')), Event::Preedit("b".into())]
     );
     // A done without a preedit clears it.
     done(&mut i, 2);
@@ -4135,7 +4183,7 @@ fn an_input_method_at_version_2_hints_submits_and_asks_for_a_keyboard() {
     );
     done(&mut i);
     let enter = || {
-        Event::Key(baud_domain::KeyEvent::press(
+        Event::Typed(baud_domain::KeyEvent::press(
             baud_domain::KeyCode::Enter,
             baud_domain::Modifiers::NONE,
         ))
@@ -4144,8 +4192,8 @@ fn an_input_method_at_version_2_hints_submits_and_asks_for_a_keyboard() {
         typed_events(&mut i.w),
         [
             Event::Preedit(Preedit::default()),
-            Event::Key(keys::typed('仮')),
-            Event::Key(keys::typed('名')),
+            Event::Typed(keys::typed('仮')),
+            Event::Typed(keys::typed('名')),
             enter()
         ]
     );

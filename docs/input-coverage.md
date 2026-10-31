@@ -222,6 +222,19 @@ profile's count in `docs/protocols/profiles/` to be the measured one.
   the client, and delivers releases; macOS delivers none, because the window
   crate has no `keyUp:`. `?8` DECARM is set at power-on, and `Term::key`
   drops a repeat while an application has reset it.
+* **A key's release on Linux reaches the program exactly when its press
+  did**, since 2026-10-30. It names the key its press named, as kitty's
+  layer names it (`[[source: kitty-glfw-input-c-6d5d0c4]]`), so Shift
+  pressed while `q` is held lets go of `q`. A key pressed before the find
+  field opened and let go inside it is let go to the program, where the
+  release was lost; Escape pressed into the field to close it releases
+  nothing after, where the program was told of a key going up it never saw
+  go down; and a key already down when the window took the keyboard
+  releases nothing (`a_release_goes_to_the_program_exactly_when_its_press_did`,
+  `a_release_names_its_press_and_follows_only_a_press_sent`). foot drops
+  a release while its search is open and sends the one after it closes
+  (`[[source: foot-152487e-input]]`). Repeats go where they went, and the
+  find field types what it typed.
 * **A Mac's number pad is a keypad.** Its keys are named by key code, not
   by `NSEventModifierFlagNumericPad`, which AppKit also sets on the arrows,
   and each carries the text it types, as on Linux, so kitty's disambiguate

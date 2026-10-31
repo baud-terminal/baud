@@ -49,7 +49,19 @@ pub enum Event {
     },
     /// The last frame reached the screen; the next may be presented.
     Frame,
+    /// A key pressed, repeated or released. **A release names the key its
+    /// press named and comes only for a press this window sent**: kitty's
+    /// layer gives a release the press's key, shifted and alternate keys,
+    /// "we want the same key value" (`[[source:
+    /// kitty-glfw-input-c-6d5d0c4]]`, `_glfwInputKeyboard`), so Shift
+    /// pressed while `q` is held lets go of `q`, not `Q`; and a key already
+    /// down when the keyboard entered, a shortcut's or a Compose
+    /// sequence's, releases nothing.
     Key(KeyEvent),
+    /// A character a Compose sequence or the input method typed, or the
+    /// input method's submit: a key press of no key, which no release
+    /// follows.
+    Typed(KeyEvent),
     /// `wl_keyboard.enter` and `leave`: the surface gained or lost keyboard
     /// focus. The driver hands it to `Term::focus`, which reports it to the
     /// child only if it asked with `?1004`.
@@ -367,6 +379,9 @@ pub struct Window {
     /// reach nobody: more than one, as a dead key may still be down when
     /// the letter after it is pressed.
     swallowed: Vec<Keycode>,
+    /// The keys down whose press was sent as a [`Event::Key`], and that
+    /// press: what each one's release names.
+    down: Vec<(Keycode, KeyEvent)>,
     /// The session's Compose table (`compose.rs`) and where the keys fed so
     /// far stand in it.
     compose: Option<Table>,
@@ -449,6 +464,7 @@ impl Window {
             },
             held: None,
             swallowed: Vec::new(),
+            down: Vec::new(),
             compose: None,
             composing: Compose::default(),
             ime: TextInput::default(),
@@ -1283,6 +1299,7 @@ impl Window {
     fn keyboard_left(&mut self, s: &mut Sender<'_>) {
         self.held = None;
         self.swallowed.clear();
+        self.down.clear();
         self.composing.reset();
         self.clip.focus_lost(s);
         self.mods = Mods::default();
@@ -1746,7 +1763,7 @@ impl Handler for Window {
                             }
                             Composing::Typed(text) => {
                                 for c in text.chars() {
-                                    self.events.push_back(Event::Key(keys::typed(c)));
+                                    self.events.push_back(Event::Typed(keys::typed(c)));
                                 }
                                 self.swallowed.push(code);
                                 self.held = None;
@@ -1755,6 +1772,8 @@ impl Handler for Window {
                         }
                         if let Some(e) = self.key_event(code, KeyEventKind::Press) {
                             self.events.push_back(Event::Key(e));
+                            self.down.retain(|&(k, _)| k != code);
+                            self.down.push((code, e));
                         }
                         // A press takes the repeat over, whatever was held;
                         // a key the keymap does not repeat -- a modifier --
@@ -1782,9 +1801,20 @@ impl Handler for Window {
                             self.swallowed.swap_remove(i);
                             return;
                         }
-                        if let Some(e) = self.key_event(code, KeyEventKind::Release) {
-                            self.events.push_back(Event::Key(e));
-                        }
+                        let Some(i) = self.down.iter().position(|&(k, _)| k == code) else {
+                            return;
+                        };
+                        let (_, press) = self.down.swap_remove(i);
+                        // The modifiers are the release's own, as the
+                        // keyboard holds them now.
+                        let mods = self
+                            .key_event(code, KeyEventKind::Release)
+                            .map_or_else(|| self.modifiers(), |e| e.mods);
+                        self.events.push_back(Event::Key(KeyEvent {
+                            kind: KeyEventKind::Release,
+                            mods,
+                            ..press
+                        }));
                     }
                     _ => {}
                 }
@@ -1844,10 +1874,10 @@ impl Handler for Window {
                         Step::Preedit(p) => self.events.push_back(Event::Preedit(p)),
                         Step::Commit(t) => {
                             for c in t.chars() {
-                                self.events.push_back(Event::Key(keys::typed(c)));
+                                self.events.push_back(Event::Typed(keys::typed(c)));
                             }
                         }
-                        Step::Submit => self.events.push_back(Event::Key(KeyEvent::press(
+                        Step::Submit => self.events.push_back(Event::Typed(KeyEvent::press(
                             baud_domain::KeyCode::Enter,
                             baud_domain::Modifiers::NONE,
                         ))),

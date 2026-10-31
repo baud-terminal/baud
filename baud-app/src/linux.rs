@@ -228,6 +228,9 @@ struct Driver {
     /// The find field while it is open (`find.rs`), as the macOS app
     /// keeps it: its current match is the seat's selection.
     finding: Option<crate::find::Finding>,
+    /// The presses the program was sent, until their releases
+    /// (`pressed.rs`): a release goes where its press went.
+    pressed: crate::pressed::Pressed,
     /// Where the input method puts the cursor in it (`marked::caret`).
     composing_caret: baud_render::Caret,
     /// Text blink, the cursor trail, the alternate screen's fade and the
@@ -615,6 +618,7 @@ pub fn run() {
         composing: Vec::new(),
         composing_hints: Vec::new(),
         finding: None,
+        pressed: crate::pressed::Pressed::default(),
         composing_caret: baud_render::Caret::End,
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition)
             .with_splash(crate::splash::splash_override(
@@ -849,52 +853,15 @@ pub fn run() {
                     }
                 }
                 // The find field takes every key while it is open, before a
-                // key could snap the window away from the match it shows.
-                Event::Key(k) if d.finding.is_some() => {
-                    if k.kind != baud_domain::KeyEventKind::Release {
-                        d.find_key(crate::find::field_key(k.code, k.mods, k.text));
-                    }
-                }
+                // key could snap the window away from the match it shows,
+                // and a release goes where its press went (`pressed.rs`).
                 Event::Key(k) => {
-                    // A key snaps the window back to the live screen,
-                    // where its effect is, and that reveals the thumb.
-                    if d.seat.key(&mut d.term) {
-                        d.pending = Pending::Dirty;
-                        d.reveal_thumb();
-                    }
-                    // Into an empty buffer, so it always fits and a `false`
-                    // is a key that sends nothing (`reads::input`). It was
-                    // queued behind the read's answers and its `false`
-                    // ignored, so a key after a reply-heavy read was lost.
-                    // A full buffer here would be that again, and is said.
-                    let overflows = d.term.reply_overflows;
-                    let drawn = d.term.images().generation();
-                    let queued =
-                        crate::reads::input(&mut d.term, |t| t.key(k), |b| d.outbox.push(b));
-                    // An arrow key moved a ReGIS input cursor, or a key
-                    // ended the input and took it away: a frame.
-                    if d.term.images().generation() != drawn {
-                        d.pending = Pending::Dirty;
-                    }
-                    if !queued && d.term.reply_overflows != overflows {
-                        crate::warn!("a key was dropped: the reply buffer had no room for it");
-                    }
-                    // A key that sent bytes hides the pointer as XTSMPOINTER
-                    // says (`hide.rs`).
-                    if queued {
-                        let act = d.hiding.key(&d.term);
-                        d.hide_pointer(act);
-                        // A key can start a job that prints nothing.
-                        d.derive.owe();
-                    }
-                    // A key shows the cursor, restarts its blink, and is
-                    // input to its stop.
-                    d.caret.input(Instant::now());
-                    // SRM reset: the core drew the key itself, a frame owed
-                    // now rather than at the next read.
-                    if d.term.local_echo() {
-                        d.pending = Pending::Dirty;
-                    }
+                    let route = d.pressed.key(k, d.keys_to());
+                    d.route_key(route);
+                }
+                Event::Typed(k) => {
+                    let route = crate::pressed::Pressed::typed(k, d.keys_to());
+                    d.route_key(route);
                 }
                 // Reported to the child only if it asked with `?1004`, into
                 // an empty buffer like a key, and written with the keys'
@@ -2024,6 +1991,65 @@ impl Driver {
 
     /// A key in the open field: the query edited, the current match
     /// stepped, or the field closed, the selection left on what it found.
+    /// Whose the keys are now: the find field's while it is open.
+    fn keys_to(&self) -> crate::pressed::KeysTo {
+        match self.finding {
+            Some(_) => crate::pressed::KeysTo::FindField,
+            None => crate::pressed::KeysTo::Program,
+        }
+    }
+
+    /// A key event where `pressed.rs` sends it.
+    fn route_key(&mut self, route: crate::pressed::Route) {
+        let k = match route {
+            crate::pressed::Route::Field(k) => {
+                self.find_key(crate::find::field_key(k.code, k.mods, k.text));
+                return;
+            }
+            crate::pressed::Route::Nobody => return,
+            crate::pressed::Route::Program(k) => k,
+        };
+        // A key snaps the window back to the live screen, where its effect
+        // is, and that reveals the thumb.
+        if self.seat.key(&mut self.term) {
+            self.pending = Pending::Dirty;
+            self.reveal_thumb();
+        }
+        // Into an empty buffer, so it always fits and a `false` is a key
+        // that sends nothing (`reads::input`). It was queued behind the
+        // read's answers and its `false` ignored, so a key after a
+        // reply-heavy read was lost. A full buffer here would be that
+        // again, and is said.
+        let overflows = self.term.reply_overflows;
+        let drawn = self.term.images().generation();
+        let outbox = &mut self.outbox;
+        let queued = crate::reads::input(&mut self.term, |t| t.key(k), |b| outbox.push(b));
+        // An arrow key moved a ReGIS input cursor, or a key ended the input
+        // and took it away: a frame.
+        if self.term.images().generation() != drawn {
+            self.pending = Pending::Dirty;
+        }
+        if !queued && self.term.reply_overflows != overflows {
+            crate::warn!("a key was dropped: the reply buffer had no room for it");
+        }
+        // A key that sent bytes hides the pointer as XTSMPOINTER says
+        // (`hide.rs`).
+        if queued {
+            let act = self.hiding.key(&self.term);
+            self.hide_pointer(act);
+            // A key can start a job that prints nothing.
+            self.derive.owe();
+        }
+        // A key shows the cursor, restarts its blink, and is input to its
+        // stop.
+        self.caret.input(Instant::now());
+        // SRM reset: the core drew the key itself, a frame owed now rather
+        // than at the next read.
+        if self.term.local_echo() {
+            self.pending = Pending::Dirty;
+        }
+    }
+
     fn find_key(&mut self, key: crate::find::FieldKey) {
         let Some(f) = self.finding.as_mut() else {
             return;

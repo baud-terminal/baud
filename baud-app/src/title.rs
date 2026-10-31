@@ -758,7 +758,15 @@ mod tests {
         );
         assert!(feed.contains(owe), "a Linux read owes it");
         assert!(
-            LINUX.contains(concat!("d.derive", ".owe();")),
+            body(
+                LINUX,
+                concat!(
+                    "    fn route_key(&mut self, ",
+                    "route: crate::pressed::Route) {"
+                ),
+                "    "
+            )
+            .contains(owe),
             "a Linux key"
         );
         let present = body(LINUX, concat!("    fn present(", "&mut self) {"), "    ");
