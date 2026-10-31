@@ -869,6 +869,12 @@ pub fn run() {
                 // keyboard: a cursor hidden when it leaves is owed the frame
                 // below that shows it.
                 Event::Focus(f) => {
+                    // The keys still down are let go first: after `leave`
+                    // the compositor sends this window none of their
+                    // releases (`pressed.rs`).
+                    if f == Focus::Lost {
+                        d.let_go();
+                    }
                     crate::reads::input(&mut d.term, |t| t.focus(f), |b| d.outbox.push(b));
                     d.focus = f;
                     d.seat.focused(f);
@@ -1996,6 +2002,20 @@ impl Driver {
         match self.finding {
             Some(_) => crate::pressed::KeysTo::FindField,
             None => crate::pressed::KeysTo::Program,
+        }
+    }
+
+    /// **The keys the program was told are down, let go**: the window lost
+    /// the keyboard. Each is sent as its release, which the core sends only
+    /// where kitty's event types asked for one.
+    fn let_go(&mut self) {
+        for e in self.pressed.let_go() {
+            let overflows = self.term.reply_overflows;
+            let outbox = &mut self.outbox;
+            let queued = crate::reads::input(&mut self.term, |t| t.key(e), |b| outbox.push(b));
+            if !queued && self.term.reply_overflows != overflows {
+                crate::warn!("a key's release was dropped: the reply buffer had no room for it");
+            }
         }
     }
 

@@ -235,6 +235,17 @@ profile's count in `docs/protocols/profiles/` to be the measured one.
   a release while its search is open and sends the one after it closes
   (`[[source: foot-152487e-input]]`). Repeats go where they went, and the
   find field types what it typed.
+* **The keys still down when the window loses the keyboard are let go
+  then**, since 2026-10-30, under kitty's event types: after
+  `wl_keyboard.leave`, which leaves no key down (`[[source: wayland]]`), the
+  compositor sends the window none of their releases, so a game holding `w`
+  walked on for good. Only keys whose press the program was sent are let go,
+  each once, with no modifier held, before the focus report
+  (`the_keys_down_when_the_keyboard_leaves_are_let_go_once`). Ghostty
+  releases them too (`[[source: ghostty-d9840f3-surface]]`); kitty builds the
+  releases and drops them before the program
+  (`[[source: kitty-glfw-window-c-6d5d0c4]]`,
+  `[[source: kitty-glfw-c-6d5d0c4]]`), and foot sends none.
 * **A Mac's number pad is a keypad.** Its keys are named by key code, not
   by `NSEventModifierFlagNumericPad`, which AppKit also sets on the arrows,
   and each carries the text it types, as on Linux, so kitty's disambiguate

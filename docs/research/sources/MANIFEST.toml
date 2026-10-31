@@ -39123,3 +39123,32 @@ group  = "H"
 # Fetched 2026-10-30: practice for a release while an overlay has the keys,
 # and on a focus loss. Read, not copied.
 
+[sources.kitty-glfw-window-c-6d5d0c4]
+key    = "kitty-glfw-window-c-6d5d0c4"
+title  = "kitty 6d5d0c4, glfw/window.c -- _glfwInputWindowFocus builds a release, marked fake_event_on_focus_change, for every key still down when the window loses focus (46-70)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 6d5d0c4 (GPL-3.0; glfw's zlib licence)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/glfw/window.c"
+file   = ""
+sha256 = "f15cb39ecc741259c24849ed36997a6f431066db07df697482d9a31353355a58"
+bytes  = 34589
+status = "external"
+group  = "H"
+# Fetched 2026-10-30: practice for the keys down at a focus loss, read with
+# kitty/glfw.c, which drops these releases. Read, not copied.
+
+[sources.kitty-glfw-c-6d5d0c4]
+key    = "kitty-glfw-c-6d5d0c4"
+title  = "kitty 6d5d0c4, kitty/glfw.c -- key_callback hands on_key_input no event marked fake_event_on_focus_change, so a focus loss releases nothing to the program (605)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 6d5d0c4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/glfw.c"
+file   = ""
+sha256 = "f439724c08a16a3583b2999faccb4b15c228298bae513a2c8df03300b49e11ad"
+bytes  = 167248
+status = "external"
+group  = "H"
+# Fetched 2026-10-30. The same line is in v0.33.0, v0.36.0, v0.42.0 and
+# v0.49.2 and not in v0.32.2: kitty issue 7196's change. Read, not copied.

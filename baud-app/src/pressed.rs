@@ -17,7 +17,7 @@
 //! no more than the identity either, so two keys of one identity down at
 //! once are released one for one.
 
-use baud_domain::{KeyEvent, KeyEventKind};
+use baud_domain::{KeyEvent, KeyEventKind, Modifiers};
 
 /// Whose the keys are: the program's, or the find field's while it is
 /// open.
@@ -72,12 +72,31 @@ impl Pressed {
             KeysTo::FindField => Route::Field(e),
         }
     }
+
+    /// **Every key still down, let go**, with no modifier held, and none
+    /// remembered after: the window losing the keyboard, after which the
+    /// compositor sends it no release -- `wl_keyboard.leave` "resets all
+    /// values to their defaults", the keys logically down among them,
+    /// empty by default (`[[source: wayland]]`). The core sends a release
+    /// only where kitty's event types asked for one. Ghostty releases on a
+    /// focus loss too, "better than not sending a key release event at
+    /// all" (`[[source: ghostty-d9840f3-surface]]`, `focusCallback`);
+    /// kitty builds the releases and drops them before the program
+    /// (`[[source: kitty-glfw-window-c-6d5d0c4]]`,
+    /// `[[source: kitty-glfw-c-6d5d0c4]]` line 605), and foot sends none.
+    pub fn let_go(&mut self) -> impl Iterator<Item = KeyEvent> + '_ {
+        self.0.drain(..).map(|press| KeyEvent {
+            kind: KeyEventKind::Release,
+            mods: Modifiers::NONE,
+            ..press
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use baud_domain::{Codepoint, KeyCode, Modifiers};
+    use baud_domain::{Codepoint, KeyCode};
 
     fn key(c: char, kind: KeyEventKind) -> KeyEvent {
         KeyEvent {
@@ -132,5 +151,37 @@ mod tests {
         // Typed text is never remembered: no release is owed for it.
         assert_eq!(Pressed::typed(a, Program), Route::Program(a));
         assert_eq!(Pressed::typed(a, FindField), Route::Field(a));
+        assert_eq!(p.let_go().count(), 0);
+    }
+
+    /// **The keys down when the keyboard leaves are let go once**, each
+    /// its press with no modifier held, and only those the program was
+    /// sent: a key pressed into the field is not among them. Perturbation:
+    /// read the presses without emptying them and the second leave lets
+    /// them go again.
+    #[test]
+    fn the_keys_down_when_the_keyboard_leaves_are_let_go_once() {
+        let mut p = Pressed::default();
+        let shifted = KeyEvent {
+            base_layout: Some(Codepoint::from_char('q')),
+            ..KeyEvent::press(KeyCode::Char(Codepoint::from_char('w')), Modifiers::SHIFT)
+        };
+        p.key(shifted, Program);
+        p.key(KeyEvent::press(KeyCode::Up, Modifiers::NONE), Program);
+        p.key(key('x', Press), FindField);
+        let gone: Vec<KeyEvent> = p.let_go().collect();
+        assert_eq!(gone.len(), 2);
+        assert!(
+            gone.iter()
+                .all(|e| e.kind == Release && e.mods == Modifiers::NONE)
+        );
+        assert_eq!(gone[0].code, shifted.code);
+        assert_eq!(
+            gone[0].base_layout, shifted.base_layout,
+            "named as its press"
+        );
+        assert_eq!(gone[1].code, KeyCode::Up);
+        assert_eq!(p.let_go().count(), 0, "once");
+        assert_eq!(p.key(key('w', Release), Program), Route::Nobody);
     }
 }
