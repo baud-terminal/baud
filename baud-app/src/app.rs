@@ -14748,6 +14748,120 @@ mod tests {
         }
     }
 
+    /// **Every row of the table both drivers share is what a Mac sends**
+    /// (`tests/keys/shift.txt`, which the Wayland driver's
+    /// `the_shift_table_is_what_the_wayland_driver_sends` reads too): the
+    /// key Shift is on, Shift beside it and what it typed its shifted key,
+    /// on the US layout -- a Shift-only key through the input manager's
+    /// `text`, a Control chord through `chord`. Perturbation: build the
+    /// input manager's events at `Modifiers::NONE` again and every kitty
+    /// row reads no Shift.
+    #[test]
+    fn the_shift_table_is_what_a_mac_sends() {
+        use macos_liquid_glass::drawable::Modifiers as Held;
+        let character = |s: &str| match s {
+            "space" => ' ',
+            _ => s.chars().next().expect("a character"),
+        };
+        let unescape = |s: &str| {
+            let mut out = Vec::new();
+            let mut i = 0;
+            while i < s.len() {
+                match &s[i..] {
+                    t if t.starts_with("\\e") => {
+                        out.push(0x1b);
+                        i += 2;
+                    }
+                    t if t.starts_with("\\x") => {
+                        out.push(u8::from_str_radix(&s[i + 2..i + 4], 16).expect("hex"));
+                        i += 4;
+                    }
+                    t => {
+                        let c = t.chars().next().expect("a character");
+                        out.extend_from_slice(c.to_string().as_bytes());
+                        i += c.len_utf8();
+                    }
+                }
+            }
+            out
+        };
+        // The Mac's key code for the US key `c`, its PC-101 table's.
+        let code_of = |c: char| {
+            (0..0x80)
+                .find(|&code| {
+                    let k = KeyPress {
+                        key_code: code,
+                        characters: String::new(),
+                        unmodified: String::new(),
+                        modifiers: Held::default(),
+                        repeat: false,
+                    };
+                    pc101(&k) == Some(Codepoint::from_char(c))
+                })
+                .expect("a key")
+        };
+        let mut rows = 0;
+        for line in include_str!("../../tests/keys/shift.txt")
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+        {
+            let [keyed_as, mode, want] = line.split(" | ").collect::<Vec<_>>()[..] else {
+                panic!("{line}")
+            };
+            let [chord_of, key, typed] = keyed_as.split(' ').collect::<Vec<_>>()[..] else {
+                panic!("{line}")
+            };
+            let (key, typed) = (character(key), character(typed));
+            let e = match chord_of {
+                "shift" => {
+                    let text = typed.to_string();
+                    typed_text(
+                        &text,
+                        Some(&keyed(
+                            &text,
+                            Codepoint::from_char(key),
+                            Modifiers::SHIFT,
+                            Some(key),
+                        )),
+                    )[0]
+                }
+                "ctrl+shift" => {
+                    let held = Held {
+                        control: true,
+                        shift: true,
+                        ..Held::default()
+                    };
+                    let control = char::from_u32(u32::from(typed) & 0x1f).expect("C0");
+                    let k = KeyPress {
+                        key_code: code_of(key),
+                        characters: control.to_string(),
+                        unmodified: typed.to_string(),
+                        modifiers: held,
+                        repeat: false,
+                    };
+                    chord(&k, mods(held), Some(Codepoint::from_char(key))).expect("a chord")
+                }
+                _ => panic!("{chord_of}"),
+            };
+            assert_eq!(e.code, KeyCode::Char(Codepoint::from_char(key)), "{line}");
+            assert!(e.mods.has(Modifiers::SHIFT), "{line}");
+            assert_eq!(
+                e.shifted,
+                Some(Codepoint::from_char(typed)).filter(|_| typed != key),
+                "{line}"
+            );
+            let modes = match mode.split_once('=') {
+                None => String::new(),
+                Some(("kitty", n)) => format!("\x1b[>{n}u"),
+                Some(("mok", n)) => format!("\x1b[>4;{n}m"),
+                _ => panic!("{mode}"),
+            };
+            assert_eq!(core_sends(modes.as_bytes(), e), unescape(want), "{line}");
+            rows += 1;
+        }
+        assert_eq!(rows, 24, "the table's every row");
+    }
+
     /// What `key` sends for `k` once `modes` is fed: the event it builds,
     /// through the core.
     fn sent_for(modes: &[u8], k: &KeyPress) -> Vec<u8> {

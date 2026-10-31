@@ -4,7 +4,7 @@
 //! `Term::key` wants it: a character with its text, or a functional key.
 
 use baud_domain::{Codepoint, FnKey, HebrewLayout, KeyCode, KeyEvent, KeypadKey, Modifiers};
-use baud_xkb::{Keycode, Keymap, Keysym, Mods, State};
+use baud_xkb::{Keycode, Keymap, Keysym, Lookup, ModMask, Mods, State};
 
 /// The modifiers `Term::key` cares about, from the real bits: Shift, Lock,
 /// Control, Mod1 (Alt), Mod2 (NumLock), Mod4 (Super).
@@ -37,44 +37,75 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
     let lookup = state.lookup(keycode)?;
     let sym = state.sym(keycode);
     let eff = state.mods().effective();
-    // The modifiers the lookup consumed are not reported again: Shift that
-    // made a capital is in the character, not beside it.
-    let mut mods = modifiers(eff & !lookup.consumed);
-    // **Except NumLock on a keypad key**, `XK_KP_Space` to `XK_KP_Equal`:
-    // the keymap's `KEYPAD` type consumes it to make a digit, and `?1035`
-    // asks whether it is on. xterm tests it against the event's whole
-    // state, `xw->work.num_lock & evt_state` for `IsKeypadKey`
-    // (`[[source: xterm-input-c]]` lines 1131-1136), so a digit leaves
-    // DECKPAM as `KP_Add` does. A lock adds no modifier parameter.
-    if (0xff80..=0xffbd).contains(&sym.0) && eff & (1 << 4) != 0 {
+    let keypad = (0xff80..=0xffbd).contains(&sym.0);
+    // **Shift and Caps Lock are reported, consumed or not**: "if a
+    // modifier is *active* when the key event occurs ... the key event
+    // must have the bit for that modifier set" (`[[source:
+    // kitty-keyboard]]`), as kitty's keyboard layer reports the whole
+    // state (`[[source: kitty-xkb-glfw-c]]`) and xterm numbers its
+    // parameter from the event's (`[[source: xterm-input-c]]`,
+    // `xtermStateToParam`); so Shift+Tab, which the keymap makes
+    // `ISO_Left_Tab`, is CBT, and Shift+F1, whose `CTRL+ALT` type consumes
+    // Shift, is `CSI 1 ; 2 P`. Another modifier the lookup consumed
+    // (Control and Alt together on a function key, for example, which the
+    // keymap gives the console switch) is not reported beside the key.
+    let mut mods = modifiers(eff & !(lookup.consumed & !(SHIFT | LOCK)));
+    // **NumLock on a keypad key**, `XK_KP_Space` to `XK_KP_Equal`, is
+    // reported too: the keymap's `KEYPAD` type consumes it to make a
+    // digit, and `?1035` asks whether it is on. xterm tests it against the
+    // event's whole state, `xw->work.num_lock & evt_state` for
+    // `IsKeypadKey` (`[[source: xterm-input-c]]` lines 1131-1136), so a
+    // digit leaves DECKPAM as `KP_Add` does. A lock adds no modifier
+    // parameter.
+    if keypad && eff & (1 << 4) != 0 {
         mods = mods.with(Modifiers::NUM_LOCK);
     }
-    let code = code_of(sym).or_else(|| {
-        let c = state.text(keycode)?;
-        // Control's transformation is `Term::key`'s to make from the
-        // modifier; give it the printable and the modifier.
-        let plain = match eff & (1 << 2) != 0 {
-            true => lookup.sym.to_char()?,
-            false => c,
-        };
-        Some(KeyCode::Char(Codepoint::from_char(plain)))
-    })?;
+    // The key in the active layout with no modifier: kitty's clean state.
+    let mut clean = state.clone();
+    clean.update(Mods::default(), state.group());
+    let own = clean.lookup(keycode).and_then(|l| l.sym.to_char());
+    let (code, typed) = match code_of(sym) {
+        Some(code) => (code, None),
+        None => {
+            let c = state.text(keycode)?;
+            // What the key typed. Control's transformation is `Term::key`'s
+            // to make from the modifier; give it the printable and the
+            // modifier.
+            let typed = match eff & CONTROL != 0 {
+                true => lookup.sym.to_char()?,
+                false => c,
+            };
+            let key = key_of(typed, own, &lookup, eff);
+            (KeyCode::Char(Codepoint::from_char(key)), Some(typed))
+        }
+    };
     let mut e = KeyEvent::press(code, mods);
     if let KeyCode::Char(id) = code {
+        e.text = typed.map(Codepoint::from_char);
+        // kitty's shifted key, "the shifted version, in the currently
+        // active keyboard layout", sent "only if shift is also present in
+        // the modifiers" (`[[source: kitty-keyboard]]`): the keysym the
+        // state gave, where it is not the key itself, as kitty's
+        // `shifted_xkb_sym` (`[[source: kitty-xkb-glfw-c]]`). The base
+        // layer folds and numbers it under Shift, as xterm's keysym is the
+        // shifted one.
+        e.shifted = lookup
+            .sym
+            .to_char()
+            .filter(|c| !c.is_control() && mods.has(Modifiers::SHIFT))
+            .map(Codepoint::from_char)
+            .filter(|&s| s != id);
         // kitty's base layout key: the physical key's character "in the
         // standard PC-101 key layout" (`[[source: kitty-keyboard]]`), sent
         // where it differs from the key's own unshifted one in the active
         // layout, as kitty compares it with the key's clean keysym.
-        let mut clean = state.clone();
-        clean.update(Mods::default(), state.group());
-        let own = clean.lookup(keycode).and_then(|l| l.sym.to_char());
         e.base_layout = pc101(keycode)
             .filter(|&b| Some(b) != own)
             .map(Codepoint::from_char)
             .filter(|&b| b != id);
         // Control on a key whose character is not ASCII: the key's first
         // other layout that gives one, libX11's `XkbLC_ControlFallback`.
-        if eff & (1 << 2) != 0 && lookup.consumed & (1 << 2) == 0 && lookup.sym.0 > 0x7f {
+        if eff & CONTROL != 0 && lookup.consumed & CONTROL == 0 && lookup.sym.0 > 0x7f {
             e.control = control_ascii(state, keycode).map(Codepoint::from_char);
         }
     }
@@ -93,6 +124,34 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
             .map(Codepoint::from_char);
     }
     Some(e)
+}
+
+/// The real modifiers by their bits: Shift, Lock and Control.
+const SHIFT: baud_xkb::ModMask = 1 << 0;
+const LOCK: baud_xkb::ModMask = 1 << 1;
+const CONTROL: baud_xkb::ModMask = 1 << 2;
+
+/// The real modifiers [`modifiers`] reports: Shift, Lock, Control, Mod1,
+/// Mod2 and Mod4. Mod3 and Mod5, where a keymap puts ISO Level 3 (AltGr)
+/// or Level 5, are none of the protocol's.
+const REPORTED: baud_xkb::ModMask = 0b0101_1111;
+
+/// **The key a typed character names**: "the lower-case (or more
+/// technically, un-shifted) version of the key" (`[[source:
+/// kitty-keyboard]]`), the character the key types in the active layout
+/// with no modifier (`own`), so Shift+1 is the `1` key and Caps Lock's
+/// `A` the `a` key. **Except where the lookup consumed a modifier the
+/// protocol does not carry**, AltGr or Level 5: the character typed is
+/// then the key, or AltGr+Shift+1 would be the `1` key with Shift and
+/// AltGr lost, as kitty keeps the keysym when "consumed unknown mods" made
+/// it and foot its level-0 key only while no such modifier is held
+/// (`[[source: kitty-xkb-glfw-c]]`, `[[source: foot-2705e36-input]]`). A
+/// key with no printable character of its own keeps the one it typed.
+fn key_of(typed: char, own: Option<char>, lookup: &Lookup, eff: ModMask) -> char {
+    match lookup.consumed & eff & !REPORTED {
+        0 => own.filter(|c| !c.is_control()).unwrap_or(typed),
+        _ => typed,
+    }
 }
 
 /// **The key's character under Control from another layout**, where the

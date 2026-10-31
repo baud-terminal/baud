@@ -537,10 +537,9 @@ fn a_window_opens_shows_a_frame_and_types() {
                 KeyCode::Char(Codepoint::from_char('q')),
                 Modifiers::NONE
             )),
-            Event::Key(KeyEvent::press(
-                KeyCode::Char(Codepoint::from_char('Q')),
-                Modifiers::NONE
-            )),
+            // Shift-q: the `q` key with Shift, as kitty names it, its
+            // capital the text and the shifted key.
+            shifted('q', 'Q', KeyEventKind::Press),
             Event::Key(KeyEvent::press(
                 KeyCode::Char(Codepoint::from_char('q')),
                 Modifiers::CTRL
@@ -1287,6 +1286,18 @@ fn typed(c: char, mods: baud_domain::Modifiers, kind: baud_domain::KeyEventKind)
     })
 }
 
+/// The key `key` typed with Shift, `typed` its text and its shifted key.
+fn shifted(key: char, typed: char, kind: baud_domain::KeyEventKind) -> Event {
+    use baud_domain::{Codepoint, KeyCode, KeyEvent, Modifiers};
+    let typed = Some(Codepoint::from_char(typed));
+    Event::Key(KeyEvent {
+        kind,
+        text: typed,
+        shifted: typed,
+        ..KeyEvent::press(KeyCode::Char(Codepoint::from_char(key)), Modifiers::SHIFT)
+    })
+}
+
 const MS: std::time::Duration = std::time::Duration::from_millis(1);
 const PRESSED: u32 = protocol::wl_keyboard::key_state::PRESSED;
 const RELEASED: u32 = protocol::wl_keyboard::key_state::RELEASED;
@@ -1319,19 +1330,17 @@ fn a_held_key_repeats_until_it_is_released() {
             .collect::<Vec<_>>(),
         "at the deadline and every 40 ms after it"
     );
-    // Shift pressed while q is held: the repeat is the shifted key.
+    // Shift pressed while q is held: the repeat is the key with Shift, its
+    // capital the text and the shifted key.
     depressed(&mut server, kb, 1);
     pump(&mut conn, &mut w);
     w.tick(due + 120 * MS);
-    assert_eq!(
-        drain(&mut w),
-        [typed('Q', Modifiers::NONE, KeyEventKind::Repeat)]
-    );
+    assert_eq!(drain(&mut w), [shifted('q', 'Q', KeyEventKind::Repeat)]);
     key(&mut server, kb, KEY_Q, RELEASED);
     pump(&mut conn, &mut w);
     assert_eq!(
         drain(&mut w),
-        [typed('q', Modifiers::NONE, KeyEventKind::Release)],
+        [typed('q', Modifiers::SHIFT, KeyEventKind::Release)],
         "the release is delivered, naming the key its press named"
     );
     assert_eq!(w.repeat_deadline(), None, "and the repeat stops");
@@ -1342,9 +1351,10 @@ fn a_held_key_repeats_until_it_is_released() {
 /// **A release names the key its press named, and follows only a press
 /// the window sent**, as kitty's layer pairs them (`[[source:
 /// kitty-glfw-input-c-6d5d0c4]]`, `_glfwInputKeyboard`): `q` let go with
-/// Shift now held is `q`, not `Q`; a key already down when the keyboard
-/// entered, whose press was never sent, releases nothing, and nor does a
-/// key pressed before the keyboard left and let go after it came back.
+/// Shift now held is `q` with the release's Shift, not `Q`; a key already
+/// down when the keyboard entered, whose press was never sent, releases
+/// nothing, and nor does a key pressed before the keyboard left and let go
+/// after it came back.
 /// Perturbation: name the release by the keyboard's state at the release
 /// and the first assertion reads `Q`; send a release with no press and the
 /// second reads one.
@@ -1361,7 +1371,7 @@ fn a_release_names_its_press_and_follows_only_a_press_sent() {
         drain(&mut w),
         [
             typed('q', Modifiers::NONE, KeyEventKind::Press),
-            typed('q', Modifiers::NONE, KeyEventKind::Release)
+            typed('q', Modifiers::SHIFT, KeyEventKind::Release)
         ]
     );
     // Down before the keyboard entered: its release alone arrives.

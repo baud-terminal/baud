@@ -884,9 +884,10 @@ impl Window {
 
     /// A repeat of the held key for every period elapsed by `now`, each
     /// re-derived from the modifiers in force now, as a keyboard's own repeat
-    /// would be: Shift pressed during a held `q` repeats `Q`. **At most one
-    /// second's worth**, then the next is a period from `now`: a loop that
-    /// was blocked longer does not type a burst the user never saw.
+    /// would be: Shift pressed during a held `q` repeats the `q` key with
+    /// Shift, its text `Q`. **At most one second's worth**, then the next
+    /// is a period from `now`: a loop that was blocked longer does not type
+    /// a burst the user never saw.
     pub fn tick(&mut self, now: Instant) {
         let (Some(mut held), Some(period)) = (self.held, self.repeat.period) else {
             return;
