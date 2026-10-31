@@ -2,7 +2,7 @@
 //! is provisioned for, the cache probe whose answer picks the grid's pitch,
 //! and the faces the config names -- read once, parsed once, and held for
 //! as long as the renderer borrows them: until a font reload gives them
-//! back ([`refont`]).
+//! back ([`refont`]), or the window's close (`lent::Drawing`).
 
 use crate::config::Config;
 use baud_domain::themefile::CellPaint;
@@ -956,7 +956,12 @@ mod tests {
         let given = super::follow_gaps(&mut r, &mut fonts, px)
             .expect("a system face added for the characters the frame met, which no face draws")
             .expect("the system's faces load");
-        assert_eq!(given.unmapped, 6, "the last stack's six system files");
+        assert_eq!(
+            (given.unmapped, given.freed),
+            (0, 1),
+            "the last stack's parsed faces freed, and its six system files kept: \
+             the new stack is made of them too, and a file is mapped once"
+        );
         let after = draw(&mut r, scene.as_bytes());
         assert!(
             super::follow_gaps(&mut r, &mut fonts, px).is_none(),
@@ -2114,7 +2119,7 @@ mod tests {
                 concat!(
                     "crate::host::plan_font(\n",
                     "                &mut app.term,\n",
-                    "                &mut app.fonts,\n",
+                    "                app.renderer.fonts_mut(),\n",
                     "                c,\n",
                     "                at,\n",
                     "                app.font_size,\n",

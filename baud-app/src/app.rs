@@ -225,24 +225,6 @@ struct CellMemory {
     /// The cursor guide's records, drawn under the glyphs.
     grounds: Vec<Instance>,
     candidates: Vec<Candidate>,
-    /// **The core's own grid, held and no longer bound.**
-    ///
-    /// The core's storage is lent out of these two Metal allocations
-    /// (`Owned::storage_over`), so dropping either would free memory the
-    /// parser is writing into -- they are an ownership role now rather
-    /// than a binding. Nothing reads them on the GPU since D4: the shader
-    /// reads [`CellMemory::copies`], and which surface is up is resolved
-    /// when the window is copied rather than by rebinding.
-    #[expect(
-        dead_code,
-        reason = "keeps alive the allocation the core's grid is lent from"
-    )]
-    grid: GridBuffer,
-    #[expect(
-        dead_code,
-        reason = "keeps alive the allocation the alternate screen is lent from"
-    )]
-    alt: GridBuffer,
     /// **The window, copied, one per set -- research decision D4.**
     ///
     /// The shader used to read `grid` and `alt` where the core writes
@@ -447,9 +429,20 @@ struct Links {
     refused: Tally,
 }
 
+/// What the terminal's surfaces live in when its storage does not hold
+/// them: on the cell path, the two GPU buffers the primary ring and the
+/// alternate screen are lent from (`Owned::storage_over`).
+type Surfaces = Option<(GridBuffer, GridBuffer)>;
+
 struct App {
-    term: Term<'static>,
-    renderer: Renderer<'static, 'static>,
+    /// The terminal, with its storage, its kitty files reader and the GPU
+    /// buffers its surfaces live in, all given back when the window closes
+    /// (`lent::Screen`).
+    term: crate::lent::Screen<Surfaces>,
+    /// The renderer with the fonts it draws from -- the faces a program's
+    /// `OSC 50` can name and the stacks they lead (`fonts.rs`) -- given
+    /// back when the window closes (`lent::Drawing`).
+    renderer: crate::lent::Drawing,
     presenter: Option<Presenter>,
     /// The GPU made before the terminal, on the cell path, so the grid
     /// could be lent from it; taken by the presenter when it exists.
@@ -573,9 +566,6 @@ struct App {
     /// and the config's, which Actual Size returns to.
     font_size: f32,
     font_base: f32,
-    /// The faces a program's `OSC 50` can name and the stacks they lead
-    /// (`fonts.rs`).
-    fonts: crate::fonts::Fonts,
     /// When the last frame was committed, and how far apart the display
     /// link's ticks are: a wake draws at once when a frame's worth of time
     /// has passed, and leaves it to the tick otherwise, so a flood draws
@@ -877,7 +867,8 @@ impl Boot {
         // catch.
         //
         // The storage, the font files and the faces live as long as the
-        // process: the renderer borrows them for the life of the window. On
+        // window: its terminal and renderer borrow them, and its close
+        // gives them back (`lent.rs`). On
         // the cell path the viewport is not the storage's own: it is lent by
         // the GPU, so the grid the core writes is the grid the shader reads,
         // in place -- at the pitch the cache geometry chose, which is the
@@ -1168,49 +1159,59 @@ impl App {
         // the launch path makes it. Its own mark, so it is a number.
         let scroller = scroller_style();
         startup_mark("scroller style");
+        // **The storage, the kitty files reader and the GPU buffers are the
+        // window's own**, held with the terminal they are lent to and given
+        // back when the window closes (`lent::Screen`). The kitty file
+        // mediums are read with the text's checks.
+        let provisioned = |owned: Owned| {
+            owned
+                .with_images(images)
+                .with_clipboard(clipboard.budget)
+                .with_printer(crate::print::budget(printing))
+                .with_notices(crate::notify::BUDGET)
+        };
         let own_grid = |ws: &WinSize| {
-            let owned: &'static mut Owned = Box::leak(Box::new(
-                Owned::with_geometry(&MAX_GRID, &geom)
-                    .with_images(images)
-                    .with_clipboard(clipboard.budget)
-                    .with_printer(crate::print::budget(printing))
-                    .with_notices(crate::notify::BUDGET),
-            ));
-            Term::new(owned.storage(), ws)
+            crate::lent::Screen::new(
+                provisioned(Owned::with_geometry(&MAX_GRID, &geom)),
+                crate::kitty_files::LocalFiles::new(),
+                None,
+                |owned| Term::new(owned.storage(), ws),
+            )
         };
         // **Both surfaces live in shared memory on the cell path.** The
         // primary is the ring -- the screen's capacity plus the scrollback
         // -- and the alternate screen is its own buffer of the capacity.
         // The shader reads neither: each frame copies the window out of
-        // whichever is up into its own set (research decision D4).
-        let (mut wanted, gpu, term, grid) = match (request, probe) {
+        // whichever is up into its own set (research decision D4), so the
+        // two buffers are an ownership role, held by the terminal's
+        // `Screen` rather than bound.
+        let (mut wanted, gpu, term) = match (request, probe) {
             (Request::Force(Path::Cells) | Request::Auto, Some(gpu)) => {
-                let owned: &'static mut Owned = Box::leak(Box::new(
-                    Owned::without_surfaces(&MAX_GRID, &geom, Depth::DEFAULT)
-                        .with_images(images)
-                        .with_clipboard(clipboard.budget)
-                        .with_printer(crate::print::budget(printing))
-                        .with_notices(crate::notify::BUDGET),
-                ));
+                let owned = provisioned(Owned::without_surfaces(&MAX_GRID, &geom, Depth::DEFAULT));
                 match (gpu.grid(owned.ring(), pitch), gpu.grid(owned.rows(), pitch)) {
                     (Some((grid, cells)), Some((alt, alt_cells))) => {
-                        let term = Term::new(owned.storage_over(cells, alt_cells), &ws);
-                        (Path::Cells, Some(gpu), term, Some((grid, alt)))
+                        let term = crate::lent::Screen::new(
+                            owned,
+                            crate::kitty_files::LocalFiles::new(),
+                            Some((grid, alt)),
+                            |owned| Term::new(owned.storage_over(cells, alt_cells), &ws),
+                        );
+                        (Path::Cells, Some(gpu), term)
                     }
                     _ => {
                         crate::warn!("no shared grid; drawing the instances");
-                        (Path::Instances, Some(gpu), own_grid(&ws), None)
+                        (Path::Instances, Some(gpu), own_grid(&ws))
                     }
                 }
             }
             (Request::Force(Path::Instances), Some(gpu)) => {
-                (Path::Instances, Some(gpu), own_grid(&ws), None)
+                (Path::Instances, Some(gpu), own_grid(&ws))
             }
             (Request::Force(Path::Cells | Path::Instances) | Request::Auto, None) => {
                 crate::warn!("no Metal device or shaders; drawing on the CPU");
-                (Path::Cpu, None, own_grid(&ws), None)
+                (Path::Cpu, None, own_grid(&ws))
             }
-            (Request::Force(Path::Cpu), _) => (Path::Cpu, None, own_grid(&ws), None),
+            (Request::Force(Path::Cpu), _) => (Path::Cpu, None, own_grid(&ws)),
         };
         renderer.fit(&term);
         // The first frame is laid out for the scroller the setting asks for,
@@ -1219,8 +1220,8 @@ impl App {
         let mut term = term;
         crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
         let (frame_w, frame_h) = renderer.whole_size();
-        let cell = match (&gpu, grid) {
-            (Some(gpu), Some((grid, alt))) => match (sets(|| gpu.styles(&term)), gpu.map()) {
+        let cell = match (&gpu, wanted) {
+            (Some(gpu), Path::Cells) => match (sets(|| gpu.styles(&term)), gpu.map()) {
                 (Some(styled), Some((first_map, entries))) => {
                     let overlaid = sets(|| {
                         gpu.overlay(
@@ -1249,8 +1250,6 @@ impl App {
                         records: Vec::new(),
                         grounds: Vec::new(),
                         candidates: Vec::new(),
-                        grid,
-                        alt,
                         copies,
                         copies_mem,
                         style_stamps: vec![StyleStamp::default(); styles_mem.len()],
@@ -1270,10 +1269,8 @@ impl App {
                 }
                 _ => {
                     crate::warn!("no shared styles or map; drawing the instances");
-                    // The terminal's surfaces live in these buffers for the
-                    // life of the process, whichever path draws them.
-                    std::mem::forget(grid);
-                    std::mem::forget(alt);
+                    // The terminal's surfaces stay in the buffers its
+                    // `Screen` holds, whichever path draws them.
                     wanted = Path::Instances;
                     None
                 }
@@ -1353,9 +1350,6 @@ impl App {
         // A read stops once its answers fill the reply buffer past one
         // control's worth, and `pump` sends them before the rest is parsed.
         crate::reads::hold_replies(&mut term);
-        // The kitty file mediums, read with the text's checks; leaked as
-        // the storage is, for a `Term<'static>`.
-        term.set_kitty_files(Box::leak(Box::new(crate::kitty_files::LocalFiles::new())));
         // ReGIS draws its built-in alphabet with the embedded face
         // (`regis_font.rs`).
         term.set_regis_font(crate::regis_font::glyph);
@@ -1391,7 +1385,7 @@ impl App {
             bell_style,
             ringer,
             term,
-            renderer,
+            renderer: crate::lent::Drawing::new(renderer, fonts),
             presenter: None,
             gpu,
             cell,
@@ -1447,7 +1441,6 @@ impl App {
             space,
             font_size,
             font_base: font_size,
-            fonts,
             last_commit: Instant::now(),
             interval: Duration::from_micros(8333),
             echo: Echo::Drawn,
@@ -1981,7 +1974,7 @@ impl App {
             self.reshape_pointer();
         }
         // None while a program has hidden it (`?30`).
-        self.renderer.set_scrollbar(match self.bar_shown {
+        let bar = match self.bar_shown {
             baud_core::ScrollbarShown::Shown => Some(ScrollBar {
                 window: self.window(),
                 look,
@@ -1989,7 +1982,8 @@ impl App {
                 scroller: self.scroller,
             }),
             baud_core::ScrollbarShown::Hidden => None,
-        });
+        };
+        self.renderer.set_scrollbar(bar);
         // The cursor trail, spawned here, where the post-feed cursor is
         // known and before any path converts; advanced and cleared off
         // `tick_target`, the display link's own clock, so the renderer only
@@ -2952,10 +2946,10 @@ impl App {
     /// Another face leads the chain, at `px`: the renderer restacked
     /// (`Renderer::restack`), then what a rescale owes.
     fn restack(&mut self, face: crate::fonts::Slot, px: PxSize) -> Option<()> {
-        let built = self.fonts.stack(face)?;
+        let built = self.renderer.fonts_mut().stack(face)?;
         let stack = baud_render::Stack::with_roles(built.faces, &built.roles)?;
         self.renderer.restack(stack, px)?;
-        self.fonts.set(face);
+        self.renderer.fonts_mut().set(face);
         self.rescaled();
         Some(())
     }
@@ -3915,10 +3909,9 @@ struct Driver {
     /// clone of either addresses the one AppKit object.
     ///
     /// The window one closes a cycle -- the window owns the view, the
-    /// view owns this driver, and this driver retains the window -- which
-    /// is a leak of exactly one window on a process that never tears its
-    /// window down before it exits, and is the same trade the style
-    /// observer is deliberately `forget`ten for.
+    /// view owns this driver, and this driver retains the window -- a
+    /// cycle that a window's close breaks: `closed` swaps the driver for
+    /// `Gone`, which drops this retain.
     glass: Body,
     window: GlassWindow,
     /// The title the window was last given, so a program's `OSC 0` or
@@ -4028,13 +4021,16 @@ fn open_window(at: Option<std::path::PathBuf>) {
 /// borrow the responder is swapped under. Its display link stops, and the
 /// driver is replaced by a responder that does nothing, which drops the
 /// window's terminal, renderer and timers and its `Pty`, whose close hangs
-/// up the shell (`pty.rs`). The grid and history storage with its image
-/// store, and the kitty files store, are leaked for the life of the
-/// process (`Box::leak`), and the mapped font files and the faces parsed
-/// over them are held and never released (`pty::Held`), so a closed
-/// window's memory is not returned. The other windows go on; when it was
-/// the last, the app quits, for now (`windows::LAST_WINDOW`). A second
-/// close of the same window finds nothing.
+/// up the shell (`pty.rs`). The terminal gives back its grid and history
+/// storage with its image store, its kitty files reader and the GPU
+/// buffers its surfaces lived in (`lent::Screen`); the renderer its parsed
+/// faces and font files, each file unmapped once no other window's fonts
+/// count it (`lent::Drawing`); the process watch ends its thread and
+/// closes its kqueue (`fg::Watch`). What stays is the view, which the
+/// window crate's waker retains, and the `Gone` responder in it. The other
+/// windows go on; when it was the last, the app quits, for now
+/// (`windows::LAST_WINDOW`). A second close of the same window finds
+/// nothing.
 fn closed(id: crate::windows::WindowId) {
     let Some((open, left)) = OPEN.with_borrow_mut(|o| o.close(id)) else {
         return;
@@ -12771,7 +12767,8 @@ impl Driver {
         let Some(px) = PxSize::of(self.app.font_size * self.app.scale as f32) else {
             return;
         };
-        match crate::host::follow_gaps(&mut self.app.renderer, &mut self.app.fonts, px) {
+        let (renderer, fonts) = self.app.renderer.both();
+        match crate::host::follow_gaps(renderer, fonts, px) {
             None => {}
             Some(Ok(given)) => {
                 crate::info!(
@@ -13018,7 +13015,7 @@ impl Driver {
         }
         crate::host::tell_font(
             &mut self.app.term,
-            &self.app.fonts,
+            self.app.renderer.fonts(),
             self.app.font_size,
             self.app.font_base,
         );
@@ -13081,8 +13078,8 @@ impl Driver {
     fn reload_fonts(&mut self, c: &crate::config::Config, points: f32) -> Result<(), String> {
         let resolved = c.clone().resolved();
         let px = PxSize::of(points * self.app.scale as f32).ok_or("no size")?;
-        let given =
-            crate::host::refont(&mut self.app.renderer, &mut self.app.fonts, &resolved, px)?;
+        let (renderer, fonts) = self.app.renderer.both();
+        let given = crate::host::refont(renderer, fonts, &resolved, px)?;
         crate::info!("{}", crate::host::given_back(given));
         self.app.rescaled();
         self.app.font_size = points;
@@ -14096,7 +14093,7 @@ impl Driver {
             let app = &mut self.app;
             let plan = crate::host::plan_font(
                 &mut app.term,
-                &mut app.fonts,
+                app.renderer.fonts_mut(),
                 c,
                 at,
                 app.font_size,
@@ -14127,7 +14124,7 @@ impl Driver {
         // drawn at the new cell size against the old column count is neither
         // size -- so the whole step waits for the frame that is reading.
         let reshape = self.app.presenter.as_ref().map(Presenter::reshape);
-        let fonts = &self.app.fonts;
+        let fonts = self.app.renderer.fonts();
         let step = refont_step(
             self.deferred,
             reshape,
@@ -14158,7 +14155,7 @@ impl Driver {
         self.app.font_size = points;
         crate::host::tell_font(
             &mut self.app.term,
-            &self.app.fonts,
+            self.app.renderer.fonts(),
             points,
             self.app.font_base,
         );
@@ -17360,7 +17357,9 @@ mod scrollbar_mode_tests {
         ));
         let pump = once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"));
         assert!(pump < requests, "in the pump");
-        once(concat!("set_scrollbar(match ", "self.bar_shown {"));
+        let shown = once(concat!("let bar = match ", "self.bar_shown {"));
+        let handed = once(concat!("self.renderer.set_scrollbar(", "bar);"));
+        assert!(shown < handed, "the frame is handed the bar `?30` leaves");
         once(concat!("baud_core::ScrollbarShown::Hidden => ", "None,"));
         // The press rules are `bar::press`, which reads `?30` as the
         // driver last acted on it, before the strip takes a press.

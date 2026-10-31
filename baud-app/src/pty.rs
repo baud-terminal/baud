@@ -1710,11 +1710,17 @@ pub fn wait(
 
 /// **The font bytes and parsed faces a stack is made of, held**: each file
 /// mapping and each parsed slice lent out as `'static`, kept so a font
-/// reload can give them back once nothing borrows them
-/// ([`Held::release`]). Dropped without that, they stay for the process,
-/// as they did before a reload could give them back. It lives here beside
-/// [`map_readonly`], the mapping it gives back, which is private to this
-/// file.
+/// reload or a window's close can give them back once nothing borrows
+/// them ([`Held::release`]). Dropped without that, they stay for the
+/// process. It lives here beside [`map_readonly`], the mapping it gives
+/// back, which is private to this file.
+///
+/// **A font file is mapped once for the process** ([`MAPS`]), however
+/// many windows' stacks are made of it: a second [`Held::map`] of the
+/// same file takes the first's mapping and counts itself, and only the
+/// last [`Held::release`] of it unmaps it. Two windows drawing one font
+/// share its pages rather than each holding a copy, and a release in one
+/// window never unmaps what another still reads.
 ///
 /// A parsed slice is kept as the pointer `Box::into_raw` gave, not as the
 /// shared reference lent from it: freeing needs write permission, which a
@@ -1734,9 +1740,10 @@ pub struct Released {
 }
 
 impl Held {
-    /// `path` mapped ([`map_readonly`]) and held.
+    /// `path` mapped ([`map_readonly`]) and held: the mapping the process
+    /// already has of this file when it has one, counted once more.
     pub fn map(&mut self, path: &str) -> std::io::Result<&'static [u8]> {
-        let bytes = map_readonly(path)?;
+        let bytes = map_shared(path)?;
         self.maps.push(bytes);
         Ok(bytes)
     }
@@ -1754,13 +1761,17 @@ impl Held {
         unsafe { &*raw }
     }
 
-    /// **Every parsed slice freed, then every mapping unmapped.**
+    /// **Every parsed slice freed, then every mapping given back**: each
+    /// one's count in [`MAPS`] taken down, and the file unmapped when no
+    /// other holder counts it.
     ///
     /// # Safety
     ///
     /// Nothing may borrow a slice this lent -- a face, or the bytes under
     /// one -- once it is called: every `Stack` and `Fonts` made of them
-    /// dropped, and no frame drawing from them.
+    /// dropped, and no frame drawing from them. Another holder's borrows
+    /// of a shared mapping stay valid: it is unmapped only once no holder
+    /// counts it.
     pub unsafe fn release(self) -> Released {
         let mut given = Released::default();
         for raw in self.parsed {
@@ -1770,16 +1781,7 @@ impl Held {
             given.freed += 1;
         }
         for bytes in self.maps {
-            // SAFETY: a whole mapping `map_readonly` made, unmapped once; the
-            // caller says nothing borrows it, and every face parsed over it
-            // is freed above.
-            let r = unsafe {
-                crate::sys::munmap(
-                    bytes.as_ptr().cast_mut().cast(),
-                    crate::sys::MapLen(bytes.len()),
-                )
-            };
-            if r == 0 {
+            if let Gone::Unmapped = unshare(bytes) {
                 given.unmapped += 1;
             }
         }
@@ -1787,26 +1789,172 @@ impl Held {
     }
 }
 
-/// A font file as a read-only, private mapping, for the life of the
-/// process unless a [`Held`] gives it back. A face is a bounds-checked
+/// **The font files the process has mapped**, each with how many holders
+/// count it: one entry a file, keyed by what the file is rather than by
+/// its path ([`FileId`]), so a font replaced at the same path -- a reload
+/// after an edit -- is mapped afresh rather than handed the old bytes.
+static MAPS: std::sync::Mutex<Vec<Mapping>> = std::sync::Mutex::new(Vec::new());
+
+/// What a font file is: its device, inode, length and last change, from
+/// `fstat`. A file written in place keeps its inode and changes its time
+/// and, mostly, its length; one replaced by a rename has another inode.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct FileId {
+    dev: Device,
+    ino: Inode,
+    len: FileBytes,
+    changed: Changed,
+}
+
+/// The device a file is on, `st_dev`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Device(u64);
+
+/// A file's inode number, `st_ino`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Inode(u64);
+
+/// A file's length in bytes, `st_size`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct FileBytes(u64);
+
+/// When a file's data last changed, `st_mtime` and its nanoseconds.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Changed(i64, i64);
+
+impl FileId {
+    fn of(m: &std::fs::Metadata) -> FileId {
+        use std::os::unix::fs::MetadataExt;
+        FileId {
+            dev: Device(m.dev()),
+            ino: Inode(m.ino()),
+            len: FileBytes(m.len()),
+            changed: Changed(m.mtime(), m.mtime_nsec()),
+        }
+    }
+}
+
+/// How many holders count a mapping: at least one while it is in the
+/// table.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Holders(usize);
+
+impl Holders {
+    pub const ONE: Holders = Holders(1);
+
+    pub fn more(self) -> Holders {
+        Holders(self.0 + 1)
+    }
+
+    /// One fewer, or `None` when this was the last.
+    fn fewer(self) -> Option<Holders> {
+        self.0.checked_sub(1).filter(|&n| n > 0).map(Holders)
+    }
+}
+
+/// One mapped file: what it is, its bytes, and how many holders count it.
+struct Mapping {
+    id: FileId,
+    bytes: &'static [u8],
+    holders: Holders,
+}
+
+/// What [`unshare`] did with a mapping.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Gone {
+    /// Another holder still counts it.
+    Kept,
+    /// It was the last, and the kernel unmapped it.
+    Unmapped,
+    /// It was the last and `munmap` failed, or it was never in the table.
+    Failed,
+}
+
+/// How many holders count the mapping that begins at `at`, `None` when
+/// the process has no such mapping.
+#[cfg(test)]
+pub fn holders(at: *const u8) -> Option<Holders> {
+    MAPS.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .find(|m| core::ptr::eq(m.bytes.as_ptr(), at))
+        .map(|m| m.holders)
+}
+
+/// **`path`'s bytes, mapped once for the process**: the mapping [`MAPS`]
+/// has of the same file, counted once more, else a new one entered there.
+fn map_shared(path: &str) -> std::io::Result<&'static [u8]> {
+    let file = std::fs::File::open(path)?;
+    let id = FileId::of(&file.metadata()?);
+    let mut maps = MAPS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(m) = maps.iter_mut().find(|m| m.id == id) {
+        // It stays mapped while any holder counts it, this one now among
+        // them.
+        m.holders = m.holders.more();
+        return Ok(m.bytes);
+    }
+    let bytes = map_readonly(file)?;
+    maps.push(Mapping {
+        id,
+        bytes,
+        holders: Holders::ONE,
+    });
+    Ok(bytes)
+}
+
+/// **One holder's count of `bytes`' mapping taken down**, and the file
+/// unmapped when it was the last.
+fn unshare(bytes: &'static [u8]) -> Gone {
+    let mut maps = MAPS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(i) = maps
+        .iter()
+        .position(|m| core::ptr::eq(m.bytes.as_ptr(), bytes.as_ptr()))
+    else {
+        return Gone::Failed;
+    };
+    if let Some(left) = maps[i].holders.fewer() {
+        maps[i].holders = left;
+        return Gone::Kept;
+    }
+    let m = maps.swap_remove(i);
+    // SAFETY: a whole mapping `map_readonly` made, unmapped once, when the
+    // last holder that counted it gives it back: its caller says nothing
+    // borrows it any more, and no other holder counts it.
+    let r = unsafe {
+        crate::sys::munmap(
+            m.bytes.as_ptr().cast_mut().cast(),
+            crate::sys::MapLen(m.bytes.len()),
+        )
+    };
+    match r {
+        0 => Gone::Unmapped,
+        _ => Gone::Failed,
+    }
+}
+
+/// An open font file as a read-only, private mapping, for the life of
+/// the process unless the last [`Held`] counting it gives it back. A face is a bounds-checked
 /// view over the file's bytes, so a mapping is the same thing a read into
 /// memory is -- without the read: Apple Color Emoji is 192 MB, and reading
 /// it whole was 17 ms of every launch for the few strikes a screen uses.
 /// The pages a face touches are the pages that get paged in.
-fn map_readonly(path: &str) -> std::io::Result<&'static [u8]> {
+fn map_readonly(file: std::fs::File) -> std::io::Result<&'static [u8]> {
     // **`File` is `open`, `fstat` and `close`**, and it opens
     // close-on-exec, so none of those and none of their flags has to be
     // declared in `sys`. That is most of what used to make this function
     // the largest consumer of a `libc` dependency.
-    let file = std::fs::File::open(path)?;
     let len = usize::try_from(file.metadata()?.len()).unwrap_or(0);
     if len == 0 {
         return Err(std::io::Error::other("an empty font file"));
     }
     // SAFETY: a private read-only mapping of the whole file at offset
     // zero; the kernel validates the length against the file. The mapping
-    // is unmapped only by `Held::release`, whose caller says nothing
-    // borrows the slice below any more.
+    // is unmapped only by the last `Held::release` that counts it
+    // (`unshare`), whose caller says nothing borrows the slice any more.
     let ptr = unsafe {
         crate::sys::mmap(
             std::ptr::null_mut(),
@@ -1971,6 +2119,48 @@ pub fn host_now() -> HostTime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A font file two windows' fonts map is mapped once, and unmapped
+    /// only when the last gives it back**: the second map is the first's
+    /// bytes counted twice, the first release keeps them mapped and
+    /// readable, the second unmaps them. A file replaced at the same path
+    /// is mapped afresh, so a reload after an edit reads the new bytes.
+    #[test]
+    fn a_font_file_is_mapped_once_and_unmapped_by_its_last_holder() {
+        let dir = std::env::temp_dir().join(format!("baud-shared-map-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Face.ttf");
+        std::fs::write(&path, b"first bytes").unwrap();
+        let p = path.to_str().unwrap();
+        let (mut a, mut b) = (Held::default(), Held::default());
+        let one = a.map(p).unwrap();
+        let two = b.map(p).unwrap();
+        assert!(core::ptr::eq(one.as_ptr(), two.as_ptr()), "one mapping");
+        let at = one.as_ptr();
+        assert_eq!(holders(at), Some(Holders(2)));
+        // SAFETY: nothing borrows `a`'s bytes but `one`, not read again.
+        let given = unsafe { a.release() };
+        assert_eq!(given.unmapped, 0, "b still counts it");
+        assert_eq!(holders(at), Some(Holders(1)));
+        assert_eq!(two, b"first bytes", "and reads it");
+        // A rename over the path: another inode, so another mapping.
+        let next = dir.join("Face.ttf.new");
+        std::fs::write(&next, b"second, longer bytes").unwrap();
+        std::fs::rename(&next, &path).unwrap();
+        let mut c = Held::default();
+        let three = c.map(p).unwrap();
+        assert_eq!(three, b"second, longer bytes", "the file as it is now");
+        assert!(!core::ptr::eq(two.as_ptr(), three.as_ptr()));
+        // SAFETY: nothing borrows `b`'s bytes after this line.
+        let given = unsafe { b.release() };
+        assert_eq!(given.unmapped, 1, "the last holder unmaps it");
+        assert_eq!(holders(at), None);
+        // SAFETY: nothing borrows `c`'s bytes after this line.
+        let given = unsafe { c.release() };
+        assert_eq!(given.unmapped, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// **`wait` says which of its extra descriptors is ready**, so the
     /// loop reads only those: one with a byte waiting is readable, one

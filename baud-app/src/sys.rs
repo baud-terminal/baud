@@ -969,6 +969,28 @@ pub struct MachTaskBasicInfo {
     pub suspend_count: c_int,
 }
 
+/// `task_info`'s flavor for [`TaskVmInfo`], a `natural_t`.
+#[cfg(all(test, target_os = "macos"))]
+pub const TASK_VM_INFO: c_uint = 22;
+
+/// `struct task_vm_info` through `phys_footprint`, the length
+/// `TASK_VM_INFO_REV1_COUNT` names: what a test reads its own footprint
+/// from -- the memory the system charges the process, which a free the
+/// allocator keeps as reusable pages leaves, where the resident size may
+/// not fall.
+#[cfg(all(test, target_os = "macos"))]
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct TaskVmInfo {
+    pub virtual_size: VmSize,
+    pub region_count: c_int,
+    pub page_size: c_int,
+    pub resident_size: VmSize,
+    /// `resident_size_peak` through `compressed_lifetime`, unread.
+    pub between: [VmSize; 15],
+    pub phys_footprint: VmSize,
+}
+
 #[cfg(all(test, target_os = "macos"))]
 unsafe extern "C" {
     pub static mach_task_self_: MachPort;
@@ -1065,6 +1087,17 @@ pub const NOTE_EXIT: c_uint = 0x8000_0000;
 pub const NOTE_FORK: c_uint = 0x4000_0000;
 #[cfg(target_os = "macos")]
 pub const NOTE_EXEC: c_uint = 0x2000_0000;
+
+/// `kevent`'s filter for an event the process raises itself, and the flag
+/// that raises it.
+///
+/// "On input, NOTE_TRIGGER causes the event to be triggered for output"
+/// (`[[source: macos-sdk-sys-event-h]]` 77, 203-205); a process watch's
+/// close wakes its thread with it (`fg::Watch`).
+#[cfg(target_os = "macos")]
+pub const EVFILT_USER: i16 = -10;
+#[cfg(target_os = "macos")]
+pub const NOTE_TRIGGER: c_uint = 0x0100_0000;
 
 /// `kevent`'s filter for a file or a directory, and the events the config
 /// watch asks for (`reload.rs`): "EVFILT_VNODE Takes a file descriptor as
@@ -1370,6 +1403,10 @@ int main(void) {
     printf("MACH_TASK_BASIC_INFO=%lld\n", (long long)MACH_TASK_BASIC_INFO);
     printf("MACH_TASK_BASIC_INFO_COUNT=%lld\n", (long long)MACH_TASK_BASIC_INFO_COUNT);
     printf("mach_task_basic_info.size=%zu\n", sizeof(struct mach_task_basic_info));
+    printf("TASK_VM_INFO=%lld\n", (long long)TASK_VM_INFO);
+    printf("TASK_VM_INFO_REV1_COUNT=%lld\n", (long long)TASK_VM_INFO_REV1_COUNT);
+    printf("task_vm_info.resident_size=%zu\n", offsetof(struct task_vm_info, resident_size));
+    printf("task_vm_info.phys_footprint=%zu\n", offsetof(struct task_vm_info, phys_footprint));
     printf("mach_task_basic_info.resident_size=%zu\n",
            offsetof(struct mach_task_basic_info, resident_size));
     printf("mach_task_basic_info.policy=%zu\n", offsetof(struct mach_task_basic_info, policy));
@@ -1397,6 +1434,8 @@ int main(void) {
     printf("NOTE_EXIT=%lld\n", (long long)NOTE_EXIT);
     printf("NOTE_FORK=%lld\n", (long long)NOTE_FORK);
     printf("NOTE_EXEC=%lld\n", (long long)NOTE_EXEC);
+    printf("EVFILT_USER=%lld\n", (long long)EVFILT_USER);
+    printf("NOTE_TRIGGER=%lld\n", (long long)NOTE_TRIGGER);
     printf("EVFILT_VNODE=%lld\n", (long long)EVFILT_VNODE);
     printf("NOTE_DELETE=%lld\n", (long long)NOTE_DELETE);
     printf("NOTE_WRITE=%lld\n", (long long)NOTE_WRITE);
@@ -1554,6 +1593,19 @@ int main(void) {
                 h["mach_task_basic_info.size"],
                 size_of::<MachTaskBasicInfo>() as i128
             );
+            assert_eq!(h["TASK_VM_INFO"], i128::from(TASK_VM_INFO));
+            assert_eq!(
+                h["TASK_VM_INFO_REV1_COUNT"],
+                (size_of::<TaskVmInfo>() / size_of::<c_int>()) as i128
+            );
+            assert_eq!(
+                h["task_vm_info.resident_size"],
+                offset_of!(TaskVmInfo, resident_size) as i128
+            );
+            assert_eq!(
+                h["task_vm_info.phys_footprint"],
+                offset_of!(TaskVmInfo, phys_footprint) as i128
+            );
             assert_eq!(
                 h["mach_task_basic_info.resident_size"],
                 offset_of!(MachTaskBasicInfo, resident_size) as i128
@@ -1663,6 +1715,8 @@ int main(void) {
             assert_eq!(h["NOTE_EXIT"], i128::from(NOTE_EXIT));
             assert_eq!(h["NOTE_FORK"], i128::from(NOTE_FORK));
             assert_eq!(h["NOTE_EXEC"], i128::from(NOTE_EXEC));
+            assert_eq!(h["EVFILT_USER"], i128::from(EVFILT_USER));
+            assert_eq!(h["NOTE_TRIGGER"], i128::from(NOTE_TRIGGER));
             assert_eq!(h["EVFILT_VNODE"], i128::from(EVFILT_VNODE));
             assert_eq!(h["NOTE_DELETE"], i128::from(NOTE_DELETE));
             assert_eq!(h["NOTE_WRITE"], i128::from(NOTE_WRITE));

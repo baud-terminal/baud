@@ -195,6 +195,14 @@ impl Fonts {
         self.held
     }
 
+    /// **What these fonts hold, taken out for a window's close to give
+    /// back** (`lent::Drawing`), which drops these fonts and the renderer
+    /// drawing from them before it does; what is left holds nothing.
+    #[cfg(target_os = "macos")]
+    pub fn take_held(&mut self) -> crate::pty::Held {
+        std::mem::take(&mut self.held)
+    }
+
     /// The family the chain is led by, as the core tells a query; empty
     /// for a face whose `name` table names none.
     pub fn family(&self) -> &str {

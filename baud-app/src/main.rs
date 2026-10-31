@@ -18,9 +18,11 @@
 //!
 //! `unsafe` lives in `sys.rs`'s declarations; in `pty.rs`, `reload.rs`,
 //! `fg.rs`, `hostlog.rs` and `discover.rs`; in `kitty_files.rs`'s
-//! shared-memory read, in `pages.rs`'s release of freed image pages and in
-//! `host.rs`'s release of the fonts a font reload replaced, which forbid
-//! nothing and say why at every call; `app.rs` and `link.rs` forbid it.
+//! shared-memory read, in `pages.rs`'s release of freed image pages, in
+//! `host.rs`'s release of the fonts a font reload replaced, in `lent.rs`'s
+//! loans to a window's terminal and renderer, given back when it closes,
+//! and in `heap.rs`, the macOS allocator, which forbid nothing and say why
+//! at every call; `app.rs` and `link.rs` forbid it.
 
 // What the system's accessibility settings ask -- reduced motion, increased
 // contrast: both drivers read their own system and act through it.
@@ -105,8 +107,16 @@ mod kitty_files;
 // every platform, and both drivers keep a selection through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod keep;
+// The macOS app's allocator: a block of 64 MiB or more is a mapping of
+// its own, given back when freed.
+#[cfg(target_os = "macos")]
+mod heap;
 #[cfg(target_os = "macos")]
 mod latency;
+// What a macOS window lends its terminal and renderer as `'static`, given
+// back when it closes.
+#[cfg(target_os = "macos")]
+mod lent;
 // Whether the system has a Hebrew keyboard layout, which DECHEBM needs:
 // the classifier runs everywhere, the system's list is read on macOS.
 #[cfg(any(target_os = "macos", test))]

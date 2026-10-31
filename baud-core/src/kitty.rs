@@ -234,7 +234,9 @@ impl Term<'_> {
     /// `'static`, because the reader lives in the kitty stream, behind its
     /// pointer, and not beside it in `Storage`, where a field moved every
     /// field after it and the text path's code with them; an embedder
-    /// leaks the reader as it leaks the storage.
+    /// lends a reader that outlives the terminal: the macOS app holds it
+    /// with the terminal and frees it when the window closes
+    /// (`lent::Screen` in baud-app).
     pub fn set_kitty_files(&mut self, files: &'static mut dyn KittyFiles) {
         self.store.strs.kitty.set_files(files);
     }

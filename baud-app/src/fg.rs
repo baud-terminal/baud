@@ -217,10 +217,55 @@ pub enum Moved {
 /// 357), so a fork names no child: after one the shell's children are
 /// listed and watched, before the group is read, so a child that takes
 /// the terminal and execs after the read is seen by its `NOTE_EXEC`.
+///
+/// **Dropped with its window, it takes its thread and kqueue with it**: a
+/// user event registered at the start is raised, the thread returns on
+/// it, the drop joins it and then closes the kqueue, which no thread waits
+/// on any more by then.
 #[cfg(target_os = "macos")]
 pub struct Watch {
     kq: Fd,
     moved: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+/// The ident of the user event a [`Watch`]'s drop raises; the process
+/// filter's idents are pids, under another filter.
+#[cfg(target_os = "macos")]
+const WAKE: core::ffi::c_ulong = 0;
+
+/// One change to `kq`, with no event list and a zero timeout.
+#[cfg(target_os = "macos")]
+fn change(kq: Fd, change: &crate::sys::Kevent) -> core::ffi::c_int {
+    let zero = crate::sys::Timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: one change, no event list, a zero timeout.
+    unsafe {
+        crate::sys::kevent(
+            kq,
+            core::ptr::from_ref(change),
+            1,
+            std::ptr::null_mut(),
+            0,
+            &raw const zero,
+        )
+    }
+}
+
+/// The user event [`WAKE`], registered (`EV_ADD`) or raised
+/// (`NOTE_TRIGGER`).
+#[cfg(target_os = "macos")]
+fn wake_event(flags: core::ffi::c_ushort, fflags: core::ffi::c_uint) -> crate::sys::Kevent {
+    crate::sys::Kevent {
+        ident: WAKE,
+        filter: crate::sys::EVFILT_USER,
+        flags,
+        fflags,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -232,6 +277,16 @@ impl Watch {
         // SAFETY: no arguments; a descriptor or -1.
         let kq = unsafe { crate::sys::kqueue() };
         if kq < 0 {
+            return None;
+        }
+        // SAFETY: the descriptor `kqueue` just gave, owned here and closed
+        // once, by this on a failure below or by the drop.
+        let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(kq) };
+        if change(
+            kq,
+            &wake_event(crate::sys::EV_ADD | crate::sys::EV_CLEAR, 0),
+        ) < 0
+        {
             return None;
         }
         let moved = std::sync::Arc::new(AtomicBool::new(false));
@@ -265,14 +320,24 @@ impl Watch {
                     {
                         return;
                     }
-                    if n > 0 {
+                    let got = &events[..usize::try_from(n).unwrap_or(0)];
+                    if got.iter().any(|e| e.filter == crate::sys::EVFILT_USER) {
+                        return;
+                    }
+                    if !got.is_empty() {
                         flag.store(true, Ordering::Release);
                         wake();
                     }
                 }
             });
-        spawned.ok()?;
-        Some(Watch { kq, moved })
+        let thread = spawned.ok()?;
+        // The drop closes it, once the thread is joined.
+        let kq = std::os::fd::IntoRawFd::into_raw_fd(owned);
+        Some(Watch {
+            kq,
+            moved,
+            thread: Some(thread),
+        })
     }
 
     /// Watch `pid` for a fork, an exec or an exit. A process gone, or one
@@ -282,29 +347,17 @@ impl Watch {
         let Ok(ident) = core::ffi::c_ulong::try_from(pid) else {
             return;
         };
-        let change = Kevent {
-            ident,
-            filter: EVFILT_PROC,
-            flags: EV_ADD | EV_CLEAR,
-            fflags: NOTE_FORK | NOTE_EXEC | NOTE_EXIT,
-            data: 0,
-            udata: std::ptr::null_mut(),
-        };
-        let zero = crate::sys::Timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        // SAFETY: one change, no event list, a zero timeout.
-        let _ = unsafe {
-            crate::sys::kevent(
-                self.kq,
-                &raw const change,
-                1,
-                std::ptr::null_mut(),
-                0,
-                &raw const zero,
-            )
-        };
+        let _ = change(
+            self.kq,
+            &Kevent {
+                ident,
+                filter: EVFILT_PROC,
+                flags: EV_ADD | EV_CLEAR,
+                fflags: NOTE_FORK | NOTE_EXEC | NOTE_EXIT,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            },
+        );
     }
 
     /// Watch every child of `parent`: the job a fork made, before it
@@ -331,9 +384,69 @@ impl Watch {
     }
 }
 
+#[cfg(target_os = "macos")]
+impl Drop for Watch {
+    /// The thread woken by the user event and joined, then the kqueue
+    /// closed: a closed window leaves no thread and no descriptor.
+    fn drop(&mut self) {
+        let raised = change(self.kq, &wake_event(0, crate::sys::NOTE_TRIGGER));
+        if let Some(t) = self.thread.take() {
+            // A thread the event could not reach is left waiting rather
+            // than joined forever; its kqueue is then kept open for it.
+            if raised < 0 {
+                return;
+            }
+            let _ = t.join();
+        }
+        // SAFETY: the kqueue `start` opened, closed once, here; the thread
+        // that waited on it has returned.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(self.kq) });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A process watch dropped ends its thread and closes its kqueue**:
+    /// the drop returns only once the thread has, so the waker the thread
+    /// held is gone, and the kqueue's descriptor answers no more. The
+    /// control: before the drop the thread holds the waker and the
+    /// descriptor is open. Reads a descriptor number, so it holds only
+    /// with one process a test, as nextest runs it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_dropped_process_watch_ends_its_thread_and_closes_its_kqueue() {
+        let held = std::sync::Arc::new(());
+        let in_thread = std::sync::Arc::clone(&held);
+        let watch = Watch::start(move || {
+            let _ = &in_thread;
+        })
+        .expect("a kqueue and its thread");
+        let kq = watch.kq;
+        assert_eq!(
+            std::sync::Arc::strong_count(&held),
+            2,
+            "the control: the thread holds the waker"
+        );
+        // SAFETY: `F_GETFD` on a descriptor number, which answers -1 for
+        // one that is not open.
+        assert!(
+            unsafe { crate::sys::fcntl(kq, crate::sys::F_GETFD) } >= 0,
+            "the control: the kqueue is open"
+        );
+        drop(watch);
+        assert_eq!(
+            std::sync::Arc::strong_count(&held),
+            1,
+            "the thread returned and dropped the waker before the drop did"
+        );
+        // SAFETY: as above.
+        assert!(
+            unsafe { crate::sys::fcntl(kq, crate::sys::F_GETFD) } < 0,
+            "the kqueue is closed"
+        );
+    }
 
     #[test]
     fn a_program_is_argv0s_last_part_without_a_login_dash() {
