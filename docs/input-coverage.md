@@ -9,9 +9,9 @@ DECCKM and both DECKPAM modes, with modifiers and in both input encodings.
 **Both negotiated layers are done too.** `[[source: fixterms]]`'s `CSI u` is
 reachable through `modifyOtherKeys`/`formatOtherKeys` (the base layer's
 resources), and `[[source: kitty-keyboard]]`'s progressive enhancement is
-implemented in full: all five flags, the per-screen stack, and the `CSI ? u`
-query answered -- which is the protocol's support claim, made only once every
-enhancement is honoured. `vt-coverage.md`'s rule is that a row marked **done**
+encoded in full: all five flags, the per-screen stack, and the `CSI ? u`
+query answered, which is the protocol's support claim. Its row is
+**partial** for the Linux driver's Shift, named there. `vt-coverage.md`'s rule is that a row marked **done**
 carries a test, and a row marked `partial` is an operation whose gap is named.
 Two rows carry `**partial**`: kitty's progressive enhancement, whose Linux
 events drop a Shift the keymap consumed, and find in the scrollback.

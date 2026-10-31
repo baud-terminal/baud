@@ -1997,8 +1997,6 @@ impl Driver {
         }
     }
 
-    /// A key in the open field: the query edited, the current match
-    /// stepped, or the field closed, the selection left on what it found.
     /// Whose the keys are now: the find field's while it is open.
     fn keys_to(&self) -> crate::pressed::KeysTo {
         match self.finding {
@@ -2072,6 +2070,8 @@ impl Driver {
         }
     }
 
+    /// A key in the open field: the query edited, the current match
+    /// stepped, or the field closed, the selection left on what it found.
     fn find_key(&mut self, key: crate::find::FieldKey) {
         let Some(f) = self.finding.as_mut() else {
             return;

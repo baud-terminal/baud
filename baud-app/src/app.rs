@@ -9514,8 +9514,11 @@ impl Driver {
             // A control or option chord carries text -- the unmodified
             // character -- and `send` writes the *chord*, so the glyph
             // would not be the byte. Only the input manager's `text` path
-            // predicts, whose events carry Shift at most, and Shift's
-            // capital is the text the base layer sends.
+            // predicts, whose events carry Shift at most. Shift's capital
+            // is the text the base layer sends below `modifyOtherKeys` 2; at
+            // 2 and 3 it is `CSI 27 ; 2 ; N ~`, and the next read judges the
+            // overlay, as it does for a plain key at level 3 or under
+            // kitty's report-all-keys.
             Some("mods")
         } else if app.hold != Hold::Open {
             Some("hold")

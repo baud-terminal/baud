@@ -1554,8 +1554,9 @@ pub struct Cold {
 // landed in its padding: written by NP, PP, PPA, PPR and PPB, read by the
 // embedder, never by a glyph. The `[keyboard]` Set-up (`set_up`), four
 // bytes that alignment rounds to eight, took it to 1016: written by the
-// embedder, read by `RIS` and a change of the Set-up, never by a glyph. Guarded off `sgr-table`, which adds
-// `sgr: [SgrSlot; NSGR]` and grows it more.
+// embedder, read by `RIS` and a change of the Set-up, never by a glyph.
+// Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it
+// more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 1016);
 

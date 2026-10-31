@@ -84,10 +84,13 @@ pub fn hebrew_layout() -> HebrewLayout {
 /// kitty's key identity, "the lower-case (or more technically,
 /// un-shifted) version of the key" (`[[source: kitty-keyboard]]`), which
 /// no AppKit event carries -- `charactersIgnoringModifiers` keeps Shift,
-/// so Shift on `1` is `!` there. Asked of the layout's own table as
-/// kitty's macOS layer asks it, `UCKeyTranslate` with no modifier and no
-/// dead key (`[[source: kitty-glfw-cocoa-window-851cb80]]`,
-/// `vk_to_unicode_key_with_current_layout()`). `None` where the layout has
+/// so Shift on `1` is `!` there. Asked of the layout's own table,
+/// `UCKeyTranslate` with no modifier, as kitty's macOS layer asks it
+/// (`[[source: kitty-glfw-cocoa-window-851cb80]]`,
+/// `vk_to_unicode_key_with_current_layout()`), and with
+/// `kUCKeyTranslateNoDeadKeysMask` so a dead key names its own character;
+/// kitty passes `kUCKeyTranslateNoDeadKeysBit`, which is 0, so it sets no
+/// option there. `None` where the layout has
 /// no table, or the key types a control code, a function key's private
 /// character or nothing: the caller keeps what it had.
 #[cfg(target_os = "macos")]
