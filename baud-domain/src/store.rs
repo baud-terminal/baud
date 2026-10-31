@@ -821,7 +821,10 @@ pub enum Raw {}
 /// byte — the only case where a byte count legitimately *is* a column count.
 pub enum Printable {}
 
-/// Verified well-formed UTF-8. Width still unknown until measured.
+/// UTF-8. A `Bytes<Utf8>` has been verified well formed; a `Vectorized<Utf8>`
+/// names only how its sixteen bytes are read, and the scans and decodes on it
+/// check the form as far as each one's doc says. Width still unknown until
+/// measured.
 pub enum Utf8 {}
 
 /// DEC Special Graphics, in flight.

@@ -11,12 +11,12 @@ description = "PTY benchmark harness for baud-core. Linux-only."
 publish = false
 
 [dependencies]
-# **`default-features = false` so the scan arm is reachable from here.**
+# **`default-features = false`, without which the scan arm is out of reach.**
 # `baud-core`'s `neon-scan` is on by default, and `cargo build -p baud-bench
 # --no-default-features` does *not* turn it off -- that flag disables this
 # crate's defaults, not a dependency's. Without this line the A/B could not be
 # run at all, and the first attempt at it silently compared a cached binary
-# against itself.
+# against itself. It is not enough on its own, either: see `neon-scan` below.
 baud-core = { path = "../baud-core", default-features = false, features = ["alloc"] }
 baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }
@@ -87,8 +87,11 @@ probe-warm-scroll = ["baud-core/probe-warm-scroll"]
 ascii-only = ["baud-core/ascii-only"]
 cell-table = ["baud-core/cell-table"]
 # The aarch64 run scan through `baud-isa-aarch64::Neon`; see baud-core. It is in
-# `default` here so `ingest2` measures what a default `baud-core` does, and
-# `--no-default-features` is the arm that turns it off.
+# `default` here so `ingest2` measures what a default `baud-core` does.
+# `--no-default-features` on `baud-bench` does not turn it off: `baud-render`
+# and `baud-present-macos` take `baud-core` with its defaults through the
+# workspace dependency, so an A/B of the portable scan also sets
+# `default-features = false` on that dependency, on every arm.
 neon-scan = ["baud-core/neon-scan"]
 # **The x86-64 twin, and its absence is why the AVX2 path had never been
 # timed.** Every other `baud-core` arm in this list is forwarded; this one was

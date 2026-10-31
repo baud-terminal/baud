@@ -219,9 +219,10 @@ LTO plus `#[inline(always)]` on transparent newtypes is supposed to give.
 
 **And the type system got better, which was the point.** The surface is
 domain-typed on both sides: `Scan` takes `&[StreamByte]`, not `&[u8]`, and the
-vector itself is now a domain type -- `StreamVector`, `repr(transparent)` over
-`Simd<u8, 16>`, whose predicates return `LaneMask` directly. A scanner no
-longer writes `as` at all. The raw-integer count over both crates fell from
+vector itself is now a domain type -- `Vectorized`, `repr(transparent)` over
+its sixteen lanes, whose predicates return `LaneMask` directly. (It was
+`StreamVector`, over a `Simd<u8, 16>`, until the block decoder made it an
+array tagged with a `Kind`.) A scanner no longer writes `as` at all. The raw-integer count over both crates fell from
 **8 to 5**, and the three that went were exactly the movemask casts the audit
 was created to watch.
 
@@ -281,7 +282,10 @@ calls three of them only from `Act::Char3`, and `stride_four_run` not at
 all; only the UTF-8 graph has that edge, since under ISO 8859-1
 `baud-core/src/graph.rs` returns before the lead match, a high byte being a
 C1 control or one character (`Act::Latin1`). The tag names the encoding,
-not well-formedness: the scans and the quad decode are what check that.
+not well-formedness. The stride scans and the route map check only the lead
+and continuation pattern; the quad decode (`Codepoint::from_three`) and the
+scalar decode after it in `put_run` check the second-byte ranges Table 3-7
+narrows for `E0` and `ED`.
 
 **Refused at compile time.** Four doctests on `Vectorized` ask each of the
 four of a printable block and must fail with E0599, beside one that asks
@@ -304,10 +308,14 @@ rebuilt; the arms' texts differ from one another, so each is what it says.
 untouched, and `neon_agrees_with_portable_on_every_prefix_of_a_four_symbol_alphabet`
 holds the retyped portable scan to NEON's; its AVX2 twin runs only in CI.
 
-**Found, not fixed.** `--no-default-features` on `baud-bench` no longer
-reaches the portable scan: `baud-render` and `baud-present-macos` take
+**Found, not fixed.** `--no-default-features` on `baud-bench` does not
+reach the portable scan: `baud-render` and `baud-present-macos` take
 `baud-core` with its defaults through the workspace dependency, so
 `neon-scan` comes back on (`cargo tree -e features -i baud-core`); the two
 non-default arms above set that dependency to `default-features = false`,
-the same edit on every build. `in_range` and `either` still read control
-sequences and control strings as `Vectorized<Printable>`.
+the same edit on every build. `--all-targets` turns it back on as well, on
+`baud-core` itself: its dev-dependency on itself,
+`baud-core = { path = ".", features = ["alloc"] }`, restores the defaults,
+so on aarch64 a clippy or check arm meant to compile the portable or
+`route-stride` call site has to be `--lib`. `in_range` and `either` still
+read control sequences and control strings as `Vectorized<Printable>`.

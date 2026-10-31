@@ -37,13 +37,15 @@ include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 # path -- which is why `x86_64-unknown-none` still builds and still forbids
 # `unsafe`.
 #
-# **To A/B it, `--no-default-features` must be passed to the crate that depends
-# on this one, and `baud-bench` sets `default-features = false` for exactly
-# that.** `cargo build -p baud-bench --no-default-features` disables *that*
-# crate's defaults, not a dependency's, and the first attempt at this comparison
-# silently rebuilt nothing and measured a cached binary against itself. The
-# check that catches it is one `objdump`: no `shrn` in `main` means the arm is
-# off.
+# **To A/B it, `--no-default-features` on `baud-bench` does not turn it off.**
+# That flag disables `baud-bench`'s own defaults, not a dependency's, and the
+# first attempt at this comparison silently rebuilt nothing and measured a
+# cached binary against itself. `baud-bench` sets `default-features = false` on
+# this crate, but `baud-render` and `baud-present-macos` take `baud-core` with
+# its defaults through the workspace dependency (`[workspace.dependencies]` in
+# the root `Cargo.toml`), so an A/B of the portable scan also sets
+# `default-features = false` on that entry, on every arm. The check that
+# catches it is one `objdump`: no `shrn` in `main` means the arm is off.
 default = ["neon-scan"]
 # `Owned`, for hosts that have an allocator. The core itself never
 # allocates; this is a convenience for callers who would otherwise have to find

@@ -329,12 +329,12 @@ impl NibbleMask {
 /// compute rather than look up.
 pub const LANE_COUNT: usize = 16;
 
-/// A block of `StreamByte`s as a vector, tagged with what it has been proven
-/// to hold.
+/// A block of `StreamByte`s as a vector, tagged with how its bytes are read.
 ///
 /// **The register counterpart of [`Bytes`].** `Bytes<K>` is a byte slice
-/// carrying a proof of its contents; this is sixteen of those bytes in a
-/// vector, carrying the same proof. Same `Kind`, same markers, same
+/// carrying a proof of its contents; this is sixteen bytes in a vector under
+/// the same tag, which here names how they are read and proves nothing about
+/// them (see below). Same `Kind`, same markers, same
 /// `Kind::ENCODING` bridge to the runtime `Encoding` -- there is deliberately
 /// no second vocabulary for this, and an earlier draft of this type invented
 /// one and collided with the domain three times before the existing one was
@@ -351,11 +351,16 @@ pub const LANE_COUNT: usize = 16;
 /// continuations, which printable ASCII (`0x20..=0x7e`) never holds, and
 /// `baud-core` calls them only from `Act::Char3` (`stride_four_run` not at
 /// all), an edge only the UTF-8 graph has: under ISO 8859-1 a high byte is a
-/// C1 control or a character of its own. They sat on `Vectorized<Printable>`,
-/// a tag that said the opposite of the bytes, and now live on
-/// `Vectorized<Utf8>` beside `leads()`. The tag names how the bytes are read,
-/// not that they are well formed -- these operations are what check that. On
-/// a printable block each one is refused:
+/// C1 control or a character of its own. The two stride scans were on every
+/// tag, and the route map and the four-character decode on
+/// `Vectorized<Printable>`; all four live on `Vectorized<Utf8>` beside
+/// `leads()`. The tag names how the bytes are read, not that they are well
+/// formed. The stride scans and the route map check only the lead and
+/// continuation pattern. The four-character decode (`Codepoint::from_three`)
+/// and the scalar decode after it, in `baud-core`'s `put_run`, check the
+/// second-byte ranges that Table 3-7 narrows for `E0` and `ED`, by refusing
+/// the overlong and the surrogate those bytes would spell. On a printable
+/// block each of the four is refused:
 ///
 /// ```
 /// # use baud_domain::*;
