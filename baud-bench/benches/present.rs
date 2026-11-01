@@ -27,7 +27,8 @@
 //! `wl_surface.damage_buffer` requests sent, which the compositor's
 //! `WAYLAND_DEBUG=server` trace in `scripts/linux-damage.sh`
 //! corroborates: on sway 1.7 and 1.10.1 the opaque `rows` run's requests
-//! are 17, 34, 595 and 600 rows high.
+//! are 17, 34, 595 and 600 rows high, the 600 the whole frame each
+//! workload starts with.
 //!
 //! `PRESENT_SHOT=<command>`: after each of the first `[shots]` frames of
 //! each workload, the command is run and its standard output read as a

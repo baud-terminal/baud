@@ -1087,8 +1087,10 @@ impl Window {
             Opcode(protocol::xdg_toplevel::request::SET_APP_ID),
             &[Arg::Str(Some(&self.app_id))],
         );
-        // The pacing objects are made before the first commit, so every
-        // content update the surface has can carry them.
+        // The pacing objects whose globals are already bound are made
+        // before the first commit, so every content update can carry them;
+        // a global bound later, and the tearing control, get theirs when
+        // they come (surface_objects).
         self.surface = Some(surface);
         self.surface_objects(s);
         let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
