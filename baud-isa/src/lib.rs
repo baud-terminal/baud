@@ -108,10 +108,10 @@ pub const DECODE_LANES: usize = 4;
 
 /// The result of decoding one block of bytes into codepoints.
 ///
-/// `DecodedBlock` and not `Decoded`: the domain already has a `Decoded` for a
-/// single character. Two names for two things, checked before adding rather
-/// than discovered by the compiler -- which is how `Encoding` and `ReadAs`
-/// went, one collision earlier.
+/// `DecodedBlock` and not `Decoded`: the domain had a `Decoded` for a single
+/// character when this was named, an enum nothing built and since deleted.
+/// The name was checked before adding rather than discovered by the compiler
+/// -- which is how `Encoding` and `ReadAs` went, one collision earlier.
 ///
 /// **Codepoints only -- decoding does not classify.** An earlier version also
 /// returned widths, which meant a `Width::of` trie lookup per character: two

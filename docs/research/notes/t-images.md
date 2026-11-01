@@ -314,10 +314,17 @@ row, and the GPU upload is id-gated so an image is never re-uploaded.**
 | **libsixel** | palette-index store, `memset` RLE -- the other fork | the memory-vs-indirection tradeoff, decided against for the shader reason above |
 | **Kitty** | placements + `z` + `(i,p)` replace; U+10EEEE virtual placement; `t=s` one-copy medium; DA-handshake detection | the Kitty protocol itself, and the corrected zero-copy reading |
 
-baud's unconsumed `AbsLine`/`Anchor` types in `baud-domain` (recorded in
+~~baud's unconsumed `AbsLine`/`Anchor` types in `baud-domain` (recorded in
 `f-scrollback-ring.md` as substrate waiting for a consumer) are the rio anchor
 model already half-built -- an image placement is a second consumer of exactly
-what selection and the scrollbar consume.
+what selection and the scrollbar consume.~~ Written before images were built,
+and wrong about where the types were: `AbsLine` is `baud-render`'s
+(`select.rs`), and selection uses it, while `f-scrollback-ring.md` never
+mentions either. Images took the rio model on the core's own numbering: a
+placement anchors on its screen and an absolute `LineIdx`
+(`baud-core/src/sixel.rs`) and follows a reflow through
+`ImageStore::follow_begin`, as the prompt marks do. `baud-domain`'s `Anchor`
+had no consumer and was deleted on 2026-11-01.
 
 ## Calls at the phase level
 

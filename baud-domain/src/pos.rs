@@ -12,10 +12,9 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 /// the read's own bytes from the stream's tail before it.
 ///
 /// **An absolute stream offset is the model's meaning, and the model is not
-/// built.** [`Store`], [`Run`] and the [`Source`] slots read it as an offset
-/// into the whole stream, monotonic and never reused, and nothing constructs
-/// any of them; [`Store::resolve`], which was to map such an offset to the
-/// arena, is a stub that returns `None`.
+/// built.** [`Run`] and the [`Source`] slots read it as an offset into the
+/// whole stream, monotonic and never reused, and nothing constructs any of
+/// them.
 ///
 /// No public field and no arithmetic operators, so nothing adds one position
 /// to another: a move is named ([`BytePos::advance`],
@@ -50,19 +49,13 @@ impl BytePos {
     }
 }
 
-/// Distance between two [`BytePos`]. Cannot be added to a position; only
-/// compared against a capacity.
+/// Distance between two [`BytePos`]. Cannot be added to a position. Nothing
+/// reads one: the store that compared it against its arena was never built.
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]
 #[repr(transparent)]
 pub struct ByteGap(pub(crate) u64);
-
-impl ByteGap {
-    pub(crate) fn exceeds(self, capacity: usize) -> bool {
-        self.0 > capacity as u64
-    }
-}
 
 /// Index of a logical line. **Stable across resize and font change** — this is
 /// the only line identifier safe to persist.

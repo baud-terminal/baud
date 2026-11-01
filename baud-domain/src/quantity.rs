@@ -3,9 +3,12 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// Display width of **one grapheme cluster**: 0 (combining), 1, or 2 (wide).
 ///
-/// The only thing that may advance a [`Col`]. Obtainable only from
-/// [`Decoded::width`], which means only by decoding — so a byte count can never
-/// reach the cursor by accident.
+/// The only thing that may advance a [`Col`]. Obtainable from the width
+/// tables -- [`Width::of`], [`Width::of_unicode8`] and the
+/// [`crate::Classified`] entries generated from them -- from its three
+/// constants, and back out of a written cell's flags
+/// ([`crate::CellFlags::width_of`]), never from a byte count, so a byte
+/// count can never reach the cursor by accident.
 ///
 /// This exists because of a real bug: `cx += 1` per UTF-8 continuation byte
 /// advanced a 3-byte CJK character three columns instead of two, corrupting

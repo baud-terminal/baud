@@ -59,57 +59,6 @@ impl<'buf, T> core::ops::IndexMut<(Row, Col)> for Grid<'buf, T> {
     }
 }
 
-/// A ring of per-line records, indexed by [`LineIdx`] with the wrap built in.
-pub struct LineRing<'buf, T> {
-    slots: &'buf mut [T],
-}
-
-impl<'buf, T> LineRing<'buf, T> {
-    pub fn new(slots: &'buf mut [T]) -> LineRing<'buf, T> {
-        LineRing { slots }
-    }
-}
-
-impl<'buf, T> core::ops::Index<LineIdx> for LineRing<'buf, T> {
-    type Output = T;
-    fn index(&self, l: LineIdx) -> &T {
-        &self.slots[(l.0 as usize) % self.slots.len()]
-    }
-}
-
-impl<'buf, T> core::ops::IndexMut<LineIdx> for LineRing<'buf, T> {
-    fn index_mut(&mut self, l: LineIdx) -> &mut T {
-        let n = self.slots.len();
-        &mut self.slots[(l.0 as usize) % n]
-    }
-}
-
-/// The arena, indexed by [`SlotIdx`] with the wrap built in.
-pub struct SlotRing<'buf> {
-    bytes: &'buf mut [u8],
-}
-
-impl<'buf> SlotRing<'buf> {
-    pub fn new(bytes: &'buf mut [u8]) -> SlotRing<'buf> {
-        SlotRing { bytes }
-    }
-}
-
-impl<'buf> core::ops::Index<SlotIdx> for SlotRing<'buf> {
-    type Output = [u8; SLOT_BYTES];
-    fn index(&self, s: SlotIdx) -> &[u8; SLOT_BYTES] {
-        let a = s.0 as usize * SLOT_BYTES;
-        self.bytes[a..a + SLOT_BYTES].try_into().unwrap()
-    }
-}
-
-impl<'buf> core::ops::IndexMut<SlotIdx> for SlotRing<'buf> {
-    fn index_mut(&mut self, s: SlotIdx) -> &mut [u8; SLOT_BYTES] {
-        let a = s.0 as usize * SLOT_BYTES;
-        (&mut self.bytes[a..a + SLOT_BYTES]).try_into().unwrap()
-    }
-}
-
 /// Rows the grid is rotated by: screen row `y` lives at physical row
 /// `(y + rot) % rows`.
 ///

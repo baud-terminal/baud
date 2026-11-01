@@ -365,8 +365,8 @@ does not need UAX #29 to fix — it needs `General_Category ∈ {Mn, Me, Cf}` mi
 U+00AD, which is Kuhn's two-stage structure and what alacritty gets from
 unicode-width 0.2.2.
 
-**~~Two declared knobs that nothing reads.~~ Three quarters of this is fixed,
-and the surviving quarter is the interesting one.** As written: `decode.rs:45`
+**~~Two declared knobs that nothing reads.~~ All of this is fixed, the last
+quarter by deleting the type.** As written: `decode.rs:45`
 was `pub fn measure(units: impl Iterator<Item = Decoded>, _t: &WidthTable)`,
 discarding the table, so `AmbiguousWidth` and `EmojiWidth` were configuration the
 code never consulted; `EmojiWidth::Wide` was additionally unreachable by
@@ -375,17 +375,21 @@ construction; and `Decoded::Grapheme` was built nowhere.
 Checked against the tree rather than re-read:
 
 * **`measure` no longer exists**, under that name or any other.
-* **`AmbiguousWidth` is consulted.** `merged.rs:109`'s `width(self, aw:
-  AmbiguousWidth)` resolves East Asian Ambiguous through it, which is why the
+* **`AmbiguousWidth` is consulted.** `Width::of` takes it, and `merged.rs`'s
+  `Classified::width(self, p: WidthPolicy)` resolves East Asian Ambiguous
+  through the policy, which is why the
   merged property table stores a width *code* rather than a resolved `Width` --
   the policy belongs to the embedder and a table that resolved it would take it
   away. That is the opposite of a knob nothing reads.
 * **`EmojiWidth` is gone**, so its unreachable variant is moot. `width.rs` keeps
   one field where it carried two, and says so.
-* **`Decoded::Grapheme` is still constructed nowhere.** It is matched in two
-  places and produced in none: the type names the concept and nothing yields it.
-  That one stands, and it is the same failure class the paragraph named -- a
-  declared shape with no producer, which reads as capability.
+* **~~`Decoded::Grapheme` is still constructed nowhere.~~ `Decoded` is
+  deleted (2026-11-01).** No variant of it was built anywhere, so nothing
+  called its `width` or its `len`; clustering is `ClusterBreak`'s
+  (`baud-domain/src/grapheme.rs`), which passes all 766 cases of
+  `GraphemeBreakTest.txt` (`matches_the_unicode_grapheme_break_suite`). It was the same failure class the
+  paragraph named -- a declared shape with no producer, which reads as
+  capability -- and removing the shape closed it.
 
 The note is a survey taken at a point in time and its claims are in the present
 tense, which is how three of them came to outlive the code. **A dated survey is

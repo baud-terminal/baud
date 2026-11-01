@@ -1,44 +1,6 @@
 use crate::*;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-/// One unit pulled from the byte stream.
-///
-/// The arena is **not** a `str`. A PTY delivers `cat /bin/ls` as readily as
-/// text, and escape sequences are not characters. So the stream decodes into
-/// this rather than being validated up front — a terminal must render garbage,
-/// not reject it.
-///
-/// Note what is missing: no variant exposes a byte count as a width. The only
-/// route to [`Width`] is [`Decoded::width`], and `Control` and `Invalid` have
-/// their widths fixed by the protocol rather than by their length.
-pub enum Decoded {
-    /// A grapheme cluster — base character plus any combining marks. The unit
-    /// of wrapping: splitting one orphans a mark from its base.
-    Grapheme { len: ByteLen, width: Width },
-    /// Malformed UTF-8. Rendered as U+FFFD, one column, never dropped.
-    Invalid { len: ByteLen },
-    /// A C0/C1 control byte. Occupies no columns; may move the cursor by other
-    /// means, which is the parser's business and not the cursor arithmetic's.
-    Control { byte: u8 },
-}
-
-impl Decoded {
-    /// The only constructor of a [`Width`] from stream content.
-    pub fn width(&self) -> Width {
-        match self {
-            Decoded::Grapheme { width, .. } => *width,
-            Decoded::Invalid { .. } => Width::NARROW,
-            Decoded::Control { .. } => Width::ZERO,
-        }
-    }
-    pub fn len(&self) -> ByteLen {
-        match self {
-            Decoded::Grapheme { len, .. } | Decoded::Invalid { len } => *len,
-            Decoded::Control { .. } => ByteLen(1),
-        }
-    }
-}
-
 /// One byte as it arrived. Not a number: it has no arithmetic, only
 /// classification. Everything that consumes wire data takes this.
 #[repr(transparent)]

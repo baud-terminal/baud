@@ -64,17 +64,6 @@ pub fn with_layout<R>(cols: Cols, rows: Rows, f: impl for<'id> FnOnce(Layout<'id
     })
 }
 
-/// Scroll position expressed so it survives resize: a stable line plus an
-/// offset *within* that line's wrapped rows.
-#[derive(Clone, Copy)]
-pub struct Anchor {
-    pub line: LineIdx,
-    /// Which wrapped row within that logical line. A [`RowCount`], not a
-    /// [`RowIdx`]: it is an offset inside one line, not a grid position, and it
-    /// stays valid across a resize while a `RowIdx` does not.
-    pub row_within: RowCount,
-}
-
 /// Which way `DECIC`/`DECDC` move the cells in a row.
 ///
 /// **Not a `bool`, because the two are opposites and a call site spelling
