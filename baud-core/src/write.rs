@@ -1017,11 +1017,11 @@ pub(crate) fn act(
 /// Which instructions this build of the crate scans text runs with.
 ///
 /// **Read off the build, because the feature that picks it is not the
-/// caller's alone.** Cargo turns a feature on for every crate in a build
-/// when any one of them asks, so a bench built `--no-default-features` ran
-/// NEON while `baud-render` took this crate's defaults, and nothing said
-/// so. `ingest2` holds the arm it is built as to [`RUN_SCAN`] at compile
-/// time.
+/// caller's alone.** Cargo builds a dependency once, with every feature
+/// any crate in the build enables on it, so a bench built
+/// `--no-default-features` ran NEON while `baud-render` took this crate's
+/// defaults, and nothing said so. `ingest2` holds the arm it is built as
+/// to [`RUN_SCAN`] at compile time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RunScan {
     /// `core::simd`, sixteen bytes a step: every build without an ISA arm.
@@ -1035,7 +1035,10 @@ pub enum RunScan {
 }
 
 /// The scan [`run_of_text`] is compiled to. Its three `cfg`s are the
-/// three that pick that function's arm, spelled the same.
+/// three that pick that function's arm, spelled the same. `ingest2`'s
+/// check reads these and not the function's, so an edit to one of
+/// `run_of_text`'s `cfg`s edits these too, or `RUN_SCAN` names a scan the
+/// function does not run.
 #[cfg(all(feature = "neon-scan", target_arch = "aarch64"))]
 pub const RUN_SCAN: RunScan = RunScan::Neon;
 /// The scan [`run_of_text`] is compiled to.

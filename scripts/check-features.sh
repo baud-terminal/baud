@@ -195,9 +195,10 @@ for entry in $CRATES; do
   # **And the build without the defaults, where a crate has them.** It is
   # an arm too: `--no-default-features` on `baud-bench` is the portable
   # scan's, and it ran NEON while a crate it depends on took `baud-core`'s
-  # defaults, because cargo turns a feature on for the whole build when one
-  # crate asks. `ingest2` will not compile when the scan it is built as is
-  # not the one `baud-core` runs, so this check is where that shows.
+  # defaults, because cargo builds a dependency once, with every feature
+  # any crate in the build enables on it. `ingest2` will not compile when
+  # the scan it is built as is not the one `baud-core` runs, so this check
+  # is where that shows.
   if grep -q '^default[[:space:]]*=' "$manifest"; then
     total=$((total + 1))
     if ! out=$(RUSTFLAGS="-D warnings" cargo check --release -q --manifest-path "$manifest" --all-targets --no-default-features 2>&1); then

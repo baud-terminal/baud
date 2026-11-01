@@ -13,14 +13,14 @@ publish = false
 [dependencies]
 # **`default-features = false` so the scan arm is this crate's to pick.**
 # `cargo build -p baud-bench --no-default-features` disables this crate's
-# defaults, not a dependency's, and cargo turns a feature on for the whole
-# build when any crate in it asks. So this line alone was not enough: while
-# `baud-render` and `baud-present-macos` took `baud-core` with its defaults
-# the portable arm ran NEON, and `cargo tree -e features -i baud-core` named
-# them. Both are taken here without their own defaults, which turn the scan
-# on, and `ingest2` does not compile when the scan this crate's features
-# name (`SCAN_ARM`, in `src/lib.rs`) is not the one `baud-core` runs
-# (`RUN_SCAN`).
+# defaults, not a dependency's, and cargo builds a dependency once, with
+# every feature any crate in the build enables on it. So this line alone
+# was not enough: while `baud-render` and `baud-present-macos` took
+# `baud-core` with its defaults the portable arm ran NEON, and
+# `cargo tree -e features -i baud-core` named them. Both are taken here
+# without their own defaults, which turn the scan on, and `ingest2` does
+# not compile when the scan this crate's features name (`SCAN_ARM`, in
+# `src/lib.rs`) is not the one `baud-core` runs (`RUN_SCAN`).
 baud-core = { path = "../baud-core", default-features = false, features = ["alloc"] }
 baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }

@@ -39,15 +39,16 @@ include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 #
 # **To A/B it, build `baud-bench` with `--no-default-features`, and no crate
 # in that build may take this one with its defaults.** The flag disables
-# only the bench's own, and cargo turns a feature on for the whole build when
-# any crate in it asks: while `baud-render` and `baud-present-macos` took
-# this crate's defaults, that arm ran NEON. The workspace dependency now
-# comes without them and the bench takes both libraries without theirs;
-# the app and the bench's default name this crate's `default`, and the two
-# libraries make `neon-scan` their own. `ingest2` does not compile when the
-# arm it is built as is not `RUN_SCAN`, and `scripts/check-features.sh`
-# builds it so. By disassembly, baud's own functions in `ingest2` carry 12
-# `shrn.8b` and 7 `addv.8h` with the scan, and none and 19 without.
+# only the bench's own, and cargo builds this crate once, with every
+# feature any crate in the build enables on it: while `baud-render` and
+# `baud-present-macos` took this crate's defaults, that arm ran NEON. The
+# workspace dependency now comes without them and the bench takes both
+# libraries without theirs; the app and the bench's default name this
+# crate's `default`, and the two libraries make `neon-scan` their own.
+# `ingest2` does not compile when the arm it is built as is not
+# `RUN_SCAN`, and `scripts/check-features.sh` builds it so. By
+# disassembly, baud's own functions in `ingest2` carry 12 `shrn.8b` and 7
+# `addv.8h` with the scan, and none and 19 without.
 default = ["neon-scan"]
 # `Owned`, for hosts that have an allocator. The core itself never
 # allocates; this is a convenience for callers who would otherwise have to find

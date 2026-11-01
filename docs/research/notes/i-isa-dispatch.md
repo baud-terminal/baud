@@ -325,53 +325,45 @@ read control sequences and control strings as `Vectorized<Printable>`.
 
 ## The portable arm runs the portable scan (2026-10-31)
 
-Nothing a user sees changes: the release app's `__TEXT,__text` is master's.
-The bench's portable arm, `cargo bench -p baud-bench --no-default-features`,
-ran NEON. The flag turns off "the `default` feature of the selected
-packages", and a dependency is built with "the union of all features
-enabled on" it (`[[source: cargo-1ef25ea-features]]`, "Feature unification"):
-`baud-bench` took `baud-core` without its defaults, `baud-render` and
-`baud-present-macos` with them. In master's two `ingest2` arms baud's own
-functions carry the same 12 `shrn.8b` and 7 `addv.8h`. That held from
-2026-09-12, when `baud-bench` first took `baud-render`; the stride-three
-scan's +4.2% is from 2026-09-10.
+Nothing a user sees changes. `cargo bench -p baud-bench --no-default-features`
+ran NEON, as the last section found: the flag turns off "the `default` feature
+of the selected packages", and a dependency is built with "the union of all
+features enabled on" it (`[[source: cargo-1ef25ea-features]]`, "Feature
+unification"). In master's two `ingest2` arms baud's own functions carry the
+same 12 `shrn.8b` and 7 `addv.8h`, as they have since `baud-bench` first took
+`baud-render`, on 2026-09-12; the stride-three scan's +4.2% is from 2026-09-10.
 
-**Every build keeps its features.** The workspace takes `baud-core`,
-`baud-render` and `baud-present-macos` without their defaults, since a
-member's own `default-features = false` "may be ignored" otherwise
-(`[[source: cargo-1ef25ea-specifying-dependencies]]`). The two libraries
-make `neon-scan` their default, so a program built on either runs NEON; the
-app names `baud-core`'s `default` and none of theirs, and the bench's
-default is `neon-scan` plus `baud-core/default`. By `cargo tree`, every
-crate in the app's and the default bench's builds has master's features,
-and the portable arm's `baud-core` has `alloc` alone. Naming `neon-scan` in
-each crate instead kept the app's `__text` its size but not its bytes: a
-crate's features are in its `-C metadata`, and master's two `ingest2` arms,
-whose `baud-core` is the same, differ in `__text` as well.
+**Every build keeps its features and its machine code.** The workspace takes
+`baud-core`, `baud-render` and `baud-present-macos` without their defaults, as
+a member's own `default-features = false` "may be ignored" otherwise
+(`[[source: cargo-1ef25ea-specifying-dependencies]]`). The two libraries make
+`neon-scan` their default, the app names `baud-core`'s `default` and none of
+theirs, and the bench's default is `neon-scan` plus `baud-core/default`. By
+`cargo tree` the app's and the default bench's builds have master's features,
+and the portable arm's `baud-core` has `alloc` alone. From `git archive` at one
+path, with an A/A build, the app's and the default `ingest2`'s `__TEXT,__text`
+are master's, every section its size; `__DATA_CONST,__const` differs in 14
+words, each a panic's line moved by the 34 lines added to `write.rs`. Naming
+`neon-scan` in each crate instead kept the app's `__text` its size but not its
+bytes: a crate's features are in its `-C metadata`, and master's two `ingest2`
+arms differ in `__text` over the same `baud-core`. In the portable `ingest2`
+baud's own functions carry no `shrn.8b` and 19 `addv.8h`; the binary's 26
+`shrn.8b` are std's backtrace code and the `object` crate's.
 
-**Free by the machine code.** From `git archive` at one path, with an A/A
-build, the app's and the default `ingest2`'s `__TEXT,__text` are master's,
-every section its size; `__DATA_CONST,__const` differs in 14 words, each a
-panic's line moved by the 34 lines added to `write.rs`. In the portable
-`ingest2` baud's own functions carry no `shrn.8b` and 19 `addv.8h`; the
-binary's 26 `shrn.8b` are std's backtrace code and the `object` crate's.
+**The gate.** `baud-core` exports `RUN_SCAN` under the three `cfg`s that pick
+`run_of_text`'s arm, `baud-bench`'s `SCAN_ARM` reads them over its own
+features, and `ingest2` does not compile when the two differ;
+`scripts/check-features.sh` checks each crate that has a default without it. On
+master with the gate alone that check stopped at "baud-core runs the NEON scan,
+and this arm names another", and the default arm built. Four perturbations each
+stop it: the bench or the workspace taking `baud-render`'s defaults, `RUN_SCAN`
+naming the portable scan on the NEON arm, and `SCAN_ARM` naming NEON on the
+portable one.
 
-**The gate.** `baud-core` exports `RUN_SCAN` under the three `cfg`s that
-pick `run_of_text`'s arm; `baud-bench`'s `SCAN_ARM` reads them over its own
-features, and `ingest2` does not compile when the two differ.
-`scripts/check-features.sh` checks each crate that has a default without
-it. On master with the gate alone that check stopped at "baud-core runs the
-NEON scan, and this arm names another", and the default arm built. Four
-perturbations each stop it: the bench or the workspace taking
-`baud-render`'s defaults, `RUN_SCAN` naming the portable scan on the NEON
-arm, and `SCAN_ARM` naming NEON on the portable one.
-
-**The arms now time apart.** `ingest2` at 3000 reps, both arms and an A/A
-build of each (`cmp` identical), rotated over six rounds, the first dropped,
-on mains at a load average of 1.6-2.3, no other build running at the
-start. All four
-write the same cells, 2,549,318,481 on `cat` and 1,146,344,986 on
-`cat-cjk`. MB/s over the ten runs of each arm:
+**The arms now time apart.** `ingest2` at 3000 reps, both arms and an A/A build
+of each (`cmp` identical), rotated over six rounds, the first dropped, on mains
+at a load average of 1.6-2.3. All four write the same cells, 2,549,318,481 on
+`cat` and 1,146,344,986 on `cat-cjk`. MB/s over the ten runs of each arm:
 
 | recording | NEON | portable |
 |---|---|---|
@@ -380,7 +372,5 @@ write the same cells, 2,549,318,481 on `cat` and 1,146,344,986 on
 
 `cat-cjk`'s ranges are disjoint, NEON 4.7% ahead at the median. `cat`'s
 overlap: no result, as the printable-run scan measured alone.
-
-**Found, not fixed.** `baud-core`'s dev-dependency on itself turns its
-defaults back on in its own tests, so `cargo test -p baud-core
---no-default-features` still runs NEON, as `scripts/test-features.sh` says.
+`cargo test -p baud-core --no-default-features` still runs NEON, as
+`scripts/test-features.sh` says.

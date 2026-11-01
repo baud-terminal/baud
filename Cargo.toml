@@ -82,11 +82,12 @@ rust-version = "1.96"
 #
 # **The three crates that carry the NEON scan as a default come without
 # it**, `baud-core`, `baud-render` and `baud-present-macos`, so a binary
-# built here names the scan it runs. Cargo turns a feature on for every
-# crate in a build when any one of them asks: with the defaults inherited
-# here, `baud-render` and `baud-present-macos` asked, and `cargo bench -p
-# baud-bench --no-default-features` ran the NEON scan it was built to
-# leave out. Published, each library keeps the scan as its own default.
+# built here names the scan it runs. Cargo builds a dependency once, with
+# every feature any crate in the build enables on it: with the defaults
+# inherited here, `baud-render` and `baud-present-macos` enabled the scan
+# on `baud-core`, and `cargo bench -p baud-bench --no-default-features`
+# ran the NEON scan it was built to leave out. Published, each library
+# keeps the scan as its own default.
 [workspace.dependencies]
 baud-domain = { path = "baud-domain", version = "1.0.0-beta.1" }
 baud-isa = { path = "baud-isa", version = "1.0.0-beta.1" }
