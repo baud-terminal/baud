@@ -30,6 +30,10 @@ use crate::*;
 /// (`limit_size`, `[[source: kitty-notifications-py]]`), and this keeps 1024
 /// bytes, cut at a character's start.
 pub const NOTICE_TEXT_MAX: usize = 1024;
+/// The longest path a notification's picture is named by, decoded
+/// (iTerm2's `image`): one longer is not cut, since a cut path names
+/// another file, and refuses the notification.
+pub const NOTICE_PATH_MAX: usize = 1024;
 /// The buttons' text, U+2028-separated as the payload sends it: kitty keeps
 /// eight of at most 256 characters.
 pub const NOTICE_BUTTONS_MAX: usize = 2048;
@@ -56,8 +60,9 @@ pub const NOTICE_QUEUE: usize = 8;
 /// The strings a notification carries besides its text: id, application
 /// name, type, the icon names, the icon key and the sound.
 const STRINGS: usize = NOTICE_ID_MAX * 2 + NOTICE_NAME_MAX * (3 + NOTICE_ICON_NAMES);
-/// One published notification's strings, its icon aside.
-const RECORD: usize = NOTICE_TEXT_MAX * 2 + NOTICE_BUTTONS_MAX + STRINGS;
+/// One published notification's strings, its icon aside: a title, a body
+/// and a subtitle, the picture's path, the buttons and the rest.
+const RECORD: usize = NOTICE_TEXT_MAX * 3 + NOTICE_PATH_MAX + NOTICE_BUTTONS_MAX + STRINGS;
 
 // ---------------------------------------------------------------- OSC 9
 
@@ -728,6 +733,8 @@ pub enum NoticeAction {
 struct Spans {
     title: Span,
     body: Span,
+    subtitle: Span,
+    picture: Span,
     buttons: Span,
     id: Span,
     app: Span,
@@ -742,6 +749,8 @@ impl Spans {
     const EMPTY: Spans = Spans {
         title: Span::EMPTY,
         body: Span::EMPTY,
+        subtitle: Span::EMPTY,
+        picture: Span::EMPTY,
         buttons: Span::EMPTY,
         id: Span::EMPTY,
         app: Span::EMPTY,
@@ -791,6 +800,12 @@ pub struct Notice<'a> {
     pub action: NoticeAction,
     pub title: &'a [u8],
     pub body: &'a [u8],
+    /// iTerm2's `subtitle`; empty for every other kind.
+    pub subtitle: &'a [u8],
+    /// The path of a local file whose picture iTerm2's `image` asks shown,
+    /// decoded, never cut; empty when none. The core never opens it: the
+    /// embedder reads it, if it shows the notification at all.
+    pub picture: &'a [u8],
     /// The buttons' text, separated by U+2028 as the payload sent them:
     /// [`Notice::buttons`] splits them.
     buttons: &'a [u8],
@@ -1460,6 +1475,8 @@ impl NoticeDesk {
         let src = Spans {
             title,
             body,
+            subtitle: Span::EMPTY,
+            picture: Span::EMPTY,
             buttons: Span {
                 at: l.buttons,
                 len: a.lens.buttons,
@@ -1503,25 +1520,55 @@ impl NoticeDesk {
         title: &[u8],
         body: &[u8],
     ) -> ChunkEnd {
+        self.rich(area, from, title, b"", body, b"")
+    }
+
+    /// **[`NoticeDesk::simple`] with iTerm2's subtitle and picture**
+    /// (`screenPostUserNotification:rich:`): a message alone stands as the
+    /// title, as an `OSC 9`'s text does; a subtitle with no title leaves
+    /// the title empty, as iTerm2 does, and a picture alone posts, the
+    /// embedder deciding what its platform can show of either. Nothing at
+    /// all is refused as empty, and a path past [`NOTICE_PATH_MAX`] as too
+    /// long.
+    pub fn rich(
+        &mut self,
+        area: &mut [u8],
+        from: NoticeFrom,
+        title: &[u8],
+        subtitle: &[u8],
+        body: &[u8],
+        picture: &[u8],
+    ) -> ChunkEnd {
         let Some(l) = Layout::of(area.len()) else {
             return self.refuse(NoticeRefusal::Unprovisioned);
         };
         if self.support.is_none() {
             return self.refuse(NoticeRefusal::Off);
         }
-        let (title, body) = match (title.is_empty(), body.is_empty()) {
-            (true, true) => return self.refuse(NoticeRefusal::Empty),
-            (true, false) => (body, &body[body.len()..]),
+        if picture.len() > NOTICE_PATH_MAX {
+            return self.refuse(NoticeRefusal::TooLong);
+        }
+        let untitled = title.is_empty() && subtitle.is_empty();
+        let (title, body) = match (untitled, body.is_empty(), picture.is_empty()) {
+            (true, true, true) => return self.refuse(NoticeRefusal::Empty),
+            (true, false, _) => (body, &body[body.len()..]),
             _ => (title, body),
         };
         // Staged in the chunk's room, which no kitty chunk holds between
         // two strings, so a kitty notification being assembled keeps its
-        // title and body.
+        // title and body: four strings of at most 1024 bytes in its 4096.
         let t = char_floor(title, title.len().min(NOTICE_TEXT_MAX));
         let b = char_floor(body, body.len().min(NOTICE_TEXT_MAX));
-        let (tat, bat) = (l.chunk, l.chunk + NOTICE_TEXT_MAX);
+        let u = char_floor(subtitle, subtitle.len().min(NOTICE_TEXT_MAX));
+        let p = picture.len();
+        let tat = l.chunk;
+        let bat = tat + NOTICE_TEXT_MAX;
+        let uat = bat + NOTICE_TEXT_MAX;
+        let pat = uat + NOTICE_TEXT_MAX;
         area[tat..tat + t].copy_from_slice(&title[..t]);
         area[bat..bat + b].copy_from_slice(&body[..b]);
+        area[uat..uat + u].copy_from_slice(&subtitle[..u]);
+        area[pat..pat + p].copy_from_slice(picture);
         // Neither text says when to show them, so they show while the
         // window is not focused.
         let settings = Settings {
@@ -1531,6 +1578,8 @@ impl NoticeDesk {
         let mut src = Spans::EMPTY;
         src.title = Span { at: tat, len: t };
         src.body = Span { at: bat, len: b };
+        src.subtitle = Span { at: uat, len: u };
+        src.picture = Span { at: pat, len: p };
         self.publish(area, l, from, settings, src)
     }
 
@@ -1546,6 +1595,8 @@ impl NoticeDesk {
         let need = [
             src.title,
             src.body,
+            src.subtitle,
+            src.picture,
             src.buttons,
             src.id,
             src.app,
@@ -1571,6 +1622,8 @@ impl NoticeDesk {
         let mut spans = Spans {
             title: copy(src.title),
             body: copy(src.body),
+            subtitle: copy(src.subtitle),
+            picture: copy(src.picture),
             buttons: copy(src.buttons),
             id: copy(src.id),
             app: copy(src.app),
@@ -1883,6 +1936,8 @@ impl NoticeDesk {
             action: h.action,
             title: h.spans.title.of(area),
             body: h.spans.body.of(area),
+            subtitle: h.spans.subtitle.of(area),
+            picture: h.spans.picture.of(area),
             buttons: h.spans.buttons.of(area),
             id: h.spans.id.of(area),
             app: h.spans.app.of(area),

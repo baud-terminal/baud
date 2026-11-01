@@ -185,7 +185,7 @@ impl Paint<'_, '_> {
             Osc1337::Capabilities => self.capabilities(),
             Osc1337::SetMark(at) => self.set_mark(at),
             Osc1337::UnicodeVersion(op) => self.unicode_version(op),
-            Osc1337::Notification(pairs) => self.notification(pairs),
+            Osc1337::Notification(pairs) => self.notification(pairs, body),
             Osc1337::RequestUpload(_) => self.request_upload(),
             Osc1337::ReportVariable(name) => self.report_variable(name, term),
             Osc1337::BadgeFormat(b64) => self.set_badge_format(b64, body),
@@ -359,41 +359,63 @@ impl Paint<'_, '_> {
 
     /// **`Notification`: posted as an `OSC 9` notification is, under the
     /// same rules** -- the user's setting, the window's focus, the desk's
-    /// bounds -- its `title` and `message`, each decoded from base64, as
-    /// iTerm2's source posts it "rich"
+    /// bounds -- its `title`, `subtitle`, `message` and `image`, each
+    /// decoded from base64, as iTerm2's source posts it "rich"
     /// (`[[source: iterm2-964a75d-ptysession]]`); a value that does not
-    /// decode is none, as there. baud's notification has no subtitle, so a
-    /// `subtitle` is dropped and counted, and so is an `image`, which names
-    /// a picture for the system to load and which baud would have to read
-    /// from wherever the program says.
-    fn notification(&mut self, pairs: NoticePairs<'_>) {
-        let (mut title, mut body) = ([0u8; OSC_MAX], [0u8; OSC_MAX]);
-        let (mut tl, mut bl) = (0, 0);
+    /// decode is none, as there. `image` is a path, trailing white space
+    /// and newlines trimmed as there, for the embedder to read and show
+    /// (`notifyRich:`, `[[source: iterm2-964a75d-notification-controller]]`
+    /// reads it with `dataWithContentsOfFile:`). An OSC cut at
+    /// [`OSC_MAX`] keeps its text and not its picture, counted under the
+    /// key: the cut falls in the last pair, and a path cut on a base64
+    /// quantum still decodes, to another file's name.
+    fn notification(&mut self, pairs: NoticePairs<'_>, whole: Body) {
+        let mut text = [[0u8; OSC_MAX]; 4];
+        let mut lens = [0usize; 4];
         for (part, coded) in pairs.pairs() {
+            let i = match part {
+                NoticePart::Title => 0,
+                NoticePart::Subtitle => 1,
+                NoticePart::Message => 2,
+                NoticePart::Image => 3,
+                NoticePart::Other => continue,
+            };
             let mut out = [0u8; OSC_MAX];
             let n = decode_whole(coded, &mut out)
                 .map(ByteLen::index)
                 .filter(|&n| core::str::from_utf8(&out[..n]).is_ok());
-            match (part, n) {
-                (NoticePart::Title, Some(n)) => {
-                    title[..n].copy_from_slice(&out[..n]);
-                    tl = n;
+            lens[i] = match n {
+                Some(n) => {
+                    text[i][..n].copy_from_slice(&out[..n]);
+                    n
                 }
-                (NoticePart::Message, Some(n)) => {
-                    body[..n].copy_from_slice(&out[..n]);
-                    bl = n;
-                }
-                (NoticePart::Subtitle | NoticePart::Image, Some(n)) if n > 0 => {
-                    self.unsupported_total += 1;
-                }
-                _ => {}
-            }
+                None => 0,
+            };
         }
-        let end = self.strs.notices.simple(
+        // `stringByTrimmingTrailingCharactersFromCharacterSet:` with
+        // `whitespaceAndNewlineCharacterSet`, "all the whitespace and
+        // newline characters" (`[[source:
+        // apple-nscharacterset-whitespacesandnewlines]]`), the whitespace
+        // being "Zs and CHARACTER TABULATION (U+0009)" (`[[source:
+        // apple-nscharacterset-whitespaces]]`), with the newlines
+        // `White_Space`. The set the system builds holds U+200B ZERO WIDTH
+        // SPACE as well, which the text does not name, and iTerm2 trims by
+        // that set.
+        lens[3] = core::str::from_utf8(&text[3][..lens[3]]).map_or(0, |p| {
+            p.trim_end_matches(|c: char| c.is_whitespace() || c == '\u{200b}')
+                .len()
+        });
+        if whole == Body::Cut && lens[3] > 0 {
+            lens[3] = 0;
+            self.not_acted(ItermKey::Notification);
+        }
+        let end = self.strs.notices.rich(
             self.strs.notice_area,
             NoticeFrom::Iterm,
-            &title[..tl],
-            &body[..bl],
+            &text[0][..lens[0]],
+            &text[1][..lens[1]],
+            &text[2][..lens[2]],
+            &text[3][..lens[3]],
         );
         self.notice_outcome(end);
     }

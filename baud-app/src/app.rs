@@ -736,6 +736,9 @@ struct App {
     /// shows them -- `None` outside the app's bundle -- and the Dock's
     /// attention request a program's `RequestAttention=yes` or `once` made.
     notes: crate::notify::Delivery<Instant, String>,
+    /// The reader of the file iTerm2's `image` names, with every check
+    /// kitty's file medium makes.
+    pictures: crate::kitty_files::LocalFiles,
     center: Option<baud_present_macos::notify::Center>,
     attention: Option<baud_present_macos::notify::AttentionId>,
     /// iTerm2's fireworks: the shows the requests started (`fireworks.rs`).
@@ -1381,7 +1384,7 @@ impl App {
             Some(_) => crate::notify::support(notifications, crate::notify::Platform::MacOs),
             None => None,
         });
-        let notes = crate::notify::Delivery::new(notifications, &term);
+        let notes = crate::notify::Delivery::new(notifications, &term, images);
         let fireworks = crate::fireworks::Fireworks::new();
         let last_prompts = term.prompts_opened();
         App {
@@ -1514,6 +1517,7 @@ impl App {
             pace: crate::reads::Pace::new(),
             printing,
             notes,
+            pictures: crate::kitty_files::LocalFiles::new(),
             fireworks,
             center,
             attention: None,
@@ -12557,6 +12561,7 @@ impl Driver {
             state,
             Instant::now(),
             &prefix,
+            &mut self.app.pictures,
             |b| outbox.push(b),
         );
         let Some(mtm) = MainThreadMarker::new() else {
@@ -12605,6 +12610,12 @@ impl Driver {
             }
         }
         if let Some(line) = self.app.notes.rate_line() {
+            crate::warn!("{line}");
+        }
+        if let Some(line) = self.app.notes.bare_line() {
+            crate::warn!("{line}");
+        }
+        if let Some(line) = self.app.notes.image_line() {
             crate::warn!("{line}");
         }
     }
@@ -14918,6 +14929,7 @@ fn mac_post(p: crate::notify::MacPost) -> baud_present_macos::notify::Post {
     Post {
         id: p.id,
         title: p.title,
+        subtitle: p.subtitle,
         body: p.body,
         sound: match p.silent {
             crate::notify::Silence::Sound => PostSound::Default,

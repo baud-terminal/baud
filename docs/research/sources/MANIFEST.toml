@@ -40084,3 +40084,94 @@ sha256 = "d5ce2097bd26c2955d9e204ef70f46aeefa3f19cc8d2fcba833b4a9acab05e90"
 bytes  = 15539
 status = "external"
 group  = "AX"
+
+[sources.iterm2-964a75d-notification-controller]
+key    = "iterm2-964a75d-notification-controller"
+title  = "iTerm2 964a75d, iTermNotificationController.m -- notifyRich: title, subtitle and body set on UNMutableNotificationContent; the image read with dataWithContentsOfFile:, decoded, saved as a PNG in the temporary directory and attached"
+author = "David E. Nedrow, George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Notifications/iTermNotificationController.m"
+file   = ""
+sha256 = "0853919b0e205b95d30e7fabcc93690060330ea678be0496b4c516184b5a8cbb"
+bytes  = 17924
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-image]
+key    = "iterm2-964a75d-image"
+title  = "iTerm2 964a75d, iTermImage.m -- imageWithCompressedData: decodes in a sandboxed worker (iTermSandboxedWorkerClient), in process only under AddressSanitizer"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/InlineImages/iTermImage.m"
+file   = ""
+sha256 = "0859eae27f3f919b7370602879856f5bc6c7d1f8294a262cb8ae01f1399c9efa"
+bytes  = 6226
+status = "external"
+group  = "AX"
+
+[sources.apple-unnotificationattachment]
+key    = "apple-unnotificationattachment"
+title  = "UNNotificationAttachment -- 'The system validates attachments ... the system doesn't schedule your request ... moves the attached files into the attachment data store'; Image: kUTTypeJPEG, kUTTypeGIF, kUTTypePNG, 10 MB"
+author = "Apple Inc."
+year   = 2026
+venue  = "Apple Developer Documentation (JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/usernotifications/unnotificationattachment.json"
+file   = ""
+sha256 = "a14613618c386fa134616ca20e227fd9e60d4f65029e326fbbe625604cb0a4b1"
+bytes  = 47113
+status = "external"
+group  = "AX"
+
+[sources.macos-sdk-unnotificationattachment-h]
+key    = "macos-sdk-unnotificationattachment-h"
+title  = "UNNotificationAttachment.h -- attachmentWithIdentifier:URL:options:error: 'URL must be a file URL. Returns nil if the data at URL is not supported.'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/UserNotifications.framework/Headers/UNNotificationAttachment.h"
+file   = ""
+sha256 = "8435b382cb54c0a519dc2d49a58cb6af08ced984a0dbc60bd6379ffb8ebb8b32"
+bytes  = 2442
+status = "external"
+group  = "AX"
+
+[sources.chromium-fc2ff62-notification-bridge-linux]
+key    = "chromium-fc2ff62-notification-bridge-linux"
+title  = "Chromium fc2ff62, notification_platform_bridge_linux.cc -- the context line first in the body, a blank line, then the message; the summary the title alone"
+author = "The Chromium Authors"
+year   = 2026
+venue  = "Chromium (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/fc2ff6268dba526072d02d1e8db9536ee9cda624/chrome/browser/notifications/notification_platform_bridge_linux.cc"
+file   = ""
+sha256 = "5f855aae649406586e3ee88ea08dcc7aefc35c34826b1414299a1840f6ae0d33"
+bytes  = 66597
+status = "external"
+group  = "AX"
+
+[sources.apple-nscharacterset-whitespacesandnewlines]
+key    = "apple-nscharacterset-whitespacesandnewlines"
+title  = "NSCharacterSet whitespacesAndNewlines -- 'A character set containing all the whitespace and newline characters'; its summary 'characters in Unicode General Category Z*, U+000A ~ U+000D, and U+0085'"
+author = "Apple Inc."
+year   = 2026
+venue  = "Apple Developer Documentation (JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/foundation/nscharacterset/whitespacesandnewlines.json"
+file   = ""
+sha256 = "f6f730b20648c1953649a6615f05e689d8b1fed3417b45067f57e359da972b28"
+bytes  = 29233
+status = "external"
+group  = "AX"
+
+[sources.apple-nscharacterset-whitespaces]
+key    = "apple-nscharacterset-whitespaces"
+title  = "NSCharacterSet whitespaces -- 'A character set containing the characters in Unicode General Category Zs and CHARACTER TABULATION (U+0009)'"
+author = "Apple Inc."
+year   = 2026
+venue  = "Apple Developer Documentation (JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/foundation/nscharacterset/whitespaces.json"
+file   = ""
+sha256 = "e392b709af2b600dfcde8e0ce14631687ce45c9840cd03ccf4896af35235b3ad"
+bytes  = 29315
+status = "external"
+group  = "AX"

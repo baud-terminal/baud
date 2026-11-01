@@ -822,32 +822,119 @@ fn fireworks_reach_the_embedder_at_the_cursor() {
 }
 
 /// **iTerm2's `Notification`, posted as an `OSC 9` notification is**: its
-/// `title` and `message` decoded from base64, at every read size; a
-/// `subtitle` and an `image` dropped and counted; a value that does not
-/// decode is none; with the user's notifications off it is refused as an
-/// `OSC 9` is.
+/// `title`, `subtitle`, `message` and `image` decoded from base64, at every
+/// read size, the image's path with its trailing white space and newlines
+/// trimmed by the set the system builds, as iTerm2 trims it, a tab and a
+/// zero width space among them; a subtitle with no title and a picture
+/// alone each post; an OSC cut at its bound loses its picture, counted; a
+/// value that does not decode is none; with the user's notifications off
+/// it is refused as an `OSC 9` is.
 #[test]
 fn iterm2_notification_posts_its_title_and_message() {
     let mut body = b"\x1b]1337;Notification=title=".to_vec();
     body.extend(b64(b"Build"));
     body.extend(b";subtitle=");
-    body.extend(b64(b"main"));
+    body.extend(b64(b"main "));
     body.extend(b";message=");
     body.extend(b64(b"finished in 3 s"));
     body.extend(b";image=");
-    body.extend(b64(b"/tmp/x.png"));
+    body.extend(b64("/tmp/x y.png \n\u{a0}".as_bytes()));
     body.extend(b"\x07");
     for n in [1, 3, 7, 4096] {
         with(Some(all()), &body, Reads(n), |t| {
+            let n0 = t.notices().next().expect("published");
+            assert_eq!(n0.subtitle, b"main ", "reads of {n}: kept as sent");
+            assert_eq!(n0.picture, b"/tmp/x y.png", "reads of {n}: trimmed");
             let s = seen(t);
             assert_eq!(s.len(), 1, "reads of {n}");
             assert_eq!(s[0].from, NoticeFrom::Iterm);
             assert_eq!(s[0].title, b"Build", "reads of {n}");
             assert_eq!(s[0].body, b"finished in 3 s", "reads of {n}");
             assert_eq!(s[0].occasion, Occasion::Unfocused);
-            assert_eq!(t.unsupported, 2, "the subtitle and the image");
+            assert_eq!(t.unsupported, 0, "the subtitle and the image are carried");
         });
     }
+    // The set iTerm2 trims by is the system's: `White_Space`, the tab
+    // among it, and U+200B ZERO WIDTH SPACE, which the system's set holds
+    // as well. U+180E MONGOLIAN VOWEL SEPARATOR is in neither, and stays.
+    for (end, kept) in [
+        ("\t\r", "/tmp/x.png"),
+        ("\u{200b}", "/tmp/x.png"),
+        ("\u{180e}", "/tmp/x.png\u{180e}"),
+    ] {
+        let path = format!("/tmp/x.png{end}");
+        let msg = [
+            b"\x1b]1337;Notification=title=".as_slice(),
+            &b64(b"t"),
+            b";image=",
+            &b64(path.as_bytes()),
+            b"\x07",
+        ]
+        .concat();
+        with(Some(all()), &msg, Reads(4096), |t| {
+            assert_eq!(
+                t.notices().next().expect("published").picture,
+                kept.as_bytes(),
+                "{end:?}"
+            );
+        });
+    }
+    // A subtitle with no title and a picture alone each post, with no
+    // title made up: what a platform cannot show is its driver's to drop.
+    // A message with a picture and no title stands as the title.
+    let pictured = [
+        b"\x1b]1337;Notification=message=".as_slice(),
+        &b64(b"done"),
+        b";image=",
+        &b64(b"/tmp/x.png"),
+        b"\x07",
+    ]
+    .concat();
+    with(Some(all()), &pictured, Reads(4096), |t| {
+        assert_eq!(seen(t)[0].title, b"done");
+    });
+    for alone in [
+        [
+            b"\x1b]1337;Notification=subtitle=".as_slice(),
+            &b64(b"main"),
+            b"\x07",
+        ]
+        .concat(),
+        [
+            b"\x1b]1337;Notification=image=".as_slice(),
+            &b64(b"/tmp/x.png"),
+            b"\x07",
+        ]
+        .concat(),
+    ] {
+        with(Some(all()), &alone, Reads(4096), |t| {
+            assert_eq!(
+                t.notices().count(),
+                1,
+                "{:?}",
+                String::from_utf8_lossy(&alone)
+            );
+            let n0 = t.notices().next().expect("published");
+            assert_eq!(n0.title, b"", "no title is made up");
+        });
+    }
+    // An OSC cut at its bound keeps its text and loses its picture, counted
+    // under the key. The empty pair puts the cut on a base64 quantum, so
+    // the cut path still decodes -- to the name of another file.
+    let mut cut = b"\x1b]1337;Notification=title=".to_vec();
+    cut.extend(b64(b"Build"));
+    cut.extend(b";;image=");
+    cut.extend(b64(&[b'/'; 600]));
+    cut.extend(b"\x07");
+    with(Some(all()), &cut, Reads(4096), |t| {
+        assert_eq!(seen(t)[0].title, b"Build");
+        assert_eq!(t.notices().next().expect("published").picture, b"");
+        assert_eq!(
+            t.iterm_counts().of(ItermKey::Notification),
+            Messages::of(1),
+            "the cut picture"
+        );
+    });
     // A message alone stands as the title, as an `OSC 9`'s text does; a
     // value that is not base64 is none, and with nothing left the
     // notification is refused as empty.

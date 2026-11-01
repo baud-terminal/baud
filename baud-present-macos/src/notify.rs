@@ -249,6 +249,9 @@ pub struct Post {
     /// request with the same identifier").
     pub id: String,
     pub title: String,
+    /// "The subtitle of the notification", set as iTerm2 sets it; empty
+    /// for none.
+    pub subtitle: String,
     pub body: String,
     pub sound: PostSound,
     pub level: Level,
@@ -480,15 +483,18 @@ impl Center {
     }
 }
 
-/// **A post's request**, with its content -- title, body, sound, level,
-/// category and image -- and no trigger, which delivers it now. Built
-/// without the center, so a test can build one.
+/// **A post's request**, with its content -- title, subtitle, body,
+/// sound, level, category and image -- and no trigger, which delivers it
+/// now. Built without the center, so a test can build one.
 fn request_of(p: &Post, category: Option<&str>) -> Option<Retained<AnyObject>> {
     let content = new_of(c"UNMutableNotificationContent")?;
     // SAFETY: `UNMutableNotificationContent`'s setters, each with the type
-    // its header declares; `+defaultSound` nonnull.
+    // its header declares (`[[source: macos-sdk-unnotificationcontent-h]]`
+    // 106-125 for the body, the subtitle and the title); `+defaultSound`
+    // nonnull.
     unsafe {
         let _: () = msg_send![&content, setTitle: &*NSString::from_str(&p.title)];
+        let _: () = msg_send![&content, setSubtitle: &*NSString::from_str(&p.subtitle)];
         let _: () = msg_send![&content, setBody: &*NSString::from_str(&p.body)];
         match (p.sound, AnyClass::get(c"UNNotificationSound")) {
             (PostSound::Default, Some(s)) => {
@@ -795,6 +801,7 @@ mod tests {
         let p = Post {
             id: "baud-test-1".into(),
             title: "Build".into(),
+            subtitle: "main".into(),
             body: "make; make install".into(),
             sound: PostSound::Silent,
             level: Level::Passive,
@@ -803,19 +810,32 @@ mod tests {
         };
         let req = request_of(&p, Some("baud-buttons-x")).expect("a request");
         // SAFETY: `UNNotificationRequest`'s `identifier` and `content`,
-        // `UNNotificationContent`'s `title` and `categoryIdentifier`, each
-        // nonnull.
-        let (id, title, cat) = unsafe {
+        // `UNNotificationContent`'s `title`, `subtitle` and
+        // `categoryIdentifier`, each nonnull.
+        let (id, title, sub, cat) = unsafe {
             let id: Retained<NSString> = msg_send![&req, identifier];
             let content: Retained<AnyObject> = msg_send![&req, content];
             let title: Retained<NSString> = msg_send![&content, title];
+            let sub: Retained<NSString> = msg_send![&content, subtitle];
             let cat: Retained<NSString> = msg_send![&content, categoryIdentifier];
-            (id.to_string(), title.to_string(), cat.to_string())
+            (
+                id.to_string(),
+                title.to_string(),
+                sub.to_string(),
+                cat.to_string(),
+            )
         };
         assert_eq!(
-            (id.as_str(), title.as_str(), cat.as_str()),
-            ("baud-test-1", "Build", "baud-buttons-x")
+            (id.as_str(), title.as_str(), sub.as_str(), cat.as_str()),
+            ("baud-test-1", "Build", "main", "baud-buttons-x")
         );
+        // A subtitle alone, iTerm2's with no title, is a request.
+        let sub_only = Post {
+            title: String::new(),
+            body: String::new(),
+            ..p.clone()
+        };
+        assert!(request_of(&sub_only, None).is_some());
         let loud = Post {
             sound: PostSound::Default,
             level: Level::Active,

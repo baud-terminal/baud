@@ -65,7 +65,9 @@
 
 #![allow(unsafe_code)]
 
-use baud_domain::{KittyFileFailed, KittyFileRequest, KittyFiles, KittyFlow, KittyMedium};
+use baud_domain::{
+    KittyFileFailed, KittyFileRequest, KittyFiles, KittyFlow, KittyMedium, KittyPastLimit,
+};
 use std::ffi::{CString, OsStr};
 use std::fs::{File, Metadata};
 use std::os::unix::ffi::OsStrExt;
@@ -405,6 +407,30 @@ impl KittyFiles for LocalFiles {
             );
             KittyFileFailed
         })
+    }
+}
+
+/// **The file iTerm2's `image` names, read with every check a `t=f` file
+/// gets** (the module's list): an absolute path, resolved, outside
+/// `/proc`, `/sys` and `/dev`, a regular file opened as the one checked,
+/// read whole up to [`crate::notify::PICTURE_MAX`] and refused past it.
+impl crate::notify::PictureReader for LocalFiles {
+    fn picture(&mut self, path: &[u8]) -> Result<Vec<u8>, String> {
+        let req = KittyFileRequest {
+            medium: KittyMedium::File,
+            path,
+            offset: 0,
+            size: 0,
+            limit: crate::notify::PICTURE_MAX,
+            past: KittyPastLimit::Refuse,
+        };
+        let mut out = Vec::new();
+        self.file(&req, &mut |b| {
+            out.extend_from_slice(b);
+            KittyFlow::More
+        })
+        .map(|()| out)
+        .map_err(|why| format!("{why:?}"))
     }
 }
 

@@ -138,10 +138,11 @@ one does.
 - **Linux** (`baud-app/src/bus.rs`, `baud-app/src/linux.rs`): `Notify`
   with `replaces_id` for an update, a `default` action where a click is
   reported and the buttons numbered from 1, `urgency`, `sound-name` or
-  `suppress-sound`, `category`, and a PNG of at most 1024 pixels a side
-  as `image-data`; JPEG and GIF data, which the text also names, are
-  refused and counted until a decoder exists, as is
-  a larger PNG, and the log says so once; the body
+  `suppress-sound`, `category`, and a PNG, a JPEG or a GIF of at most
+  1024 pixels a side as `image-data`, decoded by baud's own decoders (a
+  GIF's first frame; JPEG and GIF since 2026-11-01); a larger one, or one
+  that does not decode, is refused and counted, and the log says so
+  once; the body
   escaped where the server lists `body-markup`; an icon name with a `/`
   or a `:` is not sent, since `app_icon` also takes a file URI;
   `GetCapabilities` decides whether `report` and `buttons` are claimed, and until it
@@ -272,3 +273,79 @@ spelled over again rather than the code copied, as
 **Not built**: iTerm2 also scrolls the cursor into view when the request
 comes; baud leaves the window where the user put it and draws at the
 cursor's cell where the window shows it.
+
+## 8. iTerm2's subtitle and picture
+
+iTerm2's `Notification` key is defined by its source alone. At 964a75d,
+`screenPostUserNotification:rich:` decodes `title`, `subtitle`,
+`message` and `image`, trims trailing white space from `image` only
+(`[[source: iterm2-964a75d-ptysession]]`), and `notifyRich:` sets the
+title, the subtitle and the body, reads `image` with
+`dataWithContentsOfFile:` -- a path, never a URL -- decodes it, saves it
+as a PNG in the temporary directory and attaches that (`[[source:
+iterm2-964a75d-notification-controller]]`). The decode runs in a
+sandboxed worker (`[[source: iterm2-964a75d-image]]`). Apple validates
+an attachment before scheduling and "doesn't schedule your request" when
+it fails, takes PNG, JPEG and GIF images up to 10 MB, and "moves the
+attached files into the attachment data store" (`[[source:
+apple-unnotificationattachment]]`). Linux's `Notify` has a summary and a
+body and no subtitle, and its table calls every text argument optional
+or possibly empty but the summary (`[[source:
+freedesktop-notification-spec]]`).
+
+The trim is `whitespaceAndNewlineCharacterSet`'s, "all the whitespace and
+newline characters" (`[[source:
+apple-nscharacterset-whitespacesandnewlines]]`), its summary naming Z*,
+U+000A to U+000D and U+0085, the whitespace "Zs and CHARACTER TABULATION
+(U+0009)" (`[[source: apple-nscharacterset-whitespaces]]`), the two
+together Unicode's White_Space. Listed with `longCharacterIsMember:` on macOS 27.0, the set
+the system builds is White_Space and U+200B ZERO WIDTH SPACE, which no
+text of Apple's names; iTerm2 trims by that set, and so does baud.
+
+**Decided**, 2026-11-01: on Linux the subtitle opens the body as its own
+paragraph, a blank line before the message, as Chromium sets its context
+line (`[[source: chromium-fc2ff62-notification-bridge-linux]]`).
+**Taken, and open**: the picture is shown, rather than refused: nothing
+goes back to the program, kitty's `t=f` already reads a named file with
+every check kitty's text asks for, and the program can already show any
+bytes it has as an `OSC 99` icon, so the one thing added is a local
+picture shown to the person at the screen. Also taken: macOS follows
+iTerm2 for a missing title -- the title left empty under a subtitle, a
+picture alone posted -- while Linux, whose summary is not optional,
+takes the subtitle as the summary and does not post a picture alone,
+counted.
+
+**Built**: the core carries the subtitle and the path (a picture from an
+OSC cut at 512 bytes refused, since a cut on a base64 quantum still
+decodes, to another file's name); the drivers read the path only when
+they show the notification, through `LocalFiles` up to 10 MB. On macOS
+a copy of a PNG, JPEG or GIF is attached once baud's own decoders read
+it, within the pixels `[images] pixels_mb` lets an image decode to, as
+iTerm2 attaches a picture only once it decodes; one that does not is
+left out, counted, and the text posts. On Linux the bytes show as an
+`OSC 99` icon's, a PNG, JPEG or GIF of at most 1024 pixels a side as
+`image-data`, which since this change Linux decodes for an `OSC 99` icon
+too, through baud's own decoders, where it showed a PNG alone. The
+notification area grows by 18,432 bytes: a subtitle and a path of 1024
+each in each of the log's eight records, and 2,048 that
+`NoticeBudget::bytes` reserves for the assembly, which holds neither
+(`rich()` stages both in the chunk room), so those 2,048 are never used.
+`NoticeBudget::bytes` reads 575,680 before and 594,112 after, with the
+app's 256 KiB icon.
+
+**Not built**: other formats, which iTerm2 converts and baud, with no
+sandboxed decoder, does not decode. **Open**: a file baud's decoders
+read and the system's do not, such as a JPEG cut short, which baud's
+decoder shows as far as it arrived, may still be refused by the center,
+the request's text with it; posting again without the attachment when
+`addNotificationRequest:withCompletionHandler:` reports an error would
+close it, and baud passes no handler. An `OSC 99` icon is attached by its
+first bytes, as before, and one that does not decode still costs the
+request; creating the attachment refuses neither such a file nor a
+missing one outside the app's bundle, so the check has to be baud's.
+The check is a whole decode on the main thread, and its pixels are thrown
+away afterwards. A 6000x4000 JPEG of 3.25 MB, within the default
+`[images] pixels_mb` of about 24.9 million pixels, took 218 to 276 ms in a
+release build without LTO. It held about 228 MB while it ran: 36 MB of
+scratch, 96 MB of pixels and 96 MB of RGBA. Decoding off the main thread,
+or checking without the RGBA copy, would shorten this.

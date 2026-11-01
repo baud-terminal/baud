@@ -22,8 +22,16 @@
 //!   cache that forgets the least recently used ([`Icons`]), as kitty's
 //!   text allows: "implementations can impose a reasonable max size on
 //!   the icon cache and evict icons in order of last used". Linux shows
-//!   only a PNG of at most 1024 pixels a side; the rest are counted
-//!   ([`Delivery::image_data`]).
+//!   a PNG, a JPEG or a GIF of at most 1024 pixels a side, decoded by
+//!   baud's own decoders; the rest are counted ([`Delivery::image_data`]).
+//! * **iTerm2's picture**: the local file its `image` names is read only
+//!   when the notification is shown, through the reader kitty's file
+//!   medium reads through, with every check it makes
+//!   ([`Delivery::image`]), and shown: on Linux as an icon a program sent
+//!   is, on macOS attached once baud's own decoders read it
+//!   ([`Delivery::attached`]); nothing about it goes back to the program.
+//!   A notification with nothing a platform can show is not posted, and
+//!   counted ([`Delivery::bare_line`]).
 //!
 //! Note AX (`docs/research/notes/ax-program-notifications.md`) has the
 //! texts and the forks.
@@ -50,6 +58,11 @@ pub struct Posted {
     pub action: NoticeAction,
     pub title: String,
     pub body: String,
+    /// iTerm2's `subtitle`.
+    pub subtitle: String,
+    /// The path of the local file iTerm2's `image` names, read only when
+    /// the notification is shown ([`Delivery::image`]).
+    pub picture: Option<Vec<u8>>,
     pub buttons: Vec<String>,
     /// `f` and the first `t`.
     pub app: String,
@@ -106,6 +119,8 @@ impl Posted {
             action: n.action,
             title: text(n.title),
             body: text(n.body),
+            subtitle: text(n.subtitle),
+            picture: (!n.picture.is_empty()).then(|| n.picture.to_vec()),
             buttons: n.buttons().map(text).filter(|b| !b.is_empty()).collect(),
             app: text(n.app),
             kind: text(n.kind),
@@ -536,12 +551,20 @@ pub struct Delivery<T, P> {
     /// How many the bound had dropped when it last said so, and in which
     /// burst.
     said: (Dropped, Bursts),
-    /// The images Linux did not show ([`Delivery::image_data`]), and
-    /// whether the log has said so.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    /// The images not shown -- on Linux ([`Delivery::image_data`]), and
+    /// iTerm2's pictures on macOS ([`Delivery::attached`]) -- and whether
+    /// the log has said so.
     pub unshown: Unshown,
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     unshown_said: Said,
+    /// The notifications not posted for want of anything the platform
+    /// shows ([`untitled`] on Linux; on macOS no text and no picture it
+    /// attaches), and whether the log has said so.
+    pub bare: Unshown,
+    bare_said: Said,
+    /// The most pixels iTerm2's picture may decode to on macOS, the user's
+    /// `[images] pixels_mb` ([`Delivery::attached`]).
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    pictures: baud_domain::ImageBudget,
 }
 
 /// A count of the images a notification carried that were not shown.
@@ -556,7 +579,11 @@ pub enum Said {
 }
 
 impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
-    pub fn new(setting: Setting, term: &Term<'_>) -> Delivery<T, P> {
+    pub fn new(
+        setting: Setting,
+        term: &Term<'_>,
+        pictures: baud_domain::ImageBudget,
+    ) -> Delivery<T, P> {
         Delivery {
             setting,
             bucket: Bucket::new(),
@@ -568,6 +595,9 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
             said: (Dropped(0), Bursts(0)),
             unshown: Unshown(0),
             unshown_said: Said::Not,
+            bare: Unshown(0),
+            bare_said: Said::Not,
+            pictures,
         }
     }
 
@@ -603,15 +633,71 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
         })
     }
 
-    /// **The image Linux sends as `image-data`**: a PNG of at most 1024
-    /// pixels a side, decoded ([`rgba`]). Any other image a program sent
-    /// -- JPEG and GIF, which kitty's text also names and which wait for a
-    /// decoder, a larger PNG, or one that does not decode -- is not shown,
-    /// and counted.
+    /// **The image a notification shows, as its bytes**: the one sent with
+    /// it or cached under its `g`, else the picture iTerm2's `image`
+    /// names, read now through `files`, which is only when it is shown.
+    pub fn image(&mut self, p: &Posted, files: &mut dyn PictureReader) -> Option<Vec<u8>> {
+        if p.icon.is_some() {
+            return p.icon.clone();
+        }
+        let path = p.picture.as_deref()?;
+        files
+            .picture(path)
+            .map_err(|why| {
+                crate::warn!(
+                    "notifications: the picture {:?} was not read: {why}",
+                    String::from_utf8_lossy(path)
+                );
+            })
+            .ok()
+    }
+
+    /// **iTerm2's picture as macOS attaches it**: the file read now
+    /// through `files`, decoded by baud's own decoders ([`rgba_within`])
+    /// within the pixels `[images] pixels_mb` lets an image decode to, and
+    /// a copy of its bytes attached. iTerm2 attaches a picture only once it
+    /// decodes (`notifyRich:`, `[[source:
+    /// iterm2-964a75d-notification-controller]]`), and a file the system
+    /// cannot read costs the whole request: "If you attach a file to a
+    /// local notification request that's corrupted, invalid, or of an
+    /// unsupported file type, the system doesn't schedule your request"
+    /// (`[[source: apple-unnotificationattachment]]`). One that does not
+    /// decode, or is larger, is left out and counted, and the text posts.
+    /// The decode runs where the driver delivers, the main thread on
+    /// macOS, and, for a JPEG, holds its scratch, its pixels and their
+    /// RGBA copy all at once until it is done. That is about 9.5 bytes a
+    /// pixel, and the RGBA is thrown away afterwards. A 6000x4000 JPEG of
+    /// 3.25 MB took 218 to 276 ms in a release build without LTO. The
+    /// file's 10 MB do not bound these buffers, since a picture of one
+    /// colour compresses to far less than a byte a pixel.
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    pub fn attached(
+        &mut self,
+        p: &Posted,
+        files: &mut dyn PictureReader,
+    ) -> Option<(Vec<u8>, &'static str)> {
+        let b = self.image(p, files)?;
+        let most = u64::try_from(self.pictures.pixels).unwrap_or(u64::MAX);
+        let fits = |s: baud_domain::png::Size| u64::from(s.width) * u64::from(s.height) <= most;
+        let kind = image_kind(&b).filter(|_| rgba_within(&b, fits).is_some());
+        if kind.is_none() {
+            self.unshown.0 += 1;
+        }
+        kind.map(|k| (b, k))
+    }
+
+    /// **The image Linux sends as `image-data`**: a PNG, a JPEG or a GIF
+    /// of at most 1024 pixels a side, decoded ([`rgba`]). Any other image
+    /// -- another format, a larger one, or one that does not decode -- is
+    /// not shown, and counted.
     #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-    pub fn image_data(&mut self, p: &Posted) -> Option<(baud_domain::png::Size, Vec<u8>)> {
-        let b = p.icon.as_deref()?;
-        let shown = rgba(b);
+    pub fn image_data(
+        &mut self,
+        p: &Posted,
+        files: &mut dyn PictureReader,
+    ) -> Option<(baud_domain::png::Size, Vec<u8>)> {
+        let b = self.image(p, files)?;
+        let shown = rgba(&b);
         if shown.is_none() {
             self.unshown.0 += 1;
         }
@@ -620,13 +706,24 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
 
     /// A line for the log the first time an image was not shown, and
     /// never again.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn image_line(&mut self) -> Option<String> {
         (self.unshown.0 > 0 && self.unshown_said == Said::Not).then(|| {
             self.unshown_said = Said::Once;
             format!(
-                "notifications: images not shown, {} so far: Linux shows a PNG of at most 1024 pixels a side, and JPEG and GIF wait for a decoder; said once",
+                "notifications: images not shown, {} so far: a PNG, JPEG or GIF is shown when it decodes, on Linux at most 1024 pixels a side, and an iTerm2 picture on macOS within [images] pixels_mb; said once",
                 self.unshown.0
+            )
+        })
+    }
+
+    /// A line for the log the first time a notification was not posted for
+    /// want of anything to show, and never again.
+    pub fn bare_line(&mut self) -> Option<String> {
+        (self.bare.0 > 0 && self.bare_said == Said::Not).then(|| {
+            self.bare_said = Said::Once;
+            format!(
+                "notifications: {} not posted, nothing in them to show: a picture alone needs a title or a subtitle on Linux, and on macOS a PNG, JPEG or GIF that was read and decodes; said once",
+                self.bare.0
             )
         })
     }
@@ -662,6 +759,7 @@ pub enum MacCall {
 pub struct MacPost {
     pub id: String,
     pub title: String,
+    pub subtitle: String,
     pub body: String,
     pub silent: Silence,
     /// `u=0` is passive, the rest active: critical needs an entitlement.
@@ -843,7 +941,9 @@ impl<T: Moment> Delivery<T, String> {
     /// core told what became of each: shown (and a program that asked
     /// told its close is untracked), dropped, or closed. A new one's
     /// identifier is `prefix` and its token, so a later update by the same
-    /// kitty id, which keeps the token, replaces it.
+    /// kitty id, which keeps the token, replaces it. `files` reads iTerm2's
+    /// picture for a post it makes.
+    #[allow(clippy::too_many_arguments)]
     pub fn mac(
         &mut self,
         term: &mut Term<'_>,
@@ -851,12 +951,26 @@ impl<T: Moment> Delivery<T, String> {
         window: (Focus, Visible),
         now: T,
         prefix: &str,
+        files: &mut dyn PictureReader,
         mut reply: impl FnMut(&[u8]),
     ) -> Vec<MacCall> {
         let mut calls = Vec::new();
         for p in posted {
             match plan(&p, self.setting, window.0, window.1, &mut self.bucket, now) {
                 Plan::Show => {
+                    // A kitty icon is attached by its signature; iTerm2's
+                    // picture once it decodes.
+                    let image = match &p.icon {
+                        Some(b) => image_kind(b).map(|k| (b.clone(), k)),
+                        None => self.attached(&p, files),
+                    };
+                    // iTerm2's picture alone, unread or not decoded:
+                    // nothing to show.
+                    if untitled(&p) && p.body.is_empty() && image.is_none() {
+                        self.bare.0 += 1;
+                        term.notice_dropped(p.token);
+                        continue;
+                    }
                     let id = self
                         .shown
                         .id(p.token)
@@ -864,6 +978,7 @@ impl<T: Moment> Delivery<T, String> {
                     calls.push(MacCall::Post(MacPost {
                         id: id.clone(),
                         title: p.title.clone(),
+                        subtitle: p.subtitle.clone(),
                         body: p.body.clone(),
                         silent: match p.sound {
                             Sound::Silent => Silence::Silent,
@@ -874,10 +989,7 @@ impl<T: Moment> Delivery<T, String> {
                             _ => Passive::Active,
                         },
                         buttons: p.buttons.clone(),
-                        image: p
-                            .icon
-                            .as_ref()
-                            .and_then(|b| image_kind(b).map(|k| (b.clone(), k))),
+                        image,
                     }));
                     if let Expiry::After(d) = p.expiry {
                         calls.push(MacCall::Expire(id.clone(), d));
@@ -956,6 +1068,25 @@ pub fn clicked(action: &str, default: &str) -> Option<Option<baud_core::NoticeBu
         .map(Some)
 }
 
+/// **Whether Linux has no summary to give it**: neither a title nor a
+/// subtitle, which is iTerm2's picture alone.
+pub fn untitled(p: &Posted) -> bool {
+    p.title.is_empty() && p.subtitle.is_empty()
+}
+
+/// **The reader of the file iTerm2's `image` names**: both drivers lend
+/// the one kitty's file medium reads through (`kitty_files::LocalFiles`),
+/// with every check it makes, and a test a reader of its own.
+pub trait PictureReader {
+    /// The file's bytes, at most [`PICTURE_MAX`], or why not, for the log.
+    fn picture(&mut self, path: &[u8]) -> Result<Vec<u8>, String>;
+}
+
+/// The most of a picture read: Apple's limit for an image attachment,
+/// "10 MB" (`[[source: apple-unnotificationattachment]]`), taken as
+/// decimal, the smaller reading.
+pub const PICTURE_MAX: usize = 10_000_000;
+
 /// The area the core is lent for notifications: an icon of 256 KiB, a
 /// 256x256 PNG kitty recommends with room to spare.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -973,14 +1104,61 @@ pub fn launcher_progress(p: Progress) -> Option<f64> {
     }
 }
 
-/// A notification's image as RGBA, if it is a PNG of at most 1024 pixels a
-/// side: the format kitty's `p=icon` names that baud decodes, at a size an
-/// icon has. JPEG and GIF, the other two it names, are not decoded here.
+/// **A notification's image as RGBA**, if it is a PNG, a JPEG or a GIF of
+/// at most 1024 pixels a side -- the three kitty's `p=icon` names, which
+/// baud's own decoders read, a GIF its first frame, a JPEG turned as its
+/// orientation says -- at a size an icon has.
 #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-pub fn rgba(png: &[u8]) -> Option<(baud_domain::png::Size, Vec<u8>)> {
-    let p = baud_domain::png::Png::parse(png).ok()?;
+pub fn rgba(b: &[u8]) -> Option<(baud_domain::png::Size, Vec<u8>)> {
+    rgba_within(b, |s| s.width <= 1024 && s.height <= 1024)
+}
+
+/// **A PNG, a JPEG or a GIF as RGBA, if its size `fits`**, decoded by
+/// baud's own decoders, a GIF its first frame, a JPEG turned as its
+/// orientation says: [`rgba`] for Linux's `image-data`, and the check
+/// before macOS attaches iTerm2's picture ([`Delivery::attached`]).
+pub fn rgba_within(
+    b: &[u8],
+    fits: impl Fn(baud_domain::png::Size) -> bool,
+) -> Option<(baud_domain::png::Size, Vec<u8>)> {
+    use baud_domain::{gif::Gif, jpeg::Jpeg, png::Png};
+    if Gif::sniff(b) {
+        let g = Gif::parse(b).ok()?;
+        let size = g.size();
+        if !fits(size) {
+            return None;
+        }
+        let mut scratch = vec![0u8; g.scratch_len()];
+        let mut first = None;
+        g.decode(&mut scratch, |f| {
+            first = Some(f.rgba.to_vec());
+            false
+        })
+        .ok()?;
+        return first.map(|px| (size, px));
+    }
+    if Jpeg::sniff(b) {
+        let j = Jpeg::parse(b).ok()?;
+        let size = j.size();
+        if !fits(size) {
+            return None;
+        }
+        let area = usize::try_from(size.width).ok()? * usize::try_from(size.height).ok()?;
+        let mut scratch = vec![0u8; j.scratch_len()?];
+        let mut px = vec![baud_domain::Pixel::CLEAR; area];
+        j.decode(&mut scratch, &mut px).ok()?;
+        let out = px
+            .iter()
+            .flat_map(|p| {
+                let (r, g, b) = p.rgb();
+                [r.get(), g.get(), b.get(), p.alpha().get()]
+            })
+            .collect();
+        return Some((size, out));
+    }
+    let p = Png::parse(b).ok()?;
     let size = p.size();
-    if size.width > 1024 || size.height > 1024 {
+    if !fits(size) {
         return None;
     }
     let mut raw = vec![0u8; p.raw_len()?];
@@ -1073,6 +1251,18 @@ mod tests {
         ws_col: 80,
     };
 
+    /// The pixels a test's iTerm2 picture may decode to: `PNG_2X1` and more.
+    const PIXELS: baud_domain::ImageBudget = baud_domain::ImageBudget { pixels: 1 << 10 };
+
+    /// A 2x1 RGBA PNG: one red pixel, one half-transparent blue.
+    const PNG_2X1: [u8; 71] = [
+        0x89, 0x50, 0x4e, 0x47, 0xd, 0xa, 0x1a, 0xa, 0x0, 0x0, 0x0, 0xd, 0x49, 0x48, 0x44, 0x52,
+        0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x1, 0x8, 0x6, 0x0, 0x0, 0x0, 0xf4, 0x22, 0x7f, 0x8a,
+        0x0, 0x0, 0x0, 0xe, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x0, 0x42,
+        0xd, 0x0, 0xf, 0x7a, 0x3, 0x7e, 0x77, 0xe9, 0x7f, 0x97, 0x0, 0x0, 0x0, 0x0, 0x49, 0x45,
+        0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+
     fn feed(t: &mut Term<'_>, bytes: &[u8]) {
         t.write_at(BytePos::ZERO, bytes);
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
@@ -1085,6 +1275,28 @@ mod tests {
         t.set_notice_support(support(Setting::On, Platform::MacOs));
         feed(&mut t, bytes);
         t.notices().map(|n| Posted::of(&n, icons)).collect()
+    }
+
+    /// A reader with no files, for tests that name none: asked, it fails.
+    struct NoFiles;
+
+    impl PictureReader for NoFiles {
+        fn picture(&mut self, _: &[u8]) -> Result<Vec<u8>, String> {
+            Err("no files".into())
+        }
+    }
+
+    /// A reader that counts what it is asked for and answers `bytes`.
+    struct Files {
+        asked: Vec<Vec<u8>>,
+        bytes: Result<Vec<u8>, String>,
+    }
+
+    impl PictureReader for Files {
+        fn picture(&mut self, path: &[u8]) -> Result<Vec<u8>, String> {
+            self.asked.push(path.to_vec());
+            self.bytes.clone()
+        }
     }
 
     /// Whole seconds after the clock's start.
@@ -1297,7 +1509,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t);
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
         let png = [0x89, b'P', b'N', b'G', 1, 2];
         let seq = "\x1b]99;i=j:d=0:c=1:u=0:w=3000:s=c2lsZW50;Build\x1b\\\x1b]99;i=j:d=0:p=buttons;Open\u{2028}Skip\x1b\\\x1b]99;i=j:p=icon:e=1;iVBORwEC\x1b\\\x1b]9;4;1;40\x07\x1b]1337;RequestAttention=once\x07";
         feed(&mut t, seq.as_bytes());
@@ -1311,6 +1523,7 @@ mod tests {
             (Focus::Focused, Visible::Seen),
             at(Secs(0)),
             "baud-1",
+            &mut NoFiles,
             |b| replies.extend_from_slice(b),
         );
         let id = match &calls[0] {
@@ -1352,6 +1565,7 @@ mod tests {
             (Focus::Focused, Visible::Seen),
             at(Secs(1)),
             "baud-1",
+            &mut NoFiles,
             |_| {},
         );
         assert!(
@@ -1387,7 +1601,7 @@ mod tests {
         t.set_notice_support(support(Setting::On, Platform::Linux(ServerCaps::NONE)));
         feed(&mut t, b"\x1b]99;w=900;a\x1b\\");
         let tok = t.notices().next().expect("one").token;
-        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t);
+        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
         d.waiting
             .push((tok, Expiry::After(Duration::from_millis(900))));
         assert_eq!(d.answered(tok), Expiry::After(Duration::from_millis(900)));
@@ -1413,7 +1627,7 @@ mod tests {
     fn the_bound_logs_once_a_burst() {
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let t = Term::new(owned.storage(), &WS);
-        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t);
+        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
         // `n` notifications in one read at second `s`, the line asked for
         // after each drop and after the read.
         let flood = |d: &mut Delivery<HostTime, u32>, n, s| {
@@ -1460,11 +1674,12 @@ mod tests {
         assert_eq!(px, [255, 0, 0, 255, 0, 0, 255, 128]);
         assert_eq!(rgba(b"not a png"), None);
         assert_eq!(image_kind(&PNG), Some("png"));
-        // On Linux the PNG is sent; a GIF, a JPEG and a PNG wider than
-        // 1024 pixels are not, and are counted, and the log says so once.
+        // On Linux the PNG is sent; a GIF and a JPEG that do not decode and
+        // a PNG wider than 1024 pixels are not, and are counted, and the
+        // log says so once.
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let t = Term::new(owned.storage(), &WS);
-        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t);
+        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
         let mut wide = PNG;
         wide[16..20].copy_from_slice(&1025u32.to_be_bytes());
         wide[29..33].copy_from_slice(&[0xaf, 0xcc, 0xb7, 0x0b]);
@@ -1478,23 +1693,56 @@ mod tests {
             p
         };
         let none = posted(b"\x1b]99;;x\x1b\\", &mut Icons::default()).remove(0);
-        assert_eq!(d.image_data(&none), None);
+        assert_eq!(d.image_data(&none, &mut NoFiles), None);
         assert_eq!(d.image_line(), None, "no image, nothing to say");
-        assert_eq!(d.image_data(&with(&PNG)), Some((size, px)));
+        assert_eq!(d.image_data(&with(&PNG), &mut NoFiles), Some((size, px)));
         assert_eq!(d.image_line(), None);
-        assert_eq!(d.image_data(&with(b"GIF89a\x01\x00")), None);
-        assert_eq!(d.image_data(&with(&[0xff, 0xd8, 0xff, 0xe0])), None);
-        assert_eq!(d.image_data(&with(&wide)), None);
+        assert_eq!(d.image_data(&with(b"GIF89a\x01\x00"), &mut NoFiles), None);
+        assert_eq!(
+            d.image_data(&with(&[0xff, 0xd8, 0xff, 0xe0]), &mut NoFiles),
+            None
+        );
+        assert_eq!(d.image_data(&with(&wide), &mut NoFiles), None);
         assert_eq!(d.unshown, Unshown(3));
         assert!(
             d.image_line()
                 .expect("said")
                 .starts_with("notifications: images not shown, 3 so far")
         );
-        assert_eq!(d.image_data(&with(b"GIF87a")), None);
+        assert_eq!(d.image_data(&with(b"GIF87a"), &mut NoFiles), None);
         assert_eq!(d.unshown, Unshown(4));
         assert_eq!(d.image_line(), None, "said once");
         assert_eq!(escape_markup("a <b> & c"), "a &lt;b&gt; &amp; c");
+    }
+
+    /// **A JPEG and a GIF are decoded for Linux too**, by baud's own
+    /// decoders: the JPEG as the domain's decoder draws it, every pixel
+    /// opaque; the GIF's first frame as ImageMagick's reference has it; and
+    /// one past 1024 pixels a side is not.
+    #[test]
+    fn a_jpeg_and_a_gif_decode_for_linux() {
+        let jpg = include_bytes!("../../baud-domain/tests/jpeg/small.jpg");
+        let (size, px) = rgba(jpg).expect("a JPEG decodes");
+        assert_eq!((size.width, size.height, px.len()), (29, 21, 29 * 21 * 4));
+        assert!(px.chunks_exact(4).all(|p| p[3] == 255), "opaque");
+        let j = baud_domain::jpeg::Jpeg::parse(jpg).expect("parses");
+        let mut scratch = vec![0u8; j.scratch_len().expect("a layout")];
+        let mut want = vec![baud_domain::Pixel::CLEAR; 29 * 21];
+        j.decode(&mut scratch, &mut want).expect("decodes");
+        let (r, g, b) = want[0].rgb();
+        assert_eq!(px[..3], [r.get(), g.get(), b.get()]);
+        let gif = include_bytes!("../../baud-domain/tests/gif/scene2.gif");
+        let (size, px) = rgba(gif).expect("a GIF decodes");
+        assert_eq!((size.width, size.height), (61, 45));
+        assert_eq!(
+            px,
+            include_bytes!("../../baud-domain/tests/gif/scene2.rgba")
+        );
+        let mut wide = gif.to_vec();
+        wide[6..8].copy_from_slice(&1025u16.to_le_bytes());
+        let parsed = baud_domain::gif::Gif::parse(&wide).expect("refused for its size alone");
+        assert_eq!(parsed.size().width, 1025);
+        assert_eq!(rgba(&wide), None, "past 1024 pixels a side");
     }
 
     /// **`p=alive` stays true on macOS**: a notification baud closed, one
@@ -1506,7 +1754,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t);
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
         let post = |t: &mut Term<'_>, d: &mut Delivery<HostTime, String>, b: &[u8], s: u64| {
             feed(t, b);
             let posted: Vec<Posted> = t
@@ -1520,6 +1768,7 @@ mod tests {
                 (Focus::Unfocused, Visible::Covered),
                 at(Secs(s)),
                 "p",
+                &mut NoFiles,
                 |_| {},
             )
         };
@@ -1565,5 +1814,313 @@ mod tests {
         assert_eq!(icon_name("org.example.App"), "org.example.App");
         assert_eq!(icon_name("file:///etc/passwd"), "", "a URI is not a name");
         assert_eq!(icon_name("/tmp/x.png"), "", "nor a path");
+    }
+
+    /// iTerm2's `Notification` as a test sends it: each part base64'd.
+    fn iterm(parts: &[(&str, &[u8])]) -> Vec<u8> {
+        let b64 = |d: &[u8]| -> String {
+            const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let mut out = String::new();
+            for c in d.chunks(3) {
+                let w = (u32::from(c[0]) << 16)
+                    | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+                    | u32::from(*c.get(2).unwrap_or(&0));
+                for i in 0..4 {
+                    out.push(match i <= c.len() {
+                        true => char::from(
+                            A[usize::try_from((w >> (18 - 6 * i)) & 63).expect("six bits")],
+                        ),
+                        false => '=',
+                    });
+                }
+            }
+            out
+        };
+        let pairs: Vec<String> = parts
+            .iter()
+            .map(|(k, v)| format!("{k}={}", b64(v)))
+            .collect();
+        format!("\x1b]1337;Notification={}\x07", pairs.join(";")).into_bytes()
+    }
+
+    /// **On macOS iTerm2's subtitle is the post's subtitle and its picture
+    /// is read, when the post is made, through the reader kitty's file
+    /// medium reads through, and attached**: a PNG file the test owns, at
+    /// every check `LocalFiles` makes, posted beside the text; a picture
+    /// refused -- under `/dev`, or not a picture the center attaches --
+    /// leaves the text posted without it; a subtitle with no title leaves
+    /// the title empty, as iTerm2 leaves it; a picture alone posts when it
+    /// can be shown and is dropped, and counted, when it cannot; and a
+    /// notification the window's focus drops is never read.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn an_iterm2_subtitle_and_picture_reach_the_macos_post() {
+        let dir = std::env::temp_dir().join(format!("baud-notify-pic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let png = dir.join("p.png");
+        std::fs::write(&png, PNG_2X1).expect("written");
+        let path = std::fs::canonicalize(&png).expect("resolved");
+        let path = path.to_str().expect("UTF-8").as_bytes().to_vec();
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut files = crate::kitty_files::LocalFiles::new();
+        // Each post two seconds after the last, under the bound's rate.
+        let clock = core::cell::Cell::new(0);
+        let post = |t: &mut Term<'_>,
+                    d: &mut Delivery<HostTime, String>,
+                    files: &mut dyn PictureReader,
+                    focus: Focus,
+                    bytes: &[u8]| {
+            feed(t, bytes);
+            let posted: Vec<Posted> = t
+                .notices()
+                .map(|n| Posted::of(&n, &mut Icons::default()))
+                .collect();
+            t.clear_notices();
+            d.mac(
+                t,
+                posted,
+                (focus, Visible::Covered),
+                at(Secs(clock.replace(clock.get() + 2))),
+                "baud-1",
+                files,
+                |_| {},
+            )
+            .into_iter()
+            .filter_map(|c| match c {
+                MacCall::Post(p) => Some(p),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+        };
+        let full = iterm(&[
+            ("title", b"Build"),
+            ("subtitle", b"main"),
+            ("message", b"finished in 3 s"),
+            ("image", &path),
+        ]);
+        let p = post(&mut t, &mut d, &mut files, Focus::Unfocused, &full);
+        assert_eq!(p.len(), 1);
+        assert_eq!(
+            (
+                p[0].title.as_str(),
+                p[0].subtitle.as_str(),
+                p[0].body.as_str()
+            ),
+            ("Build", "main", "finished in 3 s")
+        );
+        assert_eq!(p[0].image, Some((PNG_2X1.to_vec(), "png")), "the file read");
+        // Refused: under `/dev`, and a file that is no picture the center
+        // attaches. The text posts without it.
+        let txt = dir.join("p.txt");
+        std::fs::write(&txt, b"plain text").expect("written");
+        for bad in [
+            b"/dev/zero".to_vec(),
+            txt.to_str().expect("UTF-8").as_bytes().to_vec(),
+        ] {
+            let msg = iterm(&[("title", b"Build"), ("image", &bad)]);
+            let p = post(&mut t, &mut d, &mut files, Focus::Unfocused, &msg);
+            assert_eq!(p.len(), 1, "{:?}", String::from_utf8_lossy(&bad));
+            assert_eq!((p[0].title.as_str(), &p[0].image), ("Build", &None));
+        }
+        // A subtitle with no title: no title made up.
+        let sub = iterm(&[("subtitle", b"main"), ("message", b"done")]);
+        let p = post(&mut t, &mut d, &mut files, Focus::Unfocused, &sub);
+        assert_eq!(
+            (
+                p[0].title.as_str(),
+                p[0].subtitle.as_str(),
+                p[0].body.as_str()
+            ),
+            ("", "main", "done")
+        );
+        // A picture alone posts when it shows, and is dropped, counted,
+        // when it does not.
+        let alone = iterm(&[("image", &path)]);
+        let p = post(&mut t, &mut d, &mut files, Focus::Unfocused, &alone);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].image, Some((PNG_2X1.to_vec(), "png")));
+        assert_eq!((p[0].title.as_str(), p[0].body.as_str()), ("", ""));
+        let gone = iterm(&[("image", b"/dev/zero")]);
+        assert!(post(&mut t, &mut d, &mut files, Focus::Unfocused, &gone).is_empty());
+        assert_eq!(d.bare, Unshown(1));
+        assert!(
+            d.bare_line()
+                .expect("said")
+                .starts_with("notifications: 1 not posted")
+        );
+        assert_eq!(d.bare_line(), None, "said once");
+        // A focused window drops it, as an `OSC 9`: nothing is read.
+        let mut counting = Files {
+            asked: Vec::new(),
+            bytes: Ok(PNG_2X1.to_vec()),
+        };
+        assert!(post(&mut t, &mut d, &mut counting, Focus::Focused, &full).is_empty());
+        assert!(counting.asked.is_empty(), "read only when shown");
+        let p = post(&mut t, &mut d, &mut counting, Focus::Unfocused, &full);
+        assert_eq!(counting.asked, core::slice::from_ref(&path));
+        assert_eq!(p[0].image, Some((PNG_2X1.to_vec(), "png")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **On macOS iTerm2's picture is decoded before it is attached, as
+    /// iTerm2 decodes it, so a file the center would refuse does not cost
+    /// the notification its text**: a PNG's signature over bytes that do
+    /// not decode, and a PNG past the pixels `[images] pixels_mb` allows,
+    /// are left out and counted, the text posted; one within them is
+    /// attached; a picture alone that does not decode is not posted, and
+    /// counted as both; the log says so once.
+    #[test]
+    fn an_iterm2_picture_that_does_not_decode_is_left_out_on_macos() {
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        // `PNG_2X1`'s two pixels fit the one and not the other.
+        let two = baud_domain::ImageBudget::of(2);
+        let one = baud_domain::ImageBudget::of(1);
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, two);
+        let mut tight: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, one);
+        let clock = core::cell::Cell::new(0);
+        let post =
+            |t: &mut Term<'_>, d: &mut Delivery<HostTime, String>, bytes: &[u8], msg: &[u8]| {
+                let mut files = Files {
+                    asked: Vec::new(),
+                    bytes: Ok(bytes.to_vec()),
+                };
+                feed(t, msg);
+                let posted: Vec<Posted> = t
+                    .notices()
+                    .map(|n| Posted::of(&n, &mut Icons::default()))
+                    .collect();
+                t.clear_notices();
+                let p = d
+                    .mac(
+                        t,
+                        posted,
+                        (Focus::Unfocused, Visible::Covered),
+                        at(Secs(clock.replace(clock.get() + 2))),
+                        "baud-1",
+                        &mut files,
+                        |_| {},
+                    )
+                    .into_iter()
+                    .filter_map(|c| match c {
+                        MacCall::Post(p) => Some(p),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(files.asked.len(), 1, "read once");
+                p
+            };
+        let msg = iterm(&[("title", b"Build"), ("image", b"/tmp/p.png")]);
+        let mut garbage = PNG_2X1[..16].to_vec();
+        garbage.extend([0x5a; 40]);
+        assert_eq!(image_kind(&garbage), Some("png"), "a PNG by its signature");
+        let p = post(&mut t, &mut d, &garbage, &msg);
+        assert_eq!(p.len(), 1);
+        assert_eq!((p[0].title.as_str(), &p[0].image), ("Build", &None));
+        assert_eq!((d.unshown, d.bare), (Unshown(1), Unshown(0)));
+        let p = post(&mut t, &mut d, &PNG_2X1, &msg);
+        assert_eq!(p[0].image, Some((PNG_2X1.to_vec(), "png")), "within");
+        assert_eq!(d.unshown, Unshown(1));
+        let p = post(&mut t, &mut tight, &PNG_2X1, &msg);
+        assert_eq!((p.len(), &p[0].image), (1, &None), "past the pixels");
+        assert_eq!((tight.unshown, tight.bare), (Unshown(1), Unshown(0)));
+        // A picture alone that does not decode has nothing left to show.
+        let alone = iterm(&[("image", b"/tmp/p.png")]);
+        assert!(post(&mut t, &mut d, &garbage, &alone).is_empty());
+        assert_eq!((d.unshown, d.bare), (Unshown(2), Unshown(1)));
+        assert!(
+            d.image_line()
+                .expect("said")
+                .starts_with("notifications: images not shown, 2 so far")
+        );
+        assert_eq!(d.image_line(), None, "said once");
+    }
+
+    /// **Both drivers act on what [`Delivery`] decides and log what it
+    /// counts**: Linux's arm for a picture alone comes before the one that
+    /// posts, drops it and counts it, and each driver logs the
+    /// notifications not posted and the images not shown, the lines said
+    /// once. The drivers' own code is read, since no test runs them.
+    #[test]
+    fn the_drivers_drop_and_log_what_delivery_counts() {
+        let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        let linux = bare(include_str!("linux.rs"));
+        const DROP: &str = r#"
+            Plan::Show if crate::notify::untitled(&p) => {
+                self.notes.bare.0 += 1;
+                self.term.notice_dropped(p.token);
+            }
+        "#;
+        let dropped = linux.find(&bare(DROP)).expect("the drop arm, as written");
+        let posts = linux
+            .find("Plan::Show=>matchself.bus.as_mut()")
+            .expect("the arm that posts");
+        assert!(dropped < posts, "the drop arm is tried first");
+        for line in ["bare_line()", "image_line()"] {
+            assert!(
+                linux.contains(&format!(
+                    "ifletSome(line)=self.notes.{line}{{crate::warn!(\"{{line}}\");}}"
+                )),
+                "Linux logs {line}"
+            );
+        }
+        let mac = bare(include_str!("app.rs"));
+        let deliver = mac
+            .split_once("fndeliver_notices(")
+            .and_then(|(_, rest)| rest.split_once("fnnotice_turn("))
+            .map(|(b, _)| b)
+            .expect("the macOS delivery");
+        for line in ["bare_line()", "image_line()"] {
+            assert!(
+                deliver.contains(&format!(
+                    "ifletSome(line)=self.app.notes.{line}{{crate::warn!(\"{{line}}\");}}"
+                )),
+                "macOS logs {line}"
+            );
+        }
+    }
+
+    /// **On Linux the picture is read when it is posted and sent as
+    /// `image-data`, as a program's icon is**, the icon a program sent
+    /// first and then nothing read; and one with neither title nor
+    /// subtitle -- a picture alone -- has no summary to give `Notify`
+    /// ([`untitled`]), the test the driver's arm that drops it reads
+    /// (`the_drivers_drop_and_log_what_delivery_counts`).
+    #[test]
+    fn an_iterm2_picture_is_read_for_linux_and_a_bare_one_is_not_posted() {
+        let mut owned = Owned::new(&WS).with_notices(BUDGET);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut files = Files {
+            asked: Vec::new(),
+            bytes: Ok(PNG_2X1.to_vec()),
+        };
+        feed(
+            &mut t,
+            &iterm(&[("title", b"Build"), ("image", b"/tmp/p.png")]),
+        );
+        let p = t
+            .notices()
+            .map(|n| Posted::of(&n, &mut Icons::default()))
+            .next()
+            .expect("posted");
+        assert!(!untitled(&p));
+        let (size, px) = d.image_data(&p, &mut files).expect("decoded");
+        assert_eq!((size.width, size.height, px.len()), (2, 1, 8));
+        assert_eq!(files.asked, [b"/tmp/p.png".to_vec()]);
+        let mut icon = p.clone();
+        icon.icon = Some(PNG_2X1.to_vec());
+        assert!(d.image_data(&icon, &mut files).is_some());
+        assert_eq!(files.asked.len(), 1, "an icon sent is used, nothing read");
+        let mut bare = p.clone();
+        bare.title.clear();
+        assert!(untitled(&bare), "no summary for Notify");
+        bare.subtitle = "main".into();
+        assert!(!untitled(&bare), "the subtitle stands as the summary");
     }
 }

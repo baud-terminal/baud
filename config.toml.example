@@ -454,6 +454,8 @@ mode = "smooth"
 # its bytes arrive and the bytes are not kept, so a long Sixel is no
 # different from a short one. An image past the arena is refused (and
 # counted) rather than shown in half.
+# On macOS it also bounds the picture a program written for iTerm2 names
+# for a notification: a larger one is left out and the text still shows.
 #
 # The default, 95 MiB, holds three 3840x2160 screens decoded, the "few full
 # screen images" kitty's protocol asks a terminal to allow, and costs nothing

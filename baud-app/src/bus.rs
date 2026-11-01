@@ -1441,6 +1441,14 @@ fn uid() -> Option<Uid> {
 /// reported or asked to focus the window, and its buttons numbered from 1; the urgency, the sound, the
 /// type as `category` and the image, decoded (`Delivery::image_data`), as
 /// `image-data`; and its expiry.
+///
+/// **iTerm2's subtitle**, which `Notify` has no argument for, opens the
+/// body as its own paragraph, a blank line before the message -- "Each
+/// line is a paragraph" -- as Chromium's Linux notification bridge sets a
+/// notification's context line above its message (`[[source:
+/// chromium-fc2ff62-notification-bridge-linux]]`); with no title it is
+/// the summary, which is the one text argument the text does not call
+/// optional.
 pub(crate) fn notification(
     p: &crate::notify::Posted,
     replaces: Option<NotifyId>,
@@ -1479,6 +1487,12 @@ pub(crate) fn notification(
     if let Some((size, rgba)) = image {
         hints.push(("image-data", Hint::Image(Image { size, rgba })));
     }
+    let (summary, body) = match (p.title.is_empty(), p.subtitle.is_empty(), p.body.is_empty()) {
+        (_, true, _) => (p.title.clone(), p.body.clone()),
+        (true, false, _) => (p.subtitle.clone(), p.body.clone()),
+        (false, false, true) => (p.title.clone(), p.subtitle.clone()),
+        (false, false, false) => (p.title.clone(), format!("{}\n\n{}", p.subtitle, p.body)),
+    };
     Notification {
         app_name: match p.app.is_empty() {
             true => "baud".to_string(),
@@ -1490,8 +1504,8 @@ pub(crate) fn notification(
             .first()
             .map(|n| crate::notify::icon_name(n).to_string())
             .unwrap_or_default(),
-        summary: p.title.clone(),
-        body: text(&p.body),
+        summary,
+        body: text(&body),
         actions,
         hints,
         expire: match p.expiry {
@@ -2072,6 +2086,60 @@ mod tests {
         let plain = notification(&p, Some(NotifyId(Word(9))), ServerCaps::NONE, None);
         assert_eq!(plain.body, "a < b & c");
         assert_eq!(plain.replaces, Some(NotifyId(Word(9))));
+    }
+
+    /// **iTerm2's subtitle opens the body as a paragraph of its own**, a
+    /// blank line before the message, escaped with it for a server that
+    /// reads markup; with no title it is the summary; with no message it is
+    /// the body.
+    #[test]
+    fn an_iterm2_subtitle_opens_the_body_or_stands_as_the_summary() {
+        use crate::notify::{Caps, Icons, Posted, ServerCaps};
+        use baud_domain::{BytePos, ReadLen, WinSize};
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let caps = ServerCaps {
+            actions: Caps::Listed,
+            markup: Caps::Listed,
+        };
+        let sent = |b64s: &str| {
+            let mut owned =
+                baud_core::Owned::new(&ws).with_notices(baud_core::NoticeBudget::with_icon(1024));
+            let mut t = baud_core::Term::new(owned.storage(), &ws);
+            t.set_notice_support(crate::notify::support(
+                crate::notify::Setting::On,
+                crate::notify::Platform::Linux(caps),
+            ));
+            let b = format!("\x1b]1337;Notification={b64s}\x07");
+            t.write_at(BytePos::ZERO, b.as_bytes());
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+            let p = t
+                .notices()
+                .map(|n| Posted::of(&n, &mut Icons::default()))
+                .next()
+                .expect("posted");
+            let n = notification(&p, None, caps, None);
+            (n.summary, n.body)
+        };
+        // title=Build subtitle=a<b message=done
+        let all = sent("title=QnVpbGQ=;subtitle=YTxi;message=ZG9uZQ==");
+        assert_eq!(all, ("Build".into(), "a&lt;b\n\ndone".into()));
+        let untitled = sent("subtitle=YTxi;message=ZG9uZQ==");
+        assert_eq!(
+            untitled,
+            ("a<b".into(), "done".into()),
+            "a summary takes no markup"
+        );
+        let unsaid = sent("title=QnVpbGQ=;subtitle=YTxi");
+        assert_eq!(unsaid, ("Build".into(), "a&lt;b".into()));
+        let plain = sent("title=QnVpbGQ=;message=ZG9uZQ==");
+        assert_eq!(
+            plain,
+            ("Build".into(), "done".into()),
+            "no subtitle, as before"
+        );
     }
 
     /// **A click on the body is offered where the program asked for it**:

@@ -134,6 +134,15 @@ report them as gaps; if you think one is wrong, the reasoning is in
   which the log shows at `BAUD_LOG=info` (the default, `warn`, shows only refusals), and a copy is never cut: one past `[clipboard] body_kb` is refused
   whole and logged. There is no focus gate until one is tested over a slow
   ssh link. A program still never reads the clipboard back.
+- **A program written for iTerm2 can name a file on your machine for a
+  notification's picture** (`OSC 1337 ; Notification`, its `image`), and
+  `[screen] notifications = "off"` turns notifications off. The file is
+  read only when the notification is shown, with every check a kitty
+  `t=f` file gets -- an absolute path, nothing under `/proc`, `/sys` or
+  `/dev` except a file under `/dev/shm`, a regular file opened as the one
+  checked -- at most 10 MB, and a copy of a PNG, JPEG or GIF that baud's
+  own decoders read is shown to you. Nothing about it goes back to the
+  program: no reply, no id, no report. No URL is ever fetched.
 - **Bracketed paste (`?2004`) is implemented as a security mode.** Without it a
   pasted string containing a newline is delivered to the shell as typed input
   and runs. That is the paste-jacking class.

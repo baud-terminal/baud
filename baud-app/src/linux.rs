@@ -300,6 +300,9 @@ struct Driver {
     /// The notifications programs post, delivered over the session bus
     /// (`notify.rs`), and what the notification server said it supports.
     notes: crate::notify::Delivery<Instant, crate::bus::NotifyId>,
+    /// The reader of the file iTerm2's `image` names, with every check
+    /// kitty's file medium makes.
+    pictures: crate::kitty_files::LocalFiles,
     caps: crate::notify::ServerCaps,
     /// What the launcher was last told: a program's progress and its
     /// request for attention.
@@ -526,7 +529,7 @@ pub fn run() {
     // server** (`notify.rs`, `bus.rs`): the core is told none is delivered
     // until the server answers `GetCapabilities`, so with no bus or no
     // server kitty's query goes unanswered.
-    let notes = crate::notify::Delivery::new(cfg.notifications, &term);
+    let notes = crate::notify::Delivery::new(cfg.notifications, &term, cfg.images);
     let mut d = Driver {
         bell,
         ringer: crate::bell::Ringer::new(&term),
@@ -624,6 +627,7 @@ pub fn run() {
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
         notes,
+        pictures: crate::kitty_files::LocalFiles::new(),
         caps: crate::notify::ServerCaps::NONE,
         launcher: crate::bus::Launcher::IDLE,
         reload,
@@ -1463,13 +1467,20 @@ impl Driver {
                 &mut self.notes.bucket,
                 now,
             ) {
+                // iTerm2's picture alone: `Notify` has no summary to give
+                // it, the one text argument the text does not call
+                // optional.
+                Plan::Show if crate::notify::untitled(&p) => {
+                    self.notes.bare.0 += 1;
+                    self.term.notice_dropped(p.token);
+                }
                 Plan::Show => match self.bus.as_mut() {
                     Some(bus) => {
                         let replaces = match p.action {
                             baud_core::NoticeAction::Replace => self.notes.shown.id(p.token),
                             _ => None,
                         };
-                        let image = self.notes.image_data(&p);
+                        let image = self.notes.image_data(&p, &mut self.pictures);
                         let n = crate::bus::notification(&p, replaces, self.caps, image);
                         bus.notify(&n, p.token);
                         self.notes.waiting.push((p.token, p.expiry));
@@ -1487,6 +1498,9 @@ impl Driver {
         }
         // Once a read at most, as on macOS, and once a burst.
         if let Some(line) = self.notes.rate_line() {
+            crate::warn!("{line}");
+        }
+        if let Some(line) = self.notes.bare_line() {
             crate::warn!("{line}");
         }
         if let Some(line) = self.notes.image_line() {
