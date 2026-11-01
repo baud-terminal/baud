@@ -1036,6 +1036,9 @@ This is a recommendation, not a decision.
 
 ## Ride-scroll
 
+Since 2026-11-01 a trail rides every whole-screen scroll, not only a smooth
+one, on both drivers: note W, section 5.14.
+
 Labels: **[R]** read at source, **[run]** run here, **[inf]** inferred. Line numbers are baud at `1ce14c8`. Nothing in the repository was edited and no cargo command was run there.
 - This note is the kept copy of this review.
 - The streaming simulation is `ride_sim.py`, beside it.

@@ -519,10 +519,256 @@ pub(crate) fn trail_cursor(term: &Term<'_>) -> Option<TrailCursor> {
     }
 }
 
+/// **The lines a read's scroll carries a trail in flight up by**, under
+/// `[cursor] trail_scroll` (`key`): every line the whole screen retired
+/// while the window is at the live screen (`moved`, the driver's count of
+/// the read) -- under a smooth scroll or a jump, on every draw path, on
+/// either screen (on the alternate screen, up to half its provisioned ring
+/// in one read; past that the count wraps) and with a status line below,
+/// so the trail stays on the text it was drawn from, as it does where the
+/// grid slides. None where a region retired a line in the read, because
+/// the rows under the region stayed; none while the window looks back,
+/// where the chase has snapped; none across a switch, where `moved` is no
+/// count; and none under `stay`.
+pub(crate) fn trail_rides(
+    term: &Term<'_>,
+    before: crate::keep::Before,
+    moved: crate::keep::Ring,
+    key: crate::config::TrailScroll,
+) -> Option<Rows> {
+    match moved {
+        crate::keep::Ring::Retired(n)
+            if n.index() > 0
+                && key == crate::config::TrailScroll::Ride
+                && term.window_back().index() == 0
+                && crate::keep::whole_screen_scrolled(term, before) =>
+        {
+            Some(n)
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::SystemMotion as M;
+
+    /// A ten-row terminal after `setup`, a read of `bytes`, and the lines
+    /// `trail_rides` gives it under `key`.
+    fn ridden(setup: &[u8], bytes: &[u8], key: crate::config::TrailScroll) -> Option<Rows> {
+        ridden_back(setup, Rows::ZERO, bytes, key)
+    }
+
+    /// The same, with the window `back` lines up the history for the read.
+    fn ridden_back(
+        setup: &[u8],
+        back: Rows,
+        bytes: &[u8],
+        key: crate::config::TrailScroll,
+    ) -> Option<Rows> {
+        let ws = baud_domain::WinSize {
+            ws_row: 10,
+            ws_col: 40,
+        };
+        let mut owned = baud_core::Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let feed = |t: &mut Term<'_>, b: &[u8]| {
+            t.write_at(baud_domain::BytePos::ZERO, b);
+            t.feed(
+                baud_domain::BytePos::ZERO,
+                baud_domain::ReadLen::from_index(b.len()),
+            );
+        };
+        feed(&mut t, setup);
+        t.set_window_back(back);
+        assert_eq!(
+            t.window_back(),
+            back,
+            "the control: the window is {back:?} back"
+        );
+        let before = crate::keep::Before::of(&t);
+        feed(&mut t, bytes);
+        trail_rides(&t, before, crate::keep::live_moved(&t, before), key)
+    }
+
+    /// **A trail rides every line the whole screen retires at the live
+    /// window**: on the primary, on the alternate screen and with a status
+    /// line below the screen, as it does where the grid slides; and the
+    /// lines are the read's count, up to half the alternate screen's ring,
+    /// here the ten rows of storage sized to the screen (the drivers'
+    /// 150: `the_alternate_screen_rides_round_its_provisioned_rows`).
+    /// The cases the ride was built for on 2026-11-01: before it, the
+    /// alternate screen and a status line rode nothing on either driver.
+    /// Perturbation: the alternate screen refused, as the smooth slide's
+    /// gate refuses it, fails its two cases.
+    #[test]
+    fn a_trail_rides_every_whole_screen_scroll_at_the_live_window() {
+        use crate::config::TrailScroll::Ride;
+        let bottom: &[u8] = b"\x1b[10;1H";
+        let alt: &[u8] = b"\x1b[?1049h\x1b[10;1H";
+        // The status line is a row beside the screen's ten, none of them.
+        let status: &[u8] = b"\x1b[2$~\x1b[10;1H";
+        let wrong: Vec<String> = [
+            (bottom, &b"\n"[..], 1, "the primary"),
+            (alt, b"\n", 1, "the alternate screen"),
+            (status, b"\n", 1, "a status line below"),
+            (bottom, b"\n\n\n", 3, "three lines in one read"),
+            (
+                alt,
+                b"\n\n\n\n\n",
+                5,
+                "half the alternate screen's ring in one read",
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(setup, bytes, lines, what)| {
+            let got = ridden(setup, bytes, Ride);
+            (got != Some(Rows::of_count(lines))).then(|| format!("{what}: {got:?}"))
+        })
+        .collect();
+        assert!(wrong.is_empty(), "{wrong:?}");
+    }
+
+    /// **A trail rides no region's scroll, and nothing else**: a region set,
+    /// scrolled and reset inside the read; a region anchored at the top on
+    /// the alternate screen, vim's; a read that scrolled the whole screen
+    /// and a region both; the window looking back; a switch; a scroll down;
+    /// and `stay`; and, the one limit, a read that scrolls the alternate
+    /// screen past half its ring, whose count wraps -- here the ten rows of
+    /// storage sized to the screen, where the drivers provision 150. The
+    /// controls: the primary, vim's screen with its region reset and the
+    /// live window each ride a line. Perturbation: a region's scroll let
+    /// through fails it at the first region.
+    #[test]
+    fn a_trail_rides_no_region_scroll_and_nothing_under_stay() {
+        use crate::config::TrailScroll::{Ride, Stay};
+        let bottom = b"\x1b[10;1H";
+        assert_eq!(
+            ridden(bottom, b"\n", Ride),
+            Some(Rows::of_count(1)),
+            "the control"
+        );
+        assert_eq!(
+            ridden(bottom, b"\x1b[1;5r\x1b[5;1Hx\r\ny\r\n\x1b[r", Ride),
+            None,
+            "a region set, scrolled and reset inside the read"
+        );
+        let vim = b"\x1b[?1049h\x1b[1;8r\x1b[8;1H";
+        assert_eq!(
+            ridden(vim, b"\n", Ride),
+            None,
+            "vim's region on the alternate screen"
+        );
+        assert_eq!(
+            ridden(vim, b"\x1b[r\x1b[10;1H\n", Ride),
+            Some(Rows::of_count(1)),
+            "the control: its whole screen"
+        );
+        assert_eq!(
+            ridden(bottom, b"\n\x1b[1;5r\x1b[5;1H\n\x1b[r", Ride),
+            None,
+            "the whole screen and a region in one read"
+        );
+        let back = b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh\r\ni\r\nj\r\nk\r\nl\x1b[1;1H";
+        assert_eq!(ridden(back, b"\x1b[1T", Ride), None, "a scroll down");
+        assert_eq!(ridden(back, b"\x1bM", Ride), None, "RI on the top row");
+        let held = b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh\r\ni\r\nj\r\nk\r\nl";
+        assert_eq!(
+            ridden_back(held, Rows::ZERO, b"\r\nm", Ride),
+            Some(Rows::of_count(1)),
+            "the control: at the live window"
+        );
+        assert_eq!(
+            ridden_back(held, Rows::of_count(2), b"\r\nm", Ride),
+            None,
+            "the window looking back"
+        );
+        assert_eq!(
+            ridden(bottom, b"\x1b[?1049h\x1b[10;1H\n", Ride),
+            None,
+            "a switch"
+        );
+        assert_eq!(ridden(bottom, b"\n", Stay), None, "stay");
+        let alt = b"\x1b[?1049h\x1b[10;1H";
+        assert_eq!(
+            ridden(alt, b"\n\n\n\n\n\n", Ride),
+            None,
+            "past half the alternate screen's ring, its count wraps"
+        );
+    }
+
+    /// The lines `trail_rides` gives each read of `n` line feeds in `ns`,
+    /// one after another, on a 24-row terminal over the storage both
+    /// drivers provision (`MAX_GRID`), after `setup`; with the live
+    /// surface's ring.
+    fn ridden_provisioned(setup: &[u8], ns: &[usize]) -> (Rows, Vec<Option<Rows>>) {
+        let ws = baud_domain::WinSize {
+            ws_row: 24,
+            ws_col: 80,
+        };
+        let mut owned = baud_core::Owned::with_geometry(
+            &crate::host::MAX_GRID,
+            &baud_core::CacheGeometry::UNKNOWN,
+        );
+        let mut t = Term::new(owned.storage(), &ws);
+        let feed = |t: &mut Term<'_>, b: &[u8]| {
+            t.write_at(baud_domain::BytePos::ZERO, b);
+            t.feed(
+                baud_domain::BytePos::ZERO,
+                baud_domain::ReadLen::from_index(b.len()),
+            );
+        };
+        feed(&mut t, setup);
+        let rode = ns
+            .iter()
+            .map(|&n| {
+                let before = crate::keep::Before::of(&t);
+                feed(&mut t, &vec![b'\n'; n]);
+                let moved = crate::keep::live_moved(&t, before);
+                trail_rides(&t, before, moved, crate::config::TrailScroll::Ride)
+            })
+            .collect();
+        (t.ring(), rode)
+    }
+
+    /// **On the alternate screen a read's count wraps round the rows the
+    /// storage is provisioned with, not the window's**: both drivers
+    /// provision `MAX_GRID`'s 150 rows, so on a 24-row window a read of n
+    /// lines rides n round a ring of 150 -- the n mod 150 lines left over
+    /// while they are at most 75, and nothing past that. So 13 lines ride,
+    /// past half the window; 76 to 150 ride nothing; 151 ride one, 225
+    /// ride 75 and 226 nothing. The control: the primary on the same
+    /// storage, round the history's ring, rides every n.
+    #[test]
+    fn the_alternate_screen_rides_round_its_provisioned_rows() {
+        let provisioned = usize::from(crate::host::MAX_GRID.ws_row);
+        assert_eq!(provisioned, 150, "the rows docs/cursor.md names");
+        let ns = [1, 12, 13, 75, 76, 150, 151, 153, 225, 226];
+        let (ring, rode) = ridden_provisioned(b"\x1b[?1049h\x1b[24;1H", &ns);
+        let fold = |n: usize| match n % provisioned {
+            0 => None,
+            left if left * 2 <= provisioned => Some(Rows::of_count(left)),
+            _ => None,
+        };
+        let want: Vec<_> = ns.iter().map(|&n| fold(n)).collect();
+        assert_eq!(
+            want,
+            [1, 12, 13, 75, 0, 0, 1, 3, 75, 0]
+                .map(|k| (k > 0).then(|| Rows::of_count(k)))
+                .to_vec(),
+            "the rule, spelled out"
+        );
+        assert_eq!(rode, want, "the alternate screen, read by read");
+        assert_eq!(ring, Rows::of_index(provisioned), "the alternate ring");
+        let (ring, rode) = ridden_provisioned(b"\x1b[24;1H", &ns);
+        assert!(ring.index() > 2 * 226, "the control's ring: {ring:?}");
+        assert_eq!(
+            rode,
+            ns.map(|n| Some(Rows::of_count(n))).to_vec(),
+            "the control: the primary rides every read"
+        );
+    }
 
     /// **The guide's look**: iTerm2's colour while shown, none while
     /// hidden, and its one-point line one device pixel at a backing scale

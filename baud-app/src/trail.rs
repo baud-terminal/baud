@@ -74,7 +74,7 @@
 use baud_render::det::Det;
 use core::time::Duration;
 
-use baud_domain::{Chan, Col, Row};
+use baud_domain::{Chan, Col, Row, Rows};
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::{Points, Pt, Rect, Segment, Shape, Smear, Strength, TrailLook};
 
@@ -168,6 +168,68 @@ pub fn ghost_progress(start: f64, now: f64) -> f32 {
     ((now - start) / GHOST_S) as f32
 }
 
+/// **How far a trail rides** for `n` lines the whole screen retired, on a
+/// screen of `rows` rows, pixels, y down: up by the lines, and never past the
+/// floor one window above the top. Nothing for no lines: a driver sees a
+/// read retire none on nearly every read, and a ride of nothing would
+/// rebase the move in flight on every tick for no change.
+pub fn ride_px(n: Rows, rows: Rows, cell_h: f32) -> Option<(f32, f32)> {
+    (n.index() > 0).then(|| {
+        (
+            -(n.index() as f32 * cell_h),
+            -(rows.index() as f32 * cell_h),
+        )
+    })
+}
+
+/// **How far a ghost has ridden the screen's scroll**, pixels, y down: at
+/// most [`THRESHOLD`] rows, then it stops riding and finishes its sweep to
+/// the cursor -- the quad's rule, where a move past the bound folds in
+/// ([`Chase::ride`]).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum GhostRide {
+    Riding(f32),
+    Folded,
+}
+
+/// **A ghost sweeping from row `from` to row `to` rides a scroll** `dy`
+/// pixels, y down, at progress `p`, its origin `origin_dy` pixels from the
+/// row it left: the origin moves by `dy / (1 - p)`, so the ghost drawn at
+/// `p` -- a lerp from the origin to the cell it reached -- moves by exactly
+/// `dy`. The quad's rules ([`Chase::ride`]): past [`THRESHOLD`] rows this
+/// frame is rigid with the text and the ghost rides no more, finishing its
+/// sweep from there; and once it lies wholly above the row that leaves the
+/// window, `cell_h` pixels up, nothing of it shows and it is dropped.
+/// `None` once it has landed, too; the origin and the ride after it
+/// otherwise.
+pub fn ghost_ride(
+    (from, to): (Row, Row),
+    (origin_dy, ride): (f32, GhostRide),
+    dy: f32,
+    p: f32,
+    cell_h: f32,
+) -> Option<(f32, GhostRide)> {
+    if p >= 1.0 {
+        return None;
+    }
+    let GhostRide::Riding(r) = ride else {
+        return Some((origin_dy, ride));
+    };
+    let p = p.max(0.0);
+    let origin_dy = origin_dy + dy / (1.0 - p);
+    let row = |r: Row| r.index() as f32 * cell_h;
+    let top = (row(from) + origin_dy) * (1.0 - p) + row(to) * p;
+    if top + cell_h <= -cell_h - 0.5 {
+        return None;
+    }
+    let ride = if (r + dy).abs() > THRESHOLD * cell_h {
+        GhostRide::Folded
+    } else {
+        GhostRide::Riding(r + dy)
+    };
+    Some((origin_dy, ride))
+}
+
 /// The full passes the ledger holds. A long move that finds every one of
 /// them still inside [`LEDGER`] is drawn as a repeat rather than forget one.
 const SWEPT: usize = 8;
@@ -189,18 +251,14 @@ struct Burning<M> {
     end: f32,
 }
 
-/// Whether the move in flight still rides a smooth scroll, and how far it
-/// has, pixels, y down: at most [`THRESHOLD`] rows, then it folds in on the
-/// fast constant and rides no more -- so a trail in flight when output
+/// Whether the move in flight still rides the screen's scroll, and how far
+/// it has, pixels, y down: at most [`THRESHOLD`] rows, then it folds in on
+/// the fast constant and rides no more -- so a trail in flight when output
 /// starts streaming lands rather than hanging a row or more above the
 /// cursor for as long as the stream lasts.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Carry {
     Riding(f32),
-    #[cfg_attr(
-        all(target_os = "linux", not(test)),
-        expect(dead_code, reason = "the Linux driver draws no smooth scroll to ride")
-    )]
     Folded,
 }
 
@@ -213,7 +271,7 @@ pub struct Chase<M> {
     target: Option<Rect>,
     /// The move in flight and the moment it started.
     moving: Option<(Segment, M)>,
-    /// How far that move has ridden a smooth scroll.
+    /// How far that move has ridden the screen's scroll.
     carry: Carry,
     /// The cursor seen somewhere else, and when it was first seen there,
     /// waiting out the dwell.
@@ -586,8 +644,8 @@ impl<M: Moment> Chase<M> {
         });
     }
 
-    /// **Output scrolled the screen `dy` pixels, y down**, at `now` (the
-    /// display link's clock, which [`Chase::frame`] reads): what the trail
+    /// **Output scrolled the whole screen `dy` pixels, y down**, at `now`
+    /// (the frame's clock, which [`Chase::frame`] reads): what the trail
     /// drew from the text rides with it. A move in flight is rebased where
     /// its corners are, moved by `dy` and on its own constants, while it has
     /// ridden at most [`THRESHOLD`] rows; past that it folds in on the fast
@@ -597,7 +655,6 @@ impl<M: Moment> Chase<M> {
     /// above the top. The rest state -- where the cursor was taken, a move
     /// waiting out its dwell -- never moves, so the moves that trail are the
     /// ones they were.
-    #[cfg(any(target_os = "macos", test))]
     pub fn ride(&mut self, dy: f32, now: M, floor: f32, cell_h: f32) {
         if let (Some((seg, t0)), Carry::Riding(r)) = (self.moving, self.carry) {
             let at = seg.at(self.clock(t0, now));

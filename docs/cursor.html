@@ -240,7 +240,7 @@
       <dl class="facts">
         <dt>Lasts</dt><dd>0.55 s, the last ion gone by 0.65 s</dd>
         <dt>Built on</dt><dd>kitty's quad, plus a braid along the move and closed-form ion spirals</dd>
-        <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second</dd>
       </dl>
     </article>
 
@@ -251,7 +251,7 @@
       <dl class="facts">
         <dt>Lasts</dt><dd>0.28–0.53 s, until the last ember dies</dd>
         <dt>Built on</dt><dd>kitty's quad, plus a noise-driven flame and embers</dd>
-        <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second</dd>
       </dl>
     </article>
 
@@ -262,7 +262,7 @@
       <dl class="facts">
         <dt>Lasts</dt><dd>0.32 s</dd>
         <dt>Built on</dt><dd>Midpoint displacement in closed form, over a box along the path</dd>
-        <dt>Limits</dt><dd>At most three bolts a second, even though each is out sooner; GPU only (the CPU path draws the quad)</dd>
+        <dt>Limits</dt><dd>At most three bolts a second, even though each is out sooner</dd>
       </dl>
     </article>
 
@@ -273,7 +273,7 @@
       <dl class="facts">
         <dt>Lasts</dt><dd>0.70 s, the last platelet gone by about 0.87 s</dd>
         <dt>Built on</dt><dd>Crystals folded six ways by two mirrors, laid at kitty's leading edge</dd>
-        <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second</dd>
       </dl>
     </article>
 
@@ -284,7 +284,7 @@
       <dl class="facts">
         <dt>Lasts</dt><dd>0.72 s</dd>
         <dt>Built on</dt><dd>A spring onto kitty's quad's centre, so a second move re-flies it smoothly</dd>
-        <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second</dd>
       </dl>
     </article>
 
@@ -295,7 +295,7 @@
       <dl class="facts">
         <dt>Lasts</dt><dd>0.37–0.55 s, the last spark gone</dd>
         <dt>Built on</dt><dd>A timed flight toward the cursor through kitty's leading corners, so a second move re-flies it smoothly</dd>
-        <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second</dd>
       </dl>
     </article>
 
@@ -306,7 +306,7 @@
       <dl class="facts">
         <dt>Lasts</dt><dd>0.22 s on a short hop, about 0.40 s for a 30-column jump at the clips' cell</dd>
         <dt>Built on</dt><dd>A smooth union of a necked tube, beads and a drop round the cursor, on kitty's quad</dd>
-        <dt>Limits</dt><dd>At most three ignitions a second; does not bend the text beneath it; GPU only (the CPU path draws the quad)</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second; does not bend the text beneath it</dd>
       </dl>
     </article>
 
@@ -353,6 +353,7 @@
         <li>When a program hides the cursor, a trail that is drawing fades out over 0.4&nbsp;s instead of vanishing, and comes back if the cursor is shown again. If the screen kept drawing while the cursor was hidden, a trail that starts within 0.4&nbsp;s of the cursor reappearing starts faint and brightens. Scrolling back into the history, resizing, zooming or switching screens forget where the cursor was.</li>
         <li>A hidden cursor that a program moves and hides straight away is followed, which is how helix's <code>gg</code> and <code>ge</code> trail.</li>
         <li>Every trail is drawn in the cursor's colour &mdash; the foreground, unless a program sets another with <code>OSC 12</code>. None uses a colour of its own.</li>
+        <li>When output scrolls the whole screen under a trail in flight, the trail moves up with the text, whether the screen slides or jumps, in a full-screen program and with a status line. A move rides two rows at most and then folds into the cursor. A program scrolling only a region of the screen leaves the trail where it was, and <code>trail_scroll = "stay"</code> always does.</li>
         <li>Under macOS's Reduce Motion the default trail is off. A trail named in the config is kept, fades on a hidden cursor as it does under full motion, and turning the setting on cuts a trail in flight.</li>
       </ul>
     </div>

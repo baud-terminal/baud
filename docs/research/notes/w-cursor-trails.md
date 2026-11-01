@@ -192,7 +192,8 @@ The contract the effect research was given, from the workflow's own prompt
    most three a second (`REIGNITE`, 334 ms), and a bounded end.
 4. **Bands** one cell row tall over the effect's reach, plus one record a
    particle.
-5. **GPU only.** The CPU path draws kitty's quad.
+5. **GPU only, at first.** The CPU path drew kitty's quad. It now draws
+   every effect by its light (`the_cpu_path_draws_every_effect_by_its_light`).
 6. **No texture reads** (the brief excepted the liquid, possibly), so the Rust
    port can match to within a step of 255.
 7. **WCAG 2.3.1**, three flashes a second
@@ -531,6 +532,70 @@ at 0.28 s, against 0.44 s.
   controls failed at 4 Hz and passed at 2 Hz at every size and rate of both
   runs. The frames that drew a fire fell from 513,488 to 456,784.
 
+### 5.14 A trail rides every whole-screen scroll (2026-11-01)
+
+**A trail in flight moves up with the text on every scroll of the whole
+screen at the live window**, by the ride smooth scroll already had (note X,
+"Ride-scroll"): two rows at most, then a fold on the fast constant; an
+effect's path for its whole life. Until then it rode only where the grid
+slid -- `[scroll] mode = "smooth"`, the GPU's cell path, the primary and no
+status line -- and the Linux driver, which paints on the CPU path and
+jumps, rode nothing.
+
+- It answers "should a trail ride a jump scroll" (section 6): riding every
+  whole-screen scroll was taken by the lean on 2026-11-01 over riding only a
+  smooth one, and is open to reversal. The two drivers ride alike, as every
+  trail is drawn alike on both.
+- No terminal standard reaches a trail. ECMA-48's SU says what the text
+  does ([[source: ecma48]] 8.3.147): it moves "such that the data appear to
+  move up", and "The active presentation position is not affected by this
+  control function", so the text moves away from under a trail that stays.
+- `effects::trail_rides` decides it for both drivers: every line the whole
+  screen retired in a read, the window live, under `trail_scroll = "ride"`.
+  A region's scroll in the read rides nothing, by the core's count of
+  region scrolls, so the rows under a region keep their trail. The macOS
+  pump calls it outside the slide's gate; where the grid slides the trail
+  is still lifted by the pan. The Linux driver sums the lines a read
+  retired and rides them at the next frame's instant, where macOS rides at
+  the display link's target, so on both the frame drawn is rigid with the
+  text.
+- No new geometry: the chase's ride and the ghost's, now shared.
+- Every draw path is held to draw the ride alike: the ride changes only
+  the look handed to the renderer, its corners and an effect's path, and
+  every path is held to one look's pixels. `trail_over_page` in
+  `baud-present-macos/tests/cells.rs` draws the quad, the sweep and the
+  ghost alike on both GPU arms and the CPU arm, and every effect alike on
+  both GPU arms; `the_cpu_path_draws_every_effect_by_its_light` in
+  `baud-render/tests/cpu_overlays.rs` holds the CPU path's effects to
+  their records' rules; and `every_effect_rides_rigidly` holds a translated
+  effect to the same pixels moved. The CPU path's repaint of a ridden
+  trail from damage is the Linux test below.
+- Flashes: the research's scratch census, one jump scroll of 1 and of 3
+  lines under the plasma trail, the default, at 20 px on both themes,
+  passed WCAG 2.2 SC 2.3.1 riding and staying. A riding effect under
+  streaming output is not measured: `baud-bench`'s `flash` census has no
+  scrolling motion.
+- Not ridden: a scroll down. On the alternate screen a read's count wraps
+  round the rows the storage is provisioned with, 150 in both drivers
+  whatever the window's height (`live_moved`): a read of 76 to 150 lines
+  rides nothing, and past 150 it rides the lines left over while they are
+  at most 75, so 151 ride one. `the_alternate_screen_rides_round_its_provisioned_rows`
+  pins those numbers on the drivers' storage. A count that does not wrap
+  would need a new count kept by baud-core.
+- Tests, each red before the change: `a_trail_rides_every_whole_screen_scroll_at_the_live_window`
+  (the alternate screen and a status line), `a_trail_rides_every_whole_screen_scroll_on_linux`,
+  `a_ghost_rides_a_whole_screen_scroll_on_linux`,
+  `a_ridden_trail_repaints_on_the_cpu_path_as_a_whole_frame_does` (the
+  frames drawn from damage are the whole frames) and the pump's source gate,
+  `the_pan_is_read_once_and_the_ride_follows_every_whole_screen_retire`
+  (under `normal` and on the instance and CPU paths). `a_trail_rides_no_region_scroll_and_nothing_under_stay`
+  and `a_region_scroll_rides_nothing_on_linux` hold the region out.
+  Perturbations: a region's scroll let through fails the two region tests;
+  the alternate screen refused fails its cases; the Linux ride taken 5 ms
+  before the frame fails the quad's three Linux cases and the region test's
+  control; the ghost's ridden origin left off fails the ghost's; the macOS
+  ride moved back inside the slide's gate fails the source gate.
+
 ## 6. Open questions, with their options; none is picked here
 
 Each of these is open, and each needs a render of its options before it is
@@ -542,7 +607,7 @@ settled. They are listed so the research behind them is in one place.
 | all | whether that bound also covers note AJ's launch splash | it does; it does not, and the splash is counted on its own | **decided: not the splash**, on the condition that the splash is counted before it is built |
 | all | the kitty-derived quad under baud's licence | (a) a record that it takes only the idea and the constants; (b) a clean re-derivation; (d) leave it out | **re-derived (b), 2026-10-25**, section 8. One visible difference: a retarget that lands a corner on its new target leaves it out of the spread, and the corner leading least lags longer (8.4) |
 | all | a trail when the cursor hides | fade over kitty's slow constant, as kitty does; end at once, as baud did and as sfte and Neovide do | **decided: the fade, 2026-11-01**, section 5.12 |
-| all | a trail on a jump scroll | ride it too; ride only a smooth scroll, as now | open; riding both was proposed on 2026-09-27 |
+| all | a trail on a jump scroll | ride it too; ride only a smooth scroll, as now | **decided 2026-11-01 by the lean: ride it too**, on every whole-screen scroll, and open to reversal; section 5.14 |
 | fire | "the fire looks sluggish" | shorten its life; burn out faster; put it out on a keystroke; leave it (it burns 0.83 s on the demo's moves) | **decided 2026-11-01 by the lean: burn out faster**, 1.6 times as fast, and open to reversal; section 5.13 |
 | plasma | the body fill; the flow direction; ions of one charge or both; a bar or underline narrowing the braid | four calls: three of the spec's five questions (body, flow, ions) built at its proposals, and the narrowing the critique offered. The spec's other two, whether a flash counts per pixel or by area and whether long moves dim the filaments, went into the constant gain 0.95 and note AL's bound | open |
 | lightning | strike or arc; the bolt alone or over the quad; what a retarget leaves; sparks and corona | the spec's four questions, built at its proposals | open |

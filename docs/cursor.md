@@ -244,13 +244,18 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   the selection before each hide [[source: helix-tui-terminal]].
 - Every trail is the cursor's colour: the foreground, unless a program sets
   another with `OSC 12`.
-- A trail rides a smooth scroll. When output scrolls the screen under a trail
-  in flight, what the trail drew from the path moves up with the text -- a
-  move's corners, an effect's whole path, the ghost's start -- and what it drew
-  from the cursor stays with the cursor. A move rides two rows at most and then
-  folds into the cursor, so a trail does not hang above it while a build log
-  streams; an effect's path rides for its whole life. `[cursor] trail_scroll =
-  "stay"` keeps the trail where it was drawn.
+- A trail rides the scroll. When output scrolls the whole screen under a
+  trail in flight, what the trail drew from the path moves up with the text --
+  a move's corners, an effect's whole path, the ghost's start -- and what it
+  drew from the cursor stays with the cursor. That holds whether the screen
+  slides or jumps (`[scroll] mode = "smooth"` or `"normal"`), on the GPU and
+  the CPU path, in a full-screen program on the alternate screen and with a
+  status line below, on macOS and on Linux. A move rides two rows at most and
+  then folds into the cursor, so a trail does not hang above it while a build
+  log streams; an effect's path rides for its whole life. A program scrolling
+  a region of the screen, such as the text above its own status line, leaves
+  the rows under the region where they were, so the trail stays too.
+  `[cursor] trail_scroll = "stay"` keeps the trail where it was drawn.
 - An idle terminal pays nothing for any of them. Only a moved cursor starts a
   trail, and one that has ended asks for no more frames.
 - Every trail is drawn on Linux too, with the same pixels as on a Mac.
@@ -263,9 +268,13 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 
 ## Not built
 
-- A trail rides only a smooth scroll on the GPU's cell path: under `[scroll]
-  mode = "normal"`, on the CPU path and on the alternate screen, the screen
-  jumps and the trail stays where it was drawn.
+- A trail rides output scrolling up, not down: a program scrolling the
+  screen down (`SD`, or `RI` on the top row) leaves it where it was drawn.
+- A full-screen program on the alternate screen that scrolls more than 75
+  lines in one read can leave the trail in the wrong place. The alternate
+  screen keeps 150 rows however tall the window is, and the count of the
+  lines a read scrolled wraps round them: 76 to 150 lines leave the trail
+  where it was drawn, and 151 move it up one row.
 - A trail's particles -- the fire's embers, the lightning's sparks -- are not
   held off the cursor the way its body is, so one can cross it.
 

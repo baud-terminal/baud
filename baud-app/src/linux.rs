@@ -603,6 +603,7 @@ pub fn run() {
         pressed: crate::pressed::Pressed::default(),
         composing_caret: baud_render::Caret::End,
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition)
+            .with_trail_scroll(cfg.trail_scroll)
             .with_splash(
                 match crate::windows::started(
                     std::env::var_os(crate::windows::NEW_WINDOW).as_deref(),
@@ -1099,6 +1100,9 @@ impl Driver {
         // the trail away and fades the new screen in; a reset that brought
         // a looked-back window live reveals the thumb.
         let after = self.seat.after_read(&self.term, before);
+        // The lines the whole screen retired ride a trail in flight up with
+        // the text at the next frame, as on macOS (`timed.rs`).
+        self.timed.scrolled(&self.term, before);
         // Output took the selection while `?1040` is reset: what SELECT
         // offered is given up, as xterm's `DisownSelection` does.
         if after.select == crate::seat::Select::GivenUp {
@@ -1815,6 +1819,7 @@ impl Driver {
                     }
                 }
                 Part::Trail | Part::Transition => {
+                    self.timed.set_trail_scroll(c.trail_scroll);
                     let owes =
                         self.timed
                             .set_config(c.cursor_trail, c.screen_transition, Instant::now());

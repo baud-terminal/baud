@@ -445,8 +445,8 @@ pub struct Config {
     /// accumulates lag, and an idle screen pays nothing, so the latency is
     /// bounded rather than a reason to keep it off. `normal` opts out.
     pub scroll: ScrollMode,
-    /// `[cursor] trail_scroll`: whether a trail in flight rides a smooth
-    /// scroll -- `ride` by default -- or stays.
+    /// `[cursor] trail_scroll`: whether a trail in flight rides a scroll of
+    /// the whole screen -- `ride` by default -- or stays.
     pub trail_scroll: TrailScroll,
     /// The window's material and how it is dimmed, from `[glass]`.
     pub glass: Glass,
@@ -895,11 +895,13 @@ pub enum ScreenTransition {
     On,
 }
 
-/// Whether a trail in flight rides a smooth scroll with the text, or stays
-/// where the screen had it. `Ride` by default: a trail rides for at most
-/// two rows and then folds in on the fast constant (`trail.rs`). `Stay`
-/// draws exactly what it drew before the ride was built. Inert under
-/// `[scroll] mode = "normal"`, which slides nothing.
+/// Whether a trail in flight rides a scroll of the whole screen with the
+/// text, or stays where the screen had it. `Ride` by default: a trail rides
+/// for at most two rows and then folds in on the fast constant
+/// (`trail.rs`), whether the screen slides or jumps -- `[scroll] mode`
+/// either way, on every draw path, on either screen and with a status line
+/// (`effects::trail_rides`); a region's scroll never moves it. `Stay` draws
+/// exactly what it drew before the ride was built.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TrailScroll {
     Ride,

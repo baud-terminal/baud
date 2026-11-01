@@ -268,43 +268,42 @@ floor = 1.2
 # `trail`: what a cursor move leaves behind. "plasma", the default, is a faint
 # tube in the cursor's colour over kitty's trail as it collapses onto the
 # cursor, with three filaments braided into the cursor and ions curling off
-# the path, dimming out over about half a second; on the CPU path it draws
-# kitty's trail alone. "fire" is a flame rising off the same trail, burning
-# out from the tail and shedding embers along the path; it too is kitty's
-# trail alone on the CPU path. "lightning" is a jagged bolt from the old cell
-# to the cursor that draws itself in, holds and fades in a third of a second,
-# with forks, a corona and falling sparks; kitty's trail alone on the CPU path.
-# "ice" lays a lace of frost crystals along the path that holds, glints and
-# melts tail first into falling hexagonal platelets, in about 0.7 s; kitty's
-# trail alone on the CPU path. "ufo" is a flying saucer that swoops along the
+# the path, dimming out over about half a second. "fire" is a flame rising off
+# the same trail, burning out from the tail and shedding embers along the
+# path. "lightning" is a jagged bolt from the old cell to the cursor that
+# draws itself in, holds and fades in a third of a second, with forks, a
+# corona and falling sparks. "ice" lays a lace of frost crystals along the
+# path that holds, glints and melts tail first into falling hexagonal
+# platelets, in about 0.7 s. "ufo" is a flying saucer that swoops along the
 # path, hovers over the cursor, lowers a tractor beam onto it and flies off,
-# in 0.72 s; kitty's trail alone on the CPU path. "orb" is a glowing sphere
-# that flies to the cursor with a halo and a comet's tail and bursts into
-# sparks as it lands, in about half a second; kitty's trail alone on the CPU
-# path. "liquid" is a clear glass gel in the cursor's colour that stretches
+# in 0.72 s. "orb" is a glowing sphere that flies to the cursor with a halo
+# and a comet's tail and bursts into sparks as it lands, in about half a
+# second. "liquid" is a clear glass gel in the cursor's colour that stretches
 # from where the cursor was to where it is, pinches and draws its back end
 # into a drop round the cursor, which bulges as it lands, and fades, in about
-# 0.4 s; kitty's trail alone on the CPU path. "quad" is kitty's trail: a
-# quadrilateral whose four corners chase the cursor's, the ones facing the
-# move leading and the ones behind it lagging, over about half a second. Both
-# follow a move of more than two cells once the cursor has rested for 10 ms,
-# so typing and streaming output leave none. "sweep" is sfte's trail on the
-# same moves: the cursor's box swept from a tail chasing it, fading from half
-# the cursor's colour at the cursor to nothing at the tail. "ghost" is a
-# one-cell box sweeping from the cell the cursor left to the cell it reached.
-# "off" is none; true and false still mean the default and "off". An idle
-# terminal pays nothing for any of them, because only a cursor that moved
-# leaves one. docs/cursor.md shows each, and docs/cursor.html plays them.
-# Under macOS's Reduce Motion the default is off; a trail named here is kept,
-# so the line below is commented out -- uncomment it only to keep a trail
-# whatever that setting says.
+# 0.4 s. "quad" is kitty's trail: a quadrilateral whose four corners chase the
+# cursor's, the ones facing the move leading and the ones behind it lagging,
+# over about half a second. Both follow a move of more than two cells once the
+# cursor has rested for 10 ms, so typing and streaming output leave none.
+# "sweep" is sfte's trail on the same moves: the cursor's box swept from a
+# tail chasing it, fading from half the cursor's colour at the cursor to
+# nothing at the tail. "ghost" is a one-cell box sweeping from the cell the
+# cursor left to the cell it reached. "off" is none; true and false still mean
+# the default and "off". An idle terminal pays nothing for any of them,
+# because only a cursor that moved leaves one. docs/cursor.md shows each, and
+# docs/cursor.html plays them. Under macOS's Reduce Motion the default is off;
+# a trail named here is kept, so the line below is commented out -- uncomment
+# it only to keep a trail whatever that setting says.
 #
-# `trail_scroll`: when output scrolls the screen smoothly under a trail in
+# `trail_scroll`: when output scrolls the whole screen under a trail in
 # flight, "ride", the default, carries the trail up with the text for at most
 # two rows and then folds it into the cursor, so it lands while output
-# streams; "stay" draws it where the screen had it, as before the ride was
-# built, and may lie over part of a sliding cursor for up to 60 ms. It changes
-# nothing under `[scroll] mode = "normal"`.
+# streams. It does so whether the screen slides or jumps (`[scroll] mode`
+# "smooth" or "normal"), in a full-screen program and with a status line; a
+# scroll of part of the screen, a region a program sets such as the text
+# above its own status line, leaves the trail where it was. "stay" draws it
+# where the screen had it, as before the ride was built, and under a smooth
+# scroll may lie over part of a sliding cursor for up to 60 ms.
 #
 # `guide`: "on" highlights the row the cursor is on with a pale blue band
 # the window's width, iTerm2's cursor guide, so the cursor's line is easy

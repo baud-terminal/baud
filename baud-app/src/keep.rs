@@ -19,11 +19,7 @@ pub(crate) use baud_core::Moved as Ring;
 pub(crate) struct Before {
     pub(crate) live: RowRot,
     pub(crate) epoch: baud_core::ScreenEpoch,
-    /// Read by the macOS pump's slide and both drivers' reset reveal.
-    #[cfg_attr(
-        target_os = "linux",
-        expect(dead_code, reason = "the Linux driver draws no slide")
-    )]
+    /// Read by the macOS pump's slide and both drivers' trail ride.
     pub(crate) region: baud_core::RegionScrolls,
     pub(crate) erased: baud_core::HistoryErasures,
     pub(crate) resets: baud_core::Resets,
@@ -316,6 +312,37 @@ pub(crate) fn scrolled_off_the_top(
 /// from before names rows it cannot vouch for.
 pub(crate) fn switched(term: &Term<'_>, before: Before) -> bool {
     term.screen_epoch() != before.epoch
+}
+
+/// Whether every line a read retired left with the whole screen: no scroll
+/// of a region smaller than the screen sent one to the history. A region
+/// anchored at the top retires its line the way the whole screen does, and
+/// the rows under it stay where they were -- so a slide that pans the whole
+/// grid would carry a status line or a dashboard up with the text above it,
+/// and a trail that rode would leave the text it was drawn over.
+/// By the core's count rather than by the region at the read's end, because
+/// a program can set a region, scroll it and reset it inside one read.
+pub(crate) fn whole_screen_scrolled(term: &Term<'_>, before: Before) -> bool {
+    term.region_scrolls() == before.region
+}
+
+/// How the live surface moved over a read, for the selection's line count,
+/// a slide and a trail's ride: **nothing across a switch**, whose two
+/// rotations are two rings' -- the primary's, round thousands of rows, and
+/// the alternate screen's, round the rows the storage is provisioned with,
+/// or the alternate screen's before and after an entry reset it -- so their
+/// difference is no movement of anything, and read as one it subtracted
+/// past zero. A switch drops the selection and settles a slide, whichever
+/// way the read went. The rotation is read round the ring, and the
+/// alternate screen's ring is its provisioned rows, not the window's: 150
+/// in both drivers (`MAX_GRID`), so a read's count there is the lines it
+/// scrolled modulo 150, and past 75 of those it reads as lines taken back
+/// (`the_alternate_screen_rides_round_its_provisioned_rows`).
+pub(crate) fn live_moved(term: &Term<'_>, before: Before) -> Ring {
+    if switched(term, before) {
+        return Ring::Retired(Rows::ZERO);
+    }
+    term.moved_since(before.live)
 }
 
 /// The oldest line a selection may name: as far behind the live screen's

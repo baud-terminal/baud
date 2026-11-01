@@ -19,12 +19,14 @@ use crate::host::{
     startup_first, startup_mark, startup_note,
 };
 use crate::keep::{
-    Before, KeptText, Ring, followed, kept_across_resize, numbered, oldest, reset_in,
+    Before, KeptText, Ring, followed, kept_across_resize, live_moved, numbered, oldest, reset_in,
     scrolled_off_the_top, snap_live, stale_in_moved_rows, switched, tracked_highlight,
+    whole_screen_scrolled,
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::reveal::{Reveal, Scale, shown_gutter};
+use crate::trail::{GhostRide, ride_px};
 use crate::wheel::{Delta, Route, Travel};
 use baud_core::{
     Depth, Erasure, Looking, Owned, PromptJump, PromptsOpened, Screen, Term, Zone, grid_stride,
@@ -134,24 +136,14 @@ struct TrailState {
     from: (Row, Col),
     to: (Row, Col),
     start: f64,
-    /// How far the cell it left has ridden a smooth scroll, pixels, y down
-    /// (`ride_ghost`).
+    /// How far the cell it left has ridden the screen's scroll, pixels, y
+    /// down (`ride_ghost`).
     origin_dy: f32,
     /// How far the ghost itself has ridden, and whether it has stopped.
     ride: GhostRide,
     /// How the sweep is drawn, weighed on the ghost's ledger when it
     /// started (`trail::Ledger`).
     strength: baud_render::Strength,
-}
-
-/// **How far a ghost has ridden a smooth scroll**, pixels, y down: at most
-/// [`crate::trail::THRESHOLD`] rows, then it stops riding and finishes its
-/// sweep to the cursor -- the quad's rule, where a move past the bound folds
-/// in (`Chase::ride`).
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum GhostRide {
-    Riding(f32),
-    Folded,
 }
 
 /// Which path draws: the CPU compositor, Metal over the converted
@@ -708,8 +700,8 @@ struct App {
     /// burst never accumulates lag; a non-zero pan forces a frame the way a
     /// trail does, and an idle screen -- whose pan is zero -- forces none.
     scroll: crate::config::ScrollMode,
-    /// Whether a trail in flight rides a smooth scroll, from `[cursor]
-    /// trail_scroll`.
+    /// Whether a trail in flight rides a scroll of the whole screen, from
+    /// `[cursor] trail_scroll`.
     trail_scroll: crate::config::TrailScroll,
     /// How the cursor is drawn while another window has the keyboard, from
     /// `[cursor] unfocused_hollow`: [`App::show_focus`] hands it to the
@@ -810,8 +802,8 @@ struct Boot {
     screen_transition: crate::config::ScreenTransition,
     /// Whether output scrolls smoothly, from `[scroll] mode`.
     scroll: crate::config::ScrollMode,
-    /// Whether a trail in flight rides a smooth scroll, from `[cursor]
-    /// trail_scroll`.
+    /// Whether a trail in flight rides a scroll of the whole screen, from
+    /// `[cursor] trail_scroll`.
     trail_scroll: crate::config::TrailScroll,
     /// How the cursor is drawn while another window has the keyboard,
     /// from `[cursor] unfocused_hollow`.
@@ -2219,9 +2211,10 @@ impl App {
         let mut shown = Presented::No;
         // **The slide's pan, read once**: the trail is lifted by it, and the
         // cell arm pans the grid, the overlay records and the leaving row by
-        // it, so none of them can disagree. A trail rides only where the
+        // it, so none of them can disagree. A trail is lifted only where the
         // grid slides -- the cell path, at the live screen, on the primary
-        // (`slides`) -- and draws where the screen had it under `stay`.
+        // (`slides`); where the grid jumps, the ride alone moved it
+        // (`ride_trail`), and under `stay` it draws where the screen had it.
         let pan = self.slide.pan();
         let drawn = SlideDrawn::of(
             self.presenter.as_ref().map(Presenter::mode),
@@ -4124,24 +4117,6 @@ fn erased(term: &Term<'_>, before: Before) -> bool {
     term.history_erasures() != before.erased
 }
 
-/// Whether every line a read retired left with the whole screen: no scroll
-/// of a region smaller than the screen sent one to the history. A region
-/// anchored at the top retires its line the way the whole screen does, and
-/// the rows under it stay where they were -- so a slide that pans the whole
-/// grid would carry a status line or a dashboard up with the text above it.
-/// By the core's count rather than by the region at the read's end, because
-/// a program can set a region, scroll it and reset it inside one read.
-fn whole_screen_scrolled(term: &Term<'_>, before: Before) -> bool {
-    term.region_scrolls() == before.region
-}
-
-/// How the live surface moved over a read, for the selection's line count
-/// and a slide: **nothing across a switch**, whose two rotations are two
-/// rings' -- the primary's, round thousands of rows, and the alternate
-/// screen's, round one screen, or the alternate screen's before and after
-/// an entry reset it -- so their difference is no movement of anything,
-/// and read as one it subtracted past zero. A switch drops the selection
-/// and settles a slide, whichever way the read went.
 /// What the live screen did across a read, for the slide and the ride:
 /// `live_moved`'s answer, or nothing when a program's page width resized the
 /// grid inside the read (`honour`). The reflow's
@@ -4153,13 +4128,6 @@ fn read_moved(term: &Term<'_>, before: Before, resized: Option<crate::width::Gri
         Some(_) => Ring::Retired(Rows::ZERO),
         None => live_moved(term, before),
     }
-}
-
-fn live_moved(term: &Term<'_>, before: Before) -> Ring {
-    if switched(term, before) {
-        return Ring::Retired(Rows::ZERO);
-    }
-    term.moved_since(before.live)
 }
 
 /// **The wheel over the history**: the primary's window `lines` further
@@ -8934,10 +8902,15 @@ mod ride_tests {
 
     /// `present` reads the slide's pan once, so the trail's lift, the grid's
     /// pan and the leaving row cannot disagree; and the ride is taken in
-    /// one place, straight after the slide retires the lines, on the
-    /// display link's clock the trail's frame reads.
+    /// one place, after the read's lines reached the slide, on every
+    /// whole-screen scroll `trail_rides` names -- outside the slide's gate,
+    /// so under `[scroll] mode = "normal"` and on the instance and CPU paths
+    /// as well as where the grid slides, two of the cases the ride was built
+    /// for on 2026-11-01 (the alternate screen and the status line are
+    /// `trail_rides`' own, held in `effects.rs`). `ride_trail` asks no slide,
+    /// and rides on the display link's clock the trail's frame reads.
     #[test]
-    fn the_pan_is_read_once_and_the_ride_follows_the_retire() {
+    fn the_pan_is_read_once_and_the_ride_follows_every_whole_screen_retire() {
         const SRC: &str = include_str!("app.rs");
         let pan_read = concat!("self.", "slide.pan()");
         assert_eq!(SRC.matches(pan_read).count(), 1, "one read of the pan");
@@ -8945,13 +8918,25 @@ mod ride_tests {
         assert_eq!(SRC.matches(ride).count(), 1, "one ride of the chase");
         let retire = concat!("self.app.slide", ".retire(n);");
         let at = SRC.find(retire).expect("the retire");
-        let next = SRC[at + retire.len()..].trim_start();
+        let call = concat!("self.ride", "_trail(n);");
+        assert_eq!(SRC.matches(call).count(), 1, "one call of the ride");
+        let taken = SRC.find(call).unwrap_or(0);
+        assert!(taken > at, "the ride is taken after the slide's retire");
+        let between = &SRC[at..taken];
         assert!(
-            next.starts_with(concat!("self.ride", "_trail(n, screen);")),
-            "the ride is taken straight after the retire"
+            between.contains(concat!("Ring::Restored(_)", " => {}")),
+            "outside the slide's match, and so outside its gate"
+        );
+        assert!(
+            between.contains(concat!("crate::effects::trail", "_rides(")),
+            "on the lines trail_rides names"
         );
         let body = &SRC[SRC.find(concat!("fn ride", "_trail(")).expect("ride_trail")..];
         let body = &body[..body.find("\n    }\n").expect("its end")];
+        assert!(
+            !body.contains(concat!("slides", "(")) && !body.contains(concat!("slide", ".pan()")),
+            "ride_trail asks no slide"
+        );
         assert!(
             body.contains(concat!("HostTime::of_secs(self.app.", "tick_target)")),
             "the ride is on the display link's clock"
@@ -10678,10 +10663,18 @@ impl Driver {
                     && self.app.term.status_rows() == Rows::ZERO
                 {
                     self.app.slide.retire(n);
-                    self.ride_trail(n, screen);
                 }
             }
             Ring::Restored(_) => {}
+        }
+        // A trail in flight rides every line the whole screen retired at the
+        // live window, whether the grid slides or jumps, on every path and
+        // either screen (`trail_rides`); where it slides, the slide has
+        // taken the lines first and the trail is lifted by its pan.
+        let rides =
+            crate::effects::trail_rides(&self.app.term, before, moved, self.app.trail_scroll);
+        if let Some(n) = rides {
+            self.ride_trail(n);
         }
         // An erased history has no saved line for a slide to draw above the
         // screen as it pans, and the clamp would draw the screen's own first
@@ -12791,29 +12784,15 @@ impl Driver {
         }
     }
 
-    /// **Output retired `n` lines under a smooth scroll**: what the trail
-    /// drew from the text rides up with it, where the grid slides and the
-    /// config says `ride` -- the quad or sweep in flight for at most two
-    /// rows, an effect's whole path, the ghost's origin (`trail.rs`,
+    /// **Output scrolled the whole screen `n` lines at the live window**,
+    /// and the config says `ride` (`trail_rides`): what the trail drew from
+    /// the text rides up with it -- the quad or sweep in flight for at most
+    /// two rows, an effect's whole path, the ghost's origin (`trail.rs`,
     /// `ride_ghost`). On the display link's clock, which the trail's frame
-    /// reads, and never past one window above the top.
-    fn ride_trail(&mut self, n: Rows, screen: Screen) {
-        let drawn = SlideDrawn::of(
-            self.app.presenter.as_ref().map(Presenter::mode),
-            self.app.cell.as_ref(),
-        );
-        if self.app.trail_scroll != crate::config::TrailScroll::Ride
-            || !slides(
-                self.app.scroll,
-                self.app.term.window_back(),
-                screen,
-                drawn,
-                below_grid(&self.app.term, &self.app.renderer),
-            )
-            || self.app.slide.pan().value() == 0
-        {
-            return;
-        }
+    /// reads, and never past one window above the top. Where the grid
+    /// slides, `present` lifts the trail by the slide's pan as it lifts the
+    /// grid; where it jumps, the ride alone keeps the trail on its text.
+    fn ride_trail(&mut self, n: Rows) {
         let cell_h = self.app.metrics_cell().1 as f32;
         let rows = Rows::of_count(usize::from(self.app.grid.ws_row));
         let Some((dy, floor)) = ride_px(n, rows, cell_h) else {
@@ -16894,7 +16873,8 @@ fn below_grid(term: &Term<'_>, renderer: &Renderer<'_, '_>) -> Rows {
 /// the window at the live screen, the primary -- the alternate screen keeps
 /// no ring and has no leaving row -- the cell path, and no status line,
 /// whose row below the grid is no line of the ring and would pan with it.
-/// The one predicate the trail's ride and its lift both take.
+/// The predicate the trail's lift takes; its ride takes every whole-screen
+/// scroll (`trail_rides`).
 fn slides(
     scroll: crate::config::ScrollMode,
     window: Rows,
@@ -16918,47 +16898,14 @@ fn trail_lift(scroll: crate::config::TrailScroll, pan: Px) -> Px {
     }
 }
 
-/// **How far a trail rides** for `n` retired lines on a screen of `rows`
-/// rows, pixels, y down: up by the lines, and never past the floor one
-/// window above the top. Nothing for no lines: `pump` sees `Retired` with
-/// none on nearly every read, and a ride of nothing would rebase the move
-/// in flight on every tick for no change.
-fn ride_px(n: Rows, rows: Rows, cell_h: f32) -> Option<(f32, f32)> {
-    (n.index() > 0).then(|| {
-        (
-            -(n.index() as f32 * cell_h),
-            -(rows.index() as f32 * cell_h),
-        )
-    })
-}
-
-/// **The ghost rides a scroll** `dy` pixels, y down, at progress `p`: its
-/// origin moves by `dy / (1 - p)`, so the ghost drawn at `p` -- a lerp from
-/// the origin to the cell it reached -- moves by exactly `dy`. The quad's
-/// rules (`Chase::ride`): past [`crate::trail::THRESHOLD`] rows this frame is
-/// rigid with the text and the ghost rides no more, finishing its sweep from
-/// there; and once it lies wholly above the row that leaves the window,
-/// `cell_h` pixels up, nothing of it shows and it is dropped. `None` once it
-/// has landed, too.
+/// **The ghost rides a scroll** `dy` pixels, y down, at progress `p`, by
+/// the rule both drivers take ([`crate::trail::ghost_ride`]): moved by
+/// exactly `dy` while it rides, rigid then finishing its sweep past two
+/// rows, and `None` once it has landed or lies wholly above the row that
+/// leaves the window.
 fn ride_ghost(st: TrailState, dy: f32, p: f32, cell_h: f32) -> Option<TrailState> {
-    if p >= 1.0 {
-        return None;
-    }
-    let GhostRide::Riding(r) = st.ride else {
-        return Some(st);
-    };
-    let p = p.max(0.0);
-    let origin_dy = st.origin_dy + dy / (1.0 - p);
-    let row = |r: Row| r.index() as f32 * cell_h;
-    let top = (row(st.from.0) + origin_dy) * (1.0 - p) + row(st.to.0) * p;
-    if top + cell_h <= -cell_h - 0.5 {
-        return None;
-    }
-    let ride = if (r + dy).abs() > crate::trail::THRESHOLD * cell_h {
-        GhostRide::Folded
-    } else {
-        GhostRide::Riding(r + dy)
-    };
+    let (origin_dy, ride) =
+        crate::trail::ghost_ride((st.from.0, st.to.0), (st.origin_dy, st.ride), dy, p, cell_h)?;
     Some(TrailState {
         origin_dy,
         ride,

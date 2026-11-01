@@ -23,10 +23,10 @@
 //! trail is none, as under macOS's Reduce Motion ([`Timed::set_motion`]).
 //! Pure, over a real `Term`, so the tests run on every platform.
 
-use crate::config::{CursorTrail, ScreenTransition, SystemMotion};
+use crate::config::{CursorTrail, ScreenTransition, SystemMotion, TrailScroll};
 use crate::trail::Chase;
 use baud_core::{CursorStyle, Term};
-use baud_domain::{Col, HostTime, RegisBlink, RegisRepainted, Row};
+use baud_domain::{Col, HostTime, RegisBlink, RegisRepainted, Row, Rows};
 use baud_render::{
     BlinkPhases, Blinking, Points, Rect, Scroll, Strength, Trail, TrailLook, Transition,
 };
@@ -63,12 +63,15 @@ impl Clock {
 }
 
 /// A ghost's sweep in flight: the cells it left and reached, when it began
-/// on the clock, and how it is drawn.
+/// on the clock, how far the cell it left has ridden the screen's scroll
+/// and whether it still rides (`trail::ghost_ride`), and how it is drawn.
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Ghost {
     from: (Row, Col),
     to: (Row, Col),
     start: f64,
+    origin_dy: f32,
+    ride: crate::trail::GhostRide,
     strength: Strength,
 }
 
@@ -125,6 +128,12 @@ pub(crate) struct Timed {
     chase: Chase<HostTime>,
     ghost: Option<Ghost>,
     last_cell: Option<(Row, Col)>,
+    /// `[cursor] trail_scroll`: whether a trail in flight rides the
+    /// screen's scroll.
+    scroll: TrailScroll,
+    /// The lines the whole screen retired since the last frame, which ride
+    /// the trail at the next ([`Timed::scrolled`]).
+    riding: Rows,
     transition: ScreenTransition,
     /// The switch being animated: when it began, and how it is drawn.
     switch: Option<(f64, crate::effects::SwitchForm)>,
@@ -158,11 +167,39 @@ impl Timed {
             chase: Chase::new(effective.style()),
             ghost: None,
             last_cell: None,
+            scroll: TrailScroll::Ride,
+            riding: Rows::ZERO,
             transition,
             switch: None,
             bar: crate::bar::Bar::new(),
             splash: crate::splash::Splash::new(crate::config::LaunchSplash::Off),
             fireworks: crate::fireworks::Fireworks::new(),
+        }
+    }
+
+    /// **`[cursor] trail_scroll`, from the config read at launch.**
+    pub(crate) fn with_trail_scroll(mut self, scroll: TrailScroll) -> Timed {
+        self.scroll = scroll;
+        self
+    }
+
+    /// **`[cursor] trail_scroll`, read again**: the next read's scroll rides
+    /// a trail in flight, or leaves it, as it says.
+    pub(crate) fn set_trail_scroll(&mut self, scroll: TrailScroll) {
+        self.scroll = scroll;
+    }
+
+    /// **A read scrolled the screen**: the lines the whole screen retired
+    /// at the live window ride a trail in flight up with the text at the
+    /// next frame, as on macOS (`effects::trail_rides`). They are taken at
+    /// that frame's instant, so the trail it draws is rigid with the text,
+    /// and summed until then, as rides at one instant are. The count needs
+    /// no guard for a resize inside the read, as the macOS pump's does: this
+    /// driver refuses a program's page width, and its own resize snaps.
+    pub(crate) fn scrolled(&mut self, term: &Term<'_>, before: crate::keep::Before) {
+        let moved = crate::keep::live_moved(term, before);
+        if let Some(n) = crate::effects::trail_rides(term, before, moved, self.scroll) {
+            self.riding = Rows::of_count(self.riding.index() + n.index());
         }
     }
 
@@ -332,11 +369,13 @@ impl Timed {
     }
 
     /// **The cells moved under the trail** -- a resize, a font change: the
-    /// next sighting starts afresh, and no ghost sweeps across.
+    /// next sighting starts afresh, no ghost sweeps across, and no line
+    /// scrolled before it rides what comes after.
     pub(crate) fn snap(&mut self) {
         self.chase.snap();
         self.last_cell = None;
         self.ghost = None;
+        self.riding = Rows::ZERO;
     }
 
     /// **Another surface came up**, `screen`: no trail crosses the switch,
@@ -386,6 +425,25 @@ impl Timed {
             }),
             baud_domain::ScrollbarShown::Hidden => None,
         };
+        // The lines the screen scrolled since the last frame ride the trail
+        // first, at this frame's instant, as the macOS pump's ride comes
+        // before the frame on the display link's: a ghost this frame
+        // spawns starts from where the cursor now is.
+        let riding = core::mem::replace(&mut self.riding, Rows::ZERO);
+        if let Some((dy, floor)) = crate::trail::ride_px(riding, term.geometry().1, cell.px.1) {
+            self.chase.ride(dy, host, floor, cell.px.1);
+            self.ghost = self.ghost.and_then(|g| {
+                let p = crate::trail::ghost_progress(g.start, secs);
+                let rows = (g.from.0, g.to.0);
+                crate::trail::ghost_ride(rows, (g.origin_dy, g.ride), dy, p, cell.px.1).map(
+                    |(origin_dy, ride)| Ghost {
+                        origin_dy,
+                        ride,
+                        ..g
+                    },
+                )
+            });
+        }
         let followed = crate::effects::trail_cursor(term);
         let cursor_cell = followed.map(crate::effects::TrailCursor::cell);
         if self.trail == CursorTrail::Ghost {
@@ -403,6 +461,8 @@ impl Timed {
                     from: sw.from,
                     to: sw.to,
                     start: secs,
+                    origin_dy: 0.0,
+                    ride: crate::trail::GhostRide::Riding(0.0),
                     strength: sw.strength,
                 });
             }
@@ -423,7 +483,7 @@ impl Timed {
                     from: g.from,
                     to: g.to,
                     progress: p.max(0.0),
-                    origin_dy: 0.0,
+                    origin_dy: g.origin_dy,
                     lift: baud_font::Px::of(0),
                     strength: g.strength,
                 }),
@@ -1238,6 +1298,246 @@ mod tests {
                 }
                 i += 1;
             });
+        }
+    }
+
+    /// A long move from (2, 3) to column 30 of row `to` after `setup`,
+    /// drawn by a `ride` arm and a `stay` arm off one terminal -- the second
+    /// read `ride` at launch and `stay` from a reload -- the frame 40 ms in,
+    /// then a read of `scroll` and the frame 10 ms after: each arm's trail
+    /// at both, and the terminal's status rows.
+    fn ride_and_stay(
+        setup: &[u8],
+        to: Row,
+        scroll: &[u8],
+        trail: CursorTrail,
+    ) -> ([[Option<TrailLook>; 2]; 2], baud_domain::Rows) {
+        let ms = |n: u64| Duration::from_millis(n);
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, setup);
+        feed(&mut t, b"\x1b[3;4H");
+        let mut arms = [TrailScroll::Ride, TrailScroll::Stay].map(|key| {
+            let mut fx = Timed::new(t0, TrailPick::Named(trail), ScreenTransition::Off)
+                .with_trail_scroll(TrailScroll::Ride);
+            fx.set_trail_scroll(key);
+            fx
+        });
+        for fx in &mut arms {
+            let _ = fx.plan(t0, &t, rect, CELL, widths());
+        }
+        feed(&mut t, format!("\x1b[{};31H", to.index() + 1).as_bytes());
+        for fx in &mut arms {
+            let _ = fx.plan(t0 + ms(2), &t, rect, CELL, widths());
+        }
+        let in_flight = arms
+            .each_mut()
+            .map(|fx| fx.plan(t0 + ms(40), &t, rect, CELL, widths()).trail);
+        let before = crate::keep::Before::of(&t);
+        feed(&mut t, scroll);
+        for fx in &mut arms {
+            fx.scrolled(&t, before);
+        }
+        let after = arms
+            .each_mut()
+            .map(|fx| fx.plan(t0 + ms(50), &t, rect, CELL, widths()).trail);
+        ([in_flight, after], t.status_rows())
+    }
+
+    /// How far, pixels, y down, `ride`'s smear lies from `stay`'s, when every
+    /// corner is moved by the same amount and none across.
+    fn smear_dy(ride: Option<TrailLook>, stay: Option<TrailLook>) -> Option<f32> {
+        let (Some(TrailLook::Smear(a)), Some(TrailLook::Smear(b))) = (ride, stay) else {
+            return None;
+        };
+        let dy = a.corners.0[0].y - b.corners.0[0].y;
+        a.corners
+            .0
+            .iter()
+            .zip(b.corners.0)
+            .all(|(p, q)| (p.x - q.x).abs() < 1e-3 && (p.y - q.y - dy).abs() < 1e-3)
+            .then_some(dy)
+    }
+
+    /// **On Linux a trail in flight rides every whole-screen scroll**, as on
+    /// macOS: a line the primary, the alternate screen or a screen with a
+    /// status line below retires moves the quad drawn at the next frame up
+    /// by exactly one row, 20 pixels, against the same move under `stay`.
+    /// Linux paints on the CPU path and scrolls in one jump, two of the
+    /// cases the ride was built for on 2026-11-01; before, it rode nothing.
+    /// The controls: the two arms draw the same quad before the scroll, and
+    /// the status line is shown. Perturbations: the ride taken 5 ms before
+    /// the frame's instant leaves the quad off the text in every case; the
+    /// alternate screen refused, as the smooth slide's gate refuses it,
+    /// fails that case.
+    #[test]
+    fn a_trail_rides_every_whole_screen_scroll_on_linux() {
+        let mut wrong = Vec::new();
+        for (setup, what) in [
+            (&b""[..], "the primary"),
+            (&b"\x1b[?1049h"[..], "the alternate screen"),
+            (&b"\x1b[2$~"[..], "a status line below"),
+        ] {
+            let ([before, after], status) =
+                ride_and_stay(setup, Row::from_index(9), b"\n", CursorTrail::Quad);
+            assert_eq!(
+                smear_dy(before[0], before[1]),
+                Some(0.0),
+                "{what}: the control, one quad in flight"
+            );
+            if what == "a status line below" {
+                assert_eq!(status, baud_domain::Rows::of_count(1), "the control: shown");
+            }
+            let rode = smear_dy(after[0], after[1]);
+            if rode != Some(-CELL.px.1) {
+                wrong.push(format!("{what}: rode {rode:?}"));
+            }
+        }
+        assert!(wrong.is_empty(), "the quad rode no row: {wrong:?}");
+    }
+
+    /// **On Linux a region's scroll rides nothing**, nor does anything under
+    /// `stay`: a region anchored at the top retires its line as the whole
+    /// screen does, and the rows under it stayed. The control is a region
+    /// the whole screen tall, which is the whole screen and rides.
+    /// Perturbation: a region's scroll let through `trail_rides` -- the
+    /// region rides.
+    #[test]
+    fn a_region_scroll_rides_nothing_on_linux() {
+        let last = Row::from_index(9);
+        let ([_, whole], _) = ride_and_stay(b"\x1b[1;10r", last, b"\n", CursorTrail::Quad);
+        assert_eq!(
+            smear_dy(whole[0], whole[1]),
+            Some(-CELL.px.1),
+            "the control: a region the whole screen tall is the whole screen"
+        );
+        let ([_, region], _) =
+            ride_and_stay(b"\x1b[1;5r", Row::from_index(4), b"\n", CursorTrail::Quad);
+        assert_eq!(
+            smear_dy(region[0], region[1]),
+            Some(0.0),
+            "a region's scroll"
+        );
+        let ([_, scrolled], _) = ride_and_stay(b"", last, b"\n", CursorTrail::Quad);
+        let ([_, unscrolled], _) = ride_and_stay(b"", last, b"", CursorTrail::Quad);
+        assert_eq!(
+            smear_dy(scrolled[1], unscrolled[0]),
+            Some(0.0),
+            "stay draws the quad where no scroll would have"
+        );
+    }
+
+    /// **On Linux the ghost rides too**: the box drawn at the next frame
+    /// moves up by exactly one row against `stay`'s, its sweep's end on the
+    /// cursor. The control: the two arms draw the same ghost before.
+    /// Perturbation: the ride's origin left off the ghost drawn fails it.
+    #[test]
+    fn a_ghost_rides_a_whole_screen_scroll_on_linux() {
+        let top = |look: Option<TrailLook>| match look {
+            Some(TrailLook::Ghost(g)) => {
+                let row = |r: Row| r.index() as f32 * CELL.px.1;
+                Some((row(g.from.0) + g.origin_dy) * (1.0 - g.progress) + row(g.to.0) * g.progress)
+            }
+            _ => None,
+        };
+        let ([before, after], _) =
+            ride_and_stay(b"", Row::from_index(9), b"\n", CursorTrail::Ghost);
+        let (b0, b1) = (top(before[0]), top(before[1]));
+        assert!(b0.is_some() && b0 == b1, "the control: {b0:?} and {b1:?}");
+        let (a0, a1) = (top(after[0]).expect("ride"), top(after[1]).expect("stay"));
+        assert!(
+            (a0 - (a1 - CELL.px.1)).abs() < 1e-3,
+            "the ghost rode {} px",
+            a0 - a1
+        );
+    }
+
+    /// **A ridden trail repaints on the CPU path, as a whole frame paints
+    /// it**: the quad's frames across a whole-screen scroll, drawn by the
+    /// renderer the Linux driver paints with, from the rows damage names,
+    /// are the frames it draws whole, every one -- so the rows the trail
+    /// left above the text are cleared and the rows it reached drawn. The
+    /// control: the ridden frame is not the frame `stay` draws.
+    #[test]
+    fn a_ridden_trail_repaints_on_the_cpu_path_as_a_whole_frame_does() {
+        use baud_domain::Cols;
+        use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
+        let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).unwrap()];
+        let renderer = || {
+            Renderer::new(
+                Stack::new(&faces).unwrap(),
+                PxSize::of(14.0).unwrap(),
+                Theme::dark(),
+                Blend::Native,
+                Cols::of_index(usize::from(WS.ws_col)),
+                baud_domain::Rows::of_index(usize::from(WS.ws_row)),
+            )
+            .unwrap()
+        };
+        let (mut inc, mut full, mut other) = (renderer(), renderer(), renderer());
+        let (w, h) = inc.pixel_size();
+        let len = usize::try_from(w.value()).unwrap() * usize::try_from(h.value()).unwrap();
+        let paint = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut Vec<u32>, d: Damage| {
+            let mut target = Target::new(px, w, w, h).unwrap();
+            r.render(t, &mut target, d);
+        };
+        let m = inc.metrics();
+        let cell = Cell {
+            px: (m.cell_w.value() as f32, m.cell_h.value() as f32),
+            height: Points(m.cell_h.value() as f32),
+        };
+        let ms = |n: u64| Duration::from_millis(n);
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let lines: Vec<u8> = (0..9)
+            .flat_map(|i| format!("row {i} abcdefghijklmnopqrstuvwxyz\r\n").into_bytes())
+            .collect();
+        feed(&mut t, &lines);
+        feed(&mut t, b"\x1b[3;4H");
+        let mut arms = [TrailScroll::Ride, TrailScroll::Stay].map(|key| {
+            Timed::new(
+                t0,
+                TrailPick::Named(CursorTrail::Quad),
+                ScreenTransition::Off,
+            )
+            .with_trail_scroll(key)
+        });
+        let (mut a, mut b, mut c) = (vec![0u32; len], vec![0u32; len], vec![0u32; len]);
+        paint(&mut inc, &mut t, &mut a, Damage::Full);
+        for n in [0u64, 2, 40, 50, 60, 75, 100, 150, 250, 400, 600] {
+            if n == 50 {
+                let before = crate::keep::Before::of(&t);
+                feed(&mut t, b"\n");
+                for fx in &mut arms {
+                    fx.scrolled(&t, before);
+                }
+            }
+            if n == 2 {
+                feed(&mut t, b"\x1b[10;31H");
+            }
+            let rect = |r: Row, col: Col, style: CursorStyle| inc.cursor_rect(r, col, style);
+            let [ride, stay] = arms
+                .each_mut()
+                .map(|fx| fx.plan(t0 + ms(n), &t, rect, cell, widths()).trail);
+            inc.set_trail(ride);
+            full.set_trail(ride);
+            paint(&mut inc, &mut t, &mut a, Damage::Incremental);
+            paint(&mut full, &mut t, &mut b, Damage::Full);
+            assert!(
+                a == b,
+                "at {n} ms the incremental frame is not the whole frame"
+            );
+            if n == 50 {
+                assert!(
+                    ride.is_some(),
+                    "the control: a quad in flight at the scroll"
+                );
+                other.set_trail(stay);
+                paint(&mut other, &mut t, &mut c, Damage::Full);
+                assert!(a != c, "the control: the ridden frame is stay's");
+            }
         }
     }
 }
