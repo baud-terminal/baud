@@ -8,8 +8,8 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::{
-    Argb, BADGE, BOX, BadgeLook, Blend, Damage, FaceStyle, Held, PxSize, Renderer, Shape, Smear,
-    Stack, Strength, Target, Theme, TrailLook,
+    Argb, BADGE, BOX, BadgeLook, Blend, DRAWN_AT, Damage, FaceStyle, Held, PxSize, Renderer, Shape,
+    Smear, Stack, Strength, Target, Theme, TrailLook,
 };
 use support::font;
 
@@ -43,6 +43,8 @@ fn look(text: &str) -> BadgeLook {
     BadgeLook {
         text: text.into(),
         colour: BADGE,
+        outline: Theme::dark().bg.with_alpha(DRAWN_AT),
+        drawn_at: DRAWN_AT,
         fraction: BOX,
         top: Px::of(30),
         right: Px::of(10),
@@ -83,6 +85,167 @@ fn the_badge_colour_is_iterm2s_default_in_srgb() {
         (r, g, b)
     );
     assert_eq!(BADGE.a().get(), 64, "0.5 drawn at 0.5, of 255");
+}
+
+/// **The outline is the background colour, a line 2% of the point size
+/// wide centred on each glyph**, as iTerm2 strokes its badge's text: each
+/// glyph's record is followed by its outline's, in the outline's colour,
+/// the outline's mask as much wider than the glyph's as the line is wide.
+/// Over a blue ground, the pixels the outline reaches past a glyph move
+/// toward the page's colour, and nothing outside the badge changes. The
+/// controls: with no outline the badge draws, and the outlined frame
+/// differs from it.
+#[test]
+fn the_badge_is_outlined_in_the_background_colour() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    for row in 1..20 {
+        feed(
+            &mut t,
+            format!("\x1b[{row};1H\x1b[44m{}", " ".repeat(60)).as_bytes(),
+        );
+    }
+    feed(&mut t, b"\x1b[0m\x1b[?25l");
+    let mut r = renderer(&faces);
+    let fw = px(r.pixel_size().0);
+    // A box the whole frame, which "pr" fills at iTerm2's largest size,
+    // 100 points: a line 2 pixels wide at a pixel a point.
+    let unlined = BadgeLook {
+        outline: Argb(0),
+        fraction: (1.0, 1.0),
+        ..look("pr")
+    };
+    let (mut bare, mut plain, mut drawn) = (Vec::new(), Vec::new(), Vec::new());
+    paint(&mut r, &mut t, &mut bare, Damage::Full);
+    r.set_badge(Some(unlined.clone()));
+    paint(&mut r, &mut t, &mut plain, Damage::Full);
+    let fills = r.badge().to_vec();
+    assert_ne!(bare, plain, "the control: the badge draws");
+    let outlined = BadgeLook {
+        outline: look("pr").outline,
+        ..unlined.clone()
+    };
+    r.set_badge(Some(outlined.clone()));
+    paint(&mut r, &mut t, &mut drawn, Damage::Full);
+    let recs = r.badge().to_vec();
+    assert_eq!(recs.len(), 2 * fills.len(), "a glyph and its outline each");
+    let side = usize::try_from(r.atlas().side().value()).unwrap();
+    let sheet = r.atlas().pixels();
+    // The coverage a record draws at the frame's pixel `(x, y)`.
+    let texel = |i: &baud_render::Instance, x: i32, y: i32| {
+        let (u, v) = (x - i32::from(i.x.0), y - i32::from(i.y.0));
+        let inside = (0..i32::from(i.w.0)).contains(&u) && (0..i32::from(i.h.0)).contains(&v);
+        if !inside {
+            return 0;
+        }
+        let row = usize::from(i.v.0) + usize::try_from(v).unwrap();
+        sheet[row * side + usize::from(i.u.0) + usize::try_from(u).unwrap()]
+    };
+    let mut edges = 0;
+    for (pair, fill) in recs.chunks(2).zip(&fills) {
+        let (glyph, ring) = (pair[0], pair[1]);
+        assert_eq!(glyph, *fill, "the glyph as it draws alone");
+        assert_eq!(ring.color, outlined.outline, "the outline's colour");
+        assert_eq!(glyph.kind, baud_render::Kind::Mask);
+        // A pixel past the glyph's on each side for the line's half, and
+        // at most one more where the outline falls across a pixel.
+        let grown = i32::from(ring.w.0) - i32::from(glyph.w.0);
+        assert!(
+            (2..=3).contains(&grown),
+            "the ring is wider by its line: {grown}"
+        );
+        // And it is where the glyph is: past it on all four sides ...
+        let (gx, gy) = (i32::from(glyph.x.0), i32::from(glyph.y.0));
+        let (rx, ry) = (i32::from(ring.x.0), i32::from(ring.y.0));
+        let past = [
+            gx - rx,
+            rx + i32::from(ring.w.0) - gx - i32::from(glyph.w.0),
+            gy - ry,
+            ry + i32::from(ring.h.0) - gy - i32::from(glyph.h.0),
+        ];
+        assert!(
+            past.iter().all(|p| (1..=2).contains(p)),
+            "the outline past the glyph left, right, above and below: {past:?}"
+        );
+        // ... and over every pixel the glyph's edge crosses, which a line
+        // a pixel either side of the outline covers whole.
+        for y in gy..gy + i32::from(glyph.h.0) {
+            for x in gx..gx + i32::from(glyph.w.0) {
+                if (64..=191).contains(&texel(&glyph, x, y)) {
+                    edges += 1;
+                    let under = texel(&ring, x, y);
+                    assert!(under >= 128, "the glyph's edge at ({x}, {y}) under {under}");
+                }
+            }
+        }
+    }
+    assert!(edges > 0, "the control: the glyphs have edges");
+    let b = bounds(&recs);
+    let page = Theme::dark().bg.0 & 0x00FF_FFFF;
+    let blue_of = |p: u32| p & 0xFF;
+    let mut moved = 0;
+    for (i, (&was, &now)) in plain.iter().zip(&drawn).enumerate() {
+        let (x, y) = (
+            i32::try_from(i % fw).unwrap(),
+            i32::try_from(i / fw).unwrap(),
+        );
+        if !(b[0]..b[2]).contains(&x) || !(b[1]..b[3]).contains(&y) {
+            assert_eq!(was, now, "a pixel outside the badge at ({x}, {y})");
+            continue;
+        }
+        if was == bare[i] && was != now && was & 0x00FF_FFFF != page {
+            // A ground pixel no glyph reaches, which the outline does.
+            assert!(blue_of(now) < blue_of(was), "toward the page at ({x}, {y})");
+            moved += 1;
+        }
+    }
+    assert!(moved > 0, "the outline reaches past the glyphs");
+}
+
+/// **A colour glyph is drawn inside the badge's alpha**, as iTerm2 draws
+/// the whole label inside it: at half, each pixel it moves moves half as
+/// far from the page as at whole, and no outline is drawn for it. The
+/// control: at whole it draws.
+#[test]
+fn a_colour_glyph_is_drawn_inside_the_badges_alpha() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let noto = font("NotoColorEmoji-subset.ttf");
+    let faces = [Face::parse(&mono).unwrap(), Face::parse(&noto).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l");
+    let mut frames = Vec::new();
+    let mut kinds = Vec::new();
+    for drawn_at in [None, Some(Chan::from_u8(0xFF)), Some(DRAWN_AT)] {
+        let mut r = renderer(&faces);
+        r.set_badge(drawn_at.map(|drawn_at| BadgeLook {
+            drawn_at,
+            ..look("\u{231A}")
+        }));
+        let mut pixels = Vec::new();
+        paint(&mut r, &mut t, &mut pixels, Damage::Full);
+        frames.push(pixels);
+        kinds.push(r.badge().iter().map(|i| i.kind).collect::<Vec<_>>());
+    }
+    let colour = vec![baud_render::Kind::Color];
+    assert_eq!(kinds, [vec![], colour.clone(), colour], "no outline for it");
+    let (bare, whole, half) = (&frames[0], &frames[1], &frames[2]);
+    let mut moved = 0;
+    for ((&b, &w), &h) in bare.iter().zip(whole).zip(half) {
+        if w == b {
+            assert_eq!(h, b);
+            continue;
+        }
+        moved += 1;
+        for shift in [0, 8, 16] {
+            let ch = |p: u32| i32::try_from((p >> shift) & 0xFF).unwrap();
+            let (b, w, h) = (ch(b), ch(w), ch(h));
+            assert!((2 * (h - b) - (w - b)).abs() <= 3, "{b} {w} {h}");
+        }
+    }
+    assert!(moved > 0, "the control: the glyph draws");
 }
 
 /// **The badge sits in the top right, inside iTerm2's box**: its glyphs
@@ -305,6 +468,47 @@ fn the_badge_leaves_the_cursor_and_a_composition_alone() {
             }
         }
     }
+    // On a double-width line, and on a double-height one, each cell of the
+    // composition is drawn two wide, and the badge leaves all of it.
+    for line in [b"\x1b#6", b"\x1b#3"] {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, format!("\x1b[{};1H", row + 1).as_bytes());
+        feed(&mut t, line);
+        let v = col / 2 - 2;
+        let composition = baud_render::Composition {
+            row: Row::from_index(row),
+            col: Col::at_index(v),
+            text: "ab"
+                .chars()
+                .map(baud_domain::Codepoint::from_char)
+                .collect(),
+            measure: baud_render::Measure::default(),
+            hints: Vec::new(),
+            caret: baud_render::Caret::Hidden,
+        };
+        let (x0, x1) = (2 * v * cw, 2 * (v + 2) * cw);
+        assert!(
+            x0 >= cell(b[0]) && x1 <= cell(b[2]),
+            "the control: inside the badge"
+        );
+        let mut frames = Vec::new();
+        for badge in [None, Some(look("MMMMMMMMMMMMMMMM"))] {
+            let mut r = renderer(&faces);
+            r.set_badge(badge);
+            r.set_composition(Some(composition.clone()));
+            let mut pixels = Vec::new();
+            paint(&mut r, &mut t, &mut pixels, Damage::Full);
+            frames.push(pixels);
+        }
+        let (bare, drawn) = (&frames[0], &frames[1]);
+        assert_ne!(bare, drawn, "the control: the badge draws");
+        for y in row * ch..(row + 1) * ch {
+            for x in x0..x1 {
+                assert_eq!(bare[y * fw + x], drawn[y * fw + x], "{line:?} ({x}, {y})");
+            }
+        }
+    }
 }
 
 /// **The atlas holds the badge at two sizes at most**: a window resized
@@ -413,7 +617,7 @@ fn the_badge_is_drawn_in_its_own_face() {
     let bold_faces = [Face::parse(&bold).unwrap()];
     let own = records(&fira_faces, &[FaceRole::Fallback, FaceRole::Badge]);
     let want = records(&bold_faces, &[FaceRole::Fallback]);
-    assert_eq!(want.len(), 2, "the control: two glyphs");
+    assert_eq!(want.len(), 4, "the control: two glyphs and their outlines");
     assert_eq!(own, want, "the badge in its own face");
     let text = records(&fira_faces, &[FaceRole::Fallback, FaceRole::Fallback]);
     assert_ne!(text, want, "the control: in the text's face it differs");

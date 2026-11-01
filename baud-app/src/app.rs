@@ -1968,6 +1968,7 @@ impl App {
             self.badge,
             &self.session,
             &selection,
+            self.renderer.background_of(&self.term),
             self.scale,
         );
         self.renderer.set_badge(badge);
@@ -13409,6 +13410,7 @@ impl Driver {
     /// size is set, since the crate has no call of its own for it.
     fn send_title(&mut self) {
         let fallback = self.derived_title();
+        let was = self.app.session.clone();
         let s = &mut self.app.session;
         s.pid = self.app.pty.child();
         s.tty = self.app.pty.tty().map(|p| p.to_string_lossy().into_owned());
@@ -13425,6 +13427,11 @@ impl Driver {
             self.window.set_title(t);
         }
         self.app.session.title = self.titles.sent().map(str::to_string);
+        // A badge naming the job, its folder or the title is drawn again
+        // when they change, though the screen did not.
+        if self.app.session != was && self.app.term.badge_format().is_some() {
+            self.app.pending = Pending::Dirty;
+        }
         let Some(title) = self.titles.sent() else {
             return;
         };

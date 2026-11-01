@@ -4449,6 +4449,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let right = fw - f32::from(u16::try_from(look.right.value()).unwrap_or(0));
         let y0 = f32::from(u16::try_from(look.top.value()).unwrap_or(0));
         let curve = curve_row(look.colour);
+        // The outline: a line `STROKE` of the point size wide, centred on
+        // each glyph's outline (`badge::STROKE`).
+        let stroke = badge::STROKE * px;
+        let outline_curve = curve_row(look.outline);
         let mut out = Vec::new();
         for (n, line) in lines.iter().enumerate() {
             let top = y0 + f32::from(u16::try_from(n).unwrap_or(u16::MAX)) * g.height;
@@ -4490,7 +4494,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let f = self.stack.face(face);
                 let scale = Scale::of(px, f.units_per_em());
                 for p in shaped.glyphs() {
-                    let Some(slot) = self.atlas.slot_sized(f, face, p.id, scale) else {
+                    let Some(slot) = self.atlas.slot_faded(f, face, p.id, scale, look.drawn_at)
+                    else {
                         continue;
                     };
                     let pen = left + cells(start + u32::from(p.cell.0)) + scale.px(f32::from(p.dx));
@@ -4506,6 +4511,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         color: look.colour,
                         kind: slot.kind,
                         curve,
+                    });
+                    // Its outline over it, a glyph at a time, as the text
+                    // system strokes a glyph after filling it.
+                    if slot.kind != Kind::Mask || look.outline.a().get() == 0 {
+                        continue;
+                    }
+                    let Some(ring) = self.atlas.slot_stroked(f, face, p.id, scale, stroke) else {
+                        continue;
+                    };
+                    let (x, y) = (x - slot.left + ring.left, y - slot.top + ring.top);
+                    out.push(Instance {
+                        x: Screen(i16::try_from(x).unwrap_or(i16::MAX)),
+                        y: Screen(i16::try_from(y).unwrap_or(i16::MAX)),
+                        w: ring.w,
+                        h: ring.h,
+                        u: ring.x,
+                        v: ring.y,
+                        color: look.outline,
+                        kind: ring.kind,
+                        curve: outline_curve,
                     });
                 }
             }
@@ -4581,7 +4606,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         if let Some(comp) = self.composition.as_ref().filter(|c| c.row.index() < rows) {
             let (start, end) = comp.columns(self.cols);
-            let cw = side(self.metrics.cell_w);
+            // A cell two wide on a double-width or double-height line.
+            let cw =
+                side(self.metrics.cell_w).saturating_mul(Stretch::of(self.size_of(comp.row)).x());
             let band = self.band(comp.row);
             let at = |n: usize| i32::try_from(n).unwrap_or(i32::MAX).saturating_mul(cw);
             // Each visual run the row's order draws its cells in.
@@ -4879,6 +4906,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// program that moved the background got a frame of the old colour.
     pub fn clear_color(&self) -> Argb {
         self.defaults.1.with_alpha(self.theme.bg_alpha)
+    }
+
+    /// **The background colour, as iTerm2's colour map keeps it**: the one
+    /// `OSC 11` set, else the theme's, opaque, in either video -- the
+    /// colour iTerm2's badge outlines its text in
+    /// (`kColorMapBackground`, `[[source: iterm2-964a75d-ptytextview]]`),
+    /// which reverse video does not swap (`[[source:
+    /// iterm2-964a75d-color-map]]`).
+    pub fn background_of(&self, term: &Term<'_>) -> Argb {
+        let (_, bg) = self
+            .theme
+            .defaults(Video::Normal, |d| term.dynamic_color(d));
+        bg.with_alpha(Chan::from_u8(0xFF))
     }
 
     /// [`Renderer::clear_color`] as the next convert of `term` will answer

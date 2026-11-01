@@ -325,14 +325,16 @@ pub(crate) fn badge_text(
 /// **How the badge is drawn**, `None` while there is none to draw: the
 /// format a program set (`Term::badge_format`) as [`badge_text`] makes
 /// it, in iTerm2's default colour or the one `SetColors=badge=` set,
-/// opaque as iTerm2 makes it, in iTerm2's box and margins at `scale`
-/// device pixels a point, in bold. Nothing while `[screen] badge` is off,
-/// and nothing for a text of white space alone.
+/// opaque as iTerm2 makes it, outlined in `page`, the background colour,
+/// inside the alpha iTerm2 draws the badge at, in iTerm2's box and margins
+/// at `scale` device pixels a point, in bold. Nothing while `[screen]
+/// badge` is off, and nothing for a text of white space alone.
 pub(crate) fn badge_look(
     term: &Term<'_>,
     shown: crate::config::BadgeShown,
     session: &Session,
     selection: &dyn Fn() -> Option<String>,
+    page: baud_render::Argb,
     scale: f64,
 ) -> Option<baud_render::BadgeLook> {
     if shown == crate::config::BadgeShown::Off {
@@ -345,11 +347,12 @@ pub(crate) fn badge_look(
     if text.chars().all(char::is_whitespace) {
         return None;
     }
-    let colour = match term.badge_colour().and_then(|c| c.as_rgb()) {
-        Some((r, g, b)) => {
-            baud_render::Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
-        }
-        None => baud_render::BADGE,
+    let (colour, drawn_at) = match term.badge_colour().and_then(|c| c.as_rgb()) {
+        Some((r, g, b)) => (
+            baud_render::Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)),
+            Chan::from_u8(0xFF),
+        ),
+        None => (baud_render::BADGE, baud_render::DRAWN_AT),
     };
     let s = scale as f32;
     let px =
@@ -357,6 +360,8 @@ pub(crate) fn badge_look(
     Some(baud_render::BadgeLook {
         text,
         colour,
+        outline: page.with_alpha(drawn_at),
+        drawn_at,
         fraction: baud_render::BOX,
         top: px(baud_render::MARGINS.0),
         right: px(baud_render::MARGINS.1),
@@ -560,7 +565,7 @@ mod tests {
             );
         };
         assert_eq!(
-            badge_look(&t, BadgeShown::On, &Session::default(), &|| None, 2.0),
+            badge_look(&t, BadgeShown::On, &Session::default(), &|| None, PAGE, 2.0),
             None,
             "none set"
         );
@@ -569,10 +574,15 @@ mod tests {
             &mut t,
             b"\x1b]1337;SetBadgeFormat=b24gXCh1c2VyLmhvc3QpXHR4\x07",
         );
-        let look =
-            badge_look(&t, BadgeShown::On, &Session::default(), &|| None, 2.0).expect("a badge");
+        let look = badge_look(&t, BadgeShown::On, &Session::default(), &|| None, PAGE, 2.0)
+            .expect("a badge");
         assert_eq!(look.text, "on \tx");
         assert_eq!(look.colour, baud_render::BADGE);
+        assert_eq!(
+            look.outline,
+            PAGE.with_alpha(baud_render::DRAWN_AT),
+            "the background, inside the badge's half"
+        );
         assert_eq!(
             (look.top, look.right),
             (baud_font::Px::of(60), baud_font::Px::of(20))
@@ -580,13 +590,27 @@ mod tests {
         assert_eq!(look.fraction, baud_render::BOX);
         assert_eq!(look.style, baud_render::FaceStyle::Bold);
         assert_eq!(
-            badge_look(&t, BadgeShown::Off, &Session::default(), &|| None, 2.0),
+            badge_look(
+                &t,
+                BadgeShown::Off,
+                &Session::default(),
+                &|| None,
+                PAGE,
+                2.0
+            ),
             None,
             "the setting off"
         );
         feed(&mut t, b"\x1b]1337;SetColors=badge=00ff00\x07");
         assert_eq!(
-            badge_look(&t, BadgeShown::On, &Session::default(), &|| None, 1.0).map(|l| l.colour),
+            badge_look(&t, BadgeShown::On, &Session::default(), &|| None, PAGE, 1.0)
+                .map(|l| l.outline),
+            Some(PAGE),
+            "an opaque badge, an opaque outline"
+        );
+        assert_eq!(
+            badge_look(&t, BadgeShown::On, &Session::default(), &|| None, PAGE, 1.0)
+                .map(|l| l.colour),
             Some(baud_render::Argb::rgb(
                 Chan::from_u8(0),
                 Chan::from_u8(255),
@@ -596,7 +620,7 @@ mod tests {
         // `   `, base64.
         feed(&mut t, b"\x1b]1337;SetBadgeFormat=ICAg\x07");
         assert_eq!(
-            badge_look(&t, BadgeShown::On, &Session::default(), &|| None, 1.0),
+            badge_look(&t, BadgeShown::On, &Session::default(), &|| None, PAGE, 1.0),
             None,
             "white space alone"
         );
@@ -612,6 +636,10 @@ mod tests {
                 "the term, the setting, the session and the selection"
             );
             assert!(s.contains(concat!("self.renderer.", "set_badge(badge);")));
+            assert!(
+                s.contains(concat!("self.renderer.", "background_of(&self.term)")),
+                "the outline in the background colour"
+            );
         }
     }
 
@@ -633,10 +661,13 @@ mod tests {
             baud_domain::BytePos::ZERO,
             baud_domain::ReadLen::from_index(b.len()),
         );
-        let look =
-            badge_look(&t, BadgeShown::On, &Session::default(), &|| None, 1.0).expect("a badge");
+        let look = badge_look(&t, BadgeShown::On, &Session::default(), &|| None, PAGE, 1.0)
+            .expect("a badge");
         assert_eq!(look.text, "on box");
     }
+
+    /// A background colour for the badge's outline.
+    const PAGE: baud_render::Argb = baud_render::Argb(0xFF10_2030);
 
     /// A session with every fact the app reads.
     fn full_session() -> Session {
@@ -936,7 +967,8 @@ mod tests {
 
     /// **Both apps hand the badge the session they bring up to date with
     /// the title**: its root process, device, job, directory and the
-    /// title shown, read where the title is sent.
+    /// title shown, read where the title is sent, and a frame owed when
+    /// they change under a badge, so a job started silently is shown.
     #[test]
     fn both_apps_bring_the_session_up_to_date() {
         for (name, src, at) in [
@@ -956,6 +988,11 @@ mod tests {
                 assert!(body.contains(read), "{name}: {read}");
             }
             assert!(body.contains(at), "{name}: {at}");
+            let owed = body.split_once("badge_format().is_some()").expect(name).1;
+            assert!(
+                owed.contains("pending = Pending::Dirty"),
+                "{name}: a frame owed"
+            );
         }
     }
 

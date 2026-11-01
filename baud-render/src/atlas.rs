@@ -57,7 +57,7 @@ use baud_domain::{Chan, Codepoint, GlyphId};
 use baud_font::bytes::Index;
 use baud_font::{
     Bounds, Canvas, Drawn, Extent, Face, Fit, Mirror, Palette, PaletteEntry, Phase, Png, Ppem, Px,
-    Rasterizer, Scale, Sink, Strike, VarPoint,
+    Rasterizer, Reach, Scale, Sink, Strike, Stroker, VarPoint,
 };
 use std::collections::HashMap;
 
@@ -593,6 +593,13 @@ pub struct Atlas {
     /// scale -- the scale is in the key, so they stand at every cell size --
     /// and voided with the rest.
     sized: HashMap<(FaceIx, GlyphIx, ScaleKey), Option<Slot>>,
+    /// The strokes of glyphs drawn at a size of their own, the badge's
+    /// outline, by face, glyph, scale and the stroke's width, voided with
+    /// the rest.
+    stroked: HashMap<(FaceIx, GlyphIx, ScaleKey, ScaleKey), Option<Slot>>,
+    /// Colour glyphs drawn at a size of their own inside an alpha, the
+    /// badge's, by face, glyph, scale and the alpha, voided with the rest.
+    faded: HashMap<(FaceIx, GlyphIx, ScaleKey, u8), Option<Slot>>,
     scratch: Vec<f32>,
     /// The points of a varied outline ([`outline`]), grown to the largest
     /// need asked so far and kept.
@@ -623,6 +630,8 @@ impl Atlas {
             held: Memo::new(SizeKey::NONE),
             kept: Vec::new(),
             sized: HashMap::new(),
+            stroked: HashMap::new(),
+            faded: HashMap::new(),
             scratch: Vec::new(),
             var: Vec::new(),
             coverage: Vec::new(),
@@ -731,6 +740,8 @@ impl Atlas {
         self.held = Memo::new(self.held.size);
         self.kept.clear();
         self.sized.clear();
+        self.stroked.clear();
+        self.faded.clear();
         self.clear_mask(mask);
         self.clear_color(color);
         self.generation = Generation(self.generation.0.wrapping_add(1));
@@ -882,6 +893,128 @@ impl Atlas {
             self.sized.insert(key, slot);
         }
         slot
+    }
+
+    /// **A glyph's stroke at a size of its own**, `scale`, the line `width`
+    /// pixels wide and centred on the outline, as CoreGraphics strokes a
+    /// glyph drawn with a stroke width (`baud_font::Stroker`): the badge's
+    /// outline. A mask, memoised beside [`Atlas::slot_sized`]'s glyphs and
+    /// voided with them; `None` for a glyph with no outline -- a bitmap or
+    /// colour glyph, which CoreGraphics strokes no more than baud does --
+    /// or one the face refuses.
+    pub fn slot_stroked(
+        &mut self,
+        face: &Face<'_>,
+        ix: FaceIx,
+        id: GlyphId,
+        scale: Scale,
+        width: f32,
+    ) -> Option<Slot> {
+        let glyph = GlyphIx(u16::try_from(id.index()).unwrap_or(u16::MAX));
+        let key = (
+            ix,
+            glyph,
+            ScaleKey(scale.px(1.0).to_bits()),
+            ScaleKey(width.to_bits()),
+        );
+        if let Some(known) = self.stroked.get(&key) {
+            return *known;
+        }
+        let mut b = Bounds::new();
+        if let Drawn::NeedsScratch(_) | Drawn::Refused = outline(&mut self.var, face, id, &mut b) {
+            return None;
+        }
+        let slot = self.stroke(face, id, scale, &b, width);
+        if slot.is_some() || Fit::of(&b, scale).is_none() {
+            self.stroked.insert(key, slot);
+        }
+        slot
+    }
+
+    /// **A colour glyph at a size of its own, drawn inside `alpha`**: each
+    /// texel of [`Atlas::slot_sized`]'s image with its alpha so scaled,
+    /// rounded, in a slot of its own -- the badge's colour glyph, which
+    /// iTerm2 draws inside the badge's alpha. A mask, and a whole alpha,
+    /// is the sized slot itself.
+    pub fn slot_faded(
+        &mut self,
+        face: &Face<'_>,
+        ix: FaceIx,
+        id: GlyphId,
+        scale: Scale,
+        alpha: Chan,
+    ) -> Option<Slot> {
+        let own = self.slot_sized(face, ix, id, scale)?;
+        if own.kind != Kind::Color || alpha.get() == u8::MAX {
+            return Some(own);
+        }
+        let glyph = GlyphIx(u16::try_from(id.index()).unwrap_or(u16::MAX));
+        let key = (ix, glyph, ScaleKey(scale.px(1.0).to_bits()), alpha.get());
+        if let Some(known) = self.faded.get(&key) {
+            return *known;
+        }
+        let (w, h) = (
+            slots(Px::of(u32::from(own.w.0))),
+            slots(Px::of(u32::from(own.h.0))),
+        );
+        let (x0, y0) = (
+            slots(Px::of(u32::from(own.x.0))),
+            slots(Px::of(u32::from(own.y.0))),
+        );
+        let side = slots(Px::of(self.color.side.0));
+        let k = u32::from(alpha.get());
+        let mut image = Vec::with_capacity(w * h);
+        for row in 0..h {
+            let from = (y0 + row) * side + x0;
+            image.extend(self.argb.get(from..from + w)?.iter().map(|&p| {
+                let a = (p >> 24) * k;
+                ((a + 127) / 255) << 24 | (p & 0x00FF_FFFF)
+            }));
+        }
+        let at = Origin {
+            left: own.left,
+            top: own.top,
+        };
+        let slot = self.place_color(
+            &image,
+            Px::of(u32::from(own.w.0)),
+            Px::of(u32::from(own.h.0)),
+            at,
+        );
+        if slot.is_some() {
+            self.faded.insert(key, slot);
+        }
+        slot
+    }
+
+    /// The stroke of `id`, whose outline lies in `b`, rasterised: the fit
+    /// grown to what the stroke reaches, measured by a first pass.
+    fn stroke(
+        &mut self,
+        face: &Face<'_>,
+        id: GlyphId,
+        scale: Scale,
+        b: &Bounds,
+        width: f32,
+    ) -> Option<Slot> {
+        let fit = Fit::of(b, scale)?;
+        let mut reach = Stroker::new(Reach::default(), fit.transform, width);
+        outline(&mut self.var, face, id, &mut reach);
+        let fit = fit.holding(reach.finish().reached?)?;
+        let cells = fit.extent.cells()?;
+        if self.coverage.len() < cells {
+            self.coverage.resize(cells, 0);
+        }
+        let need = fit.extent.scratch()?;
+        if self.scratch.len() < need {
+            self.scratch.resize(need, 0.0);
+        }
+        let canvas = Canvas::new(fit.extent, &mut self.scratch)?;
+        let mut st = Stroker::new(canvas, fit.transform, width);
+        outline(&mut self.var, face, id, &mut st);
+        st.finish().coverage(&mut self.coverage[..cells])?;
+        self.stats.rasterised.bump();
+        self.place_coverage(&fit)
     }
 
     /// [`Atlas::slot`] for a line that draws its characters at `stretch`:
@@ -1493,6 +1626,12 @@ impl Atlas {
         outline(&mut self.var, face, id, &mut r);
         r.finish().coverage(&mut self.coverage[..cells])?;
         self.stats.rasterised.bump();
+        self.place_coverage(&fit)
+    }
+
+    /// The coverage just drawn for `fit` placed on the mask sheet, the
+    /// sheet grown when it is full.
+    fn place_coverage(&mut self, fit: &Fit) -> Option<Slot> {
         let (w, h) = (fit.extent.w, fit.extent.h);
         let (x, y) = loop {
             if let Some(at) = self.mask.take(w, h) {

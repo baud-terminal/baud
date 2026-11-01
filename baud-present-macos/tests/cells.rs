@@ -2596,19 +2596,66 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // agree, and each draws it.
     feed(&mut t, b"\x1b[2;40Hthe text that runs under the badge");
     let (bare_a, bare_b) = arms.draw(&mut t);
-    arms.badge = Some(baud_render::BadgeLook {
+    let unlined = baud_render::BadgeLook {
         text: "prod-db-01\nmain".into(),
         colour: baud_render::BADGE,
+        outline: baud_render::Argb(0),
+        drawn_at: baud_render::DRAWN_AT,
         fraction: baud_render::BOX,
         top: Px::of(30),
         right: Px::of(10),
         scale: 1.0,
         style: FaceStyle::Bold,
+    };
+    arms.badge = Some(unlined.clone());
+    let (plain, _) = arms.draw(&mut t);
+    // Its outline in the page's colour, drawn over each glyph on every arm:
+    // the GPU arms agree, the CPU arm, which the Linux driver draws with,
+    // draws the same, and the outline moves pixels the badge alone does not.
+    arms.badge = Some(baud_render::BadgeLook {
+        outline: arms
+            .renderer
+            .background_of(&t)
+            .with_alpha(baud_render::DRAWN_AT),
+        ..unlined
     });
     let (a, b) = arms.draw(&mut t);
     assert_eq!(differing(&a, &b), 0, "the arms disagree on the badge");
     assert_ne!(differing(&a, &bare_a), 0, "the instance arm drew no badge");
     assert_ne!(differing(&b, &bare_b), 0, "the cell arm drew no badge");
+    assert_ne!(differing(&a, &plain), 0, "the outline drew nothing");
+    let cpu = cpu_frame(&mut arms, &mut t);
+    assert_eq!(
+        channel_diff(&cpu, &a, |_| true),
+        (0, 0),
+        "the CPU arm draws the outlined badge otherwise"
+    );
+    // A colour glyph in it, drawn inside the badge's alpha on every arm:
+    // at half it differs from the glyph drawn whole.
+    let outlined = arms.badge.clone();
+    let mut emoji = Vec::new();
+    for drawn_at in [baud_render::DRAWN_AT, baud_domain::Chan::from_u8(0xFF)] {
+        arms.badge = outlined.clone().map(|l| baud_render::BadgeLook {
+            text: "\u{231A} main".into(),
+            drawn_at,
+            ..l
+        });
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(differing(&a, &b), 0, "the arms disagree on a colour glyph");
+        let cpu = cpu_frame(&mut arms, &mut t);
+        assert_eq!(
+            channel_diff(&cpu, &a, |_| true),
+            (0, 0),
+            "the CPU arm draws the colour glyph otherwise"
+        );
+        emoji.push(a);
+    }
+    assert_ne!(
+        differing(&emoji[0], &emoji[1]),
+        0,
+        "drawn at half and whole alike"
+    );
+    arms.badge = outlined;
     // A block cursor inside the badge's rectangle is drawn over it, on
     // both arms: its cell's pixels are the frame's without the badge.
     let rect =
@@ -10214,6 +10261,10 @@ fn ground_steps() -> Vec<Step> {
     let badge = |text: &str| baud_render::BadgeLook {
         text: text.into(),
         colour: baud_render::BADGE,
+        outline: baud_render::Theme::dark()
+            .bg
+            .with_alpha(baud_render::DRAWN_AT),
+        drawn_at: baud_render::DRAWN_AT,
         fraction: baud_render::BOX,
         top: Px::of(4),
         right: Px::of(10),

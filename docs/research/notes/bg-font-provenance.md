@@ -119,6 +119,7 @@ says what each of the screen's ttf-parser hits is.
 | `baud-font/src/script_data.rs` | c | -- | -- | generated, under the Unicode row |
 | `baud-font/src/shape.rs` | a | `LICENSES/harfbuzz-COPYING.txt` | 64e2b53, [[source: harfbuzz-hb-ot-shape-fallback]]; [[source: harfbuzz-hb-unicode]]; [[source: harfbuzz-hb-ot-shaper-hebrew]] | fallback mark placement and the Hebrew tables; rowed before this note |
 | `baud-font/src/standard_encoding.rs` | c | -- | -- | Adobe's table, under its own row |
+| `baud-font/src/stroke.rs` | c | -- | -- | baud's stroker, written from the texts it cites -- [[source: apple-quartz2d-paths]]'s line straddling the path, miter join and miter limit, and [[source: apple-ct-stroke-width]] -- and measured against CoreText's stroke, whose code is not open. It draws through `raster.rs`'s Canvas and copies none of it: its own curve flattening, its own pieces |
 | `baud-font/src/var.rs` | b | -- | [[source: harfbuzz-12-3-0-ot-var]] 289, 330; [[source: harfbuzz-12-3-0-fvar]] 182-195; [[source: harfbuzz-12-3-0-avar]] 146-250 | section 3.3. ttf-parser's map_value() and normalized_value() (avar.rs, fvar.rs) are float or HarfBuzz's own form; baud's are 16.16 integers, and neither is followed |
 | `baud-render/src/atlas.rs` | b | -- | [[source: harfbuzz-12-3-0-limits]] | HB_GLYF_MAX_POINTS taken as a scratch budget, a number |
 | `baud-render/src/boxes.rs` | c | -- | -- | drawn from the cell rectangle. VTE's minifont is compared and differs |

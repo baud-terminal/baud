@@ -598,6 +598,41 @@ impl Fit {
             top,
         })
     }
+
+    /// **This fit grown to hold `reach`**, a box in its canvas's pixels
+    /// that a stroke of the outline reaches past it to, with the pixel of
+    /// margin [`Fit::stretched`] leaves on every side past that too; `None`
+    /// for a box that is not finite or a mask past [`Fit::LIMIT`].
+    pub fn holding(self, reach: [f32; 4]) -> Option<Fit> {
+        let [x0, y0, x1, y1] = reach;
+        if !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()) {
+            return None;
+        }
+        let (w, h) = (
+            i32::try_from(self.extent.w.0).ok()?,
+            i32::try_from(self.extent.h.0).ok()?,
+        );
+        let limit = i32::try_from(Fit::LIMIT.0).ok()?;
+        let clamp = |v: f32| v.clamp(-(limit as f32), 2.0 * limit as f32) as i32;
+        let l = (1 - clamp(floor(x0))).max(0);
+        let t = (1 - clamp(floor(y0))).max(0);
+        let r = (clamp(ceil(x1)) + 1 - w).max(0);
+        let b = (clamp(ceil(y1)) + 1 - h).max(0);
+        let (nw, nh) = (w + l + r, h + t + b);
+        if nw > limit || nh > limit {
+            return None;
+        }
+        Some(Fit {
+            extent: Extent::new(Px(u32::try_from(nw).ok()?), Px(u32::try_from(nh).ok()?)),
+            transform: Transform {
+                e: self.transform.e + l as f32,
+                f: self.transform.f + t as f32,
+                ..self.transform
+            },
+            left: self.left - l,
+            top: self.top - t,
+        })
+    }
 }
 
 /// Whether the current contour has been started and not yet closed.

@@ -25,7 +25,7 @@ use crate::atlas::Tex;
 use crate::color::Argb;
 use crate::instance::{Instance, Screen};
 use crate::stack::FaceStyle;
-use baud_domain::{Classified, ClusterBreak, Codepoint, Cols, LineBreak, Width, WidthPolicy};
+use baud_domain::{Chan, Classified, ClusterBreak, Codepoint, Cols, LineBreak, Width, WidthPolicy};
 use baud_font::Px;
 
 /// How the badge is drawn while there is one.
@@ -35,6 +35,15 @@ pub struct BadgeLook {
     pub text: String,
     /// Its colour, at the alpha it is drawn at.
     pub colour: Argb,
+    /// **Its outline's colour**, at the alpha it is drawn at: iTerm2's
+    /// background colour, opaque, inside the alpha the badge is drawn at
+    /// ([`DRAWN_AT`]), a line [`STROKE`] of the point size wide drawn over
+    /// each glyph; transparent for none.
+    pub outline: Argb,
+    /// **The alpha the badge is drawn at** ([`DRAWN_AT`] by default): a
+    /// colour glyph's own alpha is drawn inside it, as iTerm2 draws the
+    /// whole label "alpha:_fillColor.alphaComponent".
+    pub drawn_at: Chan,
     /// The largest box, as fractions of the view's width and height.
     pub fraction: (f32, f32),
     /// The box's distance from the view's top and right edges, device
@@ -54,6 +63,24 @@ pub struct BadgeLook {
 /// quarter, 64 of 255. Pinned by
 /// `the_badge_colour_is_iterm2s_default_in_srgb`.
 pub const BADGE: Argb = Argb(0x40FF_2600);
+
+/// **The alpha iTerm2 draws its badge at**, the badge colour's own: half,
+/// for its default colour, and whole for an opaque one, as `SetColors`
+/// makes every colour it sets. Its fill is that colour inside it, so a
+/// quarter by default ([`BADGE`]), and its outline the background colour
+/// "with alpha component" one inside it (`iTermBadgeLabel`'s
+/// `imageWithPointSize:`, `[[source: iterm2-964a75d-badge-label]]`).
+pub const DRAWN_AT: Chan = Chan::from_offset(0x80, 0);
+
+/// **The outline's width, as a share of the point size**: iTerm2 draws the
+/// badge's text with `NSStrokeWidthAttributeName: @-2` (`[[source:
+/// iterm2-964a75d-badge-label]]`), a stroke width "interpreted as a
+/// percentage of font point size" where "negative values are for stroke
+/// and fill" (`[[source: apple-ct-stroke-width]]`), in the colour
+/// `NSStrokeColorAttributeName` names, the background's; the line
+/// "straddles the path, with half of the total width on either side"
+/// (`[[source: apple-quartz2d-paths]]`), drawn by `baud_font::Stroker`.
+pub const STROKE: f32 = 0.02;
 
 /// iTerm2's box, the largest the badge fits in, as fractions of the view's
 /// width and height (`badgeMaxWidthFraction`, `badgeMaxHeightFraction`,

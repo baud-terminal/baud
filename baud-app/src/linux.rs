@@ -1196,6 +1196,7 @@ impl Driver {
         ) {
             self.window.set_title(&mut self.conn.sender(), &t);
         }
+        let was = self.session.clone();
         let s = &mut self.session;
         s.pid = self.pty.child();
         s.tty = self.pty.tty().map(|p| p.to_string_lossy().into_owned());
@@ -1203,6 +1204,11 @@ impl Driver {
         s.job_name = self.derive.name().map(str::to_string);
         s.dir = self.derive.dir().map(|d| d.to_string_lossy().into_owned());
         s.title = self.titles.sent().map(str::to_string);
+        // A badge naming the job, its folder or the title is drawn again
+        // when they change, though the screen did not.
+        if self.session != was && self.term.badge_format().is_some() {
+            self.pending = Pending::Dirty;
+        }
     }
 
     /// **What a ring does here** (`bell.rs`, `ring`): the rule as the
@@ -2521,8 +2527,15 @@ impl Driver {
             .set_cursor_guide(crate::effects::guide_look(guide, 1.0));
         // A `selection` the badge names reads what a copy would copy.
         let selection = || self.seat.selected_text(&self.term);
-        let badge =
-            crate::effects::badge_look(&self.term, self.badge, &self.session, &selection, 1.0);
+        let page = self.renderer.background_of(&self.term);
+        let badge = crate::effects::badge_look(
+            &self.term,
+            self.badge,
+            &self.session,
+            &selection,
+            page,
+            1.0,
+        );
         self.renderer.set_badge(badge);
         // The find field and every match's mark, on the window drawn, and
         // the input method's composition in the field while it is open.

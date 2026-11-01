@@ -67,6 +67,8 @@ fn badge(text: &str) -> BadgeLook {
     BadgeLook {
         text: text.into(),
         colour: BADGE,
+        outline: Theme::dark().bg.with_alpha(baud_render::DRAWN_AT),
+        drawn_at: baud_render::DRAWN_AT,
         fraction: BOX,
         top: Px::of(4),
         right: Px::of(6),

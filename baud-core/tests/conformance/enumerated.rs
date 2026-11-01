@@ -106,6 +106,11 @@ const REPRESENTATIVE: &[(&str, &[u8])] = &[
         "OSC 1337 ; SetColors=key=value",
         b"\x1b]1337;SetColors=fg=fff\x1b\\",
     ),
+    // A badge format in base64, `\(hostname)`.
+    (
+        "OSC 1337 ; SetBadgeFormat=base64",
+        b"\x1b]1337;SetBadgeFormat=XChob3N0bmFtZSk=\x1b\\",
+    ),
     // kitty's colour control: a colour set and one asked, `key` and
     // `value` naming none of their own.
     (

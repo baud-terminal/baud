@@ -81,6 +81,7 @@ mod script;
 mod script_data;
 mod shape;
 mod standard_encoding;
+mod stroke;
 pub mod var;
 
 pub use bake::{BakePoint, Refused, bake};
@@ -112,6 +113,7 @@ pub use shape::{
     CombiningClass, Kept, MarkPlacement, Normalised, Shaped, Shaper, Substitution, combining_class,
     decompose, each_decomposable, joined_reach, keeps_its_cells,
 };
+pub use stroke::{Edges, MITER_LIMIT, Reach, Stroker};
 
 /// A four-byte table tag, as the directory spells it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
