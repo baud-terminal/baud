@@ -40,9 +40,11 @@ the cursor has arrived.
 
 A flame rising off the quad below as it collapses onto the cursor. It burns out
 from the tail toward the cursor, sheds embers along the path and keeps burning
-at the cursor after the corners land: 0.45 to 0.85 s in all, until its last
-ember dies. It is the cursor's colour, with heat as opacity, so it is light on
-a dark theme and dark on a light one.
+at the cursor after the corners land: 0.28 to 0.53 s in all, until its last
+ember dies. The clip and the still above were recorded at its old, slower
+rate, so they show the fire burning longer than it now does. It is the
+cursor's colour, with heat as opacity, so it is light on a dark theme and dark
+on a light one.
 
 A move within a third of a second of the last ignition retargets the quad and
 keeps the flame already burning, so a fire lights at most three times a second.

@@ -484,6 +484,53 @@ is a cursor a program placed before hiding it (helix's).
   `a_fade_alone_redraws_the_trails_rows`, and the CPU-against-GPU gate in
   `baud-present-macos/tests/cells.rs`, which draws each smear half faded.
 
+### 5.13 The fire burns out faster (2026-11-01)
+
+**The fire's flame, its embers and the quad it rises off play 1.6 times as
+fast**, so a long move's fire is out 0.28 to 0.53 s after it lights,
+against 0.45 to 0.85 s before. On the clips' diagonal, for the seeds a
+session's first six ignitions take, it is out 0.50 to 0.52 s after it
+lights, against 0.81 to 0.84 s, and on a 17 x 34 pixel cell its quad lands
+at 0.28 s, against 0.44 s.
+
+- It answers "the fire looks sluggish" (section 6). Four options were
+  rendered: every time shortened by 0.6, the whole fire played 1.6 times as
+  fast, a keystroke putting it out, and leaving it. The second was taken by
+  the lean on 2026-11-01 and is open to reversal; the first was the
+  runner-up.
+- `FIRE_RATE` in `baud-app/src/trail.rs` scales every read of the fire's
+  time in the driver: an ignition's age, and a move's time in a frame, a
+  retarget, a fold and a ride. `fire.rs`'s numbers are unchanged and are
+  read as seconds of the fire's own clock, so neither the shader nor the
+  library changed. The cursor's fire blink and the launch splash do not go
+  through the driver and are unchanged.
+- The display's clock keeps what guards against flashing: three ignitions
+  a second (`REIGNITE`), the flash ledger's second, the 10 ms dwell and a
+  hidden cursor's 0.4 s fade.
+- Every path draws the same fire: the driver hands each the same ignition
+  and quad.
+- The clips in `docs/cursor/` were recorded before the change and were not
+  recorded again; the fire's shows it burning longer than it now does.
+- Tests: `the_fire_and_its_quad_play_at_one_point_six`, red before the
+  change at the age. With the rate at 1.0 it fails at the age; with the
+  frame's corners left on the display's clock it fails at the corners, and
+  three other tests fail with it. `a_fire_burns_past_its_chase_until_its_last_ember`
+  and `a_fire_lights_at_most_three_times_a_second` read the fire's clock.
+- **Flashes** (WCAG 2.2 SC 2.3.1; `baud-bench`'s `flash` census on the
+  GPU's cell path, the same 2,016 fire cases before and after: 13 pt at 1x
+  and 2x, 20, 23, 24 and 26 pt, 32 pt at 1x and 2x and 72 pt, at 60 and
+  120 Hz, under four inks, on four grounds, over seven motions): no case
+  fails, before or after. On the strict reading the fire failed 5 cases at
+  24 pt before, each at 120 Hz on the light page in the default or a black
+  ink, and fails 1 of them after, by 172 of the 21,824 pt², and none apart
+  from the cursor's two cells, where 3 failed before. The most general
+  flashes a second at any pixel, the worst case at each size, fell from 15
+  to 17 to 13 at 13 to 24 pt, and is 7 or 8 at 26 pt and up, against 6 or 7
+  before, where the flash bound draws a repeat under the thresholds; case by
+  case it rose by one in 56 of the 2,016 cases, to at most 8. The block
+  controls failed at 4 Hz and passed at 2 Hz at every size and rate of both
+  runs. The frames that drew a fire fell from 513,488 to 456,784.
+
 ## 6. Open questions, with their options; none is picked here
 
 Each of these is open, and each needs a render of its options before it is
@@ -496,7 +543,7 @@ settled. They are listed so the research behind them is in one place.
 | all | the kitty-derived quad under baud's licence | (a) a record that it takes only the idea and the constants; (b) a clean re-derivation; (d) leave it out | **re-derived (b), 2026-10-25**, section 8. One visible difference: a retarget that lands a corner on its new target leaves it out of the spread, and the corner leading least lags longer (8.4) |
 | all | a trail when the cursor hides | fade over kitty's slow constant, as kitty does; end at once, as baud did and as sfte and Neovide do | **decided: the fade, 2026-11-01**, section 5.12 |
 | all | a trail on a jump scroll | ride it too; ride only a smooth scroll, as now | open; riding both was proposed on 2026-09-27 |
-| fire | "the fire looks sluggish" | shorten its life; burn out faster; put it out on a keystroke; leave it (it burns 0.83 s on the demo's moves) | open |
+| fire | "the fire looks sluggish" | shorten its life; burn out faster; put it out on a keystroke; leave it (it burns 0.83 s on the demo's moves) | **decided 2026-11-01 by the lean: burn out faster**, 1.6 times as fast, and open to reversal; section 5.13 |
 | plasma | the body fill; the flow direction; ions of one charge or both; a bar or underline narrowing the braid | four calls: three of the spec's five questions (body, flow, ions) built at its proposals, and the narrowing the critique offered. The spec's other two, whether a flash counts per pixel or by area and whether long moves dim the filaments, went into the constant gain 0.95 and note AL's bound | open |
 | lightning | strike or arc; the bolt alone or over the quad; what a retarget leaves; sparks and corona | the spec's four questions, built at its proposals | open |
 | ice | shards unrotated; dark lace on light; a life up to 0.87 s; the garland's density | the spec's defaults, built | open |

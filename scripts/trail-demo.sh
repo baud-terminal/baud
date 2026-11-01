@@ -6,7 +6,7 @@
 #
 # 1.15 s is longer than any trail lasts on these moves, so each move starts
 # from rest and the diagonal the stills are taken from (the fifth move) has
-# the screen to itself: the fire, the longest, is out 0.85 s after ignition.
+# the screen to itself.
 #
 # usage: trail-demo.sh <style> <go-file> <done-file>
 style="$1"

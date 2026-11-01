@@ -111,6 +111,15 @@ pub const GATE: Points = Points(32.0);
 /// second period".
 pub const LEDGER: Duration = Duration::from_secs(1);
 
+/// **How fast the fire plays against the display's clock**: its flame, its
+/// embers and the quad it rises off all run 1.6 times as fast, so a long
+/// move's fire is out 0.28 to 0.53 s after it lights rather than 0.45 to
+/// 0.85 s -- `fire::LIFE` and its last ember's death are seconds of its own
+/// clock, read over this rate. What guards against flashing keeps the
+/// display's clock: the three ignitions a second ([`REIGNITE`]), the
+/// [`LEDGER`]'s second, the dwell and a hidden cursor's fade.
+pub const FIRE_RATE: f32 = 1.6;
+
 /// **How long the ghost takes to sweep** from the cell the cursor left to
 /// the cell it reached, seconds: short and snappy, and paid only while the
 /// ghost is the trail.
@@ -392,6 +401,19 @@ impl<M: Moment> Chase<M> {
         level
     }
 
+    /// **The seconds of the trail's own clock from `since` to `now`**: the
+    /// display's, but for the fire's, which runs [`FIRE_RATE`] times as
+    /// fast -- every read of a move's time and of an ignition's age takes
+    /// it, so a retarget, a fold and a ride start from the corners the
+    /// frame drew.
+    fn clock(&self, since: M, now: M) -> f32 {
+        let secs = now.elapsed_since(since).as_secs_f32();
+        match self.style {
+            Style::Effect(Effect::Fire) => secs * FIRE_RATE,
+            Style::Smear(_) | Style::Effect(_) => secs,
+        }
+    }
+
     /// **What the frame draws at `now`**, around `hole`, the cursor's
     /// rectangle as this frame or, hidden, the last that drew it, at the
     /// opacity `level`.
@@ -399,7 +421,7 @@ impl<M: Moment> Chase<M> {
         let opacity = Chan::from_unit(level);
         // The corners this frame, while a move is in flight.
         let corners = self.moving.and_then(|(seg, t0)| {
-            let t = now.elapsed_since(t0).as_secs_f32();
+            let t = self.clock(t0, now);
             (t < seg.lasts()).then(|| seg.at(t))
         });
         if corners.is_none() {
@@ -426,7 +448,7 @@ impl<M: Moment> Chase<M> {
                     self.moving = None;
                     return None;
                 };
-                let age = now.elapsed_since(ig.at).as_secs_f32();
+                let age = self.clock(ig.at, now);
                 if age >= ig.end {
                     // Out: the flame and every ember, and the quad it rode
                     // with them.
@@ -473,7 +495,7 @@ impl<M: Moment> Chase<M> {
             // do not jump -- and a short move on the fast constant, so typing
             // after a jump folds the trail in rather than keeping it alive.
             Some((seg, t0)) => {
-                let from = seg.at(now.elapsed_since(t0).as_secs_f32());
+                let from = seg.at(self.clock(t0, now));
                 self.turn(centre(from), rect);
                 let next = if near(target, rect, cell) {
                     Segment::quick(from, rect)
@@ -578,7 +600,7 @@ impl<M: Moment> Chase<M> {
     #[cfg(any(target_os = "macos", test))]
     pub fn ride(&mut self, dy: f32, now: M, floor: f32, cell_h: f32) {
         if let (Some((seg, t0)), Carry::Riding(r)) = (self.moving, self.carry) {
-            let at = seg.at(now.elapsed_since(t0).as_secs_f32());
+            let at = seg.at(self.clock(t0, now));
             let from = baud_render::Corners(at.0.map(|p| Pt {
                 x: p.x,
                 y: (p.y + dy).max(floor),
@@ -610,7 +632,7 @@ impl<M: Moment> Chase<M> {
         let Some((seg, t0)) = self.moving else {
             return true;
         };
-        let at = seg.at(now.elapsed_since(t0).as_secs_f32()).0;
+        let at = seg.at(self.clock(t0, now)).0;
         at.iter().zip(rect.corners().0).all(|(p, q)| {
             let cells = |a: f32, b: f32, size: f32| ((b - a) / size.max(1.0)).abs();
             cells(p.x, q.x, cell.0) <= THRESHOLD && cells(p.y, q.y, cell.1) <= THRESHOLD
@@ -858,7 +880,8 @@ mod tests {
     /// **A long move lights a fire that burns past its chase** until its last
     /// ember dies: the quad lands, the flame burns on at the cursor, the tick
     /// owes every frame until the end and the one that draws it out, and
-    /// nothing after.
+    /// nothing after -- each on the fire's clock, [`FIRE_RATE`] times the
+    /// display's.
     #[test]
     fn a_fire_burns_past_its_chase_until_its_last_ember() {
         let t0 = Instant::now();
@@ -870,7 +893,7 @@ mod tests {
             .fire(Some(to), t0 + MS * 20)
             .expect("lit once the dwell is out");
         assert!(
-            (f.ignition.age - 0.012).abs() < 0.001,
+            (f.ignition.age - 0.012 * FIRE_RATE).abs() < 0.001,
             "backdated: {}",
             f.ignition.age
         );
@@ -892,7 +915,7 @@ mod tests {
             end > lasts + 0.05,
             "the fire outlives the chase: {end} against {lasts}"
         );
-        let ms = |secs: f32| MS * u32::try_from((secs * 1000.0) as i64).unwrap();
+        let ms = |secs: f32| MS * u32::try_from((secs / FIRE_RATE * 1000.0) as i64).unwrap();
         let landed = q
             .fire(Some(to), t0 + MS * 8 + ms(lasts + 0.02))
             .expect("still burning after the quad lands");
@@ -913,6 +936,67 @@ mod tests {
         assert_eq!(q.owes(out + MS * 8), Owes::Nothing, "and nothing after");
     }
 
+    /// **The fire plays 1.6 times as fast, and so does the quad it rises
+    /// off**, on the clips' diagonal: the fifth move of
+    /// `scripts/trail-demo.sh`, from the top-left mark to the bottom-right.
+    /// Its flame and embers are drawn at 1.6 times their age's seconds, so
+    /// the fire burns until its end over 1.6 and is out after it -- by
+    /// 0.536 s, where on the display's clock it burned past 0.8 s. The
+    /// quad's corners are the segment's at 1.6 times the seconds since the
+    /// move started. The rate is written here rather than read from the
+    /// constant, so a change of it fails. Perturbations: the rate at 1.0
+    /// fails it at the age; the age scaled with the frame's corners left on
+    /// the display's clock fails it at the corners.
+    #[test]
+    fn the_fire_and_its_quad_play_at_one_point_six() {
+        const RATE: f32 = 1.6;
+        let t0 = Instant::now();
+        let (from, to) = (at(7.0, 5.0), at(71.0, 19.0));
+        let mut q = Chase::new(Style::Effect(Effect::Fire));
+        assert_eq!(q.fire(Some(from), t0), None, "first sighting");
+        assert_eq!(q.fire(Some(to), t0 + MS * 8), None, "the dwell");
+        let lit = q.fire(Some(to), t0 + MS * 20).expect("lit");
+        let since = t0 + MS * 8;
+        assert!(
+            (lit.ignition.age - 0.012 * RATE).abs() < 1e-4,
+            "backdated, at the fire's rate: {}",
+            lit.ignition.age
+        );
+        let ig = Ignition::ignite(centre(from.corners()), to, Seed(1), CELL.1);
+        assert_eq!(lit.ignition.seed, Seed(1));
+        let end = Effect::Fire.end(&ig);
+        assert!(
+            end > 0.8,
+            "the control: on the display's clock this fire burned to {end} s"
+        );
+        let seg = Segment::new(from.corners(), to);
+        for ms in [30u32, 60, 120] {
+            let f = q.fire(Some(to), since + MS * ms).expect("burning");
+            let want = seg.at(ms as f32 / 1000.0 * RATE);
+            let moved = f
+                .emitter
+                .corners
+                .0
+                .iter()
+                .zip(want.0)
+                .all(|(p, w)| (p.x - w.x).abs() < 1e-2 && (p.y - w.y).abs() < 1e-2);
+            assert!(
+                moved,
+                "{ms} ms in, the quad is the segment's at {RATE}x: {:?} against {want:?}",
+                f.emitter.corners
+            );
+        }
+        let ms = |secs: f32| MS * u32::try_from((secs * 1000.0) as i64).unwrap();
+        assert!(
+            q.fire(Some(to), since + ms(end / RATE - 0.005)).is_some(),
+            "burning just before its end over the rate"
+        );
+        let out = since + ms(end / RATE + 0.005);
+        assert!(out <= since + MS * 536, "out by 0.536 s: {:?}", out - since);
+        assert_eq!(q.fire(Some(to), out), None, "out just after it");
+        assert_eq!(q.owes(out + MS * 8), Owes::Nothing, "and nothing after");
+    }
+
     /// **A fire lights at most three times a second**: a long move within
     /// [`REIGNITE`] of the last ignition retargets the quad and keeps the
     /// flame that is burning -- its seed and its age -- and one after it
@@ -930,8 +1014,8 @@ mod tests {
         let kept = q.fire(Some(at(10.0, 8.0)), t0 + MS * 220).expect("burning");
         assert_eq!(kept.ignition.seed, Seed(1), "no new ignition within 334 ms");
         assert!(
-            (kept.ignition.age - 0.212).abs() < 0.001,
-            "its age runs on: {}",
+            (kept.ignition.age - 0.212 * FIRE_RATE).abs() < 0.001,
+            "its age runs on, on the fire's clock: {}",
             kept.ignition.age
         );
         assert_eq!(kept.emitter.hole, at(10.0, 8.0), "the quad retargeted");
