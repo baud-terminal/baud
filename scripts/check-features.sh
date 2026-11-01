@@ -34,8 +34,49 @@
 # parse that finds fewer than 30 is a parse that stopped matching, while a new
 # crate may legitimately have none yet -- for it the control is that the
 # manifest exists and was read.
+#
+# **The arms run in parallel, each worker in a target directory of its
+# own.** One `cargo check` after another left most of the machine idle, and
+# two cargo runs in one target directory queue on its lock, so
+# CHECK_FEATURES_JOBS workers (half the CPUs by default) each build in
+# `<CARGO_TARGET_DIR, or target>/arms-<i>`. An arm always goes to the same
+# worker -- its place in the full list, modulo the count -- so a directory
+# stays warm for the arms it built before, and the script never deletes
+# one. The results print in the list's order as they come in: the same
+# lines, and the same exit status, as one arm after another gave.
+#
+# **`--since <rev>` checks only the crates a change can reach.** An arm
+# breaks only when something it compiles changed: its crate's directory, a
+# crate it depends on, or a file it reads from outside its directory, which
+# `scripts/check-features-since.py` finds in the sources -- baud-bench
+# compiles `baud-app/src/trail.rs` without depending on baud-app. The change
+# is everything between <rev> and the working tree, committed or not. A
+# change to the lock file, the workspace manifest, cargo's configuration,
+# the toolchain's pins or either script checks every crate, and so does a
+# scope the helper cannot compute. Each crate skipped is named with the
+# reason, and every floor below is checked whether its arms run or not.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+
+since=""
+if [ $# -gt 0 ]; then
+  if [ "$1" != "--since" ] || [ $# -ne 2 ] || [ -z "$2" ]; then
+    echo "usage: scripts/check-features.sh [--since <rev>]"
+    exit 2
+  fi
+  since=$2
+fi
+
+cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
+jobs=${CHECK_FEATURES_JOBS:-$((cpus / 2))}
+[ -n "${CHECK_FEATURES_JOBS:-}" ] || [ "$jobs" -ge 1 ] || jobs=1
+case "$jobs" in
+'' | *[!0-9]* | 0*)
+  echo "FAIL: CHECK_FEATURES_JOBS is '$jobs'; it takes a number of workers, 1 or more"
+  exit 2
+  ;;
+esac
+base=${CARGO_TARGET_DIR:-${CARGO_BUILD_TARGET_DIR:-target}}
 
 # **Every crate with a [features] block, and the list is the gate.** It
 # omitted baud-domain, whose eight arms were therefore built by nothing --
@@ -154,63 +195,255 @@ if [ -n "$unexplained" ]; then
   exit 1
 fi
 
-fail=0
-total=0
+# ── Which crates a change can reach, with --since ────────────────────────
+# `scoped` is set when only `reach`'s crates are checked; it may name none.
+scoped=""
+reach=" "
+if [ -n "$since" ]; then
+  command -v python3 >/dev/null || {
+    echo "FAIL: --since needs python3, which is not on PATH; devenv provides it"
+    exit 1
+  }
+  scope=$(python3 -I scripts/check-features-since.py "$since")
+  status=$?
+  tab=$(printf '\t')
+  case "$status:$scope" in
+  1:FAIL:*)
+    printf '%s\n' "$scope"
+    exit 1
+    ;;
+  0:"all$tab"*)
+    echo "since $since: ${scope#all"$tab"}"
+    ;;
+  0:*)
+    scoped=1
+    reach=" $(printf '%s\n' "$scope" | cut -f1 | tr '\n' ' ')"
+    listed=$(for entry in $CRATES; do
+      printf '%s\n' "$scope" | awk -F'\t' -v c="${entry%%:*}" '$1 == c { print "  " c ": " $2 }'
+    done)
+    if [ -n "$listed" ]; then
+      echo "since $since: checking the crates a change can reach"
+      printf '%s\n' "$listed"
+    else
+      echo "since $since: no change reaches a crate with feature arms"
+    fi
+    ;;
+  *)
+    echo "since $since: the scope script failed, so every crate is checked"
+    ;;
+  esac
+fi
+
+# ── The plan: every arm, in the order the output gives it ────────────────
+# Every crate's arms are found and its floor checked before any arm runs,
+# and a crate whose manifest is missing or reads short still stops the gate
+# at its place in the list, after the crates before it are reported.
+c_name=()
+c_count=()
+c_first=()
+c_end=()
+c_skip=()
+a_crate=()
+a_feat=()
+a_slot=()
+halt=""
+place=0
 for entry in $CRATES; do
   crate="${entry%%:*}"
   min="${entry##*:}"
   manifest="$crate/Cargo.toml"
   if [ ! -f "$manifest" ]; then
-    echo "FAIL: $manifest does not exist -- the gate would have read nothing for $crate"
-    exit 1
+    halt="FAIL: $manifest does not exist -- the gate would have read nothing for $crate"
+    break
   fi
   # The `[features]` section only: alternating awk flag, skip `default` and any
   # comment line whose first token is `#`.
   feats=$(awk '/^\[features\]/{f=1;next} /^\[/{f=0} f && /=/ && $1!="#" {print $1}' "$manifest" | grep -vx default || true)
   count=$(printf '%s\n' "$feats" | grep -c . || true)
   if [ "$count" -lt "$min" ]; then
-    echo "FAIL: only $count features parsed from $manifest (expected at least $min) -- the gate is reading nothing"
-    exit 1
+    halt="FAIL: only $count features parsed from $manifest (expected at least $min) -- the gate is reading nothing"
+    break
   fi
-  echo "$crate: checking $count feature arms individually (cargo check, -D warnings)"
+  skip=""
+  if [ -n "$scoped" ]; then
+    case "$reach" in *" $crate "*) ;; *) skip=1 ;; esac
+  fi
+  # **And the build without the defaults, where a crate has them**, as an
+  # empty feature. It is an arm too: `--no-default-features` on
+  # `baud-bench` is the portable scan's, and it ran NEON while a crate it
+  # depends on took `baud-core`'s defaults, because cargo builds a
+  # dependency once, with every feature any crate in the build enables on
+  # it. `ingest2` will not compile when the scan it is built as is not the
+  # one `baud-core` runs, so this check is where that shows.
+  arms=$feats
+  grep -q '^default[[:space:]]*=' "$manifest" && arms=$(printf '%s\n-\n' "$feats")
+  c_name+=("$crate")
+  c_count+=("$count")
+  c_skip+=("$skip")
+  c_first+=("${#a_crate[@]}")
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    total=$((total + 1))
-    # **`--all-targets`, because a bare `cargo check` covers lib and bins
-    # only.** When `baud-bench`'s measurement programs were `src/bin/*.rs` a
-    # bare check compiled them; they are `[[bench]]` targets now, and a bare
-    # check compiled *nothing but the lib* -- measured: a deliberate syntax
-    # error in `benches/transport.rs` gave 0 errors without this flag and 2
-    # with it. So the move would have silently turned ~50 arm checks into ~50
-    # checks of an almost-empty library, which is this repo's
-    # gate-scoped-to-the-wrong-thing failure with a fresh carrier.
-    # By manifest, because an entry is a directory and `baud-app/` holds the
-    # package `baud`.
-    if ! out=$(RUSTFLAGS="-D warnings" cargo check --release -q --manifest-path "$manifest" --all-targets --features "$f" 2>&1); then
-      fail=1
+    [ "$f" = "-" ] && f=""
+    if [ -z "$skip" ]; then
+      a_crate+=("$crate")
+      a_feat+=("$f")
+      a_slot+=($((place % jobs)))
+    fi
+    place=$((place + 1))
+  done <<<"$arms"
+  c_end+=("${#a_crate[@]}")
+done
+
+# One arm: its BROKEN lines, or nothing.
+check_arm() {
+  local crate=${a_crate[$1]} f=${a_feat[$1]} out
+  # **`--all-targets`, because a bare `cargo check` covers lib and bins
+  # only.** When `baud-bench`'s measurement programs were `src/bin/*.rs` a
+  # bare check compiled them; they are `[[bench]]` targets now, and a bare
+  # check compiled *nothing but the lib* -- measured: a deliberate syntax
+  # error in `benches/transport.rs` gave 0 errors without this flag and 2
+  # with it. So the move would have silently turned ~50 arm checks into ~50
+  # checks of an almost-empty library, which is this repo's
+  # gate-scoped-to-the-wrong-thing failure with a fresh carrier.
+  # By manifest, because an entry is a directory and `baud-app/` holds the
+  # package `baud`.
+  if [ -n "$f" ]; then
+    if ! out=$(RUSTFLAGS="-D warnings" cargo check --release -q --manifest-path "$crate/Cargo.toml" --all-targets --features "$f" 2>&1); then
       echo "  BROKEN  $crate/$f"
       printf '%s\n' "$out" | grep -E "^error" | head -2 | sed 's/^/      /'
     fi
-  done <<<"$feats"
-  # **And the build without the defaults, where a crate has them.** It is
-  # an arm too: `--no-default-features` on `baud-bench` is the portable
-  # scan's, and it ran NEON while a crate it depends on took `baud-core`'s
-  # defaults, because cargo builds a dependency once, with every feature
-  # any crate in the build enables on it. `ingest2` will not compile when
-  # the scan it is built as is not the one `baud-core` runs, so this check
-  # is where that shows.
-  if grep -q '^default[[:space:]]*=' "$manifest"; then
-    total=$((total + 1))
-    if ! out=$(RUSTFLAGS="-D warnings" cargo check --release -q --manifest-path "$manifest" --all-targets --no-default-features 2>&1); then
-      fail=1
-      echo "  BROKEN  $crate --no-default-features"
-      printf '%s\n' "$out" | grep -E "^error" | head -2 | sed 's/^/      /'
-    fi
+  elif ! out=$(RUSTFLAGS="-D warnings" cargo check --release -q --manifest-path "$crate/Cargo.toml" --all-targets --no-default-features 2>&1); then
+    echo "  BROKEN  $crate --no-default-features"
+    printf '%s\n' "$out" | grep -E "^error" | head -2 | sed 's/^/      /'
   fi
+}
+
+# ── The workers ──────────────────────────────────────────────────────────
+# Each arm's lines go to a file of its own, and its number down a FIFO when
+# they are written, so the loop below waits on a read rather than a timer.
+# A worker that ends writes `x`: once every worker has, an arm with no
+# result is reported BROKEN rather than waited on.
+#
+# **A gate that stops takes its workers with it.** Background jobs of a
+# script ignore SIGINT, and so does the cargo they start, so a Ctrl-C, a
+# closed pipe or a TERM that ended this shell left the workers checking
+# arms with no one to read them. Any end of this shell stops every process
+# under the workers, and a worker whose gate is gone, killed past any trap,
+# stops before its next arm.
+n=${#a_crate[@]}
+tmp=$(mktemp -d)
+pids=""
+gate=$$
+# Every process below the PIDs given, whatever its depth.
+descendants() {
+  ps -Ao pid=,ppid= | awk -v roots="$*" '
+    { kids[$2] = kids[$2] " " $1 }
+    END {
+      n = split(roots, q, " ")
+      r = n
+      for (i = 1; i <= n; i++) {
+        if (i > r) print q[i]
+        m = split(kids[q[i]], more, " ")
+        for (j = 1; j <= m; j++) q[++n] = more[j]
+      }
+    }'
+}
+stop() {
+  trap - EXIT INT TERM HUP PIPE
+  # A signal is mostly taken while the loop below waits in `IFS= read`,
+  # and the trap runs inside that command's IFS: empty, which left the
+  # PIDs one word that `kill` refused, so the workers ran on unstopped.
+  local IFS=$' \t\n'
+  if [ -n "$pids" ]; then
+    # shellcheck disable=SC2046,SC2086 # one PID a word
+    kill $pids $(descendants $pids) 2>/dev/null
+  fi
+  rm -rf "$tmp"
+}
+trap stop EXIT
+trap 'stop; exit 130' INT
+trap 'stop; exit 143' TERM
+trap 'stop; exit 129' HUP
+trap 'stop; exit 141' PIPE
+mkfifo "$tmp/done"
+exec 3<>"$tmp/done"
+w=0
+while [ "$n" -gt 0 ] && [ "$w" -lt "$jobs" ]; do
+  {
+    (
+      export CARGO_TARGET_DIR="$base/arms-$w"
+      k=0
+      while [ "$k" -lt "$n" ]; do
+        kill -0 "$gate" 2>/dev/null || exit 1
+        if [ "${a_slot[$k]}" -eq "$w" ]; then
+          check_arm "$k" >"$tmp/arm-$k" 3>&-
+          echo "$k" >&3
+        fi
+        k=$((k + 1))
+      done
+    )
+    echo x >&3
+  } &
+  pids="$pids $!"
+  w=$((w + 1))
 done
 
+ended=0
+got=()
+await() {
+  while [ -z "${got[$1]-}" ]; do
+    [ "$ended" -lt "$jobs" ] || return 1
+    IFS= read -r line <&3 || return 1
+    if [ "$line" = x ]; then
+      ended=$((ended + 1))
+    else
+      got[line]=1
+    fi
+  done
+}
+
+fail=0
+total=0
+skipped=0
+i=0
+while [ "$i" -lt "${#c_name[@]}" ]; do
+  crate=${c_name[$i]}
+  if [ -n "${c_skip[$i]}" ]; then
+    echo "$crate: skipped, nothing it is built from changed since $since"
+    skipped=$((skipped + 1))
+  else
+    echo "$crate: checking ${c_count[$i]} feature arms individually (cargo check, -D warnings)"
+  fi
+  k=${c_first[$i]}
+  while [ "$k" -lt "${c_end[$i]}" ]; do
+    total=$((total + 1))
+    if ! await "$k"; then
+      fail=1
+      f=${a_feat[$k]}
+      if [ -n "$f" ]; then echo "  BROKEN  $crate/$f"; else echo "  BROKEN  $crate --no-default-features"; fi
+      echo "      no result: the worker checking it ended first"
+    elif [ -s "$tmp/arm-$k" ]; then
+      fail=1
+      cat "$tmp/arm-$k"
+    fi
+    k=$((k + 1))
+  done
+  i=$((i + 1))
+done
+# shellcheck disable=SC2086 # one PID a word
+[ -z "$pids" ] || wait $pids
+pids=""
+
+if [ -n "$halt" ]; then
+  echo "$halt"
+  exit 1
+fi
 if [ "$fail" -ne 0 ]; then
   echo "FAIL: at least one feature arm does not build -- a compiled arm that does not compile cannot be re-measured"
   exit 1
 fi
-echo "ok: all $total feature arms build"
+if [ "$skipped" -gt 0 ]; then
+  echo "ok: the $total feature arms a change since $since can reach build; $skipped crates skipped"
+else
+  echo "ok: all $total feature arms build"
+fi

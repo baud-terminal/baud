@@ -153,6 +153,19 @@ source in `docs/research/sources/`, cited as `[[source: <key>]]`. Sources marked
 Do not implement a control function from memory. `docs/vt-coverage.md` records
 what the specifications say, including where two of them disagree.
 
+## The feature-arm gate
+
+`scripts/check-features.sh`, run by `tasks."test:features"`, checks that every
+cargo feature of every crate compiles on its own under `-D warnings`, so an arm
+kept for measuring still builds when someone reaches for it. The arms run in
+parallel: half the CPUs by default, or as many workers as `CHECK_FEATURES_JOBS`
+names, each in a target directory of its own under `<target>/arms-<i>` that the
+next run reuses. Each holds a release-mode check of the arms it builds, 0.4 to
+0.7 GB on this tree, and the script never deletes one: remove them by hand to
+take the space back. `scripts/check-features.sh --since <rev>` checks only the
+crates a change since `<rev>`, committed or not, can reach, and names each
+crate it skips and why.
+
 ## The audit gate
 
 `audit_all.sh` fails if raw integers appear outside the places they belong. Each
