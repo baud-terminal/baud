@@ -33,7 +33,7 @@
 //! | 1 | XTSMTITLE's four modes |
 //! | 18 | XTMODKEYS for the seven resources, -1 to 15 as a byte (14); XTFMTKEYS's seven formats (2); modifyOtherKeys' mask (2) |
 //! | 27 | DECCIR's fields: the row and column (3 each), `Srend`, `Satt`, `Sflag` (1 each), GL and GR (1), the four designations ([`TSR_DESIGNATIONS`]) |
-//! | 53 | the shown screen's `DECSC` save: its row from 1, 0 for none (3), column from 0 (3), rendition (28), protection, DECAWM, DECOM and pending wrap (1), GL and GR (1), the four designations |
+//! | 53 | the shown screen's `DECSC` save: its row from 1, 0 for none (3), column from 0 (3), rendition (28), protection (bit 0), DECOM (bit 2) and pending wrap (bit 3) (1), GL and GR (1), the four designations |
 //! | 4 | the tab stops: carried (bit 0) or every eighth column (bit 1); the columns (3) |
 //! | 0-58 | the tab stops' bitmap, a bit a column, when carried, [`TSR_TAB_COLS`] columns at most |
 //!
@@ -167,10 +167,11 @@ pub struct TsrSaved {
     pub row: u16,
     pub col: u16,
     pub rendition: StyleWord,
-    /// DECSCA's protection, DECAWM, DECOM, and whether the column is the
-    /// sentinel.
+    /// DECSCA's protection, DECOM, and whether the column is one past a
+    /// pending wrap's. **Bit 1 of their nibble is written 0 and not read**:
+    /// it carried DECAWM while DECRC restored it, and a `DECSC` save holds
+    /// no DECAWM since 2026-11-01, so the layout keeps its place.
     pub protect: ModeChange,
-    pub autowrap: ModeChange,
     pub origin: ModeChange,
     pub pending: ModeChange,
     pub gl: GSlot,
@@ -529,7 +530,7 @@ impl TerminalState {
                 p.nibbles(u32::from(s.row) + 1, 3);
                 p.nibbles(u32::from(s.col), 3);
                 p.rendition(s.rendition);
-                let flags = [s.protect, s.autowrap, s.origin, s.pending]
+                let flags = [s.protect, ModeChange::Reset, s.origin, s.pending]
                     .iter()
                     .enumerate()
                     .fold(0, |v, (i, m)| v | (u32::from(*m == ModeChange::Set) << i));
@@ -718,7 +719,6 @@ impl TerminalRestore {
                 col: col? as u16,
                 rendition: rendition?,
                 protect: bit(0),
-                autowrap: bit(1),
                 origin: bit(2),
                 pending: bit(3),
                 gl: slot(slots),

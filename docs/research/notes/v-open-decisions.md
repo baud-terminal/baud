@@ -1900,6 +1900,22 @@ comment above the line-136 test.
   pending wrap, and EL0 at a pending wrap ([[source: xterm-scroll]]).
 - **Adjacent:** `wrap` marks a row wrapped at a mid-row margin. xterm always
   marks; ghostty marks only at the full edge. The sources disagree.
+- **Decided 2026-11-01 and built the same day** (a lean where marked):
+  PendingAt, kept by `?69l` and `DECSTR` on the
+  margin's column, a tag only cold code sets (`CursorCol::waiting`); the
+  pending wrap saved by DECSC and restored by DECRC, DECAWM left (note AE's
+  Q12); CUB and BS counting from the last column, the wrap still the first
+  step under `?45` or `?1045` with `?7`; EL 0, ECH, ED 0, DECSEL 0 and DECSED
+  0 erasing from the last column and ending the wrap and the row's soft
+  wrap, and EL 1 and 2 with DECSEL 1 and 2 ending it (a lean), and ED 1 and
+  2 with DECSED 1 and 2 too; CUU and CUD ending it; a resize keeping it, on
+  the alternate screen's new last column or its own, and on the primary on
+  the character the re-cut moved (that last a lean); and the row a wrap
+  kept short of the line's end leaves not marked as continuing (a lean).
+  `baud-core/tests/pending_wrap.rs` and the ghostty oracle's `wrap:` and
+  `resize:` fixtures hold them. **Still open**: the mid-row margin mark
+  above, and `LF`, `VT`, `FF`, `IND`, `RI`, `ICH` and `DCH`, which keep a
+  pending wrap where D.6.1 resets it.
 
 **Tests and measurement**
 

@@ -988,6 +988,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn past_margin(&mut self, need: Count) {
+        // **A wrap kept waiting is taken first** ([`Paint::take_waiting`]),
+        // and what follows is written where that leaves the cursor.
+        if self.cx.is_waiting() {
+            return self.take_waiting();
+        }
         let c = self.cx.col();
         let end = self.line_cols().index();
         let fits = c.index() + need.index() <= end;
@@ -1000,6 +1005,43 @@ impl<'a, 'b> Paint<'a, 'b> {
         match self.cold.modes.is_set(ModeBit::AutoWrap) {
             true => self.wrap_bounded(),
             false => self.cx = CursorCol::written(Col::at_index(end - 1)),
+        }
+    }
+
+    /// **The wrap a [`CursorCol::waiting`] value keeps**, before the
+    /// character that takes it: with `DECAWM` set to the left margin of
+    /// the next line, as [`Paint::wrap`] goes, and with it reset onto the
+    /// column it waits on, which the character overwrites, as a write with
+    /// autowrap off overwrites the last column (D.6.1).
+    ///
+    /// **The row it leaves is not marked as continuing**: the line ended on
+    /// the column it waited on, short of the line's end, so the next line
+    /// is one of its own, and a later re-cut, copy or search does not join
+    /// the cells right of that column to it, as ghostty marks only a wrap
+    /// at the screen's last column (`printWrap`, `[[source:
+    /// ghostty-d9840f3-terminal]]` 1758-1763); the
+    /// line it starts takes the direction in force, as after a line feed
+    /// (`crate::path`). A wrap at a right margin is [`Paint::wrap`]'s.
+    #[cold]
+    #[inline(never)]
+    fn take_waiting(&mut self) {
+        let m = self.cold.modes;
+        if !m.is_set(ModeBit::AutoWrap) {
+            self.cx = CursorCol::moved(self.cx.col().before());
+            return;
+        }
+        if m.is_set(ModeBit::AutoPrint) {
+            self.autoprint(crate::print::LineEnd::LineFeed);
+        }
+        self.cx = CursorCol::moved(self.cold.left);
+        match m.is_set(ModeBit::PathSelected) {
+            true => self.line_fed_into_path(),
+            false => {
+                self.index();
+            }
+        }
+        if m.is_set(ModeBit::LineBounded) {
+            self.home_after_wrap();
         }
     }
 
@@ -1703,6 +1745,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn widen(&mut self, r: Row, o: Col) {
+        // **Not under a kept wrap** ([`CursorCol::waiting`]): a resize
+        // between the base and its `U+FE0F` left the wrap waiting after it,
+        // and the cursor is no column a tail could be written at.
+        if self.cx.is_waiting() {
+            return;
+        }
         self.refresh_fence();
         let x = o.index();
         if x + 1 != self.cx.col().index()

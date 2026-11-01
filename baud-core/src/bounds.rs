@@ -113,11 +113,11 @@ impl Paint<'_, '_> {
     /// `CursorForward` and `TabNext` count from the cursor column, which stays
     /// there while the wrap waits (`[[source: xterm-cursor-c]]` 211-241,
     /// `[[source: xterm-tabs-c]]` 109-124). So `CUF`, `HT`, `CHT`, `CBT`,
-    /// `HTS`, `TBC 0` and HTJ count from the limit. `CUB` counts the wait as
-    /// its first step, as at a right margin, and `HPB` from the reported
-    /// column.
+    /// `HTS`, `TBC 0` and HTJ count from the limit, and **from the column a
+    /// wrap kept waiting waits on** ([`CursorCol::waiting`]), whose value is
+    /// one past it. `CUB` and `HPB` count from the reported column too.
     pub(crate) fn moved_from(&self) -> Col {
-        match self.cold.pinned == Pinned::AtLimit {
+        match self.cold.pinned == Pinned::AtLimit || self.cx.is_waiting() {
             true => self.cx.reported(self.report_fence(), self.cols),
             false => self.cx.col(),
         }
@@ -327,7 +327,7 @@ impl Paint<'_, '_> {
 
     #[cold]
     #[inline(never)]
-    fn home_after_wrap(&mut self) {
+    pub(crate) fn home_after_wrap(&mut self) {
         if self.cold.modes.is_set(ModeBit::AutoWrap) {
             let c = self.homed(self.cx.col());
             self.cx = CursorCol::moved(c);

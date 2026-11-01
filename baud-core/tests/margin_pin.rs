@@ -465,31 +465,37 @@ fn a_step_back_ends_it() {
 
 /// **A resize that clamps the cursor moves it**, so it ends the pin as any
 /// horizontal move does. The alternate screen does not reflow: `abcdefgh`
-/// cut to six columns leaves the cursor on the `f`, which was not written
-/// last, and a mark the machine joins goes to the `e` before it under both
-/// modes, as `cx - 1` of the clamped column puts it with autowrap set,
-/// through `attach_continuing`. After a control it is a cluster of its own
-/// and takes the cursor's cell, the `f`'s, as a character would (since
-/// 2026-10-23).
+/// with autowrap reset, cut to six columns, leaves the cursor on the `f`,
+/// which was not written last, and a mark the machine joins goes to the `e`
+/// before it, through `attach_continuing`. After a control it is a cluster
+/// of its own and takes the cursor's cell, the `f`'s, as a character would
+/// (since 2026-10-23).
+///
+/// **With autowrap set there is no pin but a pending wrap, which the clamp
+/// keeps on the new last column** (since 2026-11-01): a joined mark goes to
+/// the `f` the wrap waits after, and one after a control wraps first, as a
+/// character would, to the next row's first cell.
 #[test]
 fn a_resize_that_clamps_the_cursor_ends_it() {
     const SIX: WinSize = WinSize {
         ws_row: 4,
         ws_col: 6,
     };
-    for (after, at) in [("\u{301}", 4), ("\x1b[m\u{301}", 5)] {
-        for mode in ["\x1b[?7h", "\x1b[?7l"] {
-            let s = format!("\x1b[?1049h{mode}abcdefgh");
-            for read in (1..=s.len()).map(ReadLen::from_index) {
-                let (_, marks) =
-                    across_a_resize(&EIGHT, &SIX, s.as_bytes(), read, after.as_bytes());
-                assert_eq!(
-                    marks,
-                    [(0, at, vec![0x301])],
-                    "{s:?} then {after:?}, in {}-byte reads",
-                    read.index()
-                );
-            }
+    for (after, mode, at) in [
+        ("\u{301}", "\x1b[?7l", (0, 4)),
+        ("\x1b[m\u{301}", "\x1b[?7l", (0, 5)),
+        ("\u{301}", "\x1b[?7h", (0, 5)),
+        ("\x1b[m\u{301}", "\x1b[?7h", (1, 0)),
+    ] {
+        let s = format!("\x1b[?1049h{mode}abcdefgh");
+        for read in (1..=s.len()).map(ReadLen::from_index) {
+            let (_, marks) = across_a_resize(&EIGHT, &SIX, s.as_bytes(), read, after.as_bytes());
+            assert_eq!(
+                marks,
+                [(at.0, at.1, vec![0x301])],
+                "{s:?} then {after:?}, in {}-byte reads",
+                read.index()
+            );
         }
     }
 }

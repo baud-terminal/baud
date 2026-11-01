@@ -340,14 +340,10 @@ half-built protocol feature is finished to the spec, not switched off"):
 Each is a departure from a standard, recorded as a defect. The list moved here
 from the README on 2026-10-12. On the protocol side the full list is the rows
 at **partial** in [vt-coverage.md](vt-coverage.md), which its legend names;
-of those rows the list below repeats DECSC and DECRC and the DEC Special
-Graphics table.
+of those rows the list below repeats the DEC Special Graphics table. Which
+wrap state DECSC saves and DECRC restores left this list on 2026-11-01: the
+pending wrap, and not DECAWM (note AE's Q12; the `ESC 7` and `ESC 8` rows).
 
-- **Which wrap state DECSC saves and DECRC restores is open** (note AE's
-  Q12). They save G0-G3 and which of them GL and GR invoke; a single shift
-  is never pending when DECSC runs, since its `ESC` cancels one
-  (`[[source: dec-std-070]]` p. 3-81), so vt510's "Any single shift 2 (SS2)
-  or single shift 3 (SS3) functions sent" is always empty.
 - **DEC Special Graphics leaves `0x5F` as `_`**, where every DEC text read
   replaces it with Blank; which code point Blank stores is open.
 - **A `SUB` draws no error character by default**, where DEC's VT220 to

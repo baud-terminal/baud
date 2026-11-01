@@ -10,6 +10,9 @@
 //! * the cursor's row and column;
 //! * the pending-wrap flag, against [`Term::wrap_pending`].
 //!
+//! A fixture is bytes, and may resize between them: `Term::resize` against
+//! `ghostty_terminal_resize`, each read at the geometry it leaves.
+//!
 //! **What ghostty does not implement it cannot judge**, so it is not asked:
 //! `DECIC` and `DECDC` appear nowhere in its `Terminal.zig` at d9840f3, and
 //! a first run that fed them read ghostty's silence as a difference.
@@ -36,7 +39,7 @@
 //! reports another version. It is outside the workspace and gates nothing on its own:
 //! the regression gate behind every coverage row is `baud-core`'s own tests.
 
-use baud_core::{BytePos, Owned, ReadLen, Row, Term, WinSize, WrapPending};
+use baud_core::{BytePos, Owned, ReadLen, Resized, Row, Term, WinSize, WrapPending};
 use std::process::ExitCode;
 
 /// The version the library built at d9840f3 reports.
@@ -117,6 +120,13 @@ mod ghostty {
         pub fn ghostty_grid_ref_cell(r: *const GridRef, out: *mut u64) -> i32;
         pub fn ghostty_cell_get(cell: u64, data: i32, out: *mut c_void) -> i32;
         pub fn ghostty_build_info(data: i32, out: *mut c_void) -> i32;
+        pub fn ghostty_terminal_resize(
+            t: Terminal,
+            cols: u16,
+            rows: u16,
+            cell_width: u32,
+            cell_height: u32,
+        ) -> i32;
     }
 }
 
@@ -134,20 +144,58 @@ struct State {
     pending: bool,
 }
 
-fn baud_state(bytes: &[u8], read: usize) -> State {
+/// A step of a fixture: bytes, fed at the read size under test, or a
+/// resize to rows by columns between two reads.
+#[derive(Clone)]
+enum Step {
+    Bytes(Vec<u8>),
+    Resize(u16, u16),
+}
+
+/// The geometry after `steps`, and the largest any of them asks for.
+fn geometry(steps: &[Step]) -> ((u16, u16), (u16, u16)) {
+    let (mut now, mut most) = ((ROWS, COLS), (ROWS, COLS));
+    for s in steps {
+        if let Step::Resize(r, c) = *s {
+            now = (r, c);
+            most = (most.0.max(r), most.1.max(c));
+        }
+    }
+    (now, most)
+}
+
+fn baud_state(steps: &[Step], read: usize) -> State {
     let ws = WinSize {
         ws_row: ROWS,
         ws_col: COLS,
     };
-    let mut owned = Owned::new(&ws);
+    let ((rows, cols), (most_rows, most_cols)) = geometry(steps);
+    let room = WinSize {
+        ws_row: most_rows,
+        ws_col: most_cols,
+    };
+    let mut owned = Owned::new(&room);
     let mut t = Term::new(owned.storage(), &ws);
-    for piece in bytes.chunks(read.max(1)) {
-        t.write_at(BytePos::ZERO, piece);
-        t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
+    for s in steps {
+        match s {
+            Step::Bytes(bytes) => {
+                for piece in bytes.chunks(read.max(1)) {
+                    t.write_at(BytePos::ZERO, piece);
+                    t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
+                }
+            }
+            Step::Resize(r, c) => {
+                let to = WinSize {
+                    ws_row: *r,
+                    ws_col: *c,
+                };
+                assert_eq!(t.resize(&to), Resized::Ok, "room for {r}x{c}");
+            }
+        }
     }
-    let screen = (0..ROWS as usize)
+    let screen = (0..rows as usize)
         .map(|y| {
-            t.row(Row::from_index(y)).expect("a row on the grid")[..COLS as usize]
+            t.row(Row::from_index(y)).expect("a row on the grid")[..cols as usize]
                 .iter()
                 .map(|c| match c.content.is_wide_tail() {
                     true => ']',
@@ -167,21 +215,34 @@ fn baud_state(bytes: &[u8], read: usize) -> State {
     }
 }
 
-fn ghostty_state(bytes: &[u8], read: usize) -> State {
+fn ghostty_state(steps: &[Step], read: usize) -> State {
     use ghostty::*;
     let mut t: Terminal = std::ptr::null_mut();
     // SAFETY: `t` is an out-pointer the call fills; NULL selects ghostty's
     // default allocator, as the header documents.
     let rc = unsafe { ghostty_terminal_new(std::ptr::null(), &mut t, COLS, ROWS) };
     assert_eq!(rc, 0, "ghostty_terminal_new failed with {rc}");
-    for piece in bytes.chunks(read.max(1)) {
-        // SAFETY: `piece` is a live slice and `t` a live terminal.
-        unsafe { ghostty_terminal_vt_write(t, piece.as_ptr(), piece.len()) };
+    let ((rows, cols), _) = geometry(steps);
+    for s in steps {
+        match s {
+            Step::Bytes(bytes) => {
+                for piece in bytes.chunks(read.max(1)) {
+                    // SAFETY: `piece` is a live slice and `t` a live terminal.
+                    unsafe { ghostty_terminal_vt_write(t, piece.as_ptr(), piece.len()) };
+                }
+            }
+            Step::Resize(r, c) => {
+                // SAFETY: `t` is a live terminal; the cell size is any
+                // nonzero one, which only pixel reports read.
+                let rc = unsafe { ghostty_terminal_resize(t, *c, *r, 10, 20) };
+                assert_eq!(rc, 0, "ghostty_terminal_resize failed with {rc}");
+            }
+        }
     }
     let mut screen = Vec::new();
-    for y in 0..ROWS as u32 {
+    for y in 0..rows as u32 {
         let mut row = String::new();
-        for x in 0..COLS {
+        for x in 0..cols {
             let mut gref = GridRef {
                 size: std::mem::size_of::<GridRef>(),
                 node: std::ptr::null_mut(),
@@ -273,7 +334,7 @@ enum Verdict {
 
 struct Fixture {
     name: &'static str,
-    bytes: Vec<u8>,
+    steps: Vec<Step>,
     verdict: Verdict,
 }
 
@@ -371,11 +432,6 @@ const BS_MARGIN: &str = "ghostty departs: without ?45 BS passes the left margin 
                          ?45 it stops there on every row; STD 070 BS notes 1-2 (p. 5-63) \
                          stop it at the margin inside the scroll area only. xterm stops \
                          it at the margin on every row (CursorBack, cursor.c 148-149)";
-/// baud's `?45` reverse-wraps onto a row that did not wrap.
-const REVWRAP_UNWRAPPED: &str = "found, not fixed: baud's ?45 reverse-wraps onto the row above \
-                                 whether or not it wrapped; ghostty, and xterm since 2023 \
-                                 (CursorBack's LineTstWrapped, cursor.c 176-182), only onto \
-                                 a row that soft-wrapped";
 /// A wide character that does not fit before the line's end.
 const WIDE_LAST: &str = "found, not fixed: a wide character with one column left before \
                          the line's end leaves that column as it was here; ghostty blanks \
@@ -394,6 +450,17 @@ const NOWRAP_FLAG: &str = "ghostty departs: with ?7l a write into the last colum
                            (charproc.c 7157-7173); STD 070's algorithm sets the Last Column \
                            Flag only with Auto Wrap on (p. 5-141) -- at full width and right \
                            of the fence alike";
+/// Row 3 filled from column 1, the wrap pending at its last column.
+const FULL: &str = "\x1b[3;1Habcdefghijklmnopqrst";
+/// A wrap pending at the fence's right margin, column 10, kept there by
+/// `?69l` putting the margins back.
+const KEPT: &str = "\x1b[?69h\x1b[5;10s\x1b[3;5HABCDEF\x1b[?69l";
+/// `ICH` and `DCH` at a pending wrap.
+const EDIT_KEEPS: &str = "found, not fixed: ICH and DCH at a pending wrap keep it here and \
+                          edit nothing on the row; ghostty edits at the last column and \
+                          ends it, and STD 070 D.6.1 (pp. D-13, D-14) lists DELETE_CHARACTER \
+                          and INSERT CHARACTER among the controls that reset the Last \
+                          Column Flag";
 /// Note V's full-width pending-wrap follow-ons, each a later decision.
 const FOLLOW_ON: &str = "note V's full-width follow-ons: baud keeps the sentinel \
                          across LF, ghostty clears its pending_wrap";
@@ -402,9 +469,16 @@ fn fixtures() -> Vec<Fixture> {
     use Verdict::*;
     let f = |name, tail: String, verdict| Fixture {
         name,
-        bytes: on_fill(&tail),
+        steps: vec![Step::Bytes(on_fill(&tail))],
         verdict,
     };
+    // A fixture on a blank screen, its steps as given: the resizes'.
+    let r = |name, steps: Vec<Step>| Fixture {
+        name,
+        steps,
+        verdict: Agree,
+    };
+    let bytes = |s: &str| Step::Bytes(s.as_bytes().to_vec());
     vec![
         // ---- full width: the positive controls ------------------------------
         f("full: the fill alone", String::new(), Agree),
@@ -887,7 +961,7 @@ fn fixtures() -> Vec<Fixture> {
         f(
             "htbs: ?45 BS at the left margin inside the region",
             format!("{TB}{LRM}\x1b[?45h\x1b[3;5H\x08{PROBE}"),
-            Pinned(REVWRAP_UNWRAPPED),
+            Agree,
         ),
         // ---- side margins: line starts and moves, DECOM reset ---------------
         // STD 070 CR (p. 5-58), NEL (p. 5-64), CUF and CUB (pp. 5-45, 5-47).
@@ -1203,6 +1277,137 @@ fn fixtures() -> Vec<Fixture> {
             format!("{TB}{LRM}\x1b[8;7H\x1b[99FX"),
             Agree,
         ),
+        // ---- a pending wrap: what ends it, what keeps it ---------------------
+        // STD 070 D.6.1 (pp. D-13 and D-14): the controls that move the
+        // active position reset the Last Column Flag, DECSC saves it and
+        // DECRC restores it. Each control at a full row's wrap has a twin
+        // at a wrap `?69l` kept on column 10, which must read the same way.
+        f("wrap: ?69l keeps it on the margin", KEPT.into(), Agree),
+        f(
+            "wrap: ?69l, then a character wraps",
+            format!("{KEPT}X"),
+            Agree,
+        ),
+        f(
+            "wrap: DECSC and DECRC keep it",
+            format!("{FULL}\x1b7\x1b[1;1H\x1b8X"),
+            Agree,
+        ),
+        f(
+            "wrap: ?1049 keeps it",
+            format!("{FULL}\x1b[?1049h\x1b[?1049lX"),
+            Agree,
+        ),
+        f(
+            "wrap: DECRC after ?69l keeps it on the margin",
+            format!("{LRM}\x1b[3;5HABCDEF\x1b7\x1b[?69l\x1b[1;1H\x1b8X"),
+            Agree,
+        ),
+        f(
+            "wrap: DECRC leaves DECAWM",
+            format!("\x1b[?7l\x1b7\x1b[?7h\x1b8{FULL}X"),
+            Agree,
+        ),
+        f("wrap: BS", format!("{FULL}\x08X"), Agree),
+        f("wrap: BS, kept", format!("{KEPT}\x08X"), Agree),
+        f(
+            "wrap: BS at the fence",
+            format!("{LRM}\x1b[3;5HABCDEF\x08X"),
+            Agree,
+        ),
+        f("wrap: CUB 2", format!("{FULL}\x1b[2DX"), Agree),
+        f("wrap: CUB 2, kept", format!("{KEPT}\x1b[2DX"), Agree),
+        f(
+            "wrap: CUB 2 at the fence",
+            format!("{LRM}\x1b[3;5HABCDEF\x1b[2DX"),
+            Agree,
+        ),
+        f("wrap: ?45 BS", format!("\x1b[?45h{FULL}\x08X"), Agree),
+        f("wrap: EL 0", format!("{FULL}\x1b[KX"), Agree),
+        f("wrap: EL 0, kept", format!("{KEPT}\x1b[KX"), Agree),
+        f(
+            "wrap: EL 0 at the fence",
+            format!("{LRM}\x1b[3;5HABCDEF\x1b[KX"),
+            Agree,
+        ),
+        f("wrap: ECH", format!("{FULL}\x1b[XX"), Agree),
+        f("wrap: ED 0", format!("{FULL}\x1b[JX"), Agree),
+        f("wrap: EL 1", format!("{FULL}\x1b[1KX"), Agree),
+        f("wrap: EL 2", format!("{FULL}\x1b[2KX"), Agree),
+        f("wrap: ED 1", format!("{FULL}\x1b[1JX"), Agree),
+        f("wrap: ED 2", format!("{FULL}\x1b[2JX"), Agree),
+        f("wrap: ED 2, kept", format!("{KEPT}\x1b[2JX"), Agree),
+        f("wrap: CUU", format!("{FULL}\x1b[AX"), Agree),
+        f("wrap: CUU, kept", format!("{KEPT}\x1b[AX"), Agree),
+        f("wrap: CUD", format!("{FULL}\x1b[BX"), Agree),
+        f(
+            "wrap: CUF from a kept wrap",
+            "\x1b[?69h\x1b[5;8s\x1b[3;5HABCD\x1b[?69l\x1b[CX".into(),
+            Agree,
+        ),
+        f(
+            "wrap: SGR and DSR keep it, kept",
+            format!("{KEPT}\x1b[1m\x1b[5n\x1b[mX"),
+            Agree,
+        ),
+        f("wrap: LF, kept", format!("{KEPT}\nZ"), Pinned(FOLLOW_ON)),
+        f("wrap: ICH", format!("{FULL}\x1b[@X"), Pinned(EDIT_KEEPS)),
+        f("wrap: DCH", format!("{FULL}\x1b[PX"), Pinned(EDIT_KEEPS)),
+        // ---- a pending wrap through a resize --------------------------------
+        // No text governs a resize; ghostty keeps its flag through every one,
+        // and xterm's ScreenResize never touches do_wrap.
+        r(
+            "resize: the same size keeps it",
+            vec![bytes(FULL), Step::Resize(8, 20), bytes("X")],
+        ),
+        r(
+            "resize: taller keeps it",
+            vec![bytes(FULL), Step::Resize(10, 20), bytes("X")],
+        ),
+        r(
+            "resize: shorter keeps it",
+            vec![bytes(FULL), Step::Resize(6, 20), bytes("X")],
+        ),
+        r(
+            "resize: the primary re-cut onto the last column",
+            vec![bytes(FULL), Step::Resize(8, 10), bytes("X")],
+        ),
+        r(
+            "resize: the primary re-cut mid-row",
+            vec![bytes(FULL), Step::Resize(8, 15), bytes("X")],
+        ),
+        r(
+            "resize: the primary widened",
+            vec![bytes(FULL), Step::Resize(8, 30), bytes("X")],
+        ),
+        r(
+            "resize: the alternate screen narrowed",
+            vec![
+                bytes(&format!("\x1b[?1049h{FULL}")),
+                Step::Resize(8, 15),
+                bytes("X"),
+            ],
+        ),
+        r(
+            "resize: the alternate screen widened",
+            vec![
+                bytes(&format!("\x1b[?1049h{FULL}")),
+                Step::Resize(8, 30),
+                bytes("X"),
+            ],
+        ),
+        r(
+            "resize: ?69l's kept wrap, widened",
+            vec![bytes(KEPT), Step::Resize(8, 30), bytes("X")],
+        ),
+        r(
+            "resize: a DECSC save re-cut",
+            vec![
+                bytes(&format!("{FULL}\x1b7\x1b[1;1H")),
+                Step::Resize(8, 10),
+                bytes("\x1b8X"),
+            ],
+        ),
         // ---- DECALN: origin mode and every margin back ----------------------
         // STD 070 pp. D-19 and D-20 and the VT510's "the margins to the
         // extremes of the page"; ghostty's `decaln` resets all four margins
@@ -1252,18 +1457,26 @@ fn main() -> ExitCode {
     let show_pins = std::env::args().any(|a| a == "--show-pins");
     let (mut agree, mut pinned, mut failed) = (0, 0, 0);
     for fx in fixtures() {
-        let whole = fx.bytes.len();
-        let b = baud_state(&fx.bytes, whole);
-        let g = ghostty_state(&fx.bytes, whole);
+        let whole = fx
+            .steps
+            .iter()
+            .map(|s| match s {
+                Step::Bytes(b) => b.len(),
+                Step::Resize(..) => 0,
+            })
+            .max()
+            .unwrap_or(0);
+        let b = baud_state(&fx.steps, whole);
+        let g = ghostty_state(&fx.steps, whole);
         // Chunk invariance first: a state that depends on the reads is a
         // finding in itself, and comparing it across terminals would hide it.
         let mut split = None;
         for read in 1..whole {
-            if baud_state(&fx.bytes, read) != b {
+            if baud_state(&fx.steps, read) != b {
                 split = Some(("baud", read));
                 break;
             }
-            if ghostty_state(&fx.bytes, read) != g {
+            if ghostty_state(&fx.steps, read) != g {
                 split = Some(("ghostty", read));
                 break;
             }
@@ -1319,22 +1532,40 @@ mod tests {
     /// is a comparison of nothing.
     #[test]
     fn a_difference_is_seen() {
-        let a = baud_state(&on_fill(""), usize::MAX);
-        let b = baud_state(&on_fill("\x1b[1;1HZ"), usize::MAX);
+        let a = baud_state(&filled(""), usize::MAX);
+        let b = baud_state(&filled("\x1b[1;1HZ"), usize::MAX);
         assert_ne!(a, b);
-        let a = ghostty_state(&on_fill(""), usize::MAX);
-        let b = ghostty_state(&on_fill("\x1b[1;1HZ"), usize::MAX);
+        let a = ghostty_state(&filled(""), usize::MAX);
+        let b = ghostty_state(&filled("\x1b[1;1HZ"), usize::MAX);
         assert_ne!(a, b);
+    }
+
+    fn filled(tail: &str) -> Vec<Step> {
+        vec![Step::Bytes(on_fill(tail))]
+    }
+
+    /// **A resize is a step on both sides**: the geometry read back is the
+    /// one it leaves, and a write after it lands on the wider row.
+    #[test]
+    fn a_resize_is_seen() {
+        let steps = [Step::Resize(8, 30), Step::Bytes(b"\x1b[1;25HZ".to_vec())];
+        let (b, g) = (
+            baud_state(&steps, usize::MAX),
+            ghostty_state(&steps, usize::MAX),
+        );
+        assert_eq!(b.screen[0].len(), 30);
+        assert_eq!(&b.screen[0][24..25], "Z");
+        assert_eq!(b, g);
     }
 
     /// **The two read the same fill the same way**: the control every other
     /// comparison stands on.
     #[test]
     fn the_fill_agrees() {
-        let bytes = on_fill("");
+        let steps = filled("");
         assert_eq!(
-            baud_state(&bytes, usize::MAX),
-            ghostty_state(&bytes, usize::MAX)
+            baud_state(&steps, usize::MAX),
+            ghostty_state(&steps, usize::MAX)
         );
     }
 
@@ -1342,10 +1573,10 @@ mod tests {
     /// sets it on both sides, and a CR clears it on both.
     #[test]
     fn the_pending_wrap_is_compared() {
-        let full = on_fill("");
+        let full = filled("");
         assert!(baud_state(&full, usize::MAX).pending);
         assert!(ghostty_state(&full, usize::MAX).pending);
-        let cr = on_fill("\r");
+        let cr = filled("\r");
         assert!(!baud_state(&cr, usize::MAX).pending);
         assert!(!ghostty_state(&cr, usize::MAX).pending);
     }

@@ -749,9 +749,9 @@ fn decstr_leaves_the_cursor_where_it_is() {
 
 /// **And a pending wrap at the screen's edge survives it**: STD 070's
 /// algorithm does not touch the Last Column Flag either, and xterm's soft
-/// branch leaves `do_wrap`. Whether a pending wrap survives `DECSTR` is
-/// open (note V, "PendingAt"); this is the option the text leans to. `CPR`
-/// reports the last column, and `X` wraps to the next row.
+/// branch leaves `do_wrap`; at a narrower right margin it survives too
+/// since 2026-11-01 (`decstr_keeps_a_wrap_pending_at_a_narrower_right_margin`).
+/// `CPR` reports the last column, and `X` wraps to the next row.
 #[test]
 fn decstr_keeps_a_pending_wrap_at_the_screen_edge() {
     let mut bytes = b"\x1b[2;1H".to_vec();
@@ -773,16 +773,17 @@ fn decstr_under_origin_mode_leaves_the_cursor_at_every_split() {
     );
 }
 
-/// **At a right margin narrower than the screen the column stays where the
-/// pending-wrap sentinel put it**, one past the margin, which the widened
-/// margins then read as a column of its own: the wrap is lost and `X` lands
-/// one right of the margin. The sentinel cannot tell this from a cursor
-/// `CUP` put past the fence, where leaving it is right; `?69 l` does the
-/// same. Open, with the options in note V's "PendingAt".
+/// **At a right margin narrower than the screen the wrap stays pending on
+/// the margin's column**: `CPR` answers 3;10 and `X` wraps to the next
+/// line's first column, the left margin once `DECSTR` put it back. The
+/// column one past the old margin was read as a column of its own until
+/// 2026-11-01, so `CPR` said 3;11 and `X` landed there; a cursor `CUP` put
+/// past the fence keeps its column (`?69 l` does the same, in
+/// `declrmm_reset_and_decstr_keep_a_wrap_pending_at_the_margin`).
 #[test]
-fn decstr_leaves_a_column_past_a_narrower_right_margin() {
+fn decstr_keeps_a_wrap_pending_at_a_narrower_right_margin() {
     assert_eq!(
         landed(b"\x1b[?69h\x1b[5;10s\x1b[3;5Habcdef\x1b[!p\x1b[6nX"),
-        ("\x1b[3;11R".into(), Some((2, 10)))
+        ("\x1b[3;10R".into(), Some((3, 0)))
     );
 }

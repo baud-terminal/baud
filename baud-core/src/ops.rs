@@ -226,7 +226,9 @@ impl Paint<'_, '_> {
     ///
     /// **A pending wrap is on the right margin**, as in `Paint::tab_end`:
     /// with `DECAWM` set the sentinel one past it reads as on it, so a `CUF`
-    /// there stays on the margin; with it reset one past is beyond.
+    /// there stays on the margin; with it reset one past is beyond. A wrap
+    /// kept waiting is on the column it waits on, so from one inside the
+    /// margins the margin stops it too ([`Paint::at_or_inside_right`]).
     ///
     /// **One bit inline, the margins out of line**, as for `CR`: with
     /// `DECLRMM` reset the margins are the page's edges
@@ -285,9 +287,17 @@ impl Paint<'_, '_> {
     /// sentinel past the screen's last column, and any column right of it
     /// are beyond; with `DECAWM` reset no wrap is pending, so one past is
     /// beyond too.
+    ///
+    /// **A wrap kept waiting is on the column it waits on**
+    /// ([`CursorCol::waiting`]), one before its value: the Active Position
+    /// a pending wrap leaves (D.6.1), which a `DECRC` under margins set
+    /// since the `DECSC`, or a `DECRSPS`, can put inside the margins short
+    /// of the right one; read as one past the margin, a `CUF` from there
+    /// would go to the screen's last column.
     pub(crate) fn at_or_inside_right(&self) -> bool {
         match self.cursor_at() {
             CursorAt::Column(c) => c <= self.cold.right,
+            CursorAt::Pending(c) if self.cx.is_waiting() => c.before() <= self.cold.right,
             CursorAt::Pending(c) => {
                 c.index() == self.cold.right.index() + 1
                     && self.cold.modes.is_set(ModeBit::AutoWrap)
@@ -308,18 +318,39 @@ impl Paint<'_, '_> {
     ///
     /// From right of the fence it can land one past the right margin, and
     /// is placed there.
+    ///
+    /// **From a pending wrap it counts from the column the wrap waits on**,
+    /// "backward by n columns" (p. 5-47) from the Active Position, which a
+    /// pending wrap leaves on that column (D.6.1, pp. D-13 and D-14), as
+    /// `HPB` counts, as xterm's `CursorBack` does without `?45` or `?1045`
+    /// (`[[source: xterm-cursor-c]]` 152-158) and as ghostty's `cursorLeft`
+    /// does. Until 2026-11-01 the wrap was its first step. **One compare
+    /// inline**, the fence: a column at or inside it counts as before, and
+    /// the sentinel, a wrap kept waiting and a column right of the fence
+    /// go out of line.
     #[inline(always)]
     pub(crate) fn back_in_margins(&self, n: Count) -> CursorCol {
         match self.cold.modes.is_set(ModeBit::SideMargins) {
-            false => CursorCol::moved(self.cx.raw().back(n)),
+            false => match self.cx.raw() > self.cold.fence {
+                false => CursorCol::moved(self.cx.raw().back(n)),
+                true => self.back_past_the_fence(n),
+            },
             true => self.back_fenced(n),
         }
+    }
+
+    /// `CUB` from right of the fence with `DECLRMM` reset: from the column a
+    /// report names, which is the cursor's own unless a wrap waits.
+    #[cold]
+    #[inline(never)]
+    fn back_past_the_fence(&self, n: Count) -> CursorCol {
+        CursorCol::moved(self.cx.reported(self.report_fence(), self.cols).back(n))
     }
 
     #[cold]
     #[inline(never)]
     fn back_fenced(&self, n: Count) -> CursorCol {
-        let x = self.cx.col().index();
+        let x = self.cx.reported(self.report_fence(), self.cols).index();
         let left = self.cold.left.index();
         let floor = match x >= left {
             true => left,
@@ -372,14 +403,37 @@ impl Paint<'_, '_> {
             gr: self.cold.gr,
             desig: self.cold.desig,
             protect: self.cold.protect,
-            autowrap: ModeChange::of(self.cold.modes.is_set(ModeBit::AutoWrap)),
             origin: ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
-            // The sentinel, and not a cursor a move placed on its column.
-            pending: ModeChange::of(
-                !self.cx.is_placed() && self.cx.col().index() == self.line_fence().index() + 1,
-            ),
+            // A wrap pending, one past the column it waits on, and not a
+            // cursor a move placed on that column.
+            pending: ModeChange::of(self.wrap_waits()),
             widths: self.cold.widths.widths(),
         }
+    }
+
+    /// **Whether a wrap is pending**, the sentinel or one kept waiting
+    /// ([`CursorCol::waiting`]), against the cursor's line or SLL's line
+    /// limit where a wrap waits there, as a report reads it
+    /// (`crate::bounds`): what DECSC saves.
+    pub(crate) fn wrap_waits(&self) -> bool {
+        matches!(
+            self.cx.at(self.report_fence(), self.cols),
+            CursorAt::Pending(_)
+        )
+    }
+
+    /// **The cursor put pending on column `c`** of the line it is on: the
+    /// sentinel where `c` is the line's fence or the screen's last column,
+    /// a wrap kept waiting anywhere else ([`CursorCol::waiting`]). What a
+    /// restore, DECRSPS and a resize leave for a wrap that was pending.
+    pub(crate) fn wait_on(&mut self, c: Col) {
+        let fence = self.line_fence();
+        let last = Col::at_index(self.cols.index() - 1);
+        let to = match c == fence || c == last {
+            true => CursorCol::written(c.after()),
+            false => CursorCol::waiting(c),
+        };
+        self.set_col(to);
     }
 
     /// `?1049 l`'s restore, made on the primary: "restore cursor as in
@@ -399,6 +453,23 @@ impl Paint<'_, '_> {
     /// restore puts the cursor outside the grid, and writes and erases index
     /// with it.
     ///
+    /// **A pending wrap comes back pending**, on the column it waited on,
+    /// clamped and confined as a column is (D.6.1, `[[source:
+    /// dec-std-070]]` pp. D-13 and D-14: "the state of the Last Column Flag
+    /// should be saved when a Save Cursor operation is performed, and
+    /// restored when a Restore Cursor operation is performed"; both DECCIRs
+    /// carry "autowrap pending" among "the same information saved through a
+    /// save cursor"), as xterm's `CursorRestore` sets `do_wrap` after
+    /// `CursorSet` (`[[source: xterm-cursor-c]]` 494) and ghostty's
+    /// `restoreCursor` sets `pending_wrap`. At full width the clamp to the
+    /// grid dropped it until 2026-11-01 ([`Paint::wait_on`]).
+    ///
+    /// **DECAWM is left as it is**: 070-5's `save_cursor` (p. 5-188) saves
+    /// no Auto Wrap Mode, neither DECCIR has a bit for one, and xterm's
+    /// `DECSC_FLAGS` (461) leaves `WRAPAROUND` out, as ghostty and foot do;
+    /// `[[source: vt510-decsc]]`'s "Wrap flag (autowrap or no autowrap)" is
+    /// read as the pending wrap. It was restored until 2026-11-01.
+    ///
     /// **Under DECOM the restored position is confined**, after the saved
     /// mode is back: `[[source: dec-std-070]]` `restore_cursor` (p. 5-190)
     /// clamps the line to the top and bottom margins and the column to the
@@ -413,50 +484,42 @@ impl Paint<'_, '_> {
         self.effector_ends_string();
         self.cold.widths = WidthPolicy::of(self.cold.widths.ambiguous(), s.widths);
         self.reselect();
-        // **The two flags DECSC saves that neither core restored.**
-        // `[[source: vt510-decsc]]` lists seven items and the wrap flag and
-        // origin mode are two of them. Origin mode especially is not
-        // cosmetic: it decides where home is, so an application that sets it,
-        // saves, resets it and restores must get its coordinate system back.
-        self.cold
-            .modes
-            .apply(ModeBit::AutoWrap, s.autowrap == ModeChange::Set);
+        // **Origin mode, which neither core restored.** `[[source:
+        // vt510-decsc]]` lists it among seven items, and it is not
+        // cosmetic: it decides where home is, so an application that sets
+        // it, saves, resets it and restores must get its coordinate system
+        // back.
         self.cold
             .modes
             .apply(ModeBit::Origin, s.origin == ModeChange::Set);
         let r = Row::from_index(s.cy.index().min(self.rows.index() - 1));
-        let c = Col::at_index(s.cx.index().min(self.cols.index() - 1));
-        // **A pending wrap saved under side margins narrower than the screen
-        // is restored pending** while the right margin is where it was: the
-        // sentinel one past it is not a column the clamp should pull back, as
-        // this restore kept it before the clamp and as xterm and ghostty keep
-        // theirs. Saved at full width and restored with the margins at full
-        // width, it is dropped by the clamp to the screen above, as before
-        // the clamp; restored under a right margin one before the screen's
-        // last column (`DECSLRM 1;19` on 20 columns), that clamp puts it on
-        // the new right margin + 1 and it comes back pending, as xterm's
-        // does, as can a `?1049` save a reflow moved (`Saved::pending`);
-        // under any other moved right margin it comes back a column. Which
-        // wrap state `DECRC` restores is note AE's Q12, open. **Only a saved
-        // sentinel**: a column on the right margin that a narrower `DECSLRM`
-        // made level with the new right margin + 1 is a column, and
-        // `restore_cursor` (p. 5-190) clamps it.
-        let keep = c.index() == self.cold.right.index() + 1 && s.pending == ModeChange::Set;
-        let c = match keep {
-            true => c,
-            false => self.confine_col(c),
+        // **A saved pending wrap is the column one past the one it waited
+        // on** (`Saved::pending`), and that column is what the clamp and
+        // the margins act on; a column on the right margin that a narrower
+        // `DECSLRM` made level with the new right margin + 1 is a column,
+        // and `restore_cursor` (p. 5-190) clamps it.
+        let pending = s.pending == ModeChange::Set;
+        let c = match pending {
+            true => s.cx.before(),
+            false => s.cx,
         };
+        let c = self.confine_col(Col::at_index(c.index().min(self.cols.index() - 1)));
         self.goto(self.confine(r), c);
-        // **The kept sentinel comes back the sentinel**, not through
-        // [`Paint::place`], which would make a saved pending wrap a cursor
-        // placed on its column and write on from it; a saved placed cursor,
-        // not pending, comes back placed through it.
-        self.cx = match keep {
-            true => CursorCol::written(c),
-            false => self.place(c),
-        };
-        // Onto a double line, inside its half, as every move lands.
-        self.cx = self.on_line(self.cx);
+        match pending {
+            // Onto a double line, inside its half, and pending there.
+            true => {
+                let last = Col::at_index(self.line_cols().index() - 1);
+                self.wait_on(c.min(last));
+            }
+            // **A saved placed cursor comes back placed** through
+            // [`Paint::place`], onto a double line inside its half, as every
+            // move lands.
+            false => {
+                let at = self.place(c);
+                self.set_col(at);
+                self.cx = self.on_line(self.cx);
+            }
+        }
         // **Interned again, not the saved id.** An eviction between the save
         // and the restore can give the saved id's slot to another rendition,
         // and writing under the old id would draw in its colours. The
@@ -2924,14 +2987,18 @@ impl Paint<'_, '_> {
             true => last,
             false => return self.tab_forward_fenced(n),
         };
-        // With the right margin on the last column no value is tagged.
+        // With the right margin on the last column no value is placed; one
+        // past the end is the sentinel, and past every column a wrap kept
+        // waiting ([`CursorCol::waiting`]).
         for _ in 0..n.at_least_one().min(self.cols.index()) {
             let mut x = self.cx.raw().index();
             loop {
                 if x >= end {
-                    // Past the end is the sentinel: a wrap pending.
+                    // Past the end, a wrap pending: taken first under
+                    // `?41`, and a kept one ended on its column, which the
+                    // stops are counted from.
                     if x > end && self.tab_wraps_first() {
-                        x = 0;
+                        x = self.cx.raw().index();
                         continue;
                     }
                     x = end;
@@ -2955,6 +3022,12 @@ impl Paint<'_, '_> {
     /// more(1)'s next line is a line of its own (a second ask split, so
     /// the first stands). Out of line, so an `HT` that finds no wrap
     /// pending reads nothing new.
+    ///
+    /// **Otherwise a wrap kept waiting ends on its column**
+    /// ([`CursorCol::waiting`]), which the next stop is counted from, as
+    /// xterm's `TabNext` counts from the cursor column
+    /// (`[[source: xterm-tabs-c]]` 109-124): true when the cursor moved,
+    /// either way, so the caller counts from where it is.
     #[cold]
     #[inline(never)]
     pub(crate) fn tab_wraps_first(&mut self) -> bool {
@@ -2963,6 +3036,10 @@ impl Paint<'_, '_> {
         if wraps {
             self.index_bringing_in();
             self.set_col(CursorCol::moved(Col::ZERO));
+        } else if self.cx.is_waiting() {
+            let on = self.cx.col().before();
+            self.set_col(CursorCol::moved(on));
+            return true;
         }
         wraps
     }
@@ -3117,8 +3194,8 @@ impl Paint<'_, '_> {
     /// step from below the region leaves the cursor on the line above it,
     /// xterm's `if (row < bottom) ++row; /* reverse-wrap failed */` as
     /// written. From left of the left margin the walk turns at the screen's
-    /// first column, as xterm lets it go there; within a line it moves as
-    /// `CUB` does, a pending wrap included, as `?1045`'s walk does
+    /// first column, as xterm lets it go there; within a line a pending wrap
+    /// is its first step, as `?1045`'s walk takes it
     /// ([`Paint::back_wrapping`]).
     fn reverse_walk(&self, n: Count) -> (usize, usize) {
         let start = self.cx.col().index();
@@ -3179,10 +3256,13 @@ impl Paint<'_, '_> {
     /// `REVERSEWRAP2` (`[[source: xterm-cursor-c]]` 121-190), which serves
     /// `CUB` as it serves `BS` (`[[source: xterm-reset]]`, `CASE_CUB`).
     /// From left of the left margin the walk turns at the screen's first
-    /// column, as xterm lets it go there. Within a line it moves as `CUB`
-    /// without the mode does, a pending wrap included, as the original
-    /// `CursorBack` counts one (`[[source: xterm-x11r5-cursor-c]]` 81-84),
-    /// where today's takes it off twice. Above the top margin it goes up a
+    /// column, as xterm lets it go there. Within a line a pending wrap is
+    /// its first step, the start one past the column it waits on, as
+    /// xterm's `CursorBack` takes one off the count under either mode with
+    /// `?7`, `(rev || rev2) && screen->do_wrap` (`[[source: xterm-cursor-c]]`
+    /// 153), whose loop then takes it off again, not followed; without the
+    /// mode `CUB` counts from the column itself ([`Paint::back_in_margins`]).
+    /// Above the top margin it goes up a
     /// line and not off the screen, as `BS` does
     /// ([`Paint::back_space_at_left`]).
     ///
@@ -3239,19 +3319,99 @@ impl Paint<'_, '_> {
         ));
     }
 
-    /// `BS` from outside the margins: at or left of the left one, or right
-    /// of the right one, the sentinel and a placed cursor included. With
-    /// `?69` reset no value is tagged and the left margin is column 0, so
+    /// `BS` from outside the fence: at or left of the left margin, or right
+    /// of the fence, a pending wrap and a placed cursor included. With
+    /// `?69` reset no value is placed and the left margin is column 0, so
     /// one column left unless at 0, as before the tag.
+    ///
+    /// **From a pending wrap it counts from the column the wrap waits on**
+    /// ([`Paint::wait_ends_on_its_column`]): BS "moves the Active Position
+    /// backward ... by one column" (`[[source: dec-std-070]]` p. 5-63), and
+    /// at a pending wrap the Active Position is that column (D.6.1, pp.
+    /// D-13 and D-14), so `BS` lands one left of it, as xterm's
+    /// `CursorBack` does (`[[source: xterm-cursor-c]]` 152-158) and
+    /// ghostty's. **Under `?45` or `?1045` with `?7` the wrap is the first
+    /// step**, xterm's `if ((rev || rev2) && screen->do_wrap) --count`
+    /// (153), so `BS` stops on the column. Until 2026-11-01 the wrap was
+    /// always the first step, and the next character overwrote the last.
     #[cold]
     #[inline(never)]
     pub(crate) fn back_space_outside(&mut self) {
+        if self.wait_ends_on_its_column() && (self.wraps_back() || self.wraps_back_extended()) {
+            return;
+        }
         match self.cold.modes.is_set(ModeBit::SideMargins) {
             true => self.back_space_fenced(),
             false => match self.cx.raw() > Col::ZERO {
                 true => self.set_col(self.cx.before()),
                 false => self.back_space_at_left(),
             },
+        }
+    }
+
+    /// **Before a control that ends a pending wrap**: `CUU` and `CUD`,
+    /// which D.6.1 (`[[source: dec-std-070]]` pp. D-13 and D-14) lists among
+    /// the controls that reset the Last Column Flag, as xterm's `CursorUp`
+    /// and `CursorDown` call `ResetWrap` (`[[source: xterm-cursor-c]]` 263,
+    /// 284) and ghostty's reset `pending_wrap`; the move goes from the
+    /// column the wrap waited on. Until 2026-11-01 the wrap survived them,
+    /// and the next character wrapped from the row the cursor reached.
+    /// **One compare inline**: a column at or inside the fence has no wrap
+    /// waiting.
+    #[inline(always)]
+    pub(crate) fn end_wait(&mut self) {
+        if self.cx.raw() > self.cold.fence {
+            self.wait_ends_on_its_column();
+        }
+    }
+
+    /// **Before an erase**, which D.6.1 lists whole -- ERASE_CHARACTER,
+    /// ERASE IN LINE, SELECTIVE_ERASE_IN LINE, ERASE IN DISPLAY and
+    /// SELECTIVE_ERASE_IN DISPLAY, as 070-5's revision item 5 (p. 5-218)
+    /// adds them to "the list of functions which clear the Auto Wrap
+    /// state": the wrap ends on its column, the Active Column EL's "from
+    /// the Active Column to the end of the Active Line (inclusive)" (p.
+    /// 5-154) starts from and EL 1's runs to. Until 2026-11-01 the sentinel
+    /// one past the line was the column, so `EL` erased nothing and the next
+    /// character wrapped. xterm's `ClearInLine2` calls `ResetWrap` for every
+    /// one of them and its `ClearScreen` does (`[[source: xterm-scroll]]`
+    /// 2223, 2367), and ghostty's `eraseLine` and `eraseDisplay` reset it.
+    ///
+    /// **An erase from the cursor, `EraseExtent::ToEnd`, ends the row's
+    /// soft wrap too**: `EL 0`, `ED 0`, `ECH`, `DECSEL 0` and `DECSED 0`
+    /// empty the column the line ended on, and xterm's `ClearRight`, "with
+    /// the right part cleared, we can't be wrapping", clears the mark (2311).
+    #[inline(always)]
+    pub(crate) fn end_wait_erasing(&mut self, e: EraseExtent) {
+        if self.cx.raw() > self.cold.fence {
+            self.wait_ends_erasing(e);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn wait_ends_erasing(&mut self, e: EraseExtent) {
+        if self.wait_ends_on_its_column() && e == EraseExtent::ToEnd {
+            self.view.set_ended(self.cy);
+        }
+    }
+
+    /// **A pending wrap ended on the column it waits on**, the active
+    /// position a report names, before a move that counts from it; whether
+    /// one was. The sentinel at a right margin, at the screen's last column
+    /// or at SLL's line limit, and a wrap kept waiting
+    /// ([`CursorCol::waiting`]); a placed cursor is a column.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn wait_ends_on_its_column(&mut self) -> bool {
+        let fence = self.report_fence();
+        match self.cx.at(fence, self.cols) {
+            CursorAt::Pending(_) => {
+                let on = self.cx.reported(fence, self.cols);
+                self.set_col(CursorCol::moved(on));
+                true
+            }
+            CursorAt::Column(_) | CursorAt::Placed(_) => false,
         }
     }
 
@@ -3591,17 +3751,36 @@ impl Paint<'_, '_> {
         self.ask_width(w, node);
     }
 
-    /// The margins a `RIS`, a `DECSTR` or a resize puts back.
+    /// The margins a `RIS`, a `DECSTR`, `?69l` or a resize puts back.
     ///
     /// **A cursor placed one past the old right margin keeps its column**,
     /// an ordinary one now: the tag goes with the margin it was set
-    /// against, so no tagged value is left at full width, where
+    /// against, so no placed value is left at full width, where
     /// [`Paint::place`] trusts there is none.
+    ///
+    /// **A wrap pending at a right margin left of the last column stays
+    /// pending on it** ([`CursorCol::waiting`]): the cursor still reports
+    /// the margin's column and the next character wraps first.
+    /// `reset_left_right_margins_mode()` (`[[source: dec-std-070]]` p. 5-30)
+    /// does only "left_margin = 1; right_margin = columns_per_page", DECSTR
+    /// "has no affect on the Active Position" (070-4 p. 32, note c), and
+    /// D.6.1 (pp. D-13 and D-14) resets the Last Column Flag only by the
+    /// controls that move it, naming neither; xterm and ghostty keep their
+    /// flag. Untagged, the sentinel one past the old margin read as a
+    /// column under the wider ones, and the next character went there.
     pub(crate) fn reset_side_margins(&mut self) {
+        let waits = !self.cx.is_placed()
+            && self.cold.right.index() + 1 < self.cols.index()
+            && self.cx.col().index() == self.cold.right.index() + 1;
+        let right = self.cold.right;
         self.cold.left = Col::ZERO;
         self.cold.right = Col::at_index(self.cols.index() - 1);
         self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
-        self.cx = CursorCol::moved(self.cx.col());
+        self.cx = match (self.cx.is_waiting(), waits) {
+            (true, _) => self.cx,
+            (false, true) => CursorCol::waiting(right),
+            (false, false) => CursorCol::moved(self.cx.col()),
+        };
         self.row_changed_to(self.cy);
     }
 
@@ -5413,10 +5592,9 @@ impl Paint<'_, '_> {
         // save buffer, which `saved = None` above stands for. xterm's soft
         // branch moves nothing either (`[[source: xterm-reset]]`). This homed
         // until 2026-10-14; `RIS` still does, at the end of `hard_reset`.
-        // `cx` is kept as it is, so a pending wrap at the screen's edge
-        // survives, and one at a narrower right margin is left one column
-        // past it, which the widened margins read as a column: the sentinel
-        // cannot say which it was (note V's "PendingAt", open).
+        // A pending wrap survives: at the screen's edge `cx` is kept as it
+        // is, and at a narrower right margin the margins put back keep it
+        // waiting on the margin's column ([`Paint::reset_side_margins`]).
     }
 }
 

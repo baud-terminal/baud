@@ -45,7 +45,10 @@ impl Paint<'_, '_> {
             .with(CirBits::BIT3, on(a.bits() & Attrs::BLINKS.bits() != 0))
             .with(CirBits::BIT4, on(a.has(Attrs::REVERSE)));
         let fence = self.report_fence();
-        let pending = !self.cx.is_placed() && self.cx.col().index() == fence.index() + 1;
+        // What DECSC saves ([`Paint::wrap_waits`]): the sentinel at the
+        // fence or at the screen's edge, or a wrap kept waiting on a column
+        // the line no longer ends at ([`CursorCol::waiting`]).
+        let pending = self.wrap_waits();
         let flags = CirBits::NONE
             .with(CirBits::BIT1, on(self.cold.modes.is_set(ModeBit::Origin)))
             .with(CirBits::BIT4, on(pending));
@@ -175,8 +178,10 @@ impl Paint<'_, '_> {
     /// margins when the restored origin mode is set, as DECRC confines it
     /// (`Paint::restore`). Srend sets or clears the four renditions it
     /// carries and keeps the rest of the rendition; an underline or blink
-    /// already on stays the style it is. A pending wrap is restored where
-    /// the column is the one a wrap is pending on. A single-shift bit leaves
+    /// already on stays the style it is. A pending wrap is restored on the
+    /// column restored, kept waiting there where the line does not end
+    /// ([`Paint::wait_on`]), as DECRC restores one; before 2026-11-01 only
+    /// on the line's last column or right margin. A single-shift bit leaves
     /// the shift pending after the string.
     pub(crate) fn restore_cursor_information(&mut self, data: &[u8]) {
         let r = CirRestore::parse(data, self.rows, self.cols);
@@ -218,8 +223,11 @@ impl Paint<'_, '_> {
             let c = self.cx.col();
             let r0 = self.cy;
             self.goto(self.confine(r0), self.confine_col(c));
-            if f.has(CirBits::BIT4) && self.cx.col() == self.line_fence() {
-                self.cx = CursorCol::written(Col::at_index(self.line_fence().index() + 1));
+            // A pending wrap on the column restored, as `DECRC` restores one
+            // (`Paint::wait_on`).
+            if f.has(CirBits::BIT4) {
+                let c = self.cx.col();
+                self.wait_on(c);
             }
             self.cold.restored_shift = match (f.has(CirBits::BIT2), f.has(CirBits::BIT3)) {
                 (_, true) => Some(GSlot::G3),

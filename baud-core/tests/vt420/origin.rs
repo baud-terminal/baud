@@ -427,10 +427,8 @@ fn decrc_under_origin_mode_lands_inside_the_margins() {
     );
     // A pending wrap on the right margin comes back pending under side
     // margins narrower than the screen: the next character wraps to the left
-    // margin of the next line. Saved and restored with the margins at full
-    // width, the restore's clamp to the screen drops it, as before this
-    // commit, and saved at full width and restored after DECSLRM 1;19 it
-    // comes back pending; which wrap state DECRC restores is note AE's Q12.
+    // margin of the next line. A wrap saved and restored at full width comes
+    // back pending too since 2026-11-01 (`decsc_and_decrc_keep_a_pending_wrap`).
     let s = seen(&format!("{TB}{LRM}{OM}\x1b[2;6HA\x1b7\x1b8B\x1b[6n"));
     assert_eq!(
         (find(&s, 'A'), find(&s, 'B'), s.reply.as_slice()),

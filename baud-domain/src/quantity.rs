@@ -763,10 +763,20 @@ impl Col {
 /// out of line and the per-character path is unchanged. Note V's V10, the
 /// option C2-min.
 ///
+/// **A wrap kept waiting where the line no longer ends is a second tag**,
+/// [`CursorCol::waiting`]: the margins `?69l` and `DECSTR` put back, a
+/// resize and a `DECRC` keep a pending wrap on a column the sentinel cannot
+/// name once the right margin moved (D.6.1 resets the flag only by a
+/// control that moves the active position; `[[source: dec-std-070]]` p.
+/// 5-30's `reset_left_right_margins_mode()` assigns no position). The value
+/// is the column one past the one it waits on, the sentinel's, tagged so
+/// the write path's fit test sends it out of line, where the wrap is taken
+/// first. Unlike the placed tag it lives at full width too.
+///
 /// A plain [`Col`] is not one, so a reader that forgets to decode does not
 /// compile: [`CursorCol::raw`] is for the write path past its fit test and
-/// for code where the margins are the screen's, [`CursorCol::col`] strips
-/// the tag, and [`CursorCol::at`] says which state it is.
+/// for code that tests it against the fence first, [`CursorCol::col`]
+/// strips both tags, and [`CursorCol::at`] says which state it is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(transparent)]
 pub struct CursorCol(usize);
@@ -780,7 +790,8 @@ pub enum CursorAt {
     /// A write filled the line to where it ends -- the right margin, or the
     /// screen's last column for a write right of the fence -- and the
     /// cursor is one past it, the sentinel: with `DECAWM` set the next
-    /// character wraps first.
+    /// character wraps first. Or a wrap kept waiting on a column since the
+    /// line's end moved ([`CursorCol::waiting`]), one past it likewise.
     Pending(Col),
     /// A move put the cursor exactly one past a right margin narrower than
     /// the screen: a column, the one the sentinel would otherwise name.
@@ -798,6 +809,9 @@ impl CursorCol {
     /// cold `attach` and `widen`), 2.9 M instructions over 200 reps of
     /// `cat-cjk`.
     const PLACED: usize = 1 << (usize::BITS / 2);
+    /// The next bit, bit 33: [`CursorCol::waiting`]'s, which
+    /// [`CursorCol::col`]'s mask strips with the placed one.
+    const WAITING: usize = Self::PLACED << 1;
     pub const ZERO: CursorCol = CursorCol(0);
 
     /// Where a write left the cursor, the sentinel one past where the line
@@ -823,16 +837,24 @@ impl CursorCol {
             false => CursorCol(c.0),
         }
     }
+    /// **A wrap waiting on column `c`**, which the line no longer ends at:
+    /// one past it, tagged. Only where the sentinel cannot say it -- a wrap
+    /// on the line's last column is the sentinel ([`CursorCol::written`]).
+    #[inline(always)]
+    pub fn waiting(c: Col) -> CursorCol {
+        CursorCol((c.0 + 1) | Self::WAITING)
+    }
     /// The value undecoded, a tagged one past every column. For the write
     /// path after its fit test, which no tagged value passes, and for code
-    /// that runs only while the margins are the screen's.
+    /// that tests it against the fence before reading it as a column.
     #[inline(always)]
     pub fn raw(self) -> Col {
         Col(self.0)
     }
     /// The column, placed or not: one past the right margin for a pending
     /// wrap and a placed cursor alike, as every reader that names a column
-    /// read the sentinel before the tag.
+    /// read the sentinel before the tag, and one past the column a kept
+    /// wrap waits on.
     #[inline(always)]
     pub fn col(self) -> Col {
         Col(self.0 & (Self::PLACED - 1))
@@ -841,8 +863,13 @@ impl CursorCol {
     pub fn is_placed(self) -> bool {
         self.0 & Self::PLACED != 0
     }
-    /// One column left of an untagged value, for `BS` where the margins are
-    /// the screen's: the raw arithmetic, as before the tag.
+    /// Whether a wrap is kept waiting on a column the line no longer ends
+    /// at ([`CursorCol::waiting`]).
+    pub fn is_waiting(self) -> bool {
+        self.0 & Self::WAITING != 0
+    }
+    /// One column left of an untagged value, for `BS` inside the fence:
+    /// the raw arithmetic, as before the tags.
     #[inline(always)]
     pub fn before(self) -> CursorCol {
         CursorCol(self.0 - 1)
@@ -851,7 +878,10 @@ impl CursorCol {
     /// `cols` wide.
     pub fn at(self, right: Col, cols: Cols) -> CursorAt {
         let c = self.col();
-        match (self.is_placed(), c.0 == right.0 + 1 || c.0 >= cols.0) {
+        match (
+            self.is_placed(),
+            self.is_waiting() || c.0 == right.0 + 1 || c.0 >= cols.0,
+        ) {
             (true, _) => CursorAt::Placed(c),
             (false, true) => CursorAt::Pending(c),
             (false, false) => CursorAt::Column(c),

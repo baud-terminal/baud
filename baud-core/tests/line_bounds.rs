@@ -312,17 +312,17 @@ fn a_wrap_pending_at_the_line_limit_is_reported_on_the_limit() {
 }
 
 /// **A cursor a move put past the limit is reported where it is**: `CUP`
-/// and `CHA` to position 6, past limit 5, and `CUF` to position 6 after
-/// `CUB` ended a wrap waiting at the limit, which leaves the cursor on
-/// the limit as it leaves one at a right margin on the margin. The limit
-/// bounds implicit movement only, so the active position is the one the
-/// move named.
+/// and `CHA` to position 6, past limit 5, and `CUF 2` to position 6 after
+/// `CUB` ended a wrap waiting at the limit, which counts from the limit as
+/// it counts from a right margin and leaves the cursor on position 4. The
+/// limit bounds implicit movement only, so the active position is the one
+/// the move named.
 #[test]
 fn a_cursor_moved_past_the_line_limit_is_reported_where_it_is() {
     for (bytes, want) in [
         (&b"\x1b[5 V\x1b[1;6H\x1b[6n"[..], &b"\x1b[1;6R"[..]),
         (b"\x1b[5 V\x1b[6G\x1b[6n", b"\x1b[1;6R"),
-        (b"\x1b[5 Vabcde\x1b[D\x1b[C\x1b[6n", b"\x1b[1;6R"),
+        (b"\x1b[5 Vabcde\x1b[D\x1b[2C\x1b[6n", b"\x1b[1;6R"),
     ] {
         support::render(&WS, bytes, |t| {
             assert_eq!(t.reply(), want, "{:?}", String::from_utf8_lossy(bytes));
@@ -364,8 +364,8 @@ fn wrong(cases: &[(&[u8], &str, WrapPending)]) -> Vec<String> {
 /// string begun, the paths those take, and with a string on the line, whose
 /// map the move reads the cursor through, `CHT` and `CBT` too; and `HTS` and `TBC 0` set and clear
 /// the stop at the limit, which an `HT` from the line's start then finds.
-/// The control, `CUB`, counts the wait as its first step as it does at a
-/// right margin.
+/// `CUB` counts from the limit too, as it counts from a right margin's
+/// pending wrap (since 2026-11-01; the wait was its first step before).
 #[test]
 fn a_move_from_a_wrap_waiting_at_the_line_limit_counts_from_the_limit() {
     const W: &[u8] = b"\x1b[1;6H\x1bH\x1b[1;1H\x1b[5 Vabcde";
@@ -408,8 +408,7 @@ fn a_move_from_a_wrap_waiting_at_the_line_limit_counts_from_the_limit() {
             "\x1b[1;9R",
             no,
         ),
-        // The control.
-        (&[W, b"\x1b[D"].concat(), "\x1b[1;5R", no),
+        (&[W, b"\x1b[D"].concat(), "\x1b[1;4R", no),
     ];
     let bad = wrong(cases);
     assert!(

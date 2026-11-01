@@ -446,8 +446,14 @@ impl Paint<'_, '_> {
                 let want = Row::from_index(base + row.to_row(p.rows).index());
                 p.goto_at(p.confine(want), p.address_col(col.to_col(p.cols)));
             }),
-            Csi::CursorUp(c) => self.presented(|p| p.set_row(p.up_in_margins(c))),
-            Csi::CursorDown(c) => self.presented(|p| p.set_row(p.down_in_margins(c))),
+            Csi::CursorUp(c) => self.presented(|p| {
+                p.end_wait();
+                p.set_row(p.up_in_margins(c))
+            }),
+            Csi::CursorDown(c) => self.presented(|p| {
+                p.end_wait();
+                p.set_row(p.down_in_margins(c))
+            }),
             Csi::CursorForward(c) => {
                 self.end_limit_wait();
                 self.rightward_presented(c)
@@ -493,8 +499,14 @@ impl Paint<'_, '_> {
                 let want = Row::from_index(base + row.to_row(self.rows).index());
                 self.goto_at(self.confine(want), self.address_col(col.to_col(self.cols)));
             }
-            Csi::CursorUp(c) => self.set_row(self.up_in_margins(c)),
-            Csi::CursorDown(c) => self.set_row(self.down_in_margins(c)),
+            Csi::CursorUp(c) => {
+                self.end_wait();
+                self.set_row(self.up_in_margins(c))
+            }
+            Csi::CursorDown(c) => {
+                self.end_wait();
+                self.set_row(self.down_in_margins(c))
+            }
             Csi::CursorForward(c) => self.set_col(self.forward_in_margins(c)),
             Csi::CursorBack(c) => match (self.wraps_back_extended(), self.wraps_back()) {
                 (true, _) => self.back_wrapping(c),

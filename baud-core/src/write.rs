@@ -510,22 +510,24 @@ pub(crate) fn act(
         // (`[[source: dec-std-070]]` BS, p. 5-63); inside both it stops, and
         // there `?45` reverse-wraps.
         //
-        // **Inside the margins inline, the rest out of line**
-        // (`Paint::back_space_outside`): from a column inside them one left
-        // is inside them too, never one past the right margin, so it is no
-        // placed cursor; right of the right margin, one left can be, and a
-        // placed cursor or the sentinel there is past it. Tested against both
-        // margins, a placed cursor's value past every column goes out of line
-        // with them. The `?69` bit in the arm instead read `cat-cjk`, which
-        // has no `BS`, 1 M instructions over 200 reps above this: the loop's
-        // layout, which `HT`'s arm moved too. Under DECRLM it moves right
-        // (`crate::leftward`).
+        // **Inside the fence inline, the rest out of line**
+        // (`Paint::back_space_outside`): from a column inside it one left
+        // is inside it too, never one past the right margin, so it is no
+        // placed cursor; right of the fence, one left can be, and a placed
+        // cursor, a pending wrap -- the sentinel one past the fence, a
+        // double line's half included, or a wrap kept waiting -- is past it,
+        // and counts from the column the wrap waits on. Tested against the
+        // left margin and the fence, a tagged value past every column goes
+        // out of line with them. The `?69` bit in the arm instead read
+        // `cat-cjk`, which has no `BS`, 1 M instructions over 200 reps above
+        // this: the loop's layout, which `HT`'s arm moved too. Under DECRLM
+        // it moves right (`crate::leftward`).
         Act::Backspace if p.cold.modes.is_set(ModeBit::CursorRightToLeft) => {
             p.back_space_leftward();
             ReadLen::ONE
         }
         Act::Backspace => {
-            match p.cx.raw() > p.cold.left && p.cx.raw() <= p.cold.right {
+            match p.cx.raw() > p.cold.left && p.cx.raw() <= p.cold.fence {
                 true => p.set_col(p.cx.before()),
                 false => p.back_space_outside(),
             }
@@ -2277,9 +2279,16 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
             p.goto_at(p.confine(want), p.address_col(col.to_col(p.cols)));
         }
         // **The top and bottom margins stop them, DECOM or not**: STD 070's
-        // notes 1 and 2 (pp. 5-41, 5-43), in `Paint::up_in_margins`.
-        DomCsi::CursorUp(c) => p.set_row(p.up_in_margins(c)),
-        DomCsi::CursorDown(c) => p.set_row(p.down_in_margins(c)),
+        // notes 1 and 2 (pp. 5-41, 5-43), in `Paint::up_in_margins`. **And
+        // they end a pending wrap** on its column (`Paint::end_wait`).
+        DomCsi::CursorUp(c) => {
+            p.end_wait();
+            p.set_row(p.up_in_margins(c))
+        }
+        DomCsi::CursorDown(c) => {
+            p.end_wait();
+            p.set_row(p.down_in_margins(c))
+        }
         // On a double line it stops at the half (`Paint::forward_in_margins`).
         DomCsi::CursorForward(c) => p.set_col(p.forward_in_margins(c)),
         // Under `?1045` a count of columns that wraps round the region
@@ -2338,19 +2347,25 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         ),
         DomCsi::LineBackward(c) => p.set_row(p.confine(p.cy.up(c))),
         // Each of the edits ends a wrap a DECRLM write left waiting
-        // (`Paint::end_left_edge`).
+        // (`Paint::end_left_edge`), and **each erase a pending wrap**, on
+        // the column it waits on, which the erase starts from or runs to
+        // (`Paint::end_wait_erasing`).
         DomCsi::EraseInLine(e) => {
             p.end_left_edge();
+            p.end_wait_erasing(e);
             p.edit_reaches(crate::aligned::EditRows::Line);
             p.erase_line(e)
         }
         DomCsi::EraseInDisplay(e) => {
             p.end_left_edge();
+            p.end_wait_erasing(e);
             p.edit_reaches(crate::aligned::EditRows::Display(e));
             p.erase_display(e)
         }
         DomCsi::EraseChars(c) => {
             p.end_left_edge();
+            // From the cursor, as EL 0 erases.
+            p.end_wait_erasing(EraseExtent::ToEnd);
             p.edit_reaches(crate::aligned::EditRows::Line);
             p.erase_chars(c)
         }
@@ -2435,11 +2450,13 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         }
         DomCsi::SelectiveEraseLine(e) => {
             p.end_left_edge();
+            p.end_wait_erasing(e);
             p.edit_reaches(crate::aligned::EditRows::Line);
             p.selective_erase_line(e)
         }
         DomCsi::SelectiveEraseDisplay(e) => {
             p.end_left_edge();
+            p.end_wait_erasing(e);
             p.edit_reaches(crate::aligned::EditRows::Display(e));
             p.selective_erase_display(e)
         }

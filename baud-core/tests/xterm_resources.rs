@@ -201,9 +201,10 @@ fn cub_under_extended_reverse_wrap_wraps_a_count_of_columns() {
     });
 }
 
-/// From a pending wrap the first step is the wrap's own column, as the
-/// original `CursorBack` takes one from the count (`[[source:
-/// xterm-x11r5-cursor-c]]` 81-84); under `DECLRMM` the walk
+/// From a pending wrap the first step is the wrap's own column, as xterm's
+/// `CursorBack` takes one from the count under `?1045` with `?7`, `(rev ||
+/// rev2) && screen->do_wrap` (`[[source: xterm-cursor-c]]` 153), where
+/// `CUB` without it counts from the last column; under `DECLRMM` the walk
 /// turns at the side margins, and from left of the left margin at the
 /// screen's first column.
 #[test]

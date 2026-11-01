@@ -1,7 +1,7 @@
 # AE. Code extension: the four G slots, GL and GR, and the shifts
 
-**Status: built 2026-10-19, but for Q12, Q13's SCORC half,
-Q15, Q17 and Q18; researched 2026-10-08.** Every question was weighed again
+**Status: built 2026-10-19, but for Q13's SCORC half, Q15, Q17 and
+Q18; Q12 decided and built 2026-11-01; researched 2026-10-08.** Every question was weighed again
 with baud's DA answer (it keeps `?6c`) and the rule that a protocol is
 supported fully: GR on G2 decided and any number of SO/SI; leans taken,
 each consistent since 2026-10-08: Q2 DEC Supplemental, Q4.1 the same in both
@@ -1002,8 +1002,9 @@ Options:
     which report pending wrap as saved.
   - DEPARTS from 070-5's `save_buffer_t`.
   - CONFORMING to vt510-decsc.
-  - Pinned by `a_cursor_restore_brings_back_the_wrap_flag_and_origin_mode`
-    (text.rs:301).
+  - Pinned by the test now named
+    `a_cursor_restore_brings_back_origin_mode_and_leaves_autowrap`
+    (text.rs), which since 2026-11-01 pins option (ii) instead.
 - (ii) **Pending wrap only.**
   - CONFORMING to both DECCIRs.
   - DEPARTS from vt510-decsc ("Wrap flag (autowrap or no autowrap)") and from
@@ -1027,6 +1028,21 @@ Options:
   stays open and carries no recommendation.
 - For whichever option saves pending wrap: restore `cx = cols` when the width
   is unchanged; after a resize, clamp as today (§8).
+- **Decided 2026-11-01: (ii), pending wrap only.** vt510-decsc's "Wrap
+  flag (autowrap or no autowrap)" is read as the pending wrap, which both
+  DECCIRs report as saved and xterm, ghostty and foot restore, none of them
+  restoring DECAWM; 070-D D.6.1 (p. D-14) says the
+  Last Column Flag "should be saved when a Save Cursor operation is
+  performed, and restored when a Restore Cursor operation is performed",
+  and 070-5's revision item 19 (p. 5-219) is why its own `save_cursor()`
+  names no wrap item. **Built the same day**: `restore` puts the wrap back
+  pending on the column it waited on, clamped and confined as a column is,
+  and a re-cut of the primary moves it with its character; DECAWM is no
+  longer saved, and DECTSR's bit for it is written 0 and not read
+  (`decsc_and_decrc_keep_a_pending_wrap`,
+  `a_restored_pending_wrap_wraps_on_the_corpus_screen`, which is plan test
+  28 with `?1049` and DECRSPS, `decrc_leaves_autowrap_as_it_is`,
+  `a_cursor_restore_brings_back_origin_mode_and_leaves_autowrap`).
 
 ### Q13. DECRC with nothing saved, and SCORC sharing the slot
 
@@ -1446,6 +1462,8 @@ Ground edge, so it takes the full A/B.
   of clamping (ops.rs:99-100) when the width is unchanged.
   2026-10-13: `Saved::pending` exists, records only whether the saved `cx` is
   the pending-wrap sentinel (`cx == right + 1`), and decides nothing of Q12.
+  2026-11-01: Q12 is (ii), and `Saved::pending` is the saved flag, `cx` one
+  past the column it waited on; `restore` keeps it pending at any width.
 - `single`, only under Q6(b).
 - `AltSaved`/`?1049` (ops.rs:85-93, 1203-1204) carry `Saved` and inherit all of
   this.
@@ -1615,7 +1633,8 @@ default-GR glyphs change.
     - A Q17 test is written only once Q17 is decided.
 28. (c) **Pending wrap (Q12, if pending wrap is saved).** At `support::CORPUS`
     (50×200), feed `CSI 1;200H x ESC 7 CSI 1;1H ESC 8 y`. Assert `y` at (1,0)
-    and `x` still at (0,199). Red: the clamp puts `y` over `x`.
+    and `x` still at (0,199). Red: the clamp puts `y` over `x`. Built
+    2026-11-01 as `a_restored_pending_wrap_wraps_on_the_corpus_screen`.
 
 **Conformance and properties**
 
@@ -1988,7 +2007,7 @@ quoted and every option marked conforming or departing as this note marks it.
 | Q9 | (a) ungated | open |
 | Q10 | the per-area reading | open |
 | Q11 | slots | open |
-| Q12 | (iii) both | open |
+| Q12 | (iii) both | **decided** 2026-11-01: (ii), pending wrap only |
 | Q13 | none | open |
 | Q14 | `<` designates the UPSS | open |
 | Q15 | (a) snapshot and restore | open |

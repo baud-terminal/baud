@@ -291,8 +291,8 @@ fn every_parameter_of_a_private_mode_sequence_is_applied() {
     assert!(ck && meta && eight, "all three, not just the first");
 }
 
-/// **DECSC saves the wrap flag and origin mode, and neither core restored
-/// them.**
+/// **DECSC saves origin mode, and neither core restored it; DECAWM it does
+/// not save.**
 ///
 /// `[[source: vt510-decsc]]` lists seven items: cursor position, SGR
 /// attributes, the character sets in GL and GR, the wrap flag, the state of
@@ -302,8 +302,16 @@ fn every_parameter_of_a_private_mode_sequence_is_applied() {
 /// Origin mode is the one that bites: it decides where home *is*, so an
 /// application that sets it, saves, resets it and restores gets the wrong
 /// coordinate system for everything that follows.
+///
+/// **The wrap flag is the pending wrap, not DECAWM**: 070-5's
+/// `save_cursor` (`[[source: dec-std-070]]` p. 5-188) saves no DECAWM,
+/// both DECCIRs, which carry what DECSC saved, have a bit for "autowrap
+/// pending" and none for the mode, and xterm's `CursorRestore` restores
+/// `DECSC_FLAGS`, which leaves `WRAPAROUND` out (`[[source:
+/// xterm-cursor-c]]` 461). The pending wrap's half is
+/// `decsc_and_decrc_keep_a_pending_wrap`.
 #[test]
-fn a_cursor_restore_brings_back_the_wrap_flag_and_origin_mode() {
+fn a_cursor_restore_brings_back_origin_mode_and_leaves_autowrap() {
     // DECSTBM 2;3 makes origin mode observable: with it set, `CUP 1;1` homes
     // to row 2 rather than row 1.
     //
@@ -326,10 +334,10 @@ fn a_cursor_restore_brings_back_the_wrap_flag_and_origin_mode() {
     );
     assert_eq!(&r[..1], "X", "and so must its absence");
 
-    // The wrap flag likewise: DECAWM off, save, on, restore -> still off, so a
-    // line longer than the row clips instead of wrapping to row 1.
+    // DECAWM is left as it is: off, save, on, restore -> still on, so a
+    // line longer than the row wraps to row 1.
     let r = row_n(b"\x1b[?7l\x1b7\x1b[?7h\x1b8abcdefghijkl", 4096, 10, 1);
-    assert_eq!(&r, "..........", "autowrap must survive DECSC/DECRC");
+    assert_eq!(&r, "kl........", "DECRC leaves autowrap on");
 }
 
 /// **Shrinking after a scroll must not panic, and this is the one that bites.**

@@ -91,9 +91,10 @@ fn under_decom_hpb_and_vpb_stop_at_the_margins() {
 
 /// **From a pending wrap HPB counts from the column the cursor stands
 /// on**, the last, as the text's "active data position" is, and the wrap
-/// is gone; `CUB` counts the wrap as its first step, X11R5 xterm's
-/// `CursorBack`, and lands a column further right. **VPB leaves the wrap
-/// as VPR and CUU leave it**, the controls.
+/// is gone; so does `CUB` (`[[source: dec-std-070]]` CUB, p. 5-47, and
+/// D.6.1), as xterm's `CursorBack` does without `?45` or `?1045`
+/// (`[[source: xterm-cursor-c]]` 152-158). **VPB leaves the wrap as VPR
+/// leaves it**, and `CUU` ends it (D.6.1), the controls.
 #[test]
 fn from_a_pending_wrap_hpb_counts_from_the_last_column() {
     let full = "x".repeat(20);
@@ -106,10 +107,15 @@ fn from_a_pending_wrap_hpb_counts_from_the_last_column() {
     };
     let row3 = |tail: &str| format!("\x1b[3;1H{full}{tail}");
     assert_eq!(probe(row3("\x1b[2j")), ((2, 17), WrapPending::No));
-    assert_eq!(probe(row3("\x1b[2D")), ((2, 18), WrapPending::No));
+    assert_eq!(probe(row3("\x1b[2D")), ((2, 17), WrapPending::No));
     let vpb = probe(row3("\x1b[k"));
     assert_eq!(vpb.0, (1, 19));
-    assert_eq!(vpb, probe(row3("\x1b[A")), "VPB as CUU");
+    assert_eq!(vpb.1, WrapPending::Yes, "VPB keeps it");
+    assert_eq!(
+        probe(row3("\x1b[A")),
+        ((1, 19), WrapPending::No),
+        "CUU ends it"
+    );
     let vpr = probe(row3("\x1b[e"));
     assert_eq!(vpb.1, vpr.1, "VPB as VPR");
 }

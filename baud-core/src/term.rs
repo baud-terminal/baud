@@ -136,37 +136,29 @@ pub struct Saved {
     /// protection wherever the stream had since moved it, so a selective erase
     /// after a restore spared the wrong cells.
     pub(crate) protect: CellFlags,
-    /// DECAWM, because `[[source: vt510-decsc]]` lists "Wrap flag (autowrap or
-    /// no autowrap)" among the seven things DECSC saves.
-    pub(crate) autowrap: ModeChange,
-    /// DECOM, likewise: "State of origin mode (DECOM)".
+    /// DECOM: `[[source: vt510-decsc]]` lists "State of origin mode
+    /// (DECOM)" among the seven things DECSC saves. Its "Wrap flag
+    /// (autowrap or no autowrap)" is the pending wrap, `pending`, and not
+    /// DECAWM, which 070-5's `save_cursor` (p. 5-188) does not save and no
+    /// DECCIR reports.
     ///
     /// **Restoring it is not cosmetic.** Origin mode decides where home *is*,
     /// so an application that sets it, saves, resets it and restores must get
     /// its own coordinate system back -- and until this was read off the
     /// manual rather than assumed, neither core restored either flag.
     pub(crate) origin: ModeChange,
-    /// **Whether `cx` is the pending-wrap sentinel**, one past the right
-    /// margin, and not a column. `restore` keeps a saved sentinel unclamped
-    /// under narrower side margins, and without this it could not tell one from
-    /// a column on the right margin that a narrower `DECSLRM` since brought
-    /// level with the new right margin + 1: that column came back as a pending
-    /// wrap no save had held, where `[[source: dec-std-070]]` `restore_cursor`
-    /// (p. 5-190) clamps it to the right margin. `cx == right + 1` at the save
-    /// is enough to tell: the bit matters only when the restored Origin Mode
-    /// is displaced, since `confine_col` moves nothing otherwise, and a cursor
-    /// saved displaced is confined, so there the column one past the right
-    /// margin is the sentinel. It decides nothing of note AE's Q12: a saved
-    /// sentinel is restored as before, and the bit only stops a column being
-    /// read as one. A save made pending can come back pending under a moved
-    /// right margin, Q12's, in two ways: a resize's reflow moves the `?1049`
-    /// save's `cx` and keeps this bit, and a later right margin can land one
-    /// before where the reflow put it; and one saved at full width, restored
-    /// under a right margin one before the screen's last column (`DECSLRM
-    /// 1;19` on 20 columns), is put on that margin + 1 by the clamp to the
-    /// screen. A save that was not pending never reads as one. It landed in
-    /// padding, `size_of::<Saved>()` 56 with it and without; GR and the four
-    /// designations took it to 72.
+    /// **Whether a wrap was pending**, the Last Column Flag `[[source:
+    /// dec-std-070]]` D.6.1 has DECSC save and DECRC restore: then `cx` is
+    /// one past the column it waited on, the sentinel's column or a kept
+    /// wrap's ([`baud_domain::CursorCol::waiting`]), and not a column.
+    /// `restore` puts the wrap back pending on the column before it,
+    /// clamped and confined as a column is, and a re-cut of the primary
+    /// moves that column with the character on it. Without the bit a column
+    /// on the right margin that a narrower `DECSLRM` since brought level
+    /// with the new right margin + 1 could not be told from a saved
+    /// sentinel, and came back as a pending wrap no save had held. It
+    /// landed in padding, `size_of::<Saved>()` 56 with it and without; GR
+    /// and the four designations took it to 72.
     pub(crate) pending: ModeChange,
     /// **The Unicode version `UnicodeVersion` selected**, saved and restored
     /// with the cursor as iTerm2's source saves it
@@ -2729,8 +2721,9 @@ impl<'b> Term<'b> {
     ///   margins work reset them on `RIS` and `DECSTR` and missed the third
     ///   place that changes the geometry.
     /// * **The cursor is clamped, not homed.** There is content to be
-    ///   relative to now, and a pending wrap at the old right edge is
-    ///   forgotten with the edge.
+    ///   relative to now. **A pending wrap stays pending** on the column it
+    ///   waited on, clamped to the new last column, and on the primary on
+    ///   the character the re-cut moved ([`Term::resize_cursor_and_margins`]).
     ///
     /// **One thing core2 did here and this does not, deliberately.** It
     /// rebuilt the tab table; this one is at least `MAX_COLS` long and stamped
@@ -2763,6 +2756,13 @@ impl<'b> Term<'b> {
         };
         // Where the cursor was, which an open aligned string left it at.
         let before = (self.cy, self.cx);
+        // The column a pending wrap waits on, which the steps below keep it
+        // on: moved with its character by the primary's re-cut.
+        let fence = self.report_fence();
+        let mut waited = match self.cx.at(fence, self.cols) {
+            CursorAt::Pending(_) => Some(self.cx.reported(fence, self.cols)),
+            CursorAt::Column(_) | CursorAt::Placed(_) => None,
+        };
         // A change of geometry moves or re-cuts the cells a placement names
         // (`placed.rs`); the same geometry leaves it.
         if (rows, cols) != (old_rows, old_cols) {
@@ -2818,7 +2818,7 @@ impl<'b> Term<'b> {
         // which the measure reads whole (`Reflowed::blanked`).
         let mut blanked = Rows::ZERO;
         if cols.index() != old_cols.index() && self.primary_recuts() {
-            (blanked, held) = self.resize_primary_width(g, held);
+            (blanked, held) = self.resize_primary_width(g, held, &mut waited);
         }
         self.resize_growth(g);
         self.resize_alternate_height(g);
@@ -2826,7 +2826,7 @@ impl<'b> Term<'b> {
         self.rows = rows;
         self.cols = cols;
         self.resize_measure(old_cols, kept, blanked);
-        self.resize_cursor_and_margins(before);
+        self.resize_cursor_and_margins(before, waited);
         // **An image whose row the resize took away goes with it**: a row
         // past what the primary's ring now retains, or past the bottom of a
         // shorter alternate screen, which keeps nothing below it.
@@ -3075,6 +3075,7 @@ impl<'b> Term<'b> {
         &mut self,
         g: ResizeGeometry,
         mut held: Option<Rows>,
+        waited: &mut Option<Col>,
     ) -> (Rows, Option<Rows>) {
         let ResizeGeometry {
             old_cols,
@@ -3083,12 +3084,23 @@ impl<'b> Term<'b> {
             ..
         } = g;
         let at = self.primary_cursor();
+        // **A pending wrap is anchored on its character**, the cell it
+        // waits after, and not the column one past it, which lands on the
+        // next row's first cell where the line goes on: the re-cut moves the
+        // character and the wrap stays pending after it, as ghostty keeps its
+        // flag through a reflow. A save is one past it likewise
+        // (`Saved::pending`).
+        let one_back = |s: &Saved| match s.pending == ModeChange::Set {
+            true => s.cx.before(),
+            false => s.cx,
+        };
         let cursor = match at {
-            PrimaryCursor::Live | PrimaryCursor::Shared => (self.cy, self.cx.col()),
+            PrimaryCursor::Live => (self.cy, waited.unwrap_or(self.cx.col())),
+            PrimaryCursor::Shared => (self.cy, self.cx.col()),
             PrimaryCursor::Saved => self
                 .cold
                 .saved_other
-                .map_or((Row::ZERO, Col::ZERO), |s| (s.cy, s.cx)),
+                .map_or((Row::ZERO, Col::ZERO), |s| (s.cy, one_back(&s))),
         };
         // **The primary's images follow their rows through the re-cut.**
         // Each is staged at its row counted from the oldest retained line,
@@ -3162,7 +3174,7 @@ impl<'b> Term<'b> {
         .map(|s| {
             (
                 Rows::of_count(hist.index() + s.cy.index()),
-                s.cx.min(old_last),
+                one_back(&s).min(old_last),
             )
         });
         let mut decsc_at: Option<(Rows, Col)> = None;
@@ -3264,8 +3276,13 @@ impl<'b> Term<'b> {
         // the bottom when it landed on a hidden row.
         if decsc.is_some() {
             if let Some(s) = self.primary_slot(at) {
-                let (y, x) =
-                    decsc_at.map_or((0, s.cx), |(j, c)| (j.index().saturating_sub(top), c));
+                let (y, x) = decsc_at.map_or((0, s.cx), |(j, c)| {
+                    let c = match s.pending == ModeChange::Set {
+                        true => c.after(),
+                        false => c,
+                    };
+                    (j.index().saturating_sub(top), c)
+                });
                 (s.cy, s.cx) = (Row::from_index(y), x);
             }
         }
@@ -3279,14 +3296,22 @@ impl<'b> Term<'b> {
             Rows::of_count(self.store.strs.reflow_dropped.index() + r.dropped.index());
         match at {
             // The margins go back to the screen's below, so the reflowed
-            // column carries no tag.
+            // column carries no tag; a wrap pending waits on it there.
             PrimaryCursor::Live => {
                 let (cy, cx) = r.cursor;
                 (self.cy, self.cx) = (cy, CursorCol::written(cx));
+                if waited.is_some() {
+                    *waited = Some(cx);
+                }
             }
             PrimaryCursor::Saved => {
                 if let Some(s) = self.cold.saved_other.as_mut() {
-                    (s.cy, s.cx) = r.cursor;
+                    let (cy, cx) = r.cursor;
+                    let cx = match s.pending == ModeChange::Set {
+                        true => cx.after(),
+                        false => cx,
+                    };
+                    (s.cy, s.cx) = (cy, cx);
                 }
             }
             PrimaryCursor::Shared => {}
@@ -3433,7 +3458,21 @@ impl<'b> Term<'b> {
 
     /// **The cursor is clamped and the margins reset** to the new
     /// geometry: a step of [`Term::resize`], after the measure.
-    fn resize_cursor_and_margins(&mut self, before: (Row, CursorCol)) {
+    ///
+    /// **A wrap pending before the resize is pending after it**, on
+    /// `waited`, the column it waited on, clamped to the line's new last
+    /// column: no text governs a window resize, xterm's `ScreenResize`
+    /// never touches `do_wrap` and ghostty keeps its flag, and DECSCPP, the
+    /// nearest control, "does not cause the Active position to move", or
+    /// moves it "to the right edge" of a narrower page (`[[source:
+    /// dec-std-070]]` p. 5-73), resetting no flag. So at the same width
+    /// nothing changes, an alternate screen narrowed past the cursor keeps
+    /// it on the new last column and one widened on its own, and the
+    /// primary keeps it on the character its re-cut moved: the sentinel
+    /// where that column is the line's last, a wrap kept waiting elsewhere
+    /// ([`CursorCol::waiting`]). Until 2026-11-01 every resize ended it, and
+    /// the next character overwrote the last.
+    fn resize_cursor_and_margins(&mut self, before: (Row, CursorCol), waited: Option<Col>) {
         let (rows, cols) = (self.rows, self.cols);
         self.cy = Row::from_index(self.cy.index().min(rows.index() - 1));
         // A clamp is a horizontal move, so it ends the pin as `Paint::set_col`
@@ -3463,6 +3502,14 @@ impl<'b> Term<'b> {
         }
         // A line limit set wider than the screen acts as its last column.
         self.cold.fence = crate::bounds::limited(own, &self.cold, self.cols);
+        if let Some(w) = waited {
+            let w = w.min(own);
+            self.cx = match w == own {
+                true => CursorCol::written(w.after()),
+                false => CursorCol::waiting(w),
+            };
+            self.cold.pinned = Pinned::Before;
+        }
         self.resize_ends_string(before);
     }
 

@@ -170,17 +170,17 @@ fn selective_erase_splits_the_row_where_plain_erase_does() {
 
 /// Erase-to-start with a pending wrap covers the whole row.
 ///
-/// With autowrap on, the cursor legally sits one past the last column — the
-/// deferred-wrap sentinel — so "up to and including the active position" is the
-/// entire row, and `CSI 1 J` must land exactly where `CSI 2 K` does.
+/// With autowrap on, a pending wrap leaves the active position on the last
+/// column (`[[source: dec-std-070]]` D.6.1), so "up to and including the
+/// active position" is the entire row, and `CSI 1 J` must land exactly where
+/// `CSI 2 K` does.
 ///
-/// Be precise about what this does **not** prove. `ToStart` ends one past
-/// the cursor's column, which is `cols + 1` here, and `line_span` does not
-/// clamp it: the clamp is in the grid underneath, where `View::snap` clamps
-/// it to the row and widens it to whole characters, for `fill` and
-/// `snap_span` alike. So the overshoot is invisible from the outside, and
-/// what keeps every erase form on the same span is that ED, EL, DECSED and
-/// DECSEL take it from the one `line_span`.
+/// Be precise about what this does **not** prove. Each erase ends the wrap
+/// on the last column before it takes its span (`Paint::end_wait_erasing`),
+/// so `ToStart` ends at `cols`; until 2026-11-01 it took the sentinel one
+/// past the row and ended at `cols + 1`, which the grid clamped
+/// (`View::snap`). What keeps every erase form on the same span is that ED,
+/// EL, DECSED and DECSEL take it from the one `line_span`.
 #[test]
 fn erase_to_start_with_a_pending_wrap_covers_the_whole_row() {
     // `CSI 9999 G` clamps to the last column, so this needs no grid width:

@@ -740,7 +740,8 @@ fn the_input_encoding_is_restored() {
 }
 
 /// What `DECRC` gives back: the cursor information, the rendition, the
-/// protection and the two modes it restores.
+/// protection and origin mode, the one mode it restores (DECAWM it leaves
+/// as it is, since 2026-11-01).
 fn after_decrc(t: &mut Term<'_>) -> Vec<String> {
     support::feed(t, b"\x1b8");
     t.clear_reply();
@@ -748,9 +749,7 @@ fn after_decrc(t: &mut Term<'_>) -> Vec<String> {
     for pt in ["m", "\"q"] {
         out.push(show(&reply(t, format!("\x1bP$q{pt}\x1b\\").as_bytes())));
     }
-    for m in [6, 7] {
-        out.push(show(&reply(t, format!("\x1b[?{m}$p").as_bytes())));
-    }
+    out.push(show(&reply(t, b"\x1b[?6$p")));
     out
 }
 
