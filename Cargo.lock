@@ -134,6 +134,7 @@ dependencies = [
 name = "baud-domain"
 version = "1.0.0-beta.1"
 dependencies = [
+ "baud-domain",
  "miniz_oxide 0.9.1",
  "png",
  "proptest",

@@ -74,7 +74,7 @@ fn expression_end(b: &[u8], from: usize, depth: usize) -> Option<usize> {
 /// The index of the `"` that closes a string whose text starts at `from`,
 /// inside an expression `depth` strings deep, or `None`: a backslash takes
 /// the byte after it, and `\(` opens an expression nested in the string.
-fn string_end(b: &[u8], from: usize, depth: usize) -> Option<usize> {
+pub(crate) fn string_end(b: &[u8], from: usize, depth: usize) -> Option<usize> {
     let mut i = from;
     while let Some(&byte) = b.get(i) {
         match byte {
@@ -116,6 +116,38 @@ pub fn interpolated_parts<'a>(s: &'a str, mut f: impl FnMut(Interpolated<'a>)) {
             text = i + 2;
             break;
         };
+        f(Interpolated::Expression(&s[i + 2..end]));
+        text = end + 1;
+        i = end + 1;
+    }
+    if b.len() > text {
+        f(Interpolated::Literal(&s[text..]));
+    }
+}
+
+/// **Each part of a string's text**, the string in an expression `depth`
+/// strings deep, read as [`string_end`] reads it: a `\(` opens an
+/// expression one deeper while `depth` is under sixteen, and is the
+/// string's text past that, as the split reads it.
+pub(crate) fn string_parts<'a>(s: &'a str, depth: usize, mut f: impl FnMut(Interpolated<'a>)) {
+    let b = s.as_bytes();
+    let mut text = 0usize;
+    let mut i = 0usize;
+    while let Some(&byte) = b.get(i) {
+        if byte != b'\\' {
+            i += 1;
+            continue;
+        }
+        if b.get(i + 1) != Some(&b'(') || depth >= NESTING {
+            i += 2;
+            continue;
+        }
+        let Some(end) = expression_end(b, i + 2, depth + 1) else {
+            break;
+        };
+        if i > text {
+            f(Interpolated::Literal(&s[text..i]));
+        }
         f(Interpolated::Expression(&s[i + 2..end]));
         text = end + 1;
         i = end + 1;

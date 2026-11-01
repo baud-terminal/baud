@@ -293,6 +293,9 @@ struct Driver {
     cursor_guide: baud_domain::CursorGuide,
     /// `[screen] badge`: whether a program's badge is drawn.
     badge: crate::config::BadgeShown,
+    /// What the badge's variables read of the session that the core does
+    /// not keep (`effects::Session`), brought up to date with the title.
+    session: crate::effects::Session,
     /// The `xdg-open`s a link started, reaped on each turn, and this
     /// machine's name for a `file://host/` link.
     opener: crate::opener::Opener,
@@ -624,6 +627,7 @@ pub fn run() {
         blink_animation: cfg.blink_animation,
         cursor_guide: cfg.cursor_guide,
         badge: cfg.badge,
+        session: crate::effects::Session::here(),
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
         notes,
@@ -1192,6 +1196,13 @@ impl Driver {
         ) {
             self.window.set_title(&mut self.conn.sender(), &t);
         }
+        let s = &mut self.session;
+        s.pid = self.pty.child();
+        s.tty = self.pty.tty().map(|p| p.to_string_lossy().into_owned());
+        s.job = self.derive.group();
+        s.job_name = self.derive.name().map(str::to_string);
+        s.dir = self.derive.dir().map(|d| d.to_string_lossy().into_owned());
+        s.title = self.titles.sent().map(str::to_string);
     }
 
     /// **What a ring does here** (`bell.rs`, `ring`): the rule as the
@@ -2508,8 +2519,11 @@ impl Driver {
         let guide = self.term.cursor_guide().unwrap_or(self.cursor_guide);
         self.renderer
             .set_cursor_guide(crate::effects::guide_look(guide, 1.0));
-        self.renderer
-            .set_badge(crate::effects::badge_look(&self.term, self.badge, 1.0));
+        // A `selection` the badge names reads what a copy would copy.
+        let selection = || self.seat.selected_text(&self.term);
+        let badge =
+            crate::effects::badge_look(&self.term, self.badge, &self.session, &selection, 1.0);
+        self.renderer.set_badge(badge);
         // The find field and every match's mark, on the window drawn, and
         // the input method's composition in the field while it is open.
         let look = self.finding.as_ref().map(|f| {

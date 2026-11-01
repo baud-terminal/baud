@@ -881,6 +881,46 @@ unsafe extern "C" {
     pub fn tzset();
 }
 
+// **The system's name** (`hostlog.rs`): the badge's `uname`, the
+// `sysname` of `struct utsname`, as iTerm2's `bestGuessAtUName` reads it
+// (`[[source: iterm2-964a75d-ptysession]]`). Darwin has five fields of
+// 256 bytes, glibc six of 65, `domainname` among them under
+// `_GNU_SOURCE`; the probe holds the size, the field and its length.
+
+/// The length of each of `struct utsname`'s fields.
+#[cfg(target_os = "macos")]
+pub const UTS_FIELD: usize = 256;
+#[cfg(not(target_os = "macos"))]
+pub const UTS_FIELD: usize = 65;
+
+/// The fields after `sysname`.
+#[cfg(target_os = "macos")]
+const UTS_REST: usize = 4;
+#[cfg(not(target_os = "macos"))]
+const UTS_REST: usize = 5;
+
+/// `struct utsname`, which `uname` fills: each field a NUL-ended string.
+#[repr(C)]
+pub struct Utsname {
+    pub sysname: [u8; UTS_FIELD],
+    /// `nodename`, `release`, `version`, `machine`, and on glibc
+    /// `domainname`, which nothing reads.
+    pub rest: [[u8; UTS_FIELD]; UTS_REST],
+}
+
+impl Utsname {
+    /// Every byte zero: what `uname` writes over.
+    pub const ZERO: Utsname = Utsname {
+        sysname: [0; UTS_FIELD],
+        rest: [[0; UTS_FIELD]; UTS_REST],
+    };
+}
+
+unsafe extern "C" {
+    /// Fills `name` with what names this system; -1 on an error.
+    pub fn uname(name: *mut Utsname) -> c_int;
+}
+
 // **Freed image pages back to the system** (`pages.rs`). The page size is
 // asked, never assumed: 16 KiB on this Mac and 4 KiB on most Linux, and
 // `madvise` rounds a length up, so a page assumed too small would zero a
@@ -1247,6 +1287,7 @@ mod tests {
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/types.h>
+#include <sys/utsname.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -1326,6 +1367,9 @@ int main(void) {
     printf("tm.isdst=%zu\n", offsetof(struct tm, tm_isdst));
     printf("tm.gmtoff=%zu\n", offsetof(struct tm, tm_gmtoff));
     printf("tm.zone=%zu\n", offsetof(struct tm, tm_zone));
+    printf("utsname.size=%zu\n", sizeof(struct utsname));
+    printf("utsname.sysname=%zu\n", offsetof(struct utsname, sysname));
+    printf("utsname.field=%zu\n", sizeof(((struct utsname *)0)->sysname));
     printf("uid_t.signed=%d\n", (uid_t)-1 < 0);
     printf("PROT_READ=%lld\n", (long long)PROT_READ);
     printf("MAP_PRIVATE=%lld\n", (long long)MAP_PRIVATE);
@@ -1558,6 +1602,9 @@ int main(void) {
         assert_eq!(h["tm.isdst"], offset_of!(Tm, tm_isdst) as i128);
         assert_eq!(h["tm.gmtoff"], offset_of!(Tm, tm_gmtoff) as i128);
         assert_eq!(h["tm.zone"], offset_of!(Tm, tm_zone) as i128);
+        assert_eq!(h["utsname.size"], size_of::<Utsname>() as i128);
+        assert_eq!(h["utsname.sysname"], offset_of!(Utsname, sysname) as i128);
+        assert_eq!(h["utsname.field"], UTS_FIELD as i128);
         assert_eq!(h["pid_t.size"], size_of::<Pid>() as i128);
         assert_eq!(h["pid_t.signed"], 1, "pid_t is signed");
         #[cfg(target_os = "macos")]

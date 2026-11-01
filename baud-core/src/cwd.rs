@@ -95,10 +95,19 @@ impl Cwd {
 
 impl Paint<'_, '_> {
     /// An `OSC 7` read: kept, or refused and counted, and either way it
-    /// replaces the directory known before it.
+    /// replaces the directory known before it. One naming a host also
+    /// names the host the session is on (`crate::SessionHost`); one naming
+    /// none, or `localhost`, which RFC 8089 § 2 reads "exactly as if no
+    /// authority were present" (`[[source: rfc8089]]`), leaves it, as
+    /// iTerm2's leaves a report with no host.
     pub(crate) fn report_directory(&mut self, report: DirectoryReport<'_>, body: Body) {
         let kept = match (report, body) {
-            (DirectoryReport::File(uri), Body::Whole) => keep(self.strs.cwd, uri),
+            (DirectoryReport::File(uri), Body::Whole) => {
+                if let FileHost::Named(h) = uri.host {
+                    self.strs.iterm.osc7_names(h);
+                }
+                keep(self.strs.cwd, uri)
+            }
             _ => None,
         };
         match kept {

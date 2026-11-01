@@ -4510,6 +4510,17 @@ impl<'b> Term<'b> {
         self.store.strs.iterm.badge()
     }
 
+    /// **The host and user the session is on, as programs last named
+    /// them** ([`crate::SessionHost`]): `OSC 1337 ; RemoteHost=user@host`,
+    /// split at its last `@` as iTerm2 splits it, and an `OSC 7` naming a
+    /// host, each part carried from the message before when one gives
+    /// none, as iTerm2 carries them (`[[source:
+    /// iterm2-964a75d-screen-mutable-state]]`). `Here` before any and
+    /// after `RIS`.
+    pub fn session_host(&self) -> crate::SessionHost<'_> {
+        self.store.strs.iterm.session_host()
+    }
+
     /// The badge's colour as `OSC 1337 ; SetColors=badge=` set it, opaque,
     /// or `None` for the embedder's.
     pub fn badge_colour(&self) -> Option<baud_domain::ColorWord> {

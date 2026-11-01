@@ -633,6 +633,9 @@ struct App {
     cursor_guide: baud_domain::CursorGuide,
     /// `[screen] badge`: whether a program's badge is drawn.
     badge: crate::config::BadgeShown,
+    /// What the badge's variables read of the session that the core does
+    /// not keep (`effects::Session`), brought up to date with the title.
+    session: crate::effects::Session,
     /// Whether the first tick has read the system's caret yet.
     caret_read: Done,
     /// The visual bell no frame drew: a `?5` pair in one read, shown as the
@@ -1475,6 +1478,7 @@ impl App {
             blink_interval,
             cursor_guide,
             badge,
+            session: crate::effects::Session::here(),
             focus: baud_core::Focus::Lost,
             blink_choice,
             warned_blink: Done::No,
@@ -1947,10 +1951,26 @@ impl App {
         let guide = self.term.cursor_guide().unwrap_or(self.cursor_guide);
         self.renderer
             .set_cursor_guide(crate::effects::guide_look(guide, self.scale));
-        // iTerm2's badge, a program's, unless `[screen] badge` is off.
-        self.renderer.set_badge(crate::effects::badge_look(
-            &self.term, self.badge, self.scale,
-        ));
+        // iTerm2's badge, a program's, unless `[screen] badge` is off; a
+        // `selection` it names reads what a copy would copy.
+        let wrap = self.renderer.word_wrap();
+        let selection = || {
+            crate::keep::copied(
+                self.selection.as_ref(),
+                &self.kept,
+                &self.term,
+                self.scrolled,
+                wrap,
+            )
+        };
+        let badge = crate::effects::badge_look(
+            &self.term,
+            self.badge,
+            &self.session,
+            &selection,
+            self.scale,
+        );
+        self.renderer.set_badge(badge);
         // The find field and every match's mark, on the window drawn, and
         // the input manager's composition in the field while it is open.
         // AppKit hands no hints, and its selected range does not reach
@@ -13389,6 +13409,12 @@ impl Driver {
     /// size is set, since the crate has no call of its own for it.
     fn send_title(&mut self) {
         let fallback = self.derived_title();
+        let s = &mut self.app.session;
+        s.pid = self.app.pty.child();
+        s.tty = self.app.pty.tty().map(|p| p.to_string_lossy().into_owned());
+        s.job = self.derive.group();
+        s.job_name = self.derive.name().map(str::to_string);
+        s.dir = self.derive.dir().map(|d| d.to_string_lossy().into_owned());
         let sent = self.titles.next(
             self.app.term.title(),
             self.app.term.title_encoding(),
@@ -13398,6 +13424,7 @@ impl Driver {
         if let Some(t) = &sent {
             self.window.set_title(t);
         }
+        self.app.session.title = self.titles.sent().map(str::to_string);
         let Some(title) = self.titles.sent() else {
             return;
         };

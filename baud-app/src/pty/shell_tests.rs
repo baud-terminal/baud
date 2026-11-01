@@ -210,7 +210,7 @@ impl Session {
 
     /// [`Session::start`] at `ws`.
     fn start_at(ws: &WinSize, env: Vec<(OsString, OsString)>, integration: Integration) -> Session {
-        let master = Pty::fork_given(
+        let (_, master) = Pty::fork_given(
             text_area(ws, Px::of(8), Px::of(16)),
             None,
             env,

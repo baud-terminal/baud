@@ -28,9 +28,10 @@ pub struct ItermCounts {
     by_key: [Messages; ITERM_KEYS],
     /// Messages whose key iTerm2 does not know.
     pub unknown: Messages,
-    /// Expressions in the badge formats kept that baud does not evaluate,
-    /// each drawn as nothing: every one but a user variable's,
-    /// `\(user.NAME)`.
+    /// Expressions in the badge formats kept that name a variable baud
+    /// cannot answer ([`Answer::Unknown`]), in their strings' expressions
+    /// too: each is drawn as one naming an undefined variable is, empty
+    /// alone and a fault where an operator is given it.
     pub badge_unevaluated: Messages,
     /// Parts of an inline picture drawn as nothing: a GIF's Plain Text
     /// Extensions, whose text baud does not render.
@@ -106,12 +107,73 @@ pub(crate) enum Host {
     Unreadable,
 }
 
+/// **The host and user a session is on, as programs last named them**,
+/// for an embedder's `hostname` and `username`: what iTerm2 keeps as its
+/// last remote host, which `RemoteHost` and an `OSC 7` naming a host
+/// both set, each part carried from the one before when a message gives
+/// none (`setHost`, `normalizeOSC7Host`, `[[source:
+/// iterm2-964a75d-screen-mutable-state]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SessionHost<'t> {
+    /// None named since power-on or `RIS`: this machine, and its user.
+    Here,
+    /// The host and the user named, their control characters dropped,
+    /// either empty when none was given and none came before, or `None`
+    /// when it was past 255 bytes, when its message was cut at `OSC_MAX`,
+    /// or, for the user, when an `OSC 7` followed a host that was not
+    /// kept.
+    There {
+        host: Option<&'t [u8]>,
+        user: Option<&'t [u8]>,
+    },
+}
+
+/// What [`SessionHost`] is, in [`Iterm`]: each part's bytes at the front
+/// of [`Iterm::on_host`] and [`Iterm::user`], `None` for one not kept.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OnHost {
+    Here,
+    There {
+        host: Option<ByteLen>,
+        user: Option<ByteLen>,
+    },
+}
+
+/// What a message gives for the session's host or its user.
+#[derive(Clone, Copy)]
+enum Given<'a> {
+    /// None: the one named before carries, or an empty one before any.
+    Nothing,
+    /// These bytes, their control characters to be dropped.
+    Bytes(&'a [u8]),
+    /// One the core cannot read: its message was cut at `OSC_MAX`.
+    Unreadable,
+}
+
+/// `from`'s bytes but its control characters into `to`, as iTerm2's
+/// `setRemoteHostFromString` drops them: how many, or `None` when they do
+/// not fit.
+fn keep_host(from: &[u8], to: &mut [u8; HOST_MAX]) -> Option<ByteLen> {
+    let mut n = 0;
+    for &b in from.iter().filter(|&&b| b >= 0x20 && b != 0x7f) {
+        *to.get_mut(n)? = b;
+        n += 1;
+    }
+    Some(ByteLen::from_index(n))
+}
+
 /// What the messages leave between them, in [`crate::storage::StrBuf`]:
-/// the host, the backing scale the embedder told and the counts.
+/// the host the directories are on, the host and user the session is on,
+/// the backing scale the embedder told and the counts.
 #[derive(Clone, Copy)]
 pub(crate) struct Iterm {
     host: [u8; HOST_MAX],
     host_at: Host,
+    /// The session's host and user ([`SessionHost`]), in the first of
+    /// [`Iterm::on_host`]'s and [`Iterm::user`]'s bytes.
+    on: OnHost,
+    on_host: [u8; HOST_MAX],
+    user: [u8; HOST_MAX],
     badge: [u8; BADGE_MAX],
     badge_at: Badge,
     /// The badge's colour as `SetColors=badge=` set it, opaque as iTerm2
@@ -128,6 +190,9 @@ impl Iterm {
     pub(crate) const NEW: Iterm = Iterm {
         host: [0; HOST_MAX],
         host_at: Host::Local,
+        on: OnHost::Here,
+        on_host: [0; HOST_MAX],
+        user: [0; HOST_MAX],
         badge: [0; BADGE_MAX],
         badge_at: Badge::Unset,
         badge_colour: None,
@@ -136,13 +201,68 @@ impl Iterm {
         counts: ItermCounts::NONE,
     };
 
-    /// **What `RIS` takes**: the badge and its colour, and the host
-    /// `RemoteHost` named, none of which a terminal made operational has.
-    /// The `UnicodeVersion` stack, the backing scale and the counts stay.
+    /// **What `RIS` takes**: the badge and its colour, the host
+    /// `RemoteHost` named and the session's host and user, none of which
+    /// a terminal made operational has. The `UnicodeVersion` stack, the
+    /// backing scale and the counts stay.
     pub(crate) fn forget_session(&mut self) {
         self.badge_at = Badge::Unset;
         self.badge_colour = None;
         self.host_at = Host::Local;
+        self.on = OnHost::Here;
+    }
+
+    /// The host and user the session is on ([`SessionHost`]).
+    pub(crate) fn session_host(&self) -> SessionHost<'_> {
+        match self.on {
+            OnHost::Here => SessionHost::Here,
+            OnHost::There { host, user } => SessionHost::There {
+                host: host.map(|n| &self.on_host[..n.index()]),
+                user: user.map(|n| &self.user[..n.index()]),
+            },
+        }
+    }
+
+    /// **iTerm2's `setHost`**: the session is on `host` as `user`, each
+    /// given part replacing the one before and each part not given
+    /// carried from it, or empty before any.
+    fn name_session(&mut self, host: Given<'_>, user: Given<'_>) {
+        let empty = Some(ByteLen::from_index(0));
+        let (was_host, was_user) = match self.on {
+            OnHost::Here => (empty, empty),
+            OnHost::There { host, user } => (host, user),
+        };
+        let host = match host {
+            Given::Nothing => was_host,
+            Given::Bytes(b) => keep_host(b, &mut self.on_host),
+            Given::Unreadable => None,
+        };
+        let user = match user {
+            Given::Nothing => was_user,
+            Given::Bytes(b) => keep_host(b, &mut self.user),
+            Given::Unreadable => None,
+        };
+        self.on = OnHost::There { host, user };
+    }
+
+    /// **An `OSC 7` naming `host`**: the session is on it, as the user
+    /// named before when it is the host named before, its ASCII case
+    /// aside, and as no user when it is another, as iTerm2's
+    /// `normalizeOSC7Host` has it: "Inherit an omitted username only from
+    /// the SAME host ... A report for a DIFFERENT host ... must not
+    /// inherit ours". The core reads no user from a file URI, whose
+    /// grammar has none (`[[source: rfc8089]]`).
+    pub(crate) fn osc7_names(&mut self, host: &[u8]) {
+        let user = match self.on {
+            OnHost::There { host: Some(n), .. }
+                if self.on_host[..n.index()].eq_ignore_ascii_case(host) =>
+            {
+                Given::Nothing
+            }
+            OnHost::There { host: None, .. } => Given::Unreadable,
+            OnHost::Here | OnHost::There { .. } => Given::Bytes(b""),
+        };
+        self.name_session(Given::Bytes(host), user);
     }
 
     /// The badge format a program set, `None` while none has.
@@ -180,7 +300,7 @@ impl Paint<'_, '_> {
             Osc1337::CursorGuide(g) => self.cold.cursor_guide = Some(g),
             Osc1337::ClearScrollback => self.erase_saved_lines(),
             Osc1337::CurrentDir(dir) => self.current_dir(dir, body),
-            Osc1337::RemoteHost(host) => self.remote_host(host, body),
+            Osc1337::RemoteHost { user, host } => self.remote_host(user, host, body),
             Osc1337::ReportCellSize => self.report_cell_size(term),
             Osc1337::Capabilities => self.capabilities(),
             Osc1337::SetMark(at) => self.set_mark(at),
@@ -250,23 +370,27 @@ impl Paint<'_, '_> {
     /// `CurrentDir`. One past [`HOST_MAX`] or cut at `OSC_MAX` is
     /// unreadable, and the directories that follow it are refused until
     /// another names a host.
-    fn remote_host(&mut self, host: &[u8], body: Body) {
+    ///
+    /// **And the host and user the session is on** ([`SessionHost`]),
+    /// as `setHost` takes them: `user@` with no host after it keeps the
+    /// host named before, and a host with no `@` the user named before,
+    /// or an empty one before any.
+    fn remote_host(&mut self, user: Option<&[u8]>, host: &[u8], body: Body) {
         let it = &mut self.strs.iterm;
-        let mut n = 0;
-        let mut fits = body == Body::Whole;
-        for &b in host.iter().filter(|&&b| b >= 0x20 && b != 0x7f) {
-            if n == HOST_MAX {
-                fits = false;
-                break;
-            }
-            it.host[n] = b;
-            n += 1;
-        }
-        it.host_at = match (fits, n) {
-            (false, _) => Host::Unreadable,
-            (true, 0) => Host::Local,
-            (true, n) => Host::Named(ByteLen::from_index(n)),
+        let n = keep_host(host, &mut it.host).filter(|_| body == Body::Whole);
+        let empty = Some(ByteLen::from_index(0));
+        it.host_at = match n {
+            None => Host::Unreadable,
+            Some(n) if n.index() == 0 => Host::Local,
+            Some(n) => Host::Named(n),
         };
+        let (host, user) = match (body, user) {
+            (Body::Cut, _) => (Given::Unreadable, Given::Unreadable),
+            (Body::Whole, Some(u)) if n == empty => (Given::Nothing, Given::Bytes(u)),
+            (Body::Whole, Some(u)) => (Given::Bytes(host), Given::Bytes(u)),
+            (Body::Whole, None) => (Given::Bytes(host), Given::Nothing),
+        };
+        it.name_session(host, user);
         self.forget_directory();
     }
 
@@ -588,9 +712,9 @@ impl Paint<'_, '_> {
     /// ("For security reasons, this is not allowed and the badge was not
     /// updated"), or when its body was cut at `OSC_MAX`. An empty one clears
     /// the badge. `RIS` clears it, where iTerm2's reset keeps it. Each
-    /// expression in it but a user variable's is counted
-    /// (`ItermCounts::badge_unevaluated`): the embedder draws those as
-    /// nothing.
+    /// expression naming a variable baud cannot answer is counted
+    /// (`ItermCounts::badge_unevaluated`): the embedder draws those as it
+    /// draws an undefined variable.
     fn set_badge_format(&mut self, b64: &[u8], body: Body) {
         let mut out = [0u8; BADGE_MAX];
         let mut n = 0;
@@ -630,7 +754,7 @@ impl Paint<'_, '_> {
         if let Some(s) = it.badge() {
             interpolated_parts(s, |p| {
                 if let Interpolated::Expression(e) = p {
-                    if user_variable(e).is_none() {
+                    if names(e, |path| Named::of(path).answer() == Answer::Unknown) {
                         unevaluated = unevaluated.next();
                     }
                 }

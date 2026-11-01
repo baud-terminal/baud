@@ -76,8 +76,7 @@ impl Shown {
     }
 
     /// The title last sent, which the minimized window's follows
-    /// ([`Mini`]).
-    #[cfg(any(target_os = "macos", test))]
+    /// ([`Mini`]) and the badge's `name` reads.
     pub fn sent(&self) -> Option<&str> {
         self.sent.as_deref()
     }
@@ -284,9 +283,13 @@ impl Derive {
     }
 
     /// The foreground group the last check read.
-    #[cfg(any(target_os = "macos", test))]
     pub fn group(&self) -> Option<Pid> {
         self.group
+    }
+
+    /// The name of the program the last check read in the foreground.
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 
     /// The check, if one is owed.

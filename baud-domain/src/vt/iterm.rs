@@ -362,10 +362,14 @@ pub enum Osc1337<'a> {
     ClearScrollback,
     /// `CurrentDir=dir`: the directory, as sent.
     CurrentDir(&'a [u8]),
-    /// `RemoteHost=user@host`: the host, the bytes after the last `@` (all
-    /// of them with no `@`), as iTerm2's `setRemoteHostFromString` splits it
+    /// `RemoteHost=user@host`: the user, the bytes before the last `@`
+    /// (none with no `@`), and the host, the bytes after it (all of them
+    /// with no `@`), as iTerm2's `setRemoteHostFromString` splits it
     /// "because Windows UPN format includes an @ in the user name".
-    RemoteHost(&'a [u8]),
+    RemoteHost {
+        user: Option<&'a [u8]>,
+        host: &'a [u8],
+    },
     /// `ReportCellSize`.
     ReportCellSize,
     /// `Capabilities`: the feature string ([`Features`]).
@@ -474,12 +478,16 @@ impl<'a> Osc1337<'a> {
             }
             ItermKey::ClearScrollback => Osc1337::ClearScrollback,
             ItermKey::CurrentDir => Osc1337::CurrentDir(value),
-            ItermKey::RemoteHost => {
-                Osc1337::RemoteHost(match value.iter().rposition(|&b| b == b'@') {
-                    Some(i) => &value[i + 1..],
-                    None => value,
-                })
-            }
+            ItermKey::RemoteHost => match value.iter().rposition(|&b| b == b'@') {
+                Some(i) => Osc1337::RemoteHost {
+                    user: Some(&value[..i]),
+                    host: &value[i + 1..],
+                },
+                None => Osc1337::RemoteHost {
+                    user: None,
+                    host: value,
+                },
+            },
             ItermKey::ReportCellSize => Osc1337::ReportCellSize,
             ItermKey::Capabilities => Osc1337::Capabilities,
             ItermKey::File => match value.iter().position(|&b| b == b':') {
@@ -1460,11 +1468,17 @@ mod tests {
         );
         assert_eq!(
             Osc1337::parse(b"RemoteHost=me@corp@box.example"),
-            Osc1337::RemoteHost(b"box.example")
+            Osc1337::RemoteHost {
+                user: Some(b"me@corp"),
+                host: b"box.example"
+            }
         );
         assert_eq!(
             Osc1337::parse(b"RemoteHost=box"),
-            Osc1337::RemoteHost(b"box")
+            Osc1337::RemoteHost {
+                user: None,
+                host: b"box"
+            }
         );
         assert_eq!(Osc1337::parse(b"Copy=:aGk="), Osc1337::Copy(b"aGk="));
         assert_eq!(Osc1337::parse(b"Copy=1:aGk="), Osc1337::Copy(b"aGk="));

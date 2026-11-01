@@ -46,6 +46,10 @@ use std::time::Duration;
 /// The master's file descriptor, owned here.
 pub struct Pty {
     master: crate::sys::Fd,
+    /// The process the pty was spawned with, the session's root: the
+    /// shell, or what `BAUD_CMD` names. `None` for a test's pty over a
+    /// child it forked itself.
+    child: Option<crate::sys::Pid>,
     /// The size the kernel was last told, so a `resize` that changes nothing
     /// sends no `SIGWINCH`: the app calls it on every re-lay, including the
     /// ones where only the pixels could have moved.
@@ -760,12 +764,7 @@ impl Exec {
                 injection: None,
             });
         }
-        let shell = parent
-            .iter()
-            .find(|(k, _)| k.as_bytes() == b"SHELL")
-            .and_then(|(_, v)| v.to_str())
-            .unwrap_or(DEFAULT_SHELL)
-            .to_string();
+        let shell = login_shell(parent);
         let path = resolve(&shell).unwrap_or_else(|| DEFAULT_SHELL.to_string());
         let argv0 = CString::new(format!("-{}", shell.rsplit('/').next().unwrap_or("sh"))).ok()?;
         let injection = crate::shell::inject(integration, &shell, &path, parent);
@@ -778,6 +777,27 @@ impl Exec {
             injection,
         })
     }
+}
+
+/// **The shell a session starts**, `$SHELL` as `parent` has it, else the
+/// system's: what [`Exec::of`] runs when no command is given.
+fn login_shell(parent: &[(OsString, OsString)]) -> String {
+    parent
+        .iter()
+        .find(|(k, _)| k.as_bytes() == b"SHELL")
+        .and_then(|(_, v)| v.to_str())
+        .unwrap_or(DEFAULT_SHELL)
+        .to_string()
+}
+
+/// **The name of the shell a session starts**, [`login_shell`]'s last
+/// path component from this process's environment: the badge's `shell`,
+/// as iTerm2 names the user's shell by its last path component
+/// (`bestGuessAtUserShellWithPath:NO`, `[[source:
+/// iterm2-964a75d-ptysession]]`).
+pub(crate) fn shell_name() -> String {
+    let shell = login_shell(&std::env::vars_os().collect::<Vec<_>>());
+    shell.rsplit('/').next().unwrap_or(&shell).to_string()
 }
 
 /// `prog` as a path `execve` can take: itself when it names a path, else
@@ -1233,7 +1253,7 @@ impl Pty {
         ws: crate::sys::Winsize,
         at: Option<&std::path::Path>,
         integration: crate::shell::Integration,
-    ) -> Option<crate::sys::Fd> {
+    ) -> Option<(crate::sys::Pid, crate::sys::Fd)> {
         let cmd = std::env::var("BAUD_CMD").ok();
         Pty::fork_given(
             ws,
@@ -1268,6 +1288,7 @@ impl Pty {
             at,
             crate::shell::Integration::Off,
         )
+        .map(|(_, master)| master)
     }
 
     /// [`Pty::fork`] with every input given, the integration too.
@@ -1279,7 +1300,7 @@ impl Pty {
         started_by: Parent,
         at: Option<&std::path::Path>,
         integration: crate::shell::Integration,
-    ) -> Option<crate::sys::Fd> {
+    ) -> Option<(crate::sys::Pid, crate::sys::Fd)> {
         let start = match at
             .filter(|d| d.is_absolute())
             .and_then(|d| CString::new(d.as_os_str().as_bytes()).ok())
@@ -1293,7 +1314,7 @@ impl Pty {
             i.apply(&mut stay);
         }
         let home = with_pwd(stay.clone(), &start);
-        Pty::fork_in(ws, &exec, &home, &stay, &start).map(|(_, master)| master)
+        Pty::fork_in(ws, &exec, &home, &stay, &start)
     }
 
     /// [`Pty::fork_in`] where baud is, for the tests that hand the child a
@@ -1418,8 +1439,8 @@ impl Pty {
         wake: impl Fn() + Send + 'static,
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let master = Pty::fork(told, at, integration)?;
-        Some(Pty::reading(master, told, wake))
+        let (child, master) = Pty::fork(told, at, integration)?;
+        Some(Pty::reading(master, Some(child), told, wake))
     }
 
     /// The pty over `master`, a child's manager the fork told `told`,
@@ -1427,6 +1448,7 @@ impl Pty {
     #[cfg(target_os = "macos")]
     fn reading(
         master: crate::sys::Fd,
+        child: Option<crate::sys::Pid>,
         told: crate::sys::Winsize,
         wake: impl Fn() + Send + 'static,
     ) -> Pty {
@@ -1439,6 +1461,7 @@ impl Pty {
         std::thread::spawn(move || reader(held, tx, flag, wake));
         Pty {
             master,
+            child,
             told,
             line: LineDiscipline::of(master),
             rx,
@@ -1471,7 +1494,7 @@ impl Pty {
             started_by,
             None,
         )?;
-        Some(Pty::reading(master, told, wake))
+        Some(Pty::reading(master, None, told, wake))
     }
 
     /// The pty with no thread: the caller waits on `as_fd` beside whatever
@@ -1486,10 +1509,11 @@ impl Pty {
         integration: crate::shell::Integration,
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let master = Pty::fork(told, None, integration)?;
+        let (child, master) = Pty::fork(told, None, integration)?;
         make_nonblocking(master);
         Some(Pty {
             master,
+            child: Some(child),
             told,
             line: LineDiscipline::of(master),
         })
@@ -1597,6 +1621,19 @@ impl Pty {
     /// for nothing.
     pub fn resize(&mut self, size: &WinSize, cell_w: Px, cell_h: Px) {
         tell(self.master, &mut self.told, text_area(size, cell_w, cell_h));
+    }
+
+    /// **The session's root process**, as the badge's `pid` names it:
+    /// "The process ID of the root process in this session"
+    /// (`[[source: iterm2-doc-variables]]`).
+    pub fn child(&self) -> Option<crate::sys::Pid> {
+        self.child
+    }
+
+    /// **The pty's device**, as the badge's `tty` names it: "The path to
+    /// the local TTY device", `ptsname`'s answer at the spawn.
+    pub fn tty(&self) -> Option<&std::path::Path> {
+        self.line.subsidiary.as_deref()
     }
 
     /// What the derived title reads of the foreground (`fg.rs`).
@@ -3340,6 +3377,7 @@ mod tests {
         let bound = std::time::Duration::from_secs(60);
         let pty = Pty {
             master,
+            child: None,
             told,
             line: LineDiscipline::of(master),
             rx,
@@ -3459,7 +3497,7 @@ mod tests {
             ws_col: 80,
             ws_row: 24,
         };
-        let master = Pty::fork(
+        let (_, master) = Pty::fork(
             text_area(&size, Px::of(8), Px::of(16)),
             None,
             crate::shell::Integration::Off,

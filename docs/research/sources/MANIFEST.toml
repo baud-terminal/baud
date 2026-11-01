@@ -36222,6 +36222,155 @@ bytes  = 13019
 status = "external"
 group  = "AX"
 
+[sources.iterm2-964a75d-subexpression]
+key    = "iterm2-964a75d-subexpression"
+title  = "iTerm2 964a75d, Subexpression.swift -- what the operators do with numbers, strings, arrays and null: a string reading as a number counts as one, both sides evaluated, the ternary's chosen branch alone"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Language/Subexpression.swift"
+file   = ""
+sha256 = "b5db5e2932d374f392de0ac82c02244018dda4d35c6bd0c9d36637c090b1d324"
+bytes  = 39375
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-expression-evaluator]
+key    = "iterm2-964a75d-expression-evaluator"
+title  = "iTerm2 964a75d, iTermExpressionEvaluator.m -- a value written into a string: a number by NSNumber's stringValue, an array as [a, b], null as nothing; the first error ends the string"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Language/iTermExpressionEvaluator.m"
+file   = ""
+sha256 = "ab8b61f5bca9f34f30e8f3c6aa22d8f55e04341bb2a242356d5b91c22a887ad6"
+bytes  = 21167
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-parsed-expression]
+key    = "iterm2-964a75d-parsed-expression"
+title  = "iTerm2 964a75d, iTermParsedExpression.m -- an undefined variable is a Nil with a fallback error, which deoptionalized makes an error unless written var?, and asSubexpression gives an operator nothing for"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Language/iTermParsedExpression.m"
+file   = ""
+sha256 = "7b2d5226d8e0fd2b3a1bd9918a44939e188dd4711923f821376e7489d21226cb"
+bytes  = 15514
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-coreparse-identifier]
+key    = "iterm2-964a75d-coreparse-identifier"
+title  = "iTerm2 964a75d, CoreParse's CPIdentifierRecogniser.m -- a name: an ASCII letter or _, then letters, digits, _ and -"
+author = "Thomas Davie (CoreParse, vendored in iTerm2)"
+year   = 2026
+venue  = "CoreParse in iTerm2's ThirdParty (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/ThirdParty/CoreParse/CoreParse/Tokenisation/Token%20Recognisers/CPIdentifierRecogniser.m"
+file   = ""
+sha256 = "4ee397140f2ddd71f68f2ca280d17d0081974adae819acfccf30128c2184b905"
+bytes  = 3977
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-coreparse-number]
+key    = "iterm2-964a75d-coreparse-number"
+title  = "iTerm2 964a75d, CoreParse's CPNumberRecogniser.m -- a number token as NSScanner's scanDouble reads it"
+author = "Thomas Davie (CoreParse, vendored in iTerm2)"
+year   = 2026
+venue  = "CoreParse in iTerm2's ThirdParty (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/ThirdParty/CoreParse/CoreParse/Tokenisation/Token%20Recognisers/CPNumberRecogniser.m"
+file   = ""
+sha256 = "f2cb36ad42b1d67df0b86f4e1f021185ce852278de42027a2729c0cf9d09e2fb"
+bytes  = 2833
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-optional-path]
+key    = "iterm2-964a75d-optional-path"
+title  = "iTerm2 964a75d, iTermOptionalPathRecognizer.swift -- a path with ? straight after it, one token, reading an undefined variable as null"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Language/iTermOptionalPathRecognizer.swift"
+file   = ""
+sha256 = "1682891a439724cea33627fd2f4ba93f0847db8b39fe456e76e0752faaeae6b0"
+bytes  = 3237
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-expression-parser-tests]
+key    = "iterm2-964a75d-expression-parser-tests"
+title  = "iTerm2 964a75d, ModernTests/iTermExpressionParserTests.swift -- an undefined variable in a comparison without ? is an error; with ? it is null"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/ModernTests/iTermExpressionParserTests.swift"
+file   = ""
+sha256 = "9fd2eb864fc5bc0dbc9463ec99a40ff2bdf4bfb9c7ed6c069f8fe7b08e65c7f0"
+bytes  = 74067
+status = "external"
+group  = "AX"
+
+[sources.iterm2-doc-variables]
+key    = "iterm2-doc-variables"
+title  = "iTerm2 3.7 Variables Reference -- the session, tab, window and global contexts' variables, user-defined variables"
+author = "George Nachman"
+year   = 2026
+venue  = "iterm2-website, source/_includes/3.7/documentation-variables.md"
+url    = "https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-variables.md"
+file   = ""
+sha256 = "2b32867f5cb7eae596ffc4042eac1aa206b2314061af12c3878a3cf22bf87a70"
+bytes  = 10985
+status = "external"
+group  = "AX"
+
+[sources.apple-nsnumber-description-withlocale]
+key    = "apple-nsnumber-description-withlocale"
+title  = "NSNumber description(withLocale:) (documentation JSON): the format a number is written with, a double's %0.16g"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/foundation"
+url    = "https://developer.apple.com/tutorials/data/documentation/foundation/nsnumber/description(withlocale:).json"
+file   = ""
+sha256 = "e63f5cf0854ab44ef56e9ae677161a80038b5899a91978822f8e69b483364498"
+bytes  = 15758
+status = "external"
+group  = "AX"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). The digest is of the JSON as read.
+
+[sources.apple-nsnumber-stringvalue]
+key    = "apple-nsnumber-stringvalue"
+title  = "NSNumber stringValue (documentation JSON): \"created by invoking description(withLocale:) where locale is nil\""
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/foundation"
+url    = "https://developer.apple.com/tutorials/data/documentation/foundation/nsnumber/stringvalue.json"
+file   = ""
+sha256 = "ed2f80b0e654a5b472d808c2f4288a7fe385033f9a8187bef9b80eef0c4793ba"
+bytes  = 10689
+status = "external"
+group  = "AX"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). The digest is of the JSON as read.
+
+[sources.apple-dateformatter-calendar]
+key    = "apple-dateformatter-calendar"
+title  = "DateFormatter calendar (documentation JSON): \"If unspecified, the logical calendar for the current user is used\""
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/foundation"
+url    = "https://developer.apple.com/tutorials/data/documentation/foundation/dateformatter/calendar.json"
+file   = ""
+sha256 = "d0cb9f6374851c1735af54072f6afcd92f1299137ea8f1afdc2b4c2044254226"
+bytes  = 15537
+status = "external"
+group  = "AX"
+# Not in the repository, as the entry above. The digest is of the JSON as
+# read.
+
 # Lane b161 (2026-10-22): how an SGR report spells a colour. T.416 is the
 # text ECMA-48 8.3.117 points 38 and 48 at; the rest is how neovim asks and
 # how three terminals answer. foot's answer is [[source: foot-dcs-c]] 318-410.

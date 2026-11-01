@@ -196,6 +196,24 @@ pub(crate) fn machine_name() -> Option<String> {
     }
 }
 
+/// This system's name as `uname` gives it, its `sysname` -- `Darwin`,
+/// `Linux` -- or `None` when the system gives none.
+pub(crate) fn system_name() -> Option<String> {
+    let mut u = crate::sys::Utsname::ZERO;
+    // SAFETY: `u` is a `struct utsname` as the probe holds it, and
+    // outlives the call, which writes it alone.
+    let r = unsafe { crate::sys::uname(&mut u) };
+    let end = u
+        .sysname
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(u.sysname.len());
+    match (r, &u.sysname[..end]) {
+        (0, name) if !name.is_empty() => Some(String::from_utf8_lossy(name).into_owned()),
+        _ => None,
+    }
+}
+
 /// Which open a message or a failure belongs to, so a failure of an open
 /// the core has since stopped does not stop the next.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

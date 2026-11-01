@@ -189,9 +189,104 @@ fn set_badge_format_keeps_the_format_and_refuses_a_call() {
             feed(t, &set("\\(user.a) \\(session.name) \\(1 + 2)"), size);
             assert_eq!(
                 t.iterm_counts().badge_unevaluated,
-                Messages::of(2),
-                "all but the user variable"
+                Messages::NONE,
+                "each answered, or naming nothing"
             );
+        });
+    }
+}
+
+/// **Each expression naming a variable baud cannot answer is counted**,
+/// once however many it names, in its strings' expressions too: a profile
+/// baud has not, a tab's context, a name the reference does not list, and
+/// `autoLogId`, which iTerm2 sets for every session. A variable truthfully
+/// never set here -- tmux integration's, a trigger's -- and the ones baud
+/// answers are not.
+#[test]
+fn a_badge_naming_what_baud_cannot_answer_is_counted() {
+    let set = |f: &str| osc(&format!("SetBadgeFormat={}", b64(f.as_bytes())));
+    let format = concat!(
+        "\\(profileName) \\(\"on \\(tab.title)\") \\(bogus + id) ",
+        "\\(tmuxRole) \\(columns * rows) \\(hostname) \\(user.x?) \\(iterm2.pid) ",
+        "\\(autoLogId) \\(triggerName)"
+    );
+    for size in SIZES {
+        with(&set(format), size, |t| {
+            assert_eq!(t.badge_format(), Some(format), "reads of {size}");
+            assert_eq!(t.iterm_counts().badge_unevaluated, Messages::of(4));
+        });
+    }
+}
+
+/// **The host and user the session is on carry as iTerm2 carries them**,
+/// for the embedder's `hostname` and `username`: `RemoteHost` split at its
+/// last `@`, `user@` keeping the host before and a host alone the user
+/// before, each empty before any; an `OSC 7` naming a host keeps the user
+/// for the same host, its case aside, and none for another, and one naming
+/// no host or `localhost` changes neither; a host past 255 bytes is not
+/// kept, nor anything of a message cut at `OSC_MAX`; `RIS` forgets both.
+#[test]
+fn the_session_host_and_user_carry_as_iterm2_carries_them() {
+    let there = |host: &'static [u8], user: &'static [u8]| SessionHost::There {
+        host: Some(host),
+        user: Some(user),
+    };
+    let osc7 = |uri: &str| format!("\x1b]7;{uri}\x07").into_bytes();
+    for size in SIZES {
+        with(b"", size, |t| {
+            assert_eq!(t.session_host(), SessionHost::Here)
+        });
+        with(&osc("RemoteHost=me@db-01"), size, |t| {
+            assert_eq!(t.session_host(), there(b"db-01", b"me"), "reads of {size}");
+            feed(t, &osc("RemoteHost=a@b@c"), size);
+            assert_eq!(t.session_host(), there(b"c", b"a@b"), "the last @");
+            feed(t, &osc("RemoteHost=box"), size);
+            assert_eq!(t.session_host(), there(b"box", b"a@b"), "a host alone");
+            feed(t, &osc("RemoteHost=me@"), size);
+            assert_eq!(t.session_host(), there(b"box", b"me"), "user@");
+            feed(t, &osc("RemoteHost="), size);
+            assert_eq!(t.session_host(), there(b"", b"me"), "an empty host");
+            feed(t, &osc("RemoteHost=ops@Box"), size);
+            feed(t, &osc7("file://BOX/srv"), size);
+            assert_eq!(t.session_host(), there(b"BOX", b"ops"), "the same host");
+            feed(t, &osc7("file:///tmp"), size);
+            feed(t, &osc7("file://localhost/tmp"), size);
+            assert_eq!(t.session_host(), there(b"BOX", b"ops"), "no host named");
+            feed(t, &osc7("file://web-03/var"), size);
+            assert_eq!(t.session_host(), there(b"web-03", b""), "another host");
+            feed(t, b"\x1bc", size);
+            assert_eq!(t.session_host(), SessionHost::Here, "RIS");
+        });
+        with(&osc("RemoteHost=me@"), size, |t| {
+            assert_eq!(t.session_host(), there(b"", b"me"), "user@ first");
+        });
+        with(&osc("RemoteHost=box"), size, |t| {
+            assert_eq!(t.session_host(), there(b"box", b""), "a host first");
+        });
+        with(&osc7("file://web-03/var"), size, |t| {
+            assert_eq!(t.session_host(), there(b"web-03", b""), "OSC 7 first");
+        });
+        let long = "h".repeat(256);
+        with(&osc(&format!("RemoteHost=me@{long}")), size, |t| {
+            let kept = SessionHost::There {
+                host: None,
+                user: Some(&b"me"[..]),
+            };
+            assert_eq!(t.session_host(), kept, "a host past 255 bytes");
+            feed(t, &osc7("file://web-03/var"), size);
+            let unknown = SessionHost::There {
+                host: Some(&b"web-03"[..]),
+                user: None,
+            };
+            assert_eq!(t.session_host(), unknown, "the host before unknown");
+        });
+        let cut = format!("RemoteHost=me@{}", "h".repeat(OSC_MAX));
+        with(&osc(&cut), size, |t| {
+            let none = SessionHost::There {
+                host: None,
+                user: None,
+            };
+            assert_eq!(t.session_host(), none, "a message cut at OSC_MAX");
         });
     }
 }
