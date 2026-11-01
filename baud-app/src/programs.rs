@@ -139,8 +139,23 @@ pub(crate) struct Under<'t, 's> {
     pid: core::ffi::c_int,
     master: crate::sys::Fd,
     pub(crate) sent: Vec<u8>,
+    /// Every byte written to the child: the seat's, the core's answers and
+    /// the keys typed, in order.
+    pub(crate) wrote: Vec<u8>,
     /// The pointer's clock, for the stamps a click is counted by.
     clock: Duration,
+    /// What a point is mapped through.
+    geometry: Geometry,
+}
+
+/// What one wait on the child's side of the pty found.
+pub(crate) enum Heard {
+    Bytes(Vec<u8>),
+    /// Nothing by the wait's end.
+    Quiet,
+    /// The child's side closed: it has exited, and so has every process
+    /// that held its terminal.
+    Closed,
 }
 
 impl<'t, 's> Under<'t, 's> {
@@ -151,6 +166,18 @@ impl<'t, 's> Under<'t, 's> {
         env: Vec<(OsString, OsString)>,
     ) -> Under<'t, 's> {
         let ws = crate::pty::text_area(&WS, Px::of(10), Px::of(10));
+        Under::start_on(term, cmd, env, ws, G)
+    }
+
+    /// [`Under::start`] on a pty of `ws`, its points mapped through
+    /// `geometry`: a grid and a cell of the caller's.
+    pub(crate) fn start_on(
+        term: &'t mut Term<'s>,
+        cmd: &str,
+        env: Vec<(OsString, OsString)>,
+        ws: crate::sys::Winsize,
+        geometry: Geometry,
+    ) -> Under<'t, 's> {
         let env = crate::pty::child_env(env, None);
         let (pid, master) =
             crate::pty::Pty::fork_child(ws, Some(cmd.into()), env).expect("forkpty");
@@ -160,12 +187,15 @@ impl<'t, 's> Under<'t, 's> {
             pid,
             master,
             sent: Vec::new(),
+            wrote: Vec::new(),
             clock: Duration::from_secs(1),
+            geometry,
         }
     }
 
     /// Bytes to the child, all of them.
     fn send(&mut self, mut b: &[u8]) {
+        self.wrote.extend_from_slice(b);
         while !b.is_empty() {
             // SAFETY: an open descriptor and a buffer valid for its length.
             let n = unsafe { crate::sys::write(self.master, b.as_ptr().cast(), b.len()) };
@@ -184,6 +214,18 @@ impl<'t, 's> Under<'t, 's> {
     /// One wait on the master of up to `ms`, and what it read fed as the
     /// module's doc says; whether anything arrived.
     fn pump(&mut self, wait: Duration) -> bool {
+        match self.read(wait) {
+            Heard::Bytes(b) => {
+                self.take(&b);
+                true
+            }
+            Heard::Quiet | Heard::Closed => false,
+        }
+    }
+
+    /// **One wait on the master of up to `wait`**, and what it read, not
+    /// yet fed.
+    pub(crate) fn read(&mut self, wait: Duration) -> Heard {
         let ms = i32::try_from(wait.as_millis()).unwrap_or(i32::MAX);
         let mut fd = crate::sys::PollFd {
             fd: self.master,
@@ -193,22 +235,31 @@ impl<'t, 's> Under<'t, 's> {
         // SAFETY: one live `PollFd`.
         let ready = unsafe { crate::sys::poll(&mut fd, 1, ms) };
         if ready <= 0 {
-            return false;
+            return Heard::Quiet;
         }
         let mut buf = vec![0u8; 1 << 16];
         // SAFETY: an open descriptor and a buffer valid for its length.
         let n = unsafe { crate::sys::read(self.master, buf.as_mut_ptr().cast(), buf.len()) };
-        let Ok(n) = usize::try_from(n) else {
-            return false;
-        };
-        if n == 0 {
-            return false;
+        // Ready and nothing to read, or the error a master reads once the
+        // last holder of the child's side has closed it (`EIO`).
+        match usize::try_from(n) {
+            Ok(n) if n > 0 => {
+                buf.truncate(n);
+                Heard::Bytes(buf)
+            }
+            _ => Heard::Closed,
         }
+    }
+
+    /// **A read fed as the module's doc says**, between the seat's
+    /// `before_read` and `after_read`, and every answer it owed written to
+    /// the child.
+    pub(crate) fn take(&mut self, read: &[u8]) {
         let mut out = Vec::new();
         let before = self.seat.before_read(self.term);
         crate::reads::feed(
             self.term,
-            [&buf[..n]],
+            [read],
             |b| out.extend_from_slice(b),
             |_| {},
             &mut crate::hostlog::NoLog,
@@ -216,7 +267,15 @@ impl<'t, 's> Under<'t, 's> {
         self.seat.after_read(self.term, before);
         self.send(&out);
         self.answer();
-        true
+    }
+
+    /// **One step of a kitty picture's decode** (`reads::decode_step`), as
+    /// the Linux loop takes one a turn, and the answer it owed to the
+    /// child: whether more is left to decode.
+    pub(crate) fn decode(&mut self) -> baud_domain::DecodeProgress {
+        let (progress, _) = crate::reads::decode_step(self.term);
+        self.answer();
+        progress
     }
 
     /// **Waits until `done` holds of the terminal and the seat**, reading
@@ -248,9 +307,9 @@ impl<'t, 's> Under<'t, 's> {
     /// what it sent goes to the child and into [`Under::sent`].
     pub(crate) fn input(&mut self, e: Input, mods: Modifiers) -> Owed {
         let mut out = Vec::new();
-        let owed = self
-            .seat
-            .input(self.term, e, mods, G, |b| out.extend_from_slice(b));
+        let owed = self.seat.input(self.term, e, mods, self.geometry, |b| {
+            out.extend_from_slice(b)
+        });
         self.sent.extend_from_slice(&out);
         self.send(&out);
         let reply = self.term.reply().to_vec();

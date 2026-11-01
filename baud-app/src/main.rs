@@ -169,6 +169,9 @@ mod palette;
 // Real programs in a pty under the seat, for the tests only.
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod programs;
+// baud filmed without a window, for scripts/readme-film.sh: the tests only.
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod film;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
 // ReGIS's built-in alphabet, drawn with the embedded face: both drivers
