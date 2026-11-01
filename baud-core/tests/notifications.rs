@@ -8,6 +8,7 @@
 //! arrives as the report it asked for.
 
 use baud_core::*;
+use baud_domain::{ItermKey, Messages};
 
 mod support;
 
@@ -738,8 +739,9 @@ fn a_read_publishes_at_most_its_queue() {
 
 // ── OSC 1337 ────────────────────────────────────────────────────────────────
 
-/// `RequestAttention`: yes, once and no kept for the embedder; fireworks and
-/// every other subcommand counted.
+/// `RequestAttention`: yes, once and no kept for the embedder, fireworks
+/// too (`fireworks_reach_the_embedder_at_the_cursor`); every other
+/// subcommand counted.
 #[test]
 fn request_attention_reaches_the_embedder() {
     with(
@@ -756,7 +758,65 @@ fn request_attention_reaches_the_embedder() {
                 t,
                 b"\x1b]1337;RequestAttention=fireworks\x07\x1b]1337;AddNote=eA==\x07",
             );
+            assert_eq!(t.strings_ignored, 1, "the note alone");
+        },
+    );
+}
+
+/// **`RequestAttention=fireworks` reaches the embedder with the cursor's
+/// cell**: "fireworks explode at the cursor's location"
+/// (`[[source: iterm2-escape-codes]]`). At every read size the request is
+/// counted for the embedder and not as ignored, under no key; the cell is
+/// the cursor's as it arrived, not where the read left it; a second moves
+/// the count and the cell; `yes` before it in the same read is kept for the
+/// Dock; and `flash`, which iTerm2's source has and the page does not name,
+/// and `maybe` stay counted under the key.
+#[test]
+fn fireworks_reach_the_embedder_at_the_cursor() {
+    let body = b"\x1b[5;12Hab\x1b]1337;RequestAttention=fireworks\x07\r\n$ ";
+    let none = with(Some(all()), b"", Reads(4096), |t| t.fireworks_requests());
+    for n in [1, 2, 5, 4096] {
+        with(Some(all()), body, Reads(n), |t| {
+            assert_eq!(t.strings_ignored, 0, "reads of {n}: not ignored");
+            assert_eq!(
+                t.iterm_counts().of(ItermKey::RequestAttention),
+                Messages::NONE,
+                "reads of {n}: not counted under its key"
+            );
+            assert_eq!(
+                t.fireworks(),
+                Some((Row::from_index(4), Col::at_index(13))),
+                "reads of {n}: the cursor's cell as it arrived"
+            );
+            assert_eq!(t.cursor(), (Row::from_index(5), Col::at_index(2)));
+            let first = t.fireworks_requests();
+            assert_ne!(first, none, "reads of {n}: counted");
+            support::feed(t, b"\x1b]1337;RequestAttention=fireworks\x07");
+            assert_ne!(t.fireworks_requests(), first, "a second moves it");
+            assert_eq!(t.fireworks(), Some((Row::from_index(5), Col::at_index(2))));
+        });
+    }
+    with(
+        Some(all()),
+        b"\x1b]1337;RequestAttention=yes\x07\x1b]1337;RequestAttention=fireworks\x07",
+        Reads(4096),
+        |t| {
+            assert_eq!(t.attention(), Some(Attention::Yes), "the bounce kept");
+            assert!(t.fireworks().is_some());
+        },
+    );
+    with(
+        Some(all()),
+        b"\x1b]1337;RequestAttention=flash\x07\x1b]1337;RequestAttention=maybe\x07",
+        Reads(4096),
+        |t| {
+            assert_eq!(t.fireworks(), None);
+            assert_eq!(t.fireworks_requests(), none);
             assert_eq!(t.strings_ignored, 2);
+            assert_eq!(
+                t.iterm_counts().of(ItermKey::RequestAttention),
+                Messages::of(2)
+            );
         },
     );
 }

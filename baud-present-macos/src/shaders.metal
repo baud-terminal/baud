@@ -1110,6 +1110,83 @@ fragment float4 liquid_fragment(GOut in [[stage_in]], constant EffectU& f [[buff
     return liquid_light(in.pos.xy - f.origin, in.color, f);
 }
 
+// ---- iTerm2's fireworks, `baud-render/src/fireworks.rs`: a five-pointed
+// star a record, in its colour at its opacity, turned by its `u` (1/65536
+// of a turn a step) and its image `v` sixteenths of a pixel a side, the
+// hole round the cursor cut from every one. `fireworks::coverage` and
+// `fireworks::hole` are the same formulas; the coverage is formed as the
+// byte the CPU's `Target::fireworks` takes. `FwU` is `fireworks::uniform`:
+// where the frame sits in the target, the hole's centre and radius.
+struct FwU { float2 origin; float2 hole; float radius; float pad[3]; };
+struct FwOut {
+    float4 pos [[position]]; float4 color [[flat]];
+    float2 mid [[flat]]; float2 turn [[flat]]; float image [[flat]];
+};
+
+#define FW_TIP 0.4935f
+#define FW_NOTCH 0.205f
+#define FW_DROP 0.04f
+
+vertex FwOut fireworks_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                              device const Inst* insts [[buffer(0)]],
+                              constant U& u [[buffer(1)]]) {
+    Inst i = insts[iid];
+    float2 c = float2(vid & 1u, vid >> 1u);
+    float2 p = float2(i.xy) + c * float2(i.wh);
+    float2 n = p / u.viewport;
+    FwOut o;
+    o.pos = float4(n.x * 2.0 - 1.0, 1.0 - n.y * 2.0, 0.0, 1.0);
+    uint col = i.color;
+    o.color = float4(float((col >> 16) & 0xffu), float((col >> 8) & 0xffu),
+                     float(col & 0xffu), float(col >> 24)) / 255.0;
+    // The centre of the record's middle pixel, `fireworks::centre`.
+    float half_side = float(i.wh.x / 2u);
+    o.mid = float2(i.xy) + half_side + 0.5;
+    float th = float(i.uv.x) * (6.28318530717958647692 / 65536.0);
+    float cs;
+    float sn = precise::sincos(th, cs);
+    o.turn = float2(cs, sn);
+    o.image = float(i.uv.y) / 16.0;
+    return o;
+}
+
+// `fireworks::star_distance`: the signed distance to the star, y up, a tip
+// at (0, tip), folded across its mirror lines at 18 and 54 degrees.
+static inline float fw_star(float2 p, float tip, float notch) {
+    float2 q = float2(abs(p.x), p.y);
+    const float2 m18 = float2(0.9510565f, 0.309017f);
+    const float2 m54 = float2(0.58778524f, 0.809017f);
+    float d = -m18.y * q.x + m18.x * q.y;
+    if (d < 0.0) q = float2(q.x + 2.0 * d * m18.y, q.y - 2.0 * d * m18.x);
+    d = -m54.y * q.x + m54.x * q.y;
+    if (d < 0.0) q = float2(q.x + 2.0 * d * m54.y, q.y - 2.0 * d * m54.x);
+    q.x = abs(q.x);
+    float ex = notch * m54.x;
+    float ey = notch * m54.y - tip;
+    float px = q.x;
+    float py = q.y - tip;
+    float h = clamp((px * ex + py * ey) / (ex * ex + ey * ey), 0.0, 1.0);
+    float dx = px - ex * h;
+    float dy = py - ey * h;
+    float dist = sqrt(dx * dx + dy * dy);
+    return (ex * py - ey * px < 0.0) ? -dist : dist;
+}
+
+fragment float4 fireworks_fragment(FwOut in [[stage_in]], constant FwU& f [[buffer(0)]]) {
+    float2 p = in.pos.xy - f.origin;
+    float2 q = p - in.mid;
+    float c = in.turn.x;
+    float s = in.turn.y;
+    float x = q.x * c - q.y * s;
+    float y = q.x * s + q.y * c - FW_DROP * in.image;
+    float d = fw_star(float2(x, -y), FW_TIP * in.image, FW_NOTCH * in.image);
+    float star = clamp(0.5 - d, 0.0, 1.0);
+    float2 h = p - f.hole;
+    float hole = clamp(sqrt(h.x * h.x + h.y * h.y) - f.radius + 0.5, 0.0, 1.0);
+    float a = alpha_byte(in.color.a, coverage_byte(star * hole));
+    return float4(in.color.rgb * a, a);
+}
+
 // ---- The cell path: the raw grid, resolved per cell in the vertex stage.
 
 struct CU {

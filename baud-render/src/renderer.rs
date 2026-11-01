@@ -605,7 +605,8 @@ const MARK_ALPHA: u8 = 0x66;
 const BADGE_SIZES: usize = 2;
 
 /// Whether a trail the driver asks for is held back: one lit while the
-/// splash's plasma held the effect's slot, until it lands.
+/// splash's plasma or the fireworks held the effect's slot, until it
+/// lands.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum HeldTrail {
     Yes,
@@ -1978,6 +1979,9 @@ pub struct Renderer<'f, 'a> {
     /// trail lit while it did is still being held back.
     asked_trail: Option<Drawn>,
     held_trail: HeldTrail,
+    /// **The fireworks** the driver asked for ([`Renderer::set_fireworks`]),
+    /// which hold the effect's slot after the splash's plasma.
+    fireworks: crate::fireworks::Shows,
     /// **The launch splash** on this frame and the last ([`SplashLook`]),
     /// the scale its glyphs were first drawn at, and its records: the
     /// lockup's glyphs and block, drawn with baud's own overlays over
@@ -2378,6 +2382,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_splash_inst: Vec::new(),
             asked_trail: None,
             held_trail: HeldTrail::No,
+            fireworks: [None; 2],
             splash: None,
             last_splash: None,
             splash_scale: None,
@@ -3358,22 +3363,79 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **The trail this frame draws**: the splash's plasma while it
-    /// burns, since a frame has one effect's slot on every GPU path;
-    /// else the driver's, unless one lit under the plasma is still in
-    /// flight -- held back until it lands, so it never appears halfway.
+    /// burns, since a frame has one effect's slot on every GPU path; then
+    /// the fireworks while they burn; else the driver's, unless one lit
+    /// under either is still in flight -- held back until it lands, so it
+    /// never appears halfway.
     fn choose_trail(&mut self) {
         let plasma = self.splash_vfx();
-        if plasma.is_some() && self.asked_trail.is_some() {
+        let fireworks = self.fireworks.iter().any(Option::is_some);
+        if (plasma.is_some() || fireworks) && self.asked_trail.is_some() {
             self.held_trail = HeldTrail::Yes;
         } else if self.asked_trail.is_none() {
             self.held_trail = HeldTrail::No;
         }
-        self.trail = match (plasma, self.held_trail) {
-            (Some((v, _)), _) => Some(Drawn::Vfx(v, Px::of(0), Px::of(0))),
-            (None, HeldTrail::Yes) => None,
-            (None, HeldTrail::No) => self.asked_trail,
+        self.trail = match (plasma, fireworks, self.held_trail) {
+            (Some((v, _)), _, _) => Some(Drawn::Vfx(v, Px::of(0), Px::of(0))),
+            (None, true, _) => Some(Drawn::Fireworks(
+                crate::fireworks::Stamp::of(&self.fireworks),
+                Px::of(0),
+                Px::of(0),
+            )),
+            (None, false, HeldTrail::Yes) => None,
+            (None, false, HeldTrail::No) => self.asked_trail,
         };
         self.build_trail();
+    }
+
+    /// **The fireworks for the next frame** (`crate::fireworks`): each
+    /// show the driver has in flight, the older first, at most two -- a
+    /// third would be a request while two burn, which the driver's hold
+    /// folds into the newer. Every path draws them in the effect's slot,
+    /// which they hold while any burns, a trail lit meanwhile held until
+    /// it lands as under the splash: the CPU path from their model, the
+    /// GPU paths from [`Renderer::trail`]'s records and
+    /// [`Renderer::fireworks_uniform`]. Their stars' rows are the damage,
+    /// as an effect's are.
+    pub fn set_fireworks(&mut self, shows: &[crate::fireworks::Show]) {
+        let next = match shows {
+            [] => [None, None],
+            [one] => [Some(*one), None],
+            [.., a, b] => [Some(*a), Some(*b)],
+        };
+        if next == self.fireworks && !next.iter().any(Option::is_some) {
+            return;
+        }
+        self.fireworks = next;
+        self.choose_trail();
+    }
+
+    /// **What the GPU's fireworks fragment function reads beyond the
+    /// records** while they hold the effect's slot: where the frame sits in
+    /// the target, and the hole round the cursor
+    /// ([`crate::fireworks::uniform`]); none otherwise.
+    pub fn fireworks_uniform(
+        &self,
+        origin: [f32; 2],
+    ) -> Option<[f32; crate::fireworks::UNIFORM_FLOATS]> {
+        let (centre, radius) = self.fireworks_hole()?;
+        Some(crate::fireworks::uniform(origin, centre, radius))
+    }
+
+    /// The hole round the cursor the fireworks are drawn without, while
+    /// they hold the slot: the newest show's centre, and its radius in
+    /// pixels.
+    fn fireworks_hole(&self) -> Option<(trail::Pt, f32)> {
+        match &self.trail {
+            Some(Drawn::Fireworks(..)) => self
+                .fireworks
+                .iter()
+                .rev()
+                .flatten()
+                .next()
+                .map(|s| (s.hole, crate::fireworks::HOLE * s.scale)),
+            _ => None,
+        }
     }
 
     /// **The launch splash** for the frames to come, or none (`splash.rs`):
@@ -3529,6 +3591,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
             None => self.cursor_fill,
         };
         match &mut self.trail {
+            Some(Drawn::Fireworks(_, top, bottom)) => {
+                for s in self.fireworks.iter().flatten() {
+                    crate::fireworks::records(s, frame, &mut self.trail_inst);
+                }
+                let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+                for inst in &self.trail_inst {
+                    lo = lo.min(i32::from(inst.y.0));
+                    hi = hi.max(i32::from(inst.y.0) + i32::from(inst.h.0));
+                }
+                let row = |v: i32| Px::of(u32::try_from(v.max(0)).unwrap_or(0));
+                (*top, *bottom) = if lo < hi {
+                    (row(lo), row(hi))
+                } else {
+                    (Px::of(0), Px::of(0))
+                };
+            }
             Some(Drawn::Ghost(g)) => self.trail_inst.push(trail::instance(*g, self.cursor_fill)),
             Some(Drawn::Smear(s)) => self
                 .trail_inst
@@ -3591,7 +3669,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         match &self.trail {
             Some(Drawn::Smear(s)) => s.opacity,
             Some(Drawn::Vfx(v, ..)) => v.emitter.opacity,
-            Some(Drawn::Ghost(_)) | None => Smear::OPAQUE,
+            Some(Drawn::Ghost(_) | Drawn::Fireworks(..)) | None => Smear::OPAQUE,
         }
     }
 
@@ -3601,7 +3679,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             Some(Drawn::Ghost(g)) => g.strength,
             Some(Drawn::Smear(s)) => s.strength,
             Some(Drawn::Vfx(v, ..)) => v.emitter.strength,
-            None => Strength::Full,
+            Some(Drawn::Fireworks(..)) | None => Strength::Full,
         }
     }
 
@@ -6905,6 +6983,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         was.extend_from_slice(&self.trail_inst);
         let trail_was = self.trail;
         let cursor_was = self.last_cursor.map(|(r, _, _)| r.index());
+        // The fireworks are the live frame's, as the trail is: the driver
+        // hands them again for the next.
+        self.fireworks = [None; 2];
         self.set_trail(None);
         self.set_cursor_glow_at(None);
         self.place_grounds(None, None);
@@ -7183,11 +7264,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 );
             }
             trail => {
+                let hole = self.fireworks_hole();
                 for r in dirty {
                     let band = self.band(Row::from_index(r));
                     let mut target = self.repainted(target, r);
-                    match trail {
-                        Some(Drawn::Smear(s)) => target.quad(&s, fill, self.blend, page, band),
+                    match (trail, hole) {
+                        (Some(Drawn::Fireworks(..)), Some(hole)) => {
+                            target.fireworks(&self.trail_inst, hole, self.blend, page, band)
+                        }
+                        (Some(Drawn::Smear(s)), _) => target.quad(&s, fill, self.blend, page, band),
                         _ => {
                             for inst in &self.trail_inst {
                                 target.over(inst, &self.atlas, self.blend, page, band);

@@ -347,7 +347,7 @@ pub enum Osc1337<'a> {
     /// a previous request".
     Attention(Attention),
     /// `RequestAttention=fireworks`: "fireworks explode at the cursor's
-    /// location", a drawn effect not built, counted.
+    /// location", which the embedder draws at the cursor's cell.
     Fireworks,
     /// `CursorShape=N`, "where [N]=0, 1, or 2": the shape, its blink kept.
     /// A value that is not a number is 0, as iTerm2 reads it with

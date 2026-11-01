@@ -209,3 +209,66 @@ least-progress rule only for determinate bars.
 **Linux** is not combined: each window is its own process and sends the
 launcher's `progress` for itself under the one application id, and what a
 dock makes of several is the dock's. Not built.
+
+## 7. The fireworks
+
+`RequestAttention=fireworks` is the request's one drawn form: "If it is
+fireworks then fireworks explode at the cursor's location"
+(`[[source: iterm2-escape-codes]]`). The page says no more, so the look is
+iTerm2's, read at 964a75d. PTYSession's `screenRequestAttention:`
+(`[[source: iterm2-964a75d-ptysession]]`) calls PTYTextView's
+`showFireworks` (`[[source: iterm2-964a75d-ptytextview]]`), which opens a
+transparent window over the screens holding iTermFindCursorView's star
+view (`[[source: iterm2-964a75d-findcursorview]]`): a `CAEmitterLayer` in
+additive mode (`[[source: macos-sdk-caemitterlayer-h]]`) at the cursor's
+centre, one cell born four a second, each throwing three 200-point stars,
+yellow, red and white (`[[source: iterm2-964a75d-findcursorcell1]]`,
+`[[source: iterm2-964a75d-findcursorcell2]]`,
+`[[source: iterm2-964a75d-findcursorcell3]]`), fast at 1000 points a
+second and slow at 100, growing, spinning and fading over a second
+(`[[source: macos-sdk-caemittercell-h]]`), a 20-point hole round the
+cursor. The emitter follows the cursor on every draw; the window goes 1 s
+after the last request, its alpha animated over the default 1/4 s
+(`[[source: macos-sdk-catransaction-h]]`), linearly
+(`[[source: macos-sdk-caanimation-h]]`). Nothing in the three files
+checks Reduce Motion.
+
+**Measured against WCAG 2.3.1** by baud's census
+(`baud-bench/tests/fireworks_flashes.rs`), drawn with every iTerm2 number
+the show flashes more than three times a second over 28,464 square
+points of a field on the verdict's reading and 32,258 on the chained
+one, past the 21,824 the general flash threshold allows (1x, light page,
+120 Hz; `bauds_fireworks_pass_over_a_full_window`). The slow stars at 40
+points a second and half as many fast ones pass, at 9,665 at worst on
+the dark and light pages (55.7% under, chained, light page, 120 Hz) and
+9,713 on the #1A0000 ground (55.5% under, chained, 120 Hz), and 9,597 at
+2x; a show held
+four seconds by repeated requests at 16,602 (23.9% under, chained, dark
+page, 120 Hz), and two shows, the second begun in the first's fade,
+under that.
+
+**Decided**, 2026-11-01: the stars are drawn inside baud's own window,
+since the Linux driver cannot place an overlay and both systems draw
+alike; under Reduce Motion the show's frame at 0.5 s is held still and
+faded out over 1.25 s, the fade Apple's guidance puts in place of motion
+(`[[source: apple-hig-accessibility]]`). **Taken, and open**: the look
+above rather than the same with the stars not spinning; and each star
+drawn over the frame rather than added to the others first, since the
+additive form needs a summing pass on every path, and by construction
+the two differ only where stars overlap: one star alone gives the same
+pixel either way.
+
+**Built** (`baud-render/src/fireworks.rs`, `baud-app/src/fireworks.rs`):
+the core hands the request's cell to the embedder (`Term::fireworks`);
+the shows hold the effect's slot after the launch splash, a trail lit
+meanwhile held until it lands; a request while a show holds restarts its
+hold, one while it fades starts a second. Under Reduce Motion a request
+while a still show is up starts nothing. The star's distance function
+folds the point into one wedge and measures it to one edge, the form of
+Inigo Quilez's sdStar5() among his 2D distance functions, the geometry
+spelled over again rather than the code copied, as
+`docs/research/notes/w/spec-ufo.json` records for the ufo effect's.
+
+**Not built**: iTerm2 also scrolls the cursor into view when the request
+comes; baud leaves the window where the user put it and draws at the
+cursor's cell where the window shows it.

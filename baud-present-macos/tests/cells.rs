@@ -137,6 +137,8 @@ struct Arms<'f, 'a> {
     fade: Option<Transition>,
     /// The launch splash both arms draw, or none.
     splash: Option<SplashLook>,
+    /// iTerm2's fireworks both arms draw: the shows in flight.
+    fireworks: Vec<baud_render::fireworks::Show>,
     /// An input method's composition both arms draw, or none.
     composition: Option<Composition>,
     /// Row 9's predicted echoes, each a codepoint at its logical cell,
@@ -372,6 +374,7 @@ impl Arms<'_, '_> {
         self.renderer.set_trail(self.trail);
         self.renderer.set_screen_fade(self.fade);
         self.renderer.set_splash(self.splash);
+        self.renderer.set_fireworks(&self.fireworks);
         self.renderer.set_composition(self.composition.clone());
         self.renderer.set_find(t, self.find.clone());
         self.renderer.set_link(self.link.clone());
@@ -1409,6 +1412,7 @@ macro_rules! arms {
             trail: None,
             fade: None,
             splash: None,
+            fireworks: Vec::new(),
             composition: None,
             predictions: Vec::new(),
             find: None,
@@ -1883,6 +1887,129 @@ fn the_splash_draws_alike_on_every_arm() {
         }
     }
     arms.splash = None;
+}
+
+/// **iTerm2's fireworks draw alike on every arm** (`baud_render::fireworks`):
+/// a show at five ages from its first frame through its fade, and the still
+/// form Reduce Motion draws, over a prompt and a line of text, the cursor's
+/// cell the hole's centre, on the dark and the light theme. The cell arm
+/// draws what the instance arm draws, pixel for pixel; the CPU arm, which
+/// the Linux driver draws with, the same but for the GPU's own rounding --
+/// a step, on at most ten pixels (one was measured), where the GPU's turn
+/// and square root leave a coverage a hair across a byte from the CPU's.
+/// Letterboxed by a
+/// margin, both GPU arms draw the frame they draw at the origin, moved:
+/// the hole is cut where the frame's cursor is, not the target's. The
+/// controls: the first frame is the plain one, every star born in the
+/// hole; every frame after it differs from the plain frame by more than a
+/// hundred pixels; the end is the plain frame, with no record left.
+#[test]
+fn the_fireworks_draw_alike_on_every_arm() {
+    use baud_render::fireworks::{BAUD, FADE, Form, HOLD, ORIGINS, Show};
+    let font = |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let regular = font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&regular).unwrap()];
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    feed(
+        &mut t,
+        b"\x1b[1;34m~/code\x1b[0m on \x1b[35mmain\x1b[0m\r\n\x1b[3;10HThe quick brown fox jumps over the lazy dog, 0123456789\x1b[6;60H",
+    );
+    let m = arms.renderer.metrics();
+    let f = |v: u32| f32::from(u16::try_from(v).unwrap());
+    let at = Pt {
+        x: 59.5 * f(m.cell_w.value()),
+        y: 5.5 * f(m.cell_h.value()),
+    };
+    let show = |age: f32, form: Form| Show {
+        age,
+        hold: HOLD,
+        origins: [at; ORIGINS],
+        hole: at,
+        scale: 1.0,
+        seed: Seed(0x51DE),
+        look: BAUD,
+        form,
+    };
+    let end = HOLD + FADE;
+    let mut worst = (0, 0);
+    for (half, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+        arms.renderer.set_theme(theme);
+        arms.fireworks = Vec::new();
+        let (plain, _) = arms.draw(&mut t);
+        for (age, form) in [
+            (0.0, Form::Moving),
+            (0.1, Form::Moving),
+            (0.4, Form::Moving),
+            (0.9, Form::Moving),
+            (HOLD + FADE / 2.0, Form::Moving),
+            (0.3, Form::Still),
+            (end, Form::Moving),
+        ] {
+            let what = format!("{half}, {form:?} at {age}");
+            arms.fireworks = vec![show(age, form)];
+            let (a, b) = arms.draw(&mut t);
+            assert_eq!(differing(&a, &b), 0, "{what}: the GPU arms disagree");
+            let cpu = cpu_frame(&mut arms, &mut t);
+            let (n, most) = channel_diff(&cpu, &a, |_| true);
+            eprintln!(
+                "{what}: the CPU arm differs on {n}, by {most}; {} pixels drawn",
+                differing(&a, &plain)
+            );
+            assert!(
+                most <= 1 && n <= 10,
+                "{what}: the CPU arm differs on {n}, by {most}"
+            );
+            worst = (worst.0.max(n), worst.1.max(most));
+            if age >= end {
+                assert_eq!(differing(&a, &plain), 0, "{what}: gone");
+                assert!(arms.renderer.trail().is_empty(), "{what}: no record left");
+            } else if age == 0.0 {
+                // Born at the cursor's centre, every star is in the hole.
+                assert_eq!(differing(&a, &plain), 0, "{what}: all in the hole");
+            } else {
+                assert!(differing(&a, &plain) > 100, "{what}: the control, drawn");
+            }
+        }
+        // Letterboxed: the same frame, moved by the margin.
+        arms.fireworks = vec![show(0.4, Form::Moving)];
+        let (at_origin, _) = arms.draw(&mut t);
+        arms.margin = (14, 10);
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{half}, letterboxed: the GPU arms disagree"
+        );
+        let (tw, _) = arms.target_size();
+        let (fw, fh) = arms.renderer.whole_size();
+        let (tw, fw, fh) = (
+            usize::try_from(tw.value()).unwrap(),
+            usize::try_from(fw.value()).unwrap(),
+            usize::try_from(fh.value()).unwrap(),
+        );
+        let mut moved = 0;
+        for y in 0..fh {
+            for x in 0..fw {
+                moved += usize::from(a[(y + 5) * tw + x + 7] != at_origin[y * fw + x]);
+            }
+        }
+        assert_eq!(
+            moved, 0,
+            "{half}, letterboxed: the frame is not the one at the origin"
+        );
+        arms.margin = (0, 0);
+    }
+    eprintln!("the CPU arm's worst: {} pixels, by {}", worst.0, worst.1);
+    arms.fireworks = Vec::new();
 }
 
 #[test]

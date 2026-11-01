@@ -261,11 +261,13 @@ impl LatePipe {
 }
 
 /// The uniform a trail's fragment function reads beyond the records:
-/// `quad_fragment`'s corners, hole, frame origin and shape, or
-/// an effect's ignition, which its fragment function reads.
+/// `quad_fragment`'s corners, hole, frame origin and shape, an effect's
+/// ignition, which its fragment function reads, or the fireworks' frame
+/// origin and hole.
 enum TrailUniform {
     Quad([f32; 16]),
     Effect([f32; effect::UNIFORM_FLOATS]),
+    Fireworks([f32; baud_render::fireworks::UNIFORM_FLOATS]),
 }
 
 impl TrailUniform {
@@ -273,6 +275,7 @@ impl TrailUniform {
         match self {
             TrailUniform::Quad(u) => (NonNull::from(u).cast(), core::mem::size_of_val(u)),
             TrailUniform::Effect(u) => (NonNull::from(u).cast(), core::mem::size_of_val(u)),
+            TrailUniform::Fireworks(u) => (NonNull::from(u).cast(), core::mem::size_of_val(u)),
         }
     }
 }
@@ -633,6 +636,8 @@ pub struct Gpu {
     /// The library the pipelines came from, kept for the one built late.
     library: Retained<ProtocolObject<dyn MTLLibrary>>,
     quad_pipe: LatePipe,
+    /// The fireworks' pipeline: `fireworks_vertex` and `fireworks_fragment`.
+    fireworks_pipe: LatePipe,
     effect_pipes: [LatePipe; Effect::COUNT],
     /// `glyph_vertex` and `image_fragment`: an image placement read
     /// through its tables. Built the first time an image is drawn.
@@ -1139,6 +1144,7 @@ impl Gpu {
             cell_shape_pipe,
             library,
             quad_pipe: LatePipe::Unbuilt,
+            fireworks_pipe: LatePipe::Unbuilt,
             effect_pipes: core::array::from_fn(|_| LatePipe::Unbuilt),
             image_pipe: LatePipe::Unbuilt,
             image_replace_pipe: LatePipe::Unbuilt,
@@ -1685,6 +1691,21 @@ impl Gpu {
     /// fragment function over its ignition. Each pipeline is built once, the
     /// first time.
     fn trail_draw(&mut self, renderer: &Renderer<'_, '_>, pad: [f32; 2]) -> Option<TrailDraw> {
+        // The fireworks, while they hold the effect's slot: their own
+        // vertex function, which hands the fragment function each star's
+        // turn and side from the record.
+        if let Some(u) = renderer.fireworks_uniform(pad) {
+            let pipe = self.fireworks_pipe.get_as(
+                &self.device,
+                &self.library,
+                ("fireworks_vertex", "fireworks_fragment"),
+                Blend::Over,
+            )?;
+            return Some(TrailDraw {
+                pipe,
+                uniform: TrailUniform::Fireworks(u),
+            });
+        }
         if let Some(smear) = renderer.smear() {
             let pipe = self
                 .quad_pipe

@@ -6237,6 +6237,20 @@ impl<'b> Term<'b> {
         self.store.strs.attention_requests
     }
 
+    /// **The cursor's cell at the last `OSC 1337 ;
+    /// RequestAttention=fireworks`**: "fireworks explode at the cursor's
+    /// location" (`[[source: iterm2-escape-codes]]`), which the embedder
+    /// draws. Kept until the next one, as [`Term::attention`] is.
+    pub fn fireworks(&self) -> Option<(Row, Col)> {
+        self.store.strs.fireworks
+    }
+
+    /// How many fireworks requests have come: read after a read, and moved,
+    /// [`Term::fireworks`] holds the latest.
+    pub fn fireworks_requests(&self) -> crate::notice::ReportCount {
+        self.store.strs.fireworks_requests
+    }
+
     /// **iTerm2's messages not acted on**, a key at a time, and those whose
     /// key iTerm2 does not know (`crate::iterm`).
     pub fn iterm_counts(&self) -> crate::iterm::ItermCounts {

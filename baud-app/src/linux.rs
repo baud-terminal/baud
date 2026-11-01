@@ -2582,6 +2582,8 @@ impl Driver {
         self.renderer.set_blink(plan.blink);
         self.renderer.set_trail(plan.trail);
         self.renderer.set_splash(plan.splash);
+        let shows: Vec<_> = plan.fireworks.iter().flatten().copied().collect();
+        self.renderer.set_fireworks(&shows);
         let margin = self.renderer.clear_color_of(&self.term);
         if margin != self.margin {
             self.margin = margin;

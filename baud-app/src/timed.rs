@@ -94,6 +94,8 @@ pub(crate) struct Plan {
     pub(crate) slide: Option<baud_render::ScreenSlide>,
     pub(crate) blink: BlinkPhases,
     pub(crate) splash: Option<baud_render::SplashLook>,
+    /// iTerm2's fireworks (`fireworks.rs`), the older show first.
+    pub(crate) fireworks: baud_render::fireworks::Shows,
 }
 
 /// The cell the frame is drawn on: its size in pixels and its height in
@@ -131,6 +133,9 @@ pub(crate) struct Timed {
     /// The launch splash (`splash.rs`): gone unless [`Timed::with_splash`]
     /// shows it.
     splash: crate::splash::Splash,
+    /// iTerm2's fireworks (`fireworks.rs`), built with the timing, so a
+    /// request read before the first plan starts a show on it.
+    fireworks: crate::fireworks::Fireworks,
 }
 
 impl Timed {
@@ -157,6 +162,7 @@ impl Timed {
             switch: None,
             bar: crate::bar::Bar::new(),
             splash: crate::splash::Splash::new(crate::config::LaunchSplash::Off),
+            fireworks: crate::fireworks::Fireworks::new(),
         }
     }
 
@@ -294,8 +300,12 @@ impl Timed {
         // The thumb steps every turn, whatever else is owed.
         let thumb = self.bar.turn(host, term) == crate::bar::Owes::Frame;
         let splash = self.splash.owes(self.clock.secs(now)) == crate::splash::Owes::Frame;
+        // The fireworks owe every frame while a show is up, and the one a
+        // request starts.
+        let fireworks = self.fireworks.owes(term) == crate::fireworks::Owes::Frame;
         let moving = thumb
             || splash
+            || fireworks
             || self.ghost.is_some()
             || self.switch.is_some()
             || self.chase.owes(host) == crate::caret::Owes::Frame;
@@ -456,6 +466,25 @@ impl Timed {
         }
         let slide = switch.and_then(|f| f.slide);
         let splash = self.splash.look(Some(secs), term, self.motion);
+        // The fireworks, at the cell size the frame is drawn at, a point a
+        // pixel as the cell's height in points says.
+        let cells = crate::fireworks::Cells {
+            w: cell.px.0,
+            h: cell.px.1,
+            back: term.window_back().index(),
+        };
+        let shows = self.fireworks.frame(
+            secs,
+            term,
+            cells,
+            cell.px.1 / cell.height.0.max(1.0),
+            self.motion,
+        );
+        let fireworks = match shows.as_slice() {
+            [] => [None, None],
+            [one] => [Some(*one), None],
+            [.., a, b] => [Some(*a), Some(*b)],
+        };
         Plan {
             scroll,
             // No trail while the screen slides, as sfte draws none.
@@ -464,6 +493,7 @@ impl Timed {
             slide,
             blink: self.blink,
             splash,
+            fireworks,
         }
     }
 }
@@ -580,6 +610,71 @@ mod tests {
         assert_eq!(held.set_splash(LaunchSplash::Off), Owes::Full);
         assert_eq!(held.plan(t0, &b, rect, CELL, widths()).splash, None);
         assert_eq!(held.deadline(t0), None);
+    }
+
+    /// **iTerm2's fireworks on Linux, as on macOS**: a request read before
+    /// the first frame is not lost -- the turn owes a frame for it, and the
+    /// plan carries a show whose first burst is at the request's cell,
+    /// though the cursor has moved on; every turn owes a frame through the
+    /// show's hold and fade, each plan carrying it; after its end the plan
+    /// carries none and nothing more is owed. The control: the same screen
+    /// with no request owes nothing. A window looking back three rows
+    /// shows the request's cell three rows down, and the burst is there.
+    #[test]
+    fn the_fireworks_play_from_a_request_before_the_first_frame_and_go() {
+        use baud_render::Pt;
+        use baud_render::fireworks::{FADE, HOLD};
+        let t0 = Instant::now();
+        let off = TrailPick::Named(CursorTrail::Off);
+        let req = b"\x1b[3;5H\x1b]1337;RequestAttention=fireworks\x07\x1b[7;20H";
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let mut quiet = Owned::new(&WS);
+        let mut q = Term::new(quiet.storage(), &WS);
+        let mut fx = Timed::new(t0, off, ScreenTransition::Off);
+        let mut none = Timed::new(t0, off, ScreenTransition::Off);
+        feed(&mut t, req);
+        feed(&mut q, b"\x1b[3;5H\x1b[7;20H");
+        assert_eq!(none.turn(t0, &mut q), Owes::Nothing, "the control");
+        assert_eq!(
+            fx.turn(t0, &mut t),
+            Owes::Frame,
+            "the request owes its first frame"
+        );
+        let first = fx.plan(t0, &t, rect, CELL, widths()).fireworks;
+        let show = first[0].expect("a show on the first frame");
+        assert_eq!(first[1], None);
+        assert_eq!(show.age, 0.0);
+        // Row 3, column 5: the centre of the cell at (2, 4), 10 by 20.
+        assert_eq!(show.origins[0], Pt { x: 45.0, y: 50.0 }, "the request's");
+        assert_eq!(show.hole, Pt { x: 195.0, y: 130.0 }, "the cursor's now");
+        assert_eq!(show.scale, 1.0);
+        let quiet_plan = none.plan(t0, &q, rect, CELL, widths());
+        assert_eq!(quiet_plan.fireworks, [None, None], "the control");
+        let end = Duration::from_secs_f64(f64::from(HOLD + FADE));
+        let step = Duration::from_millis(16);
+        let mut at = step;
+        while at + Duration::from_millis(1) < end {
+            assert_eq!(fx.turn(t0 + at, &mut t), Owes::Frame, "{at:?}");
+            let p = fx.plan(t0 + at, &t, rect, CELL, widths());
+            assert!(p.fireworks[0].is_some(), "{at:?}");
+            at += step;
+        }
+        let after = t0 + end + Duration::from_millis(1);
+        let gone = fx.plan(after, &t, rect, CELL, widths());
+        assert_eq!(gone.fireworks, [None, None], "gone at the end");
+        assert_eq!(fx.turn(after, &mut t), Owes::Nothing, "and owes nothing");
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let lines: Vec<u8> = (0..30)
+            .flat_map(|i| format!("{i}\r\n").into_bytes())
+            .collect();
+        feed(&mut t, &lines);
+        feed(&mut t, req);
+        t.set_window_back(baud_domain::Rows::of_count(3));
+        let mut fx = Timed::new(t0, off, ScreenTransition::Off);
+        let back = fx.plan(t0, &t, rect, CELL, widths()).fireworks[0].expect("a show");
+        assert_eq!(back.origins[0], Pt { x: 45.0, y: 110.0 }, "three rows down");
     }
 
     /// **Blinking text on screen wakes the wait at each flip and repaints

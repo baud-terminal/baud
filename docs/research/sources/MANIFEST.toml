@@ -39934,3 +39934,117 @@ group  = "C"
 # kitty-6d5d0c4-screen 3146-3158, kitty-6d5d0c4-options-definition
 # 1450-1464 and 1466-1476); hashes recorded only, not committed. Read, not
 # copied: baud's curve is solved by bisection of its own.
+
+[sources.iterm2-964a75d-findcursorview]
+key    = "iterm2-964a75d-findcursorview"
+title  = "iTerm2 964a75d, sources/TerminalView/iTermFindCursorView.m -- the fireworks view: a CAEmitterLayer, additive, one cell born 4 a second (lifetime 0.75 +- 0.25) emitting three star images fast (birthRate b/5, velocity 1000 +- 10%) and slow (birthRate b, velocity 100), scale 0 +- 0.1 growing 0.3 a second, alpha falling 1 a second, lifetime 1 +- 0.3, spin 6 pi +- 2 pi; a 20-point hole masked round the cursor; kFindCursorHoldTime 1"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/TerminalView/iTermFindCursorView.m"
+file   = ""
+sha256 = "b5a8fd8be965db2d28134b0d5d3fd9ccce55abc1305c856ca3aacb78e832224a"
+bytes  = 10843
+status = "external"
+group  = "AX"
+# Fetched 2026-11-01 for RequestAttention=fireworks; hash recorded only, not
+# committed (GPL-2.0). Read, not copied: baud-render/src/fireworks.rs takes
+# its numbers and draws its own star. PTYSession.m (screenRequestAttention:,
+# iterm2-964a75d-ptysession) calls PTYTextView's showFireworks, which opens
+# the overlay window, holds it 1 s and fades its alpha with the animator, and
+# moves the emitter to the cursor on every draw
+# (drawingHelperUpdateFindCursorView, iterm2-964a75d-ptytextview). Neither
+# file checks Reduce Motion.
+
+[sources.iterm2-964a75d-findcursorcell1]
+key    = "iterm2-964a75d-findcursorcell1"
+title  = "iTerm2 964a75d, images/FindCursorCell1.png -- the fireworks' yellow star: 200 x 200, #FFFF00 inside a five-pointed star, tips 97 pixels from its centroid at half coverage, notches 41, the centroid 8 below the image's middle, 11,888 pixels of coverage"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/images/FindCursorCell1.png"
+file   = ""
+sha256 = "23f9e0279910267da3531f73d775271e397c64bce765ef4e1c20425f3abc127c"
+bytes  = 3500
+status = "external"
+group  = "AX"
+# Decoded and measured 2026-11-01; not committed (GPL-2.0). baud draws its
+# own star from the measured radii; no pixel of the image is used.
+
+[sources.iterm2-964a75d-findcursorcell2]
+key    = "iterm2-964a75d-findcursorcell2"
+title  = "iTerm2 964a75d, images/FindCursorCell2.png -- the fireworks' red star: the same star in #FF0000"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/images/FindCursorCell2.png"
+file   = ""
+sha256 = "0cbbf7b48e3710e737fcbe7779cf45e7f027b738c034a0734fabede474a4ee3d"
+bytes  = 3539
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-findcursorcell3]
+key    = "iterm2-964a75d-findcursorcell3"
+title  = "iTerm2 964a75d, images/FindCursorCell3.png -- the fireworks' white star: the same star in #FFFFFF"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/images/FindCursorCell3.png"
+file   = ""
+sha256 = "c097c0f1c655c7e7015f172a370d5c3c9d84fc3a69f84b2bf6b0666634ef756a"
+bytes  = 2962
+status = "external"
+group  = "AX"
+
+[sources.macos-sdk-caemittercell-h]
+key    = "macos-sdk-caemittercell-h"
+title  = "CAEmitterCell.h -- birthRate 'The number of emitted objects created every second'; lifetime 'a mean value and a range about the mean', scale and spin 'mean and range about the mean'; alphaSpeed 'the rate of change per second'; emitterCells: 'each particle emitted by the cell will act as an emitter for each of the cell's sub-cells'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/QuartzCore.framework/Headers/CAEmitterCell.h"
+file   = ""
+sha256 = "dce033ae7cb9e509921f72c657aa31d00a4a94e4a9a1798ec92d5a23c1583309"
+bytes  = 4652
+status = "external"
+group  = "AX"
+
+[sources.macos-sdk-caemitterlayer-h]
+key    = "macos-sdk-caemitterlayer-h"
+title  = "CAEmitterLayer.h -- renderMode: 'The first four use source-over compositing, the last uses additive compositing'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/QuartzCore.framework/Headers/CAEmitterLayer.h"
+file   = ""
+sha256 = "072e225dc23b34d20ba4bf536e1ce7cbf2b4249f9256ec0dfceca3e9ce7300ee"
+bytes  = 6038
+status = "external"
+group  = "AX"
+
+[sources.macos-sdk-catransaction-h]
+key    = "macos-sdk-catransaction-h"
+title  = "CATransaction.h -- animationDuration: 'Defines the default duration of animations added to layers. Defaults to 1/4s.'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/QuartzCore.framework/Headers/CATransaction.h"
+file   = ""
+sha256 = "9557c8b235f4f9766cf4e8c7b2c032325b15742e6c8a324c7f74dfceb41fbe50"
+bytes  = 4810
+status = "external"
+group  = "AX"
+
+[sources.macos-sdk-caanimation-h]
+key    = "macos-sdk-caanimation-h"
+title  = "CAAnimation.h -- timingFunction: 'Defaults to nil indicating linear pacing'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/QuartzCore.framework/Headers/CAAnimation.h"
+file   = ""
+sha256 = "d5ce2097bd26c2955d9e204ef70f46aeefa3f19cc8d2fcba833b4a9acab05e90"
+bytes  = 15539
+status = "external"
+group  = "AX"

@@ -86,6 +86,10 @@ mod effects;
 // Find in the scrollback: the keys, the field and the selection it makes.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod find;
+// iTerm2's fireworks as both drivers time them: a show a request starts,
+// held and ended on the clock, pure.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod fireworks;
 // The foreground program and its folder, read from the kernel for the
 // window's title (`title.rs`).
 #[cfg(any(target_os = "macos", target_os = "linux"))]

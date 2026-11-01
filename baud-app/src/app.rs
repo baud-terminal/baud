@@ -738,6 +738,8 @@ struct App {
     notes: crate::notify::Delivery<Instant, String>,
     center: Option<baud_present_macos::notify::Center>,
     attention: Option<baud_present_macos::notify::AttentionId>,
+    /// iTerm2's fireworks: the shows the requests started (`fireworks.rs`).
+    fireworks: crate::fireworks::Fireworks,
     /// When Notification Center's list was last asked for, and whether an
     /// answer is owed.
     delivered_asked: Option<Instant>,
@@ -1380,6 +1382,7 @@ impl App {
             None => None,
         });
         let notes = crate::notify::Delivery::new(notifications, &term);
+        let fireworks = crate::fireworks::Fireworks::new();
         let last_prompts = term.prompts_opened();
         App {
             bell,
@@ -1511,6 +1514,7 @@ impl App {
             pace: crate::reads::Pace::new(),
             printing,
             notes,
+            fireworks,
             center,
             attention: None,
             delivered_asked: None,
@@ -2034,6 +2038,28 @@ impl App {
             None => crate::splash::Logo::None,
         };
         self.renderer.set_splash(splash);
+        // iTerm2's fireworks, off `tick_target` like the trail: a show a
+        // request started, held and gone on the display link's clock. A
+        // frame before the first tick has no reading, so a request waits
+        // for one, as the splash's clock does.
+        let m = self.renderer.metrics();
+        let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        let cells = crate::fireworks::Cells {
+            w: side(m.cell_w),
+            h: side(m.cell_h),
+            back: self.term.window_back().index(),
+        };
+        let shows = match self.last_tick {
+            Some(_) => self.fireworks.frame(
+                self.tick_target,
+                &self.term,
+                cells,
+                self.scale as f32,
+                self.motion,
+            ),
+            None => Vec::new(),
+        };
+        self.renderer.set_fireworks(&shows);
         // The input manager's composition, at the cursor of the live view:
         // the instance and CPU paths draw it in their convert, the cell path
         // through its overlay below -- but in the find field while it is
@@ -11325,6 +11351,11 @@ impl Responder for Driver {
         // The launch splash owes every frame while it plays or fades, and
         // the one a reduced-motion hold ends on.
         if self.app.splash.owes(target) == crate::splash::Owes::Frame {
+            self.app.pending = Pending::Dirty;
+        }
+        // iTerm2's fireworks owe every frame while a show is up, and the
+        // one a request starts.
+        if self.app.fireworks.owes(&self.app.term) == crate::fireworks::Owes::Frame {
             self.app.pending = Pending::Dirty;
         }
         // The quad owes every frame while it is in flight, and the one a

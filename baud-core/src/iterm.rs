@@ -200,7 +200,13 @@ impl Paint<'_, '_> {
             | Osc1337::MultipartFile(_)
             | Osc1337::FilePart(_)
             | Osc1337::FileEnd => self.file_message(o),
-            Osc1337::Fireworks => self.not_acted(ItermKey::RequestAttention),
+            // "fireworks explode at the cursor's location": the cursor's
+            // cell as the request arrives, for the embedder to draw them at.
+            Osc1337::Fireworks => {
+                let col = self.cx.reported(self.report_fence(), self.cols);
+                self.strs.fireworks = Some((self.cy, col));
+                self.strs.fireworks_requests = self.strs.fireworks_requests.next();
+            }
             Osc1337::Malformed(key) | Osc1337::Ignored(key) => self.not_acted(key),
             Osc1337::Unknown => {
                 self.strs.iterm.counts.unknown = self.strs.iterm.counts.unknown.next();

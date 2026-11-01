@@ -419,6 +419,88 @@ impl<'p> Target<'p> {
         }
     }
 
+    /// **Paints the fireworks' stars over the pixels** (`crate::fireworks`),
+    /// each record clipped to its bounds, the buffer, the columns drawn and
+    /// the rows of `band`, in order: each pixel as much as the star covers
+    /// its centre ([`crate::fireworks::coverage`]) and the hole round the
+    /// cursor leaves it ([`crate::fireworks::hole`]), as a byte, scaled by
+    /// the record's alpha and rounded -- the GPU's `fireworks_fragment`
+    /// forms the same byte to within one step (the parity test measures at
+    /// most one pixel, by one step) -- in the record's colour.
+    pub fn fireworks(
+        &mut self,
+        records: &[Instance],
+        hole: (Pt, f32),
+        blend: Blend,
+        page: Page,
+        band: Band,
+    ) {
+        match page {
+            Page::Opaque => self.fireworks_by(records, hole, band, |f, d, c| blend.over(f, d, c)),
+            Page::Glass => {
+                self.fireworks_by(records, hole, band, |f, d, c| blend.over_glass(f, d, c))
+            }
+        }
+    }
+
+    /// [`Target::fireworks`]'s loop, one copy for each page's blend.
+    #[inline(always)]
+    fn fireworks_by(
+        &mut self,
+        records: &[Instance],
+        (at, radius): (Pt, f32),
+        band: Band,
+        mix: impl Fn(Argb, Argb, Coverage) -> Argb,
+    ) {
+        let rows = self.rows_of(band);
+        let (stride, width) = (slots(self.stride), slots(self.width));
+        let at_px = |v: i16| usize::try_from(v.max(0)).unwrap_or(0);
+        let centre_of = |v: usize| f32::from(u16::try_from(v).unwrap_or(u16::MAX)) + 0.5;
+        for r in records.iter().filter(|r| r.kind == Kind::Particle) {
+            let (x0, y0) = (i32::from(r.x.0), i32::from(r.y.0));
+            let ys = at_px(r.y.0).max(rows.start)
+                ..usize::try_from(y0 + i32::from(r.h.0))
+                    .unwrap_or(0)
+                    .min(rows.end);
+            let xs = at_px(r.x.0).max(self.cols.start)
+                ..usize::try_from(x0 + i32::from(r.w.0))
+                    .unwrap_or(0)
+                    .min(self.cols.end)
+                    .min(width);
+            if ys.is_empty() || xs.is_empty() {
+                continue;
+            }
+            let mid = crate::fireworks::centre(r);
+            let image = crate::fireworks::image_side(r.v);
+            let turn = crate::fireworks::turned(r.u);
+            let fa = r.color.a();
+            let fill = r.color.with_alpha(Chan::from_u8(0xFF));
+            for y in ys {
+                let row = &mut self.pixels[y * stride..y * stride + width];
+                let cy = centre_of(y);
+                for x in xs.clone() {
+                    let cx = centre_of(x);
+                    let p = Pt { x: cx, y: cy };
+                    let star = crate::fireworks::coverage(
+                        Pt {
+                            x: cx - mid.x,
+                            y: cy - mid.y,
+                        },
+                        image,
+                        turn,
+                    );
+                    let cover = star * crate::fireworks::hole(p, at, radius);
+                    if cover <= 0.0 {
+                        continue;
+                    }
+                    let c = u8::try_from((cover * 255.0).round() as i64).unwrap_or(u8::MAX);
+                    let a = baud_domain::premultiply_chan(Chan::from_u8(c), fa).get();
+                    row[x] = mix(fill, Argb(row[x]), Coverage(a)).0;
+                }
+            }
+        }
+    }
+
     /// [`Target::quad`]'s loop, one copy for each page's blend.
     #[inline(always)]
     fn quad_by(

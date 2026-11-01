@@ -537,6 +537,7 @@ mod tests {
             ("liquid.rs", include_str!("liquid.rs")),
             ("trail.rs", include_str!("trail.rs")),
             ("flash.rs", include_str!("flash.rs")),
+            ("fireworks.rs", include_str!("fireworks.rs")),
         ] {
             for call in PLATFORM {
                 assert!(!src.contains(call), "{name} calls the platform's {call}");

@@ -572,12 +572,15 @@ impl TrailLook {
 
 /// The trail as the renderer holds it for a frame, in pixels. An effect
 /// keeps the rows its records span, top inclusive and bottom exclusive: its
-/// reach and every particle, which is what it can dirty.
+/// reach and every particle, which is what it can dirty. The fireworks
+/// hold the effect's slot while they burn ([`crate::fireworks`]), and keep
+/// their stars' rows the same way.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Drawn {
     Ghost(Ghost),
     Smear(Smear),
     Vfx(Vfx, Px, Px),
+    Fireworks(crate::fireworks::Stamp, Px, Px),
 }
 
 impl Drawn {
@@ -587,7 +590,9 @@ impl Drawn {
         match self {
             Drawn::Ghost(g) => g.overlaps(top, bottom),
             Drawn::Smear(s) => s.overlaps(top, bottom),
-            Drawn::Vfx(_, y0, y1) => y0.value() < bottom.value() && y1.value() > top.value(),
+            Drawn::Vfx(_, y0, y1) | Drawn::Fireworks(_, y0, y1) => {
+                y0.value() < bottom.value() && y1.value() > top.value()
+            }
         }
     }
 }

@@ -580,6 +580,10 @@ pub struct StrBuf<'b> {
     /// The last `OSC 1337 ; RequestAttention`, and how many have come.
     pub(crate) attention: Option<Attention>,
     pub(crate) attention_requests: crate::notice::ReportCount,
+    /// The cursor's cell at the last `RequestAttention=fireworks`, and how
+    /// many have come.
+    pub(crate) fireworks: Option<(Row, Col)>,
+    pub(crate) fireworks_requests: crate::notice::ReportCount,
     /// iTerm2's `OSC 1337` messages: the host `RemoteHost` named, the
     /// backing scale and the counts (`crate::iterm`). Here for the reason
     /// `window_asks` is: only an `OSC 1337` reaches it.
@@ -677,6 +681,8 @@ impl<'b> StrBuf<'b> {
             progress_reports: crate::notice::ReportCount::FIRST,
             attention: None,
             attention_requests: crate::notice::ReportCount::FIRST,
+            fireworks: None,
+            fireworks_requests: crate::notice::ReportCount::FIRST,
             iterm: crate::iterm::Iterm::NEW,
             user_vars: &mut [],
             iterm_file: ItermFile::NEW,
@@ -1027,6 +1033,8 @@ impl Owned {
                 progress_reports: crate::notice::ReportCount::FIRST,
                 attention: None,
                 attention_requests: crate::notice::ReportCount::FIRST,
+                fireworks: None,
+                fireworks_requests: crate::notice::ReportCount::FIRST,
                 iterm: crate::iterm::Iterm::NEW,
                 user_vars: &mut self.user_vars,
                 iterm_file: ItermFile::NEW,
@@ -1123,6 +1131,8 @@ impl Owned {
                 progress_reports: crate::notice::ReportCount::FIRST,
                 attention: None,
                 attention_requests: crate::notice::ReportCount::FIRST,
+                fireworks: None,
+                fireworks_requests: crate::notice::ReportCount::FIRST,
                 iterm: crate::iterm::Iterm::NEW,
                 user_vars: &mut self.user_vars,
                 iterm_file: ItermFile::NEW,
