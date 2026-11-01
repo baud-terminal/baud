@@ -46,7 +46,6 @@ fail=0
 }
 
 tmp=$(mktemp -d)
-: >"$tmp/unaccounted"
 trap 'rm -rf "$tmp"' EXIT
 
 # key<TAB>file<TAB>sha256<TAB>status, one per [sources.*] block.
@@ -92,69 +91,19 @@ if ! cmp -s "$tmp/awk-keys" "$tmp/toml-keys"; then
   fail=1
 fi
 
-# ── 1 & 2: retrieved entries must exist and still hash ───────────────────────
-while IFS=$'\t' read -r key file sha status; do
-  [ "$status" = "retrieved" ] || continue
-  if [ ! -f "$SRC/$file" ]; then
-    echo "  FAIL $key: status=retrieved but $SRC/$file is missing"
-    fail=1
-    continue
-  fi
-  got=$(shasum -a 256 "$SRC/$file" | cut -d' ' -f1)
-  if [ "$got" != "$sha" ]; then
-    echo "  FAIL $key: $file hashes $got, manifest says $sha"
-    fail=1
-  fi
-done <"$tmp/entries"
-
-# ── 2b: every sha256 is well-formed ─────────────────────────────────────────
-# An `external` entry names a file this repo does not hold, so (2) cannot
-# re-hash it and a malformed digest there is invisible. This check caught a
-# literal placeholder -- `sha256 = "9c07f2a0a0a0a0a0"` -- in the commit that
-# added it, on an entry a note already cited. It is the cheap half of a
-# verification that cannot be done in full.
-# `cut`, not `read`: tab is an IFS *whitespace* character, so `read` collapses
-# a run of them and every entry with an empty `file` shifts a column left. The
-# first version of this check read `status` as the digest and reported
-# apple-cpu-guide's perfectly good 64 hex chars as "8 chars, want 64" -- a
-# probe firing on the wrong data, which is the failure mode this repo already
-# records twice. `cut -f` keeps empty fields.
-while IFS= read -r line; do
-  key=$(printf '%s' "$line" | cut -f1)
-  sha=$(printf '%s' "$line" | cut -f3)
-  status=$(printf '%s' "$line" | cut -f4)
-  [ -n "$key" ] || continue
-  # `gated` means never obtained, so there is nothing to have hashed.
-  [ "$status" = "gated" ] && continue
-  case "$sha" in
-  [0-9a-f]*) [ "${#sha}" -eq 64 ] || {
-    echo "  FAIL $key: sha256 is ${#sha} chars, want 64"
-    fail=1
-  } ;;
-  *)
-    echo "  FAIL $key: sha256 is not lowercase hex: '$sha'"
-    fail=1
-    ;;
-  esac
-done <"$tmp/entries"
-
-# ── 3: every source file is accounted for ────────────────────────────────────
+# ── The lists 1 to 4 read ────────────────────────────────────────────────────
+# **The lists are made by the commands that always made them, and the checks
+# on them run in one process, below.** Run in the shell, the checks started a
+# `shasum` for each retrieved file and a `cut` or a `grep` for each entry, file
+# and citation, which was nearly all of the gate's time. The lists' order,
+# `find`'s and the locale's `sort`'s, is the one the checks always read.
 cut -f2 "$tmp/entries" | grep -v '^$' | sort -u >"$tmp/known"
 # Recursive: sources are grouped into subdirectories (terminfo/ and, as the
 # corpus grows, one per protocol family), so a top-level-only walk would see a
 # directory it could not account for and, worse, would never check the files
 # inside it. Paths are compared relative to $SRC, matching the manifest's
 # `file` values.
-find "$SRC" -type f ! -name 'MANIFEST.toml' | while read -r f; do
-  b=${f#"$SRC"/}
-  grep -qxF "$b" "$tmp/known" || {
-    echo "  FAIL $b is in $SRC/ with no manifest entry"
-    echo x >>"$tmp/unaccounted"
-  }
-done
-[ -s "$tmp/unaccounted" ] && fail=1
-
-# ── 4: every citation resolves to a readable source ──────────────────────────
+find "$SRC" -type f ! -name 'MANIFEST.toml' >"$tmp/found"
 cut -f1 "$tmp/entries" | sort -u >"$tmp/keys"
 awk -F'\t' '$4 == "gated" { print $1 }' "$tmp/entries" | sort -u >"$tmp/gated"
 {
@@ -165,6 +114,108 @@ awk -F'\t' '$4 == "gated" { print $1 }' "$tmp/entries" | sort -u >"$tmp/gated"
     xargs -0 grep -ohE '\[\[source: [a-z0-9_-]+\]\]' 2>/dev/null
 } | sed -E 's/\[\[source: (.*)\]\]/\1/' | sort -u >"$tmp/cited"
 
+# `${#sha}` counts characters in a UTF-8 locale and bytes in C; this asks the
+# shell running the gate which, so 2b counts as the loop it replaced did.
+probe=$'\xc3\xa9'
+chars=bytes
+[ "${#probe}" -eq 1 ] && chars=utf-8
+
+python3 -I - "$SRC" "$tmp" "$chars" <<'PY'
+import hashlib, os, sys
+
+src, tmp, chars = (os.fsencode(a) for a in sys.argv[1:4])
+out = sys.stdout.buffer
+fail = 0
+
+
+def lines(name):
+    """A file's newline-ended lines, as `read` takes them."""
+    with open(os.path.join(tmp, name), "rb") as f:
+        return f.read().split(b"\n")[:-1]
+
+
+def say(*parts):
+    out.write(b"".join(parts) + b"\n")
+
+
+entries = lines(b"entries")
+
+# ── 1 & 2: retrieved entries must exist and still hash ───────────────────────
+# As `IFS=$'\t' read -r key file sha status`: tab is an IFS whitespace
+# character, so a run of tabs is one separator and an empty field moves the
+# rest left -- a retrieved entry with no file or no sha256 reads a status that
+# is not `retrieved`, and only 2b sees it.
+for line in entries:
+    rest, fields = line.strip(b"\t"), []
+    for _ in range(3):
+        head, _, rest = rest.partition(b"\t")
+        fields.append(head)
+        rest = rest.lstrip(b"\t")
+    key, file, sha, status = *fields, rest
+    if status != b"retrieved":
+        continue
+    path = src + b"/" + file
+    if not os.path.isfile(path):
+        say(b"  FAIL ", key, b": status=retrieved but ", path, b" is missing")
+        fail = 1
+        continue
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            while block := f.read(1 << 20):
+                digest.update(block)
+        got = digest.hexdigest().encode()
+    except OSError as e:
+        print(f"check-sources: {os.fsdecode(path)}: {e.strerror}", file=sys.stderr)
+        got = b""
+    if got != sha:
+        say(b"  FAIL ", key, b": ", file, b" hashes ", got, b", manifest says ", sha)
+        fail = 1
+
+# ── 2b: every sha256 is well-formed ─────────────────────────────────────────
+# An `external` entry names a file this repo does not hold, so (2) cannot
+# re-hash it and a malformed digest there is invisible. This check caught a
+# literal placeholder -- `sha256 = "9c07f2a0a0a0a0a0"` -- in the commit that
+# added it, on an entry a note already cited. It is the cheap half of a
+# verification that cannot be done in full.
+# As `cut -f`, not `read`: `cut` keeps empty fields. The first version of this
+# check used `read`, read `status` as the digest and reported
+# apple-cpu-guide's perfectly good 64 hex chars as "8 chars, want 64" -- a
+# probe firing on the wrong data, which is the failure mode this repo already
+# records twice. A line with no tab is every field of itself, as with `cut`.
+for line in entries:
+    cols = line.split(b"\t")
+
+    def cut(n):
+        return line if len(cols) == 1 else (cols[n - 1] if n <= len(cols) else b"")
+
+    key, sha, status = cut(1), cut(3), cut(4)
+    if not key:
+        continue
+    # `gated` means never obtained, so there is nothing to have hashed.
+    if status == b"gated":
+        continue
+    # The shell's `[0-9a-f]*`: the first character only, as the loop had it.
+    if sha[:1] and sha[:1] in b"0123456789abcdef":
+        n = len(sha.decode("utf-8", "surrogateescape")) if chars == b"utf-8" else len(sha)
+        if n != 64:
+            say(b"  FAIL ", key, b": sha256 is ", str(n).encode(), b" chars, want 64")
+            fail = 1
+    else:
+        say(b"  FAIL ", key, b": sha256 is not lowercase hex: '", sha, b"'")
+        fail = 1
+
+# ── 3: every source file is accounted for ────────────────────────────────────
+# `find`'s list, each line trimmed of spaces and tabs as `read -r f` trims it.
+known = set(lines(b"known"))
+for f in lines(b"found"):
+    f = f.strip(b" \t")
+    b = f[len(src) + 1 :] if f.startswith(src + b"/") else f
+    if b not in known:
+        say(b"  FAIL ", b, b" is in ", src, b"/ with no manifest entry")
+        fail = 1
+
+# ── 4: every citation resolves to a readable source ──────────────────────────
 # **A gate that scanned nothing read as a gate that passed.** The count below
 # was printed and never asserted, so a broken `find`, a renamed directory or a
 # changed citation syntax would have reported "ok 0 citations resolve" and
@@ -173,25 +224,32 @@ awk -F'\t' '$4 == "gated" { print $1 }' "$tmp/entries" | sort -u >"$tmp/gated"
 # design documents resting on unreadable sources. The floor is well under the
 # real count and exists to catch a scan that found nothing, not to pin a
 # number that grows with every note.
-cited_n=$(wc -l <"$tmp/cited" | tr -d ' ')
-if [ "$cited_n" -lt 50 ]; then
-  echo "  FAIL only $cited_n citations found; this gate scans the whole tree and should see far more"
-  exit 1
-fi
-if true; then
-  while read -r c; do
-    [ -n "$c" ] || continue
-    grep -qxF "$c" "$tmp/keys" || {
-      echo "  FAIL a doc or doc comment cites [[source: $c]], which the manifest does not carry"
-      fail=1
-    }
-    grep -qxF "$c" "$tmp/gated" && {
-      echo "  FAIL a doc or doc comment cites [[source: $c]], recorded as gated — never read"
-      fail=1
-    }
-  done <"$tmp/cited"
-  echo "  ok   $(wc -l <"$tmp/cited" | tr -d ' ') citations resolve, $(wc -l <"$tmp/keys" | tr -d ' ') sources in manifest"
-fi
+cited = lines(b"cited")
+keys = lines(b"keys")
+if len(cited) < 50:
+    say(b"  FAIL only ", str(len(cited)).encode(), b" citations found; this gate scans the whole tree and should see far more")
+    out.flush()
+    sys.exit(3)
+key_set, gated = set(keys), set(lines(b"gated"))
+for c in cited:
+    c = c.strip(b" \t")
+    if not c:
+        continue
+    if c not in key_set:
+        say(b"  FAIL a doc or doc comment cites [[source: ", c, b"]], which the manifest does not carry")
+        fail = 1
+    if c in gated:
+        say(b"  FAIL a doc or doc comment cites [[source: ", c, "]], recorded as gated — never read".encode())
+        fail = 1
+say(b"  ok   ", str(len(cited)).encode(), b" citations resolve, ", str(len(keys)).encode(), b" sources in manifest")
+out.flush()
+sys.exit(fail)
+PY
+case $? in
+0) ;;
+3) exit 1 ;;
+*) fail=1 ;;
+esac
 
 # ── 5: every committed source has a licence, and the index says so ──────────
 # Committing a file is distributing it, so a source in the manifest is also a
