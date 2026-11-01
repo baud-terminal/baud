@@ -867,6 +867,7 @@ fn every_effect_rides_rigidly() {
                     hole: to,
                     shape: Shape::Quad,
                     strength: baud_render::Strength::Full,
+                    opacity: Smear::OPAQUE,
                 },
                 ignition: Ignition::ignite(centre(from), to, Seed(7), ch).at(age),
                 axis: Pt { x: 0.8, y: -0.6 },
@@ -1134,6 +1135,7 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                         hole,
                         shape: Shape::Quad,
                         strength: baud_render::Strength::Full,
+                        opacity: Smear::OPAQUE,
                     },
                     ignition: ignite.at(age),
                     axis,
@@ -3312,6 +3314,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         hole,
         shape: Shape::Quad,
         strength: baud_render::Strength::Full,
+        opacity: Smear::OPAQUE,
     }));
     let (quad_a, quad_b) = arms.draw(&mut t);
     assert_eq!(
@@ -3341,6 +3344,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         hole,
         shape: Shape::Quad,
         strength: baud_render::Strength::Full,
+        opacity: Smear::OPAQUE,
     }));
     let (spared, spared_b) = arms.draw(&mut t);
     assert_eq!(
@@ -3358,6 +3362,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         hole: Rect::default(),
         shape: Shape::Quad,
         strength: baud_render::Strength::Full,
+        opacity: Smear::OPAQUE,
     }));
     let (covered, _) = arms.draw(&mut t);
     assert!(
@@ -3396,6 +3401,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             hole: no_hole,
             shape: Shape::Quad,
             strength: baud_render::Strength::Full,
+            opacity: Smear::OPAQUE,
         };
         arms.trail = Some(TrailLook::Smear(smear));
         let (a, b) = arms.draw(&mut t);
@@ -3466,6 +3472,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             hole: head,
             shape: Shape::Sweep,
             strength: baud_render::Strength::Full,
+            opacity: Smear::OPAQUE,
         };
         arms.trail = Some(TrailLook::Smear(smear));
         let (a, b) = arms.draw(&mut t);
@@ -3871,6 +3878,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         hole,
         shape: Shape::Quad,
         strength: baud_render::Strength::Full,
+        opacity: Smear::OPAQUE,
     });
     let ignite = Ignition::ignite(
         Pt {
@@ -3888,6 +3896,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             hole,
             shape: Shape::Quad,
             strength: baud_render::Strength::Full,
+            opacity: Smear::OPAQUE,
         },
         ignition: ignite.at(0.1),
         axis: Pt { x: 0.0, y: -1.0 },
@@ -6970,6 +6979,7 @@ fn repeat_pass_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                         hole: to,
                         shape: Shape::Quad,
                         strength,
+                        opacity: Smear::OPAQUE,
                     },
                     ignition: ignite.at(age),
                     axis: ignite.dir,
@@ -7383,9 +7393,13 @@ fn cpu_page_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 
 /// [`cpu_page_gate`]'s cursor trail over the page as it stands: the quad
 /// part way from a cell over the text to the cursor, sfte's sweep from the
-/// same cell, and the fading ghost -- each drawn by both GPU arms and the
-/// CPU arm, which paints the quad and the sweep by `trail::coverage` per
-/// pixel (`Target::quad`) and the ghost as a translucent solid.
+/// same cell, each whole and half faded, as a hidden cursor's trail fades,
+/// and the fading ghost -- each drawn by both GPU arms and the CPU arm,
+/// which paints the quad and the sweep by `trail::coverage` per pixel
+/// (`Target::quad`) and the ghost as a translucent solid. A half faded
+/// smear differs from the page and from itself whole, and each effect half
+/// faded is drawn alike by both GPU arms, between the page and itself
+/// whole at every pixel and strictly between at some.
 fn trail_over_page(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, page: &str) {
     let (plain, _) = arms.draw(t);
     let (cr, cc) = t.cursor();
@@ -7402,6 +7416,7 @@ fn trail_over_page(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, page: &str) {
                 hole,
                 shape: Shape::Quad,
                 strength: baud_render::Strength::Full,
+                opacity: Smear::OPAQUE,
             }),
             "the trail's quad",
         ),
@@ -7411,8 +7426,29 @@ fn trail_over_page(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, page: &str) {
                 hole,
                 shape: Shape::Sweep,
                 strength: baud_render::Strength::Full,
+                opacity: Smear::OPAQUE,
             }),
             "the trail's sweep",
+        ),
+        (
+            TrailLook::Smear(Smear {
+                corners: seg.at(0.05),
+                hole,
+                shape: Shape::Quad,
+                strength: baud_render::Strength::Full,
+                opacity: Chan::from_u8(0x80),
+            }),
+            "the trail's quad half faded",
+        ),
+        (
+            TrailLook::Smear(Smear {
+                corners: from.corners(),
+                hole,
+                shape: Shape::Sweep,
+                strength: baud_render::Strength::Full,
+                opacity: Chan::from_u8(0x80),
+            }),
+            "the trail's sweep half faded",
         ),
         (
             TrailLook::Ghost(Trail {
@@ -7444,6 +7480,69 @@ fn trail_over_page(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, page: &str) {
             all.0, 0,
             "{page}, {what}: CPU and GPU differ on {} pixels, by up to {}",
             all.0, all.1
+        );
+        match look {
+            TrailLook::Smear(s) if s.opacity != Smear::OPAQUE => {
+                arms.trail = Some(TrailLook::Smear(Smear {
+                    opacity: Smear::OPAQUE,
+                    ..s
+                }));
+                let (whole, _) = arms.draw(t);
+                assert!(
+                    differing(&a, &whole) > 0,
+                    "{page}, {what}: drawn as it is whole"
+                );
+            }
+            _ => {}
+        }
+    }
+    let unit = f32::from(u16::try_from(arms.renderer.metrics().cell_h.value()).unwrap());
+    let tail = Pt {
+        x: (from.left + from.right) * 0.5,
+        y: (from.top + from.bottom) * 0.5,
+    };
+    for effect in Effect::ALL {
+        let ig = Ignition::ignite(tail, hole, Seed(7), unit);
+        let age = 0.2 * effect.end(&ig);
+        let look = |opacity| {
+            TrailLook::Vfx(Vfx {
+                effect,
+                emitter: Smear {
+                    corners: seg.at(age),
+                    hole,
+                    shape: Shape::Quad,
+                    strength: baud_render::Strength::Full,
+                    opacity,
+                },
+                ignition: ig.at(age),
+                axis: ig.dir,
+            })
+        };
+        arms.trail = Some(look(Smear::OPAQUE));
+        let (whole, _) = arms.draw(t);
+        arms.trail = Some(look(Chan::from_u8(0x80)));
+        let (a, b) = arms.draw(t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{page}, {effect:?} half faded: the GPU arms disagree"
+        );
+        let mut between = 0;
+        for (i, ((&p, &w), &m)) in plain.iter().zip(&whole).zip(&a).enumerate() {
+            for k in [0u32, 8, 16] {
+                let ch = |v: u32| (v >> k) & 0xff;
+                let (p, w, m) = (ch(p), ch(w), ch(m));
+                assert!(
+                    p.min(w) <= m && m <= p.max(w),
+                    "{page}, {effect:?} half faded: pixel {i} channel {k}: {m} is not \
+                     between {p} and {w}"
+                );
+            }
+            between += usize::from(m != p && m != w);
+        }
+        assert!(
+            between > 50,
+            "{page}, {effect:?} half faded: {between} pixels part way"
         );
     }
     arms.trail = None;
@@ -9733,6 +9832,7 @@ fn cursor_steps() -> Vec<Change> {
                     hole,
                     shape: Shape::Quad,
                     strength: baud_render::Strength::Full,
+                    opacity: Smear::OPAQUE,
                 }));
             }),
         ));
@@ -9779,6 +9879,7 @@ fn cursor_steps() -> Vec<Change> {
                             hole: to,
                             shape: Shape::Quad,
                             strength: baud_render::Strength::Full,
+                            opacity: Smear::OPAQUE,
                         },
                         ignition: ignite.at(age),
                         axis: Pt {

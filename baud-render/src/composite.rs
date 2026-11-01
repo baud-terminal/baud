@@ -1295,6 +1295,7 @@ mod tests {
                     hole: to,
                     shape,
                     strength: crate::flash::Strength::Full,
+                    opacity: Smear::OPAQUE,
                 };
                 let (_, y0, _, y1) = s.bounds();
                 let mut covered = 0u64;

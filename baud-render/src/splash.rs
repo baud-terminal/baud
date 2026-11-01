@@ -339,6 +339,7 @@ fn pass(at: Pt, scale: f32, seed: Seed, t: f32) -> Vfx {
             hole: block,
             shape: Shape::Quad,
             strength: Strength::Full,
+            opacity: Smear::OPAQUE,
         },
         ignition: f,
         axis: f.dir,

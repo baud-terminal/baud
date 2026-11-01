@@ -64,11 +64,17 @@
 //! ([`Chase::owes`]), because after a lone keystroke's echo nothing else
 //! would draw one. The trail is backdated to when the cursor was first seen at
 //! its new place, so the frame that starts it is already that far along.
+//!
+//! **A program that hides the cursor fades the trail out** rather than
+//! ending it, as kitty does (`[[source: kitty-cursor-trail]]` 64, 134-139):
+//! over [`FADE`] from the last frame the cursor was shown on, the trail
+//! going on as it would, and back at that rate when it is shown again
+//! ([`Chase::frame`]). sfte's and Neovide's end at once (note W, 5.12).
 
 use baud_render::det::Det;
 use core::time::Duration;
 
-use baud_domain::{Col, Row};
+use baud_domain::{Chan, Col, Row};
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::{Points, Pt, Rect, Segment, Shape, Smear, Strength, TrailLook};
 
@@ -86,6 +92,12 @@ pub const THRESHOLD: f32 = 2.0;
 /// The least time between two ignitions of an effect, so it lights at most
 /// three times a second.
 pub const REIGNITE: Duration = Duration::from_millis(334);
+
+/// **How long a hidden cursor's trail takes to fade out**, seconds, and a
+/// shown one's to come back: kitty's slow corner's decay time, which its
+/// trail's opacity falls by while the cursor is hidden and rises by while
+/// it is shown (`[[source: kitty-cursor-trail]]` 134-139).
+pub const FADE: f32 = baud_render::TAU_SLOW;
 
 /// **The size gate of the flash bound** (note AL, option O2): on a cell
 /// taller than this, a long move over a stretch of screen a full pass swept
@@ -215,6 +227,48 @@ pub struct Chase<M> {
     swept: Ledger<M>,
     /// How the move in flight is drawn, until the next long move.
     strength: Strength,
+    /// **The trail's opacity** while it is not whole, or is not rising to
+    /// whole with the cursor shown: [`Opacity`].
+    opacity: Option<Opacity<M>>,
+    /// When the last frame was, which a cursor shown or hidden since counts
+    /// its change of opacity from, as kitty's step does.
+    last: Option<M>,
+    /// The cursor as the last frame that followed one drew it: the hole a
+    /// hidden cursor's trail keeps as it fades.
+    seen: Option<Rect>,
+}
+
+/// Whether a frame has a cursor to follow: shown, or placed where a program
+/// hid it -- or hidden, with nothing placed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Sight {
+    Shown,
+    Hidden,
+}
+
+/// **kitty's opacity** (`[[source: kitty-cursor-trail]]` 129-141): a
+/// level, the moment it was taken -- the last frame before the cursor was
+/// last shown or hidden -- and which way it goes from there: down to
+/// nothing over [`FADE`] while the cursor is hidden, back up at the same
+/// rate while it is shown. kitty adds a step a frame, the seconds since the
+/// last over the decay time; this is their sum in closed form, so a frame
+/// is a function of the time alone and not of how many came between.
+#[derive(Clone, Copy)]
+struct Opacity<M> {
+    level: f32,
+    since: M,
+    toward: Sight,
+}
+
+impl<M: Moment> Opacity<M> {
+    /// The level at `now`, 0 to 1.
+    fn at(self, now: M) -> f32 {
+        let step = now.elapsed_since(self.since).as_secs_f32() / FADE;
+        match self.toward {
+            Sight::Shown => (self.level + step).min(1.0),
+            Sight::Hidden => (self.level - step).max(0.0),
+        }
+    }
 }
 
 impl<M: Moment> Chase<M> {
@@ -231,6 +285,9 @@ impl<M: Moment> Chase<M> {
             axis: Pt { x: 1.0, y: 0.0 },
             swept: Ledger::new(),
             strength: Strength::Full,
+            opacity: None,
+            last: None,
+            seen: None,
         }
     }
 
@@ -239,6 +296,16 @@ impl<M: Moment> Chase<M> {
     /// is hidden unplaced or the window is looking back -- at `now`, on cells
     /// `cell` pixels wide and tall and `height` points tall, and what the
     /// frame draws.
+    ///
+    /// **A hidden cursor's trail fades out**, as kitty's does
+    /// (`[[source: kitty-cursor-trail]]` 64, 134-139): a trail drawing when
+    /// the cursor is hidden goes on -- its corners chasing where the cursor
+    /// was taken, an effect ageing, the hole where the cursor was last
+    /// drawn -- at an opacity falling from the last frame that showed the
+    /// cursor to nothing over [`FADE`], and is out at the fade's end or its
+    /// own, whichever is first. Shown again, it comes back at the same rate.
+    /// Looking back snaps the chase first (`chase_frame`), so a trail there
+    /// is gone at once.
     pub fn frame(
         &mut self,
         cursor: Option<Rect>,
@@ -246,14 +313,26 @@ impl<M: Moment> Chase<M> {
         cell: (f32, f32),
         height: Points,
     ) -> Option<TrailLook> {
-        let Some(rect) = cursor else {
-            // Nothing to arrive at: no trail, no move waiting and no fire,
-            // and the place it was seen stays where a trail would start from.
-            self.moving = None;
-            self.pending = None;
-            self.fire = None;
-            return None;
+        let level = match cursor {
+            Some(_) => self.see(Sight::Shown, now),
+            None => self.see(Sight::Hidden, now),
         };
+        let Some(rect) = cursor else {
+            // Nothing new to arrive at: a move waiting out its dwell is
+            // dropped, and the place the cursor was taken stays where a
+            // trail would start from. What is drawing fades where it was
+            // going, until the fade is out (kitty's 64).
+            self.pending = None;
+            return match self.seen {
+                Some(hole) if level > 0.0 => self.look(hole, now, level),
+                _ => {
+                    self.moving = None;
+                    self.fire = None;
+                    None
+                }
+            };
+        };
+        self.seen = Some(rect);
         let Some(target) = self.target else {
             self.target = Some(rect);
             return None;
@@ -280,6 +359,44 @@ impl<M: Moment> Chase<M> {
                 _ => self.pending = Some((rect, now)),
             }
         }
+        self.look(rect, now, level)
+    }
+
+    /// **The trail's opacity at `now`**, for a frame whose cursor is
+    /// `sight`: a change of sight counts from the last frame, as kitty's
+    /// step does, and a trail whole with the cursor shown keeps nothing.
+    fn see(&mut self, sight: Sight, now: M) -> f32 {
+        let from = self.last.unwrap_or(now);
+        self.last = Some(now);
+        let opacity = match self.opacity {
+            Some(o) if o.toward == sight => o,
+            Some(o) => Opacity {
+                level: o.at(from),
+                since: from,
+                toward: sight,
+            },
+            None => match sight {
+                Sight::Shown => return 1.0,
+                Sight::Hidden => Opacity {
+                    level: 1.0,
+                    since: from,
+                    toward: sight,
+                },
+            },
+        };
+        let level = opacity.at(now);
+        self.opacity = match (sight, level >= 1.0) {
+            (Sight::Shown, true) => None,
+            _ => Some(opacity),
+        };
+        level
+    }
+
+    /// **What the frame draws at `now`**, around `hole`, the cursor's
+    /// rectangle as this frame or, hidden, the last that drew it, at the
+    /// opacity `level`.
+    fn look(&mut self, hole: Rect, now: M, level: f32) -> Option<TrailLook> {
+        let opacity = Chan::from_unit(level);
         // The corners this frame, while a move is in flight.
         let corners = self.moving.and_then(|(seg, t0)| {
             let t = now.elapsed_since(t0).as_secs_f32();
@@ -290,14 +407,15 @@ impl<M: Moment> Chase<M> {
         }
         // The hole is the cursor as this frame draws it, which a move still
         // inside its dwell has already left the segment's target for: the
-        // trail never covers the cursor.
+        // trail never covers the cursor. Hidden, it is where the cursor was.
         match self.style {
             Style::Smear(shape) => corners.map(|corners| {
                 TrailLook::Smear(Smear {
                     corners,
-                    hole: rect,
+                    hole,
                     shape,
                     strength: self.strength,
+                    opacity,
                 })
             }),
             Style::Effect(effect) => {
@@ -325,10 +443,11 @@ impl<M: Moment> Chase<M> {
                 Some(TrailLook::Vfx(Vfx {
                     effect,
                     emitter: Smear {
-                        corners: corners.unwrap_or_else(|| self.target.unwrap_or(rect).corners()),
-                        hole: rect,
+                        corners: corners.unwrap_or_else(|| self.target.unwrap_or(hole).corners()),
+                        hole,
                         shape: Shape::Quad,
                         strength: self.strength,
+                        opacity,
                     },
                     ignition: ig.ignition.at(age),
                     axis: self.axis,
@@ -499,8 +618,9 @@ impl<M: Moment> Chase<M> {
     }
 
     /// Whether the tick owes a frame at `now`: every frame while a trail is
-    /// in flight or a fire burns, and the one a move's dwell runs out on --
-    /// and the one a fire goes out on, which draws it gone.
+    /// in flight or a fire burns, a hidden cursor's fading one included, and
+    /// the one a move's dwell runs out on -- and the one a fire or a fade
+    /// goes out on, which draws it gone.
     pub fn owes(&self, now: M) -> Owes {
         let due = self
             .pending
@@ -1058,7 +1178,8 @@ mod tests {
     }
 
     /// **Typing never lights a fire**: a move of two cells or fewer snaps,
-    /// as it does for the quad, and a hidden cursor puts a burning one out.
+    /// as it does for the quad, and a hidden cursor fades a burning one
+    /// rather than putting it out.
     /// A snap forgets the fire and keeps counting seeds, so no two fires in a
     /// session burn alike, and keeps the guard, so no snap lets a fourth
     /// flash a second through.
@@ -1081,17 +1202,29 @@ mod tests {
             q.fire(Some(at(60.0, 5.0)), t0 + MS * 112).is_some(),
             "a long move lights"
         );
-        assert_eq!(q.fire(None, t0 + MS * 120), None, "hidden: out");
-        assert_eq!(
-            q.fire(Some(at(60.0, 5.0)), t0 + MS * 128),
-            None,
-            "and it stays out"
+        let faded = q.fire(None, t0 + MS * 120).expect("hidden: fading");
+        assert!(
+            faded.emitter.opacity.get() < Smear::OPAQUE.get(),
+            "hidden: faded, {:?}",
+            faded.emitter.opacity
         );
-        // A long move 36 ms after the first was lit: held, though the fire
-        // it would have followed is out -- the guard is when the last was
-        // lit, and a hide is no reason to flash again.
+        assert_eq!(
+            q.fire(Some(at(60.0, 5.0)), t0 + MS * 128)
+                .map(|f| f.ignition.seed),
+            Some(Seed(1)),
+            "shown again: the same flame"
+        );
+        // A long move 36 ms after the first was lit, across the hide: the
+        // quad retargets and keeps the flame that burns, as inside the
+        // window it does -- the guard is when the last was lit, and a hide
+        // is no reason to flash again.
         q.fire(Some(at(10.0, 1.0)), t0 + MS * 136);
-        assert_eq!(q.fire(Some(at(10.0, 1.0)), t0 + MS * 148), None, "held");
+        assert_eq!(
+            q.fire(Some(at(10.0, 1.0)), t0 + MS * 148)
+                .map(|f| f.ignition.seed),
+            Some(Seed(1)),
+            "held"
+        );
         q.fire(Some(at(60.0, 1.0)), t0 + MS * 500);
         assert_eq!(
             q.fire(Some(at(60.0, 1.0)), t0 + MS * 512)
@@ -1787,23 +1920,196 @@ mod tests {
         assert!(ended <= 8, "the trail outlived {ended} repeats");
     }
 
-    /// **A hidden cursor draws no trail, and a snap forgets where it was**:
-    /// the sighting after a snap starts nothing.
+    /// **A hidden cursor fades its trail, and a snap forgets where it
+    /// was**: hidden in flight, the quad is drawn faded and owes its
+    /// frames; a snap puts it out at once, and the sighting after a snap
+    /// starts nothing.
     #[test]
-    fn hiding_ends_the_trail_and_a_snap_forgets() {
+    fn hiding_fades_the_trail_and_a_snap_forgets() {
         let t0 = Instant::now();
         let mut q = Chase::new(Style::Smear(Shape::Quad));
         q.smear(Some(at(0.0, 0.0)), t0, CELL);
         q.smear(Some(at(50.0, 9.0)), t0 + MS * 1, CELL);
         assert!(q.smear(Some(at(50.0, 9.0)), t0 + MS * 20, CELL).is_some());
-        assert!(q.smear(None, t0 + MS * 28, CELL).is_none(), "hidden");
-        assert_eq!(q.owes(t0 + MS * 29), Owes::Nothing);
+        let faded = q.smear(None, t0 + MS * 28, CELL).expect("hidden: fading");
+        assert!(faded.opacity.get() < Smear::OPAQUE.get(), "hidden: faded");
+        assert_eq!(q.owes(t0 + MS * 29), Owes::Frame, "the fade's frames");
         q.snap();
+        assert_eq!(q.owes(t0 + MS * 30), Owes::Nothing, "a snap puts it out");
         q.smear(Some(at(0.0, 0.0)), t0 + MS * 40, CELL);
         assert!(
             q.smear(Some(at(0.0, 0.0)), t0 + MS * 60, CELL).is_none(),
             "a first sighting"
         );
+    }
+
+    /// The opacity a look is drawn at: a smear's, or an effect's emitter's.
+    fn opacity(look: &TrailLook) -> f32 {
+        let chan = match look {
+            TrailLook::Smear(s) => s.opacity,
+            TrailLook::Vfx(v) => v.emitter.opacity,
+            TrailLook::Ghost(_) => Smear::OPAQUE,
+        };
+        f32::from(chan.get()) / 255.0
+    }
+
+    /// The hole a look leaves bare.
+    fn hole(look: &TrailLook) -> Option<Rect> {
+        match look {
+            TrailLook::Smear(s) => Some(s.hole),
+            TrailLook::Vfx(v) => Some(v.emitter.hole),
+            TrailLook::Ghost(_) => None,
+        }
+    }
+
+    /// Whether `got` is `want` to the nearest of the 255 steps a look's
+    /// opacity is drawn in.
+    fn at_level(got: f32, want: f32) -> bool {
+        (got - want).abs() <= 0.5 / 255.0 + 1e-6
+    }
+
+    /// A long move from (0, 0) to (90, 20), seen at `t0` and 2 ms on and
+    /// taken at 20 ms, backdated to 2: what that frame draws.
+    fn jumped(q: &mut Chase<Instant>, t0: Instant) -> TrailLook {
+        q.frame(Some(at(0.0, 0.0)), t0, CELL, PT);
+        q.frame(Some(at(90.0, 20.0)), t0 + MS * 2, CELL, PT);
+        q.frame(Some(at(90.0, 20.0)), t0 + MS * 20, CELL, PT)
+            .expect("taken")
+    }
+
+    /// **A hidden cursor's trail fades out over the slow constant**, as
+    /// kitty's does (`[[source: kitty-cursor-trail]]` 64, 134-139): from the
+    /// last frame the cursor was shown on, each frame draws it at
+    /// `1 - t / FADE`, its corners chasing on and an effect ageing on, the
+    /// hole where the cursor was; at nothing it is out and owes nothing.
+    /// The quad, the sweep and the ufo, each of which outlasts the fade on
+    /// this move, at 60 frames a second. Perturbation: the fade time
+    /// halved -- the trail is out half way.
+    #[test]
+    fn a_hidden_cursors_trail_fades_out_over_the_slow_constant() {
+        let t0 = Instant::now();
+        let shown = t0 + MS * 20;
+        let to = at(90.0, 20.0);
+        for style in [
+            Style::Smear(Shape::Quad),
+            Style::Smear(Shape::Sweep),
+            Style::Effect(Effect::Ufo),
+        ] {
+            let mut q = Chase::new(style);
+            let mut last = jumped(&mut q, t0);
+            assert_eq!(opacity(&last), 1.0, "{style:?}: shown, whole");
+            for k in 1..=24u32 {
+                let now = shown + MS * (16 * k);
+                let look = q
+                    .frame(None, now, CELL, PT)
+                    .unwrap_or_else(|| panic!("{style:?}: out {} ms into the fade", 16 * k));
+                let want = 1.0 - (now - shown).as_secs_f32() / FADE;
+                let got = opacity(&look);
+                assert!(
+                    at_level(got, want),
+                    "{style:?}, {} ms: drawn at {got}, not {want}",
+                    16 * k
+                );
+                match (&look, &last) {
+                    (TrailLook::Smear(a), TrailLook::Smear(b)) => {
+                        assert_ne!(a.corners, b.corners, "{style:?}: the corners chase on");
+                    }
+                    (TrailLook::Vfx(a), TrailLook::Vfx(b)) => {
+                        assert!(a.ignition.age > b.ignition.age, "{style:?}: it ages on");
+                    }
+                    _ => panic!("{style:?}: drew {look:?}"),
+                }
+                assert_eq!(hole(&look), Some(to), "{style:?}: the hole stays");
+                assert_eq!(q.owes(now), Owes::Frame, "{style:?}: owed");
+                last = look;
+            }
+            let out = shown + MS * 400;
+            assert_eq!(q.frame(None, out, CELL, PT), None, "{style:?}: out");
+            assert_eq!(q.owes(out + MS), Owes::Nothing, "{style:?}: owes nothing");
+            assert_eq!(q.frame(None, out + MS * 16, CELL, PT), None);
+        }
+    }
+
+    /// **A fading effect still goes out at its own end, when that comes
+    /// first**: a lightning bolt, out in about a third of a second, hidden
+    /// 30 ms after it was taken, is out at its end with its fade a fifth
+    /// from done.
+    #[test]
+    fn a_fading_effect_goes_out_at_its_own_end_when_that_is_first() {
+        let t0 = Instant::now();
+        let mut q = Chase::new(Style::Effect(Effect::Lightning));
+        jumped(&mut q, t0);
+        let end = q.fire.expect("struck").end;
+        assert!(
+            end < 0.36,
+            "the control: the bolt ends inside the fade, {end}"
+        );
+        let ms = |secs: f32| MS * u32::try_from((secs * 1000.0) as i64).unwrap();
+        let faded = q.frame(None, t0 + MS * 50, CELL, PT).expect("fading");
+        assert!(opacity(&faded) < 1.0, "hidden: faded");
+        let before = t0 + MS * 2 + ms(end) - MS * 3;
+        assert!(q.frame(None, before, CELL, PT).is_some(), "before its end");
+        let after = t0 + MS * 2 + ms(end) + MS * 2;
+        assert_eq!(q.frame(None, after, CELL, PT), None, "out at its end");
+        assert_eq!(q.owes(after + MS), Owes::Nothing);
+    }
+
+    /// **A cursor shown again while its trail fades brings the trail back
+    /// at the rate it faded**, as kitty's does
+    /// (`[[source: kitty-cursor-trail]]` 134-136): the sweep, hidden from
+    /// the frame after 20 ms to 180 ms, is at 0.6 on the last hidden frame
+    /// and rises from there, counted from that frame, to whole, the hole on
+    /// the cursor again; and a long move after it is followed as any is.
+    #[test]
+    fn a_cursor_shown_mid_fade_brings_its_trail_back_at_the_same_rate() {
+        let t0 = Instant::now();
+        let mut q = Chase::new(Style::Smear(Shape::Sweep));
+        jumped(&mut q, t0);
+        let to = at(90.0, 20.0);
+        let mut low = None;
+        for ms in (36..=180).step_by(16) {
+            low = q.frame(None, t0 + MS * ms, CELL, PT);
+        }
+        let low = low.expect("fading");
+        assert!(at_level(opacity(&low), 0.6), "{}", opacity(&low));
+        let back = q.frame(Some(to), t0 + MS * 196, CELL, PT).expect("back");
+        assert!(at_level(opacity(&back), 0.64), "{}", opacity(&back));
+        assert_eq!(hole(&back), Some(to));
+        let up = q.frame(Some(to), t0 + MS * 260, CELL, PT).expect("rising");
+        assert!(at_level(opacity(&up), 0.8), "{}", opacity(&up));
+        let whole = q.frame(Some(to), t0 + MS * 360, CELL, PT).expect("whole");
+        assert_eq!(opacity(&whole), 1.0);
+        let next = at(10.0, 2.0);
+        q.frame(Some(next), t0 + MS * 376, CELL, PT);
+        let moved = q.frame(Some(next), t0 + MS * 392, CELL, PT).expect("taken");
+        assert_eq!((hole(&moved), opacity(&moved)), (Some(next), 1.0));
+    }
+
+    /// **A cursor hidden at rest draws nothing and owes nothing**, and one
+    /// shown after a fade that ran out comes back as kitty's does
+    /// (`[[source: kitty-cursor-trail]]` 134-136): its next trail starts
+    /// from the place it was hidden at, at the level the opacity has risen
+    /// to since the last hidden frame, here 624 ms -- 96 ms of rise, 0.24.
+    #[test]
+    fn a_cursor_hidden_at_rest_draws_nothing() {
+        let t0 = Instant::now();
+        let mut q = Chase::new(Style::Smear(Shape::Quad));
+        q.frame(Some(at(5.0, 5.0)), t0, CELL, PT);
+        for k in 1..40u32 {
+            let now = t0 + MS * (16 * k);
+            assert_eq!(q.frame(None, now, CELL, PT), None, "{k}");
+            assert_eq!(q.owes(now), Owes::Nothing, "{k}");
+        }
+        let far = at(60.0, 5.0);
+        q.frame(Some(far), t0 + MS * 700, CELL, PT);
+        let look = q
+            .frame(Some(far), t0 + MS * 720, CELL, PT)
+            .expect("a trail");
+        let TrailLook::Smear(s) = look else {
+            panic!("{look:?}")
+        };
+        assert!(s.corners.0[3].x < at(30.0, 5.0).left, "from where it hid");
+        assert!(at_level(opacity(&look), 0.24), "{}", opacity(&look));
     }
 
     /// The flash bound's tests: a cell 42 pt tall, above the gate, unless a

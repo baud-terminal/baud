@@ -3565,6 +3565,25 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
             }
         }
+        // A hidden cursor's trail fading out (`Smear::opacity`): every
+        // record's alpha scaled by it, as the glow scales them, so each GPU
+        // path draws the fade from the records it already reads.
+        let k = self.opacity();
+        if k != Smear::OPAQUE {
+            for r in &mut self.trail_inst {
+                r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
+            }
+        }
+    }
+
+    /// How much of this frame's trail is drawn, as the driver handed it:
+    /// a smear's opacity, an effect's emitter's, and all of a ghost.
+    fn opacity(&self) -> Chan {
+        match &self.trail {
+            Some(Drawn::Smear(s)) => s.opacity,
+            Some(Drawn::Vfx(v, ..)) => v.emitter.opacity,
+            Some(Drawn::Ghost(_)) | None => Smear::OPAQUE,
+        }
     }
 
     /// How this frame's trail is drawn, as the driver weighed it.
@@ -7086,14 +7105,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // order a row's own pass would draw it. An effect's records are
         // drawn over all the rows at once, on as many threads as their
         // pixels are worth (`Target::effect_over`).
-        // A repeat pass's quad carries the cap, as its record does; an
-        // effect's records carry it in their colour.
+        // A repeat pass's quad carries the cap, as its record does, and a
+        // fading one its opacity; an effect's records carry both in their
+        // colour.
         let fill = match self.strength() {
             Strength::Full => self.cursor_fill,
             Strength::UnderThreshold => self
                 .cursor_fill
                 .with_alpha(flash::capped(self.cursor_fill.a(), self.flash_cap)),
         };
+        let fill = fill.with_alpha(flash::capped(fill.a(), self.opacity()));
         let dirty = (0..self.rows.index()).filter(|&r| self.dirty[r]);
         match self.trail {
             Some(Drawn::Vfx(v, ..)) => {

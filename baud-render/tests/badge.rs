@@ -231,6 +231,7 @@ fn a_repeat_pass_over_the_badge_draws_nothing() {
             hole: r.cursor_rect(Row::from_index(19), Col::at_index(0), style),
             shape: Shape::Quad,
             strength: Strength::UnderThreshold,
+            opacity: Smear::OPAQUE,
         })));
         for _ in 0..3 {
             paint(&mut r, &mut t, &mut pixels, Damage::Full);

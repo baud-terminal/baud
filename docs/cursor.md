@@ -226,9 +226,16 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   jump do not keep the trail alive.
 - The cursor has to rest 10 ms at its new place before a trail follows it, so
   streaming output, which moves the cursor on every read, starts none.
-- Hiding the cursor ends a trail and puts a fire out. Looking back into the
-  history, a resize, a zoom and a switch between the screens forget where the
-  cursor was, so no trail joins two geometries or two screens.
+- When a program hides the cursor, a trail that is drawing fades out over
+  0.4 s instead of vanishing, its effect still moving, and comes back at the
+  same rate if the cursor is shown again. If the screen kept drawing while
+  the cursor was hidden, a trail that starts within 0.4 s of the cursor
+  reappearing starts faint and brightens. That is kitty's rule, on the slow
+  corner's 0.4 s [[source: kitty-cursor-trail]]; sfte's trail and Neovide's
+  animated cursor end at once [[source: sfte]] [[source: neovide-cursor-renderer]].
+  Looking back into the history, a resize, a zoom and a switch between the
+  screens forget where the cursor was, so no trail joins two geometries or
+  two screens.
 - A hidden cursor that a program moves and then hides straight away is
   followed. That is how helix trails on `gg` and `ge`: it draws its own block
   cursor and hides the terminal's for good, but moves the terminal's cursor to
@@ -248,8 +255,9 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 - Under macOS's Reduce Motion (System Settings, Accessibility, Display), or
   the Linux desktop's reduced-motion setting, the default trail is off. A
   trail named in the config is kept -- `trail = "plasma"` included -- and
-  `trail = true` means the default, so it goes off too. Turning the setting
-  on cuts a trail in flight.
+  `trail = true` means the default, so it goes off too. A named trail fades
+  on a hidden cursor as it does under full motion. Turning the setting on
+  cuts a trail in flight.
 
 ## Not built
 

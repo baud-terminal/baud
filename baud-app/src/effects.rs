@@ -296,7 +296,8 @@ impl TrailCursor {
 /// cursor for good and draws its own at the selection, moving the hidden one
 /// there first on every frame, so a trail that followed only the drawn cursor
 /// drew nothing on `gg` or `ge`. A hidden cursor no program placed is not
-/// followed: the trail keeps where it last was (`trail.rs`).
+/// followed: the trail keeps where it last was, and one drawing fades out
+/// there (`trail.rs`).
 pub(crate) fn trail_cursor(term: &Term<'_>) -> Option<TrailCursor> {
     if term.window_back().index() != 0 {
         return None;

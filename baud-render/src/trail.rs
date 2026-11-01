@@ -344,9 +344,20 @@ pub struct Smear {
     /// As the trail draws it, or a repeat pass under the flash thresholds;
     /// an effect's is its emitter's.
     pub strength: crate::flash::Strength,
+    /// **How much of the trail is drawn**: [`Smear::OPAQUE`], but while
+    /// the trail of a cursor a program hid fades out, as kitty's does
+    /// (`[[source: kitty-cursor-trail]]` 64, 134-139). Every record's alpha
+    /// is scaled by it ([`crate::flash::capped`]), and the CPU path's quad
+    /// fill with them, so a smear's pixel is drawn that share of the way
+    /// from what is under it to the whole trail. An effect's is its
+    /// emitter's, and scales each of its records.
+    pub opacity: Chan,
 }
 
 impl Smear {
+    /// The opacity of a trail drawn whole.
+    pub const OPAQUE: Chan = Chan::from_offset(255, 0);
+
     /// The smear moved `dy` pixels down, rigidly: every corner and the hole.
     pub fn translated(self, dy: f32) -> Smear {
         Smear {
@@ -987,6 +998,7 @@ mod tests {
             hole,
             shape: Shape::Quad,
             strength: crate::flash::Strength::Full,
+            opacity: Smear::OPAQUE,
         }
     }
 
@@ -997,6 +1009,7 @@ mod tests {
             hole: head,
             shape: Shape::Sweep,
             strength: crate::flash::Strength::Full,
+            opacity: Smear::OPAQUE,
         }
     }
 

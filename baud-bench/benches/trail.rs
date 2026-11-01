@@ -207,6 +207,7 @@ fn life(faces: &[Face<'_>], size: &Size, mv: Move, kind: Kind, damage: Damage) -
                     hole: b,
                     shape,
                     strength: Strength::Full,
+                    opacity: Smear::OPAQUE,
                 };
                 Some(match kind {
                     Kind::Effect(effect) => TrailLook::Vfx(Vfx {

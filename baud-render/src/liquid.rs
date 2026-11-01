@@ -493,6 +493,7 @@ mod tests {
                 hole: to,
                 shape: Shape::Quad,
                 strength: crate::flash::Strength::Full,
+                opacity: Smear::OPAQUE,
             },
             ignition: f.at(age),
             axis: f.dir,

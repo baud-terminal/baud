@@ -135,6 +135,7 @@ fn the_flash_bound_reads_the_cells_the_display_draws() {
             hole: r.cursor_rect(Row::from_index(9), Col::at_index(29), style),
             shape: Shape::Quad,
             strength: Strength::UnderThreshold,
+            opacity: Smear::OPAQUE,
         })));
         let _ = paint(&mut r, &mut t);
         caps.push(r.flash_cap());

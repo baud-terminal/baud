@@ -4229,8 +4229,9 @@ fn ghost_frame(trail: &mut Option<TrailState>, term: &Term<'_>, now: f64) -> Opt
 /// of the cursor `trail_cursor` follows, at `now`, the display link's
 /// clock. Looking back forgets where the cursor was, as a resize does:
 /// output may have moved it meanwhile, and a trail on the way back would
-/// come from a place the reader never saw it leave. A hidden cursor keeps
-/// it -- `trail.rs`.
+/// come from a place the reader never saw it leave, and a trail drawing is
+/// gone at once. A hidden cursor keeps it, and a trail drawing fades out
+/// -- `trail.rs`.
 fn chase_frame(
     chase: &mut crate::trail::Chase<HostTime>,
     term: &Term<'_>,
@@ -8368,7 +8369,7 @@ mod trail_cursor_tests {
     use baud_core::{CursorStyle, Owned, Term};
     use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};
     use baud_render::effect::Effect;
-    use baud_render::{Rect, Shape, TrailLook};
+    use baud_render::{Rect, Shape, Smear, TrailLook};
     use std::time::{Duration, Instant};
 
     const WS: WinSize = WinSize {
@@ -8565,7 +8566,7 @@ mod trail_cursor_tests {
         assert_eq!(seen(&t, 4120), (false, false), "l snaps");
     }
 
-    /// **A fire keeps burning at a placed cursor**, where a hidden one puts
+    /// **A fire keeps burning at a placed cursor**, where a hidden one fades
     /// it out: helix hides its cursor for good, so under the old rule a fire
     /// on `ge` could not even light, and a placement is a cursor to burn at.
     #[test]
@@ -8575,10 +8576,14 @@ mod trail_cursor_tests {
         let t0 = Instant::now();
         let at = |ms: u64| t0 + Duration::from_millis(ms);
         let mut chase: Chase<Instant> = Chase::new(Style::Effect(Effect::Fire));
-        let mut fire = |t: &Term<'_>, ms: u64| {
+        let mut drawn = |t: &Term<'_>, ms: u64| {
             let now = trail_cursor(t).map(|f| block(f.cell()));
-            matches!(chase.frame(now, at(ms), CELL, PT), Some(TrailLook::Vfx(_)))
+            match chase.frame(now, at(ms), CELL, PT) {
+                Some(TrailLook::Vfx(v)) => Some(v.emitter.opacity),
+                _ => None,
+            }
         };
+        let mut fire = |t: &Term<'_>, ms: u64| drawn(t, ms) == Some(Smear::OPAQUE);
         feed(&mut t, b"\x1b[?1049h");
         feed(&mut t, frame(cell!(1, 7)).as_bytes());
         assert!(!fire(&t, 0), "the first sighting");
@@ -8589,9 +8594,11 @@ mod trail_cursor_tests {
         // The next frame, the cursor hidden and placed where it was: burning.
         feed(&mut t, frame(cell!(8, 7)).as_bytes());
         assert!(fire(&t, 200), "a placed cursor keeps it burning");
-        // A hide that places nothing puts it out, as a hidden cursor does.
+        // A hide that places nothing fades it out, as a hidden cursor does.
         feed(&mut t, b"\x1b[5;5Hab\x1b[?25l");
-        assert!(!fire(&t, 210), "a cursor not placed puts it out");
+        assert!(!fire(&t, 210), "a cursor not placed fades it");
+        assert!(drawn(&t, 220).is_some(), "fading");
+        assert_eq!(drawn(&t, 600), None, "out");
     }
 
     /// **A wheel scroll back in helix moves every trail only down**, on

@@ -757,6 +757,53 @@ mod tests {
         assert_eq!(fx.turn(next, &mut t), Owes::Full, "shown again");
     }
 
+    /// **Under Reduce Motion a trail named in the config fades on a hidden
+    /// cursor as it does under full motion**, and the default, which is
+    /// off there, draws nothing to fade: a long move taken, then the cursor
+    /// hidden for 100 ms, a quarter of the fade. Perturbation: the chase
+    /// snapped on a hidden frame under Reduce Motion -- the named arm's
+    /// hidden frame is none.
+    #[test]
+    fn a_named_trail_fades_on_a_hide_under_reduce_motion() {
+        let opacity = |l: Option<TrailLook>| match l {
+            Some(TrailLook::Vfx(v)) => Some(v.emitter.opacity.get()),
+            Some(TrailLook::Smear(s)) => Some(s.opacity.get()),
+            _ => None,
+        };
+        for pick in [TrailPick::Named(CursorTrail::Plasma), TrailPick::Default] {
+            for motion in [SystemMotion::Full, SystemMotion::Reduced] {
+                let case = format!("{pick:?} under {motion:?}");
+                let t0 = Instant::now();
+                let mut s = Owned::new(&WS);
+                let mut t = Term::new(s.storage(), &WS);
+                let mut fx = Timed::new(t0, pick, ScreenTransition::Off);
+                let _ = fx.set_motion(motion, t0);
+                let _ = fx.plan(t0, &t, rect, CELL, widths());
+                feed(&mut t, b"\x1b[8;30H");
+                let at = t0 + Duration::from_millis(2);
+                let _ = fx.plan(at, &t, rect, CELL, widths());
+                let drawn = pick != TrailPick::Default || motion == SystemMotion::Full;
+                let Some(dwell) = fx.deadline(at) else {
+                    assert!(!drawn, "{case}: no dwell");
+                    continue;
+                };
+                let lit = fx.plan(dwell, &t, rect, CELL, widths()).trail;
+                // Not straight after the move, where the hide would place
+                // the cursor (`Term::placed_cursor`), as helix's does.
+                feed(&mut t, b"\x1b[m\x1b[?25l");
+                let later = dwell + Duration::from_millis(100);
+                let hidden = fx.plan(later, &t, rect, CELL, widths()).trail;
+                match drawn {
+                    true => {
+                        assert_eq!(opacity(lit), Some(255), "{case}: lit, whole");
+                        assert_eq!(opacity(hidden), Some(191), "{case}: three quarters");
+                    }
+                    false => assert_eq!((lit, hidden), (None, None), "{case}"),
+                }
+            }
+        }
+    }
+
     /// **A long cursor move trails: the dwell is a deadline, the flight
     /// owes every frame, and the landing frees the wait.** The default
     /// trail is an effect, the plasma, which the CPU path draws as itself;

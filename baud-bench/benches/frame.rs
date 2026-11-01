@@ -416,6 +416,7 @@ fn main() {
                 hole: to,
                 shape: Shape::Quad,
                 strength: Strength::Full,
+                opacity: Smear::OPAQUE,
             };
             let look = match (kind.as_str(), effect) {
                 ("none", _) => None,

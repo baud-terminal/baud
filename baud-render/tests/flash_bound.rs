@@ -62,6 +62,7 @@ fn smear(r: &Renderer<'_, '_>, from: (usize, usize), to: (usize, usize), t: f32)
         hole,
         shape: Shape::Quad,
         strength: Strength::Full,
+        opacity: Smear::OPAQUE,
     }
 }
 
@@ -400,6 +401,7 @@ fn a_repeat_pass_over_many_grounds_draws_nothing() {
             hole,
             shape: Shape::Quad,
             strength: Strength::Full,
+            opacity: Smear::OPAQUE,
         }))));
         let _ = paint(&mut r, &mut t);
         let first = (r.flash_cap(), r.flash_held());
@@ -585,6 +587,7 @@ fn over_rows(r: &Renderer<'_, '_>) -> TrailLook {
         hole: r.cursor_rect(Row::from_index(9), Col::at_index(29), style),
         shape: Shape::Quad,
         strength: Strength::Full,
+        opacity: Smear::OPAQUE,
     }))
 }
 
@@ -703,6 +706,7 @@ fn a_repeat_pass_over_a_block_cursor_is_capped_against_the_block() {
         hole,
         shape: Shape::Quad,
         strength: Strength::Full,
+        opacity: Smear::OPAQUE,
     };
     let unit = f32::from(u16::try_from(r.metrics().cell_h.value()).unwrap());
     let tail = Pt {
@@ -983,6 +987,7 @@ fn a_repeat_pass_over_the_cursor_guide_is_capped_against_it() {
             hole: r.cursor_rect(Row::from_index(5), Col::at_index(25), style),
             shape: Shape::Quad,
             strength: Strength::Full,
+            opacity: Smear::OPAQUE,
         }))));
         // Two new caps are scanned a frame: enough frames for them all.
         for _ in 0..4 {

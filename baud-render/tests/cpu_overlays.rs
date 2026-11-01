@@ -250,6 +250,7 @@ fn smear(
         hole,
         shape,
         strength: baud_render::Strength::Full,
+        opacity: Smear::OPAQUE,
     }
 }
 
@@ -681,6 +682,172 @@ fn the_cpu_path_draws_every_effect_by_its_light() {
             });
         }
     }
+}
+
+/// `look` drawn at `opacity`: a smear's own, an effect's emitter's.
+fn at_opacity(look: TrailLook, opacity: baud_domain::Chan) -> TrailLook {
+    match look {
+        TrailLook::Smear(s) => TrailLook::Smear(Smear { opacity, ..s }),
+        TrailLook::Vfx(v) => TrailLook::Vfx(Vfx {
+            emitter: Smear {
+                opacity,
+                ..v.emitter
+            },
+            ..v
+        }),
+        TrailLook::Ghost(_) => look,
+    }
+}
+
+/// The quad, the sweep and every effect, part way through a move from row
+/// 1 to row 7 over the text, each drawn whole: the looks the fade tests
+/// draw faded.
+fn fading_looks(r: &Renderer<'_, '_>) -> Vec<(String, TrailLook)> {
+    let unit = f32::from(u16::try_from(r.metrics().cell_h.value()).unwrap());
+    let mut looks = vec![
+        (
+            "the quad".to_string(),
+            TrailLook::Smear(smear(r, Shape::Quad, (1, 2), (7, 20), 0.05)),
+        ),
+        (
+            "the sweep".to_string(),
+            TrailLook::Smear(smear(r, Shape::Sweep, (1, 2), (7, 20), 0.05)),
+        ),
+    ];
+    for effect in Effect::ALL {
+        let emitter = smear(r, Shape::Quad, (1, 2), (7, 20), 0.0);
+        let from = emitter.corners.0;
+        let tail = Pt {
+            x: (from[2].x + from[0].x) * 0.5,
+            y: (from[0].y + from[1].y) * 0.5,
+        };
+        let ig = Ignition::ignite(tail, emitter.hole, Seed(5), unit);
+        let age = 0.2 * effect.end(&ig);
+        looks.push((
+            format!("{effect:?}"),
+            TrailLook::Vfx(Vfx {
+                effect,
+                emitter: smear(r, Shape::Quad, (1, 2), (7, 20), age),
+                ignition: ig.at(age),
+                axis: Pt { x: 0.95, y: 0.31 },
+            }),
+        ));
+    }
+    looks
+}
+
+/// **A fading trail is drawn that share of the way from the page to the
+/// whole trail, on the CPU path**: the quad, the sweep and every effect at
+/// half opacity, against the same look drawn whole and the frame without
+/// it. Every record the GPU paths draw has its alpha scaled by it; every
+/// pixel the trail changes lies between the two frames on every channel;
+/// the quad's and the sweep's, one record each, half way, to the rounding
+/// of a step; and an effect's is its records composited by its light, as
+/// the GPU's effect pipeline does ([`effect_reference`]). Perturbation:
+/// the opacity left off the CPU path's quad fill -- the quad's and the
+/// sweep's pixels are the whole trail's.
+#[test]
+fn a_fading_trail_is_drawn_part_way_on_the_cpu_path() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let half = baud_domain::Chan::from_u8(0x80);
+    with_text(|t| {
+        let mut r = renderer(&faces);
+        let (w, h) = r.pixel_size();
+        let (width, height) = (px(w), px(h));
+        let mut bare = vec![0u32; width * height];
+        r.set_trail(None);
+        paint(&mut r, t, &mut bare, Damage::Full);
+        for (what, look) in fading_looks(&r) {
+            let mut whole = vec![0u32; width * height];
+            r.set_trail(Some(look));
+            paint(&mut r, t, &mut whole, Damage::Full);
+            let alphas: Vec<_> = r.trail().iter().map(|i| i.color.a()).collect();
+            let faded = at_opacity(look, half);
+            let mut part = vec![0u32; width * height];
+            r.set_trail(Some(faded));
+            paint(&mut r, t, &mut part, Damage::Full);
+            let scaled: Vec<_> = r.trail().iter().map(|i| i.color.a()).collect();
+            let want: Vec<_> = alphas
+                .iter()
+                .map(|&a| baud_render::capped(a, half))
+                .collect();
+            assert_eq!(scaled, want, "{what}: the records' alphas");
+            let (mut changed, mut moved) = (0usize, 0usize);
+            for (i, ((&b, &f), &m)) in bare.iter().zip(&whole).zip(&part).enumerate() {
+                if b == f {
+                    assert_eq!(m, b, "{what}: pixel {i} is the trail's alone");
+                    continue;
+                }
+                changed += 1;
+                moved += usize::from(m != f && m != b);
+                for k in [0u32, 8, 16] {
+                    let ch = |p: u32| i32::try_from((p >> k) & 0xff).unwrap();
+                    let (b, f, m) = (ch(b), ch(f), ch(m));
+                    assert!(
+                        b.min(f) <= m && m <= b.max(f),
+                        "{what}: pixel {i} channel {k}: {m} is not between {b} and {f}"
+                    );
+                    if matches!(look, TrailLook::Smear(_)) && (f - b).abs() >= 16 {
+                        assert!(
+                            (2 * m - b - f).abs() <= 3,
+                            "{what}: pixel {i} channel {k}: {m} is not half way from {b} to {f}"
+                        );
+                    }
+                }
+            }
+            assert!(changed > 200, "{what}: the control, {changed} pixels drawn");
+            assert!(
+                moved * 2 > changed,
+                "{what}: only {moved} of {changed} pixels faded"
+            );
+            if let TrailLook::Vfx(v) = faded {
+                let got: Vec<u32> = part.iter().map(|&p| baud_domain::premultiply(p)).collect();
+                let want = effect_reference(&v, r.trail(), &bare, width);
+                assert!(
+                    got == want,
+                    "{what}: off its rules at {:?}",
+                    diff_box(&got, &want, width)
+                );
+            }
+        }
+    });
+}
+
+/// **A fade alone redraws the trail's rows**: each look drawn whole, then
+/// the same look at half opacity drawn incrementally over that frame, is
+/// the frame drawn from nothing at half -- the opacity is part of the
+/// trail's value, which the damage compares -- and differs from the whole
+/// one.
+#[test]
+fn a_fade_alone_redraws_the_trails_rows() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let half = baud_domain::Chan::from_u8(0x80);
+    with_text(|t| {
+        let probe = renderer(&faces);
+        let (w, h) = probe.pixel_size();
+        let (width, height) = (px(w), px(h));
+        for (what, look) in fading_looks(&probe) {
+            let mut r = renderer(&faces);
+            let mut frame = vec![0u32; width * height];
+            r.set_trail(Some(look));
+            paint(&mut r, t, &mut frame, Damage::Full);
+            let whole = frame.clone();
+            r.set_trail(Some(at_opacity(look, half)));
+            paint(&mut r, t, &mut frame, Damage::Incremental);
+            let mut fresh = renderer(&faces);
+            let mut want = vec![0u32; width * height];
+            fresh.set_trail(Some(at_opacity(look, half)));
+            paint(&mut fresh, t, &mut want, Damage::Full);
+            assert!(frame != whole, "{what}: the fade drew nothing");
+            assert!(
+                frame == want,
+                "{what}: incremental off at {:?}",
+                diff_box(&frame, &want, width)
+            );
+        }
+    });
 }
 
 /// FNV-1a over a frame's pixel words.

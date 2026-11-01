@@ -75,10 +75,10 @@ The files as committed, each with its SHA-256:
 | `plasma-check.py` | `60f0c29d1f8b6ae0a373240848644d7e2176e97bf4a0c3865ebddd1126760eed` |
 | `plasma-sketch.metal` | `b9512c04325c5c127e19aab82891214a33e5da13af17c702bd5375d8250a9ed2` |
 | `quad-pins.txt` | `57d854da8f621eb86ff1f5e6afaecc953c98b93a07a897ada099340f5ba24e6b` |
-| `spec-ice.json` | `bacdefb3f2b115d19feeae4484eb86f46a4fe014616feb76e4c5bdd0a1d182ee` |
+| `spec-ice.json` | `f9a5449ce2d24ffc9cb842efa4dad002556f4bbe54a67ddab0c4de244006f062` |
 | `spec-liquid.json` | `b310873714f654dc83177f993ecbacad7972137f38fcbb731fe93775eb50ff00` |
 | `spec-plasma.json` | `255a7401b48ec6253c363a2dce3585b365bceceab917bdfb85a8993775f739da` |
-| `spec-ufo.json` | `eff51404087ab9517929ab2a319447c4f334537efe009fe4ea00a96c1ee6a474` |
+| `spec-ufo.json` | `15e8ac48bcf5441e130c92d220059aae1076cafbe7c2c194ba54662845d93390` |
 | `ufo-proto.py` | `7e704494c909e6d0d4068e0bd62c451c1663712f8cd9a1beec519a4f48d87140` |
 | `ufo-proto2.py` | `9d101e49e3ffeb368f11521d53fdf8c3623bedc8f5c0fcb8e66adf6bff190ee3` |
 | `ufo-reach.py` | `ad7f8c0b1e6d0671e85c7fc9181483870db2ec1971029e4e03e3b8bd5c920c86` |
@@ -166,13 +166,15 @@ The 2026-09-27 answers are note X's.
 | 2026-09-27 | `0c8ed2d`, `0415566`, `5fb5eec` |
 | 2026-09-27 | the effects' particles stay as built |
 | 2026-09-29 | the plasma replaces the fire as the default (built 2026-10-10, `eb2f75e`); one trail implementation |
+| 2026-11-01 | a trail when the cursor hides fades out over kitty's slow constant (section 5.12) |
 
 **Since then.** Every trail was built by 2026-09-27. On 2026-10-10 one of
 note AL's questions was settled: **the bound chosen for the trails does not
 also cover note AJ's launch splash**, on the condition that the splash gets
 its own flash count before it is built. Every other note AL question is
 open. The quad's licence was settled on 2026-10-25 by re-deriving its rate
-choice (section 8). Apart from the splash and the quad's licence, every
+choice (section 8), and a trail when the cursor hides on 2026-11-01, by
+fading it as kitty does (section 5.12). Apart from those three, every
 question in section 6 is open.
 
 ## 4. What every effect shares
@@ -434,6 +436,54 @@ The ride on a smooth scroll (`0415566`; note X, "Ride-scroll"), Reduce Motion
 their page, which a test holds to every trail
 (`the_cursor_page_shows_every_trail`), and the flash census (`486a91f`; note AL). None of these rested on the lost files.
 
+### 5.12 A trail when the cursor hides (2026-11-01)
+
+**When a program hides the cursor while a quad, sweep or effect trail is
+drawing, the trail fades out over 0.4 s instead of vanishing.** Until then
+the first frame with the cursor hidden dropped the move and put an effect
+out. The ghost, which finishes its tenth of a second, is unchanged, and so
+is a cursor a program placed before hiding it (helix's).
+
+- **The rule is kitty's** ([[source: kitty-cursor-trail]]): while the
+  cursor is hidden the trail's opacity falls by the seconds since the last
+  frame over the slow decay, floored at 0 (137-139), and rises at that
+  rate, capped at 1, while it is shown (134-136); hidden at 0, nothing is
+  drawn (64). baud keeps the same sum in closed form from the last frame
+  before each change, on `TAU_SLOW`. Through the fade the corners chase on,
+  an effect ages on and the hole stays where the cursor was last drawn; the
+  trail is out at the fade's end or its own, whichever comes first.
+- **sfte and Neovide end at once.** sfte puts its tail on the cursor and
+  draws nothing while its cursor is hidden ([[source: sfte]] 35970-35977),
+  which `CSI ? 25 l` sets (34128-34129). Neovide returns before drawing the
+  cursor and its effects while the cursor is disabled, and stops animating
+  ([[source: neovide-cursor-renderer]] 394-396, 449-451, 461-463).
+- **One fade time for every trail**, not each effect's own life: at 60 Hz
+  it owes at most 24 frames, where the ufo's own, up to 0.94 s
+  (`ufo::LIFE`), would owe up to 57.
+- **Shown again**, the trail comes back at the rate it went, as kitty's
+  does. The opacity counts from the last frame drawn, so a trail started
+  within 0.4 s of a show starts faint and brightens if frames were drawn
+  while the cursor was hidden, as they are while output streams, and
+  starts whole after a hide that drew nothing for 0.4 s.
+- **Reduce Motion:** the default trail is off; a trail named in the config
+  fades as under full motion.
+- **Every path draws it from one value**, the opacity a smear carries: each
+  trail record's alpha is scaled by it and so is the CPU quad's fill.
+- **Flashes** (WCAG 2.2 SC 2.3.1, `baud-bench`'s census, CPU frames at
+  60 Hz and 14 px, both themes, the app's chase driving the renderer, the
+  cursor hidden 50 ms into a 19-column move): every trail passes faded, cut
+  off and never hidden. Faded, the most any pixel flashes is no more than
+  with the cursor never hidden, in all 18 trail-and-theme rows, and the largest
+  flashing area is 6 pt² against 19 pt² never hidden, of a 21,824 pt²
+  limit. The control, a quad toggled every 125 ms, counts 4 flashes at a
+  pixel. The census program was not kept.
+- **Tests:** `a_hidden_cursors_trail_fades_out_over_the_slow_constant`,
+  `a_fading_effect_goes_out_at_its_own_end_when_that_is_first`,
+  `a_cursor_shown_mid_fade_brings_its_trail_back_at_the_same_rate`,
+  `a_fading_trail_is_drawn_part_way_on_the_cpu_path`,
+  `a_fade_alone_redraws_the_trails_rows`, and the CPU-against-GPU gate in
+  `baud-present-macos/tests/cells.rs`, which draws each smear half faded.
+
 ## 6. Open questions, with their options; none is picked here
 
 Each of these is open, and each needs a render of its options before it is
@@ -444,7 +494,7 @@ settled. They are listed so the research behind them is in one place.
 | all | the flash bound at large sizes | note AL's O1 to O4, a combination, per effect or every effect, and which system setting governs | open; note AL section 8 |
 | all | whether that bound also covers note AJ's launch splash | it does; it does not, and the splash is counted on its own | **decided: not the splash**, on the condition that the splash is counted before it is built |
 | all | the kitty-derived quad under baud's licence | (a) a record that it takes only the idea and the constants; (b) a clean re-derivation; (d) leave it out | **re-derived (b), 2026-10-25**, section 8. One visible difference: a retarget that lands a corner on its new target leaves it out of the spread, and the corner leading least lags longer (8.4) |
-| all | a trail when the cursor hides | fade over kitty's slow constant, as kitty does; end at once, as baud does | open |
+| all | a trail when the cursor hides | fade over kitty's slow constant, as kitty does; end at once, as baud did and as sfte and Neovide do | **decided: the fade, 2026-11-01**, section 5.12 |
 | all | a trail on a jump scroll | ride it too; ride only a smooth scroll, as now | open; riding both was proposed on 2026-09-27 |
 | fire | "the fire looks sluggish" | shorten its life; burn out faster; put it out on a keystroke; leave it (it burns 0.83 s on the demo's moves) | open |
 | plasma | the body fill; the flow direction; ions of one charge or both; a bar or underline narrowing the braid | four calls: three of the spec's five questions (body, flow, ions) built at its proposals, and the narrowing the critique offered. The spec's other two, whether a flash counts per pixel or by area and whether long moves dim the filaments, went into the constant gain 0.95 and note AL's bound | open |
@@ -525,7 +575,7 @@ commits.
 | the end | 143-159: drawn while a corner is at least half a pixel off on either axis, tested every frame | `Segment::lasts`: the same rule, solved for the time | same rule, different expression |
 | the start threshold | 66-70: the trail's top-right corner against the cursor's, rounded to cells, skipped within two on both axes | the app's start test: the new rectangle against the last target, rounded to cells, within two, plus a separate test for a trail still in flight | same rule and number, different reference points |
 | the dwell | 174 (171 in the 1e1486e copy, before the 163-165 hunk): a move is followed only after the cursor_trail option's ms at rest | a pending move with its start time, held for 10 ms (sfte's number) | same idea |
-| a hidden cursor, a live resize | 62, 64 and 130-141: skipped during a live resize; the opacity ramps over the slow decay | neither; the trail ends at once | not taken |
+| a hidden cursor, a live resize | 62, 64 and 130-141: skipped during a live resize; the opacity ramps over the slow decay | neither at this audit; the trail ended at once. Since 2026-11-01 the opacity ramps as kitty's does (section 5.12); a resize still snaps | the hide taken since, the resize not |
 | the fill | `trail.slang`: a four-vertex fan; the fragment masks the cursor's box, both edges inclusive, at a flat opacity | non-zero winding with a pixel of anti-aliased edge; the hole includes its left and top edges | different |
 | the numbers | definition.py: decay `0.1 0.4` (the option at 467-469), start threshold `2` (483-485), the trail in the cursor's colour (500-512) | `TAU_FAST`, `TAU_SLOW`, the app's two-cell threshold, the cursor's colour | numbers and a default, cited |
 
