@@ -99,6 +99,9 @@ pub enum Part {
     Printing,
     /// `[clipboard] body_kb`.
     ClipboardArea,
+    /// `[shell] integration`: what a shell is started with, which the
+    /// window's shell already was.
+    ShellIntegration,
 }
 
 impl Part {
@@ -135,7 +138,8 @@ impl Part {
             | Part::Sixel
             | Part::Vs16Width
             | Part::Printing
-            | Part::ClipboardArea => Takes::NextLaunch,
+            | Part::ClipboardArea
+            | Part::ShellIntegration => Takes::NextLaunch,
         }
     }
 
@@ -174,6 +178,7 @@ impl Part {
             Part::Vs16Width => "vs16_width",
             Part::Printing => "[screen] printing",
             Part::ClipboardArea => "[clipboard] body_kb",
+            Part::ShellIntegration => "[shell] integration",
         }
     }
 }
@@ -242,6 +247,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         unfocused_cursor,
         badge,
         wrap_words,
+        shell_integration,
         cursor_guide,
         set_up,
     } = new;
@@ -340,6 +346,10 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     part(
         old.clipboard.budget != clipboard.budget,
         Part::ClipboardArea,
+    );
+    part(
+        old.shell_integration != *shell_integration,
+        Part::ShellIntegration,
     );
     out
 }

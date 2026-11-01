@@ -361,6 +361,14 @@ Graphics table.
   rendition table has slots.** Slots no cell names are freed, and when every
   slot is named one is evicted, so a cell that still names it takes another
   rendition's colours.
+- **The prompts of a fish 3 that baud starts have no `B`**, where the
+  semantic prompts text has a prompt "end with 'OSC 133;B' or 'OSC 133;I'"
+  (`[[source: semantic-prompts]]`): fish 3 draws its prompt from the user's
+  own `fish_prompt`, and a function of baud's in its place is what
+  `funcsave` would write over the user's file, so baud marks fish 3 from its
+  events alone and does not know where its input begins
+  ([vt-coverage.md](vt-coverage.md), the `OSC 133` row). fish 4 sends its
+  own `B`.
 
 ---
 

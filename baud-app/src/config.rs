@@ -353,6 +353,11 @@ pub struct Config {
     /// own -- `"on"` by default, or `"off"`, which draws every row as the
     /// terminal cut it at the last column ([`baud_render::WordWrap`]).
     pub wrap_words: baud_render::WordWrap,
+    /// `[shell] integration`: whether baud marks the prompts of the zsh,
+    /// bash and fish it starts, so their latest output is finished text
+    /// too -- `"on"` by default, or `"off"`, which starts every shell as
+    /// it would start anywhere else ([`crate::shell::Integration`]).
+    pub shell_integration: crate::shell::Integration,
     /// `[keyboard]`: the four modes DEC STD 070 makes Set-up features
     /// (070-6 §6.2.1 d), each `"on"` or `"off"`: `auto_repeat` (DECARM),
     /// `application_cursor_keys` (DECCKM), `application_keypad` (DECKPAM
@@ -937,6 +942,7 @@ impl Config {
             exit_status: baud_render::StatusMarks::Off,
             badge: BadgeShown::On,
             wrap_words: baud_render::WordWrap::On,
+            shell_integration: crate::shell::Integration::On,
             set_up: baud_domain::SetUp::FACTORY,
             checksum: baud_domain::ChecksumReport::On,
             substitute: Substitute::DEFAULT,
@@ -1862,6 +1868,18 @@ impl Config {
                                  using on"
                             ));
                             baud_domain::WindowOps::On
+                        }
+                    };
+                }
+                ("shell", "integration") => {
+                    self.shell_integration = match value.trim().trim_matches('"') {
+                        "on" => crate::shell::Integration::On,
+                        "off" => crate::shell::Integration::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [shell] integration {other:?} is not on or off; using on"
+                            ));
+                            crate::shell::Integration::On
                         }
                     };
                 }

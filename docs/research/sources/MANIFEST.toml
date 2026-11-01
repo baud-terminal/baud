@@ -39587,3 +39587,153 @@ group  = "WN"
 # the url. A second key for the header macos-sdk-nswindow-h pins, because
 # the two are different SDK releases: that entry hashed SDK 27.0's copy
 # (81,525 bytes), this one SDK 27.2's (81,526).
+
+[sources.zsh-5-9-files]
+key    = "zsh-5-9-files"
+title  = "zsh 5.9, Doc/Zsh/files.yo -- Startup/Shutdown Files: /etc/zshenv first, then $ZDOTDIR/.zshenv, .zprofile, .zshrc, .zlogin; 'If ZDOTDIR is unset, HOME is used instead'"
+author = "the zsh developers"
+year   = 2026
+venue  = "zsh-users/zsh, tag zsh-5.9"
+url    = "https://raw.githubusercontent.com/zsh-users/zsh/zsh-5.9/Doc/Zsh/files.yo"
+file   = ""
+sha256 = "27788af56bfd81c64b47c639f888fff0b4320ac7e23a84308ec1d228c8ae8e9b"
+bytes  = 2739
+status = "external"
+group  = "C"
+# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# hash recorded only, not committed. Read, not copied.
+
+[sources.zsh-5-9-init-c]
+key    = "zsh-5-9-init-c"
+title  = "zsh 5.9, Src/init.c -- run_init_scripts: GLOBAL_ZSHENV, then for an interactive shell load_module(\"zsh/newuser\") and unload it, then sourcehome(\".zshenv\"); sourcehome reads ZDOTDIR, else home"
+author = "the zsh developers"
+year   = 2026
+venue  = "zsh-users/zsh, tag zsh-5.9"
+url    = "https://raw.githubusercontent.com/zsh-users/zsh/zsh-5.9/Src/init.c"
+file   = ""
+sha256 = "f361b711378f1cf05a69c2b6930859b0a4c669fb2b7f624a89a083e540d1cfd9"
+bytes  = 46550
+status = "external"
+group  = "C"
+# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# hash recorded only, not committed. Read, not copied.
+
+[sources.zsh-5-9-newuser-c]
+key    = "zsh-5-9-newuser-c"
+title  = "zsh 5.9, Src/Modules/newuser.c -- boot_: ZDOTDIR else home; none of .zshenv, .zprofile, .zshrc, .zlogin there, and the newuser script is sourced"
+author = "the zsh developers"
+year   = 2026
+venue  = "zsh-users/zsh, tag zsh-5.9"
+url    = "https://raw.githubusercontent.com/zsh-users/zsh/zsh-5.9/Src/Modules/newuser.c"
+file   = ""
+sha256 = "14c25f1601c6ac76b37b08c72a4c8ae889e247062e4a7f7bacf8999b0bc637aa"
+bytes  = 2593
+status = "external"
+group  = "C"
+# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# hash recorded only, not committed. Read, not copied.
+
+[sources.zsh-5-9-func]
+key    = "zsh-5-9-func"
+title  = "zsh 5.9, Doc/Zsh/func.yo -- Hook Functions: precmd 'Executed before each prompt', preexec 'Executed just after a command has been read and is about to be executed'; precmd_functions, preexec_functions"
+author = "the zsh developers"
+year   = 2026
+venue  = "zsh-users/zsh, tag zsh-5.9"
+url    = "https://raw.githubusercontent.com/zsh-users/zsh/zsh-5.9/Doc/Zsh/func.yo"
+file   = ""
+sha256 = "1e7cd75cab246643574d7a88999055af787e012009bb2b9a77963b6bcee696c8"
+bytes  = 16180
+status = "external"
+group  = "C"
+# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# hash recorded only, not committed. Read, not copied.
+
+[sources.zsh-5-9-prompt]
+key    = "zsh-5-9-prompt"
+title  = "zsh 5.9, Doc/Zsh/prompt.yo -- %{...%}: 'Include a string as a literal escape sequence. The string within the braces should not change the cursor position'"
+author = "the zsh developers"
+year   = 2026
+venue  = "zsh-users/zsh, tag zsh-5.9"
+url    = "https://raw.githubusercontent.com/zsh-users/zsh/zsh-5.9/Doc/Zsh/prompt.yo"
+file   = ""
+sha256 = "37e399550fe751045f7518cba9a9a57c1ff8fd5970688590a4c694b333077f15"
+bytes  = 15823
+status = "external"
+group  = "C"
+# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# hash recorded only, not committed. Read, not copied.
+
+[sources.bash-5-3-man]
+key    = "bash-5-3-man"
+title  = "bash 5.3, doc/bash.1 -- INVOCATION: a login shell's /etc/profile and the first of ~/.bash_profile, ~/.bash_login, ~/.profile; --rcfile for a shell that is not a login shell; posix mode reads ENV and no other startup file; PS0, PROMPT_COMMAND"
+author = "Chet Ramey"
+year   = 2026
+venue  = "GNU bash, git.savannah.gnu.org, ref bash-5.3"
+url    = "https://git.savannah.gnu.org/cgit/bash.git/plain/doc/bash.1?h=bash-5.3"
+file   = ""
+sha256 = "23f7bd155c57125864094d2cb4e1f6ec9f8c2ea002e18bebeb3ed4bcfaad1971"
+bytes  = 392678
+status = "external"
+group  = "C"
+# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# hash recorded only, not committed. Read, not copied.
+
+[sources.ghostty-b58ef1d-shell-integration-zig]
+key    = "ghostty-b58ef1d-shell-integration-zig"
+title  = "Ghostty b58ef1d, src/termio/shell_integration.zig -- detectShell skips /bin/bash on Darwin ('Apple distributes their own patched version of Bash 3.2 on macOS that disables the ENV-based POSIX startup path'); bash by --posix and ENV, zsh by ZDOTDIR, fish by XDG_DATA_DIRS"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b58ef1d678be2747c830bc1b1e6c0a086afecf9a/src/termio/shell_integration.zig"
+file   = ""
+sha256 = "a18e87896e0057ca68a0c8205c165274c837f028515b03da28c52807c8d28e4d"
+bytes  = 35468
+status = "external"
+group  = "C"
+# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# hash recorded only, not committed. Read, not copied.
+
+[sources.kitty-6d5d0c4-shell-integration-py]
+key    = "kitty-6d5d0c4-shell-integration-py"
+title  = "kitty 6d5d0c4, kitty/shell_integration.py -- setup_zsh_env (ZDOTDIR, kept in KITTY_ORIG_ZDOTDIR; none for a new zsh user), setup_bash_env (--posix and ENV, HISTFILE), setup_fish_env (XDG_DATA_DIRS)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/shell_integration.py"
+file   = ""
+sha256 = "40525f51d6025ba5d109e5dec6655b44a552c35a12a939663fdb4ac9edb84429"
+bytes  = 8590
+status = "external"
+group  = "C"
+# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# hash recorded only, not committed. Read, not copied.
+
+[sources.fish-cmd-fish]
+key    = "fish-cmd-fish"
+title  = "fish 47a8719, doc_src/cmds/fish.rst -- '-C or --init-command=COMMANDS: Evaluate specified commands after reading the configuration but before executing command specified by -c or reading interactive input'"
+author = "fish-shell developers"
+year   = 2026
+venue  = "fish-shell"
+url    = "https://raw.githubusercontent.com/fish-shell/fish-shell/47a87198f27c0087f12b753477ba6a7c87447461/doc_src/cmds/fish.rst"
+file   = ""
+sha256 = "fb7a08bfb28cf1a4c1ebe39705adfcf50c64cfe9e9a5c0ead3df9d539c5bb30d"
+bytes  = 4656
+status = "external"
+group  = "C"
+# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# hash recorded only, not committed. Read, not copied.
+
+[sources.fish-language]
+key    = "fish-language"
+title  = "fish 47a8719, doc_src/language.rst -- the conf.d and vendor_conf.d directories under XDG_DATA_DIRS read before config.fish; the fish_prompt, fish_preexec and fish_postexec events"
+author = "fish-shell developers"
+year   = 2026
+venue  = "fish-shell"
+url    = "https://raw.githubusercontent.com/fish-shell/fish-shell/47a87198f27c0087f12b753477ba6a7c87447461/doc_src/language.rst"
+file   = ""
+sha256 = "edfa2215a227f28f54e376fce453da45f964a395d041332dbc25aa2833ad52bb"
+bytes  = 108671
+status = "external"
+group  = "C"
+# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# hash recorded only, not committed. Read, not copied.

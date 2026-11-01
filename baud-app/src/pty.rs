@@ -367,8 +367,9 @@ const DEFAULT_SHELL: &str = "/bin/sh";
 /// to chafa without ever reading baud's own device attributes; chafa read
 /// the same variable and drew in 240 colours rather than truecolour.
 ///
-/// One entry is baud's own, `windows::NEW_WINDOW`, which marks a process
-/// started as a new window and is not its shell's to inherit.
+/// Four entries are baud's own: `windows::NEW_WINDOW`, which marks a
+/// process started as a new window and is not its shell's to inherit, and
+/// shell integration's [`crate::shell::HELPERS`].
 ///
 /// The list is every variable yazi 26.5.6's `Brand::from_env` reads
 /// (`yazi-emulator/src/brand.rs`), the rest of each named terminal's own
@@ -442,6 +443,11 @@ const OUTER: &[&str] = &[
     // baud's own: the process was started as a new window
     // (`windows::spawn_window`), which its shell was not.
     crate::windows::NEW_WINDOW,
+    // baud's own: what shell integration hands a shell's startup to put
+    // back, and its marker, none of them a parent's to pass on.
+    crate::shell::HELPERS[0],
+    crate::shell::HELPERS[1],
+    crate::shell::HELPERS[2],
     // The outer terminal's colours, window and terminfo.
     "COLORFGBG",
     "WINDOWID",
@@ -720,6 +726,58 @@ fn shell_locale() -> Option<String> {
 #[cfg(target_os = "linux")]
 fn shell_locale() -> Option<String> {
     None
+}
+
+/// **What the child runs**: the path `execve` is given and the argument
+/// list, decided in the parent before the fork, with what shell
+/// integration changes in the environment.
+struct Exec {
+    path: CString,
+    argv: Vec<CString>,
+    injection: Option<crate::shell::Injection>,
+}
+
+impl Exec {
+    /// `/bin/sh -c cmd` for a command, as `BAUD_CMD` runs one; otherwise
+    /// a login shell, `$SHELL` as `parent` has it (else the system's) with
+    /// argv[0] its name after a `-`, as `login` starts one, and with
+    /// whatever `integration` adds to its start
+    /// ([`crate::shell::inject`]). `None` when an argument cannot be a C
+    /// string.
+    fn of(
+        cmd: Option<String>,
+        parent: &[(OsString, OsString)],
+        integration: crate::shell::Integration,
+    ) -> Option<Exec> {
+        if let Some(c) = cmd {
+            return Some(Exec {
+                path: CString::new("/bin/sh").ok()?,
+                argv: vec![
+                    CString::new("sh").ok()?,
+                    CString::new("-c").ok()?,
+                    CString::new(c).ok()?,
+                ],
+                injection: None,
+            });
+        }
+        let shell = parent
+            .iter()
+            .find(|(k, _)| k.as_bytes() == b"SHELL")
+            .and_then(|(_, v)| v.to_str())
+            .unwrap_or(DEFAULT_SHELL)
+            .to_string();
+        let path = resolve(&shell).unwrap_or_else(|| DEFAULT_SHELL.to_string());
+        let argv0 = CString::new(format!("-{}", shell.rsplit('/').next().unwrap_or("sh"))).ok()?;
+        let injection = crate::shell::inject(integration, &shell, &path, parent);
+        let argv = core::iter::once(argv0)
+            .chain(injection.iter().flat_map(|i| i.args.iter().cloned()))
+            .collect();
+        Some(Exec {
+            path: CString::new(path).ok()?,
+            argv,
+            injection,
+        })
+    }
 }
 
 /// `prog` as a path `execve` can take: itself when it names a path, else
@@ -1168,23 +1226,31 @@ impl Pty {
     /// so it had nothing to send and the zero stood until the window changed.
     ///
     /// `at` is the directory a new window inherits, which wins over the
-    /// launch rule ([`start_in`]) when it is absolute.
-    fn fork(ws: crate::sys::Winsize, at: Option<&std::path::Path>) -> Option<crate::sys::Fd> {
+    /// launch rule ([`start_in`]) when it is absolute. `integration` is
+    /// `[shell] integration`, which marks the shell's prompts
+    /// (`shell.rs`).
+    fn fork(
+        ws: crate::sys::Winsize,
+        at: Option<&std::path::Path>,
+        integration: crate::shell::Integration,
+    ) -> Option<crate::sys::Fd> {
         let cmd = std::env::var("BAUD_CMD").ok();
-        Pty::fork_from(
+        Pty::fork_given(
             ws,
             cmd,
             std::env::vars_os().collect(),
             shell_locale,
             Parent::of_this_process(),
             at,
+            integration,
         )
     }
 
-    /// [`Pty::fork`] with every input given: the command, the parent's
-    /// environment, where a locale comes from when the parent names none,
-    /// and who started baud -- so a test runs the whole spawn, the locale
-    /// and the start directory included.
+    /// [`Pty::fork`] with every input given but the integration, which is
+    /// off: the command, the parent's environment, where a locale comes
+    /// from when the parent names none, and who started baud -- so a test
+    /// runs the whole spawn, the locale and the start directory included.
+    #[cfg(test)]
     fn fork_from(
         ws: crate::sys::Winsize,
         cmd: Option<String>,
@@ -1193,6 +1259,27 @@ impl Pty {
         started_by: Parent,
         at: Option<&std::path::Path>,
     ) -> Option<crate::sys::Fd> {
+        Pty::fork_given(
+            ws,
+            cmd,
+            parent,
+            locale,
+            started_by,
+            at,
+            crate::shell::Integration::Off,
+        )
+    }
+
+    /// [`Pty::fork`] with every input given, the integration too.
+    fn fork_given(
+        ws: crate::sys::Winsize,
+        cmd: Option<String>,
+        parent: Vec<(OsString, OsString)>,
+        locale: impl FnOnce() -> Option<String>,
+        started_by: Parent,
+        at: Option<&std::path::Path>,
+        integration: crate::shell::Integration,
+    ) -> Option<crate::sys::Fd> {
         let start = match at
             .filter(|d| d.is_absolute())
             .and_then(|d| CString::new(d.as_os_str().as_bytes()).ok())
@@ -1200,9 +1287,13 @@ impl Pty {
             Some(dir) => StartIn::Dir(dir),
             None => start_in(started_by, &parent),
         };
-        let stay = spawn_env(parent, locale);
+        let exec = Exec::of(cmd, &parent, integration)?;
+        let mut stay = spawn_env(parent, locale);
+        if let Some(i) = &exec.injection {
+            i.apply(&mut stay);
+        }
         let home = with_pwd(stay.clone(), &start);
-        Pty::fork_in(ws, cmd, &home, &stay, &start).map(|(_, master)| master)
+        Pty::fork_in(ws, &exec, &home, &stay, &start).map(|(_, master)| master)
     }
 
     /// [`Pty::fork_in`] where baud is, for the tests that hand the child a
@@ -1221,57 +1312,41 @@ impl Pty {
     /// test that waits for that child: libtest runs the tests as threads of
     /// one process, so a wait for any child (`waitpid(-1)`) can take a
     /// child of a test running beside it, whose own wait then fails with
-    /// `ECHILD`.
+    /// `ECHILD`. The shell, when no command is given, is `$SHELL` as this
+    /// process has it, started with integration off.
     #[cfg(test)]
     pub(crate) fn fork_child(
         ws: crate::sys::Winsize,
         cmd: Option<String>,
         env: Vec<CString>,
     ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
-        Pty::fork_in(ws, cmd, &env, &env, &StartIn::Inherited)
+        let parent: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+        let exec = Exec::of(cmd, &parent, crate::shell::Integration::Off)?;
+        Pty::fork_in(ws, &exec, &env, &env, &StartIn::Inherited)
     }
 
-    /// [`Pty::fork`] with the command, the environments and the start
-    /// directory given rather than read: the child's pid and the master.
-    /// `home` is the environment of a child whose `chdir` to `start`'s
-    /// directory succeeded, and `stay` that of a child left where baud is
-    /// -- because `start` said so, or because the `chdir` failed -- so a
-    /// `PWD` naming `HOME` reaches only a shell that is in it, as XBD 8 has
-    /// `PWD` name "the current working directory"
+    /// [`Pty::fork`] with what the child runs ([`Exec`]), the environments
+    /// and the start directory given rather than read: the child's pid and
+    /// the master. `home` is the environment of a child whose `chdir` to
+    /// `start`'s directory succeeded, and `stay` that of a child left where
+    /// baud is -- because `start` said so, or because the `chdir` failed --
+    /// so a `PWD` naming `HOME` reaches only a shell that is in it, as XBD 8
+    /// has `PWD` name "the current working directory"
     /// (`[[source: posix-xbd-8]]`).
     fn fork_in(
         ws: crate::sys::Winsize,
-        cmd: Option<String>,
+        exec: &Exec,
         home: &[CString],
         stay: &[CString],
         start: &StartIn,
     ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
-        let shell = match &cmd {
-            Some(_) => "/bin/sh".to_string(),
-            None => std::env::var("SHELL").unwrap_or_else(|_| DEFAULT_SHELL.to_string()),
-        };
-        let path = resolve(&shell).unwrap_or_else(|| DEFAULT_SHELL.to_string());
-        let path_c = CString::new(path).ok()?;
-        let argv0 = match &cmd {
-            Some(_) => CString::new("sh").ok()?,
-            None => CString::new(format!("-{}", shell.rsplit('/').next().unwrap_or("sh"))).ok()?,
-        };
-        let dash_c = CString::new("-c").ok()?;
-        let cmd_c = cmd.and_then(|c| CString::new(c).ok());
-        let argv = match &cmd_c {
-            Some(c) => [
-                argv0.as_ptr(),
-                dash_c.as_ptr(),
-                c.as_ptr(),
-                std::ptr::null(),
-            ],
-            None => [
-                argv0.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                std::ptr::null(),
-            ],
-        };
+        let path_c = &exec.path;
+        let argv: Vec<*const core::ffi::c_char> = exec
+            .argv
+            .iter()
+            .map(|a| a.as_ptr())
+            .chain(std::iter::once(std::ptr::null()))
+            .collect();
         let envp_of = |env: &[CString]| -> Vec<*const core::ffi::c_char> {
             env.iter()
                 .map(|e| e.as_ptr())
@@ -1339,10 +1414,11 @@ impl Pty {
         cell_w: Px,
         cell_h: Px,
         at: Option<&std::path::Path>,
+        integration: crate::shell::Integration,
         wake: impl Fn() + Send + 'static,
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let master = Pty::fork(told, at)?;
+        let master = Pty::fork(told, at, integration)?;
         Some(Pty::reading(master, told, wake))
     }
 
@@ -1403,9 +1479,14 @@ impl Pty {
     /// the Linux loop's shape -- one wait over the compositor's socket and
     /// the master, and nothing crossing a channel.
     #[cfg(target_os = "linux")]
-    pub fn spawn_polled(size: &WinSize, cell_w: Px, cell_h: Px) -> Option<Pty> {
+    pub fn spawn_polled(
+        size: &WinSize,
+        cell_w: Px,
+        cell_h: Px,
+        integration: crate::shell::Integration,
+    ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let master = Pty::fork(told, None)?;
+        let master = Pty::fork(told, None, integration)?;
         make_nonblocking(master);
         Some(Pty {
             master,
@@ -2168,6 +2249,9 @@ pub fn host_now() -> HostTime {
     // id, which `CLOCK_UPTIME_RAW` is.
     unsafe { clock_gettime_nsec_np(crate::sys::CLOCK_UPTIME_RAW) }
 }
+
+#[cfg(test)]
+mod shell_tests;
 
 #[cfg(test)]
 mod tests {
@@ -3375,7 +3459,12 @@ mod tests {
             ws_col: 80,
             ws_row: 24,
         };
-        let master = Pty::fork(text_area(&size, Px::of(8), Px::of(16)), None).expect("forkpty");
+        let master = Pty::fork(
+            text_area(&size, Px::of(8), Px::of(16)),
+            None,
+            crate::shell::Integration::Off,
+        )
+        .expect("forkpty");
         for line in String::from_utf8_lossy(&read_all(master)).lines() {
             println!("CHILD[{}]", line.trim_end_matches('\r'));
         }

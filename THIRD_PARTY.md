@@ -23,9 +23,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 | open | 0 | 5 | an open question, recorded where the file is |
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 314 | 45 | redistributable, and its notice is satisfied |
+| kept | 314 | 46 | redistributable, and its notice is satisfied |
 | own | 256 | 7 | the work of baud's author |
-| total | 587 | 57 | |
+| total | 587 | 58 | |
 
 ## Licence texts in LICENSES/
 
@@ -37,6 +37,7 @@ they were built from.
 | [alacritty-Apache-2.0.txt](LICENSES/alacritty-Apache-2.0.txt) | Apache-2.0 | fetched: https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/LICENSE-APACHE | 8884289e3969c089 |
 | [Apache-2.0.txt](LICENSES/Apache-2.0.txt) | Apache-2.0 | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/Apache-2.0.txt | 074e6e32c86a4c0e |
 | [APSL-2.0.txt](LICENSES/APSL-2.0.txt) | APSL-2.0 | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/APSL-2.0.txt | 2d0c12edaaf8d31f |
+| [bash-preexec-MIT.txt](LICENSES/bash-preexec-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/rcaloras/bash-preexec/b73ed5f7f953207b958f15b1773721dded697ac3/LICENSE.md | 5ef6b4c99c25dffa |
 | [bat-MIT.txt](LICENSES/bat-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/sharkdp/bat/4987f76709aae3a1c4db723c53874c9ddcb0c4fd/LICENSE-MIT | dccda9eb9533f5c6 |
 | [ecma-copyright-notice.txt](LICENSES/ecma-copyright-notice.txt) | LicenseRef-Ecma-Copyright | built: https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/, the default notice and two FAQ answers (the page as read 2026-10-28, sha256 65a0efe7612cbb306c994a6a5362abc354786de020158052c6abd05f4df113ab) | f50315ecd161bcaf |
 | [fontdue-MIT.txt](LICENSES/fontdue-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/mooman219/fontdue/2924772fb4439b8aca40b1bffca70088acba5a1b/LICENSE-MIT | a72354dd6206c20d |
@@ -492,6 +493,14 @@ they were built from.
 - **Notice:** in the file
 - **From:** https://gitlab.freedesktop.org/wayland/wayland-protocols
 - **Files:** [baud-wayland/protocols/wp-text-input-unstable-v3.xml](baud-wayland/protocols/wp-text-input-unstable-v3.xml)
+
+### bash-preexec 0.6.0 (b73ed5f) and 0.7.0 (d866eee), unmodified, which baud-app's shell tests load into a bash baud starts; kept without the .sh extension, so the formatters leave them byte for byte. Its LICENSE.md is the same text at both tags
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/bash-preexec-MIT.txt](LICENSES/bash-preexec-MIT.txt)
+- **From:** https://github.com/rcaloras/bash-preexec/tree/0.6.0 and https://github.com/rcaloras/bash-preexec/tree/0.7.0
+- **Files:** [baud-app/fixtures/bash-preexec/bash-preexec-0.6.0](baud-app/fixtures/bash-preexec/bash-preexec-0.6.0), [baud-app/fixtures/bash-preexec/bash-preexec-0.7.0](baud-app/fixtures/bash-preexec/bash-preexec-0.7.0)
 
 ### The Hebrew build modules: baud's own code under the repository's licence, decided 2026-10-28; they are tools that write the font, not Font Software (FONTLOG.txt)
 

@@ -76,6 +76,12 @@ from    = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text
 how     = "fetched"
 sha256  = "2d0c12edaaf8d31fec6796fef99291b12e833b6bef28100975120a53d209e06d"
 
+[text."bash-preexec-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/rcaloras/bash-preexec/b73ed5f7f953207b958f15b1773721dded697ac3/LICENSE.md"
+how     = "fetched"
+sha256  = "5ef6b4c99c25dffaee76ecea063cf5df477f0af0fe925e6254229eeebe9a1b42"
+
 [text."bat-MIT.txt"]
 licence = "MIT"
 from    = "https://raw.githubusercontent.com/sharkdp/bat/4987f76709aae3a1c4db723c53874c9ddcb0c4fd/LICENSE-MIT"
@@ -2241,3 +2247,11 @@ upstream = "https://gitlab.freedesktop.org/wayland/wayland-protocols"
 status   = "kept"
 public   = "wayland-protocols' text-input-unstable-v3 XML, carried unmodified and read the same way; its copyright block grants the historical permission with the right to sell, not MIT"
 holder   = "Intel, Jan Arne Petersen, Red Hat and Purism"
+
+[[tree]]
+what     = "bash-preexec 0.6.0 (b73ed5f) and 0.7.0 (d866eee), unmodified, which baud-app's shell tests load into a bash baud starts; kept without the .sh extension, so the formatters leave them byte for byte. Its LICENSE.md is the same text at both tags"
+paths    = ["baud-app/fixtures/bash-preexec/bash-preexec-0.6.0", "baud-app/fixtures/bash-preexec/bash-preexec-0.7.0"]
+licence  = "MIT"
+notice   = "LICENSES/bash-preexec-MIT.txt"
+upstream = "https://github.com/rcaloras/bash-preexec/tree/0.6.0 and https://github.com/rcaloras/bash-preexec/tree/0.7.0"
+status   = "kept"

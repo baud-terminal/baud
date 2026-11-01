@@ -549,7 +549,7 @@ tests = ["baud-app/src/host.rs::claude_codes_symbols_draw_from_stix_behind_a_con
 id = "word-wrap"
 area = "text"
 name = "Words kept whole when text wraps"
-does = "Finished text wraps at its words: a word that does not fit at the end of a line moves whole to the next one, where it was cut at the last column, and in a Hebrew paragraph an English run the wrap would cut gets a line of its own, left to right against the left edge, the Hebrew carrying on below it; copying still gives the text as the program wrote it. It covers what scrolled back and, with a shell that marks its prompts, the output above the prompt; `[screen] wrap_words = \"off\"` turns it off."
+does = "Finished text wraps at its words: a word that does not fit at the end of a line moves whole to the next one, where it was cut at the last column, and in a Hebrew paragraph an English run the wrap would cut gets a line of its own, left to right against the left edge, the Hebrew carrying on below it; copying still gives the text as the program wrote it. It covers what scrolled back and the output above the prompt of the zsh, bash and fish baud starts, whose prompts it marks for them, or of any shell that marks its own; `[screen] wrap_words = \"off\"` turns it off."
 status = "built"
 platform = "both"
 tests = ["baud-render/tests/word_wrap.rs::the_run_the_wrap_splits_gets_a_line_of_its_own_in_its_own_direction", "baud-render/tests/word_wrap.rs::an_all_english_paragraph_wraps_at_its_words", "baud-present-macos/tests/cells.rs::a_re_broken_paragraph_draws_the_same_on_every_arm"]
@@ -1420,6 +1420,16 @@ status = "built"
 platform = "both"
 tests = ["baud-core/tests/reflow.rs::the_history_reflows_with_the_screen", "baud-core/tests/resize_matrix.rs::output_comes_back_when_the_window_does", "baud-core/tests/scrollback.rs::a_cut_row_of_written_spaces_is_content", "baud-core/tests/scrollback.rs::a_cut_row_in_a_colour_alone_is_not_content"]
 shipped = ["2026-10-15-wrapped-lines-re-wrap-correctly-after", "F1-34"]
+
+[[feature]]
+id = "shell-integration"
+area = "programs"
+name = "Your shell's prompts marked for it"
+does = "baud marks the prompts of the zsh, bash and fish it starts for you, so the output above the prompt you are at counts as finished: it wraps at its words, a list of completions stays on the screen, and each command's result can show beside its prompt. Your own startup files run as they always do, in the same order; fish 4 and later and startup files that already mark the prompt keep their own marks, and fish 3's prompts are marked without where the input begins. `[shell] integration = \"off\"` turns it off."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/pty/shell_tests.rs::a_stock_zsh_paragraph_is_drawn_at_its_words", "baud-app/src/pty/shell_tests.rs::a_stock_bash_paragraph_is_drawn_at_its_words", "baud-app/src/pty/shell_tests.rs::a_stock_fish_paragraph_is_drawn_at_its_words", "baud-app/src/pty/shell_tests.rs::zsh_startup_runs_as_without_baud", "baud-app/src/pty/shell_tests.rs::bash_startup_runs_as_without_baud", "baud-app/src/pty/shell_tests.rs::zsh_exit_codes_reach_the_marks", "baud-app/src/pty/shell_tests.rs::a_bash_completion_list_stays", "baud-app/src/pty/shell_tests.rs::a_zsh_that_marks_keeps_its_own", "baud-app/src/pty/shell_tests.rs::funcsave_saves_the_users_own_fish_prompt", "baud-app/src/pty/shell_tests.rs::bash_startup_runs_as_without_baud_with_its_prompts_exported", "baud-app/src/pty/shell_tests.rs::a_bash_prompt_command_reads_the_status_as_without_baud", "baud-app/src/pty/shell_tests.rs::bash_preexec_runs_as_without_baud", "baud-app/src/shell.rs::the_scripts_directory_is_the_users_alone"]
+rows = ["vt:`OSC 133`"]
 
 [[feature]]
 id = "exit-status"

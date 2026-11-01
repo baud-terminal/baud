@@ -447,8 +447,13 @@ pub fn run() {
     renderer.set_cursor_look(crate::caret::look(Focus::Lost, cfg.unfocused_cursor));
     let term = crate::host::set_up_term(term, &cfg, &renderer, &fonts);
     startup_mark("renderer");
-    let pty = Pty::spawn_polled(&FIRST, renderer.metrics().cell_w, renderer.metrics().cell_h)
-        .expect("pty");
+    let pty = Pty::spawn_polled(
+        &FIRST,
+        renderer.metrics().cell_w,
+        renderer.metrics().cell_h,
+        cfg.shell_integration,
+    )
+    .expect("pty");
     startup_mark("pty");
     let mut conn = match Connection::connect() {
         Ok(c) => c,
@@ -1797,7 +1802,8 @@ impl Driver {
                 | Part::Sixel
                 | Part::Vs16Width
                 | Part::Printing
-                | Part::ClipboardArea => {}
+                | Part::ClipboardArea
+                | Part::ShellIntegration => {}
             }
         }
         // A size the user zoomed to stays.

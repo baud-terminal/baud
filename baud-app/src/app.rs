@@ -830,6 +830,8 @@ struct Boot {
     activity_lights: baud_render::ActivityLights,
     /// Whether a launch shows the splash, from `[launch] splash`.
     launch_splash: crate::config::LaunchSplash,
+    /// Whether the shell's prompts are marked, from `[shell] integration`.
+    shell_integration: crate::shell::Integration,
     /// Whether a program may log what it sends, from `[screen] logging`.
     logging: baud_domain::Logging,
     /// Whether a program's print opens the print panel, from `[screen]
@@ -994,6 +996,7 @@ impl Boot {
             window_ops: cfg.window_ops,
             activity_lights: cfg.activity_lights,
             launch_splash: cfg.launch_splash,
+            shell_integration: cfg.shell_integration,
             logging: cfg.logging,
             printing: cfg.printing,
             notifications: cfg.notifications,
@@ -1125,6 +1128,7 @@ impl App {
             window_ops,
             activity_lights,
             launch_splash,
+            shell_integration: _,
             logging,
             printing,
             notifications,
@@ -11728,11 +11732,18 @@ impl Shell {
         let late: Arc<OnceLock<Waker>> = Arc::new(OnceLock::new());
         let wake_late = Arc::clone(&late);
         let cell = boot.renderer.metrics();
-        let pty = Pty::spawn(&ws, cell.cell_w, cell.cell_h, at, move || {
-            if let Some(w) = wake_late.get() {
-                w.wake();
-            }
-        })
+        let pty = Pty::spawn(
+            &ws,
+            cell.cell_w,
+            cell.cell_h,
+            at,
+            boot.shell_integration,
+            move || {
+                if let Some(w) = wake_late.get() {
+                    w.wake();
+                }
+            },
+        )
         .expect("pty");
         startup_mark("pty");
         // **The launch's threads after the shell** (note AJ section 20):
@@ -13103,7 +13114,8 @@ impl Driver {
                 | Part::Sixel
                 | Part::Vs16Width
                 | Part::Printing
-                | Part::ClipboardArea => {}
+                | Part::ClipboardArea
+                | Part::ShellIntegration => {}
             }
         }
         // **A size the user zoomed to stays**, as alacritty keeps one
