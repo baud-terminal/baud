@@ -1294,6 +1294,65 @@ one-minute load of 2-5, under the fire, ride against `be25132` and `stay`:
 every pair overlaps on every mover, the A/A copy spreading 1.3-2.0% of a core
 under the scrolling movers against 0.07% idle. No result.
 
+## The glass's backdrop premultiplied once a run (measured, no change)
+
+**A memo of the premultiplied backdrop paints the see-through page no
+faster on the CPU path and retires more instructions, so it was not
+taken.** At `4aca0ef2`, 2026-11-01:
+Apple M5 Max, macOS 27.0, on AC, at a one-minute load of 5.0-7.9 from other
+work (3.4-3.8 for the inlined arms below). Over the glass,
+`Blend::over_glass` premultiplies the pixel under each partly covered pixel
+as the presenter will, `baud_domain::premultiply_chan` on three channels.
+The arm tried, in `Target::over`'s two glass loops (out of line, and
+inlined into the record's loop below), keeps the last backdrop word with
+its premultiplied word and forms it again only when the word changes. A build of it with counters
+added shows it removes 92-99% of the premultiplies: btop 8,765 a frame to
+667, cat-scroll 58,186 to 1,398, git-log at 6K 401,533 to 3,866.
+
+The premultiply was already cheap. LLVM forms the alpha's multiplier once a
+pixel and each channel as one multiply-add and a shift: removing it outright
+saves 11.0-11.3 instructions a partly covered pixel on btop and cat-scroll
+at 1x, and the memo, net, retires 4.4-5.9 instructions a partly covered pixel
+more than the base (btop 5.9, cat-scroll 4.4).
+
+`frame`, each arm a `git archive` at one path, the memo built twice and
+`cmp`-identical, five rounds rotated, the first dropped; 200x50 cells at 14
+px (1x) and 28 px (2x), 360x90 at 28 px (6K); 3 reps, 2 at 6K; a dim of 179
+(the dark default, 0.70) or 153 (the light, 0.60). A patch to every arm's
+bench, not in the tree, added a light-theme switch, the cell size in px, and
+an FNV-1a over every frame's pixels on every rep, printed once a run. The
+last column drops the premultiply, wrong by construction. Paint in us a
+frame, median [range], and instructions a process against the base:
+
+| recording, page | base | memo | memo, A/A | no premultiply |
+|---|---|---|---|---|
+| btop, dark 1x | 97.5 [96.9-98.6] | 99.5 [97.5-99.9] +0.7% | 99.4 [98.7-100.1] +0.7% | 94.8 [94.5-95.5] -1.4% |
+| cat-scroll, dark 1x | 455.1 [451.9-457.9] | 463.4 [457.9-466.5] +0.8% | 461.5 [453.5-464.3] +0.9% | 437.6 [436.4-438.0] -2.1% |
+| cat-scroll, light 1x | 453.9 [452.9-458.2] | 462.7 [460.8-464.7] +0.9% | 459.2 [455.0-466.2] +0.8% | 434.7 [433.8-435.1] -2.1% |
+| cat-scroll, dark 2x | 1190 [1173-1209] | 1204 [1197-1217] +1.2% | 1215 [1194-1216] +1.2% | 1141 [1127-1156] -3.1% |
+| cat-scroll, dark 6K | 2859 [2856-2888] | 2923 [2882-2957] +1.0% | 2894 [2854-2914] +1.0% | 2783 [2745-2800] -2.5% |
+| cat-scroll, opaque 1x | 388.9 [387.6-390.7] | 384.4 [382.2-389.7] 0.0% | 384.9 [382.9-391.5] 0.0% | 388.4 [384.6-392.1] 0.0% |
+
+Instructions rise 0.6-1.2% on all ten glass rows taken (btop and cat-scroll,
+each page above, a dim of 56, 2x and 6K), every range apart from the base's.
+Paint overlaps the base on nine and is slower on cat-scroll light. The hash
+covered 120 configurations: btop, cat-scroll, vim-unicode, less-pager,
+git-log and cat-cjk; the dark page at 179, 56 and 255 and the light at 153
+and 255; 1x incremental and full, 2x and 6K. The memo equals the base on
+all 120. The no-premultiply arm differs on 66 of the 72 glass
+configurations and on none of the opaque; the six it matches, btop at 2x
+and 6K, do not test the premultiply.
+
+**With the blend inlined into the record's loop**, so the memo can sit in
+registers, the loop got worse: instructions +7.3-11.9% and paint +11-19%
+against the base, its A/A `cmp`-identical. Counted over `over_as_is`, its
+`ldur` loads went from the inlined base's 52 to 82 and its `str` stores from
+40 to 62 (83 to 112 counting `stp` and `stur` too); over `over_translucent`,
+62 to 70 and 38 to 51. The inlining alone, one build with no A/A and no
+hash, read paint 2.0-3.5% below the base, ranges apart, on seven of the ten
+glass rows (btop light, dim 56 and 2x; cat-scroll light, dim 56, 2x and 6K)
+at +0.2-0.8% instructions: a lead, not a result.
+
 ## What `cargo install` and `nix build` make
 
 Taken on `78d68d0` with this section's change applied, 2026-10-29. Apple

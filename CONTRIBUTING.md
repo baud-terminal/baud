@@ -210,6 +210,13 @@ entries are `baud-core2`'s, the core this one replaced.
   backward, with `cells_blanked` unchanged: the blank carries the current
   style, so on coloured output the scan never matches and is a pure extra
   read. `RowExtent`'s one-cell test replaced it (note F).
+- **Premultiplying the glass's backdrop once a run, as a last-word memo in
+  `Target::over`'s glass loops** (out of line, or inlined into the record's
+  loop) -- it removes 92-99% of the premultiplies and paints no faster, at
+  0.6-1.2% more instructions; inlined into the record's loop, paint is
+  11-19% slower. Each channel's
+  premultiply is already one multiply-add and a shift. MEASUREMENTS.md, "The
+  glass's backdrop premultiplied once a run".
 
 ## How to verify a change
 
