@@ -363,6 +363,12 @@ from    = "README in https://www.ijg.org/files/jpegsrc.v6b.tar.gz (sha256 75c3ec
 how     = "fetched"
 sha256  = "4cf9c190f184019b61c36bcc49d4a24ffeb2a838c6f1690d6c4db14cfb2d0478"
 
+[text."libjpeg-turbo-README-ijg.txt"]
+licence = "IJG"
+from    = "README.ijg in https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz (sha256 3a581ad5a3060cee69487aae0bc71a1f3be94b89f92215e32b43742ec4a5055c), unaltered as its condition (1) requires"
+how     = "fetched"
+sha256  = "75815e3bf6484201a3c3d17a1bbf10f2e8e3237f84df10a2357ea896db2a81d6"
+
 [text."libx11-xcms.txt"]
 licence = "LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group"
 from    = "the notices at the head of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c (Tektronix's TekHVC notice, which HVCGcC.c, HVCMxC.c and HVCMxVC.c carry too), src/xcms/cmsTrig.c (Tektronix's Xcms notice, which the other ported files carry) and src/xcms/cmsMath.c (The Open Group), with a paragraph saying which ported lines fall under which"
@@ -2197,6 +2203,24 @@ upstream = "https://www.ijg.org/files/jpegsrc.v6b.tar.gz"
 status   = "kept"
 public   = "The JPEG decoder's inverse DCT, triangle upsampling and YCbCr conversion in jpeg.rs: the arithmetic of the IJG's libjpeg 6b, re-expressed. This software is based in part on the work of the Independent JPEG Group"
 holder   = "Thomas G. Lane and the Independent JPEG Group"
+
+[[tree]]
+what     = "libjpeg-turbo 3.1.4's arithmetic-coded test image and its Huffman twin, unmodified: testimgari.jpg and testimgint.jpg, and testimgari.ppm, the decode of both by its djpeg -dct int"
+paths    = ["baud-domain/tests/ijg/testimgari.jpg", "baud-domain/tests/ijg/testimgint.jpg", "baud-domain/tests/ijg/testimgari.ppm"]
+licence  = "IJG"
+notice   = "LICENSES/libjpeg-turbo-README-ijg.txt"
+upstream = "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz"
+status   = "kept"
+
+[[tree]]
+what     = "The JPEG decoder's arithmetic-coded refinement scan in jpeg.rs, arith_refine(): the order of decode_mcu_AC_refine() in libjpeg-turbo 3.1.4's jdarith.c, the IJG's arithmetic decoder, re-expressed and said to be the IJG's where it stands; this software is based in part on the work of the Independent JPEG Group"
+paths    = ["baud-domain/src/jpeg.rs"]
+licence  = "IJG"
+notice   = "LICENSES/libjpeg-turbo-README-ijg.txt"
+upstream = "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz"
+status   = "kept"
+public   = "The JPEG decoder's arithmetic-coded refinement scan in jpeg.rs: the order of the IJG's arithmetic decoder (jdarith.c, as libjpeg-turbo 3.1.4 carries it), re-expressed. This software is based in part on the work of the Independent JPEG Group"
+holder   = "Thomas G. Lane, Guido Vollbeding and the Independent JPEG Group"
 
 [[tree]]
 what     = "The readline click in readline.rs: boundary(), the column a click names, is xterm's eventColBetween formula, and point_move(), the cursor keys it sends, is ReadLineMovePoint's count over rowOnCurrentLine's wrapped rows (button.c, xterm patch #411), re-expressed; xterm's documentation gives neither. The paste's body() and quoted() follow the documented ctlseqs text, not this code"

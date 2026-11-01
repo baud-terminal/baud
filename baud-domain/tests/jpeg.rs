@@ -13,18 +13,32 @@
 //! `-rgb` by libjpeg-turbo 3.2.0's, and each decoded by 6b's `djpeg -dct
 //! int`, as `baud-domain/tests/jpeg/README.md` records.
 //!
+//! **The arithmetic, 12-bit and lossless forms** are libjpeg-turbo 3.1.4's
+//! (`[[source: libjpeg-turbo-314]]`): its arithmetic test image beside its
+//! Huffman twin, and baud's scene encoded by its `cjpeg` and decoded by its
+//! `djpeg -dct int`, which decodes the 6b references here to 6b's bytes.
+//! It writes no arithmetic-coded lossless file and no subsampled lossless
+//! one; those are Thomas Richter's T.81 implementation's
+//! (`[[source: richter-libjpeg]]`), its own decoder returning the source.
+//!
 //! **Malformed input never panics.** The property mutates the valid files
 //! by named classes -- a length that lies, a Huffman table whose counts
 //! overflow, a table identifier past 3, a scan naming a component the frame
 //! lacks, a spectral band out of range, a restart marker missing, a size at
 //! 65535, the file cut at every marker -- and a positive control requires
-//! that each class is generated.
+//! that each class is generated. A second property harms the arithmetic,
+//! 12-bit and lossless seeds by those classes and four more: a `DAC`'s
+//! values, the precision, the restart interval, and a lossless scan's
+//! predictor and point transform.
 
 use baud_domain::Pixel;
 use baud_domain::jpeg::{Jpeg, JpegError, Orientation};
 use proptest::prelude::*;
 
-/// A PPM's or PGM's width, height and RGB bytes.
+/// A PPM's or PGM's width, height and RGB bytes, each sample at 8 bits
+/// as the decoder draws it: a sample of more than 8 bits by its high eight,
+/// as a 16-bit PNG's is drawn, and one of fewer scaled to the full range,
+/// as a sub-byte PNG grey is.
 fn pnm(b: &[u8]) -> (usize, usize, Vec<u8>) {
     let mut fields = Vec::new();
     let mut i = 0;
@@ -40,10 +54,39 @@ fn pnm(b: &[u8]) -> (usize, usize, Vec<u8>) {
     }
     let body = &b[i + 1..];
     let (w, h): (usize, usize) = (fields[1].parse().unwrap(), fields[2].parse().unwrap());
-    let rgb = match fields[0].as_str() {
-        "P6" => body[..w * h * 3].to_vec(),
-        "P5" => body[..w * h].iter().flat_map(|&v| [v, v, v]).collect(),
+    let max: u32 = fields[3].parse().unwrap();
+    let bits = 32 - max.leading_zeros();
+    assert_eq!(max, (1 << bits) - 1, "a maxval of whole bits");
+    let channels = match fields[0].as_str() {
+        "P6" => 3,
+        "P5" => 1,
         other => panic!("not a PPM or PGM: {other}"),
+    };
+    let n = w * h * channels;
+    let samples: Vec<u32> = match max > 255 {
+        true => body[..2 * n]
+            .chunks(2)
+            .map(|p| u32::from(u16::from_be_bytes([p[0], p[1]])))
+            .collect(),
+        false => body[..n].iter().map(|&v| u32::from(v)).collect(),
+    };
+    let eight = |v: u32| {
+        u8::try_from(match bits {
+            8 => v,
+            b if b > 8 => v >> (b - 8),
+            _ => v * 255 / max,
+        })
+        .unwrap()
+    };
+    let rgb = match channels {
+        3 => samples.iter().map(|&v| eight(v)).collect(),
+        _ => samples
+            .iter()
+            .flat_map(|&v| {
+                let g = eight(v);
+                [g, g, g]
+            })
+            .collect(),
     };
     (w, h, rgb)
 }
@@ -103,6 +146,226 @@ fn the_ijgs_baseline_test_image_decodes_to_its_reference() {
 #[test]
 fn the_ijgs_progressive_test_image_decodes_to_its_reference() {
     holds(include_bytes!("ijg/testprog.jpg"), TESTIMG, "testprog.jpg");
+}
+
+/// **The arithmetic-coded test image decodes to the same bytes as its
+/// Huffman twin**: libjpeg-turbo's `testimgari.jpg` is `cjpeg -dct int
+/// -arithmetic` of its `testorig.ppm` and `testimgint.jpg` the same without
+/// `-arithmetic`, and its suite requires `jpegtran` to turn the first into
+/// the second, so the coefficients are the same; the reference is its
+/// `djpeg -dct int`, which decodes this decoder's 4:2:0 references to 6b's
+/// bytes.
+#[test]
+fn the_arithmetic_test_image_decodes_to_its_reference() {
+    let reference = include_bytes!("ijg/testimgari.ppm");
+    holds(
+        include_bytes!("ijg/testimgari.jpg"),
+        reference,
+        "testimgari.jpg",
+    );
+    holds(
+        include_bytes!("ijg/testimgint.jpg"),
+        reference,
+        "testimgint.jpg",
+    );
+}
+
+/// **Every arithmetic form decodes to its reference** (Annex D, F.2.4,
+/// G.1.3): sequential with restart markers, progressive with spectral
+/// selection and successive approximation, in colour and grey, as
+/// libjpeg-turbo 3.1.4's `cjpeg -arithmetic` writes them; and both again
+/// with conditioning a `DAC` sets past the defaults (B.2.4.3), L = 2 and U
+/// = 5, L = 1 and U = 3, Kx 20 and 40, as libjpeg-turbo writes them for
+/// `dacenc.c`.
+#[test]
+fn every_arithmetic_form_decodes_to_its_reference() {
+    let cases: [(&str, &[u8], &[u8]); 6] = [
+        (
+            "4:2:2 sequential, a restart every two MCUs",
+            include_bytes!("jpeg/a422r.jpg"),
+            include_bytes!("jpeg/a422r.ppm"),
+        ),
+        (
+            "4:2:0 progressive",
+            include_bytes!("jpeg/a420p.jpg"),
+            include_bytes!("jpeg/a420p.ppm"),
+        ),
+        (
+            "4:4:4 progressive, a restart every three MCUs",
+            include_bytes!("jpeg/ap444.jpg"),
+            include_bytes!("jpeg/ap444.ppm"),
+        ),
+        (
+            "grey progressive",
+            include_bytes!("jpeg/agreyp.jpg"),
+            include_bytes!("jpeg/agreyp.pgm"),
+        ),
+        (
+            "4:2:0 sequential, conditioning set",
+            include_bytes!("jpeg/adac.jpg"),
+            include_bytes!("jpeg/adac.ppm"),
+        ),
+        (
+            "4:2:0 progressive, conditioning set",
+            include_bytes!("jpeg/adacp.jpg"),
+            include_bytes!("jpeg/adacp.ppm"),
+        ),
+    ];
+    for (name, jpg, reference) in cases {
+        holds(jpg, reference, name);
+    }
+}
+
+/// **12-bit samples draw at their high eight bits** (F.2.5, F.2.6), as a
+/// 16-bit PNG's do: the reference is libjpeg-turbo's 12-bit decode, its
+/// samples shifted down by four, Huffman and arithmetic, sequential and
+/// progressive.
+#[test]
+fn twelve_bit_samples_draw_at_their_high_eight_bits() {
+    let cases: [(&str, &[u8], &[u8]); 4] = [
+        (
+            "extended sequential, Huffman",
+            include_bytes!("jpeg/p12.jpg"),
+            include_bytes!("jpeg/p12.ppm"),
+        ),
+        (
+            "progressive, Huffman",
+            include_bytes!("jpeg/p12p.jpg"),
+            include_bytes!("jpeg/p12p.ppm"),
+        ),
+        (
+            "extended sequential, arithmetic, a restart every MCU row",
+            include_bytes!("jpeg/p12a.jpg"),
+            include_bytes!("jpeg/p12a.ppm"),
+        ),
+        (
+            "progressive, arithmetic, 4:2:2",
+            include_bytes!("jpeg/p12ap.jpg"),
+            include_bytes!("jpeg/p12ap.ppm"),
+        ),
+    ];
+    for (name, jpg, reference) in cases {
+        holds(jpg, reference, name);
+    }
+}
+
+const SCENE: &[u8] = include_bytes!("jpeg/scene.ppm");
+const SCENE16: &[u8] = include_bytes!("jpeg/scene16.ppm");
+
+/// **Each of the seven predictors decodes to the source** (H.2, Table
+/// H.1): the lossless process returns the picture it was given, so the
+/// reference is the scene itself, which libjpeg-turbo's `djpeg` also
+/// returns.
+#[test]
+fn every_lossless_predictor_decodes_to_the_source() {
+    let cases: [&[u8]; 7] = [
+        include_bytes!("jpeg/l1.jpg"),
+        include_bytes!("jpeg/l2.jpg"),
+        include_bytes!("jpeg/l3.jpg"),
+        include_bytes!("jpeg/l4.jpg"),
+        include_bytes!("jpeg/l5.jpg"),
+        include_bytes!("jpeg/l6.jpg"),
+        include_bytes!("jpeg/l7.jpg"),
+    ];
+    for (k, jpg) in cases.iter().enumerate() {
+        holds(jpg, SCENE, &format!("predictor {}", k + 1));
+    }
+}
+
+/// **Lossless precisions from 2 to 16 bits and the point transform**
+/// (H.1.1, H.2.2): each draws at 8 bits as the reference's samples do --
+/// above 8 bits their high eight, below them scaled to the full range --
+/// with restart intervals of whole MCU rows.
+#[test]
+fn every_lossless_precision_decodes_to_its_reference() {
+    let cases: [(&str, &[u8], &[u8]); 5] = [
+        (
+            "12 bits, predictor 4, Pt 2, a restart every row",
+            include_bytes!("jpeg/l4t2r.jpg"),
+            include_bytes!("jpeg/l4t2r.ppm"),
+        ),
+        (
+            "16 bits, predictor 6",
+            include_bytes!("jpeg/l6p16.jpg"),
+            SCENE16,
+        ),
+        (
+            "16 bits, predictor 5, Pt 3, a restart every two rows",
+            include_bytes!("jpeg/l5p16t3.jpg"),
+            include_bytes!("jpeg/l5p16t3.ppm"),
+        ),
+        (
+            "5-bit grey, predictor 7, Pt 1",
+            include_bytes!("jpeg/l7g5.jpg"),
+            include_bytes!("jpeg/l7g5.pgm"),
+        ),
+        (
+            "2-bit grey, predictor 2, a restart every three rows",
+            include_bytes!("jpeg/l2g2.jpg"),
+            include_bytes!("jpeg/l2g2.pgm"),
+        ),
+    ];
+    for (name, jpg, reference) in cases {
+        holds(jpg, reference, name);
+    }
+}
+
+/// **Arithmetic-coded lossless decodes to the source** (H.1.2.3, H.2): the
+/// two-dimensional model's 25 conditioning states, written by Thomas
+/// Richter's T.81 implementation, whose own decoder returns the source;
+/// grey, RGB interleaved, with a restart every MCU row, and at 16 bits.
+#[test]
+fn arithmetic_lossless_decodes_to_the_source() {
+    let cases: [(&str, &[u8], &[u8]); 4] = [
+        (
+            "grey",
+            include_bytes!("jpeg/ar_grey.jpg"),
+            include_bytes!("jpeg/grey.pgm"),
+        ),
+        ("RGB", include_bytes!("jpeg/ar_rgb.jpg"), SCENE),
+        (
+            "RGB, a restart every MCU row",
+            include_bytes!("jpeg/ar_rgbr.jpg"),
+            SCENE,
+        ),
+        ("RGB at 16 bits", include_bytes!("jpeg/ar16.jpg"), SCENE16),
+    ];
+    for (name, jpg, reference) in cases {
+        holds(jpg, reference, name);
+    }
+}
+
+/// **An interleaved lossless scan of subsampled components decodes**:
+/// RGB with G and B at half the rows, each MCU one R sample above another
+/// and one each of G and B, a restart every MCU row, Huffman- and
+/// arithmetic-coded by Thomas Richter's implementation; the reference is
+/// libjpeg-turbo's decode of the Huffman one, whose upsampling repeats a
+/// row as this decoder's does where the ratio is two to one down.
+#[test]
+fn a_subsampled_lossless_scan_decodes_to_its_reference() {
+    let reference = include_bytes!("jpeg/lsub.ppm");
+    holds(include_bytes!("jpeg/lsub.jpg"), reference, "Huffman");
+    holds(include_bytes!("jpeg/arsub.jpg"), reference, "arithmetic");
+}
+
+/// **A difference of half the range decodes**: a 16-bit grey picture whose
+/// neighbours differ by 32768 and more, so predictor 1's Huffman-coded
+/// difference takes the category Table H.2 adds, 16, which "No extra bits
+/// are appended after", and the arithmetic-coded one its top magnitude
+/// category.
+#[test]
+fn a_difference_of_half_the_range_decodes() {
+    let reference = include_bytes!("jpeg/edge16.pgm");
+    holds(
+        include_bytes!("jpeg/l1e16.jpg"),
+        reference,
+        "Huffman, predictor 1",
+    );
+    holds(
+        include_bytes!("jpeg/are16.jpg"),
+        reference,
+        "arithmetic, predictor 4",
+    );
 }
 
 #[test]
@@ -281,22 +544,25 @@ fn the_exif_orientation_turns_the_picture() {
     }
 }
 
-/// **The processes and forms T.81 defines that this decoder does not
-/// implement are refused, not misdrawn**: the lossless, hierarchical and
-/// arithmetic-coded frames, 12-bit samples, a height left to `DNL`.
+/// **The process T.81 defines that this decoder does not implement is
+/// refused, not misdrawn**: the hierarchical process's differential frames
+/// and its `DHP`, and a height left to `DNL`; and a precision Table B.2
+/// does not allow the process is refused as a frame T.81 does not allow.
 #[test]
 fn the_processes_not_built_are_refused() {
     let jpg = include_bytes!("ijg/testorig.jpg");
     let sof = jpg.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
-    for (what, at, byte) in [
-        ("lossless SOF3", sof + 1, 0xC3),
-        ("hierarchical SOF5", sof + 1, 0xC5),
-        ("arithmetic SOF9", sof + 1, 0xC9),
-        ("arithmetic progressive SOF10", sof + 1, 0xCA),
-        ("12-bit samples", sof + 4, 12),
+    for (what, byte) in [
+        ("differential sequential SOF5", 0xC5),
+        ("differential progressive SOF6", 0xC6),
+        ("differential lossless SOF7", 0xC7),
+        ("differential sequential, arithmetic, SOF13", 0xCD),
+        ("differential progressive, arithmetic, SOF14", 0xCE),
+        ("differential lossless, arithmetic, SOF15", 0xCF),
+        ("DHP before the frame", 0xDE),
     ] {
         let mut f = jpg.to_vec();
-        f[at] = byte;
+        f[sof + 1] = byte;
         assert_eq!(
             Jpeg::parse(&f).err(),
             Some(JpegError::Unsupported),
@@ -311,6 +577,20 @@ fn the_processes_not_built_are_refused() {
         Some(JpegError::Unsupported),
         "a height left to DNL"
     );
+    for (what, marker, p) in [
+        ("baseline at 12 bits", 0xC0, 12),
+        ("extended sequential at 10 bits", 0xC1, 10),
+        ("progressive at 16 bits", 0xC2, 16),
+        ("arithmetic sequential at 9 bits", 0xC9, 9),
+        ("lossless at 1 bit", 0xC3, 1),
+        ("lossless at 17 bits", 0xC3, 17),
+        ("arithmetic lossless at 0 bits", 0xCB, 0),
+    ] {
+        let mut f = jpg.to_vec();
+        f[sof + 1] = marker;
+        f[sof + 4] = p;
+        assert_eq!(Jpeg::parse(&f).err(), Some(JpegError::Frame), "{what}");
+    }
 }
 
 /// **A file cut inside its entropy-coded data shows what arrived**: the
@@ -347,6 +627,17 @@ enum Harm {
     Cut,
     /// A byte anywhere set to anything.
     Byte,
+    /// A `DAC`'s class and destination, or its conditioning value, set to
+    /// `v`.
+    Conditioning,
+    /// The frame's sample precision set to `v`.
+    Precision,
+    /// The `DRI`'s interval set to `v`, a lossless one then not whole MCU
+    /// rows.
+    Interval,
+    /// A scan's `Ss` set to a predictor and its `Al` to a point transform,
+    /// each in or near its range.
+    Predictor,
 }
 
 const HARMS: [Harm; 9] = [
@@ -360,6 +651,27 @@ const HARMS: [Harm; 9] = [
     Harm::Cut,
     Harm::Byte,
 ];
+
+/// The classes the arithmetic, wide and lossless forms are harmed by: every
+/// one above and the four their headers add.
+const HARMS_WIDE: [Harm; 13] = [
+    Harm::Length,
+    Harm::HuffmanCounts,
+    Harm::TableId,
+    Harm::ScanComponent,
+    Harm::Band,
+    Harm::Restart,
+    Harm::Size,
+    Harm::Cut,
+    Harm::Byte,
+    Harm::Conditioning,
+    Harm::Precision,
+    Harm::Interval,
+    Harm::Predictor,
+];
+
+/// Every frame marker this decoder reads.
+const SOFS: [u8; 7] = [0xC0, 0xC1, 0xC2, 0xC3, 0xC9, 0xCA, 0xCB];
 
 /// The positions of every marker `m` in `f`.
 fn markers(f: &[u8], m: u8) -> Vec<usize> {
@@ -423,11 +735,7 @@ fn harmed(f: &[u8], harm: Harm, pick: usize, v: u8) -> (Vec<u8>, bool) {
                 }),
             }
         }
-        Harm::Size => at([0xC0, 0xC1, 0xC2]
-            .iter()
-            .flat_map(|&m| markers(&f, m))
-            .collect())
-        .map(|i| {
+        Harm::Size => at(SOFS.iter().flat_map(|&m| markers(&f, m)).collect()).map(|i| {
             for k in 5..9 {
                 if i + k < f.len() {
                     f[i + k] = 0xFF;
@@ -438,6 +746,34 @@ fn harmed(f: &[u8], harm: Harm, pick: usize, v: u8) -> (Vec<u8>, bool) {
         Harm::Byte => (!f.is_empty()).then(|| {
             let i = pick % f.len();
             f[i] = v;
+        }),
+        Harm::Conditioning => at(markers(&f, 0xCC)).map(|i| {
+            let n = usize::from(f.get(i + 3).copied().unwrap_or(0)).saturating_sub(2);
+            let j = i + 4 + usize::from(v) % n.max(1);
+            if j < f.len() {
+                f[j] = v.rotate_left(u32::from(v & 7));
+            }
+        }),
+        Harm::Precision => at(SOFS.iter().flat_map(|&m| markers(&f, m)).collect()).map(|i| {
+            if i + 4 < f.len() {
+                f[i + 4] = v % 20;
+            }
+        }),
+        Harm::Interval => at(markers(&f, 0xDD)).map(|i| {
+            if i + 5 < f.len() {
+                f[i + 4] = v >> 6;
+                f[i + 5] = v;
+            }
+        }),
+        Harm::Predictor => at(markers(&f, 0xDA)).map(|i| {
+            let n = usize::from(f.get(i + 4).copied().unwrap_or(0));
+            let t = i + 5 + 2 * n;
+            if t + 2 < f.len() {
+                match v & 1 {
+                    0 => f[t] = (v >> 1) % 9,
+                    _ => f[t + 2] = (f[t + 2] & 0xF0) | ((v >> 1) & 15),
+                }
+            }
         }),
     };
     (f, applied.is_some())
@@ -474,6 +810,21 @@ const SEEDS: [&[u8]; 4] = [
     include_bytes!("jpeg/s420p.jpg"),
 ];
 
+/// The arithmetic, wide and lossless seeds: the arithmetic test image,
+/// progressive arithmetic with and without restarts, 12-bit progressive
+/// arithmetic, lossless at 16 and 2 bits with restarts, and arithmetic
+/// lossless with restarts.
+const SEEDS_WIDE: [&[u8]; 8] = [
+    include_bytes!("ijg/testimgari.jpg"),
+    include_bytes!("jpeg/a420p.jpg"),
+    include_bytes!("jpeg/ap444.jpg"),
+    include_bytes!("jpeg/p12ap.jpg"),
+    include_bytes!("jpeg/l5p16t3.jpg"),
+    include_bytes!("jpeg/l2g2.jpg"),
+    include_bytes!("jpeg/ar_rgbr.jpg"),
+    include_bytes!("jpeg/a422r.jpg"),
+];
+
 proptest! {
     #[test]
     fn a_malformed_file_never_panics(
@@ -483,6 +834,18 @@ proptest! {
         let mut f = SEEDS[seed].to_vec();
         for (h, pick, v) in harms {
             f = harmed(&f, HARMS[h], pick, v).0;
+        }
+        survives(&f);
+    }
+
+    #[test]
+    fn a_malformed_arithmetic_wide_or_lossless_file_never_panics(
+        seed in 0..SEEDS_WIDE.len(),
+        harms in proptest::collection::vec((0..HARMS_WIDE.len(), any::<usize>(), any::<u8>()), 1..4),
+    ) {
+        let mut f = SEEDS_WIDE[seed].to_vec();
+        for (h, pick, v) in harms {
+            f = harmed(&f, HARMS_WIDE[h], pick, v).0;
         }
         survives(&f);
     }
@@ -506,4 +869,26 @@ fn every_harm_class_is_generated() {
     let s = SEEDS[2];
     let rst = (0xD0..=0xD7).map(|m| markers(s, m).len()).sum::<usize>();
     assert!(rst > 0, "the 4:2:2 seed carries restart markers");
+    for harm in HARMS_WIDE {
+        let fired = SEEDS_WIDE.iter().any(|s| {
+            (0..8).any(|pick| {
+                (0..=255u8).step_by(37).any(|v| {
+                    let (f, applied) = harmed(s, harm, pick, v);
+                    applied && f != *s
+                })
+            })
+        });
+        assert!(fired, "{harm:?} never changes a wide seed");
+    }
+    // The wide seeds reach every process and coding they stand for.
+    let frames: Vec<u8> = SEEDS_WIDE
+        .iter()
+        .flat_map(|s| SOFS.iter().filter(|&&m| !markers(s, m).is_empty()).copied())
+        .collect();
+    for m in [0xC3, 0xC9, 0xCA, 0xCB] {
+        assert!(frames.contains(&m), "a wide seed has SOF {m:02X}");
+    }
+    let p12 = SEEDS_WIDE[3];
+    let sof = markers(p12, 0xCA)[0];
+    assert_eq!(p12[sof + 4], 12, "the 12-bit seed");
 }

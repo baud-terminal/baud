@@ -195,12 +195,12 @@ fn an_inline_jpeg_is_placed_as_it_decodes() {
 }
 
 /// **A JPEG this decoder does not implement draws the placeholder**, and is
-/// counted: an arithmetic-coded frame, `SOF9`.
+/// counted: a differential frame of the hierarchical process, `SOF5`.
 #[test]
 fn a_jpeg_process_not_built_draws_the_placeholder() {
     let sof = TESTORIG.windows(2).position(|w| w == [0xff, 0xc0]).unwrap();
     let mut f = TESTORIG.to_vec();
-    f[sof + 1] = 0xc9;
+    f[sof + 1] = 0xc5;
     with(1 << 16, |t| {
         feed(t, &file("inline=1", &f), 4097);
         let (_, w, h, _) = placed(t);

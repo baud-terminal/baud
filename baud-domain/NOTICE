@@ -201,6 +201,17 @@ is based in part on the work of the Independent JPEG Group
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://www.ijg.org/files/jpegsrc.v6b.tar.gz
 
+The JPEG decoder's arithmetic-coded refinement scan in jpeg.rs: the order of
+the IJG's arithmetic decoder (jdarith.c, as libjpeg-turbo 3.1.4 carries it),
+re-expressed. This software is based in part on the work of the Independent
+JPEG Group
+  Files:   src/jpeg.rs
+  Holder:  Thomas G. Lane, Guido Vollbeding and the Independent JPEG Group
+  Licence: IJG
+  Notice:  LICENSES/libjpeg-turbo-README-ijg.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz
+
 iTerm2's interpolated-string syntax in interpolate.rs, written from iTerm2's
 documentation (Scripting Fundamentals and Badges); none of iTerm2's code is
 kept

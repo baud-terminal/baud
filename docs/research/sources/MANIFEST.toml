@@ -36549,7 +36549,7 @@ group  = "AL"
 
 [sources.itu-t81]
 key    = "itu-t81"
-title  = "CCITT Recommendation T.81 (09/92), ISO/IEC 10918-1 -- Digital compression and coding of continuous-tone still images: clause 7 (a decoder embodies one or more processes, baseline among them), Table 1, Annex B (syntax, fill bytes, segments), Annex C (Huffman tables), Annex F (sequential DCT, F.2.2 decoding, zero bits at a marker), Annex G (progressive: spectral selection, successive approximation, EOB runs), Annex K.2"
+title  = "CCITT Recommendation T.81 (09/92), ISO/IEC 10918-1 -- Digital compression and coding of continuous-tone still images: clause 7 (a decoder embodies one or more processes, baseline among them), Table 1, Annex B (syntax, fill bytes, segments, Table B.2's precisions, B.2.4.3 DAC), Annex C (Huffman tables), Annex D (arithmetic decoding: Decode(S), the conditional exchanges, Renorm_d, Byte_in, Initdec, Table D.3), Annex F (sequential DCT, F.2.2 decoding, zero bits at a marker, F.1.4.4 and F.2.4 the arithmetic models, F.2.5 and F.2.6 12-bit samples), Annex G (progressive: spectral selection, successive approximation, EOB runs, G.1.3 arithmetic), Annex H (lossless: Table H.1's predictors, the point transform, Table H.2's SSSS 16, H.1.2.3 the two-dimensional arithmetic model), Annex J (hierarchical), Annex K.2, K.4.1 (the arithmetic coder's test sequence)"
 author = "CCITT / ISO/IEC JTC 1/SC 29"
 year   = 1992
 venue  = "ITU-T T.81, as hosted by the W3C"
@@ -36622,6 +36622,42 @@ group  = "J"
 # Read 2026-10-23 (lane b176). testorig.jpg, testprog.jpg and testimg.ppm
 # are in baud-domain/tests/ijg/ with the README the IJG's terms require;
 # the decoder's arithmetic is the IJG's (LICENSE, third-party.toml).
+
+[sources.libjpeg-turbo-314]
+key    = "libjpeg-turbo-314"
+title  = "libjpeg-turbo 3.1.4 -- src/jdarith.c (decode_mcu_AC_refine, a scan stopped on a bad code), src/jaricom.c (Table D.3, the fixed estimate at 113), src/jidctint.c (PASS1_BITS 1 at 12 bits), src/jdcolor.c and src/jdsample.c at 12 bits and for a lossless frame, src/jdlossls.c (the predictors, the point transform), CMakeLists.txt's tests, testimages/testimgari.jpg and testimgint.jpg"
+author = "D. R. Commander, the libjpeg-turbo Project, and the Independent JPEG Group"
+year   = 2026
+venue  = "github.com/libjpeg-turbo/libjpeg-turbo"
+url    = "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz"
+file   = ""
+sha256 = "3a581ad5a3060cee69487aae0bc71a1f3be94b89f92215e32b43742ec4a5055c"
+bytes  = 2528165
+status = "external"
+group  = "J"
+# Read 2026-11-01. testimgari.jpg and testimgint.jpg are in
+# baud-domain/tests/ijg/ with the README.ijg it carries; its cjpeg and djpeg
+# made and decoded the arithmetic, 12-bit and lossless fixtures
+# (baud-domain/tests/jpeg/README.md). It decodes the 6b references here to
+# 6b's bytes but for 4:4:0, which it upsamples by its own filter.
+
+[sources.richter-libjpeg]
+key    = "richter-libjpeg"
+title  = "Thomas Richter's libjpeg 1.71 (25f7128), the JPEG committee's implementation of T.81 -- codestream/aclosslessscan.cpp (the lossless arithmetic model), control/linebitmaprequester.cpp (a lossless frame upsampled as a DCT one, centred), cmd/main.cpp"
+author = "Thomas Richter, University of Stuttgart, and Accusoft"
+year   = 2018
+venue  = "github.com/thorfdbg/libjpeg (GPL-3.0)"
+url    = "https://github.com/thorfdbg/libjpeg/archive/25f71280913fde7400801772bbf885bb3e873242.tar.gz"
+file   = ""
+sha256 = "2625a50fbf4751bb145b4704a55de3da77a946d589455acedbab41ddebb19d3a"
+bytes  = 565066
+status = "external"
+group  = "J"
+# Read 2026-11-01; built as nixpkgs' libjpeg-tools, its predictive encoder's
+# lookup of a quantization table a lossless frame never defines answered
+# with the selector instead of an error. It wrote the arithmetic-coded and
+# subsampled lossless fixtures (baud-domain/tests/jpeg/README.md); none of
+# its code is in baud.
 
 [sources.firefox-774fa0c-swizzle]
 key    = "firefox-774fa0c-swizzle"

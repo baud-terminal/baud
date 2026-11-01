@@ -23,9 +23,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 | open | 0 | 5 | an open question, recorded where the file is |
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 314 | 46 | redistributable, and its notice is satisfied |
+| kept | 314 | 48 | redistributable, and its notice is satisfied |
 | own | 263 | 7 | the work of baud's author |
-| total | 594 | 58 | |
+| total | 594 | 60 | |
 
 ## Licence texts in LICENSES/
 
@@ -52,6 +52,7 @@ they were built from.
 | [highway-LICENSE.txt](LICENSES/highway-LICENSE.txt) | Apache-2.0 OR BSD-3-Clause | fetched: https://raw.githubusercontent.com/google/highway/b93ad441d9cbeb7d7629281992b796a73033996a/LICENSE | 85de9303e7a81f35 |
 | [ijg-README.txt](LICENSES/ijg-README.txt) | IJG | fetched: README in https://www.ijg.org/files/jpegsrc.v6b.tar.gz (sha256 75c3ec241e9996504fe02a9ed4d12f16b74ade713972f3db9e65ce95cd27e35d), unaltered as its condition (1) requires | 4cf9c190f184019b |
 | [iterm2-color-schemes-MIT.txt](LICENSES/iterm2-color-schemes-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/LICENSE | 2373168614b52749 |
+| [libjpeg-turbo-README-ijg.txt](LICENSES/libjpeg-turbo-README-ijg.txt) | IJG | fetched: README.ijg in https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz (sha256 3a581ad5a3060cee69487aae0bc71a1f3be94b89f92215e32b43742ec4a5055c), unaltered as its condition (1) requires | 75815e3bf6484201 |
 | [libx11-compose.txt](LICENSES/libx11-compose.txt) | MIT | built: the first notice of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/COPYING, verbatim, with a paragraph saying which copied files it covers | 1ed64ec53f01779b |
 | [libx11-xcms.txt](LICENSES/libx11-xcms.txt) | LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group | built: the notices at the head of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c (Tektronix's TekHVC notice, which HVCGcC.c, HVCMxC.c and HVCMxVC.c carry too), src/xcms/cmsTrig.c (Tektronix's Xcms notice, which the other ported files carry) and src/xcms/cmsMath.c (The Open Group), with a paragraph saying which ported lines fall under which | e401afaad5a23d6d |
 | [libxkbcommon-LICENSE.txt](LICENSES/libxkbcommon-LICENSE.txt) | MIT AND HPND | fetched: https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/LICENSE | 967e97b28658f003 |
@@ -468,6 +469,22 @@ they were built from.
 - **Licence:** IJG
 - **Notice:** [LICENSES/ijg-README.txt](LICENSES/ijg-README.txt)
 - **From:** https://www.ijg.org/files/jpegsrc.v6b.tar.gz
+- **Files:** [baud-domain/src/jpeg.rs](baud-domain/src/jpeg.rs)
+
+### libjpeg-turbo 3.1.4's arithmetic-coded test image and its Huffman twin, unmodified: testimgari.jpg and testimgint.jpg, and testimgari.ppm, the decode of both by its djpeg -dct int
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** IJG
+- **Notice:** [LICENSES/libjpeg-turbo-README-ijg.txt](LICENSES/libjpeg-turbo-README-ijg.txt)
+- **From:** https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz
+- **Files:** [baud-domain/tests/ijg/testimgari.jpg](baud-domain/tests/ijg/testimgari.jpg), [baud-domain/tests/ijg/testimgint.jpg](baud-domain/tests/ijg/testimgint.jpg), [baud-domain/tests/ijg/testimgari.ppm](baud-domain/tests/ijg/testimgari.ppm)
+
+### The JPEG decoder's arithmetic-coded refinement scan in jpeg.rs, arith_refine(): the order of decode_mcu_AC_refine() in libjpeg-turbo 3.1.4's jdarith.c, the IJG's arithmetic decoder, re-expressed and said to be the IJG's where it stands; this software is based in part on the work of the Independent JPEG Group
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** IJG
+- **Notice:** [LICENSES/libjpeg-turbo-README-ijg.txt](LICENSES/libjpeg-turbo-README-ijg.txt)
+- **From:** https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz
 - **Files:** [baud-domain/src/jpeg.rs](baud-domain/src/jpeg.rs)
 
 ### The readline click in readline.rs: boundary(), the column a click names, is xterm's eventColBetween formula, and point_move(), the cursor keys it sends, is ReadLineMovePoint's count over rowOnCurrentLine's wrapped rows (button.c, xterm patch #411), re-expressed; xterm's documentation gives neither. The paste's body() and quoted() follow the documented ctlseqs text, not this code
