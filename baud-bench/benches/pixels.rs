@@ -32,9 +32,7 @@ use baud_domain::{
     AmbiguousWidth, BytePos, Chan, Cols, ImageBudget, ReadLen, Rows, Vs16Width, WinSize,
 };
 use baud_font::Face;
-use baud_render::{
-    Backdrop, Blend, Damage, FaceRole, FaceStyle, PxSize, Renderer, Stack, Target, Theme,
-};
+use baud_render::{Backdrop, Blend, Damage, FaceRole, PxSize, Renderer, Stack, Target, Theme};
 use std::io::Write as _;
 
 /// `host.rs`'s `IMAGE_BUDGET`, the default `[images]` budget.
@@ -47,52 +45,19 @@ fn main() {
         std::process::exit(2);
     };
     let data = std::fs::read(&input).expect("the stream");
-    let fonts = format!("{}/../baud-app/fonts", env!("CARGO_MANIFEST_DIR"));
-    let read = |rel: &str| std::fs::read(format!("{fonts}/{rel}")).expect("an embedded face");
-    // `default_faces` on Linux, in its order, less the system faces it
-    // finds none of here.
-    let first = baud_font::FaceIndex::FIRST;
-    let mut files: Vec<(Vec<u8>, baud_font::FaceIndex, FaceRole)> = vec![
-        (read("built/Regular.ttf"), first, FaceRole::Fallback),
-        (
-            read("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
-            first,
-            FaceRole::Fallback,
-        ),
-    ];
+    // `default_faces` on Linux, in its order (`baud_bench::linux_faces`),
+    // with the system faces `PIXELS_FACES` names in place of those it finds.
+    let mut system = Vec::new();
     if let Ok(spec) = std::env::var("PIXELS_FACES") {
         for entry in spec.split(',').filter(|p| !p.is_empty()) {
             let (path, index) = entry.split_once('#').unwrap_or((entry, "0"));
-            files.push((
+            system.push((
                 std::fs::read(path).expect("a face file"),
                 baud_font::FaceIndex::of(index.parse().expect("a face index")),
-                FaceRole::Fallback,
             ));
         }
     }
-    files.extend([
-        (
-            read("stix-two-math/STIXTwoMath-Regular.otf"),
-            first,
-            FaceRole::Fallback,
-        ),
-        (
-            read("built/Bold.ttf"),
-            first,
-            FaceRole::Style(FaceStyle::Bold),
-        ),
-        (
-            read("built/Italic.ttf"),
-            first,
-            FaceRole::Style(FaceStyle::Italic),
-        ),
-        (
-            read("built/BoldItalic.ttf"),
-            first,
-            FaceRole::Style(FaceStyle::BoldItalic),
-        ),
-        (read("built/Bold.ttf"), first, FaceRole::Badge),
-    ]);
+    let files = baud_bench::linux_faces(system);
     let faces: Vec<Face<'_>> = files
         .iter()
         .map(|(bytes, index, _)| Face::parse_index(bytes, *index).expect("a face"))

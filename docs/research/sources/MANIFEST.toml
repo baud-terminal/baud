@@ -38991,6 +38991,21 @@ group  = "BE"
 # Local evidence for note BE, made 2026-10-29 in colima's aarch64 VM; not fetched --
 # the url says how it was made.
 
+[sources.be-obs-damage]
+key    = "be-obs-damage"
+title  = "A Linux frame's copy and damage on sway 1.7 and 1.10.1: the present bench's rounds, its screen checks, two perturbations and the frame traffic"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-damage.sh, nine rounds; the two perturbations with BAUD_DAMAGE_ROUNDS=2 BAUD_DAMAGE_FRAMES=30 and the patch the file holds"
+file   = "be-observed/damage.txt"
+sha256 = "e469e25ad4d12657915c2360c9e7689937e17ff1f3396a623801504dbee53176"
+bytes  = 22300
+status = "retrieved"
+group  = "BE"
+# Local evidence for note BE, made 2026-10-31 in colima's aarch64 VM; not fetched --
+# the url says how it was made.
+
 [sources.apple-hig-pointing-devices-2026-10-29]
 key    = "apple-hig-pointing-devices-2026-10-29"
 title  = "Human Interface Guidelines, Pointing devices, as fetched 2026-10-29 -- the macOS pointer table: 'Pointing hand: The content beneath the pointer is a URL link to a webpage, document, or other item'; 'Operation not allowed: A dragged item can't be dropped in the current location'; SwiftUI's link style, 'appropriate for content opens a URL link ... when clicked'"

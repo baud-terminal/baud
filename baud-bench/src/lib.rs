@@ -45,6 +45,58 @@ pub fn host_geometry() -> CacheGeometry {
     }
 }
 
+/// **The faces the Linux driver reads with the default config**, in the
+/// order `config.rs`'s Linux `default_faces` sets: the embedded Regular and
+/// icon face, then `system` -- the system faces the default stack finds,
+/// where a bench is told of any -- then STIX Two Math, the embedded Bold,
+/// Italic and Bold Italic as the styled faces and the Bold as the badge's.
+/// Each is a file's bytes, the face in it and its role.
+pub fn linux_faces(
+    system: Vec<(Vec<u8>, baud_font::FaceIndex)>,
+) -> Vec<(Vec<u8>, baud_font::FaceIndex, baud_render::FaceRole)> {
+    use baud_render::{FaceRole, FaceStyle};
+    let fonts = format!("{}/../baud-app/fonts", env!("CARGO_MANIFEST_DIR"));
+    let read = |rel: &str| std::fs::read(format!("{fonts}/{rel}")).expect("an embedded face");
+    let first = baud_font::FaceIndex::FIRST;
+    let mut files = vec![
+        (read("built/Regular.ttf"), first, FaceRole::Fallback),
+        (
+            read("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
+            first,
+            FaceRole::Fallback,
+        ),
+    ];
+    files.extend(
+        system
+            .into_iter()
+            .map(|(bytes, index)| (bytes, index, FaceRole::Fallback)),
+    );
+    files.extend([
+        (
+            read("stix-two-math/STIXTwoMath-Regular.otf"),
+            first,
+            FaceRole::Fallback,
+        ),
+        (
+            read("built/Bold.ttf"),
+            first,
+            FaceRole::Style(FaceStyle::Bold),
+        ),
+        (
+            read("built/Italic.ttf"),
+            first,
+            FaceRole::Style(FaceStyle::Italic),
+        ),
+        (
+            read("built/BoldItalic.ttf"),
+            first,
+            FaceRole::Style(FaceStyle::BoldItalic),
+        ),
+        (read("built/Bold.ttf"), first, FaceRole::Badge),
+    ]);
+    files
+}
+
 /// The positional arguments a bench was given, with `cargo bench`'s own
 /// trailing flag removed.
 ///

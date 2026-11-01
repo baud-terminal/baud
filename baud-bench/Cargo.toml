@@ -26,6 +26,10 @@ baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }
 baud-render = { path = "../baud-render", default-features = false, features = ["exceptions"] }
 libc = "0.2"
+# `present` shows frames on a Wayland compositor through the Linux
+# driver's window.
+baud-present-wayland = { path = "../baud-present-wayland" }
+baud-wayland = { path = "../baud-wayland" }
 
 # `frame_gpu` draws the same frames through Metal; the crate compiles to
 # nothing elsewhere and the bin says so.
@@ -188,6 +192,14 @@ harness = false
 # scripts/linux-pixels.sh to compare across systems. Times nothing.
 [[bench]]
 name = "pixels"
+harness = false
+
+# Frames shown on a real Wayland compositor through the Linux driver's
+# window, told the rows they changed or that all of them did: the time
+# `present` takes, the rows it copies and damages, and what the
+# compositor then shows (scripts/linux-damage.sh).
+[[bench]]
+name = "present"
 harness = false
 
 # WCAG 2.3.1's flashes, counted on the frames the cursor-trail effects draw

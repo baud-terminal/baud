@@ -24,8 +24,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 314 | 46 | redistributable, and its notice is satisfied |
-| own | 256 | 7 | the work of baud's author |
-| total | 587 | 58 | |
+| own | 257 | 7 | the work of baud's author |
+| total | 588 | 58 | |
 
 ## Licence texts in LICENSES/
 
@@ -1766,7 +1766,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 250
+- **Files:** 251
 
 | file | copied from |
 |---|---|
@@ -1997,6 +1997,7 @@ notice is, and the URL each file was copied from.
 | [al-observed/replica-trailx.rs](docs/research/sources/al-observed/replica-trailx.rs) | written for the flash-fix analysis |
 | [al-observed/thresholds-out.txt](docs/research/sources/al-observed/thresholds-out.txt) | python3 thresholds.py |
 | [al-observed/thresholds.py](docs/research/sources/al-observed/thresholds.py) | written for the flash-fix analysis |
+| [be-observed/damage.txt](docs/research/sources/be-observed/damage.txt) | scripts/linux-damage.sh, nine rounds; the two perturbations with BAUD_DAMAGE_ROUNDS=2 BAUD_DAMAGE_FRAMES=30 and the patch the file holds |
 | [be-observed/pointer-base-trixie-wheel-back.png](docs/research/sources/be-observed/pointer-base-trixie-wheel-back.png) | grim after wheel -3 in the wheel session, trixie arm, base binary |
 | [be-observed/pointer-base.txt](docs/research/sources/be-observed/pointer-base.txt) | scripts/linux-pointer.sh on the base binary, both arms |
 | [be-observed/pointer-base2.txt](docs/research/sources/be-observed/pointer-base2.txt) | scripts/linux-pointer.sh on the base binary, both arms, at scale 1, 2 and 1.5 |

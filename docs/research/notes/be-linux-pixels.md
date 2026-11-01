@@ -2,8 +2,9 @@
 
 The Linux app's frames, taken from a real compositor, against the same
 frames drawn by the CPU renderer on this Mac; the Linux clipboard
-against a compositor's; and, in section 6, a pointer moved over the app
-on two compositors (2026-10-29). Sections 1-5 were taken 2026-10-26 at
+against a compositor's; in section 6, a pointer moved over the app
+on two compositors (2026-10-29); and in section 7, what a frame copies
+and damages there (2026-10-31). Sections 1-5 were taken 2026-10-26 at
 `ef519585` plus this note's commits, by `scripts/linux-pixels.sh`, which
 any later run repeats. The rule is that text looks the same on both
 systems (2026-10-01).
@@ -342,7 +343,85 @@ no longer given a shape until what shows it. An earlier run of the change, whose
 two new expectations lacked the session's closing leave, sent the same
 folded requests on both arms.
 
-## 7. Open
+## 7. A frame's damage
+
+**A one-line change on Linux copies 54 KB into the window's buffer, not
+1.9 MB, and tells the compositor 17 rows changed, not 600; on two real
+compositors the screen then shows the frame exactly.** Taken
+2026-10-31 by `scripts/linux-damage.sh`, which any later run repeats
+(`[[source: be-obs-damage]]`). The `present` bench
+(`baud-bench/benches/present.rs`) draws through the Linux driver's
+renderer and window, filling an 800x600 output on sway 1.7 and 1.10.1,
+headless with the pixman renderer: 100x35 cells of 8x17 px. Its `rows`
+arm gives `Window::present` the bands the renderer painted, as the
+driver has since 2026-10-21; `whole` says every frame changed
+everything, as the driver did before. A workload rewrites one row a
+frame (line), one row a frame a row lower each time (walk), prints a
+line at the bottom (scroll) or rewrites every row (full); 300 frames a
+run, nine rounds an arm, the first dropped.
+
+| workload | arm | copied a frame | damaged | `present`, slower speed | faster speed |
+|---|---|---|---|---|---|
+| line | whole | 1,920,000 B, 600 rows | 600 rows | 660 / 655 us | 154 / 152 us |
+| line | rows | 54,400 B, 17 rows | 17 rows | 22.0 / 23.1 us, the second one round | 5.8 / 6.0 us |
+| walk | whole | 1,920,000 B | 600 | 657 / 649 | 155 / 152 |
+| walk | rows | 163,200 B, 51 rows | 34 | 59.8 / 53.2 | 14.1 / 14.8 |
+| scroll | whole | 1,920,000 B | 600 | 648 / 647 | 153 / 150 |
+| scroll | rows | 1,904,000 B, 595 rows | 595 | 643 / 644, the second one round | 150 / 151 |
+| full | whole | 1,920,000 B | 600 | 644 / 572, the second one round | 149 / 151 |
+| full | rows | 1,904,000 B | 595 | 640 / 640 | 151 / 151 |
+
+Each time is sway 1.7's, then 1.10.1's: the median of the rounds' median
+frames, over two to six rounds at that speed, or the one round where the
+table says so, which is no result against another. The VM ran each run
+at one of two speeds about four times apart, the render with them, so
+`scripts/linux-damage.py` tells a round by its render time and reports
+each speed apart, leaving out the few that changed speed partway; every
+round's figures are in the observation. The damaged column is the
+bench's own set of the rows it told the window, not a count of the
+`wl_surface.damage_buffer` requests sent; sway's trace of the opaque
+`rows` run corroborates it, its requests 17, 34, 595 and 600 rows high
+on both sways, the 600 the whole frame each workload starts with. A
+scroll and a full repaint change every row of the grid, so the two arms
+copy the same but for the five margin rows below it: `wl_shm` has no
+request that moves rows within a buffer. sway's own CPU time a frame on
+the line and walk runs read 0.32-1.22 ms whole and 0.10-1.24 ms rows on
+1.7, 0.05-0.20 and 0.06-0.17 on 1.10.1; the ranges overlap, so there is
+no result. The bench's faster rounds on 1.7 alone did not overlap,
+0.32-0.80 against 0.10-0.25, but sway runs at a speed of its own, which
+the bench's render time does not tell.
+
+**The screen.** grim took the screen after each of the first 30 frames
+of every workload: with the page opaque, none of the 480,000 pixels of
+any of the 120 shots an arm differed from the frame, on either sway; at
+the default dim the two arms' shots hashed the same frame for frame. Two
+patches the script applies, kept in the observation, show the check
+fails when the code is wrong. Each strip damaged in its top half alone:
+5,092,573 pixels unlike the frame on the whole arm and 2,387,376 on rows
+on 1.7, 5,092,396 and 2,360,989 on 1.10.1, so both sways repaint what is
+damaged and no more. A buffer given only its own frame's rows, not those
+it missed: 13,992,000 and 14,030,172 on rows, and none on whole, which
+copies every row. The 13,992,000 are the line workload's on both
+sways, from the second buffer's first frame: a new buffer misses every
+row, and the patch gave it 17. A buffer used again that misses a row the
+frame before changed, the walk's, showed on 1.10.1 alone, 38,172
+pixels, and on 1.7 not at all: the row lies outside the frame's damage,
+which is all a compositor need repaint, so a screen cannot be relied on
+to show it. The buffer's content is held by
+`a_frame_copies_and_damages_only_the_rows_it_changed`, on the fake
+compositor.
+
+**A buffer used again.** In the `WAYLAND_DEBUG=server` trace both sways
+hold a buffer until the next frame's commit and release it after: the
+opaque `rows` run's 164 attaches went to the two buffers in turn, so each
+frame is drawn into the buffer that missed the frame before -- what the
+walk's 51 rows are, its own 34 and the 17 rows the buffer missed. The
+protocol leaves the timing to the compositor: a release "before the
+frame callback requested in the same wl_surface.commit" frees the
+buffer at once (`[[source: wayland]]`, `wl_buffer.release`), so a
+compositor that copies to a texture can be given the same buffer back.
+
+## 8. Open
 
 - The pointer on a screen, and on GNOME's and KDE's compositors.
 - Everything here is over a black background; a desktop with a
@@ -353,3 +432,7 @@ folded requests on both arms.
   wp_fractional_scale_v1 with wp_viewporter, as the macOS app draws
   at the backing scale.
 - One run of each fixture at one size and one font size.
+- A frame's damage on a GPU compositor, which may release a buffer
+  before the next commit, and a screen's.
+- A reused buffer's missed rows on a screen: seen on sway 1.10.1, out
+  of the screen's reach on 1.7, and held on the fake compositor.

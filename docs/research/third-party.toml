@@ -1454,6 +1454,7 @@ files   = [
   "be-observed/pointer-hand.txt",
   "be-observed/pointer-bookworm-link-hand.png",
   "be-observed/pointer-trixie-link-hand.png",
+  "be-observed/damage.txt",
   "ad-observed/supp-tmux-out.bin",
   "ad-observed/coretext-cbdt-load.txt",
   "ad-observed/coretext-createforstring.txt",
