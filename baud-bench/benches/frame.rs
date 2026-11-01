@@ -32,7 +32,8 @@
 //! string (`Term::strings_seen`), against the same recording's.
 //!
 //! `FRAME_BG_ALPHA=<0-255>` paints over a page dimmed to that alpha, the
-//! glass (`[glass] dim_dark = 0.22` is 56), where the default is
+//! glass (`[glass] dim_dark = 0.70`, the default, is 179, and
+//! `dim_light = 0.60` is 153), where the default is
 //! `Theme::dark()`'s opaque page: the compositor blends the two pages by
 //! two loops (`baud_render::Page`).
 //!
