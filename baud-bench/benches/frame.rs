@@ -2,16 +2,17 @@
 //!
 //! Replays one recording through the core in `read(2)`-sized reads and
 //! paints a frame after every read at 200x50 cells, 14 px, JetBrains
-//! Mono, reporting the per-frame cost split into conversion (style
-//! resolution, shaping through the run cache, atlas lookups) and
-//! compositing, plus the counters that say two arms did equal work: rows
-//! dirtied, instances emitted, cache hits and misses, glyphs rasterised,
-//! and the codepoints left out of a cluster no face draws whole because
-//! the face that keeps it lacks them (`unmapped`, the last rep's total;
-//! `Renderer::marks_unmapped` says what it counts), and the outlines the
-//! atlas and the shaper's glyph boxes refused for want of scratch
-//! (`refused` and `inkref`, `AtlasStats::refused` and
-//! `Renderer::ink_refused`; zero unless a face is read at a variation).
+//! Mono (`FRAME_WS` and `FRAME_PX` set others), reporting the per-frame
+//! cost split into conversion (style resolution, shaping through the
+//! run cache, atlas lookups) and compositing, plus the counters that
+//! say two arms did equal work: rows dirtied, instances emitted, cache
+//! hits and misses, glyphs rasterised, and the codepoints left out of a
+//! cluster no face draws whole because the face that keeps it lacks
+//! them (`unmapped`, the last rep's total; `Renderer::marks_unmapped`
+//! says what it counts), and the outlines the atlas and the shaper's
+//! glyph boxes refused for want of scratch (`refused` and `inkref`,
+//! `AtlasStats::refused` and `Renderer::ink_refused`; zero unless a
+//! face is read at a variation).
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
 //!
@@ -38,10 +39,28 @@
 //! two loops (`baud_render::Page`).
 //!
 //! `FRAME_BACKDROP=standard` reads the contrast floor's second pass
-//! against the see-through standard material's dark greys
-//! (`Backdrop::under_window_dark`), which the app draws by default, where
-//! the default is the glass's black to white. It matters only below
-//! alpha 255.
+//! against the see-through standard material's greys, the dark's
+//! (`Backdrop::under_window_dark`), which the app draws by default, or
+//! the light's under `FRAME_THEME=light`, where the default is the
+//! glass's black to white. It matters only below alpha 255.
+//!
+//! `FRAME_THEME=light` draws in `Theme::light()`'s colours, where the
+//! default is `Theme::dark()`'s; with `FRAME_BACKDROP=standard` the floor
+//! reads the light material's greys (`Backdrop::under_window_light`), as
+//! the app pairs them.
+//!
+//! `FRAME_PX=<px>` draws the font at that many pixels, 14 by default: 28
+//! is a 2x display's 14 points, and with `FRAME_WS=360x90` the 6120 by
+//! 3330 pixel frame (6K). Every mode takes it, and a zoom or a rescale
+//! starts from it.
+//!
+//! `FRAME_HASH=on` folds every frame of every rep, the whole buffer after
+//! its render, into an FNV-1a hash (`baud_bench::PixelHash`), requires
+//! every rep to come to the same one, and prints it under the row, once a
+//! run: two builds that print the same hash drew the same pixels in every
+//! frame. The hashing runs inside each rep's clock, so a hashed run is a
+//! check of its pixels and not a timing. The modes that print no replay
+//! row print no hash either; their replay is still hashed and checked.
 //!
 //! `FRAME_BLINK=none|fade|plasma|fire|ufo` prices instead what an idle blinking
 //! cursor's frame costs over the recording's last screen: 2000 incremental
@@ -83,13 +102,14 @@
 //! sets the screen, 200x50 by default.
 //!
 //! `FRAME_ZOOM=<px>` prices a zoom and a zoom back over the recording's
-//! last screen: warm at 14 px, then `FRAME_ZOOM_STEPS` rescales to `px`
-//! and back to 14 by turns, each with the one full frame it forces,
-//! reporting each step's time, the glyphs drawn and the bytes a GPU copy
-//! of the atlas would take. `FRAME_ZOOM=<px>,<px>,...` walks those sizes
-//! instead, and `FRAME_ZOOM_PAINT=off` converts without painting, the
-//! CPU's share of a zoom on the GPU path.
+//! last screen: warm at `FRAME_PX`'s size, then `FRAME_ZOOM_STEPS`
+//! rescales to `px` and back by turns, each with the one full frame it
+//! forces, reporting each step's time, the glyphs drawn and the bytes a
+//! GPU copy of the atlas would take. `FRAME_ZOOM=<px>,<px>,...` walks
+//! those sizes instead, and `FRAME_ZOOM_PAINT=off` converts without
+//! painting, the CPU's share of a zoom on the GPU path.
 
+use baud_bench::PixelHash;
 use baud_core::{Owned, Term};
 use baud_domain::Chan;
 use baud_domain::{BytePos, Cols, ImageBudget, ImagePx, ReadLen, Rows, WinSize};
@@ -97,7 +117,8 @@ use baud_font::Face;
 use baud_render::{Backdrop, Blend, CursorPhase, Damage, PxSize, Renderer, Stack, Target, Theme};
 use std::time::Duration;
 
-/// Whether a zoom step paints its frame.
+/// A switch the environment sets: whether a zoom step paints its frame,
+/// whether the replay hashes its frames.
 #[derive(Clone, Copy)]
 enum Switch {
     On,
@@ -171,16 +192,34 @@ fn main() {
     // the first version of this harness did, and its "best of three" was
     // a warm-cache number three times lower than a real first pass. Each
     // rep starts cold, which is what a recording's first replay costs.
+    // `FRAME_THEME`, `FRAME_PX` and `FRAME_HASH` refuse a value they do
+    // not name rather than run the default under another arm's name.
+    let (base, standard) = match std::env::var("FRAME_THEME").as_deref() {
+        Ok("light") => (Theme::light(), Backdrop::under_window_light()),
+        Ok("dark") | Err(_) => (Theme::dark(), Backdrop::under_window_dark()),
+        Ok(other) => panic!("FRAME_THEME is light or dark, not {other}"),
+    };
     let theme = Theme {
         bg_alpha: std::env::var("FRAME_BG_ALPHA")
             .ok()
             .and_then(|s| s.parse().ok())
-            .map_or(Theme::dark().bg_alpha, Chan::from_u8),
+            .map_or(base.bg_alpha, Chan::from_u8),
         backdrop: match std::env::var("FRAME_BACKDROP").as_deref() {
-            Ok("standard") => Backdrop::under_window_dark(),
+            Ok("standard") => standard,
             _ => Backdrop::any(),
         },
-        ..Theme::dark()
+        ..base
+    };
+    let font_px: f32 = std::env::var("FRAME_PX").map_or(14.0, |v| {
+        v.parse()
+            .unwrap_or_else(|_| panic!("FRAME_PX is a size in px, not {v}"))
+    });
+    let size =
+        PxSize::of(font_px).unwrap_or_else(|| panic!("FRAME_PX={font_px} is no size a face takes"));
+    let hashing = match std::env::var("FRAME_HASH").as_deref() {
+        Ok("on") => Switch::On,
+        Ok("off") | Err(_) => Switch::Off,
+        Ok(other) => panic!("FRAME_HASH is on or off, not {other}"),
     };
     let wrap = match std::env::var("FRAME_WRAP").as_deref() {
         Ok("off") => baud_render::WordWrap::Off,
@@ -189,7 +228,7 @@ fn main() {
     let fresh = || {
         let mut r = Renderer::new(
             Stack::new(&faces).unwrap(),
-            PxSize::of(14.0).unwrap(),
+            size,
             theme.clone(),
             Blend::Native,
             Cols::of_index(usize::from(ws.ws_col)),
@@ -239,6 +278,8 @@ fn main() {
         rebroken: baud_render::Tally,
     }
     let mut best: Option<Rep> = None;
+    // Each rep's hash of its frames, under `FRAME_HASH=on`.
+    let mut hashes = Vec::new();
     for rep in 0..reps {
         if rep > 0 {
             r = fresh();
@@ -272,6 +313,7 @@ fn main() {
             rebroken: baud_render::Tally::default(),
         };
         let mut at = 0usize;
+        let mut hash = PixelHash::START;
         let t0 = std::time::Instant::now();
         while at < data.len() {
             let n = 4096.min(data.len() - at);
@@ -280,6 +322,9 @@ fn main() {
             at += n;
             let mut target = Target::new(&mut pixels, w, w, h).unwrap();
             let f = r.render(&mut t, &mut target, damage);
+            if let Switch::On = hashing {
+                hash = hash.frame(target.pixels());
+            }
             rep.frames += 1;
             rep.convert += f.convert;
             rep.paint += f.composite;
@@ -296,16 +341,27 @@ fn main() {
             }
         }
         rep.total = t0.elapsed();
+        hashes.push(hash);
         if best.as_ref().is_none_or(|b| rep.total < b.total) {
             best = Some(rep);
         }
     }
+    // A fresh renderer draws over the last rep's buffer, so a rep whose
+    // frames differ is a frame that depends on more than the recording.
+    let pixels_hash = match hashing {
+        Switch::On => Some(PixelHash::agreed(&hashes).unwrap_or_else(|| {
+            let each: Vec<String> = hashes.iter().map(PixelHash::to_string).collect();
+            panic!("the reps drew different pixels: {}", each.join(" "))
+        })),
+        Switch::Off => None,
+    };
     // `FRAME_RESCALE=<points>` prices a zoom: warm the atlas on the whole
-    // recording at 14 px, then rescale to the new size and time the one
-    // full-damage frame that follows -- the frame a font change forces, in
-    // which every visible glyph re-shapes and re-rasterises into an atlas
-    // that restarts at its smallest sheet. The grow and raster deltas say
-    // whether the cost is the rasterising or the atlas growing under it.
+    // recording at `FRAME_PX`'s size, then rescale to the new size and
+    // time the one full-damage frame that follows -- the frame a font
+    // change forces, in which every visible glyph re-shapes and
+    // re-rasterises into an atlas that restarts at its smallest sheet. The
+    // grow and raster deltas say whether the cost is the rasterising or
+    // the atlas growing under it.
     if let Ok(kind) = std::env::var("FRAME_BLINK") {
         let phase = |opacity: u8, glow: u8| CursorPhase {
             opacity: Chan::from_u8(opacity),
@@ -616,7 +672,7 @@ fn main() {
             let a1 = rz.atlas_stats();
             let c1 = rz.cache_stats();
             println!(
-                "rescale 14->{pts}px: frame {} us (convert {} us, paint {} us); raster {}, grown {}, misses {}",
+                "rescale {font_px}->{pts}px: frame {} us (convert {} us, paint {} us); raster {}, grown {}, misses {}",
                 elapsed.as_micros(),
                 f.convert.as_micros(),
                 f.composite.as_micros(),
@@ -628,15 +684,15 @@ fn main() {
         return;
     }
     // `FRAME_ZOOM=<px>` prices a zoom and a zoom back: warm the atlas on
-    // the whole recording at 14 px, then `FRAME_ZOOM_STEPS` (default 4)
-    // rescales, to the new size and back by turns, each followed by the one
-    // full-damage frame it forces, printing every step's wall time, convert
-    // and paint, rasters, sheet sides and the bytes a GPU copy of the
-    // sheets would take. `FRAME_ZOOM=<px>,<px>,...` walks those sizes in
-    // order instead. Run under `/usr/bin/time -l` at 0, 1, 2 and more
-    // steps: the instructions retired at `n` steps less those at `n - 1`
-    // are step `n`'s, the first zoom and then the zoom back.
-    // `FRAME_ZOOM_PAINT=off` converts each step's frame and paints
+    // the whole recording at `FRAME_PX`'s size, then `FRAME_ZOOM_STEPS`
+    // (default 4) rescales, to the new size and back by turns, each
+    // followed by the one full-damage frame it forces, printing every
+    // step's wall time, convert and paint, rasters, sheet sides and the
+    // bytes a GPU copy of the sheets would take. `FRAME_ZOOM=<px>,<px>,...`
+    // walks those sizes in order instead. Run under `/usr/bin/time -l` at
+    // 0, 1, 2 and more steps: the instructions retired at `n` steps less
+    // those at `n - 1` are step `n`'s, the first zoom and then the zoom
+    // back. `FRAME_ZOOM_PAINT=off` converts each step's frame and paints
     // nothing, as the app's GPU path leaves the paint to the GPU, so the
     // count is the CPU's share of a zoom.
     if let Ok(list) = std::env::var("FRAME_ZOOM") {
@@ -646,7 +702,7 @@ fn main() {
         });
         let walk: Vec<f32> = list.split(',').filter_map(|v| v.parse().ok()).collect();
         let walk = match walk.as_slice() {
-            [one] => vec![*one, 14.0],
+            [one] => vec![*one, font_px],
             _ => walk,
         };
         let pts = list;
@@ -670,7 +726,7 @@ fn main() {
         }
         rz.atlas_mut().take_dirty();
         println!(
-            "zoom {pts} px over {which}: warm at 14 px, sheets {}/{}",
+            "zoom {pts} px over {which}: warm at {font_px} px, sheets {}/{}",
             rz.atlas().side().value(),
             rz.atlas().color_side().value()
         );
@@ -776,4 +832,7 @@ fn main() {
         r.ink_refused().value()
     );
     println!("  rebroken {}", rebroken.value());
+    if let Some(h) = pixels_hash {
+        println!("  pixels {h}");
+    }
 }

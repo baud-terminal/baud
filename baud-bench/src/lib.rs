@@ -125,9 +125,108 @@ fn without_bench_flag(mut a: Vec<String>) -> Vec<String> {
     a
 }
 
+/// **A hash over the pixels of frames, so two builds can be held to the
+/// same picture.** FNV-1a's step, the word xored in and the product with
+/// the 64-bit prime kept, over each 32-bit pixel in order: one pixel apart
+/// anywhere, in any frame, and two runs hash apart. `frame`'s
+/// `FRAME_HASH=on` hashes every frame of every rep with it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PixelHash(u64);
+
+impl PixelHash {
+    /// FNV-1a's 64-bit offset basis: nothing hashed yet.
+    pub const START: PixelHash = PixelHash(0xcbf2_9ce4_8422_2325);
+
+    /// This hash with `pixels` folded in after what it holds.
+    #[must_use]
+    pub fn frame(self, pixels: &[u32]) -> PixelHash {
+        PixelHash(pixels.iter().fold(self.0, |h, &p| {
+            (h ^ u64::from(p)).wrapping_mul(0x0000_0100_0000_01b3)
+        }))
+    }
+
+    /// The one hash every rep came to, or `None` when a rep drew other
+    /// pixels than the first, or there was no rep.
+    pub fn agreed(reps: &[PixelHash]) -> Option<PixelHash> {
+        let first = *reps.first()?;
+        reps.iter().all(|&h| h == first).then_some(first)
+    }
+}
+
+/// Sixteen hex digits, as the benches print a hash.
+impl std::fmt::Display for PixelHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:016x}", self.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::without_bench_flag;
+    use super::{PixelHash, without_bench_flag};
+
+    /// A frame of 64 words, every one different in every byte's place.
+    fn words() -> Vec<u32> {
+        (0..64u32)
+            .map(|i| 0xFF10_2030 ^ i.wrapping_mul(0x9E37_79B9))
+            .collect()
+    }
+
+    #[test]
+    fn the_pixel_hash_is_fnv_1a() {
+        // FNV-1a's published 64-bit values for "a" and "foobar": a pixel
+        // below 256 is one byte's step, so the basis and the prime are the
+        // published ones.
+        assert_eq!(
+            PixelHash::START.frame(&[0x61]).to_string(),
+            "af63dc4c8601ec8c"
+        );
+        let foobar: Vec<u32> = b"foobar".iter().map(|&b| u32::from(b)).collect();
+        assert_eq!(
+            PixelHash::START.frame(&foobar).to_string(),
+            "85944171f73967e8"
+        );
+        assert_eq!(PixelHash::START.to_string(), "cbf29ce484222325");
+    }
+
+    #[test]
+    fn one_pixel_changed_anywhere_changes_the_hash() {
+        let frame = words();
+        let h = PixelHash::START.frame(&frame);
+        assert_eq!(h, PixelHash::START.frame(&frame.clone()), "same pixels");
+        assert_ne!(h, PixelHash::START, "a frame changes the start");
+        // Every pixel, a bit of each of its four bytes, alpha's included.
+        for at in 0..frame.len() {
+            for bit in [0, 7, 8, 15, 16, 23, 24, 31] {
+                let mut f = frame.clone();
+                f[at] ^= 1 << bit;
+                assert_ne!(PixelHash::START.frame(&f), h, "pixel {at}, bit {bit}");
+            }
+        }
+        // Two pixels swapped: the order is hashed, not only the words.
+        let mut f = frame.clone();
+        f.swap(10, 11);
+        assert_ne!(PixelHash::START.frame(&f), h, "two pixels swapped");
+        // A frame folded after another: a change in the first frame of a
+        // run changes the run's hash.
+        let run = h.frame(&frame);
+        let mut first = frame.clone();
+        first[0] ^= 1;
+        assert_ne!(PixelHash::START.frame(&first).frame(&frame), run);
+        assert_ne!(run, h, "the second frame is folded in");
+    }
+
+    #[test]
+    fn reps_agree_only_when_every_rep_hashed_alike() {
+        let a = PixelHash::START.frame(&words());
+        let b = a.frame(&[1]);
+        assert_eq!(PixelHash::agreed(&[a, a, a]), Some(a));
+        assert_eq!(PixelHash::agreed(&[a]), Some(a));
+        assert_eq!(PixelHash::agreed(&[a, b]), None, "the second rep");
+        assert_eq!(PixelHash::agreed(&[a, a, b]), None, "the last rep");
+        assert_eq!(PixelHash::agreed(&[b, a, a]), None, "the first rep");
+        assert_eq!(PixelHash::agreed(&[a, b, a]), None, "a middle rep");
+        assert_eq!(PixelHash::agreed(&[]), None, "no rep");
+    }
 
     fn v(a: &[&str]) -> Vec<String> {
         a.iter().map(|s| (*s).to_string()).collect()
