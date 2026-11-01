@@ -154,6 +154,10 @@ impl XResource {
             // `?1034` sets the variable `eightBitMeta` starts, as well.
             b"eightBitMeta" => Fixed(False),
             b"deleteIsDEL" => Fixed(False),
+            // `?1060`, the legacy keyboard: xterm starts its keyboard as
+            // the legacy one while this resource is true (`[[source:
+            // xterm-reset]]`, charproc.c 10974-10976), which baud's is not.
+            b"oldXtermFKeys" => Fixed(False),
             b"backarrowKey" => Fixed(False),
             b"numLock" => Fixed(True),
             b"privateColorRegisters" => Fixed(True),

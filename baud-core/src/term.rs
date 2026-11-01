@@ -1355,6 +1355,13 @@ pub struct Cold {
     /// vt510-decstr]]`) and whose xterm counterpart clears none.
     pub(crate) backarrow: BackarrowKey,
     pub(crate) delete: DeleteKey,
+    /// The keyboard `?1050` to `?1061` selected ([`baud_domain::Keyboard`]):
+    /// the default at power-on and after `RIS`, kept by `DECSTR`, whose
+    /// table names no keyboard (`[[source: vt510-decstr]]`) and whose xterm
+    /// counterpart keeps it (`[[source: xterm-reset]]`, charproc.c
+    /// 14451-14455). Written by DECSET, DECRST, XTRESTORE and `RIS`, read
+    /// by `Term::key`, DECRQM and XTSAVE alone, never by a glyph.
+    pub(crate) keyboard: baud_domain::Keyboard,
     /// The xterm resources a program sets with a private mode
     /// (`baud_domain::Resource`): `?1010`, `?1011`, `?1040`, `?1041`,
     /// `?1045`, `?1046`, `?2001`, `?2005` and `?2006`. Two bytes, read by
@@ -1565,6 +1572,9 @@ pub struct Cold {
 // embedder, never by a glyph. The `[keyboard]` Set-up (`set_up`), four
 // bytes that alignment rounds to eight, took it to 1016: written by the
 // embedder, read by `RIS` and a change of the Set-up, never by a glyph.
+// The keyboard `?1050` to `?1061` select (`keyboard`) landed in its padding:
+// written by DECSET, DECRST, XTRESTORE and `RIS`, read by a key, DECRQM and
+// XTSAVE, never by a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it
 // more.
 #[cfg(not(feature = "sgr-table"))]
@@ -1721,6 +1731,7 @@ impl Cold {
             delete: self.delete,
             num_lock: self.num_lock,
             level: self.level,
+            keyboard: self.keyboard,
         }
     }
 
@@ -2069,7 +2080,8 @@ impl Cold {
             extent: None,
             pages_missing: PagesMissing::FIRST,
             backarrow: BackarrowKey::Delete,
-            delete: DeleteKey::Remove,
+            delete: DeleteKey::Unset,
+            keyboard: baud_domain::Keyboard::Default,
             resources: baud_domain::Resources::POWER_ON,
             level: baud_domain::ConformanceLevel::Four,
             restrip: Restrip::Clear,
@@ -6538,7 +6550,7 @@ impl<'b> Term<'b> {
     /// lines and having two spellings of the input protocol, which is what a
     /// hand-written CSI recogniser beside the table cost this repo once.
     ///
-    /// **Every one of `KeyState`'s eleven fields is read off `Term`, and two
+    /// **Every one of `KeyState`'s twelve fields is read off `Term`, and two
     /// used to be constants.**
     ///
     /// * **`c1` was `C1Transmit::SevenBit`**, on the grounds that the core did

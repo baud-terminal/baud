@@ -29,7 +29,7 @@ fn padded(millis: u16, force: Force) -> Flash {
 
 #[test]
 fn every_pinned_entry_reads_as_the_flash_it_carries() {
-    let cases: [(&str, &[u8], Flash); 12] = [
+    let cases: [(&str, &[u8], Flash); 13] = [
         ("xterm", pinned!("xterm"), padded(100, Force::Mandatory)),
         (
             "xterm-256color",
@@ -55,6 +55,8 @@ fn every_pinned_entry_reads_as_the_flash_it_carries() {
         ("vt102", pinned!("vt102"), Flash::Absent),
         ("vt52", pinned!("vt52"), Flash::Absent),
         ("ansi", pinned!("ansi"), Flash::Absent),
+        // The HP keyboard's witness, pinned for its keys; it has no flash.
+        ("hpterm", pinned!("hpterm"), Flash::Absent),
         // The man page is pinned beside them and is no entry at all.
         (
             "terminfo.5",

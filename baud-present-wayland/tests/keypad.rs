@@ -92,7 +92,7 @@ fn kp_equal_is_the_keypads_equal() {
 fn shift_on_a_keypad_digit_with_numlock_off_names_the_navigation_key() {
     use baud_domain::{
         BackarrowKey, C1Transmit, Codepoint, ConformanceLevel, DeleteKey, InputEncoding,
-        KeyResources, KeyState, KeypadMode, KittyFlags, KittySetMode, Modes, Modifiers,
+        KeyResources, KeyState, Keyboard, KeypadMode, KittyFlags, KittySetMode, Modes, Modifiers,
         NumLockKeypad, TerminalMode, encode_key,
     };
     let text = std::fs::read_to_string(concat!(
@@ -134,6 +134,7 @@ fn shift_on_a_keypad_digit_with_numlock_off_names_the_navigation_key() {
             delete: DeleteKey::default(),
             num_lock: NumLockKeypad::default(),
             level: ConformanceLevel::Four,
+            keyboard: Keyboard::Default,
         };
         match mode {
             "legacy" => {}

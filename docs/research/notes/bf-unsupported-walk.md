@@ -63,7 +63,7 @@ What remains is in sections 2 to 4.
 | `DCS ! { ... ST` DECSTUI; `DCS " x` DECPFK, `DCS " y` DECPAK | `[[source: vt420-rm]]` Table 4-1; `[[source: dec-std-070]]` 070-4 p. 4-31; `[[source: vt510-rm-b]]` pp. 5-77, 5-83 | DECSTUI (c); DECPFK, DECPAK (b) and (c) | read 2026-10-28 (section 8), a row each. DECSTUI's one reader is DA3, open; DECPFK and DECPAK are the VT510's, above the VT420 class, and carry DECUDK's open question |
 | `CSI Ps q` DECLL | ctlseqs 1536 | (c) | open, beside note AH's title-bar lights |
 | `CSI = Ps c` DA3, DECRPTUI | ctlseqs 810 | (c) | open: whether to answer DA2 and DA3 |
-| `?1050`-`?1053`, `?1060`, `?1061` | ctlseqs DECSET | (c) | open |
+| `?1050`-`?1053`, `?1060`, `?1061` | ctlseqs DECSET | (c) | built 2026-11-01 (`docs/input-coverage.md`'s keyboards section) |
 | `CSI Ps * \|` DECSNLS | ctlseqs | (a) | resizes the window as DECSLPP does; XTWINOPS 1-10 and DECSLPP were decided on 2026-10-19 ("4 it is"), built and on by default, so DECSNLS rides the same window request |
 | `CSI Ps ; Pf ; Pb , \|` DECAC, `, }` DECATC, `CSI Ps ) {` DECSTGLT | ctlseqs 1954-1987, "VT525 only"; xterm gates both on `terminal_id >= 525` and its level 5 table (`[[source: xterm-reset]]` 5930-5990) | (b) above the VT420 class | a VT525 function, above DECSCL's Level 4, as AV kept it; unchanged |
 | `OSC 66` kitty text sizing | kitty's protocol | (c) | no row, a choice the project made |

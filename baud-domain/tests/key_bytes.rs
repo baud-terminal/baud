@@ -162,7 +162,7 @@ fn kitty_longest() -> usize {
 fn key_modes() -> Vec<(BackarrowKey, DeleteKey, NumLockKeypad)> {
     let mut out = Vec::new();
     for b in [BackarrowKey::Delete, BackarrowKey::Backspace] {
-        for d in [DeleteKey::Remove, DeleteKey::Del] {
+        for d in [DeleteKey::Unset, DeleteKey::Remove, DeleteKey::Del] {
             for n in [NumLockKeypad::Overrides, NumLockKeypad::Ignored] {
                 out.push((b, d, n));
             }
@@ -213,6 +213,7 @@ fn all_flags() -> KeyState {
         delete: DeleteKey::default(),
         num_lock: NumLockKeypad::default(),
         level: ConformanceLevel::Four,
+        keyboard: Keyboard::Default,
     }
 }
 
@@ -364,6 +365,7 @@ fn no_base_layer_key_is_longer_than_fourteen_bytes() {
                                         delete,
                                         num_lock,
                                         level: ConformanceLevel::Four,
+                                        keyboard: Keyboard::Default,
                                     });
                                 }
                             }
@@ -404,7 +406,8 @@ fn no_base_layer_key_is_longer_than_fourteen_bytes() {
 /// resource at each of its values -- -1 through `CSI > Pp n`, and every
 /// documented one -- in both formats, and modifyOtherKeys under every ignore
 /// mask, the others at their first values; against DECCKM, both C1
-/// transmissions, DECBKM and `?1037`, the states they meet. One resource at a
+/// transmissions, DECBKM, `?1037` and the seven keyboards `?1050` to
+/// `?1061` choose between, the states they meet. One resource at a
 /// time, because each reads only its own class of key ([`keysym_class`]),
 /// and the modifyOtherKeys arms read the ordinary keys alone: two set at once
 /// cannot reach one key. The longest is still the extended form, `CSI 27 ;
@@ -447,15 +450,18 @@ fn no_resource_value_lengthens_the_base_layer() {
                     if ckm {
                         modes.set(ModeBit::CursorKeys);
                     }
-                    states.push(KeyState {
-                        modes,
-                        keys,
-                        c1,
-                        backarrow,
-                        delete,
-                        kitty: KittyFlags::NONE,
-                        ..all_flags()
-                    });
+                    for keyboard in KEYBOARDS.into_iter().chain([Keyboard::Default]) {
+                        states.push(KeyState {
+                            modes,
+                            keys,
+                            c1,
+                            backarrow,
+                            delete,
+                            kitty: KittyFlags::NONE,
+                            keyboard,
+                            ..all_flags()
+                        });
+                    }
                 }
             }
         }

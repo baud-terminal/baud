@@ -220,6 +220,7 @@ fn the_base_encoder_sends_a_repeat_as_a_press_and_no_release() {
         delete: DeleteKey::default(),
         num_lock: NumLockKeypad::default(),
         level: ConformanceLevel::Four,
+        keyboard: Keyboard::Default,
     };
     let bytes = |e: KeyEvent| encode_key(e, s).map(|k| k.as_bytes().to_vec());
     for code in [

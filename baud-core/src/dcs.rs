@@ -184,7 +184,8 @@ impl Paint<'_, '_> {
     /// (`[[source: ctlseqs]]` 535-542; `[[source: xterm-xtermcap-c]]`
     /// 48-51 and 624-657; note AM, 3 and 8.4). xterm's own code, as
     /// practice, changes no answer outside its tcap keyboard (`?1050`),
-    /// which baud does not have, and never `TN`'s, which answers the
+    /// whose table baud compiles from the pinned xterm-256color entry
+    /// rather than loads, and never `TN`'s, which answers the
     /// `termName` resource under every keyboard (`[[source: xterm-misc]]`
     /// 5225-5226). The refusal is counted.
     #[cold]

@@ -15,6 +15,9 @@
 
 use crate::*;
 
+mod keyboards;
+mod termcap_data;
+
 /// `ESC`. VT52's introducer is the bare escape, which is not a C1 control and
 /// so does not come from `c1` -- `S8C1T` cannot move it, because a VT52 has no
 /// 8-bit forms to move it to.
@@ -90,8 +93,8 @@ impl OtherKeys {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum KeyResource {
     /// `modifyKeyboard`, 0: which categories the legacy and vt220 keyboards
-    /// may modify. baud's keyboard is xterm's default one, which never reads
-    /// it, so it is stored and reported and changes no key, as in xterm.
+    /// may modify, `?1060` and `?1061` ([`Keyboard`]); the other keyboards
+    /// never read it, as in xterm.
     Keyboard,
     /// `modifyCursorKeys`, 1: the arrows, Home and End, and at 4 the
     /// editing keys too.
@@ -477,11 +480,19 @@ pub enum BackarrowKey {
 }
 
 /// `?1037`: what the editing keypad's Delete sends (`[[source: ctlseqs]]`).
+///
+/// **Three states, as xterm's `delete_is_del`** (`[[source:
+/// xterm-input-c]]` 878-905): neither set nor reset, the keyboard decides
+/// ([`Keyboard::delete_is_del`]) -- Remove on the default and VT220
+/// keyboards, DEL on the legacy one -- and once a program has set or reset
+/// it, that.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum DeleteKey {
-    /// Reset, the default: "Send VT220 Remove from the editing-keypad Delete
-    /// key", `CSI 3 ~`.
+    /// Neither, at power-on and after `RIS`: the keyboard's.
     #[default]
+    Unset,
+    /// Reset: "Send VT220 Remove from the editing-keypad Delete key",
+    /// `CSI 3 ~`.
     Remove,
     /// Set: "Send DEL from the editing-keypad Delete key".
     Del,
@@ -502,10 +513,75 @@ pub enum NumLockKeypad {
     Ignored,
 }
 
+/// **The keyboard xterm's `?1050` to `?1053`, `?1060` and `?1061` select**
+/// (`[[source: ctlseqs]]` 1032-1039): one at a time, as xterm keeps one
+/// `keyboard.type` (`[[source: xterm-ptyx-h]]`). DECSET of a member selects
+/// it and DECRST of any member returns to the default keyboard, xterm's
+/// `set_keyboard_type` (`[[source: xterm-scroll]]`'s file, util.c
+/// 6077-6093). **Default** at power-on and after `RIS`; `DECSTR` keeps it,
+/// as its table names no keyboard (`[[source: vt510-decstr]]`) and xterm
+/// resets it in `RIS` alone (`[[source: xterm-reset]]`, charproc.c
+/// 14451-14455). A selected keyboard acts in ANSI mode at Levels 2 to 4: at
+/// Level 1 the keyboard is the VT100's and in VT52 mode the VT52's, as
+/// before.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Keyboard {
+    /// xterm's default, PC-style keyboard: every table above.
+    #[default]
+    Default,
+    /// `?1050`, "Set terminfo/termcap function-key mode": the keys of
+    /// xterm's xtermcap.c table that the pinned xterm-256color entry gives
+    /// a string send it.
+    Termcap,
+    /// `?1051`, "Set Sun function-key mode": the function and editing keys
+    /// send `CSI n z`.
+    Sun,
+    /// `?1052`, "Set HP function-key mode": `ESC p` to `ESC w`, and the
+    /// cursor and editing keys `ESC` and a letter.
+    Hp,
+    /// `?1053`, "Set SCO function-key mode": the VT520's SCO Console keys.
+    Sco,
+    /// `?1060`, "Set legacy keyboard emulation, i.e, X11R6".
+    Legacy,
+    /// `?1061`, "Set VT220 keyboard emulation".
+    Vt220,
+}
+
+impl Keyboard {
+    /// **Whether Delete is DEL rather than the editing keypad's Remove**
+    /// under this keyboard with `?1037` in `delete`, xterm's
+    /// `xtermDeleteIsDEL` (`[[source: xterm-input-c]]` 878-905): on the
+    /// default and VT220 keyboards only once `?1037` is set, on the legacy
+    /// one until it is reset, and on the others always -- where the
+    /// termcap, Sun and HP tables send their own Delete first.
+    pub fn delete_is_del(self, delete: DeleteKey) -> bool {
+        match self {
+            Keyboard::Default | Keyboard::Vt220 => delete == DeleteKey::Del,
+            Keyboard::Legacy => delete != DeleteKey::Remove,
+            Keyboard::Termcap | Keyboard::Sun | Keyboard::Hp | Keyboard::Sco => true,
+        }
+    }
+
+    /// **Whether the editing keypad's Delete sends DEL**, unmodified: what
+    /// `DECRQM ?1037` answers, set exactly when DEL is what that key sends,
+    /// the text's "Send DEL from the editing-keypad Delete key". The
+    /// termcap keyboard sends the entry's `kdch1`, `\E[3~`, the Sun keyboard
+    /// `CSI 3 z` and the HP keyboard `ESC P`, whatever `?1037` says, and the
+    /// SCO keyboard DEL; xterm's `DECRQM` answers its `xtermDeleteIsDEL`,
+    /// set on all four (`[[source: xterm-misc]]` 5690-5692), a departure
+    /// from what the key sends that baud does not follow.
+    pub fn delete_sends_del(self, delete: DeleteKey) -> bool {
+        match self {
+            Keyboard::Termcap | Keyboard::Sun | Keyboard::Hp => false,
+            _ => self.delete_is_del(delete),
+        }
+    }
+}
+
 /// The mode state the encoder reads. [`encode_key`] reads the key, this and
 /// nothing else, and it reads every field.
 ///
-/// **Ten fields and not fourteen, because `Modes` carries five of them.**
+/// **Twelve fields and not sixteen, because `Modes` carries five of them.**
 /// DECCKM, LNM, `?1036` metaSendsEscape, `?1039` altSendsEscape and `?1034`
 /// eightBitInput are the five `ModeBit`s the encoder reads, so they travel as
 /// one word and this struct needs no `bool` -- which `audit_all.sh` gates this
@@ -543,6 +619,8 @@ pub struct KeyState {
     /// The conformance level DECSCL selected: at Level 1 the keyboard is
     /// [`level_one_key`]'s.
     pub level: ConformanceLevel,
+    /// The keyboard `?1050` to `?1061` selected ([`Keyboard`]).
+    pub keyboard: Keyboard,
 }
 
 impl KeyState {
@@ -1114,8 +1192,16 @@ fn ansi(
         return false;
     };
     // **A resource at 4 takes its keys before anything else**, as xterm's
-    // `Input` checks `mfkExtended` first (`[[source: xterm-input-c]]`).
-    extended(o, code, mods, s) || ansi_key(o, code, mods, text, s)
+    // `Input` checks `mfkExtended` first (`[[source: xterm-input-c]]`);
+    // **then the keyboard `?1050` to `?1061` selected**, whose table a key
+    // it does not name falls through ([`keyboards::key`]).
+    if extended(o, code, mods, s) {
+        return true;
+    }
+    match keyboards::key(o, code, mods, s) {
+        keyboards::Table::Sent(sent) => sent,
+        keyboards::Table::Default(code, mods) => ansi_key(o, code, mods, text, s),
+    }
 }
 
 /// **The keys Level 1 decides**, or `None` for a key it leaves as at every
@@ -1257,12 +1343,13 @@ fn ansi_key(
         //
         // Home and End are sent PC-style above, from line 2485. Line 2672 also
         // gives VT220 forms, `CSI 1 ~` and `CSI 4 ~`, and those are an
-        // *alternative* reached through `sunKeyboard` rather than an addition:
-        // sending both would be sending two different keys.
+        // *alternative* reached through `sunKeyboard` rather than an addition,
+        // the VT220 keyboard `?1061` selects ([`Keyboard::Vt220`]): on this
+        // keyboard sending both would be sending two different keys.
         // `?1037` set: the editing keypad's Delete sends DEL, unmodified only
         // -- xterm's input.c sends Remove when `modify_parm != 0 ||
         // !xtermDeleteIsDEL` (`[[source: xterm-input-c]]`).
-        KeyCode::Delete if s.delete == DeleteKey::Del && !carries(mods) => o.push(0x7f),
+        KeyCode::Delete if s.keyboard.delete_is_del(s.delete) && !carries(mods) => o.push(0x7f),
         KeyCode::Insert | KeyCode::Delete | KeyCode::PageUp | KeyCode::PageDown => {
             match code.tilde_param() {
                 Some(p) => tilde_key(o, p, mods, s, ModifyValue::PARAM),
@@ -1804,6 +1891,19 @@ fn remapped_function_key(o: &mut KeyBytes, n: u8, s: KeyState) -> bool {
 /// -1 drops the modifier and 3 marks the sequence `>`; 0 to 2 are one form
 /// here, the parameter already first.
 fn tilde_key(o: &mut KeyBytes, param: Param, mods: Modifiers, s: KeyState, level: ModifyValue) {
+    numbered_key(o, param, b'~', mods, s, level);
+}
+
+/// `CSI n <final>`, or `CSI n ; mod <final>` when modified: [`tilde_key`]'s
+/// shape with another final, the Sun keyboard's `z` among them.
+fn numbered_key(
+    o: &mut KeyBytes,
+    param: Param,
+    final_byte: u8,
+    mods: Modifiers,
+    s: KeyState,
+    level: ModifyValue,
+) {
     let carried = carries(mods) && level != ModifyValue::DISABLED;
     o.introducer(Introducer::Csi, s.c1);
     if carried && level.get() == 3 {
@@ -1814,7 +1914,7 @@ fn tilde_key(o: &mut KeyBytes, param: Param, mods: Modifiers, s: KeyState, level
         o.all(b";");
         o.num(u16::from(mods.wire()));
     }
-    o.all(b"~");
+    o.push(final_byte);
 }
 
 /// Does `modifyOtherKeys` take this key press, instead of the base layer?
@@ -2002,7 +2102,11 @@ fn extended(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> bo
     let Some(sym) = code.keysym(mods) else {
         return false;
     };
-    let class = keysym_class(sym, s.delete);
+    let delete = match s.keyboard.delete_is_del(s.delete) {
+        true => DeleteKey::Del,
+        false => DeleteKey::Remove,
+    };
+    let class = keysym_class(sym, delete);
     if class == KeyResource::Other || s.keys.modify(class).get() < ModifyValue::EXTENDED.get() {
         return false;
     }
@@ -2025,7 +2129,7 @@ pub fn keysym_class(sym: u32, delete: DeleteKey) -> KeyResource {
     match sym {
         0xff50..=0xff5f => KeyResource::Cursor,
         0xff63 | 0xff68 | 0xff60 => KeyResource::Cursor,
-        0xffff if delete == DeleteKey::Remove => KeyResource::Cursor,
+        0xffff if delete != DeleteKey::Del => KeyResource::Cursor,
         0xffbe..=0xffe0 => KeyResource::Function,
         0xff80..=0xffbd => KeyResource::Keypad,
         0xffe1..=0xffee | 0xfe01..=0xfe13 | 0xff7e | 0xff7f => KeyResource::Modifier,

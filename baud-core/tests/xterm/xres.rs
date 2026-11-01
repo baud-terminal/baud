@@ -151,7 +151,7 @@ enum Sense {
 /// 925-1020), which alone ties `eightBitInput` to `?1034`; `?1020` to
 /// `?1023` are the read-only modes DECRQM reads from their resources
 /// (`[[source: xterm-misc]]` 5842-5853).
-const XTERM_MODE_RESOURCES: [(&str, u16, Sense); 39] = [
+const XTERM_MODE_RESOURCES: [(&str, u16, Sense); 40] = [
     ("appcursorDefault", 1, Sense::Same),
     ("jumpScroll", 4, Sense::Inverse),
     ("reverseVideo", 5, Sense::Same),
@@ -190,6 +190,7 @@ const XTERM_MODE_RESOURCES: [(&str, u16, Sense); 39] = [
     ("popOnBell", 1043, Sense::Same),
     ("keepClipboard", 1044, Sense::Same),
     ("titeInhibit", 1046, Sense::Inverse),
+    ("oldXtermFKeys", 1060, Sense::Same),
     ("privateColorRegisters", 1070, Sense::Same),
 ];
 

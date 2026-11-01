@@ -3813,6 +3813,12 @@ impl Paint<'_, '_> {
                 }
                 return;
             }
+            // **The keyboard family is one value**, kept whichever member
+            // is listed (`SavedModes::save_keyboard`).
+            if let PrivateMode::Keyboard(_) = m {
+                self.cold.xtsave.save_keyboard(self.cold.keyboard);
+                return;
+            }
             let value = match self.private_state(m) {
                 ModeState::Set => Some(ModeChange::Set),
                 ModeState::Reset => Some(ModeChange::Reset),
@@ -3853,6 +3859,31 @@ impl Paint<'_, '_> {
             if m == PrivateMode::SaveCursor {
                 if self.cold.resources.is_set(Resource::AltScreenAllowed) {
                     self.save_or_restore_cursor(ModeChange::Reset);
+                }
+                return;
+            }
+            // **The keyboard family comes back whole**, whichever member is
+            // listed: through DECSET of the member saved, or a DECRST of the
+            // member in force for the default keyboard, and only where it
+            // differs. Never saved, nothing is restored.
+            if let PrivateMode::Keyboard(_) = m {
+                let now = self.cold.keyboard;
+                match self.cold.xtsave.saved_keyboard() {
+                    Some(k) if k != now => match k {
+                        Keyboard::Default => self.set_private_mode(
+                            PrivateMode::Keyboard(now),
+                            ModeChange::Reset,
+                            node,
+                            at,
+                        ),
+                        k => self.set_private_mode(
+                            PrivateMode::Keyboard(k),
+                            ModeChange::Set,
+                            node,
+                            at,
+                        ),
+                    },
+                    _ => {}
                 }
                 return;
             }
@@ -4125,6 +4156,17 @@ impl Paint<'_, '_> {
                 self.cold.delete = match change {
                     ModeChange::Set => DeleteKey::Del,
                     ModeChange::Reset => DeleteKey::Remove,
+                }
+            }
+            // **One keyboard at a time**: DECSET selects the member, and a
+            // DECRST of any member returns to the default keyboard, the
+            // one in force or not, as xterm's `set_keyboard_type` stores
+            // `keyboardIsDefault` for any reset (`[[source: xterm-scroll]]`'s
+            // file, util.c 6077-6093).
+            PrivateMode::Keyboard(k) => {
+                self.cold.keyboard = match change {
+                    ModeChange::Set => k,
+                    ModeChange::Reset => Keyboard::Default,
                 }
             }
             // **Every hide decides where a program placed the cursor**, a hide
@@ -5173,8 +5215,13 @@ impl Paint<'_, '_> {
         self.reset_tabs();
         self.cold.line_stops.clear_all();
         self.cold.backarrow = BackarrowKey::Delete;
-        self.cold.delete = DeleteKey::Remove;
+        self.cold.delete = DeleteKey::Unset;
         self.cold.num_lock = NumLockKeypad::Overrides;
+        // The default keyboard, the one a terminal made operational has
+        // (`[[source: ecma48]]` 8.3.105), as xterm's `RIS` decodes its
+        // configured keyboard again (`[[source: xterm-reset]]`, charproc.c
+        // 14451-14455).
+        self.cold.keyboard = Keyboard::Default;
         self.last_cp = None;
         self.goto(Row::ZERO, Col::ZERO);
     }
@@ -5512,9 +5559,19 @@ impl Paint<'_, '_> {
                 NumLockKeypad::Overrides => ModeState::Set,
                 NumLockKeypad::Ignored => ModeState::Reset,
             },
-            PrivateMode::DeleteIsDel => match self.cold.delete {
-                DeleteKey::Del => ModeState::Set,
-                DeleteKey::Remove => ModeState::Reset,
+            // **Set exactly when the editing Delete sends DEL** under the
+            // keyboard in force ([`Keyboard::delete_sends_del`]), the
+            // text's "Send DEL from the editing-keypad Delete key".
+            PrivateMode::DeleteIsDel => match self.cold.keyboard.delete_sends_del(self.cold.delete)
+            {
+                true => ModeState::Set,
+                false => ModeState::Reset,
+            },
+            // Set for the member in force alone, as xterm answers each
+            // (`[[source: xterm-misc]]` 5723-5747).
+            PrivateMode::Keyboard(k) => match self.cold.keyboard == k {
+                true => ModeState::Set,
+                false => ModeState::Reset,
             },
             PrivateMode::Column132 => bit_state(self.cold.modes, ModeBit::Column132),
             PrivateMode::CursorVisible => bit_state(self.cold.modes, ModeBit::CursorVisible),

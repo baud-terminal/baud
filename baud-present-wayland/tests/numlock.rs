@@ -7,7 +7,7 @@
 
 use baud_domain::{
     BackarrowKey, C1Transmit, ConformanceLevel, DeleteKey, InputEncoding, KeyResources, KeyState,
-    KeypadMode, KittyFlags, Modes, NumLockKeypad, TerminalMode, encode_key,
+    Keyboard, KeypadMode, KittyFlags, Modes, NumLockKeypad, TerminalMode, encode_key,
 };
 use baud_present_wayland::keys;
 use baud_xkb::{Keymap, Mods, State};
@@ -26,6 +26,7 @@ fn application(num_lock: NumLockKeypad) -> KeyState {
         delete: DeleteKey::default(),
         num_lock,
         level: ConformanceLevel::Four,
+        keyboard: Keyboard::Default,
     }
 }
 

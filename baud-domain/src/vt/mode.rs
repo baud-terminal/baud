@@ -777,6 +777,11 @@ pub enum PrivateMode {
     NumLockModifiers,
     /// `?1037`, xterm's `deleteIsDEL` ([`DeleteKey`]).
     DeleteIsDel,
+    /// `?1050` to `?1053`, `?1060` and `?1061`: one member of xterm's
+    /// keyboard family, which DECSET selects and a DECRST of returns to the
+    /// default keyboard ([`Keyboard`]). Never [`Keyboard::Default`], which
+    /// no mode names.
+    Keyboard(Keyboard),
     /// `?13`, xterm's `cursorBlink` resource, "read-only, set only via
     /// resource or menu" (`[[source: ctlseqs]]`): the blink the user
     /// configured, which `DECRQM` answers `1` or `2` as xterm does for its
@@ -1443,11 +1448,11 @@ impl ModeSlot {
 /// Each XTSAVE slot's mode as DECSET names it, by slot: the private modes
 /// DECTSR carries, and the controls DECRSTS restores them through.
 /// `every_slot_is_its_wire_number` holds each to [`PrivateMode::slot`].
-pub const SLOT_WIRE: [u16; 68] = [
+pub const SLOT_WIRE: [u16; 74] = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 25, 45, 47, 69, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007,
     1015, 1016, 1034, 1036, 1039, 1049, 2004, 2026, 2031, 2048, 1042, 1043, 40, 95, 80, 1070, 8452,
     117, 66, 67, 1035, 1037, 1010, 1011, 1041, 1045, 1046, 2001, 2005, 2006, 1047, 41, 30, 44, 46,
-    18, 19, 43, 1040, 2500, 2501, 1243, 96, 36, 34, 35,
+    18, 19, 43, 1040, 2500, 2501, 1243, 96, 36, 34, 35, 1050, 1051, 1052, 1053, 1060, 1061,
 ];
 
 const _: () = assert!(SLOT_WIRE.len() <= 128, "SavedModes keeps two words of each");
@@ -1510,7 +1515,47 @@ impl SavedModes {
             (true, on) => Some(ModeChange::of(on)),
         }
     }
+
+    /// **Keep the keyboard family as one value**, whichever member was
+    /// listed: every member's slot saved, set for the member in force and
+    /// reset for the rest, none set for the default keyboard. xterm keeps
+    /// the six in one saved value, `DP_KEYBOARD_TYPE` (`[[source:
+    /// xterm-reset]]`, charproc.c 8279-8300), and ctlseqs has "specific
+    /// settings ... saved and restored independently": the family is one
+    /// setting, a keyboard.
+    pub fn save_keyboard(&mut self, k: Keyboard) {
+        for m in KEYBOARDS {
+            if let Some(slot) = PrivateMode::Keyboard(m).slot() {
+                self.save(slot, ModeChange::of(m == k));
+            }
+        }
+    }
+
+    /// The keyboard kept by [`SavedModes::save_keyboard`], or `None` if the
+    /// family was never saved.
+    pub fn saved_keyboard(self) -> Option<Keyboard> {
+        let mut kept = None;
+        for m in KEYBOARDS {
+            match PrivateMode::Keyboard(m).slot().and_then(|s| self.saved(s)) {
+                None => return None,
+                Some(ModeChange::Set) => kept = Some(m),
+                Some(ModeChange::Reset) => {}
+            }
+        }
+        Some(kept.unwrap_or(Keyboard::Default))
+    }
 }
+
+/// The keyboards a private mode selects, every [`Keyboard`] but the
+/// default.
+pub const KEYBOARDS: [Keyboard; 6] = [
+    Keyboard::Termcap,
+    Keyboard::Sun,
+    Keyboard::Hp,
+    Keyboard::Sco,
+    Keyboard::Legacy,
+    Keyboard::Vt220,
+];
 
 impl PrivateMode {
     /// The slot XTSAVE keeps this mode in: **every mode DECSET acts on, and
@@ -1601,6 +1646,12 @@ impl PrivateMode {
             PrivateMode::HebrewEncoding => 65,
             PrivateMode::CursorRightToLeft => 66,
             PrivateMode::HebrewKeyboard => 67,
+            PrivateMode::Keyboard(Keyboard::Termcap) => 68,
+            PrivateMode::Keyboard(Keyboard::Sun) => 69,
+            PrivateMode::Keyboard(Keyboard::Hp) => 70,
+            PrivateMode::Keyboard(Keyboard::Sco) => 71,
+            PrivateMode::Keyboard(Keyboard::Legacy) => 72,
+            PrivateMode::Keyboard(Keyboard::Vt220) => 73,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -1614,6 +1665,7 @@ impl PrivateMode {
             | PrivateMode::FastScroll
             | PrivateMode::KeepClipboard
             | PrivateMode::NationalReplacement
+            | PrivateMode::Keyboard(Keyboard::Default)
             | PrivateMode::Other(_) => {
                 return None;
             }
@@ -1656,6 +1708,12 @@ impl PrivateMode {
             67 => PrivateMode::BackarrowKey,
             1035 => PrivateMode::NumLockModifiers,
             1037 => PrivateMode::DeleteIsDel,
+            1050 => PrivateMode::Keyboard(Keyboard::Termcap),
+            1051 => PrivateMode::Keyboard(Keyboard::Sun),
+            1052 => PrivateMode::Keyboard(Keyboard::Hp),
+            1053 => PrivateMode::Keyboard(Keyboard::Sco),
+            1060 => PrivateMode::Keyboard(Keyboard::Legacy),
+            1061 => PrivateMode::Keyboard(Keyboard::Vt220),
             1034 => PrivateMode::EightBitInput,
             1036 => PrivateMode::MetaSendsEscape,
             1039 => PrivateMode::AltSendsEscape,

@@ -23,7 +23,7 @@
 //! | 1 | the version, [`TSR_VERSION`] |
 //! | 1 | the conformance level 1 to 4 (bits 0-1), eight-bit C1 (bit 2), ISO 8859-1 input (bit 3) |
 //! | 4 | the eight ANSI modes [`TSR_ANSI_MODES`], two bits each |
-//! | 34 | the sixty-eight private modes XTSAVE keeps, two bits each, by slot |
+//! | 37 | the seventy-four private modes XTSAVE keeps, two bits each, by slot |
 //! | 28 | the rendition: 23 attribute bits in `Attrs::WIRE`'s order (6), the font (1), the foreground, background and underline colours (7 each) |
 //! | 12 | DECSTBM's top and bottom, DECSLRM's left and right, from 1 |
 //! | 1 | DECSCUSR's `Ps` |
@@ -55,8 +55,9 @@ use crate::*;
 /// terminal-wg's `?2500`, `?2501` and `?1243`; 4 since they took DEC's
 /// `?96` and `?36`; 5 since the ANSI modes took DCSM; 6 since the private
 /// modes took `?34`; 7 since they took `?35`; 8 since the ANSI modes took
-/// HEM.
-pub const TSR_VERSION: u8 = 8;
+/// HEM; 9 since the private modes took xterm's six keyboards, `?1050` to
+/// `?1053`, `?1060` and `?1061`.
+pub const TSR_VERSION: u8 = 9;
 
 /// The data nibbles 256 characters leave: less `ESC P`, `1 $ s`, the two
 /// checksum bytes and `ESC \`.

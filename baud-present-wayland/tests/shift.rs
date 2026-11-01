@@ -9,8 +9,8 @@
 
 use baud_domain::{
     BackarrowKey, C1Transmit, Codepoint, ConformanceLevel, DeleteKey, InputEncoding, KeyCode,
-    KeyEvent, KeyResource, KeyResources, KeySet, KeyState, KeypadMode, KittyFlags, KittySetMode,
-    Modes, Modifiers, NumLockKeypad, TerminalMode, encode_key,
+    KeyEvent, KeyResource, KeyResources, KeySet, KeyState, Keyboard, KeypadMode, KittyFlags,
+    KittySetMode, Modes, Modifiers, NumLockKeypad, TerminalMode, encode_key,
 };
 use baud_present_wayland::keys;
 use baud_xkb::{Keycode, Keymap, ModMask, Mods, State};
@@ -63,6 +63,7 @@ fn state(mode: &str) -> KeyState {
         delete: DeleteKey::default(),
         num_lock: NumLockKeypad::default(),
         level: ConformanceLevel::Four,
+        keyboard: Keyboard::Default,
     };
     match mode.split_once('=') {
         None if mode == "deckpam" => s.keypad = KeypadMode::Application,

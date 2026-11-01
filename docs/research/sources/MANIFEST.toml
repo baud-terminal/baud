@@ -16633,6 +16633,8 @@ group  = "C"
 # Re-fetched 2026-10-28 (lane b240), the sha256 matching [text]: DECPAK and DECPFK
 # (pp. 5-77, 5-83: key station numbers, 'a local terminal function', the 804 bytes shared
 # with DECUDK and DECCKD), DECCKSR (p. 5-33) and DECRPTUI (p. 5-101).
+# Read 2026-11-01 as vt100.net's transcription of chapter 6 (sha256 71d6ecf4...):
+# SCO Console Emulation's Tables 6-3 to 6-8, the same cells as the VT520's.
 
 [sources.vt520-rm]
 key    = "vt520-rm"
@@ -16671,6 +16673,10 @@ group  = "C"
 # Re-fetched 2026-10-30, the sha256 matching [text]: DECANM Exit, 'When the terminal exits
 # VT52 mode, it returns to the previous mode before entering VT52 mode' (PDF 173), and 2.10.1's
 # soft reset on entering VT52 from VT500 mode (PDF 66).
+# Read 2026-11-01 on the text layer [text]: chapter 6, SCO Console Emulation --
+# Table 6-3's function keys in four columns (pp. 6-2, 6-3; Ctrl/Shift F7 'ESC[<', F8 'ESC[ ]',
+# F11 'ESC[’'), Tables 6-5 to 6-8 (pp. 6-4, 6-5), and 'Function keys F13 through F20 send
+# the same codes as F13 through F20 in VT mode, except Do sends an ESC code' (p. 6-5).
 
 # No `year`: the scan carries no date on its cover (PDF p. 1), the blank p. 2, the
 # contents (p. 3) or its last two pages (Appendix C, pp. C-1 and C-2), and none is
@@ -40367,3 +40373,65 @@ sha256 = "e392b709af2b600dfcde8e0ce14631687ce45c9840cd03ccf4896af35235b3ad"
 bytes  = 29315
 status = "external"
 group  = "AX"
+
+# Group C, the keyboards `?1050` to `?1061` (2026-11-01).
+# xterm's own terminfo, the entries ctlseqs points to -- "See the xterm-sun terminfo
+# entry for details", and the same for xterm-hp -- at the commit the other xterm 411
+# sources are pinned at. `retrieved` (committed) as xterm's other files are, X11 licence.
+# Read [text]: xterm-vt220 (1368-1400), xterm-sun (1510-1555), the note that "xterm-hp,
+# xterm-sco and xterm-sun assume no modifiers" (1561-1575), xterm-hp (1577-1598),
+# xterm-sco (1613-1670), xterm+nofkeys and xterm+nopcfkeys.
+[sources.xterm-terminfo]
+key    = "xterm-terminfo"
+title  = "xterm 411, terminfo -- xterm's terminal descriptions: xterm-sun, xterm-hp, xterm-sco, xterm-vt220, xterm-r6"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/terminfo"
+file   = "xterm-terminfo"
+sha256 = "af38ec99c0816a2a8dbbde6fa70877a87e59f1e913c35805570cb2f1f007a574"
+bytes  = 59700
+status = "retrieved"
+group  = "C"
+
+# HP's own keyboard, for `?1052`. `external`: 8,014,250 bytes. Fetched 2026-11-01 from the
+# UK mirror of bitsavers (bitsavers.org itself answers 403 to curl). Its text layer is OCR,
+# which garbles the arrow keys' glyphs, so Appendix A, Escape Codes, was read on page images
+# rendered from the PDF, pp. A-1 to A-3 (PDF 141-143) [text]: "Ec A Cursor up" to "Ec D
+# Cursor left" by the arrow keys, "[Shift] [home] Ec F Cursor home down", "[home] Ec H
+# Cursor home up", "Ec J Clear display" (A-1); "[Delete char] Ec P Delete character",
+# "[Insert char] Ec Q Start insert character mode", "[Shift] [up] Ec S Roll up", "[Shift]
+# [down] Ec T Roll down", "[Next] Ec U Next page", "[Prev] Ec V Previous page" (A-2);
+# "[home] Ec h Cursor home up", "[Shift] [Tab] Ec i Backtab", "[f1] Ec p Default definition
+# for user definable function key f1" to "[f8] Ec w" (A-3). The softkeys' defaults "(Ec p,
+# Ec q to Ec w)" (p. 3-22, PDF 60) were checked on a page image by an earlier reading.
+[sources.hp-2392a-rm]
+key    = "hp-2392a-rm"
+title  = "HP 2392A Display Terminal Reference Manual, 02390-90001"
+author = "Hewlett-Packard"
+year   = 1984
+venue  = "bitsavers.org, UK mirror (ftp.mirrorservice.org)"
+url    = "https://ftp.mirrorservice.org/sites/www.bitsavers.org/pdf/hp/terminal/2392/02390-90001_2392A_Display_Terminal_Reference_Manual_Apr1984.pdf"
+file   = ""
+sha256 = "532fcc1fbc8baea8e8feda6a220d310f5640af129997525952831319147a8376"
+bytes  = 8014250
+status = "external"
+group  = "C"
+
+# Captured 2026-11-01 on macOS 27.0 (26A5425a) as `infocmp -x -1 hpterm`, from
+# /usr/share/terminfo/68/hpterm: HP's X terminal emulator, which xterm's own entry names its
+# HP mode for ("xterm-hp|xterm with hpterm function keys"). Read [text]: knp=\EU and
+# kpp=\EV, the HP 2392A's [Next] and [Prev], where xterm-hp has \ES and \ET; khome=\Eh,
+# kll=\EF, kind=\ES, kri=\ET, kf1=\Ep ... kf8=\Ew.
+[sources.terminfo-hpterm]
+key    = "terminfo-hpterm"
+title  = "terminfo entry: hpterm, with user-defined capabilities"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
+year   = 2015
+venue  = "ncurses terminfo database, /usr/share/terminfo/68/hpterm on macOS"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/hpterm.ti"
+sha256 = "9133af7b4b94a9625223130d5b04d1aba7491aa88f34bddb5d8b3e6bcbff18dd"
+bytes  = 1245
+status = "retrieved"
+group  = "C"
