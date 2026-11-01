@@ -217,6 +217,15 @@ entries are `baud-core2`'s, the core this one replaced.
   11-19% slower. Each channel's
   premultiply is already one multiply-add and a shift. MEASUREMENTS.md, "The
   glass's backdrop premultiplied once a run".
+- **Inlining `Blend::over_glass` into `Target::over`'s two glass loops**,
+  their closures forced inline with it, or at every caller -- the pixels
+  are equal on 120 configurations, and on btop and cat-scroll paint lies
+  below the base, ranges apart, on nine of ten glass rows in each of two
+  sweeps, medians 2.2-7.4% lower, at 0.2-0.8% more instructions. Not
+  taken for want of a result on btop at 6K, run at two reps, where the
+  ranges overlap in both sweeps: more reps on that row is the evidence
+  that would reopen it. MEASUREMENTS.md, "The glass's backdrop
+  premultiplied once a run".
 
 ## How to verify a change
 

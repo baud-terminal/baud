@@ -1353,6 +1353,54 @@ hash, read paint 2.0-3.5% below the base, ranges apart, on seven of the ten
 glass rows (btop light, dim 56 and 2x; cat-scroll light, dim 56, 2x and 6K)
 at +0.2-0.8% instructions: a lead, not a result.
 
+**The blend inlined into the glass loops, without the memo, is not taken
+either: pixels equal, paint below the base on nine of ten glass rows, and
+no result on the tenth.** At `90e22100` with `frame`'s light theme, font
+size and hash, which it now carries (`FRAME_THEME`, `FRAME_PX`,
+`FRAME_HASH=on`), so every arm ran the tree's own bench; 2026-11-01, the
+same machine on AC, at a one-minute load at the start of rounds 0-4 of
+4.74, 4.32, 3.88, 3.47 and 3.25 (3.06 at the end) in the first sweep and
+2.53, 2.41, 2.51, 2.66 and 2.71 (2.60) in the second. The narrow shape
+inlines `Blend::over_glass`'s body into `Target::over`'s two glass loops
+alone. Inlined into each loop's closure, the body left the closure out of
+line, still a call for each pixel blended, so the shape also marks the two closures
+`#[inline(always)]`, which takes the nightly stmt_expr_attributes feature.
+The wide shape is the lead's own build, `Blend::over_glass` itself
+inlined at every caller. Built, `over_as_is` and `over_translucent` are
+instruction for instruction the same in the two shapes, addresses
+masked, and the wide differs from the narrow only in `blit_blended`, the
+trail's quad and `cover_set`, and in keeping no out-of-line
+`Blend::over_glass`, none of which these recordings draws: the second
+sweep repeats the first's loops against a fresh base. Each arm a
+`git archive` at one path, every file touched, each shape built twice
+and `cmp`-identical, five rounds rotated, the first dropped; the rows and
+reps above. Paint in us a frame, median [range], and instructions a
+process against each sweep's own base:
+
+| recording, page | base | narrow | narrow, A/A | base | wide | wide, A/A |
+|---|---|---|---|---|---|---|
+| btop, dark 1x | 99.8 [99.0-100.5] | 96.6 [96.3-97.3] +0.6% | 96.2 [95.5-97.6] +0.6% | 102.0 [99.7-105.3] | 97.6 [96.9-99.3] +0.6% | 97.4 [96.9-97.7] +0.6% |
+| cat-scroll, light 1x | 468.9 [464.6-470.5] | 454.1 [449.1-455.9] +0.8% | 451.4 [448.2-455.2] +0.8% | 476.1 [470.9-476.6] | 459.5 [457.2-462.1] +0.8% | 458.5 [455.9-464.0] +0.8% |
+| btop, dark 2x | 284.8 [281.2-289.3] | 263.7 [263.0-277.8] +0.3% | 268.7 [262.1-275.8] +0.3% | 286.9 [282.7-292.6] | 271.9 [267.7-275.7] +0.4% | 269.4 [266.8-278.1] +0.3% |
+| cat-scroll, dark 2x | 1230 [1212-1236] | 1169 [1164-1191] +0.8% | 1186 [1170-1258] +0.8% | 1253 [1224-1266] | 1204 [1178-1208] +0.8% | 1193 [1192-1194] +0.8% |
+| btop, dark 6K | 357.0 [351.0-363.0] | 337.8 [333.3-354.0] +0.2% | 336.6 [331.3-344.8] +0.2% | 361.1 [355.6-378.6] | 340.1 [338.6-375.3] +0.3% | 350.2 [337.1-351.3] +0.3% |
+| cat-scroll, dark 6K | 2928 [2911-2958] | 2829 [2805-2884] +0.6% | 2854 [2820-2920] +0.6% | 2968 [2941-3022] | 2871 [2866-2902] +0.6% | 2868 [2846-2904] +0.6% |
+| btop, opaque 1x | 92.5 [90.8-94.6] | 91.9 [91.4-94.0] 0.0% | 92.7 [92.4-93.2] 0.0% | 94.1 [92.2-94.2] | 93.6 [92.7-94.9] 0.0% | 93.7 [92.1-94.5] 0.0% |
+| cat-scroll, opaque 1x | 399.1 [398.8-401.0] | 399.9 [397.0-401.6] 0.0% | 398.9 [393.3-400.3] 0.0% | 401.4 [398.3-404.6] | 405.5 [403.5-411.0] 0.0% | 402.6 [401.2-404.5] 0.0% |
+
+On the ten glass rows, paint lies below the base, ranges apart, on nine
+in each sweep, and the A/A copies' on seven and ten; the medians are
+2.2-7.4% below their base's on every glass row of all four copies, at
+0.2-0.8% more instructions. On btop at 6K, two reps a run, the change's
+range overlaps the base's in both sweeps, so that row has no result, and
+neither shape meets the bar set before the sweeps ran: every glass row
+apart, the A/A's too, the opaque rows not slower. The opaque rows overlap
+the base in paint and are within 0.05% in instructions. The hash covered
+the 120 configurations above. Both shapes equal the base on all 120; the
+no-premultiply arm, the positive control, differs on 66 of the 72 glass
+configurations and on none of the 48 opaque; and at 1x, incremental
+damage hashes as full damage does on every recording and page.
+
 ## What `cargo install` and `nix build` make
 
 Taken on `78d68d0` with this section's change applied, 2026-10-29. Apple
