@@ -271,6 +271,37 @@ fn ris_returns_the_selection_text_and_decstr_keeps_it() {
     );
 }
 
+/// **`RIS` returns the visual bell to its automatic flash**, the colour a
+/// program set with kitty's `OSC 21 ; visual_bell=` gone. `DECSTR` keeps
+/// it, as it keeps the other colours `OSC 21` names; kitty's soft reset
+/// clears every colour a program set (`do_screen_reset()`, `[[source:
+/// kitty-6d5d0c4-screen]]` 209-266, the colours at 245 and 258), practice not
+/// followed.
+#[test]
+fn ris_returns_the_visual_bell_and_decstr_keeps_it() {
+    support::with_term(&WS, |t| {
+        configured(t);
+        let set = b"\x1b]21;visual_bell=#102030\x07";
+        support::feed(t, set);
+        let theirs = ProgramPaint::Colour((0x10, 0x20, 0x30));
+        assert_eq!(t.program_paint(PaintRole::VisualBell), theirs);
+        support::feed(t, b"\x1bc");
+        assert_eq!(
+            t.program_paint(PaintRole::VisualBell),
+            ProgramPaint::Unset,
+            "RIS"
+        );
+        assert_eq!(
+            ask(t, b"\x1b]21;visual_bell=?\x07"),
+            b"\x1b]21;visual_bell=\x1b\\",
+            "RIS: nothing set answers empty"
+        );
+        support::feed(t, set);
+        support::feed(t, b"\x1b[!p");
+        assert_eq!(t.program_paint(PaintRole::VisualBell), theirs, "DECSTR");
+    });
+}
+
 /// **`RIS` returns the text under the cursor to the embedder's**, the
 /// colour a program set with kitty's `OSC 21 ; cursor_text=` or iTerm2's
 /// `SetColors=curfg=` gone. `DECSTR` keeps it.

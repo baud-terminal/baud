@@ -1,7 +1,8 @@
 //! kitty's colour control, `OSC 21 ; key=value ; ... ST` (`[[source:
 //! kitty-6d5d0c4-color-stack]]`): programs written for kitty read and set
 //! the default colours, the selection's, the cursor's, the text under the
-//! cursor and the 256 palette entries, in one sequence and one reply.
+//! cursor, the visual bell's and the 256 palette entries, in one sequence
+//! and one reply.
 //!
 //! **Routed by a prefix, as `52;` is** (`clip.rs`): once the body is `21;`,
 //! each byte after it comes here, and each record is read at its `;`, so no
@@ -31,12 +32,14 @@ use crate::osc::StrKind;
 use crate::paint::Paint;
 use crate::storage::{
     CURSOR_TEXT, CURSOR_TEXT_CONFIGURED, EMBEDDER_PALETTE, OSC_MAX, REPLY_MOST, SELECTION_PER_CELL,
+    VISUAL_BELL,
 };
 use baud_domain::themefile::CursorText;
 use baud_domain::*;
 
 /// The named colours a record can change: the default foreground and
-/// background, the selection's two, the cursor's and the text under it.
+/// background, the selection's two, the cursor's, the text under it and
+/// the visual bell's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Named {
     Foreground,
@@ -45,10 +48,11 @@ enum Named {
     SelectionForeground,
     Cursor,
     CursorText,
+    VisualBell,
 }
 
 impl Named {
-    const COUNT: usize = 6;
+    const COUNT: usize = 7;
 
     const ALL: [Named; Named::COUNT] = [
         Named::Foreground,
@@ -57,31 +61,35 @@ impl Named {
         Named::SelectionForeground,
         Named::Cursor,
         Named::CursorText,
+        Named::VisualBell,
     ];
 
-    fn of(k: KittyKey) -> Option<Named> {
-        Some(match k {
+    fn of(k: KittyKey) -> Named {
+        match k {
             KittyKey::Foreground => Named::Foreground,
             KittyKey::Background => Named::Background,
             KittyKey::SelectionBackground => Named::SelectionBackground,
             KittyKey::SelectionForeground => Named::SelectionForeground,
             KittyKey::Cursor => Named::Cursor,
             KittyKey::CursorText => Named::CursorText,
-            KittyKey::VisualBell => return None,
-        })
+            KittyKey::VisualBell => Named::VisualBell,
+        }
     }
 
-    /// The `OSC 10`-family slot that keeps it; the text under the cursor
-    /// has none and lives in the palette slice.
-    fn dynamic(self) -> Option<DynamicColor> {
-        Some(match self {
-            Named::Foreground => DynamicColor::Foreground,
-            Named::Background => DynamicColor::Background,
-            Named::SelectionBackground => DynamicColor::HighlightBg,
-            Named::SelectionForeground => DynamicColor::HighlightFg,
-            Named::Cursor => DynamicColor::Cursor,
-            Named::CursorText => return None,
-        })
+    /// Where it is kept: an `OSC 10`-family slot, or for the two colours
+    /// only `OSC 21` names, the text under the cursor and the visual bell,
+    /// a slot of their own in the palette slice -- one each, so setting one
+    /// never writes the other.
+    fn kept(self) -> Kept {
+        match self {
+            Named::Foreground => Kept::Dynamic(DynamicColor::Foreground),
+            Named::Background => Kept::Dynamic(DynamicColor::Background),
+            Named::SelectionBackground => Kept::Dynamic(DynamicColor::HighlightBg),
+            Named::SelectionForeground => Kept::Dynamic(DynamicColor::HighlightFg),
+            Named::Cursor => Kept::Dynamic(DynamicColor::Cursor),
+            Named::CursorText => Kept::Palette(CURSOR_TEXT),
+            Named::VisualBell => Kept::Palette(VISUAL_BELL),
+        }
     }
 
     /// Whether an empty value means anything: kitty's table gives the
@@ -98,6 +106,14 @@ impl Named {
 enum Automatic {
     Taken,
     NotApplicable,
+}
+
+/// Where a named colour is kept ([`Named::kept`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kept {
+    Dynamic(DynamicColor),
+    /// A slot of the palette slice no rendition resolves through.
+    Palette(usize),
 }
 
 /// Whether the reply being built still fits.
@@ -166,7 +182,7 @@ impl KittyColours {
 
     /// A named colour's change after the records so far.
     fn named(&mut self, n: Named) -> &mut Option<ColorWord> {
-        let [fg, bg, sel_bg, sel_fg, cursor, text] = &mut self.named;
+        let [fg, bg, sel_bg, sel_fg, cursor, text, bell] = &mut self.named;
         match n {
             Named::Foreground => fg,
             Named::Background => bg,
@@ -174,12 +190,13 @@ impl KittyColours {
             Named::SelectionForeground => sel_fg,
             Named::Cursor => cursor,
             Named::CursorText => text,
+            Named::VisualBell => bell,
         }
     }
 
     /// The same, read.
     fn change(&self, n: Named) -> Option<ColorWord> {
-        let [fg, bg, sel_bg, sel_fg, cursor, text] = self.named;
+        let [fg, bg, sel_bg, sel_fg, cursor, text, bell] = self.named;
         match n {
             Named::Foreground => fg,
             Named::Background => bg,
@@ -187,6 +204,7 @@ impl KittyColours {
             Named::SelectionForeground => sel_fg,
             Named::Cursor => cursor,
             Named::CursorText => text,
+            Named::VisualBell => bell,
         }
     }
 
@@ -377,19 +395,8 @@ impl Paint<'_, '_> {
             // A value the grammar does not read, or one a key cannot take:
             // a request not honoured, counted.
             (_, KittyOp::Unreadable) | (KittyTarget::Unknown, _) => self.unsupported_total += 1,
-            // **The visual bell has no colour to set**: baud's flash is the
-            // other video, which is the "Automatic color selection based on
-            // current screen colors" kitty's table names, so an empty value
-            // or a reset asks for what is drawn already, and a colour is
-            // refused and counted.
-            (KittyTarget::Named(KittyKey::VisualBell), KittyOp::Set(..)) => {
-                self.unsupported_total += 1
-            }
-            (KittyTarget::Named(KittyKey::VisualBell), _) => {}
             (KittyTarget::Named(k), op) => {
-                let Some(named) = Named::of(k) else {
-                    return;
-                };
+                let named = Named::of(k);
                 let w = match op {
                     KittyOp::Set(r, g, b) => ColorWord::rgb(r, g, b),
                     KittyOp::Reset => ColorWord::DEFAULT,
@@ -435,11 +442,8 @@ impl Paint<'_, '_> {
     fn colour_answer(&self, target: KittyTarget) -> Answer {
         let word = match target {
             KittyTarget::Unknown => return Answer::Unknown,
-            KittyTarget::Named(KittyKey::VisualBell) => return Answer::Undefined,
             KittyTarget::Named(k) => {
-                let Some(named) = Named::of(k) else {
-                    return Answer::Undefined;
-                };
+                let named = Named::of(k);
                 let own = self
                     .strs
                     .colours
@@ -472,15 +476,18 @@ impl Paint<'_, '_> {
     /// colour shown), which kitty's text replaces with these keys; so
     /// `background=?` and `OSC 11 ; ?` never disagree. kitty's code reads
     /// its profile's stored colours instead; V17 decides it here.
-    fn slot(&self, n: Named) -> Option<DynamicColor> {
-        n.dynamic().map(|d| self.cold.video().role(d))
+    fn slot(&self, n: Named) -> Kept {
+        match n.kept() {
+            Kept::Dynamic(d) => Kept::Dynamic(self.cold.video().role(d)),
+            k => k,
+        }
     }
 
     /// A named colour's program override as stored.
     fn named_now(&self, n: Named) -> ColorWord {
         match self.slot(n) {
-            Some(d) => self.cold.dynamic[d.index()],
-            None => self.strs.palette[CURSOR_TEXT],
+            Kept::Dynamic(d) => self.cold.dynamic[d.index()],
+            Kept::Palette(i) => self.strs.palette[i],
         }
     }
 
@@ -498,16 +505,21 @@ impl Paint<'_, '_> {
             return ColorWord::DEFAULT;
         }
         match self.slot(n) {
-            Some(d) => self.cold.defaults[d.index()],
+            Kept::Dynamic(d) => self.cold.defaults[d.index()],
             // A kitty theme's `cursor none` sets its text aside while the
             // cursor shown has no colour: no defined value, so empty.
-            None => match (
+            Kept::Palette(CURSOR_TEXT) => match (
                 self.cold.cursor_text_under,
                 self.cold.shown(DynamicColor::Cursor).as_rgb(),
             ) {
                 (CursorText::UnderACursorColour, None) => ColorWord::DEFAULT,
                 _ => self.strs.palette[CURSOR_TEXT_CONFIGURED],
             },
+            // **No bell colour is configured**: the flash an embedder draws
+            // with none set is the other video, which has no one colour, so
+            // empty, as kitty answers its own unconfigured
+            // visual_bell_color.
+            Kept::Palette(_) => ColorWord::DEFAULT,
         }
     }
 
@@ -525,8 +537,8 @@ impl Paint<'_, '_> {
                 continue;
             };
             match self.slot(n) {
-                Some(d) => self.set_dynamic(d, w),
-                None => self.strs.palette[CURSOR_TEXT] = w,
+                Kept::Dynamic(d) => self.set_dynamic(d, w),
+                Kept::Palette(i) => self.strs.palette[i] = w,
             }
         }
     }

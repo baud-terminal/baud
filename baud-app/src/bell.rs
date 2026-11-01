@@ -81,7 +81,7 @@ use baud_core::{BellIsUrgent, BellVolume, BellsRung, PopOnBell};
 use baud_core::{ReverseFlips, Term, UpdatesOpened};
 use baud_domain::HostTime;
 use baud_domain::terminfo::{self, Flash};
-use baud_render::VideoFlash;
+use baud_render::{BellFlash, BellKind, BellTint, Rang, VideoFlash};
 
 /// The entry the child is told to use, spelled once for the environment and
 /// for the file its flash is read from.
@@ -265,8 +265,9 @@ impl Rung {
     }
 }
 
-/// The bell: the reading the last drawn frame made, and the deadline of a
-/// flash on screen.
+/// The bell: the reading the last drawn frame made, the deadline of a
+/// `?5` pair's flash on screen, and the flash a `BEL` rang
+/// ([`BellFlash`]), timed from the first frame planned.
 pub struct Bell<T> {
     seen: Seen,
     until: Option<T>,
@@ -274,6 +275,13 @@ pub struct Bell<T> {
     /// The flashes asked for so far, of which `seen.rung` the last drawn
     /// frame had shown.
     rung: Rung,
+    /// A `BEL`'s flash, in the colour a program set or the other video,
+    /// held to WCAG 2.3.1's rate (`baud_render::bell`).
+    rang: BellFlash,
+    /// The moment `rang`'s clock counts from, the first frame planned, and
+    /// the last drawn frame on it.
+    origin: Option<T>,
+    drawn: Duration,
 }
 
 /// What one frame shows, decided before it is built and kept by
@@ -281,9 +289,18 @@ pub struct Bell<T> {
 /// present failed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Plan<T> {
+    /// The other video: a `?5` pair's, or a `BEL`'s with no colour set.
     pub flash: VideoFlash,
+    /// A `BEL`'s flash in the colour a program set: the solid the frame
+    /// draws over the screen ([`baud_render::Renderer::set_bell_tint`]).
+    ///
+    /// Never a `?5` pair's, which is reverse video and not the bell.
+    pub tint: Option<BellTint>,
     until: Option<T>,
     seen: Seen,
+    rang: BellFlash,
+    origin: T,
+    at: Duration,
 }
 
 impl<T: Moment> Bell<T> {
@@ -295,6 +312,9 @@ impl<T: Moment> Bell<T> {
             until: None,
             length,
             rung: Rung::FIRST,
+            rang: BellFlash::new(length),
+            origin: None,
+            drawn: Duration::ZERO,
         }
     }
 
@@ -307,23 +327,44 @@ impl<T: Moment> Bell<T> {
         // Only a frame drawn through an outlived update shows what the update
         // held; any other either holds it or reads it closed.
         let held_shown = update == Update::Outlived && seen.held != self.seen.held;
-        // A `BEL` is not screen content, so an update hides none: its flash
-        // is shown by the first frame drawn after it, held or not.
-        let rang = seen.rung != self.seen.rung;
-        let until = if seen.mode != self.seen.mode {
+        let moved = seen.mode != self.seen.mode;
+        let until = if moved {
             None
-        } else if seen.shown != self.seen.shown || held_shown || rang {
+        } else if seen.shown != self.seen.shown || held_shown {
             Some(now.after(self.length))
         } else {
             self.until.filter(|&u| now < u)
         };
+        // **A `BEL`'s flash is its own** (`baud_render::bell`): not screen
+        // content, so an update hides none and it is shown by the first
+        // frame drawn after it, held or not; in the colour a program set,
+        // else as the other video, which a change of `?5` in the same frame
+        // ends or refuses, as it ends a pair's, since the mode is what a
+        // frame draws. A tint is not of the video and runs on.
+        let origin = self.origin.unwrap_or(now);
+        let at = now.elapsed_since(origin).max(self.drawn);
+        let kind = BellKind::of(term);
+        let mut rang = self.rang;
+        if moved {
+            rang = rang.video_ended(at);
+        }
+        let ring = match (seen.rung != self.seen.rung, moved, kind) {
+            (false, _, _) | (true, true, BellKind::Video) => Rang::No,
+            (true, _, _) => Rang::Yes,
+        };
+        let (rang, shown) = rang.at(at, ring, kind);
+        let flash = match (until, shown.video()) {
+            (None, VideoFlash::Off) => VideoFlash::Off,
+            _ => VideoFlash::On,
+        };
         Plan {
-            flash: match until {
-                Some(_) => VideoFlash::On,
-                None => VideoFlash::Off,
-            },
+            flash,
+            tint: shown.tint(),
             until,
             seen,
+            rang,
+            origin,
+            at,
         }
     }
 
@@ -332,6 +373,9 @@ impl<T: Moment> Bell<T> {
     pub fn commit(&mut self, plan: Plan<T>) {
         self.seen = plan.seen;
         self.until = plan.until;
+        self.rang = plan.rang;
+        self.origin = Some(plan.origin);
+        self.drawn = plan.at;
     }
 
     /// The frame `plan` was for was built and its present failed, so it is
@@ -348,6 +392,14 @@ impl<T: Moment> Bell<T> {
     pub fn refused(&mut self, plan: Plan<T>) {
         self.seen = plan.seen;
         self.until = self.until.and(plan.until);
+        self.origin = Some(plan.origin);
+        self.drawn = plan.at;
+        // A `BEL`'s flash the frame would have started is lost with it, and
+        // starts no quiet: nothing was shown. One on screen runs on as the
+        // frame left it.
+        if self.rang.lit().is_some() || plan.rang.lit().is_none() {
+            self.rang = plan.rang;
+        }
     }
 
     /// The driver is holding frames for an open update: what the update
@@ -367,9 +419,22 @@ impl<T: Moment> Bell<T> {
         self.rung = self.rung.next();
     }
 
-    /// When a flash on screen ends, for a loop that waits on a clock.
+    /// When the next frame the bell owes is due, for a loop that waits on
+    /// a clock: a flash's end, or while a `BEL`'s tint fades, the last
+    /// drawn frame's moment -- one each frame interval, paced by the display
+    /// link on macOS and the compositor's frame events on Linux, until it
+    /// is gone.
     pub fn deadline(&self) -> Option<T> {
-        self.until
+        let origin = self.origin?;
+        let rang = match self.rang.lit() {
+            Some(BellKind::Tint(_)) => Some(origin.after(self.drawn)),
+            Some(BellKind::Video) => self.rang.end().map(|e| origin.after(e)),
+            None => None,
+        };
+        match (self.until, rang) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Whether a flash on screen has reached its end at `now`, so the loop
@@ -1005,6 +1070,126 @@ mod tests {
             VideoFlash::Off,
             "reverse video, as set"
         );
+    }
+
+    /// A frame at `now`, committed: both halves of what it draws.
+    fn drawn(b: &mut Bell<HostTime>, t: &Term<'_>, now: HostTime) -> (VideoFlash, Option<u8>) {
+        let p = b.plan(t, now, Update::Closed);
+        b.commit(p);
+        (p.flash, p.tint.map(|k| k.alpha.get()))
+    }
+
+    /// **A `BEL` with a colour set draws the colour and not the other
+    /// video**: kitty's fade, owed a frame each interval while it runs and
+    /// none once it is over.
+    #[test]
+    fn a_ring_in_a_colour_draws_the_tint_and_not_the_other_video() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut b = Bell::new(&t, LEN);
+        feed(&mut t, b"\x1b]21;visual_bell=#ff0000\x07");
+        assert_eq!(
+            drawn(&mut b, &t, at(Duration::ZERO)),
+            (VideoFlash::Off, None)
+        );
+        b.ring();
+        assert_eq!(drawn(&mut b, &t, at(MS * 5)), (VideoFlash::Off, Some(0)));
+        assert!(b.is_due(at(MS * 5)), "the fade owes the next frame");
+        assert_eq!(drawn(&mut b, &t, at(MS * 55)), (VideoFlash::Off, Some(153)));
+        assert!(b.is_due(at(MS * 70)));
+        assert_eq!(drawn(&mut b, &t, at(MS * 105)), (VideoFlash::Off, None));
+        assert_eq!(b.deadline(), None, "nothing more is owed");
+    }
+
+    /// **A `?5` pair is reverse video, not the bell**: with a colour set it
+    /// still draws the other video, and a `BEL` in the same frame draws its
+    /// colour over it.
+    #[test]
+    fn a_pair_is_the_other_video_whatever_the_bell_colour() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut b = Bell::new(&t, LEN);
+        feed(&mut t, b"\x1b]21;visual_bell=#ff0000\x07");
+        assert_eq!(
+            drawn(&mut b, &t, at(Duration::ZERO)),
+            (VideoFlash::Off, None)
+        );
+        feed(&mut t, b"\x1b[?5h\x1b[?5l");
+        assert_eq!(drawn(&mut b, &t, at(MS * 5)), (VideoFlash::On, None));
+        feed(&mut t, b"\x1b[?5h\x1b[?5l");
+        b.ring();
+        let (flash, tint) = drawn(&mut b, &t, at(MS * 60));
+        assert_eq!(flash, VideoFlash::On, "the pair's");
+        assert!(tint.is_some(), "and the bell's colour");
+    }
+
+    /// **With no colour, or the automatic one, a `BEL` draws the other
+    /// video**, as before a colour could be set.
+    #[test]
+    fn an_automatic_ring_draws_the_other_video() {
+        for set in [
+            &b""[..],
+            b"\x1b]21;visual_bell=\x07",
+            b"\x1b]21;visual_bell=red;visual_bell\x07",
+        ] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut b = Bell::new(&t, LEN);
+            feed(&mut t, set);
+            drawn(&mut b, &t, at(Duration::ZERO));
+            b.ring();
+            assert_eq!(drawn(&mut b, &t, at(MS * 5)), (VideoFlash::On, None));
+            assert_eq!(b.deadline(), Some(at(MS * 105)));
+        }
+    }
+
+    /// **A change of `?5` ends the other video and not a tint**, which is
+    /// not of the video.
+    #[test]
+    fn a_change_of_mode_ends_no_tint() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut b = Bell::new(&t, LEN);
+        feed(&mut t, b"\x1b]21;visual_bell=#00ff00\x07");
+        drawn(&mut b, &t, at(Duration::ZERO));
+        b.ring();
+        drawn(&mut b, &t, at(MS * 5));
+        feed(&mut t, b"\x1b[?5h");
+        assert_eq!(drawn(&mut b, &t, at(MS * 55)), (VideoFlash::Off, Some(153)));
+    }
+
+    /// **Bells rung faster than WCAG 2.3.1 allows flash no faster**: a
+    /// `BEL` each frame holds one flash; one each 200 ms, xterm's
+    /// `bellSuppressTime`, flashes once each 600 ms, the rings inside the
+    /// quiet absorbed -- for the other video and for a colour alike.
+    #[test]
+    fn bells_rung_fast_flash_at_most_twice_a_second() {
+        for set in [&b""[..], b"\x1b]21;visual_bell=#ffffff\x07"] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut b = Bell::new(&t, LEN);
+            feed(&mut t, set);
+            drawn(&mut b, &t, at(Duration::ZERO));
+            let mut lit = vec![];
+            for f in 1..120u32 {
+                if f % 12 == 0 {
+                    b.ring();
+                }
+                let (v, k) = drawn(&mut b, &t, at(Duration::from_micros(u64::from(f) * 16_667)));
+                lit.push(v == VideoFlash::On || k.is_some_and(|a| a > 0));
+            }
+            let starts = lit.windows(2).filter(|w| !w[0] && w[1]).count();
+            assert_eq!(starts, 3, "rings at 0.2 s, 0.8 s and 1.4 s: {lit:?}");
+            let (mut owned, mut lit) = (Owned::new(&WS), vec![]);
+            let t = Term::new(owned.storage(), &WS);
+            let mut b = Bell::new(&t, LEN);
+            for f in 0..60u32 {
+                b.ring();
+                let (v, _) = drawn(&mut b, &t, at(Duration::from_micros(u64::from(f) * 16_667)));
+                lit.push(v == VideoFlash::On);
+            }
+            assert!(lit.iter().all(|&l| l), "a ring a frame holds one flash");
+        }
     }
 
     /// The update clock: honoured from its opening for its bound, outlived

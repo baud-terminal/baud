@@ -1,9 +1,9 @@
 //! kitty's colour control, `OSC 21 ; key=value ; ... ST`
 //! (`[[source: kitty-6d5d0c4-color-stack]]`): a program written for kitty
 //! reads and sets the default colours, the selection's, the cursor's, the
-//! text under the cursor and the 256 palette entries, and the answer is
-//! kitty's to the byte (`[[source: kitty-window-py]]` 571-641, and the
-//! cases of kitty's own test_color_profile, `[[source:
+//! text under the cursor, the visual bell's and the 256 palette entries,
+//! and the answer is kitty's to the byte (`[[source: kitty-window-py]]`
+//! 571-641, and the cases of kitty's own test_color_profile, `[[source:
 //! kitty-6d5d0c4-tests-screen]]` 1947-2000).
 
 mod support;
@@ -342,21 +342,50 @@ fn the_cursor_is_the_osc_12_colour() {
     });
 }
 
-/// **The visual bell has no colour**: baud flashes the other video, the
-/// automatic colour kitty's table names, so the query is answered empty
-/// and a colour is refused and counted.
+/// **The visual bell takes a colour**, "The color of a visual bell"
+/// (`[[source: kitty-6d5d0c4-color-stack]]`): set, asked and reset as the
+/// other named keys are. With none set it answers empty, since baud
+/// configures no bell colour and its automatic flash, the other video, has
+/// no one colour; an empty value is that automatic flash, and a bare key
+/// the colour it would have if never set, which here is the same flash.
 #[test]
-fn the_visual_bell_has_no_colour() {
+fn the_visual_bell_is_set_asked_and_reset() {
     told(|t| {
         let before = t.unsupported;
-        support::feed(t, b"\x1b]21;visual_bell=?;visual_bell=red\x07");
+        support::feed(t, b"\x1b]21;visual_bell=?\x07");
         assert_eq!(text(&drain(t)), "\x1b]21;visual_bell=\x1b\\");
-        assert_eq!(t.unsupported, before + 1);
-        support::feed(t, b"\x1b]21;visual_bell=;visual_bell\x07");
+        assert_eq!(t.program_paint(PaintRole::VisualBell), ProgramPaint::Unset);
+        support::feed(t, b"\x1b]21;visual_bell=red;visual_bell=?\x07");
+        assert_eq!(text(&drain(t)), "\x1b]21;visual_bell=rgb:ff/00/00\x1b\\");
         assert_eq!(
-            t.unsupported,
-            before + 1,
-            "the automatic colour is what is drawn"
+            t.program_paint(PaintRole::VisualBell),
+            ProgramPaint::Colour((0xff, 0, 0))
+        );
+        assert_eq!(t.unsupported, before, "a colour is honoured");
+        support::feed(t, b"\x1b]21;visual_bell=;visual_bell=?\x07");
+        assert_eq!(text(&drain(t)), "\x1b]21;visual_bell=\x1b\\");
+        assert_eq!(
+            t.program_paint(PaintRole::VisualBell),
+            ProgramPaint::Automatic
+        );
+        support::feed(t, b"\x1b]21;visual_bell=#102030\x07\x1b]21;visual_bell\x07");
+        assert_eq!(t.program_paint(PaintRole::VisualBell), ProgramPaint::Unset);
+        assert_eq!(t.unsupported, before, "nothing refused");
+        // Kept apart from the text under the cursor, which a shared slot
+        // would overwrite.
+        support::feed(t, b"\x1b]21;cursor_text=#010203;visual_bell=#a0b0c0\x07");
+        assert_eq!(
+            t.program_paint(PaintRole::CursorText),
+            ProgramPaint::Colour((1, 2, 3))
+        );
+        assert_eq!(
+            t.program_paint(PaintRole::VisualBell),
+            ProgramPaint::Colour((0xa0, 0xb0, 0xc0))
+        );
+        support::feed(t, b"\x1b]21;visual_bell=?;cursor_text=?\x07");
+        assert_eq!(
+            text(&drain(t)),
+            "\x1b]21;visual_bell=rgb:a0/b0/c0;cursor_text=rgb:01/02/03\x1b\\"
         );
     });
 }
@@ -624,6 +653,55 @@ fn the_colour_stack_keeps_the_text_under_the_cursor() {
             ProgramPaint::Colour((1, 1, 1))
         );
         assert_eq!(t.program_paint(PaintRole::Cursor), ProgramPaint::Automatic);
+    });
+}
+
+/// XTPUSHCOLORS keeps the visual bell's colour, as kitty's push keeps every
+/// colour a program set (`[[source: kitty-6d5d0c4-colors-c]]` 717-757), and
+/// XTPOPCOLORS puts it back.
+#[test]
+fn the_colour_stack_keeps_the_visual_bell() {
+    told(|t| {
+        support::feed(
+            t,
+            b"\x1b]21;visual_bell=#010101;cursor_text=#040404\x07\x1b[#P",
+        );
+        support::feed(t, b"\x1b]21;visual_bell=#020202;cursor_text=#050505\x07");
+        support::feed(t, b"\x1b[#Q");
+        assert_eq!(
+            t.program_paint(PaintRole::VisualBell),
+            ProgramPaint::Colour((1, 1, 1))
+        );
+        assert_eq!(
+            t.program_paint(PaintRole::CursorText),
+            ProgramPaint::Colour((4, 4, 4))
+        );
+        support::feed(
+            t,
+            b"\x1b]21;visual_bell=\x07\x1b[#P\x1b]21;visual_bell=#020202\x07\x1b[#Q",
+        );
+        assert_eq!(
+            t.program_paint(PaintRole::VisualBell),
+            ProgramPaint::Automatic
+        );
+    });
+}
+
+/// An embedder's light/dark flip that drops the overrides drops the visual
+/// bell's colour with them.
+#[test]
+fn dropping_the_overrides_drops_the_visual_bell() {
+    let table = table();
+    told(|t| {
+        support::feed(t, b"\x1b]21;visual_bell=#010101\x07");
+        t.set_theme(&theme(&table), Overrides::Keep);
+        assert_eq!(
+            t.program_paint(PaintRole::VisualBell),
+            ProgramPaint::Colour((1, 1, 1)),
+            "kept"
+        );
+        t.set_theme(&theme(&table), Overrides::Drop);
+        assert_eq!(t.program_paint(PaintRole::VisualBell), ProgramPaint::Unset);
     });
 }
 

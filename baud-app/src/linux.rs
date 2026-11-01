@@ -2483,6 +2483,7 @@ impl Driver {
         // only if the frame reaches the compositor, below.
         let bell = self.bell.plan(&self.term, seen_at, update);
         self.renderer.set_flash(bell.flash);
+        self.renderer.set_bell_tint(bell.tint);
         let blinks = self.blinks();
         let caret = self.caret.plan(seen_at, blinks);
         self.renderer.set_cursor_blink(caret);

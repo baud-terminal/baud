@@ -106,6 +106,12 @@ const REPRESENTATIVE: &[(&str, &[u8])] = &[
         "OSC 1337 ; SetColors=key=value",
         b"\x1b]1337;SetColors=fg=fff\x1b\\",
     ),
+    // kitty's colour control: a colour set and one asked, `key` and
+    // `value` naming none of their own.
+    (
+        "OSC 21 ; key=value ; ...",
+        b"\x1b]21;visual_bell=#ff0000;foreground=?\x1b\\",
+    ),
     // A file in parts begun, inline: its data comes in later messages.
     (
         "OSC 1337 ; File=args, MultipartFile, FilePart, FileEnd",

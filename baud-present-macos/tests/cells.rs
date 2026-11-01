@@ -27,6 +27,8 @@ use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer, premultiply,
 };
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
+use core::time::Duration;
+
 use baud_render::fire;
 use baud_render::ice;
 use baud_render::lightning;
@@ -35,12 +37,12 @@ use baud_render::orb;
 use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
-    Argb, Blend, Blink, BlinkPhases, Candidate, Caret, Composition, Corners, CursorLook,
-    CursorPhase, Damage, FaceRole, FaceStyle, FontSlot, GlyphMap, Highlight, Hover, Instance, Kind,
-    Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, ScreenSlide, Scroll,
-    Scroller, Segment, Shape, SixelBg, Smear, SplashLook, SplashPhase, Stack, StatusMarks,
-    StyleStamp, Tally, Target, Theme, Toward, Trail, TrailLook, Transition, VideoFlash, Widths,
-    Window, compose_slide, quad_coverage, slide_offsets,
+    Argb, BellFlash, BellKind, BellShown, Blend, Blink, BlinkPhases, Candidate, Caret, Composition,
+    Corners, CursorLook, CursorPhase, Damage, FaceRole, FaceStyle, FontSlot, GlyphMap, Highlight,
+    Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rang, Rect, Region, Renderer, Resolved,
+    Scene, ScreenSlide, Scroll, Scroller, Segment, Shape, SixelBg, Smear, SplashLook, SplashPhase,
+    Stack, StatusMarks, StyleStamp, Tally, Target, Theme, Toward, Trail, TrailLook, Transition,
+    VideoFlash, Widths, Window, compose_slide, quad_coverage, slide_offsets,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -582,9 +584,11 @@ impl Arms<'_, '_> {
         self.renderer
             .cursor_guide_lowered(self.slide.unwrap_or(Px::of(0)), &mut self.grounds);
         // baud's own overlays last, over the images, as the app draws
-        // them: the find field's cells masked and its records and caret,
-        // the link preview's bar the same way, the thumb, the fade.
+        // them: a `BEL`'s tint, the find field's cells masked and its
+        // records and caret, the link preview's bar the same way, the
+        // thumb, the fade.
         let chrome_from = self.records.len();
+        self.records.extend_from_slice(self.renderer.bell_tint());
         for (c, caret) in [
             (self.renderer.find_field(), true),
             (self.renderer.link_bar(), false),
@@ -4743,6 +4747,83 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     composed_decoration_gate(arms, t);
 }
 
+/// **A `BEL` in a colour is drawn alike on every path**: the instance and
+/// cell arms and the CPU arm draw the bell's solid over the cells and under
+/// the thumb, at the peak and on the way down, on the dark and the light
+/// theme -- and each frame differs from the one without it, so equal frames
+/// are not three blanks; with no colour set the frame is the other video's,
+/// the solid absent.
+#[test]
+fn a_coloured_bell_draws_alike_on_every_arm() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).expect("parse")];
+    for theme in [Theme::dark(), Theme::light()] {
+        let fresh = || {
+            Renderer::new(
+                Stack::new(&faces).unwrap(),
+                PxSize::of(14.0).unwrap(),
+                theme.clone(),
+                Blend::Native,
+                Cols::of_index(usize::from(WS.ws_col)),
+                Rows::of_index(usize::from(WS.ws_row)),
+            )
+            .unwrap()
+        };
+        arms!(fresh() => arms, t);
+        feed(
+            &mut t,
+            b"\x1b[?25l\x1b[2;3HThe quick brown fox \x1b[31mjumps over\x1b[0m 0123456789\x1b[7m reversed \x1b[0m",
+        );
+        let (plain, _) = arms.draw(&mut t);
+        for (colour, at) in [(&b"#ff0000"[..], 50), (b"#3f638b", 50), (b"#ffffff", 80)] {
+            let what = format!("{} at {at} ms", String::from_utf8_lossy(colour));
+            feed(
+                &mut t,
+                &[&b"\x1b]21;visual_bell="[..], colour, b"\x07"].concat(),
+            );
+            let kind = BellKind::of(&t);
+            let (b, _) =
+                BellFlash::new(Duration::from_millis(100)).at(Duration::ZERO, Rang::Yes, kind);
+            let shown = b.at(Duration::from_millis(at), Rang::No, kind).1;
+            assert!(shown.tint().is_some(), "{what}: a tint");
+            arms.renderer.set_bell_tint(shown.tint());
+            let (a, b) = arms.draw(&mut t);
+            let cpu = cpu_frame(&mut arms, &mut t);
+            assert_eq!(a.len(), cpu.len(), "{what}: one frame size");
+            assert!(
+                differing(&plain, &a) > 0,
+                "{what}: the tint reached the pixels"
+            );
+            assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+            assert_eq!(differing(&a, &cpu), 0, "{what}: the CPU arm differs");
+        }
+        arms.renderer.set_bell_tint(None);
+        let (back, _) = arms.draw(&mut t);
+        assert_eq!(differing(&back, &plain), 0, "nothing left of the tint");
+        feed(&mut t, b"\x1b]21;visual_bell\x07");
+        let (b, shown) = BellFlash::new(Duration::from_millis(100)).at(
+            Duration::ZERO,
+            Rang::Yes,
+            BellKind::of(&t),
+        );
+        assert_eq!(shown, BellShown::Video, "no colour: the other video");
+        assert!(b.lit().is_some());
+        arms.renderer.set_flash(shown.video());
+        arms.renderer.set_bell_tint(shown.tint());
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(differing(&a, &b), 0, "the arms disagree on the other video");
+        assert!(
+            differing(&a, &plain) > 0,
+            "the other video reached the pixels"
+        );
+        arms.renderer.set_flash(VideoFlash::Off);
+    }
+}
+
 /// **The shape pass drawn by what the table holds** (`Gpu::draw_cells`
 /// leaves it undrawn while no slot carries a decoration, but for the
 /// cursor's line): each decoration alone, minted on a screen whose table
@@ -4917,6 +4998,71 @@ fn an_undecorated_cursor_line_draws_by_rows_as_the_whole_frame_does() {
         let n = steps.len();
         rows_were_few(&cell_oracle(Reads::Copy, Px::of(0), steps, n));
     }
+}
+
+/// **A `BEL`'s tint redraws the whole frame on a surface drawn before**:
+/// its solid changes with no cell, so each frame of its fade, and the one
+/// it leaves, is drawn whole into the target the rotation gives it and
+/// equals the frame drawn whole -- on the cell and the instance paths --
+/// and a cursor move after it is drawn by rows again.
+#[test]
+fn a_bell_tint_redraws_whole_on_a_reused_surface() {
+    let tint = |alpha: Option<u8>| -> Act {
+        Box::new(move |a, _| {
+            a.renderer
+                .set_bell_tint(alpha.map(|v| baud_render::BellTint {
+                    colour: Argb(0xFFFF_0000),
+                    alpha: Chan::from_u8(v),
+                }))
+        })
+    };
+    let steps = || -> Vec<Step> {
+        vec![
+            (
+                "plain text",
+                Damage::Incremental,
+                Box::new(|_, t| {
+                    feed(
+                        t,
+                        b"\x1b[?25h\x1b[2;1HThe quick brown fox jumps over 0123456789\x1b[3;5H",
+                    );
+                }),
+                Want::Any,
+            ),
+            (
+                "the tint rises",
+                Damage::Incremental,
+                tint(Some(36)),
+                Want::Whole,
+            ),
+            (
+                "the tint peaks",
+                Damage::Incremental,
+                tint(Some(153)),
+                Want::Whole,
+            ),
+            (
+                "the tint falls",
+                Damage::Incremental,
+                tint(Some(36)),
+                Want::Whole,
+            ),
+            (
+                "the tint goes",
+                Damage::Incremental,
+                tint(None),
+                Want::Whole,
+            ),
+            (
+                "the cursor moved",
+                Damage::Incremental,
+                at(4, 9),
+                Want::Rows,
+            ),
+        ]
+    };
+    cell_oracle(Reads::Copy, Px::of(0), steps(), 0);
+    instance_oracle(Px::of(0), steps(), 0);
 }
 
 /// **The cursor's line under a slide**: a frame sliding by a whole row

@@ -1085,6 +1085,9 @@ or measured.
   512 px per em, while `config.rs` 506-507 takes any number.
 - **The visual bell has no rate limit that was found** (**C**), so how often
   a program can make it flash the whole screen is unmeasured (section 3.4).
+  Since 2026-11-01 a BEL's flash, coloured or the other video, starts at
+  most twice a second (`baud-render/src/bell.rs`, the BEL row of
+  docs/vt-coverage.md); a `?5` pair's flash is not held to it.
 
 ## 6. Red-first tests, whichever option
 

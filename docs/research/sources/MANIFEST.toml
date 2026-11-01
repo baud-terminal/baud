@@ -39890,3 +39890,47 @@ status = "external"
 group  = "BE"
 # Fetched 2026-10-31 for the Wayland pacing globals; hash recorded only, not
 # committed. Read, not copied.
+
+[sources.kitty-6d5d0c4-animation-h]
+key    = "kitty-6d5d0c4-animation-h"
+title  = "kitty 6d5d0c4, kitty/animation.h -- EASE_IN_OUT is cubic-bezier 0.42, 0, 0.58, 1"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 6d5d0c4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/animation.h"
+file   = ""
+sha256 = "ff852a8fe35d30fdefe3e9cc3983f3abf675d348d355a15538fcd4a9c1ed36e8"
+bytes  = 1141
+status = "external"
+group  = "C"
+
+[sources.kitty-6d5d0c4-animation-c]
+key    = "kitty-6d5d0c4-animation-c"
+title  = "kitty 6d5d0c4, kitty/animation.c -- apply_easing_curve spreads 0 to 1 across an animation's segments, so the visual bell's up and down share one span"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 6d5d0c4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/animation.c"
+file   = ""
+sha256 = "9bf91435ef2a55439f64f5e1cf07a44d320dd365c16eae2f29cbd7252645804f"
+bytes  = 11257
+status = "external"
+group  = "C"
+
+[sources.kitty-6d5d0c4-options-to-c]
+key    = "kitty-6d5d0c4-options-to-c"
+title  = "kitty 6d5d0c4, kitty/options/to-c.h -- parse_animation stores visual_bell_duration's seconds unscaled, the easing applied up then down"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 6d5d0c4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/options/to-c.h"
+file   = ""
+sha256 = "83febff71a29569f421550ce4879bc066a039ed9d645dbe43d3179cfaf8ca0fb"
+bytes  = 26008
+status = "external"
+group  = "C"
+# Fetched 2026-11-01 for OSC 21's visual_bell: how kitty draws and times its
+# visual bell (with kitty-6d5d0c4-shaders 1111-1169 and 1983-1988,
+# kitty-6d5d0c4-screen 3146-3158, kitty-6d5d0c4-options-definition
+# 1450-1464 and 1466-1476); hashes recorded only, not committed. Read, not
+# copied: baud's curve is solved by bisection of its own.

@@ -1674,6 +1674,8 @@ pub enum PaintRole {
     SelectionBackground,
     /// Selected text.
     SelectionForeground,
+    /// The visual bell's flash.
+    VisualBell,
 }
 
 /// What a program asked one [`PaintRole`] to be drawn in.
@@ -6306,6 +6308,7 @@ impl<'b> Term<'b> {
             PaintRole::CursorText => self.store.strs.palette[crate::storage::CURSOR_TEXT],
             PaintRole::SelectionBackground => self.cold.dynamic[DynamicColor::HighlightBg.index()],
             PaintRole::SelectionForeground => self.cold.dynamic[DynamicColor::HighlightFg.index()],
+            PaintRole::VisualBell => self.store.strs.palette[crate::storage::VISUAL_BELL],
         };
         match (w.is_automatic(), w.as_rgb()) {
             (true, _) => ProgramPaint::Automatic,
@@ -6448,6 +6451,7 @@ impl<'b> Term<'b> {
                 crate::osc::clear_palette(t.store.strs.palette, &mut t.store.style_log);
                 crate::osc::clear_dynamic(&mut t.cold, &mut t.store.style_log);
                 t.store.strs.palette[crate::storage::CURSOR_TEXT] = ColorWord::DEFAULT;
+                t.store.strs.palette[crate::storage::VISUAL_BELL] = ColorWord::DEFAULT;
                 crate::osc::clear_specials(t.store.strs.palette, &mut t.store.style_log);
             }
         });

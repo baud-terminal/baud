@@ -4840,15 +4840,17 @@ impl Paint<'_, '_> {
         self.flip_reverse_video(ModeChange::Reset, during);
         // **And the colours a program set with `OSC 10`, `11`, `12`, `17`
         // and `19`**, which `OSC 21` and iTerm2's `SetColors` write too,
-        // and the text under the cursor: none is set in "the state it has
-        // after it is made operational" (`[[source: ecma48]]` 8.3.105), so
-        // the embedder's colours stand again. After the flip, which can
+        // the text under the cursor and the visual bell's colour: none is
+        // set in "the state it has after it is made operational"
+        // (`[[source: ecma48]]` 8.3.105), so the embedder's colours stand
+        // again. After the flip, which can
         // move the cursor's colour into the program's slot. xterm's
         // `ReallyReset` keeps every dynamic colour (`[[source:
         // xterm-reset]]`'s file), a practice not followed. `DECSTR` keeps
         // them, as its list names none.
         crate::osc::clear_dynamic(self.cold, self.style_log);
         self.strs.palette[crate::storage::CURSOR_TEXT] = ColorWord::DEFAULT;
+        self.strs.palette[crate::storage::VISUAL_BELL] = ColorWord::DEFAULT;
         // `?1042` and `?1043` go back to reset with the rest: ECMA-48
         // § 8.3.105 has `RIS` "set the modes into the reset state"
         // (`[[source: ecma48]]`). xterm keeps both -- no `ReallyReset` path

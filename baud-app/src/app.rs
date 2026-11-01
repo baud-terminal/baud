@@ -2140,6 +2140,7 @@ impl App {
         let update = self.updates.state(&self.term, Instant::now());
         let bell = self.bell.plan(&self.term, seen_at, update);
         self.renderer.set_flash(bell.flash);
+        self.renderer.set_bell_tint(bell.tint);
         // The cursor's blink phase at the same moment, kept with the bell's
         // plan when an arm shows the frame.
         let blinks = crate::caret::blinks(
@@ -2540,10 +2541,12 @@ impl App {
                     .cursor_guide_lowered(if sliding { pan } else { Px::of(0) }, &mut cell.grounds);
                 let moving = (moving_from, cell.records.len());
                 // baud's own overlays, drawn over the images over the text
-                // (`CellInput::chrome`): the find field over its cells,
-                // masked off the shader as a composition is, and its caret;
-                // the link preview's bar the same way; the thumb; the fade.
+                // (`CellInput::chrome`): a `BEL`'s tint under the rest; the
+                // find field over its cells, masked off the shader as a
+                // composition is, and its caret; the link preview's bar the
+                // same way; the thumb; the fade.
                 let chrome_from = cell.records.len();
+                cell.records.extend_from_slice(self.renderer.bell_tint());
                 for (c, caret) in [
                     (self.renderer.find_field(), true),
                     (self.renderer.link_bar(), false),

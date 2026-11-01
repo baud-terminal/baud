@@ -2052,6 +2052,12 @@ pub struct Renderer<'f, 'a> {
     /// changes.
     faint: Option<(Argb, Chan)>,
     fade_inst: Vec<Instance>,
+    /// The visual bell's solid on this frame and the last
+    /// ([`Renderer::set_bell_tint`]), and its record: while it fades every
+    /// row is dirty, as under the screen fade.
+    bell: Option<crate::bell::BellTint>,
+    last_bell: Option<crate::bell::BellTint>,
+    bell_inst: Vec<Instance>,
     /// The cluster store's epoch when `prev` was taken. A cell naming a slot
     /// a sweep or a reset freed and another cluster took keeps its word, so
     /// a frame whose epoch moved repaints every row, as an eviction does.
@@ -2399,6 +2405,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_fade: None,
             faint: None,
             fade_inst: Vec::new(),
+            bell: None,
+            last_bell: None,
+            bell_inst: Vec::new(),
             last_clusters: None,
             blink: BlinkPhases::SHOWN,
             blink_slots: Tally::default(),
@@ -4113,6 +4122,40 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.fade_inst
     }
 
+    /// **The visual bell in a colour for the next frame**, or none: one
+    /// solid over the whole screen in the bell's colour at the fade's alpha
+    /// ([`crate::bell`]), which every path draws over the cells and the
+    /// images over the text and under baud's own overlays -- the find
+    /// field, the link preview's bar, the scrollbar and the screen fade --
+    /// as kitty draws its bell before its scrollbar and its hyperlink
+    /// target (`[[source: kitty-6d5d0c4-shaders]]` 1983-1988). The driver
+    /// hands the alpha its clock gives; this only places it, so the pixel
+    /// oracle can compare the paths on it. The other-video flash is
+    /// [`Renderer::set_flash`]'s.
+    pub fn set_bell_tint(&mut self, tint: Option<crate::bell::BellTint>) {
+        self.bell = tint;
+        self.build_bell();
+    }
+
+    fn build_bell(&mut self) {
+        let (w, h) = self.pixel_size();
+        self.bell_inst.clear();
+        if let Some(t) = self.bell {
+            let v = Veil {
+                w,
+                h,
+                alpha: t.alpha,
+            };
+            self.bell_inst.push(transition::instance(v, t.colour));
+        }
+    }
+
+    /// The visual bell's instances, for a path that draws records of its
+    /// own -- drawn first of baud's own overlays.
+    pub fn bell_tint(&self) -> &[Instance] {
+        &self.bell_inst
+    }
+
     /// Sets the blink phases the next convert or resolve draws with, one a
     /// rate.
     pub fn set_blink(&mut self, blink: BlinkPhases) {
@@ -4709,6 +4752,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.build_splash();
         self.build_trail();
         self.build_link();
+        self.build_bell();
         self.fade_inst.clear();
         if let Some(v) = self.fade {
             self.fade_inst
@@ -6428,6 +6472,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || sync.pass == Pass::Full
             || sync.evicted == Evicted::Yes
             || self.fade != self.last_fade
+            || self.bell != self.last_bell
             || clusters != self.last_clusters;
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let find_changed = self.find != self.last_find;
@@ -6600,7 +6645,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let fields = field_on(&self.find, row).is_some()
                 || bar_on(&self.link, row).is_some()
                 || field_at(&notice, row).is_some()
-                || self.fade.is_some();
+                || self.fade.is_some()
+                || self.bell.is_some();
             let chromed = images == ImageRows::Repainted
                 && self.image_places.iter().any(|p| {
                     p.layer == ImageLayer::Over
@@ -6768,6 +6814,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_trail = self.trail;
         self.last_trail_inst.clone_from(&self.trail_inst);
         self.last_fade = self.fade;
+        self.last_bell = self.bell;
         self.last_splash = self.splash;
         self.last_splash_inst.clone_from(&self.splash_inst);
         self.last_clusters = clusters;
@@ -7169,8 +7216,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let band = self.band(Row::from_index(r));
             let mut target = self.repainted(target, r);
             for inst in self
-                .chrome_inst
+                .bell_inst
                 .iter()
+                .chain(&self.chrome_inst)
                 .chain(&self.splash_inst)
                 .chain(&self.bar_inst)
                 .chain(&self.fade_inst)
@@ -7209,6 +7257,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .chain(self.compose_inst.iter())
             .chain(self.trail_inst.iter())
             .chain(self.glow_inst.iter())
+            .chain(self.bell_inst.iter())
             .chain(self.chrome_inst.iter())
             .chain(self.splash_inst.iter())
             .chain(self.bar_inst.iter())
@@ -7216,13 +7265,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// How many of [`Renderer::instances`], at the end, are baud's own
-    /// overlays -- the find field and its caret, the link preview's bar,
-    /// the scrollbar's thumb and the screen fade -- which a path draws
+    /// overlays -- the visual bell's solid, the find field and its caret,
+    /// the link preview's bar, the scrollbar's thumb and the screen fade --
+    /// which a path draws
     /// after the images over the text, as kitty draws its scrollbar and
     /// hyperlink target after them (`[[source: kitty-hyperlink-target]]`).
     pub fn chrome(&self) -> Tally {
         Tally::of(
-            self.chrome_inst.len()
+            self.bell_inst.len()
+                + self.chrome_inst.len()
                 + self.splash_inst.len()
                 + self.bar_inst.len()
                 + self.fade_inst.len(),

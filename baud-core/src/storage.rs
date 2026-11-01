@@ -1227,8 +1227,9 @@ pub const TITLE_STACK: usize = TITLE_SLOTS * 2 * OSC_MAX;
 /// colours as `OSC 5` sets them ([`crate::Term::special_color`]), the
 /// text under the cursor as a program set it with `OSC 21` and as the
 /// embedder configured it, whether the selection's configured page and
-/// text are each cell's own, and after them XTPUSHCOLORS's ten palettes,
-/// [`COLOR_SLOT`] entries each (`crate::stack`): 3,191 in all, 12,764
+/// text are each cell's own, the visual bell's colour as a program set it
+/// with `OSC 21`, and after them XTPUSHCOLORS's ten palettes,
+/// [`COLOR_SLOT`] entries each (`crate::stack`): 3,202 in all, 12,808
 /// bytes.
 pub const PALETTE_LEN: usize = COLOR_STACK_PALETTE + SGR_STACK_DEPTH * COLOR_SLOT;
 
@@ -1255,17 +1256,24 @@ pub(crate) const CURSOR_TEXT_CONFIGURED: usize = SPECIAL_END + 1;
 /// neither the colour stack nor a dropping of the overrides touches it.
 pub(crate) const SELECTION_PER_CELL: usize = SPECIAL_END + 2;
 
+/// The visual bell's colour as a program set it, kitty's `visual_bell`
+/// (`crate::colour`): `DEFAULT` for none, `AUTOMATIC` for the automatic
+/// flash, the other video. No rendition resolves through it; the embedder
+/// reads it ([`crate::Term::program_paint`]) to draw a bell.
+pub(crate) const VISUAL_BELL: usize = SPECIAL_END + 4;
+
 /// Where the colour stack begins.
-pub(crate) const COLOR_STACK_PALETTE: usize = SPECIAL_END + 4;
+pub(crate) const COLOR_STACK_PALETTE: usize = SPECIAL_END + 5;
 
 /// One palette on the colour stack: what a pop restores, the 256 `OSC 4`
-/// overrides, the five special colours, the five dynamic ones and the
-/// text under the cursor -- the "dynamic- and ANSI-palette colors" of
-/// `[[source: ctlseqs]]`, as xterm's `ColorSlot` holds its `MAXCOLORS` and
-/// its dynamic colours (`[[source: xterm-misc]]`), and the one dynamic
-/// colour kitty's `OSC 21` adds.
+/// overrides, the five special colours, the five dynamic ones, the text
+/// under the cursor and the visual bell's colour -- the "dynamic- and
+/// ANSI-palette colors" of `[[source: ctlseqs]]`, as xterm's `ColorSlot`
+/// holds its `MAXCOLORS` and its dynamic colours (`[[source: xterm-misc]]`),
+/// and the two dynamic colours kitty's `OSC 21` adds, which kitty's own
+/// push keeps with the rest (`[[source: kitty-6d5d0c4-colors-c]]` 717-757).
 pub(crate) const COLOR_SLOT: usize =
-    EMBEDDER_PALETTE + SpecialColor::ALL.len() + DynamicColor::COUNT + 1;
+    EMBEDDER_PALETTE + SpecialColor::ALL.len() + DynamicColor::COUNT + 2;
 
 /// Where the embedder's half of the palette slice starts.
 pub(crate) const EMBEDDER_PALETTE: usize = 256;

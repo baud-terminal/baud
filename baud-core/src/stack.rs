@@ -13,6 +13,7 @@ use baud_domain::{
 
 use crate::storage::{
     COLOR_SLOT, COLOR_STACK_PALETTE, CURSOR_TEXT, EMBEDDER_PALETTE, SPECIAL_END, SPECIAL_PALETTE,
+    VISUAL_BELL,
 };
 
 use crate::paint::Paint;
@@ -75,6 +76,7 @@ impl Paint<'_, '_> {
         let dynamic = base + EMBEDDER_PALETTE + SpecialColor::ALL.len();
         p[dynamic..dynamic + DynamicColor::COUNT].copy_from_slice(&self.cold.dynamic);
         p[dynamic + DynamicColor::COUNT] = p[CURSOR_TEXT];
+        p[dynamic + DynamicColor::COUNT + 1] = p[VISUAL_BELL];
         self.strs.colors.filled = self.strs.colors.filled.with(Entry(at));
         self.strs.colors.used = Entry(next);
     }
@@ -116,7 +118,8 @@ impl Paint<'_, '_> {
         for (&which, &w) in DYNAMIC.iter().zip(dynamic) {
             self.set_dynamic(which, w);
         }
-        self.strs.palette[CURSOR_TEXT] = saved[COLOR_SLOT - 1];
+        self.strs.palette[CURSOR_TEXT] = saved[COLOR_SLOT - 2];
+        self.strs.palette[VISUAL_BELL] = saved[COLOR_SLOT - 1];
         self.strs.colors.used = Entry(next);
     }
 
