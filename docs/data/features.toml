@@ -1579,11 +1579,20 @@ shipped = ["F2-08"]
 id = "linux-frames"
 area = "window"
 name = "Frames in time with the screen, on Linux"
-does = "A frame is drawn when the desktop is ready for the next one, and where it reports when frames reach the screen, the cursor's blink, the bell's flash and the trails are timed for that moment, as on a Mac."
+does = "A frame is drawn when the desktop is ready for the next one, and where it reports when frames reach the screen, the cursor's blink, the bell's flash and the trails are timed for that moment, as on a Mac. Where the desktop offers it, every new frame stays on screen a whole refresh, and a moving picture is held to the refresh it was drawn for."
 status = "built"
 platform = "linux"
-tests = ["baud-present-wayland/tests/handshake.rs::frames_wait_for_the_callback_and_are_timed_by_the_presentation", "baud-present-wayland/src/timing.rs::the_next_refresh_is_whole_periods_after_the_last_frame"]
+tests = ["baud-present-wayland/tests/handshake.rs::frames_wait_for_the_callback_and_are_timed_by_the_presentation", "baud-present-wayland/src/timing.rs::the_next_refresh_is_whole_periods_after_the_last_frame", "baud-present-wayland/tests/handshake.rs::the_pacing_globals_hold_each_picture_a_refresh_and_a_drawn_moment_to_its_refresh", "baud-present-wayland/tests/handshake.rs::the_frame_after_one_in_flight_is_planned_for_the_refresh_after_it", "baud-present-wayland/tests/handshake.rs::without_the_pacing_globals_a_frame_carries_nothing_more", "baud-present-wayland/src/timing.rs::a_frame_is_stamped_half_a_period_before_its_refresh"]
 shipped = ["F2-09"]
+
+[[feature]]
+id = "linux-tearing"
+area = "window"
+name = "Tearing for the least delay, on Linux"
+does = "Turn on `[window] tearing` and baud asks the desktop to show each frame the moment it is drawn, even partway through the screen's refresh, where the desktop supports that. Off by default, so every frame waits for the refresh."
+status = "built"
+platform = "linux"
+tests = ["baud-present-wayland/tests/handshake.rs::tearing_on_asks_for_async_and_drops_the_pacing", "baud-app/src/config.rs::tearing_is_off_unless_turned_on"]
 
 [[feature]]
 id = "window-frame"

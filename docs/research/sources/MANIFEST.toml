@@ -38831,6 +38831,84 @@ bytes  = 13060
 status = "retrieved"
 group  = "BE"
 
+[sources.be-obs-frames-weston]
+key    = "be-obs-frames-weston"
+title  = "The Linux app's frames on weston 16.0.0 headless: the four pacing globals offered, the checks and counts of a session with tearing off and one with it on"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-frames.sh, the weston arm: weston 16.0.0 headless, Debian sid's snapshot of 2026-10-30"
+file   = "be-observed/frames-weston.txt"
+sha256 = "c82e45f142b27f05d22fece68acc8bca49486b8bf07e72952d76ea01feccff3f"
+bytes  = 1584
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-frames-sway]
+key    = "be-obs-frames-sway"
+title  = "The Linux app's frames on sway 1.10.1 headless: no fifo-v1 or commit-timing-v1, a refresh of zero, the checks and counts of each session"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-frames.sh, the sway arm: sway 1.10.1 headless, Debian trixie"
+file   = "be-observed/frames-sway.txt"
+sha256 = "6a44baa342eeba5efe489b29830056372c4c4d8981105b2ac067e1de999f2d02"
+bytes  = 1064
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-frames-weston-rounds]
+key    = "be-obs-frames-weston-rounds"
+title  = "Four rounds each of the change and d75734a3 on weston 16.0.0 headless, in turn: frames presented and their spacing, tearing off and on"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-frames.sh, the weston arm, the change and d75734a3 alternating"
+file   = "be-observed/frames-weston-rounds.txt"
+sha256 = "3f9079f02ffa043dc4d3a507997a33ce2af09b166313cc56bdae5875a1ffb82c"
+bytes  = 1027
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-frames-weston-early]
+key    = "be-obs-frames-weston-early"
+title  = "The same weston run on the change before it counted the frame still unseen: every stamped frame planned a refresh early"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-frames.sh, the weston arm, on the change planning each frame for the next refresh after now"
+file   = "be-observed/frames-weston-early.txt"
+sha256 = "8e2cb4ddb01bb15dd67d1c6cbb7ebfa916e002098ad89b333094168f49e2ec99"
+bytes  = 1590
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-frames-weston-late]
+key    = "be-obs-frames-weston-late"
+title  = "The same weston run with each stamp a refresh later than the window sends it: the commit timer's hold, seen"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-frames.sh, the weston arm, on the change with its stamp moved one refresh later"
+file   = "be-observed/frames-weston-late.txt"
+sha256 = "17f98b804b9ec2a84e8a2df4674c97d7e21754a8e62897f293ddc2503961f7c1"
+bytes  = 1590
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-frames-weston-base]
+key    = "be-obs-frames-weston-base"
+title  = "The same weston run on the app before the pacing globals were bound (d75734a3): no barrier, no stamp, no tearing control"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-frames.sh, the weston arm, on d75734a3"
+file   = "be-observed/frames-weston-base.txt"
+sha256 = "882efacf82513c607f1eec144d4ea628bb7786e9655343eaa57d2f5b98b5ed88"
+bytes  = 1507
+status = "retrieved"
+group  = "BE"
+
 [sources.be-obs-pointer-base]
 key    = "be-obs-pointer-base"
 title  = "The same 27 checks on the binary built from 12a190d1: four fail on each arm"
@@ -39752,3 +39830,63 @@ status = "external"
 group  = "C"
 # Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
+
+[sources.weston-16-fifo]
+key    = "weston-16-fifo"
+title  = "weston 16.0.0, libweston/fifo.c -- fifo-v1: the barrier set when an update is applied, cleared for an output's surfaces at its latch, an update waiting on it not ready while it stands"
+author = "weston contributors"
+year   = 2026
+venue  = "gitlab.freedesktop.org/wayland/weston, tag 16.0.0 (MIT)"
+url    = "https://gitlab.freedesktop.org/wayland/weston/-/raw/d1882b0a544ae2197b597a6e39478e719bc54302/libweston/fifo.c"
+file   = ""
+sha256 = "25fe2a743a1e00a7c100155473a22e8fcb533278010c89882320ee67e6c2143b"
+bytes  = 7280
+status = "external"
+group  = "BE"
+# Fetched 2026-10-31 for the Wayland pacing globals (baud-present-wayland's
+# window.rs and timing.rs); hash recorded only, not committed. Read, not copied.
+
+[sources.weston-16-commit-timing]
+key    = "weston-16-commit-timing"
+title  = "weston 16.0.0, libweston/commit-timing.c -- an update's target time is ready once the presentation clock has passed it or, with a repaint scheduled, once the output's next_present is at or after it"
+author = "weston contributors"
+year   = 2026
+venue  = "gitlab.freedesktop.org/wayland/weston, tag 16.0.0 (MIT)"
+url    = "https://gitlab.freedesktop.org/wayland/weston/-/raw/d1882b0a544ae2197b597a6e39478e719bc54302/libweston/commit-timing.c"
+file   = ""
+sha256 = "f5f6a2ced11e7cd156fdaf55e7a56128876ffa918da25e2dec205366ef6051ce"
+bytes  = 7849
+status = "external"
+group  = "BE"
+# Fetched 2026-10-31 for the Wayland pacing globals (baud-present-wayland's
+# window.rs and timing.rs); hash recorded only, not committed. Read, not copied.
+
+[sources.weston-16-compositor]
+key    = "weston-16-compositor"
+title  = "weston 16.0.0, libweston/compositor.c -- weston_output_latch applies the ready updates, then clears the fifo barriers; the repaint sends the frame callbacks after it"
+author = "weston contributors"
+year   = 2026
+venue  = "gitlab.freedesktop.org/wayland/weston, tag 16.0.0 (MIT)"
+url    = "https://gitlab.freedesktop.org/wayland/weston/-/raw/d1882b0a544ae2197b597a6e39478e719bc54302/libweston/compositor.c"
+file   = ""
+sha256 = "f840f480a3402c654b4da2de2059aa2f723d1e25e06a3d1cb707540f67f1bd45"
+bytes  = 332296
+status = "external"
+group  = "BE"
+# Fetched 2026-10-31 for the Wayland pacing globals (baud-present-wayland's
+# window.rs and timing.rs); hash recorded only, not committed. Read, not copied.
+
+[sources.mesa-wsi-common-wayland-66b64b1]
+key    = "mesa-wsi-common-wayland-66b64b1"
+title  = "Mesa 66b64b1, src/vulkan/wsi/wsi_common_wayland.c -- FIFO mode sets and waits on the fifo-v1 barrier at every present and stamps it 500 us before its phase-locked target, or half a refresh before an application's nearest-refresh target; the async tearing hint only in IMMEDIATE mode, with neither"
+author = "Mesa contributors"
+year   = 2026
+venue  = "gitlab.freedesktop.org/mesa/mesa at 66b64b1 (MIT)"
+url    = "https://gitlab.freedesktop.org/mesa/mesa/-/raw/66b64b1b04130db25b28be4be0d7497e86151272/src/vulkan/wsi/wsi_common_wayland.c"
+file   = ""
+sha256 = "cb19b556bbe133f48e3e795b6e8cd9cd246ec3ed4aa0c213ad26d2f0c8ddbe07"
+bytes  = 163699
+status = "external"
+group  = "BE"
+# Fetched 2026-10-31 for the Wayland pacing globals; hash recorded only, not
+# committed. Read, not copied.

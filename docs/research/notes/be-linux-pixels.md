@@ -3,8 +3,9 @@
 The Linux app's frames, taken from a real compositor, against the same
 frames drawn by the CPU renderer on this Mac; the Linux clipboard
 against a compositor's; in section 6, a pointer moved over the app
-on two compositors (2026-10-29); and in section 7, what a frame copies
-and damages there (2026-10-31). Sections 1-5 were taken 2026-10-26 at
+on two compositors (2026-10-29); in section 7, what a frame copies
+and damages there, and in section 8, frames on the compositor's clock
+(2026-10-31). Sections 1-5 were taken 2026-10-26 at
 `ef519585` plus this note's commits, by `scripts/linux-pixels.sh`, which
 any later run repeats. The rule is that text looks the same on both
 systems (2026-10-01).
@@ -421,7 +422,62 @@ frame callback requested in the same wl_surface.commit" frees the
 buffer at once (`[[source: wayland]]`, `wl_buffer.release`), so a
 compositor that copies to a texture can be given the same buffer back.
 
-## 8. Open
+## 8. Frames on the compositor's clock
+
+Taken 2026-10-31 by `scripts/linux-frames.sh`, which any later run
+repeats. The app runs under weston 16.0.0 (Debian sid as the snapshot
+archive held it on 2026-10-30), which offers wp_presentation 2, fifo-v1,
+commit-timing-v1 and tearing-control-v1, and under sway 1.10.1, which
+offers presentation and tearing-control alone: two sessions each, of the
+launch splash and a program printing a line every 30 ms, with `[window]
+tearing` off and on. `scripts/linux-frames.py` reads the compositor's
+`WAYLAND_DEBUG=server` log (`[[source: be-obs-frames-weston]]`,
+`[[source: be-obs-frames-sway]]`):
+
+| | weston, off | weston, on | sway, off | sway, on |
+|---|---|---|---|---|
+| frames presented, discarded | 65, 0 | 66, 0 | 67, 1 | 67, 1 |
+| the refresh the feedback says | 16666666 ns | 16666666 ns | 0 | 0 |
+| commits with fifo-v1's barrier | all 65 that attach a buffer | none | none | none |
+| frames stamped, and where shown | 30, each half a refresh before a whole number of refreshes after a `presented` time the app had, to the nanosecond; all 30 at that refresh | none | none | none |
+| tearing control | none | one, hinted `async` before the first frame | none | one, `async` |
+
+- **A frame's callback comes before the presentation of the frame it
+  latched.** weston applies the ready updates, clears the fifo barriers,
+  repaints and sends that repaint's callbacks, and says `presented` at
+  the refresh (`[[source: weston-16-compositor]]`), so the next frame is
+  drawn while the next refresh is already taken. Planned for "the next
+  refresh after now", all 32 stamped frames of a first run were shown a
+  refresh after their plan (`[[source: be-obs-frames-weston-early]]`).
+  The window now plans a frame committed while the one before is unseen
+  past the refresh that one could first reach, and two after the last
+  shown, and all 30 land.
+- **The barrier and the stamp: no difference measured.** Four rounds of
+  the change and of d75734a3, which binds none of the three, in turn:
+  65 to 67 frames presented with tearing off against 67 to 68, and 66
+  against 66 to 67 with it on
+  (`[[source: be-obs-frames-weston-rounds]]`,
+  `[[source: be-obs-frames-weston-base]]`). The ranges meet. weston's
+  headless repaint runs off a software timer that is late by up to
+  about 4 ms, which is where the frames two refreshes apart come from on
+  both.
+- **The timer holds.** With each stamp moved a refresh later, a
+  perturbation of the change, 9 of 18 stamped frames are shown at the
+  refresh the moved stamp names and 9 a refresh after it, and the session
+  presents 52 frames, not 65 (`[[source: be-obs-frames-weston-late]]`).
+  weston readies a timed update when its own next presentation is at or
+  after the target (`[[source: weston-16-commit-timing]]`), which a stamp
+  on the refresh itself would miss by any rounding; hence half a refresh
+  before it, where Mesa takes 500 us
+  (`[[source: mesa-wsi-common-wayland-66b64b1]]`).
+- **sway's headless backend says a refresh of zero**, 1.10.1 and 1.12
+  alike (1.12 read with weston's own presentation client), so there the
+  app plans each frame for when it is drawn, as it does without the
+  feedback. sway discards the app's first frame in each session, having
+  called back before it showed it: the case fifo-v1's barrier holds,
+  which sway does not offer.
+
+## 9. Open
 
 - The pointer on a screen, and on GNOME's and KDE's compositors.
 - Everything here is over a black background; a desktop with a

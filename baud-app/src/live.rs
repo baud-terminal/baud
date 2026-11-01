@@ -78,6 +78,9 @@ pub enum Part {
     /// `[window] activity_lights`: the lights are put up or taken down at
     /// the next tick.
     ActivityLights,
+    /// `[window] tearing`: the compositor is given the hint with the next
+    /// frame, on Linux.
+    Tearing,
     /// `[launch] splash`: off takes a splash still on screen down at once;
     /// on after launch shows nothing, the splash being the launch's.
     Splash,
@@ -129,6 +132,7 @@ impl Part {
             | Part::Notifications
             | Part::CopyOnSelect
             | Part::ActivityLights
+            | Part::Tearing
             | Part::Splash
             | Part::AmbiguousWidth
             | Part::Reload => Takes::Now,
@@ -168,6 +172,7 @@ impl Part {
             Part::Notifications => "[screen] notifications",
             Part::CopyOnSelect => "[clipboard] copy_on_select",
             Part::ActivityLights => "[window] activity_lights",
+            Part::Tearing => "[window] tearing",
             Part::Splash => "[launch] splash",
             Part::Reload => "config_reload",
             Part::ColourSpace => "colorspace",
@@ -229,6 +234,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         graphics_print,
         window_ops,
         activity_lights,
+        tearing,
         launch_splash,
         pointer_mode,
         font_changes,
@@ -331,6 +337,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         old.activity_lights != *activity_lights,
         Part::ActivityLights,
     );
+    part(old.tearing != *tearing, Part::Tearing);
     part(old.launch_splash != *launch_splash, Part::Splash);
     part(old.config_reload != *config_reload, Part::Reload);
     part(old.colorspace != *colorspace, Part::ColourSpace);
@@ -542,6 +549,7 @@ mod tests {
                 "[window]\nactivity_lights = \"off\"\n",
                 Part::ActivityLights,
             ),
+            ("[window]\ntearing = \"on\"\n", Part::Tearing),
             ("[launch]\nsplash = \"off\"\n", Part::Splash),
             ("config_reload = \"off\"\n", Part::Reload),
             ("colorspace = \"display-p3\"\n", Part::ColourSpace),

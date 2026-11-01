@@ -13034,6 +13034,9 @@ impl Driver {
                 }
                 // Put up or taken down at the next tick.
                 Part::ActivityLights => self.app.activity_lights = c.activity_lights,
+                // The layer's contents are shown at the display's refresh,
+                // never torn: Linux only.
+                Part::Tearing => {}
                 // Off takes a splash still on screen down with one frame.
                 Part::Splash => {
                     let setting = crate::splash::splash_override(

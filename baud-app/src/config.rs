@@ -416,6 +416,13 @@ pub struct Config {
     /// (SD), `"on"` by default, or `"off"`. macOS only: the Linux window
     /// has no title bar (`baud_render::lights`).
     pub activity_lights: baud_render::ActivityLights,
+    /// `[window] tearing`: whether the window may be shown torn for the
+    /// least delay, `"off"` by default -- research decision D14, "an
+    /// opt-in, never default" -- or `"on"`. Linux only, through the
+    /// compositor's `tearing-control-v1` (`baud_present_wayland::Tearing`):
+    /// the macOS window shows its frames through a layer's contents, which
+    /// has no torn presentation.
+    pub tearing: Tearing,
     /// `[launch] splash`: whether a launch shows baud's colour logo in the
     /// middle of the window, carried in and out by the plasma
     /// -- `"on"` by default (note AJ) -- or `"off"`. On follows Reduce
@@ -748,6 +755,14 @@ pub enum TrailPick {
     Named(CursorTrail),
 }
 
+/// `[window] tearing`: `"on"` lets the compositor show a frame torn rather
+/// than wait for the screen's refresh, `"off"` (the default) does not.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tearing {
+    On,
+    Off,
+}
+
 /// `[launch] splash`: the launch splash shown, or not, `"on"` or `"off"`
 /// as every switch here is. The key has a `[launch]` section of its own,
 /// rather than a place in `[screen]` or `[window]`.
@@ -953,6 +968,7 @@ impl Config {
             graphics_print: baud_domain::GraphicsPrint::DEFAULT,
             window_ops: baud_domain::WindowOps::On,
             activity_lights: baud_render::ActivityLights::On,
+            tearing: Tearing::Off,
             launch_splash: LaunchSplash::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
             font_changes: baud_domain::FontChanges::On,
@@ -1905,6 +1921,18 @@ impl Config {
                                  using on"
                             ));
                             baud_render::ActivityLights::On
+                        }
+                    };
+                }
+                ("window", "tearing") => {
+                    self.tearing = match value.trim().trim_matches('"') {
+                        "on" => Tearing::On,
+                        "off" => Tearing::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [window] tearing {other:?} is not on or off; using off"
+                            ));
+                            Tearing::Off
                         }
                     };
                 }
@@ -4570,6 +4598,27 @@ mod reader {
             read("[screen]\nsplash = \"off\"\n").launch_splash,
             LaunchSplash::On
         );
+    }
+
+    /// **Tearing is off unless `[window] tearing = "on"`**, quoted or bare;
+    /// any other value keeps it off and says so, and the key is the
+    /// `[window]` section's.
+    #[test]
+    fn tearing_is_off_unless_turned_on() {
+        assert_eq!(Config::defaults().tearing, Tearing::Off);
+        assert_eq!(read("").tearing, Tearing::Off);
+        for on in ["\"on\"", "on"] {
+            let text = format!("[window]\ntearing = {on}\n");
+            assert_eq!(read(&text).tearing, Tearing::On, "{on}");
+        }
+        assert_eq!(read("[window]\ntearing = \"off\"\n").tearing, Tearing::Off);
+        let mut c = Config::defaults();
+        let said = c.apply("[window]\ntearing = true\n");
+        assert_eq!(c.tearing, Tearing::Off);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("[window] tearing"), "{said:?}");
+        assert_eq!(read("tearing = \"on\"\n").tearing, Tearing::Off);
+        assert_eq!(read("[screen]\ntearing = \"on\"\n").tearing, Tearing::Off);
     }
 
     /// **The activity lights are on unless `[window] activity_lights =

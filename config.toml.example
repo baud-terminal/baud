@@ -523,6 +523,12 @@ operations = "on"
 # (your keys, a paste, the terminal's answers). "on" by default; "off"
 # takes them away. macOS only: the Linux window has no title bar.
 activity_lights = "on"
+# Whether the desktop may show a frame the moment it is drawn, even partway
+# through the screen's refresh: the least delay, at the price of a moving
+# picture sometimes cut along a line. "off" by default, so every frame
+# waits for the refresh; "on" asks the desktop, where it offers that, and
+# the desktop still decides. Linux only: on macOS frames always wait.
+tearing = "off"
 
 # baud's colour logo in the middle of the window when it starts: it comes
 # out of a burst of plasma from left to right, and as soon as it is whole a

@@ -924,6 +924,753 @@ fn frames_wait_for_the_callback_and_are_timed_by_the_presentation() {
     assert_eq!(w.presented(), Some(p));
 }
 
+/// Requests as the server read them: interface, name and arguments.
+type Requests = Vec<(&'static str, &'static str, Vec<Val>)>;
+
+/// A session with the pacing globals among `extra`, tearing set to
+/// `tearing` before the registry is read: the window, the server, every
+/// request up to the surface's first commit, and the id each global was
+/// bound as, by its interface, the registry's among them. A
+/// `wp_presentation` bound is told the monotonic clock.
+fn paced_session(
+    extra: &[(&str, u32)],
+    tearing: Tearing,
+) -> (
+    Connection,
+    Server,
+    Window,
+    Requests,
+    HashMap<String, ObjectId>,
+) {
+    let (c, s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let mut server = Server::new(s);
+    let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    w.set_tearing(&mut conn.sender(), tearing);
+    conn.flush().unwrap();
+    let r = server.expect("wl_display", "get_registry");
+    let Val::New(registry) = r.args[0] else {
+        panic!()
+    };
+    server
+        .objects
+        .insert(registry, Interface::named("wl_registry").unwrap());
+    let r = server.expect("wl_display", "sync");
+    let Val::New(sync) = r.args[0] else { panic!() };
+    let globals = [("wl_compositor", 6u32), ("wl_shm", 2), ("xdg_wm_base", 6)];
+    for (name, (iface, version)) in (1u32..).zip(globals.iter().chain(extra)) {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(*version)],
+        );
+    }
+    server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+    pump(&mut conn, &mut w);
+    let (mut seen, mut bound, mut xdg, mut top) = (Vec::new(), HashMap::new(), None, None);
+    bound.insert("wl_registry".to_string(), registry);
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("wl_registry", "bind", [_, Val::NewWith(i, v, id)]) => {
+                if extra.iter().any(|(e, _)| e == i) {
+                    let want = if i == "wp_presentation" { 2 } else { 1 };
+                    assert_eq!(*v, want, "{i}");
+                }
+                bound.insert(i.clone(), *id);
+            }
+            ("xdg_wm_base", "get_xdg_surface", [Val::New(id), _]) => xdg = Some(*id),
+            ("xdg_surface", "get_toplevel", [Val::New(id)]) => top = Some(*id),
+            ("wl_surface", "commit", _) => break,
+            _ => {}
+        }
+        seen.push((r.iface, r.name, r.args));
+    }
+    if let Some(&p) = bound.get("wp_presentation") {
+        server.send(p, "wp_presentation", "clock_id", &[Arg::Uint(MONOTONIC)]);
+    }
+    configure(&mut server, top.unwrap(), xdg.unwrap(), 64, 32, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert!(matches!(w.next_event(), Some(Event::Configured { .. })));
+    (conn, server, w, seen, bound)
+}
+
+/// One commit's requests, by interface and name, up to and with the
+/// commit, the arguments of each kept.
+fn commit_requests(server: &mut Server) -> Requests {
+    let mut out = Vec::new();
+    loop {
+        let r = server.next();
+        let end = (r.iface, r.name) == ("wl_surface", "commit");
+        out.push((r.iface, r.name, r.args));
+        if end {
+            return out;
+        }
+    }
+}
+
+/// The names of `requests`, without their arguments, the pool's setup
+/// and the damage left out.
+fn names(requests: &[(&'static str, &'static str, Vec<Val>)]) -> Vec<String> {
+    requests
+        .iter()
+        .filter(|(i, n, _)| {
+            !matches!(
+                (*i, *n),
+                ("wl_shm", "create_pool")
+                    | ("wl_shm_pool", "create_buffer")
+                    | ("wl_surface", "damage_buffer")
+            )
+        })
+        .map(|(i, n, _)| format!("{i}.{n}"))
+        .collect()
+}
+
+/// The frame callback and the feedback object a commit asked for.
+fn callback_and_feedback(
+    requests: &[(&'static str, &'static str, Vec<Val>)],
+) -> (ObjectId, Option<ObjectId>) {
+    let mut cb = None;
+    let mut fb = None;
+    for (i, n, a) in requests {
+        match (*i, *n, &a[..]) {
+            ("wl_surface", "frame", [Val::New(id)]) => cb = Some(*id),
+            ("wp_presentation", "feedback", [_, Val::New(id)]) => fb = Some(*id),
+            _ => {}
+        }
+    }
+    (cb.expect("a frame callback"), fb)
+}
+
+/// The frame `requests` committed, shown `ago` before now on the
+/// monotonic clock at a refresh of `refresh`, its callback done and every
+/// buffer released: when it was shown, on the presentation clock.
+fn shown(
+    server: &mut Server,
+    conn: &mut Connection,
+    w: &mut Window,
+    requests: &[(&'static str, &'static str, Vec<Val>)],
+    ago: std::time::Duration,
+    refresh: std::time::Duration,
+) -> std::time::Duration {
+    let (callback, feedback) = callback_and_feedback(requests);
+    let clock = baud_present_wayland::sys::clock_now(ClockId(i32::try_from(MONOTONIC).unwrap()))
+        .expect("the monotonic clock");
+    let at = clock.0 - ago;
+    if let Some(fb) = feedback {
+        server.send(
+            fb,
+            "wp_presentation_feedback",
+            "presented",
+            &[
+                Arg::Uint(u32::try_from(at.as_secs() >> 32).unwrap()),
+                Arg::Uint(u32::try_from(at.as_secs() & 0xffff_ffff).unwrap()),
+                Arg::Uint(at.subsec_nanos()),
+                Arg::Uint(u32::try_from(refresh.as_nanos()).unwrap()),
+                Arg::Uint(0),
+                Arg::Uint(1),
+                Arg::Uint(0),
+            ],
+        );
+    }
+    for (i, n, a) in requests {
+        if let (&"wl_surface", &"attach", [Val::Obj(b), ..]) = (i, n, &a[..]) {
+            server.send(*b, "wl_buffer", "release", &[]);
+        }
+    }
+    server.send(callback, "wl_callback", "done", &[Arg::Uint(16)]);
+    pump(conn, w);
+    while w.next_event().is_some() {}
+    at
+}
+
+/// The timestamp a commit carried, on the presentation clock.
+fn stamp_of(requests: &[(&'static str, &'static str, Vec<Val>)]) -> Option<std::time::Duration> {
+    requests
+        .iter()
+        .find_map(|(i, n, a)| match (*i, *n, &a[..]) {
+            (
+                "wp_commit_timer_v1",
+                "set_timestamp",
+                [Val::Uint(hi), Val::Uint(lo), Val::Uint(ns)],
+            ) => Some(std::time::Duration::new(
+                u64::from(*hi) << 32 | u64::from(*lo),
+                *ns,
+            )),
+            _ => None,
+        })
+}
+
+const PACED: [(&str, u32); 3] = [
+    ("wp_presentation", 2),
+    ("wp_fifo_manager_v1", 1),
+    ("wp_commit_timing_manager_v1", 1),
+];
+
+/// **Where the compositor offers fifo-v1 and commit-timing-v1, a frame
+/// keeps to the refresh** (`window.rs`, `timing.rs`). Each global is bound
+/// at version 1 and the surface given one fifo object and one timer before
+/// its first commit. Every commit that attaches a buffer sets the barrier
+/// and waits on it, after the frame callback and the feedback and before
+/// the commit; a commit carrying the callback alone carries no barrier. A
+/// frame drawn for a moment is stamped, once, half a period before the
+/// refresh nearest that moment on the grid of whole periods from the last
+/// frame shown -- exactly, whatever the clocks read -- and a frame drawn
+/// for no moment, or before anything was shown, carries no stamp.
+#[test]
+fn the_pacing_globals_hold_each_picture_a_refresh_and_a_drawn_moment_to_its_refresh() {
+    let (mut conn, mut server, mut w, setup, bound) = paced_session(&PACED, Tearing::Off);
+    let surface = setup
+        .iter()
+        .find_map(|(i, n, a)| match (*i, *n, &a[..]) {
+            ("wl_compositor", "create_surface", [Val::New(id)]) => Some(*id),
+            _ => None,
+        })
+        .expect("a surface");
+    let made: Vec<_> = setup
+        .iter()
+        .filter(|(i, _, _)| i.starts_with("wp_fifo") || i.starts_with("wp_commit"))
+        .map(|(i, n, a)| (*i, *n, a.clone()))
+        .collect();
+    assert_eq!(made.len(), 2, "{:?}", names(&setup));
+    for (iface, name, args) in &made {
+        assert!(
+            matches!(
+                (*iface, *name),
+                ("wp_fifo_manager_v1", "get_fifo") | ("wp_commit_timing_manager_v1", "get_timer")
+            ),
+            "{iface}.{name}"
+        );
+        assert!(
+            matches!(&args[..], [Val::New(_), Val::Obj(s)] if *s == surface),
+            "{args:?}"
+        );
+    }
+    assert!(
+        bound.contains_key("wp_fifo_manager_v1")
+            && bound.contains_key("wp_commit_timing_manager_v1")
+    );
+    let frame = vec![0xff00_0000u32; 64 * 32];
+
+    // Nothing shown yet: the barrier, and no stamp for a moment there is
+    // no refresh to place.
+    w.draw_for(std::time::Instant::now());
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let first = commit_requests(&mut server);
+    assert_eq!(
+        names(&first),
+        [
+            "wl_surface.attach",
+            "wl_surface.frame",
+            "wp_presentation.feedback",
+            "wp_fifo_v1.set_barrier",
+            "wp_fifo_v1.wait_barrier",
+            "wl_surface.commit"
+        ]
+    );
+    let refresh = std::time::Duration::from_secs(1);
+    let r = refresh;
+    let at = shown(
+        &mut server,
+        &mut conn,
+        &mut w,
+        &first,
+        std::time::Duration::from_millis(3),
+        refresh,
+    );
+
+    // Drawn for the next refresh: stamped half a period before it.
+    let moment = w.next_shown(std::time::Instant::now());
+    w.draw_for(moment);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let second = commit_requests(&mut server);
+    assert_eq!(
+        names(&second),
+        [
+            "wl_surface.attach",
+            "wl_surface.frame",
+            "wp_presentation.feedback",
+            "wp_fifo_v1.set_barrier",
+            "wp_fifo_v1.wait_barrier",
+            "wp_commit_timer_v1.set_timestamp",
+            "wl_surface.commit"
+        ]
+    );
+    let stamp = stamp_of(&second).expect("a stamp");
+    let refresh_at = stamp + r / 2;
+    assert!(refresh_at > at, "{refresh_at:?} after {at:?}");
+    assert_eq!(
+        (refresh_at - at).as_nanos() % r.as_nanos(),
+        0,
+        "on the grid"
+    );
+    assert_eq!(
+        (refresh_at - at).as_nanos() / r.as_nanos(),
+        1,
+        "the next refresh"
+    );
+    let at = shown(
+        &mut server,
+        &mut conn,
+        &mut w,
+        &second,
+        std::time::Duration::from_millis(3),
+        refresh,
+    );
+
+    // Drawn for the refresh after the next: stamped a period later.
+    let moment = w.next_shown(std::time::Instant::now()) + r;
+    w.draw_for(moment);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let third = commit_requests(&mut server);
+    let refresh_at = stamp_of(&third).expect("a stamp") + r / 2;
+    assert_eq!((refresh_at - at).as_nanos(), 2 * r.as_nanos());
+    let _ = shown(
+        &mut server,
+        &mut conn,
+        &mut w,
+        &third,
+        std::time::Duration::from_millis(3),
+        refresh,
+    );
+
+    // Drawn for no moment: the barrier alone.
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let fourth = commit_requests(&mut server);
+    assert_eq!(stamp_of(&fourth), None);
+    assert!(names(&fourth).contains(&"wp_fifo_v1.wait_barrier".to_string()));
+    let _ = shown(
+        &mut server,
+        &mut conn,
+        &mut w,
+        &fourth,
+        std::time::Duration::from_millis(3),
+        refresh,
+    );
+
+    // The callback alone, drawn for a moment: the stamp and no barrier;
+    // drawn for none, neither.
+    w.draw_for(w.next_shown(std::time::Instant::now()));
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Strips(&[])),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let fifth = commit_requests(&mut server);
+    assert_eq!(
+        names(&fifth),
+        [
+            "wl_surface.frame",
+            "wp_presentation.feedback",
+            "wp_commit_timer_v1.set_timestamp",
+            "wl_surface.commit"
+        ]
+    );
+    let _ = shown(
+        &mut server,
+        &mut conn,
+        &mut w,
+        &fifth,
+        std::time::Duration::from_millis(3),
+        refresh,
+    );
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Strips(&[])),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let sixth = commit_requests(&mut server);
+    assert_eq!(
+        names(&sixth),
+        [
+            "wl_surface.frame",
+            "wp_presentation.feedback",
+            "wl_surface.commit"
+        ]
+    );
+
+    // A moment given to a frame refused goes with it: the next is drawn
+    // for none.
+    w.draw_for(w.next_shown(std::time::Instant::now()));
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::No,
+        "in flight"
+    );
+    let _ = shown(
+        &mut server,
+        &mut conn,
+        &mut w,
+        &sixth,
+        std::time::Duration::from_millis(3),
+        refresh,
+    );
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    assert_eq!(stamp_of(&commit_requests(&mut server)), None);
+}
+
+/// **The frame after one in flight is planned for the refresh after
+/// that one's** (`timing.rs`): a compositor that sends a frame's callback
+/// once it has latched it and its presentation only when it is shown --
+/// weston does -- has that refresh taken when the next frame is drawn,
+/// so the next is first seen a refresh later. With the feedback
+/// outstanding, the next frame is planned and stamped for the refresh
+/// two after the last shown; once the frame committed last is shown, the
+/// next refresh after now again, and a `discarded` for a frame already
+/// replaced changes nothing.
+#[test]
+fn the_frame_after_one_in_flight_is_planned_for_the_refresh_after_it() {
+    let (mut conn, mut server, mut w, _, _) = paced_session(&PACED, Tearing::Off);
+    let frame = vec![0xff00_0000u32; 64 * 32];
+    let refresh = std::time::Duration::from_secs(1);
+    let r = refresh;
+    let ms3 = std::time::Duration::from_millis(3);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let first = commit_requests(&mut server);
+    let at = shown(&mut server, &mut conn, &mut w, &first, ms3, refresh);
+
+    // The second frame's callback comes, its feedback does not.
+    w.draw_for(w.next_shown(std::time::Instant::now()));
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let second = commit_requests(&mut server);
+    let k = |requests: &Requests, at: std::time::Duration| {
+        let t = stamp_of(requests).expect("a stamp") + r / 2;
+        assert_eq!((t - at).as_nanos() % r.as_nanos(), 0, "on the grid");
+        (t - at).as_nanos() / r.as_nanos()
+    };
+    assert_eq!(k(&second, at), 1);
+    let (callback, feedback) = callback_and_feedback(&second);
+    for (i, n, a) in &second {
+        if let (&"wl_surface", &"attach", [Val::Obj(b), ..]) = (i, n, &a[..]) {
+            server.send(*b, "wl_buffer", "release", &[]);
+        }
+    }
+    server.send(callback, "wl_callback", "done", &[Arg::Uint(32)]);
+    pump(&mut conn, &mut w);
+    while w.next_event().is_some() {}
+    let now = std::time::Instant::now();
+    let next = w.next_shown(now);
+    assert!(next > now + r / 2, "past the refresh the second holds");
+    w.draw_for(next);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let third = commit_requests(&mut server);
+    assert_eq!(k(&third, at), 2, "the refresh after the one in flight");
+
+    // The second discarded after the third replaced it, and the third
+    // shown: the fourth is planned for the next refresh again.
+    let feedback = feedback.expect("feedback");
+    server.send(feedback, "wp_presentation_feedback", "discarded", &[]);
+    let at = shown(&mut server, &mut conn, &mut w, &third, ms3, refresh);
+    w.draw_for(w.next_shown(std::time::Instant::now()));
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    assert_eq!(k(&commit_requests(&mut server), at), 1);
+}
+
+/// **After a pause, the frame after one in flight is still planned past
+/// it**: the last frame shown three refreshes and a little ago, a frame
+/// committed now is stamped for the fourth refresh after it; with that
+/// frame's callback come and its feedback not, the next is stamped for
+/// the fifth, not the fourth that frame holds.
+#[test]
+fn after_a_pause_the_frame_after_one_in_flight_is_planned_past_it() {
+    let (mut conn, mut server, mut w, _, _) = paced_session(&PACED, Tearing::Off);
+    let frame = vec![0xff00_0000u32; 64 * 32];
+    let r = std::time::Duration::from_secs(1);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let first = commit_requests(&mut server);
+    let ago = r * 3 + std::time::Duration::from_millis(3);
+    let at = shown(&mut server, &mut conn, &mut w, &first, ago, r);
+    let k = |requests: &Requests| {
+        let t = stamp_of(requests).expect("a stamp") + r / 2;
+        assert_eq!((t - at).as_nanos() % r.as_nanos(), 0, "on the grid");
+        (t - at).as_nanos() / r.as_nanos()
+    };
+    w.draw_for(w.next_shown(std::time::Instant::now()));
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let second = commit_requests(&mut server);
+    assert_eq!(k(&second), 4);
+    let (callback, _) = callback_and_feedback(&second);
+    for (i, n, a) in &second {
+        if let (&"wl_surface", &"attach", [Val::Obj(b), ..]) = (i, n, &a[..]) {
+            server.send(*b, "wl_buffer", "release", &[]);
+        }
+    }
+    server.send(callback, "wl_callback", "done", &[Arg::Uint(32)]);
+    pump(&mut conn, &mut w);
+    while w.next_event().is_some() {}
+    w.draw_for(w.next_shown(std::time::Instant::now()));
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    assert_eq!(
+        k(&commit_requests(&mut server)),
+        5,
+        "past the refresh the second holds"
+    );
+}
+
+/// **Without the pacing globals a frame carries what it always did**: a
+/// compositor that offers only `wp_presentation` is sent the frame
+/// callback and the feedback and nothing more, a moment to draw for or
+/// tearing turned on included; one that offers the timer but no
+/// presentation clock gets no stamp, there being no clock to name a time
+/// on; and a fifo-v1 or commit-timing-v1 global that comes after the
+/// surface gives it its object then, once.
+#[test]
+fn without_the_pacing_globals_a_frame_carries_nothing_more() {
+    let frame = vec![0xff00_0000u32; 64 * 32];
+    let (mut conn, mut server, mut w, setup, _) =
+        paced_session(&[("wp_presentation", 2)], Tearing::On);
+    assert!(
+        !names(&setup).iter().any(|n| n.starts_with("wp_fifo")
+            || n.starts_with("wp_commit")
+            || n.starts_with("wp_tearing")),
+        "{:?}",
+        names(&setup)
+    );
+    let refresh = std::time::Duration::from_nanos(16_666_667);
+    let mut last = Vec::new();
+    for _ in 0..2 {
+        w.draw_for(w.next_shown(std::time::Instant::now()));
+        assert_eq!(
+            w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+            Presented::Yes
+        );
+        conn.flush().unwrap();
+        last = commit_requests(&mut server);
+        assert_eq!(
+            names(&last),
+            [
+                "wl_surface.attach",
+                "wl_surface.frame",
+                "wp_presentation.feedback",
+                "wl_surface.commit"
+            ]
+        );
+        let _ = shown(
+            &mut server,
+            &mut conn,
+            &mut w,
+            &last,
+            std::time::Duration::from_millis(3),
+            refresh,
+        );
+    }
+    drop(last);
+
+    // The timer, and no presentation to read a clock from.
+    let (mut conn, mut server, mut w, _, _) =
+        paced_session(&[("wp_commit_timing_manager_v1", 1)], Tearing::Off);
+    w.draw_for(std::time::Instant::now());
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    assert_eq!(
+        names(&commit_requests(&mut server)),
+        ["wl_surface.attach", "wl_surface.frame", "wl_surface.commit"]
+    );
+
+    // The globals offered once the surface exists.
+    let (mut conn, mut server, mut w, _, bound) = paced_session(&[], Tearing::Off);
+    let registry = bound["wl_registry"];
+    for (name, iface) in [
+        (20u32, "wp_fifo_manager_v1"),
+        (21, "wp_commit_timing_manager_v1"),
+    ] {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(1)],
+        );
+    }
+    pump(&mut conn, &mut w);
+    let mut got = Vec::new();
+    for _ in 0..4 {
+        let r = server.next();
+        got.push(format!("{}.{}", r.iface, r.name));
+    }
+    assert_eq!(
+        got,
+        [
+            "wl_registry.bind",
+            "wp_fifo_manager_v1.get_fifo",
+            "wl_registry.bind",
+            "wp_commit_timing_manager_v1.get_timer"
+        ]
+    );
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    assert_eq!(
+        names(&commit_requests(&mut server)),
+        [
+            "wl_surface.attach",
+            "wl_surface.frame",
+            "wp_fifo_v1.set_barrier",
+            "wp_fifo_v1.wait_barrier",
+            "wl_surface.commit"
+        ]
+    );
+}
+
+/// **Tearing on asks the compositor for `async` and drops the pacing**
+/// (`[window] tearing`): with tearing-control-v1 offered and tearing on,
+/// the surface's control is made before its first commit and hinted
+/// `async`, and a frame carries neither the barrier nor a stamp; turned
+/// off, the hint goes back to `vsync` and both return; on again, `async`.
+/// Off from the start makes no control at all; and on with no
+/// tearing-control offered keeps the pacing, the frames being vsync'd.
+#[test]
+fn tearing_on_asks_for_async_and_drops_the_pacing() {
+    use baud_wayland::protocol::wp_tearing_control_v1::presentation_hint::{ASYNC, VSYNC};
+    let frame = vec![0xff00_0000u32; 64 * 32];
+    let mut offered = PACED.to_vec();
+    offered.push(("wp_tearing_control_manager_v1", 1));
+    let refresh = std::time::Duration::from_nanos(16_666_667);
+    let ms3 = std::time::Duration::from_millis(3);
+    let (mut conn, mut server, mut w, setup, _) = paced_session(&offered, Tearing::On);
+    let tearing: Vec<_> = setup
+        .iter()
+        .filter(|(i, _, _)| i.starts_with("wp_tearing"))
+        .map(|(i, n, a)| (format!("{i}.{n}"), a.clone()))
+        .collect();
+    assert_eq!(tearing.len(), 2, "{tearing:?}");
+    assert_eq!(
+        tearing[0].0,
+        "wp_tearing_control_manager_v1.get_tearing_control"
+    );
+    assert_eq!(tearing[1].0, "wp_tearing_control_v1.set_presentation_hint");
+    assert!(
+        matches!(tearing[1].1[..], [Val::Uint(ASYNC)]),
+        "{:?}",
+        tearing[1].1
+    );
+    let plain = [
+        "wl_surface.attach",
+        "wl_surface.frame",
+        "wp_presentation.feedback",
+        "wl_surface.commit",
+    ];
+    let next = |w: &mut Window, conn: &mut Connection, server: &mut Server| {
+        w.draw_for(w.next_shown(std::time::Instant::now()));
+        assert_eq!(
+            w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+            Presented::Yes
+        );
+        conn.flush().unwrap();
+        let r = commit_requests(server);
+        let _ = shown(server, conn, w, &r, ms3, refresh);
+        r
+    };
+    let _ = next(&mut w, &mut conn, &mut server);
+    assert_eq!(
+        names(&next(&mut w, &mut conn, &mut server)),
+        plain,
+        "torn: neither"
+    );
+
+    w.set_tearing(&mut conn.sender(), Tearing::Off);
+    let r = next(&mut w, &mut conn, &mut server);
+    assert_eq!(
+        names(&r),
+        [
+            "wp_tearing_control_v1.set_presentation_hint",
+            "wl_surface.attach",
+            "wl_surface.frame",
+            "wp_presentation.feedback",
+            "wp_fifo_v1.set_barrier",
+            "wp_fifo_v1.wait_barrier",
+            "wp_commit_timer_v1.set_timestamp",
+            "wl_surface.commit"
+        ]
+    );
+    assert!(matches!(r[0].2[..], [Val::Uint(VSYNC)]), "{:?}", r[0].2);
+    w.set_tearing(&mut conn.sender(), Tearing::On);
+    let r = next(&mut w, &mut conn, &mut server);
+    assert_eq!(names(&r)[0], "wp_tearing_control_v1.set_presentation_hint");
+    assert!(matches!(r[0].2[..], [Val::Uint(ASYNC)]), "{:?}", r[0].2);
+    assert_eq!(names(&r)[1..], plain);
+
+    // Off from the start: no control; turned on, it is made and hinted.
+    let (mut conn, mut server, mut w, setup, _) = paced_session(&offered, Tearing::Off);
+    assert!(
+        !names(&setup)
+            .iter()
+            .any(|n| n.starts_with("wp_tearing_control_manager_v1.get"))
+    );
+    let _ = next(&mut w, &mut conn, &mut server);
+    w.set_tearing(&mut conn.sender(), Tearing::On);
+    let r = next(&mut w, &mut conn, &mut server);
+    assert_eq!(
+        names(&r)[..2],
+        [
+            "wp_tearing_control_manager_v1.get_tearing_control",
+            "wp_tearing_control_v1.set_presentation_hint"
+        ]
+    );
+    assert_eq!(names(&r)[2..], plain);
+
+    // On with no tearing-control: vsync'd, so paced.
+    let (mut conn, mut server, mut w, _, _) = paced_session(&PACED, Tearing::On);
+    let _ = next(&mut w, &mut conn, &mut server);
+    let r = next(&mut w, &mut conn, &mut server);
+    assert!(names(&r).contains(&"wp_fifo_v1.wait_barrier".to_string()));
+    assert!(stamp_of(&r).is_some());
+}
+
 /// A session through its first configure with `extra` globals offered
 /// after the three it needs: the window, the server, and the ids the
 /// extras were bound as, in order.

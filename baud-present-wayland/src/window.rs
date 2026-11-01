@@ -11,6 +11,19 @@
 //! it is, its buttons and its scrolling a frame at a time (`pointer.rs`),
 //! and shows the shape `cursor-shape-v1` names where the compositor offers
 //! that global.
+//!
+//! **Where the compositor offers the pacing globals, a frame keeps to the
+//! screen's refresh** and the frame callback still paces it, as fifo-v1
+//! asks: "Clients must use an additional mechanism such as frame callbacks
+//! or timestamps to ensure throttling occurs under all conditions"
+//! (`[[source: wp-fifo-v1]]`). Each new picture is held on screen a whole
+//! refresh before the next replaces it, through fifo-v1's barrier on every
+//! commit that attaches a buffer; a picture drawn for a moment is held
+//! until that moment's refresh through `commit-timing-v1` (`timing.rs`);
+//! and with tearing turned on (`[window] tearing`) the surface asks
+//! `tearing-control-v1` for "minimal latency and tearing is acceptable",
+//! and carries neither. Where a global is not offered, nothing of it is
+//! sent.
 
 use crate::clip::{Board, Clip, Copied, Done, Pasting, Want};
 use crate::cursor::{self, Drawn, Scale};
@@ -24,7 +37,7 @@ use crate::pointer::{
     At, AxisCode, Button, CursorShape, EventCode, Framing, Gather, Piece, PointerEvent, Press,
 };
 use crate::shm::{Pool, Px};
-use crate::timing::{ClockId, Presentation, Stamp};
+use crate::timing::{ClockId, Presentation, Stamp, Unseen};
 use baud_domain::{
     EventMillis, Focus, HebrewLayout, KeyEvent, KeyEventKind, LocatorDevice, Modifiers, premultiply,
 };
@@ -122,6 +135,27 @@ pub enum Activated {
     /// The compositor offers no `xdg-activation-v1`, or the window has no
     /// surface yet: nothing sent.
     Unavailable,
+}
+
+/// **Whether the window may be shown torn**, `[window] tearing`: `On`
+/// asks `tearing-control-v1` for the `async` hint -- "presented with
+/// minimal latency and tearing is acceptable" -- and `Off`, the protocol's
+/// default `vsync`, "synchronized to the vertical blanking period"
+/// (`[[source: wp-tearing-control-v1]]`). "The compositor is free to
+/// dynamically respect or ignore this hint".
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Tearing {
+    On,
+    #[default]
+    Off,
+}
+
+/// Whether a commit attaches a new picture, which fifo-v1's barrier holds
+/// on screen a refresh, or carries the frame callback alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Picture {
+    New,
+    Same,
 }
 
 /// Whether a bell reached the compositor ([`Window::ring_bell`]).
@@ -282,6 +316,11 @@ struct Globals {
     cursor_shape: Option<ObjectId>,
     /// `wp_presentation`, where the compositor offers it (`timing.rs`).
     presentation: Option<ObjectId>,
+    /// The pacing globals, where the compositor offers them: fifo-v1's and
+    /// commit-timing-v1's managers, and tearing-control-v1's.
+    fifo: Option<ObjectId>,
+    commit_timing: Option<ObjectId>,
+    tearing: Option<ObjectId>,
     /// the `xdg-system-bell-v1` global, where the compositor offers it.
     system_bell: Option<ObjectId>,
     /// the `xdg-activation-v1` global, where the compositor offers it.
@@ -363,6 +402,21 @@ pub struct Window {
     /// compositor said it showed (`timing.rs`).
     clock: Option<ClockId>,
     presented: Option<Presentation>,
+    /// The feedback object of the last frame committed, until the
+    /// compositor says it showed or discarded it, and the refresh it could
+    /// first reach where that was known when it was committed: a frame
+    /// that holds a refresh (`timing.rs`).
+    unseen: Option<(ObjectId, Option<Stamp>)>,
+    /// The surface's fifo-v1 object, commit timer and tearing control,
+    /// each made once, "Only one such object may exist for a surface";
+    /// the tearing control only once tearing is turned on.
+    fifo: Option<ObjectId>,
+    timer: Option<ObjectId>,
+    tearing_control: Option<ObjectId>,
+    tearing: Tearing,
+    /// The moment the next frame presented is drawn for
+    /// ([`Window::draw_for`]), taken by that frame.
+    drawn_for: Option<Instant>,
     /// The time the last frame callback carried, and the interval between
     /// the last two that came within a tenth of a second of each other.
     callback_time: Option<Duration>,
@@ -452,6 +506,12 @@ impl Window {
             callback: None,
             clock: None,
             presented: None,
+            unseen: None,
+            fifo: None,
+            timer: None,
+            tearing_control: None,
+            tearing: Tearing::Off,
+            drawn_for: None,
             callback_time: None,
             cadence: None,
             keymap: None,
@@ -1027,10 +1087,176 @@ impl Window {
             Opcode(protocol::xdg_toplevel::request::SET_APP_ID),
             &[Arg::Str(Some(&self.app_id))],
         );
-        let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
+        // The pacing objects are made before the first commit, so every
+        // content update the surface has can carry them.
         self.surface = Some(surface);
+        self.surface_objects(s);
+        let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
         self.xdg_surface = Some(xdg);
         self.toplevel = Some(top);
+    }
+
+    /// **The surface's pacing objects**, each once both its global and the
+    /// surface exist, whichever came second: a second `get_fifo`,
+    /// `get_timer` or `get_tearing_control` for one surface is a protocol
+    /// error. The tearing control is made only while tearing is on, and
+    /// asks for the `async` hint, which "is double-buffered" and so goes
+    /// with the next commit.
+    fn surface_objects(&mut self, s: &mut Sender<'_>) {
+        let Some(surface) = self.surface else {
+            return;
+        };
+        if let (Some(m), None) = (self.globals.fifo, self.fifo) {
+            let id = s.new_id(Interface::named("wp_fifo_v1").expect("pinned"));
+            let _ = s.request(
+                m,
+                Opcode(protocol::wp_fifo_manager_v1::request::GET_FIFO),
+                &[Arg::NewId(id), Arg::Object(surface)],
+            );
+            self.fifo = Some(id);
+        }
+        if let (Some(m), None) = (self.globals.commit_timing, self.timer) {
+            let id = s.new_id(Interface::named("wp_commit_timer_v1").expect("pinned"));
+            let _ = s.request(
+                m,
+                Opcode(protocol::wp_commit_timing_manager_v1::request::GET_TIMER),
+                &[Arg::NewId(id), Arg::Object(surface)],
+            );
+            self.timer = Some(id);
+        }
+        if let (Tearing::On, Some(m), None) =
+            (self.tearing, self.globals.tearing, self.tearing_control)
+        {
+            let id = s.new_id(Interface::named("wp_tearing_control_v1").expect("pinned"));
+            let _ = s.request(
+                m,
+                Opcode(protocol::wp_tearing_control_manager_v1::request::GET_TEARING_CONTROL),
+                &[Arg::NewId(id), Arg::Object(surface)],
+            );
+            self.tearing_control = Some(id);
+            self.hint(s);
+        }
+    }
+
+    /// The tearing control's hint, as the setting says.
+    fn hint(&self, s: &mut Sender<'_>) {
+        use protocol::wp_tearing_control_v1::presentation_hint;
+        let Some(control) = self.tearing_control else {
+            return;
+        };
+        let hint = match self.tearing {
+            Tearing::On => presentation_hint::ASYNC,
+            Tearing::Off => presentation_hint::VSYNC,
+        };
+        let _ = s.request(
+            control,
+            Opcode(protocol::wp_tearing_control_v1::request::SET_PRESENTATION_HINT),
+            &[Arg::Uint(hint)],
+        );
+    }
+
+    /// **Tearing turned on or off** (`[window] tearing`), at once: the hint
+    /// goes with the next commit. Off before tearing was ever on sends
+    /// nothing, the protocol's default being `vsync`.
+    pub fn set_tearing(&mut self, s: &mut Sender<'_>, t: Tearing) {
+        if t == self.tearing {
+            return;
+        }
+        self.tearing = t;
+        match self.tearing_control {
+            Some(_) => self.hint(s),
+            None => self.surface_objects(s),
+        }
+    }
+
+    /// Whether the compositor has been asked to show the window torn:
+    /// tearing on and its global offered.
+    fn torn(&self) -> bool {
+        self.tearing == Tearing::On && self.tearing_control.is_some()
+    }
+
+    /// **The next frame presented is drawn for `at`**, the moment
+    /// [`Window::next_shown`] gave: its picture -- a trail, a slide, a fade
+    /// -- is a function of that moment, so where the compositor offers
+    /// `commit-timing-v1` it is held until that moment's refresh
+    /// (`timing.rs`). A frame without one is shown as soon as the
+    /// compositor can. Taken by the next [`Window::present`], whatever it
+    /// returns.
+    pub fn draw_for(&mut self, at: Instant) {
+        self.drawn_for = Some(at);
+    }
+
+    /// **What a commit carries to keep to the refresh**, before it, unless
+    /// the window is shown torn, which asks for neither: a new picture
+    /// fifo-v1's barrier, set and waited on, so it "will be active for at
+    /// least one refresh cycle" and waits for the one before to have been;
+    /// a frame drawn for a moment the commit timer's timestamp
+    /// (`timing.rs`), at most one a commit -- a second is a protocol
+    /// error. Nothing where the globals are not offered, or the compositor
+    /// has said no refresh. The stamp sent, if one was.
+    fn pace(
+        &self,
+        s: &mut Sender<'_>,
+        picture: Picture,
+        drawn_for: Option<Instant>,
+    ) -> Option<Stamp> {
+        if self.torn() {
+            return None;
+        }
+        if let (Picture::New, Some(fifo)) = (picture, self.fifo) {
+            let _ = s.request(
+                fifo,
+                Opcode(protocol::wp_fifo_v1::request::SET_BARRIER),
+                &[],
+            );
+            let _ = s.request(
+                fifo,
+                Opcode(protocol::wp_fifo_v1::request::WAIT_BARRIER),
+                &[],
+            );
+        }
+        let stamp = match (self.timer, drawn_for, self.presented) {
+            (Some(timer), Some(at), Some(p)) => crate::sys::clock_now(p.clock)
+                .and_then(|clock| p.stamp_for(at, clock, Instant::now()))
+                .map(|t| (timer, t)),
+            _ => None,
+        };
+        let (timer, t) = stamp?;
+        let [hi, lo, nanos] = t.wire();
+        let _ = s.request(
+            timer,
+            Opcode(protocol::wp_commit_timer_v1::request::SET_TIMESTAMP),
+            &[Arg::Uint(hi), Arg::Uint(lo), Arg::Uint(nanos)],
+        );
+        Some(t)
+    }
+
+    /// Whether the last frame committed is still unseen (`timing.rs`).
+    fn unseen(&self) -> Unseen {
+        match self.unseen {
+            Some((_, held)) => Unseen::Frame(held),
+            None => Unseen::None,
+        }
+    }
+
+    /// **The frame being committed, as it will be unseen**: its feedback
+    /// object and the refresh it holds -- the first it can reach past the
+    /// frame before, or the one its stamp holds it to where that is later
+    /// -- read before it replaces the frame before. Nothing without
+    /// feedback to say when it is seen.
+    fn held(
+        &self,
+        feedback: Option<ObjectId>,
+        stamp: Option<Stamp>,
+    ) -> Option<(ObjectId, Option<Stamp>)> {
+        let fb = feedback?;
+        let first = self.presented.and_then(|p| {
+            let clock = crate::sys::clock_now(p.clock)?;
+            let next = p.refresh_after(clock, self.unseen())?;
+            let stamped = stamp.map(|t| Stamp(t.0.saturating_add(p.refresh / 2)));
+            Some(stamped.map_or(next, |t| t.max(next)))
+        });
+        Some((fb, first))
     }
 
     /// Show `frame` -- `stride` words a row, `0xAARRGGBB` straight alpha,
@@ -1050,6 +1276,7 @@ impl Window {
         stride: usize,
         changed: Changed<'_>,
     ) -> Presented {
+        let drawn_for = self.drawn_for.take();
         let (Some(surface), Some(shm), Some((w, h))) = (self.surface, self.globals.shm, self.size)
         else {
             return Presented::No;
@@ -1095,18 +1322,21 @@ impl Window {
                 Opcode(protocol::wl_surface::request::FRAME),
                 &[Arg::NewId(cb)],
             );
-            if let Some(p) = presentation {
+            let fb = presentation.map(|p| {
                 let fb = s.new_id(Interface::named("wp_presentation_feedback").expect("pinned"));
                 let _ = s.request(
                     p,
                     Opcode(protocol::wp_presentation::request::FEEDBACK),
                     &[Arg::Object(surface), Arg::NewId(fb)],
                 );
-            }
-            cb
+                fb
+            });
+            (cb, fb)
         };
         if rows.is_empty() {
-            let callback = cb(s);
+            let (callback, feedback) = cb(s);
+            let stamp = self.pace(s, Picture::Same, drawn_for);
+            self.unseen = self.held(feedback, stamp);
             let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
             self.callback = Some(callback);
             self.copied = Px(0);
@@ -1151,7 +1381,9 @@ impl Window {
                 ],
             );
         }
-        let callback = cb(s);
+        let (callback, feedback) = cb(s);
+        let stamp = self.pace(s, Picture::New, drawn_for);
+        self.unseen = self.held(feedback, stamp);
         let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
         self.callback = Some(callback);
         self.copied = copy.count();
@@ -1162,13 +1394,16 @@ impl Window {
     }
 
     /// **When a frame drawn now will first be seen**: the next refresh
-    /// after the last frame the compositor said it showed, where it offers
-    /// `wp_presentation` and says a refresh, and `now` otherwise -- what
-    /// the bell's flash, the cursor's blink and the effects are planned
-    /// for, as the macOS app plans for its display link's target.
+    /// after the last frame the compositor said it showed -- while the
+    /// frame committed since is unseen, past the refresh that one holds --
+    /// where it offers `wp_presentation` and says a refresh, and `now`
+    /// otherwise -- what the bell's flash, the cursor's blink and the
+    /// effects are planned for, as the macOS app plans for its display
+    /// link's target.
     pub fn next_shown(&self, now: Instant) -> Instant {
+        let unseen = self.unseen();
         self.presented
-            .and_then(|p| p.next())
+            .and_then(|p| p.next(unseen))
             .map_or(now, |t| t.max(now))
     }
 
@@ -1446,6 +1681,21 @@ impl Handler for Window {
                     "wp_presentation" => {
                         self.globals.presentation =
                             Window::bind(s, self.registry, name, iface, version.min(2));
+                    }
+                    // Version 1 of each, the only one: fifo-v1's barrier,
+                    // commit-timing-v1's timer and tearing-control-v1's
+                    // hint, each a surface's once its surface exists.
+                    "wp_fifo_manager_v1" => {
+                        self.globals.fifo = Window::bind(s, self.registry, name, iface, 1);
+                        self.surface_objects(s);
+                    }
+                    "wp_commit_timing_manager_v1" => {
+                        self.globals.commit_timing = Window::bind(s, self.registry, name, iface, 1);
+                        self.surface_objects(s);
+                    }
+                    "wp_tearing_control_manager_v1" => {
+                        self.globals.tearing = Window::bind(s, self.registry, name, iface, 1);
+                        self.surface_objects(s);
                     }
                     "xdg_system_bell_v1" => {
                         self.globals.system_bell =
@@ -1906,6 +2156,9 @@ impl Handler for Window {
                     ..,
                 ],
             ) => {
+                if self.unseen.is_some_and(|(fb, _)| fb == ev.object) {
+                    self.unseen = None;
+                }
                 let secs = u64::from(*hi) << 32 | u64::from(*lo);
                 if let (Some(clock), true) = (self.clock, *nanos < 1_000_000_000) {
                     self.presented = Some(Presentation {
@@ -1914,6 +2167,12 @@ impl Handler for Window {
                         refresh: Duration::from_nanos(u64::from(*refresh)),
                     });
                 }
+            }
+            // A frame not shown holds no refresh.
+            ("wp_presentation_feedback", "discarded", _)
+                if self.unseen.is_some_and(|(fb, _)| fb == ev.object) =>
+            {
+                self.unseen = None;
             }
             // The token asked for: `activate` with it, and the token's
             // object let go -- "The received token stays valid".

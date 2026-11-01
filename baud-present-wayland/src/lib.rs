@@ -1,5 +1,8 @@
 //! **baud's Wayland presentation layer, over the pure-protocol connection.**
-//! A `wl_shm` window with its xdg role, frames paced on the frame callback,
+//! A `wl_shm` window with its xdg role, frames paced on the frame callback
+//! and timed by the presentation feedback, held to the refresh through
+//! `fifo-v1` and `commit-timing-v1` and shown torn on request through
+//! `tearing-control-v1`, each where the compositor offers it (`timing.rs`),
 //! the pointer a frame at a time with its shape through `cursor-shape-v1`
 //! or, without it, an image of its own (`cursor.rs`), the clipboard and the
 //! primary selection (`clip.rs`), an input method through `text-input-v3`
@@ -32,7 +35,8 @@ pub use ime::{ByteAt, CursorAt, CursorRect, Hint, Hinted, Preedit, PreeditCursor
 pub use keys::Shortcut;
 pub use pointer::{At, Button, CursorShape, EventCode, PointerEvent, Press, Scroll};
 pub use shm::{Pool, Px};
-pub use timing::{ClockId, Presentation, Stamp};
+pub use timing::{ClockId, Presentation, Stamp, Unseen};
 pub use window::{
-    Activated, ConfigureBounds, Event, Presented, Resize, Rung, Shaped, Shown, Toggle, Window,
+    Activated, ConfigureBounds, Event, Presented, Resize, Rung, Shaped, Shown, Tearing, Toggle,
+    Window,
 };

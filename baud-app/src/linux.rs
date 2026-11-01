@@ -29,7 +29,10 @@
 //! scrollbar's thumb, AppKit's overlay style, with its hover, drag and jump
 //! (`bar.rs`) and `?30`. A change on the clock with no event to bring it
 //! bounds the one wait; motion in flight owes a frame on each turn, which
-//! the compositor's frame events pace.
+//! the compositor's frame events pace, and that frame is drawn for the
+//! moment it is first seen and, where the compositor offers
+//! `commit-timing-v1`, held to it (`Window::draw_for`); a frame a key or
+//! the program's output owes is shown as soon as it can be.
 //!
 //! **The desktop's appearance and links are the Linux desktop's**: under
 //! `theme = "auto"` the palette follows the Settings portal's
@@ -116,6 +119,26 @@ enum Pending {
     Dirty,
 }
 
+/// What the frame owed is drawn for: the moment it is first seen, when a
+/// timed effect owed it -- a trail, a slide, a fade, the splash, the
+/// thumb, a blink flip, a kitty animation -- whose picture is a function
+/// of that moment and which the compositor's commit timer then holds to
+/// its refresh (`Window::draw_for`); else the soonest the compositor can
+/// show it, which a key, the pointer and the program's output are owed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FrameFor {
+    Moment,
+    Soonest,
+}
+
+/// `[window] tearing`, as the window takes it.
+fn tearing(t: crate::config::Tearing) -> baud_present_wayland::Tearing {
+    match t {
+        crate::config::Tearing::On => baud_present_wayland::Tearing::On,
+        crate::config::Tearing::Off => baud_present_wayland::Tearing::Off,
+    }
+}
+
 struct Driver {
     conn: Connection,
     window: Window,
@@ -166,6 +189,8 @@ struct Driver {
     /// refills the frame and repaints it whole.
     margin: Argb,
     pending: Pending,
+    /// What the frame owed is drawn for, until a frame is presented.
+    frame_for: FrameFor,
     damage: Damage,
     /// The rows the last frame painted, as the window is told them: what
     /// it copies and damages (`Window::present`).
@@ -485,6 +510,9 @@ pub fn run() {
         },
         None => crate::info!("compose: no Compose file found; dead keys type nothing"),
     }
+    // `[window] tearing`, taken once the surface and the compositor's
+    // `tearing-control-v1` both exist.
+    window.set_tearing(&mut conn.sender(), tearing(cfg.tearing));
     let bell = Bell::new(&term, crate::bell::LENGTH);
     // `BAUD_MOTION` fixes the motion preference as on macOS; otherwise it
     // is full until the portal says, which the answer to the launch's
@@ -539,6 +567,7 @@ pub fn run() {
         stride: Px::of(0),
         margin,
         pending: Pending::Clean,
+        frame_for: FrameFor::Soonest,
         damage: Damage::Full,
         strips: Vec::new(),
         updates: UpdateClock::new(SYNC_MAX),
@@ -787,11 +816,15 @@ pub fn run() {
         }
         match d.timed.turn(at, &mut d.term) {
             crate::timed::Owes::Nothing => {}
-            crate::timed::Owes::Frame => d.pending = Pending::Dirty,
+            crate::timed::Owes::Frame => {
+                d.pending = Pending::Dirty;
+                d.frame_for = FrameFor::Moment;
+            }
             // A blink flip moves no cell word, so row damage cannot see it.
             crate::timed::Owes::Full => {
                 d.damage = Damage::Full;
                 d.pending = Pending::Dirty;
+                d.frame_for = FrameFor::Moment;
             }
         }
         while let Some(e) = d.window.next_event() {
@@ -1783,6 +1816,10 @@ impl Driver {
                 }
                 // The Linux window has no title bar to put them in.
                 Part::ActivityLights => {}
+                // The hint goes with the next frame.
+                Part::Tearing => self
+                    .window
+                    .set_tearing(&mut self.conn.sender(), tearing(c.tearing)),
                 Part::ImageAnimation => self.timed.set_image_animation(c.image_animation),
                 Part::Hollow => {
                     self.unfocused_cursor = c.unfocused_cursor;
@@ -2634,6 +2671,11 @@ impl Driver {
         // The blink rates on screen, which bound the next wait.
         self.timed
             .drawn(self.renderer.blink_seen(), self.term.regis_blink());
+        // A frame a timed effect owed is drawn for the moment it is seen,
+        // and held to it.
+        if self.frame_for == FrameFor::Moment {
+            self.window.draw_for(seen_at);
+        }
         if self
             .window
             .present(&mut self.conn.sender(), shown, pitch, changed)
@@ -2643,6 +2685,7 @@ impl Driver {
             self.bell.commit(bell);
             self.caret.commit(caret);
             self.pending = Pending::Clean;
+            self.frame_for = FrameFor::Soonest;
         }
     }
 }
