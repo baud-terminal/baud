@@ -558,18 +558,20 @@ splash = "on"
 # baud's marks, as Atuin's functions spell marks of their own. In bash,
 # these differ from a shell without baud: from bash 5.1 a PROMPT_COMMAND
 # you did not export is an array, yours first as it was and baud's entry
-# last, so what your entries print counts as the last command's output; an
+# last, so what your entries print counts as the last command's output; in
+# that array your entries read $_ at the first prompt as the name of one
+# of baud's functions rather than what your startup files left in it; an
 # exported PROMPT_COMMAND passes baud's two entries on to the shells bash
 # starts, where they mark nothing; with PROMPT_COMMAND exported or bash
-# before 5.1, your own entries read the command's $? but PIPESTATUS only
-# as its last status; a DEBUG trap of yours also runs before the commands
-# of baud's entries, so one that starts a timer, as a command-duration
-# prompt's does, starts it at the prompt; and an exported PS1, PS2 or PS0
-# keeps baud's marks while a command runs when another entry follows
-# baud's in PROMPT_COMMAND, as bash-preexec's does, or when the line
-# begins with a subshell ( ... ) or coproc. "on" by default; "off" starts
-# every shell as any other terminal does. A change shows in the next
-# window.
+# before 5.1, your own entries read the command's $?, but PIPESTATUS only
+# as its last status and $_ as the name of one of baud's functions; a
+# DEBUG trap of yours also runs before the commands of baud's entries, so
+# one that starts a timer, as a command-duration prompt's does, starts it
+# at the prompt; and an exported PS1, PS2 or PS0 keeps baud's marks while
+# a command runs when another entry follows baud's in PROMPT_COMMAND, as
+# bash-preexec's does, or when the line begins with a subshell ( ... ) or
+# coproc. "on" by default; "off" starts every shell as any other terminal
+# does. A change shows in the next window.
 [shell]
 integration = "on"
 
