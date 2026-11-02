@@ -30,8 +30,11 @@
 //! stroke is exactly `t` pixels and reads the same in every cell. Arcs,
 //! diagonals and braille dots are outlines through the same canvas the
 //! font path rasterises with, so their edges are anti-aliased the way a
-//! glyph's are. Shades are a constant coverage over the cell.
+//! glyph's are; an arc's sine and cosine are [`crate::det`]'s, so its
+//! mask is the same on every OS. Shades are a constant coverage over the
+//! cell.
 
+use crate::det::Det;
 use crate::units::{Coverage, slots};
 use baud_domain::Codepoint;
 use baud_font::{Canvas, Extent, Point, Px};
@@ -735,6 +738,13 @@ impl Mask<'_> {
     }
 }
 
+/// The sine and cosine of `a`, radians: [`crate::det`]'s, so an arc's
+/// points are the same bits on every OS, where std's are the platform's
+/// libm, which macOS and glibc each implement their own way.
+fn turn(a: f32) -> (f32, f32) {
+    a.det_sin_cos()
+}
+
 /// A closed outline into a scratch canvas, taken at the greater of the
 /// existing coverage and the shape's: the anti-aliased primitives.
 struct Pen<'a, 'b> {
@@ -753,31 +763,44 @@ impl Pen<'_, '_> {
             let q = pts[(i + 1) % pts.len()];
             area += p.x * q.y - q.x * p.y;
         }
-        let c = &mut *self.canvas;
         if area >= 0.0 {
             for (i, p) in pts.iter().enumerate() {
-                c.line(*p, pts[(i + 1) % pts.len()]);
+                self.line(*p, pts[(i + 1) % pts.len()]);
             }
         } else {
             for i in (0..pts.len()).rev() {
                 let q = pts[(i + pts.len() - 1) % pts.len()];
-                c.line(pts[i], q);
+                self.line(pts[i], q);
             }
         }
+    }
+
+    /// An edge of the outline from `p` to `q`.
+    fn line(&mut self, p: Point, q: Point) {
+        #[cfg(test)]
+        drawn::fold(&[p, q]);
+        self.canvas.line(p, q);
+    }
+
+    /// A cubic of the outline from `p0` to `p3`.
+    fn cubic(&mut self, p0: Point, p1: Point, p2: Point, p3: Point) {
+        #[cfg(test)]
+        drawn::fold(&[p0, p1, p2, p3]);
+        self.canvas.cubic(p0, p1, p2, p3);
     }
 
     /// A quarter circle about `c` of radius `r` from angle `a0` to `a1`, as
     /// one cubic.
     fn arc(&mut self, c: Point, r: f32, a0: f32, a1: f32) {
         const KAPPA: f32 = 0.552_284_8;
-        let (s0, c0) = a0.sin_cos();
-        let (s1, c1) = a1.sin_cos();
+        let (s0, c0) = turn(a0);
+        let (s1, c1) = turn(a1);
         let p0 = Point::new(c.x + r * c0, c.y + r * s0);
         let p3 = Point::new(c.x + r * c1, c.y + r * s1);
         let sign = if a1 > a0 { 1.0 } else { -1.0 };
         let p1 = Point::new(p0.x - sign * KAPPA * r * s0, p0.y + sign * KAPPA * r * c0);
         let p2 = Point::new(p3.x + sign * KAPPA * r * s1, p3.y - sign * KAPPA * r * c1);
-        self.canvas.cubic(p0, p1, p2, p3);
+        self.cubic(p0, p1, p2, p3);
     }
 
     fn disc(&mut self, c: Point, r: f32) {
@@ -1008,15 +1031,15 @@ fn draw_arc(mask: &mut Mask<'_>, scratch: &mut Vec<f32>, temp: &mut Vec<u8>, cel
         a1 += 2.0 * PI;
     }
     let _ = aa(cell, mask.cov, scratch, temp, |pen| {
-        let (s0, c0) = a0.sin_cos();
-        let (s1, c1) = a1.sin_cos();
+        let (s0, c0) = turn(a0);
+        let (s1, c1) = turn(a1);
         pen.arc(c, ro, a0, a1);
-        pen.canvas.line(
+        pen.line(
             Point::new(c.x + ro * c1, c.y + ro * s1),
             Point::new(c.x + ri * c1, c.y + ri * s1),
         );
         pen.arc(c, ri, a1, a0);
-        pen.canvas.line(
+        pen.line(
             Point::new(c.x + ri * c0, c.y + ri * s0),
             Point::new(c.x + ro * c0, c.y + ro * s0),
         );
@@ -1414,5 +1437,110 @@ pub fn double_arms(cp: Codepoint) -> Option<Arms> {
     match shape(cp)? {
         Shape::Double(a) => Some(a),
         _ => None,
+    }
+}
+
+/// **The points a test's thread handed the canvas**, folded FNV-1a: every
+/// edge and every cubic of an arc, a braille dot and a diagonal, before
+/// the canvas rasterises them -- where a sine one ulp apart lands first,
+/// when the coverage's rounding to a byte would hide it from the mask.
+/// Tests only.
+#[cfg(test)]
+mod drawn {
+    use baud_font::Point;
+    use std::cell::Cell;
+
+    std::thread_local! {
+        static BITS: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
+    }
+
+    pub(super) fn fold(ps: &[Point]) {
+        BITS.with(|h| {
+            let (mut d, mut n) = h.get();
+            for p in ps {
+                for v in [p.x, p.y] {
+                    for b in v.to_bits().to_le_bytes() {
+                        d = (d ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+                    }
+                }
+                n += 1;
+            }
+            h.set((d, n));
+        });
+    }
+
+    /// The digest of what `f` drew, and how many points it handed over.
+    pub(super) fn of(f: impl FnOnce()) -> (u64, u64) {
+        BITS.with(|h| h.set((0xcbf2_9ce4_8422_2325, 0)));
+        f();
+        BITS.with(Cell::get)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cellmap::CellSpan;
+
+    /// **Every box glyph is drawn from the same bits on every OS**, which
+    /// its masks cannot show alone: a mask is coverage rounded to bytes,
+    /// which can round a one-ulp difference in an arc's points away. Here
+    /// every codepoint of the three ranges, one cell wide, two cells as
+    /// written and two mirrored, on cells from 5x11 to 29x63, folds every
+    /// point it hands the canvas (`drawn::fold`) into a digest pinned on
+    /// macOS and required of every target. The rounded corners' and the
+    /// braille dots' sines and cosines are `det`'s
+    /// (`the_box_glyphs_and_blends_call_no_platform_math`), whose bits are
+    /// the same on every machine.
+    #[test]
+    fn every_box_glyph_is_drawn_from_the_same_bits_on_every_os() {
+        // Per cell: one cell, two as written, two mirrored.
+        const PINNED: &[u64] = &[
+            0x86e4664b3d96d882,
+            0x78cbe44a6fdf68c2,
+            0x3989f4f8c2b2c003,
+            0xcff0c05c830c958b,
+            0xc700fa0882531093,
+            0xecf2b18ee062253a,
+            0xd990417f7bbedb97,
+            0xda39279cdc323717,
+            0x2e4bc309db1ba483,
+            0x9713c265fa9c4456,
+            0xf8eeebd3b15d9776,
+            0xd943aec7e6ee9d37,
+        ];
+        let (mut scratch, mut coverage) = (Vec::new(), Vec::new());
+        let mut got = Vec::new();
+        for (w, h) in [(5u32, 11u32), (8, 18), (16, 34), (29, 63)] {
+            let cell = Cell {
+                w: Px::of(w),
+                h: Px::of(h),
+            };
+            for (span, facing) in [
+                (CellSpan::One, Facing::Written),
+                (CellSpan::Two, Facing::Written),
+                (CellSpan::Two, Facing::Mirrored),
+            ] {
+                let (d, points) = drawn::of(|| {
+                    for v in (0x2500..=0x259Fu32).chain(0x2800..=0x28FF) {
+                        let cp = Codepoint::new(v).expect("a codepoint");
+                        draw_across(cp, cell, span, facing, &mut scratch, &mut coverage)
+                            .expect("procedural");
+                    }
+                });
+                // The positive control: the arcs, the dots and the
+                // diagonals handed the canvas their points.
+                assert!(points > 10_000, "{points} points at {w}x{h}");
+                got.push(d);
+            }
+        }
+        let table: String = got
+            .iter()
+            .map(|d| format!("            0x{d:016x},\n"))
+            .collect();
+        assert!(
+            got == PINNED,
+            "the box glyphs' points moved; the table this target draws:\n{table}"
+        );
     }
 }

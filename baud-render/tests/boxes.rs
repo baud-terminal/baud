@@ -1131,3 +1131,83 @@ fn a_wide_line_right_to_left_without_box_mirroring_is_drawn_as_written() {
         }
     }
 }
+
+/// **Every box glyph draws the same pixels on every OS**: the masks of
+/// every codepoint of the three ranges, one cell wide, two cells as
+/// written and two mirrored, and the three parts of the encircled ring,
+/// on cells from 5x11 to 29x63, folded into one digest per cell size and
+/// kind, pinned on macOS and required of every target. A rounded corner's
+/// arc and a braille dot are cubics from a sine and a cosine, which are
+/// `baud_render::det`'s and not the platform's libm
+/// (`the_box_glyphs_and_blends_call_no_platform_math`); the bits the arcs
+/// are drawn from are pinned too
+/// (`every_box_glyph_is_drawn_from_the_same_bits_on_every_os`). A change
+/// to a glyph's look changes its line, which the failure prints whole.
+#[test]
+fn every_box_glyph_draws_the_same_pixels_on_every_os() {
+    // Per cell: one cell, two as written, two mirrored, the ring.
+    const PINNED: &[u64] = &[
+        0x9f87c41712995fb0,
+        0x8d2a82e6cdc8b846,
+        0x071c2fb21d80af7c,
+        0xa742c3cbde010f99,
+        0x92077d817ab6bbdc,
+        0x24c29428f4a0460a,
+        0x7e871c9c3772792e,
+        0x22c90037bea59ee1,
+        0x9161e6fd912c9de3,
+        0xae87472c51bfbb6f,
+        0x8892e71e98ad3fa0,
+        0x944b90de5a379381,
+        0x2364c4b7a8849987,
+        0x5563de50d273ba10,
+        0x627de2fc5f24c0d2,
+        0x374870f11ec40043,
+    ];
+    let fold = |d: u64, bytes: &[u8]| {
+        bytes.iter().fold(d, |d, &b| {
+            (d ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
+    };
+    let (mut scratch, mut coverage) = (Vec::new(), Vec::new());
+    let mut got = Vec::new();
+    for (w, h) in [(5u32, 11u32), (8, 18), (16, 34), (29, 63)] {
+        let c = cell(w, h);
+        for (span, facing) in [
+            (CellSpan::One, boxes::Facing::Written),
+            (CellSpan::Two, boxes::Facing::Written),
+            (CellSpan::Two, boxes::Facing::Mirrored),
+        ] {
+            let mut d = 0xcbf2_9ce4_8422_2325u64;
+            for v in (0x2500..=0x259Fu32).chain(0x2800..=0x28FF) {
+                let e = boxes::draw_across(cp(v), c, span, facing, &mut scratch, &mut coverage)
+                    .expect("procedural");
+                let n = usize::try_from(e.w.value() * e.h.value()).unwrap();
+                d = fold(d, &coverage[..n]);
+            }
+            got.push(d);
+        }
+        let mut d = 0xcbf2_9ce4_8422_2325u64;
+        for ring in [boxes::Ring::Starts, boxes::Ring::Ends, boxes::Ring::Alone] {
+            let e =
+                boxes::draw_ring(ring, c, c.light(), &mut scratch, &mut coverage).expect("a ring");
+            let n = usize::try_from(e.w.value() * e.h.value()).unwrap();
+            assert!(coverage[..n].iter().any(|&v| v > 0), "{ring:?} at {w}x{h}");
+            d = fold(d, &coverage[..n]);
+        }
+        got.push(d);
+    }
+    // The positive control: no two digests are one.
+    let mut seen = got.clone();
+    seen.sort_unstable();
+    seen.dedup();
+    assert_eq!(seen.len(), got.len(), "two kinds drew one mask: {got:x?}");
+    let table: String = got
+        .iter()
+        .map(|d| format!("        0x{d:016x},\n"))
+        .collect();
+    assert!(
+        got == PINNED,
+        "the box glyphs' masks moved; the table this target draws:\n{table}"
+    );
+}

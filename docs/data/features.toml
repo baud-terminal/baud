@@ -957,10 +957,10 @@ shipped = ["F1-50"]
 id = "boxes"
 area = "text"
 name = "Boxes without gaps"
-does = "Box-drawing lines, blocks and shades join with no hairline gap at every size, whatever the font, and braille dots, as in btop's graphs, are sharp."
+does = "Box-drawing lines, blocks and shades join with no hairline gap at every size, whatever the font, and braille dots, as in btop's graphs, are sharp, and look the same on macOS and on Linux."
 status = "built"
 platform = "both"
-tests = ["baud-render/tests/boxes.rs::a_frame_drawn_across_cells_has_no_seam", "baud-render/tests/boxes.rs::braille_dots_come_from_the_low_byte"]
+tests = ["baud-render/tests/boxes.rs::a_frame_drawn_across_cells_has_no_seam", "baud-render/tests/boxes.rs::braille_dots_come_from_the_low_byte", "baud-render/tests/boxes.rs::every_box_glyph_draws_the_same_pixels_on_every_os"]
 
 [[feature]]
 id = "centring"

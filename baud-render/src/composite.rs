@@ -10,6 +10,7 @@
 
 use crate::atlas::{Atlas, Kind};
 use crate::color::Argb;
+use crate::det::Det;
 use crate::effect::Vfx;
 use crate::instance::Instance;
 use crate::renderer::ImageComposite;
@@ -1318,31 +1319,88 @@ fn luts() -> &'static Luts {
     LUTS.get_or_init(|| {
         let mut to_linear = [0u16; 256];
         for (i, slot) in to_linear.iter_mut().enumerate() {
-            let c = i as f32 / 255.0;
-            let l = if c <= 0.04045 {
-                c / 12.92
-            } else {
-                ((c + 0.055) / 1.055).powf(2.4)
-            };
+            let l = decode(i as f32 / 255.0);
             *slot = u16::try_from((l * 4095.0).round() as i64).unwrap_or(4095);
         }
         let mut to_srgb = [0u8; 4096];
         for (i, slot) in to_srgb.iter_mut().enumerate() {
-            let l = i as f32 / 4095.0;
-            let c = if l <= 0.003_130_8 {
-                l * 12.92
-            } else {
-                1.055 * l.powf(1.0 / 2.4) - 0.055
-            };
+            let c = encode(i as f32 / 4095.0);
             *slot = u8::try_from((c * 255.0).round().clamp(0.0, 255.0) as i64).unwrap_or(255);
         }
         Luts { to_linear, to_srgb }
     })
 }
 
+/// The sRGB value `c`, a fraction, in linear light: the transfer
+/// function inverted, what the 12-bit table holds at a byte before it
+/// rounds. The power is [`crate::det`]'s, so the table is the same
+/// bits on every OS.
+fn decode(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).det_powf(2.4)
+    }
+}
+
+/// Linear light `l`, a fraction, encoded as sRGB: what the byte table
+/// holds at a 12-bit step before it rounds, through [`crate::det`]'s
+/// power.
+fn encode(l: f32) -> f32 {
+    if l <= 0.003_130_8 {
+        l * 12.92
+    } else {
+        1.055 * l.det_powf(1.0 / 2.4) - 0.055
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The `Linear` blend's tables are the same bits on every OS**: the
+    /// transfer functions' `f32` at each of the 256 bytes and each of the
+    /// 4096 linear steps, before either rounds, and the two tables built
+    /// from them, folded into four digests pinned on macOS and required of
+    /// every target. Their powers are `det`'s
+    /// (`the_box_glyphs_and_blends_call_no_platform_math`), whose bits are
+    /// the same on every machine. macOS's own `powf` is an ulp from
+    /// `det`'s at 2 of the bytes and 38 of the steps, and glibc 2.36's on
+    /// aarch64 at 4 of the steps; the tables' rounding hides every one of
+    /// them, so the `f32`s are pinned as well as the tables.
+    #[test]
+    fn the_linear_tables_are_the_same_bits_on_every_os() {
+        // The decoded `f32`s, the 12-bit table, the encoded `f32`s, the
+        // byte table.
+        const PINNED: [u64; 4] = [
+            0x4084fa6fcf013b1c,
+            0x91a95d9e2ee88107,
+            0xdce56cbc99e5f89f,
+            0x1ec04c66e87143c8,
+        ];
+        let t = luts();
+        let fold = |vs: &mut dyn Iterator<Item = u64>| {
+            vs.fold(crate::units::Digest::start(), crate::units::Digest::fold)
+                .value()
+        };
+        let got = [
+            fold(&mut (0..256u16).map(|i| u64::from(decode(f32::from(i) / 255.0).to_bits()))),
+            fold(&mut t.to_linear.iter().map(|&v| u64::from(v))),
+            fold(&mut (0..4096u16).map(|i| u64::from(encode(f32::from(i) / 4095.0).to_bits()))),
+            fold(&mut t.to_srgb.iter().map(|&v| u64::from(v))),
+        ];
+        // The positive control: the tables run from black to white.
+        assert_eq!(
+            (t.to_linear[0], t.to_linear[255]),
+            (0, 4095),
+            "to_linear's ends"
+        );
+        assert_eq!((t.to_srgb[0], t.to_srgb[4095]), (0, 255), "to_srgb's ends");
+        assert!(
+            got == PINNED,
+            "the Linear tables moved; this target computes {got:#018x?}"
+        );
+    }
 
     /// **A jump's smear is measured only near its shape**: a quad and a
     /// sweep from the top-left cell of a 612 by 340 frame to the
@@ -1795,14 +1853,14 @@ mod tests {
             if c <= 0.04045 {
                 c / 12.92
             } else {
-                ((c + 0.055) / 1.055).powf(2.4)
+                ((c + 0.055) / 1.055).det_powf(2.4)
             }
         };
         let enc = |l: f64| {
             let c = if l <= 0.003_130_8 {
                 l * 12.92
             } else {
-                1.055 * l.powf(1.0 / 2.4) - 0.055
+                1.055 * l.det_powf(1.0 / 2.4) - 0.055
             };
             c * 255.0
         };

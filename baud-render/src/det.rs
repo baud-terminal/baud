@@ -15,9 +15,12 @@
 //! std's to within an ulp of `f32` (`as_accurate_as_std_to_an_ulp`), and
 //! `baud-domain`'s Xcms routines are the precedent: baud's own sine where
 //! the answer must not depend on the host. Every effect, the quad chase,
-//! the flash bound and the cursor's blink animations call these, and tests
-//! bar std's from their modules (`the_trails_call_no_platform_math`, and
-//! the app's `the_chase_calls_no_platform_math` and
+//! the flash bound, the cursor's blink animations, the box drawing and
+//! braille glyphs baud draws itself and the `Linear` blend's tables call
+//! these, and tests bar std's from their modules
+//! (`the_trails_call_no_platform_math`,
+//! `the_box_glyphs_and_blends_call_no_platform_math`, and the app's
+//! `the_chase_calls_no_platform_math` and
 //! `the_blink_calls_no_platform_math`).
 
 /// The functions, as methods so a call keeps its receiver: `x.det_exp()`
@@ -492,9 +495,10 @@ fn powf(x: f64, y: f64) -> f64 {
 }
 
 /// **The platform's functions, as a call spells them**: what a source
-/// whose numbers reach a trail's or a blink's pixels must not spell, which
-/// `the_trails_call_no_platform_math` and the app's chase and blink hold
-/// theirs to.
+/// whose numbers reach a trail's, a blink's, a box glyph's or a blend's
+/// pixels must not spell, which `the_trails_call_no_platform_math`,
+/// `the_box_glyphs_and_blends_call_no_platform_math` and the app's chase
+/// and blink hold theirs to.
 pub const PLATFORM: [&str; 20] = [
     ".exp(",
     ".exp2(",
@@ -543,6 +547,27 @@ mod tests {
             ("flash.rs", include_str!("flash.rs")),
             ("fireworks.rs", include_str!("fireworks.rs")),
             ("caret.rs", include_str!("caret.rs")),
+        ] {
+            for call in PLATFORM {
+                assert!(!src.contains(call), "{name} calls the platform's {call}");
+            }
+            // The positive control: the scan reads the source it names.
+            assert!(src.contains(".det_"), "{name} calls none of det's");
+        }
+    }
+
+    /// **The box glyphs and the blends call no platform math**: the box
+    /// drawing, block and braille masks baud draws itself -- a rounded
+    /// corner's arc and a braille dot are cubics from a sine and a cosine
+    /// -- and the compositor, whose `Linear` blend's tables are powers,
+    /// spell none of std's libm calls, so each is `det`'s and a mask or a
+    /// table is the same on every OS. Perturbation: a `.sin_cos(` put back
+    /// in the arc fails it, and a `.powf(` in the tables.
+    #[test]
+    fn the_box_glyphs_and_blends_call_no_platform_math() {
+        for (name, src) in [
+            ("boxes.rs", include_str!("boxes.rs")),
+            ("composite.rs", include_str!("composite.rs")),
         ] {
             for call in PLATFORM {
                 assert!(!src.contains(call), "{name} calls the platform's {call}");
@@ -658,7 +683,7 @@ mod tests {
         };
         // A check: this function and std's at a pair of sweep values.
         type Pair = fn(f32, f32) -> (f32, f32);
-        let checks: [(&str, Pair); 12] = [
+        let checks: [(&str, Pair); 13] = [
             ("exp", |x, _| ((x * 2.0).det_exp(), (x * 2.0).exp())),
             ("exp2", |x, _| ((x * 3.0).det_exp2(), (x * 3.0).exp2())),
             ("ln", |x, _| {
@@ -671,6 +696,9 @@ mod tests {
             }),
             ("sin", |x, _| ((x * 4.0).det_sin(), (x * 4.0).sin())),
             ("cos", |x, _| ((x * 4.0).det_cos(), (x * 4.0).cos())),
+            ("sin_cos.0", |x, _| {
+                ((x * 9.0).det_sin_cos().0, (x * 9.0).sin_cos().0)
+            }),
             ("sin_cos.1", |x, _| {
                 ((x * 9.0).det_sin_cos().1, (x * 9.0).sin_cos().1)
             }),
