@@ -368,9 +368,12 @@ impl Term<'_> {
         // **The stored Sixels take the shared registers this read
         // redefined, once** (`SixelStream::recolour`): a recolour at each
         // body's end rewrote every shared picture, 8.1-9.6 ms a body over
-        // two 3840x2160 ones, so a read of palettes paid it a body. A frame
-        // draws between reads and sees the same pixels. One compare of a
-        // 256-register set (four words) while no colour is owed.
+        // two 3840x2160 ones, so a read of palettes paid it a body. A
+        // shared body still open gives what it defined so far first, so the
+        // frame after this read shows each definition the read carried, as
+        // a VT340's colour map, read at each refresh, does. A compare of
+        // the register mode and of a 256-register set (four words) while no
+        // colour is owed.
         p.strs.sixel.recolour(p.images);
         self.last_cp = p.last_cp;
         self.cy = p.cy;

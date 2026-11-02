@@ -590,6 +590,12 @@ group  = "C"
 # every page ... are set to be at the extremes of the page" and "all line attributes
 # currently in Page Memory for the Session will be reset to Single Wide", DECCOLM (p. 5-71)
 # and D.6.1's Last Column Flag list (pp. D-13 and D-14), which does not name DECLRMM.
+# Read 2026-11-02 for when a shared Sixel register's new colour shows, on the text
+# layer [text]: 070-5 §5.6.3.3 Color Maps, "During display refresh, the active color
+# map is used to translate color values from display memory to colors that appear on
+# the screen" and "modify a color map entry causing all objects written with that
+# color index to change color on the display" (PDF 362-363); 070-9 §8.1.3, "Note this
+# command may load or change the device's color table" (PDF 922).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"

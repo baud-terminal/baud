@@ -86,6 +86,20 @@ impl Pixel {
     /// erase counts it among the pixels it clears.
     pub const FILL: Pixel = Pixel(0x0100_0000);
 
+    /// **A pixel a shared Sixel drew with a register that has no colour
+    /// yet**: one no Sixel defined, painting the default Sixel colour while
+    /// the terminal has not said its foreground ([`crate::SixelBegin::ink`]
+    /// clear). Stored only in a picture that keeps its register numbers
+    /// ([`ImageStore::registers`]), so a later definition of its register
+    /// recolours it as it recolours a pixel drawn in a foreground said
+    /// ([`crate::SixelStream::recolour`]) -- a clear word could not be told
+    /// from a position the data left at zero. **Drawn as a clear pixel
+    /// is**: its alpha is zero, which every path draws as nothing, and in an
+    /// image with a fill ([`ImageGround::Filled`]) as the fill, which a
+    /// clear pixel there became. Not clear, so it counts as lit and an erase
+    /// clears it.
+    pub const UNSAID: Pixel = Pixel(0x0000_0001);
+
     /// **`n` pixels, every one [`Pixel::CLEAR`], from zeroed memory**: what
     /// `vec![Pixel::CLEAR; n]` holds, without writing it. `vec!` takes the
     /// allocator's zeroed path only for the primitive types it knows to be
@@ -220,6 +234,8 @@ impl ImageAlpha {
 /// pixels are never read as a fill. `Filled` carries how far the Sixel's
 /// data reached, which the fill may pass: text written over the data frees
 /// the image, and text written over the fill alone clears it in its cells.
+/// Under [`ImageGround::Filled`] a [`Pixel::UNSAID`] word draws as the fill
+/// too, as it was the fill before a definition could reach it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ImageGround {
     Clear,
@@ -942,7 +958,8 @@ pub struct ImageSlot {
     /// band's move. So a page with nothing left lit is freed without a
     /// pixel read twice.
     lit: Option<u32>,
-    /// Whether its [`Pixel::FILL`] words are a background to draw.
+    /// Whether its [`Pixel::FILL`] words, and a shared Sixel's
+    /// [`Pixel::UNSAID`] ones, are a background to draw.
     ground: ImageGround,
     /// **Its kitty animation**: the frames after the first, laid after it
     /// in its span, and the state `a=a` sets ([`frames`]).
@@ -976,6 +993,23 @@ impl Plane {
         match self {
             Plane::None => 0,
             Plane::Registers => area.div_ceil(4),
+        }
+    }
+
+    /// **How many of `px`, pixels of an image with this plane, are lit**,
+    /// which an erase counts to free the image once none is left: any
+    /// alpha, and in a picture that keeps its register numbers a pixel
+    /// drawn in a clear ink, [`Pixel::UNSAID`], which a definition can
+    /// still colour -- a picture drawn in a foreground said is lit there,
+    /// and one drawn with none is too. The plane is matched once, outside
+    /// the loop, so every other image counts as it did before.
+    pub(crate) fn lit(self, px: &[Pixel]) -> usize {
+        match self {
+            Plane::None => px.iter().filter(|p| p.alpha().get() != 0).count(),
+            Plane::Registers => px
+                .iter()
+                .filter(|&&p| p.alpha().get() != 0 || p == Pixel::UNSAID)
+                .count(),
         }
     }
 }
@@ -1470,7 +1504,8 @@ pub struct ImageView<'a> {
     pub height: ImagePx,
     /// Whether any pixel is partly transparent, marked when it was stored.
     pub alpha: ImageAlpha,
-    /// Whether its [`Pixel::FILL`] words are a background to draw.
+    /// Whether its [`Pixel::FILL`] words, and a shared Sixel's
+    /// [`Pixel::UNSAID`] ones, are a background to draw.
     pub ground: ImageGround,
     /// Which frame of a kitty animation these pixels are, the first for
     /// every other image: with the image and the epoch, what a renderer
@@ -2049,14 +2084,16 @@ impl<'b> ImageStore<'b> {
 
     /// **Recolour every picture that keeps its register numbers**
     /// ([`Plane::Registers`]): each pixel still drawn -- neither clear nor
-    /// the background fill, so an erased one stays erased -- whose register
+    /// the background fill, so an erased one stays erased, and one drawn
+    /// in a clear ink ([`Pixel::UNSAID`]) included -- whose register
     /// `colour` names a colour for takes it. What a shared register's new
     /// definition does to the pictures drawn with it, as a VT340's one
     /// colour map does: "you do not have to redraw an image to change its
     /// color" (`[[source: vt3xx-screen-control]]`, "Output Mapping"). A
     /// colour is opaque, so a pixel drawn stays drawn and its image's lit
-    /// count holds. The epoch moves when any pixel changed, so every
-    /// renderer's copy is made again from the new pixels. Once a read in a
+    /// count, which counts a clear ink's pixel ([`Plane::lit`]), holds. The
+    /// epoch moves when any pixel changed, so every renderer's copy is made
+    /// again from the new pixels. Once a read in a
     /// terminal that finishes bodies with
     /// [`crate::SixelStream::finish_deferring`]
     /// ([`crate::SixelStream::recolour`]); once a body through
@@ -3350,10 +3387,7 @@ impl<'b> ImageStore<'b> {
         for k in 0..s.anim.frame_count() as usize {
             for y in y0.min(y1)..y1 {
                 let row = s.start() + k * s.area() + y * w;
-                n += self.pixels[row + x0.min(x1)..row + x1]
-                    .iter()
-                    .filter(|p| p.alpha().get() != 0)
-                    .count();
+                n += s.plane.lit(&self.pixels[row + x0.min(x1)..row + x1]);
             }
         }
         u32::try_from(n).unwrap_or(u32::MAX)
@@ -3517,7 +3551,7 @@ impl<'b> ImageStore<'b> {
             let at = s.start() + k * s.area();
             for y in y0..y1 {
                 let span = &mut self.pixels[at + y * w + x0..at + y * w + x1];
-                let n = span.iter().filter(|p| p.alpha().get() != 0).count();
+                let n = s.plane.lit(span);
                 was_lit = was_lit.saturating_add(u32::try_from(n).unwrap_or(u32::MAX));
                 span.fill(Pixel::CLEAR);
             }

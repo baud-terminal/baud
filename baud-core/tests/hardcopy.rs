@@ -249,6 +249,56 @@ fn a_sixel_fill_prints_as_the_background() {
     });
 }
 
+/// **A shared Sixel drawn with no foreground said prints as the screen
+/// shows it**: register 1, never defined, over text, with `P2` 0 over 60 by
+/// 40. The terminal is told no foreground, so the register paints a clear
+/// ink, drawn as the fill there: the page prints no ink and none of the
+/// text where the picture is. Once a palette defines register 1 red, the
+/// data prints red and the fill past it still prints nothing. The
+/// control: the text beside the picture prints both times.
+#[test]
+fn a_shared_sixel_in_a_clear_ink_prints_as_the_screen_shows_it() {
+    let red = Pixel::opaque(Chan::from_u8(255), Chan::from_u8(0), Chan::from_u8(0));
+    run(1 << 20, b"\x1b[H", |t| {
+        t.set_sixel_claim(baud_domain::SixelClaim::Yes);
+        t.set_graphics_print(GraphicsPrint {
+            colour: PrintColour::Colour,
+            ..GraphicsPrint::DEFAULT
+        });
+        support::feed(
+            t,
+            b"\x1b[?1070l\x1b[1;1HEEEEEEEEEE\x1b[2;1HEEEEEEEEEE\x1b[1;1H",
+        );
+        support::feed(t, b"\x1bP9;0;0q\"1;1;60;40#1!20~-!20~-!20~-!20~\x1b\\");
+        for palette in [&b""[..], b"\x1bP9;1q#1;2;100;0;0\x1b\\"] {
+            support::feed(t, palette);
+            support::feed(t, b"\x1bPpS(H)\x1b\\");
+            let j = jobs(t);
+            let (w, _, px) = decode(&j[0]);
+            let lit = |x: usize, y: usize| px[y * w + x] != Pixel::CLEAR;
+            let inked = |xs: core::ops::Range<usize>, ys: core::ops::Range<usize>| {
+                ys.flat_map(|y| xs.clone().map(move |x| (x, y)))
+                    .filter(|&(x, y)| lit(x, y))
+                    .count()
+            };
+            let what = palette.escape_ascii().to_string();
+            assert_eq!(inked(20..60, 0..40), 0, "{what}: the fill prints nothing");
+            assert!(
+                inked(60..100, 0..40) > 0,
+                "{what}: the control, the text beside"
+            );
+            match palette.is_empty() {
+                true => assert_eq!(inked(0..20, 0..24), 0, "the clear ink prints nothing"),
+                false => assert_eq!(
+                    (px[0], px[23 * w + 19]),
+                    (red, red),
+                    "the data prints in the colour defined"
+                ),
+            }
+        }
+    });
+}
+
 /// **The offset, the expanded grid and the rotated dump**: `P[30,12]` puts
 /// blank pixels before the image; DECGEPM sets grid 9 and DECRQM answers
 /// it; rotation turns the raster; RGB names colours in percent; the

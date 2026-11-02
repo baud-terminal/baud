@@ -59,10 +59,38 @@ fn sixel(
     fill: SixelFill,
     body: &[u8],
 ) -> Option<ImageId> {
+    inked(s, store, px(INK), registers, fill, body)
+}
+
+/// [`sixel`] with undefined registers painting `ink`.
+fn inked(
+    s: &mut SixelStream,
+    store: &mut ImageStore,
+    ink: Pixel,
+    registers: SixelRegisters,
+    fill: SixelFill,
+    body: &[u8],
+) -> Option<ImageId> {
+    begin(s, store, ink, registers, fill);
+    for &b in body {
+        s.put(StreamByte::from_stream(b), store);
+    }
+    s.finish(store).map(|(id, _, _)| id)
+}
+
+/// Begin a Sixel at 1:1 under `registers`, undefined registers painting
+/// `ink`.
+fn begin(
+    s: &mut SixelStream,
+    store: &mut ImageStore,
+    ink: Pixel,
+    registers: SixelRegisters,
+    fill: SixelFill,
+) {
     s.begin_with(
         SixelBegin {
             aspect: SixelAspect::ONE_TO_ONE,
-            ink: px(INK),
+            ink,
             registers,
             floor: SixelEdge::Open,
             right: SixelEdge::Open,
@@ -70,10 +98,6 @@ fn sixel(
         },
         store,
     );
-    for &b in body {
-        s.put(StreamByte::from_stream(b), store);
-    }
-    s.finish(store).map(|(id, _, _)| id)
 }
 
 fn shared(s: &mut SixelStream, store: &mut ImageStore, body: &[u8]) -> Option<ImageId> {
@@ -345,4 +369,167 @@ fn a_deferred_finish_leaves_the_pictures_to_the_next_recolour() {
     assert_eq!(store.generation().raw(), epoch.raw() + 1, "one pass");
     s.recolour(&mut store);
     assert_eq!(store.generation().raw(), epoch.raw() + 1, "nothing owed");
+}
+
+/// **A pixel drawn in a clear ink takes its register's colour once a later
+/// shared Sixel defines it**: with no foreground said an undefined
+/// register paints a clear ink, drawn as nothing, and the pixel is still
+/// one its register drew -- registers 1 and 0 here, 0 being the register
+/// yazi leaves undefined -- so a palette that defines them turns those
+/// pixels blue and green, as it turns the pixels of the control, drawn in
+/// a known ink. The position the data left at zero stays clear, and under
+/// a fill (`P2` 0, over 6 by 6) the fill, on both.
+#[test]
+fn a_pixel_drawn_in_a_clear_ink_takes_its_register_once_defined() {
+    let fill = SixelFill::Background {
+        w: 6,
+        h: 6,
+        cell: 0,
+    };
+    let clear = Pixel::CLEAR;
+    let cases = [
+        (SixelFill::Keep, vec![px(BLUE), px(GREEN), clear, px(GREEN)]),
+        (
+            fill,
+            vec![
+                px(BLUE),
+                px(GREEN),
+                Pixel::FILL,
+                px(GREEN),
+                Pixel::FILL,
+                Pixel::FILL,
+            ],
+        ),
+    ];
+    for (ink, what) in [
+        (clear, "no foreground said"),
+        (px(INK), "an ink, the control"),
+    ] {
+        for (fill, want) in &cases {
+            let mut a = Arena::new(256);
+            let mut store = a.store();
+            let mut s = Box::new(SixelStream::NEW);
+            let shared = SixelRegisters::Shared;
+            let id = inked(&mut s, &mut store, ink, shared, *fill, b"#1~#0~?~").expect("drawn");
+            let before = row0(&store, id);
+            assert_eq!(
+                before[0].alpha(),
+                ink.alpha(),
+                "{what}, {fill:?}: in the ink"
+            );
+            let palette = b"#0;2;0;100;0#1;2;0;0;100";
+            assert_eq!(inked(&mut s, &mut store, ink, shared, *fill, palette), None);
+            assert_eq!(&row0(&store, id), want, "{what}, {fill:?}");
+        }
+    }
+}
+
+/// **An erase keeps a picture drawn in a clear ink**, which is still
+/// drawn, and its pixels outside the erase take the colour defined later:
+/// four columns of register 1, undefined, with no foreground said; the
+/// cell over columns 2 and 3 erased by text; register 1 defined blue turns
+/// columns 0 and 1 blue and leaves 2 and 3 clear. An erase that counted
+/// the clear ink as nothing drawn freed the picture whole.
+#[test]
+fn an_erase_keeps_a_picture_drawn_in_a_clear_ink() {
+    let mut a = Arena::new(256);
+    let mut store = a.store();
+    store.set_cell_height(ImagePx::of(6));
+    let mut s = Box::new(SixelStream::NEW);
+    let (shared, keep) = (SixelRegisters::Shared, SixelFill::Keep);
+    let clear = Pixel::CLEAR;
+    let id = inked(&mut s, &mut store, clear, shared, keep, b"#1~~~~").expect("drawn");
+    let p = store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::of(0),
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
+    assert!(!p.is_none(), "placed");
+    store.erase(
+        ImageScreen::Primary,
+        LineIdx::of(0),
+        1,
+        2,
+        ImagePx::of(2),
+        ImagePx::of(6),
+    );
+    assert!(store.image(id).is_some(), "the erase keeps the picture");
+    assert_eq!(
+        inked(&mut s, &mut store, clear, shared, keep, b"#1;2;0;0;100"),
+        None
+    );
+    assert_eq!(row0(&store, id), [px(BLUE), px(BLUE), clear, clear]);
+}
+
+/// **A shared body's definitions reach the stored pictures at the
+/// recolour after them, before the body ends**: picture A draws register 1
+/// red; a palette body defines it green, the recolour a terminal makes at
+/// a read's end turns A green while the body is still open, and its next
+/// definition, blue, turns it blue at the next one, as a VT340's colour
+/// map, read at each refresh, shows each definition. A definition is
+/// applied when the byte after it arrives, which is the `#` and the `$`.
+/// The body's end changes nothing more, and taking the recolour only at
+/// the end leaves the same pixels.
+#[test]
+fn an_open_shared_body_gives_its_definitions_at_each_recolour() {
+    let (shared, keep) = (SixelRegisters::Shared, SixelFill::Keep);
+    let steps = [(&b"#1;2;0;100;0#"[..], GREEN), (&b"1;2;0;0;100$"[..], BLUE)];
+    for each in [true, false] {
+        let mut a = Arena::new(256);
+        let mut store = a.store();
+        let mut s = Box::new(SixelStream::NEW);
+        let first = shared_red(&mut s, &mut store);
+        begin(&mut s, &mut store, px(INK), shared, keep);
+        for (bytes, colour) in steps {
+            for &b in bytes {
+                s.put(StreamByte::from_stream(b), &mut store);
+            }
+            if each {
+                s.recolour(&mut store);
+                assert_eq!(row0(&store, first), [px(colour)], "after {bytes:?}");
+            }
+        }
+        assert_eq!(s.finish(&mut store), None, "a palette alone");
+        assert_eq!(row0(&store, first), [px(BLUE)], "each read: {each}");
+    }
+}
+
+/// **A shared body abandoned without an end keeps what it defined**, as
+/// one ended does, wherever the recolours fell: register 1 defined green
+/// and the body let go with no terminator, the next Sixel begun at once,
+/// as a terminal begins it in the same read, before any recolour; that
+/// later shared picture paints register 1, undefined in it, green, and
+/// picture A turns green with it.
+#[test]
+fn an_abandoned_shared_body_keeps_what_it_defined() {
+    let (shared, keep) = (SixelRegisters::Shared, SixelFill::Keep);
+    for each in [true, false] {
+        let mut a = Arena::new(256);
+        let mut store = a.store();
+        let mut s = Box::new(SixelStream::NEW);
+        let first = shared_red(&mut s, &mut store);
+        begin(&mut s, &mut store, px(INK), shared, keep);
+        for &b in b"#1;2;0;100;0$" {
+            s.put(StreamByte::from_stream(b), &mut store);
+        }
+        if each {
+            s.recolour(&mut store);
+        }
+        s.abandon(&mut store);
+        let later = shared_inked_one(&mut s, &mut store);
+        assert_eq!(row0(&store, later), [px(GREEN)], "each read: {each}");
+        assert_eq!(row0(&store, first), [px(GREEN)], "each read: {each}");
+    }
+}
+
+/// A shared 1x6 picture of register 1, defined red.
+fn shared_red(s: &mut SixelStream, store: &mut ImageStore) -> ImageId {
+    shared(s, store, b"#1;2;100;0;0#1~").expect("A")
+}
+
+/// A shared 1x6 picture of register 1, not defined in it.
+fn shared_inked_one(s: &mut SixelStream, store: &mut ImageStore) -> ImageId {
+    shared(s, store, b"#1~").expect("a later picture")
 }

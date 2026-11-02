@@ -1475,10 +1475,16 @@ impl SixelStream {
     /// does as it ends, and what a terminal calls when a body ended
     /// without its terminator -- at its next control string or a reset,
     /// since `CAN`, `SUB` and an `ESC` that is not `ST` abandon a body
-    /// with no action of their own. Nothing to do once let go.
+    /// with no action of their own. Nothing to do once let go. **A shared
+    /// body's definitions stay in the shared set**, as each one took effect
+    /// when it arrived, and as those of a read already ended did: where the
+    /// reads fell does not change the set.
     #[cold]
     #[inline(never)]
     pub fn abandon(&mut self, store: &mut ImageStore) {
+        if self.registers == SixelRegisters::Shared && self.st.gap.defined != RegisterSet::NONE {
+            self.share();
+        }
         let Gap { at, written, .. } = self.st.gap;
         store.set_claim(None);
         self.st.gap.written = 0;
@@ -1706,17 +1712,27 @@ impl SixelStream {
     /// command arrives (`update_color_register()`,
     /// `[[source: xterm-graphics-sixel]]`). Nothing draws the claim before
     /// this. A clear word stays clear; under a fill it becomes the fill
-    /// after this, as a pixel drawn in a clear ink did.
+    /// after this, as a pixel drawn in a clear ink does in a private
+    /// Sixel. **In a shared one a pixel drawn in a clear ink** -- an
+    /// undefined register while the terminal has not said its foreground
+    /// -- is [`Pixel::UNSAID`], drawn as the clear word is, so a later
+    /// definition of its register still finds it, as it finds one drawn in
+    /// a foreground said: a clear word in the plane's picture could be a
+    /// position the data left at zero, which no register drew.
     fn map(&self, span: &mut [Pixel], area: usize, plane: Plane) {
-        let regs = &self.walk.regs;
         let (px, rest) = span.split_at_mut(area);
         match plane {
             Plane::None => {
+                let regs = &self.walk.regs;
                 for p in px.iter_mut().filter(|p| **p != Pixel::CLEAR) {
                     *p = regs[usize::from(Register::of(*p))];
                 }
             }
             Plane::Registers => {
+                let regs = self.walk.regs.map(|c| match c {
+                    Pixel::CLEAR => Pixel::UNSAID,
+                    c => c,
+                });
                 let numbers = Pixel::bytes_mut(rest);
                 for (p, n) in px.iter_mut().zip(numbers.iter_mut()) {
                     *n = 0;
@@ -1729,13 +1745,15 @@ impl SixelStream {
         }
     }
 
-    /// **The shared set takes this Sixel's definitions** (`?1070` reset),
-    /// and every register whose colour this changed -- one never defined
-    /// before included, drawn in the ink -- is owed to the pictures drawn
-    /// with it, which [`SixelStream::recolour`] pays. **When the body
-    /// ends**, at `ST` or where a cut ends it, which is where the set takes
-    /// the definitions; a VT340 and xterm change the pictures as each
-    /// definition arrives.
+    /// **The shared set takes the definitions this Sixel made since it
+    /// last took them** (`?1070` reset), and every register whose colour
+    /// that changed -- one never defined before included, drawn in the
+    /// ink -- is owed to the pictures drawn with it, which
+    /// [`SixelStream::recolour`] pays. At each read's end while the body is
+    /// open ([`SixelStream::recolour`]), at its end, `ST` or a cut, and
+    /// where it is let go with neither ([`SixelStream::abandon`]), so the
+    /// set ends the same wherever the reads fell. A definition is applied
+    /// when the byte after it arrives, which ends its parameters.
     #[cold]
     #[inline(never)]
     fn share(&mut self) {
@@ -1752,6 +1770,7 @@ impl SixelStream {
         }
         self.shared_defined = self.shared_defined.with(self.st.gap.defined);
         self.redefined = self.redefined.with(changed);
+        self.st.gap.defined = RegisterSet::NONE;
     }
 
     /// **The stored pictures take the shared registers' new colours**:
@@ -1768,11 +1787,23 @@ impl SixelStream {
     /// stored between two definitions drew with the colour the set held
     /// then, which the later one replaces either way. A terminal calls it
     /// at each read's end and before anything in a read looks at a
-    /// picture's pixels, so every frame, drawn between reads, shows what a
-    /// recolour at each body's end would. Nothing scanned when no colour
-    /// changed.
+    /// picture's pixels.
+    ///
+    /// **A shared body still open gives what it defined so far first**,
+    /// into the shared set, so the frame after a read shows every
+    /// definition the read carried, as a VT340's colour map, read at each
+    /// refresh, does: "During display refresh, the active color map is used
+    /// to translate color values from display memory to colors that appear
+    /// on the screen" (`[[source: dec-std-070]]` 070-5 §5.6.3.3). A frame is
+    /// drawn between reads and never inside one, so the last of two
+    /// definitions in one read is what any refresh between them would have
+    /// left on every frame. One pass a read however many definitions it
+    /// carried; nothing scanned when no colour changed.
     #[inline]
     pub fn recolour(&mut self, store: &mut ImageStore) {
+        if self.registers == SixelRegisters::Shared && self.st.gap.defined != RegisterSet::NONE {
+            self.share();
+        }
         if self.redefined != RegisterSet::NONE {
             self.recolour_owed(store);
         }

@@ -178,8 +178,10 @@ impl Visible<'_, '_, '_> {
                 continue;
             };
             // A Sixel's fill is "set to the current background color"
-            // (`[[source: vt3xx-sixel]]`): the background, over the text.
-            if px == Pixel::FILL && view.ground != ImageGround::Clear {
+            // (`[[source: vt3xx-sixel]]`): the background, over the text;
+            // and so is a shared Sixel's pixel drawn in a clear ink there,
+            // which draws as the fill (`Pixel::UNSAID`).
+            if (px == Pixel::FILL || px == Pixel::UNSAID) && view.ground != ImageGround::Clear {
                 return Hit::Clear;
             }
             if p.owner == ImageOwner::Regis {

@@ -5,7 +5,10 @@
 //! pixel of both pictures was drawn with. Three arms: one body in one
 //! read, a hundred in one read, and a hundred in a read each. Register 1
 //! goes back to red, untimed, before each arm, so every round does the
-//! same work. Printed per arm: the median and range of the rounds, the
+//! same work. A fourth: one body defining all 256 registers, as a
+//! 256-colour picture's palette does, fed 1024 bytes a read as a Darwin
+//! tty hands it over, every register set to another colour untimed
+//! before it. Printed per arm: the median and range of the rounds, the
 //! first dropped, and an FNV-1a of the stored pixels at the end, so two
 //! builds can be shown to leave the same pictures.
 //!
@@ -36,6 +39,9 @@ fn fnv(t: &Term<'_>) -> u64 {
         })
 }
 
+/// One arm: its name, the body fed untimed before it, and its reads.
+type Arm<'a> = (&'a str, &'a [u8], Vec<&'a [u8]>);
+
 fn median(v: &mut [Duration]) -> (f64, f64, f64) {
     v.sort();
     let ms = |d: Duration| d.as_secs_f64() * 1e3;
@@ -65,18 +71,32 @@ fn main() {
     let burst: Vec<Vec<u8>> = (1..=100).map(palette).collect();
     let whole = burst.concat();
     assert!(whole.len() <= READ_CHUNK, "a hundred bodies in one read");
-    let arms: [(&str, Vec<&[u8]>); 3] = [
-        ("1 body, 1 read", vec![burst[99].as_slice()]),
-        ("100 bodies, 1 read", vec![whole.as_slice()]),
+    let every = |b: u32| {
+        let defs: String = (0..256)
+            .map(|r| format!("#{r};2;{b};0;{}", 100 - b))
+            .collect();
+        format!("\x1bP0;1;0q{defs}\x1b\\").into_bytes()
+    };
+    let (reds, blues) = (every(100), every(0));
+    assert!(reds.len() <= READ_CHUNK, "the reset in one read");
+    let arms: [Arm<'_>; 4] = [
+        ("1 body, 1 read", red, vec![burst[99].as_slice()]),
+        ("100 bodies, 1 read", red, vec![whole.as_slice()]),
         (
             "100 bodies, 100 reads",
+            red,
             burst.iter().map(Vec::as_slice).collect(),
+        ),
+        (
+            "256 registers, 1 KiB reads",
+            &reds,
+            blues.chunks(1024).collect(),
         ),
     ];
     let mut times: Vec<Vec<Duration>> = arms.iter().map(|_| Vec::new()).collect();
     for round in 0..=rounds {
-        for (a, (_, reads)) in arms.iter().enumerate() {
-            feed(&mut t, red);
+        for (a, (_, reset, reads)) in arms.iter().enumerate() {
+            feed(&mut t, reset);
             let start = Instant::now();
             for r in reads {
                 feed(&mut t, r);
@@ -87,11 +107,12 @@ fn main() {
         }
     }
     println!(
-        "two 3840x2160 shared Sixels, {} B each; {} B of palettes",
+        "two 3840x2160 shared Sixels, {} B each; {} B of palettes; {} B of 256 registers",
         picture.len(),
-        whole.len()
+        whole.len(),
+        blues.len()
     );
-    for (a, (name, _)) in arms.iter().enumerate() {
+    for (a, (name, _, _)) in arms.iter().enumerate() {
         let (m, lo, hi) = median(&mut times[a]);
         println!("{name:>22}: {m:.2} ms ({lo:.2}-{hi:.2})");
     }

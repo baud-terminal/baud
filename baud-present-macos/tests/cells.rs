@@ -6890,6 +6890,122 @@ fn sixel_recolour_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     t.set_sixel_claim(baud_domain::SixelClaim::No);
 }
 
+/// **A shared Sixel recolours alike on every arm with no foreground said,
+/// and while the redefining body is still open**. The terminal here is
+/// told no foreground, as a headless embedder may leave it, so a register no
+/// Sixel defined paints a clear ink and is drawn as nothing. Picture A
+/// draws register 1 undefined, over 16 by 12: until a palette defines it
+/// blue, A shows what is under it -- and with `P2` 0 over a 32 by 12
+/// raster, the fill -- and once defined A is blue on the instance arm, the
+/// cell arm and the CPU arm, the fill past the data unchanged. Then A draws
+/// register 1 red, and a palette body arrives in three reads, defining it
+/// green in the first and blue in the second and ending in the third: the
+/// frame after each read shows green, blue, blue, on every arm, as a
+/// VT340's colour map, read at each refresh, shows each definition. The
+/// control: the same frames with the definitions not yet sent show none
+/// of them.
+#[test]
+fn a_shared_sixel_recolours_alike_on_every_arm_unsaid_and_mid_body() {
+    let font = |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let regular = font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&regular).unwrap()];
+    let dark = Theme::dark();
+    let opaque = Theme {
+        bg_alpha: Chan::from_u8(0xFF),
+        ..dark
+    };
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        opaque.clone(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    t.set_sixel_claim(baud_domain::SixelClaim::Yes);
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let bg = 0xFF00_0000 | (opaque.bg.0 & 0x00FF_FFFF);
+    let (red, green, blue) = (0xFFFF_0000u32, 0xFF00_FF00u32, 0xFF00_00FFu32);
+    let frames = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>| {
+        let (a, b) = arms.draw(t);
+        let c = cpu_frame(arms, t);
+        let places = arms.renderer.image_placements();
+        assert_eq!(places.len(), 1, "one image on screen");
+        let at = (
+            usize::try_from(places[0].x).unwrap(),
+            usize::try_from(places[0].y).unwrap(),
+        );
+        assert_eq!(differing(&a, &b), 0, "the GPU arms agree");
+        ([a, b, c], at)
+    };
+    let check =
+        |got: &[Vec<u32>; 3], (x0, y0): (usize, usize), want: &dyn Fn(u32) -> bool, what: &str| {
+            for (arm, f) in ["instance", "cell", "cpu"].iter().zip(got) {
+                for (x, y) in [(0, 0), (15, 11), (7, 6)] {
+                    let p = f[(y0 + y) * fw + x0 + x];
+                    assert!(want(p), "{what}, {arm} at ({x},{y}): {p:#010x}");
+                }
+            }
+        };
+    let palette = b"\x1bP9;1q#1;2;0;0;100\x1b\\".as_slice();
+    // A line of glyphs far below the picture, which every frame draws.
+    const TEXT: &str =
+        "\x1bc\x1b[?25l\x1b[?1070l\x1b[8;1Habcdefghijklmnopqrstuvwxyz 0123456789\x1b[H";
+    // The pixels of the rectangle `xs` by `ys` of the picture at `at` that
+    // are not `want`.
+    let unlike = |f: &[u32], (x0, y0): (usize, usize), xs: core::ops::Range<usize>, want: u32| {
+        (0..12)
+            .flat_map(|y| xs.clone().map(move |x| (y0 + y) * fw + x0 + x))
+            .filter(|&i| f[i] != want)
+            .count()
+    };
+    for (p2, raster) in [(1, ""), (0, "\"1;1;32;12")] {
+        // Text under the picture, which the fill hides.
+        let picture = format!("{TEXT}EEEEEEEE\x1b[H\x1bP9;{p2}q{raster}#1!16~-!16~\x1b\\");
+        feed(&mut t, picture.as_bytes());
+        let (got, at) = frames(&mut arms, &mut t);
+        let what = format!("P2 {p2}, undefined");
+        check(&got, at, &|p| p != blue && p != red, &what);
+        for (arm, f) in ["instance", "cell", "cpu"].iter().zip(&got) {
+            let n = unlike(f, at, 0..32, bg);
+            match p2 {
+                0 => assert_eq!(
+                    n, 0,
+                    "{what}, {arm}: the clear ink and the fill hide the text"
+                ),
+                _ => assert!(n > 0, "{what}, {arm}: the premise, the text under shows"),
+            }
+        }
+        feed(&mut t, palette);
+        let (got, at) = frames(&mut arms, &mut t);
+        check(&got, at, &|p| p == blue, &format!("P2 {p2}, defined"));
+        for (arm, f) in ["instance", "cell", "cpu"].iter().zip(&got) {
+            assert_eq!(
+                unlike(f, at, 0..16, blue),
+                0,
+                "P2 {p2}, {arm}: the data, blue"
+            );
+            if p2 == 0 {
+                let n = unlike(f, at, 16..32, bg);
+                assert_eq!(n, 0, "{arm}: the fill past the data");
+            }
+        }
+    }
+    let picture = format!("{TEXT}\x1bP9;1q#1;2;100;0;0#1!16~-!16~\x1b\\");
+    feed(&mut t, picture.as_bytes());
+    let (got, at) = frames(&mut arms, &mut t);
+    check(&got, at, &|p| p == red, "the premise");
+    let reads: [&[u8]; 3] = [b"\x1bP9;1q#1;2;0;100;0#", b"1;2;0;0;100$", b"\x1b\\"];
+    for (read, want) in reads.iter().zip([green, blue, blue]) {
+        feed(&mut t, read);
+        let (got, at) = frames(&mut arms, &mut t);
+        let what = format!("after {}", read.escape_ascii());
+        check(&got, at, &|p| p == want, &what);
+    }
+}
+
 /// **The fill goes on as the image scrolls**, on all three paths: a Sixel
 /// two rows from the bottom whose data runs past them scrolls the screen,
 /// and the rows it scrolls in are filled from the band that overran the

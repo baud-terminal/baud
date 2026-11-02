@@ -1327,9 +1327,15 @@ impl Under for UnderImages<'_, '_> {
 
 /// What pixel `p` of an image with a background fill draws as.
 ///
-/// A fill word draws as `ground`, and every other word as it is.
+/// A fill word draws as `ground`, and so does a shared Sixel's pixel drawn
+/// in a clear ink ([`Pixel::UNSAID`]), which was the fill there before the
+/// store told it from one; every other word as it is.
 pub(crate) fn filled(p: Pixel, ground: Pixel) -> Pixel {
-    if p == Pixel::FILL { ground } else { p }
+    if p == Pixel::FILL || p == Pixel::UNSAID {
+        ground
+    } else {
+        p
+    }
 }
 
 /// Whether a partly transparent placement over the text covers the band:

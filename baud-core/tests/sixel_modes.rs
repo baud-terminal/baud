@@ -669,6 +669,73 @@ fn a_redefinition_inside_a_body_recolours_the_pixels_drawn_before_it() {
     }
 }
 
+/// **A shared picture drawn with no foreground said takes a register
+/// defined later**, as one drawn in the foreground does: picture A paints
+/// registers 1 and 0, neither defined, with a position left at zero
+/// between, and a palette defines 0 green and 1 blue. A clear ink is
+/// still the register's ink, so both its pixels take the new colours and
+/// the zero position stays clear -- under `P2` 0 over a 6 by 6 raster,
+/// the fill. The control is the same with the foreground said.
+#[test]
+fn a_shared_picture_drawn_with_no_foreground_said_takes_a_later_definition() {
+    let palette = b"\x1bP0;1;0q#0;2;0;100;0#1;2;0;0;100\x1b\\";
+    let (green, blue) = (rgb((0, 255, 0)), rgb((0, 0, 255)));
+    let unsaid = Setup {
+        fg: None,
+        ..CLAIMED
+    };
+    let cases: [(&[u8], &[Pixel]); 2] = [
+        (
+            b"\x1bP0;1;0q\"1;1#1~#0~?~\x1b\\\n",
+            &[blue, green, Pixel::CLEAR, green],
+        ),
+        (
+            b"\x1bP0;0;0q\"1;1;6;6#1~#0~?~\x1b\\\n",
+            &[blue, green, Pixel::FILL, green, Pixel::FILL, Pixel::FILL],
+        ),
+    ];
+    for (set, what) in [(unsaid, "no foreground said"), (CLAIMED, "the control")] {
+        for (picture, want) in cases {
+            let program = [b"\x1b[?1070l".as_slice(), picture, palette].concat();
+            every_read(set, &program, |t, how| {
+                let row: Vec<Pixel> = (0..want.len()).map(|x| pixels_at(t, x, 0)[0]).collect();
+                assert_eq!(row, want, "{what}, {how}");
+            });
+        }
+    }
+}
+
+/// **A definition reaches the stored pictures at the end of the read that
+/// carries it**, while its body is still open: picture A draws register 1
+/// red, and a palette body arrives in three reads, defining it green in
+/// the first and blue in the second and ending in the third. A frame is
+/// drawn between reads, so A shows green after the first and blue after
+/// the second, as a VT340's colour map, read at each refresh, shows each
+/// definition (`[[source: dec-std-070]]` 070-5 §5.6.3.3, "During display
+/// refresh, the active color map is used to translate color values"); a
+/// definition is applied when the byte after it arrives. Fed in reads of
+/// every size, the program ends blue.
+#[test]
+fn a_definition_reaches_the_pictures_at_the_end_of_the_read_that_carries_it() {
+    let a = b"\x1b[?1070l\x1bP0;1;0q\"1;1#1;2;100;0;0#1~\x1b\\\n".as_slice();
+    let reads: [&[u8]; 3] = [b"\x1bP0;1;0q#1;2;0;100;0#", b"1;2;0;0;100$", b"\x1b\\"];
+    let (green, blue) = (rgb((0, 255, 0)), rgb((0, 0, 255)));
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(CLAIMED.arena.budget());
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_sixel_claim(SixelClaim::Yes);
+    t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
+    support::feed(&mut t, a);
+    assert_eq!(pixels_at(&t, 0, 0), [red()], "the premise");
+    for (read, want) in reads.iter().zip([green, blue, blue]) {
+        support::feed(&mut t, read);
+        assert_eq!(pixels_at(&t, 0, 0), [want], "after {read:?}");
+    }
+    every_read(CLAIMED, &[a, &reads.concat()].concat(), |t, how| {
+        assert_eq!(pixels_at(t, 0, 0), [blue], "{how}");
+    });
+}
+
 /// **XTSMGRAPHICS answers what baud has**, in xterm's shape
 /// (`CASE_GRAPHICS_ATTRIBUTES`, `[[source: xterm-reset]]`'s file): 256
 /// registers, which a set can only confirm; the text area in pixels, and a

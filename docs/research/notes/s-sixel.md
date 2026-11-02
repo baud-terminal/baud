@@ -821,11 +821,13 @@ if the operation regressed.
   that a later redefinition would draw wrong. Measured: an 8x6 shared Sixel
   takes 60 words where a private one takes 48, and the app's 95 MiB holds
   two 3840x2160 shared Sixels (41,472,000 bytes each) where it holds three
-  private ones (33,177,600). Recorded departures: the pictures change when
-  the redefining body ends, not as each definition arrives; a pixel drawn in
-  a clear ink (no foreground said) is not told apart from an unpainted one
-  across bodies; and the VT340's map also colours its text, which baud's
-  palette does not share. **What a recolour costs**, measured in a release
+  private ones (33,177,600). Recorded departure: the VT340's map also
+  colours its text, which baud's palette does not share. Two more were
+  recorded here and are closed since 2026-11-02 (below): the pictures
+  changed when the redefining body ended, not as each definition
+  arrived, and a pixel drawn in a clear ink (no foreground said) was not
+  told apart from an unpainted one across bodies. **What a recolour
+  costs**, measured in a release
   build without LTO. A shared body that only sets colours rewrites every
   shared picture. With two 3840x2160 shared pictures stored, each 17-byte
   body costs 7.6 ms, about 450 µs a byte. The dearest command baud already
@@ -870,6 +872,63 @@ if the operation regressed.
   172.9 and 171.4 MB/s whose ranges overlap, no result, at 2.3% more
   instructions a rep (434.5 million against 444.5); `sixel-cat` overlaps too, at
   under 0.5% more.
+
+  **Each read's definitions, and a clear ink, built 2026-11-02.** When a
+  definition shows is the colour map's: it "is used to translate color
+  values from display memory to colors that appear on the screen" during
+  display refresh, and modifying an entry changes "all objects written
+  with that color index" (`[[source: dec-std-070]]` 070-5 §5.6.3.3); the colour
+  introducer "may load or change the device's color table" (070-9
+  §8.1.3). A VT340 so shows a definition from the refresh after it, and
+  xterm marks its shared pictures for the next refresh as each one
+  arrives (`[[source: xterm-graphics-c]]`). baud applies a whole read
+  before it draws and never draws inside one, but a body spans reads
+  ([note E](e-tty-layer.md)'s 1024 bytes a read) and nothing holds a
+  frame while one is open, so a frame between two reads of a body showed
+  the old colours.
+  Decided 2026-11-02 to conform: at each read's end an open shared body's
+  definitions so far join the shared set (`SixelStream::share`, which now
+  takes only what the body defined since it last ran) before the
+  once-a-read recolour, and a body let go with no end gives them too, so
+  where the reads fell cannot change the set. A pass over the stored
+  shared pictures still runs only at the end of a read that changed a
+  colour, never once a definition, so a body whose definitions span k
+  reads costs k passes where it cost one, its palette included: all 256
+  registers in one 3,484-byte body, fed 1024 bytes a read, four reads,
+  took 8.28-8.76 ms on the base and 32.58-42.08 on the change, with two
+  3840x2160 shared pictures stored (the fourth arm of
+  `baud-bench/benches/sixel_recolour.rs`). No recorded program resets
+  `?1070`. A recolour taken just before each frame would cost a pass a
+  frame drawn rather than a read, and needs every reader of a picture's
+  pixels to take it first; not built.
+  The picture a body is still drawing is not shown before its end, where
+  a VT340 is reported to show its bitmap as it is written (practice,
+  unpinned); that is unchanged.
+
+  A pixel drawn with an undefined register while no foreground is said
+  was a clear word, which the store could not tell from a position the
+  data left at zero, so a later definition missed it on a terminal told
+  no foreground and found it in the app, which says its foreground. In a
+  shared picture it is now `Pixel::UNSAID`, alpha zero: every path draws
+  it as nothing, and as the fill where the image has one (the renderer's
+  fill resolution and the hard copy); the recolour finds it, and an erase
+  counts it lit, so an erase no longer frees such a picture whole. A
+  foreground said never makes one. Measured, release, base and change
+  built at one path: whole-process instructions over `ingest2`, four runs
+  an arm in turn, overlap on `cat` (177.5-180.3 million against
+  177.4-179.6), `sixel-cat` (200.4-201.2 against 200.5-201.1) and
+  `sixel-yazi` (2,311.0-2,312.0 against 2,311.0-2,311.6), cells written
+  equal. A first build tested the plane inside the lit count's loop and
+  read `sixel-yazi` 3.8 million above the base, ranges apart; the plane
+  is matched once outside it now. `baud-bench/benches/sixel_recolour.rs`,
+  two runs an arm in turn, six rounds, the first dropped: a hundred
+  bodies in one read 8.39-8.83 ms on the base and 7.98-8.52 on the
+  change, the stored pixels' FNV-1a equal. Pinned by
+  `a_definition_reaches_the_pictures_at_the_end_of_the_read_that_carries_it`,
+  `a_shared_picture_drawn_with_no_foreground_said_takes_a_later_definition`,
+  `an_erase_keeps_a_picture_drawn_in_a_clear_ink`,
+  `a_shared_sixel_in_a_clear_ink_prints_as_the_screen_shows_it` and
+  `a_shared_sixel_recolours_alike_on_every_arm_unsaid_and_mid_body`.
 * **DECSDM** (mode 80). Its meaning inverted between VT330 and later xterm,
   and `[[source: ctlseqs]]` documents both. baud picks one and records the
   choice with the source conflict named, the DECAWM precedent.
