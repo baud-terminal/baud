@@ -32,9 +32,27 @@
 //! functions received will affect only the Status Display" (070-14
 //! §14.2.3, p. 14-8), and SLH and SLL are in none of its exceptions, so a
 //! home or a limit set while one display is written leaves the other's
-//! where it was. The rest is shared: tabs, IRM, DECAWM, DECSCLM, DECSCNM,
-//! the width, and BDSM and DCSM, the terminal's, under which each
-//! display's limit bounds or not and the line is laid out. BDSM is both
+//! where it was, a lean where the texts are silent, re-examined on
+//! 2026-11-02 with xterm's practice read from its code; ECMA-48's "remains
+//! in effect until the next occurrence of SLH in the data stream"
+//! (8.3.122), one stream for both displays, weighs the other way. xterm,
+//! which has no SLH or SLL, keeps the inverse split: `CursorSave2()` copies
+//! all of `xw->flags` into each display's saved cursor and
+//! `CursorRestore2()` restores them with `ALL_FLAGS`, DECAWM, LNM, DECOM,
+//! IRM, DECSCLM, DECSCNM and DECLRMM among them, while its margins stay the
+//! screen's (`[[source: xterm-cursor-c]]` 398-416, 460-512;
+//! `[[source: xterm-ptyx-h]]` 2346-2363, 2833-2836, 3757-3768), departing
+//! from 070-14's items 9, 10 and 16 and the VT420's list. baud's split is
+//! positions and regions each display's, and modes the terminal's except
+//! those a text gives each display, origin mode and the cursor's
+//! visibility. The rest is shared: tabs, IRM, DECAWM and LNM, DECSCLM,
+//! DECSCNM, the width, and BDSM and DCSM, the terminal's, under which each
+//! display's limit bounds or not and the line is laid out. IRM "Affects the
+//! main display and the status line" and DECAWM "Affects the main display
+//! and status line" (`[[source: vt420-rm]]` p. 221), and LNM, which neither
+//! text names, sets the Return key, which is one for both displays ("All
+//! keyboard functions are executed regardless of the selected display",
+//! 070-14 item 17). BDSM is both
 //! displays' by the 2026-10-26 layout decision, which lays the line out
 //! "under the terminal's BDSM" (`docs/bidi.md`, the status line's row),
 //! and DCSM is kept with it; §14.2.3's general clause lists neither among
