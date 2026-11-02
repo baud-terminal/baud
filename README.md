@@ -9,7 +9,7 @@
 
 [Install](#install) · [Features](docs/guide/features.md) · [Configuration](docs/guide/configuration.md) · [Roadmap](docs/roadmap.md) · [Documentation](docs/README.md)
 
-<img src="assets/readme/hero.gif" width="776" alt="baud running btop, then a git log scrolling smoothly, a photo shown in the terminal, and the cursor leaving a plasma trail as it jumps">
+<img src="assets/readme/hero.gif" width="776" alt="A real baud session: the logo carried off by the plasma as baud starts, btop, cat README.md and a scroll back through it, helix finding the tagline and jumping to the end and back with the cursor trail, a photo drawn in the terminal, neo, asciiquarium, and clear sending the cursor to the top with the trail">
 
 </div>
 
@@ -47,7 +47,6 @@ ones never strobe, and with Reduce Motion on there is no trail unless you
 ask for one.
 [See every effect in the cursor gallery](docs/cursor.md).
 
-<img src="assets/readme/trail.gif" width="776" alt="the cursor jumping diagonally across the screen and back, leaving a plasma trail">
 
 ### Keeps up with any output
 
@@ -86,14 +85,12 @@ one.
 Scroll back through the history with the wheel, select across it, and
 resize: lines rewrap to the new width.
 
-<img src="assets/readme/tools.gif" width="776" alt="scrolling back with the wheel and an overlay scrollbar, selecting text, and narrowing the window so the lines rewrap">
 
 Pictures show in the terminal, through tmux too: the kitty graphics
 protocol and Sixel are both supported. Tools that ask first whether the
 terminal draws pictures, such as yazi and plain `kitten icat`, need one
 setting turned on ([how](docs/guide/configuration.md#images)).
 
-<img src="assets/readme/images.gif" width="776" alt="a photo shown in the terminal, then a smaller one beside text">
 
 **[See all 203 features](docs/guide/features.md)** · **[See the roadmap](docs/roadmap.md)**
 

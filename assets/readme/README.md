@@ -1,29 +1,34 @@
 # The README's pictures
 
-Every one is filmed from baud itself by `scripts/readme-capture.sh`, which
-remakes the set and checks it: each clip loops, no frame is blank, nothing
-on screen names the machine, and every file is under 5 MB. They share one
-window, 80x24 at 16 pt (776x548 pt), in Dark, with baud's defaults
-except a steady cursor and, for `text.png`, the fonts; the capture also fixes BAUD_MOTION=full (the trail
-shows whatever Reduce Motion says) and BAUD_SCROLLER=overlay (the fading
-scrollbar).
+`hero.gif` is a screen recording of a real baud session, its window filmed
+as it ran: a shell, every command typed into it at real speed, glass and
+smooth scrolling as they are, at 110x33 cells and 12 pt, in Dark. It shows
+the launch logo carried off by the plasma, btop (refreshing every 100 ms,
+its process and network boxes hidden), `cat README.md` and a scroll back
+through it, helix finding the tagline and jumping to the end and back with
+the plasma trail, a photo drawn by `kitten icat`, neo, asciiquarium, and
+`clear` sending the cursor to the top with the trail. The shell's prompt is
+a plain `baud ❯`, so nothing names the machine. Encoded with gifski at
+1164 px wide (16.9 MB), with no frame carrying traces of another, so it
+loops clean. neo's katakana are drawn by the macOS system font baud falls
+back to, as baud's own font has none.
+
+`text.png` is made by `scripts/readme-capture.sh`, which remakes it and
+checks it, in one window, 80x24 at 16 pt (776x548 pt), in Dark, with baud's
+defaults except a steady cursor and the fonts.
 
 | file | what it shows | made by |
 |---|---|---|
 | `text.png` | emoji sequences, flags, Chinese, Japanese, Nerd Font icons and JetBrains Mono ligatures, in a table whose right border stays straight; drawn from open faces only, baud's own with Noto Color Emoji and Noto Sans CJK SC, so no Apple font drew any of it (the icons row does show the Nerd Font's Apple logo) | `scripts/readme-demo-text.sh`, `scripts/readme-text.txt` |
-| `hero.gif` | btop, then a git log scrolling smoothly, a photo drawn by `kitten icat`, and the plasma trail | `scripts/readme-demo-hero.sh` |
-| `images.gif` | a photo, then a smaller one beside text, through `kitten icat` | `scripts/readme-demo-images.sh` |
-| `tools.gif` | the wheel into the scrollback with the overlay scrollbar, a selection, and a narrowing resize that rewraps (the recording keeps the full window's frame, so the narrowed window shows black to its right) | `scripts/readme-demo-tools.sh`, `scripts/readme-pointer.swift` |
-| `trail.gif` | the plasma trail on two diagonal jumps, cut from `docs/cursor/plasma.mp4` (776x488 pt, the window that clip was taken at) | `scripts/trail-clips.sh` |
 
 `social.png` is a 1280x640 card for the repository's social preview,
 which GitHub takes only as an upload in the repository's settings, never
 from the tree: the lockup and the tagline over a darkened frame of the
-hero's btop. `ONLY=social scripts/readme-capture.sh` remakes it alone,
-from the committed `hero.gif`.
+hero's btop, taken from the earlier `hero.gif`; `ONLY=social
+scripts/readme-capture.sh` remade it from that clip, so remaking it now
+needs the frame's time set for the recording.
 
-The photos are two elementary OS wallpapers, pinned by nixpkgs revision and
-sha256. Both are Unsplash photographs published before 8 June 2017 and so
-CC0, as elementary's `debian/copyright` records: "Canazei Granite Ridges"
-(unsplash.com/photos/yrwpJwDNSHE) and "Sunset by the Pier"
-(unsplash.com/photos/ces8_Bo7bhQ).
+The photo is an elementary OS wallpaper, pinned by nixpkgs revision and
+sha256. It is an Unsplash photograph published before 8 June 2017 and so CC0,
+as elementary's `debian/copyright` records: "Canazei Granite Ridges"
+(unsplash.com/photos/yrwpJwDNSHE).

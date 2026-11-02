@@ -447,13 +447,13 @@ they were built from.
 - **From:** https://github.com/gnachman/iTerm2/blob/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m
 - **Files:** [baud-domain/src/vt/iterm_keys.rs](baud-domain/src/vt/iterm_keys.rs)
 
-### The README's hero.gif and images.gif carry the elementary OS wallpapers 'Canazei Granite Ridges' and 'Sunset by the Pier', CC0 per elementary's debian/copyright (deb-packaging branch, 'Unsplash photos published before June 8, 2017 are CC0')
+### The README's hero.gif carries the elementary OS wallpaper 'Canazei Granite Ridges', CC0 per elementary's debian/copyright (deb-packaging branch, 'Unsplash photos published before June 8, 2017 are CC0')
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** CC0-1.0
 - **Notice:** none needed
 - **From:** https://github.com/elementary/wallpapers
-- **Files:** [assets/readme/hero.gif](assets/readme/hero.gif), [assets/readme/images.gif](assets/readme/images.gif)
+- **Files:** [assets/readme/hero.gif](assets/readme/hero.gif)
 
 ### The README's text.png carries renderings of Noto Color Emoji v2.051 and Noto Sans CJK SC 2.004 (Google), fetched at capture time by scripts/readme-capture.sh, pinned by sha256 and not committed; the rest is baud's embedded faces. No Apple face is in its stack (re-shot 2026-10-17 with an open emoji font). The OFL covers the fonts, not what is drawn with them
 

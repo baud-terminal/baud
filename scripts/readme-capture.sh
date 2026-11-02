@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Remakes the README's pictures in assets/readme/, every one of them filmed
-# from baud itself. macOS only: it records baud's window through
+# from baud itself. Since 2026-11-01 the README shows only text.png and a
+# hero.gif that is a screen recording of a real session (assets/readme/
+# README.md); the hero, images, tools and trail takes below are kept for
+# ONLY= runs and are no longer in the README, and the default makes text.png. macOS only: it records baud's window through
 # ScreenCaptureKit (scripts/trail-record.swift), so the terminal running it
 # needs Screen Recording, and it raises the window and drives the pointer
 # through System Events, which needs Accessibility.
@@ -70,7 +73,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 baud=${BAUD:-$root/target/release/baud}
 dest=$root/assets/readme
-only=${ONLY:-"text hero images tools trail social"}
+only=${ONLY:-"text"}
 # The social card's tagline, which must equal the README's. Each bar
 # starts a new line on the card.
 TAGLINE=${TAGLINE:-"The terminal with character:|its own font,|its own cursor effects,|and the speed to keep up."}
