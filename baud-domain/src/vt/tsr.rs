@@ -33,7 +33,7 @@
 //! | 1 | XTSMTITLE's four modes |
 //! | 18 | XTMODKEYS for the seven resources, -1 to 15 as a byte (14); XTFMTKEYS's seven formats (2); modifyOtherKeys' mask (2) |
 //! | 27 | DECCIR's fields: the row and column (3 each), `Srend`, `Satt`, `Sflag` (1 each), GL and GR (1), the four designations ([`TSR_DESIGNATIONS`]) |
-//! | 53 | the shown screen's `DECSC` save: its row from 1, 0 for none (3), column from 0 (3), rendition (28), protection (bit 0), DECOM (bit 2) and pending wrap (bit 3) (1), GL and GR (1), the four designations |
+//! | 53 | the shown screen's `DECSC` save: its row from 1, 0 for none (3), column from 0 (3), rendition (28), protection (bit 0), a wrap waiting at the left margin under DECRLM (bit 1), DECOM (bit 2) and pending wrap (bit 3) (1), GL and GR (1), the four designations |
 //! | 4 | the tab stops: carried (bit 0) or every eighth column (bit 1); the columns (3) |
 //! | 0-58 | the tab stops' bitmap, a bit a column, when carried, [`TSR_TAB_COLS`] columns at most |
 //!
@@ -56,8 +56,9 @@ use crate::*;
 /// `?96` and `?36`; 5 since the ANSI modes took DCSM; 6 since the private
 /// modes took `?34`; 7 since they took `?35`; 8 since the ANSI modes took
 /// HEM; 9 since the private modes took xterm's six keyboards, `?1050` to
-/// `?1053`, `?1060` and `?1061`.
-pub const TSR_VERSION: u8 = 9;
+/// `?1053`, `?1060` and `?1061`; 10 since the `DECSC` save's bit 1 took
+/// DECRLM's wait at the left margin.
+pub const TSR_VERSION: u8 = 10;
 
 /// The data nibbles 256 characters leave: less `ESC P`, `1 $ s`, the two
 /// checksum bytes and `ESC \`.
@@ -167,13 +168,15 @@ pub struct TsrSaved {
     pub row: u16,
     pub col: u16,
     pub rendition: StyleWord,
-    /// DECSCA's protection, DECOM, and whether the column is one past a
-    /// pending wrap's. **Bit 1 of their nibble is written 0 and not read**:
-    /// it carried DECAWM while DECRC restored it, and a `DECSC` save holds
-    /// no DECAWM since 2026-11-01, so the layout keeps its place.
+    /// DECSCA's protection, DECOM, whether the column is one past a
+    /// pending wrap's, and whether a wrap waits on the column at the left
+    /// margin, DECRLM's. **Bit 1 of their nibble is the last**: it carried
+    /// DECAWM while DECRC restored it, and a `DECSC` save holds no DECAWM
+    /// since 2026-11-01; the layout of version 10 gives it the wait.
     pub protect: ModeChange,
     pub origin: ModeChange,
     pub pending: ModeChange,
+    pub left_edge: ModeChange,
     pub gl: GSlot,
     pub gr: GSlot,
     pub designations: [Designation; 4],
@@ -530,7 +533,7 @@ impl TerminalState {
                 p.nibbles(u32::from(s.row) + 1, 3);
                 p.nibbles(u32::from(s.col), 3);
                 p.rendition(s.rendition);
-                let flags = [s.protect, ModeChange::Reset, s.origin, s.pending]
+                let flags = [s.protect, s.left_edge, s.origin, s.pending]
                     .iter()
                     .enumerate()
                     .fold(0, |v, (i, m)| v | (u32::from(*m == ModeChange::Set) << i));
@@ -721,6 +724,7 @@ impl TerminalRestore {
                 protect: bit(0),
                 origin: bit(2),
                 pending: bit(3),
+                left_edge: bit(1),
                 gl: slot(slots),
                 gr: slot(slots >> 2),
                 designations: designations?,

@@ -785,6 +785,28 @@ fn the_saved_cursor_is_restored() {
     });
 }
 
+/// **A save holding DECRLM's wait at the left margin travels in the report
+/// too**: written right to left to column 1, saved, then reset and
+/// restored from the report, `DECRC` puts the wait back and the `X` goes
+/// to the next line's last column, not over column 1.
+#[test]
+fn a_saved_wait_at_the_left_margin_is_restored() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[?34h\x1b[1;5Habcde\x1b7\x1b[3;3H");
+        let report = reply(t, b"\x1b[1$u");
+        support::feed(t, b"\x1bc");
+        support::feed(t, &restore(&report));
+        support::feed(t, b"\x1b8X");
+        let cell = |r: usize, c: usize| t.viewport().row(Row::from_index(r))[c].content;
+        assert!(cell(0, 0).is_empty(), "column 1 not overwritten");
+        assert_eq!(
+            cell(1, 199).as_codepoint().map(|c| c.value()),
+            Some(u32::from('X')),
+            "X at the next line's last column"
+        );
+    });
+}
+
 /// The index of DECCIR's `Sflag` nibble in a DECTSR's data, found rather
 /// than counted: two reports that differ only in a pending wrap, Sflag's
 /// bit 4, differ in that one nibble and nowhere else.

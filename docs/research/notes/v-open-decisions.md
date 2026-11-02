@@ -1952,10 +1952,13 @@ comment above the line-136 test.
   them. Fixed the same day, a defect outside the decision: a `U+FE0F`
   after a base a resize left a wrap waiting after widens it in place
   where the line goes on, as one written mid-row
-  (`u_fe0f_widens_the_character_a_kept_wrap_waits_after`). **Still
+  (`u_fe0f_widens_the_character_a_kept_wrap_waits_after`). Built
+  2026-11-02: a wrap DECRLM leaves waiting at the left margin is saved
+  by DECSC and restored by DECRC, D.6.1's flag naming no direction, and
+  back as a column once `?34l` has reset the mode
+  (`decsc_and_decrc_keep_a_wrap_waiting_at_the_left_margin`). **Still
   open**: the mid-row margin mark above; `VPA` and `VPR`, which D.6.1
-  does not name; a wrap DECRLM leaves waiting at the left margin, which
-  DECSC does not save; ICH and DCH left of the left margin, which act
+  does not name; ICH and DCH left of the left margin, which act
   where ICH note 2, DCH note 3, xterm and ghostty ignore them; and ICH
   and DCH on a row outside the top and bottom margins, built as acting
   (a lean), where STD 070's margin table (p. 5-24) and the VT420 and

@@ -13,7 +13,7 @@
 //! costs every payload whether or not it executes.
 
 use crate::paint::{Paint, Pen};
-use crate::term::{AltStyle, Saved, Screen, Strip, SurfaceLine};
+use crate::term::{AltStyle, Saved, SavedWait, Screen, Strip, SurfaceLine};
 use baud_domain::*;
 
 /// What a rendition with SAPV's variants found on its own key's path
@@ -405,8 +405,13 @@ impl Paint<'_, '_> {
             protect: self.cold.protect,
             origin: ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
             // A wrap pending, one past the column it waits on, and not a
-            // cursor a move placed on that column.
-            pending: ModeChange::of(self.wrap_waits()),
+            // cursor a move placed on that column; or DECRLM's, on the left
+            // margin's column.
+            pending: match (self.wrap_waits(), self.waits_at_left_edge()) {
+                (true, _) => SavedWait::Right,
+                (false, true) => SavedWait::Left,
+                (false, false) => SavedWait::None,
+            },
             widths: self.cold.widths.widths(),
         }
     }
@@ -462,7 +467,13 @@ impl Paint<'_, '_> {
     /// save cursor"), as xterm's `CursorRestore` sets `do_wrap` after
     /// `CursorSet` (`[[source: xterm-cursor-c]]` 494) and ghostty's
     /// `restoreCursor` sets `pending_wrap`. At full width the clamp to the
-    /// grid dropped it until 2026-11-01 ([`Paint::wait_on`]).
+    /// grid dropped it until 2026-11-01 ([`Paint::wait_on`]). **Under
+    /// DECRLM the flag waits at the left margin** (`crate::leftward`), and
+    /// D.6.1's save names no direction: it comes back waiting on the column
+    /// restored while DECRLM is set, and a column once `?34l` has reset it,
+    /// as `?34l` leaves one ([`Paint::wait_at_left_edge`]). Until
+    /// 2026-11-02 DECSC did not save it, and the next character overwrote
+    /// the margin.
     ///
     /// **DECAWM is left as it is**: 070-5's `save_cursor` (p. 5-188) saves
     /// no Auto Wrap Mode, neither DECCIR has a bit for one, and xterm's
@@ -494,11 +505,11 @@ impl Paint<'_, '_> {
             .apply(ModeBit::Origin, s.origin == ModeChange::Set);
         let r = Row::from_index(s.cy.index().min(self.rows.index() - 1));
         // **A saved pending wrap is the column one past the one it waited
-        // on** (`Saved::pending`), and that column is what the clamp and
+        // on** (`SavedWait::Right`), and that column is what the clamp and
         // the margins act on; a column on the right margin that a narrower
         // `DECSLRM` made level with the new right margin + 1 is a column,
         // and `restore_cursor` (p. 5-190) clamps it.
-        let pending = s.pending == ModeChange::Set;
+        let pending = s.pending == SavedWait::Right;
         let c = match pending {
             true => s.cx.before(),
             false => s.cx,
@@ -518,6 +529,11 @@ impl Paint<'_, '_> {
                 let at = self.place(c);
                 self.set_col(at);
                 self.cx = self.on_line(self.cx);
+                // **DECRLM's wait at the left margin comes back waiting**
+                // on the column restored, after the moves that end one.
+                if s.pending == SavedWait::Left {
+                    self.wait_at_left_edge();
+                }
             }
         }
         // **Interned again, not the saved id.** An eviction between the save

@@ -102,6 +102,27 @@ pub(crate) const LEVEL_ONE_SETS: [Charset; 4] = [Charset::Ascii; 4];
 /// The same, as designated: `B` in all four.
 pub(crate) const LEVEL_ONE_DESIGNATIONS: [Designation; 4] = [Designation::ASCII; 4];
 
+/// **What a `DECSC` save holds of a pending wrap**, the Last Column Flag
+/// `[[source: dec-std-070]]` D.6.1 has it save and `DECRC` restore, "when
+/// Auto Wrap Mode is set" the only time a write sets it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SavedWait {
+    /// None: [`Saved::cx`] is a column.
+    None,
+    /// **At the line's end**: `cx` is one past the column it waited on,
+    /// the sentinel's column or a kept wrap's
+    /// ([`baud_domain::CursorCol::waiting`]), and not a column. `restore`
+    /// puts the wrap back pending on the column before it, clamped and
+    /// confined as a column is, and a re-cut of the primary moves that
+    /// column with the character on it.
+    Right,
+    /// **DECRLM's, at the left margin** (`crate::leftward`): `cx` is the
+    /// column it waits on, a write's last under DECRLM with DECAWM set.
+    /// `restore` puts it back waiting there while DECRLM is set, and a
+    /// column once `?34l` has reset it, as `?34l` leaves a wait.
+    Left,
+}
+
 /// What `DECSC` saves and `DECRC` restores.
 #[derive(Clone, Copy)]
 pub struct Saved {
@@ -147,19 +168,14 @@ pub struct Saved {
     /// its own coordinate system back -- and until this was read off the
     /// manual rather than assumed, neither core restored either flag.
     pub(crate) origin: ModeChange,
-    /// **Whether a wrap was pending**, the Last Column Flag `[[source:
-    /// dec-std-070]]` D.6.1 has DECSC save and DECRC restore: then `cx` is
-    /// one past the column it waited on, the sentinel's column or a kept
-    /// wrap's ([`baud_domain::CursorCol::waiting`]), and not a column.
-    /// `restore` puts the wrap back pending on the column before it,
-    /// clamped and confined as a column is, and a re-cut of the primary
-    /// moves that column with the character on it. Without the bit a column
-    /// on the right margin that a narrower `DECSLRM` since brought level
-    /// with the new right margin + 1 could not be told from a saved
-    /// sentinel, and came back as a pending wrap no save had held. It
-    /// landed in padding, `size_of::<Saved>()` 56 with it and without; GR
-    /// and the four designations took it to 72.
-    pub(crate) pending: ModeChange,
+    /// **Whether a wrap was pending, and where** ([`SavedWait`]): the Last
+    /// Column Flag `[[source: dec-std-070]]` D.6.1 has DECSC save and DECRC
+    /// restore. Without it a column on the right margin that a narrower
+    /// `DECSLRM` since brought level with the new right margin + 1 could
+    /// not be told from a saved sentinel, and came back as a pending wrap
+    /// no save had held. It landed in padding, `size_of::<Saved>()` 56 with
+    /// it and without; GR and the four designations took it to 72.
+    pub(crate) pending: SavedWait,
     /// **The Unicode version `UnicodeVersion` selected**, saved and restored
     /// with the cursor as iTerm2's source saves it
     /// (`savedCursor-> unicodeVersion`,
@@ -3112,7 +3128,7 @@ impl<'b> Term<'b> {
         // character and the wrap stays pending after it, as ghostty keeps its
         // flag through a reflow. A save is one past it likewise
         // (`Saved::pending`).
-        let one_back = |s: &Saved| match s.pending == ModeChange::Set {
+        let one_back = |s: &Saved| match s.pending == SavedWait::Right {
             true => s.cx.before(),
             false => s.cx,
         };
@@ -3299,7 +3315,7 @@ impl<'b> Term<'b> {
         if decsc.is_some() {
             if let Some(s) = self.primary_slot(at) {
                 let (y, x) = decsc_at.map_or((0, s.cx), |(j, c)| {
-                    let c = match s.pending == ModeChange::Set {
+                    let c = match s.pending == SavedWait::Right {
                         true => c.after(),
                         false => c,
                     };
@@ -3329,7 +3345,7 @@ impl<'b> Term<'b> {
             PrimaryCursor::Saved => {
                 if let Some(s) = self.cold.saved_other.as_mut() {
                     let (cy, cx) = r.cursor;
-                    let cx = match s.pending == ModeChange::Set {
+                    let cx = match s.pending == SavedWait::Right {
                         true => cx.after(),
                         false => cx,
                     };

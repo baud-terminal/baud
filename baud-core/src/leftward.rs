@@ -195,6 +195,26 @@ impl Paint<'_, '_> {
         self.cold.pinned == Pinned::LeftEdge && self.cold.left_edge == self.cy
     }
 
+    /// **Whether a write under DECRLM left the Last Column Flag set where
+    /// the cursor is**: a wait at the left margin with DECAWM set, as a
+    /// write sets the flag only "When Auto Wrap Mode is set" (`[[source:
+    /// dec-std-070]]` D.6.1, p. D-13); with it reset the pin names the
+    /// character written last and no more. What DECSC saves and DECCIR
+    /// reports.
+    pub(crate) fn waits_at_left_edge(&self) -> bool {
+        self.at_left_edge() && self.cold.modes.is_set(ModeBit::AutoWrap)
+    }
+
+    /// **A wait put back at the cursor under DECRLM**, by DECRC or DECRSPS:
+    /// the next character goes to the next line's right margin. With
+    /// DECRLM reset the cursor stays a column, as `?34l` leaves a wait.
+    pub(crate) fn wait_at_left_edge(&mut self) {
+        if self.cold.modes.is_set(ModeBit::CursorRightToLeft) {
+            self.cold.pinned = Pinned::LeftEdge;
+            self.cold.left_edge = self.cy;
+        }
+    }
+
     /// **`BS` under DECRLM**: one column right, "thus moving the cursor on
     /// the screen one position to the right", stopping at the right margin
     /// or the line's end.

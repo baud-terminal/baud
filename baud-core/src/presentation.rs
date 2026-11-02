@@ -32,7 +32,7 @@ impl Paint<'_, '_> {
     /// wrap reports the column it is pending on with Sflag's bit 4, as CPR
     /// reports it: the line's last, the right margin under DECSLRM, the
     /// end of a double-width line ([`CursorCol::reported`]) and SLL's line
-    /// limit (`crate::bounds`). Srend reports
+    /// limit (`crate::bounds`), and under DECRLM the left margin. Srend reports
     /// any underline style as underline and either blink as blink, the one
     /// bit each DECCIR has. The single-shift bits are 0: the `CSI` that asks
     /// has cancelled any shift (070-3 p. 3-81).
@@ -47,8 +47,10 @@ impl Paint<'_, '_> {
         let fence = self.report_fence();
         // What DECSC saves ([`Paint::wrap_waits`]): the sentinel at the
         // fence or at the screen's edge, or a wrap kept waiting on a column
-        // the line no longer ends at ([`CursorCol::waiting`]).
-        let pending = self.wrap_waits();
+        // the line no longer ends at ([`CursorCol::waiting`]); or under
+        // DECRLM a wait at the left margin ([`Paint::waits_at_left_edge`]),
+        // the one Last Column Flag either way.
+        let pending = self.wrap_waits() || self.waits_at_left_edge();
         let flags = CirBits::NONE
             .with(CirBits::BIT1, on(self.cold.modes.is_set(ModeBit::Origin)))
             .with(CirBits::BIT4, on(pending));
@@ -180,8 +182,9 @@ impl Paint<'_, '_> {
     /// carries and keeps the rest of the rendition; an underline or blink
     /// already on stays the style it is. A pending wrap is restored on the
     /// column restored, kept waiting there where the line does not end
-    /// ([`Paint::wait_on`]), as DECRC restores one; before 2026-11-01 only
-    /// on the line's last column or right margin. A single-shift bit leaves
+    /// ([`Paint::wait_on`]), as DECRC restores one, and under DECRLM
+    /// waiting there for the next line's right margin; before 2026-11-01
+    /// only on the line's last column or right margin. A single-shift bit leaves
     /// the shift pending after the string.
     pub(crate) fn restore_cursor_information(&mut self, data: &[u8]) {
         let r = CirRestore::parse(data, self.rows, self.cols);
@@ -224,10 +227,17 @@ impl Paint<'_, '_> {
             let r0 = self.cy;
             self.goto(self.confine(r0), self.confine_col(c));
             // A pending wrap on the column restored, as `DECRC` restores one
-            // (`Paint::wait_on`).
+            // (`Paint::wait_on`); under DECRLM the flag waits there for the
+            // next character to go to the next line's right margin
+            // (`Paint::wait_at_left_edge`).
             if f.has(CirBits::BIT4) {
-                let c = self.cx.col();
-                self.wait_on(c);
+                match self.cold.modes.is_set(ModeBit::CursorRightToLeft) {
+                    true => self.wait_at_left_edge(),
+                    false => {
+                        let c = self.cx.col();
+                        self.wait_on(c);
+                    }
+                }
             }
             self.cold.restored_shift = match (f.has(CirBits::BIT2), f.has(CirBits::BIT3)) {
                 (_, true) => Some(GSlot::G3),

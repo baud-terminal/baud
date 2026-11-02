@@ -395,6 +395,116 @@ fn decrc_leaves_autowrap_as_it_is() {
     assert_eq!(row(&s, 2), "abcdefghijklmnopqrsX", "and off");
 }
 
+/// `?34h`, DECRLM: written right to left, the wrap waits at the left
+/// margin.
+const RLM: &str = "\x1b[?34h";
+/// Row 3 under DECRLM, `FULL` written from its last column to its first.
+const BACK: &str = "tsrqponmlkjihgfedcba";
+
+/// Row 3 filled under DECRLM, the wrap waiting at its first column.
+fn full_leftward() -> String {
+    format!("{RLM}\x1b[3;20H{FULL}")
+}
+
+/// Row 3 filled under DECRLM from the right margin to the left one, 10
+/// to 5, the wrap waiting at the left margin.
+fn fenced_leftward() -> String {
+    format!("{LRM}{RLM}\x1b[3;10HABCDEF")
+}
+
+/// **Under DECRLM DECSC saves a wrap waiting at the left margin and DECRC
+/// restores it**: D.6.1's "the state of the Last Column Flag should be
+/// saved when a Save Cursor operation is performed, and restored when a
+/// Restore Cursor operation is performed" (pp. D-13, D-14) names no
+/// direction, and under DECRLM a character written at the left margin
+/// leaves the flag set there, the next "at the right margin column of the
+/// next line" (`[[source: vt510-decrlm]]`). CPR names the margin's column
+/// and the next character goes to the next line's right margin, at full
+/// width, under side margins and through `?1049`'s save. Before, DECRC put
+/// the cursor on the margin with no wait, and the `X` overwrote the last
+/// character written.
+#[test]
+fn decsc_and_decrc_keep_a_wrap_waiting_at_the_left_margin() {
+    for (pre, cpr, filled, next) in [
+        (full_leftward(), "\x1b[3;1R", BACK, "...................X"),
+        (
+            fenced_leftward(),
+            "\x1b[3;5R",
+            "....FEDCBA..........",
+            ".........X..........",
+        ),
+    ] {
+        let s = run(&[Bytes(format!("{pre}\x1b7\x1b[1;1H\x1b8\x1b[6n"))]);
+        assert_eq!(s.reply, cpr);
+        let s = run(&[Bytes(format!("{pre}\x1b7\x1b[1;1H\x1b8X"))]);
+        assert_eq!(row(&s, 2), filled, "nothing overwritten");
+        assert_eq!(row(&s, 3), next, "X at the next line's right margin");
+        let s = run(&[Bytes(format!("{pre}\x1b[?1049h\x1b[?1049lX"))]);
+        assert_eq!((row(&s, 2), row(&s, 3)), (filled, next), "?1049");
+        // Saved again after a restore, it is still the wait.
+        let s = run(&[Bytes(format!("{pre}\x1b7\x1b8\x1b7\x1b[H\x1b8X"))]);
+        assert_eq!((row(&s, 2), row(&s, 3)), (filled, next), "saved twice");
+    }
+}
+
+/// **A save holds the flag only where it was set**: with DECAWM reset a
+/// write at the left margin sets no Last Column Flag (D.6.1, "When Auto
+/// Wrap Mode is set, however, writing a character into the last position
+/// in a line causes a special flag ... to be set"), so after `?7h` and
+/// DECRC the `X` overwrites the margin. **And with DECRLM reset since the
+/// save it comes back a column**, as `?34l` leaves a wrap waiting there,
+/// and the `X` is written on it left to right.
+#[test]
+fn a_saved_left_margin_wait_needs_autowrap_and_decrlm() {
+    let s = run(&[Bytes(format!(
+        "\x1b[?7l{}\x1b7\x1b[?7h\x1b[1;1H\x1b8X",
+        full_leftward()
+    ))]);
+    assert_eq!(row(&s, 2), "Xsrqponmlkjihgfedcba", "?7l at the save");
+    assert_eq!(row(&s, 3), "....................");
+    let s = run(&[Bytes(format!(
+        "{}\x1b7\x1b[?34l\x1b[1;1H\x1b8X",
+        full_leftward()
+    ))]);
+    assert_eq!(row(&s, 2), "Xsrqponmlkjihgfedcba", "?34l since the save");
+    assert_eq!(row(&s, 3), "....................");
+    // Nothing pending there, so DECCIR's Sflag is clear.
+    let s = run(&[Bytes(format!(
+        "{}\x1b7\x1b[?34l\x1b[1;1H\x1b8\x1b[1$w",
+        full_leftward()
+    ))]);
+    assert!(
+        s.reply.starts_with("\x1bP1$u3;1;1;@;@;@;"),
+        "Sflag '@': {:?}",
+        s.reply
+    );
+}
+
+/// **DECCIR reports the wait at the left margin, and DECRSPS restores it
+/// under DECRLM**: Sflag bit 4, "autowrap pending", is the one Last Column
+/// Flag DECSC saves, whichever way the line is written; read back under
+/// DECRLM it waits at the column restored, and the `X` goes to the next
+/// line's right margin.
+#[test]
+fn deccir_and_decrsps_carry_the_wait_at_the_left_margin() {
+    let s = run(&[Bytes(format!("{}\x1b[1$w", full_leftward()))]);
+    assert!(
+        s.reply.starts_with("\x1bP1$u3;1;1;@;@;H;"),
+        "row 3, column 1, Sflag 'H' (bit 4): {:?}",
+        s.reply
+    );
+    let s = run(&[Bytes(format!("{}\x1b[1$w", fenced_leftward()))]);
+    assert!(
+        s.reply.starts_with("\x1bP1$u3;5;1;@;@;H;"),
+        "row 3, column 5, Sflag 'H': {:?}",
+        s.reply
+    );
+    let rsps = "\x1bP1$t3;1;1;@;@;H;0;2;@;BBBB\x1b\\";
+    let s = run(&[Bytes(format!("{RLM}{rsps}X"))]);
+    assert_eq!(row(&s, 2), "....................", "row 3 untouched");
+    assert_eq!(row(&s, 3), "...................X", "X wrapped leftward");
+}
+
 // ---- BS and CUB -----------------------------------------------------------
 
 /// **BS and CUB count from the column the wrap waits on**: `BS` and `CUB 1`

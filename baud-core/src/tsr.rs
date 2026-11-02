@@ -23,6 +23,7 @@
 
 use crate::osc::StrKind;
 use crate::paint::Paint;
+use crate::term::SavedWait;
 use crate::write::Csi;
 use baud_domain::*;
 
@@ -138,7 +139,8 @@ impl Paint<'_, '_> {
             rendition: s.style_raw,
             protect: ModeChange::of(s.protect.is_protected()),
             origin: s.origin,
-            pending: s.pending,
+            pending: ModeChange::of(s.pending == SavedWait::Right),
+            left_edge: ModeChange::of(s.pending == SavedWait::Left),
             gl: s.gl,
             gr: s.gr,
             designations: s.desig,
@@ -486,7 +488,11 @@ impl Paint<'_, '_> {
             desig: s.designations,
             protect,
             origin: s.origin,
-            pending: s.pending,
+            pending: match (s.pending, s.left_edge) {
+                (ModeChange::Set, _) => SavedWait::Right,
+                (ModeChange::Reset, ModeChange::Set) => SavedWait::Left,
+                (ModeChange::Reset, ModeChange::Reset) => SavedWait::None,
+            },
             widths: self.cold.widths.widths(),
         });
     }
