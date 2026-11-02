@@ -7,8 +7,8 @@
 //! describes.
 
 use baud_domain::{
-    BandMove, Col, ImageAlpha, ImagePx, ImageScreen, ImageSlot, ImageStore, LineIdx, Pixel,
-    PlacementId, PlacementSlot, Rows, Sixel, SixelAspect, SixelCanvas, SixelPx, ZIndex,
+    BandMove, Col, ImageAlpha, ImageId, ImagePx, ImageScreen, ImageSlot, ImageStore, LineIdx,
+    Pixel, PlacementId, PlacementSlot, Rows, Sixel, SixelAspect, SixelCanvas, SixelPx, ZIndex,
 };
 
 fn red() -> Pixel {
@@ -786,4 +786,82 @@ fn a_full_slot_table_deletes_the_oldest_unplaced_kitty_image() {
         .map(|i| store.kitty_image(KittyId::of(i)).is_some())
         .collect();
     assert_eq!(live, [false, true, true, true, true], "the oldest went");
+}
+
+/// **A command that would keep more than 32 images deletes none for
+/// space**: the kitty quota keeps what the command needs, and every image
+/// a virtual placement holds once a kept placement hangs under one, since
+/// deleting one would take the kept placement with it; it keeps at most
+/// 32 and, past them, deletes nothing and refuses the new image once. `n`
+/// one-pixel images each held by a virtual placement, a one-pixel image
+/// placed under a virtual parent, and an unplaced two-pixel image fill the
+/// arena; a two-pixel image put against the placed one keeps it and the
+/// `n` held ones. At 31 held, 32 kept, the unplaced image goes and the new
+/// one is stored; at 32 held, 33, none goes. The control: 32 held and the
+/// placed image under no parent keeps one, and the unplaced image goes.
+/// Every image of the held set stays each time.
+#[test]
+fn a_command_that_would_keep_more_than_32_images_deletes_none_for_space() {
+    use baud_domain::{
+        ImageOwner, KittyId, KittyNumber, KittyParent, KittyPlace, ParentOn, PlaceSerial,
+    };
+    let kitty = |i| ImageOwner::Kitty(KittyId::of(i), KittyNumber::NONE);
+    let px = ImagePx::of;
+    for (held, on, stored) in [
+        (31, ParentOn::Virtual, true),
+        (32, ParentOn::Virtual, false),
+        (32, ParentOn::Nothing, true),
+    ] {
+        let mut pixels = vec![Pixel::CLEAR; held + 3];
+        let mut slots = [ImageSlot::EMPTY; 40];
+        let mut places = [PlacementSlot::EMPTY; 4];
+        let mut index = [PlacementId::NONE; 8];
+        let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places, &mut index);
+        let take = |store: &mut ImageStore, w, i| {
+            let id = store.reserve(px(w), px(1), kitty(i)).expect("room");
+            store.complete(id, ImageAlpha::OpaqueOrClear);
+            id
+        };
+        for i in 1..=held {
+            let id = take(&mut store, 1, u32::try_from(i).unwrap());
+            assert!(store.hold(id), "held");
+        }
+        let under = take(&mut store, 1, 100);
+        let parent = KittyParent {
+            slot: PlacementId::NONE,
+            serial: PlaceSerial::NONE,
+            on,
+            h: 0,
+            v: 0,
+        };
+        let place = KittyPlace {
+            parent,
+            ..KittyPlace::NONE
+        };
+        let p = store.place_kitty(
+            under,
+            ImageScreen::Primary,
+            LineIdx::FIRST,
+            Col::ZERO,
+            ZIndex::ZERO,
+            place,
+        );
+        assert!(!p.is_none(), "placed");
+        take(&mut store, 2, 200);
+        let new = store.reserve_keeping(px(2), px(1), kitty(300), [under, ImageId::NONE]);
+        assert_eq!(new.is_some(), stored, "{held} held, {on:?}");
+        let gone = usize::from(stored);
+        let refused = usize::from(!stored);
+        assert_eq!(
+            (store.images_evicted, store.images_refused),
+            (gone, refused),
+            "{held} held, {on:?}"
+        );
+        assert_eq!(store.kitty_image(KittyId::of(200)).is_none(), stored);
+        for i in 1..=held {
+            let i = u32::try_from(i).unwrap();
+            assert!(store.kitty_image(KittyId::of(i)).is_some(), "{held}: {i}");
+        }
+        assert!(store.kitty_image(KittyId::of(100)).is_some());
+    }
 }
