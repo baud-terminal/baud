@@ -6,3 +6,12 @@
 # everyone who runs the test benefits from these saved cases.
 cc 67f789264cab5a41356682f02f86bd12838c4a0f85b112871c692144ddca77e0 # shrinks to len = 256, prog = [FreeInside(Some(7), [35, 48, 59, 50, 59, 48, 59, 48, 59, 48, 33, 49, 63], Index(0), 0)]
 cc 8ebeb5f8602ce6ea686f78ec007d3d559916b549f6cc8bba19992e150a28f643 # shrinks to len = 0, prog = [Sixel(Some(7), [63])]
+cc 90527aacc0267ee8a8e0f2f6afc9ee107cd7b455cb62ff582a78a72fe0261fa9 # shrinks to len = 161, prog = [Sixel(Some(7), [64, 35, 59, 50])]
+cc 23e186d359b6ff190594518c7469dfb9eb1920d806b19718e3a461b775f008bd # shrinks to len = 30, prog = [Sixel(None, [35, 51, 59, 50, 59, 49, 33, 36, 64, 35, 51, 59, 49, 63, 36])]
+cc f8befc4c9280c8ae317b381fc51297cbca68183597091082be37d657d64988f6 # shrinks to len = 4096, prog = [Sixel(None, [35, 48, 59, 50, 59, 48, 59, 48, 59, 49, 48, 48, 63, 35, 52, 59, 50, 59, 49, 48, 48, 59, 48, 59, 48, 64, 63, 35, 52, 59, 50, 59, 48, 59, 48, 59, 49, 48, 48, 63])]
+cc 06b11955de9fba21a06dcb83a963958ffe3f01caf427b6b02e3faaf230449f33 # shrinks to len = 64, prog = [Sixel(None, [64, 35, 48, 59, 50, 59, 49, 48, 48, 59, 48, 59, 48])]
+cc 70cd04b6f71d763f46669472c7a94b7e246de485465a18f797c3197e170901d1 # shrinks to len = 2142, prog = [Sixel(Some(9), [35, 49, 59, 50, 59, 48, 59, 48, 59, 48, 33, 49, 63, 35, 64, 45, 35, 48, 59, 50, 59, 48, 59, 48, 59, 48, 33, 49, 63])]
+cc 989372a3f36607b235a7708a43f000bc157cfa4e0ac7bf85c25751ddfdfebdd7 # shrinks to len = 66, prog = [Sixel(Some(9), [35, 48, 59, 50, 59, 49, 48, 48, 59, 48, 59, 48, 64, 35, 52, 59, 50, 59, 49, 48, 48, 59, 48, 59, 48, 64, 35, 52, 59, 50, 59, 48, 59, 48, 59, 49, 48, 48])]
+cc d7f6f2fc5a52fd4f46686f9fcbe9fa93efb5c6a26929c3a331747c1000e86766 # shrinks to len = 64, prog = [Sixel(None, [35, 50, 53, 53, 59, 49, 35, 59, 49, 64, 35, 51, 50, 55, 54, 56, 64, 35, 51, 50, 55, 54, 56, 59, 50, 59, 49])]
+cc 9cd52791ca2b632f6c7bb2bf78916366588f0b7e7ee2d112e73cd91d716fc3b2 # shrinks to len = 132, prog = [Sixel(Some(7), [35, 59, 50, 59, 59, 64, 35, 59, 50, 59, 49])]
+cc e1c79ccd2ce0b9095d5808f650f031c35d6a6c954f7fdb04f1cc98b9dca0c8df # shrinks to len = 64, prog = [Sixel(Some(9), [35, 51, 59, 50, 59, 49, 48, 48, 59, 48, 59, 48, 64, 35, 51, 59, 50, 59, 49, 48, 48, 59, 48, 59, 48, 49])]

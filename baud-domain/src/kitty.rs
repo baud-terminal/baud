@@ -1561,7 +1561,7 @@ impl KittyStream {
                 }
             }
             (_, compression) => {
-                match self.reserve(cmd.width, cmd.height, owner, cmd.act(), spare, store) {
+                match self.reserve(cmd.width, cmd.height, owner, &cmd, spare, store) {
                     Err(e) => Load::Refused(e),
                     Ok(image) => match compression {
                         KittyCompression::None => Load::Raw {
@@ -1582,8 +1582,10 @@ impl KittyStream {
     /// against what the store was given before anything is reserved: a
     /// side past 65535 or an area past the whole arena is refused and
     /// counted without looking for a gap. A new image that does not fit
-    /// deletes the oldest images without placements until it does
-    /// ([`ImageStore::reserve_evicting`]). A query decodes in the store's
+    /// deletes older images until it does, those without placements first
+    /// ([`ImageStore::reserve_evicting`]), and the virtual placements of
+    /// an image it deleted go with it ([`KittyStream::drop_dead_virtuals`]).
+    /// A query decodes in the store's
     /// probe when it fits there, whatever the arena holds, and otherwise in
     /// a gap of the arena, deleting nothing
     /// ([`KITTY_PROBE`](crate::KITTY_PROBE)).
@@ -1592,10 +1594,11 @@ impl KittyStream {
         width: u32,
         height: u32,
         owner: ImageOwner,
-        act: KittyAction,
+        cmd: &KittyCommand,
         spare: ImageId,
         store: &mut ImageStore,
     ) -> Result<ImageId, KittyError> {
+        let act = cmd.act();
         if width == 0 || height == 0 {
             store.refuse(ImageRefusal::Empty);
             return Err(KittyError::ZERO_SIZE);
@@ -1615,12 +1618,42 @@ impl KittyStream {
             return Err(KittyError::TOO_LARGE);
         }
         // A query stores nothing the client can name or show, so it
-        // deletes nothing for space.
-        match act {
+        // deletes nothing for space; and nothing goes that the command
+        // needs: the image a frame is added to, and the parent a put names
+        // with `P`, with what their placements hang under.
+        let parent = match cmd.parent {
+            0 => ImageId::NONE,
+            p => store.kitty_image(KittyId::of(p)).unwrap_or(ImageId::NONE),
+        };
+        let evicted = store.images_evicted;
+        let got = match act {
             KittyAction::Query => store.reserve(w, h, owner),
-            _ => store.reserve_sparing(w, h, owner, spare),
+            _ => store.reserve_keeping(w, h, owner, [spare, parent]),
+        };
+        if store.images_evicted != evicted {
+            self.drop_dead_virtuals(store);
         }
-        .ok_or(KittyError::NO_SPACE)
+        got.ok_or(KittyError::NO_SPACE)
+    }
+
+    /// **The virtual placements of an image the quota deleted go too**,
+    /// and every relative placement under them: their hold went with the
+    /// image, and a placeholder naming its id shows nothing, as after a
+    /// delete of the image. Kept, a stale entry would take a slot of the
+    /// table, and would name the image's slot when a later image with its
+    /// id took it.
+    #[cold]
+    #[inline(never)]
+    fn drop_dead_virtuals(&mut self, store: &mut ImageStore) {
+        for k in 0..KITTY_VIRTUALS {
+            let v = self.virtuals[k];
+            if v.image.is_none() || KittyStream::live(&v, store) {
+                continue;
+            }
+            store.kitty_orphan_virtual(v.serial);
+            self.virtuals[k] = Virtual::EMPTY;
+            self.virtuals_live -= 1;
+        }
     }
 
     /// An id no live image has, for an image sent with a number alone:
@@ -2003,7 +2036,7 @@ impl KittyStream {
             KittyAction::Frame => frame_root(&cmd, store).unwrap_or(ImageId::NONE),
             _ => ImageId::NONE,
         };
-        let image = match self.reserve(size.width, size.height, owner, cmd.act(), spare, store) {
+        let image = match self.reserve(size.width, size.height, owner, &cmd, spare, store) {
             Ok(i) => i,
             Err(e) => {
                 self.reply(&cmd, Err(e));
@@ -2546,7 +2579,12 @@ impl KittyStream {
                         _ => FrameDepth::Rgba,
                     },
                 };
-                match store.kitty_frame(root, data, load) {
+                let evicted = store.images_evicted;
+                let made = store.kitty_frame(root, data, load);
+                if store.images_evicted != evicted {
+                    self.drop_dead_virtuals(store);
+                }
+                match made {
                     Ok(n) => {
                         answered.rows = n.raw();
                         self.counts.frames += 1;

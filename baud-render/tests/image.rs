@@ -896,3 +896,38 @@ fn an_image_that_arrives_is_in_the_painted_bands() {
     let missed = support::uncovered(&was, &c, &bands);
     assert!(missed.is_empty(), "rows {missed:?} changed and are unnamed");
 }
+
+/// **A shared Sixel recoloured by a later one is drawn in its new colour
+/// on the next incremental frame**, the frame a full repaint draws: the
+/// recolour moves the store's epoch, and the placement keyed on it is
+/// drawn again. Under `?1070` reset a 64x48 Sixel of register 1's red is
+/// drawn at home, then a shared body with no data defines register 1 blue.
+#[test]
+fn a_recoloured_sixel_is_drawn_on_an_incremental_frame() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4 * 64 * 48));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_sixel_claim(baud_domain::SixelClaim::Yes);
+    let mut red = b"\x1b[?25l\x1b[?1070l\x1bP9;1q#1;2;100;0;0#1".to_vec();
+    for _ in 0..8 {
+        red.extend_from_slice(b"!64~-");
+    }
+    red.extend_from_slice(b"\x1b\\\x1b[H");
+    feed(&mut t, &red);
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let at = |c: &Canvas| c.pixels[10 * c.width + 10];
+    assert_eq!(at(&c), 0xFFFF_0000, "the control: drawn red");
+    feed(&mut t, b"\x1bP9;1q#1;2;0;0;100\x1b\\");
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Incremental);
+    }
+    assert_eq!(at(&c), 0xFF00_00FF, "drawn blue on the incremental frame");
+    assert!(equals_a_full_repaint(&mut t, &c, &faces));
+}

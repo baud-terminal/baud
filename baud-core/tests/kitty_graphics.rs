@@ -874,39 +874,77 @@ fn a_new_image_deletes_the_oldest_unplaced_image_to_make_space() {
     });
 }
 
-/// An image with a placement is never deleted for space, however old.
+/// **Once no image without a placement is left, the oldest with one
+/// goes**: "existing images without placements will be preferentially
+/// deleted", and "the terminal emulator should delete older images to make
+/// space for the new one" (`[[source: kitty-graphics]]`). A 12-pixel arena
+/// holds three 2x2 images: 1 and 2 placed, 3 not. Image 4 deletes 3, though
+/// 1 and 2 are older; 5, placed, deletes 4; 6 finds none unplaced and
+/// deletes 1, the oldest placed, and its placement with it; 7 deletes 6,
+/// unplaced, before the placed 2.
 #[test]
-fn a_placed_image_is_never_deleted_to_make_space() {
+fn once_no_unplaced_image_is_left_the_oldest_placed_image_goes() {
     with(12, |t| {
         let mut r = Vec::new();
         feed(t, &tiny('T', 1), &mut r);
-        for i in 2..=4 {
-            feed(t, &tiny('t', i), &mut r);
+        feed(t, &tiny('T', 2), &mut r);
+        feed(t, &tiny('t', 3), &mut r);
+        let steps: [(char, u32, [u32; 3], usize); 4] = [
+            ('t', 4, [1, 2, 4], 2),
+            ('T', 5, [1, 2, 5], 3),
+            ('t', 6, [2, 5, 6], 2),
+            ('t', 7, [2, 5, 7], 2),
+        ];
+        for (n, (act, i, alive, placed)) in steps.into_iter().enumerate() {
+            r.clear();
+            feed(t, &tiny(act, i), &mut r);
+            assert!(
+                r.ends_with(format!("\x1b_Gi={i};OK\x1b\\").as_bytes()),
+                "{r:?}"
+            );
+            assert_eq!(t.images().images_evicted, n + 1, "image {i}: one more went");
+            assert_eq!(t.images().placements().count(), placed, "image {i}");
+            assert_eq!(live(t, 7), alive, "image {i}");
         }
-        assert!(r.ends_with(b"\x1b_Gi=4;OK\x1b\\"), "{r:?}");
-        assert_eq!(t.images().images_evicted, 1);
-        assert_eq!(t.images().placements().count(), 1, "still placed");
-        assert_eq!(live(t, 4), [1, 3, 4], "the oldest unplaced went");
+        assert_eq!(t.images().images_refused, 0);
     });
 }
 
-/// When deleting every unplaced image would not make space, none is
-/// deleted: the new image is refused with ENOSPC and counted once.
+/// **When deleting every kitty image would not make space, none is
+/// deleted**: the new image is refused with ENOSPC and counted once. A
+/// Sixel is never deleted for space, so one between two placed kitty
+/// images leaves gaps of 4 pixels however many go, none the 6 a 3x2
+/// image needs. The controls: two placed images in an 8-pixel arena, and
+/// a placed, an unplaced and a placed one in 14, each make way for the
+/// new image, the unplaced first.
 #[test]
 fn with_nothing_to_delete_the_new_image_is_refused_and_counted_once() {
+    with(14, |t| {
+        let mut r = Vec::new();
+        feed(t, &tiny('T', 1), &mut r);
+        feed(t, b"\x1bP0;1;0q\"1;1#1;2;100;0;0#1~\x1b\\", &mut r);
+        feed(t, &tiny('T', 2), &mut r);
+        assert_eq!(t.images().placements().count(), 3, "the premise");
+        r.clear();
+        let wide = apc("a=t,f=32,s=3,v=2,i=4", &b64(&bytes(24, 4)));
+        feed(t, &wide, &mut r);
+        assert!(r.starts_with(b"\x1b_Gi=4;ENOSPC:"), "{r:?}");
+        let imgs = t.images();
+        assert_eq!((imgs.images_evicted, imgs.images_refused), (0, 1));
+        assert_eq!(imgs.placements().count(), 3, "nothing deleted for nothing");
+    });
     with(8, |t| {
         let mut r = Vec::new();
         feed(t, &tiny('T', 1), &mut r);
         feed(t, &tiny('T', 2), &mut r);
         r.clear();
         feed(t, &tiny('t', 3), &mut r);
-        assert!(r.starts_with(b"\x1b_Gi=3;ENOSPC:"), "{r:?}");
+        assert!(r.starts_with(b"\x1b_Gi=3;OK"), "{r:?}");
         let imgs = t.images();
-        assert_eq!((imgs.images_evicted, imgs.images_refused), (0, 1));
-        assert_eq!(imgs.placements().count(), 2);
+        assert_eq!((imgs.images_evicted, imgs.images_refused), (1, 0));
+        assert_eq!(imgs.placements().count(), 1);
+        assert_eq!(live(t, 3), [2, 3], "the oldest placed went");
     });
-    // Deleting the unplaced image would leave gaps of 4 and 2 pixels
-    // between the placed ones, none the 6 a 3x2 image needs: it stays.
     with(14, |t| {
         let mut r = Vec::new();
         feed(t, &tiny('T', 1), &mut r);
@@ -915,9 +953,64 @@ fn with_nothing_to_delete_the_new_image_is_refused_and_counted_once() {
         r.clear();
         let wide = apc("a=t,f=32,s=3,v=2,i=4", &b64(&bytes(24, 4)));
         feed(t, &wide, &mut r);
-        assert!(r.starts_with(b"\x1b_Gi=4;ENOSPC:"), "{r:?}");
-        assert_eq!(t.images().images_evicted, 0);
-        assert_eq!(live(t, 3), [1, 2, 3], "nothing deleted for nothing");
+        assert!(r.starts_with(b"\x1b_Gi=4;OK"), "{r:?}");
+        assert_eq!(
+            t.images().images_evicted,
+            2,
+            "the unplaced, then the oldest"
+        );
+        assert_eq!(live(t, 4), [3, 4]);
+    });
+}
+
+/// **The quota keeps what the command needs**: a parent the new image
+/// is put against, and an image a frame is added to, with every image
+/// their placements hang under -- deleting a parent deletes the placements
+/// under it, "If its parent is deleted, it is deleted as well"
+/// (`[[source: kitty-graphics]]`, "Relative placements"). Three placed
+/// 2x2 images fill 12 pixels; image 4, put against image 1, deletes image
+/// 2, the oldest the command does not need, and is placed under image 1.
+#[test]
+fn the_quota_keeps_the_parent_a_new_image_is_put_against() {
+    with(12, |t| {
+        let mut r = Vec::new();
+        for i in 1..=3 {
+            feed(t, &tiny('T', i), &mut r);
+        }
+        r.clear();
+        let put = apc("a=T,f=32,s=2,v=2,i=4,P=1", &b64(&bytes(16, 4)));
+        feed(t, &put, &mut r);
+        assert_eq!(r, b"\x1b_Gi=4;OK\x1b\\", "{}", String::from_utf8_lossy(&r));
+        assert_eq!(t.images().images_evicted, 1);
+        assert_eq!(t.images().placements().count(), 3, "1, 3, and 4 under 1");
+        assert_eq!(live(t, 4), [1, 3, 4]);
+    });
+}
+
+/// **And the image a frame is added to**, with the image its placement
+/// hangs under: image 2 is placed against image 1, the oldest; image 3
+/// and image 4 are placed beside them in a 16-pixel arena. A frame for
+/// image 2 deletes image 3, not image 1, whose delete would take image 2's
+/// placement and then image 2 with it.
+#[test]
+fn the_quota_keeps_the_image_a_frame_is_added_to_and_its_parent() {
+    with(16, |t| {
+        let mut r = Vec::new();
+        feed(t, &tiny('T', 1), &mut r);
+        feed(t, &tiny('t', 2), &mut r);
+        feed(t, &apc("a=p,i=2,P=1,q=2", b""), &mut r);
+        feed(t, &tiny('T', 3), &mut r);
+        feed(t, &tiny('T', 4), &mut r);
+        assert_eq!(t.images().placements().count(), 4, "the premise");
+        r.clear();
+        feed(t, &apc("a=f,f=32,s=2,v=2,i=2", &b64(&bytes(16, 9))), &mut r);
+        let alive = live(t, 4);
+        assert!(
+            alive.contains(&1) && alive.contains(&2),
+            "{alive:?}: {}",
+            String::from_utf8_lossy(&r)
+        );
+        assert!(!alive.contains(&3), "{alive:?}: the oldest not needed went");
     });
 }
 

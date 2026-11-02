@@ -490,8 +490,8 @@ impl<'b> ImageStore<'b> {
 
     /// **Room in slot `i` for `need` frames**: the span moved, its frames
     /// and their words with it, to a gap twice its frames or `need` where
-    /// that is all there is, the oldest kitty images with no placement but
-    /// `spare` deleted until one is free.
+    /// that is all there is, kitty images but `spare` deleted until one is
+    /// free, the oldest with no placement first.
     fn frame_room(&mut self, i: usize, need: u32, spare: ImageId) -> Result<(), FrameRefusal> {
         let s = self.slots[i];
         if need <= s.anim.cap {
@@ -522,41 +522,26 @@ impl<'b> ImageStore<'b> {
         Ok(())
     }
 
-    /// **A gap of `len` words**, deleting the oldest kitty images with no
-    /// placement but those in `spare` until one opens, as
-    /// [`ImageStore::reserve_evicting`] deletes for a new image; none
+    /// **A gap of `len` words**, deleting kitty images but those in
+    /// `spare` and the images their placements hang under until one opens,
+    /// the oldest with no placement first, as
+    /// [`ImageStore::reserve_keeping`] deletes for a new image; none
     /// deleted unless deleting them all would make room.
     fn gap_evicting(&mut self, len: usize, spare: [ImageId; 2]) -> Option<usize> {
         if let Some(at) = self.lowest_gap(len) {
             return Some(at);
         }
-        // Two live spans never share a start, so a spared one is known by
-        // its own.
-        let starts = spare.map(|id| {
-            id.index()
-                .and_then(|j| self.slots.get(j))
-                .filter(|s| !s.is_empty())
-                .map(|s| s.start())
-        });
-        let evictable = |s: &ImageSlot| {
-            !s.is_empty()
-                && !starts.contains(&Some(s.start()))
-                && s.placements.index() == 0
-                && s.state == ImageState::Ready
-                && matches!(s.owner, ImageOwner::Kitty(..))
-        };
+        // The image and the data spared, and every image a placement of
+        // either hangs under, which a delete of a parent would take too.
+        let kept = self.quota_kept(spare)?;
+        let spared = |s: &ImageSlot| kept.has(s.start());
+        let evictable = |s: &ImageSlot| s.quota_evictable() && !spared(s);
         self.lowest_gap_among(len, |s| !s.is_empty() && !evictable(s))?;
         loop {
             if let Some(at) = self.lowest_gap(len) {
                 return Some(at);
             }
-            let old = self
-                .slots
-                .iter()
-                .enumerate()
-                .filter(|(_, s)| evictable(s))
-                .min_by_key(|(_, s)| s.born.raw())
-                .map(|(j, _)| ImageId::from_index(j))?;
+            let old = self.quota_victim(spared)?;
             self.free(old);
             self.images_evicted += 1;
         }

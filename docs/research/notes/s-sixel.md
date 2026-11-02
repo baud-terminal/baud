@@ -800,9 +800,46 @@ if the operation regressed.
   `?1001` highlight tracking, the ambiguous-width switch with `?1021`, the
   Sixel modes `?80` and `?1070`, and the kitty graphics protocol." Set at
   power-on; reset, a register a shared Sixel defines starts the next shared
-  Sixel with that definition, and a drawn picture keeps its pixels -- what
-  ctlseqs states. **Open**: recolouring drawn pictures, as a
-  VT340's one colour map and xterm do, which would store a register number a pixel.
+  Sixel with that definition.
+
+  **Recolouring, built 2026-11-01**: a drawn picture changes colour when its
+  register is redefined, as a VT340's one colour map does ("you do not have
+  to redraw an image to change its color",
+  `[[source: vt3xx-screen-control]]`) and xterm, whose pixels are register
+  numbers mapped when drawn (`[[source: xterm-graphics-c]]`) and whose
+  parser defines a register as the command arrives
+  (`[[source: xterm-graphics-sixel]]`). By the lean, every path still draws
+  ARGB, and a Sixel keeps its register numbers only while they can change.
+  Inside a body the claim holds colours while each names one register, as
+  before, and register numbers from the first data that would break that,
+  which the terminator maps, so a private Sixel costs nothing where no
+  register's colour changes or is shared, every Sixel in the corpus; a
+  shared one keeps a byte a pixel after its pixels for its life, and a later
+  shared Sixel rewrites the pixels whose register it changed and moves the
+  epoch, one upload. A shared picture with room for its pixels and not its
+  numbers is refused at its size, also by the lean, so no picture is kept
+  that a later redefinition would draw wrong. Measured: an 8x6 shared Sixel
+  takes 60 words where a private one takes 48, and the app's 95 MiB holds
+  two 3840x2160 shared Sixels (41,472,000 bytes each) where it holds three
+  private ones (33,177,600). Recorded departures: the pictures change when
+  the redefining body ends, not as each definition arrives; a pixel drawn in
+  a clear ink (no foreground said) is not told apart from an unpainted one
+  across bodies; and the VT340's map also colours its text, which baud's
+  palette does not share. **What a recolour costs**, measured in a release
+  build without LTO. A shared body that only sets colours rewrites every
+  shared picture. With two 3840x2160 shared pictures stored, each 17-byte
+  body costs 7.6 ms, about 450 µs a byte. The dearest command baud already
+  had is a 38-byte kitty `a=c` over the largest two-frame animation the
+  95 MiB arena holds (2880x2880), at 30.6 ms, about 800 µs a byte.
+  Recolouring once per read instead of once per body would bound it.
+  **Timed** with `ingest2`'s `sixel-yazi`, the yazi
+  walk's thirteen Sixels at the app's budget, base and change built at one
+  path, rotated, the first of five rounds dropped: mapping every Sixel's
+  numbers at its end cost 10% (base 166-171 MB/s, that change 150-152);
+  painting colours until a colour names two registers leaves medians of
+  172.9 and 171.4 MB/s whose ranges overlap, no result, at 2.3% more
+  instructions a rep (434.5 million against 444.5); `sixel-cat` overlaps too, at
+  under 0.5% more.
 * **DECSDM** (mode 80). Its meaning inverted between VT330 and later xterm,
   and `[[source: ctlseqs]]` documents both. baud picks one and records the
   choice with the source conflict named, the DECAWM precedent.

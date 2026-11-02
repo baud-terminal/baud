@@ -10,7 +10,11 @@
 //! aspect ratio is 2026-10-23's**, 070-9 §7.1's table preserved where it
 //! is not whole, a ratio below one drawn 1:1 and a `P1` past 9 read as
 //! omitted, spelled here as the device row a sixel row starts at,
-//! `(2 * y * num + den) / (2 * den)`.
+//! `(2 * y * num + den) / (2 * den)`. **And a pixel takes its register's
+//! colour when the body ends, 2026-11-01's rule**: the walk notes the
+//! register each painted position was last painted with, and the colour
+//! each register ends with is written at the end, so a redefinition
+//! recolours what the body drew before it, as a VT340's colour map does.
 
 use baud_domain::{Chan, Pixel};
 
@@ -19,6 +23,17 @@ use baud_domain::{Chan, Pixel};
 pub struct Reach {
     pub width: u32,
     pub height: u32,
+    /// Painted positions whose colour at the end is not the colour their
+    /// register had when they were painted: what the end's mapping
+    /// changed, zero where the walk only measures.
+    pub recoloured: usize,
+    /// The two things that end a decoder's painting in colours, counted
+    /// where the walk paints: a register's first paint in a colour another
+    /// painted register has, or none (clear); and a painted register
+    /// defined again in another colour.
+    pub shared_colour: usize,
+    pub clear_colour: usize,
+    pub redefined: usize,
 }
 
 /// The ratio, vertical over horizontal, for the envelope's `P1`.
@@ -53,9 +68,14 @@ enum Raster {
 }
 
 /// The walk. `canvas` absent measures; present, `(pixels, width)` is painted
-/// where a pixel is inside it, as `SixelCanvas::paint` painted.
+/// where a pixel is inside it, as `SixelCanvas::paint` painted, each
+/// position in the colour its last register ends the body with.
 pub fn walk(data: &[u8], rows0: (u16, u16), mut canvas: Option<(&mut [Pixel], usize)>) -> Reach {
     let mut regs = [Pixel::CLEAR; 256];
+    let mut painted: Vec<Option<(usize, Pixel)>> =
+        vec![None; canvas.as_ref().map_or(0, |(px, _)| px.len())];
+    let mut first: Vec<(usize, Pixel)> = Vec::new();
+    let (mut shared_colour, mut clear_colour, mut redefined) = (0, 0, 0);
     let mut rows = rows0;
     let mut raster = Raster::Open;
     let mut reg: usize = 0;
@@ -127,7 +147,13 @@ pub fn walk(data: &[u8], rows0: (u16, u16), mut canvas: Option<(&mut [Pixel], us
             }
             0x3f..=0x7e => {
                 let bits = b - 0x3f;
-                let colour = regs[reg];
+                if bits != 0 && canvas.is_some() && !first.iter().any(|&(r, _)| r == reg) {
+                    let c = regs[reg];
+                    clear_colour += usize::from(c == Pixel::CLEAR);
+                    shared_colour +=
+                        usize::from(c != Pixel::CLEAR && first.iter().any(|&(_, d)| d == c));
+                    first.push((reg, c));
+                }
                 let mut n = repeat;
                 while n > 0 {
                     for row in 0u8..6 {
@@ -141,7 +167,7 @@ pub fn walk(data: &[u8], rows0: (u16, u16), mut canvas: Option<(&mut [Pixel], us
                                         usize::try_from(y).unwrap_or(usize::MAX),
                                     );
                                     if x <= 65535 && y <= 65535 && xi < *w && yi < h {
-                                        px[yi * *w + xi] = colour;
+                                        painted[yi * *w + xi] = Some((reg, regs[reg]));
                                     }
                                 }
                             }
@@ -159,7 +185,28 @@ pub fn walk(data: &[u8], rows0: (u16, u16), mut canvas: Option<(&mut [Pixel], us
             _ => i += 1,
         }
     }
-    Reach { width, height }
+    let mut recoloured = 0;
+    if let Some((px, _)) = canvas {
+        for (p, at) in px.iter_mut().zip(&painted) {
+            if let Some((r, then)) = *at {
+                *p = regs[r];
+                recoloured += usize::from(regs[r] != then);
+            }
+        }
+    }
+    // A painted register defined again in another colour: its colour at
+    // the end, or at any define between, against its first paint's.
+    for &(r, c) in &first {
+        redefined += usize::from(regs[r] != c);
+    }
+    Reach {
+        width,
+        height,
+        recoloured,
+        shared_colour,
+        clear_colour,
+        redefined,
+    }
 }
 
 fn rgb(r: u16, g: u16, b: u16) -> Pixel {

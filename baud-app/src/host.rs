@@ -2669,6 +2669,40 @@ mod tests {
         assert_eq!((imgs.images_evicted, imgs.images_refused), (0, 0));
     }
 
+    /// A 3840x2160 Sixel at 1:1, 360 bands, every pixel register 1's red,
+    /// `P2` 1 so it reaches only its data.
+    fn red_screen_sixel() -> Vec<u8> {
+        let mut s = b"\x1bP9;1q#1;2;100;0;0#1".to_vec();
+        for _ in 0..360 {
+            s.extend_from_slice(b"!3840~-");
+        }
+        s.extend_from_slice(b"\x1b\\");
+        s
+    }
+
+    /// **The default holds three 3840x2160 Sixels drawn with private
+    /// colour registers, and two drawn with shared ones**: a shared Sixel
+    /// keeps the register each pixel was drawn with, a byte after its four,
+    /// so a later Sixel can recolour it -- 41,472,000 bytes where a private
+    /// one takes 33,177,600 -- and the third is refused for the arena,
+    /// counted, as a picture without room is.
+    #[test]
+    fn the_default_budget_holds_three_private_screen_sixels_and_two_shared() {
+        for (mode, fit) in [(&b"\x1b[?1070h"[..], 3), (b"\x1b[?1070l", 2)] {
+            let (mut s, ws) = at_default();
+            let mut t = Term::new(s.storage(), &ws);
+            t.set_sixel_claim(baud_domain::SixelClaim::Yes);
+            pump(&mut t, mode);
+            for _ in 0..3 {
+                pump(&mut t, &red_screen_sixel());
+            }
+            let imgs = t.images();
+            assert_eq!(imgs.placements().count(), fit, "{mode:?}");
+            assert_eq!(imgs.refusals.arena, 3 - fit, "{mode:?}");
+            assert_eq!(imgs.images_refused, 3 - fit, "{mode:?}");
+        }
+    }
+
     /// A Sixel whose body is `len` bytes the decoder reads, every one of them
     /// `~` or `$`: `$` returns to the band's left edge, so the image is one
     /// column by one band, 1x6 pixels at `P1` 9's 1:1, at any length --

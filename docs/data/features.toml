@@ -1948,7 +1948,7 @@ shipped = ["B2-23"]
 id = "sixel-options"
 area = "images"
 name = "Image scrolling and colour options"
-does = "Images that scroll or stay put, the cursor left beside the image, private colours per image, and a colour query."
+does = "Images that scroll or stay put, the cursor left beside the image, private colours per image or colours shared between them, so a later image can recolour the ones already drawn, as on a VT340, and a colour query."
 status = "built"
 platform = "both"
 tests = ["baud-core/tests/sixel_modes.rs::decrqm_answers_each_sixel_mode_from_its_state"]
@@ -2046,7 +2046,7 @@ rows = ["vt:`APC G a=d`"]
 id = "image-memory"
 area = "images"
 name = "Picture memory under control"
-does = "Pictures use up to 95 MiB by default, adjustable, and nothing until one arrives; the oldest off-screen ones make room, one too big is refused whole with a warning, and a deleted one gives its memory back."
+does = "Pictures use up to 95 MiB by default, adjustable, and nothing until one arrives; the oldest pictures a program stored without showing make room first, then the oldest it showed, but never a Sixel or imgcat picture, one too big is refused whole with a warning, and a deleted one gives its memory back."
 status = "built"
 platform = "both"
 tests = ["baud-app/src/pages.rs::a_deleted_png_gives_its_pages_back", "baud-app/src/host.rs::a_refusal_is_said_by_the_limit_it_hit", "baud-app/src/config.rs::an_images_section_sets_the_arena_and_says_body_kb_is_gone"]

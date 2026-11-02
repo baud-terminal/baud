@@ -4550,6 +4550,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     slid_is_one_up(&mut arms, &mut t, "an image in the leaving row");
     partial_image_gate(&mut arms, &mut t);
     sixel_fill_gate(&mut arms, &mut t);
+    sixel_recolour_gate(&mut arms, &mut t);
     hollow_cursor_gate(&mut arms, &mut t);
     cpu_page_gate(&mut arms, &mut t);
     status_marks_gate(&mut arms, &mut t);
@@ -6840,6 +6841,53 @@ fn hollow_cursor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     arms.renderer.set_cursor_look(CursorLook::Shaped);
     arms.renderer.set_theme(base);
     feed(t, b"\x1bc");
+}
+
+/// **A shared Sixel recoloured by a later one, on all three paths**: under
+/// `?1070` reset a 16x12 Sixel of register 1's red is drawn red by the
+/// instance arm, the cell arm and the CPU arm; a shared body with no data
+/// then defines register 1 blue, and the next frame of each draws it blue,
+/// the two GPU arms pixel for pixel alike. The recolour moves the store's
+/// epoch, which each GPU arm's copy of the image is keyed on: without it
+/// they would draw the red they uploaded while the CPU arm, which reads
+/// the store, drew blue (`[[source: vt3xx-screen-control]]`, "Output
+/// Mapping": "you do not have to redraw an image to change its color").
+fn sixel_recolour_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    t.set_sixel_claim(baud_domain::SixelClaim::Yes);
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    feed(
+        t,
+        b"\x1bc\x1b[?25l\x1b[?1070l\x1bP9;1q#1;2;100;0;0#1!16~-!16~\x1b\\",
+    );
+    let frames = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>| {
+        let (a, b) = arms.draw(t);
+        let c = cpu_frame(arms, t);
+        let places = arms.renderer.image_placements();
+        assert_eq!(places.len(), 1, "one image on screen");
+        let at = (
+            usize::try_from(places[0].x).unwrap(),
+            usize::try_from(places[0].y).unwrap(),
+        );
+        ([a, b, c], at)
+    };
+    for (what, want) in [("drawn", 0xFFFF_0000u32), ("recoloured", 0xFF00_00FF)] {
+        if what == "recoloured" {
+            feed(t, b"\x1bP9;1q#1;2;0;0;100\x1b\\");
+        }
+        let (got, (x0, y0)) = frames(arms, t);
+        for (arm, f) in ["instance", "cell", "cpu"].iter().zip(&got) {
+            for (x, y) in [(0, 0), (15, 11), (7, 6)] {
+                assert_eq!(
+                    f[(y0 + y) * fw + x0 + x],
+                    want,
+                    "{what}, {arm} at ({x},{y})"
+                );
+            }
+        }
+        assert_eq!(differing(&got[0], &got[1]), 0, "{what}: the GPU arms agree");
+    }
+    feed(t, b"\x1bc");
+    t.set_sixel_claim(baud_domain::SixelClaim::No);
 }
 
 /// **The fill goes on as the image scrolls**, on all three paths: a Sixel

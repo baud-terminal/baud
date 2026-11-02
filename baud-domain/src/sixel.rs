@@ -22,7 +22,9 @@
 //! this is the decode half of its first acceptance gate.
 
 use crate::decode::{InputEncoding, StreamByte};
-use crate::image::{ImageAlpha, ImageGround, ImageId, ImagePx, ImageRefusal, ImageStore, Pixel};
+use crate::image::{
+    ImageAlpha, ImageGround, ImageId, ImagePx, ImageRefusal, ImageStore, Pixel, Plane,
+};
 use crate::style::Chan;
 
 /// A pixel coordinate or extent. A Sixel is bounded by its raster attributes
@@ -294,6 +296,121 @@ pub struct SixelReport {
 /// (`[[source: vt3xx-sixel]]`, `Pc` 0..=255).
 const REGISTERS: usize = 256;
 
+/// **A register number standing in a claim's word** until the terminator
+/// maps it to its colour ([`SixelStream::finish`]): [`Register::MARK`]
+/// with the number in the low byte, so no mark is [`Pixel::CLEAR`], a
+/// position the data left unset, or [`Pixel::FILL`], and a mark drawn by
+/// mistake would draw as nothing, its alpha being zero.
+struct Register;
+
+impl Register {
+    const MARK: u32 = 0x0000_0100;
+
+    /// The mark of register `reg`, at most 255.
+    #[inline]
+    fn mark(reg: usize) -> Pixel {
+        Pixel::from_bits(Register::MARK | u32::from(u8::try_from(reg).unwrap_or(u8::MAX)))
+    }
+
+    /// The register `mark` names.
+    fn of(mark: Pixel) -> u8 {
+        mark.bits().to_le_bytes()[0]
+    }
+}
+
+/// **What the claim's words hold while the body arrives**: colours, as
+/// long as each painted colour names one register, and register numbers
+/// from the moment one could not.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Words {
+    /// Colours: a painted register's pixels hold its colour.
+    Colour,
+    /// Register numbers ([`Register::mark`]), which the terminator maps.
+    Marks,
+}
+
+/// **The colour fast path**: a body's pixels are its registers' colours
+/// as they are painted, as before recolouring was built, for as long as a
+/// colour names exactly one register and none painted is redefined. Then
+/// the terminator has nothing to map. The first data that would break it
+/// -- a register painting in a colour clear or already a painted
+/// register's, or a painted register redefined to another colour --
+/// rewrites the words painted so far as their registers' numbers, once,
+/// and the body goes on in numbers ([`Words::Marks`]), mapped at the
+/// terminator. Every Sixel the corpus holds stays in colours.
+///
+/// **What a data byte paints is one load**, [`Inks::paint`] at its
+/// register: the colour a painted register's pixels hold, its number once
+/// the words are numbers, and [`Pixel::CLEAR`] for a register that has not
+/// painted, whose first data asks whether its colour can stand for it
+/// ([`Inks::first`]). Nothing is done per colour command.
+#[derive(Clone)]
+struct Inks {
+    /// What the claim's words hold, colours or register numbers.
+    words: Words,
+    paint: [Pixel; REGISTERS],
+    /// The painted colours, open addressing over [`Inks::SLOTS`] with
+    /// [`Pixel::CLEAR`] free, and the register each names.
+    seen: [Pixel; Inks::SLOTS],
+    owner: [u8; Inks::SLOTS],
+}
+
+impl Inks {
+    /// Twice the registers, so a probe is short.
+    const SLOTS: usize = 2 * REGISTERS;
+
+    /// Nothing painted, in colours.
+    const NEW: Inks = Inks {
+        words: Words::Colour,
+        paint: [Pixel::CLEAR; REGISTERS],
+        seen: [Pixel::CLEAR; Inks::SLOTS],
+        owner: [0; Inks::SLOTS],
+    };
+
+    /// Where colour `c`'s probe starts: the multiplicative hash's high
+    /// bits, as `StyleId::bucket` takes them.
+    fn bucket(c: Pixel) -> usize {
+        let h = c.bits().wrapping_mul(0x9E37_79B9) >> 23;
+        usize::try_from(h).unwrap_or(0) % Inks::SLOTS
+    }
+
+    /// The slot colour `c` is in, or the free one its probe ends at.
+    fn slot(&self, c: Pixel) -> usize {
+        let mut i = Inks::bucket(c);
+        while self.seen[i] != c && self.seen[i] != Pixel::CLEAR {
+            i = (i + 1) % Inks::SLOTS;
+        }
+        i
+    }
+
+    /// **Register `r` paints for the first time, in `c`**: kept in colours
+    /// when `c` is not clear and no painted register has it, and `false`
+    /// when the body must go on in numbers.
+    fn first(&mut self, r: usize, c: Pixel) -> bool {
+        let i = self.slot(c);
+        if c == Pixel::CLEAR || self.seen[i] == c {
+            return false;
+        }
+        self.seen[i] = c;
+        self.owner[i] = u8::try_from(r).unwrap_or(u8::MAX);
+        self.paint[r] = c;
+        true
+    }
+
+    /// The number of the register whose colour `c` is, `c` a painted one.
+    fn register_of(&self, c: Pixel) -> u8 {
+        self.owner[self.slot(c)]
+    }
+
+    /// Every register paints its number from here.
+    fn numbers(&mut self) {
+        self.words = Words::Marks;
+        for (r, p) in self.paint.iter_mut().enumerate() {
+            *p = Register::mark(r);
+        }
+    }
+}
+
 /// Which of the 256 registers a Sixel defined, a bit each.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct RegisterSet([u64; REGISTERS / 64]);
@@ -326,10 +443,11 @@ pub enum SixelRegisters {
     /// `?1070` set, the default: every register starts undefined.
     Private,
     /// `?1070` reset: a register a shared Sixel defined starts the next
-    /// shared Sixel with that definition. A picture already drawn keeps its
-    /// pixels -- they are colours, not register numbers -- which is what
-    /// ctlseqs states and no more; recolouring them as a VT340's single
-    /// colour map would is an open question.
+    /// shared Sixel with that definition, and a shared picture already
+    /// drawn with a register a later shared Sixel redefines takes the new
+    /// colour, as a VT340's one colour map and xterm's shared set make it:
+    /// such a picture keeps the register each pixel was drawn with, a byte
+    /// a pixel ([`SixelStream::finish`]).
     Shared,
 }
 
@@ -499,7 +617,10 @@ impl Sixel {
     /// **The bytes go through [`SixelStream`]'s grammar one at a time**, the
     /// one walk the terminal decodes a body with as it arrives; only where the
     /// pixels land differs, a canvas the caller sized here and the store's
-    /// arena there.
+    /// arena there, and when a pixel takes its colour: here as it is
+    /// painted, as a printer inks its paper, and there when the body ends,
+    /// as a screen's colour map shows a redefinition over what was drawn
+    /// before it.
     pub fn decode(data: &[u8], aspect: SixelAspect, canvas: &mut SixelCanvas) -> SixelReport {
         Sixel::decode_inked(data, aspect, Pixel::CLEAR, canvas)
     }
@@ -576,10 +697,10 @@ trait Sink {
     fn extent(&mut self, ph: u16, pv: u32);
 
     /// One data byte, `bits` its six bits, drawn over columns `[x0, x1)` --
-    /// one, or a repeat count's -- in `band`, in `colour`. Called for every
-    /// data byte, all bits clear included, because the image reaches that
-    /// far.
-    fn data(&mut self, x0: u32, x1: u32, band: &Band, bits: u8, colour: Pixel);
+    /// one, or a repeat count's -- in `band`, with register `reg`, whose
+    /// colour is `colour` now. Called for every data byte, all bits clear
+    /// included, because the image reaches that far.
+    fn data(&mut self, x0: u32, x1: u32, band: &Band, bits: u8, reg: usize, colour: Pixel);
 
     /// The device row no graphics new line may start a band at or past:
     /// display mode's bottom edge ([`SixelEdge`]), else none.
@@ -587,9 +708,9 @@ trait Sink {
         u32::MAX
     }
 
-    /// Register `r` was defined, which a shared set keeps
+    /// Register `r` was defined as `colour`, which a shared set keeps
     /// ([`SixelRegisters::Shared`]).
-    fn defined(&mut self, _r: usize) {}
+    fn defined(&mut self, _r: usize, _colour: Pixel) {}
 }
 
 /// The sink that paints nothing: what [`Sixel::extent`] measures with.
@@ -597,7 +718,7 @@ struct Measure;
 
 impl Sink for Measure {
     fn extent(&mut self, _ph: u16, _pv: u32) {}
-    fn data(&mut self, _x0: u32, _x1: u32, _band: &Band, _bits: u8, _c: Pixel) {}
+    fn data(&mut self, _x0: u32, _x1: u32, _band: &Band, _bits: u8, _r: usize, _c: Pixel) {}
 }
 
 /// The sink over a caller's canvas: a pixel past its edge is refused and
@@ -610,7 +731,7 @@ struct Clipped<'c, 'a> {
 impl Sink for Clipped<'_, '_> {
     fn extent(&mut self, _ph: u16, _pv: u32) {}
 
-    fn data(&mut self, x0: u32, x1: u32, band: &Band, bits: u8, colour: Pixel) {
+    fn data(&mut self, x0: u32, x1: u32, band: &Band, bits: u8, _reg: usize, colour: Pixel) {
         for x in x0..x1 {
             for row in 0..6 {
                 if bits & (1 << row) == 0 {
@@ -751,7 +872,7 @@ impl Walk {
                     match p[1] {
                         2 => {
                             self.regs[named] = rgb(p[2], p[3], p[4]);
-                            sink.defined(named);
+                            sink.defined(named, self.regs[named]);
                             self.reg = named;
                         }
                         // HLS, hue 0-360 and lightness and saturation 0-100
@@ -762,7 +883,7 @@ impl Walk {
                         1 => match hls(p[2], p[3], p[4]) {
                             Some(c) => {
                                 self.regs[named] = c;
-                                sink.defined(named);
+                                sink.defined(named, c);
                                 self.reg = named;
                             }
                             None => self.unapplied = self.unapplied.saturating_add(1),
@@ -842,7 +963,7 @@ impl Walk {
             0x3f..=0x7e => {
                 let x1 = self.x.saturating_add(u32::from(self.repeat));
                 let colour = self.regs[self.reg];
-                sink.data(self.x, x1, &self.band, b - 0x3f, colour);
+                sink.data(self.x, x1, &self.band, b - 0x3f, self.reg, colour);
                 // The extent is where the data reached, not where pixels were
                 // set: `x1` is the first column past this data byte, and the
                 // band is six rows tall whether or not any bit set.
@@ -945,16 +1066,37 @@ impl Gap {
     };
 }
 
-/// The sink a terminal decodes into: the claimed gap of the store's arena.
+/// The sink a terminal decodes into: the claimed gap of the store's arena,
+/// and what its words hold ([`Inks`]).
 struct Claim<'g, 's, 'b> {
-    gap: &'g mut Gap,
+    st: &'g mut ClaimState,
     store: &'s mut ImageStore<'b>,
+}
+
+/// **A claim's gap and what its words hold, behind one reference**, so a
+/// [`Claim`] is two pointers, which a call passes in registers, as it was
+/// before the words could be colours or numbers: a third went through
+/// memory on every byte. **The gap first, in declared order**, so its
+/// fields sit at the small offsets a paired load reaches: with the 3.5 KB
+/// of tables before it, the byte loop's loads of the gap split in two.
+#[derive(Clone)]
+#[repr(C)]
+struct ClaimState {
+    gap: Gap,
+    inks: Inks,
+}
+
+impl ClaimState {
+    const NEW: ClaimState = ClaimState {
+        gap: Gap::NONE,
+        inks: Inks::NEW,
+    };
 }
 
 impl Claim<'_, '_, '_> {
     /// The claim's words, from its start.
     fn words(&mut self) -> &mut [Pixel] {
-        let Gap { at, len, .. } = *self.gap;
+        let Gap { at, len, .. } = self.st.gap;
         &mut self.store.arena_mut()[at..at + len]
     }
 
@@ -968,12 +1110,12 @@ impl Claim<'_, '_, '_> {
         if len < need {
             return false;
         }
-        let g = *self.gap;
+        let g = self.st.gap;
         let used = g.zeroed * g.stride;
         self.store.arena_mut().copy_within(g.at..g.at + used, at);
-        self.gap.at = at;
-        self.gap.len = len;
-        self.gap.written = used;
+        self.st.gap.at = at;
+        self.st.gap.len = len;
+        self.st.gap.written = used;
         moved(self.store, &g, at);
         true
     }
@@ -984,10 +1126,10 @@ impl Claim<'_, '_, '_> {
     /// edge. A byte wholly past it still lays its band's rows out, since
     /// the band counts in the height. [`Held::Lost`] when the claim cannot.
     fn reach(&mut self, x0: u32, x1: u32, h: u32) -> (u32, u32) {
-        let g = *self.gap;
+        let g = self.st.gap;
         // Inside the stride, which is inside the right edge: nothing to clip.
         if x1 as usize <= g.stride && h as usize <= g.zeroed {
-            self.gap.widest = g.widest.max(x1 as usize);
+            self.st.gap.widest = g.widest.max(x1 as usize);
             return (x0, x1);
         }
         let (x0, x1) = (x0.min(g.right), x1.min(g.right));
@@ -998,23 +1140,23 @@ impl Claim<'_, '_, '_> {
     /// [`Claim::reach`] past the rows or the stride laid out.
     fn grow(&mut self, w: u32, h: u32) {
         if w > u32::from(u16::MAX) || h > u32::from(u16::MAX) {
-            self.gap.held = Held::Lost;
+            self.st.gap.held = Held::Lost;
             return;
         }
         let (w, h) = (w as usize, h as usize);
-        let g = *self.gap;
+        let g = self.st.gap;
         if w <= g.stride && h <= g.zeroed {
-            self.gap.widest = g.widest.max(w);
+            self.st.gap.widest = g.widest.max(w);
             return;
         }
         // Past the rows laid out: the image is at least the widest row by
         // the rows reached, and a claim smaller than that is grown or lost.
         let need = w.max(g.widest).saturating_mul(h.max(g.zeroed));
         if need > g.len && !self.regrow(need) {
-            self.gap.held = Held::Lost;
+            self.st.gap.held = Held::Lost;
             return;
         }
-        let g = *self.gap;
+        let g = self.st.gap;
         let rows = h.max(g.zeroed);
         if w > g.stride {
             // Wider than the stride: double it, or take exactly `w` when a
@@ -1024,30 +1166,33 @@ impl Claim<'_, '_, '_> {
             let fits = g.len.checked_div(rows).unwrap_or(0);
             let to = if grown <= fits { grown } else { w };
             if to.saturating_mul(rows) > g.len {
-                self.gap.held = Held::Lost;
+                self.st.gap.held = Held::Lost;
                 return;
             }
             self.restride(to);
         }
-        self.gap.widest = self.gap.widest.max(w);
-        if h > self.gap.zeroed {
+        self.st.gap.widest = self.st.gap.widest.max(w);
+        if h > self.st.gap.zeroed {
             // A new band: a stride past the widest row is laid out again at
             // it, so the rows below take only what the image is wide.
-            let widest = self.gap.widest;
-            if self.gap.zeroed > 0 && self.gap.stride > widest {
+            let widest = self.st.gap.widest;
+            if self.st.gap.zeroed > 0 && self.st.gap.stride > widest {
                 self.restride(widest);
             }
-            if h.saturating_mul(self.gap.stride) > g.len {
+            if h.saturating_mul(self.st.gap.stride) > g.len {
                 if widest.saturating_mul(h) > g.len {
-                    self.gap.held = Held::Lost;
+                    self.st.gap.held = Held::Lost;
                     return;
                 }
                 self.restride(widest);
             }
-            let (from, to) = (self.gap.zeroed * self.gap.stride, h * self.gap.stride);
+            let (from, to) = (
+                self.st.gap.zeroed * self.st.gap.stride,
+                h * self.st.gap.stride,
+            );
             self.words()[from..to].fill(Pixel::CLEAR);
             self.wrote(to);
-            self.gap.zeroed = h;
+            self.st.gap.zeroed = h;
         }
     }
 
@@ -1060,7 +1205,7 @@ impl Claim<'_, '_, '_> {
             stride: from,
             zeroed,
             ..
-        } = *self.gap;
+        } = self.st.gap;
         if to == from {
             return;
         }
@@ -1077,30 +1222,62 @@ impl Claim<'_, '_, '_> {
             }
         }
         self.wrote(zeroed * to);
-        self.gap.stride = to;
+        self.st.gap.stride = to;
     }
 
-    /// **Set every clear position of the first `fw` columns of `rows` to
-    /// [`Pixel::FILL`]**: the background a `P2` of 0 or 2 asks for, once
-    /// the claim reaches that far ([`Claim::grow`]).
-    fn fill(&mut self, fw: usize, rows: core::ops::Range<usize>) {
-        let Gap { stride, zeroed, .. } = *self.gap;
-        let fw = fw.min(stride);
-        let words = self.words();
-        for y in rows.start..rows.end.min(zeroed) {
-            for px in &mut words[y * stride..y * stride + fw] {
-                if *px == Pixel::CLEAR {
-                    *px = Pixel::FILL;
-                }
+    /// **Register `reg`'s first data, in `colour`**: the word it paints,
+    /// its colour while that still names it alone, else its number once
+    /// the words painted so far are numbers too ([`Claim::switch_to_numbers`]).
+    #[cold]
+    #[inline(never)]
+    fn first(&mut self, reg: usize, colour: Pixel) -> Pixel {
+        if self.st.inks.first(reg, colour) {
+            return colour;
+        }
+        self.switch_to_numbers();
+        Register::mark(reg)
+    }
+
+    /// **Rewrite every word painted so far as its register's number**, and
+    /// paint numbers from here: each colour painted names one register,
+    /// which [`Inks`] keeps, so the rewrite is exact. Once a body at most.
+    #[cold]
+    #[inline(never)]
+    fn switch_to_numbers(&mut self) {
+        if self.st.inks.words == Words::Marks {
+            return;
+        }
+        if self.st.gap.held != Held::Lost {
+            self.rewrite_as_numbers();
+        }
+        self.st.inks.numbers();
+    }
+
+    /// [`Claim::switch_to_numbers`]'s rewrite of the words painted so far.
+    fn rewrite_as_numbers(&mut self) {
+        let Gap {
+            at, stride, zeroed, ..
+        } = self.st.gap;
+        let inks = &self.st.inks;
+        let (mut last, mut its) = (Pixel::CLEAR, Pixel::CLEAR);
+        let used = stride * zeroed;
+        for w in &mut self.store.arena_mut()[at..at + used] {
+            if *w == Pixel::CLEAR {
+                continue;
             }
+            if *w != last {
+                last = *w;
+                its = Register::mark(usize::from(inks.register_of(*w)));
+            }
+            *w = its;
         }
     }
 
     /// The claim has written its words up to `to`: the store keeps the
     /// pages they touch, and only those, from a release beside it.
     fn wrote(&mut self, to: usize) {
-        self.gap.written = self.gap.written.max(to);
-        let Gap { at, written, .. } = *self.gap;
+        self.st.gap.written = self.st.gap.written.max(to);
+        let Gap { at, written, .. } = self.st.gap;
         self.store.set_claim(Some((at, at + written)));
     }
 }
@@ -1122,22 +1299,30 @@ impl Sink for Claim<'_, '_, '_> {
         // Only before any data, so no row is laid out yet to move; never
         // past the right edge.
         if ph > 0 {
-            self.gap.stride = usize::from(ph).min(self.gap.right as usize);
+            self.st.gap.stride = usize::from(ph).min(self.st.gap.right as usize);
         }
-        self.gap.raster = (u32::from(ph), pv);
+        self.st.gap.raster = (u32::from(ph), pv);
     }
 
-    fn data(&mut self, x0: u32, x1: u32, band: &Band, bits: u8, colour: Pixel) {
-        if self.gap.held == Held::Lost {
+    fn data(&mut self, x0: u32, x1: u32, band: &Band, bits: u8, reg: usize, colour: Pixel) {
+        if self.st.gap.held == Held::Lost {
             return;
         }
         let (x0, x1) = self.reach(x0, x1, band.bottom());
-        if self.gap.held == Held::Lost || bits == 0 {
+        if self.st.gap.held == Held::Lost || bits == 0 {
             return;
         }
         // Inside the claim by `reach`: `x0..x1` is at most the stride, empty
         // past the right edge, and the band's last row is below `zeroed`.
-        let stride = self.gap.stride;
+        // **The colour while it names the register** ([`Inks`]), else the
+        // register: nothing draws the claim before the terminator, which
+        // maps each number to the colour its register ends with
+        // ([`SixelStream::finish`]).
+        let mut mark = self.st.inks.paint[reg];
+        if mark == Pixel::CLEAR {
+            mark = self.first(reg, colour);
+        }
+        let stride = self.st.gap.stride;
         let (x0, x1) = (x0 as usize, x1 as usize);
         let words = self.words();
         for row in 0..6 {
@@ -1145,17 +1330,23 @@ impl Sink for Claim<'_, '_, '_> {
                 continue;
             }
             for y in band.tops[row] as usize..band.tops[row + 1] as usize {
-                words[y * stride + x0..y * stride + x1].fill(colour);
+                words[y * stride + x0..y * stride + x1].fill(mark);
             }
         }
     }
 
     fn floor(&self) -> u32 {
-        self.gap.floor
+        self.st.gap.floor
     }
 
-    fn defined(&mut self, r: usize) {
-        self.gap.defined.add(r);
+    fn defined(&mut self, r: usize, colour: Pixel) {
+        self.st.gap.defined.add(r);
+        // A painted register's pixels hold its colour while the words are
+        // colours: a new one is a redefinition they must follow.
+        let painted = self.st.inks.paint[r];
+        if self.st.inks.words == Words::Colour && painted != Pixel::CLEAR && painted != colour {
+            self.switch_to_numbers();
+        }
     }
 }
 
@@ -1184,10 +1375,22 @@ impl Sink for Claim<'_, '_, '_> {
 /// leaves no slot and no span, only arena words no image owns. At the
 /// terminator the image moves to the lowest gap that holds it, where
 /// [`ImageStore::store`] would have put it, and is recorded there.
+///
+/// **A pixel takes the colour its register ends the body with**: the claim
+/// holds colours while each names one register, and from the first data
+/// that would break that -- a register painting in a colour clear or
+/// another's, or a painted register redefined -- the register numbers,
+/// which the terminator maps, so a redefinition recolours what the body
+/// drew before it and a body that needs none pays nothing. A shared Sixel
+/// (`?1070` reset) keeps the numbers too, a byte a pixel after its pixels
+/// for its life, so a later shared Sixel's redefinition recolours it
+/// ([`ImageStore::registers`]); with no gap for both it is refused at its
+/// size. A private one keeps nothing past its end.
 #[derive(Clone)]
 pub struct SixelStream {
     walk: Walk,
-    gap: Gap,
+    /// The claim and what its words hold, colours or register numbers.
+    st: ClaimState,
     /// The shared registers (`?1070` reset): what every shared Sixel so far
     /// defined, and which those are. Cleared by [`SixelStream::forget_shared`].
     shared: [Pixel; REGISTERS],
@@ -1200,7 +1403,7 @@ impl SixelStream {
     /// A stream with no Sixel begun.
     pub const NEW: SixelStream = SixelStream {
         walk: Walk::NEW,
-        gap: Gap::NONE,
+        st: ClaimState::NEW,
         shared: [Pixel::CLEAR; REGISTERS],
         shared_defined: RegisterSet::NONE,
         registers: SixelRegisters::Private,
@@ -1245,13 +1448,19 @@ impl SixelStream {
         }
         self.registers = b.registers;
         self.fill = b.fill;
-        self.gap = Gap {
+        // Register 0 is selected and has not painted. A shared Sixel keeps
+        // its numbers past its end, so it paints them from the start.
+        self.st.inks = Inks::NEW;
+        self.st.gap = Gap {
             at,
             len,
             floor: b.floor.px(),
             right: b.right.px(),
             ..Gap::NONE
         };
+        if b.registers == SixelRegisters::Shared {
+            self.st.inks.numbers();
+        }
     }
 
     /// **Let the claim go**: the pages its written words touch that no
@@ -1264,9 +1473,9 @@ impl SixelStream {
     #[cold]
     #[inline(never)]
     pub fn abandon(&mut self, store: &mut ImageStore) {
-        let Gap { at, written, .. } = self.gap;
+        let Gap { at, written, .. } = self.st.gap;
         store.set_claim(None);
-        self.gap.written = 0;
+        self.st.gap.written = 0;
         store.release_free(at, at + written);
     }
 
@@ -1279,7 +1488,7 @@ impl SixelStream {
     #[inline]
     pub fn put(&mut self, b: StreamByte, store: &mut ImageStore) {
         let mut sink = Claim {
-            gap: &mut self.gap,
+            st: &mut self.st,
             store,
         };
         self.walk.put(b.raw_byte(), &mut sink);
@@ -1301,18 +1510,16 @@ impl SixelStream {
     fn settle(&mut self, store: &mut ImageStore) -> Option<(ImageId, SixelPx, SixelPx)> {
         {
             let mut sink = Claim {
-                gap: &mut self.gap,
+                st: &mut self.st,
                 store,
             };
             self.walk.close(&mut sink);
         }
+        // The shared set takes this Sixel's definitions whether or not it
+        // is stored, a palette alone included, and recolours what it
+        // changes.
         if self.registers == SixelRegisters::Shared {
-            for r in 0..REGISTERS {
-                if self.gap.defined.has(r) {
-                    self.shared[r] = self.walk.regs[r];
-                }
-            }
-            self.shared_defined = self.shared_defined.with(self.gap.defined);
+            self.share(store);
         }
         // Display mode keeps no row past the screen's bottom edge and no
         // column past its right edge: a band that crosses the bottom painted
@@ -1321,8 +1528,8 @@ impl SixelStream {
         // painted. So the image fits as the screen does, however far its
         // data reached.
         let (w, h) = match (
-            SixelPx::at(self.walk.width.min(self.gap.right)),
-            SixelPx::at(self.walk.height.min(self.gap.floor)),
+            SixelPx::at(self.walk.width.min(self.st.gap.right)),
+            SixelPx::at(self.walk.height.min(self.st.gap.floor)),
         ) {
             (Some(w), Some(h)) => (w, h),
             _ => {
@@ -1345,7 +1552,7 @@ impl SixelStream {
                 // A side neither the raster nor the margins say -- the cell
                 // size unknown -- is the data's reach, the image's own
                 // rectangle.
-                let (ph, pv) = self.gap.raster;
+                let (ph, pv) = self.st.gap.raster;
                 let side = |raster: u32, margin: u32, data: u32| match (raster, margin) {
                     (0, 0) => data,
                     (0, m) => m,
@@ -1375,13 +1582,13 @@ impl SixelStream {
                     _ if data_h > mh => {
                         let to = data_h.div_ceil(cell).saturating_mul(cell);
                         let from = self.walk.aspect.band_top_at(mh);
-                        Some((from, to.min(self.gap.floor).min(cap)))
+                        Some((from, to.min(self.st.gap.floor).min(cap)))
                     }
                     _ => None,
                 };
                 Some((
-                    fw.min(self.gap.right).min(cap),
-                    fh.min(self.gap.floor).min(cap),
+                    fw.min(self.st.gap.right).min(cap),
+                    fh.min(self.st.gap.floor).min(cap),
                     scrolled,
                 ))
             }
@@ -1392,20 +1599,14 @@ impl SixelStream {
             ImagePx::of(w.raw().max(fw as u16)),
             ImagePx::of(h.raw().max(fh as u16).max(below as u16)),
         );
-        if region.is_some() && self.gap.held != Held::Lost {
+        if region.is_some() && self.st.gap.held != Held::Lost {
             let mut sink = Claim {
-                gap: &mut self.gap,
+                st: &mut self.st,
                 store,
             };
             sink.grow(u32::from(iw.raw()), u32::from(ih.raw()));
-            if sink.gap.held != Held::Lost {
-                sink.fill(fw as usize, 0..fh as usize);
-                if let Some((from, to)) = scrolled {
-                    sink.fill(fw as usize, from as usize..to as usize);
-                }
-            }
         }
-        if !store.has_free_slot() || self.gap.held == Held::Lost {
+        if !store.has_free_slot() || self.st.gap.held == Held::Lost {
             // `store_at` counts which: the slot table first, as `store` does.
             let _ = store.store_at(None, iw, ih, ImageAlpha::OpaqueOrClear);
             return None;
@@ -1413,17 +1614,48 @@ impl SixelStream {
         let area = iw.index() * ih.index();
         {
             let mut sink = Claim {
-                gap: &mut self.gap,
+                st: &mut self.st,
                 store,
             };
             sink.restride(iw.index());
         }
-        let at = self.gap.at;
-        let to = store.lowest_gap(area).unwrap_or(at);
-        if to < at {
+        // **A shared Sixel keeps its register numbers for its life**, a
+        // byte a pixel after its pixels ([`Plane`]), so a later Sixel that
+        // redefines one recolours it; and with no gap for the pixels and
+        // the numbers together it is refused at its size, as any picture
+        // without room is, rather than stored to be drawn later in a
+        // colour its registers no longer have.
+        let plane = match self.registers {
+            SixelRegisters::Shared => Plane::Registers,
+            SixelRegisters::Private => Plane::None,
+        };
+        let span = area + plane.words(area);
+        let at = self.st.gap.at;
+        let Some(to) = store.lowest_gap(span) else {
+            let _ = store.store_span(None, iw, ih, ImageAlpha::OpaqueOrClear, plane);
+            return None;
+        };
+        if to != at {
             store.arena_mut().copy_within(at..at + area, to);
         }
-        let id = store.store_at(Some(to), iw, ih, ImageAlpha::OpaqueOrClear)?;
+        if self.st.inks.words == Words::Marks {
+            self.map(&mut store.arena_mut()[to..to + span], area, plane);
+        }
+        if region.is_some() {
+            let (iw, ih) = (iw.index(), ih.index());
+            let fw = (fw as usize).min(iw);
+            let px = &mut store.arena_mut()[to..to + area];
+            for (a, b) in [(0, fh), scrolled.unwrap_or((0, 0))] {
+                for y in a as usize..(b as usize).min(ih) {
+                    for p in &mut px[y * iw..y * iw + fw] {
+                        if *p == Pixel::CLEAR {
+                            *p = Pixel::FILL;
+                        }
+                    }
+                }
+            }
+        }
+        let id = store.store_span(Some(to), iw, ih, ImageAlpha::OpaqueOrClear, plane)?;
         if region.is_some() {
             let ground = ImageGround::Filled {
                 data_w: ImagePx::of(w.raw()),
@@ -1435,11 +1667,84 @@ impl SixelStream {
         Some((id, w, h))
     }
 
+    /// **Every register number in `span`'s first `area` words becomes the
+    /// colour its register ends the body with**, where the body went on in
+    /// numbers ([`Inks`]), and for a shared Sixel
+    /// is kept in the plane after them, a byte a pixel. A redefinition
+    /// inside the body so recolours the pixels drawn before it, as a
+    /// VT340's colour map does -- "The pixels on the screen are kept in
+    /// memory as color indices which map to the actual color to display"
+    /// (`[[source: vt340test-colormap]]`) -- and as xterm, which maps a
+    /// pixel's register when it draws and defines a register as the
+    /// command arrives (`update_color_register()`,
+    /// `[[source: xterm-graphics-sixel]]`). Nothing draws the claim before
+    /// this. A clear word stays clear; under a fill it becomes the fill
+    /// after this, as a pixel drawn in a clear ink did.
+    fn map(&self, span: &mut [Pixel], area: usize, plane: Plane) {
+        let regs = &self.walk.regs;
+        let (px, rest) = span.split_at_mut(area);
+        match plane {
+            Plane::None => {
+                for p in px.iter_mut().filter(|p| **p != Pixel::CLEAR) {
+                    *p = regs[usize::from(Register::of(*p))];
+                }
+            }
+            Plane::Registers => {
+                let numbers = Pixel::bytes_mut(rest);
+                for (p, n) in px.iter_mut().zip(numbers.iter_mut()) {
+                    *n = 0;
+                    if *p != Pixel::CLEAR {
+                        *n = Register::of(*p);
+                        *p = regs[usize::from(*n)];
+                    }
+                }
+            }
+        }
+    }
+
+    /// **The shared set takes this Sixel's definitions** (`?1070` reset),
+    /// and every picture kept with its register numbers that was drawn
+    /// with a register whose colour this changed -- one never defined
+    /// before included, drawn in the ink -- is recoloured to it
+    /// ([`ImageStore::recolour`]): "You can draw an image, then change its
+    /// appearance by changing the associated output map location ... you
+    /// do not have to redraw an image to change its color"
+    /// (`[[source: vt3xx-screen-control]]`, "Output Mapping"), and xterm's
+    /// shared graphics, which draw from the one shared set
+    /// (`[[source: xterm-graphics-c]]`). **When the body ends**, at `ST`
+    /// or where a cut ends it, which is where the set takes the
+    /// definitions, so the pictures already drawn change colour then,
+    /// where a VT340 and xterm change them as each definition arrives.
+    /// Nothing scanned when no colour changed.
+    #[cold]
+    #[inline(never)]
+    fn share(&mut self, store: &mut ImageStore) {
+        let mut changed = RegisterSet::NONE;
+        for r in 0..REGISTERS {
+            if !self.st.gap.defined.has(r) {
+                continue;
+            }
+            let c = self.walk.regs[r];
+            if !self.shared_defined.has(r) || self.shared[r] != c {
+                changed.add(r);
+            }
+            self.shared[r] = c;
+        }
+        self.shared_defined = self.shared_defined.with(self.st.gap.defined);
+        if changed != RegisterSet::NONE {
+            let shared = &self.shared;
+            store.recolour(|r| {
+                let r = usize::from(r);
+                changed.has(r).then(|| shared[r])
+            });
+        }
+    }
+
     /// One past the highest word of its claim this Sixel has written so far
     /// -- cleared, painted or moved -- which is how much of the arena it
     /// commits. Zero before any data and once the claim is let go.
     pub fn written(&self) -> usize {
-        self.gap.written
+        self.st.gap.written
     }
 }
 

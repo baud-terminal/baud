@@ -356,6 +356,17 @@ fn body() -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(body_atom(), 0..40).prop_map(|v| v.concat())
 }
 
+/// [`body`]'s atoms and, as often as any, one of six registers defined in
+/// one of two colours: two registers often paint one colour, and a
+/// register painted is often defined again -- what ends a decoder's
+/// painting in colours, which [`body`] reaches seldom.
+fn colliding_body() -> impl Strategy<Value = Vec<u8>> {
+    let define = (0u8..6, prop::sample::select(vec!["100;0;0", "0;0;100"]))
+        .prop_map(|(r, c)| format!("#{r};2;{c}").into_bytes());
+    prop::collection::vec(prop_oneof![10 => body_atom(), 1 => define], 0..40)
+        .prop_map(|v| v.concat())
+}
+
 /// A body of whole bands, one to nine, each a colour defined in RGB and
 /// repeated across up to 63 columns, with any atom between them: an image
 /// the size of an arena's gaps, so that what a free opens is what it needs,
@@ -395,6 +406,14 @@ fn p1() -> impl Strategy<Value = Option<u16>> {
 fn step() -> impl Strategy<Value = Step> {
     prop_oneof![
         4 => (p1(), body()).prop_map(|(p, b)| Step::Sixel(p, b)),
+        1 => any::<usize>().prop_map(Step::Free),
+    ]
+}
+
+/// [`step`] with [`colliding_body`]'s bodies.
+fn colliding_step() -> impl Strategy<Value = Step> {
+    prop_oneof![
+        4 => (p1(), colliding_body()).prop_map(|(p, b)| Step::Sixel(p, b)),
         1 => any::<usize>().prop_map(Step::Free),
     ]
 }
@@ -602,6 +621,19 @@ proptest! {
         prop_assert_eq!(&shown(&prog, &every(prog.len(), k)), &whole, "reads of {}", k);
         let at = at.index(prog.len() + 1);
         prop_assert_eq!(&shown(&prog, &[at]), &whole, "split at {}", at);
+    }
+
+    /// **Bodies whose registers share colours and are defined again leave
+    /// the store the buffered decoder left**, which gives each pixel the
+    /// colour its register ends the body with: what a decoder that paints
+    /// colours until one names two registers, or a painted register
+    /// changes, must still draw.
+    #[test]
+    fn colliding_colours_leave_the_store_the_buffered_decoder_left(
+        len in arena(),
+        prog in prop::collection::vec(colliding_step(), 1..10),
+    ) {
+        prop_assert_eq!(through_stream(len, &prog), through_buffered(len, &prog));
     }
 }
 
@@ -960,6 +992,40 @@ fn the_generators_reach_every_outcome() {
     }
     assert!(drawn > 800, "drawn {drawn}");
     assert!(below > 20, "an image placed below a live one: {below}");
+    // A register redefined after it painted, which the end's mapping
+    // recolours: the bodies reach it, or the oracle's rule is never held.
+    let (mut recoloured, mut shared, mut clear, mut redefined) = (0, 0, 0, 0);
+    for _ in 0..500 {
+        let b = colliding_body()
+            .new_tree(&mut runner)
+            .expect("a body")
+            .current();
+        let r = buffered::walk(&b, (1, 1), None);
+        let px = |n: u32| usize::try_from(n).unwrap();
+        let (w, h) = (px(r.width), px(r.height));
+        if w == 0 || h == 0 || w * h > 1 << 16 {
+            continue;
+        }
+        let mut px = vec![Pixel::CLEAR; w * h];
+        let r = buffered::walk(&b, (1, 1), Some((&mut px, w)));
+        recoloured += usize::from(r.recoloured > 0);
+        shared += usize::from(r.shared_colour > 0);
+        clear += usize::from(r.clear_colour > 0);
+        redefined += usize::from(r.redefined > 0);
+    }
+    // And each way a decoder's painting in colours ends: the stream's fast
+    // path is held to the oracle across all three.
+    for (name, n) in [
+        ("shared", shared),
+        ("clear", clear),
+        ("redefined", redefined),
+    ] {
+        assert!(n > 20, "a body that ends painting in colours, {name}: {n}");
+    }
+    assert!(
+        recoloured > 40,
+        "a body recoloured by its own redefinition: {recoloured}"
+    );
     for (name, n) in [
         ("too large", refused.too_large),
         ("empty", refused.empty),

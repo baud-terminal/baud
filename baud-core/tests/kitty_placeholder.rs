@@ -573,6 +573,43 @@ fn the_quota_spares_an_image_a_virtual_placement_holds() {
     );
 }
 
+/// **Once no image without a placement is left, the quota takes a held
+/// one, and its virtual placement goes with it**, with every relative
+/// placement under that: "the terminal emulator should delete older images
+/// to make space for the new one". An arena of two 6x4 images: image 3 held
+/// by virtual placement 7, image 4 put on screen under it. Image 5 finds
+/// none unplaced and deletes 3, the older; 4's placement under 3's virtual
+/// one goes, and 4 with it, as after a delete of 3: "If the image that the
+/// relative placement is a placement of, has no more placements, the image
+/// is deleted as well" (`[[source: kitty-graphics]]`, "Relative
+/// placements"). Deleted for its parent, not for space, so one counted.
+#[test]
+fn the_quota_takes_a_held_image_last_and_its_virtual_placement_with_it() {
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(2 * 24 + 8));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    let mut r = Vec::new();
+    feed(&mut t, &image("a=t,i=3,q=2"), &mut r);
+    feed(&mut t, &apc("a=p,U=1,i=3,p=7,c=1,r=1,q=2", b""), &mut r);
+    feed(&mut t, &image("a=t,i=4,q=2"), &mut r);
+    feed(&mut t, &apc("a=p,i=4,p=1,P=3,Q=7,q=2", b""), &mut r);
+    assert_eq!(t.images().placements().count(), 1, "the premise: 4 under 3");
+    feed(&mut t, &image("a=t,i=5,q=2"), &mut r);
+    assert!(r.is_empty(), "{}", String::from_utf8_lossy(&r));
+    let stored = |id| t.images().kitty_image(KittyId::of(id)).is_some();
+    assert_eq!((stored(3), stored(4), stored(5)), (false, false, true));
+    assert_eq!(t.images().images_evicted, 1);
+    assert_eq!(
+        t.images().placements().count(),
+        0,
+        "the placement under 3 went"
+    );
+    assert!(
+        t.kitty_virtual(KittyId::of(3), KittyPlacement::NONE)
+            .is_none()
+    );
+}
+
 /// **What the table refuses it counts**: the 257th virtual placement, and
 /// one of an image no id names, which no placeholder could show and which
 /// is not held.

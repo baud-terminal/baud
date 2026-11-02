@@ -253,9 +253,15 @@ fn main() {
             v.extend_from_slice(&recording("ascii/cat-scroll.raw"));
             v
         }
+        // **A file manager's previews**: yazi walking seven files and back,
+        // thirteen Sixels of 2.7 MB between its text, unmodified, at the
+        // app's image budget and the walk's 17x34 cell, so each preview is
+        // decoded, placed and erased by the next as in the app. The payload
+        // whose time is the Sixel decoder's.
+        "sixel-yazi" => recording("sixel/yazi-walk.raw"),
         other => recording(other),
     };
-    let images = which == "sixel-cat";
+    let images = matches!(which.as_str(), "sixel-cat" | "sixel-yazi");
 
     // 200 x 50, which is the geometry the recordings were captured at.
     let ws = WinSize {
@@ -317,9 +323,10 @@ fn main() {
     // refuses every Sixel, and the recordings carry none, so the ingest path
     // never reaches image storage. `sixel-cat` gets room for its one image and
     // the placement tables `Owned` provisions.
-    let (px, slots, places) = match images {
-        true => (64 * 48 + 64, 32, 64),
-        false => (0, 0, 0),
+    let (px, slots, places) = match (images, which.as_str()) {
+        (true, "sixel-yazi") => (95 << 18, 32, 64),
+        (true, _) => (64 * 48 + 64, 32, 64),
+        (false, _) => (0, 0, 0),
     };
     let mut img_pixels = vec![baud_domain::Pixel::CLEAR; px];
     let mut img_slots = vec![ImageSlot::EMPTY; slots];
@@ -376,8 +383,10 @@ fn main() {
         &ws,
     );
 
-    if images {
-        t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
+    match (images, which.as_str()) {
+        (true, "sixel-yazi") => t.set_cell_size(ImagePx::of(17), ImagePx::of(34)),
+        (true, _) => t.set_cell_size(ImagePx::of(8), ImagePx::of(16)),
+        (false, _) => {}
     }
     // `BAUD_AMBIGUOUS=wide` prices the app's `[text] ambiguous_width =
     // "wide"`; narrow, the default, otherwise. Read once at start.

@@ -215,3 +215,86 @@ fn a_sixel_across_the_left_margin_or_both_is_split() {
         });
     }
 }
+
+/// A 40 by 36 Sixel at 1:1, its top three bands register 1's red and its
+/// lower three register 2's blue: four columns and two rows of cells.
+const TWO: &[u8] = b"\x1bP9;1q#1;2;100;0;0#2;2;0;0;100#1!40~-!40~-!40~-#2!40~-!40~-!40~\x1b\\";
+
+/// Register 2 defined green by a shared body with no data.
+const GREEN_2: &[u8] = b"\x1bP9;1q#2;2;0;100;0\x1b\\";
+
+const RED_BITS: u32 = 0xFFFF_0000;
+
+/// [`term_run`] with DA listing Sixel, so `?1070` is recorded.
+fn claimed_run(budget: usize, bytes: &[u8], f: impl FnOnce(&mut Term<'_>)) {
+    term_run(budget, b"", |t| {
+        t.set_sixel_claim(baud_domain::SixelClaim::Yes);
+        support::feed(t, bytes);
+        f(t);
+    });
+}
+const GREEN_BITS: u32 = 0xFF00_FF00;
+
+/// **Both parts of a shared Sixel split across a margin keep the
+/// registers they were drawn with**, so a later redefinition recolours
+/// each where its pixels are: drawn at cell 13 of line 3 under `?1070`
+/// reset, split by SU 1, then register 2 defined green. In the part
+/// inside and in the rest, rows 0 to 17 stay red and rows 18 to 35 turn
+/// green, and the rest's cleared columns stay clear.
+#[test]
+fn both_parts_of_a_split_shared_sixel_are_recoloured() {
+    claimed_run(8 << 20, MARGINS, |t| {
+        support::feed(t, b"\x1b[?1070l\x1b[3;14H");
+        support::feed(t, TWO);
+        support::feed(t, b"\x1b[S");
+        assert_eq!(placed(t).len(), 2, "the premise: split in two");
+        support::feed(t, GREEN_2);
+        let after = placed(t);
+        assert_eq!(after.len(), 2, "a palette places nothing");
+        for (part, (_, _, px, w)) in ["inside", "rest"].iter().zip(&after) {
+            for y in 0..36 {
+                for x in 0..*w {
+                    let p = px[y * w + x];
+                    let want = match (*part, x < 20, y < 18) {
+                        ("rest", true, _) => CLEAR,
+                        (_, _, true) => RED_BITS,
+                        _ => GREEN_BITS,
+                    };
+                    assert_eq!(p, want, "{part} at ({x},{y})");
+                }
+            }
+        }
+    });
+}
+
+/// **Where a shared Sixel's pixels move within it, its register numbers
+/// move with them**: with no room for the part inside, SU 1 moves the
+/// pixels over cells 13 and 14 up 20 rows inside the image, so rows 0 to
+/// 15 there are rows 20 to 35's blue; register 2 defined green turns them
+/// green, and the red rows the move did not reach, and every row outside
+/// the margins, as they were.
+#[test]
+fn a_shared_sixels_registers_move_with_its_pixels() {
+    claimed_run(2000, MARGINS, |t| {
+        support::feed(t, b"\x1b[?1070l\x1b[3;14H");
+        support::feed(t, TWO);
+        let refused = t.images().images_refused;
+        support::feed(t, b"\x1b[S");
+        assert_eq!(t.images().images_refused, refused + 1, "the part refused");
+        support::feed(t, GREEN_2);
+        let after = placed(t);
+        assert_eq!(after.len(), 1, "one image");
+        let px = &after[0].2;
+        for y in 0..36 {
+            for x in 0..40 {
+                let want = match (x < 20, y) {
+                    (true, 0..16) => GREEN_BITS,
+                    (true, _) => CLEAR,
+                    (false, 0..18) => RED_BITS,
+                    (false, _) => GREEN_BITS,
+                };
+                assert_eq!(px[y * 40 + x], want, "at ({x},{y})");
+            }
+        }
+    });
+}

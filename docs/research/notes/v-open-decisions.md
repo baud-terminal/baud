@@ -4798,8 +4798,9 @@ lean:
      arena pixel. Open, each recorded: the renderer does not draw the source
      rect, `c`/`r`, `X`/`Y` or `z` order; `t=f`/`t=t`/`t=s`, animation,
      `U=1` and `P` are later steps; a placed image is never deleted for
-     space, and when deleting every unplaced image would not make space
-     none is deleted; replies keep the 7-bit shape
+     space (since 2026-11-01 the oldest placed one goes once no unplaced
+     image is left; `t-images.md`), and when deleting every unplaced image
+     would not make space none is deleted; replies keep the 7-bit shape
      under S8C1T, following it the project's question.
      The quota is the text's: the oldest images without placements go
      first. **Followed up 2026-10-16**: a query

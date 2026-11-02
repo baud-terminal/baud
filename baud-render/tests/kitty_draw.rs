@@ -1087,3 +1087,63 @@ fn a_repainted_row_examines_only_the_placements_on_it() {
         "one row, every placement"
     );
 }
+
+/// **A picture on screen that the quota deletes is taken off the next
+/// incremental frame**, the frame a full repaint draws: once no image
+/// without a placement is left, a new image deletes the oldest placed one
+/// (`[[source: kitty-graphics]]`, "Image persistence and storage quotas"),
+/// and the rows it covered are the cells again. An arena of two 6x4
+/// images, both placed; a third, transmitted, deletes the first.
+#[test]
+fn a_picture_the_quota_deletes_is_taken_off_an_incremental_frame() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let m = r.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let mut c = Canvas::for_renderer(&r);
+    let image = usize::try_from(IW * IH).unwrap();
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(2 * image));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(
+        ImagePx::of(u16::try_from(cw).unwrap()),
+        ImagePx::of(u16::try_from(ch).unwrap()),
+    );
+    feed(&mut t, b"\x1b[?25l");
+    transmit(&mut t, 1, texel);
+    feed(&mut t, AT);
+    feed(&mut t, &apc("a=p,i=1,q=2", b""));
+    transmit(&mut t, 2, other);
+    feed(&mut t, b"\x1b[10;20H");
+    feed(&mut t, &apc("a=p,i=2,q=2", b""));
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let px = |n: u32| usize::try_from(n).unwrap();
+    let (ax, ay) = (px(COL * cw), px(ROW * ch));
+    let at = |c: &Canvas| c.pixels[ay * c.width + ax];
+    assert_eq!(at(&c), texel(0, 0), "the control: image 1 is drawn");
+    transmit(&mut t, 3, texel);
+    assert_eq!(t.images().images_evicted, 1, "the premise: one deleted");
+    assert_eq!(
+        t.images().placements().count(),
+        1,
+        "image 1's placement went"
+    );
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Incremental);
+    }
+    assert_eq!(at(&c), Theme::dark().bg.0, "image 1 is off the frame");
+    let mut fresh = renderer(&faces);
+    let mut f = Canvas::for_renderer(&fresh);
+    {
+        let mut target = f.target();
+        fresh.render(&mut t, &mut target, Damage::Full);
+    }
+    assert!(
+        c.pixels == f.pixels,
+        "the incremental frame is the full one"
+    );
+}

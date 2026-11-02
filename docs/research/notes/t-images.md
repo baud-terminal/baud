@@ -346,6 +346,20 @@ the research gives a discipline rather than a value.
   `s-sixel.md`'s design. A choice the project made is the byte figure and whether refuse-
   and-count (baud's instinct, a wrong-image-never-drawn guarantee) or evict-with-
   placeholder (xterm.js, an unbounded-history convenience) is the policy.
+
+  **Settled 2026-11-01**: a Sixel and an iTerm2 picture are refused and
+  counted when the arena is full and never deleted to make room (no Sixel or
+  iTerm2 text sets a store, and 070-9 §2 allows that "not all devices will
+  be capable of displaying them"); evicting with a placeholder draws a
+  pattern no program sent. A kitty image follows kitty's quota text: the
+  oldest with no placement goes first and, once none is left, the oldest
+  with one, by the lean, its placements and virtual placement with it, and
+  never one the command needs -- the parent a put names, the image a frame
+  is added to -- nor an image their placements hang under, whose delete
+  would take theirs with it. Oldest is by when it was stored, where kitty
+  orders by its `atime`, set when an image is added or put
+  (`[[source: kitty-graphics-c]]`). The two share one arena, so pictures
+  that may not be deleted can push kitty pictures off the screen.
 * **Kitty at all, and in what order.** foot is a standing precedent for *not*
   implementing Kitty -- its maintainer declined it deliberately, on dependencies
   and minimalism, and it is an argument *for* Sixel-first rather than a source to
@@ -365,6 +379,14 @@ the research gives a discipline rather than a value.
 * **The storage fork is decided ARGB in this register** on the shader-sampling
   ground above; a confirmation is the point at which it moves from recommended to settled, and the 4x memory cost is the thing to weigh it
   against.
+
+  **Confirmed 2026-11-01, with the register numbers a Sixel needs while its
+  colours can change**, by the lean: every path draws ARGB; a Sixel's pixels
+  are register numbers from the first data its colours alone could not tell
+  apart until its body ends, and one drawn with shared registers keeps a
+  byte a pixel after them for its life, so a later redefinition recolours it
+  (`s-sixel.md`, `?1070`). Memory: nothing for a private Sixel, kitty or
+  iTerm2 picture, a quarter more for a shared Sixel.
 
 ## Sequencing
 

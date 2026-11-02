@@ -570,6 +570,56 @@ fn a_private_sixel_neither_feeds_nor_clears_the_shared_set() {
     });
 }
 
+/// **A later shared Sixel recolours the shared pictures drawn with a
+/// register it redefines**, as a VT340's one colour map does: "You can
+/// draw an image, then change its appearance by changing the associated
+/// output map location" (`[[source: vt3xx-screen-control]]`, "Output
+/// Mapping"). Picture A draws register 1 red and register 2, undefined, in
+/// the foreground; picture B defines register 1 green, and A's first
+/// column turns green while its second keeps the foreground. A palette
+/// alone, a shared body with no data, turns it blue. At power-on, `?1070`
+/// set, B recolours nothing.
+#[test]
+fn a_later_shared_sixel_recolours_the_pictures_drawn_with_its_register() {
+    let a = b"\x1bP0;1;0q\"1;1#1;2;100;0;0#1~#2~\x1b\\\n";
+    let b = b"\x1bP0;1;0q\"1;1#1;2;0;100;0#1~~\x1b\\\n";
+    let palette = b"\x1bP0;1;0q#1;2;0;0;100\x1b\\";
+    let (green, blue) = (rgb((0, 255, 0)), rgb((0, 0, 255)));
+    let shared = b"\x1b[?1070l".as_slice();
+    every_read(CLAIMED, &[shared, a, b].concat(), |t, how| {
+        assert_eq!(pixels_at(t, 0, 0), [green, green], "{how}: A's register 1");
+        assert_eq!(
+            pixels_at(t, 1, 0),
+            [rgb(FG), green],
+            "{how}: A's register 2"
+        );
+    });
+    every_read(CLAIMED, &[shared, a, palette].concat(), |t, how| {
+        assert_eq!(pixels_at(t, 0, 0), [blue], "{how}: a palette alone");
+        assert_eq!(pixels_at(t, 1, 0), [rgb(FG)], "{how}");
+    });
+    every_read(CLAIMED, &[a.as_slice(), b].concat(), |t, how| {
+        assert_eq!(pixels_at(t, 0, 0), [red(), green], "{how}: private");
+    });
+}
+
+/// **A redefinition inside a body recolours the pixels drawn before it**,
+/// at power-on and under shared registers: register 1 is red for the first
+/// column and blue for the second, and both are blue once the body ends.
+/// The pixels on a VT340's screen "are kept in memory as color indices
+/// which map to the actual color to display" (`[[source:
+/// vt340test-colormap]]`).
+#[test]
+fn a_redefinition_inside_a_body_recolours_the_pixels_drawn_before_it() {
+    let body = b"\x1bP0;1;0q\"1;1#1;2;100;0;0#1~#1;2;0;0;100~\x1b\\";
+    let blue = rgb((0, 0, 255));
+    for pre in [&b""[..], b"\x1b[?1070l"] {
+        every_read(CLAIMED, &[pre, body].concat(), |t, how| {
+            assert_eq!(placed(t).4[..2], [blue, blue], "{how}");
+        });
+    }
+}
+
 /// **XTSMGRAPHICS answers what baud has**, in xterm's shape
 /// (`CASE_GRAPHICS_ATTRIBUTES`, `[[source: xterm-reset]]`'s file): 256
 /// registers, which a set can only confirm; the text area in pixels, and a

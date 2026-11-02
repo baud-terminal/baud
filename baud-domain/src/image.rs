@@ -144,6 +144,13 @@ impl Pixel {
         self.0
     }
 
+    /// The pixel whose word is `bits`: a decoder's own word in a span
+    /// nothing draws yet, such as a Sixel's register numbers before its
+    /// terminator ([`crate::SixelStream`]).
+    pub(crate) const fn from_bits(bits: u32) -> Pixel {
+        Pixel(bits)
+    }
+
     /// The words of `px` as the bytes they lie in, for a decoder that
     /// writes RGBA8 rows in place, as kitty's PNG decode does.
     pub fn bytes_mut(px: &mut [Pixel]) -> &mut [u8] {
@@ -940,6 +947,37 @@ pub struct ImageSlot {
     /// **Its kitty animation**: the frames after the first, laid after it
     /// in its span, and the state `a=a` sets ([`frames`]).
     anim: frames::Frames,
+    /// Whether a register number for each pixel follows its pixels in its
+    /// span: a Sixel drawn under shared colour registers ([`Plane`]).
+    plane: Plane,
+}
+
+/// **Whether an image keeps the colour register each pixel was drawn
+/// with**, a byte a pixel laid after its pixels in its span. A Sixel drawn
+/// under shared registers (`?1070` reset) does, for its life, so a later
+/// Sixel that redefines one of those registers recolours it
+/// ([`ImageStore::recolour`]): "You can draw an image, then change its
+/// appearance by changing the associated output map location"
+/// (`[[source: vt3xx-screen-control]]`, "Output Mapping"). Every other
+/// image is its ARGB alone, a private-register Sixel included: its
+/// registers end with it, and a redefinition inside its own body is
+/// mapped at its terminator ([`crate::SixelStream`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Plane {
+    /// No register numbers.
+    None,
+    /// One byte a pixel, `area.div_ceil(4)` words after the pixels.
+    Registers,
+}
+
+impl Plane {
+    /// The words the plane takes after `area` pixels.
+    pub(crate) fn words(self, area: usize) -> usize {
+        match self {
+            Plane::None => 0,
+            Plane::Registers => area.div_ceil(4),
+        }
+    }
 }
 
 impl ImageSlot {
@@ -956,10 +994,20 @@ impl ImageSlot {
         lit: None,
         ground: ImageGround::Clear,
         anim: frames::Frames::ONE,
+        plane: Plane::None,
     };
 
     fn is_empty(self) -> bool {
         self.width.is_zero()
+    }
+
+    /// Whether the kitty quota may delete this image for space
+    /// ([`ImageStore::quota_victim`]): a kitty image whose pixels are all
+    /// written, placed or not.
+    fn quota_evictable(self) -> bool {
+        !self.is_empty()
+            && self.state == ImageState::Ready
+            && matches!(self.owner, ImageOwner::Kitty(..))
     }
 
     /// Whether this image goes with its last placement: a local one, or a
@@ -974,9 +1022,11 @@ impl ImageSlot {
     /// The words its span takes: one frame's pixels for an image with no
     /// animation, and for an animated one every frame it has room for and
     /// a word for each frame's gap and depth after the first
-    /// ([`frames::Frames`]).
+    /// ([`frames::Frames`]), and the register plane after them for an
+    /// image that keeps one ([`Plane`]).
     fn span_len(self) -> usize {
-        self.anim.span(self.width.index() * self.height.index())
+        let area = self.width.index() * self.height.index();
+        self.anim.span(area) + self.plane.words(area)
     }
 
     /// The words of one frame's pixels.
@@ -1411,12 +1461,13 @@ pub struct ImageView<'a> {
 
 /// A bounded, caller-owned store of images and their placements.
 ///
-/// The three caller buffers are the arena (straight ARGB pixels), the image-slot table
+/// The three caller buffers are the arena (straight ARGB pixels, and after
+/// a shared-register Sixel's its register numbers), the image-slot table
 /// and the placement table, with a fourth, the kitty query probe, outside
 /// the arena ([`ImageStore::with_probe`]); all are refuse-and-count, and the counters are
 /// public and never silent, the [`ClusterStore`] contract. The one exception is
-/// the kitty quota: a new kitty image deletes older kitty images without
-/// placements to make space before it is refused
+/// the kitty quota: a new kitty image deletes older kitty images to make
+/// space before it is refused, those without placements first
 /// ([`ImageStore::reserve_evicting`], counted in `images_evicted`).
 pub struct ImageStore<'b> {
     pixels: &'b mut [Pixel],
@@ -1461,9 +1512,9 @@ pub struct ImageStore<'b> {
     /// while none is lent.
     pub bytes_released: usize,
     /// Kitty images deleted to make space for a new one: the oldest with no
-    /// placement first, "to make space for the new one"
-    /// (`[[source: kitty-graphics]]`, "Image persistence and storage
-    /// quotas"). Each is in `images_dropped` too.
+    /// placement first, then the oldest with one, "to make space for the
+    /// new one" (`[[source: kitty-graphics]]`, "Image persistence and
+    /// storage quotas"). Each is in `images_dropped` too.
     pub images_evicted: usize,
     /// Placements removed because their rows no longer exist: the last of
     /// them left the retained history or the alternate screen's top, a
@@ -1568,6 +1619,33 @@ pub struct ImageStore<'b> {
     /// Only the written words: a page past them that a free makes wholly
     /// free goes back then, and the Sixel writes it again if it grows.
     claim: Option<(usize, usize)>,
+}
+
+/// **The most images a command keeps from the kitty quota**
+/// ([`ImageStore::quota_kept`]): its own and those their placements hang
+/// under. A command that would keep more deletes nothing for space, and is
+/// refused when it does not fit.
+const QUOTA_KEPT: usize = 32;
+
+/// The images a command keeps from the kitty quota, by where their spans
+/// start: two live spans never share a start.
+struct QuotaKept {
+    starts: [usize; QUOTA_KEPT],
+    n: usize,
+}
+
+impl QuotaKept {
+    fn has(&self, start: usize) -> bool {
+        self.starts[..self.n].contains(&start)
+    }
+}
+
+/// Whether a kept image hangs under a virtual placement, so every image
+/// one holds is kept too.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HeldKept {
+    No,
+    Yes,
 }
 
 impl<'b> ImageStore<'b> {
@@ -1897,13 +1975,28 @@ impl<'b> ImageStore<'b> {
         height: ImagePx,
         alpha: ImageAlpha,
     ) -> Option<ImageId> {
+        self.store_span(at, width, height, alpha, Plane::None)
+    }
+
+    /// [`ImageStore::store_at`] for an image whose span holds `plane` after
+    /// its pixels ([`Plane`]): the whole span, pixels and plane, is what
+    /// must lie in the arena clear of every live image, or it is refused
+    /// for the arena at the picture's size.
+    pub(crate) fn store_span(
+        &mut self,
+        at: Option<usize>,
+        width: ImagePx,
+        height: ImagePx,
+        alpha: ImageAlpha,
+        plane: Plane,
+    ) -> Option<ImageId> {
         let Some(slot) = self.free_slot() else {
             self.refuse(ImageRefusal::Slot);
             return None;
         };
         let area = width.index() * height.index();
         let span = at.and_then(|a| {
-            let end = a.checked_add(area)?;
+            let end = a.checked_add(area + plane.words(area))?;
             let offset = u32::try_from(a).ok()?;
             let clear = end <= self.pixels.len()
                 && !self
@@ -1929,9 +2022,55 @@ impl<'b> ImageStore<'b> {
             lit: None,
             ground: ImageGround::Clear,
             anim: frames::Frames::ONE,
+            plane,
         };
         self.tallest = self.tallest.max(height);
         Some(ImageId::from_index(slot))
+    }
+
+    /// **Recolour every picture that keeps its register numbers**
+    /// ([`Plane::Registers`]): each pixel still drawn -- neither clear nor
+    /// the background fill, so an erased one stays erased -- whose register
+    /// `colour` names a colour for takes it. What a shared register's new
+    /// definition does to the pictures drawn with it, as a VT340's one
+    /// colour map does: "you do not have to redraw an image to change its
+    /// color" (`[[source: vt3xx-screen-control]]`, "Output Mapping"). A
+    /// colour is opaque, so a pixel drawn stays drawn and its image's lit
+    /// count holds. The epoch moves when any pixel changed, so every
+    /// renderer's copy is made again from the new pixels.
+    pub(crate) fn recolour(&mut self, colour: impl Fn(u8) -> Option<Pixel>) {
+        let mut changed = false;
+        for i in 0..self.slots.len() {
+            let s = self.slots[i];
+            if s.is_empty() || s.plane != Plane::Registers {
+                continue;
+            }
+            let (px, plane) = self.pixels[s.start()..s.end()].split_at_mut(s.area());
+            for (p, &r) in px.iter_mut().zip(plane.as_bytes()) {
+                if *p == Pixel::CLEAR || *p == Pixel::FILL {
+                    continue;
+                }
+                if let Some(c) = colour(r).filter(|c| c != p) {
+                    *p = c;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.epoch = self.epoch.bumped();
+        }
+    }
+
+    /// The register numbers of image `id`, a byte a pixel, row-major, when
+    /// it keeps them, a Sixel drawn under shared registers; `None` for
+    /// every other image.
+    pub fn registers(&self, id: ImageId) -> Option<&[u8]> {
+        let s = *self.slots.get(id.index()?)?;
+        if s.is_empty() || s.plane != Plane::Registers {
+            return None;
+        }
+        let at = s.start() + s.area();
+        self.pixels[at..s.end()].as_bytes().get(..s.area())
     }
 
     /// **Reserve a `width` x `height` image for a decoder that writes it
@@ -1967,20 +2106,22 @@ impl<'b> ImageStore<'b> {
     /// new one", and "existing images without placements will be
     /// preferentially deleted" (`[[source: kitty-graphics]]`, "Image
     /// persistence and storage quotas" and "Deleting images"). While no
-    /// slot is free or no gap holds `width` x `height`, the oldest kitty
-    /// image with no placement, on screen or in the history, and whole
-    /// goes, each counted in `images_evicted`; only if deleting all of them
-    /// would not make space does none go, and the reserve is refused and
-    /// counted once, as [`ImageStore::reserve`] refuses. An image with a
-    /// placement, one still decoding, and a Sixel or embedder image are
-    /// never deleted for space.
+    /// slot is free or no gap holds `width` x `height`, a whole kitty image
+    /// goes, each counted in `images_evicted`, in
+    /// this order: the oldest with no placement,
+    /// on screen or in the history, and once none is left the oldest with
+    /// one, its placements with it, a virtual placement's hold included.
+    /// Only if deleting every one of them would not make space does none
+    /// go, and the reserve is refused and counted once, as
+    /// [`ImageStore::reserve`] refuses. One still decoding, and a Sixel,
+    /// an iTerm2 or an embedder image, are never deleted for space.
     pub fn reserve_evicting(
         &mut self,
         width: ImagePx,
         height: ImagePx,
         owner: ImageOwner,
     ) -> Option<ImageId> {
-        self.reserve_sparing(width, height, owner, ImageId::NONE)
+        self.reserve_keeping(width, height, owner, [ImageId::NONE; 2])
     }
 
     /// [`ImageStore::reserve_evicting`] deleting anything but `spare`: an
@@ -1994,40 +2135,146 @@ impl<'b> ImageStore<'b> {
         owner: ImageOwner,
         spare: ImageId,
     ) -> Option<ImageId> {
+        self.reserve_keeping(width, height, owner, [spare, ImageId::NONE])
+    }
+
+    /// [`ImageStore::reserve_evicting`] deleting none of `keep`, nor any
+    /// image a placement of one hangs under ([`ImageStore::quota_kept`]):
+    /// the image a frame is added to, and the parent a new image is put
+    /// against, which a delete of a parent would take with it.
+    pub fn reserve_keeping(
+        &mut self,
+        width: ImagePx,
+        height: ImagePx,
+        owner: ImageOwner,
+        keep: [ImageId; 2],
+    ) -> Option<ImageId> {
         let area = width.index().saturating_mul(height.index());
         let fits = |st: &ImageStore, live: &dyn Fn(&ImageSlot) -> bool| {
             st.slots.iter().any(|s| !live(s)) && st.lowest_gap_among(area, live).is_some()
         };
-        let kept = spare
-            .index()
-            .and_then(|i| self.slots.get(i))
-            .filter(|s| !s.is_empty())
-            .map(|s| s.start());
-        let evictable = |s: &ImageSlot| {
-            !s.is_empty()
-                && kept != Some(s.start())
-                && s.placements.index() == 0
-                && s.state == ImageState::Ready
-                && matches!(s.owner, ImageOwner::Kitty(..))
-        };
         let taken = |s: &ImageSlot| !s.is_empty();
-        if area > 0 && !fits(self, &taken) && fits(self, &|s| taken(s) && !evictable(s)) {
-            while !fits(self, &taken) {
-                let Some(old) = self
-                    .slots
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, s)| evictable(s))
-                    .min_by_key(|(_, s)| s.born.raw())
-                    .map(|(i, _)| ImageId::from_index(i))
-                else {
-                    break;
-                };
-                self.free(old);
-                self.images_evicted += 1;
+        if area > 0 && !fits(self, &taken) {
+            if let Some(kept) = self.quota_kept(keep) {
+                let spared = |s: &ImageSlot| kept.has(s.start());
+                let evictable = |s: &ImageSlot| s.quota_evictable() && !spared(s);
+                if fits(self, &|s| taken(s) && !evictable(s)) {
+                    while !fits(self, &taken) {
+                        let Some(old) = self.quota_victim(spared) else {
+                            break;
+                        };
+                        self.free(old);
+                        self.images_evicted += 1;
+                    }
+                }
             }
         }
         self.reserve(width, height, owner)
+    }
+
+    /// **The images the kitty quota must not delete for a command that
+    /// needs `keep`**, by where their spans start: each of them, and every
+    /// image a placement of one hangs under, up its chain of parents, and
+    /// theirs in turn -- "If its parent is deleted, it is deleted as well.
+    /// If the image that the relative placement is a placement of, has no
+    /// more placements, the image is deleted as well" (`[[source:
+    /// kitty-graphics]]`, "Relative placements"), so deleting one for space
+    /// would take the image the command works on with it. A chain that
+    /// ends at a virtual placement, which the kitty stream keeps, keeps
+    /// every image a virtual placement holds. `None`, and nothing deleted,
+    /// when more than [`QUOTA_KEPT`] images would be kept.
+    fn quota_kept(&self, keep: [ImageId; 2]) -> Option<QuotaKept> {
+        let mut k = QuotaKept {
+            starts: [0; QUOTA_KEPT],
+            n: 0,
+        };
+        let mut images = [ImageId::NONE; QUOTA_KEPT];
+        let live_slot = |id: ImageId| {
+            id.index()
+                .and_then(|i| self.slots.get(i))
+                .filter(|s| !s.is_empty())
+        };
+        let push = |k: &mut QuotaKept, images: &mut [ImageId; QUOTA_KEPT], id: ImageId| {
+            let Some(s) = live_slot(id) else {
+                return Some(());
+            };
+            if k.has(s.start()) {
+                return Some(());
+            }
+            let n = k.n;
+            *k.starts.get_mut(n)? = s.start();
+            images[n] = id;
+            k.n += 1;
+            Some(())
+        };
+        for id in keep {
+            push(&mut k, &mut images, id)?;
+        }
+        let mut held = HeldKept::No;
+        let mut next = 0;
+        while next < k.n {
+            let img = images[next];
+            next += 1;
+            for p in 0..self.live {
+                let s = self.placements[p];
+                if s.is_empty() || s.image != img {
+                    continue;
+                }
+                let mut link = s.kitty.parent;
+                for _ in 0..KITTY_PARENT_DEPTH {
+                    match link.on {
+                        ParentOn::Nothing => break,
+                        ParentOn::Virtual => {
+                            held = HeldKept::Yes;
+                            break;
+                        }
+                        ParentOn::Screen => {
+                            let Some(q) = pid_index(link.slot)
+                                .and_then(|q| self.placements.get(q))
+                                .filter(|q| !q.is_empty() && q.serial == link.serial)
+                            else {
+                                break;
+                            };
+                            push(&mut k, &mut images, q.image)?;
+                            link = q.kitty.parent;
+                        }
+                    }
+                }
+            }
+        }
+        if held == HeldKept::Yes {
+            for i in 0..self.slots.len() {
+                let s = self.slots[i];
+                let shown = self.placements[..self.live]
+                    .iter()
+                    .filter(|p| !p.is_empty() && p.image.index() == Some(i))
+                    .count();
+                if !s.is_empty() && s.placements.index() > shown {
+                    push(&mut k, &mut images, ImageId::from_index(i))?;
+                }
+            }
+        }
+        Some(k)
+    }
+
+    /// **The kitty image the quota deletes next**, of those `spared` does
+    /// not keep: the oldest with no placement, and only once none is left
+    /// the oldest with one -- "existing images without placements will be
+    /// preferentially deleted", and "the terminal emulator should delete
+    /// older images to make space for the new one" (`[[source:
+    /// kitty-graphics]]`). Oldest by when it was stored ([`ImageGen`]),
+    /// where kitty orders by when it was last added or put
+    /// (`apply_storage_quota()`, `atime`, `[[source: kitty-graphics-c]]`),
+    /// so an image placed again late goes earlier here than there; and
+    /// one at a time until the new image fits, where kitty first deletes
+    /// every image with no placement.
+    pub(crate) fn quota_victim(&self, spared: impl Fn(&ImageSlot) -> bool) -> Option<ImageId> {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.quota_evictable() && !spared(s))
+            .min_by_key(|(_, s)| (s.placements.index() > 0, s.born.raw()))
+            .map(|(i, _)| ImageId::from_index(i))
     }
 
     /// **Mark a stored image an iTerm2 picture** ([`ImageOwner::Iterm`]),
@@ -4254,16 +4501,17 @@ impl<'b> ImageStore<'b> {
             }
             let pw = x1 - x0;
             // An animation is not split: its pixels inside the margins
-            // move within it, every frame, as when no piece is stored.
+            // move within it, every frame, as when no piece is stored. A
+            // piece of a picture that keeps its register numbers keeps
+            // the piece's, so a later redefinition recolours both parts.
             let piece = match img.anim.animated() {
                 true => None,
-                false => self
-                    .store(
-                        ImagePx::of(u16::try_from(pw).unwrap_or(u16::MAX)),
-                        img.height,
-                        img.alpha,
-                    )
-                    .map(|(id, _)| id),
+                false => {
+                    let pw16 = ImagePx::of(u16::try_from(pw).unwrap_or(u16::MAX));
+                    let span = pw * h + img.plane.words(pw * h);
+                    let at = self.lowest_gap(span);
+                    self.store_span(at, pw16, img.height, img.alpha, img.plane)
+                }
             };
             let placed = piece.map(|id| {
                 (
@@ -4278,6 +4526,15 @@ impl<'b> ImageStore<'b> {
                         let from = img.start() + y * w;
                         self.pixels.copy_within(from + x0..from + x1, to + y * pw);
                         self.pixels[from + x0..from + x1].fill(Pixel::CLEAR);
+                    }
+                    if img.plane == Plane::Registers {
+                        // Bytes, from the original's plane to the piece's.
+                        let (src, dst) = ((img.start() + w * h) * 4, (to + pw * h) * 4);
+                        let bytes = self.pixels.as_mut_bytes();
+                        for y in 0..h {
+                            let row = src + y * w;
+                            bytes.copy_within(row + x0..row + x1, dst + y * pw);
+                        }
                     }
                     if let Some(j) = id.index() {
                         self.slots[j].lit = Some(moved);
@@ -4300,6 +4557,14 @@ impl<'b> ImageStore<'b> {
                     for k in 0..img.anim.frame_count() as usize {
                         let at = img.start() + k * img.area() + x0;
                         self.shift_rows(at, w, pw, (y0, y1), n.index() * ch, way);
+                    }
+                    // The register numbers move with the pixels they name.
+                    if img.plane == Plane::Registers {
+                        let at = (img.start() + w * h) * 4;
+                        let bytes = &mut self.pixels.as_mut_bytes()[at..at + w * h];
+                        if let Some(b) = bytes.get_mut(x0..) {
+                            shift_byte_rows(b, w, pw, (y0, y1), n.index() * ch, way);
+                        }
                     }
                     if img.lit.is_some() {
                         let after = self.lit_in(img, (x0, 0, x1, h));
