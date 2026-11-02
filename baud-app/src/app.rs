@@ -414,16 +414,6 @@ fn honour(
     Some(crate::width::Grid::of(term))
 }
 
-/// `OSC 8` activation, for the five-second report: links opened, revealed
-/// in Finder, and refused -- each refusal also a `warn!` naming the rule,
-/// the `mouse_unencodable` shape of refusing and saying how often.
-#[derive(Clone, Copy, Default, Debug)]
-struct Links {
-    opened: Tally,
-    revealed: Tally,
-    refused: Tally,
-}
-
 /// What the terminal's surfaces live in when its storage does not hold
 /// them: on the cell path, the two GPU buffers the primary ring and the
 /// alternate screen are lent from (`Owned::storage_over`).
@@ -548,10 +538,13 @@ struct App {
     /// Frames asked for while the GPU was still reading the last one, and
     /// left owed rather than built (`builds`).
     owed_in_flight: Tally,
-    links: Links,
+    /// `OSC 8` activation, for the five-second report: links opened,
+    /// revealed in Finder, and refused (`report::Links`).
+    links: crate::report::Links,
     /// See [`Trace`].
     trace: Option<Trace>,
-    last_report: std::time::Instant,
+    /// When the five-second report is next due (`report.rs`).
+    reported: crate::report::Every<std::time::Instant>,
     stats: Frame,
     gpu_stats: GpuFrame,
     wanted: Path,
@@ -1437,9 +1430,9 @@ impl App {
             frames: Tally::default(),
             ticks: Tally::default(),
             owed_in_flight: Tally::default(),
-            links: Links::default(),
+            links: crate::report::Links::default(),
             trace,
-            last_report: std::time::Instant::now(),
+            reported: crate::report::Every::new(std::time::Instant::now()),
             stats: Frame::default(),
             gpu_stats: GpuFrame::default(),
             wanted,
@@ -2867,50 +2860,40 @@ impl App {
     /// `present`** -- the `Pending::Clean` gate returns first -- so the
     /// report this lived inside could not fire in exactly the state row
     /// 11 is about, and its silence read the same as a broken probe.
+    ///
+    /// The CPU path's first line and the counts after it are the Linux
+    /// driver's too (`report.rs`); the GPU line and the latency line are
+    /// this app's alone.
     fn report(&mut self) {
-        if self.last_report.elapsed().as_secs() >= 5 {
-            match self.presenter.as_ref().map(Presenter::mode) {
-                Some(Mode::Gpu) => crate::info!(
-                    "{} ticks, {} frames; last: {} rows, {} instances, convert {:?}, bind {:?}, commit {:?}; {}",
-                    self.ticks.value(),
-                    self.frames.value(),
-                    self.stats.rows_dirty.value(),
-                    self.gpu_stats.instances.value(),
-                    self.stats.convert,
-                    self.gpu_stats.upload,
-                    self.gpu_stats.submit,
-                    self.present_counts()
-                ),
-                _ => crate::info!(
-                    "{} ticks, {} frames; last: {} rows, {} instances, convert {:?}, paint {:?}, cache {:?}",
-                    self.ticks.value(),
-                    self.frames.value(),
-                    self.stats.rows_dirty.value(),
-                    self.stats.instances.value(),
-                    self.stats.convert,
-                    self.stats.composite,
-                    self.stats.cache
-                ),
-            }
-            if let Some(line) = self.latency.report() {
-                eprintln!("{line}");
-            }
-            if let Some(line) = self.clips.report() {
-                crate::info!("{line}");
-            }
-            if let Some(line) = self.widths.report() {
-                crate::info!("{line}");
-            }
-            let l = self.links;
-            if l.opened.value() + l.revealed.value() + l.refused.value() > 0 {
-                crate::info!(
-                    "links: {} opened, {} revealed, {} refused",
-                    l.opened.value(),
-                    l.revealed.value(),
-                    l.refused.value()
-                );
-            }
-            self.last_report = std::time::Instant::now();
+        if self.reported.due(std::time::Instant::now()) == crate::report::Due::No {
+            return;
+        }
+        match self.presenter.as_ref().map(Presenter::mode) {
+            Some(Mode::Gpu) => crate::info!(
+                "{} ticks, {} frames; last: {} rows, {} instances, convert {:?}, bind {:?}, commit {:?}; {}",
+                self.ticks.value(),
+                self.frames.value(),
+                self.stats.rows_dirty.value(),
+                self.gpu_stats.instances.value(),
+                self.stats.convert,
+                self.gpu_stats.upload,
+                self.gpu_stats.submit,
+                self.present_counts()
+            ),
+            _ => crate::info!(
+                "{}",
+                crate::report::cpu_line(
+                    crate::report::Wakes::Ticks(self.ticks),
+                    self.frames,
+                    &self.stats
+                )
+            ),
+        }
+        if let Some(line) = self.latency.report() {
+            eprintln!("{line}");
+        }
+        for line in crate::report::counts(&self.clips, &self.widths, &self.links) {
+            crate::info!("{line}");
         }
     }
 }

@@ -314,9 +314,7 @@ impl Clips {
         (!said.is_empty()).then(|| format!("clipboard: {}", said.join("; ")))
     }
 
-    /// The five-second report's line, or `None` before any write. The
-    /// Linux driver has no five-second report.
-    #[cfg(any(target_os = "macos", test))]
+    /// The five-second report's line, or `None` before any write.
     pub fn report(&self) -> Option<String> {
         let (w, c, r) = (
             self.written.value(),

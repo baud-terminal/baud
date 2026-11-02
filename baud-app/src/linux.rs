@@ -63,9 +63,19 @@
 //!
 //! What the macOS app has and this does not, yet: the GPU paths, and with
 //! them the smooth-scroll slide, which only the cell path draws -- the CPU
-//! path this paints on jumps; the system caret's rate (this keeps 333 ms a
-//! phase until the desktop's settings are read); and the report every five
-//! seconds.
+//! path this paints on jumps; and the system caret's rate (this keeps
+//! 333 ms a phase until the desktop's settings are read).
+//!
+//! **The report every five seconds is the macOS app's** (`report.rs`), at
+//! `BAUD_LOG=info`, in the same shape: the frames committed to the
+//! compositor and what the last one cost, then the clipboard's, the page
+//! width's and the links' counts once each moves. It counts the loop's
+//! turns where macOS counts display-link ticks, which this has none of,
+//! and leaves out what only the GPU paths and the key-latency instrument
+//! measure. Its deadline bounds the one wait while the log shows it, so an
+//! idle window reports; at the default level it schedules nothing. Its
+//! clock and its counting are tested on every platform, and its wiring
+//! here is read off this file by a test.
 //!
 //! **The pointer is the macOS app's, through the same rules** (`seat.rs`):
 //! the wheel over the history, the alternate screen's cursor keys and a
@@ -334,6 +344,11 @@ struct Driver {
     /// The desktop's colour scheme as the portal last said it, for a
     /// reload's `theme = "auto"`.
     scheme: Option<crate::bus::Scheme>,
+    /// The five-second report (`report.rs`): the loop's turns, the frames
+    /// committed to the compositor, what the last frame cost and the links
+    /// activated, logged at `info` from the end of each turn, its deadline
+    /// a bound on the wait while the log shows it.
+    report: crate::report::Polled<Instant>,
 }
 
 /// **The config's watch** (`reload.rs`), and the config the window last
@@ -655,6 +670,7 @@ pub fn run() {
         reload,
         notice,
         scheme: None,
+        report: crate::report::Polled::new(Instant::now(), crate::report::Logged::now()),
     };
     d.timed.set_image_animation(cfg.image_animation);
     if let crate::access::MotionSource::Fixed(m) = motion_source {
@@ -734,8 +750,12 @@ pub fn run() {
             .as_ref()
             .and_then(|r| r.watch.deadline())
             .map(|t| t.saturating_duration_since(now));
+        // The five-second report, while the log shows it: the one bound an
+        // idle window's wait has (`report::Polled::wait`).
+        let report = d.report.wait(now);
         let timeout = [
             sync, repeat, flash, caret, decode, paste, delay, effects, frames, expiry, settle,
+            report,
         ]
         .into_iter()
         .flatten()
@@ -974,6 +994,14 @@ pub fn run() {
         if let Err(e) = d.conn.flush() {
             crate::warn!("wayland: {e}");
             break 'run;
+        }
+        // Every turn, not every frame, as the macOS report is taken every
+        // tick: an idle window draws no frame and is the one it has to be
+        // able to report on.
+        if let Some(lines) = d.report.turn(Instant::now(), &d.clips, &d.widths) {
+            for line in lines {
+                crate::info!("{line}");
+            }
         }
     }
     // **The session's end, however it came**: the log writes what the
@@ -1464,6 +1492,7 @@ impl Driver {
             Under::Osc8(link) => match link.uri(&self.term) {
                 Some(uri) => uri,
                 None => {
+                    self.report.links.refused.bump();
                     crate::warn!("link refused (gone)");
                     return;
                 }
@@ -1471,25 +1500,44 @@ impl Driver {
             Under::Bare(bare) => match bare.uri() {
                 Ok(uri) => uri,
                 Err(why) => {
+                    self.report.links.refused.bump();
                     crate::warn!("link refused ({why:?}): {}", shown(bare.text()));
                     return;
                 }
             },
         };
+        // Each activation counted for the five-second report: opened once
+        // `xdg-open` has started, revealed once the reveal is sent over the
+        // session bus, and refused otherwise, a failed start and a missing
+        // bus included, as the macOS app counts a link the system did not
+        // take.
         let said = shown(uri);
         match crate::link::admit(uri, Host(&self.host)) {
-            Err(why) => crate::warn!("link refused ({why:?}): {said}"),
+            Err(why) => {
+                self.report.links.refused.bump();
+                crate::warn!("link refused ({why:?}): {said}");
+            }
             Ok(t) => match t.action() {
                 Action::Open => match self.opener.start(crate::opener::command(t.as_str())) {
-                    Ok(()) => crate::info!("link opened ({:?}): {said}", t.scheme()),
-                    Err(e) => crate::warn!("link not opened: xdg-open: {e}: {said}"),
+                    Ok(()) => {
+                        self.report.links.opened.bump();
+                        crate::info!("link opened ({:?}): {said}", t.scheme());
+                    }
+                    Err(e) => {
+                        self.report.links.refused.bump();
+                        crate::warn!("link not opened: xdg-open: {e}: {said}");
+                    }
                 },
                 Action::Reveal => match self.bus.as_mut() {
                     Some(bus) => {
                         bus.reveal(&crate::opener::local(t.as_str()));
+                        self.report.links.revealed.bump();
                         crate::info!("link sent to the file manager: {said}");
                     }
-                    None => crate::warn!("link not revealed: no session bus: {said}"),
+                    None => {
+                        self.report.links.refused.bump();
+                        crate::warn!("link not revealed: no session bus: {said}");
+                    }
                 },
             },
         }
@@ -2712,8 +2760,10 @@ impl Driver {
         // while the wheel or the thumb holds it there: the rows the
         // selection, the link under a click and the thumb already read.
         let back = self.term.window_back();
-        self.renderer
+        let painted = self
+            .renderer
             .render_at(&mut self.term, back, &mut target, self.damage);
+        self.report.drawn(painted);
         // The order each row was drawn in, which the pointer maps back
         // through.
         self.seat.drawn(self.renderer.bidi());
@@ -2787,6 +2837,7 @@ impl Driver {
             == Presented::Yes
         {
             startup_first("first present", &FIRST_PRESENT);
+            self.report.presented();
             self.bell.commit(bell);
             self.caret.commit(caret);
             self.pending = Pending::Clean;

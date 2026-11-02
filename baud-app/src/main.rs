@@ -197,6 +197,10 @@ mod readline;
 // platforms, the settle, and the reading that decides a change.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod reload;
+// The five-second report both drivers log: its clock and its lines are
+// pure, so its tests run on every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod report;
 // Shell integration: the prompt marks baud gives the shells it starts.
 mod shell;
 // What a config read again changes in the running window, and the notice
