@@ -93,7 +93,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **A window title with the folder and the running program** — When a program sets no title, the window shows the current folder and what is running in it; on a Mac the title bar does not draw it yet. *In progress.*
 - [ ] **A slide when full-screen programs open and close** — The screen slides between your shell and a full-screen program, as an option beside today's fade.
 - [ ] **Cmd-N opens a new window** — Open another window, including after the last one closed.
-- [x] **A launch splash** — baud's colour logo at launch, coming out of a burst of plasma and swept back out, each from left to right, with a setting to turn it off. On a Mac with Reduce Motion on, it shows whole and fades instead. (2026-10-24)
+- [x] **A launch splash** — baud's colour logo at launch, coming out of a burst of plasma and swept back out, each from left to right, with a setting to turn it off. With reduced motion on it shows whole and fades instead, on Linux once the desktop has reported the setting. (2026-10-24)
 - [x] **A prompt pinned to the bottom** — An optional mode that keeps the shell prompt at the bottom of the window, for a shell that marks its prompts. (2026-10-24)
 - [x] **Activity lights in the title bar** — Small modem-style lights for bytes coming in and going out, with a setting to turn them off. On macOS; the Linux window has no title bar. (2026-10-24)
 - [x] **Blinking text follows Dim Flashing Lights** — With macOS's Dim Flashing Lights on, blinking text keeps its rates but dims in its off phase instead of vanishing, and switching the setting shows at once. (2026-10-22)
@@ -138,7 +138,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 - [ ] **Check Linux on a real screen** — The Linux version has run only headless; next is looking at what it draws on a real display.
 - [ ] **GPU drawing on Linux** — Draw the Linux version on the GPU with Vulkan, as the macOS app draws with Metal.
-- [x] **Cursor trails, blinking text, fades and the scrollbar on Linux** — Blinking text, fades, the scrollbar and every cursor trail -- the fire, the plasma and the rest -- on Linux, with the same pixels as on a Mac. (2026-10-23)
+- [x] **Cursor trails, blinking text, fades and the scrollbar on Linux** — Blinking text, fades, the scrollbar and every cursor trail -- the fire, the plasma and the rest -- on Linux, the trails with the pixels a Mac's CPU path draws. (2026-10-23)
 - [x] **Saved settings show at once** — Save the settings file, or a theme or font file it names, and the open window follows a moment later: colours, fonts, the cursor, padding and the rest. Built for the Mac; the Linux driver has not been run with it. A save baud cannot read keeps the settings you had and says what was wrong on a row at the bottom of the window. config_reload = "off" turns it off. (2026-10-22)
 - [x] **Clipboard and middle-click paste on Linux** — Copy and paste through the desktop's clipboard, the primary selection and middle-click paste. (2026-10-21)
 - [x] **Compose key, dead keys and input methods on Linux** — Typing accented letters with the Compose key and dead keys, and composing Chinese, Japanese or Korean text through the desktop's input method. (2026-10-21)

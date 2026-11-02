@@ -26,7 +26,17 @@ A blinking cursor shows for 333 ms and hides for 333 by default, and
 (the default), a fade out and back in over 30% of the hidden phase each side,
 the fire -- the cursor burning down into embers and relighting, in the fire
 trail's look -- the ufo -- a saucer's beam lifting the cursor away and
-setting it back down, in the ufo trail's -- or a hard switch. Reduce Motion always means the hard switch.
+setting it back down, in the ufo trail's -- or a hard switch. Reduce Motion,
+or the Linux desktop's reduced-motion setting once the desktop has reported
+it, always means the hard switch.
+
+Each animation looks the same on every path: the GPU, and the CPU path --
+`BAUD_GPU=0`, a Mac with no Metal device, or Linux -- which the pixel oracle
+holds to the GPU's pixel for pixel on every animation that draws: the plasma
+glow, the fade, the fire and the ufo. The hard switch draws nothing while the
+cursor is hidden. The plasma glow and the fire are worked out with the
+system's own math library, though, so unlike the trails they are not held to
+the same bits on macOS and on Linux.
 
 Each still below is the frame of its clip with the most trail on screen, on the
 fifth move: the diagonal from the top-left `+` to the bottom-right one, where
@@ -52,7 +62,8 @@ It looks the same everywhere: on the GPU, on the CPU path -- `BAUD_GPU=0`, a
 Mac with no Metal device, or Linux -- and on every OS. The GPU's shader and
 the CPU path both follow one Rust model of the flame; the pixel oracle holds
 both GPU paths to it within one step of 255 and the CPU path to it exactly,
-and its math gives the same bits on macOS and on Linux. Every effect below is
+and its math gives the same bits on macOS and on Linux. Every effect below
+-- the plasma, the lightning, the ice, the ufo, the orb and the liquid -- is
 drawn and held the same way.
 
 ## plasma, the default
@@ -258,9 +269,16 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   `[cursor] trail_scroll = "stay"` keeps the trail where it was drawn.
 - An idle terminal pays nothing for any of them. Only a moved cursor starts a
   trail, and one that has ended asks for no more frames.
-- Every trail is drawn on Linux too, with the same pixels as on a Mac.
+- Every trail is drawn on every path: the GPU, and the CPU path --
+  `BAUD_GPU=0`, a Mac with no Metal device, or Linux. The quad, the sweep and
+  the ghost are the same pixels on both. An effect, the fire to the liquid, is
+  one Rust model that the CPU path draws exactly and the GPU follows to within
+  one step of 255, so a GPU frame and a CPU frame of it can differ by that
+  step on some pixels. The trails' math gives the same bits on macOS and on
+  Linux, so Linux draws each trail with the pixels a Mac's CPU path draws.
 - Under macOS's Reduce Motion (System Settings, Accessibility, Display), or
-  the Linux desktop's reduced-motion setting, the default trail is off. A
+  the Linux desktop's reduced-motion setting once the desktop has reported
+  it, the default trail is off. A
   trail named in the config is kept -- `trail = "plasma"` included -- and
   `trail = true` means the default, so it goes off too. A named trail fades
   on a hidden cursor as it does under full motion. Turning the setting on

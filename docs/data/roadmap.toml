@@ -74,7 +74,7 @@ area = "platforms"
 status = "done"
 date = "2026-10-23"
 title = "Cursor trails, blinking text, fades and the scrollbar on Linux"
-summary = "Blinking text, fades, the scrollbar and every cursor trail -- the fire, the plasma and the rest -- on Linux, with the same pixels as on a Mac."
+summary = "Blinking text, fades, the scrollbar and every cursor trail -- the fire, the plasma and the rest -- on Linux, the trails with the pixels a Mac's CPU path draws."
 
 [[item]]
 id = "F2-06"
@@ -246,7 +246,7 @@ area = "window"
 status = "done"
 date = "2026-10-24"
 title = "A launch splash"
-summary = "baud's colour logo at launch, coming out of a burst of plasma and swept back out, each from left to right, with a setting to turn it off. On a Mac with Reduce Motion on, it shows whole and fades instead."
+summary = "baud's colour logo at launch, coming out of a burst of plasma and swept back out, each from left to right, with a setting to turn it off. With reduced motion on it shows whole and fades instead, on Linux once the desktop has reported the setting."
 
 [[item]]
 id = "F1-20"

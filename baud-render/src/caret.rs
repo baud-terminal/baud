@@ -17,8 +17,8 @@
 //!   alone**: `crate::plasma`'s `TUBE`, `SHEATH` and `DECAY`, in the
 //!   cursor's colour, as nested solids from the cell's edge in. Solids
 //!   because every path draws a solid the same way -- the CPU, the instance
-//!   arm and the cell arm's records -- where the trail's own effect
-//!   pipeline is the GPU's alone.
+//!   arm and the cell arm's records -- where a trail's effect is drawn by
+//!   its shader on the GPU and by its own per-pixel model on the CPU.
 //! * **The fire burns the cursor down into embers and relights it**
 //!   ([`Play::Fire`]): the fire trail's language (`crate::fire`) -- a flame
 //!   in the cursor's colour, heat as opacity, embers that rise, flutter and

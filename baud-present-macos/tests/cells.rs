@@ -2259,9 +2259,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         // **Part way through a fade, and the plasma glow.** A block at half
         // opacity is each colour half way to its swap -- `mix_level` in the
         // shader, `Argb::mix` on the instance arm -- and a bar or underline
-        // is its shape at half alpha; the glow is solids over the cell. The
-        // arms must agree to the bit, and each frame must be neither phase,
-        // or a fade or glow lost on both arms passes here.
+        // is its shape at half alpha; the glow, the fire and the ufo are
+        // solids over the cell. The arms must agree to the bit, the CPU arm,
+        // which the Linux driver draws with, included, and each frame must be
+        // neither phase, or a fade or glow lost on every arm passes here.
         for (p, what) in blink_phases() {
             arms.renderer.set_cursor_blink(p);
             let (a, b) = arms.draw(&mut t);
@@ -2269,6 +2270,13 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
                 differing(&a, &b),
                 0,
                 "the arms disagree on a {name} cursor {what}"
+            );
+            let cpu = cpu_frame(&mut arms, &mut t);
+            let d = channel_diff(&cpu, &a, |_| true);
+            assert_eq!(
+                d.0, 0,
+                "the CPU arm differs on a {name} cursor {what}, by up to {}",
+                d.1
             );
             assert_ne!(
                 differing(&a, &on_a),
@@ -2325,6 +2333,13 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
                 differing(&a, &b),
                 0,
                 "the arms disagree on a {name} cursor {what} over a record"
+            );
+            let cpu = cpu_frame(&mut arms, &mut t);
+            let d = channel_diff(&cpu, &a, |_| true);
+            assert_eq!(
+                d.0, 0,
+                "the CPU arm differs on a {name} cursor {what} over a record, by up to {}",
+                d.1
             );
             assert_ne!(differing(&a, &on_a), 0, "{name} {what}: the on phase");
             assert_ne!(differing(&a, &off_a), 0, "{name} {what}: the off phase");
@@ -7702,7 +7717,9 @@ fn channel_diff(a: &[u32], b: &[u32], keep: impl Fn(usize) -> bool) -> (usize, u
 /// the default and in set colours, a block cursor, and a 40x30 image of
 /// partly transparent pixels over the text; then over the glass the same
 /// image over text on a set background, dimmed as the app's default
-/// `AppBg::Dimmed` dims it; and over each, three translucent cursors.
+/// `AppBg::Dimmed` dims it; and over each, translucent cursors: a bar and
+/// an underline half faded, a block near the end of a fade, the plasma's
+/// glow, and the fire's and the ufo's solids at three points each.
 /// Source-over is W3C Compositing and Blending Level 1's 5.1,
 /// `co = Cs as + Cb ab (1 - as)` premultiplied,
 /// `ao = as + ab (1 - as)` (`[[source: w3c-compositing-1]]`), which the GPU
@@ -7810,17 +7827,27 @@ fn cpu_page_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             rest.0, rest.1
         );
         // A cursor drawn as a translucent solid over the page: a blinking
-        // bar and underline half way through a fade, and the plasma's glow
-        // (a steady style neither fades nor glows).
+        // bar and underline half way through a fade, a block near the end
+        // of one, the plasma's glow, and the fire and the ufo part way
+        // through (a steady style neither fades nor glows).
         let phase = |opacity: u8, glow: u8| CursorPhase {
             opacity: Chan::from_u8(opacity),
             glow: Chan::from_u8(glow),
             ..CursorPhase::HIDDEN
         };
+        let fire = |at: u8| CursorPhase::fire(Chan::from_u8(at));
+        let ufo = |at: u8| CursorPhase::ufo(Chan::from_u8(at));
         for (shape, p, what) in [
             (b"\x1b[5 q", phase(128, 0), "a bar half faded"),
             (b"\x1b[3 q", phase(128, 0), "an underline half faded"),
+            (b"\x1b[1 q", phase(40, 0), "a block near the end of a fade"),
             (b"\x1b[1 q", phase(0, 200), "a block's glow"),
+            (b"\x1b[1 q", fire(70), "a block burning down"),
+            (b"\x1b[1 q", fire(135), "a block in embers"),
+            (b"\x1b[1 q", fire(205), "a block relighting"),
+            (b"\x1b[1 q", ufo(70), "a block lifting"),
+            (b"\x1b[1 q", ufo(128), "a block held up"),
+            (b"\x1b[1 q", ufo(190), "a block setting down"),
         ] {
             feed(t, shape);
             arms.renderer.set_cursor_blink(p);

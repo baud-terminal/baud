@@ -260,10 +260,15 @@ floor = 1.2
 # in over the last 30%, gone in between. "fire" burns the cursor down into
 # embers and relights it from the bottom, in the fire trail's look. "ufo" has
 # a little saucer's beam lift the cursor away and set it back down, in the ufo
-# trail's. "none" switches it hard. Each fits inside the hidden phase at any interval. Under
-# macOS's Reduce Motion it is always "none". An animation draws a frame a
-# display tick while it moves: the plasma, the fire and the ufo about 41 a
-# 666 ms cycle at 120 Hz, the fade about 25, "none" two.
+# trail's. "none" switches it hard. Each fits inside the hidden phase at any
+# interval. Under macOS's Reduce Motion, or the Linux desktop's
+# reduced-motion setting once the desktop has reported it, it is always
+# "none". An animation draws a frame a display tick while it moves: the
+# plasma, the fire and the ufo about 41 a 666 ms cycle at 120 Hz, the fade
+# about 25, "none" two. The GPU and the CPU path, which Linux draws with,
+# draw each animation the same, pixel for pixel; "none" draws nothing while
+# the cursor is hidden. The plasma and the fire use the system's own math,
+# so they are not held to the same bits on macOS and on Linux.
 #
 # `trail`: what a cursor move leaves behind. "plasma", the default, is a faint
 # tube in the cursor's colour over kitty's trail as it collapses onto the
@@ -290,10 +295,14 @@ floor = 1.2
 # nothing at the tail. "ghost" is a one-cell box sweeping from the cell the
 # cursor left to the cell it reached. "off" is none; true and false still mean
 # the default and "off". An idle terminal pays nothing for any of them,
-# because only a cursor that moved leaves one. docs/cursor.md shows each, and
-# docs/cursor.html plays them. Under macOS's Reduce Motion the default is off;
-# a trail named here is kept, so the line below is commented out -- uncomment
-# it only to keep a trail whatever that setting says.
+# because only a cursor that moved leaves one. Every trail is drawn on the GPU
+# and on the CPU path, which Linux draws with: "quad", "sweep" and "ghost" as
+# the same pixels on both, and each of the others within one step of 255.
+# docs/cursor.md shows each, and docs/cursor.html plays them. Under macOS's
+# Reduce Motion, or the Linux desktop's reduced-motion setting once the
+# desktop has reported it, the default is off; a trail named here is kept, so
+# the line below is commented out -- uncomment it only to keep a trail
+# whatever that setting says.
 #
 # `trail_scroll`: when output scrolls the whole screen under a trail in
 # flight, "ride", the default, carries the trail up with the text for at most
@@ -536,9 +545,10 @@ tearing = "off"
 # quick sweep takes it out from left to right, gone half a second after it
 # starts. Your
 # keys go to the shell the whole time, and the shell's output draws under
-# the logo. On a Mac with Reduce Motion on, the logo shows whole and fades
-# once your shell has drawn something (or half a second after the window
-# opens, if it draws nothing).
+# the logo. With reduced motion on -- macOS's Reduce Motion, or the Linux
+# desktop's setting once the desktop has reported it -- the logo shows whole
+# and fades once your shell has drawn something (or half a second after the
+# window opens, if it draws nothing).
 # "on" by default; "off" turns it off. Saving "off" while it shows takes
 # it down at once.
 [launch]
