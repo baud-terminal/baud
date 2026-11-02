@@ -17,6 +17,7 @@
 // Each driver reads its own half.
 #![cfg_attr(not(test), allow(dead_code))]
 
+use crate::surface::Points;
 use crate::width::{Grid, Host};
 use baud_core::{FullScreen, Maximize, Rows, SizeAsk, WindowOps, WindowRequest};
 use baud_render::Tally;
@@ -456,9 +457,10 @@ pub fn mac_status_frame(w: MacWindow) -> (MacAction, MacWindow) {
 /// and the window a program's request in the same read is measured on.
 pub fn wayland_status_window(w: WaylandWindow, was: Rows) -> WaylandWindow {
     let rows = |r: Rows| u32::try_from(r.index()).unwrap_or(0);
-    let h = (w.size.1 + rows(w.status) * w.cell.1).saturating_sub(rows(was) * w.cell.1);
+    let now = w.scale.pixels(Points(w.size.1)).value();
+    let px = (now + rows(w.status) * w.cell.1).saturating_sub(rows(was) * w.cell.1);
     WaylandWindow {
-        size: (w.size.0, h),
+        size: (w.size.0, w.scale.points(baud_font::Px::of(px)).0),
         ..w
     }
 }
@@ -483,13 +485,16 @@ pub enum Shown {
 /// The Wayland window as the driver has it.
 #[derive(Clone, Copy, Debug)]
 pub struct WaylandWindow {
-    /// The surface, in pixels.
+    /// The surface, in its own points, as xdg-shell sizes it.
     pub size: (u32, u32),
-    /// `configure_bounds`, the monitor less its panels, once sent.
+    /// `configure_bounds`, the monitor less its panels, once sent, in
+    /// points too.
     pub bounds: Option<(u32, u32)>,
     pub shown: Shown,
-    /// One cell, in pixels.
+    /// One cell, in the frame's pixels.
     pub cell: (u32, u32),
+    /// The frame's pixels to the point (`surface.rs`).
+    pub scale: crate::surface::Scale120,
     pub grid: Grid,
     /// The status line's rows below the grid, as [`MacWindow::status`].
     pub status: Rows,
@@ -557,10 +562,13 @@ pub fn wayland(r: WindowRequest, w: &WaylandWindow) -> WaylandAction {
         (Shown::Floating, _, _) => Unbuilt(self::Unbuilt::NoBounds),
         _ => Unbuilt(self::Unbuilt::Bound),
     };
+    // A size in pixels is the frame's, and the surface is sized in its
+    // points, as the macOS driver divides by its backing scale.
+    let points = |px: u32| w.scale.points(baud_font::Px::of(px)).0;
     let px = |ask: SizeAsk, now: u32, bound: Option<u32>| match ask {
         SizeAsk::Keep => Some(now),
         SizeAsk::Screen => bound,
-        SizeAsk::Exactly(n) => bound.map(|_| u32::from(n)),
+        SizeAsk::Exactly(n) => bound.map(|_| points(u32::from(n))),
     };
     let max = crate::host::MAX_GRID;
     // The status line's rows beside the grid's: a resize in cells gives
@@ -568,9 +576,9 @@ pub fn wayland(r: WindowRequest, w: &WaylandWindow) -> WaylandAction {
     let line = u32::try_from(w.status.index()).unwrap_or(0);
     let cells =
         |ask: SizeAsk, now: u16, cell: u32, most: u16, bound: Option<u32>, extra: u32| match ask {
-            SizeAsk::Keep => Some((u32::from(now) + extra) * cell),
+            SizeAsk::Keep => Some(points((u32::from(now) + extra) * cell)),
             SizeAsk::Screen => bound,
-            SizeAsk::Exactly(n) => Some((u32::from(n.clamp(1, most)) + extra) * cell),
+            SizeAsk::Exactly(n) => Some(points((u32::from(n.clamp(1, most)) + extra) * cell)),
         };
     match r {
         WindowRequest::Iconify => Minimize,
@@ -667,6 +675,7 @@ pub fn wayland_abilities(bounds: BoundsEvent) -> baud_core::WindowAbilities {
         },
         shown: Shown::Floating,
         cell: (8, 16),
+        scale: crate::surface::Scale120::ONE,
         grid: Grid {
             cols: 100,
             rows: 37,
@@ -1125,6 +1134,7 @@ mod tests {
             bounds: Some((2560, 1400)),
             shown: Shown::Floating,
             cell: (16, 32),
+            scale: crate::surface::Scale120::ONE,
             grid: Grid { cols: 80, rows: 22 },
             status: Rows::ZERO,
             marks: baud_render::StatusMarks::Off,
@@ -1421,6 +1431,65 @@ mod tests {
         }
     }
 
+    /// **At a scale other than one a resize is asked in the surface's
+    /// points**: a size in cells or pixels is the frame's pixels, and the
+    /// surface takes the fewest points whose buffer holds them, as the
+    /// macOS driver divides by its backing scale. At 1.5, 80 x 24 cells of
+    /// 12 x 26 pixels are 960 x 624 pixels, 640 x 416 points; 800 x 600
+    /// pixels are 533 x 400 points, 533 times 1.5 being 799.5, rounded
+    /// away from zero to 800, where 532 would be 798; 23 rows, 598
+    /// pixels, are 399 points, as 398 would be 597; the status line's row
+    /// grows a 408-point window, 612 pixels, by 26 to 638, 425 points. At 2
+    /// the same cells of 16 x 34 are 640 x 408 points. Perturbation: drop
+    /// the division by the scale -- the cells ask for 960 x 624; round up
+    /// the plain quotient instead of the half less -- 800 pixels ask for
+    /// 534.
+    #[test]
+    fn a_wayland_resize_at_a_scale_is_in_points() {
+        use crate::surface::Scale120;
+        use SizeAsk::*;
+        let w = WaylandWindow {
+            size: (640, 408),
+            bounds: Some((1024, 768)),
+            cell: (12, 26),
+            scale: Scale120(180),
+            grid: Grid { cols: 80, rows: 23 },
+            ..wayland_window()
+        };
+        let cells = |rows, cols| WindowRequest::ResizeCells { rows, cols };
+        let px = |height, width| WindowRequest::ResizePixels { height, width };
+        assert_eq!(
+            wayland(cells(Exactly(24), Exactly(80)), &w),
+            WaylandAction::Resize(640, 416)
+        );
+        let at = |w: &WaylandWindow, p| w.scale.pixels(Points(p)).value();
+        assert_eq!(at(&w, 416), 624);
+        assert_eq!(
+            wayland(px(Exactly(600), Exactly(800)), &w),
+            WaylandAction::Resize(533, 400)
+        );
+        assert_eq!((at(&w, 533), at(&w, 532), at(&w, 400)), (800, 798, 600));
+        assert_eq!(
+            wayland(cells(Keep, Keep), &w),
+            WaylandAction::Resize(640, 399)
+        );
+        let lined = WaylandWindow {
+            status: Rows::of_count(1),
+            ..w
+        };
+        assert_eq!(wayland_status_window(lined, Rows::ZERO).size, (640, 425));
+        assert_eq!((at(&w, 425), at(&w, 398)), (638, 597));
+        let two = WaylandWindow {
+            cell: (16, 34),
+            scale: Scale120(240),
+            ..w
+        };
+        assert_eq!(
+            wayland(cells(Exactly(24), Exactly(80)), &two),
+            WaylandAction::Resize(640, 408)
+        );
+    }
+
     /// **A floating Wayland window grows by the line's row and gives it
     /// back**, and a request in the same read is measured on the grown
     /// window: thirty rows and the line.
@@ -1568,6 +1637,7 @@ mod tests {
                     bounds,
                     shown,
                     cell: (8, 16),
+                    scale: crate::surface::Scale120::ONE,
                     grid: Grid {
                         cols: 100,
                         rows: 37,
@@ -1612,6 +1682,7 @@ mod tests {
             bounds: None,
             shown: Shown::Floating,
             cell: (8, 16),
+            scale: crate::surface::Scale120::ONE,
             grid: Grid {
                 cols: 100,
                 rows: 37,

@@ -740,6 +740,15 @@ shipped = ["F1-07"]
 
 
 [[feature]]
+id = "sharp-linux"
+area = "text"
+name = "Sharp at every scale on Linux"
+does = "The window is drawn at the scale the desktop asks for, in-between scales such as 1.5 included, so text stays sharp; the font keeps its size in points, and a click lands on the cell under the pointer at any scale."
+status = "built"
+platform = "linux"
+tests = ["baud-present-wayland/tests/handshake.rs::a_fraction_draws_the_surface_times_the_scale_through_the_viewport", "baud-present-wayland/tests/handshake.rs::a_fraction_wins_over_the_integer_scale_in_either_order", "baud-app/src/seat.rs::a_point_at_a_fraction_is_the_cell_its_pixels_are_in"]
+
+[[feature]]
 id = "zoom-linux"
 area = "text"
 name = "Zoom on Linux"

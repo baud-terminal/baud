@@ -34906,7 +34906,7 @@ group  = "AX"
 
 [sources.foot-2705e36-wayland]
 key    = "foot-2705e36-wayland"
-title  = "foot 2705e36, wayland.c -- xdg_activation_v1 bound (1506-1512); a window marked urgent through an activation token and xdg_activation_v1.activate (2630-2658)"
+title  = "foot 2705e36, wayland.c -- xdg_activation_v1 bound (1506-1512); wp_viewporter and wp_fractional_scale_manager_v1 bound (1515-1531); preferred_scale read over 120 (2035-2050); a surface's viewport and fractional-scale object made only with both globals (2085-2092); a fraction drawn with the buffer scale at 1 and the viewport's destination the buffer over the scale, else set_buffer_scale (2495-2547); a window marked urgent through an activation token and xdg_activation_v1.activate (2630-2658)"
 author = "Daniel Eklöf and the foot contributors (MIT)"
 year   = 2026
 venue  = "codeberg.org/dnkl/foot @ 2705e36f0ecf3ef50c13b41165de852f134859d6"
@@ -34931,6 +34931,20 @@ bytes  = 30394
 status = "external"
 group  = "H"
 # Fetched 2026-10-21 (lane b140): practice for baud-present-wayland/src/damage.rs. Read, not copied.
+
+[sources.foot-2705e36-terminal]
+key    = "foot-2705e36-terminal"
+title  = "foot 2705e36, terminal.c -- term_fractional_scaling: a fraction only with both globals and a preferred_scale sent (2355-2360); term_update_scale: the fraction, else preferred_buffer_scale, else the output last entered, else the last scale or the first output's, else 1 (2369-2407)"
+author = "Daniel Eklöf and the foot contributors (MIT)"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot @ 2705e36f0ecf3ef50c13b41165de852f134859d6"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/terminal.c"
+file   = ""
+sha256 = "27b3dfbf4cf953884632b1b798c876922fa2f11aaac68213ef1a42d4fb419544"
+bytes  = 148115
+status = "external"
+group  = "H"
+# Fetched 2026-11-01: practice for baud-present-wayland/src/scale.rs, the order a window's scale is taken in. Read, not copied.
 
 # Fonts by family name (lane b141, 2026-10-21): how a family name is matched
 # and a family's styled faces picked, the font directories a scan reads, and
@@ -39569,6 +39583,45 @@ url    = "scripts/linux-pointer.sh, both arms at scale 2 and 1.5"
 file   = "be-observed/pointer-scale.txt"
 sha256 = "f0c6471d84c87735ef2317413f226ba13ab053c3524b131447f1fa1648a3c675"
 bytes  = 7240
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-scale-drawn]
+key    = "be-obs-pointer-scale-drawn"
+title  = "The Linux app drawn at the compositor's scale under a virtual pointer, sway 1.10.1 at 1, 2 and 1.5 and sway 1.7 at 2 and 1.5: the compositor, the checks at the scale, and the window's buffers, buffer scales, viewport destinations and the scales sent"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pointer.sh, both arms at every scale"
+file   = "be-observed/pointer-scale-drawn.txt"
+sha256 = "20c1de24f4ffed4bf32ec6205fa66a1b894741defd2dd75270ac1dc2b6268ca2"
+bytes  = 7299
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-scale-drawn-base]
+key    = "be-obs-pointer-scale-drawn-base"
+title  = "The same checks on the base binary, c6d97ceb, which draws the window at one: 13 fail"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pointer.sh on the base binary, both arms at every scale"
+file   = "be-observed/pointer-scale-drawn-base.txt"
+sha256 = "fcb76ca1bd7e117ad86d80115688aeb503c27da58f58af931cea1a7cef937276"
+bytes  = 8026
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pixels-scale]
+key    = "be-obs-pixels-scale"
+title  = "The Linux app's frames under weston 10.0.1's headless output at scale 1 and 2 against the pixels bench at the same scale, on this Mac and in the container"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pixels.sh, each fixture at scale 1 and three at 2"
+file   = "be-observed/pixels-scale.txt"
+sha256 = "75a59a00d3136095fddfe1c74a190475bbfa5bfb943f134a79585481368de441"
+bytes  = 3146
 status = "retrieved"
 group  = "BE"
 

@@ -20,8 +20,9 @@ What the app's surfaces are drawn at is kept too, as lines that begin
 "surface": the window's surface (the one given an xdg_surface) and the
 pointer's (the one set_cursor names), each buffer scale the app sets on
 them, the size of each buffer it attaches to the pointer's and of the
-window's when it changes, and the
-preferred_buffer_scale the compositor sends the window. The app is the one
+window's when it changes, the destination it sets on the window's
+viewport, and the preferred_buffer_scale and the fractional
+preferred_scale the compositor sends the window. The app is the one
 client here that makes surfaces: grim, wl-paste and the virtual devices
 make none.
 """
@@ -60,6 +61,7 @@ def main():
     pointers = set()
     serial = None
     window = cursor = drawn = None
+    viewport = fraction = None
     buffers = {}
     # Lines for a surface not yet named by set_cursor: the app attaches and
     # scales the pointer's surface before it sets it.
@@ -95,6 +97,16 @@ def main():
                     drawn = size
         elif iface == "wl_surface" and event and name == "preferred_buffer_scale" and oid == window:
             print("surface window preferred_buffer_scale", a[0])
+        elif iface == "wp_viewporter" and name == "get_viewport" and not event:
+            if re.search(r"wl_surface[@#](\d+)", args).group(1) == window:
+                viewport = re.search(r"wp_viewport[@#](\d+)", args).group(1)
+        elif iface == "wp_viewport" and name == "set_destination" and not event and oid == viewport:
+            print("surface window destination", f"{a[0]}x{a[1]}")
+        elif iface == "wp_fractional_scale_manager_v1" and name == "get_fractional_scale" and not event:
+            if re.search(r"wl_surface[@#](\d+)", args).group(1) == window:
+                fraction = re.search(r"wp_fractional_scale_v1[@#](\d+)", args).group(1)
+        elif iface == "wp_fractional_scale_v1" and event and name == "preferred_scale" and oid == fraction:
+            print("surface window fractional_scale", a[0])
         if iface == "wl_seat" and name == "get_pointer" and seat in (None, oid):
             seat = oid
             pointers.add(re.search(r"wl_pointer[@#](\d+)", args).group(1))

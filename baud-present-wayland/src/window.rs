@@ -36,6 +36,7 @@ use crate::keys::{self, Shortcut};
 use crate::pointer::{
     At, AxisCode, Button, CursorShape, EventCode, Framing, Gather, Piece, PointerEvent, Press,
 };
+use crate::scale::{self, BufferScale, Mapped, Told, Viewport};
 use crate::shm::{Pool, Px};
 use crate::timing::{ClockId, Presentation, Stamp, Unseen};
 use baud_domain::{
@@ -55,7 +56,12 @@ use std::time::{Duration, Instant};
 /// What the window reports to the app.
 #[derive(Debug, PartialEq)]
 pub enum Event {
-    /// The compositor sized the window; a frame of this size can be shown.
+    /// The compositor sized the window, or the scale it is drawn at
+    /// changed: the surface's size in its own points, and a frame of
+    /// [`Window::buffer_size`] pixels, at [`Window::scale`], can be shown.
+    /// One a dispatch: a later change replaces one not yet read, so a
+    /// scale that arrives as `preferred_buffer_scale` and then as a
+    /// fraction is laid out once, at the fraction.
     Configured {
         width: Px,
         height: Px,
@@ -327,8 +333,14 @@ struct Globals {
     activation: Option<ObjectId>,
     scaling: Scaling,
     /// Every `wl_output`, bound at version 2 for its `scale` event, which
-    /// the pointer's image is drawn at below `wl_compositor` version 6.
+    /// the window and the pointer's image are drawn at below
+    /// `wl_compositor` version 6.
     outputs: Vec<Output>,
+    /// The viewporter and fractional-scale-v1's manager, where the
+    /// compositor offers them: a fractional scale is drawn only with both
+    /// (`scale.rs`).
+    viewporter: Option<ObjectId>,
+    fractional: Option<ObjectId>,
 }
 
 /// The longest gap between two frame callbacks read as a frame's length:
@@ -373,12 +385,27 @@ pub struct Window {
     cursor_surface: Option<ObjectId>,
     cursor_images: Option<(Scale, [Pool; 2], [ObjectId; 3])>,
     /// `wl_surface.preferred_buffer_scale` on the window's surface, the
-    /// scale the pointer is drawn at; one until the compositor says.
+    /// integer scale the window and the pointer are drawn at from version
+    /// 6; one until the compositor says.
     preferred: Scale,
     /// The outputs the window's surface is on, from `wl_surface.enter` and
-    /// `leave`: below version 6, the pointer is drawn at the largest of
-    /// their scales.
+    /// `leave`: below version 6, the window and the pointer are drawn at
+    /// the largest of their scales.
     on: Vec<ObjectId>,
+    /// The surface's viewport and fractional-scale object, each made once
+    /// both globals and the surface exist -- a second of either for one
+    /// surface is a protocol error, `viewport_exists` and
+    /// `fractional_scale_exists` -- and the last `preferred_scale` it
+    /// carried, in 120ths; `None` until the compositor sends one.
+    viewport: Option<ObjectId>,
+    fractional_scale: Option<ObjectId>,
+    fraction: Option<BufferScale>,
+    /// The buffer scale and the viewport's destination the last commit
+    /// that attached a buffer carried, which the next changes only with a
+    /// buffer of the size they make (`present`).
+    told: Told,
+    /// The surface size and scale the last [`Event::Configured`] said.
+    announced: Option<((Px, Px), BufferScale)>,
     gather: Gather,
     /// The size the last toplevel configure asked for, or our default.
     pending: (Px, Px),
@@ -494,6 +521,11 @@ impl Window {
             cursor_images: None,
             preferred: Scale(1),
             on: Vec::new(),
+            viewport: None,
+            fractional_scale: None,
+            fraction: None,
+            told: Told::FRESH,
+            announced: None,
             gather: Gather::new(Framing::Framed),
             pending: (Px(800), Px(600)),
             size: None,
@@ -539,8 +571,52 @@ impl Window {
         self.events.pop_front()
     }
 
+    /// The surface's size in its own points, as the compositor configured
+    /// it or [`Window::resize`] chose it.
     pub fn size(&self) -> Option<(Px, Px)> {
         self.size
+    }
+
+    /// **The scale a frame is drawn at** (`scale.rs`): the fraction the
+    /// compositor prefers where it and a viewport are offered, else the
+    /// integer scale the surface's version learns, one until it is told.
+    pub fn scale(&self) -> BufferScale {
+        self.mapping().0
+    }
+
+    /// The frame a present must hand over, in pixels: the surface's size
+    /// at [`Window::scale`], rounded halfway away from zero.
+    pub fn buffer_size(&self) -> Option<(Px, Px)> {
+        let s = self.scale();
+        self.size.map(|(w, h)| (s.buffer(w), s.buffer(h)))
+    }
+
+    /// The scale in force and how a commit tells it.
+    fn mapping(&self) -> (BufferScale, Mapped) {
+        let viewport = match self.viewport {
+            Some(_) => Viewport::Made,
+            None => Viewport::None,
+        };
+        scale::chosen(self.fraction, viewport, self.whole_scale())
+    }
+
+    /// **The size or the scale changed**: an [`Event::Configured`], unless
+    /// both are what the last one said, in place of one not yet read.
+    fn announce(&mut self) {
+        let Some(size) = self.size else {
+            return;
+        };
+        let now = (size, self.scale());
+        if self.announced == Some(now) {
+            return;
+        }
+        self.announced = Some(now);
+        self.events
+            .retain(|e| !matches!(e, Event::Configured { .. }));
+        self.events.push_back(Event::Configured {
+            width: size.0,
+            height: size.1,
+        });
     }
 
     pub fn in_flight(&self) -> bool {
@@ -618,10 +694,12 @@ impl Window {
         }
     }
 
-    /// **The scale the pointer is drawn at**: the compositor's preferred
-    /// scale from version 6, the largest scale of the outputs the window is
-    /// on before it, and one where surfaces take no buffer scale.
-    fn pointer_scale(&self) -> Scale {
+    /// **The integer scale the surface's version learns**, which the
+    /// pointer is drawn at, and the window where no fraction is in force:
+    /// the compositor's preferred scale from version 6, the largest scale
+    /// of the outputs the window is on before it, and one where surfaces
+    /// take no buffer scale.
+    fn whole_scale(&self) -> Scale {
         match self.globals.scaling {
             Scaling::Preferred => self.preferred,
             Scaling::Outputs => self
@@ -651,7 +729,7 @@ impl Window {
         ) else {
             return Shaped::Unavailable;
         };
-        let scale = self.pointer_scale();
+        let scale = self.whole_scale();
         let surface = match self.cursor_surface {
             Some(c) => c,
             None => {
@@ -907,7 +985,8 @@ impl Window {
         }
     }
 
-    /// **A size the client chooses**, which a floating toplevel may: the
+    /// **A size the client chooses**, in the surface's points, which a
+    /// floating toplevel may: the
     /// configure's size is then "a hint", and zero means "the client should
     /// decide its own window dimension". Maximised, the size "must be
     /// obeyed", and full screen it "is a maximum", so neither takes one.
@@ -919,13 +998,8 @@ impl Window {
         }
         let size = (Px(width.0.max(1)), Px(height.0.max(1)));
         self.pending = size;
-        if self.size != Some(size) {
-            self.size = Some(size);
-            self.events.push_back(Event::Configured {
-                width: size.0,
-                height: size.1,
-            });
-        }
+        self.size = Some(size);
+        self.announce();
         Resize::Taken
     }
 
@@ -1098,16 +1172,40 @@ impl Window {
         self.toplevel = Some(top);
     }
 
-    /// **The surface's pacing objects**, each once both its global and the
-    /// surface exist, whichever came second: a second `get_fifo`,
-    /// `get_timer` or `get_tearing_control` for one surface is a protocol
-    /// error. The tearing control is made only while tearing is on, and
-    /// asks for the `async` hint, which "is double-buffered" and so goes
-    /// with the next commit.
+    /// **The surface's pacing and scale objects**, each once both its
+    /// global and the surface exist, whichever came second: a second
+    /// `get_fifo`, `get_timer`, `get_tearing_control`, `get_viewport` or
+    /// `get_fractional_scale` for one surface is a protocol error. The
+    /// tearing control is made only while tearing is on, and asks for the
+    /// `async` hint, which "is double-buffered" and so goes with the next
+    /// commit. The viewport and the fractional-scale object are made
+    /// together, once both globals are bound, as foot makes them
+    /// (`[[source: foot-2705e36-wayland]]`, `wayl_win_init`): the fraction
+    /// "the compositor suggests" is drawn only through the viewport.
     fn surface_objects(&mut self, s: &mut Sender<'_>) {
         let Some(surface) = self.surface else {
             return;
         };
+        if let (Some(v), Some(f), None) = (
+            self.globals.viewporter,
+            self.globals.fractional,
+            self.viewport,
+        ) {
+            let id = s.new_id(Interface::named("wp_viewport").expect("pinned"));
+            let _ = s.request(
+                v,
+                Opcode(protocol::wp_viewporter::request::GET_VIEWPORT),
+                &[Arg::NewId(id), Arg::Object(surface)],
+            );
+            self.viewport = Some(id);
+            let id = s.new_id(Interface::named("wp_fractional_scale_v1").expect("pinned"));
+            let _ = s.request(
+                f,
+                Opcode(protocol::wp_fractional_scale_manager_v1::request::GET_FRACTIONAL_SCALE),
+                &[Arg::NewId(id), Arg::Object(surface)],
+            );
+            self.fractional_scale = Some(id);
+        }
         if let (Some(m), None) = (self.globals.fifo, self.fifo) {
             let id = s.new_id(Interface::named("wp_fifo_v1").expect("pinned"));
             let _ = s.request(
@@ -1262,7 +1360,7 @@ impl Window {
     }
 
     /// Show `frame` -- `stride` words a row, `0xAARRGGBB` straight alpha,
-    /// at least the window's size -- premultiplied into a free buffer, the
+    /// at least [`Window::buffer_size`] -- premultiplied into a free buffer, the
     /// encoding `ARGB8888` names, by the function the macOS presenter
     /// uses, with a frame callback for the next. `changed` is what it
     /// changed of the frame before: only those rows, and those the buffer
@@ -1279,10 +1377,15 @@ impl Window {
         changed: Changed<'_>,
     ) -> Presented {
         let drawn_for = self.drawn_for.take();
-        let (Some(surface), Some(shm), Some((w, h))) = (self.surface, self.globals.shm, self.size)
+        let (Some(surface), Some(shm), Some(size)) = (self.surface, self.globals.shm, self.size)
         else {
             return Presented::No;
         };
+        // The buffer is the surface at the scale in force, and what the
+        // commit tells of the scale goes with it.
+        let (scale, mapped) = self.mapping();
+        let (w, h) = (scale.buffer(size.0), scale.buffer(size.1));
+        let told = Told::of(mapped, size);
         let (wu, hu) = (
             usize::try_from(w.0).unwrap_or(0),
             usize::try_from(h.0).unwrap_or(0),
@@ -1294,6 +1397,11 @@ impl Window {
             rows = RowSet::all(h);
         }
         rows.add_changed(changed);
+        // A buffer scale or a destination changes only with a buffer of
+        // the size it makes (`tell`): the whole frame goes with it.
+        if told != self.told {
+            rows = RowSet::all(h);
+        }
         if self.callback.is_some() || stride < wu || frame.len() < stride * hu {
             self.owed = rows;
             return Presented::No;
@@ -1370,6 +1478,7 @@ impl Window {
             Opcode(protocol::wl_surface::request::ATTACH),
             &[Arg::Object(buffer), Arg::Int(0), Arg::Int(0)],
         );
+        self.tell(s, surface, told);
         let int = |v: u32| Arg::Int(i32::try_from(v).unwrap_or(i32::MAX));
         for strip in rows.runs() {
             let _ = s.request(
@@ -1393,6 +1502,41 @@ impl Window {
         rows.clear();
         self.owed = rows;
         Presented::Yes
+    }
+
+    /// **The scale a commit carries, with the buffer whose size it makes**:
+    /// the buffer scale and the viewport's destination, each sent only
+    /// when it changes, and only in a commit that attaches a buffer --
+    /// "at commit time the supplied buffer size must be an integer
+    /// multiple of the buffer_scale. If that's not the case, an
+    /// invalid_size error is sent" (`attach`, `[[source: wayland]]`). Both
+    /// are double-buffered, so they apply with the buffer. A fraction
+    /// keeps the buffer scale at one and sets the destination to the
+    /// surface size; an integer scale unsets a destination set before,
+    /// "If width is -1 and height is -1, the destination size is unset"
+    /// (`[[source: wp-viewporter]]`).
+    fn tell(&mut self, s: &mut Sender<'_>, surface: ObjectId, told: Told) {
+        let int = |v: u32| i32::try_from(v).unwrap_or(i32::MAX);
+        if told.buffer_scale != self.told.buffer_scale {
+            let _ = s.request(
+                surface,
+                Opcode(protocol::wl_surface::request::SET_BUFFER_SCALE),
+                &[Arg::Int(int(told.buffer_scale.0))],
+            );
+        }
+        if told.destination != self.told.destination {
+            if let Some(viewport) = self.viewport {
+                let (w, h) = told
+                    .destination
+                    .map_or((-1, -1), |(w, h)| (int(w.0), int(h.0)));
+                let _ = s.request(
+                    viewport,
+                    Opcode(protocol::wp_viewport::request::SET_DESTINATION),
+                    &[Arg::Int(w), Arg::Int(h)],
+                );
+            }
+        }
+        self.told = told;
     }
 
     /// **When a frame drawn now will first be seen**: the next refresh
@@ -1719,6 +1863,17 @@ impl Handler for Window {
                             });
                         }
                     }
+                    // Version 1 of each, the only one: a fractional scale
+                    // is drawn through the viewport, both made for the
+                    // surface once both are bound (`scale.rs`).
+                    "wp_viewporter" => {
+                        self.globals.viewporter = Window::bind(s, self.registry, name, iface, 1);
+                        self.surface_objects(s);
+                    }
+                    "wp_fractional_scale_manager_v1" => {
+                        self.globals.fractional = Window::bind(s, self.registry, name, iface, 1);
+                        self.surface_objects(s);
+                    }
                     // Version 1: its 34 shapes are every one `pointer::shape`
                     // names.
                     "wp_cursor_shape_manager_v1" => {
@@ -1731,20 +1886,32 @@ impl Handler for Window {
             }
             // "This event indicates the preferred buffer scale for this
             // surface", from version 6, and "Before receiving this event the
-            // preferred buffer scale for this surface is 1". The window
-            // draws at one; the pointer it draws itself, at this.
+            // preferred buffer scale for this surface is 1". The window draws
+            // at it while no fraction is in force, and the pointer it draws
+            // itself always does.
             ("wl_surface", "preferred_buffer_scale", [Read::Int(f)])
                 if Some(ev.object) == self.surface =>
             {
                 self.preferred = Scale(u32::try_from(*f).unwrap_or(1).max(1));
+                self.announce();
+            }
+            // "The sent scale is the numerator of a fraction with a
+            // denominator of 120" (`[[source: wp-fractional-scale-v1]]`).
+            ("wp_fractional_scale_v1", "preferred_scale", [Read::Uint(f)])
+                if Some(ev.object) == self.fractional_scale && *f > 0 =>
+            {
+                self.fraction = Some(BufferScale(*f));
+                self.announce();
             }
             ("wl_surface", "enter", [Read::Object(o)])
                 if Some(ev.object) == self.surface && !self.on.contains(o) =>
             {
                 self.on.push(*o);
+                self.announce();
             }
             ("wl_surface", "leave", [Read::Object(o)]) if Some(ev.object) == self.surface => {
                 self.on.retain(|on| on != o);
+                self.announce();
             }
             // "The compositor will emit a non-zero, positive value for
             // scale."
@@ -1752,6 +1919,7 @@ impl Handler for Window {
                 if let Some(o) = self.globals.outputs.iter_mut().find(|o| o.id == ev.object) {
                     o.scale = Scale(u32::try_from(*f).unwrap_or(1).max(1));
                 }
+                self.announce();
             }
             // An output unplugged: its scale counts no more.
             ("wl_registry", "global_remove", [Read::Uint(name)]) => {
@@ -1760,6 +1928,7 @@ impl Handler for Window {
                     let gone = self.globals.outputs.remove(at);
                     self.on.retain(|on| *on != gone.id);
                 }
+                self.announce();
             }
             ("xdg_wm_base", "ping", [Read::Uint(serial)]) => {
                 let _ = s.request(
@@ -1794,13 +1963,8 @@ impl Handler for Window {
                     &[Arg::Uint(*serial)],
                 );
                 self.shown = self.pending_shown;
-                if self.size != Some(self.pending) {
-                    self.size = Some(self.pending);
-                    self.events.push_back(Event::Configured {
-                        width: self.pending.0,
-                        height: self.pending.1,
-                    });
-                }
+                self.size = Some(self.pending);
+                self.announce();
             }
             ("wl_seat", "capabilities", [Read::Uint(caps)]) => {
                 let keyboard = caps & protocol::wl_seat::capability::KEYBOARD != 0;

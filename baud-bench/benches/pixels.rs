@@ -11,13 +11,17 @@
 //! `run`, `config.rs`'s `Config::defaults`), where no system face is
 //! installed: the embedded Regular, icon face and STIX Two Math in the
 //! chain, the embedded Bold, Italic and Bold Italic as the styled faces and
-//! the Bold as the badge's; 13 px at a backing scale of one;
+//! the Bold as the badge's; 13 points, 13 px at a backing scale of one;
 //! `Theme::dark()` at the dark glass dim, 0.70; `Blend::Native`; the
 //! default widths and image budget. A face the app finds on the system
 //! and this does not read is a different stack, which the comparison
 //! reports as a different frame, not as a renderer's difference.
 //!
 //! `PIXELS_WS=<cols>x<rows>` sets the screen, 80x24 by default.
+//! `PIXELS_SCALE=<pixels a point>` draws at that backing scale, as the
+//! Linux driver draws at the scale its compositor prefers and the macOS
+//! app at its backing scale: the 13 points of the font at that many pixels
+//! each, and the core told the scale; 1 by default.
 //! `PIXELS_BACKDROP=standard` reads the contrast floor against the standard
 //! material's dark greys, as the macOS app's dark theme does (`app.rs`'s
 //! `theme_for`), where the default is the Linux driver's black to white.
@@ -76,6 +80,9 @@ fn main() {
             ws_row: 24,
             ws_col: 80,
         });
+    let scale: f32 = std::env::var("PIXELS_SCALE")
+        .ok()
+        .map_or(1.0, |s| s.parse().expect("a scale"));
     let theme = Theme {
         bg_alpha: std::env::var("PIXELS_ALPHA")
             .ok()
@@ -89,7 +96,7 @@ fn main() {
     };
     let mut r = Renderer::new(
         Stack::with_roles(&faces, &roles).expect("the stack"),
-        PxSize::of(13.0).expect("size"),
+        PxSize::of(13.0 * scale).expect("size"),
         theme,
         Blend::Native,
         Cols::of_index(usize::from(ws.ws_col)),
@@ -103,7 +110,7 @@ fn main() {
         baud_domain::ImagePx::of(u16::try_from(m.cell_w.value()).unwrap_or(u16::MAX)),
         baud_domain::ImagePx::of(u16::try_from(m.cell_h.value()).unwrap_or(u16::MAX)),
     );
-    t.set_backing_scale(baud_domain::BackingScale::of(1.0));
+    t.set_backing_scale(baud_domain::BackingScale::of(f64::from(scale)));
     t.set_vs16_width(Vs16Width::Two);
     t.set_ambiguous_width(AmbiguousWidth::Narrow);
     t.write_at(BytePos::ZERO, &data);

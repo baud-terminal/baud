@@ -41,6 +41,7 @@ const G: Geometry = Geometry {
     pad: (0, 0),
     cell: (10.0, 10.0),
     grid: (80, 24),
+    scale: 1.0,
 };
 
 /// How long a step may take before the test fails: long, because it is a
@@ -992,7 +993,7 @@ impl Thumbed {
             G,
             |b| out.extend_from_slice(b),
             |term, beside| {
-                let Some(e) = crate::bar::event_beside(beside, 0.0) else {
+                let Some(e) = crate::bar::event_beside(beside, 0.0, 1.0) else {
                     return crate::bar::Took::No;
                 };
                 took = bar.input(term, e, f, now).0;

@@ -12,9 +12,15 @@
 //!
 //! Linux second, through `baud-present-wayland`: one loop that waits on the
 //! compositor's socket and the pty together, reads the pty where it is
-//! polled, and presents on the CPU into `wl_shm` -- `linux.rs`, which is
-//! type-checked against the Linux target from this Mac and has run only on
-//! weston's headless backend, which displays nothing and was sent no input.
+//! polled, and presents on the CPU into `wl_shm` at the scale the
+//! compositor prefers -- `linux.rs`, which is type-checked against the
+//! Linux target from this Mac and has run only on headless compositors:
+//! under weston its frames equal the CPU renderer's pixel for pixel, and
+//! under sway a virtual keyboard types into it, a virtual pointer selects,
+//! scrolls and clicks in it, a click at the grid's corners lands on its
+//! cell at scales 1, 1.5 and 2, and its clipboard trades text with the
+//! compositor's (`scripts/linux-pixels.sh`, `scripts/linux-pointer.sh`).
+//! No screen has shown it.
 //!
 //! `unsafe` lives in `sys.rs`'s declarations; in `pty.rs`, `reload.rs`,
 //! `fg.rs`, `hostlog.rs` and `discover.rs`; in `kitty_files.rs`'s
@@ -228,6 +234,11 @@ mod trail;
 // every platform, and both drivers read it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod title;
+// A Wayland surface's points and the frame's pixels: pure, so its tests run
+// on every platform, and the window operations size a Wayland window
+// through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod surface;
 // What a program's page-width request does to the window: pure, so its tests
 // run on every platform, and both drivers read it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

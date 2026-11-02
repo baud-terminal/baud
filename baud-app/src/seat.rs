@@ -66,7 +66,7 @@ impl Clicks {
 }
 
 /// What the compositor said the pointer did, in the driver's terms. Points
-/// are the surface's own, which with no buffer scale are its pixels.
+/// are the surface's own, [`Geometry::scale`] of the frame's pixels each.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Input {
     Entered(f64, f64),
@@ -84,28 +84,32 @@ pub(crate) enum Input {
     },
     /// Wheel detents, positive down the page.
     Steps(f64),
-    /// A length in surface pixels, positive down the page, from a device
+    /// A length in the surface's points, positive down the page, from a device
     /// with no detents.
     Distance(f64),
     /// The touchpad's fingers lifted: what is not yet a line is dropped.
     Stopped,
     /// Wheel detents across, positive to the right.
     StepsAcross(f64),
-    /// A length across in surface pixels, positive to the right.
+    /// A length across in the surface's points, positive to the right.
     DistanceAcross(f64),
     /// The fingers lifted off a sideways swipe.
     StoppedAcross,
 }
 
 /// What turns a point into a cell: where the grid begins, the cell in
-/// pixels and the grid in cells. The Linux frame draws from its first
-/// pixel, the grid after the exit-status strip when it is kept, and has no
-/// buffer scale, so a point is a pixel.
+/// pixels, the grid in cells, and the frame's pixels to the surface's
+/// point. The Linux frame draws from its first pixel, the grid after the
+/// exit-status strip when it is kept, at the scale the compositor prefers
+/// (`baud_present_wayland::scale`): a point is `scale` pixels, as the
+/// macOS app's view point is its backing scale's, and the shared
+/// arithmetic takes it the same way (`gesture::pointer_under`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Geometry {
     pub(crate) pad: (u32, u32),
     pub(crate) cell: (f64, f64),
     pub(crate) grid: (u16, u16),
+    pub(crate) scale: f64,
 }
 
 /// What an input owes the driver.
@@ -362,7 +366,7 @@ impl Seat {
         let at = self.at.unwrap_or((0.0, 0.0));
         gesture::logical(
             &self.orders,
-            gesture::pointer_under(at, 1.0, g.cell, g.grid, g.pad),
+            gesture::pointer_under(at, g.scale, g.cell, g.grid, g.pad),
             g.cell,
         )
     }
@@ -373,14 +377,14 @@ impl Seat {
     /// [`Seat::under`]'s window cell.
     fn under_line(&self, g: Geometry) -> (baud_render::WindowLine, Col) {
         let at = self.at.unwrap_or((0.0, 0.0));
-        let (row, col, _) = gesture::pointer_under(at, 1.0, g.cell, g.grid, g.pad);
+        let (row, col, _) = gesture::pointer_under(at, g.scale, g.cell, g.grid, g.pad);
         self.orders.pointer_line(row, col)
     }
 
     /// Where DEC's locator is: `None` off the surface or its text area.
     fn locator_at(&self, g: Geometry) -> Option<LocatorAt> {
         self.at
-            .and_then(|at| gesture::locator_under(at, 1.0, g.cell, g.grid, g.pad))
+            .and_then(|at| gesture::locator_under(at, g.scale, g.cell, g.grid, g.pad))
             .map(|at| match at.px {
                 Some(px) => {
                     let (row, col, px) =
@@ -503,7 +507,7 @@ impl Seat {
             Input::Distance(d) => {
                 let delta = Delta::Points {
                     dy: -d,
-                    scale: 1.0,
+                    scale: g.scale,
                     cell: g.cell.1,
                 };
                 return self.wheel(term, delta, mods, g, sink);
@@ -521,7 +525,7 @@ impl Seat {
             Input::DistanceAcross(d) => {
                 let delta = Delta::Points {
                     dy: -d,
-                    scale: 1.0,
+                    scale: g.scale,
                     cell: g.cell.0,
                 };
                 return self.wheel_across(term, delta, mods, g, sink);
@@ -995,6 +999,7 @@ mod tests {
         pad: (0, 0),
         cell: (10.0, 10.0),
         grid: (20, 6),
+        scale: 1.0,
     };
 
     fn feed(t: &mut Term<'_>, bytes: &[u8]) {
@@ -1280,6 +1285,70 @@ mod tests {
         assert_eq!(sent, b"\x1b[M#$\"", "a release names no button");
     }
 
+    /// **A point at a fractional scale is the cell its pixels are in**: at
+    /// 1.5 frame pixels a point, cells of 15 pixels are ten points, so the
+    /// point (21, 11) is the pixel (31.5, 16.5), the third column of the
+    /// second row, and the pixel report says the pixel it is in, 32;17 from
+    /// one; a touchpad's ten points down are 15 pixels, one row. At a scale
+    /// of one the same point is the second column of the first row.
+    /// Perturbation: the seat back at 1.0 -- the press reads `2;1`.
+    #[test]
+    fn a_point_at_a_fraction_is_the_cell_its_pixels_are_in() {
+        let g = Geometry {
+            pad: (0, 0),
+            cell: (15.0, 15.0),
+            grid: (20, 6),
+            scale: 1.5,
+        };
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b[?1000h\x1b[?1006h");
+        let mut seat = Seat::new();
+        let put_at = |seat: &mut Seat, t: &mut Term<'_>, e: Input, g: Geometry| {
+            let mut sent = Vec::new();
+            seat.input(t, e, NONE, g, |b| sent.extend_from_slice(b));
+            sent.extend_from_slice(t.reply());
+            t.clear_reply();
+            sent
+        };
+        put_at(&mut seat, &mut t, Input::Moved(21.0, 11.0), g);
+        let sent = put_at(&mut seat, &mut t, down(Pressed::Left, Ms::of_millis(10)), g);
+        assert_eq!(sent, b"\x1b[<0;3;2M");
+        put_at(&mut seat, &mut t, up(Pressed::Left, Ms::of_millis(20)), g);
+        feed(&mut t, b"\x1b[?1016h");
+        let sent = put_at(&mut seat, &mut t, down(Pressed::Left, Ms::of_millis(30)), g);
+        assert_eq!(sent, b"\x1b[<0;32;17M", "the pixel the point is in");
+        put_at(&mut seat, &mut t, up(Pressed::Left, Ms::of_millis(40)), g);
+        feed(
+            &mut t,
+            b"\x1b[?1016l\x1b[?1000l\x1b[?1006l\x1b[?1007h\x1b[?1049h",
+        );
+        let sent = put_at(&mut seat, &mut t, Input::Distance(10.0), g);
+        assert_eq!(sent, b"\x1b[B", "ten points down are one 15-pixel row");
+        let one = Geometry {
+            cell: (10.0, 10.0),
+            scale: 1.0,
+            ..g
+        };
+        feed(&mut t, b"\x1b[?1049l\x1b[?1007l\x1b[?1000h\x1b[?1006h");
+        let sent = put_at(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(50)),
+            one,
+        );
+        assert_eq!(sent, b"\x1b[<0;3;2M", "ten-pixel cells at one");
+        put_at(&mut seat, &mut t, up(Pressed::Left, Ms::of_millis(60)), one);
+        let wide = Geometry { scale: 1.0, ..g };
+        let sent = put_at(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(70)),
+            wide,
+        );
+        assert_eq!(sent, b"\x1b[<0;2;1M", "the same point at a scale of one");
+    }
+
     /// **A tracking child gets the buttons and the wheel as its reports**,
     /// at the cell under the pointer; Shift takes the press for the
     /// selection instead, as xterm's override does.
@@ -1379,6 +1448,7 @@ mod tests {
             pad: (0, 0),
             cell: (10.0, 10.0),
             grid: (40, 6),
+            scale: 1.0,
         };
         let line = |t: &Term<'_>| {
             let cells = t.status_line().map_or(&[][..], |l| l.cells);

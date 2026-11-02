@@ -37,11 +37,18 @@
 # cells of 8x17 px, so a cell's centre is (8c + 4, 17r + 8), and a point
 # past (640, 408) is off the window. Each arm runs again with the output
 # at scale 2 and at scale 1.5, its mode 2048x1536 and 1536x1152, so the
-# layout is 1024x768 logical pixels at every scale and so are the window
-# and every point above; those runs take the pointer to the grid's edges
-# and read what the app draws its pointer and its window at. Every check
-# prints "ok" or "FAILED" with what was read; the script exits non-zero
-# when one failed or a step could not run.
+# layout is 1024x768 logical pixels at every scale; those runs take the
+# pointer to the grid's edges and read what the app draws its pointer and
+# its window at. The app draws at the scale the compositor prefers: sway
+# 1.10 offers fractional-scale-v1, so at 1.5 it draws at 1.5, and sway 1.7
+# does not, and its wl_output says 2, so it draws at 2 and sway scales
+# the window down. The font is 13 points, so the cell is the embedded
+# face's at 13, 19.5 and 26 pixels, 8x17, 12x26 and 16x34 (the pixels
+# bench at PIXELS_SCALE 1, 1.5 and 2): 80x24 cells are 640x408 points at
+# 1 and 2 and 960x624 pixels, 640x416 points, at 1.5, where the window is
+# 640x416 so the grid is 80x24 on both arms. Every check prints "ok" or
+# "FAILED" with what was read; the script exits non-zero when one failed
+# or a step could not run.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -93,7 +100,7 @@ output HEADLESS-1 resolution ${W}x${H} position 0 0 scale $SCALE
 default_border none
 default_floating_border none
 seat seat0 xcursor_theme DMZ-Black 24
-for_window [app_id="org.baud.terminal"] floating enable, resize set 640 408, move position 0 0
+for_window [app_id="org.baud.terminal"] floating enable, resize set $WIN, move position 0 0
 C
 WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
   WAYLAND_DEBUG=server sway -c sway.conf > sway.log 2>&1 &
@@ -681,50 +688,85 @@ fi
 # The grid's edges at every scale, under ?1000 ?1006 on the alternate
 # screen, where no history puts the scrollbar's thumb beside the last
 # column: the first cell; the last column and row from the window's last
-# pixel and from the first pixel of the last cell; the cell before it; and
-# the same two from half pixels, the extent doubled. Then the pixel
-# report, ?1016, from the first and the last pixel.
+# point and from the first point in the last cell; the cell before it; and
+# the same two from half points, the extent doubled. Then the pixel
+# report, ?1016, from the first and the last point: the frame's pixel each
+# is in, which at a scale of 2 or 1.5 is not the point. The points and the
+# pixel are the run's (the table at the end of this script).
 session edges '
 printf "\033[?1049h\033[?1000h\033[?1006h"; touch $S/ready
 until [ -e $S/go1 ]; do sleep 0.05; done; printf "\033[?1016h"; touch $S/did1
-exec cat > $S/got' <<'P'
+exec cat > $S/got' <<P
 move 0 0
 click left
-move 639 407
+move $LAST
 tick 1000
 click left
-move 632 391
+move $FIRST
 tick 1000
 click left
-move 631 390
+move $BEFORE
 tick 1000
 click left
 extent 2048 1536
-move 1279 815
+move $HALF_LAST
 tick 1000
 click left
-move 1263 781
+move $HALF_BEFORE
 tick 1000
 click left
 extent 1024 768
-sh touch $S/go1
-waitfor [ -e $S/did1 ]
+sh touch \$S/go1
+waitfor [ -e \$S/did1 ]
 sleep 200
 move 0 0
 tick 1000
 click left
-move 639 407
+move $LAST
 tick 1000
 click left
 sleep 300
 P
 check "at scale $SCALE, the edges: 1;1, the last cell three ways, the one before twice, pixels" $D/edges/got \
-  '\033[<0;1;1M\033[<0;1;1m\033[<0;80;24M\033[<0;80;24m\033[<0;80;24M\033[<0;80;24m\033[<0;79;23M\033[<0;79;23m\033[<0;80;24M\033[<0;80;24m\033[<0;79;23M\033[<0;79;23m\033[<0;1;1M\033[<0;1;1m\033[<0;640;408M\033[<0;640;408m'
-# What the app drew its surfaces at: the window's buffer and any buffer
-# scale it set, and the pointer's image, drawn here on sway 1.7 only, its
-# buffer and scale.
+  '\033[<0;1;1M\033[<0;1;1m\033[<0;80;24M\033[<0;80;24m\033[<0;80;24M\033[<0;80;24m\033[<0;79;23M\033[<0;79;23m\033[<0;80;24M\033[<0;80;24m\033[<0;79;23M\033[<0;79;23m\033[<0;1;1M\033[<0;1;1m\033[<0;'"$PIXEL"'M\033[<0;'"$PIXEL"'m'
+# What the app drew its surfaces at: the window's buffer, any buffer scale
+# and viewport destination it set, the scales the compositor sent it, and
+# the pointer's image, drawn here on sway 1.7 only, its buffer and scale.
 grep '^surface' $O/trace-edges.txt | awk '!seen[$0]++' > $D/edges/surfaces
 cat $D/edges/surfaces | sed 's/^/        /'
+# The window at the scale the app draws at here, $APP: its last buffer the
+# window's points at it, rounded halfway away from zero; with
+# fractional-scale-v1 -- which sway 1.10 sends at 1 too, as 120 -- the
+# buffer scale left at one and the viewport's destination the window's
+# points, else the buffer scale the integer and no destination, and at 1
+# neither. Every buffer it attached, in order: the first drawn before the
+# compositor said a scale, then one for each size and scale, none drawn
+# twice, and on the arm that draws a fraction none at the integer scale
+# sway sends beside it, which would be a frame laid out for a scale the
+# window is not drawn at.
+grep '^surface window attach' $O/trace-edges.txt | tail -1 > $D/edges/buffer
+check "at scale $SCALE, the window drawn at $APP: its buffer" $D/edges/buffer "surface window attach $BUFFER\n"
+grep '^surface window buffer_scale' $O/trace-edges.txt | tail -1 | grep -v ' 1$' > $D/edges/scaled || true
+grep '^surface window destination' $O/trace-edges.txt | tail -1 > $D/edges/mapped || true
+if grep -q wp_fractional_scale_manager_v1 $O/compositor.txt; then
+  check "at scale $SCALE, the buffer scale left at one" $D/edges/scaled ''
+  check "at scale $SCALE, the buffer through the viewport" $D/edges/mapped "surface window destination ${WIN% *}x${WIN#* }\n"
+elif [ "$APP" = 1 ]; then
+  cat $D/edges/scaled $D/edges/mapped > $D/edges/told
+  check "at scale $SCALE, nothing of a scale told" $D/edges/told ''
+else
+  check "at scale $SCALE, the buffer scale $APP" $D/edges/scaled "surface window buffer_scale $APP\n"
+  check "at scale $SCALE, no viewport" $D/edges/mapped ''
+fi
+grep '^surface window attach' $O/trace-edges.txt | sed 's/^surface window attach //' > $D/edges/buffers
+echo "        the window's buffers: $(tr '\n' ' ' < $D/edges/buffers)"
+sort $D/edges/buffers | uniq -d > $D/edges/twice
+check "at scale $SCALE, no buffer size drawn twice" $D/edges/twice ''
+whole=$(awk "BEGIN { s = $APP; print (s == int(s)) ? 0 : int(s) + 1 }")
+if [ "$whole" != 0 ]; then
+  grep -x "$((${WIN% *} * whole))x$((${WIN#* } * whole))" $D/edges/buffers > $D/edges/at-whole || true
+  check "at scale $SCALE, no frame at the integer scale $whole" $D/edges/at-whole ''
+fi
 if grep -q wp_cursor_shape_manager_v1 $O/compositor.txt; then
   grep '^surface pointer' $D/edges/surfaces > $D/edges/drawn || true
   check "at scale $SCALE, the pointer is named, not drawn" $D/edges/drawn ''
@@ -747,16 +789,44 @@ exit $FAILED
 INNER
 )
 
+# Each run: the arm, the output's scale, the scale the app draws at there,
+# the window in points, the edges' points -- the window's last, the first
+# in the last cell, the one before it, and the last and the one before in
+# half points -- the pixel report at the last point, from one, and the
+# window's buffer. A point is the scale's pixels, the cell the pixel is
+# in, and a pixel past the grid's last is its last:
+#
+#   app 1    8x17 cells, 640x408 points: the last cell's first point
+#            (632, 391), the pixel (639, 407) reported 640;408
+#   app 2    16x34 cells; at 640x408 points (639, 407) is the pixel
+#            (1278, 814), 1279;815; at 640x416, (639, 415) is (1278, 830),
+#            past the grid's 816 rows, 1279;816; (632, 391) is (1264, 782)
+#   app 1.5  12x26 cells, 640x416 points: the last cell's first point
+#            (632, 399), (948, 598.5); the one before (631, 398), (946.5,
+#            597); (639, 415) is (958.5, 622.5), 959;623
+runs="
+bookworm 1   1   640_408 639_407 632_391 631_390 1279_815 1263_781 640;408  640x408
+trixie   1   1   640_408 639_407 632_391 631_390 1279_815 1263_781 640;408  640x408
+bookworm 2   2   640_408 639_407 632_391 631_390 1279_815 1263_781 1279;815 1280x816
+trixie   2   2   640_408 639_407 632_391 631_390 1279_815 1263_781 1279;815 1280x816
+bookworm 1.5 2   640_416 639_415 632_391 631_390 1279_831 1263_781 1279;816 1280x832
+trixie   1.5 1.5 640_416 639_415 632_399 631_398 1279_831 1263_797 959;623  960x624
+"
 status=0
-for run in bookworm:1 trixie:1 bookworm:2 trixie:2 bookworm:1.5 trixie:1.5; do
-  arm=${run%:*} scale=${run#*:}
+while read -r arm scale app win last first before half_last half_before pixel buffer; do
+  [ -n "$arm" ] || continue
   dir=$arm && [ "$scale" = 1 ] || dir=$arm-x$scale
   mkdir -p "$out/$dir"
   echo "== $arm, scale $scale"
-  docker run --rm -i -e SCALE="$scale" -v "$root":/src:ro -v "$tag-target":/target:ro \
+  sp() { echo "${1/_/ }"; }
+  docker run --rm -i -e SCALE="$scale" -e APP="$app" -e WIN="$(sp "$win")" \
+    -e LAST="$(sp "$last")" -e FIRST="$(sp "$first")" -e BEFORE="$(sp "$before")" \
+    -e HALF_LAST="$(sp "$half_last")" -e HALF_BEFORE="$(sp "$half_before")" \
+    -e PIXEL="$pixel" -e BUFFER="$buffer" \
+    -v "$root":/src:ro -v "$tag-target":/target:ro \
     "$tag-$arm" bash -c \
-    'cat > /tmp/arm.sh && chmod 755 /tmp/arm.sh && runuser -u baud -- env SCALE="$SCALE" bash /tmp/arm.sh > /tmp/results.txt 2>&1; s=$?; mkdir -p /tmp/out; cp /tmp/results.txt /tmp/out/; tar -C /tmp/out -c .; exit $s' \
+    'cat > /tmp/arm.sh && chmod 755 /tmp/arm.sh && runuser -u baud -- env SCALE="$SCALE" APP="$APP" WIN="$WIN" LAST="$LAST" FIRST="$FIRST" BEFORE="$BEFORE" HALF_LAST="$HALF_LAST" HALF_BEFORE="$HALF_BEFORE" PIXEL="$PIXEL" BUFFER="$BUFFER" bash /tmp/arm.sh > /tmp/results.txt 2>&1; s=$?; mkdir -p /tmp/out; cp /tmp/results.txt /tmp/out/; tar -C /tmp/out -c .; exit $s' \
     <<<"$inner" 2>"$out/$dir/container.log" | tar -C "$out/$dir" -x || status=1
   cat "$out/$dir/results.txt"
-done
+done <<<"$runs"
 exit $status

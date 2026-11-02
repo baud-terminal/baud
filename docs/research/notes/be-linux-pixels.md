@@ -225,7 +225,10 @@ binds no fractional-scale global, though sway 1.10.1 offers
 wp_fractional_scale_manager_v1 and wp_viewporter. sway 1.10.1
 sends `preferred_buffer_scale` 2 at both scales and names the pointer's
 shape; sway 1.7, at `wl_compositor` 4, has no `preferred_buffer_scale`,
-and the app draws its pointer at 48x48, buffer scale 2, at both.
+and the app draws its pointer at 48x48, buffer scale 2, at both. That
+was before the window drew at the compositor's scale; §9 has the run
+since, where the window is the scale's pixels and the corners move with
+the cells.
 
 The new pointer is the seat losing its pointer and keyboard and gaining
 new ones: the app releases the old wl_pointer, destroys its shape device,
@@ -312,10 +315,10 @@ read 24 80 throughout. Unexplained; the prompt session now sends `C` and
 `D` between its prompts, as a shell does. The thumb dragged to the top
 read "line 12" once, on the bookworm arm, while the host compiled; every
 run without that load read "line 1". Not run on a compositor: the window
-drawn at a scale other than one, which the app does not do on Linux
-(its buffer is the window's size in logical pixels and the compositor
-scales it), and so no pixels compared against the CPU renderer at a
-scale; and the pointer over a link under the scrollbar's strip, which
+drawn at a scale other than one, which the app did not do on Linux
+then (its buffer was the window's size in logical pixels and the
+compositor scaled it; §9 since); and the pointer over a link under the
+scrollbar's strip, which
 keeps its shape while the thumb shows and is held by
 `over_the_scrollbar_a_link_keeps_the_programs_pointer`.
 
@@ -477,18 +480,89 @@ tearing` off and on. `scripts/linux-frames.py` reads the compositor's
   called back before it showed it: the case fifo-v1's barrier holds,
   which sway does not offer.
 
-## 9. Open
+## 9. The window at the compositor's scale
+
+**The Linux window is drawn at the scale its compositor prefers, 1.5
+included, and a click lands on the cell under the pointer at every
+scale.** Taken 2026-11-01 by `scripts/linux-pointer.sh`, whose edges
+session now reads each run's own points
+(`[[source: be-obs-pointer-scale-drawn]]`). With wp_viewporter and
+wp_fractional_scale_manager_v1 both offered the window makes a viewport
+and a fractional-scale object for its surface, and a fraction is drawn
+as the protocol says: "The wl_surface buffer scale should remain set to
+1", the buffer the surface "multiplied by the intended scale", "rounded
+halfway away from zero" (`[[source: wp-fractional-scale-v1]]`), the
+viewport's destination the surface. Without them the integer
+`preferred_buffer_scale` is drawn from `wl_compositor` 6, and below it
+the largest `wl_output.scale` of the outputs the surface entered,
+through `set_buffer_scale` (`[[source: wayland]]`). The font keeps its
+13 points, 8x17 cells at 1, 12x26 at 1.5 and 16x34 at 2, the cells
+the `pixels` bench reads at `PIXELS_SCALE` 1, 1.5 and 2; at 1.5 the
+window is 640x416 points, so the grid is 80x24 on both arms.
+
+| run | the compositor says | the window's buffers | told | the last point's pixel |
+|---|---|---|---|---|
+| sway 1.10.1 at 1 | fraction 120 | 800x600, 640x408 | destination 640x408 | `640;408` |
+| sway 1.7 at 2 | `wl_output.scale` 2 | 800x600, 640x408, 1280x816 | buffer scale 2 | `1279;815` |
+| sway 1.10.1 at 2 | fraction 240, integer 2 | 800x600, 1280x816 | destination 640x408 | `1279;815` |
+| sway 1.7 at 1.5 | `wl_output.scale` 2 | 800x600, 640x416, 1280x832 | buffer scale 2 | `1279;816` |
+| sway 1.10.1 at 1.5 | fraction 180, integer 2 | 800x600, 960x624 | destination 640x416 | `959;623` |
+
+The corners read `80;24` and `79;23` where each run's cells put them:
+at 1.5 the last cell begins at the point (632, 399), the pixel (948,
+598.5), and (631, 398) is the one before. The pixel report, `?1016`,
+is the frame's pixel, as the macOS app reports its device pixels, and
+so are `CSI 14 t` and `CSI 16 t`; at 1 they read as before. No buffer
+size comes back after another, and on the arm that draws a fraction no
+buffer is made at the integer scale: sway 1.10.1 sends its integer 2
+beside the fraction, after the first frame, and the window takes the
+two as one `Configured` at the fraction; sway 1.7's scale comes after
+its resize, a scale change on a window already shown, and the next
+buffer is the new size. The trace keeps a buffer's size when it
+changes, so it does not count the frames drawn at each. On the base binary, `c6d97ceb`, the same script fails 13
+checks and passes the other 89: every run at 2 and 1.5 its corners,
+its buffer and what it tells of the scale -- the pixel report reads
+`640;408` at every scale, and on sway 1.10.1 at 1.5 the cell before the
+last reads `79;24` -- and the run at 1 on sway 1.10.1 its viewport
+(`[[source: be-obs-pointer-scale-drawn-base]]`).
+
+**And the same pixels at 2.** Under weston 10.0.1's headless output at
+scale 2, which offers no fractional scale, the app draws its 800x600
+points as 1600x1200 pixels, and `scripts/linux-pixels.sh`
+finds its screenshot equal to the `pixels` bench at `PIXELS_SCALE=2`
+on all 1,904,000 pixels of the grid for less-pager, cat-cjk and the
+control, as at 1 for all six fixtures; the bench draws the same bytes
+on this Mac and in the container at both scales. On the base binary
+the same fixtures at 2 differ in 262,328, 241,616 and 1,600 pixels, the
+window drawn at one and scaled up by weston
+(`[[source: be-obs-pixels-scale]]`).
+
+Over a socket pair `a_fraction_wins_over_the_integer_scale_in_either_order`,
+`a_new_destination_goes_with_a_buffer_of_the_same_size` and
+`an_odd_surface_at_a_fraction_rounds_half_away_from_zero` hold the
+window, and `a_point_at_a_fraction_is_the_cell_its_pixels_are_in` and
+`a_wayland_resize_at_a_scale_is_in_points` the driver's arithmetic.
+Below version 6 a window on two outputs is drawn at the larger scale,
+as its pointer already was; foot takes the output entered last
+(`[[source: foot-2705e36-terminal]]`).
+
+## 10. Open
 
 - The pointer on a screen, and on GNOME's and KDE's compositors.
 - Everything here is over a black background; a desktop with a
   wallpaper, and a screen, are not.
 - The GPU half of Linux.
-- The window drawn at the output's scale: its buffer at the scale and
-  the grid in device pixels, through `preferred_buffer_scale` or
-  wp_fractional_scale_v1 with wp_viewporter, as the macOS app draws
-  at the backing scale.
+- A window moved between outputs of different scales, and a desktop's
+  own fractional scale on a screen (§9 ran one headless output a run).
 - One run of each fixture at one size and one font size.
 - A frame's damage on a GPU compositor, which may release a buffer
   before the next commit, and a screen's.
 - A reused buffer's missed rows on a screen: seen on sway 1.10.1, out
   of the screen's reach on 1.7, and held on the fake compositor.
+- The app's pixels at 1.5: weston's headless output takes only whole
+  scales, so no screenshot was compared against the bench at a
+  fraction; sway's grim at 1.5 is the candidate.
+- How many frames a scale change draws: the trace keeps a buffer's size
+  only when it changes (§9), so the one layout is held over a socket
+  pair, not counted on a compositor.
+- The pointer's own image at the integer scale beside a fraction.

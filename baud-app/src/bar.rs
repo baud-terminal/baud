@@ -323,9 +323,9 @@ pub(crate) fn left_press(term: &Term<'_>, strip: Place, c: Ctx) -> crate::link::
     }
 }
 
-/// A pointer event as the Linux driver hands it to [`Bar::input`], at a
-/// surface point: the Linux frame draws the grid from its first pixel at a
-/// scale of one, so a surface point is a frame pixel.
+/// A pointer event as the Linux driver hands it to [`Bar::input`], in the
+/// frame's pixels: the Linux frame draws the grid from its first pixel,
+/// and [`event_beside`] takes a surface point at the window's scale.
 #[cfg(any(target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum Event {
@@ -355,19 +355,27 @@ pub(crate) enum Event {
 /// never takes (the wheel): at the position the seat last had for a press
 /// or a release, a move a drag while a button is down. The thumb's
 /// geometry is in frame pixels, the grid's, so a surface point comes in
-/// less `strip`, the exit-status strip at the frame's left.
+/// `scale` pixels each and less `strip`, the exit-status strip at the
+/// frame's left, as the macOS app's `frame_px` takes a view point.
 #[cfg(any(target_os = "linux", test))]
-pub(crate) fn event_beside(beside: crate::seat::Beside, strip: f64) -> Option<Event> {
+pub(crate) fn event_beside(beside: crate::seat::Beside, strip: f64, scale: f64) -> Option<Event> {
     use crate::gesture::Pressed;
     use crate::seat::Input;
-    let at = beside.at.map(|(x, y)| (x - strip, y));
+    let px = |(x, y): (f64, f64)| (x * scale - strip, y * scale);
+    let at = beside.at.map(px);
     Some(match (beside.input, at) {
-        (Input::Entered(x, y), _) => Event::Entered { x: x - strip, y },
-        (Input::Moved(x, y), _) => Event::Moved {
-            x: x - strip,
-            y,
-            held: beside.held,
-        },
+        (Input::Entered(x, y), _) => {
+            let (x, y) = px((x, y));
+            Event::Entered { x, y }
+        }
+        (Input::Moved(x, y), _) => {
+            let (x, y) = px((x, y));
+            Event::Moved {
+                x,
+                y,
+                held: beside.held,
+            }
+        }
         (Input::Pressed { button, .. }, Some((x, y))) => Event::Pressed {
             x,
             y,
@@ -870,7 +878,7 @@ mod tests {
         use crate::gesture::Pressed;
         use crate::seat::{Beside, Input};
         let at = Some((107.0, 30.0));
-        let of = |input, held| event_beside(Beside { input, at, held }, 7.0);
+        let of = |input, held| event_beside(Beside { input, at, held }, 7.0, 1.0);
         let time = baud_domain::EventMillis::of_millis(5);
         assert_eq!(
             of(Input::Moved(57.0, 40.0), Held::Yes),
@@ -908,5 +916,35 @@ mod tests {
         );
         assert_eq!(of(Input::Left, Held::No), Some(Event::Left));
         assert_eq!(of(Input::Steps(1.0), Held::No), None, "the wheel");
+        // At 1.5 frame pixels a point, every point is scaled before the
+        // strip, in frame pixels, is taken off. Perturbation: scale after
+        // the strip -- the move reads 75.0.
+        let scaled = |input| {
+            event_beside(
+                Beside {
+                    input,
+                    at,
+                    held: Held::No,
+                },
+                7.0,
+                1.5,
+            )
+        };
+        assert_eq!(
+            scaled(Input::Moved(57.0, 40.0)),
+            Some(Event::Moved {
+                x: 78.5,
+                y: 60.0,
+                held: Held::No
+            })
+        );
+        assert_eq!(
+            scaled(Input::Entered(17.0, 20.0)),
+            Some(Event::Entered { x: 18.5, y: 30.0 })
+        );
+        assert_eq!(
+            scaled(Input::Released { button, time }),
+            Some(Event::Released { x: 153.5, y: 45.0 })
+        );
     }
 }

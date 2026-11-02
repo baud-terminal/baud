@@ -22,8 +22,9 @@
 use baud_domain::{EventMillis, PointerShape};
 use baud_wayland::protocol;
 
-/// A point in the surface's own coordinates, the motion events' unit. With
-/// no buffer scale set, one is one pixel of the buffer.
+/// A point in the surface's own coordinates, the motion events' unit: a
+/// pixel of the frame at a scale of one, and [`crate::Window::scale`]
+/// pixels of it otherwise.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct At {
     pub x: f64,

@@ -24,8 +24,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 316 | 48 | redistributable, and its notice is satisfied |
-| own | 263 | 7 | the work of baud's author |
-| total | 596 | 60 | |
+| own | 266 | 7 | the work of baud's author |
+| total | 599 | 60 | |
 
 ## Licence texts in LICENSES/
 
@@ -1785,7 +1785,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 257
+- **Files:** 260
 
 | file | copied from |
 |---|---|
@@ -2023,6 +2023,7 @@ notice is, and the URL each file was copied from.
 | [be-observed/frames-weston-late.txt](docs/research/sources/be-observed/frames-weston-late.txt) | scripts/linux-frames.sh, the weston arm, on the change with its stamp moved one refresh later |
 | [be-observed/frames-weston-rounds.txt](docs/research/sources/be-observed/frames-weston-rounds.txt) | scripts/linux-frames.sh, the weston arm, the change and d75734a3 alternating |
 | [be-observed/frames-weston.txt](docs/research/sources/be-observed/frames-weston.txt) | scripts/linux-frames.sh, the weston arm: weston 16.0.0 headless, Debian sid's snapshot of 2026-10-30 |
+| [be-observed/pixels-scale.txt](docs/research/sources/be-observed/pixels-scale.txt) | scripts/linux-pixels.sh, each fixture at scale 1 and three at 2 |
 | [be-observed/pointer-base-trixie-wheel-back.png](docs/research/sources/be-observed/pointer-base-trixie-wheel-back.png) | grim after wheel -3 in the wheel session, trixie arm, base binary |
 | [be-observed/pointer-base.txt](docs/research/sources/be-observed/pointer-base.txt) | scripts/linux-pointer.sh on the base binary, both arms |
 | [be-observed/pointer-base2.txt](docs/research/sources/be-observed/pointer-base2.txt) | scripts/linux-pointer.sh on the base binary, both arms, at scale 1, 2 and 1.5 |
@@ -2031,6 +2032,8 @@ notice is, and the URL each file was copied from.
 | [be-observed/pointer-bookworm-link-hand.png](docs/research/sources/be-observed/pointer-bookworm-link-hand.png) | grim -c after mods ctrl in the link session, bookworm arm |
 | [be-observed/pointer-bookworm.txt](docs/research/sources/be-observed/pointer-bookworm.txt) | scripts/linux-pointer.sh, the bookworm arm: sway 1.7 headless, the app drawing its own pointer |
 | [be-observed/pointer-hand.txt](docs/research/sources/be-observed/pointer-hand.txt) | scripts/linux-pointer.sh on sway 1.7 and 1.10.1, the change and the base binary |
+| [be-observed/pointer-scale-drawn-base.txt](docs/research/sources/be-observed/pointer-scale-drawn-base.txt) | scripts/linux-pointer.sh on the base binary, both arms at every scale |
+| [be-observed/pointer-scale-drawn.txt](docs/research/sources/be-observed/pointer-scale-drawn.txt) | scripts/linux-pointer.sh, both arms at every scale |
 | [be-observed/pointer-scale.txt](docs/research/sources/be-observed/pointer-scale.txt) | scripts/linux-pointer.sh, both arms at scale 2 and 1.5 |
 | [be-observed/pointer-trixie-hand2.png](docs/research/sources/be-observed/pointer-trixie-hand2.png) | grim -c after OSC 22 hand2 in the shape session, trixie arm |
 | [be-observed/pointer-trixie-link-hand.png](docs/research/sources/be-observed/pointer-trixie-link-hand.png) | grim -c after mods ctrl in the link session, trixie arm |

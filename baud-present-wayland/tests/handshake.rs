@@ -215,9 +215,11 @@ fn a_window_opens_shows_a_frame_and_types() {
     // The registry's round trip is a `wl_callback` too, and not a frame:
     // the launch logo starts on the first `Event::Frame`.
     assert_eq!(w.next_event(), None, "the sync's callback is no frame");
+    // The viewporter is bound as it comes, as a fractional scale is drawn
+    // through it; with no fractional-scale global nothing is made with it.
     let mut bound = Vec::new();
     let mut ids: HashMap<&str, ObjectId> = HashMap::new();
-    for _ in 0..4 {
+    for _ in 0..5 {
         let r = server.expect("wl_registry", "bind");
         let Val::NewWith(iface, version, id) = &r.args[1] else {
             panic!()
@@ -229,6 +231,7 @@ fn a_window_opens_shows_a_frame_and_types() {
                 "wl_shm" => "shm",
                 "xdg_wm_base" => "wm_base",
                 "wl_seat" => "seat",
+                "wp_viewporter" => "viewporter",
                 other => panic!("{other}"),
             },
             *id,
@@ -240,7 +243,8 @@ fn a_window_opens_shows_a_frame_and_types() {
             ("wl_compositor".to_string(), 6),
             ("wl_shm".to_string(), 2),
             ("xdg_wm_base".to_string(), 6),
-            ("wl_seat".to_string(), 9)
+            ("wl_seat".to_string(), 9),
+            ("wp_viewporter".to_string(), 1)
         ]
     );
     let r = server.expect("wl_compositor", "create_surface");
@@ -5030,4 +5034,610 @@ fn an_input_method_at_version_2_hints_submits_and_asks_for_a_keyboard() {
     assert_eq!(sent(&mut i), Vec::<&str>::new());
     press(&mut i, 0x110);
     assert_eq!(sent(&mut i), ["show_input_panel", "commit"]);
+}
+
+/// A configured window and the objects a test of its scale names.
+struct Scaled {
+    conn: Connection,
+    server: Server,
+    w: Window,
+    surface: ObjectId,
+    top: ObjectId,
+    xdg: ObjectId,
+    /// The surface's viewport and fractional-scale object, if made.
+    viewport: Option<ObjectId>,
+    fractional: Option<ObjectId>,
+    /// The `wl_output`, if one was offered.
+    output: Option<ObjectId>,
+}
+
+/// **A window over `globals`**, the first of them `wl_compositor`, then
+/// `wl_shm` and `xdg_wm_base`, with what it made for its surface checked
+/// to its first commit: a viewport and a fractional-scale object, once
+/// each, only when both globals were offered. Configured at
+/// `width` x `height` with `before` sent ahead of the configure, so a
+/// scale the compositor says first is in the first `Configured`.
+fn scaled(
+    globals: &[(&str, u32)],
+    (width, height): (i32, i32),
+    before: impl FnOnce(&mut Server, ObjectId, Option<ObjectId>, Option<ObjectId>),
+) -> Scaled {
+    let (c, s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let mut server = Server::new(s);
+    let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    conn.flush().unwrap();
+    let r = server.expect("wl_display", "get_registry");
+    let Val::New(registry) = r.args[0] else {
+        panic!()
+    };
+    server
+        .objects
+        .insert(registry, Interface::named("wl_registry").unwrap());
+    let r = server.expect("wl_display", "sync");
+    let Val::New(sync) = r.args[0] else { panic!() };
+    let (compositor, extra) = globals.split_first().expect("wl_compositor first");
+    let base = [*compositor, ("wl_shm", 2), ("xdg_wm_base", 6)];
+    for (name, (iface, version)) in (1u32..).zip(base.iter().chain(extra)) {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(*version)],
+        );
+    }
+    server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+    pump(&mut conn, &mut w);
+    let (mut surface, mut xdg, mut top) = (None, None, None);
+    let (mut viewport, mut fractional, mut output) = (None, None, None);
+    let mut binds = Vec::new();
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("wl_registry", "bind", [_, Val::NewWith(i, v, id)]) => {
+                binds.push((i.clone(), *v));
+                if i == "wl_output" {
+                    output = Some(*id);
+                }
+            }
+            ("wl_compositor", "create_surface", [Val::New(id)]) => surface = Some(*id),
+            ("xdg_wm_base", "get_xdg_surface", [Val::New(id), _]) => xdg = Some(*id),
+            ("xdg_surface", "get_toplevel", [Val::New(id)]) => top = Some(*id),
+            ("wp_viewporter", "get_viewport", [Val::New(id), Val::Obj(on)]) => {
+                assert_eq!(Some(*on), surface, "the window's surface");
+                assert!(viewport.is_none(), "one viewport a surface");
+                viewport = Some(*id);
+            }
+            (
+                "wp_fractional_scale_manager_v1",
+                "get_fractional_scale",
+                [Val::New(id), Val::Obj(on)],
+            ) => {
+                assert_eq!(Some(*on), surface, "the window's surface");
+                assert!(
+                    fractional.is_none(),
+                    "one fractional-scale object a surface"
+                );
+                fractional = Some(*id);
+            }
+            ("wl_surface", "commit", _) => break,
+            _ => {}
+        }
+    }
+    let offered = |n: &str| globals.iter().any(|(g, _)| *g == n);
+    for g in ["wp_viewporter", "wp_fractional_scale_manager_v1"] {
+        assert_eq!(
+            binds.iter().any(|(i, v)| i == g && *v == 1),
+            offered(g),
+            "{g} bound at version 1 where offered"
+        );
+    }
+    let both = offered("wp_viewporter") && offered("wp_fractional_scale_manager_v1");
+    assert_eq!(viewport.is_some(), both, "a viewport only with both");
+    assert_eq!(
+        fractional.is_some(),
+        both,
+        "a fraction asked for only with both"
+    );
+    let (surface, xdg, top) = (surface.unwrap(), xdg.unwrap(), top.unwrap());
+    assert_eq!(w.scale(), BufferScale::ONE, "one until the compositor says");
+    before(&mut server, surface, fractional, output);
+    configure(&mut server, top, xdg, width, height, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    Scaled {
+        conn,
+        server,
+        w,
+        surface,
+        top,
+        xdg,
+        viewport,
+        fractional,
+        output,
+    }
+}
+
+/// Whether a commit attached a buffer.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum Attached {
+    Yes,
+    #[default]
+    No,
+}
+
+/// What one frame's commit told of the scale: the buffers its pool made,
+/// by width and height, whether it attached one, the buffer scale and
+/// the viewport's destination it set, and its damage.
+#[derive(Debug, Default, PartialEq)]
+struct ScaleTold {
+    buffers: Vec<(i32, i32)>,
+    attached: Attached,
+    buffer_scale: Option<i32>,
+    destination: Option<(i32, i32)>,
+    damage: Vec<[i32; 4]>,
+}
+
+/// A whole frame of `size` presented, and what its commit told.
+fn present_scaled(t: &mut Scaled, (wu, hu): (usize, usize)) -> (Presented, ScaleTold) {
+    let frame = vec![0xff20_4060u32; wu * hu];
+    let shown =
+        t.w.present(&mut t.conn.sender(), &frame, wu, Changed::Whole);
+    t.conn.flush().unwrap();
+    if shown == Presented::No {
+        return (shown, ScaleTold::default());
+    }
+    let mut told = ScaleTold::default();
+    let mut callback = None;
+    for (iface, name, args) in commit_requests(&mut t.server) {
+        match (iface, name, &args[..]) {
+            ("wl_shm_pool", "create_buffer", [_, _, Val::Int(w), Val::Int(h), ..]) => {
+                told.buffers.push((*w, *h))
+            }
+            ("wl_surface", "attach", _) => told.attached = Attached::Yes,
+            ("wl_surface", "set_buffer_scale", [Val::Int(n)]) => {
+                assert_eq!(
+                    told.attached,
+                    Attached::Yes,
+                    "a buffer scale only with the buffer it applies to"
+                );
+                told.buffer_scale = Some(*n)
+            }
+            ("wp_viewport", "set_destination", [Val::Int(w), Val::Int(h)]) => {
+                told.destination = Some((*w, *h))
+            }
+            (
+                "wl_surface",
+                "damage_buffer",
+                [Val::Int(x), Val::Int(y), Val::Int(w), Val::Int(h)],
+            ) => told.damage.push([*x, *y, *w, *h]),
+            ("wl_surface", "frame", [Val::New(cb)]) => callback = Some(*cb),
+            _ => {}
+        }
+    }
+    let cb = callback.expect("a frame callback");
+    t.server.send(cb, "wl_callback", "done", &[Arg::Uint(16)]);
+    pump(&mut t.conn, &mut t.w);
+    (shown, told)
+}
+
+/// The window's events, the frame callbacks left out.
+fn scaled_events(w: &mut Window) -> Vec<Event> {
+    std::iter::from_fn(|| w.next_event())
+        .filter(|e| *e != Event::Frame)
+        .collect()
+}
+
+const V6_FRACTIONAL: [(&str, u32); 3] = [
+    ("wl_compositor", 6),
+    ("wp_viewporter", 1),
+    ("wp_fractional_scale_manager_v1", 1),
+];
+
+/// **A fractional scale draws a buffer the surface times the scale,
+/// mapped back through the viewport** (`[[source:
+/// wp-fractional-scale-v1]]`): "If a surface has a surface-local size of
+/// 100 px by 50 px and wishes to submit buffers with a scale of 1.5, then
+/// a buffer of 150px by 75 px should be used and the wp_viewport
+/// destination rectangle should be 100 px by 50 px", and "The wl_surface
+/// buffer scale should remain set to 1". A 640 x 408 window at 1.5 is a
+/// 960 x 612 buffer, its destination 640 x 408, no buffer scale sent, the
+/// damage in the buffer's pixels; the destination goes once, and the
+/// next frame of the same size carries nothing of the scale.
+#[test]
+fn a_fraction_draws_the_surface_times_the_scale_through_the_viewport() {
+    let mut t = scaled(&V6_FRACTIONAL, (640, 408), |server, _, fractional, _| {
+        server.send(
+            fractional.unwrap(),
+            "wp_fractional_scale_v1",
+            "preferred_scale",
+            &[Arg::Uint(180)],
+        );
+    });
+    assert_eq!(
+        scaled_events(&mut t.w),
+        [Event::Configured {
+            width: Px(640),
+            height: Px(408)
+        }],
+        "one event for the size and the scale"
+    );
+    assert_eq!(t.w.scale(), BufferScale(180));
+    assert_eq!(t.w.size(), Some((Px(640), Px(408))), "the surface's points");
+    assert_eq!(t.w.buffer_size(), Some((Px(960), Px(612))));
+    let (shown, told) = present_scaled(&mut t, (960, 612));
+    assert_eq!(shown, Presented::Yes);
+    assert_eq!(
+        told,
+        ScaleTold {
+            buffers: vec![(960, 612), (960, 612)],
+            attached: Attached::Yes,
+            buffer_scale: None,
+            destination: Some((640, 408)),
+            damage: vec![[0, 0, 960, 612]],
+        }
+    );
+    let (_, told) = present_scaled(&mut t, (960, 612));
+    assert_eq!(
+        told,
+        ScaleTold {
+            attached: Attached::Yes,
+            damage: vec![[0, 0, 960, 612]],
+            ..ScaleTold::default()
+        },
+        "the destination is sent once"
+    );
+    // A frame at the surface's own size is too small for the buffer.
+    let (shown, _) = present_scaled(&mut t, (640, 408));
+    assert_eq!(shown, Presented::No);
+}
+
+/// **An odd surface at 1.5 rounds its buffer halfway away from zero**:
+/// "For toplevel surfaces, the size is rounded halfway away from zero"
+/// (`[[source: wp-fractional-scale-v1]]`), so 641 x 409 is 961.5 x 613.5,
+/// a 962 x 614 buffer.
+#[test]
+fn an_odd_surface_at_a_fraction_rounds_half_away_from_zero() {
+    let mut t = scaled(&V6_FRACTIONAL, (641, 409), |server, _, fractional, _| {
+        server.send(
+            fractional.unwrap(),
+            "wp_fractional_scale_v1",
+            "preferred_scale",
+            &[Arg::Uint(180)],
+        );
+    });
+    scaled_events(&mut t.w);
+    assert_eq!(t.w.buffer_size(), Some((Px(962), Px(614))));
+    let (_, told) = present_scaled(&mut t, (962, 614));
+    assert_eq!(told.buffers, [(962, 614), (962, 614)]);
+    assert_eq!(told.destination, Some((641, 409)));
+}
+
+/// **A fraction in force is not overruled by the integer scale**, in
+/// either order: sway 1.10 sends `preferred_buffer_scale` 2 beside a
+/// fraction of 1.5 (note BE), and the fraction is the one "the compositor
+/// suggests that the client should use". Before any fraction the integer
+/// scale is drawn, through `set_buffer_scale`; when the fraction comes the
+/// next commit attaches the new buffer with the buffer scale back at one
+/// and the destination set, together. Two scales in one dispatch are one
+/// `Configured`.
+#[test]
+fn a_fraction_wins_over_the_integer_scale_in_either_order() {
+    // The integer scale first, alone: drawn at 2 by its buffer scale.
+    let mut t = scaled(&V6_FRACTIONAL, (640, 408), |server, surface, _, _| {
+        server.send(
+            surface,
+            "wl_surface",
+            "preferred_buffer_scale",
+            &[Arg::Int(2)],
+        );
+    });
+    assert_eq!(scaled_events(&mut t.w).len(), 1);
+    assert_eq!(t.w.scale(), BufferScale(240));
+    let (_, told) = present_scaled(&mut t, (1280, 816));
+    assert_eq!(told.buffers, [(1280, 816), (1280, 816)]);
+    assert_eq!((told.buffer_scale, told.destination), (Some(2), None));
+    // Then the fraction: one event, the buffer at 1.5, the buffer scale
+    // back at one and the destination, with the attach.
+    let fractional = t.fractional.unwrap();
+    t.server.send(
+        fractional,
+        "wp_fractional_scale_v1",
+        "preferred_scale",
+        &[Arg::Uint(180)],
+    );
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(
+        scaled_events(&mut t.w),
+        [Event::Configured {
+            width: Px(640),
+            height: Px(408)
+        }]
+    );
+    assert_eq!(t.w.scale(), BufferScale(180));
+    let (_, told) = present_scaled(&mut t, (960, 612));
+    assert_eq!(told.buffers, [(960, 612), (960, 612)]);
+    assert_eq!(told.attached, Attached::Yes);
+    assert_eq!(
+        (told.buffer_scale, told.destination),
+        (Some(1), Some((640, 408)))
+    );
+    // The integer scale again, after the fraction: nothing changes.
+    t.server.send(
+        t.surface,
+        "wl_surface",
+        "preferred_buffer_scale",
+        &[Arg::Int(3)],
+    );
+    // And the same fraction again: no event either.
+    t.server.send(
+        fractional,
+        "wp_fractional_scale_v1",
+        "preferred_scale",
+        &[Arg::Uint(180)],
+    );
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(scaled_events(&mut t.w), []);
+    assert_eq!(t.w.scale(), BufferScale(180));
+
+    // Both in one dispatch on a configured window, the integer first:
+    // one event, laid out once, at the fraction.
+    let mut t = scaled(&V6_FRACTIONAL, (640, 408), |_, _, _, _| {});
+    assert_eq!(scaled_events(&mut t.w).len(), 1);
+    assert_eq!(t.w.scale(), BufferScale::ONE);
+    t.server.send(
+        t.surface,
+        "wl_surface",
+        "preferred_buffer_scale",
+        &[Arg::Int(2)],
+    );
+    t.server.send(
+        t.fractional.unwrap(),
+        "wp_fractional_scale_v1",
+        "preferred_scale",
+        &[Arg::Uint(180)],
+    );
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(
+        scaled_events(&mut t.w),
+        [Event::Configured {
+            width: Px(640),
+            height: Px(408)
+        }],
+        "one event for the two"
+    );
+    assert_eq!(t.w.scale(), BufferScale(180));
+
+    // Both before the configure, the integer second: one event, the fraction.
+    let mut t = scaled(
+        &V6_FRACTIONAL,
+        (640, 408),
+        |server, surface, fractional, _| {
+            server.send(
+                fractional.unwrap(),
+                "wp_fractional_scale_v1",
+                "preferred_scale",
+                &[Arg::Uint(180)],
+            );
+            server.send(
+                surface,
+                "wl_surface",
+                "preferred_buffer_scale",
+                &[Arg::Int(2)],
+            );
+        },
+    );
+    assert_eq!(scaled_events(&mut t.w).len(), 1);
+    assert_eq!(t.w.scale(), BufferScale(180));
+    assert_eq!(t.w.buffer_size(), Some((Px(960), Px(612))));
+}
+
+/// **Without fractional-scale-v1 the integer scale is the buffer scale**:
+/// from version 6, `preferred_buffer_scale`, the buffer the surface times
+/// it and `set_buffer_scale` sent with that buffer -- "you have to attach
+/// a buffer that is larger (by a factor of scale in each dimension) than
+/// the desired surface size" (`[[source: wayland]]`); no viewport is made
+/// with the viewporter alone. A frame that changed nothing attaches
+/// nothing and sends no buffer scale; one back at scale one sends it once.
+#[test]
+fn the_integer_scale_sets_the_buffer_scale_with_its_buffer() {
+    let mut t = scaled(
+        &[("wl_compositor", 6), ("wp_viewporter", 1)],
+        (640, 408),
+        |server, surface, _, _| {
+            server.send(
+                surface,
+                "wl_surface",
+                "preferred_buffer_scale",
+                &[Arg::Int(2)],
+            );
+        },
+    );
+    assert_eq!(t.viewport, None);
+    assert_eq!(scaled_events(&mut t.w).len(), 1);
+    assert_eq!(t.w.buffer_size(), Some((Px(1280), Px(816))));
+    let (_, told) = present_scaled(&mut t, (1280, 816));
+    assert_eq!(
+        told,
+        ScaleTold {
+            buffers: vec![(1280, 816), (1280, 816)],
+            attached: Attached::Yes,
+            buffer_scale: Some(2),
+            destination: None,
+            damage: vec![[0, 0, 1280, 816]],
+        }
+    );
+    // Nothing changed: the callback alone.
+    let frame = vec![0u32; 1280 * 816];
+    assert_eq!(
+        t.w.present(&mut t.conn.sender(), &frame, 1280, Changed::Strips(&[])),
+        Presented::Yes
+    );
+    t.conn.flush().unwrap();
+    let names: Vec<_> = commit_requests(&mut t.server)
+        .iter()
+        .map(|(i, n, _)| format!("{i}.{n}"))
+        .collect();
+    assert_eq!(names, ["wl_surface.frame", "wl_surface.commit"]);
+    // Back to one.
+    t.server.send(
+        t.surface,
+        "wl_surface",
+        "preferred_buffer_scale",
+        &[Arg::Int(1)],
+    );
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(scaled_events(&mut t.w).len(), 1);
+    assert_eq!(t.w.buffer_size(), Some((Px(640), Px(408))));
+}
+
+/// **Below version 6 the window is drawn at its outputs' scale**:
+/// "It is intended that you pick the same buffer scale as the scale of
+/// the output that the surface is displayed on" (`set_buffer_scale`,
+/// `[[source: wayland]]`), sway 1.7's and weston's way, from
+/// `wl_output.scale` and the surface's `enter` and `leave`.
+#[test]
+fn an_old_compositor_draws_the_window_at_its_outputs_scale() {
+    let mut t = scaled(
+        &[("wl_compositor", 4), ("wl_output", 4)],
+        (640, 408),
+        |_, _, _, _| {},
+    );
+    assert_eq!(scaled_events(&mut t.w).len(), 1);
+    assert_eq!(t.w.scale(), BufferScale::ONE);
+    let output = t.output.expect("the output bound");
+    t.server.send(output, "wl_output", "scale", &[Arg::Int(2)]);
+    t.server.send(output, "wl_output", "done", &[]);
+    t.server
+        .send(t.surface, "wl_surface", "enter", &[Arg::Object(output)]);
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(scaled_events(&mut t.w).len(), 1, "one event for the two");
+    assert_eq!(t.w.scale(), BufferScale(240));
+    let (_, told) = present_scaled(&mut t, (1280, 816));
+    assert_eq!(told.buffers, [(1280, 816), (1280, 816)]);
+    assert_eq!(told.buffer_scale, Some(2));
+    t.server
+        .send(t.surface, "wl_surface", "leave", &[Arg::Object(output)]);
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(scaled_events(&mut t.w).len(), 1);
+    let (_, told) = present_scaled(&mut t, (640, 408));
+    assert_eq!(told.buffers, [(640, 408), (640, 408)]);
+    assert_eq!(told.buffer_scale, Some(1));
+}
+
+/// **A new destination goes with a buffer even when the buffer's size is
+/// the same**: below one -- 60 is a half -- 640 and 639 points are both
+/// 320 pixels, 319.5 rounded away from zero, so a resize to 639 makes no
+/// new pool, and a frame that changed nothing still attaches the buffer
+/// whole with the destination 639 x 408, or the surface would stay 640
+/// points wide. An integer 2 and a fraction of 2 make the same buffer,
+/// and the move from one to the other goes with a buffer too: the buffer
+/// scale back at one and the destination set.
+#[test]
+fn a_new_destination_goes_with_a_buffer_of_the_same_size() {
+    let mut t = scaled(&V6_FRACTIONAL, (640, 408), |server, _, fractional, _| {
+        server.send(
+            fractional.unwrap(),
+            "wp_fractional_scale_v1",
+            "preferred_scale",
+            &[Arg::Uint(60)],
+        );
+    });
+    scaled_events(&mut t.w);
+    assert_eq!(t.w.buffer_size(), Some((Px(320), Px(204))));
+    let (_, told) = present_scaled(&mut t, (320, 204));
+    assert_eq!(told.destination, Some((640, 408)));
+    assert_eq!(t.w.resize(Px(639), Px(408)), Resize::Taken);
+    scaled_events(&mut t.w);
+    assert_eq!(t.w.buffer_size(), Some((Px(320), Px(204))));
+    let frame = vec![0u32; 320 * 204];
+    assert_eq!(
+        t.w.present(&mut t.conn.sender(), &frame, 320, Changed::Strips(&[])),
+        Presented::Yes
+    );
+    t.conn.flush().unwrap();
+    let requests = commit_requests(&mut t.server);
+    let names: Vec<_> = requests
+        .iter()
+        .map(|(i, n, _)| format!("{i}.{n}"))
+        .collect();
+    assert!(
+        names.contains(&"wl_surface.attach".to_string()),
+        "{names:?}"
+    );
+    assert!(
+        requests
+            .iter()
+            .any(|(i, n, a)| (*i, *n) == ("wp_viewport", "set_destination")
+                && matches!(a[..], [Val::Int(639), Val::Int(408)])),
+        "{names:?}"
+    );
+
+    // An integer 2, then a fraction of 2: the same 1280 x 816 buffer.
+    let mut t = scaled(&V6_FRACTIONAL, (640, 408), |server, surface, _, _| {
+        server.send(
+            surface,
+            "wl_surface",
+            "preferred_buffer_scale",
+            &[Arg::Int(2)],
+        );
+    });
+    scaled_events(&mut t.w);
+    let (_, told) = present_scaled(&mut t, (1280, 816));
+    assert_eq!((told.buffer_scale, told.destination), (Some(2), None));
+    t.server.send(
+        t.fractional.unwrap(),
+        "wp_fractional_scale_v1",
+        "preferred_scale",
+        &[Arg::Uint(240)],
+    );
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(t.w.buffer_size(), Some((Px(1280), Px(816))));
+    let frame = vec![0u32; 1280 * 816];
+    assert_eq!(
+        t.w.present(&mut t.conn.sender(), &frame, 1280, Changed::Strips(&[])),
+        Presented::Yes
+    );
+    t.conn.flush().unwrap();
+    let requests = commit_requests(&mut t.server);
+    let at = |name: &str| requests.iter().position(|(_, n, _)| *n == name);
+    assert!(at("attach").is_some(), "the move goes with a buffer");
+    assert!(
+        requests
+            .iter()
+            .any(|(_, n, a)| *n == "set_buffer_scale" && matches!(a[..], [Val::Int(1)]))
+    );
+    assert!(requests.iter().any(
+        |(_, n, a)| *n == "set_destination" && matches!(a[..], [Val::Int(640), Val::Int(408)])
+    ));
+}
+
+/// **A change of size and scale together is one `Configured`**, and the
+/// frame after it one buffer of the new size: a resize the client chose,
+/// in the surface's points, takes the scale in force.
+#[test]
+fn a_resize_at_a_fraction_is_the_new_size_times_the_scale() {
+    let mut t = scaled(&V6_FRACTIONAL, (640, 408), |server, _, fractional, _| {
+        server.send(
+            fractional.unwrap(),
+            "wp_fractional_scale_v1",
+            "preferred_scale",
+            &[Arg::Uint(150)],
+        );
+    });
+    scaled_events(&mut t.w);
+    assert_eq!(t.w.buffer_size(), Some((Px(800), Px(510))));
+    assert_eq!(t.w.resize(Px(320), Px(200)), Resize::Taken);
+    assert_eq!(
+        scaled_events(&mut t.w),
+        [Event::Configured {
+            width: Px(320),
+            height: Px(200)
+        }]
+    );
+    assert_eq!(t.w.buffer_size(), Some((Px(400), Px(250))));
+    let (_, told) = present_scaled(&mut t, (400, 250));
+    assert_eq!(told.buffers, [(400, 250), (400, 250)]);
+    assert_eq!(told.destination, Some((320, 200)));
+    let _ = (t.top, t.xdg);
 }

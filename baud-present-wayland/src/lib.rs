@@ -4,7 +4,9 @@
 //! `fifo-v1` and `commit-timing-v1` and shown torn on request through
 //! `tearing-control-v1`, each where the compositor offers it (`timing.rs`),
 //! the pointer a frame at a time with its shape through `cursor-shape-v1`
-//! or, without it, an image of its own (`cursor.rs`), the clipboard and the
+//! or, without it, an image of its own (`cursor.rs`), the frame drawn at
+//! the scale the compositor prefers, a fraction through `wp_viewport`
+//! (`scale.rs`), the clipboard and the
 //! primary selection (`clip.rs`), an input method through `text-input-v3`
 //! (`ime.rs`), Compose sequences and dead keys (`compose.rs`), and the
 //! keyboard through `baud-xkb` -- the register's D13 for Linux, CPU
@@ -24,6 +26,7 @@ pub mod damage;
 pub mod ime;
 pub mod keys;
 pub mod pointer;
+pub mod scale;
 pub mod shm;
 pub mod sys;
 pub mod timing;
@@ -34,6 +37,7 @@ pub use damage::{Changed, Strip};
 pub use ime::{ByteAt, CursorAt, CursorRect, Hint, Hinted, Preedit, PreeditCursor};
 pub use keys::Shortcut;
 pub use pointer::{At, Button, CursorShape, EventCode, PointerEvent, Press, Scroll};
+pub use scale::BufferScale;
 pub use shm::{Pool, Px};
 pub use timing::{ClockId, Presentation, Stamp, Unseen};
 pub use window::{

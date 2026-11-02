@@ -1,0 +1,146 @@
+# scripts/linux-pointer.sh at the scales the window is drawn at: sway 1.10.1 (trixie) at 1, 2 and 1.5, and sway 1.7 (bookworm) at 2 and 1.5
+
+# trixie, scale 1
+
+## the compositor
+sway version 1.10.1
+interface: 'wl_compositor', version: 6
+interface: 'wp_viewporter', version: 1
+interface: 'wp_fractional_scale_manager_v1', version: 1
+interface: 'wp_cursor_shape_manager_v1', version: 1
+interface: 'zwp_virtual_keyboard_manager_v1', version: 1
+interface: 'zwlr_virtual_pointer_manager_v1', version: 2
+interface: 'wl_seat', version: 9
+interface: 'zwp_primary_selection_device_manager_v1', version: 1
+interface: 'wl_output', version: 4
+output HEADLESS-1 resolution 1024x768 position 0 0 scale 1
+for_window [app_id="org.baud.terminal"] floating enable, resize set 640 408, move position 0 0
+
+## the checks at the scale
+ok      at scale 1, the edges: 1;1, the last cell three ways, the one before twice, pixels: [^[[<0;1;1M^[[<0;1;1m^[[<0;80;24M^[[<0;80;24m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;1;1M^[[<0;1;1m^[[<0;640;408M^[[<0;640;408m]
+ok      at scale 1, the window drawn at 1: its buffer: [surface window attach 640x408]
+ok      at scale 1, the buffer scale left at one: []
+ok      at scale 1, the buffer through the viewport: [surface window destination 640x408]
+ok      at scale 1, no buffer size drawn twice: []
+
+## the window: its buffers, buffer scales and destinations, and the scales sent
+surface window attach 800x600
+surface window fractional_scale 120
+surface window preferred_buffer_scale 1
+surface window attach 640x408
+surface window destination 640x408
+
+# bookworm, scale 2
+
+## the compositor
+sway version 1.7
+interface: 'wl_compositor', version: 4
+interface: 'zwp_primary_selection_device_manager_v1', version: 1
+interface: 'wp_viewporter', version: 1
+interface: 'zwp_virtual_keyboard_manager_v1', version: 1
+interface: 'zwlr_virtual_pointer_manager_v1', version: 2
+interface: 'wl_seat', version: 7
+interface: 'wl_output', version: 4
+output HEADLESS-1 resolution 2048x1536 position 0 0 scale 2
+for_window [app_id="org.baud.terminal"] floating enable, resize set 640 408, move position 0 0
+
+## the checks at the scale
+ok      at scale 2, the edges: 1;1, the last cell three ways, the one before twice, pixels: [^[[<0;1;1M^[[<0;1;1m^[[<0;80;24M^[[<0;80;24m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;1;1M^[[<0;1;1m^[[<0;1279;815M^[[<0;1279;815m]
+ok      at scale 2, the window drawn at 2: its buffer: [surface window attach 1280x816]
+ok      at scale 2, the buffer scale 2: [surface window buffer_scale 2]
+ok      at scale 2, no viewport: []
+ok      at scale 2, no buffer size drawn twice: []
+
+## the window: its buffers, buffer scales and destinations, and the scales sent
+surface window attach 800x600
+surface window attach 640x408
+surface window attach 1280x816
+surface window buffer_scale 2
+
+# trixie, scale 2
+
+## the compositor
+sway version 1.10.1
+interface: 'wl_compositor', version: 6
+interface: 'wp_viewporter', version: 1
+interface: 'wp_fractional_scale_manager_v1', version: 1
+interface: 'wp_cursor_shape_manager_v1', version: 1
+interface: 'zwp_virtual_keyboard_manager_v1', version: 1
+interface: 'zwlr_virtual_pointer_manager_v1', version: 2
+interface: 'wl_seat', version: 9
+interface: 'zwp_primary_selection_device_manager_v1', version: 1
+interface: 'wl_output', version: 4
+output HEADLESS-1 resolution 2048x1536 position 0 0 scale 2
+for_window [app_id="org.baud.terminal"] floating enable, resize set 640 408, move position 0 0
+
+## the checks at the scale
+ok      at scale 2, the edges: 1;1, the last cell three ways, the one before twice, pixels: [^[[<0;1;1M^[[<0;1;1m^[[<0;80;24M^[[<0;80;24m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;1;1M^[[<0;1;1m^[[<0;1279;815M^[[<0;1279;815m]
+ok      at scale 2, the window drawn at 2: its buffer: [surface window attach 1280x816]
+ok      at scale 2, the buffer scale left at one: []
+ok      at scale 2, the buffer through the viewport: [surface window destination 640x408]
+ok      at scale 2, no buffer size drawn twice: []
+
+## the window: its buffers, buffer scales and destinations, and the scales sent
+surface window attach 800x600
+surface window fractional_scale 240
+surface window preferred_buffer_scale 2
+surface window attach 1280x816
+surface window destination 640x408
+
+# bookworm, scale 1.5
+
+## the compositor
+sway version 1.7
+interface: 'wl_compositor', version: 4
+interface: 'zwp_primary_selection_device_manager_v1', version: 1
+interface: 'wp_viewporter', version: 1
+interface: 'zwp_virtual_keyboard_manager_v1', version: 1
+interface: 'zwlr_virtual_pointer_manager_v1', version: 2
+interface: 'wl_seat', version: 7
+interface: 'wl_output', version: 4
+output HEADLESS-1 resolution 1536x1152 position 0 0 scale 1.5
+for_window [app_id="org.baud.terminal"] floating enable, resize set 640 416, move position 0 0
+
+## the checks at the scale
+ok      at scale 1.5, the edges: 1;1, the last cell three ways, the one before twice, pixels: [^[[<0;1;1M^[[<0;1;1m^[[<0;80;24M^[[<0;80;24m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;1;1M^[[<0;1;1m^[[<0;1279;816M^[[<0;1279;816m]
+ok      at scale 1.5, the window drawn at 2: its buffer: [surface window attach 1280x832]
+ok      at scale 1.5, the buffer scale 2: [surface window buffer_scale 2]
+ok      at scale 1.5, no viewport: []
+ok      at scale 1.5, no buffer size drawn twice: []
+
+## the window: its buffers, buffer scales and destinations, and the scales sent
+surface window attach 800x600
+surface window attach 640x416
+surface window attach 1280x832
+surface window buffer_scale 2
+
+# trixie, scale 1.5
+
+## the compositor
+sway version 1.10.1
+interface: 'wl_compositor', version: 6
+interface: 'wp_viewporter', version: 1
+interface: 'wp_fractional_scale_manager_v1', version: 1
+interface: 'wp_cursor_shape_manager_v1', version: 1
+interface: 'zwp_virtual_keyboard_manager_v1', version: 1
+interface: 'zwlr_virtual_pointer_manager_v1', version: 2
+interface: 'wl_seat', version: 9
+interface: 'zwp_primary_selection_device_manager_v1', version: 1
+interface: 'wl_output', version: 4
+output HEADLESS-1 resolution 1536x1152 position 0 0 scale 1.5
+for_window [app_id="org.baud.terminal"] floating enable, resize set 640 416, move position 0 0
+
+## the checks at the scale
+ok      at scale 1.5, the edges: 1;1, the last cell three ways, the one before twice, pixels: [^[[<0;1;1M^[[<0;1;1m^[[<0;80;24M^[[<0;80;24m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;80;24M^[[<0;80;24m^[[<0;79;23M^[[<0;79;23m^[[<0;1;1M^[[<0;1;1m^[[<0;959;623M^[[<0;959;623m]
+ok      at scale 1.5, the window drawn at 1.5: its buffer: [surface window attach 960x624]
+ok      at scale 1.5, the buffer scale left at one: []
+ok      at scale 1.5, the buffer through the viewport: [surface window destination 640x416]
+ok      at scale 1.5, no buffer size drawn twice: []
+ok      at scale 1.5, no frame at the integer scale 2: []
+
+## the window: its buffers, buffer scales and destinations, and the scales sent
+surface window attach 800x600
+surface window fractional_scale 180
+surface window preferred_buffer_scale 2
+surface window attach 960x624
+surface window destination 640x416

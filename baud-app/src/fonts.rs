@@ -341,10 +341,10 @@ pub enum Zoom {
     Reset,
 }
 
-/// How far one zoom step moves the size: one of the configured size's
-/// units on both systems -- a point on macOS, a pixel on Linux, which has
-/// no backing scale yet -- so the same presses reach the same `font_size`
-/// (rather than foot's half point).
+/// How far one zoom step moves the size: one point on both systems -- on
+/// Linux drawn at the pixels of the scale its compositor prefers, as on
+/// macOS at the backing scale -- so the same presses reach the same
+/// `font_size` (rather than foot's half point).
 pub const ZOOM_STEP: f32 = 1.0;
 
 /// **The size a zoom step from `at` lands on**: a point up or down, within

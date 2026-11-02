@@ -13,8 +13,8 @@
 //! **What the index means**, xterm's font menu being one baud has not:
 //! entry 0 is the configured size, `#+n` and `#-n` step the size `n`
 //! points within 6-72, a step past them refused where the View menu's
-//! Bigger and Smaller clamp, and on Linux, which has no size keys, `n` of
-//! the configured pixel size; entries 1-7 are none; a query of a relative
+//! Bigger and Smaller clamp, on Linux too, drawn at the pixels of the
+//! scale the desktop asks for; entries 1-7 are none; a query of a relative
 //! step names no numbered entry and gets xterm's empty reply.
 
 use baud_domain::{

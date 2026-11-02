@@ -222,8 +222,9 @@ pub fn set_up_term<'t>(
         cell_px(renderer.metrics().cell_w),
         cell_px(renderer.metrics().cell_h),
     );
-    // The window binds no fractional-scale global, so a point is a pixel:
-    // what `OSC 1337 ; ReportCellSize` divides by.
+    // A point is a pixel until the compositor says a scale: what `OSC 1337
+    // ; ReportCellSize` divides by, told again when the window's scale
+    // changes (`linux.rs`'s `configure`).
     term.set_backing_scale(baud_domain::BackingScale::of(1.0));
     term.set_sixel_claim(cfg.sixel);
     crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);

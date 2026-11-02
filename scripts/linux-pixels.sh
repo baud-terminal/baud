@@ -24,6 +24,13 @@
 #                   and desktop-shell, taken by weston-screenshooter once
 #                   the frame has settled
 #
+# Each fixture is drawn at a scale of one, and three again at two: weston's
+# output at scale 2, which the app reads from wl_output.scale and draws at,
+# its buffer twice the window's points with set_buffer_scale 2, and the
+# benches at PIXELS_SCALE=2, the 13-point font at 26 pixels. The window is
+# 800x600 points at both, so its grid is 100x35 at both: 8x17 cells and
+# 16x34.
+#
 # and three comparisons: mac against linux (the renderer on two systems),
 # linux composited over black against the screenshot (the driver, the
 # premultiply and the compositor), and a control fixture -- the screen
@@ -44,17 +51,22 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 out=${1:?usage: scripts/linux-pixels.sh <outdir>}
 mkdir -p "$out"/streams "$out"/mac "$out"/linux "$out"/shot "$out"/diff
 out=$(cd "$out" && pwd)
-image=baud-linux-pixels
+# BAUD_PIXELS_TAG names the image and volumes it makes (by default
+# baud-linux-pixels), so two runs on one engine keep apart.
+image=${BAUD_PIXELS_TAG:-baud-linux-pixels}
 py="python3 $root/scripts/linux-pixels.py"
 
-# name, recording under tests/recordings (or "control"), grid
+# name, recording under tests/recordings (or "control"), grid, scale
 fixtures="
-less-pager ascii/less-pager.raw 100x35
-cat-cjk utf8/cat-cjk.raw 100x35
-vim-unicode utf8/vim-unicode.raw 100x35
-btop utf8/btop.raw 100x35
-swirl sixel/swirl.raw 100x35
-control control 100x35
+less-pager ascii/less-pager.raw 100x35 1
+cat-cjk utf8/cat-cjk.raw 100x35 1
+vim-unicode utf8/vim-unicode.raw 100x35 1
+btop utf8/btop.raw 100x35 1
+swirl sixel/swirl.raw 100x35 1
+control control 100x35 1
+less-pager-x2 ascii/less-pager.raw 100x35 2
+cat-cjk-x2 utf8/cat-cjk.raw 100x35 2
+control-x2 control 100x35 2
 "
 
 # The control: the page cleared to rgb(185, 37, 105), which the app
@@ -63,8 +75,9 @@ control control 100x35
 # read one less on all three.
 control=$'\033[48;2;185;37;105m\033[2J\033[?25l'
 
-echo "$fixtures" | while read -r name rec ws; do
+echo "$fixtures" | while read -r name rec ws scale; do
   [ -n "$name" ] || continue
+  echo "$scale" >"$out/streams/$name.scale"
   if [ "$rec" = control ]; then
     printf '%s' "$control" >"$out/streams/$name.bin"
   else
@@ -95,8 +108,8 @@ if [ "$there" != "$toolchain" ]; then
   exit 1
 fi
 
-docker volume create baud-linux-pixels-target >/dev/null
-docker volume create baud-linux-pixels-registry >/dev/null
+docker volume create "$image-target" >/dev/null
+docker volume create "$image-registry" >/dev/null
 
 # Inside: build, then each fixture through the bench and through the app
 # under a weston of its own. weston's desktop-shell leaves a window's size
@@ -124,10 +137,13 @@ cp "$mono" /io/faces/
 export XDG_RUNTIME_DIR=/tmp/xdg && mkdir -p -m 0700 $XDG_RUNTIME_DIR
 printf '[launch]\nsplash = "off"\n' > /tmp/baud.toml
 printf '[shell]\npanel-position=none\nbackground-color=0xff000000\nlocking=false\nanimation=none\nstartup-animation=none\n' > /tmp/weston.ini
-start_weston() {
+# The headless backend's width and height are the output's points: at
+# --scale=2 an 800x600 output is 1600x1200 pixels, and its screenshot too.
+start_weston() { # width and height in points, scale
   rm -f $XDG_RUNTIME_DIR/wayland-1*
   weston --config=/tmp/weston.ini --backend=headless-backend.so --use-pixman \
-    --width="$1" --height="$2" --shell=desktop-shell.so --debug \
+    --width="$1" --height="$2" --scale="${3:-1}" \
+    --shell=desktop-shell.so --debug \
     --socket=wayland-1 --idle-time=0 >/tmp/weston.log 2>&1 &
   WESTON=$!
   for _ in $(seq 100); do [ -S $XDG_RUNTIME_DIR/wayland-1 ] && break; sleep 0.1; done
@@ -143,9 +159,10 @@ shoot() {
 for s in /io/streams/*.bin; do
   n=$(basename "$s" .bin)
   ws=$(cat /io/streams/$n.ws)
-  PIXELS_WS=$ws PIXELS_FACES=$mono \
+  sc=$(cat /io/streams/$n.scale)
+  PIXELS_WS=$ws PIXELS_FACES=$mono PIXELS_SCALE=$sc \
     cargo bench -q -p baud-bench --bench pixels -- "$s" /io/linux/$n.pam
-  start_weston 800 600
+  start_weston 800 600 "$sc"
   # The child waits for the window's grid, so no byte is drawn at the
   # 80x24 the pty is spawned at and then reflowed; then raw, so the tty
   # passes the bytes as they are: no LF made CR LF, no answer to a query
@@ -227,24 +244,24 @@ INNER
 )
 tar -C "$out" -c streams |
   docker run --rm -i -v "$root":/src:ro \
-    -v baud-linux-pixels-target:/target \
-    -v baud-linux-pixels-registry:/usr/local/cargo/registry \
+    -v "$image-target":/target \
+    -v "$image-registry":/usr/local/cargo/registry \
     "$image" bash -c "$inner" 2>"$out/container.log" |
   tar -C "$out" -x
 
 # The Mac arm, on the same faces: the system face the container's stack
 # found is read from the copy it sent out.
-echo "$fixtures" | while read -r name rec ws; do
+echo "$fixtures" | while read -r name rec ws scale; do
   [ -n "$name" ] || continue
-  PIXELS_WS=$ws PIXELS_FACES="$out/faces/DejaVuSansMono.ttf" \
+  PIXELS_WS=$ws PIXELS_SCALE=$scale PIXELS_FACES="$out/faces/DejaVuSansMono.ttf" \
     cargo bench -q -p baud-bench --bench pixels -- \
     "$out/streams/$name.bin" "$out/mac/$name.pam"
 done
 
 # The comparisons.
-echo "$fixtures" | while read -r name rec ws; do
+echo "$fixtures" | while read -r name rec ws scale; do
   [ -n "$name" ] || continue
-  echo "== $name ($ws)"
+  echo "== $name ($ws, scale $scale)"
   printf 'mac against linux, the bench: '
   if cmp -s "$out/mac/$name.pam" "$out/linux/$name.pam"; then
     echo identical
@@ -264,8 +281,9 @@ done
 # The control's one value, computed here and not read from either arm:
 # rgb(185, 37, 105) at the dark dim's alpha, round(0.70 * 255) = 179,
 # premultiplied over black and rounded.
-printf 'the control holds one value, (130, 26, 74), everywhere: '
-python3 - "$out/shot/control.grid.pam" "$root/scripts/linux-pixels.py" <<'EOF'
+for c in control control-x2; do
+  printf 'the %s holds one value, (130, 26, 74), everywhere: ' "$c"
+  python3 - "$out/shot/$c.grid.pam" "$root/scripts/linux-pixels.py" <<'EOF'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("lp", sys.argv[2])
 lp = importlib.util.module_from_spec(spec)
@@ -276,5 +294,6 @@ truncated = bytes([c * 179 // 255 for c in (185, 37, 105)] + [255])
 assert want == bytes([130, 26, 74, 255]) and truncated == bytes([129, 25, 73, 255])
 print("yes" if p == bytearray(want * (w * h)) else "no")
 EOF
+done
 echo "== clipboard"
 cat "$out/clip/result.txt"

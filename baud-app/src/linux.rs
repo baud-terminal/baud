@@ -50,12 +50,22 @@
 //! `appearance.rs`). The portal has no transparency key, so the dim stays
 //! the half's.
 //!
+//! **The frame is drawn at the scale the compositor prefers**, as the
+//! macOS app draws at its backing scale (`baud_present_wayland::scale`): a
+//! fraction through `wp-fractional-scale-v1` and `wp_viewporter`, else the
+//! integer `preferred_buffer_scale` or the outputs' scale. The font keeps
+//! its size in points and is drawn at the pixels the scale gives it, the
+//! grid laid out again in the frame's pixels when the scale changes, and
+//! the pointer's points are mapped to cells at it (`seat.rs`). Under sway's
+//! headless backend at 1, 1.5 and 2 the window's buffer, its scale and
+//! the cells a click lands on are read off the compositor
+//! (`scripts/linux-pointer.sh`, note BE).
+//!
 //! What the macOS app has and this does not, yet: the GPU paths, and with
 //! them the smooth-scroll slide, which only the cell path draws -- the CPU
 //! path this paints on jumps; the system caret's rate (this keeps 333 ms a
-//! phase until the desktop's settings are read); a backing scale other
-//! than one -- the window binds no fractional-scale global; and the report
-//! every five seconds.
+//! phase until the desktop's settings are read); and the report every five
+//! seconds.
 //!
 //! **The pointer is the macOS app's, through the same rules** (`seat.rs`):
 //! the wheel over the history, the alternate screen's cursor keys and a
@@ -94,7 +104,7 @@ use baud_core::{Focus, Owned, PointerHides, Resized, Term};
 use baud_domain::{Cols, DecodeProgress, Rows, WinSize};
 use baud_font::Px;
 use baud_present_wayland::{
-    Board, Changed, Copied, Event, PointerEvent, Presented, Shaped, Window,
+    Board, BufferScale, Changed, Copied, Event, PointerEvent, Presented, Shaped, Window,
 };
 use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Target};
 use baud_wayland::Connection;
@@ -145,13 +155,17 @@ struct Driver {
     term: Term<'static>,
     renderer: Renderer<'static, 'static>,
     /// The faces a program's `OSC 50` can name (`fonts.rs`), the size in
-    /// force and the config's, in the pixels this driver draws at, and
-    /// the window's last configured size, which a change of font re-lays
-    /// the grid in.
+    /// force and the config's, in points, and the window's last configured
+    /// size, in the surface's points, which a change of font re-lays the
+    /// grid in.
     fonts: crate::fonts::Fonts,
     font_size: f32,
     font_base: f32,
     configured: Option<(baud_present_wayland::Px, baud_present_wayland::Px)>,
+    /// The scale the frame is laid out and drawn at, the window's when it
+    /// was last configured: the font's pixels a point, and the frame's
+    /// pixels to the surface's point that a pointer's position is read at.
+    scale: BufferScale,
     /// The status line's rows as the window was last laid out for them
     /// (`Term::status_rows`, `App::status_line`).
     status_rows: Rows,
@@ -331,19 +345,20 @@ struct Reloading {
 
 /// **The scrollbar's share of a pointer event** (`bar.rs`), after DEC's
 /// locator: at the position the seat last had for a press or a release,
-/// a move a drag while a button is down.
+/// a move a drag while a button is down, its points `scale` pixels each.
 fn thumb(
     timed: &mut crate::timed::Timed,
     renderer: &Renderer<'_, '_>,
     pending: &mut Pending,
     term: &mut Term<'_>,
     beside: crate::seat::Beside,
+    scale: f64,
 ) -> crate::bar::Took {
     let strip = f64::from(renderer.strip().value());
-    let Some(e) = crate::bar::event_beside(beside, strip) else {
+    let Some(e) = crate::bar::event_beside(beside, strip, scale) else {
         return crate::bar::Took::No;
     };
-    let f = bar_frame(renderer);
+    let f = bar_frame(renderer, scale);
     let now = timed.clock.host(Instant::now());
     let (took, owes) = timed.bar.input(term, e, f, now);
     if owes == crate::bar::Owes::Frame {
@@ -352,12 +367,13 @@ fn thumb(
     took
 }
 
-/// The frame the thumb is drawn in: the grid's, at a scale of one.
-fn bar_frame(renderer: &Renderer<'_, '_>) -> crate::bar::Frame {
+/// The frame the thumb is drawn in: the grid's, its widths AppKit's points
+/// at `scale` pixels each, as the macOS app's are.
+fn bar_frame(renderer: &Renderer<'_, '_>, scale: f64) -> crate::bar::Frame {
     crate::bar::Frame {
         size: renderer.frame_size(),
         cell_h: renderer.metrics().cell_h,
-        widths: crate::reveal::widths(crate::reveal::Scale(1.0)),
+        widths: crate::reveal::widths(crate::reveal::Scale(scale)),
     }
 }
 
@@ -560,6 +576,7 @@ pub fn run() {
         font_size: cfg.font_size,
         font_base: cfg.font_size,
         configured: None,
+        scale: BufferScale::ONE,
         status_rows: Rows::ZERO,
         pty,
         outbox: Outbox::default(),
@@ -1323,7 +1340,7 @@ impl Driver {
             mods,
             g,
             |b| outbox.push(b),
-            |term, beside| thumb(timed, renderer, pending, term, beside),
+            |term, beside| thumb(timed, renderer, pending, term, beside, g.scale),
         );
         // The wheel that moved the window over the history reveals the
         // thumb, as AppKit's does.
@@ -1334,7 +1351,7 @@ impl Driver {
         // pointer's shape for it: over the scrollbar's strip while it takes
         // a left press, a click scrolls and opens nothing.
         let now = self.timed.clock.host(Instant::now());
-        let f = bar_frame(&self.renderer);
+        let f = bar_frame(&self.renderer, g.scale);
         let left = self.timed.bar.left_press(&self.term, f, now);
         let pressed = self.seat.hover_press(left);
         let host = crate::link::Host(&self.host);
@@ -1394,7 +1411,8 @@ impl Driver {
         }
     }
 
-    /// The cell and grid geometry the seat reads pointer positions in.
+    /// The cell and grid geometry the seat reads pointer positions in, and
+    /// the scale they are read at.
     fn seat_geometry(&self) -> crate::seat::Geometry {
         let m = self.renderer.metrics();
         let (cols, rows) = self.term.geometry();
@@ -1405,7 +1423,15 @@ impl Driver {
                 u16::try_from(cols.index()).unwrap_or(u16::MAX),
                 u16::try_from(rows.index()).unwrap_or(u16::MAX),
             ),
+            scale: self.scale.factor(),
         }
+    }
+
+    /// **The font's pixel size at `points`**: the points times the scale
+    /// the frame is drawn at, as the macOS driver sizes its font at the
+    /// backing scale.
+    fn font_px(&self, points: f32) -> Option<PxSize> {
+        PxSize::of(points * self.scale.factor() as f32)
     }
 
     /// **The modifiers changed**: Ctrl pressed or let go over a link shows
@@ -1697,7 +1723,7 @@ impl Driver {
     /// as the macOS driver's `follow_gaps` takes them: this driver paints on
     /// this thread, so nothing is reading the atlas.
     fn follow_gaps(&mut self) {
-        let Some(px) = PxSize::of(self.font_size) else {
+        let Some(px) = self.font_px(self.font_size) else {
             return;
         };
         match crate::host::follow_gaps(&mut self.renderer, &mut self.fonts, px) {
@@ -1925,7 +1951,7 @@ impl Driver {
     /// `points`, as the macOS driver's `reload_fonts` does.
     fn reload_fonts(&mut self, c: &Config, points: f32) -> Result<(), String> {
         let resolved = c.clone().resolved();
-        let px = PxSize::of(points).ok_or("no size")?;
+        let px = self.font_px(points).ok_or("no size")?;
         let given = crate::host::refont(&mut self.renderer, &mut self.fonts, &resolved, px)?;
         crate::info!("{}", crate::host::given_back(given));
         self.font_size = points;
@@ -2268,6 +2294,7 @@ impl Driver {
                 baud_present_wayland::Shown::FullScreen => Shown::FullScreen,
             },
             cell: (m.cell_w.value(), m.cell_h.value()),
+            scale: crate::surface::Scale120(self.scale.0),
             grid: crate::width::Grid::of(&self.term),
             status: self.term.status_rows(),
             marks: self.renderer.status_marks(),
@@ -2343,6 +2370,7 @@ impl Driver {
             bounds: self.window.bounds().map(|(bw, bh)| (bw.0, bh.0)),
             shown,
             cell: (m.cell_w.value(), m.cell_h.value()),
+            scale: crate::surface::Scale120(self.scale.0),
             grid: crate::width::Grid::of(&self.term),
             status: now,
             marks: self.renderer.status_marks(),
@@ -2380,7 +2408,7 @@ impl Driver {
         if points == self.font_size && face.is_none() {
             return;
         }
-        let Some(px) = PxSize::of(points) else {
+        let Some(px) = self.font_px(points) else {
             return;
         };
         let done = match face {
@@ -2402,11 +2430,33 @@ impl Driver {
         }
     }
 
-    /// The compositor's size for the window: the grid that fits it, the
-    /// core and the renderer resized to that, a fresh frame at the
-    /// window's size, and the child told.
+    /// The compositor's size for the window, in the surface's points, or a
+    /// new scale to draw it at: the font at the scale's pixels, the grid
+    /// that fits the frame, the core and the renderer resized to that, a
+    /// fresh frame at the frame's size, and the child told.
     fn configure(&mut self, width: baud_present_wayland::Px, height: baud_present_wayland::Px) {
         self.configured = Some((width, height));
+        // **A new scale is a new pixel size for the font**, its size in
+        // points kept, as the macOS driver's `resized` takes a new backing
+        // scale: the renderer rescaled, and the points `OSC 1337 ;
+        // ReportCellSize` answers in follow it.
+        let scale = self.window.scale();
+        if scale != self.scale {
+            self.scale = scale;
+            match self.font_px(self.font_size) {
+                Some(px) if self.renderer.rescale(px).is_some() => {}
+                _ => crate::warn!(
+                    "the font did not rescale to {} pixels a point; it stays as it was",
+                    scale.factor()
+                ),
+            }
+            self.term
+                .set_backing_scale(baud_domain::BackingScale::of(scale.factor()));
+            crate::info!("scale: {} pixels a point", scale.factor());
+        }
+        // The frame: the surface's points at the scale, rounded halfway
+        // away from zero, as the window's buffer is (`Window::buffer_size`).
+        let (width, height) = (scale.buffer(width), scale.buffer(height));
         let m = self.renderer.metrics();
         // The core advances the cursor past a Sixel by cell rows: give it the
         // height. Set on every configure, which is where a cell size could
@@ -2414,12 +2464,13 @@ impl Driver {
         self.term
             .set_cell_size(cell_px(m.cell_w), cell_px(m.cell_h));
         // XTWINOPS's window size, `CSI 14 ; 2 t`: the surface the
-        // compositor configured, which is the whole window -- nothing here
-        // asks for server-side decorations, so none frame it. The rest is
-        // not known: xdg-shell tells a client neither its position nor
-        // whether it is minimized, and the outputs the window crate binds
-        // say only their scale, so those reports stay silent rather than
-        // guessed.
+        // compositor configured, which is the whole window, in the frame's
+        // pixels, as the macOS driver reports its window in device pixels
+        // -- nothing here asks for server-side decorations, so none frame
+        // it. The rest is not known: xdg-shell tells a client neither its
+        // position nor whether it is minimized, and the outputs the window
+        // crate binds say only their scale, so those reports stay silent
+        // rather than guessed.
         self.term.set_window(baud_core::WindowFacts {
             window: Some(baud_core::PixelSize {
                 width: baud_core::ImagePx::of(u16::try_from(width.0).unwrap_or(u16::MAX)),
@@ -2525,11 +2576,12 @@ impl Driver {
         self.renderer.set_cursor_blink(caret);
         // The selection's share of the view, or `?1001`'s region.
         self.renderer.set_highlight(self.seat.highlight(&self.term));
-        // iTerm2's cursor guide: what a program set, else `[cursor] guide`;
-        // a point is a pixel here.
+        // iTerm2's cursor guide: what a program set, else `[cursor] guide`,
+        // its one point at the scale's pixels.
+        let scale = self.scale.factor();
         let guide = self.term.cursor_guide().unwrap_or(self.cursor_guide);
         self.renderer
-            .set_cursor_guide(crate::effects::guide_look(guide, 1.0));
+            .set_cursor_guide(crate::effects::guide_look(guide, scale));
         // A `selection` the badge names reads what a copy would copy.
         let selection = || self.seat.selected_text(&self.term);
         let page = self.renderer.background_of(&self.term);
@@ -2539,7 +2591,7 @@ impl Driver {
             &self.session,
             &selection,
             page,
-            1.0,
+            scale,
         );
         self.renderer.set_badge(badge);
         // The find field and every match's mark, on the window drawn, and
@@ -2583,18 +2635,22 @@ impl Driver {
             }
         };
         self.renderer.set_composition(composition);
-        let px = |p: Px| baud_present_wayland::Px(p.value());
-        // In the surface's pixels: the grid begins past the exit-status
-        // strip.
-        let rect = rect.map(|r| crate::marked::in_frame(r, (self.renderer.strip(), Px::of(0))));
+        // In the surface's points, "surface local coordinates": the grid
+        // begins past the exit-status strip, and the frame's pixels are
+        // the scale's a point (`surface.rs`).
+        let rect = rect.map(|r| {
+            let r = crate::marked::in_frame(r, (self.renderer.strip(), Px::of(0)));
+            crate::surface::Scale120(self.scale.0).cover(r)
+        });
+        let point = |p: crate::surface::Points| baud_present_wayland::Px(p.0);
         if let Some([x, y, w, h]) = rect {
             self.window.set_text_cursor(
                 &mut self.conn.sender(),
                 baud_present_wayland::CursorRect {
-                    x: px(x),
-                    y: px(y),
-                    width: px(w),
-                    height: px(h),
+                    x: point(x),
+                    y: point(y),
+                    width: point(w),
+                    height: point(h),
                 },
             );
         }
@@ -2603,7 +2659,7 @@ impl Driver {
         let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
         let cell = crate::timed::Cell {
             px: (side(m.cell_w), side(m.cell_h)),
-            height: baud_render::Points(side(m.cell_h)),
+            height: baud_render::Points(side(m.cell_h) / scale as f32),
         };
         let renderer = &self.renderer;
         let plan = self.timed.plan(
@@ -2611,7 +2667,7 @@ impl Driver {
             &self.term,
             |r, c, style| renderer.cursor_rect(r, c, style),
             cell,
-            crate::reveal::widths(crate::reveal::Scale(1.0)),
+            crate::reveal::widths(crate::reveal::Scale(scale)),
         );
         self.renderer.set_scrollbar(plan.scroll);
         // The thumb this frame draws decides who a left press goes to, so
@@ -2620,7 +2676,7 @@ impl Driver {
         let left = self
             .timed
             .bar
-            .left_press(&self.term, bar_frame(&self.renderer), now);
+            .left_press(&self.term, bar_frame(&self.renderer, scale), now);
         if self.seat.hover_press(left) {
             self.show_pointer();
         }

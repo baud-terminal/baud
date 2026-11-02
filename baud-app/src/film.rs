@@ -199,6 +199,7 @@ impl Stage {
             pad: (PAD.value() + self.renderer.strip().value(), PAD.value()),
             cell: (f64::from(m.cell_w.value()), f64::from(m.cell_h.value())),
             grid: (grid.ws_col, grid.ws_row),
+            scale: 1.0,
         }
     }
 }
