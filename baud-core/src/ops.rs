@@ -708,15 +708,21 @@ impl Paint<'_, '_> {
         let b = &self.book;
         let lo = b.top.minus(b.hist).unwrap_or(LineIdx::FIRST);
         let hi = b.top.plus(self.rows).plus(b.hidden);
-        self.images.expire(ImageScreen::Primary, lo, hi, blanked);
+        self.images
+            .expire(ImageScreen::Primary, lo, hi, blanked, BelowWindow::Goes);
     }
 
     /// **The alternate screen's images after its window moved one row.** It
-    /// keeps no history, so a row that leaves the window leaves the screen,
-    /// and an image goes with the last of its rows; one on the row the scroll
-    /// blanked goes too. Its top line is kept only while an image is placed
-    /// or an SPA is open, which is when this runs: an open SPA's start is a
-    /// line in its numbering.
+    /// keeps no history, so a row that leaves the window's top leaves the
+    /// screen, and an image goes with the last of its rows; a Sixel's, a
+    /// ReGIS page's or an embedder's on the row the scroll blanked goes too,
+    /// and so does one a reverse scroll pushed off the bottom. A kitty
+    /// picture pushed off the bottom stays, and a full-screen line feed at
+    /// the bottom brings it back, as kitty's does (`ImageStore::expire`); a
+    /// scroll inside margins leaves it on its screen row
+    /// (`ImageStore::put_back_band`). Its top line is kept only while an
+    /// image is placed or an SPA is open, which is when this runs: an open
+    /// SPA's start is a line in its numbering.
     #[cold]
     #[inline(never)]
     pub(crate) fn alt_images_moved(&mut self, way: Scroll) {
@@ -750,8 +756,13 @@ impl Paint<'_, '_> {
             }
         };
         let top = self.book.alt_top;
-        self.images
-            .expire(ImageScreen::Alternate, top, top.plus(rows), Some(blanked));
+        self.images.expire(
+            ImageScreen::Alternate,
+            top,
+            top.plus(rows),
+            Some(blanked),
+            BelowWindow::KittyStays,
+        );
         self.cold
             .placement
             .scrolled(ImageScreen::Alternate, (top, top.plus(rows)), Some(blanked));
@@ -843,15 +854,22 @@ impl Paint<'_, '_> {
     /// **The rows `[from, to]` under a top-anchored region, put back a row
     /// after its window move**, and their images with them by their
     /// anchors (`ImageStore::put_back_band`): unlike a band that scrolled,
-    /// they never left their screen rows. Outlined, gated on `any_placed`
-    /// as the band move is.
+    /// they never left their screen rows. A kitty picture kept below the
+    /// alternate screen stays on its screen row too, outside the page
+    /// area; on the primary a picture under the window follows the row it
+    /// is on. Outlined, gated on `any_placed` as the band move is.
     #[cold]
     #[inline(never)]
     pub(crate) fn band_images_put_back(&mut self, from: Row, to: Row) {
         let (screen, top) = self.image_top();
         let lo = top.plus(Rows::of_count(from.index()));
         let hi = top.plus(Rows::of_count(to.index() + 1));
-        self.images.put_back_band(screen, lo, hi, Rows::of_count(1));
+        let below = match screen {
+            ImageScreen::Primary => BelowWindow::Goes,
+            ImageScreen::Alternate => BelowWindow::KittyStays,
+        };
+        self.images
+            .put_back_band(screen, lo, hi, Rows::of_count(1), below);
     }
 
     /// **Side margins narrower than the screen**: then the scrolling region
@@ -4877,10 +4895,16 @@ impl Paint<'_, '_> {
                 if how == AltSwitch::ClearOnExit {
                     self.clear_screen();
                 }
-                // **The editor's images go with the editor's screen.** foot
-                // and ghostty both delete them; the alternate screen keeps no
-                // history, so nothing could scroll back to them, and a shell
-                // that got them would show a picture over its own text.
+                // **The editor's images go with the editor's screen**, a
+                // kitty picture kept below it included. foot deletes its
+                // Sixels here (`[[source: foot-csi]]`), and also clears the
+                // alternate screen's text on every entry; kitty, xterm and
+                // ghostty keep each screen's pictures with it, so their
+                // `?47 h` shows them again, where baud's shows the text
+                // without them: `screen_toggle_screen_buffer()` in
+                // `[[source: kitty-screen-c]]`, a graphic's `bufferid` in
+                // `[[source: xterm-graphics-c]]`, and `switchScreen` in
+                // `[[source: ghostty-d9840f3-terminal]]`.
                 if self.images.any_placed() {
                     self.images.expire_screen(ImageScreen::Alternate);
                 }

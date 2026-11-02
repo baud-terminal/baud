@@ -2765,11 +2765,29 @@ impl<'b> Term<'b> {
         };
         // A change of geometry moves or re-cuts the cells a placement names
         // (`placed.rs`); the same geometry leaves it.
-        if (rows, cols) != (old_rows, old_cols) {
+        let changed = (rows, cols) != (old_rows, old_cols);
+        if changed {
             self.cold.placement.forget();
             // The shell redraws at the next initial mark, wherever it is.
             self.store.strs.shell.resize = crate::prompt::SinceMark::Resized;
             self.store.strs.shell_other.resize = crate::prompt::SinceMark::Resized;
+        }
+        // **A kitty picture kept below the alternate screen goes with a
+        // change of the screen's geometry**: its row went when a reverse
+        // scroll pushed it off, so a change of height would show it over a
+        // blank row, apart from the row it was placed on, and a change of
+        // width drops it too, where kitty's `grman_resize` keeps it. The
+        // same geometry keeps it, as it moves nothing: an embedder may
+        // resize on every configure.
+        if changed && self.store.images.any_placed() {
+            let alt = self.store.book.alt_top;
+            self.store.images.expire(
+                ImageScreen::Alternate,
+                alt,
+                alt.plus(old_rows),
+                None,
+                BelowWindow::Goes,
+            );
         }
         // The window over the history, in lines from the window's top, as it
         // moves with the steps below; `None` is the live screen. Read through
@@ -2829,9 +2847,13 @@ impl<'b> Term<'b> {
         self.resize_cursor_and_margins(before, waited);
         // **An image whose row the resize took away goes with it**: a row
         // past what the primary's ring now retains, or past the bottom of a
-        // shorter alternate screen, which keeps nothing below it.
+        // shorter alternate screen, which keeps nothing below it. The same
+        // geometry took none, and keeps a kitty picture kept below.
         if self.store.images.any_placed() {
-            self.expire_images();
+            self.expire_images(match changed {
+                true => BelowWindow::Goes,
+                false => BelowWindow::KittyStays,
+            });
         }
         self.resize_report(rows, cols);
         // **Every row may hold a link after a change of geometry**: a re-cut
@@ -5203,15 +5225,18 @@ impl<'b> Term<'b> {
 
     /// Drop every placement whose row is gone, on either screen: the
     /// primary's outside the rows its ring retains, the alternate's outside
-    /// its window. Counted in `ImageStore::placements_expired`.
-    fn expire_images(&mut self) {
+    /// its window, a kitty picture a reverse scroll pushed below it
+    /// included unless `below` keeps it. Counted in
+    /// `ImageStore::placements_expired`. A change of geometry drops that one
+    /// before it moves anything, against the old height.
+    fn expire_images(&mut self, below: BelowWindow) {
         let b = &self.store.book;
         let lo = b.top.minus(b.hist).unwrap_or(LineIdx::FIRST);
         let hi = b.top.plus(self.rows).plus(b.hidden);
         let (alt, rows) = (b.alt_top, self.rows);
         let images = &mut self.store.images;
-        images.expire(ImageScreen::Primary, lo, hi, None);
-        images.expire(ImageScreen::Alternate, alt, alt.plus(rows), None);
+        images.expire(ImageScreen::Primary, lo, hi, None, BelowWindow::Goes);
+        images.expire(ImageScreen::Alternate, alt, alt.plus(rows), None, below);
     }
 
     /// **Where a view `back` lines up starts, in the live screen's image
@@ -5525,7 +5550,7 @@ impl<'b> Term<'b> {
         // change, since an embedder re-sets the size on every configure.
         if changed {
             self.store.images.set_cell_height(height);
-            self.expire_images();
+            self.expire_images(BelowWindow::Goes);
         }
         let after = Report::inband(self.rows, self.cols, width, height);
         if after != before && self.cold.modes.is_set(ModeBit::InbandResize) {

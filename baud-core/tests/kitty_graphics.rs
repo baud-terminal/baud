@@ -1531,42 +1531,407 @@ fn a_reverse_scroll_moves_a_picture_on_the_top_row_one_row_down() {
     }
 }
 
+/// A one-row picture, image 1 placement 7, on the bottom row of the
+/// screen `enter` brings up, the primary for none; then `RI` with the
+/// cursor on the top row, which pushes it below the screen.
+fn push_below(t: &mut Term<'_>, enter: &[u8], r: &mut Vec<u8>) {
+    feed(t, enter, r);
+    feed(t, b"\x1b[24;1H", r);
+    feed(
+        t,
+        &apc("a=T,f=24,s=10,v=20,i=1,p=7,q=2,C=1", &b64(&[7u8; 600])),
+        r,
+    );
+    feed(t, b"\x1b[1;1H\x1bM", r);
+}
+
 /// **A picture a reverse scroll pushes below the screen comes back with
-/// its row**: the primary keeps the row under the window, and a line
-/// feed at the bottom brings it back as the bottom row, blank, the
-/// picture drawn over it as kitty draws it (`INDEX_DOWN` drops nothing
-/// and `INDEX_UP` moves it back; docs/vt-coverage.md has the figures).
-/// The alternate screen keeps no row below the window, so there the
-/// picture goes as its row leaves the screen, counted.
+/// its row, on either screen**: a line feed at the bottom brings the row
+/// back blank and the picture drawn over it, as kitty draws it. Its
+/// `INDEX_DOWN` moves every image down a row, and its
+/// `scroll_filter_func` drops one only once its last row is above the
+/// limit, the history's far end on the primary and the screen's top on
+/// the alternate screen, and never for being below the screen, so
+/// `INDEX_UP` moves it back (`[[source: kitty-screen-c]]`
+/// `INDEX_GRAPHICS`, `[[source: kitty-graphics-c]]`). The primary keeps
+/// the row under its window; the alternate screen keeps no row there,
+/// and keeps the picture all the same.
 #[test]
 fn a_picture_pushed_below_the_screen_comes_back_with_its_row() {
-    for alt in [false, true] {
+    for enter in [&b""[..], b"\x1b[?1049h", b"\x1b[?47h"] {
         let (under, back) = with_history(4096, |t| {
             let mut r = Vec::new();
-            if alt {
-                feed(t, b"\x1b[?1049h", &mut r);
-            }
-            feed(t, b"\x1b[24;1H", &mut r);
-            feed(
-                t,
-                &apc("a=T,f=24,s=10,v=20,i=1,q=2,C=1", &b64(&[7u8; 600])),
-                &mut r,
-            );
-            feed(t, b"\x1b[1;1H\x1bM", &mut r);
+            push_below(t, enter, &mut r);
             let under = shown_rows(t);
             feed(t, b"\x1b[24;1H\n", &mut r);
             (under, shown_rows(t))
         });
-        match alt {
-            false => {
-                assert_eq!(under, (vec![24], 0), "under the window, kept");
-                assert_eq!(back, (vec![23], 0), "back on the bottom row");
+        assert_eq!(
+            under,
+            (vec![24], 0),
+            "{:?}: below the screen, kept",
+            String::from_utf8_lossy(enter)
+        );
+        assert_eq!(
+            back,
+            (vec![23], 0),
+            "{:?}: back on the bottom row",
+            String::from_utf8_lossy(enter)
+        );
+    }
+}
+
+/// **Far below the alternate screen, and back a row a line feed**: the
+/// first three reverse scrolls move the window back over lines its
+/// numbering has, the rest go past its first line, where the pictures
+/// move instead (`ImageStore::shift`); `SD 3` is three of them. Each line
+/// feed at the bottom then brings the picture one row nearer, as kitty's
+/// `start_row` steps by one each way.
+#[test]
+fn a_picture_far_below_the_alternate_screen_comes_back_a_row_a_line_feed() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[?1049h\x1b[24;1H", &mut r);
+        feed(
+            t,
+            &apc("a=T,f=24,s=10,v=20,i=1,q=2,C=1", &b64(&[7u8; 600])),
+            &mut r,
+        );
+        feed(t, b"\n\n\n", &mut r);
+        assert_eq!(shown_rows(t), (vec![20], 0), "the premise: up three rows");
+        feed(t, b"\x1b[1;1H\x1bM\x1bM\x1bM\x1bM", &mut r);
+        assert_eq!(shown_rows(t), (vec![24], 0), "one row below the screen");
+        feed(t, b"\x1b[3T", &mut r);
+        assert_eq!(shown_rows(t), (vec![27], 0), "four rows below");
+        feed(t, b"\x1b[24;1H\n\n\n", &mut r);
+        assert_eq!(shown_rows(t), (vec![24], 0), "one row below again");
+        feed(t, b"\n", &mut r);
+        assert_eq!(shown_rows(t), (vec![23], 0), "back on the bottom row");
+    });
+}
+
+/// **A scroll inside margins leaves a picture below the alternate screen
+/// where it is**: "When page margins are defined and the index commands
+/// are used, only images that are entirely within the page area (between
+/// the margins) must be scrolled" (`[[source: kitty-graphics]]`,
+/// "Interaction with other terminal actions"), and a picture below the
+/// screen is not in it; kitty's `scroll_filter_margins_func()` leaves it
+/// (`[[source: kitty-graphics-c]]`). The region is a status line's,
+/// `CSI 1 ; 23 r`, which scrolls by moving the window; one row below and
+/// two, by a line feed and by `SU 3`. A full-screen line feed at the
+/// bottom then brings it a row nearer.
+#[test]
+fn a_region_scroll_leaves_a_picture_below_the_alternate_screen() {
+    for (extra, scroll, n) in [
+        (0, &b"\n"[..], 1),
+        (1, b"\n", 1),
+        (0, b"\x1b[3S", 3),
+        (1, b"\x1b[3S", 3),
+    ] {
+        with_history(4096, |t| {
+            let mut r = Vec::new();
+            push_below(t, b"\x1b[?1049h", &mut r);
+            for _ in 0..extra {
+                feed(t, b"\x1bM", &mut r);
             }
-            true => {
-                assert_eq!(under, (vec![], 1), "off the alternate screen, gone");
-                assert_eq!(back, (vec![], 1));
-            }
-        }
+            let below = 24 + extra;
+            let at = format!("{extra} more below, {:?}", String::from_utf8_lossy(scroll));
+            assert_eq!(shown_rows(t), (vec![below], 0), "{at}: the premise");
+            let top = t.image_origin(Rows::ZERO).top.value();
+            feed(t, b"\x1b[1;23r\x1b[23;1H", &mut r);
+            feed(t, scroll, &mut r);
+            feed(t, b"\x1b[r", &mut r);
+            assert_eq!(
+                t.image_origin(Rows::ZERO).top.value() - top,
+                n,
+                "{at}: the premise, the region moved the window"
+            );
+            assert_eq!(shown_rows(t), (vec![below], 0), "{at}: left below");
+            feed(t, b"\x1b[24;1H\n", &mut r);
+            assert_eq!(shown_rows(t), (vec![below - 1], 0), "{at}: a row nearer");
+        });
+    }
+}
+
+/// **`ED 2` takes a picture below the alternate screen too**: "The clear
+/// screen escape code (usually <ESC>[2J) should also clear all images"
+/// (`[[source: kitty-graphics]]`, "Interaction with other terminal
+/// actions"), and kitty's `ED 2` calls `grman_clear`, which takes every
+/// placement but one wholly above the screen (`[[source: kitty-screen-c]]`
+/// `screen_erase_in_display()`, `[[source: kitty-graphics-c]]`
+/// `clear_filter_func`, `start_row + effective_num_rows > 0`). A clear
+/// that left it would let the next line feed at the bottom bring a
+/// picture back over the cleared screen.
+#[test]
+fn clearing_the_screen_takes_a_picture_below_the_alternate_screen() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        push_below(t, b"\x1b[?1049h", &mut r);
+        assert_eq!(shown_rows(t), (vec![24], 0), "the premise");
+        feed(t, b"\x1b[2J\x1b[24;1H\n", &mut r);
+        assert_eq!(shown_rows(t), (vec![], 0), "cleared");
+    });
+}
+
+/// **The primary's `ED 2` leaves a picture under its window with its
+/// row**: the row a reverse scroll pushed under the window keeps its
+/// text, which `ED 2` erases only on the screen's rows, and a taller
+/// window shows it again, the picture beside it, as an image follows the
+/// row it was placed on.
+#[test]
+fn clearing_the_primary_leaves_a_picture_under_its_window_with_its_row() {
+    let room = WinSize {
+        ws_row: 25,
+        ws_col: 80,
+    };
+    let mut owned = Owned::with_history(&room, &CacheGeometry::UNKNOWN, Depth::of(6))
+        .with_images(ImageBudget::of(4096));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    let t = &mut t;
+    let mut r = Vec::new();
+    feed(t, b"\x1b[24;1H\n\x1b[24;1HMARKER\x1b[24;20H", &mut r);
+    feed(
+        t,
+        &apc("a=T,f=24,s=10,v=20,i=1,q=2,C=1", &b64(&[7u8; 600])),
+        &mut r,
+    );
+    feed(t, b"\x1b[1;1H\x1bM\x1b[2J", &mut r);
+    assert_eq!(shown_rows(t), (vec![24], 0), "kept under the window");
+    assert_eq!(t.resize(&room), Resized::Ok);
+    assert_eq!(shown_rows(t), (vec![24], 0), "on the row a growth shows");
+    let row = t.row(Row::from_index(24)).expect("the grown row");
+    let text: String = row
+        .iter()
+        .take(6)
+        .map(|c| {
+            c.content
+                .as_codepoint()
+                .map_or(' ', |cp| char::from_u32(cp.value()).unwrap_or('?'))
+        })
+        .collect();
+    assert_eq!(text, "MARKER", "its text beside it");
+}
+
+/// **`?1049 h` on the alternate screen clears a picture kept below it**:
+/// "all images in the alternate screen must be cleared, just as all text
+/// is cleared" (`[[source: kitty-graphics]]`, "Interaction with other
+/// terminal actions"). Entered by `?47`, which clears nothing, the
+/// picture pushed below, then `?1049 h`, whose clear takes it.
+#[test]
+fn a_clearing_entry_takes_a_picture_kept_below_the_alternate_screen() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        push_below(t, b"\x1b[?47h", &mut r);
+        assert_eq!(shown_rows(t), (vec![24], 0), "the premise");
+        feed(t, b"\x1b[?1049h\x1b[24;1H\n", &mut r);
+        assert_eq!(shown_rows(t), (vec![], 0), "cleared");
+    });
+}
+
+/// **A delete of what is visible leaves a picture below the screen, and a
+/// delete by its id takes it**: `d=a` deletes "all placements visible on
+/// screen" and `d=i` "all images with the specified id"
+/// (`[[source: kitty-graphics]]`, "Deleting images"). Kitty's `d=a` takes
+/// one below the screen as its `ED 2` does (`[[source: kitty-graphics-c]]`
+/// `clear_filter_func_noncell()`), its practice and not followed: it is not
+/// visible. On either screen.
+#[test]
+fn a_delete_of_what_is_visible_leaves_a_picture_below_the_screen() {
+    for enter in [&b""[..], b"\x1b[?1049h"] {
+        with_history(4096, |t| {
+            let mut r = Vec::new();
+            push_below(t, enter, &mut r);
+            feed(t, &apc("a=d,d=a,q=2", b""), &mut r);
+            assert_eq!(
+                shown_rows(t),
+                (vec![24], 0),
+                "{:?}: not visible, kept",
+                String::from_utf8_lossy(enter)
+            );
+            feed(t, &apc("a=d,d=i,i=1,q=2", b""), &mut r);
+            assert_eq!(
+                shown_rows(t),
+                (vec![], 0),
+                "{:?}: by its id, gone",
+                String::from_utf8_lossy(enter)
+            );
+        });
+    }
+}
+
+/// **A put of its image and placement ids replaces a picture below the
+/// screen**: "If you send two placements with the same image id and
+/// placement id the second one will replace the first"
+/// (`[[source: kitty-graphics]]`), so the picture is drawn where the
+/// cursor is and is not kept below as a second one. On either screen.
+#[test]
+fn a_put_of_its_pair_replaces_a_picture_below_the_screen() {
+    for enter in [&b""[..], b"\x1b[?1049h"] {
+        with_history(4096, |t| {
+            let mut r = Vec::new();
+            push_below(t, enter, &mut r);
+            feed(t, b"\x1b[5;1H", &mut r);
+            feed(t, &apc("a=p,i=1,p=7,q=2,C=1", b""), &mut r);
+            assert_eq!(
+                shown_rows(t),
+                (vec![4], 0),
+                "{:?}: one placement, where the cursor is",
+                String::from_utf8_lossy(enter)
+            );
+        });
+    }
+}
+
+/// The live screen's placements as rows from its top, sorted, and how
+/// many placements the store holds on both screens: a placement on the
+/// screen not shown is held and not drawn.
+fn live_rows(t: &Term<'_>) -> (Vec<i64>, usize) {
+    let o = t.image_origin(Rows::ZERO);
+    let top = i64::try_from(o.top.value()).unwrap();
+    let mut rows: Vec<i64> = t
+        .images()
+        .placements()
+        .filter(|(_, p)| p.screen == o.screen)
+        .map(|(_, p)| i64::try_from(p.line.value()).unwrap() - top)
+        .collect();
+    rows.sort_unstable();
+    (rows, t.images().placements().count())
+}
+
+/// **A Sixel a reverse scroll pushes below the alternate screen goes**,
+/// counted: the Sixel texts describe no row below a screen, and xterm's
+/// reverse scroll moves no graphic at all (`[[source: xterm-scroll]]`'s
+/// file, `RevScroll`). The kitty picture's rule is kitty's alone.
+#[test]
+fn a_sixel_pushed_below_the_alternate_screen_goes() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[?1049h\x1b[23;1H", &mut r);
+        feed(t, SIXEL, &mut r);
+        assert_eq!(shown_rows(t), (vec![22], 0), "the premise");
+        feed(t, b"\x1b[1;1H\x1bM", &mut r);
+        assert_eq!(shown_rows(t), (vec![23], 0), "on the bottom row, kept");
+        feed(t, b"\x1bM", &mut r);
+        assert_eq!(shown_rows(t), (vec![], 1), "below it, gone and counted");
+    });
+}
+
+/// **A change of the screen's geometry drops a picture below the
+/// alternate screen**, counted, and so does a change of the cell's
+/// height: its row went when a reverse scroll pushed it off, so a change
+/// of height would show it over a blank row, apart from the row it was
+/// placed on, and a change of width drops it too, where kitty's
+/// `grman_resize` and `grman_rescale` keep it
+/// (`[[source: kitty-graphics-c]]`). One on the bottom row that a
+/// shorter screen cuts goes too, as the screen keeps no row below it.
+#[test]
+fn a_resize_drops_a_picture_below_the_alternate_screen() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        push_below(t, b"\x1b[?1049h", &mut r);
+        t.set_cell_size(ImagePx::of(10), ImagePx::of(24));
+        assert_eq!(shown_rows(t), (vec![], 1), "a taller cell: dropped");
+    });
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[?1049h\x1b[24;1H", &mut r);
+        feed(
+            t,
+            &apc("a=T,f=24,s=10,v=20,i=1,q=2,C=1", &b64(&[7u8; 600])),
+            &mut r,
+        );
+        assert_eq!(shown_rows(t), (vec![23], 0), "the premise");
+        let ws = WinSize {
+            ws_row: 22,
+            ws_col: 80,
+        };
+        assert_eq!(t.resize(&ws), Resized::Ok);
+        assert_eq!(shown_rows(t), (vec![], 1), "cut by a shorter screen");
+    });
+    for (cols, rows) in [(80, 26), (60, 24)] {
+        // Room for two more rows than the screen starts with.
+        let room = WinSize {
+            ws_row: 26,
+            ws_col: 80,
+        };
+        let mut owned = Owned::with_history(&room, &CacheGeometry::UNKNOWN, Depth::of(6))
+            .with_images(ImageBudget::of(4096));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+        let t = &mut t;
+        let mut r = Vec::new();
+        push_below(t, b"\x1b[?1049h", &mut r);
+        assert_eq!(shown_rows(t), (vec![24], 0), "the premise");
+        let ws = WinSize {
+            ws_row: rows,
+            ws_col: cols,
+        };
+        assert_eq!(t.resize(&ws), Resized::Ok);
+        assert_eq!(shown_rows(t), (vec![], 1), "{cols}x{rows}: dropped");
+    }
+}
+
+/// **A resize to the size the screen has keeps a picture below the
+/// alternate screen**, as setting the cell's size it has does: nothing
+/// is cut or moved, so a line feed at the bottom brings it back as
+/// before. An embedder may call either on every configure of its window,
+/// a drag that crosses no cell's edge included.
+#[test]
+fn a_resize_to_the_same_size_keeps_a_picture_below_the_alternate_screen() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        push_below(t, b"\x1b[?1049h", &mut r);
+        assert_eq!(shown_rows(t), (vec![24], 0), "the premise");
+        assert_eq!(t.resize(&WS), Resized::Ok);
+        assert_eq!(shown_rows(t), (vec![24], 0), "the same size: kept");
+        t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+        assert_eq!(shown_rows(t), (vec![24], 0), "the same cell: kept");
+        feed(t, b"\x1b[24;1H\n", &mut r);
+        assert_eq!(shown_rows(t), (vec![23], 0), "back on the bottom row");
+    });
+}
+
+/// **Leaving the alternate screen takes its kitty pictures, one kept below
+/// it included**, by `?1049 l`, `?47 l` and `?1047 l` alike, each
+/// counted, and nothing comes back on a return and a line feed: the
+/// editor's images go with the editor's screen. Kitty keeps them with
+/// the screen's text, so its `?47 h` shows them again
+/// (`screen_toggle_screen_buffer()` in `[[source: kitty-screen-c]]`), the
+/// open in docs/vt-coverage.md's `APC G a=p` row.
+#[test]
+fn leaving_the_alternate_screen_takes_its_kitty_pictures_one_kept_below_too() {
+    let trips: [(&[u8], &[u8]); 3] = [
+        (b"\x1b[?1049l", b"\x1b[?1049h"),
+        (b"\x1b[?47l", b"\x1b[?47h"),
+        (b"\x1b[?1047l", b"\x1b[?1047h"),
+    ];
+    for (leave, back) in trips {
+        with_history(4096, |t| {
+            let mut r = Vec::new();
+            push_below(t, b"\x1b[?47h", &mut r);
+            feed(t, b"\x1b[5;1H", &mut r);
+            feed(t, &apc("a=p,i=1,p=3,q=2,C=1", b""), &mut r);
+            assert_eq!(live_rows(t), (vec![4, 24], 2), "the premise");
+            let trip = String::from_utf8_lossy(&[leave, back].concat()).into_owned();
+            let expired = t.images().placements_expired;
+            feed(t, leave, &mut r);
+            assert_eq!(live_rows(t), (vec![], 0), "{trip:?}: gone with the screen");
+            let counted = match leave == b"\x1b[?1047l" {
+                // `?1047 l` clears first, as `ED 2` does, and the clear's
+                // deletes are not expiries.
+                true => 0,
+                false => 2,
+            };
+            assert_eq!(
+                t.images().placements_expired,
+                expired + counted,
+                "{trip:?}: counted"
+            );
+            feed(t, back, &mut r);
+            feed(t, b"\x1b[24;1H\n", &mut r);
+            assert_eq!(live_rows(t), (vec![], 0), "{trip:?}: nothing back");
+        });
     }
 }
 

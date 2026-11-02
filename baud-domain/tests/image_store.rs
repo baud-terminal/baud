@@ -7,8 +7,9 @@
 //! describes.
 
 use baud_domain::{
-    BandMove, Col, ImageAlpha, ImageId, ImagePx, ImageScreen, ImageSlot, ImageStore, LineIdx,
-    Pixel, PlacementId, PlacementSlot, Rows, Sixel, SixelAspect, SixelCanvas, SixelPx, ZIndex,
+    BandMove, BelowWindow, Col, ImageAlpha, ImageId, ImagePx, ImageScreen, ImageSlot, ImageStore,
+    LineIdx, Pixel, PlacementId, PlacementSlot, Rows, Sixel, SixelAspect, SixelCanvas, SixelPx,
+    ZIndex,
 };
 
 fn red() -> Pixel {
@@ -525,6 +526,7 @@ fn expiry_keeps_the_retained_span_and_drops_a_blanked_row() {
         LineIdx::of(10),
         LineIdx::of(20),
         Some(LineIdx::of(15)),
+        BelowWindow::Goes,
     );
     assert_eq!(n, 3);
     let mut kept: Vec<u64> = store

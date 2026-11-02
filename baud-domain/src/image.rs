@@ -1048,7 +1048,8 @@ impl ImageSlot {
 /// alternate screen keeps no history and its lines are the editor's, gone
 /// when the editor leaves. A placement is drawn only while its screen is up
 /// -- the shell's image is not drawn over the editor -- and the alternate
-/// screen's are deleted when it is left, which is foot's rule and ghostty's.
+/// screen's are deleted when it is left, which is foot's rule for its
+/// Sixels; kitty, xterm and ghostty keep them with the screen's text.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FromZeros)]
 #[repr(u8)]
 pub enum ImageScreen {
@@ -1073,6 +1074,24 @@ impl ImageScreen {
 pub enum BandMove {
     Up,
     Down,
+}
+
+/// **What [`ImageStore::expire`] and [`ImageStore::put_back_band`] do with
+/// a placement anchored at or past the rows a screen keeps**, below its
+/// window. A type rather than a `bool`, so a call site names the rule it
+/// means.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BelowWindow {
+    /// It goes with its row where the row is gone: a change of the
+    /// screen's geometry or of the cell's height, a top region's rotation
+    /// writing over it, or the screen being left.
+    Goes,
+    /// A kitty placement there stays and every other goes: the alternate
+    /// screen's scroll, which keeps no row below its window and keeps a
+    /// kitty picture a reverse scroll pushed there, as kitty does, on its
+    /// screen row through a scroll inside margins; and a resize to the
+    /// geometry the screen already has.
+    KittyStays,
 }
 
 /// **The lines a screen's placements lie between**, inclusive: a bound no
@@ -3689,9 +3708,21 @@ impl<'b> ImageStore<'b> {
 
     /// Drop every placement on `screen` whose rows are gone: one whose last
     /// shown row is before `lo`, one anchored at or past `hi` -- `[lo, hi)`
-    /// the rows the screen retains -- or one not kitty's anchored on
-    /// `blanked`, a row a scroll blanked as it came in. Each is counted in
-    /// [`ImageStore::placements_expired`]. Returns how many.
+    /// the rows the screen retains -- unless `below` keeps it, or one not
+    /// kitty's anchored on `blanked`, a row a scroll blanked as it came in.
+    /// Each is counted in [`ImageStore::placements_expired`]. Returns how
+    /// many.
+    ///
+    /// **A kitty placement a reverse scroll pushed below the alternate
+    /// screen stays** ([`BelowWindow::KittyStays`]), a scroll inside
+    /// margins leaves it ([`ImageStore::put_back_band`]), and a full-screen
+    /// line feed at the bottom brings it back a row at a time: kitty's
+    /// `scroll_filter_func` drops a placement only once its last row is
+    /// above the limit, the screen's top on the alternate screen, and never
+    /// for being below the screen (`[[source: kitty-graphics-c]]`,
+    /// `[[source: kitty-screen-c]]` `INDEX_GRAPHICS`). The text is silent
+    /// on rows below a screen with no history. The primary keeps such a
+    /// row under its window, the picture with it.
     ///
     /// **A kitty placement on `blanked` stays**, drawn over the blank row
     /// its line now is: images "must be scrolled along with text", and
@@ -3732,6 +3763,7 @@ impl<'b> ImageStore<'b> {
         lo: LineIdx,
         hi: LineIdx,
         blanked: Option<LineIdx>,
+        below: BelowWindow,
     ) -> usize {
         let Some(r) = self.reach[screen.slot()] else {
             return 0;
@@ -3747,7 +3779,8 @@ impl<'b> ImageStore<'b> {
                 continue;
             }
             let blank = Some(s.line) == blanked && !self.is_kitty(s);
-            if s.line.plus(self.rows_over(s)) <= lo || s.line >= hi || blank {
+            let past = s.line >= hi && !(below == BelowWindow::KittyStays && self.is_kitty(s));
+            if s.line.plus(self.rows_over(s)) <= lo || past || blank {
                 self.unplace(PlacementId::from_index(p));
                 self.placements_expired += 1;
                 n += 1;
@@ -3758,10 +3791,12 @@ impl<'b> ImageStore<'b> {
     }
 
     /// Drop every placement on `screen`, counted as expired: the alternate
-    /// screen being left, whose rows go with it.
+    /// screen being left, whose rows go with it, a kitty picture kept below
+    /// it included.
     pub fn expire_screen(&mut self, screen: ImageScreen) -> usize {
         self.rescan(screen);
-        self.expire(screen, LineIdx::FIRST, LineIdx::FIRST, None)
+        let none = LineIdx::FIRST;
+        self.expire(screen, none, none, None, BelowWindow::Goes)
     }
 
     /// **Move `screen`'s placements with rows that moved inside a band**:
@@ -3808,12 +3843,23 @@ impl<'b> ImageStore<'b> {
     /// (`[[source: kitty-graphics]]`, "Interaction with other terminal
     /// actions"), so it stays on its screen rows. Returns how many were
     /// dropped off the bottom.
+    ///
+    /// **A kitty placement below the window stays on its screen row** with
+    /// [`BelowWindow::KittyStays`], the alternate screen's: one anchored
+    /// at or past `hi` after the window's move was below the window
+    /// before it, outside the page area, and kitty's
+    /// `scroll_filter_margins_func()` leaves it (`[[source:
+    /// kitty-graphics-c]]`), so it goes back down `n` however far below it
+    /// lies, and none is dropped. With [`BelowWindow::Goes`], the
+    /// primary's, one there stays on its line with the row it is on, and
+    /// one put back onto `hi` goes with the row the rotation wrote over.
     pub fn put_back_band(
         &mut self,
         screen: ImageScreen,
         lo: LineIdx,
         hi: LineIdx,
         n: Rows,
+        below: BelowWindow,
     ) -> usize {
         self.shift_pages(screen, lo, hi, None, n, BandMove::Down);
         let mut n_gone = 0;
@@ -3821,23 +3867,22 @@ impl<'b> ImageStore<'b> {
             let s = self.placements[p];
             if s.is_empty()
                 || s.screen != screen
-                || s.line >= hi
                 || self.is_regis(s)
                 || s.kitty.parent.is_relative()
             {
                 continue;
             }
-            let kitty = s
-                .image
-                .index()
-                .and_then(|i| self.slots.get(i))
-                .is_some_and(|i| matches!(i.owner, ImageOwner::Kitty(..)));
+            let kitty = self.is_kitty(s);
+            let stays = kitty && below == BelowWindow::KittyStays && s.line.plus(n) >= hi;
+            if s.line >= hi && !stays {
+                continue;
+            }
             let across = kitty && s.line < lo && s.line.plus(s.kitty.shown()) > lo;
             if s.line < lo && !across {
                 continue;
             }
             let to = s.line.plus(n);
-            match to < hi || across {
+            match to < hi || across || stays {
                 true => self.placements[p].line = to,
                 false => {
                     self.unplace(PlacementId::from_index(p));

@@ -8220,6 +8220,7 @@ fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         );
     }
     kitty_history_gate(arms, t);
+    kitty_alternate_gate(arms, t);
     kitty_below_gate(arms, t);
     kitty_picks_gate(arms, t);
     kitty_placeholder_gate(arms, t);
@@ -8634,6 +8635,84 @@ fn kitty_history_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         );
     }
     assert_eq!(kept, 1, "the picture is kept while a row of it is retained");
+}
+
+/// **A picture a reverse scroll pushes below the alternate screen is kept
+/// and comes back, on all three paths**: kitty drops a placement only once
+/// its last row is above the screen's top, and never for being below it
+/// (`[[source: kitty-graphics-c]]` `scroll_filter_func`,
+/// `[[source: kitty-screen-c]]` `INDEX_GRAPHICS`). A two-row picture on
+/// the alternate screen's last two rows: one `RI` at the top leaves its
+/// first row on the last row and its second clipped at the frame's edge;
+/// a second `RI` puts it wholly below, drawn nowhere; two line feeds at
+/// the bottom bring it back on the last two rows. Each expected frame is
+/// the same scene with the placement deleted, the texels written where
+/// the text puts them. The cell arm reads the window's copy, as the app's
+/// does on the alternate screen.
+fn kitty_alternate_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let reads = core::mem::replace(&mut arms.reads, Reads::Copy);
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let (fw, fh) = arms.renderer.frame_size();
+    let (fw, fh) = (fw.value(), fh.value());
+    let at = |x: u32, y: u32| usize::try_from(y * fw + x).unwrap();
+    let rows = u32::from(WS.ws_row);
+    assert_eq!(fh, rows * ch, "the premise: the frame ends at the last row");
+    let [[dx, dy, dw, dh], [sx, sy, sw, sh]] = kitty_expect("r=2", cw, ch);
+    // The scene up to step `k`, from a reset.
+    let steps: [&[u8]; 3] = [b"\x1b[1;1H\x1bM", b"\x1b[1;1H\x1bM", b"\x1b[10;1H\n\n"];
+    let scene = |t: &mut Term<'_>, k: usize| {
+        feed(t, b"\x1bc\x1b[?25l\x1b[?1049h");
+        for i in 1..=rows {
+            feed(
+                t,
+                format!("\x1b[{i};40Hrow {i:02} of the editor").as_bytes(),
+            );
+        }
+        kitty_put(t, 1, kitty_texel, &[]);
+        feed(t, b"\x1b[9;5H\x1b_Ga=p,i=1,q=2,C=1,r=2\x1b\\");
+        for step in &steps[..k] {
+            feed(t, step);
+        }
+    };
+    // The screen row the picture's anchor is on after each step.
+    let anchors: [u32; 4] = [8, 9, 10, 8];
+    for (k, row) in anchors.into_iter().enumerate() {
+        scene(t, k);
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        let kept = t.images().placements().count();
+        feed(t, b"\x1b_Ga=d,d=i,i=1,q=2\x1b\\");
+        let (without, _) = arms.draw(t);
+        let mut want = without.clone();
+        for j in 0..dh {
+            let y = row * ch + dy + j;
+            if y >= fh {
+                continue;
+            }
+            for i in 0..dw {
+                want[at(4 * cw + dx + i, y)] = kitty_texel(
+                    sx + (2 * i + 1) * sw / (2 * dw),
+                    sy + (2 * j + 1) * sh / (2 * dh),
+                );
+            }
+        }
+        assert_eq!(kept, 1, "step {k}: the picture is kept");
+        assert_eq!(
+            differing(&want, &without) > 0,
+            row < rows,
+            "step {k}: the premise: drawn exactly when on the screen"
+        );
+        for (arm, got) in [("instance", &a), ("cell", &b), ("cpu", &cpu)] {
+            assert_eq!(
+                differing(got, &want),
+                0,
+                "step {k}: the {arm} arm does not draw the picture where its rows are"
+            );
+        }
+    }
+    arms.reads = reads;
+    feed(t, b"\x1bc");
 }
 
 /// **Below `INT32_MIN/2`, under the non-default backgrounds, on all three

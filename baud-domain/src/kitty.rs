@@ -3006,13 +3006,26 @@ impl KittyStream {
     /// **`ED 2` clears the images on screen** as it clears the text: "The
     /// clear screen escape code (usually <ESC>[2J) should also clear all
     /// images" ("Interaction with other terminal actions"), freeing what it
-    /// leaves unplaced as kitty's `grman_clear` does.
+    /// leaves unplaced as kitty's `grman_clear` does. **And on the
+    /// alternate screen those below it**, which a reverse scroll pushed
+    /// there and a line feed at the bottom would bring back over the
+    /// cleared screen: kitty's `clear_filter_func` takes every placement
+    /// not wholly above the screen (`[[source: kitty-graphics-c]]`). The
+    /// primary keeps the rows under its window, their text and pictures,
+    /// which `ED 2` does not erase and a taller window shows again, so a
+    /// picture there stays with its row. One wholly above the screen, in
+    /// the primary's history, stays, as kitty's does.
     pub fn clear_screen(&mut self, at: &KittyAt, store: &mut ImageStore) {
         let screen = at.screen;
-        let end = at.top.plus(at.rows);
+        let end = match screen {
+            ImageScreen::Primary => Some(at.top.plus(at.rows)),
+            ImageScreen::Alternate => None,
+        };
         store.kitty_delete(KittyFree::Data, |p, _, _| {
             let rows = p.kitty.shown().index();
-            p.screen == screen && p.line < end && p.line.plus(Rows::of_count(rows)) > at.top
+            p.screen == screen
+                && end.is_none_or(|e| p.line < e)
+                && p.line.plus(Rows::of_count(rows)) > at.top
         });
     }
 
