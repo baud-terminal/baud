@@ -370,7 +370,10 @@ Every protocol claim traces to a primary source in `docs/research/sources/`,
 recorded in its `MANIFEST.toml` with a SHA-256 and gated by
 `scripts/check-sources.sh`: a note or doc cannot cite a key the manifest does
 not carry, or one recorded as `gated` and therefore never read. A source the
-repository does not hold is `external`, with its URL and digest.
+repository does not hold is `external`, with its URL and digest. A
+learn.microsoft.com page's bytes move with the site around its article, so its
+entry also carries the hash of the article's text, which
+`scripts/check-page-text.py` fetches and compares on demand.
 
 It governs what is drawn as much as what is parsed: what a cell shows for a
 character no font has is the Unicode Standard's (TUS §5.3: it "can only be

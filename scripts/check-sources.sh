@@ -7,6 +7,9 @@
 #   2. a file whose contents no longer hash to the recorded sha256
 #   3. a file in docs/research/sources/ with no manifest entry
 #   4. a note citing a key the manifest does not carry, or carries as `gated`
+#   5. a committed source with no licence row
+#   6. a learn.microsoft.com page with no article-text pin: its bytes move with
+#      the site's chrome, so its check is the text (scripts/check-page-text.py)
 #
 # (4) is the one that matters: it stops a design document resting on a citation
 # nobody could check. Notes cite with `[[source: <key>]]`.
@@ -77,10 +80,24 @@ command -v python3 >/dev/null || {
   echo "  FAIL python3 is not on PATH, so the manifest cannot be parsed; devenv provides it"
   exit 1
 }
-if ! python3 - "$MANIFEST" >"$tmp/toml-keys" 2>"$tmp/toml-err" <<'PY'; then
-import sys, tomllib
+if ! python3 - "$MANIFEST" "$tmp/page-text" >"$tmp/toml-keys" 2>"$tmp/toml-err" <<'PY'; then
+import importlib.util, sys, tomllib
 with open(sys.argv[1], "rb") as f:
-    print("\n".join(sorted(tomllib.load(f)["sources"])))
+    sources = tomllib.load(f)["sources"]
+print("\n".join(sorted(sources)))
+# Check 6 reads the parse this one makes; it reports below.
+try:
+    spec = importlib.util.spec_from_file_location("page_text", "scripts/check-page-text.py")
+    page_text = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(page_text)
+    problems = page_text.offline_problems(sources)
+    pages = sum(map(page_text.in_scope, sources.values()))
+except Exception as e:
+    problems, pages = [f"scripts/check-page-text.py could not check the manifest: {e!r}"], 0
+with open(sys.argv[2], "w") as f:
+    f.writelines(f"FAIL {p}\n" for p in problems)
+    if not problems:
+        f.write(f"ok   {pages} learn.microsoft.com pages carry their article text's sha256\n")
 PY
   echo "  FAIL $MANIFEST is not valid TOML: $(tail -n 1 "$tmp/toml-err")"
   exit 1
@@ -90,6 +107,20 @@ if ! cmp -s "$tmp/awk-keys" "$tmp/toml-keys"; then
   diff "$tmp/awk-keys" "$tmp/toml-keys" | head -5 | sed 's/^/       /'
   fail=1
 fi
+
+# ── 6: a learn.microsoft.com page is pinned by its article text ──────────────
+# Its bytes carry the site's asset version string and move with the markup
+# around the article: on 2026-11-01 none of the 57 pages hashed as pinned,
+# one pinned the day before among them. So each such entry also records the
+# revision the page renders (where it has one), the sha256 of its article text
+# and the text's length, and scripts/check-page-text.py fetches the pages and
+# compares the text. That needs the network, so it runs on demand; this gate
+# holds what it can offline: every page entry carries the text's sha256 and
+# length, well formed, a revision is well formed where one is recorded, and
+# the extractor's self-test, on synthetic pages, passes.
+# Closed: only the line that says every page passed lets this one pass.
+sed 's/^/  /' "$tmp/page-text"
+grep -q '^ok' "$tmp/page-text" || fail=1
 
 # ── The lists 1 to 4 read ────────────────────────────────────────────────────
 # **The lists are made by the commands that always made them, and the checks

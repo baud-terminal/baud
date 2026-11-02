@@ -5,6 +5,18 @@
 # them, so a source that changed upstream, or was edited locally, fails the
 # check suite rather than silently backing a citation it no longer supports.
 #
+# A learn.microsoft.com page cannot be checked that way: its bytes carry the
+# site's asset version string and move with the markup around the article
+# within days, while the article does not change. Its entry keeps sha256 and
+# bytes as the record of the page the day it was read, and records three facts
+# about a later fetch: revision, the page's git_commit_id meta where it has one
+# (a label: only the three win32-pr pages' revisions are commits of a public
+# repository they name, MicrosoftDocs/win32), and text_sha256 and text_bytes,
+# the sha256 and UTF-8 length of its article text (the check).
+# scripts/check-page-text.py fetches the pages and compares the text on demand;
+# scripts/check-sources.sh, offline, requires text_sha256 and text_bytes on
+# every such entry, and a well-formed revision where one is recorded.
+#
 # `status`:
 #   retrieved   committed here, and hashes to `sha256`
 #   external    read and hash-verified, but NOT committed (licence or size).
@@ -2734,10 +2746,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/otff"
 file   = ""
 sha256 = "22113f57c286d9b2a4f8e6a905354402857c6a2624ccd8480dc5f7effa5c3b16"
 bytes  = 87394
+revision    = "9fd3f7b24062807b6359a7d0b9b8c9ebef16677c"
+text_sha256 = "1f04cdcd30900a264cd48428d0713819f6639ae300c72a59a94009ef23ae55f2"
+text_bytes  = 26668
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2025-03-19, is before it was read.
 
 [sources.ms-opentype-cmap]
 key    = "ms-opentype-cmap"
@@ -2749,10 +2767,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cmap"
 file   = ""
 sha256 = "4c780024ef1ac3b4b28e768b2b1ebc342be3274ffcd643a2552239d895fff799"
 bytes  = 98039
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "76e18ddc068fa779a6eb82ae99b5e7546738ce2bef1c2224a0e7a4c61432f8cd"
+text_bytes  = 36150
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-head]
 key    = "ms-opentype-head"
@@ -2764,10 +2788,13 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/head"
 file   = ""
 sha256 = "2d1d38db5db387fcfef88d3b5275f232cc0a3d1614e68455809a05d804cc0933"
 bytes  = 57627
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "dfbf11fbacbde97caee7e7d2f398fa8fdfb5b3fc6090a71c09be538efbf8d38d"
+text_bytes  = 7059
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
 # Re-pinned 2026-10-12: a fetch no longer gives the first pin's bytes
 # (03956685, 57,977 bytes), and whether the page changed or only its chrome
 # is not known; two fetches the same day hash alike. The fresh fetch was read
@@ -2777,6 +2804,9 @@ group  = "J"
 # of the flags field is set, then pp1 = 0 for all glyphs and the xMin and
 # left sidebearing for each glyph must be equal", and that a variable font
 # with TrueType outlines must set the bit.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-maxp]
 key    = "ms-opentype-maxp"
@@ -2788,10 +2818,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/maxp"
 file   = ""
 sha256 = "3f0e07c7186733d10c0c4a9299798ac3f41cc7a971a2ba5e93c5de7974d1e369"
 bytes  = 51298
+revision    = "7a06e1def6e2f40e43dc8897e5372614bcc413f6"
+text_sha256 = "b5fa0a869f655cb14ae6d0a768a04b7f3c8020c71abc3ac6682dac466e4d025e"
+text_bytes  = 1589
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-hhea]
 key    = "ms-opentype-hhea"
@@ -2803,10 +2839,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/hhea"
 file   = ""
 sha256 = "20892c53e980a6dfb2e05ccb0786405c641ae874f9501a11388f6e04248423e0"
 bytes  = 53202
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "f6cd88a2c6db0bbd60a50dec551ffbb4098c299ba27eb228063702ea70fce89b"
+text_bytes  = 2757
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-hmtx]
 key    = "ms-opentype-hmtx"
@@ -2818,10 +2860,13 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx"
 file   = ""
 sha256 = "bc1bf1ab74468c1eea5efb0b3815534c9489fc704ae1a1e8c3d69b5fe8bdc9c9"
 bytes  = 53863
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "32fc9f20aa634c06b7c7ec8f0e26f0719731daa02e30ef30f526ef1adc0aa673"
+text_bytes  = 5066
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
 # Re-pinned 2026-10-12: a fetch no longer gives the first pin's bytes
 # (eba7e640, 54,213 bytes), and whether the page changed or only its chrome
 # is not known; two fetches the same day hash alike. The fresh fetch was read
@@ -2831,6 +2876,9 @@ group  = "J"
 # + xMax - xMin)", and, for a variable font, "the left side bearing value in
 # the 'hmtx' table must always be equal to xMin (bit 1 of the 'head' flags
 # field must be set)".
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-vmtx]
 key    = "ms-opentype-vmtx"
@@ -2842,6 +2890,9 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/vmtx"
 file   = ""
 sha256 = "47069d2c60208eed178becf757970b041605752f626f05c8914249fe33198a7b"
 bytes  = 53344
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "ebb9e13e04f1a65cdf4610838c2d18ca3d32fe6916b7374a964b64ec2148d2e2"
+text_bytes  = 4423
 status = "external"
 group  = "J"
 # Read 2026-10-14; hash-verified, not committed -- a vendor HTML page whose
@@ -2855,6 +2906,9 @@ group  = "J"
 # of the glyph's vertical origin and advances downwards"; and for the
 # layout, "The number of entries in the vMetrics array is determined by the
 # value of the numOfLongVerMetrics field of the vertical header table".
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-vhea]
 key    = "ms-opentype-vhea"
@@ -2866,6 +2920,9 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/vhea"
 file   = ""
 sha256 = "63c5551a26d8c4a7a764d897d6b495c320082e76cb572b2f9c7308749e0c0577"
 bytes  = 59893
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "9a209fbaaabe226da5f5390f665f7c902b9d0b91fc41b8c2831d8f7d734e6fc9"
+text_bytes  = 7950
 status = "external"
 group  = "J"
 # Read 2026-10-14; hash-verified, not committed -- a vendor HTML page whose
@@ -2873,6 +2930,9 @@ group  = "J"
 # two fetches the same day hash alike. Read for numOfLongVerMetrics, the
 # header's last field, at byte 34 in both versions, "Number of advance
 # heights in the vertical metrics table".
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-loca]
 key    = "ms-opentype-loca"
@@ -2884,10 +2944,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/loca"
 file   = ""
 sha256 = "ed8b0f262510379cd0711e8d3723e7dc7cec00164278f4061680eab157e66339"
 bytes  = 50402
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "048856d0c9e043b6e6e533a6c44dd41722ea0eafe558c485fe92e6623455a953"
+text_bytes  = 1539
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-glyf]
 key    = "ms-opentype-glyf"
@@ -2899,10 +2965,13 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/glyf"
 file   = ""
 sha256 = "f20773354b1838589212a68597b1ae9098e646f2eadad058c021cbd28c1d553b"
 bytes  = 77582
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "0a2fe69d35beee972a5102fb7b3ba34d4c66e7cae0bd5e4aead721549c2f3556"
+text_bytes  = 24878
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
 # Re-pinned 2026-10-11: a fetch no longer gives the first pin's bytes, and
 # whether the page changed or only its chrome is not known. The fresh fetch
 # was read for the composite rules baud-font's glyf.rs builds: the component
@@ -2910,6 +2979,9 @@ group  = "J"
 # ("Phantom points from the parent or the child may be referenced"), and the
 # one on SCALED_COMPONENT_OFFSET and UNSCALED_COMPONENT_OFFSET ("this
 # behavior is recommended for all rasterizer implementations").
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-cff]
 key    = "ms-opentype-cff"
@@ -2921,10 +2993,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cff"
 file   = ""
 sha256 = "06a170dcb2db7ca678a9b829097c55b3e61857e6cc3db357bacbbfa2a5baa185"
 bytes  = 50993
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "cfbc9394a1948043230925e533eb0aad5d238da85b3cc927c1f42fc9b216c3e9"
+text_bytes  = 2001
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-cff2]
 key    = "ms-opentype-cff2"
@@ -2936,10 +3014,13 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cff2"
 file   = ""
 sha256 = "d6a55091e56ce44e85a3c43fbaeba8f0a42af0f42e5efc51756ee5e594e00d3a"
 bytes  = 228098
+revision    = "254d468ec363600e6e5ef33ef118f3776007af55"
+text_sha256 = "141e6fa07d745e64e341f0c62904b32d7e0aae2e84d6de6647727c49d280084a"
+text_bytes  = 122650
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
 # Re-pinned 2026-10-11, read whole for baud-font's CFF2 reader: the url had come
 # to serve 228,098 bytes against the 228,448 first pinned (77fe2bb8...), whose
 # bytes were never committed. Two fetches that day hashed alike; the page titles
@@ -2947,6 +3028,9 @@ group  = "J"
 # of MicrosoftDocs/typography (its `gitcommit` meta). The CharString format is
 # this page's "CharString" section: the separate `spec/cff2charstr` url that
 # ttf-parser's comments still cite answers 404.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-10-11, is before it was read.
 
 [sources.ms-opentype-os2]
 key    = "ms-opentype-os2"
@@ -2958,10 +3042,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/os2"
 file   = ""
 sha256 = "1c7497d3b106eced5ed1a9e16ebd74bf19e73c6f130ba7cf289719a6daeaed2f"
 bytes  = 160948
+revision    = "7d4f69a958353ed113017d0e707cbd183de5a949"
+text_sha256 = "cc07821833a2c7265eef6703cc8e29112ea56edfffbd6cca2ca6ba7e176afe4e"
+text_bytes  = 74305
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2025-03-20, is before it was read.
 
 [sources.ms-opentype-post]
 key    = "ms-opentype-post"
@@ -2973,10 +3063,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/post"
 file   = ""
 sha256 = "925d6c6d0697a47c549680e1748c7cf5cb9f3f9212f94e26efc689d64e224e13"
 bytes  = 59772
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "3e2641dfb692ca228dbeb69822cedcdb7b3ed5f5d535149b4e021e16cbcd1d20"
+text_bytes  = 8559
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-gsub]
 key    = "ms-opentype-gsub"
@@ -2988,10 +3084,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gsub"
 file   = ""
 sha256 = "358ebe0b4c4d3faa98003f9a4240208d7e0cf23ade776d1ea3f3429d932a0f09"
 bytes  = 138327
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "ed72c66ba38b8bdb12d3e773937fa70459601ec5aebb3b2a31f5450ae432833c"
+text_bytes  = 62907
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-gpos]
 key    = "ms-opentype-gpos"
@@ -3003,10 +3105,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gpos"
 file   = ""
 sha256 = "e2c316cd42e38b45529ca4f24d07deb2d66ee7d71d9dd58946589b3ec0df644d"
 bytes  = 199170
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "49b9bbbc406edb6dd915e1bfeac6feadabe944a1adfa35adff7af46f793c329b"
+text_bytes  = 106562
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-gpos-2026-10-23]
 key    = "ms-opentype-gpos-2026-10-23"
@@ -3018,6 +3126,9 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gpos"
 file   = ""
 sha256 = "844355c1818bb531eec8e715ac963038a30c4aa8db078a39ab73dff7624fa76a"
 bytes  = 199132
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "49b9bbbc406edb6dd915e1bfeac6feadabe944a1adfa35adff7af46f793c329b"
+text_bytes  = 106562
 status = "external"
 group  = "J"
 # Read and hash-verified 2026-10-23; not committed, as ms-opentype-gpos, whose
@@ -3029,6 +3140,10 @@ group  = "J"
 # glyph for which a lookup should be performed"; and "In right-to-left
 # scripts, if the first glyph has an advance width of 100, then the second
 # glyph begins at -100,0."
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read. So its article text is also
+# ms-opentype-gpos's.
 
 [sources.ms-opentype-gdef]
 key    = "ms-opentype-gdef"
@@ -3040,10 +3155,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gdef"
 file   = ""
 sha256 = "ef785dba265caff514f87209e9d604250954c11c578912937a444d6ebe466cc3"
 bytes  = 88126
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "632dfd8e9eb750ad47c5778a2027a8241a03ddadde6b84f048b1bf69939570d8"
+text_bytes  = 26673
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-chapter2]
 key    = "ms-opentype-chapter2"
@@ -3055,11 +3176,13 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2"
 file   = ""
 sha256 = "669fece5c12af876fa9108fcf2ae622544b9d028d21db4369300311d1dfe9d01"
 bytes  = 177827
+revision    = "54f34ea45cd132f2739b100b600b6f2cac540708"
+text_sha256 = "a40a9fde87cd085a8f7069081bcd65d562588fbe8a7e5c9071c53e837ce094ea"
+text_bytes  = 101193
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the
-# ScriptList text; the sha256 tracks the chrome (below).
+# fraction of its chrome; the sha256 tracks the chrome (below).
 # Re-pinned 2026-10-08: the url had come to serve 177,827 bytes against the
 # 178,177 first pinned (94066f79...), whose bytes were never committed. Two
 # fetches that day hashed alike; the page still titles itself 1.9.1, and the
@@ -3075,6 +3198,9 @@ group  = "J"
 # process script-neutral characters together with immediately-preceding or
 # following script-specific characters", which baud-font/src/script.rs
 # quotes, are both in it verbatim.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2025-03-18, is before it was read.
 
 [sources.ms-opentype-scripttags]
 key    = "ms-opentype-scripttags"
@@ -3086,15 +3212,21 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/scripttags"
 file   = ""
 sha256 = "a94a195a9b83c971f12db63385b97202d74addf12e05848ace74569a8936d337"
 bytes  = 60816
+revision    = "4ccd0b67c5532bd6ada3728567e2fbd39510b2a7"
+text_sha256 = "3b95bf4e737ce0f6d59f6bae5bf212e9b516b29a0b457b0b3bfae178af189ea6"
+text_bytes  = 5086
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
 # 187 registered tags. Every Unicode 17.0 script's tag that
 # `scripts/gen-script-tables.py` derives is among them (Yi's is printed with
 # no-break spaces and is `yi  `); the registered tags it does not derive are
 # byzm, math and musc (not Unicode scripts), jamo ("not recommended"), and
 # jurc, pcun and seal (not encoded in 17.0). Checked 2026-10-13.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2026-09-17, is before it was read.
 
 [sources.ms-hebrew-script-development]
 key    = "ms-hebrew-script-development"
@@ -3106,6 +3238,9 @@ url    = "https://learn.microsoft.com/en-us/typography/script-development/hebrew
 file   = ""
 sha256 = "afdc007411e4ed6e99f312291797eb9bf6cb7bf2c3bc6ae948d832e8b89a08b7"
 bytes  = 71662
+revision    = "3fa0ee489e47db9983163147ce5ab52486da9b0c"
+text_sha256 = "356e7a35954aaff480e36a4c81c14b88fd55ff8ae221656647033201f5634aa7"
+text_bytes  = 15490
 status = "external"
 group  = "J"
 # Read 2026-10-13; not committed -- a vendor HTML page, whose hash tracks
@@ -3115,6 +3250,9 @@ group  = "J"
 # `0.4.03568.8292-0a6c2196`. The script tag
 # `hebr` and its feature order; the engine stages it describes reorder no
 # marks, so it sets no order for Hebrew points either.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-syriac-script-development]
 key    = "ms-syriac-script-development"
@@ -3126,6 +3264,9 @@ url    = "https://learn.microsoft.com/en-us/typography/script-development/syriac
 file   = ""
 sha256 = "d18e146097e47373aafb3e2581fa44e8be8e0271352022e7ede763d7455bd0de"
 bytes  = 81270
+revision    = "0144559bf84f83f72675aa717f984418bbde190b"
+text_sha256 = "3774e5ebbc2729562c698a0f4d72f8b9d96194ee0597809b691550bd58089b64"
+text_bytes  = 21571
 status = "external"
 group  = "J"
 # Read 2026-10-25, two fetches the same hash; not committed -- a vendor HTML
@@ -3133,6 +3274,9 @@ group  = "J"
 # what fin2, fin3 and med2 do to alaph, and the order each feature is
 # applied in, one by one: ccmp, isol, fina, fin2, fin3, medi, med2, init,
 # rlig, calt.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2022-06-09, is before it was read.
 
 [sources.ms-arabic-script-development]
 key    = "ms-arabic-script-development"
@@ -3144,11 +3288,17 @@ url    = "https://learn.microsoft.com/en-us/typography/script-development/arabic
 file   = ""
 sha256 = "1a5e5059a64f0da5cb0620b730c78aa130d8164283a34c4d59ef033c742aa5f8"
 bytes  = 85625
+revision    = "4e8515d1b0593336cddd8c1de8baee43f4c14cca"
+text_sha256 = "4b5829b40cceb841f4806218948d927cd657ad17404f41431874a184e2e64bcd"
+text_bytes  = 23551
 status = "external"
 group  = "J"
 # Read 2026-10-25; not committed -- a vendor HTML page. The standard order
 # its table gives: ccmp, isol, fina, medi, init, rlig, rclt, calt, each
 # "Always applied", then liga, dlig, cswh and mset.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2022-06-09, is before it was read.
 
 [sources.ms-opentype-features-pt]
 key    = "ms-opentype-features-pt"
@@ -3160,11 +3310,17 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/features_pt
 file   = ""
 sha256 = "516aefdd51083f7b89a360b23c15840413c5e3b26c946ed3e35f6e2d2b57d447"
 bytes  = 135440
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "e262d44be66c2ec9b8655e5d2dcd9f7bb35fa68f3b586510be8248d2ec74d2cf"
+text_bytes  = 69680
 status = "external"
 group  = "J"
 # Read 2026-10-25; not committed -- a vendor HTML page. `rclt`: "similar
 # to 'calt', but ... it should not be possible to turn off 'rclt'
 # substitutions", "May be used for any script".
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.harfbuzz-14-5-1-shaper-arabic]
 key    = "harfbuzz-14-5-1-shaper-arabic"
@@ -3192,10 +3348,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/fvar"
 file   = ""
 sha256 = "ca701abf6b5c12d4b015e88a3b260185febf421d90635f5c76c9e69483d58d7d"
 bytes  = 70464
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "6b18283bcef3f4b4cf258c19fea1fc32076b77396a618661aa9bc76b4b975aa9"
+text_bytes  = 15747
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-gvar]
 key    = "ms-opentype-gvar"
@@ -3207,15 +3369,21 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gvar"
 file   = ""
 sha256 = "e331340853c0ee96d0037dfda514189a719a994d5f3533cb8332e99931e711ec"
 bytes  = 83405
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "296206353796b951b356bf2063b62700a227dd1a05582158161d19b147f0f88f"
+text_bytes  = 27661
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
 # Re-pinned 2026-10-11: a fetch no longer gives the first pin's bytes, and
 # whether the page changed or only its chrome is not known. The fresh fetch
 # was read for "Point numbers and processing for composite glyphs": deltas
 # for a point-matched component have no effect, and "if positioning offsets
 # are scaled, it is the delta-adjusted offsets that are scaled".
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-avar]
 key    = "ms-opentype-avar"
@@ -3227,10 +3395,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/avar"
 file   = ""
 sha256 = "511e0c7cc60a4da3c4a8b286d057957ab7a15103d8a3ce0445977d0f4382864f"
 bytes  = 57323
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "4e5ab60971fb7a5928f0c1cce6d8f26f8c4f9cc006fa7e371b3b7fc4159208b4"
+text_bytes  = 6972
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-hvar]
 key    = "ms-opentype-hvar"
@@ -3242,10 +3416,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/hvar"
 file   = ""
 sha256 = "8ead14e7627fdf90f109e8cb344ff5ec3dfc904d202c7f8984a12664c99a373a"
 bytes  = 58462
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "b681d00dd6f5e15cdc8b4f0c51fb92a7538f507e84e47ea9765c43846073bd50"
+text_bytes  = 7796
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-colr]
 key    = "ms-opentype-colr"
@@ -3257,10 +3437,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/colr"
 file   = ""
 sha256 = "371703dc5b7aad3efadb427c8246e7a6d716ba32b751d14867324e0e1cbae9a2"
 bytes  = 227399
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "bb085df72a38b87ea59a4bf7ae9a37c034c5131efc31296b11ad329f8eb83162"
+text_bytes  = 131402
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-cpal]
 key    = "ms-opentype-cpal"
@@ -3272,10 +3458,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cpal"
 file   = ""
 sha256 = "77021ccd5b4e169ed9e7a911a36fe8695d5b7e714eeffeca72b9e778225af1ea"
 bytes  = 66143
+revision    = "7741ba55884073c5993bb4c2c45859886172ae54"
+text_sha256 = "a315b7b73e1ec2098de42eb613af5e82aa78f05ec77796365ac95da392610ca1"
+text_bytes  = 13375
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2025-03-19, is before it was read.
 
 [sources.ms-opentype-cbdt]
 key    = "ms-opentype-cbdt"
@@ -3287,12 +3479,18 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cbdt"
 file   = ""
 sha256 = "8afac8de349652bd174768d3c50cc221db6fe9cc89521e1e7ef64be547e84cb0"
 bytes  = 56141
+revision    = "a22b82065976c7f3aa7d96800eac1c0fbe12d7c6"
+text_sha256 = "6121ca442e283d8a5f338c32fd20a87885ad42cc3ebcd8be799da67f1ffe6f69"
+text_bytes  = 4995
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
 # Re-pinned 2026-10-03 (was 3dad3e17..., 56,518 bytes; note J records the drift);
 # image formats 17, 18 and 19 read as before.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-cblc]
 key    = "ms-opentype-cblc"
@@ -3304,12 +3502,18 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cblc"
 file   = ""
 sha256 = "00bed8a273953b901271623d0c0f997bc0ccd5dda75fc1e41094ef5aac821030"
 bytes  = 51840
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "017d2ac3e9c43d3e1f5aac7396a3c460105e2aa1c8710e64e679fa979f4e2243"
+text_bytes  = 2417
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
 # Re-pinned 2026-10-03 (was c0b1f403..., 52,217 bytes). It defines CBLC as a
 # "downward compatible" extension of EBLC, whose index subtables it does not restate.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-eblc]
 key    = "ms-opentype-eblc"
@@ -3321,12 +3525,18 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/eblc"
 file   = ""
 sha256 = "b806b0e5ad1a2db3ad1d92ad9309de2571725d97dc00e4eb94df26e391bb51eb"
 bytes  = 70438
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "be6e59f97a67bdb2eb916d8a9bfebaace5363efe71d15e591177256f216dc916"
+text_bytes  = 15196
 status = "external"
 group  = "J"
 # Read and hash-verified 2026-10-03; not committed -- a vendor HTML page. The index
 # subtable rules CBLC inherits: "Records must be sorted by firstGlyphIndex, and
 # records should not have overlapping glyph ID ranges"; format 4's numGlyphs + 1
 # pairs, the last only marking where the last image ends.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-sbix]
 key    = "ms-opentype-sbix"
@@ -3338,16 +3548,22 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/sbix"
 file   = ""
 sha256 = "c75d44afb8a755e08037552d23ff0a3edeb3ba04f16cfff8810ff8e6dcf3d55b"
 bytes  = 56478
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "f1c221d6826bfb72f0138d21494e4d22f7126d1284433cae614bc637b8854802"
+text_bytes  = 6611
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
 # Re-pinned 2026-10-01 from curl's default User-Agent, which no longer gives the
 # first pin's bytes; a browser User-Agent gets an injected script and other bytes
 # (ed4b35ff...) around the same text. The fetch was read for the rule baud
 # follows -- "If the application is using
 # bitmap data to draw text and there is bitmap data for a glyph in any strike,
 # then the glyph must be drawn using a bitmap from some strike."
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.adobe-5176-cff]
 key    = "adobe-5176-cff"
@@ -3501,12 +3717,18 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/tt_instruct
 file   = ""
 sha256 = "87bc107df092035dd7df825b680e16bc3ac81a213c65c13aed9f22acc2c141dc"
 bytes  = 77190
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "6d59fa53f209303e6914211240e052dea55e3e9df517583f46fa63ebf37cc3ac"
+text_bytes  = 24532
 status = "external"
 group  = "J"
 # Read 2026-10-11 for "Phantom points": a glyph of n points has phantoms n to
 # n+3, the left sidebearing point, the advance width point, the top origin
 # and the advance height point. Hash-verified, not committed -- a vendor HTML
 # page whose spec text is a fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.apple-ttrm-ch2]
 key    = "apple-ttrm-ch2"
@@ -3860,10 +4082,16 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d
 file   = ""
 sha256 = "c62bdf777b07bd22648d7dc9553637b45c8c3cc640fd80efeaead89247281ad3"
 bytes  = 54617
+revision    = "de49341c1d8bf1ab1fc36b2e7b9d27388ce097f4"
+text_sha256 = "666fc72a6a2dc1ec200cbcbd6849820239bf19b04229200a3687315b3d853a47"
+text_bytes  = 4232
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
+# updated_at, 2024-07-12, is before it was read.
 
 [sources.ms-d3d12-architecture]
 key    = "ms-d3d12-architecture"
@@ -3875,10 +4103,16 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ns-d3d12-d3d
 file   = ""
 sha256 = "28d85bc685e2b05fcaaf512072d6a25cc83a890dd180a9c5328e77688b29eff3"
 bytes  = 56389
+revision    = "de49341c1d8bf1ab1fc36b2e7b9d27388ce097f4"
+text_sha256 = "e8f03792e3ab8d2745e84e1e7f93d1416faaedbbef812027c9d2f68ad5ea77ec"
+text_bytes  = 5722
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
+# updated_at, 2024-07-12, is before it was read.
 
 [sources.arb-buffer-storage]
 key    = "arb-buffer-storage"
@@ -5002,10 +5236,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/featurelist
 file   = ""
 sha256 = "fbc6acce039e3dace6cd451977caecfaa07ba051143eb888e1dec49b8b47b774"
 bytes  = 63814
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "0b564dc54bb9cae12391b5c9ab4fd1ef1876b5061d326633a9f78c21e12d9e97"
+text_bytes  = 3667
 status = "external"
 group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.apple-ttrm-tables]
 key    = "apple-ttrm-tables"
@@ -5787,10 +6027,16 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ne-dwrite-d
 file   = ""
 sha256 = "ffb68e4d1b6f6240cea9b49d5179df137666268b7c85358834d59712db1251e4"
 bytes  = 53669
+revision    = "38dbe8565d0aa6f6886297609af0cb908ba78cee"
+text_sha256 = "cab7359c8fdfb27eeb55f3e123812243ba6140c35b780c934d6644beafabc6be"
+text_bytes  = 3417
 status = "external"
 group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
+# updated_at, 2025-10-07, is before it was read.
 
 [sources.ghostty-font-face-coretext]
 key    = "ghostty-font-face-coretext"
@@ -6599,10 +6845,16 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/for-best-
 file   = ""
 sha256 = "4203517f01d3d7cd5501d4b20cd8805183dc3389c790412d0dcae835426ec918"
 bytes  = 59321
+revision    = "3fcc17ad9e68fca2c1f53cdb2b8cd3b274bbd406"
+text_sha256 = "a47158e8966e5a8736e63ced7e676d857557eb3f299e392d4544a9cb2483dff5"
+text_bytes  = 9711
 status = "external"
 group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of MicrosoftDocs/win32-pr, and the page's updated_at,
+# 2026-04-15, is before it was read.
 
 [sources.ms-dxgi-swap-chain-flag]
 key    = "ms-dxgi-swap-chain-flag"
@@ -6614,10 +6866,16 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/api/dxgi/ne-dxgi-dxgi_
 file   = ""
 sha256 = "67abd5517b2e663619312efc477510c5c1f71a9ca2b93867815e838ae6e28506"
 bytes  = 61180
+revision    = "ba4217fb2acb0ce1297ad6cc76710aef22090b8e"
+text_sha256 = "f2f8f7009ca01351faf275ac7f0ca1abaeba76a34a2f8fbbfef44cec53c38346"
+text_bytes  = 7394
 status = "external"
 group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
+# updated_at, 2026-06-17, is before it was read.
 
 [sources.ms-dxgi-frame-latency-waitable]
 key    = "ms-dxgi-frame-latency-waitable"
@@ -6629,10 +6887,16 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_3/nf-dxgi1_3
 file   = ""
 sha256 = "667e303ecb5ac74a3780e9f1f4575e64f459f1cef13856cca4afa5f2c90dae64"
 bytes  = 52727
+revision    = "9267262487657894a8af112d7165006fed5035a7"
+text_sha256 = "846f4f08745935b35f6e4cce657936747933a9cb3a3aee21eb24ede35c06c67a"
+text_bytes  = 1630
 status = "external"
 group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
+# updated_at, 2024-02-22, is before it was read.
 
 [sources.ms-dxgi-present1]
 key    = "ms-dxgi-present1"
@@ -6644,10 +6908,16 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2
 file   = ""
 sha256 = "7b1cb26ccffd17b02680dcc3414e50620369fc438618110c70f744cf672f3de8"
 bytes  = 56263
+revision    = "9267262487657894a8af112d7165006fed5035a7"
+text_sha256 = "5d4e934f229b008189cc59da7057309e4c2fa8390f9d443a4124ff4b675da8c6"
+text_bytes  = 4006
 status = "external"
 group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
+# updated_at, 2024-02-22, is before it was read.
 
 [sources.ms-dxgi-vrr]
 key    = "ms-dxgi-vrr"
@@ -6659,10 +6929,16 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/variable-
 file   = ""
 sha256 = "485c0d3017dd3057383fd0f3d4c311053fb872d8f6dba29a005242ca65312098"
 bytes  = 52459
+revision    = "129846d6c4f059b97adb840af9d5fca1c35b2c1e"
+text_sha256 = "9c0aa6a0c92cdbeccea33b8b4ef5e611d75de784c879ba5455c6710401dd62e3"
+text_bytes  = 3434
 status = "external"
 group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of MicrosoftDocs/win32-pr, and the page's updated_at,
+# 2025-04-15, is before it was read.
 
 [sources.ms-dxgi-composition-swapchain]
 key    = "ms-dxgi-composition-swapchain"
@@ -6674,10 +6950,16 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2
 file   = ""
 sha256 = "905dd787c30de86db3f736b79a31e5c6299efcdd8dffa2d4f97029189a16018a"
 bytes  = 60041
+revision    = "9267262487657894a8af112d7165006fed5035a7"
+text_sha256 = "f97a2f228fd540d63f1844bc6b8e378d28e0fe9253202d482064a97bb11f823f"
+text_bytes  = 4622
 status = "external"
 group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
+# updated_at, 2024-02-22, is before it was read.
 
 [sources.ms-high-dpi]
 key    = "ms-high-dpi"
@@ -6689,10 +6971,16 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop
 file   = ""
 sha256 = "d2eecbac3082ae6132da55e40783debf72022239cb4cdd74fffbf3a257f9c6c8"
 bytes  = 74860
+revision    = "55e845e9f3a6a3261f59a2f460f61edc25ffcdd5"
+text_sha256 = "81ba897fda7cc1a5ebbdae5d6f64cbaf1ecb1466d1169f7bfa369e3ebb58c30a"
+text_bytes  = 20943
 status = "external"
 group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of MicrosoftDocs/win32-pr, and the page's updated_at,
+# 2026-09-10, is before it was read.
 
 [sources.ghostty-renderer-metal-target]
 key    = "ghostty-renderer-metal-target"
@@ -11782,6 +12070,9 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/otvarovervi
 file   = ""
 sha256 = "fc658ea56e311fca105f4292241fcd5157df247f3982d7cbb76fc11acea1d497"
 bytes  = 133645
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "861d679b9489def0949f33a5add7091cd659640645912397dee4ef91ce6c46ba"
+text_bytes  = 68132
 status = "external"
 group  = "J"
 # Read 2026-09-29 for variable fonts; not committed. The page renders spec
@@ -11793,6 +12084,9 @@ group  = "J"
 # "Algorithm for interpolation of instance values"): two fetches hashed alike,
 # e5f8db93..., 133,672 bytes, and still render revision 810414e1, so the pin
 # stands.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-otvarcommonformats]
 key    = "ms-opentype-otvarcommonformats"
@@ -11804,6 +12098,9 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/otvarcommon
 file   = ""
 sha256 = "791f55bf79a4d78853b1376917e9d536bdad504fa386a9364c3e69a20fabb9c6"
 bytes  = 108722
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "a955c865b50b2ba80b0d0cce5faf68e0c7711ae5cefe2ad063b24c5e972fc3d3"
+text_bytes  = 49912
 status = "external"
 group  = "J"
 # Read 2026-09-29 for variable fonts; not committed. The page renders spec
@@ -11811,6 +12108,9 @@ group  = "J"
 # MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
 # revision this pin names: the page hash does not reproduce across page
 # rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-mvar]
 key    = "ms-opentype-mvar"
@@ -11822,6 +12122,9 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/mvar"
 file   = ""
 sha256 = "85f14af64e032ad48b0bb7016c800b66550fe0a0e2b70f0e936cd15add6ac7f5"
 bytes  = 65033
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "fa15a1f717ccff3a264b6bba89e6707ef2612ce47a398911ff59489ef8a07c3b"
+text_bytes  = 11089
 status = "external"
 group  = "J"
 # Read 2026-09-29 for variable fonts; not committed. The page renders spec
@@ -11829,6 +12132,9 @@ group  = "J"
 # MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
 # revision this pin names: the page hash does not reproduce across page
 # rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.ms-opentype-stat]
 key    = "ms-opentype-stat"
@@ -11840,6 +12146,9 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/stat"
 file   = ""
 sha256 = "91fcb6b230e8aa3596cafc324b148212672bb8d6bf0250f4bcce69e56595e16c"
 bytes  = 98142
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "86e0938b1512e3daf7e4b4dd01834e7a0cfe00fd8a52b065c1989aa0a546bd54"
+text_bytes  = 40176
 status = "external"
 group  = "J"
 # Read 2026-09-29 for variable fonts; not committed. The page renders spec
@@ -11847,6 +12156,9 @@ group  = "J"
 # MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
 # revision this pin names: the page hash does not reproduce across page
 # rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.font-jetbrains-mono-variable]
 key    = "font-jetbrains-mono-variable"
@@ -15764,10 +16076,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/recom"
 file   = ""
 sha256 = "101924e1b86bdfa7dd827f46e1f18e924c424b1f3239fb3b6a108161f78b6e3c"
 bytes  = 90010
+revision    = "9f768bb85b5fa055966d7f88e069c99f47c66bcf"
+text_sha256 = "7fd783296d34a80515f2a41b65cb91c97f7080d5ee243f619c3e14c436c1af91"
+text_bytes  = 35879
 status = "external"
 group  = "J"
 # Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
-# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+# fetch of the url, not committed -- a vendor HTML page.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2026-08-17, is before it was read.
 
 [sources.ms-opentype-cmap-20261008]
 key    = "ms-opentype-cmap-20261008"
@@ -15779,11 +16097,18 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cmap"
 file   = ""
 sha256 = "7fcb97687dc7455ae9310722fbfd3981ae1731cbbf8c6c12656fee5cb68710ff"
 bytes  = 97689
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "76e18ddc068fa779a6eb82ae99b5e7546738ce2bef1c2224a0e7a4c61432f8cd"
+text_bytes  = 36150
 status = "external"
 group  = "J"
 # Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
-# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+# fetch of the url, not committed -- a vendor HTML page.
 # The page ms-opentype-cmap pins served different bytes on 2026-10-08; this key pins those.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read. So its article text is also
+# ms-opentype-cmap's.
 
 [sources.w3c-css-fonts-3]
 key    = "w3c-css-fonts-3"
@@ -25550,12 +25875,18 @@ url    = "https://learn.microsoft.com/en-us/previous-versions/tn-archive/cc72286
 file   = ""
 sha256 = "d2eb64f61fd2874525e7fa360513882f058e7b8a3bd5cb9bbd43b2534e5273db"
 bytes  = 161179
+revision    = "6970971cdd84f8bcd13f785b9d86d99e746f6bab"
+text_sha256 = "987d9ef4c2fdecc5a04a79abe25ca98006e679e95e6a6d4fc17ff5e9c8bc6b7a"
+text_bytes  = 86492
 status = "external"
 group  = "C"
 # `external`: no grant. Read 2026-10-11 (round 2026-10-11b): HTML 794-797; silent on an
 # RCP with no SCP. The page is generated, so a re-fetch may not hash the same.
 # Re-fetched 2026-10-14 (lane scosc): it hashes 35bb7720... and 160,799 bytes, not the
 # above, as a generated page may; lines 794-797 give `ESC[s` and `ESC[u`, no parameter.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of tn-archive-docs-archive-pr on Azure DevOps, and the
+# page's updated_at, 2022-01-21, is before it was read.
 
 [sources.lsix-issue-41]
 key    = "lsix-issue-41"
@@ -28867,11 +29198,17 @@ url    = "https://learn.microsoft.com/en-us/typography/script-development/standa
 file   = ""
 sha256 = "2429d706e6216f4c628e2bc8c7133a8912691399969f2bd74e07a56f9fb676d0"
 bytes  = 71494
+revision    = "f98d9498d8d5d6a32f9433c480d95a85683174cd"
+text_sha256 = "e5c7d9f15c100be5a98f30b2bddbf1d557774cb608b394d6e8cf64fdde80906e"
+text_bytes  = 12249
 status = "external"
 group  = "J"
 # Read 2026-10-13 for note AB section 11 (Q-A); not committed -- a vendor HTML page, whose hash tracks
 # its chrome as the other learn.microsoft.com pages' do. "dflt" appears on it as a language-system tag,
 # never as a script tag.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2022-06-09, is before it was read.
 
 [sources.ms-opentype-scripttags-2005]
 key    = "ms-opentype-scripttags-2005"
@@ -32923,10 +33260,16 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/name"
 file   = ""
 sha256 = "a211b27cd2c9b3b48b4ca5848eec2296f8c06a30a566d0cd7089e4599b179674"
 bytes  = 88939
+revision    = "810414e13e39f68adfb5f12d525e6b50c850fbbc"
+text_sha256 = "5656a334c39f708cd033ba619f49ff53ec8024a35c7f35ea1965f24fa188b248"
+text_bytes  = 31693
 status = "external"
 group  = "J"
 # Fetched 2026-10-20 (lane b121) for OSC 50's family names. Read, not copied:
 # a vendor HTML page whose spec text is a fraction of its chrome.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2024-05-31, is before it was read.
 
 [sources.urxvt-rxvt7-5865a43]
 key    = "urxvt-rxvt7-5865a43"
@@ -34578,10 +34921,17 @@ url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/os2"
 file   = ""
 sha256 = "4021e58bdec7fb90c2219553ed76f231719845692acd5af9c05d764c5f5a47c2"
 bytes  = 160582
+revision    = "7d4f69a958353ed113017d0e707cbd183de5a949"
+text_sha256 = "cc07821833a2c7265eef6703cc8e29112ea56edfffbd6cca2ca6ba7e176afe4e"
+text_bytes  = 74305
 status = "external"
 group  = "J"
-# The page `ms-opentype-os2` pinned has changed upstream since (that key's
+# The page bytes `ms-opentype-os2` pinned are no longer served (that key's
 # hash no longer matches a fetch); this is the 2026-10-21 fetch.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
+# 2025-03-20, is before it was read. So its article text is also
+# ms-opentype-os2's.
 
 [sources.fontconfig-configure-2-15-0]
 key    = "fontconfig-configure-2-15-0"
@@ -39828,12 +40178,18 @@ url    = "https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-s
 file   = ""
 sha256 = "45eee3f01dd48bda55e3e3ed041c14315554778f89b09d479f0cd0c7c0ed1a8c"
 bytes  = 57974
+revision    = "9267262487657894a8af112d7165006fed5035a7"
+text_sha256 = "a2f4a365c727547c8d99c6f93860ee43eba595d7a296eaa350db6961dd00b702"
+text_bytes  = 6590
 status = "external"
 group  = "AX"
 # Fetched 2026-10-31: the taskbar ConEmu's OSC 9;4 drives, and the one text
 # for several windows behind one progress indicator; the rule the Dock tile
 # follows across baud's windows. The page is rendered HTML; its hash moves
 # with the site's markup.
+# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
+# updated_at, 2024-02-22, is before it was read.
 
 [sources.wt-6676c6f-taskbarstate]
 key    = "wt-6676c6f-taskbarstate"
