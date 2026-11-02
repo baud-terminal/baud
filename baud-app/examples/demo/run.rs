@@ -1,0 +1,1038 @@
+//! **The session, run**: the programs, photo and faces resolved and
+//! checked, the scratch home written, baud built and launched, and every
+//! step of [`SESSION`] played into its window.
+
+use std::fs::{self, File};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitCode, Stdio};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use crate::fonts::{self, PINNED};
+use crate::guard::{self, Rect};
+use crate::keys::{self, Gaps, RETURN};
+use crate::mac;
+use crate::names;
+use crate::provenance;
+use crate::record;
+use crate::scratch::{self, Layout};
+use crate::session::{self, SESSION, Step};
+
+/// Every program is taken from this nixpkgs revision,
+/// `scripts/readme-film.sh`'s.
+pub const NIXPKGS: &str = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a";
+
+/// The programs the session runs: nixpkgs attribute, binary.
+const PROGRAMS: [(&str, &str); 5] = [
+    ("btop", "btop"),
+    ("helix", "hx"),
+    ("kitty", "kitten"),
+    ("neo", "neo"),
+    ("asciiquarium", "asciiquarium"),
+];
+
+/// **The photo**: an elementary OS wallpaper pinned by revision and
+/// SHA-256, an Unsplash photograph published before June 2017 and so CC0,
+/// as elementary's `debian/copyright` records -- "Canazei Granite Ridges"
+/// (unsplash.com/photos/yrwpJwDNSHE) -- drawn at 1400 px wide, about the
+/// size it is shown at, as `scripts/readme-film.sh` draws it.
+const PHOTO: (&str, &str, &str) = (
+    "pantheon.elementary-wallpapers.src",
+    "backgrounds/Canazei Granite Ridges.jpg",
+    "0eff9cd7fe92aabb8937644ca154436ba926310808dd99a2902cdde335b0868c",
+);
+
+/// How long a prompt may take to come, and an echo.
+const PROMPT_LIMIT: Duration = Duration::from_secs(15);
+const ECHO_LIMIT: Duration = Duration::from_secs(3);
+
+/// How long the window stays after `--done` is touched, so a recorder that
+/// stops a moment after it still has baud's window in front.
+const DONE_TAIL: Duration = Duration::from_millis(1500);
+
+const USAGE: &str = "usage: cargo run --release --example demo -- [--dry] \
+                     [--record OUT.gif [--allow-dirty]] [--pid-file PATH] [--events PATH] \
+                     [--done PATH]\n       cargo run --example demo -- --verify GIF";
+
+struct Args {
+    dry: bool,
+    pid_file: Option<PathBuf>,
+    events: Option<PathBuf>,
+    done: Option<PathBuf>,
+    record: Option<PathBuf>,
+    allow_dirty: bool,
+    verify: Option<PathBuf>,
+}
+
+fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
+    let mut a = Args {
+        dry: false,
+        pid_file: None,
+        events: None,
+        done: None,
+        record: None,
+        allow_dirty: false,
+        verify: None,
+    };
+    while let Some(arg) = it.next() {
+        let mut path = || {
+            it.next()
+                .map(PathBuf::from)
+                .ok_or(format!("{arg} takes a path"))
+        };
+        match arg.as_str() {
+            "--dry" => a.dry = true,
+            "--pid-file" => a.pid_file = Some(path()?),
+            "--events" => a.events = Some(path()?),
+            "--done" => a.done = Some(path()?),
+            "--record" => a.record = Some(path()?),
+            "--allow-dirty" => a.allow_dirty = true,
+            "--verify" => a.verify = Some(path()?),
+            "-h" | "--help" => return Err(String::new()),
+            other => return Err(format!("{other} is not an option")),
+        }
+    }
+    if a.allow_dirty && a.record.is_none() {
+        return Err("--allow-dirty goes with --record".to_string());
+    }
+    let others = a.dry
+        || a.record.is_some()
+        || a.pid_file.is_some()
+        || a.events.is_some()
+        || a.done.is_some();
+    if a.verify.is_some() && others {
+        return Err("--verify takes nothing else".to_string());
+    }
+    Ok(a)
+}
+
+pub fn main() -> ExitCode {
+    let args = match parse(std::env::args().skip(1)) {
+        Ok(a) => a,
+        Err(e) => {
+            if !e.is_empty() {
+                eprintln!("demo: {e}");
+            }
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match run(&args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("demo: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(args: &Args) -> Result<(), String> {
+    let root = provenance::repository();
+    if let Some(gif) = &args.verify {
+        for l in provenance::verify(gif, &root)? {
+            println!("{l}");
+        }
+        println!(
+            "verified: {} is the GIF its provenance file describes",
+            gif.display()
+        );
+        return Ok(());
+    }
+    // A recording names the commit it filmed, so it is made of a clean
+    // tree; this is checked before anything is fetched, built or opened.
+    let tree = match &args.record {
+        Some(_) => {
+            let t = provenance::tree(&root)?;
+            provenance::admit(&t, args.allow_dirty)?;
+            println!(
+                "tree:    {}{}",
+                t.commit,
+                if t.dirty.is_empty() {
+                    ", clean".to_string()
+                } else {
+                    format!(", {} paths differ, allowed by --allow-dirty", t.dirty.len())
+                }
+            );
+            Some(t)
+        }
+        None => None,
+    };
+    let host = std::env::var("TERM_PROGRAM").unwrap_or_else(|_| "this terminal".to_string());
+    if !args.dry && !mac::trusted() {
+        return Err(format!(
+            "the demo types into baud's window, which macOS allows only an application \
+             trusted for Accessibility. Allow the one this runs in ({host}) under System \
+             Settings > Privacy & Security > Accessibility, then run it again. Nothing \
+             was opened and no event was posted."
+        ));
+    }
+    if !args.dry && args.record.is_some() && !mac::may_record() {
+        return Err(format!(
+            "--record films the screen, which macOS allows only an application trusted for \
+             Screen Recording. Allow the one this runs in ({host}) under System Settings > \
+             Privacy & Security > Screen & System Audio Recording, then run it again. \
+             Nothing was opened."
+        ));
+    }
+    let prep = prepare()?;
+    let names = machine_names(&prep.at.root)?;
+    let profile = Profile::of_this_example()?;
+    let command = profile.command(std::env::args().skip(1));
+    let kit = match &args.record {
+        Some(out) => {
+            let hit = names::named(command.as_bytes(), &names);
+            if !hit.is_empty() {
+                return Err(format!(
+                    "the command names this machine ({hit:?}), and the provenance file \
+                     records it: give the GIF's path relative to where this runs"
+                ));
+            }
+            Some(record::kit(out, &prep.at, &root, nix_out)?)
+        }
+        None => None,
+    };
+    let built = build_baud(&profile)?;
+    let baud = built.bin;
+    println!("baud:    {}", baud.display());
+    let run = tree.as_ref().map(|t| record::Run {
+        root: &root,
+        command: command.clone(),
+        from: from_dir(&root),
+        tree: t,
+        tools: &prep.tools,
+        pins: &prep.pins,
+        names: &names,
+    });
+    if args.dry {
+        if let (Some(k), Some(r)) = (&kit, &run) {
+            record::self_check(k, &prep.at, r)?;
+        }
+        println!(
+            "access:  {}",
+            if mac::trusted() {
+                "this terminal is trusted for Accessibility, so the session can type"
+            } else {
+                "this terminal is not trusted for Accessibility: the session would stop here"
+            }
+        );
+        if args.record.is_some() {
+            println!(
+                "screen:  {}",
+                if mac::may_record() {
+                    "this terminal may film the screen, so --record can film"
+                } else {
+                    "this terminal may not film the screen: --record would stop here"
+                }
+            );
+        }
+        println!(
+            "dry:     no window opened, no event posted; the scratch directory is kept at {}",
+            prep.at.root.display()
+        );
+        return Ok(());
+    }
+    let session = live(args, &prep, &baud, kit.as_ref())?;
+    if let (Some(k), Some(r), Some(s)) = (&kit, &run, session) {
+        record::finish(k, &prep.at, r, &built.target, s)?;
+    }
+    let _ = fs::remove_dir_all(&prep.at.root);
+    Ok(())
+}
+
+/// What the session needs, made and checked: the scratch home, baud's
+/// environment, and for the provenance file each nixpkgs attribute's store
+/// path and each pinned file's SHA-256.
+struct Prep {
+    at: Layout,
+    env: Vec<(String, String)>,
+    tools: Vec<(String, String)>,
+    pins: Vec<(String, String)>,
+}
+
+fn prepare() -> Result<Prep, String> {
+    let mut bins = Vec::new();
+    let mut tools = Vec::new();
+    let mut store = |attr: &str| -> Result<PathBuf, String> {
+        let p = nix_out(attr)?;
+        tools.push((attr.to_string(), p.to_string_lossy().into_owned()));
+        Ok(p)
+    };
+    for (attr, bin) in PROGRAMS {
+        let dir = store(attr)?.join("bin");
+        let exe = dir.join(bin);
+        if !exe.is_file() {
+            return Err(format!("{attr} has no {}", exe.display()));
+        }
+        println!("{bin:<13}{}", exe.display());
+        bins.push(dir.to_string_lossy().into_owned());
+    }
+    let photo = store(PHOTO.0)?.join(PHOTO.1);
+    pinned(&photo, PHOTO.2)?;
+    let magick = store("imagemagick")?.join("bin/magick");
+
+    let cache = cache_dir()?;
+    let mut faces = Vec::new();
+    for p in &PINNED {
+        let f = fetch(p, &cache)?;
+        println!("{:<13}{} ({})", "font", p.name, p.draws);
+        faces.push(f);
+    }
+
+    let at = Layout {
+        root: fresh_root()?,
+    };
+    let path = scratch::path(&bins);
+    let files: Vec<&str> = PINNED.iter().map(|p| p.file()).collect();
+    let written = scratch::files(&path, &files);
+    for (rel, bytes) in &written {
+        let to = at.root.join(rel);
+        if let Some(dir) = to.parent() {
+            fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        fs::write(&to, bytes).map_err(|e| format!("{}: {e}", to.display()))?;
+    }
+    for dir in [at.tmp(), at.fonts()] {
+        fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    for (p, from) in PINNED.iter().zip(&faces) {
+        fs::copy(from, at.fonts().join(p.file())).map_err(|e| format!("{}: {e}", p.file()))?;
+    }
+    let canazei = at.work().join("canazei.jpg");
+    let made = Command::new(&magick)
+        .arg(&photo)
+        .args(["-resize", "1400x", "-quality", "92"])
+        .arg(&canazei)
+        .status()
+        .map_err(|e| format!("magick: {e}"))?;
+    if !made.success() || !canazei.is_file() {
+        return Err("magick did not make the photo".to_string());
+    }
+    let env = scratch::env(&at, &path);
+    let mut pins: Vec<(String, String)> = PINNED
+        .iter()
+        .map(|p| (p.file().to_string(), p.sha256.to_string()))
+        .collect();
+    let photo_name = PHOTO.1.rsplit('/').next().unwrap_or(PHOTO.1);
+    pins.push((photo_name.to_string(), PHOTO.2.to_string()));
+    pins.push(("canazei.jpg".to_string(), provenance::sha256(&canazei)?));
+
+    check_fonts(&faces)?;
+    check_names(&at, &written, &env)?;
+    print_plan();
+    Ok(Prep {
+        at,
+        env,
+        tools,
+        pins,
+    })
+}
+
+/// The output path of `attr` at the pinned revision.
+pub fn nix_out(attr: &str) -> Result<PathBuf, String> {
+    let out = Command::new("nix")
+        .args(["build", "--no-link", "--print-out-paths"])
+        .arg(format!("{NIXPKGS}#{attr}"))
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| format!("nix: {e}; the demo takes its programs from nixpkgs"))?;
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() || path.is_empty() || path.contains('\n') {
+        return Err(format!("nix build {attr} failed"));
+    }
+    Ok(PathBuf::from(path))
+}
+
+/// Refuses `file` unless it hashes to `sha256`.
+fn pinned(file: &Path, sha256: &str) -> Result<(), String> {
+    let out = Command::new("/usr/bin/shasum")
+        .args(["-a", "256"])
+        .arg(file)
+        .output()
+        .map_err(|e| format!("shasum: {e}"))?;
+    let got = String::from_utf8_lossy(&out.stdout);
+    match got.split_whitespace().next() {
+        Some(h) if h == sha256 => Ok(()),
+        _ => Err(format!("{} is not the pinned file", file.display())),
+    }
+}
+
+/// The faces' cache, outside the repository: `NOTO_CACHE`, else
+/// `$XDG_CACHE_HOME/baud-readme`, else `~/.cache/baud-readme`, the one
+/// `scripts/readme-capture.sh` fills.
+fn cache_dir() -> Result<PathBuf, String> {
+    if let Some(d) = std::env::var_os("NOTO_CACHE") {
+        return Ok(PathBuf::from(d));
+    }
+    if let Some(d) = std::env::var_os("XDG_CACHE_HOME") {
+        return Ok(PathBuf::from(d).join("baud-readme"));
+    }
+    std::env::var_os("HOME")
+        .map(|h| PathBuf::from(h).join(".cache/baud-readme"))
+        .ok_or_else(|| "no HOME for the font cache; set NOTO_CACHE".to_string())
+}
+
+/// The pinned face in the cache, fetched when it is missing, and refused
+/// unless it hashes to its pin.
+fn fetch(p: &fonts::Pinned, cache: &Path) -> Result<PathBuf, String> {
+    let f = cache.join(p.file());
+    if !f.exists() {
+        fs::create_dir_all(cache).map_err(|e| format!("{}: {e}", cache.display()))?;
+        let part = cache.join(format!("{}.part", p.file()));
+        let ok = Command::new("/usr/bin/curl")
+            .args(["-sSfL", "-o"])
+            .arg(&part)
+            .arg(p.url)
+            .status()
+            .map_err(|e| format!("curl: {e}"))?;
+        if !ok.success() {
+            return Err(format!("could not fetch {}", p.url));
+        }
+        fs::rename(&part, &f).map_err(|e| format!("{}: {e}", f.display()))?;
+    }
+    pinned(&f, p.sha256)?;
+    Ok(f)
+}
+
+/// A new directory in the system's temporary one.
+fn fresh_root() -> Result<PathBuf, String> {
+    let tmp = std::env::temp_dir();
+    for n in 0..100 {
+        let dir = tmp.join(format!("baud-demo-{}-{n}", std::process::id()));
+        if fs::create_dir(&dir).is_ok() {
+            return Ok(dir);
+        }
+    }
+    Err(format!("no new directory in {}", tmp.display()))
+}
+
+/// **No character the session shows from what it controls needs a system
+/// face**: the README, `hello.txt`, the prompt and neo's half-width
+/// katakana, through the stack baud builds from the scratch config --
+/// its text face, its icon face, the four pinned faces, STIX Two Math --
+/// and baud-render's table. Then the control: without the CJK face, 终 is
+/// a gap, so the check can fail.
+fn check_fonts(faces: &[PathBuf]) -> Result<(), String> {
+    let bytes: Vec<Vec<u8>> = faces
+        .iter()
+        .map(|f| fs::read(f).map_err(|e| format!("{}: {e}", f.display())))
+        .collect::<Result<_, _>>()?;
+    let mut stack: Vec<(&str, &[u8])> = vec![
+        ("Proto Hebrew Mono C", fonts::REGULAR),
+        ("Symbols Nerd Font Mono", fonts::SYMBOLS),
+    ];
+    stack.extend(
+        PINNED
+            .iter()
+            .zip(&bytes)
+            .map(|(p, b)| (p.name, b.as_slice())),
+    );
+    stack.push(("STIX Two Math", fonts::STIX));
+    let text = format!(
+        "{}{}{}{}",
+        scratch::README,
+        session::HELLO,
+        session::PROMPT_SHOWN,
+        fonts::neo_katakana()
+    );
+    let c = fonts::coverage(&stack, &text)?;
+    println!(
+        "fonts:   the {} characters of README.md, hello.txt, the prompt and neo's katakana:",
+        c.checked
+    );
+    for (name, chars) in &c.drawn {
+        let sample: String = chars.iter().take(24).collect();
+        println!("         {:<24}{:>4}  {sample}", name, chars.len());
+    }
+    if !c.gaps.is_empty() {
+        let g: String = c.gaps.iter().collect();
+        return Err(format!(
+            "no pinned face draws {g}: the system would be asked for them"
+        ));
+    }
+    let without: Vec<(&str, &[u8])> = stack
+        .iter()
+        .copied()
+        .filter(|(n, _)| *n != "Noto Sans CJK SC")
+        .collect();
+    let control = fonts::coverage(&without, &text)?;
+    if !control.gaps.contains(&'终') {
+        return Err("the font check cannot fail: 终 drew without the CJK face".to_string());
+    }
+    println!(
+        "         none from the system; without Noto Sans CJK SC, {} are, 终 among them",
+        control.gaps.len()
+    );
+    Ok(())
+}
+
+/// **Nothing written names this machine**: each text file of the scratch
+/// directory, the repository's address in the README aside, and baud's
+/// environment, the scratch directory aside (`names::env_named`).
+fn check_names(
+    at: &Layout,
+    written: &[(String, Vec<u8>)],
+    env: &[(String, String)],
+) -> Result<(), String> {
+    let n = machine_names(&at.root)?;
+    for name in &n {
+        if !names::named(name.as_bytes(), &n).contains(name) {
+            return Err(format!("the names check cannot find {name}"));
+        }
+    }
+    let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
+    for (rel, bytes) in written {
+        let hit = names::named_outside(bytes, &n, &[&public]);
+        if !hit.is_empty() {
+            return Err(format!("{rel} names this machine: {hit:?}"));
+        }
+    }
+    let root = at.root.to_string_lossy();
+    let hit = names::env_named(env, &root, &n);
+    if !hit.is_empty() {
+        return Err(format!("baud's environment names this machine: {hit:?}"));
+    }
+    println!(
+        "names:   the {} files written and baud's {} variables name none of this machine's {} \
+         names but the scratch directory; each name, written, is found",
+        written.len(),
+        env.len(),
+        n.len()
+    );
+    Ok(())
+}
+
+/// This machine's names: [`names::machine_names`] over this process's
+/// environment and temporary directory, the host name and the computer's
+/// two names; and the scratch root, which the pty log must not name.
+fn machine_names(root: &Path) -> Result<Vec<String>, String> {
+    let env: Vec<(String, String)> = std::env::vars().collect();
+    let say = |cmd: &str, args: &[&str]| {
+        Command::new(cmd)
+            .args(args)
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default()
+    };
+    let hosts = [
+        say("/bin/hostname", &[]),
+        say("/usr/sbin/scutil", &["--get", "ComputerName"]),
+        say("/usr/sbin/scutil", &["--get", "LocalHostName"]),
+    ];
+    if hosts[0].is_empty() {
+        return Err("hostname said nothing, so the names check would miss the host".to_string());
+    }
+    let temp = std::env::temp_dir().to_string_lossy().into_owned();
+    let mut n = names::machine_names(&env, &temp, &hosts);
+    n.push(root.to_string_lossy().into_owned());
+    Ok(n)
+}
+
+fn print_plan() {
+    let d = session::duration(SESSION);
+    println!(
+        "plan:    {} steps, {} prompts, at least {:.1} s plus each program's start, \
+         {} at {} pt",
+        SESSION.len(),
+        session::prompts(SESSION),
+        d.as_secs_f64(),
+        scratch::GRID,
+        scratch::POINTS
+    );
+    let mut prompt = 0;
+    for (i, step) in SESSION.iter().enumerate() {
+        if *step == Step::Prompt {
+            prompt += 1;
+        }
+        println!(
+            "         {:>2}  {}",
+            i + 1,
+            session::describe(*step, prompt)
+        );
+    }
+}
+
+/// **Where cargo put this example**: `<target>/[<triple>/]<profile>/examples/demo`,
+/// read from its own path.
+struct Profile {
+    dir: PathBuf,
+    name: String,
+    target: PathBuf,
+    triple: Option<String>,
+}
+
+impl Profile {
+    fn of_this_example() -> Result<Profile, String> {
+        let exe = std::env::current_exe().map_err(|e| format!("where this example is: {e}"))?;
+        let dir = exe
+            .parent()
+            .and_then(Path::parent)
+            .ok_or("the example is not in a cargo target directory")?;
+        let name = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or("the example is not in a cargo target directory")?;
+        let mut target = dir.parent().ok_or("no target directory")?;
+        let triple = target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|t| t.ends_with("-apple-darwin"))
+            .map(str::to_string);
+        if triple.is_some() {
+            target = target.parent().ok_or("no target directory")?;
+        }
+        Ok(Profile {
+            dir: dir.to_path_buf(),
+            name: name.to_string(),
+            target: target.to_path_buf(),
+            triple,
+        })
+    }
+
+    /// cargo's flags for this profile and target.
+    fn flags(&self) -> Vec<String> {
+        let mut f = match self.name.as_str() {
+            "debug" => Vec::new(),
+            "release" => vec!["--release".to_string()],
+            other => vec!["--profile".to_string(), other.to_string()],
+        };
+        if let Some(t) = &self.triple {
+            f.extend(["--target".to_string(), t.clone()]);
+        }
+        f
+    }
+
+    /// **The command that ran this**, as it would be typed: `cargo run`, the
+    /// profile's flags, `--example demo --` and the example's arguments,
+    /// each quoted for a shell when it needs it.
+    fn command(&self, args: impl Iterator<Item = String>) -> String {
+        let mut words = vec!["cargo".to_string(), "run".to_string()];
+        words.extend(self.flags());
+        words.extend(["--example", "demo", "--"].map(str::to_string));
+        words.extend(args.map(|a| shell_word(&a)));
+        words.join(" ")
+    }
+}
+
+/// A word as a shell reads it back: bare when it is plain, else in single
+/// quotes.
+fn shell_word(a: &str) -> String {
+    let plain = !a.is_empty()
+        && a.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_./=:,+-@%".contains(c));
+    if plain {
+        a.to_string()
+    } else {
+        format!("'{}'", a.replace('\'', "'\\''"))
+    }
+}
+
+/// The directory this runs from, from the repository's root: `.` there.
+fn from_dir(root: &Path) -> String {
+    let here = std::env::current_dir().and_then(fs::canonicalize);
+    let root = fs::canonicalize(root);
+    match (here, root) {
+        (Ok(h), Ok(r)) if h == r => ".".to_string(),
+        (Ok(h), Ok(r)) => h
+            .strip_prefix(&r)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| "outside the repository".to_string()),
+        _ => "unknown".to_string(),
+    }
+}
+
+/// The `baud` built, and the target directory it is in.
+struct Built {
+    bin: PathBuf,
+    target: PathBuf,
+}
+
+/// **The current `baud`**, built by the cargo that ran this example
+/// (`CARGO`, which `cargo run` sets) in the example's own profile and
+/// target directory, read from where the example's binary is:
+/// `<target>/<profile>/examples/demo`. `cargo run` lets go of its build
+/// lock before it starts the example, so the build can take it.
+fn build_baud(p: &Profile) -> Result<Built, String> {
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let mut cmd = Command::new(cargo);
+    cmd.args(["build", "-p", "baud", "--bin", "baud", "--manifest-path"])
+        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&p.target)
+        .args(p.flags());
+    let status = cmd.status().map_err(|e| format!("cargo: {e}"))?;
+    let bin = p.dir.join("baud");
+    if !status.success() || !bin.is_file() {
+        return Err(format!(
+            "cargo build -p baud did not make {}",
+            bin.display()
+        ));
+    }
+    Ok(Built {
+        bin,
+        target: p.target.clone(),
+    })
+}
+
+/// The pty log baud writes (`BAUD_PTYLOG`), read as it grows.
+struct PtyLog {
+    path: PathBuf,
+    bytes: Vec<u8>,
+    marks: usize,
+    counted: usize,
+}
+
+impl PtyLog {
+    fn refresh(&mut self) {
+        if let Ok(mut f) = File::open(&self.path) {
+            let _ = f.seek(SeekFrom::Start(self.bytes.len() as u64));
+            let _ = f.read_to_end(&mut self.bytes);
+        }
+        let from = self.counted.saturating_sub(session::PROMPT_MARK.len() - 1);
+        self.marks += session::marks(&self.bytes[from..]);
+        self.counted = self.bytes.len();
+    }
+
+    fn wait(
+        &mut self,
+        limit: Duration,
+        what: &str,
+        done: impl Fn(&PtyLog) -> bool,
+    ) -> Result<(), String> {
+        let t = Instant::now();
+        loop {
+            self.refresh();
+            if done(self) {
+                return Ok(());
+            }
+            if t.elapsed() > limit {
+                return Err(format!("{what} never came"));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+/// **One timestamped line a step**, on stdout, in `--events` and in the
+/// provenance file: seconds since baud's launch, negative for what came
+/// before it -- the recorder's start. A line written before the launch
+/// waits for it. Shared with the thread that reads the recorder.
+#[derive(Clone)]
+pub struct Events(Arc<Mutex<Log>>);
+
+pub struct Log {
+    launch: Option<Instant>,
+    pending: Vec<(Instant, String)>,
+    file: Option<File>,
+    lines: Vec<String>,
+}
+
+impl Log {
+    fn write(&mut self, t: f64, what: &str) {
+        let l = format!("{t:.3} {what}");
+        println!("         {l}");
+        if let Some(f) = &mut self.file {
+            let _ = writeln!(f, "{l}");
+        }
+        self.lines.push(l);
+    }
+}
+
+/// `t` in seconds after `from`, negative before it.
+fn since(t: Instant, from: Instant) -> f64 {
+    if t >= from {
+        t.duration_since(from).as_secs_f64()
+    } else {
+        -from.duration_since(t).as_secs_f64()
+    }
+}
+
+impl Events {
+    fn new(file: Option<File>) -> Events {
+        Events(Arc::new(Mutex::new(Log {
+            launch: None,
+            pending: Vec::new(),
+            file,
+            lines: Vec::new(),
+        })))
+    }
+
+    pub fn line(&self, what: &str) {
+        let now = Instant::now();
+        let Ok(mut log) = self.0.lock() else { return };
+        match log.launch {
+            Some(l) => log.write(since(now, l), what),
+            None => log.pending.push((now, what.to_string())),
+        }
+    }
+
+    /// baud was launched `at`: the lines before it are written now.
+    fn launched(&self, at: Instant) {
+        let Ok(mut log) = self.0.lock() else { return };
+        log.launch = Some(at);
+        for (t, what) in std::mem::take(&mut log.pending) {
+            log.write(since(t, at), &what);
+        }
+    }
+
+    fn lines(&self) -> Vec<String> {
+        self.0.lock().map(|l| l.lines.clone()).unwrap_or_default()
+    }
+}
+
+/// A pid written whole: to a file beside it, then renamed over it, so a
+/// reader never sees part of it.
+fn write_pid(p: &Path, pid: i32) -> Result<(), String> {
+    let mut part = p.as_os_str().to_owned();
+    part.push(".part");
+    let part = PathBuf::from(part);
+    fs::write(&part, format!("{pid}\n"))
+        .and_then(|()| fs::rename(&part, p))
+        .map_err(|e| format!("{}: {e}", p.display()))
+}
+
+/// **The session played**, and with `--record` filmed: the recorder starts
+/// and must be filming before baud is launched. Returns what the GIF
+/// needs when it filmed.
+fn live(
+    args: &Args,
+    prep: &Prep,
+    baud: &Path,
+    kit: Option<&record::Kit>,
+) -> Result<Option<record::Session>, String> {
+    let at = &prep.at;
+    let log = File::create(at.baud_log()).map_err(|e| format!("baud's log: {e}"))?;
+    let err = log.try_clone().map_err(|e| format!("baud's log: {e}"))?;
+    let events = match &args.events {
+        Some(p) => Some(File::create(p).map_err(|e| format!("{}: {e}", p.display()))?),
+        None => None,
+    };
+    let ev = Events::new(events);
+    let mut filming = match kit {
+        Some(k) => Some(record::start(k, at, &ev)?),
+        None => None,
+    };
+    let launch = Instant::now();
+    let spawned = Command::new(baud)
+        .env_clear()
+        .envs(prep.env.iter().map(|(k, v)| (k, v)))
+        .current_dir(at.work())
+        .stdin(Stdio::null())
+        .stdout(log)
+        .stderr(err)
+        .spawn();
+    ev.launched(launch);
+    let mut child = match spawned {
+        Ok(c) => c,
+        Err(e) => {
+            if let Some(f) = &mut filming {
+                f.stop();
+            }
+            return Err(format!("{}: {e}", baud.display()));
+        }
+    };
+    let Ok(pid) = i32::try_from(child.id()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        if let Some(f) = &mut filming {
+            f.stop();
+        }
+        return Err("a pid past i32".to_string());
+    };
+    ev.line(&format!("baud pid {pid}"));
+    let mut pid_files: Vec<PathBuf> = args.pid_file.iter().cloned().collect();
+    let mut dones: Vec<PathBuf> = args.done.iter().cloned().collect();
+    if filming.is_some() {
+        pid_files.push(at.root.join("baud.pid"));
+        dones.push(at.root.join("done"));
+    }
+    let fixed = if filming.is_some() {
+        Fixed::Yes
+    } else {
+        Fixed::No
+    };
+    let played = pid_files
+        .iter()
+        .try_for_each(|p| write_pid(p, pid))
+        .and_then(|()| play(&ev, pid, at, fixed));
+    match &played {
+        Ok(_) => ev.line("done"),
+        Err(e) => ev.line(&format!("DIE {e}")),
+    }
+    if !dones.is_empty() {
+        for d in &dones {
+            let _ = File::create(d);
+        }
+        if played.is_ok() {
+            std::thread::sleep(DONE_TAIL);
+        }
+    }
+    let last = guard::frame(pid, &mac::windows(true));
+    close(&mut child, pid);
+    let display = filming.as_ref().map(|f| f.display);
+    let said = filming.map(|f| f.finish(Duration::from_secs(60)));
+    let first = played?;
+    leaks(at)?;
+    let (Some(said), Some(display)) = (said, display) else {
+        return Ok(None);
+    };
+    let said = said?;
+    if last != Some(first) {
+        return Err(format!(
+            "baud's window moved or changed size while it was filmed ({first:?}, then {last:?}), \
+             so no one crop holds it"
+        ));
+    }
+    Ok(Some(record::Session {
+        events: ev.lines(),
+        said,
+        display,
+        frame: first,
+    }))
+}
+
+/// The window closed: baud sent `SIGTERM`, by its pid, and `SIGKILL` if it
+/// is still running three seconds later.
+fn close(child: &mut Child, pid: i32) {
+    let _ = Command::new("/bin/kill").arg(pid.to_string()).status();
+    let t = Instant::now();
+    while t.elapsed() < Duration::from_secs(3) {
+        if let Ok(Some(_)) = child.try_wait() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Whether baud's window must stay where it came frontmost: when it is
+/// filmed, as the film is cropped to it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fixed {
+    Yes,
+    No,
+}
+
+/// **Every step played**; returns baud's window as it was when it came
+/// frontmost, which the film is cropped to. When it is `Fixed`, the window
+/// is looked at again at every prompt, and a window that has moved or
+/// changed size stops the session there rather than at its end.
+fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String> {
+    let mut tries = 0;
+    while mac::front_owner() != Some(pid) {
+        mac::raise(pid);
+        std::thread::sleep(Duration::from_millis(50));
+        tries += 1;
+        if tries > 100 {
+            return Err("baud never came frontmost".to_string());
+        }
+    }
+    ev.line("frontmost");
+    let frame = guard::frame(pid, &mac::windows(true)).ok_or("baud has no window on screen")?;
+    let poster = mac::Poster::new(pid)?;
+    let seed = pid.unsigned_abs();
+    let hold = Duration::from_secs_f64(session::key_hold_ms() / 1000.0);
+    let type_keys = |keys: &[keys::Key], gaps: &mut Gaps| -> Result<(), String> {
+        for (i, k) in keys.iter().enumerate() {
+            poster.key(*k, hold)?;
+            if i + 1 < keys.len() {
+                let g = gaps.next_ms(session::KEY_GAP_MS) - session::key_hold_ms();
+                std::thread::sleep(Duration::from_secs_f64(g.max(0.0) / 1000.0));
+            }
+        }
+        Ok(())
+    };
+    let mut log = PtyLog {
+        path: at.pty_log(),
+        bytes: Vec::new(),
+        marks: 0,
+        counted: 0,
+    };
+    let mut prompt = 0;
+    for &step in SESSION {
+        match step {
+            Step::Prompt => {
+                prompt += 1;
+                log.wait(PROMPT_LIMIT, &format!("prompt {prompt}"), |l| {
+                    l.marks >= prompt
+                })?;
+                ev.line(&session::event(step, prompt));
+                if prompt == 1 {
+                    check_config(at)?;
+                }
+                if fixed == Fixed::Yes {
+                    let now = guard::frame(pid, &mac::windows(true));
+                    if now != Some(frame) {
+                        return Err(format!(
+                            "baud's window moved or changed size by prompt {prompt} \
+                             ({frame:?}, then {now:?}), so no one crop holds it"
+                        ));
+                    }
+                }
+            }
+            Step::Run(t) => {
+                ev.line(&session::event(step, prompt));
+                let ks = keys::keys_for(t).map_err(|c| format!("no key types {c:?}"))?;
+                let mut gaps = Gaps::new(seed, ks.len() + 1);
+                log.refresh();
+                let from = log.bytes.len();
+                type_keys(&ks, &mut gaps)?;
+                let what = format!("the echo of `{t}` (are the keys arriving?)");
+                log.wait(ECHO_LIMIT, &what, |l| session::echoed(&l.bytes, from, t))?;
+                let g = gaps.next_ms(session::KEY_GAP_MS) - session::key_hold_ms();
+                std::thread::sleep(Duration::from_secs_f64(g.max(0.0) / 1000.0));
+                type_keys(&[RETURN], &mut gaps)?;
+            }
+            Step::Keys(_) | Step::Line(_) => {
+                ev.line(&session::event(step, prompt));
+                let ks = keys::presses(step).map_err(|c| format!("no key types {c:?}"))?;
+                type_keys(&ks, &mut Gaps::new(seed, ks.len()))?;
+            }
+            Step::Hold(ms) => {
+                ev.line(&session::event(step, prompt));
+                std::thread::sleep(Duration::from_millis(u64::from(ms)));
+            }
+            Step::Wheel { turns, lines } => {
+                let c = guard::centre(pid, &mac::windows(false))
+                    .ok_or("baud has no window on screen")?;
+                poster.wheel(c, turns, lines)?;
+                ev.line(&session::event(step, prompt));
+            }
+        }
+    }
+    Ok(frame)
+}
+
+/// **baud read the scratch config and said nothing against it**: its log
+/// names that file, and no other line of `config:`.
+fn check_config(at: &Layout) -> Result<(), String> {
+    let log = fs::read_to_string(at.baud_log()).unwrap_or_default();
+    let want = format!("config: {}", at.config().display());
+    if !log.lines().any(|l| l == want) {
+        return Err("baud did not read its config".to_string());
+    }
+    let said: Vec<&str> = log
+        .lines()
+        .filter(|l| l.starts_with("config: ") && *l != want)
+        .collect();
+    if !said.is_empty() {
+        return Err(format!("baud complained about its config: {said:?}"));
+    }
+    Ok(())
+}
+
+/// **Nothing baud was sent names this machine**, the scratch directory
+/// included: what the programs printed is on film. The repository's
+/// address, which the README prints, aside.
+fn leaks(at: &Layout) -> Result<(), String> {
+    let bytes = fs::read(at.pty_log()).map_err(|e| format!("the pty log: {e}"))?;
+    let n = machine_names(&at.root)?;
+    let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
+    let hit = names::named_outside(&bytes, &n, &[&public]);
+    if !hit.is_empty() {
+        return Err(format!("the screen was sent this machine's names: {hit:?}"));
+    }
+    println!("names:   nothing the programs printed names this machine");
+    Ok(())
+}

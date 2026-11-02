@@ -11,7 +11,21 @@ the plasma trail, a photo drawn by `kitten icat`, neo, asciiquarium, and
 a plain `baud ❯`, so nothing names the machine. Encoded with gifski at
 1164 px wide (16.9 MB), with no frame carrying traces of another, so it
 loops clean. neo's katakana are drawn by the macOS system font baud falls
-back to, as baud's own font has none.
+back to, as baud's own font has none; a recording played with the example
+draws them from Noto Sans CJK SC, which it configures.
+
+A recording for the README is made by one command, which plays the
+session in baud's window, films it and encodes the GIF:
+`cargo run --release --example demo -- --record assets/readme/hero.gif`
+(`baud-app/examples/demo.rs`). It writes a file named
+hero.gif.provenance.toml beside the GIF: the commit of baud that was
+built and filmed and whether its tree was clean, every step with its
+time since the launch, each tool's nixpkgs store path, the encoder's
+settings and the SHA-256 of the GIF, the raw film and every pinned file.
+Anyone can check that the GIF is the one it describes with
+`cargo run --example demo -- --verify assets/readme/hero.gif`. The
+`hero.gif` here was recorded before that command existed, and has no
+provenance file yet.
 
 `social.png` is a 1280x640 card for the repository's social preview,
 which GitHub takes only as an upload in the repository's settings, never

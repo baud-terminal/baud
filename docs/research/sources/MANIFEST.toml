@@ -40897,3 +40897,58 @@ sha256 = "9133af7b4b94a9625223130d5b04d1aba7491aa88f34bddb5d8b3e6bcbff18dd"
 bytes  = 1245
 status = "retrieved"
 group  = "C"
+
+# The README demo's guard (baud-app/examples/demo/guard.rs): lines 143-145,
+# kCGWindowListOptionOnScreenOnly lists the windows "ordered from front to
+# back", so the first of layer 0 is the frontmost ordinary window; lines
+# 66-69, kCGWindowBounds "is a CFDictionary" (declared at line 71). Its
+# --record (baud-app/examples/demo/mac.rs): lines 294-300,
+# CGPreflightScreenCaptureAccess "Returns whether the current process
+# already has permission to capture the contents of the screen, without
+# prompting the user".
+[sources.macos-sdk-cgwindow-h]
+key    = "macos-sdk-cgwindow-h"
+title  = "CGWindow.h -- kCGWindowListOptionOnScreenOnly: 'List all on-screen windows in this user session, ordered from front to back'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/CoreGraphics.framework/Headers/CGWindow.h"
+file   = ""
+sha256 = "0f01073171b13d5a63a95763bac468efc00da89cb232292f2bcd95b1c0198aee"
+bytes  = 12386
+status = "external"
+group  = "O"
+
+# Line 54: an application's changing properties "persist until the next
+# turn of the main run loop in a common mode", so the demo turns the run
+# loop before each read of the frontmost application (NSWorkspace.h line
+# 143: "the application that will receive key events").
+[sources.macos-sdk-nsrunningapplication-h]
+key    = "macos-sdk-nsrunningapplication-h"
+title  = "NSRunningApplication.h -- 'properties persist until the next turn of the main run loop in a common mode'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSRunningApplication.h"
+file   = ""
+sha256 = "b7fa5d5b933aef2165268305c631c2e8c617ba55234f83250b37cd9db1899f5e"
+bytes  = 10783
+status = "external"
+group  = "O"
+
+# Lines 69-74: AXIsProcessTrusted, "Returns whether the current process is
+# a trusted accessibility client", declared `extern Boolean
+# AXIsProcessTrusted (void)`; lines 55-64, the WithOptions form whose
+# prompt option asks the user, which the demo never calls.
+[sources.macos-sdk-axuielement-h]
+key    = "macos-sdk-axuielement-h"
+title  = "AXUIElement.h -- AXIsProcessTrusted: 'Returns whether the current process is a trusted accessibility client'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/Headers/AXUIElement.h"
+file   = ""
+sha256 = "10f58138ceb51d24d5855b961592af8c077aa2d563f68753016e0bbaacdd3bad"
+bytes  = 40681
+status = "external"
+group  = "O"

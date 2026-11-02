@@ -292,9 +292,9 @@ the embedded JetBrains Mono since it became the default), a
 steady block cursor and that trail,
 nothing read from `~/.config` -- and runs `scripts/trail-demo.sh` in it, which
 makes six moves 1.15 s apart: right, down, left, up, then the two diagonals.
-`scripts/trail-record.swift` records baud's window alone through
-ScreenCaptureKit at up to 120 frames a second, and `scripts/trail-still.swift`
-takes the still from the diagonal.
+`scripts/trail-record.swift`, in its window form, records baud's window
+alone through ScreenCaptureKit at up to 120 frames a second, and
+`scripts/trail-still.swift` takes the still from the diagonal.
 
 It checks what it made rather than trusting it. baud has to have read the
 config without a complaint, so a clip labelled "quad" cannot be the default

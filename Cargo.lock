@@ -87,6 +87,9 @@ dependencies = [
  "baud-wayland",
  "dispatch2",
  "macos-liquid-glass",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
 ]
 
 [[package]]

@@ -64,6 +64,16 @@ baud-present-macos = { workspace = true }
 dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
 macos-liquid-glass = { version = "1.0.0-beta.6", features = ["drawable"] }
 
+# The `demo` example's desktop calls: the window list, the frontmost
+# application, the key and wheel events and the Screen Recording check
+# (CGPreflightScreenCaptureAccess, in CGWindow). Each is already in the
+# lock at this version, built with its default features for
+# `macos-liquid-glass`, so these lists add nothing to what is compiled.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSRunningApplication", "NSWorkspace"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFDate", "CFDictionary", "CFNumber", "CFRunLoop", "CFString"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation", "CGWindow"] }
+
 [features]
 # **A ceiling arm for row 11, off.** `present` returns early when nothing
 # is pending, but only after resolving the renderer to the terminal, the
@@ -79,6 +89,14 @@ ceiling-idle-skip = []
 [[bin]]
 name = "baud"
 path = "src/main.rs"
+
+# **The README's session, played in baud's window** (`baud-app/examples/demo.rs`):
+# `cargo run --release --example demo`. Its tests run with the package's,
+# which an example's do not unless it says so. Not packaged: `include`
+# leaves `examples/` out.
+[[example]]
+name = "demo"
+test = true
 
 # **`cargo install baud` builds the binary the repository measures.** Cargo
 # reads a profile only from the root manifest. In the workspace that is
