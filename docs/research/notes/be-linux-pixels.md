@@ -546,23 +546,124 @@ Below version 6 a window on two outputs is drawn at the larger scale,
 as its pointer already was; foot takes the output entered last
 (`[[source: foot-2705e36-terminal]]`).
 
+**And the same pixels at 1.5**, taken 2026-11-02 by
+`scripts/linux-pixels.sh`, whose sway stage runs sway 1.10.1's headless
+output at 1.5 and takes it with grim. The window floats at the output's
+origin at 800x608 points, which is 100x35 cells at 1, 1.5 and 2 (608
+points are 912 pixels at 1.5, 35 rows of 26), on a black background
+with no pointer device. sway sends the fraction 180 and the integer 2,
+and the app draws 1200x912 pixels through its viewport, told 800x608.
+Its screenshot equals the `pixels` bench at `PIXELS_SCALE=1.5` on all
+1,092,000 pixels of the grid for each of the six fixtures, and the
+control holds its one value. The screenshot is 1200x912 and the grid
+1200x910: the bottom two rows of pixels are the window's padding below
+the 35 rows and are not compared. The same is true under the same sway
+at 1 for less-pager and the control, and at 2 for less-pager, there
+drawn at 240 through the viewport where weston's 2 is a buffer scale.
+The bench draws the same bytes at 1.5 on this Mac and in the container.
+sway runs in Debian trixie, whose DejaVu Sans Mono (2.37-8) is not
+bookworm's file, so the stage puts the build container's DejaVu faces
+in place of its own and both arms read the same files
+(`[[source: be-obs-pixels-fraction]]`). The comparison can fail: a
+binary that ignores the fraction draws at sway's integer 2, a 1600x1216
+buffer at buffer scale 2 that sway shrinks, and differs from the bench
+at 1.5 in 139,358 to 205,476 of the grid's 1,092,000 pixels for
+less-pager, cat-cjk, vim-unicode and btop, in 3,016 for swirl and in
+21,600 for the control, which no longer holds its one value; moved onto
+the output at 1.5, its frame differs in 149,367
+(`[[source: be-obs-pixels-fraction-probe]]`, a run of an earlier version
+of the stage, whose moves were first, moved, across and back).
+
+**A window moved between outputs of different scales follows them.**
+The same stage runs two headless outputs side by side, the second at 2
+under sway 1.7 (bookworm) and at 1.5 under sway 1.10.1, and moves the
+floating window with `swaymsg move absolute position` from the first
+output across the two, onto the second, across again and back. Across,
+from x 300, 500 of its 800 points are on the first output and 300 on
+the second, and the window gets there once from each side. At each
+step the trace of sway's `WAYLAND_DEBUG=server` log gives what the app
+attached and told, and the scale sway 1.10.1 sent; the trace does not
+show sway 1.7's `wl_output.scale` or `wl_surface.enter`. The frame on
+the output the window is on is compared with the bench at that
+output's scale:
+
+| sway | step | sent, as traced | the window's buffer | told | frame against the bench |
+|---|---|---|---|---|---|
+| 1.7 | on the first, at 1 | -- | 800x608 | no buffer scale | 0 of 476,000 differ |
+| 1.7 | across, from the first | -- | 1600x1216 | buffer scale 2 | not compared |
+| 1.7 | on the second, at 2 | -- | 1600x1216 | buffer scale 2 | 0 of 1,904,000 |
+| 1.7 | across, from the second | -- | 1600x1216 | buffer scale 2 | not compared |
+| 1.7 | back | -- | 800x608 | buffer scale 1 | 0 of 476,000 |
+| 1.10.1 | on the first, at 1 | fraction 120, integer 1 | 800x608 | destination 800x608 | 0 of 476,000 |
+| 1.10.1 | across, from the first | nothing new | 800x608 | destination 800x608 | not compared |
+| 1.10.1 | on the second, at 1.5 | fraction 180, integer 2 | 1200x912 | destination 800x608 | 0 of 1,092,000 |
+| 1.10.1 | across, from the second | fraction 120, integer 1 | 800x608 | destination 800x608 | not compared |
+| 1.10.1 | back | nothing new | 800x608 | destination 800x608 | 0 of 476,000 |
+
+On sway 1.7, below `wl_compositor` 6, the window across two outputs is
+drawn at the larger of their scales from either side, as the integer
+rule says: from the first output it goes up to 2, so it is not keeping
+the scale it had. sway 1.10.1 sends its own choice there, the first
+output's 120 from either side, and the app draws at what it is sent:
+fractional-scale-v1 leaves the scale to "the compositor suggests"
+(`[[source: wp-fractional-scale-v1]]`). At its start sway 1.10.1 maps
+the window on the second output, and the app draws one frame at 1.5
+before the rule moves it to the first; sway 1.7 maps it on the first.
+
+**The pointer the app draws is drawn at the fraction too.** Where a
+compositor offers fractional-scale-v1 and no cursor-shape-v1, the app
+draws its own pointer, and it drew it at the integer scale beside the
+fraction: the 24-point I-beam a 48-pixel image at buffer scale 2, shrunk
+by the compositor at 1.5. It is drawn now as the window is, "The
+wl_surface buffer scale should remain set to 1", the image the 24 points
+times the scale, 36 pixels at 1.5, and the cursor's own viewport told
+24x24 (`[[source: wp-fractional-scale-v1]]`); the hotspot stays in
+surface points, which `wl_pointer.set_cursor` takes "in surface-local
+coordinates" (`[[source: wayland]]`). A shown pointer is drawn again
+when the window's scale changes, an output entered or left or a new
+preferred scale, where it waited for the pointer to come back or for the
+next shape; a hidden one stays hidden. The images are baud's three, not
+a cursor theme: foot loads the user's Xcursor theme at the window's
+scale and maps it through a viewport at a fraction
+(`[[source: foot-2705e36-render]]`, `[[source: foot-2705e36-wayland]]`),
+and no pinned protocol text names a theme. Over a socket pair
+`a_drawn_pointer_at_a_fraction_is_drawn_through_its_viewport` holds the
+image at 1.5 and at 2, and `a_shown_pointer_follows_the_windows_scale`
+the redraw; on the base the first reads a 48-pixel image and the second
+waits for a redraw that never comes. Leaving the destination untold, the
+hotspot in the image's pixels, the image at the integer scale, a hidden
+pointer kept as shown and the redraw taken out each fail them. No
+compositor the harness runs offers fractional-scale-v1 without
+cursor-shape-v1 (sway 1.7 neither, sway 1.10.1 both), so this path is
+held over a socket pair only. On this binary `scripts/linux-pointer.sh`
+passes all 102 of its checks on both arms at 1, 2 and 1.5. sway 1.7's
+drawn pointer is 24 pixels at 1 and 48 at 2 and beside its 1.5, and
+sway 1.10.1 names its shapes
+(`[[source: be-obs-pointer-scale-follow]]`).
+
 ## 10. Open
 
 - The pointer on a screen, and on GNOME's and KDE's compositors.
 - Everything here is over a black background; a desktop with a
   wallpaper, and a screen, are not.
 - The GPU half of Linux.
-- A window moved between outputs of different scales, and a desktop's
-  own fractional scale on a screen (§9 ran one headless output a run).
+- A desktop's own fractional scale on a screen (§9's outputs are
+  headless).
 - One run of each fixture at one size and one font size.
 - A frame's damage on a GPU compositor, which may release a buffer
   before the next commit, and a screen's.
 - A reused buffer's missed rows on a screen: seen on sway 1.10.1, out
   of the screen's reach on 1.7, and held on the fake compositor.
-- The app's pixels at 1.5: weston's headless output takes only whole
-  scales, so no screenshot was compared against the bench at a
-  fraction; sway's grim at 1.5 is the candidate.
 - How many frames a scale change draws: the trace keeps a buffer's size
   only when it changes (§9), so the one layout is held over a socket
   pair, not counted on a compositor.
-- The pointer's own image at the integer scale beside a fraction.
+- The pointer the app draws at a fraction, on a compositor: none the
+  harness runs offers fractional-scale-v1 without cursor-shape-v1, so it
+  is held over a socket pair (§9). At 1.5 the I-beam's stems, drawn on
+  whole points, fall on half pixels and are antialiased.
+- A user's Xcursor theme is not read: where the compositor names no
+  shapes, the pointer is baud's I-beam, hand or arrow.
+- The drawn pointer follows the scale event by event, where the window
+  lays a dispatch's changes out once: a compositor that sends one
+  output's leave before the next one's enter, in one dispatch, has the
+  pointer drawn once at the scale between them.

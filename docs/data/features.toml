@@ -753,10 +753,10 @@ shipped = ["F1-07"]
 id = "sharp-linux"
 area = "text"
 name = "Sharp at every scale on Linux"
-does = "The window is drawn at the scale the desktop asks for, in-between scales such as 1.5 included, so text stays sharp; the font keeps its size in points, and a click lands on the cell under the pointer at any scale."
+does = "The window is drawn at the scale the desktop asks for, in-between scales such as 1.5 included, so text stays sharp, also after the window moves to a screen of another scale; the pointer baud draws on desktops that leave it to the app is drawn at that scale too; the font keeps its size in points, and a click lands on the cell under the pointer at any scale."
 status = "built"
 platform = "linux"
-tests = ["baud-present-wayland/tests/handshake.rs::a_fraction_draws_the_surface_times_the_scale_through_the_viewport", "baud-present-wayland/tests/handshake.rs::a_fraction_wins_over_the_integer_scale_in_either_order", "baud-app/src/seat.rs::a_point_at_a_fraction_is_the_cell_its_pixels_are_in"]
+tests = ["baud-present-wayland/tests/handshake.rs::a_fraction_draws_the_surface_times_the_scale_through_the_viewport", "baud-present-wayland/tests/handshake.rs::a_fraction_wins_over_the_integer_scale_in_either_order", "baud-app/src/seat.rs::a_point_at_a_fraction_is_the_cell_its_pixels_are_in", "baud-present-wayland/tests/handshake.rs::a_drawn_pointer_at_a_fraction_is_drawn_through_its_viewport", "baud-present-wayland/tests/handshake.rs::a_shown_pointer_follows_the_windows_scale"]
 
 [[feature]]
 id = "zoom-linux"

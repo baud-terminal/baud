@@ -39964,6 +39964,45 @@ bytes  = 3146
 status = "retrieved"
 group  = "BE"
 
+[sources.be-obs-pixels-fraction]
+key    = "be-obs-pixels-fraction"
+title  = "The Linux app's frames for six fixtures under sway 1.10.1's headless output at 1.5, less-pager also at 1 and 2 and the control at 1, against the pixels bench at the same scale, the window moved between outputs at 1 and 2 under sway 1.7 and at 1 and 1.5 under sway 1.10.1, and weston 10.0.1's fixtures as before"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pixels.sh, its weston fixtures and its sway stage"
+file   = "be-observed/pixels-fraction.txt"
+sha256 = "83d6c68f618354b89efa6244f11ef0822cdd4cf965294dbcdbcad5b347be49dc"
+bytes  = 9409
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pixels-fraction-probe]
+key    = "be-obs-pixels-fraction-probe"
+title  = "An earlier version of the sway stage, whose moves were first, moved, across and back, on a probe binary that ignores the fraction and draws at sway's integer scale: the comparisons at 1.5 fail"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pixels.sh's sway stage in an earlier version, whose moves were first, moved, across and back, on a probe binary"
+file   = "be-observed/pixels-fraction-probe.txt"
+sha256 = "f918897f51fd772514d03ae7e96fad04c7ebdb20e8e89c59e822098fbcaba60a"
+bytes  = 7842
+status = "retrieved"
+group  = "BE"
+
+[sources.be-obs-pointer-scale-follow]
+key    = "be-obs-pointer-scale-follow"
+title  = "The Linux app under a virtual pointer on the binary that draws its own pointer at the window's scale and again when the scale changes: sway 1.7 and 1.10.1 at 1, 2 and 1.5, every check"
+author = "baud research (note BE)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "scripts/linux-pointer.sh, both arms at every scale"
+file   = "be-observed/pointer-scale-follow.txt"
+sha256 = "4bb4c60a5182f62ef3c3504407b3ed8c43995890de2f73f17e4a568733230ba5"
+bytes  = 13022
+status = "retrieved"
+group  = "BE"
+
 [sources.be-obs-pointer-base2]
 key    = "be-obs-pointer-base2"
 title  = "The same checks on the binary built from 487d78bc: the side buttons fail on each arm and the drawn pointer at scale 2 and 1.5 on sway 1.7"

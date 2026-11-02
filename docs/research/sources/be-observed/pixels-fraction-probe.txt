@@ -1,0 +1,152 @@
+# scripts/linux-pixels.sh's sway stage in an earlier version, whose moves were first, moved, across and back, on a probe binary, whose scale::chosen never takes its fraction arm, so the app draws at sway's integer scale beside the fraction: the sway fixtures against the pixels bench at their scale, and the moves
+
+== less-pager-sway (100x35, scale 1, sway)
+        surface window attach 800x608
+        surface window preferred_buffer_scale 1
+        surface window fractional_scale 120
+mac against linux, the bench: identical
+the screenshot settled: yes
+linux over black against the screenshot: 0 of 476000 pixels differ, largest channel difference 0
+== control-sway (100x35, scale 1, sway)
+        surface window attach 800x608
+        surface window preferred_buffer_scale 1
+        surface window fractional_scale 120
+mac against linux, the bench: identical
+the screenshot settled: yes
+linux over black against the screenshot: 0 of 476000 pixels differ, largest channel difference 0
+== less-pager-sway-x2 (100x35, scale 2, sway)
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window preferred_buffer_scale 2
+        surface window fractional_scale 240
+mac against linux, the bench: identical
+the screenshot settled: yes
+linux over black against the screenshot: 0 of 1904000 pixels differ, largest channel difference 0
+== less-pager-x1.5 (100x35, scale 1.5, sway)
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window preferred_buffer_scale 2
+        surface window fractional_scale 180
+mac against linux, the bench: identical
+the screenshot settled: yes
+linux over black against the screenshot: 149367 of 1092000 pixels differ, largest channel difference 205
+  by difference: 205: 5581, 204: 5415, 2: 2597, 154: 2156, 1: 1993, 21: 1901, 34: 1895, 191: 1758
+  within x 3..958, y 3..904
+== cat-cjk-x1.5 (100x35, scale 1.5, sway)
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window preferred_buffer_scale 2
+        surface window fractional_scale 180
+mac against linux, the bench: identical
+the screenshot settled: yes
+linux over black against the screenshot: 139358 of 1092000 pixels differ, largest channel difference 205
+  by difference: 186: 5845, 169: 4368, 34: 4128, 33: 3997, 29: 3916, 26: 3835, 17: 3667, 60: 3454
+  within x 1..934, y 5..878
+== vim-unicode-x1.5 (100x35, scale 1.5, sway)
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window preferred_buffer_scale 2
+        surface window fractional_scale 180
+mac against linux, the bench: identical
+the screenshot settled: yes
+linux over black against the screenshot: 205476 of 1092000 pixels differ, largest channel difference 244
+  by difference: 205: 6873, 204: 5805, 1: 3630, 2: 3134, 34: 2459, 6: 2373, 16: 2327, 26: 2313
+  within x 1..1199, y 1..904
+== btop-x1.5 (100x35, scale 1.5, sway)
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window preferred_buffer_scale 2
+        surface window fractional_scale 180
+mac against linux, the bench: identical
+the screenshot settled: yes
+linux over black against the screenshot: 146675 of 1092000 pixels differ, largest channel difference 255
+  by difference: 11: 19728, 188: 14036, 48: 8063, 255: 5219, 24: 3965, 23: 2538, 2: 2510, 5: 2372
+  within x 0..1199, y 0..909
+== swirl-x1.5 (100x35, scale 1.5, sway)
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window preferred_buffer_scale 2
+        surface window fractional_scale 180
+mac against linux, the bench: identical
+the screenshot settled: yes
+linux over black against the screenshot: 3016 of 1092000 pixels differ, largest channel difference 244
+  by difference: 5: 162, 239: 128, 234: 114, 206: 107, 216: 98, 190: 90, 224: 88, 203: 84
+  within x 0..63, y 0..47
+== control-x1.5 (100x35, scale 1.5, sway)
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window preferred_buffer_scale 2
+        surface window fractional_scale 180
+mac against linux, the bench: identical
+the screenshot settled: yes
+linux over black against the screenshot: 21600 of 1092000 pixels differ, largest channel difference 119
+  by difference: 119: 20400, 59: 1200
+  within x 0..1199, y 892..909
+the control-sway holds one value, (130, 26, 74), everywhere: yes
+the control-x1.5 holds one value, (130, 26, 74), everywhere: no
+== moves, sway on bookworm: "name":"HEADLESS-1"	"scale":1.0 "name":"HEADLESS-2"	"scale":2.0 
+-- first: the window at 0,0 800x608
+        surface window attach 800x608
+-- moved: the window at 800,0 800x608
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+-- across: the window at 300,0 800x608
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+-- back: the window at 0,0 800x608
+        surface window attach 800x608
+        surface window buffer_scale 1
+first-HEADLESS-1, its screenshot 800x608, against the bench at 1: 0 of 476000 pixels differ, largest channel difference 0
+moved-HEADLESS-2, its screenshot 1600x1216, against the bench at 2: 0 of 1904000 pixels differ, largest channel difference 0
+back-HEADLESS-1, its screenshot 800x608, against the bench at 1: 0 of 476000 pixels differ, largest channel difference 0
+-- every window buffer size and scale told, in order:
+        surface window attach 800x600
+        surface window attach 800x608
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window attach 800x608
+        surface window buffer_scale 1
+== moves, sway on trixie: "name":"HEADLESS-2"	"scale":1.5 "name":"HEADLESS-1"	"scale":1.0 
+-- first: the window at 0,0 800x608
+        surface window attach 800x608
+        surface window buffer_scale 1
+        surface window preferred_buffer_scale 1
+        surface window fractional_scale 120
+-- moved: the window at 800,0 800x608
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window preferred_buffer_scale 2
+        surface window fractional_scale 180
+-- across: the window at 300,0 800x608
+        surface window attach 800x608
+        surface window buffer_scale 1
+        surface window preferred_buffer_scale 1
+        surface window fractional_scale 120
+-- back: the window at 0,0 800x608
+        surface window attach 800x608
+        surface window buffer_scale 1
+        surface window preferred_buffer_scale 1
+        surface window fractional_scale 120
+first-HEADLESS-1, its screenshot 800x608, against the bench at 1: 0 of 476000 pixels differ, largest channel difference 0
+moved-HEADLESS-2, its screenshot 1200x912, against the bench at 1.5: 149367 of 1092000 pixels differ, largest channel difference 205
+  by difference: 205: 5581, 204: 5415, 2: 2597, 154: 2156, 1: 1993, 21: 1901, 34: 1895, 191: 1758
+  within x 3..958, y 3..904
+back-HEADLESS-1, its screenshot 800x608, against the bench at 1: 0 of 476000 pixels differ, largest channel difference 0
+-- every window buffer size and scale told, in order:
+        surface window attach 800x600
+        surface window fractional_scale 180
+        surface window preferred_buffer_scale 2
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window fractional_scale 120
+        surface window preferred_buffer_scale 1
+        surface window attach 800x608
+        surface window buffer_scale 1
+        surface window fractional_scale 180
+        surface window preferred_buffer_scale 2
+        surface window attach 1600x1216
+        surface window buffer_scale 2
+        surface window fractional_scale 120
+        surface window preferred_buffer_scale 1
+        surface window attach 800x608
+        surface window buffer_scale 1

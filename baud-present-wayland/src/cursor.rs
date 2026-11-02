@@ -7,7 +7,9 @@
 //! draws it: three images, the I-beam over text, the pointing hand for
 //! `pointer` -- "pointer that indicates a link or another interactive
 //! element" (`[[source: wp-cursor-shape-v1]]`) -- and the arrow for every
-//! other shape, drawn here at the window's buffer scale.
+//! other shape, drawn here at the window's scale, a fraction such as 1.5
+//! included: 36 pixels a side there, told through the cursor's own
+//! viewport as the window's frame is (`window.rs`).
 //!
 //! **24 logical pixels**, GNOME's `cursor-size` default (`[[source:
 //! gnome-interface-schema-2417a27]]`, line 185). Each image is black with
@@ -16,6 +18,8 @@
 //! `ARGB8888` is.
 
 use crate::pointer::CursorShape;
+use crate::scale::BufferScale;
+use crate::shm::Px;
 use baud_wayland::protocol;
 
 /// The cursor's side in logical pixels.
@@ -174,12 +178,18 @@ const SAMPLES: u32 = 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Scale(pub u32);
 
-/// **`d` drawn at `scale`**: `SIZE * scale` pixels a side, row by row,
+/// **`d` drawn at `scale`**: `SIZE` points at the scale a side, rounded
+/// halfway away from zero (`BufferScale::buffer`), row by row,
 /// premultiplied `0xAARRGGBB` -- black where the shape is, white on its
 /// rim, clear elsewhere, each pixel the mean of its samples.
-pub fn draw(d: Drawn, scale: Scale) -> Vec<u32> {
-    let s = f64::from(scale.0.max(1));
-    let side = SIZE * scale.0.max(1);
+pub fn draw(d: Drawn, scale: BufferScale) -> Vec<u32> {
+    let scale = if scale.0 == 0 {
+        BufferScale::ONE
+    } else {
+        scale
+    };
+    let s = scale.factor();
+    let side = scale.buffer(Px(SIZE)).0;
     let polys = d.polygons();
     let n = SAMPLES * SAMPLES;
     let mut out = Vec::with_capacity(usize::try_from(side * side).unwrap_or(0));
@@ -232,14 +242,14 @@ mod tests {
 
     /// **Each image is black within a white rim on a clear ground**, its
     /// hotspot on the black, the I-beam the same reflected left to right
-    /// about its stem, and the scale's image the same shape at twice the
-    /// pixels a side.
+    /// about its stem, and the scale's image the same shape at the scale's
+    /// pixels a side -- 24, 36 at 1.5 and 48 at 2 -- with the square of
+    /// the scale's ink.
     #[test]
     fn each_image_is_black_in_a_white_rim() {
         for d in Drawn::ALL {
-            for scale in [1, 2] {
-                let img = draw(d, Scale(scale));
-                let side = SIZE * scale;
+            for (scale, side) in [(120, 24), (180, 36), (240, 48)] {
+                let img = draw(d, BufferScale(scale));
                 let at = |x: u32, y: u32| img[usize::try_from(y * side + x).unwrap()];
                 assert_eq!(img.len(), usize::try_from(side * side).unwrap());
                 let opaque_black = img.iter().filter(|&&p| p == 0xff00_0000).count();
@@ -251,11 +261,11 @@ mod tests {
                 let (hx, hy) = d.hotspot();
                 let (hx, hy) = (u32::try_from(hx).unwrap(), u32::try_from(hy).unwrap());
                 // The pixel just inside the hotspot, toward the shape.
-                let inner = at(hx * scale, hy * scale + scale);
+                let inner = at(hx * scale / 120, (hy + 1) * scale / 120);
                 assert_eq!(inner >> 24, 0xff, "{d:?} at {scale}: the hotspot is on it");
             }
         }
-        let beam = draw(Drawn::IBeam, Scale(1));
+        let beam = draw(Drawn::IBeam, BufferScale::ONE);
         let at = |x: u32, y: u32| beam[usize::try_from(y * SIZE + x).unwrap()];
         for y in 0..SIZE {
             for x in 0..SIZE {
@@ -264,12 +274,14 @@ mod tests {
         }
         let ink = |img: &[u32]| img.iter().map(|p| u64::from(p >> 24)).sum::<u64>();
         for d in [Drawn::Arrow, Drawn::Hand] {
-            let (one, two) = (draw(d, Scale(1)), draw(d, Scale(2)));
-            let ratio = ink(&two) as f64 / ink(&one) as f64;
-            assert!(
-                (3.8..4.2).contains(&ratio),
-                "{d:?}: four times the ink: {ratio}"
-            );
+            let one = ink(&draw(d, BufferScale::ONE)) as f64;
+            for (scale, want) in [(180, 2.25), (240, 4.0)] {
+                let ratio = ink(&draw(d, BufferScale(scale))) as f64 / one;
+                assert!(
+                    (ratio - want).abs() < 0.2,
+                    "{d:?} at {scale}: {want} times the ink: {ratio}"
+                );
+            }
         }
         // The hotspots tell the images apart, as a compositor's log shows
         // them (`scripts/linux-pointer-trace.py`).

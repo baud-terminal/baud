@@ -24,14 +24,14 @@ programs, and pictures.
   told yet. Key presses themselves work.
 - **Linux.** The Linux version builds and has run in headless sessions.
   There, given the same fonts and colours, it draws the same pixels as the
-  Mac version at scales 1 and 2, it is sharp at the screen's scale,
-  in-between scales such as 1.5 included, it copies and pastes with the
-  desktop's clipboard, and a mouse selects text, scrolls back through the
-  history, pastes with the middle button, opens links with Ctrl-click and
-  works in programs that use the mouse; characters drawn from each
-  system's own fonts, and some programs' dim colours, can still look
-  different. Nobody has used it on a real screen, and its GPU drawing is
-  not started. It is not ready to use.
+  Mac version at scales 1 and 2 and in-between scales such as 1.5, it
+  stays sharp when its window moves to a screen of another scale, it
+  copies and pastes with the desktop's clipboard, and a mouse selects
+  text, scrolls back through the history, pastes with the middle button,
+  opens links with Ctrl-click and works in programs that use the mouse;
+  characters drawn from each system's own fonts, and some programs' dim
+  colours, can still look different. Nobody has used it on a real screen,
+  and its GPU drawing is not started. It is not ready to use.
 - **A few control sequences.** The gaps are each listed with their reason
   in [vt-coverage](../vt-coverage.md), as a row at **partial** or **out**.
 

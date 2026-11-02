@@ -2496,6 +2496,9 @@ struct Pointed {
     /// The shape device, if one was made.
     device: Option<ObjectId>,
     surface: ObjectId,
+    /// The window's fractional-scale object, where the globals were
+    /// offered.
+    fractional: Option<ObjectId>,
 }
 
 /// A session with a pointer: the globals bound -- `Shapes::Offered` adds
@@ -2512,6 +2515,9 @@ enum Scales {
     Preferred,
     /// Version 4, sway 1.7's, and one `wl_output`: its `scale`.
     Outputs,
+    /// Version 6 with the viewporter and fractional-scale-v1's manager,
+    /// sway 1.10's: a fraction.
+    Fractional,
 }
 
 /// [`pointer_session`] with the compositor's scales told as `scales` says.
@@ -2531,7 +2537,7 @@ fn pointer_session_at(seat_version: u32, shapes: Shapes, scales: Scales) -> Poin
     let r = server.expect("wl_display", "sync");
     let Val::New(sync) = r.args[0] else { panic!() };
     let compositor = match scales {
-        Scales::Preferred => 6,
+        Scales::Preferred | Scales::Fractional => 6,
         Scales::Outputs => 4,
     };
     let mut globals = vec![
@@ -2546,6 +2552,10 @@ fn pointer_session_at(seat_version: u32, shapes: Shapes, scales: Scales) -> Poin
     if scales == Scales::Outputs {
         globals.push((6, "wl_output", 4));
     }
+    if scales == Scales::Fractional {
+        globals.push((7, "wp_viewporter", 1));
+        globals.push((8, "wp_fractional_scale_manager_v1", 1));
+    }
     for (name, iface, version) in globals {
         server.send(
             registry,
@@ -2556,10 +2566,18 @@ fn pointer_session_at(seat_version: u32, shapes: Shapes, scales: Scales) -> Poin
     }
     server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
     pump(&mut conn, &mut w);
-    let (mut seat, mut surface, mut manager) = (None, None, None);
+    let (mut seat, mut surface, mut manager, mut fractional) = (None, None, None, None);
     loop {
         let r = server.next();
         match (r.iface, r.name, &r.args[..]) {
+            (
+                "wp_fractional_scale_manager_v1",
+                "get_fractional_scale",
+                [Val::New(id), Val::Obj(on)],
+            ) => {
+                assert_eq!(Some(*on), surface, "the window's surface");
+                fractional = Some(*id);
+            }
             ("wl_registry", "bind", [_, Val::NewWith(i, v, id)]) if i == "wl_seat" => {
                 assert_eq!(*v, seat_version.min(9));
                 seat = Some(*id);
@@ -2576,6 +2594,7 @@ fn pointer_session_at(seat_version: u32, shapes: Shapes, scales: Scales) -> Poin
         }
     }
     assert_eq!(manager.is_some(), shapes == Shapes::Offered);
+    assert_eq!(fractional.is_some(), scales == Scales::Fractional);
     let (seat, surface) = (seat.expect("the seat"), surface.expect("the surface"));
     server.send(
         seat,
@@ -2609,6 +2628,7 @@ fn pointer_session_at(seat_version: u32, shapes: Shapes, scales: Scales) -> Poin
         keyboard,
         device,
         surface,
+        fractional,
     }
 }
 
@@ -2946,15 +2966,23 @@ fn an_old_pointer_reports_at_once_and_no_global_draws_its_own() {
         (CursorShape(shape::TEXT), 3),
         Drawing {
             side: 24,
+            at: 120,
+            destination: None,
             scale: 1,
             hotspot: (12, 12),
             image: baud_present_wayland::cursor::Drawn::IBeam,
         },
         None,
     );
-    // The window's surface asks for twice the pixels: the next enter's
-    // image is drawn again at two, on the same surface, and the hand for
-    // `pointer`, a link's shape.
+    // The pointer leaves and the window's surface asks for twice the
+    // pixels: the next enter's image is drawn again at two, on the same
+    // surface, and the hand for `pointer`, a link's shape.
+    server.send(
+        pointer,
+        "wl_pointer",
+        "leave",
+        &[Arg::Uint(4), Arg::Object(surface)],
+    );
     server.send(
         surface,
         "wl_surface",
@@ -2976,6 +3004,8 @@ fn an_old_pointer_reports_at_once_and_no_global_draws_its_own() {
         (CursorShape(shape::POINTER), 5),
         Drawing {
             side: 48,
+            at: 240,
+            destination: None,
             scale: 2,
             hotspot: (9, 2),
             image: baud_present_wayland::cursor::Drawn::Hand,
@@ -2983,6 +3013,12 @@ fn an_old_pointer_reports_at_once_and_no_global_draws_its_own() {
         Some(cursor),
     );
     // Back at one, the arrow for a shape that is neither text nor a link.
+    server.send(
+        pointer,
+        "wl_pointer",
+        "leave",
+        &[Arg::Uint(5), Arg::Object(surface)],
+    );
     server.send(
         surface,
         "wl_surface",
@@ -3004,6 +3040,8 @@ fn an_old_pointer_reports_at_once_and_no_global_draws_its_own() {
         (CursorShape(shape::WAIT), 6),
         Drawing {
             side: 24,
+            at: 120,
+            destination: None,
             scale: 1,
             hotspot: (4, 3),
             image: baud_present_wayland::cursor::Drawn::Arrow,
@@ -3056,12 +3094,21 @@ fn an_old_compositor_draws_the_pointer_at_its_outputs_scale() {
         (CursorShape(shape::TEXT), 3),
         Drawing {
             side: 48,
+            at: 240,
+            destination: None,
             scale: 2,
             hotspot: (12, 12),
             image: baud_present_wayland::cursor::Drawn::IBeam,
         },
         None,
     );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "leave",
+        &[Arg::Uint(4), Arg::Object(surface)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
     server.send(surface, "wl_surface", "leave", &[Arg::Object(output)]);
     server.send(
         pointer,
@@ -3079,6 +3126,8 @@ fn an_old_compositor_draws_the_pointer_at_its_outputs_scale() {
         (CursorShape(shape::DEFAULT), 5),
         Drawing {
             side: 24,
+            at: 120,
+            destination: None,
             scale: 1,
             hotspot: (4, 3),
             image: baud_present_wayland::cursor::Drawn::Arrow,
@@ -3087,14 +3136,24 @@ fn an_old_compositor_draws_the_pointer_at_its_outputs_scale() {
     );
 }
 
-/// What one drawn pointer should come to: the image's side in pixels, its
-/// scale, its hotspot, and which image, the pools holding them in
-/// `Drawn::ALL`'s order.
+/// What one drawn pointer should come to: the image's side in pixels, the
+/// scale it is drawn at in 120ths, the destination its viewport is told at
+/// a fraction, the buffer scale told with it, its hotspot, and which image,
+/// the pools holding them in `Drawn::ALL`'s order.
 struct Drawing {
     side: i32,
+    at: i32,
+    destination: Option<(i32, i32)>,
     scale: i32,
     hotspot: (i32, i32),
     image: baud_present_wayland::cursor::Drawn,
+}
+
+/// The drawn pointer's surface, and its viewport once one is made.
+#[derive(Clone, Copy)]
+struct Cursor {
+    surface: ObjectId,
+    viewport: Option<ObjectId>,
 }
 
 /// **The pointer is hidden with no surface** (`[[source: wayland]]`,
@@ -3149,12 +3208,8 @@ fn the_pointer_hides_with_no_surface_and_a_shape_shows_it() {
     );
 }
 
-/// **The requests a drawn pointer makes, and its pixels**: the cursor's
-/// surface made once, two pools of two buffers for the three images at the
-/// scale -- the old pools destroyed when the scale changed -- the image attached at its scale and
-/// damaged in logical pixels, the cursor role given with the enter's
-/// serial and the hotspot, and a commit. The pixels are read back from the
-/// pool's file: the image's hotspot pixel is opaque black. Returns the
+/// **The requests a drawn pointer makes, and its pixels** (see
+/// [`pointer_drawn`]), `shape` set with the enter's `serial`. Returns the
 /// cursor's surface.
 fn drawn_pointer(
     conn: &mut Connection,
@@ -3164,13 +3219,46 @@ fn drawn_pointer(
     want: Drawing,
     surface: Option<ObjectId>,
 ) -> ObjectId {
-    use std::os::unix::fs::FileExt as _;
+    let cursor = surface.map(|surface| Cursor {
+        surface,
+        viewport: None,
+    });
+    shaped_pointer(conn, server, w, (shape, serial), want, cursor).surface
+}
+
+/// [`drawn_pointer`] with the cursor's viewport kept.
+fn shaped_pointer(
+    conn: &mut Connection,
+    server: &mut Server,
+    w: &mut Window,
+    (shape, serial): (CursorShape, u32),
+    want: Drawing,
+    cursor: Option<Cursor>,
+) -> Cursor {
     assert_eq!(
         w.set_pointer_shape(&mut conn.sender(), shape),
         Shaped::Drawn
     );
     conn.flush().unwrap();
-    let cursor = match surface {
+    pointer_drawn(server, (serial, want), cursor)
+}
+
+/// **What a drawn pointer sent, and its pixels**: the cursor's surface
+/// made once, two pools of two buffers for the three images at the scale
+/// -- the old pools destroyed when the scale changed -- the image
+/// attached, the buffer scale told with it and, at a fraction, the
+/// viewport's destination -- the viewport made once, at the first
+/// fraction -- the image damaged in surface points, the cursor role given
+/// with the enter's serial and the hotspot, and a commit. The pixels are
+/// read back from the pool's file: the pixel below the hotspot, in the
+/// image's own pixels, is opaque black.
+fn pointer_drawn(
+    server: &mut Server,
+    (serial, want): (u32, Drawing),
+    cursor: Option<Cursor>,
+) -> Cursor {
+    use std::os::unix::fs::FileExt as _;
+    let mut cursor = match cursor {
         Some(c) => {
             for _ in 0..2 {
                 server.expect("wl_buffer", "destroy");
@@ -3182,7 +3270,10 @@ fn drawn_pointer(
         None => {
             let r = server.expect("wl_compositor", "create_surface");
             let Val::New(c) = r.args[0] else { panic!() };
-            c
+            Cursor {
+                surface: c,
+                viewport: None,
+            }
         }
     };
     let mut buffers = Vec::new();
@@ -3211,7 +3302,7 @@ fn drawn_pointer(
         }
     }
     let r = server.expect("wl_surface", "attach");
-    assert_eq!(r.sender, cursor);
+    assert_eq!(r.sender, cursor.surface);
     let (buffer, offset, stride, pool) = buffers[baud_present_wayland::cursor::Drawn::ALL
         .iter()
         .position(|d| *d == want.image)
@@ -3223,7 +3314,29 @@ fn drawn_pointer(
         r.args
     );
     let r = server.expect("wl_surface", "set_buffer_scale");
+    assert_eq!(r.sender, cursor.surface);
     assert!(matches!(r.args[..], [Val::Int(s)] if s == want.scale));
+    if let Some((dw, dh)) = want.destination {
+        let viewport = match cursor.viewport {
+            Some(v) => v,
+            None => {
+                let r = server.expect("wp_viewporter", "get_viewport");
+                let [Val::New(v), Val::Obj(on)] = r.args[..] else {
+                    panic!("{:?}", r.args)
+                };
+                assert_eq!(on, cursor.surface, "the cursor's own viewport");
+                cursor.viewport = Some(v);
+                v
+            }
+        };
+        let r = server.expect("wp_viewport", "set_destination");
+        assert_eq!(r.sender, viewport);
+        assert!(
+            matches!(r.args[..], [Val::Int(w), Val::Int(h)] if (w, h) == (dw, dh)),
+            "{:?}",
+            r.args
+        );
+    }
     let r = server.expect("wl_surface", "damage");
     assert!(matches!(
         r.args[..],
@@ -3233,14 +3346,14 @@ fn drawn_pointer(
     let (hx, hy) = want.hotspot;
     assert!(
         matches!(r.args[..], [Val::Uint(n), Val::Obj(c), Val::Int(x), Val::Int(y)]
-            if n == serial && c == cursor && (x, y) == (hx, hy)),
+            if n == serial && c == cursor.surface && (x, y) == (hx, hy)),
         "{:?}",
         r.args
     );
     let r = server.expect("wl_surface", "commit");
-    assert_eq!(r.sender, cursor);
+    assert_eq!(r.sender, cursor.surface);
     // The pixel just below the hotspot, in the image's own pixels.
-    let (px, py) = (hx * want.scale, hy * want.scale + want.scale);
+    let (px, py) = (hx * want.at / 120, (hy + 1) * want.at / 120);
     let at = u64::try_from(offset + py * stride + px * 4).unwrap();
     let mut word = [0u8; 4];
     pool.read_exact_at(&mut word, at).unwrap();
@@ -3249,9 +3362,209 @@ fn drawn_pointer(
         0xff00_0000,
         "{:?} at {}: opaque black at the hotspot",
         want.image,
-        want.scale
+        want.at
     );
     cursor
+}
+
+/// **A drawn pointer beside a fraction is drawn at it, as the window is**
+/// (`[[source: wp-fractional-scale-v1]]`): "A client can submit scaled
+/// content by utilizing wp_viewport ... setting the destination rectangle
+/// to the surface size before the scale factor is applied", the buffer
+/// "calculated by multiplying the surface size by the intended scale", and
+/// "The wl_surface buffer scale should remain set to 1". Where sway 1.10
+/// sends 180 and an integer 2 beside it, the I-beam's 24 points are a
+/// 36-pixel image -- not 48 shrunk by the compositor -- through a viewport
+/// of the cursor's own told 24 x 24, at buffer scale one, its hotspot in
+/// surface points (`wl_pointer.set_cursor`, "in surface-local
+/// coordinates"). Left, and entered again at 240, the hand is drawn at two
+/// through the same viewport, made once. Perturbations: the destination left untold, the
+/// hotspot in the image's pixels, the image drawn at the integer scale --
+/// each fails.
+#[test]
+fn a_drawn_pointer_at_a_fraction_is_drawn_through_its_viewport() {
+    let Pointed {
+        mut conn,
+        mut server,
+        mut w,
+        pointer,
+        surface,
+        fractional,
+        ..
+    } = pointer_session_at(9, Shapes::Absent, Scales::Fractional);
+    let fractional = fractional.expect("the window's fractional-scale object");
+    server.send(
+        fractional,
+        "wp_fractional_scale_v1",
+        "preferred_scale",
+        &[Arg::Uint(180)],
+    );
+    server.send(
+        surface,
+        "wl_surface",
+        "preferred_buffer_scale",
+        &[Arg::Int(2)],
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(3), Arg::Object(surface), fixed(1.0), fixed(2.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    use baud_present_wayland::cursor::Drawn;
+    use protocol::wp_cursor_shape_device_v1::shape;
+    let cursor = shaped_pointer(
+        &mut conn,
+        &mut server,
+        &mut w,
+        (CursorShape(shape::TEXT), 3),
+        Drawing {
+            side: 36,
+            at: 180,
+            destination: Some((24, 24)),
+            scale: 1,
+            hotspot: (12, 12),
+            image: Drawn::IBeam,
+        },
+        None,
+    );
+    assert!(cursor.viewport.is_some());
+    server.send(
+        pointer,
+        "wl_pointer",
+        "leave",
+        &[Arg::Uint(4), Arg::Object(surface)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    server.send(
+        fractional,
+        "wp_fractional_scale_v1",
+        "preferred_scale",
+        &[Arg::Uint(240)],
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(5), Arg::Object(surface), fixed(1.0), fixed(2.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    shaped_pointer(
+        &mut conn,
+        &mut server,
+        &mut w,
+        (CursorShape(shape::POINTER), 5),
+        Drawing {
+            side: 48,
+            at: 240,
+            destination: Some((24, 24)),
+            scale: 1,
+            hotspot: (9, 2),
+            image: Drawn::Hand,
+        },
+        Some(cursor),
+    );
+}
+
+/// **A shown pointer follows the window's scale**: the window that moves
+/// onto an output at two while the pointer stays over it draws its image
+/// again at two, as it draws its frame, without waiting for the pointer to
+/// come back or for the next shape. Hidden (`set_cursor` with no surface), or once the
+/// pointer has left, it is not shown again by a scale; the next shape is
+/// drawn at the scale then. sway 1.7's way: `wl_compositor` 4, the
+/// outputs' scales. Perturbation: the image kept as shown after it is
+/// hidden -- a scale shows the hidden pointer, and the probe after it
+/// reads the redraw's requests where the title should be.
+#[test]
+fn a_shown_pointer_follows_the_windows_scale() {
+    let Pointed {
+        mut conn,
+        mut server,
+        mut w,
+        pointer,
+        surface,
+        ..
+    } = pointer_session_at(7, Shapes::Absent, Scales::Outputs);
+    let output = server
+        .objects
+        .iter()
+        .find(|(_, i)| i.name == "wl_output")
+        .map(|(id, _)| *id)
+        .expect("the output bound");
+    server.send(output, "wl_output", "scale", &[Arg::Int(2)]);
+    server.send(output, "wl_output", "done", &[]);
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(3), Arg::Object(surface), fixed(1.0), fixed(2.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    use baud_present_wayland::cursor::Drawn;
+    use protocol::wp_cursor_shape_device_v1::shape;
+    let beam = |side, at, scale| Drawing {
+        side,
+        at,
+        destination: None,
+        scale,
+        hotspot: (12, 12),
+        image: Drawn::IBeam,
+    };
+    let cursor = shaped_pointer(
+        &mut conn,
+        &mut server,
+        &mut w,
+        (CursorShape(shape::TEXT), 3),
+        beam(24, 120, 1),
+        None,
+    );
+    // Onto the output at two, the pointer still over the window.
+    server.send(surface, "wl_surface", "enter", &[Arg::Object(output)]);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    let cursor = pointer_drawn(&mut server, (3, beam(48, 240, 2)), Some(cursor));
+    // Hidden, then off the output: nothing is drawn. The title is the
+    // probe: the next request is it.
+    assert_eq!(w.hide_pointer(&mut conn.sender()), Shaped::Set);
+    conn.flush().unwrap();
+    server.expect("wl_pointer", "set_cursor");
+    server.send(surface, "wl_surface", "leave", &[Arg::Object(output)]);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    w.set_title(&mut conn.sender(), "probe");
+    conn.flush().unwrap();
+    server.expect("xdg_toplevel", "set_title");
+    // Shown again at the scale in force, one; then the pointer leaves and
+    // the window goes back to two: nothing is drawn.
+    let cursor = shaped_pointer(
+        &mut conn,
+        &mut server,
+        &mut w,
+        (CursorShape(shape::TEXT), 3),
+        beam(24, 120, 1),
+        Some(cursor),
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "leave",
+        &[Arg::Uint(4), Arg::Object(surface)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    server.send(surface, "wl_surface", "enter", &[Arg::Object(output)]);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    w.set_title(&mut conn.sender(), "probe");
+    conn.flush().unwrap();
+    server.expect("xdg_toplevel", "set_title");
+    let _ = cursor;
 }
 
 /// **The modifiers a button reads are the keyboard's**: the effective

@@ -379,11 +379,15 @@ pub struct Window {
     /// over it: what `set_shape` and `set_cursor` must name.
     entered: Option<u32>,
     /// The pointer image drawn here, without the shape global: its surface,
-    /// made at the first need, and the three images at the scale they were
-    /// drawn at, in `cursor::Drawn::ALL`'s order, in two pools of two
-    /// buffers, the second's last one unused.
+    /// made at the first need, its viewport, made at the first fraction --
+    /// a second for one surface is `viewport_exists` -- the three images
+    /// at the scale they were drawn at, in `cursor::Drawn::ALL`'s order, in
+    /// two pools of two buffers, the second's last one unused, and the
+    /// image shown while the pointer is over the window and not hidden.
     cursor_surface: Option<ObjectId>,
-    cursor_images: Option<(Scale, [Pool; 2], [ObjectId; 3])>,
+    cursor_viewport: Option<ObjectId>,
+    cursor_images: Option<(BufferScale, [Pool; 2], [ObjectId; 3])>,
+    cursor_shown: Option<Drawn>,
     /// `wl_surface.preferred_buffer_scale` on the window's surface, the
     /// integer scale the window and the pointer are drawn at from version
     /// 6; one until the compositor says.
@@ -518,7 +522,9 @@ impl Window {
             shape_device: None,
             entered: None,
             cursor_surface: None,
+            cursor_viewport: None,
             cursor_images: None,
+            cursor_shown: None,
             preferred: Scale(1),
             on: Vec::new(),
             viewport: None,
@@ -689,13 +695,16 @@ impl Window {
                 Arg::Int(0),
             ],
         ) {
-            Ok(()) => Shaped::Set,
+            Ok(()) => {
+                self.cursor_shown = None;
+                Shaped::Set
+            }
             Err(_) => Shaped::Unavailable,
         }
     }
 
     /// **The integer scale the surface's version learns**, which the
-    /// pointer is drawn at, and the window where no fraction is in force:
+    /// window and the pointer are drawn at where no fraction is in force:
     /// the compositor's preferred scale from version 6, the largest scale
     /// of the outputs the window is on before it, and one where surfaces
     /// take no buffer scale.
@@ -714,12 +723,22 @@ impl Window {
         }
     }
 
-    /// **The pointer drawn here**: the surface made once, the two images
-    /// drawn at the window's buffer scale into one pool -- again when the
-    /// scale changes -- and the one asked for attached, at that scale, and
-    /// given the cursor role with its hotspot in logical pixels. The
-    /// images are never written again, so a buffer the compositor holds is
-    /// never touched.
+    /// **The pointer drawn here, at the window's scale and told as the
+    /// window's is** (`scale.rs`): the surface made once, the three images
+    /// drawn at the scale into two pools -- again when the scale changes --
+    /// and the one asked for attached and given the cursor role with its
+    /// hotspot in surface points, "in surface-local coordinates"
+    /// (`wl_pointer.set_cursor`, `[[source: wayland]]`). A fraction is
+    /// drawn the way fractional-scale-v1 has a client draw a surface: the
+    /// image the 24 points times the scale, 36 pixels at 1.5, "The
+    /// wl_surface buffer scale should remain set to 1", and the cursor's
+    /// own viewport told the 24 points (`[[source:
+    /// wp-fractional-scale-v1]]`), so the compositor shows the pixels as
+    /// drawn rather than shrinking an image drawn at the integer scale
+    /// beside the fraction. A fraction once in force stays in force
+    /// (`scale::chosen`), so the destination is never unset. The images
+    /// are never written again, so a buffer the compositor holds is never
+    /// touched.
     fn draw_pointer(&mut self, s: &mut Sender<'_>, d: Drawn) -> Shaped {
         let (Some(compositor), Some(shm), Some(pointer), Some(serial)) = (
             self.globals.compositor,
@@ -729,7 +748,7 @@ impl Window {
         ) else {
             return Shaped::Unavailable;
         };
-        let scale = self.whole_scale();
+        let (scale, mapped) = self.mapping();
         let surface = match self.cursor_surface {
             Some(c) => c,
             None => {
@@ -743,7 +762,7 @@ impl Window {
                 c
             }
         };
-        let side = cursor::SIZE * scale.0;
+        let side = scale.buffer(Px(cursor::SIZE)).0;
         if self
             .cursor_images
             .as_ref()
@@ -795,14 +814,24 @@ impl Window {
             Opcode(protocol::wl_surface::request::ATTACH),
             &[Arg::Object(buffer), Arg::Int(0), Arg::Int(0)],
         );
+        let logical = i32::try_from(cursor::SIZE).unwrap_or(0);
+        let told = Told::of(mapped, (Px(cursor::SIZE), Px(cursor::SIZE)));
         if self.globals.scaling != Scaling::None {
             let _ = s.request(
                 surface,
                 Opcode(protocol::wl_surface::request::SET_BUFFER_SCALE),
-                &[Arg::Int(i32::try_from(scale.0).unwrap_or(1))],
+                &[Arg::Int(i32::try_from(told.buffer_scale.0).unwrap_or(1))],
             );
         }
-        let logical = i32::try_from(cursor::SIZE).unwrap_or(0);
+        if told.destination.is_some() {
+            if let Some(viewport) = self.cursor_viewport(s, surface) {
+                let _ = s.request(
+                    viewport,
+                    Opcode(protocol::wp_viewport::request::SET_DESTINATION),
+                    &[Arg::Int(logical), Arg::Int(logical)],
+                );
+            }
+        }
         let _ = s.request(
             surface,
             Opcode(protocol::wl_surface::request::DAMAGE),
@@ -825,7 +854,42 @@ impl Window {
             ],
         );
         let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
+        self.cursor_shown = Some(d);
         Shaped::Drawn
+    }
+
+    /// The drawn pointer's viewport, made at its first need where the
+    /// viewporter is offered.
+    fn cursor_viewport(&mut self, s: &mut Sender<'_>, surface: ObjectId) -> Option<ObjectId> {
+        if self.cursor_viewport.is_none() {
+            let viewporter = self.globals.viewporter?;
+            let id = s.new_id(Interface::named("wp_viewport").expect("pinned"));
+            let _ = s.request(
+                viewporter,
+                Opcode(protocol::wp_viewporter::request::GET_VIEWPORT),
+                &[Arg::NewId(id), Arg::Object(surface)],
+            );
+            self.cursor_viewport = Some(id);
+        }
+        self.cursor_viewport
+    }
+
+    /// **A shown pointer follows the window's scale**: drawn here and over
+    /// the window, its image is drawn again when the scale the window is
+    /// drawn at changes -- an output entered or left, a new preferred
+    /// scale -- as the frame is, rather than when the pointer next comes
+    /// back or the next shape is set. A hidden pointer stays hidden.
+    fn follow_scale(&mut self, s: &mut Sender<'_>) {
+        let Some(d) = self.cursor_shown else {
+            return;
+        };
+        if self
+            .cursor_images
+            .as_ref()
+            .is_some_and(|(drawn_at, _, _)| *drawn_at != self.scale())
+        {
+            let _ = self.draw_pointer(s, d);
+        }
     }
 
     /// **`text` becomes `board`'s selection** (`clip.rs`), named with the
@@ -1886,9 +1950,9 @@ impl Handler for Window {
             }
             // "This event indicates the preferred buffer scale for this
             // surface", from version 6, and "Before receiving this event the
-            // preferred buffer scale for this surface is 1". The window draws
-            // at it while no fraction is in force, and the pointer it draws
-            // itself always does.
+            // preferred buffer scale for this surface is 1". The window and
+            // the pointer it draws itself are drawn at it while no fraction
+            // is in force.
             ("wl_surface", "preferred_buffer_scale", [Read::Int(f)])
                 if Some(ev.object) == self.surface =>
             {
@@ -2025,6 +2089,7 @@ impl Handler for Window {
                                 s.request(p, Opcode(protocol::wl_pointer::request::RELEASE), &[]);
                         }
                         self.pointer = None;
+                        self.cursor_shown = None;
                         if self.entered.take().is_some() {
                             let held = self.modifiers();
                             self.events
@@ -2042,6 +2107,7 @@ impl Handler for Window {
             }
             ("wl_pointer", "leave", _) => {
                 self.entered = None;
+                self.cursor_shown = None;
                 self.pointer_event(PointerEvent::Left);
             }
             ("wl_pointer", "motion", [_, Read::Fixed(x), Read::Fixed(y)]) => {
@@ -2379,6 +2445,7 @@ impl Handler for Window {
             }
             _ => {}
         }
+        self.follow_scale(s);
     }
 }
 
