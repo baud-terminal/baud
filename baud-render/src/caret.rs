@@ -29,9 +29,14 @@
 //!   saucer with a rim light, a translucent tractor beam at its `BEAM`
 //!   opacity, brighter in the core, rings travelling along it -- inside the
 //!   cursor's cell, the cursor's shape drawn up into the saucer and back.
+//! * **Every blink is the same bits on every OS**: the glow's exponential
+//!   and the fire's sines are [`crate::det`]'s, as the trails' are, not the
+//!   platform's libm, whose answers differ between macOS and glibc
+//!   (`every_blink_is_drawn_from_the_same_bits_on_every_os`).
 
 use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
+use crate::det::Det;
 use crate::effect::Hash;
 use crate::instance::{Instance, Screen};
 use crate::plasma::{DECAY, SHEATH, TUBE};
@@ -209,10 +214,13 @@ pub(crate) fn glow(cell: (Px, Px, Px, Px), level: Chan, fill: Argb, out: &mut Ve
     for i in 0..rings {
         let d = (core - px_f32(Px::of(i))).max(0.0);
         let tube = if d <= 0.0 { TUBE } else { 0.0 };
-        let want = p * (SHEATH * (-DECAY * d / unit).exp() + tube);
+        let want = p * (SHEATH * (-DECAY * d / unit).det_exp() + tube);
         let share = 1.0 - (1.0 - want) / (1.0 - outside);
         outside = want;
-        let a = Chan::from_unit(share * alpha);
+        let v = share * alpha;
+        #[cfg(test)]
+        drawn::fold(&[v]);
+        let a = Chan::from_unit(v);
         if a == NONE {
             continue;
         }
@@ -265,7 +273,10 @@ impl Box4 {
 /// **One solid of an effect**, edges rounded to whole pixels and cut to
 /// `cell`, in `fill` at `a` of its alpha; nothing where either is empty.
 fn solid(out: &mut Vec<Instance>, cell: Box4, edges: Box4, fill: Argb, a: f32) {
-    let alpha = Chan::from_unit(a * unit(fill.a()));
+    let v = a * unit(fill.a());
+    #[cfg(test)]
+    drawn::fold(&[edges.l, edges.t, edges.r, edges.b, v]);
+    let alpha = Chan::from_unit(v);
     let (l, t) = (edges.l.max(cell.l).round(), edges.t.max(cell.t).round());
     let (r, b) = (edges.r.min(cell.r).round(), edges.b.min(cell.b).round());
     if alpha == NONE || r <= l || b <= t {
@@ -504,7 +515,7 @@ fn fire(cell: Box4, shape: Box4, u: f32, fill: Argb, out: &mut Vec<Instance>) {
             let phase = Hash(0x0f1e_u32 ^ u32::from(j).wrapping_mul(0x9E37_79B9))
                 .next()
                 .unit();
-            let s = (core::f32::consts::PI * (FLICKER * u + phase)).sin();
+            let s = (core::f32::consts::PI * (FLICKER * u + phase)).det_sin();
             let tall = TONGUE * cell.h() * hot * (0.55 + 0.45 * s * s);
             let w = shape.w() / n;
             let lane = Box4 {
@@ -541,7 +552,8 @@ fn fire(cell: Box4, shape: Box4, u: f32, fill: Argb, out: &mut Vec<Instance>) {
         let at_birth = shape.t + ease((born - BURN.0) / (BURN.1 - BURN.0)) * shape.h();
         let cool = 1.0 - age;
         let rise = (0.25 + 0.35 * h3.unit()) * cell.h() * (1.0 - (1.0 - age) * (1.0 - age));
-        let flutter = 0.15 * cell.w() * (core::f32::consts::TAU * (1.2 * age + h1.unit())).sin();
+        let flutter =
+            0.15 * cell.w() * (core::f32::consts::TAU * (1.2 * age + h1.unit())).det_sin();
         let x = shape.l + h2.unit() * shape.w() + flutter;
         let y = at_birth - rise;
         let size = (cell.h() / 14.0 * (0.6 + 0.4 * cool)).max(1.0);
@@ -552,6 +564,39 @@ fn fire(cell: Box4, shape: Box4, u: f32, fill: Argb, out: &mut Vec<Instance>) {
             b: y + size / 2.0,
         };
         solid(out, cell, ember, fill, cool * (0.55 + 0.45 * cool));
+    }
+}
+
+/// **The `f32`s a test's thread drew the blinks from**, folded FNV-1a: the
+/// alpha of each ring of the glow, and each solid's edges and alpha, before
+/// they are rounded to whole pixels and to a channel -- where a sine or an
+/// exponential one ulp apart lands first, when rounding would hide it from
+/// the frame. Tests only.
+#[cfg(test)]
+mod drawn {
+    use std::cell::Cell;
+
+    std::thread_local! {
+        static BITS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn fold(vs: &[f32]) {
+        BITS.with(|h| {
+            let mut d = h.get();
+            for v in vs {
+                for b in v.to_bits().to_le_bytes() {
+                    d = (d ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+                }
+            }
+            h.set(d);
+        });
+    }
+
+    /// The digest of what `f` drew.
+    pub(super) fn of(f: impl FnOnce()) -> u64 {
+        BITS.with(|h| h.set(0xcbf2_9ce4_8422_2325));
+        f();
+        BITS.with(Cell::get)
     }
 }
 
@@ -754,5 +799,83 @@ mod tests {
             .fold(0.0, |acc, a| acc + a * (1.0 - acc));
         assert!(f32::from(edge) / 255.0 < centre, "{half:?}");
         assert!(centre < TUBE + SHEATH);
+    }
+
+    /// **Every blink is drawn from the same bits on every OS**, which its
+    /// frames cannot show alone: a solid's edges round to whole pixels and
+    /// its alpha to a channel, and most one-ulp differences round away.
+    /// Here the glow at every pulse, and the fire and the ufo at every
+    /// level in each of the cursor's three shapes, on three cell sizes,
+    /// fold every `f32` they are drawn from (`drawn::fold`) into a digest
+    /// pinned on macOS and required of every target. Their sine and
+    /// exponential are `det`'s (`the_trails_call_no_platform_math`), whose
+    /// bits are the same on every machine: with std's in their place, the
+    /// glow on the largest cell differs between macOS and glibc 2.36 on
+    /// aarch64, and with `det`'s none of the 21 does.
+    #[test]
+    fn every_blink_is_drawn_from_the_same_bits_on_every_os() {
+        // Per cell, the 14-pixel font's, the 26's and the 48's: the glow,
+        // then the fire and the ufo in the block, the underline and the bar.
+        const PINNED: &[u64] = &[
+            0x9e4486a2fa612295,
+            0x8ed11bcd1d9ba6a2,
+            0xc28c60de299cae28,
+            0x3e8d431fd8991f54,
+            0x7a176f6527cd9e3c,
+            0x4024f43b496f6a0e,
+            0x8786998edef8a528,
+            0x4d6cf5702f3bc61a,
+            0x05141f0edac879b3,
+            0xbc2218a022050d6f,
+            0xcf0ca5ab6c99e79d,
+            0xddef64341a474d6a,
+            0x6cc31d09b95d106f,
+            0x31bbc83db0adea9e,
+            0xd03109a0dfcf6a25,
+            0x1e835d9042401d7d,
+            0x86b314734dc1aaa3,
+            0x73a728d00915773c,
+            0x2fa94b1547a526c4,
+            0x077c4126dc3934b7,
+            0x1efdc36287b9fb6c,
+        ];
+        let mut got = Vec::new();
+        for (w, h) in [(8u32, 18u32), (16, 34), (29, 63)] {
+            let (l, t) = (Px::of(3 * w), Px::of(2 * h));
+            let cell = (l, t, Px::of(w), Px::of(h));
+            let shapes = [
+                cell,
+                (l, Px::of(2 * h + h - 2), Px::of(w), Px::of(2)),
+                (l, t, Px::of(2), Px::of(h)),
+            ];
+            let fill = Argb(0xFF_E0_C0_A0);
+            let mut out = Vec::new();
+            got.push(drawn::of(|| {
+                for level in 1..=255u8 {
+                    glow(cell, Chan::from_u8(level), fill, &mut out);
+                }
+            }));
+            for anim in [Play::Fire, Play::Ufo] {
+                for shape in shapes {
+                    got.push(drawn::of(|| {
+                        for level in 0..=255u8 {
+                            play(cell, shape, anim(Chan::from_u8(level)), fill, &mut out);
+                        }
+                    }));
+                }
+            }
+            // The positive control: the arms drew solids.
+            assert!(out.len() > 4 * 255, "{w}x{h}: {} solids", out.len());
+        }
+        // And every arm folded something.
+        assert!(got.iter().all(|&d| d != 0xcbf2_9ce4_8422_2325), "{got:x?}");
+        let table: String = got
+            .iter()
+            .map(|d| format!("            0x{d:016x},\n"))
+            .collect();
+        assert!(
+            got == PINNED,
+            "the blinks' bits moved; the table this target computes:\n{table}"
+        );
     }
 }

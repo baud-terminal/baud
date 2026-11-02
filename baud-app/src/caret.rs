@@ -50,6 +50,7 @@ use core::time::Duration;
 
 use baud_core::{CursorStyle, Focus};
 use baud_domain::Chan;
+use baud_render::det::Det;
 use baud_render::{CursorLook, CursorPhase};
 
 use crate::bell::Moment;
@@ -226,7 +227,8 @@ impl BlinkAnimation {
     ///   gone for the middle, eased back in over the last -- so it is whole
     ///   at both ends and meets the shown phase with no step.
     /// * `Plasma`: the cursor gone and the glow pulsing `sin^2(pi h / off)`,
-    ///   out from nothing and back to nothing at the phase's end.
+    ///   out from nothing and back to nothing at the phase's end, the sine
+    ///   `baud_render::det`'s so the pulse is the same on every OS.
     /// * `Fire`: the cursor handed to a flame that burns it down into
     ///   embers and relights it, whole at both ends ([`CursorPhase::fire`]).
     /// * `Ufo`: the cursor handed to a saucer's beam that lifts it away and
@@ -251,7 +253,7 @@ impl BlinkAnimation {
                 }
             }
             BlinkAnimation::Plasma => {
-                let s = (core::f64::consts::PI * u).sin();
+                let s = (core::f64::consts::PI * u).det_sin();
                 CursorPhase {
                     glow: chan(s * s),
                     ..CursorPhase::HIDDEN
@@ -557,6 +559,22 @@ mod tests {
     const MS: Duration = Duration::from_millis(1);
     const SHOWN: CursorPhase = CursorPhase::SHOWN;
     const HIDDEN: CursorPhase = CursorPhase::HIDDEN;
+
+    /// **The blink calls no platform math**: the plasma's pulse is a pixel
+    /// input on every OS, so its sine is `det`'s, not the host's libm's.
+    /// Perturbation: std's sine back in the plasma's pulse fails it.
+    #[test]
+    fn the_blink_calls_no_platform_math() {
+        let src = include_str!("caret.rs");
+        for call in baud_render::det::PLATFORM {
+            assert!(!src.contains(call), "caret.rs calls the platform's {call}");
+        }
+        let control = concat!(".det_", "sin(");
+        assert!(
+            src.contains(control),
+            "the control: the scan reads the pulse"
+        );
+    }
 
     /// A rate the user set in the system's keys, 650 ms shown and 350
     /// hidden -- what AppKit's caret is when they are unset, which baud no

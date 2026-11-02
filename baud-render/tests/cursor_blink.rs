@@ -338,3 +338,149 @@ fn a_placed_hidden_cursor_is_not_drawn() {
         "the control: the same cursor shown is drawn"
     );
 }
+
+/// **Every blink animation draws the same pixels on every OS**: the
+/// plasma's glow at four pulses, a fade at two points, and the fire and the
+/// ufo part way through, in the block, the underline and the bar (the glow
+/// in the block alone: it is drawn over the cell, whatever the shape), on
+/// an opaque page and on the glass at alpha 56, over a blank screen -- no
+/// glyph, so what is pinned is the blink's -- is the frame pinned here,
+/// taken on macOS and required of every other target: the Linux driver
+/// draws with this path. The glow's exponential and the fire's sines are
+/// `baud_render::det`'s, whose bits are the same on every machine
+/// (`the_trails_call_no_platform_math` bars std's from `caret.rs`), and
+/// the bits they are drawn from are pinned in `caret.rs` as well
+/// (`every_blink_is_drawn_from_the_same_bits_on_every_os`): with std's
+/// math in their place these frames read the same on macOS and on glibc
+/// 2.36 on aarch64, and only the bits part. A change to a blink's look
+/// changes its line, which the failure prints whole.
+#[test]
+fn every_blink_draws_the_same_pixels_on_every_os() {
+    // Per page, opaque then the glass: the glow, then per shape the fade,
+    // the fire and the ufo.
+    const PINNED: &[u64] = &[
+        0x9b7b18b1b66079c5,
+        0x4a4d462bba3c8185,
+        0x00c412730e74ff25,
+        0xf5c4aeb13c21d025,
+        0x99b4e195480f7f25,
+        0xf2692cc0d2911fe5,
+        0x519d4df4f8bfdde5,
+        0x93065b487951b58e,
+        0x972a1577aa942c35,
+        0xe908a8d46e584665,
+        0x56232ad43ef42825,
+        0x6ba90c0797af78dd,
+        0x83f99b3c71514fb5,
+        0xc5f4efcbf9f12831,
+        0x6735fb74f0409245,
+        0x73d13fb0eb406f25,
+        0x07032c967a84f9e5,
+        0x2d1bf1fd87b1a3e5,
+        0x8b35fc3f16fd736d,
+        0x92c8fa392f2a7f76,
+        0xd1384d0acb6f1165,
+        0x0b894731fab81025,
+        0x4e72e2f4cfae5195,
+        0xffff7e8dec348255,
+        0xb8446bc662888551,
+        0xcf32940f5fd6918d,
+        0xaee5ec4ce7edeea5,
+        0x4783178aa1408fd5,
+        0xda4476739bdef1d5,
+        0xe674c4f67aae2181,
+        0xcd46038e9eeb4ca5,
+        0x9c97b1b4a6e42175,
+        0xcea87b100eeaa565,
+        0x8ebab61564dad3cb,
+        0xf88b259ec1618296,
+        0x8c06f45b3869953c,
+        0xe61b0bf7314e9d70,
+        0x591e4617c317a925,
+        0x5fdd61e57e4fd645,
+        0x56766b480df6dca5,
+        0xabd6ad5ae40eaa25,
+        0xd315c488c2839c25,
+        0x3a812793da4a9865,
+        0xc1931cad5216b565,
+        0x77a35f1fa7c922b0,
+        0xd4b5fd42b8b5d924,
+        0x8dd22ef7ee2eb125,
+        0x3f8af50cddb729a5,
+        0x84bd2fc045168c9d,
+        0x095ef031952a5c5d,
+        0xfe90f340caea6ce5,
+        0xe467ae9d072274f5,
+        0x904f2db4bf3cb425,
+        0x5c17215e7d8476a5,
+        0x7da0a75acdfacba5,
+        0x221b31ac22671a0b,
+        0x55516585624bda51,
+        0xf5d99783269ae3c5,
+        0xaec6a43f3aa62265,
+        0xaac6c211d047ad15,
+        0x6faba5806b5fdccd,
+        0x4e5121c9540b4255,
+        0x5e69e749156026ed,
+        0x9443c9ab19518665,
+        0x2e47d0e59838f345,
+        0x34f049378a1e2445,
+        0x1e106f5657fcbb69,
+        0x471748d1b88cd324,
+        0xef28fd0e5ce12bc5,
+        0x3ecc52e0df0ebf95,
+        0x976072a3e07c5edf,
+        0x77cfab0c78ef828e,
+        0x05f7d40534ef9846,
+        0xaa23f94442404180,
+    ];
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).expect("parse")];
+    let mut got = Vec::new();
+    for alpha in [0xFF, 56] {
+        let mut r = renderer(&faces);
+        r.set_theme(Theme {
+            bg_alpha: Chan::from_u8(alpha),
+            ..Theme::dark()
+        });
+        let mut canvas = support::Canvas::for_renderer(&r);
+        let mut draw = |shape: &[u8], phases: &[CursorPhase]| {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut bytes = b"\x1b[".to_vec();
+            bytes.extend_from_slice(shape);
+            bytes.extend_from_slice(b" q\x1b[2;3H");
+            feed(&mut t, &bytes);
+            for &p in phases {
+                r.set_cursor_blink(p);
+                support::paint(&mut r, &mut t, &mut canvas, Damage::Full);
+                got.push(canvas.digest());
+            }
+        };
+        draw(b"1", &[40, 128, 200, 255].map(glowing));
+        for shape in [b"1", b"3", b"5"] {
+            draw(shape, &[128, 40].map(faded));
+            draw(shape, &[10, 70, 135, 205, 240].map(burning));
+            draw(shape, &[10, 70, 128, 190].map(beamed));
+        }
+    }
+    // The positive control: no two of a page's frames are one.
+    for page in got.chunks(got.len() / 2) {
+        let mut seen = page.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(
+            seen.len(),
+            page.len(),
+            "a blink drew another's frame: {page:x?}"
+        );
+    }
+    let table: String = got
+        .iter()
+        .map(|d| format!("        0x{d:016x},\n"))
+        .collect();
+    assert!(
+        got == PINNED,
+        "the blinks' frames moved; the table this target draws:\n{table}"
+    );
+}

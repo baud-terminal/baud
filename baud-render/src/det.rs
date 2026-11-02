@@ -14,9 +14,11 @@
 //! and an `f32` result is rounded once at the end. They are as accurate as
 //! std's to within an ulp of `f32` (`as_accurate_as_std_to_an_ulp`), and
 //! `baud-domain`'s Xcms routines are the precedent: baud's own sine where
-//! the answer must not depend on the host. Every effect, the quad chase
-//! and the flash bound call these, and a test bars std's from their
-//! modules (`the_trails_call_no_platform_math`).
+//! the answer must not depend on the host. Every effect, the quad chase,
+//! the flash bound and the cursor's blink animations call these, and tests
+//! bar std's from their modules (`the_trails_call_no_platform_math`, and
+//! the app's `the_chase_calls_no_platform_math` and
+//! `the_blink_calls_no_platform_math`).
 
 /// The functions, as methods so a call keeps its receiver: `x.det_exp()`
 /// where std's is `x.exp()`.
@@ -490,8 +492,9 @@ fn powf(x: f64, y: f64) -> f64 {
 }
 
 /// **The platform's functions, as a call spells them**: what a source
-/// whose numbers reach a trail's pixels must not spell, which
-/// `the_trails_call_no_platform_math` and the app's chase hold theirs to.
+/// whose numbers reach a trail's or a blink's pixels must not spell, which
+/// `the_trails_call_no_platform_math` and the app's chase and blink hold
+/// theirs to.
 pub const PLATFORM: [&str; 20] = [
     ".exp(",
     ".exp2(",
@@ -521,9 +524,10 @@ mod tests {
 
     /// **The trails call no platform math**: every effect's model, the quad
     /// chase and the flash bound -- what a trail's pixels are built from --
-    /// spell none of std's libm calls, each of which is the host's and
-    /// differs between macOS and glibc, so each is `det`'s. Perturbation: a
-    /// `.exp(` put back in the fire's embers fails it.
+    /// and the cursor's blink animations spell none of std's libm calls,
+    /// each of which is the host's and differs between macOS and glibc, so
+    /// each is `det`'s. Perturbation: a `.exp(` put back in the fire's
+    /// embers fails it, and in the blink's glow.
     #[test]
     fn the_trails_call_no_platform_math() {
         for (name, src) in [
@@ -538,6 +542,7 @@ mod tests {
             ("trail.rs", include_str!("trail.rs")),
             ("flash.rs", include_str!("flash.rs")),
             ("fireworks.rs", include_str!("fireworks.rs")),
+            ("caret.rs", include_str!("caret.rs")),
         ] {
             for call in PLATFORM {
                 assert!(!src.contains(call), "{name} calls the platform's {call}");

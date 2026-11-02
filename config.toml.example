@@ -267,8 +267,8 @@ floor = 1.2
 # plasma, the fire and the ufo about 41 a 666 ms cycle at 120 Hz, the fade
 # about 25, "none" two. The GPU and the CPU path, which Linux draws with,
 # draw each animation the same, pixel for pixel; "none" draws nothing while
-# the cursor is hidden. The plasma and the fire use the system's own math,
-# so they are not held to the same bits on macOS and on Linux.
+# the cursor is hidden. Linux draws each animation with the pixels a Mac
+# draws: its math gives the same bits on macOS and on Linux.
 #
 # `trail`: what a cursor move leaves behind. "plasma", the default, is a faint
 # tube in the cursor's colour over kitty's trail as it collapses onto the

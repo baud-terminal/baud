@@ -34,9 +34,8 @@ Each animation looks the same on every path: the GPU, and the CPU path --
 `BAUD_GPU=0`, a Mac with no Metal device, or Linux -- which the pixel oracle
 holds to the GPU's pixel for pixel on every animation that draws: the plasma
 glow, the fade, the fire and the ufo. The hard switch draws nothing while the
-cursor is hidden. The plasma glow and the fire are worked out with the
-system's own math library, though, so unlike the trails they are not held to
-the same bits on macOS and on Linux.
+cursor is hidden. Linux draws each animation with the pixels a Mac draws: its
+math, like the trails', gives the same bits on macOS and on Linux.
 
 Each still below is the frame of its clip with the most trail on screen, on the
 fifth move: the diagonal from the top-left `+` to the bottom-right one, where
