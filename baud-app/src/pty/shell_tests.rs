@@ -116,9 +116,11 @@ impl Drop for Scratch {
     }
 }
 
-/// The scratch directory `tag` names, for this test process.
+/// The scratch directory `tag` names, for this test process: one left
+/// by a killed process of the same pid is removed first.
 fn scratch(tag: &str) -> Scratch {
     let dir = std::env::temp_dir().join(format!("baud-shell-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("home")).expect("a scratch home");
     std::fs::create_dir_all(dir.join("tmp")).expect("a scratch tmp");
     Scratch(dir)
@@ -620,6 +622,20 @@ fn fish_gets_nothing_with_integration_off() {
 /// What a shell says of itself, written to `$HOME/state` by one command:
 /// the startup files that ran, in order, a variable the user's file set,
 /// its environment sorted, and its options.
+///
+/// **bash's state holds what the shell itself writes to stderr -- its
+/// builtins, and a DEBUG trap's first firing before the line's first
+/// command, which is why that command is a builtin -- and nothing a
+/// program it starts writes there**: under job control, the process bash
+/// forks to run a program now and then reports, before the program runs,
+/// that it could not put itself in a process group of its own -- `child
+/// setpgid (N to N): Operation not permitted` -- in either arm, and in a
+/// bash no baud started (measured on macOS through `script(1)` under
+/// load: 32 of 9000 forks with job control on, none of 9000 with it off).
+/// With every stderr in the state, that line failed 5 of 420 runs: 3 as
+/// a line one arm's state had and the other's did not, 2 as the first
+/// line of the startup files' list; the programs' stderr now goes to the
+/// terminal.
 fn state_command(sh: Sh) -> &'static str {
     match sh {
         Sh::Zsh => {
@@ -627,8 +643,9 @@ fn state_command(sh: Sh) -> &'static str {
              histfile=${HISTFILE-unset}; env | LC_ALL=C sort; setopt; } > ~/state"
         }
         Sh::Bash => {
-            "{ cat ~/ran; echo rc=$FROM_RC; env | LC_ALL=C sort; shopt -p; set +o; \
-             declare -p HISTFILE; history 2; trap -p; } > ~/state 2>&1"
+            "{ { while IFS= read -r l; do printf '%s\\n' \"$l\"; done < ~/ran; \
+             echo rc=$FROM_RC; } 2>&1; env | LC_ALL=C sort; { shopt -p; set +o; \
+             declare -p HISTFILE; history 2; trap -p; } 2>&1; } > ~/state"
         }
         Sh::Fish => {
             "begin; cat ~/ran; echo rc=$FROM_RC; env | LC_ALL=C sort; status is-login; \
