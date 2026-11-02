@@ -571,6 +571,19 @@ group  = "C"
 # list of locally stored state and host_state_init (pp. 12-15), and DECSTR's
 # table and algorithm (pp. 31-33); 070-6 §6.2.1 (p. 6-16), DECARM (p. 6-41),
 # DECCKM, DECKPAM and DECKPNM (pp. 6-60 to 6-67).
+# Read 2026-11-01 on the text layer [text], the sha256 matching, for the controls a
+# pending wrap meets, a positive control ("Last Column Flag", D.6.1) found first: 070-D's
+# abstract (p. D-1) and D.6.1's list (pp. D-13, D-14, PDF 1200-1201) with D.6.2 DECAWM
+# (p. D-15); 070-5 LF, VT and FF (pp. 5-59 to 5-62), IND and RI (pp. 5-34 to 5-36), SUB
+# (p. 5-132), IRM and INSERT OR REPLACE GRAPHIC CHARACTER, whose algorithm takes and resets
+# the flag (pp. 5-138 to 5-141), ICH and DCH, 'this control is ignored' outside the margins
+# (pp. 5-142 to 5-145), and the change history, items 16 and 5 (pp. 5-217, 5-218).
+# Read 2026-11-01 on page renders [img] (PDF 279, 397, 398) with the text layer: 5.4.3's
+# table of the controls the scrolling region bounds (p. 5-24), ICH and DCH 'O', 'Continues to
+# work outside these margins', for the top and bottom margins and 'X' for the left and right,
+# change-barred; ICH's notes 1 and 2, change-barred (p. 5-142), and its algorithm, unbarred,
+# 'ignore if we're outside the scrolling area' over a line test printed inverted (p. 5-143);
+# 5.16.4, Rev AX11 To AX12, items 1, 12, 14, 22 and 24 (pp. 5-221 to 5-223).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -940,6 +953,40 @@ group  = "C"
 # Not in the repository: no grant to redistribute it was found (a DEC manual
 # as transcribed on vt100.net). It was read as vt510-DL.html, and the digest
 # is of that copy.
+
+[sources.vt510-ich]
+key    = "vt510-ich"
+title  = "ICH -- Insert Character (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/ICH.html"
+file   = ""
+sha256 = "266d24c97b764fb741f721297f3144830a285889a9facd0e891c22105c813e75"
+bytes  = 19584
+status = "external"
+group  = "C"
+# Not in the repository: no grant to redistribute it was found (a DEC manual
+# as transcribed on vt100.net). It was read as ICH.html, and the digest is of
+# that copy. Fetched 2026-11-01 for a pending wrap on a row outside the top
+# and bottom margins: "ICH has no effect outside the scrolling margins."
+
+[sources.vt510-dch]
+key    = "vt510-dch"
+title  = "DCH -- Delete Character (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DCH.html"
+file   = ""
+sha256 = "c212d02efb3cfd6bcaa9774b6ae2c5043dc212f2466d0304a4dbcdd3aa62d275"
+bytes  = 19657
+status = "external"
+group  = "C"
+# Not in the repository: no grant to redistribute it was found (a DEC manual
+# as transcribed on vt100.net). It was read as DCH.html, and the digest is of
+# that copy. Fetched 2026-11-01 with ICH: "DCH has no effect outside the
+# scrolling margins."
 
 [sources.vt510-cnl]
 key    = "vt510-cnl"
@@ -16923,6 +16970,12 @@ group  = "C"
 # available' (p. 327, PDF 349), and Exiting VT52 Mode, 'the terminal returns to the mode it
 # was in before entering VT52 mode', Table A-1 'Exit VT52 mode. (Enter VT100 mode.)' (p. 328,
 # PDF 350).
+# Read 2026-11-01 on the text layer [text], the sha256 matching, for ICH and DCH on a row
+# outside the top and bottom margins: chapter 8's 'Inserting and Deleting Columns, Lines, and
+# Characters', 'The scrolling region is the area of the screen inside the top and bottom
+# margins' (p. 148); DCH and ICH, each with 'has no effect outside the scrolling margins'
+# (pp. 152, 153); 'Erasing Text', 'They are not restricted by margins' (p. 153); the
+# glossary's 'Scrolling margins: The top, bottom, left, and right boundaries' (p. 353).
 
 [sources.vt510-rm-b]
 key    = "vt510-rm-b"

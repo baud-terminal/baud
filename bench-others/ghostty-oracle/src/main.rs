@@ -455,15 +455,27 @@ const FULL: &str = "\x1b[3;1Habcdefghijklmnopqrst";
 /// A wrap pending at the fence's right margin, column 10, kept there by
 /// `?69l` putting the margins back.
 const KEPT: &str = "\x1b[?69h\x1b[5;10s\x1b[3;5HABCDEF\x1b[?69l";
-/// `ICH` and `DCH` at a pending wrap.
-const EDIT_KEEPS: &str = "found, not fixed: ICH and DCH at a pending wrap keep it here and \
-                          edit nothing on the row; ghostty edits at the last column and \
-                          ends it, and STD 070 D.6.1 (pp. D-13, D-14) lists DELETE_CHARACTER \
-                          and INSERT CHARACTER among the controls that reset the Last \
-                          Column Flag";
-/// Note V's full-width pending-wrap follow-ons, each a later decision.
-const FOLLOW_ON: &str = "note V's full-width follow-ons: baud keeps the sentinel \
-                         across LF, ghostty clears its pending_wrap";
+/// ghostty's `RI` on the top margin keeps its flag.
+const RI_TOP: &str = "ghostty departs: RI on the top margin keeps a pending wrap \
+                      (reverseIndex's scrollDown saves and restores pending_wrap, \
+                      Terminal.zig 2516-2526 and 2619-2626), so the next character \
+                      wraps onto the line the scroll moved down; STD 070 D.6.1 (pp. \
+                      D-13, D-14) lists REVERSE_INDEX among the controls that reset \
+                      the Last Column Flag, and xterm's RevIndex resets do_wrap after \
+                      its scroll (cursor.c 319-339)";
+/// ghostty's `ICH` right of the side margins ends its flag.
+const ICH_IGNORED: &str = "ghostty departs: ICH right of the side margins ends a pending \
+                           wrap (insertBlanks resets pending_wrap before its margin test, \
+                           Terminal.zig 3284-3291); STD 070 ICH note 2 (p. 5-142) ignores \
+                           the control there, and xterm's InsertChar returns before \
+                           ResetWrap (util.c 1898)";
+/// A reset of DECAWM keeps ghostty's flag.
+const AWM_RESET: &str = "ghostty departs: ?7l keeps a pending wrap, so after ?7l ?7h the \
+                         next character wraps; STD 070 D.6.1 (pp. D-13, D-14) lists \
+                         RESET_MODE (AUTO_WRAP_MODE) among the controls that reset the \
+                         Last Column Flag, and 070-5's revision item 16 (p. 5-217) adds \
+                         the clearing to Reset Auto Wrap Mode's algorithm; xterm keeps \
+                         do_wrap too (charproc.c 7603-7605)";
 
 fn fixtures() -> Vec<Fixture> {
     use Verdict::*;
@@ -536,7 +548,7 @@ fn fixtures() -> Vec<Fixture> {
         f(
             "full: LF after a full row",
             "\x1b[3;1Hxxxxxxxxxxxxxxxxxxxx\nZ".into(),
-            Pinned(FOLLOW_ON),
+            Agree,
         ),
         // ---- side margins: what is built ------------------------------------
         f("lrm: DECSLRM homes", LRM.into(), Agree),
@@ -1350,9 +1362,84 @@ fn fixtures() -> Vec<Fixture> {
             format!("{KEPT}\x1b[1m\x1b[5n\x1b[mX"),
             Agree,
         ),
-        f("wrap: LF, kept", format!("{KEPT}\nZ"), Pinned(FOLLOW_ON)),
-        f("wrap: ICH", format!("{FULL}\x1b[@X"), Pinned(EDIT_KEEPS)),
-        f("wrap: DCH", format!("{FULL}\x1b[PX"), Pinned(EDIT_KEEPS)),
+        f("wrap: LF, kept", format!("{KEPT}\nZ"), Agree),
+        f("wrap: ICH", format!("{FULL}\x1b[@X"), Agree),
+        f("wrap: DCH", format!("{FULL}\x1b[PX"), Agree),
+        // LF, VT, FF, IND and RI end it on its column, and ICH and DCH edit
+        // that column, where D.6.1 lists each (p. D-14).
+        f("wrap: VT", format!("{FULL}\x0bX"), Agree),
+        f("wrap: FF", format!("{FULL}\x0cX"), Agree),
+        f("wrap: IND", format!("{FULL}\x1bDX"), Agree),
+        f("wrap: RI", format!("{FULL}\x1bMX"), Agree),
+        f(
+            "wrap: LF on the bottom margin",
+            "\x1b[8;1Habcdefghijklmnopqrst\nX".into(),
+            Agree,
+        ),
+        f(
+            "wrap: RI on the top margin",
+            "\x1b[1;1Habcdefghijklmnopqrst\x1bMX".into(),
+            Pinned(RI_TOP),
+        ),
+        f("wrap: VT, kept", format!("{KEPT}\x0bX"), Agree),
+        f("wrap: RI, kept", format!("{KEPT}\x1bMX"), Agree),
+        f("wrap: ICH, kept", format!("{KEPT}\x1b[@X"), Agree),
+        f("wrap: DCH, kept", format!("{KEPT}\x1b[PX"), Agree),
+        f(
+            "wrap: ICH at the fence",
+            format!("{LRM}\x1b[3;5HABCDEF\x1b[@X"),
+            Agree,
+        ),
+        f(
+            "wrap: DCH at the fence",
+            format!("{LRM}\x1b[3;5HABCDEF\x1b[PX"),
+            Agree,
+        ),
+        // Right of the side margins both are ignored and the wrap waits on.
+        f(
+            "wrap: ICH right of the fence",
+            format!("{LRM}\x1b[3;15HABCDEF\x1b[@X"),
+            Pinned(ICH_IGNORED),
+        ),
+        f(
+            "wrap: DCH right of the fence",
+            format!("{LRM}\x1b[3;15HABCDEF\x1b[PX"),
+            Agree,
+        ),
+        // On a row outside the top and bottom margins both act and end it,
+        // STD 070's margin table (p. 5-24) giving each "Continues to work
+        // outside these margins" for them.
+        f(
+            "wrap: ICH above the region",
+            format!("\x1b[4;7r{FULL}\x1b[@X"),
+            Agree,
+        ),
+        f(
+            "wrap: DCH above the region",
+            format!("\x1b[4;7r{FULL}\x1b[PX"),
+            Agree,
+        ),
+        f(
+            "wrap: ICH below the region",
+            format!("\x1b[1;2r{FULL}\x1b[@X"),
+            Agree,
+        ),
+        f(
+            "wrap: DCH below the region",
+            format!("\x1b[1;2r{FULL}\x1b[PX"),
+            Agree,
+        ),
+        // A reset of DECAWM ends it (D.6.1, 070-5 revision item 16); a set
+        // keeps it, and IRM and a SUB with no mark drawn keep it too.
+        f(
+            "wrap: ?7l then ?7h",
+            format!("{FULL}\x1b[?7l\x1b[?7hX"),
+            Pinned(AWM_RESET),
+        ),
+        f("wrap: ?7l", format!("{FULL}\x1b[?7lX"), Pinned(NOWRAP_FLAG)),
+        f("wrap: ?7h keeps it", format!("{FULL}\x1b[?7hX"), Agree),
+        f("wrap: IRM keeps it", format!("{FULL}\x1b[4hX"), Agree),
+        f("wrap: SUB keeps it", format!("{FULL}\x1aX"), Agree),
         // ---- a pending wrap through a resize --------------------------------
         // No text governs a resize; ghostty keeps its flag through every one,
         // and xterm's ScreenResize never touches do_wrap.

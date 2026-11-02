@@ -645,3 +645,250 @@ fn a_saved_pending_wrap_rides_the_re_cut() {
         assert_eq!(s.marks[3], Wrap::Continues, "{save:?}: the line goes on");
     }
 }
+
+// ---- LF, VT, FF, IND, RI, ICH, DCH and a reset of DECAWM -------------------
+
+/// A wrap pending at the fence's right margin, kept by `?69l` on column 10
+/// once the margins are the page's again.
+fn kept() -> String {
+    format!("{}\x1b[?69l", fenced())
+}
+
+/// **LF, VT, FF and IND end the wrap on its column**: D.6.1 lists LINE
+/// FEED, VERTICAL TAB, FORM FEED and INDEX among the controls that reset
+/// the Last Column Flag, and with LNM reset LF makes "no change ... in the
+/// Active Column" (LF note 4, p. 5-59), the column the wrap waits on. So
+/// the cursor goes down a line on that column and the next character is
+/// written there, as xterm's `xtermIndex` (`CursorDown`'s `ResetWrap`,
+/// `[[source: xterm-cursor-c]]` 263) and ghostty's `index` do. Before, the
+/// wrap went down with the cursor: the `X` wrapped from row 4 to row 5's
+/// first column, and the empty row 4 was marked as continuing.
+#[test]
+fn the_line_feeds_end_the_wrap_on_its_column() {
+    for c in ["\n", "\x0b", "\x0c", "\x1bD"] {
+        let s = run(&[Bytes(format!("{}{c}\x1b[6n", full()))]);
+        assert_eq!(
+            (s.reply.as_str(), s.pending),
+            ("\x1b[4;20R", WrapPending::No),
+            "{c:?}"
+        );
+        let s = run(&[Bytes(format!("{}{c}X", full()))]);
+        assert_eq!(row(&s, 2), FULL, "{c:?}");
+        assert_eq!(row(&s, 3), "...................X", "{c:?}");
+        assert_eq!(row(&s, 4), "....................", "{c:?}");
+        assert_eq!(s.marks[2], Wrap::Ended, "{c:?}: the line ended");
+        assert_eq!(s.marks[3], Wrap::Ended, "{c:?}: nothing wrapped");
+        // At the fence's right margin and at the wrap `?69l` kept there.
+        for (at, pre) in [("fenced", fenced()), ("kept", kept())] {
+            let s = run(&[Bytes(format!("{pre}{c}X"))]);
+            assert_eq!(row(&s, 2), "....ABCDEF..........", "{c:?} {at}");
+            assert_eq!(row(&s, 3), ".........X..........", "{c:?} {at}");
+        }
+        // On the bottom margin the screen scrolls and the column stays.
+        let s = run(&[Bytes(format!("\x1b[6;1H{FULL}{c}X"))]);
+        assert_eq!(row(&s, 4), FULL, "{c:?}: scrolled");
+        assert_eq!(row(&s, 5), "...................X", "{c:?}: scrolled");
+    }
+    // Under LNM the line feed's carriage return goes to column 1 first.
+    let s = run(&[Bytes(format!("\x1b[20h{}\nX", full()))]);
+    assert_eq!(row(&s, 3), "X...................");
+}
+
+/// **A VT to a line tabulation stop ends it too**, on the column it waits
+/// on of the line the stop is on (`[[source: ecma48]]` 8.3.161, "the
+/// corresponding character position").
+#[test]
+fn a_vt_to_a_line_stop_ends_the_wrap_on_its_column() {
+    let s = run(&[Bytes(format!("\x1b[5;1H\x1bJ{}\x0bX", full()))]);
+    assert_eq!(row(&s, 3), "....................");
+    assert_eq!(row(&s, 4), "...................X");
+}
+
+/// **On a double-width line the column the wrap waits on is the half's
+/// last**, and LF keeps it onto a single line; onto a double line from a
+/// single one it is cut to that line's half, "If the line to which the
+/// Active Position is moved contains fewer columns than the Active Column,
+/// the Active Column is set to the end of that line" (LF note 3, p. 5-59).
+#[test]
+fn a_line_feed_from_a_wrap_keeps_the_column_a_line_allows() {
+    let s = run(&[b("\x1b[3;1H\x1b#6abcdefghij\nX")]);
+    assert_eq!(row(&s, 3), ".........X..........", "off a double line");
+    let s = run(&[b("\x1b[4;1H\x1b#6\x1b[3;1Habcdefghijklmnopqrst\nX")]);
+    assert!(row(&s, 3).starts_with(".........X"), "{:?}", row(&s, 3));
+    assert_eq!(row(&s, 4), "....................", "nothing wrapped");
+}
+
+/// **RI ends the wrap on its column**, inside the region and on its top
+/// margin, where it scrolls: D.6.1 lists REVERSE_INDEX, and xterm's
+/// `RevIndex` calls `CursorUp` and its `ResetWrap` after the scroll too
+/// (`[[source: xterm-cursor-c]]` 284, 319-339). ghostty keeps its flag on
+/// the top margin (`scrollDown` saves and restores it), pinned in its
+/// oracle. Before, the `X` wrapped back onto the full row's `a`, and on
+/// the top margin onto the `a` of the line the scroll moved down.
+#[test]
+fn ri_ends_the_wrap_on_its_column() {
+    let s = run(&[Bytes(format!("{}\x1bMX", full()))]);
+    assert_eq!(row(&s, 1), "...................X");
+    assert_eq!(row(&s, 2), FULL, "the full row untouched");
+    for (top, region) in [(1, ""), (2, "\x1b[2;5r")] {
+        let s = run(&[Bytes(format!("{region}\x1b[{top};1H{FULL}\x1bMX"))]);
+        let y = top - 1;
+        assert_eq!(row(&s, y), "...................X", "top margin {top}");
+        assert_eq!(row(&s, y + 1), FULL, "top margin {top}: moved down whole");
+    }
+    let s = run(&[Bytes(format!("{}\x1bMX", kept()))]);
+    assert_eq!(row(&s, 1), ".........X..........", "kept");
+    assert_eq!(row(&s, 2), "....ABCDEF..........", "kept");
+}
+
+/// **ICH and DCH end the wrap and edit the column it waits on**: D.6.1
+/// lists INSERT CHARACTER and DELETE_CHARACTER, 070-5's revision items 5
+/// and 16 (pp. 5-217, 5-218) add the clearing to both, and each acts "at
+/// the Active Position" (pp. 5-142, 5-144), which a pending wrap leaves on
+/// that column, as xterm's `InsertChar` and `DeleteChar` reset `do_wrap`
+/// (`[[source: xterm-scroll]]` 1924, 2023) and ghostty edits there. Before,
+/// both acted one past the line's end, which edited nothing, and the `X`
+/// wrapped.
+#[test]
+fn ich_and_dch_end_the_wrap_and_edit_its_column() {
+    for (c, name) in [("\x1b[@", "ICH"), ("\x1b[P", "DCH")] {
+        let s = run(&[Bytes(format!("{}{c}\x1b[6n", full()))]);
+        assert_eq!(
+            (s.reply.as_str(), s.pending),
+            ("\x1b[3;20R", WrapPending::No),
+            "{name}"
+        );
+        assert_eq!(row(&s, 2), "abcdefghijklmnopqrs.", "{name}: the t");
+        let s = run(&[Bytes(format!("{}{c}X", full()))]);
+        assert_eq!(row(&s, 2), "abcdefghijklmnopqrsX", "{name}");
+        assert_eq!(row(&s, 3), "....................", "{name}");
+        // At the fence the margin's column; at a kept wrap its column.
+        let s = run(&[Bytes(format!("{}{c}X", fenced()))]);
+        assert_eq!(row(&s, 2), "....ABCDEX..........", "{name} fenced");
+        let s = run(&[Bytes(format!("{}{c}X", kept()))]);
+        let want = match name {
+            "ICH" => "....ABCDEXF.........",
+            _ => "....ABCDEX..........",
+        };
+        assert_eq!(row(&s, 2), want, "{name} kept");
+        assert_eq!(row(&s, 3), "....................", "{name} kept");
+        // At SLL's line limit, the limit's; DEC's margins, not the limit,
+        // bound the shift (`crate::bounds`), so ICH pushes the `e` on.
+        let s = run(&[Bytes(format!("\x1b[5 Vabcde{c}X"))]);
+        let want = match name {
+            "ICH" => "abcdXe..............",
+            _ => "abcdX...............",
+        };
+        assert_eq!(row(&s, 0), want, "{name} at the limit");
+    }
+}
+
+/// **Right of the side margins they are ignored, and the wrap waits on**:
+/// ICH's note 2 and DCH's note 3 (pp. 5-142, 5-144), "this control is
+/// ignored", so nothing executes to reset the flag, as xterm's
+/// `InsertChar` and `DeleteChar` return before `ResetWrap`
+/// (`[[source: xterm-scroll]]` 1898, 1998). ghostty's ICH ends it there,
+/// pinned in its oracle.
+#[test]
+fn ich_and_dch_right_of_the_margins_keep_the_wrap() {
+    let edge = format!("{LRM}\x1b[3;15HABCDEF");
+    for c in ["\x1b[@", "\x1b[P"] {
+        let s = run(&[Bytes(format!("{edge}{c}\x1b[6n"))]);
+        assert_eq!(
+            (s.reply.as_str(), s.pending),
+            ("\x1b[3;20R", WrapPending::Yes),
+            "{c:?}"
+        );
+        let s = run(&[Bytes(format!("{edge}{c}X"))]);
+        assert_eq!(row(&s, 2), "..............ABCDEF", "{c:?}");
+        assert_eq!(row(&s, 3), "....X...............", "{c:?}");
+    }
+}
+
+/// **On a row outside the top and bottom margins they act, and end the
+/// wrap**: STD 070's margin table gives ICH and DCH "Continues to work
+/// outside these margins" for the top and bottom ones (p. 5-24), and their
+/// notes ignore them only "outside the left or right margin" (ICH note 2,
+/// DCH note 3), as xterm's `InsertChar` and `DeleteChar` and ghostty test
+/// the column alone. The VT420 manual gives each "no effect outside the
+/// scrolling margins" (pp. 152, 153), a conflict taken toward the table (a
+/// lean).
+/// Before, the wrap stayed and the `X` wrapped to the next row.
+#[test]
+fn ich_and_dch_outside_the_top_and_bottom_margins_end_the_wrap() {
+    for (c, name) in [("\x1b[@", "ICH"), ("\x1b[P", "DCH")] {
+        // Above the region and below it; on its margins, the controls.
+        for y in [1, 5, 2, 4] {
+            let pre = format!("\x1b[2;4r\x1b[{y};1H{FULL}");
+            let s = run(&[Bytes(format!("{pre}{c}\x1b[6n"))]);
+            let cpr = format!("\x1b[{y};20R");
+            assert_eq!(
+                (s.reply.as_str(), s.pending),
+                (cpr.as_str(), WrapPending::No),
+                "{name} on row {y}"
+            );
+            let s = run(&[Bytes(format!("{pre}{c}X"))]);
+            assert_eq!(row(&s, y - 1), "abcdefghijklmnopqrsX", "{name} on row {y}");
+            assert_eq!(row(&s, y), "....................", "{name} on row {y}");
+        }
+    }
+}
+
+/// **A reset of DECAWM ends the wrap**: D.6.1 lists RESET_MODE
+/// (AUTO_WRAP_MODE), and 070-5's revision item 16 (p. 5-217) adds the
+/// clearing to Reset Auto Wrap Mode's algorithm, so after `?7l ?7h` the
+/// next character overwrites the last column; DECSC saves no wrap and
+/// DECCIR reports none. xterm and ghostty keep their flag, pinned in the
+/// oracle. A set of DECAWM is not in the list and keeps it. Before, `?7l
+/// ?7h` and the `X` wrapped to the next row.
+#[test]
+fn a_reset_of_decawm_ends_the_wrap() {
+    for (at, pre, want) in [
+        ("full", full(), "abcdefghijklmnopqrsX"),
+        ("fenced", fenced(), "....ABCDEX.........."),
+        ("kept", kept(), "....ABCDEX.........."),
+    ] {
+        let s = run(&[Bytes(format!("{pre}\x1b[?7l\x1b[?7hX"))]);
+        assert_eq!(row(&s, 2), want, "{at}");
+        assert_eq!(row(&s, 3), "....................", "{at}");
+    }
+    let s = run(&[Bytes(format!("{}\x1b[?7l\x1b[?7h\x1b[1$w", full()))]);
+    assert!(
+        s.reply.starts_with("\x1bP1$u3;20;1;@;@;@;"),
+        "Sflag without bit 4: {:?}",
+        s.reply
+    );
+    let s = run(&[Bytes(format!("{}\x1b[?7l\x1b7\x1b[?7h\x1b8X", full()))]);
+    assert_eq!(row(&s, 2), "abcdefghijklmnopqrsX", "DECSC saved none");
+    // XTRESTORE of a reset DECAWM that XTSAVE saved resets it through the
+    // same control and ends the wrap alike; of a set one it keeps it.
+    for (saved, two, three) in [
+        ("l", "abcdefghijklmnopqrsX", "...................."),
+        ("h", FULL, "X..................."),
+    ] {
+        let s = run(&[Bytes(format!(
+            "\x1b[?7{saved}\x1b[?7s\x1b[?7h{}\x1b[?7r\x1b[?7hX",
+            full()
+        ))]);
+        let got = (row(&s, 2), row(&s, 3));
+        assert_eq!(got, (two, three), "XTRESTORE of ?7{saved}");
+    }
+    // The control: a set keeps it.
+    let s = run(&[Bytes(format!("{}\x1b[?7hX", full()))]);
+    assert_eq!(row(&s, 3), "X...................");
+}
+
+/// **IRM and a SUB that draws nothing keep the wrap.** D.6.1 names no IRM:
+/// its `INSERT_OR_REPLACE_CHARACTER` is the graphic-character procedure
+/// (p. 5-139), and IRM's algorithm (p. 5-138) assigns the mode alone, as
+/// xterm and ghostty keep their flag. SUB's procedure writes its mark
+/// through that one (p. 5-132), which takes the wrap; with the mark off, the
+/// default, nothing is written and nothing moves, as ghostty ignores SUB.
+#[test]
+fn irm_and_an_unmarked_sub_keep_the_wrap() {
+    for c in ["\x1b[4h", "\x1b[4l", "\x1a"] {
+        let s = run(&[Bytes(format!("{}{c}X", full()))]);
+        assert_eq!(row(&s, 2), FULL, "{c:?}");
+        assert_eq!(row(&s, 3), "X...................", "{c:?}");
+    }
+}

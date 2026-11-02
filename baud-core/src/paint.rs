@@ -2556,8 +2556,22 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// a fifth, whose wrap waiting at the left margin a line feed ends
     /// (`crate::leftward`). A string laid out against an aligned stop is a
     /// sixth, which the line feed ends (`crate::aligned`).
+    ///
+    /// **A pending wrap ends on the column it waits on** before the move
+    /// ([`Paint::end_wait`]), so the cursor goes down a line on that column
+    /// and the next character is written there: `[[source: dec-std-070]]`
+    /// D.6.1 (pp. D-13 and D-14) lists LINE FEED, VERTICAL TAB and FORM
+    /// FEED among the controls that reset the Last Column Flag, and with
+    /// LNM reset "no change will occur in the Active Column" (LF note 4, p.
+    /// 5-59), as xterm's `xtermIndex` resets `do_wrap` through `CursorDown`
+    /// (`[[source: xterm-cursor-c]]` 263, 292-314) and ghostty's `index`
+    /// does. Until 2026-11-01 the wrap went down with the cursor and the
+    /// next character wrapped from the line it reached. One compare inline,
+    /// as for `CUU`; the `LF` of a folded `CR LF` comes after the `CR`,
+    /// which ended any wrap, and does not reach here.
     #[inline(always)]
     pub(crate) fn line_feed(&mut self, by: Feed) {
+        self.end_wait();
         // A newline ends the row it leaves, however it was written before.
         self.view.set_ended(self.cy);
         if self.cold.modes.any_of_six([

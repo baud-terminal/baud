@@ -3349,19 +3349,56 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// **Before a control that ends a pending wrap**: `CUU` and `CUD`,
-    /// which D.6.1 (`[[source: dec-std-070]]` pp. D-13 and D-14) lists among
-    /// the controls that reset the Last Column Flag, as xterm's `CursorUp`
-    /// and `CursorDown` call `ResetWrap` (`[[source: xterm-cursor-c]]` 263,
-    /// 284) and ghostty's reset `pending_wrap`; the move goes from the
-    /// column the wrap waited on. Until 2026-11-01 the wrap survived them,
-    /// and the next character wrapped from the row the cursor reached.
+    /// **Before a control that ends a pending wrap**: `CUU`, `CUD`, `LF`,
+    /// `VT`, `FF`, `IND` and `RI`, which D.6.1 (`[[source: dec-std-070]]`
+    /// pp. D-13 and D-14) lists among the controls that reset the Last
+    /// Column Flag, as xterm's `CursorUp` and `CursorDown` call `ResetWrap`
+    /// (`[[source: xterm-cursor-c]]` 263, 284) and ghostty's reset
+    /// `pending_wrap`; the move goes from the column the wrap waited on.
+    /// Until 2026-11-01 the wrap survived them, and the next character
+    /// wrapped from the row the cursor reached.
     /// **One compare inline**: a column at or inside the fence has no wrap
     /// waiting.
     #[inline(always)]
     pub(crate) fn end_wait(&mut self) {
         if self.cx.raw() > self.cold.fence {
             self.wait_ends_on_its_column();
+        }
+    }
+
+    /// **Before `ICH` and `DCH`**: a pending wrap ends on its column where
+    /// that column is inside the side margins, so the edit acts there, at
+    /// "the Active Position" (`[[source: dec-std-070]]` ICH and DCH, pp.
+    /// 5-142 and 5-144), which a pending wrap leaves on it: D.6.1 lists
+    /// INSERT CHARACTER and DELETE_CHARACTER, and 070-5's revision items 5
+    /// and 16 (pp. 5-217, 5-218) add the clearing to both. xterm's
+    /// `InsertChar` and `DeleteChar` reset `do_wrap` (`[[source:
+    /// xterm-scroll]]` 1924, 2023) and ghostty edits there too. **Right of
+    /// the side margins the wrap waits on**: there "this control is
+    /// ignored" (ICH note 2, DCH note 3), so nothing executes to reset the
+    /// flag, as xterm returns before `ResetWrap` (1898, 1998). On a row
+    /// outside the top and bottom margins both act and end the wrap (a
+    /// lean): STD 070's margin table has them continue to work there (p.
+    /// 5-24), where the VT420 and VT510 manuals give them no effect
+    /// (vt-coverage.md, the `CSI @` and `CSI P` rows). Until 2026-11-01
+    /// both acted one past the line's end, editing nothing, and the wrap
+    /// stayed.
+    #[inline(always)]
+    pub(crate) fn end_wait_to_edit(&mut self) {
+        if self.cx.raw() > self.cold.fence {
+            self.wait_ends_inside_the_margins();
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn wait_ends_inside_the_margins(&mut self) {
+        let fence = self.report_fence();
+        if let CursorAt::Pending(_) = self.cx.at(fence, self.cols) {
+            let on = self.cx.reported(fence, self.cols);
+            if on >= self.cold.left && on <= self.cold.right {
+                self.set_col(CursorCol::moved(on));
+            }
         }
     }
 
@@ -3654,9 +3691,14 @@ impl Paint<'_, '_> {
     /// following, `LF`, as DEC's table treats VT. Out of line: the
     /// per-byte loop's arm is one call, and its own table entry rather
     /// than a test in `LF`'s.
+    ///
+    /// **A pending wrap ends on its column first** ([`Paint::end_wait`]):
+    /// D.6.1 lists VERTICAL TAB, and the stop's line takes "the
+    /// corresponding character position", the column the wrap waits on.
     #[cold]
     #[inline(never)]
     pub(crate) fn vertical_tab(&mut self) {
+        self.end_wait();
         match self
             .cold
             .line_stops
@@ -4210,7 +4252,16 @@ impl Paint<'_, '_> {
             // **A wrap waiting at the line limit stays on the limit**: the
             // active position never left it (`crate::bounds`), and a report
             // names it with the wrap ended.
+            //
+            // **A reset ends a pending wrap on its column**: D.6.1 lists
+            // RESET_MODE (AUTO_WRAP_MODE), and 070-5's revision item 16 (p.
+            // 5-217) adds the clearing to Reset Auto Wrap Mode's algorithm,
+            // so a `?7h` after it leaves nothing pending. xterm and ghostty
+            // keep their flag. A set is not in the list and keeps one.
             PrivateMode::AutoWrap => {
+                if !on {
+                    self.wait_ends_on_its_column();
+                }
                 self.cold.modes.apply(ModeBit::AutoWrap, on);
                 if self.cold.pinned != crate::term::Pinned::AtLimit {
                     self.cold.pinned = crate::term::Pinned::Before;

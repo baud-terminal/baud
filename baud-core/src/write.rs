@@ -2369,12 +2369,16 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
             p.edit_reaches(crate::aligned::EditRows::Line);
             p.erase_chars(c)
         }
+        // **And each a pending wrap inside the margins**, the column it
+        // waits on the one they edit (`Paint::end_wait_to_edit`).
         DomCsi::DeleteChars(c) => {
             p.end_left_edge();
+            p.end_wait_to_edit();
             p.delete_chars(c)
         }
         DomCsi::InsertBlanks(c) => {
             p.end_left_edge();
+            p.end_wait_to_edit();
             p.insert_blanks(c)
         }
         DomCsi::InsertLines(c) => {
@@ -2883,9 +2887,18 @@ fn esc_final(
             Some(s) => p.restore(Some(s)),
             None => p.restore_unsaved(),
         },
-        Esc::ReverseIndex => p.reverse_index(),
+        // **Each ends a pending wrap on its column** (`Paint::end_wait`),
+        // RI on the top margin too, where it scrolls: D.6.1 lists INDEX and
+        // REVERSE_INDEX, and xterm's `RevIndex` resets `do_wrap` after its
+        // scroll (`[[source: xterm-cursor-c]]` 319-339). VT52's reverse line
+        // feed keeps `reverse_index` as it was.
+        Esc::ReverseIndex => {
+            p.end_wait();
+            p.reverse_index()
+        }
         Esc::Index => {
             p.end_left_edge();
+            p.end_wait();
             p.index_bringing_in()
         }
         // **`CR` and then `LF`, so the line it leaves decides**:

@@ -1913,9 +1913,47 @@ comment above the line-136 test.
   the character the re-cut moved (that last a lean); and the row a wrap
   kept short of the line's end leaves not marked as continuing (a lean).
   `baud-core/tests/pending_wrap.rs` and the ghostty oracle's `wrap:` and
-  `resize:` fixtures hold them. **Still open**: the mid-row margin mark
-  above, and `LF`, `VT`, `FF`, `IND`, `RI`, `ICH` and `DCH`, which keep a
-  pending wrap where D.6.1 resets it.
+  `resize:` fixtures hold them.
+- **Decided 2026-11-01, the rest of D.6.1's list, built the same day**
+  ([[source: dec-std-070]] 070-D pp. D-13 and D-14, read with each
+  control's own page). Each ends a pending wrap on the column it waits on:
+  - `LF`, `VT` (to a line stop too), `FF` and `IND`, the cursor going down
+    a line on that column, cut to a double line's half (LF notes 3 and 4,
+    p. 5-59), at the bottom margin too. xterm and ghostty agree.
+  - `RI`, on the top margin too, where it scrolls: xterm's `RevIndex`
+    resets `do_wrap` after its scroll, and ghostty keeps its flag there,
+    its departure pinned in the oracle.
+  - `ICH` and `DCH` inside the side margins, which then edit that column,
+    the Active Position (pp. 5-142, 5-144; 070-5 revision items 5 and 16,
+    pp. 5-217, 5-218). Right of the margins both are ignored (ICH note 2,
+    DCH note 3) and the wrap waits on, as xterm's return before
+    `ResetWrap`; ghostty's ICH ends it there, pinned. On a row outside
+    the top and bottom margins both act and end it (a lean): STD 070's
+    margin table gives each "Continues to work outside these margins"
+    for them (p. 5-24), where the VT420 manual (pp. 148, 152, 153) and
+    VT510's pages give each "no effect outside the scrolling margins";
+    xterm and ghostty act there.
+  - A reset of DECAWM, so `?7l ?7h` leaves nothing pending (D.6.1's
+    RESET_MODE (AUTO_WRAP_MODE); revision item 16). xterm and ghostty keep
+    their flag, pinned. A set keeps it.
+  - **Kept**: SM and RM of IRM, which no text names. D.6.1's
+    INSERT_OR_REPLACE_CHARACTER is the graphic-character procedure (p.
+    5-139), whose algorithm takes and resets the flag, and IRM's algorithm
+    assigns the mode alone (p. 5-138); the list above read it as IRM. And
+    a SUB while the error character is off, which writes nothing and moves
+    nothing (a lean): its procedure is that one, which takes the wrap, as
+    the mark does when it is on.
+  `the_line_feeds_end_the_wrap_on_its_column`,
+  `ri_ends_the_wrap_on_its_column`,
+  `ich_and_dch_end_the_wrap_and_edit_its_column`,
+  `ich_and_dch_right_of_the_margins_keep_the_wrap`,
+  `ich_and_dch_outside_the_top_and_bottom_margins_end_the_wrap`,
+  `a_reset_of_decawm_ends_the_wrap` and the oracle's `wrap:` fixtures hold
+  them. **Still open**: the mid-row margin mark above; `VPA` and `VPR`,
+  which D.6.1 does not name; a wrap DECRLM leaves waiting at the left
+  margin, which DECSC does not save; and ICH and DCH left of the left
+  margin, which act where ICH note 2, DCH note 3, xterm and ghostty
+  ignore them.
 
 **Tests and measurement**
 
