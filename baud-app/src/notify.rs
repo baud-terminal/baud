@@ -28,8 +28,11 @@
 //!   when the notification is shown, through the reader kitty's file
 //!   medium reads through, with every check it makes
 //!   ([`Delivery::image`]), and shown: on Linux as an icon a program sent
-//!   is, on macOS attached once baud's own decoders read it
-//!   ([`Delivery::attached`]); nothing about it goes back to the program.
+//!   is, on macOS attached once baud's own decoders read it, checked off
+//!   the main thread ([`Checker`]) and posted when the check is done
+//!   ([`Delivery::mac_checked`]) or its window closes
+//!   ([`Delivery::mac_closing`]); nothing about it goes back to the
+//!   program.
 //!   A notification with nothing a platform can show is not posted, and
 //!   counted ([`Delivery::bare_line`]).
 //!
@@ -552,8 +555,8 @@ pub struct Delivery<T, P> {
     /// burst.
     said: (Dropped, Bursts),
     /// The images not shown -- on Linux ([`Delivery::image_data`]), and
-    /// iTerm2's pictures on macOS ([`Delivery::attached`]) -- and whether
-    /// the log has said so.
+    /// iTerm2's pictures on macOS ([`Delivery::mac_checked`]) -- and
+    /// whether the log has said so.
     pub unshown: Unshown,
     unshown_said: Said,
     /// The notifications not posted for want of anything the platform
@@ -562,9 +565,15 @@ pub struct Delivery<T, P> {
     pub bare: Unshown,
     bare_said: Said,
     /// The most pixels iTerm2's picture may decode to on macOS, the user's
-    /// `[images] pixels_mb` ([`Delivery::attached`]).
+    /// `[images] pixels_mb` ([`attaches`]).
     #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
     pictures: baud_domain::ImageBudget,
+    /// The macOS notifications whose picture is being checked off the main
+    /// thread, each posted when its check comes back
+    /// ([`Delivery::mac_checked`]), or when its window closes
+    /// ([`Delivery::mac_closing`]).
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    checking: Vec<Posted>,
 }
 
 /// A count of the images a notification carried that were not shown.
@@ -598,6 +607,7 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
             bare: Unshown(0),
             bare_said: Said::Not,
             pictures,
+            checking: Vec::new(),
         }
     }
 
@@ -650,40 +660,6 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
                 );
             })
             .ok()
-    }
-
-    /// **iTerm2's picture as macOS attaches it**: the file read now
-    /// through `files`, decoded by baud's own decoders ([`rgba_within`])
-    /// within the pixels `[images] pixels_mb` lets an image decode to, and
-    /// a copy of its bytes attached. iTerm2 attaches a picture only once it
-    /// decodes (`notifyRich:`, `[[source:
-    /// iterm2-964a75d-notification-controller]]`), and a file the system
-    /// cannot read costs the whole request: "If you attach a file to a
-    /// local notification request that's corrupted, invalid, or of an
-    /// unsupported file type, the system doesn't schedule your request"
-    /// (`[[source: apple-unnotificationattachment]]`). One that does not
-    /// decode, or is larger, is left out and counted, and the text posts.
-    /// The decode runs where the driver delivers, the main thread on
-    /// macOS, and, for a JPEG, holds its scratch, its pixels and their
-    /// RGBA copy all at once until it is done. That is about 9.5 bytes a
-    /// pixel, and the RGBA is thrown away afterwards. A 6000x4000 JPEG of
-    /// 3.25 MB took 218 to 276 ms in a release build without LTO. The
-    /// file's 10 MB do not bound these buffers, since a picture of one
-    /// colour compresses to far less than a byte a pixel.
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    pub fn attached(
-        &mut self,
-        p: &Posted,
-        files: &mut dyn PictureReader,
-    ) -> Option<(Vec<u8>, &'static str)> {
-        let b = self.image(p, files)?;
-        let most = u64::try_from(self.pictures.pixels).unwrap_or(u64::MAX);
-        let fits = |s: baud_domain::png::Size| u64::from(s.width) * u64::from(s.height) <= most;
-        let kind = image_kind(&b).filter(|_| rgba_within(&b, fits).is_some());
-        if kind.is_none() {
-            self.unshown.0 += 1;
-        }
-        kind.map(|k| (b, k))
     }
 
     /// **The image Linux sends as `image-data`**: a PNG, a JPEG or a GIF
@@ -741,11 +717,14 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
 /// **One call the macOS driver makes**, decided here so a test can read
 /// the calls without making them: posting a notification, removing one,
 /// closing one at its expiry, the Dock tile's bar and an attention
-/// request.
+/// request, and checking iTerm2's picture off the main thread.
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 pub enum MacCall {
     Post(MacPost),
+    /// Check this picture on the window's [`Checker`]; its notification
+    /// posts when the check comes back ([`Delivery::mac_checked`]).
+    Check(Check),
     Remove(String),
     /// Remove it when `Duration` has passed, scheduled on the main queue.
     Expire(String, Duration),
@@ -942,7 +921,10 @@ impl<T: Moment> Delivery<T, String> {
     /// told its close is untracked), dropped, or closed. A new one's
     /// identifier is `prefix` and its token, so a later update by the same
     /// kitty id, which keeps the token, replaces it. `files` reads iTerm2's
-    /// picture for a post it makes.
+    /// picture for a post it makes, and a picture that has to be decoded
+    /// before it is attached is handed to the window's [`Checker`]
+    /// (`MacCall::Check`), its notification posted when the check comes
+    /// back ([`Delivery::mac_checked`]), so no decode runs here.
     #[allow(clippy::too_many_arguments)]
     pub fn mac(
         &mut self,
@@ -959,43 +941,28 @@ impl<T: Moment> Delivery<T, String> {
             match plan(&p, self.setting, window.0, window.1, &mut self.bucket, now) {
                 Plan::Show => {
                     // A kitty icon is attached by its signature; iTerm2's
-                    // picture once it decodes.
+                    // picture once it decodes, which is checked off this
+                    // thread when its bytes say it is a picture.
                     let image = match &p.icon {
                         Some(b) => image_kind(b).map(|k| (b.clone(), k)),
-                        None => self.attached(&p, files),
+                        None => match self.image(&p, files) {
+                            Some(bytes) if image_kind(&bytes).is_some() => {
+                                calls.push(MacCall::Check(Check {
+                                    token: p.token,
+                                    bytes,
+                                    pixels: self.pictures,
+                                }));
+                                self.checking.push(p);
+                                continue;
+                            }
+                            Some(_) => {
+                                self.unshown.0 += 1;
+                                None
+                            }
+                            None => None,
+                        },
                     };
-                    // iTerm2's picture alone, unread or not decoded:
-                    // nothing to show.
-                    if untitled(&p) && p.body.is_empty() && image.is_none() {
-                        self.bare.0 += 1;
-                        term.notice_dropped(p.token);
-                        continue;
-                    }
-                    let id = self
-                        .shown
-                        .id(p.token)
-                        .unwrap_or_else(|| format!("{prefix}-{:?}", p.token));
-                    calls.push(MacCall::Post(MacPost {
-                        id: id.clone(),
-                        title: p.title.clone(),
-                        subtitle: p.subtitle.clone(),
-                        body: p.body.clone(),
-                        silent: match p.sound {
-                            Sound::Silent => Silence::Silent,
-                            _ => Silence::Sound,
-                        },
-                        passive: match p.urgency {
-                            Urgency::Low => Passive::Passive,
-                            _ => Passive::Active,
-                        },
-                        buttons: p.buttons.clone(),
-                        image,
-                    }));
-                    if let Expiry::After(d) = p.expiry {
-                        calls.push(MacCall::Expire(id.clone(), d));
-                    }
-                    self.shown.shown(p.token, id, p.expiry, now);
-                    crate::reads::input(term, |t| t.notice_shown(p.token), &mut reply);
+                    self.post_mac(term, p, image, now, prefix, &mut calls, &mut reply);
                 }
                 // Closed by baud, so the core forgets it at once: on macOS
                 // nothing else would say so (`p=alive`).
@@ -1020,6 +987,121 @@ impl<T: Moment> Delivery<T, String> {
             }));
         }
         calls
+    }
+
+    /// **A notification whose picture came back from the [`Checker`],
+    /// posted now**: with the picture when its bytes decode within the
+    /// pixels `[images] pixels_mb` lets an image decode to ([`attaches`]),
+    /// else without it, counted, the text posted; a picture alone that
+    /// does not decode is not posted, and counted. Nothing is posted
+    /// before the check is done: a second post under the same identifier
+    /// "will alert for the new notification request and replace the
+    /// existing delivered notification" (`[[source:
+    /// macos-sdk-unusernotificationcenter-h]]`), so text first and the
+    /// picture after would show and sound twice. A notification with
+    /// nothing to check posts as it comes, ahead of one still checked.
+    pub fn mac_checked(
+        &mut self,
+        term: &mut Term<'_>,
+        checked: Checked,
+        now: T,
+        prefix: &str,
+        mut reply: impl FnMut(&[u8]),
+    ) -> Vec<MacCall> {
+        let mut calls = Vec::new();
+        let Some(i) = self.checking.iter().position(|p| p.token == checked.token) else {
+            return calls;
+        };
+        let p = self.checking.remove(i);
+        let image = checked.kind.map(|k| (checked.bytes, k));
+        if image.is_none() {
+            self.unshown.0 += 1;
+        }
+        self.post_mac(term, p, image, now, prefix, &mut calls, &mut reply);
+        calls
+    }
+
+    /// **The notifications a closing window still holds for their
+    /// pictures' checks, posted now**, so none goes with the window, text
+    /// and all: each one whose check came back (`finished`) with its
+    /// picture as checked ([`Delivery::mac_checked`]), then the rest with
+    /// their text alone, each picture counted as not shown, and a picture
+    /// alone that never came back not posted, and counted. Nothing waits
+    /// for a check. The close a shell's exit asks for waits until none is
+    /// out ([`Delivery::checks`]), so the ones that come here still out
+    /// are a close the person made.
+    pub fn mac_closing(
+        &mut self,
+        term: &mut Term<'_>,
+        finished: Vec<Checked>,
+        now: T,
+        prefix: &str,
+        mut reply: impl FnMut(&[u8]),
+    ) -> Vec<MacCall> {
+        let mut calls = Vec::new();
+        for checked in finished {
+            calls.extend(self.mac_checked(term, checked, now, prefix, &mut reply));
+        }
+        for p in core::mem::take(&mut self.checking) {
+            self.unshown.0 += 1;
+            self.post_mac(term, p, None, now, prefix, &mut calls, &mut reply);
+        }
+        calls
+    }
+
+    /// Whether a notification waits for its picture's check, which the
+    /// close a shell's exit asks for waits on, as it waits for the log.
+    pub fn checks(&self) -> Checks {
+        match self.checking.is_empty() {
+            true => Checks::Done,
+            false => Checks::Waiting,
+        }
+    }
+
+    /// **`p` posted with `image`**, the core told it shown; or, a picture
+    /// alone with nothing to show, dropped and counted.
+    #[allow(clippy::too_many_arguments)]
+    fn post_mac(
+        &mut self,
+        term: &mut Term<'_>,
+        p: Posted,
+        image: Option<(Vec<u8>, &'static str)>,
+        now: T,
+        prefix: &str,
+        calls: &mut Vec<MacCall>,
+        reply: &mut impl FnMut(&[u8]),
+    ) {
+        // iTerm2's picture alone, unread or not decoded: nothing to show.
+        if untitled(&p) && p.body.is_empty() && image.is_none() {
+            self.bare.0 += 1;
+            term.notice_dropped(p.token);
+            return;
+        }
+        let id = self
+            .shown
+            .id(p.token)
+            .unwrap_or_else(|| format!("{prefix}-{:?}", p.token));
+        calls.push(MacCall::Post(MacPost {
+            id: id.clone(),
+            title: p.title,
+            subtitle: p.subtitle,
+            body: p.body,
+            silent: match p.sound {
+                Sound::Silent => Silence::Silent,
+                _ => Silence::Sound,
+            },
+            passive: match p.urgency {
+                Urgency::Low => Passive::Passive,
+                _ => Passive::Active,
+            },
+            buttons: p.buttons,
+            image,
+        }));
+        if let Expiry::After(d) = p.expiry {
+            calls.push(MacCall::Expire(id.clone(), d));
+        }
+        self.shown.shown(p.token, id, p.expiry, now);
+        crate::reads::input(term, |t| t.notice_shown(p.token), reply);
     }
 }
 
@@ -1115,9 +1197,10 @@ pub fn rgba(b: &[u8]) -> Option<(baud_domain::png::Size, Vec<u8>)> {
 
 /// **A PNG, a JPEG or a GIF as RGBA, if its size `fits`**, decoded by
 /// baud's own decoders, a GIF its first frame, a JPEG turned as its
-/// orientation says: [`rgba`] for Linux's `image-data`, and the check
-/// before macOS attaches iTerm2's picture ([`Delivery::attached`]).
-pub fn rgba_within(
+/// orientation says: [`rgba`] for Linux's `image-data`. macOS keeps no
+/// pixels, and checks with [`decodes_within`].
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+fn rgba_within(
     b: &[u8],
     fits: impl Fn(baud_domain::png::Size) -> bool,
 ) -> Option<(baud_domain::png::Size, Vec<u8>)> {
@@ -1165,6 +1248,221 @@ pub fn rgba_within(
     let mut out = vec![0u8; p.rgba_len()?];
     p.decode(&mut raw, &mut out).ok()?;
     Some((size, out))
+}
+
+/// **Whether a PNG, a JPEG or a GIF decodes, if its size `fits`**, as
+/// strictly as [`rgba_within`] and making no RGBA copy: a PNG's scanlines
+/// reconstructed, which "refuses what [`Png::decode`] refuses for the same
+/// bytes" and leaves the pixels unmade (`Png::reconstruct`); a GIF to its
+/// first frame, left in the decoder's canvas; a JPEG into the decoder's
+/// own pixels, the one form its decoder decodes to, which are dropped.
+/// What it holds at once is the decoder's work: a PNG's inflated
+/// scanlines, a GIF's two canvases, a JPEG's scratch and its pixels.
+///
+/// [`Png::decode`]: baud_domain::png::Png::decode
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub fn decodes_within(b: &[u8], fits: impl Fn(baud_domain::png::Size) -> bool) -> bool {
+    use baud_domain::{gif::Gif, jpeg::Jpeg, png::Png};
+    if Gif::sniff(b) {
+        let Ok(g) = Gif::parse(b) else {
+            return false;
+        };
+        if !fits(g.size()) {
+            return false;
+        }
+        let mut scratch = vec![0u8; g.scratch_len()];
+        let mut first = false;
+        let decoded = g.decode(&mut scratch, |_| {
+            first = true;
+            false
+        });
+        return decoded.is_ok() && first;
+    }
+    if Jpeg::sniff(b) {
+        let Ok(j) = Jpeg::parse(b) else {
+            return false;
+        };
+        let size = j.size();
+        if !fits(size) {
+            return false;
+        }
+        let (Ok(w), Ok(h)) = (usize::try_from(size.width), usize::try_from(size.height)) else {
+            return false;
+        };
+        let Some(len) = j.scratch_len() else {
+            return false;
+        };
+        let mut scratch = vec![0u8; len];
+        let mut px = vec![baud_domain::Pixel::CLEAR; w * h];
+        return j.decode(&mut scratch, &mut px).is_ok();
+    }
+    let Ok(p) = Png::parse(b) else {
+        return false;
+    };
+    if !fits(p.size()) {
+        return false;
+    }
+    let Some(len) = p.raw_len() else {
+        return false;
+    };
+    let mut raw = vec![0u8; len];
+    p.reconstruct(&mut raw).is_ok()
+}
+
+/// **The extension iTerm2's picture attaches as on macOS, if it does**:
+/// one of kitty's three formats by its first bytes ([`image_kind`]) that
+/// decodes ([`decodes_within`]) within the pixels `[images] pixels_mb`
+/// lets an image decode to. iTerm2 attaches a picture only once it
+/// decodes (`notifyRich:`, `[[source:
+/// iterm2-964a75d-notification-controller]]`), and a file the system
+/// cannot read costs the whole request: "If you attach a file to a local
+/// notification request that's corrupted, invalid, or of an unsupported
+/// file type, the system doesn't schedule your request" (`[[source:
+/// apple-unnotificationattachment]]`). The window's [`Checker`] runs it,
+/// off the main thread. A 6000x4000 JPEG sampled 4:2:0, within the
+/// default `[images] pixels_mb`, holds 36 MB of scratch and 96 MB of
+/// pixels while it is checked, 132,018,000 bytes, where the RGBA copy
+/// took it to 228,018,000; the file's 10 MB do not bound these, since a
+/// picture of one colour compresses to far less than a byte a pixel.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub fn attaches(b: &[u8], pixels: baud_domain::ImageBudget) -> Option<&'static str> {
+    let most = u64::try_from(pixels.pixels).unwrap_or(u64::MAX);
+    let fits = |s: baud_domain::png::Size| u64::from(s.width) * u64::from(s.height) <= most;
+    image_kind(b).filter(|_| decodes_within(b, fits))
+}
+
+/// iTerm2's picture to check off the main thread: its notification's
+/// token, its bytes and the pixels it may decode to.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub struct Check {
+    pub token: NoticeToken,
+    pub bytes: Vec<u8>,
+    pub pixels: baud_domain::ImageBudget,
+}
+
+/// A picture checked: its notification's token, its bytes, and the
+/// extension they attach as, `None` when they do not
+/// ([`Delivery::mac_checked`]).
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub struct Checked {
+    pub token: NoticeToken,
+    pub bytes: Vec<u8>,
+    pub kind: Option<&'static str>,
+}
+
+/// Whether any of a window's notifications waits for its picture's
+/// check ([`Delivery::checks`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub enum Checks {
+    /// None waits.
+    Done,
+    /// One or more is parked until its check comes back.
+    Waiting,
+}
+
+/// What a [`Checker`] checks a picture with: [`attaches`], or a test's.
+type CheckWith = dyn Fn(&[u8], baud_domain::ImageBudget) -> Option<&'static str> + Send + Sync;
+
+/// **The window's checker of iTerm2's pictures, off the main thread**:
+/// one thread, started at the first picture and fed through a channel,
+/// as the printer list is read, which checks one picture at a time in the
+/// order they came, sends each back and wakes the main thread; the
+/// driver takes what came back on the next turn of its loop
+/// ([`Checker::finished`]) and never waits for it. One at a time, so a
+/// burst of four pictures, as many as the bound lets through at once,
+/// holds one check's buffers and not four. A check that panics leaves the
+/// picture out, so its notification posts its text, as a host-name read
+/// that panics leaves the names `gethostname` gives. A thread that cannot
+/// be made leaves the check to the calling thread, as the machine's names
+/// are read when no thread can be made. Dropped with its window, once the
+/// driver has posted the notifications still waiting for it
+/// ([`Delivery::mac_closing`]), it takes the channel with it, and the
+/// thread ends after the check it is on.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub struct Checker {
+    wake: std::sync::Arc<dyn Fn() + Send + Sync>,
+    check: std::sync::Arc<CheckWith>,
+    /// The worker's queue, once it runs.
+    ask: Option<std::sync::mpsc::Sender<Check>>,
+    back: std::sync::mpsc::Sender<Checked>,
+    done: std::sync::mpsc::Receiver<Checked>,
+}
+
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+impl Checker {
+    /// A checker that checks with `check` and calls `wake` after each
+    /// check, from the thread it ran on.
+    pub fn new(
+        wake: impl Fn() + Send + Sync + 'static,
+        check: impl Fn(&[u8], baud_domain::ImageBudget) -> Option<&'static str> + Send + Sync + 'static,
+    ) -> Checker {
+        let (back, done) = std::sync::mpsc::channel();
+        Checker {
+            wake: std::sync::Arc::new(wake),
+            check: std::sync::Arc::new(check),
+            ask: None,
+            back,
+            done,
+        }
+    }
+
+    /// `c` handed to the worker, which is started now if it is not
+    /// running; returns at once.
+    pub fn start(&mut self, c: Check) {
+        let c = match &self.ask {
+            Some(ask) => match ask.send(c) {
+                Ok(()) => return,
+                // The worker ended: start another.
+                Err(std::sync::mpsc::SendError(c)) => c,
+            },
+            None => c,
+        };
+        let (ask, jobs) = std::sync::mpsc::channel::<Check>();
+        let (wake, check, back) = (self.wake.clone(), self.check.clone(), self.back.clone());
+        let spawned = std::thread::Builder::new()
+            .name("notification-pictures".into())
+            .spawn(move || {
+                for c in jobs {
+                    let kind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        check(&c.bytes, c.pixels)
+                    }))
+                    .unwrap_or(None);
+                    let done = Checked {
+                        token: c.token,
+                        bytes: c.bytes,
+                        kind,
+                    };
+                    if back.send(done).is_err() {
+                        return;
+                    }
+                    wake();
+                }
+            });
+        match spawned {
+            Ok(_) => {
+                let _ = ask.send(c);
+                self.ask = Some(ask);
+            }
+            Err(_) => {
+                self.ask = None;
+                let kind = (self.check)(&c.bytes, c.pixels);
+                let _ = self.back.send(Checked {
+                    token: c.token,
+                    bytes: c.bytes,
+                    kind,
+                });
+                (self.wake)();
+            }
+        }
+    }
+
+    /// The pictures checked since the last call, never waited for.
+    pub fn finished(&mut self) -> Vec<Checked> {
+        self.done.try_iter().collect()
+    }
 }
 
 /// Text for a server that reads markup: "Body text may contain markup",
@@ -1304,6 +1602,32 @@ mod tests {
 
     fn at(s: Secs) -> HostTime {
         HostTime::ZERO.plus(Duration::from_secs(s.0))
+    }
+
+    /// `calls` with each picture checked here, as the window's [`Checker`]
+    /// checks it, and its notification's calls in the check's place.
+    fn checked_now(
+        d: &mut Delivery<HostTime, String>,
+        t: &mut Term<'_>,
+        calls: Vec<MacCall>,
+        now: HostTime,
+    ) -> Vec<MacCall> {
+        let mut out = Vec::new();
+        for c in calls {
+            match c {
+                MacCall::Check(c) => {
+                    let kind = attaches(&c.bytes, c.pixels);
+                    let back = Checked {
+                        token: c.token,
+                        bytes: c.bytes,
+                        kind,
+                    };
+                    out.extend(d.mac_checked(t, back, now, "baud-1", |_| {}));
+                }
+                c => out.push(c),
+            }
+        }
+        out
     }
 
     /// `OSC 9` waits for the window to lose focus; kitty's default
@@ -1879,21 +2203,23 @@ mod tests {
                 .map(|n| Posted::of(&n, &mut Icons::default()))
                 .collect();
             t.clear_notices();
-            d.mac(
+            let now = at(Secs(clock.replace(clock.get() + 2)));
+            let calls = d.mac(
                 t,
                 posted,
                 (focus, Visible::Covered),
-                at(Secs(clock.replace(clock.get() + 2))),
+                now,
                 "baud-1",
                 files,
                 |_| {},
-            )
-            .into_iter()
-            .filter_map(|c| match c {
-                MacCall::Post(p) => Some(p),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
+            );
+            checked_now(d, t, calls, now)
+                .into_iter()
+                .filter_map(|c| match c {
+                    MacCall::Post(p) => Some(p),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
         };
         let full = iterm(&[
             ("title", b"Build"),
@@ -1968,10 +2294,12 @@ mod tests {
     /// **On macOS iTerm2's picture is decoded before it is attached, as
     /// iTerm2 decodes it, so a file the center would refuse does not cost
     /// the notification its text**: a PNG's signature over bytes that do
-    /// not decode, and a PNG past the pixels `[images] pixels_mb` allows,
-    /// are left out and counted, the text posted; one within them is
-    /// attached; a picture alone that does not decode is not posted, and
-    /// counted as both; the log says so once.
+    /// not decode, a JPEG whose headers read and whose Huffman table names
+    /// a fifth table, which only the whole decode reaches, and a PNG past
+    /// the pixels `[images] pixels_mb` allows, are left out and counted,
+    /// the text posted; one within them is attached; a picture alone that
+    /// does not decode is not posted, and counted as both; the log says so
+    /// once.
     #[test]
     fn an_iterm2_picture_that_does_not_decode_is_left_out_on_macos() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
@@ -1995,16 +2323,17 @@ mod tests {
                     .map(|n| Posted::of(&n, &mut Icons::default()))
                     .collect();
                 t.clear_notices();
-                let p = d
-                    .mac(
-                        t,
-                        posted,
-                        (Focus::Unfocused, Visible::Covered),
-                        at(Secs(clock.replace(clock.get() + 2))),
-                        "baud-1",
-                        &mut files,
-                        |_| {},
-                    )
+                let now = at(Secs(clock.replace(clock.get() + 2)));
+                let calls = d.mac(
+                    t,
+                    posted,
+                    (Focus::Unfocused, Visible::Covered),
+                    now,
+                    "baud-1",
+                    &mut files,
+                    |_| {},
+                );
+                let p = checked_now(d, t, calls, now)
                     .into_iter()
                     .filter_map(|c| match c {
                         MacCall::Post(p) => Some(p),
@@ -2022,6 +2351,32 @@ mod tests {
         assert_eq!(p.len(), 1);
         assert_eq!((p[0].title.as_str(), &p[0].image), ("Build", &None));
         assert_eq!((d.unshown, d.bare), (Unshown(1), Unshown(0)));
+        // `small.jpg`'s first `DHT` (at 177) as table 4: T.81 numbers
+        // them 0 to 3 (B.2.4.2), and the headers up to the first scan
+        // never read it.
+        let jpg = include_bytes!("../../baud-domain/tests/jpeg/small.jpg");
+        assert_eq!(attaches(jpg, PIXELS), Some("jpg"), "the control");
+        let mut table = jpg.to_vec();
+        assert_eq!((table[177], table[178], table[181]), (0xff, 0xc4, 0x00));
+        table[181] = 0x04;
+        assert!(
+            baud_domain::jpeg::Jpeg::parse(&table).is_ok(),
+            "its headers read"
+        );
+        let mut roomy: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let jmsg = iterm(&[("title", b"Photo"), ("image", b"/tmp/p.jpg")]);
+        let p = post(&mut t, &mut roomy, &table, &jmsg);
+        assert_eq!(
+            (p.len(), p[0].title.as_str(), &p[0].image),
+            (1, "Photo", &None)
+        );
+        assert_eq!((roomy.unshown, roomy.bare), (Unshown(1), Unshown(0)));
+        let p = post(&mut t, &mut roomy, jpg, &jmsg);
+        assert_eq!(
+            p[0].image,
+            Some((jpg.to_vec(), "jpg")),
+            "the control posts it"
+        );
         let p = post(&mut t, &mut d, &PNG_2X1, &msg);
         assert_eq!(p[0].image, Some((PNG_2X1.to_vec(), "png")), "within");
         assert_eq!(d.unshown, Unshown(1));
@@ -2040,11 +2395,426 @@ mod tests {
         assert_eq!(d.image_line(), None, "said once");
     }
 
+    /// **On macOS a picture is checked before its notification posts, and
+    /// nothing is decoded where the notices are delivered**: the read's
+    /// picture comes back as a check, with its bytes and the pixels
+    /// `[images] pixels_mb` allows, its notification neither posted nor
+    /// shown; one with nothing to check, after it in the same read, posts
+    /// at once; the check's answer posts it with its picture, once, and
+    /// one that does not decode posts its text alone.
+    #[test]
+    fn a_picture_is_checked_before_its_notification_posts() {
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut files = Files {
+            asked: Vec::new(),
+            bytes: Ok(PNG_2X1.to_vec()),
+        };
+        feed(
+            &mut t,
+            &iterm(&[("title", b"Build"), ("image", b"/tmp/p.png")]),
+        );
+        feed(&mut t, &iterm(&[("title", b"Later")]));
+        let posted: Vec<Posted> = t
+            .notices()
+            .map(|n| Posted::of(&n, &mut Icons::default()))
+            .collect();
+        t.clear_notices();
+        let calls = d.mac(
+            &mut t,
+            posted,
+            (Focus::Unfocused, Visible::Covered),
+            at(Secs(0)),
+            "baud-1",
+            &mut files,
+            |_| {},
+        );
+        let checks: Vec<Check> = calls
+            .iter()
+            .filter_map(|c| match c {
+                MacCall::Check(c) => Some(c.clone()),
+                _ => None,
+            })
+            .collect();
+        let titles: Vec<&str> = calls
+            .iter()
+            .filter_map(|c| match c {
+                MacCall::Post(p) => Some(p.title.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(checks.len(), 1, "{calls:?}");
+        assert_eq!(
+            (&checks[0].bytes[..], checks[0].pixels),
+            (&PNG_2X1[..], PIXELS)
+        );
+        assert_eq!(titles, ["Later"], "the one with nothing to check, at once");
+        let token = checks[0].token;
+        assert_eq!(d.shown.id(token), None, "not shown while it is checked");
+        let back = Checked {
+            token,
+            bytes: PNG_2X1.to_vec(),
+            kind: attaches(&PNG_2X1, PIXELS),
+        };
+        let calls = d.mac_checked(&mut t, back.clone(), at(Secs(1)), "baud-1", |_| {});
+        let [MacCall::Post(p)] = &calls[..] else {
+            panic!("one post: {calls:?}");
+        };
+        assert_eq!(p.title, "Build");
+        assert_eq!(p.image, Some((PNG_2X1.to_vec(), "png")));
+        assert_eq!(d.shown.id(token).as_deref(), Some(p.id.as_str()));
+        assert!(
+            d.mac_checked(&mut t, back, at(Secs(1)), "baud-1", |_| {})
+                .is_empty(),
+            "posted once"
+        );
+        // One that does not decode: the text alone, counted.
+        feed(
+            &mut t,
+            &iterm(&[("title", b"Again"), ("image", b"/tmp/p.png")]),
+        );
+        let posted: Vec<Posted> = t
+            .notices()
+            .map(|n| Posted::of(&n, &mut Icons::default()))
+            .collect();
+        t.clear_notices();
+        let calls = d.mac(
+            &mut t,
+            posted,
+            (Focus::Unfocused, Visible::Covered),
+            at(Secs(2)),
+            "baud-1",
+            &mut files,
+            |_| {},
+        );
+        let [MacCall::Check(c)] = &calls[..] else {
+            panic!("one check: {calls:?}");
+        };
+        let back = Checked {
+            token: c.token,
+            bytes: c.bytes.clone(),
+            kind: None,
+        };
+        let calls = d.mac_checked(&mut t, back, at(Secs(3)), "baud-1", |_| {});
+        let [MacCall::Post(p)] = &calls[..] else {
+            panic!("one post: {calls:?}");
+        };
+        assert_eq!((p.title.as_str(), &p.image), ("Again", &None));
+        assert_eq!(d.unshown, Unshown(1));
+    }
+
+    /// **A window that closes while a picture is checked still posts its
+    /// notification**: the one whose check came back before the close
+    /// posts with its picture, first; one still out posts its text alone,
+    /// its picture counted; a picture alone still out is not posted, and
+    /// counted; nothing is left waiting, a second close posts nothing, and
+    /// an answer that comes back after the close posts nothing again. The
+    /// control: while they are parked the delivery says a check is out.
+    #[test]
+    fn a_closing_window_posts_what_it_was_checking() {
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut files = Files {
+            asked: Vec::new(),
+            bytes: Ok(PNG_2X1.to_vec()),
+        };
+        assert_eq!(d.checks(), Checks::Done, "nothing out yet");
+        for msg in [
+            iterm(&[("title", b"Back"), ("image", b"/tmp/p.png")]),
+            iterm(&[("title", b"Out"), ("image", b"/tmp/p.png")]),
+            iterm(&[("image", b"/tmp/p.png")]),
+        ] {
+            feed(&mut t, &msg);
+        }
+        let posted: Vec<Posted> = t
+            .notices()
+            .map(|n| Posted::of(&n, &mut Icons::default()))
+            .collect();
+        t.clear_notices();
+        let calls = d.mac(
+            &mut t,
+            posted,
+            (Focus::Unfocused, Visible::Covered),
+            at(Secs(0)),
+            "baud-1",
+            &mut files,
+            |_| {},
+        );
+        let checks: Vec<Check> = calls
+            .iter()
+            .filter_map(|c| match c {
+                MacCall::Check(c) => Some(c.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!((calls.len(), checks.len()), (3, 3), "{calls:?}");
+        assert_eq!(d.checks(), Checks::Waiting, "the control");
+        let back = |c: &Check| Checked {
+            token: c.token,
+            bytes: c.bytes.clone(),
+            kind: attaches(&c.bytes, c.pixels),
+        };
+        // The first answer came back; its wake had not.
+        let calls = d.mac_closing(
+            &mut t,
+            vec![back(&checks[0])],
+            at(Secs(1)),
+            "baud-1",
+            |_| {},
+        );
+        let posts: Vec<&MacPost> = calls
+            .iter()
+            .filter_map(|c| match c {
+                MacCall::Post(p) => Some(p),
+                _ => None,
+            })
+            .collect();
+        let [back_post, out_post] = &posts[..] else {
+            panic!("two posts: {calls:?}");
+        };
+        assert_eq!(
+            (back_post.title.as_str(), &back_post.image),
+            ("Back", &Some((PNG_2X1.to_vec(), "png")))
+        );
+        assert_eq!((out_post.title.as_str(), &out_post.image), ("Out", &None));
+        assert_eq!((d.unshown, d.bare), (Unshown(2), Unshown(1)));
+        assert!(d.shown.id(checks[0].token).is_some());
+        assert!(d.shown.id(checks[1].token).is_some());
+        assert_eq!(d.checks(), Checks::Done, "nothing left waiting");
+        assert!(
+            d.image_line()
+                .expect("said")
+                .starts_with("notifications: images not shown, 2 so far")
+        );
+        assert!(d.bare_line().is_some());
+        assert!(
+            d.mac_closing(&mut t, Vec::new(), at(Secs(2)), "baud-1", |_| {})
+                .is_empty(),
+            "a second close"
+        );
+        assert!(
+            d.mac_checked(&mut t, back(&checks[1]), at(Secs(2)), "baud-1", |_| {})
+                .is_empty(),
+            "posted once"
+        );
+    }
+
+    /// **A window's close loses no notification still being checked**:
+    /// the close a shell's exit asks for waits, as it waits for the log,
+    /// until no picture is being checked, so the turn the checker's wake
+    /// brings posts it first; and the driver's drop, which every close
+    /// reaches, posts what is still out through the calls
+    /// `deliver_notices` makes, touching nothing of the view, whose
+    /// responder is being replaced. The drivers' own code is read, since
+    /// no test runs them.
+    #[test]
+    fn a_window_closes_after_its_pictures_are_checked() {
+        let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        let mac = bare(include_str!("app.rs"));
+        let between = |from: &str, to: &str| -> String {
+            mac.split_once(from)
+                .and_then(|(_, rest)| rest.split_once(to))
+                .map(|(b, _)| b.to_owned())
+                .expect(from)
+        };
+        let exit = between("ifdrained.stream==Stream::Closed{", "self.close_later();");
+        assert!(
+            exit.ends_with(
+                "==crate::hostlog::Finished::Yes&&self.app.notes.checks()==crate::notify::Checks::Done{"
+            ),
+            "the exit's close waits for the log and the checks: {exit}"
+        );
+        assert!(
+            mac.contains("implDropforDriver{fndrop(&mutself){self.notices_at_close();}}"),
+            "the drop posts what is out"
+        );
+        let at_close = between("fnnotices_at_close(&mutself){", "fnnotice_calls(");
+        assert!(
+            at_close.contains(
+                "letcalls=self.app.notes.mac_closing(&mutself.app.term,self.app.checker.finished(),"
+            ) && at_close.contains("self.notice_calls(calls);"),
+            "what came back and what is out, posted: {at_close}"
+        );
+        let deliver = between("fndeliver_notices(", "fnnotices_at_close(");
+        assert!(
+            deliver.contains("self.notice_calls(calls);"),
+            "the same calls"
+        );
+        let calls = between("fnnotice_calls(", "fnnotice_turn(");
+        assert!(
+            calls.contains(
+                "MacCall::Post(p)=>{ifletSome(c)=&self.app.center{c.post(mac_post(p));}}"
+            ),
+            "a post reaches the center"
+        );
+        for part in [&at_close, &calls] {
+            assert!(!part.contains("self.view"), "the view is not touched");
+        }
+    }
+
+    /// **The checker checks a picture on a thread of its own and the
+    /// hand-over returns first**: a check held at a gate has sent nothing
+    /// back when `start` returns, and once the gate opens the worker sends
+    /// the picture back, its bytes unchanged, and wakes the window; the
+    /// next picture goes to the same worker, in order. The check never
+    /// runs on the thread that handed it over.
+    #[test]
+    fn the_checker_returns_before_a_slow_check_is_done() {
+        use std::sync::{Arc, Mutex, mpsc};
+        let mut icons = Icons::default();
+        let token = posted(&iterm(&[("title", b"Build")]), &mut icons)[0].token;
+        let caller = std::thread::current().id();
+        let (open, gate) = mpsc::channel::<()>();
+        let gate = Mutex::new(gate);
+        let (woke, wakes) = mpsc::channel::<()>();
+        let ran = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&ran);
+        let mut c = Checker::new(
+            move || {
+                let _ = woke.send(());
+            },
+            move |b, px| {
+                let here = std::thread::current().id();
+                seen.lock().expect("the list").push(here);
+                // Held only off the caller, so a check on it fails the
+                // test rather than hanging it.
+                if here != caller {
+                    let _ = gate.lock().map(|g| g.recv());
+                }
+                attaches(b, px)
+            },
+        );
+        let wait = || {
+            wakes
+                .recv_timeout(Duration::from_secs(60))
+                .expect("the worker woke the window")
+        };
+        c.start(Check {
+            token,
+            bytes: PNG_2X1.to_vec(),
+            pixels: PIXELS,
+        });
+        assert_eq!(c.finished(), [], "nothing back while the check is held");
+        open.send(()).expect("the gate");
+        wait();
+        let back = Checked {
+            token,
+            bytes: PNG_2X1.to_vec(),
+            kind: Some("png"),
+        };
+        assert_eq!(c.finished(), [back]);
+        c.start(Check {
+            token,
+            bytes: b"plain text".to_vec(),
+            pixels: PIXELS,
+        });
+        open.send(()).expect("the gate");
+        wait();
+        let back = Checked {
+            token,
+            bytes: b"plain text".to_vec(),
+            kind: None,
+        };
+        assert_eq!(c.finished(), [back]);
+        let ran = ran.lock().expect("the list");
+        assert_eq!(ran.len(), 2);
+        assert!(ran.iter().all(|t| *t != caller), "never on the caller");
+        assert_eq!(ran[0], ran[1], "one worker");
+    }
+
+    /// **A check that panics leaves the picture out and the worker
+    /// goes on**: the picture comes back with no extension, so its
+    /// notification posts its text, and the next picture is checked by
+    /// the same worker. The control: the next one attaches.
+    #[test]
+    fn a_check_that_panics_leaves_the_picture_out() {
+        use std::sync::mpsc;
+        let mut icons = Icons::default();
+        let token = posted(&iterm(&[("title", b"Build")]), &mut icons)[0].token;
+        let (woke, wakes) = mpsc::channel::<()>();
+        let mut c = Checker::new(
+            move || {
+                let _ = woke.send(());
+            },
+            |b, px| {
+                assert!(b != b"panic", "a decoder's panic");
+                attaches(b, px)
+            },
+        );
+        let wait = || {
+            wakes
+                .recv_timeout(Duration::from_secs(60))
+                .expect("the worker woke the window")
+        };
+        for (bytes, kind) in [(&b"panic"[..], None), (&PNG_2X1[..], Some("png"))] {
+            c.start(Check {
+                token,
+                bytes: bytes.to_vec(),
+                pixels: PIXELS,
+            });
+            wait();
+            let back = Checked {
+                token,
+                bytes: bytes.to_vec(),
+                kind,
+            };
+            assert_eq!(c.finished(), [back]);
+        }
+    }
+
+    /// **A picture is checked holding the decoder's work and no RGBA copy**:
+    /// what each format's check holds at once, counted by the allocator,
+    /// is a PNG's inflated scanlines, a GIF's two canvases, and a JPEG's
+    /// scratch and the decoder's own pixels; the RGBA Linux's
+    /// `image-data` is made of ([`rgba`]) is never made. The control: the
+    /// RGBA decode holds the scanlines and the RGBA both. The allocator's
+    /// count is the macOS app's (`heap.rs`).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_picture_is_checked_holding_no_rgba() {
+        use crate::heap::peak_during;
+        use baud_domain::{gif::Gif, jpeg::Jpeg, png::Png};
+        let all = baud_domain::ImageBudget::of(usize::MAX);
+        let bytes = |n: usize| isize::try_from(n).expect("small");
+        let png = Png::parse(&PNG_2X1).expect("parses");
+        let (raw, px) = (png.raw_len().expect("raw"), png.rgba_len().expect("rgba"));
+        assert_eq!(
+            peak_during(|| attaches(&PNG_2X1, all)),
+            (bytes(raw), Some("png"))
+        );
+        let (held, made) = peak_during(|| rgba(&PNG_2X1));
+        assert_eq!(
+            (held, made.map(|m| m.1.len())),
+            (bytes(raw + px), Some(px)),
+            "the control"
+        );
+        let jpg = include_bytes!("../../baud-domain/tests/jpeg/small.jpg");
+        let j = Jpeg::parse(jpg).expect("parses");
+        let pixels = 29 * 21 * core::mem::size_of::<baud_domain::Pixel>();
+        let work = j.scratch_len().expect("a layout") + pixels;
+        assert_eq!(
+            peak_during(|| attaches(jpg, all)),
+            (bytes(work), Some("jpg"))
+        );
+        let gif = include_bytes!("../../baud-domain/tests/gif/scene2.gif");
+        let canvases = Gif::parse(gif).expect("parses").scratch_len();
+        assert_eq!(
+            peak_during(|| attaches(gif, all)),
+            (bytes(canvases), Some("gif"))
+        );
+    }
+
     /// **Both drivers act on what [`Delivery`] decides and log what it
     /// counts**: Linux's arm for a picture alone comes before the one that
     /// posts, drops it and counts it, and each driver logs the
     /// notifications not posted and the images not shown, the lines said
-    /// once. The drivers' own code is read, since no test runs them.
+    /// once; on macOS iTerm2's picture goes to the window's [`Checker`],
+    /// what it sends back is posted, and the driver decodes nothing. The
+    /// drivers' own code is read, since no test runs them.
     #[test]
     fn the_drivers_drop_and_log_what_delivery_counts() {
         let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
@@ -2082,6 +2852,54 @@ mod tests {
                 "macOS logs {line}"
             );
         }
+        // iTerm2's picture goes to the checker and comes back from it, and
+        // nothing on the main thread decodes one.
+        assert!(
+            mac.contains(
+                "checker:crate::notify::Checker::new(move||waker.wake(),crate::notify::attaches),"
+            ),
+            "the checker checks with `attaches` and wakes the window"
+        );
+        assert!(
+            deliver.contains("MacCall::Check(c)=>self.app.checker.start(c),"),
+            "a check is handed to the checker"
+        );
+        assert!(
+            deliver.contains(
+                "forcheckedinself.app.checker.finished(){calls.extend(self.app.notes.mac_checked("
+            ),
+            "what it sends back is posted"
+        );
+        for decode in ["attaches(", "decodes_within(", "rgba_within(", "rgba("] {
+            assert!(!mac.contains(decode), "app.rs calls {decode}");
+        }
+        // Every turn of the loop delivers, not the display link's tick
+        // alone: the checker's wake is a turn, and a covered window's link
+        // is paused.
+        let pump = mac
+            .split_once("fnpump(&mutself,trigger:Trigger){")
+            .and_then(|(_, rest)| rest.split_once("fnkey(&mutself,key:&KeyPress)->Handled{"))
+            .map(|(b, _)| b)
+            .expect("the macOS loop's turn");
+        // How deep in the turn's blocks a statement sits: 0 is under no
+        // condition at all.
+        let depth = |stmt: &str| -> i32 {
+            let at = pump.find(stmt).expect(stmt);
+            pump[..at]
+                .chars()
+                .map(|c| match c {
+                    '{' => 1,
+                    '}' => -1,
+                    _ => 0,
+                })
+                .sum()
+        };
+        assert_eq!(depth("self.notice_turn();"), 1, "the control: on the tick");
+        assert_eq!(
+            depth("self.deliver_notices(posted);"),
+            0,
+            "delivered every turn"
+        );
     }
 
     /// **On Linux the picture is read when it is posted and sent as

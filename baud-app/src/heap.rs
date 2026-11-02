@@ -127,6 +127,8 @@ fn counted(_: *mut u8, _: Layout, _: Sign) {}
 std::thread_local! {
     /// Bytes allocated on this thread and not yet freed.
     static LIVE: core::cell::Cell<isize> = const { core::cell::Cell::new(0) };
+    /// The most [`LIVE`] has been since [`peak_during`] last began.
+    static PEAK: core::cell::Cell<isize> = const { core::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -139,7 +141,10 @@ fn counted(p: *mut u8, layout: Layout, sign: Sign) {
         Sign::Plus => n,
         Sign::Minus => -n,
     };
-    let _ = LIVE.try_with(|c| c.set(c.get() + n));
+    let _ = LIVE.try_with(|c| {
+        c.set(c.get() + n);
+        let _ = PEAK.try_with(|p| p.set(p.get().max(c.get())));
+    });
 }
 
 /// **The bytes this thread has allocated and not freed**, so a test reads
@@ -148,6 +153,16 @@ fn counted(p: *mut u8, layout: Layout, sign: Sign) {
 #[cfg(test)]
 pub fn live() -> isize {
     LIVE.with(core::cell::Cell::get)
+}
+
+/// **The most bytes `f` held at once on this thread** beyond what was
+/// live when it began, and what it returned.
+#[cfg(test)]
+pub fn peak_during<R>(f: impl FnOnce() -> R) -> (isize, R) {
+    let start = live();
+    PEAK.with(|p| p.set(start));
+    let r = f();
+    (PEAK.with(core::cell::Cell::get) - start, r)
 }
 
 #[cfg(test)]

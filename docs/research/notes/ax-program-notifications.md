@@ -318,14 +318,49 @@ counted.
 **Built**: the core carries the subtitle and the path (a picture from an
 OSC cut at 512 bytes refused, since a cut on a base64 quantum still
 decodes, to another file's name); the drivers read the path only when
-they show the notification, through `LocalFiles` up to 10 MB. On macOS
-a copy of a PNG, JPEG or GIF is attached once baud's own decoders read
-it, within the pixels `[images] pixels_mb` lets an image decode to, as
+they show the notification, through `LocalFiles` up to 10 MB. On macOS a
+copy of a PNG, JPEG or GIF is attached once baud's own decoders read it,
+within the pixels `[images] pixels_mb` lets an image decode to, as
 iTerm2 attaches a picture only once it decodes; one that does not is
-left out, counted, and the text posts. On Linux the bytes show as an
-`OSC 99` icon's, a PNG, JPEG or GIF of at most 1024 pixels a side as
-`image-data`, which since this change Linux decodes for an `OSC 99` icon
-too, through baud's own decoders, where it showed a PNG alone. The
+left out, counted, and the text posts. The check runs on a thread of the
+window's own, not where the notices are delivered (unless no thread can
+be made, below): the notification waits, unposted, while its picture is
+checked, and posts when the thread sends the answer back and wakes the
+window, with its picture or with its text alone. The wake is an event on
+the window's run loop, so a covered window, whose display link has
+stopped, posts it too. The thread checks one picture at a time, in the
+order they came, so a burst of four, as many as the bound lets through
+at once, holds one check's buffers, plus the waiting pictures' file
+bytes, up to 10 MB each. The check makes no RGBA copy: a PNG's scanlines
+are reconstructed and no pixels made (`Png::reconstruct`, which refuses
+what a decode refuses), a GIF stops at its first frame in the decoder's
+canvas, and a JPEG decodes into the decoder's own pixels, which are
+dropped. Nothing is posted before the check is done, since a second post
+under one identifier "will alert for the new notification request and
+replace the existing delivered notification" (`[[source:
+macos-sdk-unusernotificationcenter-h]]`), so text first and the picture
+after would show and sound twice. **Taken, and open**: a notification
+with nothing to check posts as it comes, ahead of one whose picture is
+still being checked, so the center can list the two in another order
+than they came, by up to the check's length. iTerm2 decodes on its main
+queue and so posts in the order they came (`[[source:
+iterm2-964a75d-notification-controller]]`), and no text of Apple's says
+requests are delivered in the order they were added. Also taken: a
+thread that cannot be made leaves the check to the main thread, as the
+machine's names are read when no thread can be made. **Taken, and
+open**: a window closes with no notification lost. Quitting the app
+while a picture is checked closes no window and does not post that
+notification. A window whose shell has exited closes once no picture is
+being checked, as it already waits for the log to write what it holds,
+so a program that ends with a picture notification shows it with its
+picture, the window showing its last screen until then. One the person
+closes while a picture is checked posts that notification at once, with
+its picture if the answer has come back and else with its text alone,
+the picture counted as not shown, since nothing waits for a check; a
+picture alone is then not posted, and counted. On Linux the bytes show
+as an `OSC 99` icon's, a PNG, JPEG or GIF of at most 1024 pixels a side
+as `image-data`, which since this change Linux decodes for an `OSC 99`
+icon too, through baud's own decoders, where it showed a PNG alone. The
 notification area grows by 18,432 bytes: a subtitle and a path of 1024
 each in each of the log's eight records, and 2,048 that
 `NoticeBudget::bytes` reserves for the assembly, which holds neither
@@ -343,9 +378,17 @@ close it, and baud passes no handler. An `OSC 99` icon is attached by its
 first bytes, as before, and one that does not decode still costs the
 request; creating the attachment refuses neither such a file nor a
 missing one outside the app's bundle, so the check has to be baud's.
-The check is a whole decode on the main thread, and its pixels are thrown
-away afterwards. A 6000x4000 JPEG of 3.25 MB, within the default
-`[images] pixels_mb` of about 24.9 million pixels, took 218 to 276 ms in a
-release build without LTO. It held about 228 MB while it ran: 36 MB of
-scratch, 96 MB of pixels and 96 MB of RGBA. Decoding off the main thread,
-or checking without the RGBA copy, would shorten this.
+Until 2026-11-01 the check was a whole decode on the main thread, its
+RGBA thrown away afterwards: a 6000x4000 JPEG of 3.25 MB, within the
+default `[images] pixels_mb` of about 24.9 million pixels, took 218 to
+276 ms in a release build without LTO, and held about 228 MB while it
+ran, 36 MB of scratch, 96 MB of pixels and 96 MB of RGBA. Measured since
+on a 6000x4000 JPEG of 3.27 MB, 4:2:0, five runs in a release build
+without LTO: the delivery, which reads the file and hands it over,
+returns in 0.34 to 0.65 ms; the check, on its thread, takes 167.5 to
+171.9 ms and holds 132,018,000 bytes at once, the scratch and the
+decoder's pixels, where the old check took 236.3 to 239.0 ms and held
+228,018,000. **Not built**: a JPEG check that runs the scans without
+making pixels would hold the scratch alone; the domain's decoder has no
+such call. The file's read, up to 10 MB, still runs on the main
+thread.

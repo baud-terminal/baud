@@ -734,6 +734,9 @@ struct App {
     /// The reader of the file iTerm2's `image` names, with every check
     /// kitty's file medium makes.
     pictures: crate::kitty_files::LocalFiles,
+    /// The thread that checks iTerm2's pictures before they are attached,
+    /// off this one (`notify::Checker`).
+    checker: crate::notify::Checker,
     center: Option<baud_present_macos::notify::Center>,
     attention: Option<baud_present_macos::notify::AttentionId>,
     /// iTerm2's fireworks: the shows the requests started (`fireworks.rs`).
@@ -1514,6 +1517,7 @@ impl App {
             printing,
             notes,
             pictures: crate::kitty_files::LocalFiles::new(),
+            checker: crate::notify::Checker::new(move || waker.wake(), crate::notify::attaches),
             fireworks,
             center,
             attention: None,
@@ -10765,10 +10769,14 @@ impl Driver {
             // queued, and it closes; the other windows and their shells go
             // on. Asked on the first turn after the close; the writer
             // wakes the loop when it is done, and the tick looks for the
-            // bound (`HostLog::quit`).
+            // bound (`HostLog::quit`). And once no notification waits for
+            // its picture's check (`Delivery::checks`): the checker's wake
+            // is a turn, whose delivery above posts it, so a program that
+            // ends with a picture shows it.
             let waker = self.app.waker;
             if self.app.hostlog.quit(Instant::now(), move || waker.wake())
                 == crate::hostlog::Finished::Yes
+                && self.app.notes.checks() == crate::notify::Checks::Done
             {
                 self.close_later();
             }
@@ -12323,6 +12331,15 @@ impl Opening {
     }
 }
 
+/// **A window's driver, dropped when its window closes** (`closed`):
+/// the notifications still waiting for their pictures' checks post
+/// first (`Driver::notices_at_close`).
+impl Drop for Driver {
+    fn drop(&mut self) {
+        self.notices_at_close();
+    }
+}
+
 /// The font sizes a zoom may reach, in points: below six nothing reads,
 /// and past seventy-two a cell is most of a small window.
 const ZOOM_MIN: f32 = crate::fonts::SIZE_MIN;
@@ -12548,9 +12565,13 @@ impl Driver {
     /// decides, the window's key state and occlusion its focus and
     /// visibility, and this makes the calls it names -- the center's post
     /// and removal, an expiry scheduled on the main queue, the Dock tile's
-    /// bar and `NSApplication`'s attention request.
+    /// bar and `NSApplication`'s attention request -- and hands iTerm2's
+    /// pictures to the checker, whose answers `Delivery::mac_checked`
+    /// posts. Every turn of the loop comes here, the checker's wake among
+    /// them, so a picture checked while the window is covered and the
+    /// display link paused posts on that wake.
     fn deliver_notices(&mut self, posted: Vec<crate::notify::Posted>) {
-        use crate::notify::{AttentionCall, Focus as F, MacCall, Visible};
+        use crate::notify::{Focus as F, Visible};
         let window = self.view.window();
         let state = match &window {
             Some(w) => (
@@ -12569,7 +12590,19 @@ impl Driver {
         };
         let prefix = notice_prefix(self.window_id);
         let outbox = &mut self.app.outbox;
-        let calls = self.app.notes.mac(
+        // The pictures the checker sent back since the last turn, their
+        // notifications posted first: they came before this read's.
+        let mut calls = Vec::new();
+        for checked in self.app.checker.finished() {
+            calls.extend(self.app.notes.mac_checked(
+                &mut self.app.term,
+                checked,
+                Instant::now(),
+                &prefix,
+                |b| outbox.push(b),
+            ));
+        }
+        calls.extend(self.app.notes.mac(
             &mut self.app.term,
             posted,
             state,
@@ -12577,7 +12610,35 @@ impl Driver {
             &prefix,
             &mut self.app.pictures,
             |b| outbox.push(b),
+        ));
+        self.notice_calls(calls);
+    }
+
+    /// **The notifications still waiting for their pictures' checks when
+    /// the window closes, posted** from the driver's drop, which every
+    /// close reaches -- the button, Command-W and the shell's exit -- before
+    /// the center and the checker go with it: what the checker sent back
+    /// with its picture, the rest with their text alone
+    /// (`Delivery::mac_closing`). Nothing waits for a check; the close a
+    /// shell's exit asks for has waited for them already (`pump`). It
+    /// runs while the view's responder is being replaced, so nothing here
+    /// touches the view.
+    fn notices_at_close(&mut self) {
+        let prefix = notice_prefix(self.window_id);
+        let outbox = &mut self.app.outbox;
+        let calls = self.app.notes.mac_closing(
+            &mut self.app.term,
+            self.app.checker.finished(),
+            Instant::now(),
+            &prefix,
+            |b| outbox.push(b),
         );
+        self.notice_calls(calls);
+    }
+
+    /// **The calls `Delivery` names, made**, and what it counts logged.
+    fn notice_calls(&mut self, calls: Vec<crate::notify::MacCall>) {
+        use crate::notify::{AttentionCall, MacCall};
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
@@ -12588,6 +12649,9 @@ impl Driver {
                         c.post(mac_post(p));
                     }
                 }
+                // Checked off this thread; its notification posts on the
+                // turn the checker's wake brings (`notify::Checker`).
+                MacCall::Check(c) => self.app.checker.start(c),
                 MacCall::Remove(id) => {
                     if let Some(c) = &self.app.center {
                         c.remove(&id);
