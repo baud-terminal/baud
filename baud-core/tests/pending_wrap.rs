@@ -892,3 +892,39 @@ fn irm_and_an_unmarked_sub_keep_the_wrap() {
         assert_eq!(row(&s, 3), "X...................", "{c:?}");
     }
 }
+
+// ---- U+FE0F after a kept wrap ----------------------------------------------
+
+/// **A `U+FE0F` widens the character a kept wrap waits after**, in place
+/// where the line goes on past it, as it widens one written mid-row: the
+/// character takes two columns, the cursor goes past them and the wait
+/// ends. A resize between the character and its selector re-cut the line
+/// or widened it; a control between them, `?69l` among them, would end the
+/// character (`[[source: uax29]]` GB4, GB5), so only a resize reaches here.
+/// Before, the selector attached and the character stayed one column wide
+/// with the wrap waiting after it.
+#[test]
+fn u_fe0f_widens_the_character_a_kept_wrap_waits_after() {
+    let heart = "\x1b[3;1Habcdefghijklmnopqrs\u{2764}";
+    // 20 to 15: the heart on row 4's column 5.
+    let s = run(&[b(heart), Resize(6, 15), b("\u{fe0f}\x1b[6n")]);
+    assert_eq!(
+        (s.reply.as_str(), s.pending),
+        ("\x1b[4;7R", WrapPending::No)
+    );
+    let s = run(&[b(heart), Resize(6, 15), b("\u{fe0f}X")]);
+    assert_eq!(row(&s, 3), "pqrs..X........", "re-cut");
+    assert_eq!(row(&s, 4), "...............", "nothing wrapped");
+    // 20 to 30, on either screen: the heart on column 20.
+    for screen in ["", "\x1b[?1049h"] {
+        let s = run(&[b(screen), b(heart), Resize(6, 30), b("\u{fe0f}\x1b[6n")]);
+        assert_eq!(
+            (s.reply.as_str(), s.pending),
+            ("\x1b[3;22R", WrapPending::No),
+            "widened {screen:?}"
+        );
+    }
+    // The control: written mid-row, the heart widens in place.
+    let s = run(&[b("\x1b[3;1Habcd\u{2764}\u{fe0f}X")]);
+    assert_eq!(row(&s, 2), "abcd..X.............");
+}

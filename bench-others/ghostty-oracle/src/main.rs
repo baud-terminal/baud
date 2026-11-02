@@ -469,6 +469,13 @@ const ICH_IGNORED: &str = "ghostty departs: ICH right of the side margins ends a
                            Terminal.zig 3284-3291); STD 070 ICH note 2 (p. 5-142) ignores \
                            the control there, and xterm's InsertChar returns before \
                            ResetWrap (util.c 1898)";
+/// ghostty's `U+FE0F` widening leaves its flag set.
+const FE0F_KEPT: &str = "found in ghostty: a U+FE0F after a resize that kept its flag \
+                         widens the base in place but leaves pending_wrap set, the \
+                         widen moving the screen's cursor past the tail without \
+                         clearing it (Terminal.zig 1293-1406), so the next character \
+                         wraps from mid-line; the wait was after the base, which now \
+                         ends short of the line's end, as a base written mid-row does";
 /// A reset of DECAWM keeps ghostty's flag.
 const AWM_RESET: &str = "ghostty departs: ?7l keeps a pending wrap, so after ?7l ?7h the \
                          next character wraps; STD 070 D.6.1 (pp. D-13, D-14) lists \
@@ -1487,6 +1494,23 @@ fn fixtures() -> Vec<Fixture> {
             "resize: ?69l's kept wrap, widened",
             vec![bytes(KEPT), Step::Resize(8, 30), bytes("X")],
         ),
+        // U+FE0F widens its base with ?2027 set, which ghostty needs and
+        // baud answers as permanently set: mid-row, the control, and on
+        // the character a re-cut left the wrap waiting after.
+        Fixture {
+            name: "resize: U+FE0F mid-row widens in place",
+            steps: vec![bytes("\x1b[?2027h\x1b[3;1Habcd\u{2764}\u{fe0f}X")],
+            verdict: Agree,
+        },
+        Fixture {
+            name: "resize: U+FE0F after the re-cut widens in place",
+            steps: vec![
+                bytes("\x1b[?2027h\x1b[3;1Habcdefghijklmnopqrs\u{2764}"),
+                Step::Resize(8, 15),
+                bytes("\u{fe0f}X"),
+            ],
+            verdict: Pinned(FE0F_KEPT),
+        },
         r(
             "resize: a DECSC save re-cut",
             vec![

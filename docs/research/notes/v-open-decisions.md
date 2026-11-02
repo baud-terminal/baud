@@ -1949,11 +1949,17 @@ comment above the line-136 test.
   `ich_and_dch_right_of_the_margins_keep_the_wrap`,
   `ich_and_dch_outside_the_top_and_bottom_margins_end_the_wrap`,
   `a_reset_of_decawm_ends_the_wrap` and the oracle's `wrap:` fixtures hold
-  them. **Still open**: the mid-row margin mark above; `VPA` and `VPR`,
-  which D.6.1 does not name; a wrap DECRLM leaves waiting at the left
-  margin, which DECSC does not save; and ICH and DCH left of the left
-  margin, which act where ICH note 2, DCH note 3, xterm and ghostty
-  ignore them.
+  them. Fixed the same day, a defect outside the decision: a `U+FE0F`
+  after a base a resize left a wrap waiting after widens it in place
+  where the line goes on, as one written mid-row
+  (`u_fe0f_widens_the_character_a_kept_wrap_waits_after`). **Still
+  open**: the mid-row margin mark above; `VPA` and `VPR`, which D.6.1
+  does not name; a wrap DECRLM leaves waiting at the left margin, which
+  DECSC does not save; ICH and DCH left of the left margin, which act
+  where ICH note 2, DCH note 3, xterm and ghostty ignore them; and ICH
+  and DCH on a row outside the top and bottom margins, built as acting
+  (a lean), where STD 070's margin table (p. 5-24) and the VT420 and
+  VT510 manuals disagree.
 
 **Tests and measurement**
 

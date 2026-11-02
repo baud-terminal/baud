@@ -1742,15 +1742,17 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// Only the write in progress: the character directly left of the
     /// cursor, and not one already wide -- a cursor moved onto a wide
     /// character's tail has that character directly left of it.
+    ///
+    /// **Under a kept wrap** ([`CursorCol::waiting`]) -- a resize between
+    /// the base and its `U+FE0F` re-cut the line or widened it -- the line
+    /// goes on past the base, so it widens in place as
+    /// a base written mid-row does: the wait becomes the column after the
+    /// base, which the tail takes and the cursor passes. Where no tail fits
+    /// before the fence it is left as it was. Until 2026-11-01 a kept wrap
+    /// widened nothing.
     #[cold]
     #[inline(never)]
     fn widen(&mut self, r: Row, o: Col) {
-        // **Not under a kept wrap** ([`CursorCol::waiting`]): a resize
-        // between the base and its `U+FE0F` left the wrap waiting after it,
-        // and the cursor is no column a tail could be written at.
-        if self.cx.is_waiting() {
-            return;
-        }
         self.refresh_fence();
         let x = o.index();
         if x + 1 != self.cx.col().index()
@@ -1761,6 +1763,12 @@ impl<'a, 'b> Paint<'a, 'b> {
                 .is_wide_tail()
         {
             return;
+        }
+        if self.cx.is_waiting() {
+            if o >= self.cold.fence {
+                return;
+            }
+            self.cx = CursorCol::written(self.cx.col());
         }
         let cell = self.view.get(r, o);
         let tail = PackedCell::wide_tail(cell.style, cell.flags.without_cluster());
