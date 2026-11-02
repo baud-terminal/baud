@@ -2369,16 +2369,15 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
             p.edit_reaches(crate::aligned::EditRows::Line);
             p.erase_chars(c)
         }
-        // **And each a pending wrap inside the margins**, the column it
-        // waits on the one they edit (`Paint::end_wait_to_edit`).
+        // **ICH and DCH end both waits where they act**, a pending wrap's
+        // column the one they edit, and neither where they are ignored
+        // (`Paint::char_edit_ends_waits`).
         DomCsi::DeleteChars(c) => {
-            p.end_left_edge();
-            p.end_wait_to_edit();
+            p.char_edit_ends_waits();
             p.delete_chars(c)
         }
         DomCsi::InsertBlanks(c) => {
-            p.end_left_edge();
-            p.end_wait_to_edit();
+            p.char_edit_ends_waits();
             p.insert_blanks(c)
         }
         DomCsi::InsertLines(c) => {

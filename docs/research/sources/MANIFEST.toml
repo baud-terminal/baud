@@ -596,6 +596,17 @@ group  = "C"
 # the screen" and "modify a color map entry causing all objects written with that
 # color index to change color on the display" (PDF 362-363); 070-9 §8.1.3, "Note this
 # command may load or change the device's color table" (PDF 922).
+# Re-read 2026-11-02 (ICH and DCH outside the margins, and DECSC under DECRLM), the copy whose
+# sha256 matches, on the text layer [text] and PDF 279, 395, 397, 398 and 400 against the page
+# image [img]: the margin table, change-barred (p. 5-24); INSERT OR REPLACE GRAPHIC CHARACTER,
+# "the Right Margin within the Scroll Area, or the last column of the Active Line outside the
+# Scroll Area", change-barred, its algorithm's line test printed inverted (pp. 5-139, 5-140);
+# ICH's description and notes, change-barred, and its unbarred algorithm, "ignore if we're
+# outside the scrolling area" with the same inverted test (pp. 5-142, 5-143); DCH's notes
+# and change-barred algorithm, the column alone (pp. 5-144, 5-145); CR (p. 5-58); SAVE
+# CURSOR and RESTORE CURSOR (pp. 5-187 to 5-190); D.6.1, "the state of the Last Column Flag
+# should be saved when a Save Cursor operation is performed" (p. D-14); 5.16.4 items 14, 21
+# and 22 (pp. 5-222, 5-223); 070-14 §14.2.3 items 9, 10, 14 to 17 and 20 (pp. 14-9, 14-10).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -17299,6 +17310,11 @@ group  = "C"
 # names DECAWM, DECSCLM, IRM and the tab stops and not DECLRMM; DECCOLM's notes, p. 131,
 # "Sets the left, right, top and bottom scrolling margins to their default positions" and
 # "clears data from the status line if the status line is set to host-writable".
+# Re-read 2026-11-02 (ICH and DCH outside the margins), the copy whose sha256 matches, on the
+# text layer [text] and PDF 174 against the page image [img]: p. 148, "The scrolling region is
+# the area of the screen inside the top and bottom margins"; DCH, "DCH has no effect outside
+# the scrolling margins" (p. 152); ICH, "ICH has no effect outside the scrolling margins" (p.
+# 153); the Notes on DECSSDT again (p. 221).
 
 [sources.vt510-rm-b]
 key    = "vt510-rm-b"
@@ -41275,3 +41291,121 @@ sha256 = "10f58138ceb51d24d5855b961592af8c077aa2d563f68753016e0bbaacdd3bad"
 bytes  = 40681
 status = "external"
 group  = "O"
+
+# ICH and DCH against the four margins, as real DEC terminals did them. Fetched
+# 2026-11-02 for ICH and DCH on a row outside the top and bottom margins, where
+# DEC STD 070's table (p. 5-24) and the VT420 and VT510 manuals disagree.
+# `external`: none is committed.
+#
+# The logs are al20878's runs of j4james's margins test on a real VT420 and a
+# real VT520, "real H/W and ... reset to factory (default) settings", attached
+# to microsoft/terminal issue 14876 on 2023-03-06 (the comments, below). Read
+# [text], lines 100-109 of each: "ICH inside margins: (12, 40) 'jklm__nops'",
+# "ICH before top margin: (5, 40) 'jklm__nopq'", "ICH beyond bottom margin:
+# (20, 40) 'jklm__nopq'", "ICH before left margin: (12, 36) 'fghijklmno'",
+# "ICH beyond right margin: (12, 45) 'opqrstuvwx'", and DCH's five, "DCH before
+# top margin: (5, 40) 'jklmpqrstu'"; the two logs agree on all ten. The outside
+# rows' cases are marked as differing from the script's expectation, which was
+# the right margin on every row; line 142, "CR before top margin: (8, 1)".
+[sources.wt-margins-vt420-log]
+key    = "wt-margins-vt420-log"
+title  = "margins.vt420.log -- j4james's DECSLRM margins test run on a real VT420"
+author = "al20878 (run), j4james (test)"
+year   = 2023
+venue  = "microsoft/terminal issue 14876, attachment"
+url    = "https://github.com/microsoft/terminal/files/10899539/margins.vt420.log"
+file   = ""
+sha256 = "c5cd70c7f8b6b58664f25df0fb12b5337d9a6218b2fb68a57090bfc8a1973d48"
+bytes  = 13743
+status = "external"
+group  = "C"
+
+[sources.wt-margins-vt520-log]
+key    = "wt-margins-vt520-log"
+title  = "margins.vt520.log -- the same test run on a real VT520"
+author = "al20878 (run), j4james (test)"
+year   = 2023
+venue  = "microsoft/terminal issue 14876, attachment"
+url    = "https://github.com/microsoft/terminal/files/10899670/margins.vt520.log"
+file   = ""
+sha256 = "da8d54144d7417eed4b097e507132d8d0b023ba2624c5790d81f53770f65107c"
+bytes  = 13474
+status = "external"
+group  = "C"
+
+# The test the logs ran. Read [text]: test_ich and test_dch (lines 1251-1407),
+# each case's setup -- vertical_test_pattern() (403-409), margins(9,16,37,44)
+# with DECLRMM set (416-), a CUP, ICH 2 or DCH 2 -- and row_is(), which reads
+# the row back with DECRQCRA (129-131); test_ich's note, "The STD 070
+# algorithm on page 5-143 suggest that this doesn't work outside the
+# top/bottom margins, but that's likely incorrect. Page 5-24 clearly indicates
+# that ICH does work outside the T/B margins".
+[sources.wt-margins-py]
+key    = "wt-margins-py"
+title  = "margins.py -- an automated DECSLRM margins test, read back with DECRQCRA"
+author = "j4james"
+year   = 2023
+venue  = "GitHub gist 2eae626e461175cfcc29a304e066ae87, revision 15f4408f"
+url    = "https://gist.githubusercontent.com/j4james/2eae626e461175cfcc29a304e066ae87/raw/49c35704b9bf0f2419f903590bf56722d056c701/margins.py"
+file   = ""
+sha256 = "7816064962726fbd4f6c04761979a9b9a3c02b3077c9df08276bc371ab506ef9"
+bytes  = 71177
+status = "external"
+group  = "C"
+
+# The issue's comments, from the GitHub API (JSON changes with reactions, so a
+# re-fetch may not hash the same). Read [text]: j4james's request for a run on
+# a VT420 or VT525 with the gist; al20878's "VT520 finished the same script",
+# "All three terminals are real H/W and were reset to factory (default)
+# settings", with the three logs attached; the VT525's checksum read back
+# nothing usable.
+[sources.wt-issue-14876-comments]
+key    = "wt-issue-14876-comments"
+title  = "microsoft/terminal issue 14876, \"Add support for horizontal margin sequences\", comments"
+author = "j4james, al20878"
+year   = 2023
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/microsoft/terminal/issues/14876/comments?per_page=100"
+file   = ""
+sha256 = "6a66d2fced1b60e5600fca384dee97c29650c8ec2ec8ed0ed2d59db45c887e0d"
+bytes  = 35307
+status = "external"
+group  = "C"
+
+# The pull request that built the margins, merged 2023-05-15 (GitHub API JSON,
+# which a re-fetch may not hash the same). Read [text]: "The ICH and DCH
+# operations are constrained by the horizontal margins, but only when inside
+# the vertical margins. And if the cursor is outside the horizontal margins,
+# these operations have no effect at all."; "CR returns to the left margin
+# rather than the start of the line, unless the cursor is already left of that
+# margin, or outside the vertical margins."; "these operations have been
+# extensively tested on a number of DEC terminals".
+[sources.wt-pr-15084]
+key    = "wt-pr-15084"
+title  = "microsoft/terminal pull request 15084, \"Add support for horizontal margin sequences\""
+author = "j4james"
+year   = 2023
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/microsoft/terminal/issues/15084"
+file   = ""
+sha256 = "2297e4b492a4849a887b046313af8f475a621988cfdf75f7d1b9de02fcc2eb99"
+bytes  = 12089
+status = "external"
+group  = "C"
+
+# Read [text]: _InsertDeleteCharacterHelper (lines 654-670), which takes the
+# horizontal margins for a row inside the vertical margins and the line's edges,
+# `std::make_pair(0, lineWidth - 1)`, for a row outside them, shifts from the
+# cursor to the right one plus one, and resets the delayed wrap.
+[sources.wt-adaptdispatch]
+key    = "wt-adaptdispatch"
+title  = "Windows Terminal 703ef7f, adaptDispatch.cpp -- _InsertDeleteCharacterHelper: the side margins only inside the vertical ones"
+author = "Microsoft Corporation and contributors"
+year   = 2026
+venue  = "microsoft/terminal @ 703ef7f969d90d3f7e132b9a5f51a8815e77d586 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/703ef7f969d90d3f7e132b9a5f51a8815e77d586/src/terminal/adapter/adaptDispatch.cpp"
+file   = ""
+sha256 = "b7751f0a40b76301fe39882293c3b9064aa3d2b26505b0623511ed2cb39da03b"
+bytes  = 194621
+status = "external"
+group  = "C"

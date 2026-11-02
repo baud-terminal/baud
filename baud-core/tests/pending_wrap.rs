@@ -917,15 +917,38 @@ fn ich_and_dch_right_of_the_margins_keep_the_wrap() {
 
 /// **On a row outside the top and bottom margins they act, and end the
 /// wrap**: STD 070's margin table gives ICH and DCH "Continues to work
-/// outside these margins" for the top and bottom ones (p. 5-24), and their
-/// notes ignore them only "outside the left or right margin" (ICH note 2,
-/// DCH note 3), as xterm's `InsertChar` and `DeleteChar` and ghostty test
-/// the column alone. The VT420 manual gives each "no effect outside the
-/// scrolling margins" (pp. 152, 153), a conflict taken toward the table (a
-/// lean).
-/// Before, the wrap stayed and the `X` wrapped to the next row.
+/// outside these margins" for the top and bottom ones (p. 5-24), and a
+/// VT420 and a VT520 shifted those rows to the line's end (the `CSI @`
+/// row of `docs/vt-coverage.md`). The VT420 manual gives each "no effect
+/// outside the scrolling margins" (pp. 152, 153), a conflict taken toward
+/// the table and the hardware (a lean). Before 2026-11-01 the wrap stayed
+/// and the `X` wrapped to the next row. **With side margins too, a wrap
+/// waiting at the screen's last column there ends**: right of the right
+/// margin they act on such a row, so the `X` goes on the last column, where
+/// until 2026-11-02 the control was ignored and the `X` wrapped.
 #[test]
 fn ich_and_dch_outside_the_top_and_bottom_margins_end_the_wrap() {
+    for (c, name) in [("\x1b[@", "ICH"), ("\x1b[P", "DCH")] {
+        let pre = format!("{LRM}\x1b[3;4r\x1b[1;15HABCDEF");
+        let s = run(&[Bytes(format!("{pre}{c}\x1b[6n"))]);
+        assert_eq!(
+            (s.reply.as_str(), s.pending),
+            ("\x1b[1;20R", WrapPending::No),
+            "{name} right of the margins on row 1"
+        );
+        let s = run(&[Bytes(format!("{pre}{c}X"))]);
+        assert_eq!(row(&s, 0), "..............ABCDEX", "{name}");
+        assert_eq!(row(&s, 1), "....................", "{name}");
+        // Under HEM's PRECEDING the side margins bound them on every row,
+        // so there they are ignored and the wrap waits on.
+        let pre = format!("{LRM}\x1b[3;4r\x1b[10h\x1b[1;15HABCDEF");
+        let s = run(&[Bytes(format!("{pre}{c}X"))]);
+        assert_eq!(row(&s, 0), "..............ABCDEF", "{name} under PRECEDING");
+        assert!(
+            row(&s, 1).contains('X'),
+            "{name} under PRECEDING: X wrapped"
+        );
+    }
     for (c, name) in [("\x1b[@", "ICH"), ("\x1b[P", "DCH")] {
         // Above the region and below it; on its margins, the controls.
         for y in [1, 5, 2, 4] {

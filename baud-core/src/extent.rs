@@ -16,11 +16,13 @@
 //! runs through the rectangle DECSTBM and DECSLRM bound, from one line's
 //! right margin to the next line's left margin, and ends at the bottom
 //! margin; outside the rectangle the edit is ignored, as DEC's are outside
-//! the margins. SEE 4 is the page here, the history not being on the
-//! display. The field is `EF`'s, bounded by the line and the margins; the
-//! qualified area `EA`'s run of positions sharing the cursor's guard,
-//! within the rectangle. HEM's PRECEDING shifts from the extent's start to
-//! the cursor, as FOLLOWING shifts from the cursor to its end.
+//! the side margins inside it (DEC's act along the whole line on a row
+//! outside the top and bottom margins, `Paint::char_edit_end`). SEE 4 is
+//! the page here, the history not being on the display. The field is
+//! `EF`'s, bounded by the line and the margins; the qualified area `EA`'s
+//! run of positions sharing the cursor's guard, within the rectangle. HEM's
+//! PRECEDING shifts from the extent's start to the cursor, as FOLLOWING
+//! shifts from the cursor to its end.
 //!
 //! **`IL` and `DL`**: with the extent a line or a field, the shifted part is
 //! the active line alone, so they erase it; with a qualified area they shift

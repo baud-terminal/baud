@@ -463,6 +463,15 @@ const RI_TOP: &str = "ghostty departs: RI on the top margin keeps a pending wrap
                       D-13, D-14) lists REVERSE_INDEX among the controls that reset \
                       the Last Column Flag, and xterm's RevIndex resets do_wrap after \
                       its scroll (cursor.c 319-339)";
+/// ghostty's `ICH` and `DCH` keep the side margins outside the scroll area.
+const EDIT_OUTSIDE: &str = "ghostty departs: ICH and DCH on a row outside the top and bottom \
+                            margins stop at the right margin and ignore a column outside the \
+                            side margins (insertBlanks and deleteChars test the column only, \
+                            Terminal.zig 3298-3299 and 3390-3391), as xterm's do (util.c \
+                            1898-1899, 1998-1999); a VT420 and a VT520 shifted those rows to \
+                            the line's end (microsoft/terminal issue 14876's logs), and STD \
+                            070's table has both continue to work outside those margins \
+                            (p. 5-24)";
 /// ghostty's `ICH` right of the side margins ends its flag.
 const ICH_IGNORED: &str = "ghostty departs: ICH right of the side margins ends a pending \
                            wrap (insertBlanks resets pending_wrap before its margin test, \
@@ -573,6 +582,36 @@ fn fixtures() -> Vec<Fixture> {
             "lrm: DCH pulls from the right margin",
             format!("{LRM}\x1b[1;5H\x1b[2P"),
             Agree,
+        ),
+        // Inside the scroll area, left of the left margin, both are
+        // ignored (ICH note 2, DCH note 3); outside it the side margins do
+        // not bound them, as a VT420 and a VT520 did.
+        f(
+            "lrm: ICH left of the left margin",
+            format!("{LRM}\x1b[1;2H\x1b[2@"),
+            Agree,
+        ),
+        f(
+            "lrm: DCH left of the left margin",
+            format!("{LRM}\x1b[1;2H\x1b[2P"),
+            Agree,
+        ),
+        // The fill's rows are one letter each, so a marker on each side of
+        // the right margin shows where ICH's shift ends.
+        f(
+            "lrm: ICH above the region runs to the line's end",
+            format!("{TB}{LRM}\x1b[1;9Hx\x1b[1;12Hz\x1b[1;7H\x1b[2@"),
+            Pinned(EDIT_OUTSIDE),
+        ),
+        f(
+            "lrm: DCH below the region pulls from the line's end",
+            format!("{TB}{LRM}\x1b[8;7H\x1b[2P"),
+            Pinned(EDIT_OUTSIDE),
+        ),
+        f(
+            "lrm: ICH above the region left of the left margin",
+            format!("{TB}{LRM}\x1b[1;2H\x1b[2@"),
+            Pinned(EDIT_OUTSIDE),
         ),
         // ---- side margins: the scrolls --------------------------------------
         f(

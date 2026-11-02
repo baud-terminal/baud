@@ -460,3 +460,21 @@ fn a_move_or_an_edit_ends_the_wrap_waiting_at_the_left_edge() {
     }
     assert!(failed.is_empty(), "{failed:#?}");
 }
+
+/// **An ICH or DCH that is ignored leaves the wrap waiting**: left of the
+/// left margin inside the scroll area "this control is ignored" (`[[source:
+/// dec-std-070]]` ICH note 2, DCH note 3, pp. 5-142, 5-144), so nothing
+/// executes to reset the Last Column Flag, as right of the right margin
+/// a wrap at the line's end waits on. Written from column 3 to column 1,
+/// left of the margins at 5..9, the `cba` stays and the `X` goes to the
+/// next line's right margin. Before, ICH shifted the row from column 1
+/// and DCH pulled it in, and either ended the wait, so the `X` was
+/// written on column 1.
+#[test]
+fn an_ignored_ich_or_dch_keeps_the_wrap_waiting_at_the_left_edge() {
+    for op in ["\x1b[@", "\x1b[P"] {
+        let (rows, _) = after(&format!("\x1b[?69h\x1b[5;9s{RLM}\x1b[1;3Habc{op}X"));
+        assert_eq!(rows[0], "cba.......", "{op:?}");
+        assert_eq!(rows[1], "........X.", "{op:?}");
+    }
+}

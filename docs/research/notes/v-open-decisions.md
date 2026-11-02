@@ -1957,12 +1957,15 @@ comment above the line-136 test.
   by DECSC and restored by DECRC, D.6.1's flag naming no direction, and
   back as a column once `?34l` has reset the mode
   (`decsc_and_decrc_keep_a_wrap_waiting_at_the_left_margin`). **Still
-  open**: the mid-row margin mark above; `VPA` and `VPR`, which D.6.1
-  does not name; ICH and DCH left of the left margin, which act
-  where ICH note 2, DCH note 3, xterm and ghostty ignore them; and ICH
-  and DCH on a row outside the top and bottom margins, built as acting
-  (a lean), where STD 070's margin table (p. 5-24) and the VT420 and
-  VT510 manuals disagree.
+  open**: the mid-row margin mark above; and `VPA` and `VPR`, which
+  D.6.1 does not name. Built 2026-11-02 (a lean): ICH and DCH on a row
+  outside the top and bottom margins act from any column to the line's
+  end, as a VT420 and a VT520 logged
+  ([[source: wt-margins-vt420-log]], [[source: wt-margins-vt520-log]]),
+  where STD 070's margin table (p. 5-24) and the VT420 and VT510 manuals
+  disagree; inside the scroll area left of the left margin they are
+  ignored, as right of the right one, and a wait there is kept
+  (`ich_and_dch_act_as_a_vt420_and_a_vt520_did`, the `CSI @` row).
 
 **Tests and measurement**
 

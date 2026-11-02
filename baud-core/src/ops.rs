@@ -1780,6 +1780,15 @@ impl Paint<'_, '_> {
         if self.extent_chosen() {
             return self.edit_extent(n, crate::editing::CharEdit::Delete);
         }
+        // **The right margin inside the scroll area, the line's end outside
+        // it** ([`Paint::char_edit_end`]), and ignored outside the side
+        // margins inside it, under any HEM or DCSM. `to` was `cols` before
+        // the margins existed, so a `DCH` inside a region pulled text in
+        // from *outside* it; and with the right margin on every row, `to -
+        // at` underflowed right of the fence, a panic in a debug build.
+        let Some(to) = self.char_edit_end() else {
+            return;
+        };
         // Under HEM's PRECEDING or DCSM's PRESENTATION, out of line
         // (`crate::editing`).
         if self
@@ -1791,20 +1800,6 @@ impl Paint<'_, '_> {
             return;
         }
         let (r, at, b) = (self.cy, self.cx.col(), self.blank());
-        // **The right margin, not the row.** `to` was `cols` before the
-        // margins existed, so a `DCH` inside a region pulled text in from
-        // *outside* it -- correct only while the margin is the edge, which is
-        // every stream that never sends `DECSLRM`. **And the line's end**: a
-        // double line's half, `margin = end_of_line(line)` where the right
-        // margin is past it (`[[source: dec-std-070]]` p. 5-145), which the
-        // fence is.
-        let to = self.line_fence().after();
-        // Right of the fence it is ignored, `[[source: dec-std-070]]` DCH
-        // note 3 (p. 5-144); `to - at` below underflowed there, a panic in a
-        // debug build.
-        if at > to {
-            return;
-        }
         self.edit_reaches(crate::aligned::EditRows::Chars);
         self.view.delete_cells(r, at, n, to, b);
         self.erase_images(r, at, to);
@@ -1818,6 +1813,10 @@ impl Paint<'_, '_> {
         if self.extent_chosen() {
             return self.edit_extent(n, crate::editing::CharEdit::Insert);
         }
+        // Bounded and ignored as `DCH` is ([`Paint::char_edit_end`]).
+        let Some(to) = self.char_edit_end() else {
+            return;
+        };
         if self
             .cold
             .modes
@@ -1827,13 +1826,6 @@ impl Paint<'_, '_> {
             return;
         }
         let (r, at, b) = (self.cy, self.cx.col(), self.blank());
-        // The line's end on a double line too (p. 5-143), as `DCH`.
-        let to = self.line_fence().after();
-        // Right of the fence it is ignored, `[[source: dec-std-070]]` ICH
-        // note 2 (p. 5-142), as `DCH` is.
-        if at > to {
-            return;
-        }
         self.edit_reaches(crate::aligned::EditRows::Chars);
         self.view.insert_cells(r, at, n, to, b);
         // The blanks join the string of the character they pushed on, the
@@ -3401,22 +3393,21 @@ impl Paint<'_, '_> {
     }
 
     /// **Before `ICH` and `DCH`**: a pending wrap ends on its column where
-    /// that column is inside the side margins, so the edit acts there, at
-    /// "the Active Position" (`[[source: dec-std-070]]` ICH and DCH, pp.
-    /// 5-142 and 5-144), which a pending wrap leaves on it: D.6.1 lists
-    /// INSERT CHARACTER and DELETE_CHARACTER, and 070-5's revision items 5
-    /// and 16 (pp. 5-217, 5-218) add the clearing to both. xterm's
-    /// `InsertChar` and `DeleteChar` reset `do_wrap` (`[[source:
-    /// xterm-scroll]]` 1924, 2023) and ghostty edits there too. **Right of
-    /// the side margins the wrap waits on**: there "this control is
-    /// ignored" (ICH note 2, DCH note 3), so nothing executes to reset the
-    /// flag, as xterm returns before `ResetWrap` (1898, 1998). On a row
-    /// outside the top and bottom margins both act and end the wrap (a
-    /// lean): STD 070's margin table has them continue to work there (p.
-    /// 5-24), where the VT420 and VT510 manuals give them no effect
-    /// (vt-coverage.md, the `CSI @` and `CSI P` rows). Until 2026-11-01
-    /// both acted one past the line's end, editing nothing, and the wrap
-    /// stayed.
+    /// the edit acts there ([`Paint::char_edit_end`]), at "the Active
+    /// Position" (`[[source: dec-std-070]]` ICH and DCH, pp. 5-142 and
+    /// 5-144), which a pending wrap leaves on it: D.6.1 lists INSERT
+    /// CHARACTER and DELETE_CHARACTER, and 070-5's revision items 5 and 16
+    /// (pp. 5-217, 5-218) add the clearing to both. xterm's `InsertChar`
+    /// and `DeleteChar` reset `do_wrap` (`[[source: xterm-scroll]]` 1924,
+    /// 2023) and ghostty edits there too. **Where the control is ignored
+    /// the wrap waits on**: right of the side margins inside the scroll
+    /// area, "this control is ignored" (ICH note 2, DCH note 3), so nothing
+    /// executes to reset the flag, as xterm returns before `ResetWrap`
+    /// (1898, 1998). On a row outside the top and bottom margins both act
+    /// at any column and end the wrap. Until 2026-11-01 both acted one past
+    /// the line's end, editing nothing, and the wrap stayed. Under an
+    /// extent SEE chose, its rectangle decides the edit (`crate::extent`)
+    /// and the wrap ends inside the side margins.
     #[inline(always)]
     pub(crate) fn end_wait_to_edit(&mut self) {
         if self.cx.raw() > self.cold.fence {
@@ -3430,8 +3421,73 @@ impl Paint<'_, '_> {
         let fence = self.report_fence();
         if let CursorAt::Pending(_) = self.cx.at(fence, self.cols) {
             let on = self.cx.reported(fence, self.cols);
-            if on >= self.cold.left && on <= self.cold.right {
+            let acts = match self.extent_chosen() {
+                true => on >= self.cold.left && on <= self.cold.right,
+                false => self.char_edit_end().is_some(),
+            };
+            if acts {
                 self.set_col(CursorCol::moved(on));
+            }
+        }
+    }
+
+    /// **Before `ICH` and `DCH`, the waits they end where they act**: a
+    /// wrap DECRLM left waiting at the left margin (`crate::leftward`) and
+    /// a pending wrap ([`Paint::end_wait_to_edit`]). Where the control is
+    /// ignored nothing executes to reset the Last Column Flag, so neither
+    /// ends; under an extent SEE chose its rectangle decides
+    /// (`crate::extent`) and DECRLM's wait ends, as before.
+    pub(crate) fn char_edit_ends_waits(&mut self) {
+        if self.extent_chosen() || self.char_edit_end().is_some() {
+            self.end_left_edge();
+        }
+        self.end_wait_to_edit();
+    }
+
+    /// **Where `ICH` and `DCH` stop shifting, or `None` where they are
+    /// ignored**, for the Active Position, the column a report names (a
+    /// wrap pending at the line's end is on its column). **Inside the
+    /// scroll area the side margins bound them**: the shift ends at the
+    /// right margin, a double line's half (`margin = end_of_line(line)`
+    /// where the right margin is past it, `[[source: dec-std-070]]` pp.
+    /// 5-143, 5-145), and left of the left margin or right of the right
+    /// one "this control is ignored" (ICH note 2, DCH note 3). **On a row
+    /// outside the top and bottom margins the side margins do not apply**:
+    /// the shift runs from any column to the line's end, as a VT420 and a
+    /// VT520 shifted those rows past the right margin (`[[source:
+    /// wt-margins-vt420-log]]`, `[[source: wt-margins-vt520-log]]`), as
+    /// STD 070's margin table has both "Continues to work outside these
+    /// margins" for the top and bottom ones (p. 5-24), its character
+    /// insertion loses "the last column of the Active Line outside the
+    /// Scroll Area" (p. 5-140) and its CR goes to the first column there
+    /// (p. 5-58), and as Windows Terminal takes the line's edges for such a
+    /// row (`[[source: wt-adaptdispatch]]`). A lean where the texts
+    /// disagree: the VT420 and VT510 manuals give each "no effect outside
+    /// the scrolling margins" (`[[source: vt420-rm]]` pp. 148, 152, 153),
+    /// ICH's algorithm opens "ignore if we're outside the scrolling area"
+    /// (p. 5-143), and DCH's bounds the shift at the right margin on every
+    /// row (p. 5-145), as xterm and ghostty do. Until 2026-11-02 the side
+    /// margins bound them on every row, and left of the left margin they
+    /// acted.
+    ///
+    /// **Under HEM's PRECEDING or DCSM's PRESENTATION the side margins
+    /// bound them on every row**, as their shifts keep them
+    /// (`crate::editing`, `crate::component`), so a wait is kept exactly
+    /// where the edit does nothing; no text and no logged case reaches
+    /// either mode with DEC's margins.
+    pub(crate) fn char_edit_end(&self) -> Option<Col> {
+        let at = self.cx.reported(self.report_fence(), self.cols);
+        let inside = (self.cy >= self.cold.top && self.cy <= self.cold.bot)
+            || self
+                .cold
+                .modes
+                .either_set(ModeBit::PresentationEdits, ModeBit::EditPreceding);
+        let fence = self.line_fence();
+        match inside {
+            true => (at >= self.cold.left && at <= fence).then(|| fence.after()),
+            false => {
+                let end = Col::at_index(self.line_cols().index());
+                (at < end).then_some(end)
             }
         }
     }
