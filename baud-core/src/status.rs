@@ -27,8 +27,19 @@
 //! shares them, the wrap's mode shared and its pending flag each display's.
 //! The cursor's visibility is each display's too, 070-14 item 14, "Each of
 //! the Main and Status Display cursors may be individually enabled or
-//! disabled". The rest is shared: tabs, IRM, DECAWM, DECSCLM, DECSCNM, the
-//! width.
+//! disabled". **SLH's line home and SLL's line limit are each display's**,
+//! parked with its margins: with the line selected "most ANSI control
+//! functions received will affect only the Status Display" (070-14
+//! §14.2.3, p. 14-8), and SLH and SLL are in none of its exceptions, so a
+//! home or a limit set while one display is written leaves the other's
+//! where it was. The rest is shared: tabs, IRM, DECAWM, DECSCLM, DECSCNM,
+//! the width, and BDSM and DCSM, the terminal's, under which each
+//! display's limit bounds or not and the line is laid out. BDSM is both
+//! displays' by the 2026-10-26 layout decision, which lays the line out
+//! "under the terminal's BDSM" (`docs/bidi.md`, the status line's row),
+//! and DCSM is kept with it; §14.2.3's general clause lists neither among
+//! its exceptions, an open question (`docs/vt-coverage.md`, the SLH / SLL
+//! row).
 //!
 //! **Between reads the terminal is the main display's**: a read that ends
 //! on the line swaps back before it writes its state to [`crate::Term`],
@@ -107,6 +118,8 @@ pub(crate) struct Parked {
     left: Col,
     right: Col,
     fence: Col,
+    /// SLH's home and SLL's limit, the display's own (`crate::bounds`).
+    bounds: crate::bounds::LineBounds,
     last_cp: Option<(Codepoint, Width, Pen)>,
     cluster: ClusterBreak,
     guard_open: Option<GuardStart>,
@@ -166,6 +179,7 @@ impl Parked {
             left: Col::ZERO,
             right,
             fence: right,
+            bounds: crate::bounds::LineBounds::NONE,
             last_cp: None,
             cluster: ClusterBreak::new(),
             guard_open: None,
@@ -184,12 +198,13 @@ impl Parked {
     /// rendition, DECSCA, the character sets, origin mode, the cursor
     /// shown, nothing saved and margins at its edges, as the soft reset
     /// leaves the main display's; its position stays, as the main
-    /// display's does.
+    /// display's does, and its line home and limit, which `DECSTR` keeps.
     fn soft_reset(&mut self, cols: Cols) {
         let fresh = Parked::fresh(cols);
         *self = Parked {
             cy: self.cy,
             cx: self.cx,
+            bounds: self.bounds,
             last_cp: self.last_cp,
             cluster: self.cluster,
             ..fresh
@@ -240,12 +255,12 @@ impl Status {
     }
 
     /// The line's cursor between reads, when its DECTCEM shows it: the
-    /// column the cell is drawn at, a pending wrap's the last, and SLL's
-    /// line limit while a wrap waits there, as a report reads it
+    /// column the cell is drawn at, a pending wrap's the last, and the
+    /// line's own SLL limit while a wrap waits there, as a report reads it
     /// (`crate::bounds`).
     pub(crate) fn park_cursor(&self, cold: &Cold, cols: Cols) -> Option<Col> {
         let fence = match self.park.pinned == Pinned::AtLimit {
-            true => crate::bounds::limited(self.park.right, cold, cols),
+            true => crate::bounds::limited_by(self.park.right, self.park.bounds, cold, cols),
             false => self.park.right,
         };
         (self.park.cursor == ModeChange::Set).then(|| self.park.cx.reported(fence, cols))
@@ -459,6 +474,7 @@ impl Paint<'_, '_> {
         core::mem::swap(&mut self.cold.left, &mut p.left);
         core::mem::swap(&mut self.cold.right, &mut p.right);
         core::mem::swap(&mut self.cold.fence, &mut p.fence);
+        core::mem::swap(&mut self.cold.bounds, &mut p.bounds);
         core::mem::swap(&mut self.last_cp, &mut p.last_cp);
         core::mem::swap(&mut self.cluster, &mut p.cluster);
         core::mem::swap(&mut self.cold.guard_open, &mut p.guard_open);
@@ -472,6 +488,14 @@ impl Paint<'_, '_> {
         self.strs.status.swapped = into;
         self.view.swap_surface(&mut self.status);
         self.row_changed_to(self.cy);
+        // **What this display's home and limit do is taken again**: they
+        // came back with it, and BDSM and DCSM, both displays', may have
+        // changed while it was parked. So the modes that read them, the
+        // fence and a wrap left waiting at a limit that no longer bounds
+        // follow, as on the display written (`crate::bounds`), and the
+        // graph is chosen again. Parked, the fence kept the limit it was
+        // left with, and the home and limit were one for both displays.
+        self.refresh_presentation_edits();
         // DECHEBM, global, may have changed while this display was parked,
         // and with it how GL's ASCII is drawn (`crate::hebrew_keys`).
         if self.gl_set() != self.charset {

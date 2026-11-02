@@ -27,6 +27,10 @@
 //! cursor (the `CSI @` row). Under DECRLM `CR` keeps DECRLM's right
 //! margin.
 //!
+//! **Each display keeps its own**: the main display's home and limit and
+//! the host-writable status line's are parked with their margins
+//! ([`crate::status`]), under the terminal's BDSM and DCSM.
+//!
 //! **A position past the line is its last column**, and an omitted or zero
 //! `Pn`, which has no default, is counted and changes nothing. A resize
 //! keeps both, each acting as the line's last column while the line is
@@ -82,6 +86,19 @@ pub(crate) fn limit_bounds(cold: &Cold) -> bool {
 pub(crate) fn limited(f: Col, cold: &Cold, cols: Cols) -> Col {
     match (cold.modes.is_set(ModeBit::LineBounded), cold.bounds.limit) {
         (true, Some(l)) => f.min(l.min(Col::at_index(cols.index() - 1))),
+        _ => f,
+    }
+}
+
+/// [`limited`] for a display that is not the one written, its own bounds
+/// `b` under the terminal's BDSM and DCSM: the status line's cursor
+/// between reads ([`crate::status`]). Its BDSM and DCSM test changes
+/// nothing reachable: the line's cursor is read only while DECSASD selects
+/// it, and every BDSM or DCSM change then lands while the line is live, so
+/// its wait has already ended before it is parked.
+pub(crate) fn limited_by(f: Col, b: LineBounds, cold: &Cold, cols: Cols) -> Col {
+    match (b.limit, data_rules(cold)) {
+        (Some(l), true) => f.min(l.min(Col::at_index(cols.index() - 1))),
         _ => f,
     }
 }

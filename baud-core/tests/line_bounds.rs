@@ -557,3 +557,125 @@ fn nel_and_lf_under_lnm_take_the_home_on_the_line_they_arrive_at() {
         }
     }
 }
+
+/// The host-writable status line as text, `.` for an empty position.
+fn status_text(t: &Term<'_>) -> String {
+    let line = t.status_line().expect("a status line");
+    line.cells[..20]
+        .iter()
+        .map(|c| {
+            c.content
+                .as_codepoint()
+                .and_then(|cp| char::from_u32(cp.value()))
+                .unwrap_or('.')
+        })
+        .collect()
+}
+
+/// **Each display keeps its own line home and limit; BDSM and DCSM are
+/// both displays'.** The host-writable status line "contains its own ANSI
+/// text state and settings" (`[[source: dec-std-070]]` 070-14 §14.2, p.
+/// 14-4), and no DEC text names SLH or SLL, so a home or a limit set
+/// while one display is written is that display's, parked with its
+/// margins: limit 5 set on the status line leaves the main display's text
+/// running on, one set on the main display leaves the status line's, and
+/// a home set on either leaves the other's `CR` at its first column.
+/// BDSM and DCSM stay the terminal's, as the status line is laid out
+/// under them, so BDSM set on the status line makes the main display's
+/// limit bound its text, and BDSM reset there ends a wrap the main
+/// display left waiting at its limit, as it ends one on the display
+/// written; and BDSM sent on the status line leaves the main display's
+/// home where its `CR` goes. `DECSTR` keeps the status line's home, as
+/// it keeps the main display's. The main display kept the bound it was left
+/// with, and the two displays had one home and one limit.
+///
+/// **And under side margins no fence the limit no longer gives is left
+/// behind**: limit 12, margins 4 to 15, the status line selected and
+/// BDSM reset there, which a debug build caught with the main display
+/// still fenced at the old limit.
+#[test]
+fn each_display_keeps_its_own_line_home_and_limit() {
+    const ON: &[u8] = b"\x1b[2$~\x1b[1$}";
+    const MAIN: &[u8] = b"\x1b[0$}";
+    let text = b"abcdefghijkl";
+    let mut bad = Vec::new();
+    let mut check = |what: &str, got: String, want: &str| {
+        if got != want {
+            bad.push(format!("{what}: {got:?}, not {want:?}"));
+        }
+    };
+    let rows = |b: &[u8]| {
+        let (r0, r1, _) = after(b);
+        format!("{r0}/{r1}")
+    };
+    let at = |b: &[u8]| format!("{:?}", cursor(b));
+    let status_at = |b: &[u8]| {
+        support::render(&WS, b, |t| {
+            format!("{:?}", t.status_line().expect("a status line").cursor)
+        })
+    };
+    check(
+        "SLL on the status line",
+        rows(&[ON, b"\x1b[5 V", MAIN, text].concat()),
+        "abcdefghijkl......../....................",
+    );
+    check(
+        "SLL on the main display",
+        support::render(&WS, &[b"\x1b[5 V", ON, text].concat(), |t| status_text(t)),
+        "abcdefghijkl........",
+    );
+    check(
+        "SLH on the status line, CR on the main display",
+        at(&[ON, b"\x1b[5 U", MAIN, b"abcdefgh\r"].concat()),
+        "(0, 0)",
+    );
+    check(
+        "SLH on the main display, CR on the status line",
+        status_at(&[b"\x1b[5 U", ON, b"abcdefgh\r"].concat()),
+        "Some(Col(0))",
+    );
+    check(
+        "SLH on the status line, kept by DECSTR",
+        status_at(&[ON, b"\x1b[5 U\x1b[!p\x1b[1$}abcdefgh\r"].concat()),
+        "Some(Col(4))",
+    );
+    check(
+        "SLH on the main display, BDSM sent on the status line",
+        at(&[b"\x1b[5 U", ON, b"\x1b[8l\x1b[8h", MAIN, b"abcdefgh\r"].concat()),
+        "(0, 4)",
+    );
+    check(
+        "BDSM set on the status line",
+        rows(&[b"\x1b[8l\x1b[5 V", ON, b"\x1b[8h", MAIN, text].concat()),
+        "abcde.............../fghij...............",
+    );
+    let ended = [&b"\x1b[5 Vabcde"[..], ON, b"\x1b[8l", MAIN].concat();
+    check(
+        "a wait at the limit, BDSM reset on the status line",
+        support::render(&WS, &[&ended[..], b"\x1b[6n"].concat(), |t| {
+            format!(
+                "{:?} {:?}",
+                String::from_utf8_lossy(t.reply()),
+                t.wrap_pending()
+            )
+        }),
+        "\"\\u{1b}[1;5R\" No",
+    );
+    check(
+        "and the next character",
+        after(&[&ended[..], b"f"].concat()).0,
+        "abcdf...............",
+    );
+    let margins = b"\x1b[12 V\x1b[3;12r\x1b[?69h\x1b[4;15s";
+    check(
+        "under side margins",
+        after(&[&margins[..], ON, b"\x1b[8l", MAIN, b"abcdefghijklmnopq"].concat()).0,
+        "abcdefghijklmno.....",
+    );
+    check(
+        "under side margins, the read ending on the status line",
+        rows(&[&margins[..], ON, b"\x1b[8l"].concat()),
+        "..................../....................",
+    );
+    assert!(bad.is_empty(), "{} wrong:\n{}", bad.len(), bad.join("\n"));
+}

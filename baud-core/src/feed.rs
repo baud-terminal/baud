@@ -504,11 +504,15 @@ impl Term<'_> {
             self.cold.fence,
             self.line_fence()
         );
+        // **Under side margins the fence is the right margin unless SLL's
+        // limit bounds**: no line is sized while DECLRMM is set
+        // (`[[source: dec-std-070]]` p. 5-29), and a display swapped in
+        // takes its fence again (`crate::status`).
         debug_assert!(
             self.cold.fence == self.cold.right
                 || !self.cold.modes.is_set(ModeBit::SideMargins)
                 || self.cold.modes.is_set(ModeBit::LineBounded),
-            "a sized line's fence under side margins"
+            "a fence below the right margin under side margins with no line limit bounding"
         );
     }
 }
