@@ -8,12 +8,16 @@
 
 use crate::buffer::{Buffer, Glyph, Ignorable};
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
-use crate::layout::{ClassDef, Coverage, Filter, Skip};
+use crate::layout::{ClassDef, Coverage, Filter, Joiners, PerSyllable, Skip, Stage};
+use crate::syllabic::{Category, Syllable};
 use baud_domain::GlyphId;
 
 /// A table whose lookups a contextual rule can run: `nested` applies
 /// lookup `lookup` at `pos`, the first of its subtables that applies
-/// winning, and says what it did.
+/// winning, and says what it did. A nested lookup runs in its caller's
+/// syllabic `stage`, with its own flags, as HarfBuzz's `recurse()` keeps
+/// the calling lookup's mask and joiners (`[[source:
+/// harfbuzz-14-5-1-gsubgpos]]`).
 pub(crate) trait Nested<'a> {
     fn nested(
         &self,
@@ -21,6 +25,7 @@ pub(crate) trait Nested<'a> {
         buf: &mut Buffer<'_>,
         pos: Index,
         depth: Depth,
+        stage: Option<Stage>,
     ) -> Option<Applied>;
 }
 
@@ -197,6 +202,100 @@ pub(crate) fn prev_match(
     None
 }
 
+/// Which of a lookup's sequences a staged match is walking: the input,
+/// whose glyphs must carry the stage's masks, or a backtrack or lookahead.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Role {
+    Input,
+    Context,
+}
+
+/// [`next_match`] in a syllabic shaper's stage ([`Stage`]), for a sequence
+/// whose first glyph is in `start`.
+fn next_staged(
+    filter: &Filter<'_>,
+    stage: Stage,
+    buf: &Buffer<'_>,
+    from: Index,
+    (role, start): (Role, Syllable),
+    wanted: impl Fn(GlyphId) -> bool,
+) -> Option<Index> {
+    let mut j = from;
+    while let Some(g) = buf.get(j) {
+        match staged(filter, stage, g, (role, start), &wanted) {
+            Step::Match => return Some(j),
+            Step::Skip => j = j.next(),
+            Step::Stop => return None,
+        }
+    }
+    None
+}
+
+/// [`prev_match`] in a stage: the backtrack, walking back from `from`
+/// exclusive.
+fn prev_staged(
+    filter: &Filter<'_>,
+    stage: Stage,
+    buf: &Buffer<'_>,
+    from: Index,
+    start: Syllable,
+    wanted: impl Fn(GlyphId) -> bool,
+) -> Option<Index> {
+    let mut j = from;
+    while let Some(p) = j.prev() {
+        j = p;
+        let g = buf.get(j)?;
+        match staged(filter, stage, g, (Role::Context, start), &wanted) {
+            Step::Match => return Some(j),
+            Step::Skip => continue,
+            Step::Stop => return None,
+        }
+    }
+    None
+}
+
+/// What a staged walk does with one glyph.
+enum Step {
+    Match,
+    Skip,
+    Stop,
+}
+
+/// One glyph seen by a staged walk: skipped by the lookup's flags; matched
+/// when it carries the stage's masks (in the input), is in the first
+/// glyph's syllable (where the stage says) and is the glyph wanted;
+/// otherwise skipped when it is a default-ignorable the stage may skip,
+/// and the end of the match when it is not.
+fn staged(
+    filter: &Filter<'_>,
+    stage: Stage,
+    g: Glyph,
+    (role, start): (Role, Syllable),
+    wanted: &impl Fn(GlyphId) -> bool,
+) -> Step {
+    if seen(filter, g) == Skip::Yes {
+        return Step::Skip;
+    }
+    let masked = role == Role::Context || g.syllabic.masks.meets(stage.masks);
+    let syllable =
+        stage.syllables == PerSyllable::No || start.is_none() || g.syllabic.syllable == start;
+    if masked && syllable && wanted(g.id) {
+        return Step::Match;
+    }
+    let (zwnj, zwj) = match role {
+        Role::Input => (false, stage.joiners == Joiners::Auto),
+        Role::Context => (stage.joiners == Joiners::Auto, true),
+    };
+    let category = g.syllabic.category;
+    let skips = g.ignorable == Ignorable::Yes
+        && (zwnj || category != Category::ZWNJ)
+        && (zwj || category != Category::ZWJ);
+    match skips {
+        true => Step::Skip,
+        false => Step::Stop,
+    }
+}
+
 /// Matches `count` pattern elements starting at `pos` (the first is
 /// the caller's), each later one against `test(k, glyph)` for `k` in
 /// `1..count`.
@@ -213,8 +312,14 @@ pub(crate) fn match_input(
     let mut m = Matched::first(pos);
     let mut j = pos;
     let mut k = Index::ZERO.next();
+    let start = buf.get(pos)?.syllabic.syllable;
     while count.holds(k) {
-        j = next_match(filter, buf, j.next(), |g| test(k, g))?;
+        j = match filter.stage {
+            None => next_match(filter, buf, j.next(), |g| test(k, g))?,
+            Some(stage) => next_staged(filter, stage, buf, j.next(), (Role::Input, start), |g| {
+                test(k, g)
+            })?,
+        };
         m.push(j);
         k = k.next();
     }
@@ -274,7 +379,7 @@ pub(crate) fn match_rule<'a, N: Nested<'a>>(
     match_ahead(filter, buf, m.last(), &ahead, |g, v| {
         by(Which::Lookahead, g, v)
     })?;
-    run_records(n, records, Count::of(rec_n), &m, buf, depth)
+    run_records(n, records, (Count::of(rec_n), filter.stage), &m, buf, depth)
 }
 
 pub(crate) fn match_back(
@@ -286,8 +391,12 @@ pub(crate) fn match_back(
 ) -> Option<()> {
     let mut j = pos;
     let mut k = Index::ZERO;
+    let start = buf.get(pos)?.syllabic.syllable;
     while let Some(v) = pattern.get(k) {
-        j = prev_match(filter, buf, j, |g| by(g, v))?;
+        j = match filter.stage {
+            None => prev_match(filter, buf, j, |g| by(g, v))?,
+            Some(stage) => prev_staged(filter, stage, buf, j, start, |g| by(g, v))?,
+        };
         k = k.next();
     }
     Some(())
@@ -302,8 +411,16 @@ pub(crate) fn match_ahead(
 ) -> Option<()> {
     let mut j = last_input;
     let mut k = Index::ZERO;
+    let start = buf.get(last_input)?.syllabic.syllable;
     while let Some(v) = pattern.get(k) {
-        j = next_match(filter, buf, j.next(), |g| by(g, v))?;
+        j = match filter.stage {
+            None => next_match(filter, buf, j.next(), |g| by(g, v))?,
+            Some(stage) => {
+                next_staged(filter, stage, buf, j.next(), (Role::Context, start), |g| {
+                    by(g, v)
+                })?
+            }
+        };
         k = k.next();
     }
     Some(())
@@ -318,7 +435,7 @@ pub(crate) fn match_ahead(
 pub(crate) fn run_records<'a, N: Nested<'a>>(
     n: &N,
     records: Bytes<'a>,
-    count: Count,
+    (count, stage): (Count, Option<Stage>),
     m: &Matched,
     buf: &mut Buffer<'_>,
     depth: Depth,
@@ -340,7 +457,7 @@ pub(crate) fn run_records<'a, N: Nested<'a>>(
             continue;
         }
         let p = at.at[k.slot()];
-        if let Some(a) = n.nested(Index::of(li), buf, p, depth.deeper()) {
+        if let Some(a) = n.nested(Index::of(li), buf, p, depth.deeper(), stage) {
             let by = a.delta.0.unsigned_abs();
             if a.delta != Delta::ZERO {
                 total = total.plus(a.delta);
@@ -444,7 +561,7 @@ pub(crate) fn contextual<'a, N: Nested<'a>>(
             let m = match_input(filter, buf, pos, Count::of(input_n), |k, g| {
                 input.get(k).is_some_and(|off| covers(off, g))
             })?;
-            run_records(n, records, Count::of(rec_n), &m, buf, depth)
+            run_records(n, records, (Count::of(rec_n), filter.stage), &m, buf, depth)
         }
         _ => None,
     }
@@ -471,7 +588,7 @@ fn match_sequence_rule<'a, N: Nested<'a>>(
             .and_then(|c| input.get(c))
             .is_some_and(|v| by(g, v))
     })?;
-    run_records(n, records, Count::of(rec_n), &m, buf, depth)
+    run_records(n, records, (Count::of(rec_n), filter.stage), &m, buf, depth)
 }
 
 /// Format 1: sequences of glyph ids.
@@ -598,5 +715,139 @@ pub(crate) fn chained_coverage<'a, N: Nested<'a>>(
     })?;
     match_back(filter, buf, pos, &back, |g, off| covers(off, g))?;
     match_ahead(filter, buf, m.last(), &ahead, |g, off| covers(off, g))?;
-    run_records(n, records, Count::of(rec_n), &m, buf, depth)
+    run_records(n, records, (Count::of(rec_n), filter.stage), &m, buf, depth)
+}
+
+/// **Whether a context subtable's rule takes exactly `glyphs` as its
+/// input**, for [`crate::Gsub`]'s `would_substitute`: format 1 by glyph,
+/// format 2 by class and format 3 by coverage, the first glyph in the
+/// subtable's coverage, a rule's input as long as `glyphs` and matching it
+/// glyph for glyph, and, for a chained rule asked with
+/// [`crate::gsub::Context::Zero`], no backtrack and no lookahead. Nothing
+/// is skipped: the question is about these glyphs side by side.
+pub(crate) fn would_match(sub: Bytes<'_>, glyphs: &[GlyphId], chain: crate::gsub::Chain) -> bool {
+    would_match_at(sub, glyphs, chain).unwrap_or(false)
+}
+
+fn would_match_at(sub: Bytes<'_>, glyphs: &[GlyphId], chain: crate::gsub::Chain) -> Option<bool> {
+    use crate::gsub::{Chain, Context};
+    let first = *glyphs.first()?;
+    let n = glyphs.len();
+    let format: u16 = sub.read(Offset::ZERO)?;
+    let chained = matches!(chain, Chain::Yes(_));
+    let zero = matches!(chain, Chain::Yes(Context::Zero));
+    // A rule's input after its first glyph, as values `by` reads.
+    let input_is = |input: &Array<'_, u16>, by: &dyn Fn(GlyphId, u16) -> bool| {
+        glyphs
+            .get(1..)
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+            .all(|(k, &g)| {
+                input
+                    .get(Index::of(u32::try_from(k).unwrap_or(u32::MAX)))
+                    .is_some_and(|v| by(g, v))
+            })
+    };
+    match format {
+        1 | 2 => {
+            let coverage = coverage_at(sub, Offset::of(2u32))?;
+            let ci = coverage.index(first)?;
+            // Format 2's class definitions: one, or a chained rule's three.
+            let class_at = |at: u32| -> Option<ClassDef<'_>> {
+                let off: u16 = sub.read(Offset::of(at))?;
+                ClassDef::parse(sub.tail(Offset::of(u32::from(off)))?)
+            };
+            let (input_def, sets_at) = match (format, chained) {
+                (1, false) => (None, 4u32),
+                (1, true) => (None, 4u32),
+                (_, false) => (Some(class_at(4)?), 6u32),
+                (_, true) => (Some(class_at(6)?), 10u32),
+            };
+            let set_count: u16 = sub.read(Offset::of(sets_at))?;
+            let sets: Array<'_, u16> =
+                sub.array(Offset::of(sets_at).plus(Len::of(2))?, Count::of(set_count))?;
+            let set_off = match input_def {
+                None => sets.get(ci)?,
+                Some(def) => sets.get(Index::of(def.class(first).0))?,
+            };
+            if set_off == 0 {
+                return Some(false);
+            }
+            let set = sub.tail(Offset::of(u32::from(set_off)))?;
+            let rule_count: u16 = set.read(Offset::ZERO)?;
+            let rules: Array<'_, u16> = set.array(Offset::of(2u32), Count::of(rule_count))?;
+            let by = |g: GlyphId, v: u16| match input_def {
+                None => same(g, v),
+                Some(def) => def.class(g).0 == v,
+            };
+            let mut ri = Index::ZERO;
+            while let Some(off) = rules.get(ri) {
+                ri = ri.next();
+                let Some(rule) = set.tail(Offset::of(u32::from(off))) else {
+                    continue;
+                };
+                let (input_n, input_at, back_n, ahead_n) = match chained {
+                    false => (
+                        rule.read::<u16>(Offset::ZERO)?,
+                        Offset::of(4u32),
+                        0u16,
+                        0u16,
+                    ),
+                    true => {
+                        let back_n: u16 = rule.read(Offset::ZERO)?;
+                        let at = Offset::of(2u32).plus(Len::of(2).times(Count::of(back_n))?)?;
+                        let input_n: u16 = rule.read(at)?;
+                        let rest = Count::of(input_n.saturating_sub(1));
+                        let ahead_at = at.plus(Len::of(2))?.plus(Len::of(2).times(rest)?)?;
+                        let ahead_n: u16 = rule.read(ahead_at)?;
+                        (input_n, at.plus(Len::of(2))?, back_n, ahead_n)
+                    }
+                };
+                if usize::from(input_n) != n || (zero && (back_n != 0 || ahead_n != 0)) {
+                    continue;
+                }
+                let input: Array<'_, u16> =
+                    rule.array(input_at, Count::of(input_n.saturating_sub(1)))?;
+                if input_is(&input, &by) {
+                    return Some(true);
+                }
+            }
+            Some(false)
+        }
+        3 => {
+            let covers = |off: u16, g: GlyphId| -> bool {
+                sub.tail(Offset::of(u32::from(off)))
+                    .and_then(Coverage::parse)
+                    .is_some_and(|c| c.covers(g))
+            };
+            let (input, back_n, ahead_n) = match chained {
+                false => {
+                    let input_n: u16 = sub.read(Offset::of(2u32))?;
+                    let input: Array<'_, u16> = sub.array(Offset::of(6u32), Count::of(input_n))?;
+                    (input, 0u16, 0u16)
+                }
+                true => {
+                    let back_n: u16 = sub.read(Offset::of(2u32))?;
+                    let at = Offset::of(4u32).plus(Len::of(2).times(Count::of(back_n))?)?;
+                    let input_n: u16 = sub.read(at)?;
+                    let input: Array<'_, u16> =
+                        sub.array(at.plus(Len::of(2))?, Count::of(input_n))?;
+                    let ahead_at = at
+                        .plus(Len::of(2))?
+                        .plus(Len::of(2).times(Count::of(input_n))?)?;
+                    (input, back_n, sub.read::<u16>(ahead_at)?)
+                }
+            };
+            if input.count().slot() != n || (zero && (back_n != 0 || ahead_n != 0)) {
+                return Some(false);
+            }
+            Some(glyphs.iter().enumerate().all(|(k, &g)| {
+                input
+                    .get(Index::of(u32::try_from(k).unwrap_or(u32::MAX)))
+                    .is_some_and(|off| covers(off, g))
+            }))
+        }
+        _ => Some(false),
+    }
 }

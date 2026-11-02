@@ -70,6 +70,8 @@ mod gsub;
 pub mod gvar;
 mod hvar;
 mod ignorable;
+mod indic;
+mod indic_data;
 pub mod ivs;
 mod layout;
 mod morx;
@@ -82,6 +84,7 @@ mod script_data;
 mod shape;
 mod standard_encoding;
 mod stroke;
+mod syllabic;
 pub mod var;
 
 pub use bake::{BakePoint, Refused, bake};
@@ -110,10 +113,11 @@ pub use outline::{Drawn, Flex, FlexDrawn, Sink, Transform};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
 pub use script::{Bracket, Direction, Pair, PerScript, RunText, Script, Unresolved, resolve};
 pub use shape::{
-    CombiningClass, Kept, MarkPlacement, Normalised, Shaped, Shaper, Substitution, combining_class,
-    decompose, each_decomposable, joined_reach, keeps_its_cells,
+    CombiningClass, Engine, Kept, MarkPlacement, Normalised, Shaped, Shaper, Substitution,
+    combining_class, decompose, each_decomposable, joined_reach, keeps_its_cells,
 };
 pub use stroke::{Edges, MITER_LIMIT, Reach, Stroker};
+pub use syllabic::{Category, Formed, Masks, Position, Syllabic, Syllable};
 
 /// A four-byte table tag, as the directory spells it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

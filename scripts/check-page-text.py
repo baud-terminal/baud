@@ -99,7 +99,7 @@ NOT_PAGES = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf")
 FLOOR = 1024
 # The page entries on 2026-11-01. A scope that matches fewer has stopped
 # matching; lower it only when an entry is removed.
-AT_LEAST = 57
+AT_LEAST = 59
 EMPTY = hashlib.sha256(b"").hexdigest()
 
 CONTROL = {
@@ -109,6 +109,8 @@ CONTROL = {
     "ms-opentype-chapter2": "Applications may process script-neutral characters together with",
     "ms-opentype-gpos-2026-10-23": "If valueFormat2 is set to 0, then the second glyph of the pair",
     "ms-itaskbarlist3-setprogressstate": "the window with the least progress is used",
+    "ms-devanagari-script-development": "Shaping engine implementations may vary somewhat with regard to what sequences are or are not considered valid",
+    "ms-opentype-features-ae": "This feature needs to be implemented prior to any other feature",
 }
 
 SKIP = {"nav", "button", "script", "style", "template"}

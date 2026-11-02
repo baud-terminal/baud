@@ -32,12 +32,14 @@ use crate::compose::{CCC, COMPOSE, DECOMPOSE};
 use crate::face::Face;
 use crate::forms::{lam_alef_form, presentation_form};
 use crate::glyf::VarPoint;
-use crate::gpos::Gpos;
-use crate::layout::{Digest, Features};
+use crate::gpos::{Gpos, MarkAdvance};
+use crate::indic;
+use crate::layout::{Digest, FeatureTag, Features};
 use crate::morx::Whole;
 use crate::outline::Drawn;
 use crate::raster::{Bounds, InkBox};
 use crate::script::{Direction, RunText, Script};
+use crate::syllabic::Syllabic;
 use baud_domain::{Codepoint, GlyphId, JoiningForm, LamAlef, takes_form};
 
 /// Hangul syllables compose by arithmetic
@@ -351,6 +353,22 @@ const HEBREW_PLACEMENT: [CombiningClass; 17] = [
     ccc::ABOVE,          // 26 point varika
 ];
 
+/// **The positioning features of an Indic run**: the specification's
+/// "kern", "dist", "abvm" and "blwm" (`[[source:
+/// ms-devanagari-script-development]]`, Positioning features), with `mark`
+/// and `mkmk`, which every run is positioned with. `kern` here is within a
+/// cell: an advance moves only the glyphs after it in its cluster, and a
+/// syllable is one cell, so it spaces "post- or pre-base elements and the
+/// base glyph" and never two cells.
+const INDIC_POSITIONING: [FeatureTag; 6] = [
+    FeatureTag::KERN,
+    FeatureTag::DIST,
+    FeatureTag::ABVM,
+    FeatureTag::BLWM,
+    FeatureTag::MARK,
+    FeatureTag::MKMK,
+];
+
 /// How many codepoints one cluster may hand the shaper: a base and the
 /// attachments the core stores, with room for a decomposition.
 const CLUSTER_MAX: usize = 16;
@@ -646,6 +664,9 @@ impl<'f, 'a> Normalised<'f, 'a> {
     /// `cps` -- a base followed by its attachments, at most `CLUSTER_MAX` of
     /// them read -- normalised for `face`.
     pub fn of(face: &'f Face<'a>, cps: &[Codepoint]) -> Normalised<'f, 'a> {
+        if cps.first().is_some_and(|&c| indic::is_indic(c)) {
+            return Normalised::indic(face, cps);
+        }
         // A character the face lacks comes apart only into parts it has,
         // as HarfBuzz's `decompose` takes it: each level's mark mapped, its
         // first part mapped or coming apart the same way. Otherwise it
@@ -708,6 +729,91 @@ impl<'f, 'a> Normalised<'f, 'a> {
             seq: out.cps,
             len: out.len,
         }
+    }
+
+    /// **A cluster of a script an Indic shaper takes, normalised as that
+    /// shaper does**: every character taken apart all the way where the face
+    /// has the parts, whether or not it has the character -- U+0958 QA is
+    /// KA and NUKTA, which the face's `nukt` forms -- then put in canonical
+    /// order and composed back where the face has the composite, a mark
+    /// onto a letter and never onto another mark. U+0931 stays whole.
+    /// HarfBuzz's Indic normalisation, which never takes the short path of
+    /// keeping a character the face maps (`[[source:
+    /// harfbuzz-14-5-1-shape-normalize]]`, its mode
+    /// `COMPOSED_DIACRITICS_NO_SHORT_CIRCUIT`, and `decompose_indic()` and
+    /// `compose_indic()` in `[[source: harfbuzz-14-5-1-shaper-indic]]`). The
+    /// specification asks for its result: "The input context for the nukt
+    /// feature always consists of the full form of the consonant"
+    /// (`[[source: ms-devanagari-script-development]]`, Nukta). The
+    /// composites are canonically equivalent to their parts
+    /// (`[[source: unicode-ch3]]` D70), so the text is unchanged.
+    fn indic(face: &'f Face<'a>, cps: &[Codepoint]) -> Normalised<'f, 'a> {
+        let has = |x: Codepoint| face.glyph(x).is_some();
+        let mut seq = Seq::empty();
+        for &c in cps.iter().take(CLUSTER_MAX) {
+            let mut parts = Seq::empty();
+            match Normalised::indic_parts(&has, c, &mut parts) {
+                Some(()) => parts.as_slice().iter().for_each(|&p| seq.push(p)),
+                None => seq.push(c),
+            }
+        }
+        if seq.len.slot() < 2 {
+            return Normalised {
+                face,
+                seq: seq.cps,
+                len: seq.len,
+            };
+        }
+        seq.order(combining_class);
+        // A mark composes onto the letter before it; a letter never
+        // composes with the letter before it, and nothing composes onto a
+        // mark ("Avoid recomposing split matras").
+        let is_mark = |c: Codepoint| {
+            use crate::syllabic::Category as C;
+            matches!(
+                Syllabic::of(c).category,
+                C::M | C::MPST | C::SM | C::SMPST | C::N | C::H | C::A | C::RS | C::CM
+            ) || combining_class(c) != CombiningClass::STARTER
+        };
+        let forms = |a: Codepoint, b: Codepoint| match is_mark(a) || !is_mark(b) {
+            true => None,
+            false => compose(a, b),
+        };
+        let out = seq.composed(forms, combining_class, |composed| {
+            face.glyph(composed).is_some()
+        });
+        Normalised {
+            face,
+            seq: out.cps,
+            len: out.len,
+        }
+    }
+
+    /// `c` taken apart all the way onto `out` where the face whose `cmap`
+    /// answers `has` maps every part: each level's second part must be
+    /// mapped, and its first is taken apart again where it can be and kept
+    /// where the face maps it. `None`, with nothing pushed, where it cannot
+    /// come apart so -- and for U+0931 RRA, which HarfBuzz keeps whole.
+    fn indic_parts(has: &impl Fn(Codepoint) -> bool, c: Codepoint, out: &mut Seq) -> Option<()> {
+        if c.value() == 0x0931 {
+            return None;
+        }
+        let (a, b) = decompose(c)?;
+        if b.is_some_and(|b| !has(b)) {
+            return None;
+        }
+        let mut inner = Seq::empty();
+        if Normalised::indic_parts(has, a, &mut inner).is_some() {
+            inner.as_slice().iter().for_each(|&p| out.push(p));
+        } else if has(a) {
+            out.push(a);
+        } else {
+            return None;
+        }
+        if let Some(b) = b {
+            out.push(b);
+        }
+        Some(())
     }
 
     /// `cps` in Normalization Form C (`[[source: unicode18-ch3]]` 3.11):
@@ -868,6 +974,32 @@ impl Kept {
     }
 }
 
+/// **Which engine shapes text in a script on a face**: the simple one,
+/// which substitutes and positions a run as it stands, or the Indic one,
+/// which finds each syllable, reorders it and applies the Indic features in
+/// their stages ([`crate::indic`]). Devanagari on a face whose `GSUB` gives
+/// it a table of its own, or none at all, is Indic; on a face that gives it
+/// only `DFLT` or `latn`, or that shapes through `morx`, it is simple, as
+/// it is in HarfBuzz (`[[source: harfbuzz-14-5-1-shaper]]`). A renderer
+/// that shapes two scripts alike when they select the same lookups asks
+/// this too, since an Indic run differs from a simple one with the same
+/// lookups.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Engine {
+    Simple,
+    Indic,
+}
+
+impl Engine {
+    /// The engine text in `script` is shaped with on `face`.
+    pub fn of(face: &Face<'_>, script: Script) -> Engine {
+        match indic::takes(face, script) {
+            true => Engine::Indic,
+            false => Engine::Simple,
+        }
+    }
+}
+
 /// How a run's marks are placed on a face: by the lookups of its `GPOS`,
 /// or, with none to run, by the fallback that places a mark against its
 /// base's box.
@@ -918,6 +1050,12 @@ pub struct Shaper<'f, 'a, 'b> {
     /// run with none is substituted as it was before forms existed, and
     /// asks nothing.
     forms: Option<Forms>,
+    /// The vowel sequences the Unicode Standard says not to use, as the
+    /// run's characters arrive ([`indic::Vowels`]), and whether this face
+    /// shapes Devanagari through the Indic engine, asked at the first
+    /// Devanagari character.
+    vowels: indic::Vowels,
+    devanagari: Option<bool>,
 }
 
 impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
@@ -932,6 +1070,8 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             ink_need: Count::ZERO,
             run: RunText::EMPTY,
             forms: None,
+            vowels: indic::Vowels::default(),
+            devanagari: None,
         }
     }
 
@@ -1011,6 +1151,16 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         self.push(cps, cell, Some(form))
     }
 
+    /// Whether `c` is Devanagari on a face that shapes it through the Indic
+    /// engine, which alone checks its vowel sequences.
+    fn devanagari(&mut self, c: Codepoint) -> bool {
+        let script = Script::of(c);
+        script.code() == *b"Deva"
+            && *self
+                .devanagari
+                .get_or_insert_with(|| indic::takes(self.face, script))
+    }
+
     /// Whether a cluster pushed so far has a base that takes a joining form
     /// (Joining_Type D, R or L): what a caller shapes the run's joining
     /// features for, and the run is substituted with them.
@@ -1069,6 +1219,22 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
                 self.forms.get_or_insert(Forms::NONE).set(cell, f);
             }
             glyph.ccc = combining_class(c);
+            glyph.syllabic = Syllabic::of(c);
+            // A dotted circle goes before a sign that would make a vowel
+            // letter of the one before it (`indic::Vowels`), in this cell.
+            if self.vowels.before(c) && self.devanagari(c) {
+                let circle = Codepoint::from_char('\u{25CC}');
+                let mut dotted = Glyph::new(self.glyph_of(circle), cell, Ignorable::No);
+                dotted.attached = glyph.attached;
+                dotted.class = self.face.gdef().class(dotted.id);
+                dotted.syllabic = Syllabic::of(circle);
+                if self.buf.push(dotted).is_none() {
+                    while self.buf.len().value() > start.value() {
+                        self.buf.remove(self.buf.len().as_index().prev()?);
+                    }
+                    return None;
+                }
+            }
             // A face with `GDEF` classes names its marks; without them
             // HarfBuzz synthesises the class from Unicode, and so does
             // baud -- a default-ignorable is never a mark.
@@ -1160,10 +1326,11 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
     /// out, so a glyph that advances nothing stays on its base rather than
     /// a cell to its right. Hidden ignorables and marks advance nothing, as
     /// HarfBuzz zeroes them by `GDEF` class.
-    fn pen_pass(&mut self, gpos: Option<&Gpos<'_>>, direction: Direction) {
+    fn pen_pass(&mut self, gpos: Option<&Gpos<'_>>, direction: Direction, marks: MarkAdvance) {
         // With no `GPOS` the fallback zeroes every classed mark it places,
-        // whatever `GDEF` calls the glyph.
+        // whatever `GDEF` calls the glyph. An Indic run zeroes neither.
         let no_gpos = gpos.is_none();
+        let zeroing = marks == MarkAdvance::Zeroed;
         let mut pen = 0i32;
         let mut cluster: Option<Cluster> = None;
         let mut at = crate::bytes::Index::ZERO;
@@ -1174,8 +1341,8 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
                 pen = 0;
             }
             let zeroed = g.ignorable == Ignorable::Yes
-                || g.mark == Mark::Yes
-                || (no_gpos && g.ccc != CombiningClass::STARTER);
+                || (zeroing
+                    && (g.mark == Mark::Yes || (no_gpos && g.ccc != CombiningClass::STARTER)));
             let advance = if zeroed {
                 0
             } else {
@@ -1248,7 +1415,15 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         // [`Substitution::of`] says: `morx` on a face with no `GSUB`, and on
         // one carrying both whose `morx` baud runs whole.
         let through_morx = shapes_through_morx(self.face);
+        // A script an Indic shaper takes, on a face that does not give it
+        // only `DFLT`: reordered and substituted in the Indic engine's
+        // stages ([`indic::substitute`]).
+        let plan = indic::Plan::new(self.face, script);
         let mut declined = match (self.face.gsub(), self.face.morx()) {
+            _ if plan.is_some() => match &plan {
+                Some(p) => indic::substitute(p, &mut self.buf, features, self.digests),
+                None => Count::ZERO,
+            },
             (_, Some(morx)) if through_morx => {
                 // `morx` writes ids without classes; the positioning
                 // filters read them, so they are read again once here.
@@ -1271,16 +1446,34 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         {
             self.presentation_lam_alef();
         }
-        let gpos = match MarkPlacement::of(self.face, script) {
-            MarkPlacement::Gpos => self.face.gpos(),
-            MarkPlacement::Fallback => None,
+        // An Indic run is positioned by its face's `GPOS` alone, its marks'
+        // advances kept: HarfBuzz's Indic shaper neither places marks by
+        // fallback nor zeroes their advances
+        // (`[[source: harfbuzz-14-5-1-shaper-indic]]`).
+        let marks = match plan {
+            Some(_) => MarkAdvance::Kept,
+            None => MarkAdvance::Zeroed,
+        };
+        let gpos = match (&plan, MarkPlacement::of(self.face, script)) {
+            (Some(_), _) | (None, MarkPlacement::Gpos) => self.face.gpos(),
+            (None, MarkPlacement::Fallback) => None,
         };
         // The run's direction: its script's, unless a right-to-left run on
         // a `morx` face holds numbers and no letter ([`RunText`]).
         let direction = self.run.direction(script);
-        self.pen_pass(gpos, direction);
-        match gpos {
-            Some(gpos) => {
+        self.pen_pass(gpos, direction, marks);
+        match (gpos, &plan) {
+            (Some(gpos), Some(_)) => {
+                let d = gpos.apply_where(
+                    &mut self.buf,
+                    script,
+                    (direction, marks),
+                    |t| INDIC_POSITIONING.contains(&t),
+                    self.face.coords(),
+                );
+                declined = Count::of(declined.value().saturating_add(d.value()));
+            }
+            (Some(gpos), None) => {
                 let d = gpos.apply(
                     &mut self.buf,
                     script,
@@ -1290,7 +1483,8 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
                 );
                 declined = Count::of(declined.value().saturating_add(d.value()));
             }
-            None => self.fallback_marks(),
+            (None, None) => self.fallback_marks(),
+            (None, Some(_)) => {}
         }
         // Default-ignorables that no lookup consumed become the space glyph,
         // as HarfBuzz leaves them; a renderer draws nothing for them either

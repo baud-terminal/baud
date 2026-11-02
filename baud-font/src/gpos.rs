@@ -177,6 +177,35 @@ impl<'a> Gpos<'a> {
         features: Features,
         coords: &Coords,
     ) -> Count {
+        let set = self.layout.lookups_for(script, features);
+        self.apply_set(buf, &set, (direction, MarkAdvance::Zeroed), coords)
+    }
+
+    /// [`Gpos::apply`] for the features `wanted` accepts, the language
+    /// system's required feature with them, and marks advancing as `marks`
+    /// says: what a syllabic shaper positions with.
+    pub(crate) fn apply_where(
+        &self,
+        buf: &mut Buffer<'_>,
+        script: Script,
+        (direction, marks): (Direction, MarkAdvance),
+        wanted: impl Fn(FeatureTag) -> bool,
+        coords: &Coords,
+    ) -> Count {
+        let set = self
+            .layout
+            .lookups_where(script, crate::layout::Required::Added, wanted);
+        self.apply_set(buf, &set, (direction, marks), coords)
+    }
+
+    /// Every lookup of `set`, in lookup order.
+    fn apply_set(
+        &self,
+        buf: &mut Buffer<'_>,
+        set: &LookupSet,
+        (direction, marks): (Direction, MarkAdvance),
+        coords: &Coords,
+    ) -> Count {
         let run = Run {
             gpos: self,
             vary: Vary {
@@ -184,8 +213,8 @@ impl<'a> Gpos<'a> {
                 coords,
             },
             direction,
+            marks,
         };
-        let set = self.layout.lookups_for(script, features);
         for i in set.iter() {
             let Some(lookup) = self.layout.lookup(i) else {
                 continue;
@@ -450,6 +479,18 @@ struct Run<'g, 'v, 'a> {
     gpos: &'g Gpos<'a>,
     vary: Vary<'v, 'a>,
     direction: Direction,
+    marks: MarkAdvance,
+}
+
+/// Whether a mark's advance is spent before anything reads it, as
+/// HarfBuzz zeroes a mark's advance by `GDEF` for most scripts, or kept,
+/// as its Indic shaper keeps every advance the face gives
+/// (`[[source: harfbuzz-14-5-1-shaper-indic]]`,
+/// `HB_OT_SHAPE_ZERO_WIDTH_MARKS_NONE`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum MarkAdvance {
+    Zeroed,
+    Kept,
 }
 
 impl<'a> Nested<'a> for Run<'_, '_, 'a> {
@@ -459,6 +500,7 @@ impl<'a> Nested<'a> for Run<'_, '_, 'a> {
         buf: &mut Buffer<'_>,
         pos: Index,
         depth: Depth,
+        _stage: Option<crate::layout::Stage>,
     ) -> Option<Applied> {
         let lookup = self.gpos.layout.lookup(lookup)?;
         self.apply_at(&lookup, buf, pos, depth)
@@ -610,7 +652,8 @@ impl<'a> Run<'_, '_, 'a> {
         g.dx = g.dx.saturating_add(v.dx);
         g.dy = g.dy.saturating_add(v.dy);
         // What advances nothing has no advance to change.
-        if v.advance == 0 || g.mark == Mark::Yes || g.ignorable == Ignorable::Yes {
+        let zeroed = self.marks == MarkAdvance::Zeroed && g.mark == Mark::Yes;
+        if v.advance == 0 || zeroed || g.ignorable == Ignorable::Yes {
             return;
         }
         let (cluster, first) = (g.cluster, g.attached == crate::buffer::Attached::No);

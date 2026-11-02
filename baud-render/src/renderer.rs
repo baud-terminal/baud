@@ -41,9 +41,9 @@ use baud_domain::{
 };
 use baud_font::bytes::Count;
 use baud_font::{
-    Cluster, Digest as LookupDigest, Direction, Face, Features, Glyph, Ignorable, LookupSet,
-    MAX_LOOKUPS, MarkPlacement, Normalised, PerScript, Phase, Px, Scale, Script, ScriptTag, Shaper,
-    Substitution, Unresolved, VarPoint, Walked,
+    Cluster, Digest as LookupDigest, Direction, Engine, Face, Features, Glyph, Ignorable,
+    LookupSet, MAX_LOOKUPS, MarkPlacement, Normalised, PerScript, Phase, Px, Scale, Script,
+    ScriptTag, Shaper, Substitution, Unresolved, VarPoint, Walked,
 };
 use std::time::{Duration, Instant};
 
@@ -838,11 +838,11 @@ impl PairSpan {
     }
 }
 
-/// Which lookups a script selects on one face, how they place its marks
-/// and which way it runs, numbered: two scripts with the same number shape
-/// alike there, since those are all a script changes in baud's shaper, so a
-/// run may cross between them. A run is cut only where this changes, not
-/// wherever the script does.
+/// Which lookups a script selects on one face, how they place its marks,
+/// which engine shapes it ([`Engine`]) and which way it runs, numbered: two
+/// scripts with the same number shape alike there, since those are all a
+/// script changes in baud's shaper, so a run may cross between them. A run
+/// is cut only where this changes, not wherever the script does.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 struct Selection(u8);
 
@@ -866,16 +866,18 @@ struct Selections {
 
 impl Selections {
     /// The `GSUB` and `GPOS` lookups each script selects on `face` under
-    /// the grid features, how its marks are placed ([`MarkPlacement`]) and its
-    /// direction, numbered by first appearance. The lookups are gathered
+    /// the grid features, how its marks are placed ([`MarkPlacement`]), the
+    /// engine that shapes it ([`Engine`]: Devanagari on a face with a
+    /// Devanagari table is reordered, whatever lookups the grid features
+    /// name) and its direction, numbered by first appearance. The lookups are gathered
     /// once per pair of Script tables chosen with a placement, not once per
     /// script: a face lists a handful of tables, and 175 scripts share
     /// them. A face varies when the lookups or the placement do; direction
     /// alone does not make it vary, so a face whose scripts all select
     /// alike keeps shaping every run as Common.
     fn of(face: &Face<'_>) -> Selections {
-        type Chosen = (Option<ScriptTag>, Option<ScriptTag>, MarkPlacement);
-        type Shaping = (Option<LookupSet>, Option<LookupSet>, MarkPlacement);
+        type Chosen = (Option<ScriptTag>, Option<ScriptTag>, MarkPlacement, Engine);
+        type Shaping = (Option<LookupSet>, Option<LookupSet>, MarkPlacement, Engine);
         let mut tables: Vec<(Chosen, usize)> = Vec::new();
         let mut seen: Vec<Shaping> = Vec::new();
         let mut numbered: Vec<(usize, Direction)> = Vec::new();
@@ -884,6 +886,7 @@ impl Selections {
                 face.gsub().and_then(|g| g.chosen(s)),
                 face.gpos().and_then(|g| g.chosen(s)),
                 MarkPlacement::of(face, s),
+                Engine::of(face, s),
             );
             let i = match tables.iter().find(|(c, _)| *c == chosen) {
                 Some(&(_, i)) => i,
@@ -892,6 +895,7 @@ impl Selections {
                         face.gsub().map(|g| g.lookups(s, Features::JOINING)),
                         face.gpos().map(|g| g.lookups(s, Features::JOINING)),
                         chosen.2,
+                        chosen.3,
                     );
                     let i = match seen.iter().position(|k| *k == key) {
                         Some(i) => i,

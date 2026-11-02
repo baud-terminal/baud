@@ -79,6 +79,27 @@ impl FeatureTag {
     pub const FIN3: FeatureTag = FeatureTag(*b"fin3");
     pub const MED2: FeatureTag = FeatureTag(*b"med2");
     pub const RCLT: FeatureTag = FeatureTag(*b"rclt");
+    pub const LOCL: FeatureTag = FeatureTag(*b"locl");
+    pub const NUKT: FeatureTag = FeatureTag(*b"nukt");
+    pub const AKHN: FeatureTag = FeatureTag(*b"akhn");
+    pub const RPHF: FeatureTag = FeatureTag(*b"rphf");
+    pub const RKRF: FeatureTag = FeatureTag(*b"rkrf");
+    pub const PREF: FeatureTag = FeatureTag(*b"pref");
+    pub const BLWF: FeatureTag = FeatureTag(*b"blwf");
+    pub const ABVF: FeatureTag = FeatureTag(*b"abvf");
+    pub const HALF: FeatureTag = FeatureTag(*b"half");
+    pub const PSTF: FeatureTag = FeatureTag(*b"pstf");
+    pub const VATU: FeatureTag = FeatureTag(*b"vatu");
+    pub const CJCT: FeatureTag = FeatureTag(*b"cjct");
+    pub const PRES: FeatureTag = FeatureTag(*b"pres");
+    pub const ABVS: FeatureTag = FeatureTag(*b"abvs");
+    pub const BLWS: FeatureTag = FeatureTag(*b"blws");
+    pub const PSTS: FeatureTag = FeatureTag(*b"psts");
+    pub const HALN: FeatureTag = FeatureTag(*b"haln");
+    pub const ABVM: FeatureTag = FeatureTag(*b"abvm");
+    pub const BLWM: FeatureTag = FeatureTag(*b"blwm");
+    pub const DIST: FeatureTag = FeatureTag(*b"dist");
+    pub const KERN: FeatureTag = FeatureTag(*b"kern");
 
     /// The feature that draws a joining letter in `form`: OpenType's names
     /// for the Unicode Standard's Xn, Xr, Xm and Xl in a right-to-left run,
@@ -601,6 +622,42 @@ pub struct Filter<'a> {
     gdef: Gdef<'a>,
     flags: LookupFlags,
     mark_set: Option<Index>,
+    /// The syllabic shaper's stage this lookup runs in, if it runs in one
+    /// ([`Stage`]); none for every other run.
+    pub(crate) stage: Option<Stage>,
+}
+
+/// **How a lookup matches in a syllabic shaper's stage**: the masks its
+/// features name, whether it matches within one syllable, and whether the
+/// joiners are skipped. HarfBuzz's matcher in the same terms
+/// (`[[source: harfbuzz-14-5-1-gsubgpos]]`, `matcher_t`): a glyph of the
+/// input sequence must carry one of the masks, every glyph matched must be
+/// in the first one's syllable, and ZWNJ is never skipped in the input nor
+/// ZWJ where the joiners are manual, while the context skips ZWJ always and
+/// ZWNJ where they are not. The Indic features are all manual: "the
+/// presence of ZWJ will prevent GSUB substitution lookups from matching the
+/// input glyph sequence" (`[[source: ms-devanagari-script-development]]`,
+/// Effect of ZWJ, ZWNJ and NBSP on Consonant Shaping).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Stage {
+    pub(crate) masks: crate::syllabic::Masks,
+    pub(crate) syllables: PerSyllable,
+    pub(crate) joiners: Joiners,
+}
+
+/// Whether a lookup matches within its first glyph's syllable only.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PerSyllable {
+    Yes,
+    No,
+}
+
+/// Whether ZWJ and ZWNJ are skipped where a pattern does not name them, as
+/// a default-ignorable is (`Auto`), or must be named (`Manual`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Joiners {
+    Auto,
+    Manual,
 }
 
 impl Filter<'_> {
@@ -635,6 +692,7 @@ pub struct Kind(u16);
 impl Kind {
     pub const SINGLE: Kind = Kind(1);
     pub const MULTIPLE: Kind = Kind(2);
+    pub const ALTERNATE: Kind = Kind(3);
     pub const CONTEXT: Kind = Kind(5);
     pub const REVERSE: Kind = Kind(8);
     pub const LIGATURE: Kind = Kind(4);
@@ -658,6 +716,12 @@ pub struct Lookup<'a> {
 }
 
 impl<'a> Lookup<'a> {
+    /// This lookup run in a syllabic shaper's `stage`.
+    pub(crate) fn staged(mut self, stage: Option<Stage>) -> Lookup<'a> {
+        self.filter.stage = stage;
+        self
+    }
+
     pub fn subtable_count(&self) -> Count {
         self.subtables.count()
     }
@@ -808,6 +872,29 @@ impl LookupSet {
         self.declined
     }
 
+    /// The set naming no lookup.
+    pub(crate) fn empty() -> LookupSet {
+        LookupSet::EMPTY
+    }
+
+    /// Whether lookup `i` is in the set.
+    pub(crate) fn contains(&self, i: Index) -> bool {
+        let i = i.slot();
+        self.bits
+            .get(i / 64)
+            .is_some_and(|w| w & (1u64 << (i % 64)) != 0)
+    }
+
+    /// The lookups either set names, and both sets' declined.
+    pub(crate) fn union(&self, o: &LookupSet) -> LookupSet {
+        let mut out = self.clone();
+        for (a, b) in out.bits.iter_mut().zip(o.bits.iter()) {
+            *a |= *b;
+        }
+        out.declined = Count::of(self.declined.value().saturating_add(o.declined.value()));
+        out
+    }
+
     fn insert(&mut self, i: Index) {
         let i = i.slot();
         match self.bits.get_mut(i / 64) {
@@ -915,6 +1002,11 @@ impl<'a> Layout<'a> {
     /// a pair prefilter or a context width must cover, since each is a
     /// property of a lookup and holds whatever script selected it.
     pub fn lookups_any(&self, wanted: Features) -> LookupSet {
+        self.lookups_any_where(|t| wanted.wants(t))
+    }
+
+    /// [`Layout::lookups_any`] for the features `wanted` accepts.
+    pub(crate) fn lookups_any_where(&self, wanted: impl Fn(FeatureTag) -> bool) -> LookupSet {
         let mut set = LookupSet::EMPTY;
         let Some(scripts) = Layout::records(self.scripts) else {
             return set;
@@ -922,7 +1014,7 @@ impl<'a> Layout<'a> {
         let mut k = Index::ZERO;
         while let Some(r) = scripts.get(k) {
             if let Some(lang) = self.default_lang_sys(r.offset) {
-                self.add_lang_sys(lang, Required::Added, |t| wanted.wants(t), &mut set);
+                self.add_lang_sys(lang, Required::Added, &wanted, &mut set);
             }
             k = k.next();
         }
@@ -1022,6 +1114,7 @@ impl<'a> Layout<'a> {
                 gdef: self.gdef,
                 flags,
                 mark_set,
+                stage: None,
             },
             table,
             subtables,

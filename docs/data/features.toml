@@ -631,6 +631,16 @@ tests = ["baud-font/tests/shape.rs::every_hebrew_face_fixture_shapes_as_harfbuzz
 shipped = ["B1-13"]
 
 [[feature]]
+id = "devanagari-shaped"
+area = "text"
+name = "Hindi and Devanagari shaped"
+does = "Hindi and the other languages written in Devanagari draw as the script is written: the vowel sign ि before the consonant it follows in the text, conjuncts such as क्ष, त्र and ज्ञ as one shape, half forms, reph over the consonant after it, and the nukta letters, glyph for glyph as HarfBuzz shapes them, in Noto Sans Devanagari and in the Mac's Kohinoor Devanagari, ITF Devanagari, Shree Devanagari 714 and Arial Unicode MS."
+status = "partial"
+gap = "a syllable takes one cell and is drawn at its font's size, so one wider than its cell, such as ग्रि, overlaps the cell after it; Devanagari MT and Devanagari Sangam MN, which HarfBuzz shapes through their morx tables, do not draw glyph for glyph as it does; a language's own forms, such as Marathi's or Nepali's, are not chosen; the comparison with HarfBuzz runs on macOS, where those faces are; Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada and Malayalam stay together in their cells but are not shaped yet."
+platform = "both"
+tests = ["baud-font/tests/devanagari.rs::every_devanagari_fixture_shapes_as_harfbuzz_does"]
+
+[[feature]]
 id = "system-fallback"
 area = "text"
 name = "Every script, from your Mac's fonts"

@@ -11,12 +11,13 @@ Tables generated from the Unicode Character Database and Unicode's emoji
 data files: grapheme clusters, widths, canonical composition,
 default-ignorable code points, bidirectional classes and brackets, cursive
 joining and the Arabic presentation forms, line breaking, emoji
-presentation, case folding and decomposition, scripts, and the named emoji
-sequences. The OpenType script tags beside the scripts are identifiers from
-Microsoft's registry and carry no licence. Where such a table sits in a file
-with other code, only its marked generated block is generated
-  Files:   src/compose.rs, src/ignorable.rs, src/presentation.rs,
-           src/script_data.rs
+presentation, case folding and decomposition, scripts, the Indic syllabic
+and positional categories, and the named emoji sequences. The OpenType
+script tags beside the scripts are identifiers from Microsoft's registry and
+carry no licence. Where such a table sits in a file with other code, only
+its marked generated block is generated
+  Files:   src/compose.rs, src/ignorable.rs, src/indic_data.rs,
+           src/presentation.rs, src/script_data.rs
   Holder:  Unicode, Inc.
   Licence: Unicode-3.0
   Notice:  LICENSES/Unicode-3.0.txt
@@ -24,13 +25,17 @@ with other code, only its marked generated block is generated
   From:    https://www.unicode.org/Public/
 
 Code transcribed from HarfBuzz (12.3.0, commit 64e2b53 for morx.rs and
-shape.rs, and 10.2.0 for layout.rs): morx.rs's extended state machine and
-its subtables; gvar.rs's delta application and its packed point and delta
-readers; ivs.rs's region scalar; shape.rs's fallback mark placement and its
-Hebrew tables; re-expressed, glyf.rs's phantom-point walk; and layout.rs's
-glyph-set digest
-  Files:   src/glyf.rs, src/gvar.rs, src/ivs.rs, src/layout.rs, src/morx.rs,
-           src/shape.rs
+shape.rs, 10.2.0 for layout.rs, and 14.5.1 for indic.rs, syllabic.rs and
+indic_data.rs): morx.rs's extended state machine and its subtables;
+gvar.rs's delta application and its packed point and delta readers; ivs.rs's
+region scalar; shape.rs's fallback mark placement and its Hebrew tables;
+indic.rs's Indic reordering, syllable grammar and dotted circles,
+syllabic.rs's Indic categories and positions, and indic_data.rs's mapping of
+the Unicode Indic categories to them; re-expressed, glyf.rs's phantom-point
+walk; and layout.rs's glyph-set digest
+  Files:   src/glyf.rs, src/gvar.rs, src/indic.rs, src/indic_data.rs,
+           src/ivs.rs, src/layout.rs, src/morx.rs, src/shape.rs,
+           src/syllabic.rs
   Holder:  The HarfBuzz authors its COPYING lists (Google, Red Hat, Behdad
            Esfahbod and others)
   Licence: MIT-Modern-Variant
@@ -38,7 +43,8 @@ glyph-set digest
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://github.com/harfbuzz/harfbuzz/tree/12.3.0 and
            https://github.com/harfbuzz/harfbuzz/tree/64e2b53 and
-           https://github.com/harfbuzz/harfbuzz/tree/10.2.0
+           https://github.com/harfbuzz/harfbuzz/tree/10.2.0 and
+           https://github.com/harfbuzz/harfbuzz/tree/14.5.1
 
 Code transcribed from ab_glyph_rasterizer 0.1.10, which forks font-rs:
 raster.rs's line, quadratic and cubic flattening and its coverage

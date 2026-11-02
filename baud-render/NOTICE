@@ -32,10 +32,11 @@ Tables generated from the Unicode Character Database and Unicode's emoji
 data files: grapheme clusters, widths, canonical composition,
 default-ignorable code points, bidirectional classes and brackets, cursive
 joining and the Arabic presentation forms, line breaking, emoji
-presentation, case folding and decomposition, scripts, and the named emoji
-sequences. The OpenType script tags beside the scripts are identifiers from
-Microsoft's registry and carry no licence. Where such a table sits in a file
-with other code, only its marked generated block is generated
+presentation, case folding and decomposition, scripts, the Indic syllabic
+and positional categories, and the named emoji sequences. The OpenType
+script tags beside the scripts are identifiers from Microsoft's registry and
+carry no licence. Where such a table sits in a file with other code, only
+its marked generated block is generated
   Files:   src/stress_data.rs
   Holder:  Unicode, Inc.
   Licence: Unicode-3.0

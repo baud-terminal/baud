@@ -1583,6 +1583,68 @@ bytes  = 192460
 status = "retrieved"
 group  = "G"
 
+# The Indic syllabic and positional categories, and the blocks they are read
+# within: what `scripts/gen-indic-tables.py` builds `baud-font/src/indic_data.rs`
+# from -- each character's class in a syllable and where its glyph goes.
+[sources.unicode-indicsyllabiccategory]
+key    = "unicode-indicsyllabiccategory"
+title  = "IndicSyllabicCategory.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/IndicSyllabicCategory.txt"
+file   = "unicode-indicsyllabiccategory.txt"
+sha256 = "3fc122f4cf58b0c19268d5f810263b04ab4e1e67743386ec0e0ada9c76aec5be"
+bytes  = 86695
+status = "retrieved"
+group  = "J"
+
+[sources.unicode-indicpositionalcategory]
+key    = "unicode-indicpositionalcategory"
+title  = "IndicPositionalCategory.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/IndicPositionalCategory.txt"
+file   = "unicode-indicpositionalcategory.txt"
+sha256 = "68cedc29a7e57f984d90fe2c7712f2e6d0c717e253db219607daea8997d6c480"
+bytes  = 52257
+status = "retrieved"
+group  = "J"
+
+[sources.unicode-blocks]
+key    = "unicode-blocks"
+title  = "Blocks.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/Blocks.txt"
+file   = "unicode-blocks.txt"
+sha256 = "c0edefaf1a19771e830a82735472716af6bf3c3975f6c2a23ffbe2580fbbcb15"
+bytes  = 11663
+status = "retrieved"
+group  = "J"
+
+# Devanagari's encoding model, 12.1: the orthographic syllable, a dependent
+# vowel sign stored after its consonant and the one left-side sign U+093F,
+# the virama's dead consonant, RA's reph (R2), ZWNJ's explicit virama and
+# ZWJ's explicit half form, and Table 12-1's vowel letters, each with the
+# sequences that "should not be used".
+[sources.unicode-ch12]
+key    = "unicode-ch12"
+title  = "The Unicode Standard, Version 17.0 -- Chapter 12, South and Central Asia-I"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-12/"
+file   = ""
+sha256 = "c3bd1b8dfed8fef4b605f147563a8883631dd4385a9f4335a2d06f6bbf1250c9"
+bytes  = 3477457
+status = "external"
+group  = "J"
+# Read 2026-11-02 and hash-verified; not committed -- 3.5 MB of HTML.
+# Re-fetch at the pinned url and compare the sha256.
+
 [sources.unicode-scriptextensions]
 key    = "unicode-scriptextensions"
 title  = "ScriptExtensions.txt, Unicode Character Database 17.0.0"
@@ -3347,6 +3409,47 @@ group  = "J"
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2022-06-09, is before it was read.
 
+[sources.ms-devanagari-script-development]
+key    = "ms-devanagari-script-development"
+title  = "Developing OpenType Fonts for Devanagari Script"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "learn.microsoft.com, script development specifications"
+url    = "https://learn.microsoft.com/en-us/typography/script-development/devanagari"
+file   = ""
+sha256 = "8eea908730f3311b134f55facf6c4e56016f1137ba7659fe413ab343b546f66c"
+bytes  = 122604
+revision    = "753a19b230326d8be08526cd5c0a632bacbd0234"
+text_sha256 = "4eeb1627ce47dd0634a69b368d7d6aa093c5df5d5915f136ed807ad0f44a3b86"
+text_bytes  = 51753
+status = "external"
+group  = "J"
+# Read 2026-11-02; not committed -- a vendor HTML page. The Indic shaping
+# engine's model: the syllable patterns, the base consonant, the reordering
+# of matras and reph, the feature order locl, nukt, akhn, rphf, rkrf, blwf,
+# half, vatu, cjct, then pres, abvs, blws, psts, haln, calt, then kern,
+# dist, abvm, blwm; and that 'dev2' is the new behaviour's tag, 'deva' the
+# old's. Its updated_at is 2022-06-24.
+
+[sources.ms-opentype-features-ae]
+key    = "ms-opentype-features-ae"
+title  = "Registered features, a-e (feature tags) -- OpenType specification"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/features_ae"
+file   = ""
+sha256 = "ce2ca30c2ec4aa65653abd241e7e3c5411ec3e8eefd4b38ac5c1db7aa3e191d1"
+bytes  = 115308
+revision    = "1062e366296d328c5100dee4ee9c83d2f8e852eb"
+text_sha256 = "4d69e3090d3b47f957a1547675c5b08d3d03c12c9b434e2f30ec9ddc836818ef"
+text_bytes  = 54289
+status = "external"
+group  = "J"
+# Read 2026-11-02; not committed -- a vendor HTML page. `ccmp`: "This
+# feature should always be applied", "Script/language sensitivity: None",
+# "This feature needs to be implemented prior to any other feature".
+
 [sources.ms-opentype-features-pt]
 key    = "ms-opentype-features-pt"
 title  = "Registered features, p - t (feature tags)"
@@ -3384,6 +3487,176 @@ group  = "J"
 # Read as reference, 2026-10-25, at the version of the hb-shape the
 # fixtures are made with; not committed -- a source file at a pinned tag.
 # The same bytes note AB read at 4dd9449.
+
+[sources.harfbuzz-14-5-1-shaper-indic]
+key    = "harfbuzz-14-5-1-shaper-indic"
+title  = "hb-ot-shaper-indic.cc -- the Indic shaper: base consonant, initial and final reordering, masks, its feature stages"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-indic.cc"
+file   = ""
+sha256 = "0719571197291360e2e3d3facb8002bd3503ae2c1b585271af8f0f7f24536bf0"
+bytes  = 51073
+status = "external"
+group  = "J"
+# Read as reference 2026-11-02, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. Practice, not the text: where it and the Devanagari
+# specification differ, baud-font/src/indic.rs names the departure.
+
+[sources.harfbuzz-14-5-1-shaper-indic-machine]
+key    = "harfbuzz-14-5-1-shaper-indic-machine"
+title  = "hb-ot-shaper-indic-machine.rl -- the Indic syllable grammar"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-indic-machine.rl"
+file   = ""
+sha256 = "85330b07abacb3aee2243f5c1ace4bf4a257c2d32dd5863949e2f4869371e988"
+bytes  = 4399
+status = "external"
+group  = "J"
+# Read as reference 2026-11-02, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. Practice, not the text: where it and the Devanagari
+# specification differ, baud-font/src/indic.rs names the departure.
+
+[sources.harfbuzz-14-5-1-shaper-indic-h]
+key    = "harfbuzz-14-5-1-shaper-indic-h"
+title  = "hb-ot-shaper-indic.hh -- the Indic positions"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-indic.hh"
+file   = ""
+sha256 = "3c6ddb7bc92ac5d641ba1b0206b091e40b0e8f41569f97704a7a6d8eac47d405"
+bytes  = 1717
+status = "external"
+group  = "J"
+# Read as reference 2026-11-02, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. Practice, not the text: where it and the Devanagari
+# specification differ, baud-font/src/indic.rs names the departure.
+
+[sources.harfbuzz-14-5-1-gen-indic-table]
+key    = "harfbuzz-14-5-1-gen-indic-table"
+title  = "gen-indic-table.py -- the mapping from Unicode's Indic categories to the shaper's"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/gen-indic-table.py"
+file   = ""
+sha256 = "641a4de0bfc725fa1106ce12e9692c34f4ec9bdcd5f130d9350dacdb532a7e53"
+bytes  = 17834
+status = "external"
+group  = "J"
+# Read as reference 2026-11-02, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. Practice, not the text: where it and the Devanagari
+# specification differ, baud-font/src/indic.rs names the departure.
+
+[sources.harfbuzz-14-5-1-shaper-syllabic]
+key    = "harfbuzz-14-5-1-shaper-syllabic"
+title  = "hb-ot-shaper-syllabic.cc -- dotted circles for a broken syllable"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-syllabic.cc"
+file   = ""
+sha256 = "09f5b4e7655231428f8463d7be2462d5e1e0486e2cdfe6aeee9c512bcf83e4c1"
+bytes  = 3533
+status = "external"
+group  = "J"
+# Read as reference 2026-11-02, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. Practice, not the text: where it and the Devanagari
+# specification differ, baud-font/src/indic.rs names the departure.
+
+[sources.harfbuzz-14-5-1-vowel-constraints]
+key    = "harfbuzz-14-5-1-vowel-constraints"
+title  = "hb-ot-shaper-vowel-constraints.cc -- a dotted circle in the vowel sequences that look like another vowel"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-vowel-constraints.cc"
+file   = ""
+sha256 = "a3c68bfd5379972163752350424dc11b966a6e080cb2a64f0a090eb9a7b20376"
+bytes  = 11269
+status = "external"
+group  = "J"
+# Read as reference 2026-11-02, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. Practice, not the text: where it and the Devanagari
+# specification differ, baud-font/src/indic.rs names the departure.
+
+[sources.harfbuzz-14-5-1-shape-normalize]
+key    = "harfbuzz-14-5-1-shape-normalize"
+title  = "hb-ot-shape-normalize.cc -- the normaliser, and its mode that never short-circuits"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shape-normalize.cc"
+file   = ""
+sha256 = "5cf41f87b8717f36d0561bbf46f4a7412d971ada0dc365d9e17be7131221a6f6"
+bytes  = 15660
+status = "external"
+group  = "J"
+# Read as reference 2026-11-02, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. Practice, not the text: where it and the Devanagari
+# specification differ, baud-font/src/indic.rs names the departure.
+
+[sources.harfbuzz-14-5-1-gsubgpos]
+key    = "harfbuzz-14-5-1-gsubgpos"
+title  = "hb-ot-layout-gsubgpos.hh -- the matcher: masks, per-syllable matching, the joiners"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-layout-gsubgpos.hh"
+file   = ""
+sha256 = "1b93c6524c3faad4ae8af9a9dc54e687f94a8a0c852501f6fbe08ec7b7ecd36c"
+bytes  = 217393
+status = "external"
+group  = "J"
+# Read as reference 2026-11-02, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. Practice, not the text: where it and the Devanagari
+# specification differ, baud-font/src/indic.rs names the departure.
+
+[sources.harfbuzz-14-5-1-shaper]
+key    = "harfbuzz-14-5-1-shaper"
+title  = "hb-ot-shaper.hh -- which shaper a script and its chosen tag get"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper.hh"
+file   = ""
+sha256 = "3eb84b0a89a8c4dbee0930e66bd071bb374d76e9f2748ac441d84e79dc34cce3"
+bytes  = 12102
+status = "external"
+group  = "J"
+# Read as reference 2026-11-02, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. Practice, not the text: where it and the Devanagari
+# specification differ, baud-font/src/indic.rs names the departure.
+
+[sources.harfbuzz-14-5-1-ot-map]
+key    = "harfbuzz-14-5-1-ot-map"
+title  = "hb-ot-map.cc -- stages, and how a lookup named by two features is merged"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-map.cc"
+file   = ""
+sha256 = "6b4b92b7f6e7af908fe179e172bb09122eb1a6ad0fe5243f9402a0c96931d869"
+bytes  = 12733
+status = "external"
+group  = "J"
+# Read as reference 2026-11-02, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. Practice, not the text: where it and the Devanagari
+# specification differ, baud-font/src/indic.rs names the departure.
 
 [sources.ms-opentype-fvar]
 key    = "ms-opentype-fvar"
@@ -14218,6 +14491,38 @@ group  = "J"
 # copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
 # The measured text is the first 757 lines of this file, sha256
 # b2ae147b7ac55d7ddcdfb2206bd6a4a081ba715ac571a647e07486fc35b30319 (Genesis 1).
+
+[sources.premchand-saptasaroj-11]
+key    = "premchand-saptasaroj-11"
+title  = "Premchand, Bade Ghar ki Beti, Saptasaroj (1917) p. 11, hi.wikisource revid 610939"
+author = "Premchand; Wikisource transcription"
+year   = 1917
+venue  = "hi.wikisource.org, action=raw"
+url    = "https://hi.wikisource.org/w/index.php?title=%E0%A4%AA%E0%A5%83%E0%A4%B7%E0%A5%8D%E0%A4%A0%3A%E0%A4%B8%E0%A4%AA%E0%A5%8D%E0%A4%A4%E0%A4%B8%E0%A4%B0%E0%A5%8B%E0%A4%9C.djvu/%E0%A5%A7%E0%A5%A7&action=raw&oldid=610939"
+file   = ""
+sha256 = "5c357de229988ff7e2502a03a2961baa4351de123024c959e89edff81003ca03"
+bytes  = 3520
+status = "external"
+group  = "J"
+# Read 2026-11-02, hash-verified, not committed. Premchand (1880-1936)
+# published the story in 1910 and this collection in 1917: in the public
+# domain in India (60 years after the author's death) and in the United
+# States (published before 1931). Pinned by oldid; the words of its text
+# are lines of baud-font/tests/shape/devanagari.txt.
+
+[sources.premchand-saptasaroj-12]
+key    = "premchand-saptasaroj-12"
+title  = "Premchand, Bade Ghar ki Beti, Saptasaroj (1917) p. 12, hi.wikisource revid 610947"
+author = "Premchand; Wikisource transcription"
+year   = 1917
+venue  = "hi.wikisource.org, action=raw"
+url    = "https://hi.wikisource.org/w/index.php?title=%E0%A4%AA%E0%A5%83%E0%A4%B7%E0%A5%8D%E0%A4%A0%3A%E0%A4%B8%E0%A4%AA%E0%A5%8D%E0%A4%A4%E0%A4%B8%E0%A4%B0%E0%A5%8B%E0%A4%9C.djvu/%E0%A5%A7%E0%A5%A8&action=raw&oldid=610947"
+file   = ""
+sha256 = "0eb29482310718fd81c53d1f8df6a73029241439b90709b74511086579a30ad3"
+bytes  = 3333
+status = "external"
+group  = "J"
+# The page after premchand-saptasaroj-11, read and pinned the same way.
 
 [sources.bialik-hachnisini]
 key    = "bialik-hachnisini"

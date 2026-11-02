@@ -27,7 +27,7 @@
 //! reports how many, and the positions after it move up. A substitution
 //! the caller's storage cannot hold is declined whole.
 
-use crate::buffer::{Attached, Buffer, Cluster, Forms, Mark};
+use crate::buffer::{Attached, Buffer, Cluster, Forms, Glyph, Mark};
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
 use crate::context::{
     Applied, Delta, Depth, Matched, Nested, Which, bump, chained, contextual, coverage_at,
@@ -35,9 +35,10 @@ use crate::context::{
 };
 use crate::layout::{
     Class, ClassDef, Coverage, Digest, Enabled, FeatureTag, Features, Filter, Gdef, Kind, Layout,
-    Lookup, LookupSet, MAX_LOOKUPS, Required, ScriptTag, Skip,
+    Lookup, LookupSet, MAX_LOOKUPS, Required, ScriptTag, Skip, Stage,
 };
 use crate::script::Script;
+use crate::syllabic::Formed;
 use baud_domain::{GlyphId, JoiningForm};
 
 /// Whether a lookup substituted anything, which is when the buffer's
@@ -205,7 +206,7 @@ impl<'a> Gsub<'a> {
                 }
             }
             if let Some(lookup) = self.layout.lookup(i) {
-                if self.apply_lookup::<MASKED>(
+                if self.apply_lookup::<MASKED, false>(
                     &lookup,
                     buf,
                     Depth::TOP,
@@ -219,6 +220,156 @@ impl<'a> Gsub<'a> {
         }
     }
 
+    /// **One stage of a syllabic shaper** ([`crate::indic`]): every lookup
+    /// of `set`, in lookup order, over the whole buffer, each run in the
+    /// [`Stage`] `stage` gives it -- its masks, whether it keeps to a
+    /// syllable, how it treats the joiners. A lookup whose stage is `None`
+    /// is not run.
+    pub(crate) fn apply_staged(
+        &self,
+        buf: &mut Buffer<'_>,
+        set: &LookupSet,
+        stage: impl Fn(Index) -> Option<Stage>,
+        digests: &[Digest],
+    ) {
+        let mut have = Gsub::buffer_digest(buf);
+        for i in set.iter() {
+            if let Some(d) = digests.get(i.slot()) {
+                if !d.may_have(have) {
+                    continue;
+                }
+            }
+            let Some(st) = stage(i) else {
+                continue;
+            };
+            if let Some(lookup) = self.layout.lookup(i) {
+                let lookup = lookup.staged(Some(st));
+                if self.apply_lookup::<false, true>(
+                    &lookup,
+                    buf,
+                    Depth::TOP,
+                    digests.get(i.slot()).copied(),
+                    (JoiningForm::Isolated, &Forms::NONE),
+                ) == Changed::Yes
+                {
+                    have = Gsub::buffer_digest(buf);
+                }
+            }
+        }
+    }
+
+    /// The lookups the language system text in `script` selects names for
+    /// the features `wanted` accepts, with its required feature added or
+    /// not.
+    pub(crate) fn lookups_where(
+        &self,
+        script: Script,
+        required: Required,
+        wanted: impl Fn(FeatureTag) -> bool,
+    ) -> LookupSet {
+        self.layout.lookups_where(script, required, wanted)
+    }
+
+    /// Whether the language system text in `script` selects names `tag`.
+    pub(crate) fn names(&self, script: Script, tag: FeatureTag) -> bool {
+        self.layout.names(script, tag)
+    }
+
+    /// **Whether a lookup of `set` would substitute exactly `glyphs`**, as a
+    /// shaper asks of a feature to learn what form a consonant takes: "If
+    /// these two glyphs form a ligature, with no additional glyphs in
+    /// context, this means the consonant has the corresponding form"
+    /// (`[[source: ms-devanagari-script-development]]`, Retrieving dynamic
+    /// character properties from Indic fonts). A single, multiple or
+    /// alternate substitution or a reverse chain takes one glyph its
+    /// coverage holds; a ligature takes its components exactly; a context
+    /// takes its input exactly, and a chained context too, with `context`
+    /// [`Context::Zero`] only where it has no backtrack and no lookahead.
+    /// HarfBuzz's `would_apply()` (`[[source: harfbuzz-14-5-1-gsubgpos]]`),
+    /// but for one thing: baud tests a format 2 or 3 context's first glyph
+    /// against its coverage, which HarfBuzz leaves to the lookup's digest.
+    pub(crate) fn would_substitute(
+        &self,
+        set: &LookupSet,
+        glyphs: &[GlyphId],
+        context: Context,
+    ) -> bool {
+        let Some(&first) = glyphs.first() else {
+            return false;
+        };
+        set.iter().any(|i| {
+            let Some(lookup) = self.layout.lookup(i) else {
+                return false;
+            };
+            let mut k = Index::ZERO;
+            while lookup.subtable_count().holds(k) {
+                if let Some((kind, sub)) = lookup.subtable(k, Kind::GSUB_EXTENSION) {
+                    if Gsub::would_apply(kind, sub, first, glyphs, context).is_some_and(|x| x) {
+                        return true;
+                    }
+                }
+                k = k.next();
+            }
+            false
+        })
+    }
+
+    /// One subtable's answer to [`Gsub::would_substitute`]; `None` where it
+    /// cannot be read.
+    fn would_apply(
+        kind: Kind,
+        sub: Bytes<'a>,
+        first: GlyphId,
+        glyphs: &[GlyphId],
+        context: Context,
+    ) -> Option<bool> {
+        let one = glyphs.len() == 1;
+        match kind {
+            Kind::SINGLE | Kind::MULTIPLE | Kind::ALTERNATE | Kind::REVERSE => {
+                Some(one && coverage_at(sub, Offset::of(2u32))?.covers(first))
+            }
+            Kind::LIGATURE => {
+                let ci = coverage_at(sub, Offset::of(2u32))?.index(first)?;
+                let sets: Array<'a, u16> = sub.array(
+                    Offset::of(6u32),
+                    Count::of(sub.read::<u16>(Offset::of(4u32))?),
+                )?;
+                let set = sub.tail(Offset::of(u32::from(sets.get(ci)?)))?;
+                let n: u16 = set.read(Offset::ZERO)?;
+                let ligs: Array<'a, u16> = set.array(Offset::of(2u32), Count::of(n))?;
+                let mut li = Index::ZERO;
+                while let Some(off) = ligs.get(li) {
+                    li = li.next();
+                    let Some(lig) = set.tail(Offset::of(u32::from(off))) else {
+                        continue;
+                    };
+                    let count = usize::from(lig.read::<u16>(Offset::of(2u32)).unwrap_or(0));
+                    if count != glyphs.len() {
+                        continue;
+                    }
+                    let rest = glyphs.get(1..).unwrap_or(&[]);
+                    let same_all = rest.iter().enumerate().all(|(k, g)| {
+                        Offset::of(4u32)
+                            .at(Index::of(u32::try_from(k).unwrap_or(u32::MAX)), Len::of(2))
+                            .and_then(|at| lig.read::<u16>(at))
+                            .is_some_and(|v| same(*g, v))
+                    });
+                    if same_all {
+                        return Some(true);
+                    }
+                }
+                Some(false)
+            }
+            Kind::CONTEXT => Some(crate::context::would_match(sub, glyphs, Chain::No)),
+            Kind::CHAINED => Some(crate::context::would_match(
+                sub,
+                glyphs,
+                Chain::Yes(context),
+            )),
+            _ => Some(false),
+        }
+    }
+
     fn buffer_digest(buf: &Buffer<'_>) -> Digest {
         let mut d = Digest::EMPTY;
         for g in buf.as_slice() {
@@ -228,13 +379,18 @@ impl<'a> Gsub<'a> {
     }
 
     /// Fills `out[i]` with the digest of the glyphs lookup `i` can start
-    /// on, for every lookup `features` name under any script, so
-    /// [`Gsub::apply_with`] can skip the rest. A digest belongs to its lookup
-    /// whichever script selected it, so one slice per face serves every
-    /// script. `out` is indexed by lookup and holds at most [`MAX_LOOKUPS`];
-    /// a lookup past its end is simply not accelerated.
+    /// on, for every lookup `features` name under any script, and every
+    /// lookup an Indic engine's stages name, which run whatever `features`
+    /// asks ([`crate::indic`]), so [`Gsub::apply_with`] can skip the rest. A
+    /// digest belongs to its lookup whichever script selected it, so one
+    /// slice per face serves every script. `out` is indexed by lookup and
+    /// holds at most [`MAX_LOOKUPS`]; a lookup past its end is simply not
+    /// accelerated.
     pub fn digests(&self, features: Features, out: &mut [Digest]) {
-        let set = self.layout.lookups_any(features);
+        let set = self
+            .layout
+            .lookups_any(features)
+            .union(&self.layout.lookups_any_where(crate::indic::stages_name));
         for i in set.iter().take(MAX_LOOKUPS) {
             if let Some(slot) = out.get_mut(i.slot()) {
                 *slot = self.lookup_digest(i);
@@ -663,7 +819,7 @@ impl<'a> Gsub<'a> {
     /// the glyph there, which is HarfBuzz's per-position test and what
     /// keeps a face with hundreds of contextual lookups from searching
     /// every subtable's coverage at every glyph.
-    fn apply_lookup<const MASKED: bool>(
+    fn apply_lookup<const MASKED: bool, const STAGED: bool>(
         &self,
         lookup: &Lookup<'a>,
         buf: &mut Buffer<'_>,
@@ -676,7 +832,7 @@ impl<'a> Gsub<'a> {
         if lookup.kind == Kind::REVERSE
             || (lookup.kind == Kind::GSUB_EXTENSION && Gsub::wraps_reverse(lookup))
         {
-            return self.apply_reverse::<MASKED>(lookup, buf, digest, (mask, forms));
+            return self.apply_reverse::<MASKED, STAGED>(lookup, buf, digest, (mask, forms));
         }
         let mut changed = Changed::No;
         let mut pos = Index::ZERO;
@@ -684,6 +840,7 @@ impl<'a> Gsub<'a> {
             if seen(&lookup.filter, g) == Skip::Yes
                 || digest.is_some_and(|d| !d.may_have(Digest::of(g.id)))
                 || (MASKED && forms.of(&g) != Some(mask))
+                || (STAGED && !Gsub::starts(lookup, g))
             {
                 pos = pos.next();
                 continue;
@@ -699,6 +856,16 @@ impl<'a> Gsub<'a> {
         changed
     }
 
+    /// Whether a staged lookup may start on `g`: `g` carries one of the
+    /// masks its stage names (`[[source: harfbuzz-14-5-1-gsubgpos]]`,
+    /// `apply_forward()`'s `cur().mask & lookup_mask`).
+    fn starts(lookup: &Lookup<'a>, g: Glyph) -> bool {
+        lookup
+            .filter
+            .stage
+            .is_none_or(|st| g.syllabic.masks.meets(st.masks))
+    }
+
     /// Whether an extension lookup wraps a reverse chain.
     #[inline(never)]
     fn wraps_reverse(lookup: &Lookup<'a>) -> bool {
@@ -712,7 +879,7 @@ impl<'a> Gsub<'a> {
     /// position stays where it was. Out of line, so the walk every other
     /// lookup takes holds none of it.
     #[inline(never)]
-    fn apply_reverse<const MASKED: bool>(
+    fn apply_reverse<const MASKED: bool, const STAGED: bool>(
         &self,
         lookup: &Lookup<'a>,
         buf: &mut Buffer<'_>,
@@ -729,6 +896,7 @@ impl<'a> Gsub<'a> {
             if seen(&lookup.filter, g) == Skip::Yes
                 || digest.is_some_and(|d| !d.may_have(Digest::of(g.id)))
                 || (MASKED && forms.of(&g) != Some(mask))
+                || (STAGED && !Gsub::starts(lookup, g))
             {
                 continue;
             }
@@ -792,6 +960,7 @@ impl<'a> Gsub<'a> {
         let g = buf.get_mut(pos)?;
         g.id = GlyphId::from_shaper(out);
         g.class = self.layout.gdef().class(g.id);
+        g.syllabic.formed = g.syllabic.formed.or(Formed::SUBSTITUTED);
         Some(Applied::after(pos))
     }
 
@@ -829,12 +998,19 @@ impl<'a> Gsub<'a> {
             return None;
         }
         let gdef = self.layout.gdef();
+        // A sequence of one is a single substitution; of more, each glyph
+        // is multiplied (`[[source: harfbuzz-14-5-1-gsubgpos]]`).
+        let formed = match more.is_zero() {
+            true => Formed::SUBSTITUTED,
+            false => Formed::SUBSTITUTED.or(Formed::MULTIPLIED),
+        };
         let written = |id: u16, attached: Attached| {
             let id = GlyphId::from_shaper(id);
             let mut out = g;
             out.id = id;
             out.class = gdef.class(id);
             out.attached = attached;
+            out.syllabic.formed = out.syllabic.formed.or(formed);
             if gdef.has_classes() {
                 out.mark = match gdef.is_mark(id) {
                     true => Mark::Yes,
@@ -899,6 +1075,7 @@ impl<'a> Gsub<'a> {
         let g = buf.get_mut(pos)?;
         g.id = out;
         g.class = self.layout.gdef().class(out);
+        g.syllabic.formed = g.syllabic.formed.or(Formed::SUBSTITUTED);
         Some(Applied::after(pos))
     }
 
@@ -989,6 +1166,13 @@ impl<'a> Gsub<'a> {
             g.id = out;
             g.class = gdef.class(out);
             g.last = last.max(g.last);
+            // A ligature forgives a multiplication before it, as Uniscribe
+            // does (`[[source: harfbuzz-14-5-1-gsubgpos]]`, `_set_glyph_class()`).
+            g.syllabic.formed = g
+                .syllabic
+                .formed
+                .or(Formed::SUBSTITUTED.or(Formed::LIGATED))
+                .without(Formed::MULTIPLIED);
         }
         // Remove from the back so earlier positions stay valid.
         let mut removed = Count::ZERO;
@@ -1011,10 +1195,28 @@ impl<'a> Nested<'a> for Gsub<'a> {
         buf: &mut Buffer<'_>,
         pos: Index,
         depth: Depth,
+        stage: Option<Stage>,
     ) -> Option<Applied> {
-        let lookup = self.layout.lookup(lookup)?;
+        let lookup = self.layout.lookup(lookup)?.staged(stage);
         self.apply_at(&lookup, buf, pos, depth)
     }
+}
+
+/// What a chained context's backtrack and lookahead may hold when
+/// [`Gsub::would_substitute`] asks: nothing, as the new Indic specifications
+/// ask, or anything, as the old ones did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Context {
+    Zero,
+    Any,
+}
+
+/// Whether a context subtable is chained, and so has a backtrack and a
+/// lookahead to weigh.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Chain {
+    No,
+    Yes(Context),
 }
 
 /// Whether `Gsub::pairs` walked every subtable, or met one it could not

@@ -19,6 +19,7 @@ use crate::bytes::{Count, Index};
 use crate::ignorable::DEFAULT_IGNORABLE;
 use crate::layout::{Gdef, GlyphClass};
 use crate::shape::CombiningClass;
+use crate::syllabic::Syllabic;
 use baud_domain::{Codepoint, GlyphId, JoiningForm};
 
 /// A cell index within the run: the input cluster a glyph came from.
@@ -96,13 +97,18 @@ pub struct Glyph {
     /// the fallback moved the glyph by.
     pub dx: i16,
     pub dy: i16,
+    /// What a syllabic shaper keeps of the glyph ([`Syllabic`]): written
+    /// from its character when it is pushed, and read by
+    /// [`crate::indic`]; unread in any other run.
+    pub syllabic: Syllabic,
 }
 
 /// **The joining form of each cell a pass shapes**, by the cell's index in
-/// the run: kept beside the buffer rather than in each glyph, which a form
-/// would make a seventeenth byte wide, so a glyph's copy in every lookup
-/// stays one sixteen-byte move. A cell's form is its base glyph's: the
-/// glyph of the cell that is not attached.
+/// the run: kept beside the buffer rather than in each glyph, as a form is
+/// a cell's and not a glyph's. A cell's form is its base glyph's: the
+/// glyph of the cell that is not attached. (A glyph was sixteen bytes when
+/// this was decided; its [`Syllabic`] properties, which move with it
+/// through every reordering and substitution, made it twenty-two.)
 #[derive(Clone, Copy)]
 pub struct Forms {
     by_cell: [Option<JoiningForm>; Forms::CELLS],
@@ -153,6 +159,7 @@ impl Glyph {
             ccc: CombiningClass::STARTER,
             dx: 0,
             dy: 0,
+            syllabic: Syllabic::NONE,
         }
     }
 
@@ -234,6 +241,21 @@ impl<'b> Buffer<'b> {
             return None;
         }
         let (at, n) = (i.slot() + 1, self.len.slot());
+        self.glyphs.copy_within(at..n, at + 1);
+        *self.glyphs.get_mut(at)? = g;
+        self.len = Count::of(self.len.value().checked_add(1)?);
+        Some(())
+    }
+
+    /// Puts `g` in at position `i`, before the glyph there, moving it and
+    /// the glyphs after it up one; at the end when `i` is the length.
+    /// `None`, and nothing moved, when the storage is full or `i` is past
+    /// the end.
+    pub fn put(&mut self, i: Index, g: Glyph) -> Option<()> {
+        let (at, n) = (i.slot(), self.len.slot());
+        if at > n || self.room().is_zero() {
+            return None;
+        }
         self.glyphs.copy_within(at..n, at + 1);
         *self.glyphs.get_mut(at)? = g;
         self.len = Count::of(self.len.value().checked_add(1)?);
