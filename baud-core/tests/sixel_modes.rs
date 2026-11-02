@@ -603,6 +603,55 @@ fn a_later_shared_sixel_recolours_the_pictures_drawn_with_its_register() {
     });
 }
 
+/// **A read of palettes recolours the stored pictures once**: two shared
+/// 16x12 pictures drawn with register 1 red, then a hundred bodies that
+/// only redefine register 1, each a bluer colour, in one read. Both
+/// pictures end in the last colour, blue, and the store's epoch, which a
+/// recolour that changes a pixel moves, moves once: a recolour at each
+/// body's end passed over both pictures a hundred times and moved it a
+/// hundred. The control, a body a read, moves it a hundred times, and
+/// leaves the same pixels.
+#[test]
+fn a_read_of_palettes_recolours_the_stored_pictures_once() {
+    let picture = b"\x1bP0;1;0q\"1;1#1;2;100;0;0#1!16~-!16~\x1b\\\n";
+    let palettes: Vec<Vec<u8>> = (1..=100)
+        .map(|b| format!("\x1bP0;1;0q#1;2;0;0;{b}\x1b\\").into_bytes())
+        .collect();
+    let blue = rgb((0, 0, 255));
+    for (reads, moves) in [(1, 1), (100, 100)] {
+        let ws = support::CORPUS;
+        let mut owned = Owned::new(&ws).with_images(CLAIMED.arena.budget());
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_sixel_claim(SixelClaim::Yes);
+        t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
+        support::feed(
+            &mut t,
+            &[b"\x1b[?1070l".as_slice(), picture, picture].concat(),
+        );
+        assert_eq!(pixels_at(&t, 15, 11), [red(), red()], "the premise");
+        let before = t.images().generation().raw();
+        match reads {
+            1 => support::feed(&mut t, &palettes.concat()),
+            _ => palettes.iter().for_each(|b| support::feed(&mut t, b)),
+        }
+        let after = t.images().generation().raw();
+        assert_eq!(
+            after.wrapping_sub(before),
+            moves,
+            "{reads} reads: the passes"
+        );
+        let imgs = t.images();
+        let mut n = 0;
+        for (_, p) in imgs.placements() {
+            let v = imgs.image(p.image).expect("live");
+            assert_eq!(v.pixels.len(), 16 * 12);
+            assert!(v.pixels.iter().all(|&c| c == blue), "{reads} reads");
+            n += 1;
+        }
+        assert_eq!(n, 2, "both pictures stored");
+    }
+}
+
 /// **A redefinition inside a body recolours the pixels drawn before it**,
 /// at power-on and under shared registers: register 1 is red for the first
 /// column and blue for the second, and both are blue once the body ends.

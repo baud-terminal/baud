@@ -178,6 +178,42 @@ fn pictures_print_over_the_text() {
     });
 }
 
+/// **A Sixel recoloured earlier in the read prints in its new colour**:
+/// under shared registers (`?1070` reset) the red picture, a body that
+/// only redefines its register blue, and `S(H)` in colour, all in one
+/// read, print blue, the colour the screen shows after the read ("you do
+/// not have to redraw an image to change its color",
+/// `[[source: vt3xx-screen-control]]`). The control, the same read with
+/// no palette, prints red.
+#[test]
+fn a_sixel_recoloured_in_the_same_read_prints_in_its_new_colour() {
+    let blue = Pixel::opaque(Chan::from_u8(0), Chan::from_u8(0), Chan::from_u8(255));
+    let red = Pixel::opaque(Chan::from_u8(255), Chan::from_u8(0), Chan::from_u8(0));
+    let palette: &[u8] = b"\x1bP9;1q#1;2;0;0;100\x1b\\";
+    for (between, want) in [(palette, blue), (b"".as_slice(), red)] {
+        run(1 << 20, b"", |t| {
+            t.set_sixel_claim(baud_domain::SixelClaim::Yes);
+            t.set_graphics_print(GraphicsPrint {
+                colour: PrintColour::Colour,
+                ..GraphicsPrint::DEFAULT
+            });
+            let read = [
+                b"\x1b[H\x1b[?1070l".as_slice(),
+                RED,
+                between,
+                b"\x1bPpS(H)\x1b\\",
+            ]
+            .concat();
+            assert!(read.len() <= READ_CHUNK, "one read");
+            support::feed(t, &read);
+            let j = jobs(t);
+            assert_eq!(j.len(), 1);
+            let (w, _, px) = decode(&j[0]);
+            assert_eq!((px[0], px[35 * w + 39]), (want, want), "{between:?}");
+        });
+    }
+}
+
 /// **A Sixel's background fill prints as the background**: its positions
 /// are "set to the current background color" (`[[source: vt3xx-sixel]]`),
 /// so the printed page shows no ink there and no text under them, where a

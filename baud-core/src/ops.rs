@@ -5292,7 +5292,7 @@ impl Paint<'_, '_> {
         // has just set: xterm's full reset restores the mode
         // (`[[source: xterm-reset]]`), and a terminal made operational has
         // defined none.
-        self.strs.sixel.forget_shared();
+        self.strs.sixel.forget_shared(self.images);
         // **ReGIS to its power-up state**: the device state, the
         // macrographs and the loaded alphabets, as the VT300 keeps its
         // defaults "after you power up or reset the terminal"

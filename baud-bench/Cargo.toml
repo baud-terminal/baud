@@ -256,6 +256,14 @@ harness = false
 name = "kitty_image"
 harness = false
 
+# A read of Sixel palettes over two 3840x2160 shared pictures, one body
+# and a hundred in one read or a read each: what recolouring the stored
+# pictures costs; prints the timings and asserts only that both pictures
+# were stored and that the hundred bodies fit one read.
+[[bench]]
+name = "sixel_recolour"
+harness = false
+
 # UAX #9 on crafted worst-case rows against recorded text, nanoseconds a
 # character at four lengths: whether N0 and X5c grow linearly; asserts N0
 # reached the bracket shapes.

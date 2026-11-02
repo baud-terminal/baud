@@ -365,6 +365,13 @@ impl Term<'_> {
         if p.strs.status.kind != baud_domain::StatusType::None {
             p.read_ends();
         }
+        // **The stored Sixels take the shared registers this read
+        // redefined, once** (`SixelStream::recolour`): a recolour at each
+        // body's end rewrote every shared picture, 8.1-9.6 ms a body over
+        // two 3840x2160 ones, so a read of palettes paid it a body. A frame
+        // draws between reads and sees the same pixels. One compare of a
+        // 256-register set (four words) while no colour is owed.
+        p.strs.sixel.recolour(p.images);
         self.last_cp = p.last_cp;
         self.cy = p.cy;
         self.cx = p.cx;

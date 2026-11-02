@@ -831,7 +831,37 @@ if the operation regressed.
   body costs 7.6 ms, about 450 µs a byte. The dearest command baud already
   had is a 38-byte kitty `a=c` over the largest two-frame animation the
   95 MiB arena holds (2880x2880), at 30.6 ms, about 800 µs a byte.
-  Recolouring once per read instead of once per body would bound it.
+  **Once a read, built 2026-11-01.** A body's end takes its definitions
+  into the shared set and notes which registers changed colour; the
+  stored pictures take the colours once, at the read's end, and before a
+  ReGIS hard copy in the read prints them, and `RIS` pays what is owed
+  before it forgets the set. Taking each register's last colour once
+  leaves what taking each definition in turn did: a picture stored
+  between two definitions drew with the colour the set held then, which
+  the later one replaces either way, and nothing reads a picture's pixels
+  in between but the hard copy; a frame draws between reads.
+  `SixelStream::finish` still recolours at once, and a terminal calls
+  `SixelStream::finish_deferring` and, once a read,
+  `SixelStream::recolour`. Measured with
+  `baud-bench/benches/sixel_recolour.rs`, two 3840x2160 shared pictures
+  at the app's 95 MiB, the release profile, base and change built at one
+  path and run in turn twice each, six rounds a run, the first dropped:
+  a hundred palette bodies, 2,092 bytes, in one read took 853-877 ms on
+  the base and 8.3-8.7 ms on the change; one body in one read 8.1-9.6
+  and 8.5-8.8; a hundred bodies a read each 854-868 and 853-869; the
+  stored pixels' FNV-1a the same on both. A Darwin tty hands a read at
+  most 1024 bytes ([note E](e-tty-layer.md)), so those 2,092 bytes would
+  reach the app as three reads and cost three passes. The read's end
+  adds one compare of a 256-register set (four words) while no colour is
+  owed: whole-process instructions over `ingest2`, four runs an arm, base
+  against change, overlap on `cat` (177.8-179.3 million against
+  177.5-177.9), `sixel-cat` (200.6-201.2 against 200.3-200.9) and
+  `sixel-yazi` (2,311.2-2,313.8 against 2,311.5-2,311.8), cells written
+  equal. Pinned by
+  `a_read_of_palettes_recolours_the_stored_pictures_once`, whose epoch
+  moves once for a read of a hundred bodies where the base moved it a
+  hundred times, and
+  `a_sixel_recoloured_in_the_same_read_prints_in_its_new_colour`.
   **Timed** with `ingest2`'s `sixel-yazi`, the yazi
   walk's thirteen Sixels at the app's budget, base and change built at one
   path, rotated, the first of five rounds dropped: mapping every Sixel's

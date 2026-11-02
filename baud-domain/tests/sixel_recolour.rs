@@ -307,3 +307,42 @@ fn two_registers_of_one_colour_keep_their_own_pixels_when_one_changes() {
         );
     }
 }
+
+/// **A body finished deferring leaves the stored pictures to the next
+/// recolour**, which takes every body's since in one pass: picture A
+/// draws register 1 red, two palettes finished deferring make it green
+/// and then blue, and A keeps its red and the epoch until the recolour,
+/// which turns A blue and moves the epoch once. A second recolour, with
+/// nothing owed, changes nothing.
+#[test]
+fn a_deferred_finish_leaves_the_pictures_to_the_next_recolour() {
+    let mut a = Arena::new(256);
+    let mut store = a.store();
+    let mut s = Box::new(SixelStream::NEW);
+    let first = shared(&mut s, &mut store, b"#1;2;100;0;0#1~").expect("A");
+    let epoch = store.generation();
+    for body in [&b"#1;2;0;100;0"[..], b"#1;2;0;0;100"] {
+        s.begin_with(
+            SixelBegin {
+                aspect: SixelAspect::ONE_TO_ONE,
+                ink: px(INK),
+                registers: SixelRegisters::Shared,
+                floor: SixelEdge::Open,
+                right: SixelEdge::Open,
+                fill: SixelFill::Keep,
+            },
+            &mut store,
+        );
+        for &b in body {
+            s.put(StreamByte::from_stream(b), &mut store);
+        }
+        assert_eq!(s.finish_deferring(&mut store), None, "no pixels");
+    }
+    assert_eq!(row0(&store, first), [px(RED)], "not before the recolour");
+    assert_eq!(store.generation(), epoch);
+    s.recolour(&mut store);
+    assert_eq!(row0(&store, first), [px(BLUE)], "the last colour");
+    assert_eq!(store.generation().raw(), epoch.raw() + 1, "one pass");
+    s.recolour(&mut store);
+    assert_eq!(store.generation().raw(), epoch.raw() + 1, "nothing owed");
+}

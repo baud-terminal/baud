@@ -188,7 +188,11 @@ impl Paint<'_, '_> {
         // ([`SixelFill`], `Pixel::FILL`), counted in `sixels_filled`; and an
         // erased image is none of these. `w` and `h` are how far the data
         // reached, which the fill may pass.
-        let Some((id, w, h)) = self.strs.sixel.finish(self.images) else {
+        //
+        // **The pictures already stored take what a shared body redefined
+        // at the read's end** (`SixelStream::recolour`, in `Term::feed`),
+        // once for every body of the read.
+        let Some((id, w, h)) = self.strs.sixel.finish_deferring(self.images) else {
             return;
         };
         // Anchor to the cursor's absolute line and column on the live screen:

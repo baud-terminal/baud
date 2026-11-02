@@ -256,6 +256,10 @@ impl Paint<'_, '_> {
             self.strs.print.refusals.no_printer += 1;
             return;
         }
+        // A Sixel prints in the colour a shared body earlier in this read
+        // gave its register: what the read's end owes it is paid first
+        // (`SixelStream::recolour`).
+        self.strs.sixel.recolour(self.images);
         let (pw, ph) = self.regis_page_px();
         let (pw, ph) = (i64::from(pw.raw()), i64::from(ph.raw()));
         let (x0, y0, x1, y1) = match area {

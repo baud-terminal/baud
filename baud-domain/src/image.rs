@@ -2037,7 +2037,12 @@ impl<'b> ImageStore<'b> {
     /// color" (`[[source: vt3xx-screen-control]]`, "Output Mapping"). A
     /// colour is opaque, so a pixel drawn stays drawn and its image's lit
     /// count holds. The epoch moves when any pixel changed, so every
-    /// renderer's copy is made again from the new pixels.
+    /// renderer's copy is made again from the new pixels. Once a read in a
+    /// terminal that finishes bodies with
+    /// [`crate::SixelStream::finish_deferring`]
+    /// ([`crate::SixelStream::recolour`]); once a body through
+    /// [`crate::SixelStream::finish`]. A pass reads every such picture
+    /// whole.
     pub(crate) fn recolour(&mut self, colour: impl Fn(u8) -> Option<Pixel>) {
         let mut changed = false;
         for i in 0..self.slots.len() {

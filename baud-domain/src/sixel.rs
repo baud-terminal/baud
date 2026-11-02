@@ -1384,8 +1384,9 @@ impl Sink for Claim<'_, '_, '_> {
 /// drew before it and a body that needs none pays nothing. A shared Sixel
 /// (`?1070` reset) keeps the numbers too, a byte a pixel after its pixels
 /// for its life, so a later shared Sixel's redefinition recolours it
-/// ([`ImageStore::registers`]); with no gap for both it is refused at its
-/// size. A private one keeps nothing past its end.
+/// ([`ImageStore::registers`]), once however many bodies of a read
+/// redefined it ([`SixelStream::recolour`]); with no gap for both it is
+/// refused at its size. A private one keeps nothing past its end.
 #[derive(Clone)]
 pub struct SixelStream {
     walk: Walk,
@@ -1395,6 +1396,10 @@ pub struct SixelStream {
     /// defined, and which those are. Cleared by [`SixelStream::forget_shared`].
     shared: [Pixel; REGISTERS],
     shared_defined: RegisterSet,
+    /// **The shared registers whose colour changed since the stored
+    /// pictures last took theirs**, which [`SixelStream::recolour`] gives
+    /// them in one pass.
+    redefined: RegisterSet,
     registers: SixelRegisters,
     fill: SixelFill,
 }
@@ -1406,6 +1411,7 @@ impl SixelStream {
         st: ClaimState::NEW,
         shared: [Pixel::CLEAR; REGISTERS],
         shared_defined: RegisterSet::NONE,
+        redefined: RegisterSet::NONE,
         registers: SixelRegisters::Private,
         fill: SixelFill::Keep,
     };
@@ -1479,8 +1485,11 @@ impl SixelStream {
         store.release_free(at, at + written);
     }
 
-    /// Forget the shared registers: `RIS`.
-    pub fn forget_shared(&mut self) {
+    /// Forget the shared registers: `RIS`. The pictures already stored
+    /// take the colours owed them first ([`SixelStream::recolour`]), so a
+    /// picture drawn after this never takes a colour defined before it.
+    pub fn forget_shared(&mut self, store: &mut ImageStore) {
+        self.recolour(store);
         self.shared_defined = RegisterSet::NONE;
     }
 
@@ -1499,8 +1508,26 @@ impl SixelStream {
     /// rows packed to the image's width, moved to the lowest gap that holds
     /// them, and recorded: the image's id, width and height. Either way the
     /// claim is let go ([`SixelStream::abandon`]): what it wrote that the
-    /// image does not now hold goes back, refused, moved or in place.
+    /// image does not now hold goes back, refused, moved or in place. The
+    /// pictures already stored take the shared registers' new colours
+    /// ([`SixelStream::recolour`]).
     pub fn finish(&mut self, store: &mut ImageStore) -> Option<(ImageId, SixelPx, SixelPx)> {
+        let done = self.finish_deferring(store);
+        self.recolour(store);
+        done
+    }
+
+    /// **[`SixelStream::finish`] leaving the recolour for later**: the
+    /// stored pictures take the shared registers this body redefined at
+    /// the next [`SixelStream::recolour`], with every other body's since.
+    /// What a terminal calls at a body's end, recolouring once a read, so a
+    /// read of a hundred palettes costs one pass over the stored pictures
+    /// and not a hundred. Nothing may read a stored shared picture's pixels
+    /// in between -- a frame, a hard copy -- without the recolour first.
+    pub fn finish_deferring(
+        &mut self,
+        store: &mut ImageStore,
+    ) -> Option<(ImageId, SixelPx, SixelPx)> {
         let done = self.settle(store);
         self.abandon(store);
         done
@@ -1516,10 +1543,10 @@ impl SixelStream {
             self.walk.close(&mut sink);
         }
         // The shared set takes this Sixel's definitions whether or not it
-        // is stored, a palette alone included, and recolours what it
-        // changes.
+        // is stored, a palette alone included, and owes the stored
+        // pictures what it changes.
         if self.registers == SixelRegisters::Shared {
-            self.share(store);
+            self.share();
         }
         // Display mode keeps no row past the screen's bottom edge and no
         // column past its right edge: a band that crosses the bottom painted
@@ -1703,22 +1730,15 @@ impl SixelStream {
     }
 
     /// **The shared set takes this Sixel's definitions** (`?1070` reset),
-    /// and every picture kept with its register numbers that was drawn
-    /// with a register whose colour this changed -- one never defined
-    /// before included, drawn in the ink -- is recoloured to it
-    /// ([`ImageStore::recolour`]): "You can draw an image, then change its
-    /// appearance by changing the associated output map location ... you
-    /// do not have to redraw an image to change its color"
-    /// (`[[source: vt3xx-screen-control]]`, "Output Mapping"), and xterm's
-    /// shared graphics, which draw from the one shared set
-    /// (`[[source: xterm-graphics-c]]`). **When the body ends**, at `ST`
-    /// or where a cut ends it, which is where the set takes the
-    /// definitions, so the pictures already drawn change colour then,
-    /// where a VT340 and xterm change them as each definition arrives.
-    /// Nothing scanned when no colour changed.
+    /// and every register whose colour this changed -- one never defined
+    /// before included, drawn in the ink -- is owed to the pictures drawn
+    /// with it, which [`SixelStream::recolour`] pays. **When the body
+    /// ends**, at `ST` or where a cut ends it, which is where the set takes
+    /// the definitions; a VT340 and xterm change the pictures as each
+    /// definition arrives.
     #[cold]
     #[inline(never)]
-    fn share(&mut self, store: &mut ImageStore) {
+    fn share(&mut self) {
         let mut changed = RegisterSet::NONE;
         for r in 0..REGISTERS {
             if !self.st.gap.defined.has(r) {
@@ -1731,13 +1751,43 @@ impl SixelStream {
             self.shared[r] = c;
         }
         self.shared_defined = self.shared_defined.with(self.st.gap.defined);
-        if changed != RegisterSet::NONE {
-            let shared = &self.shared;
-            store.recolour(|r| {
-                let r = usize::from(r);
-                changed.has(r).then(|| shared[r])
-            });
+        self.redefined = self.redefined.with(changed);
+    }
+
+    /// **The stored pictures take the shared registers' new colours**:
+    /// every picture kept with its register numbers that was drawn with a
+    /// register whose colour a shared Sixel changed since the last call is
+    /// recoloured to the colour the register has now
+    /// ([`ImageStore::recolour`]), one pass however many bodies changed
+    /// it: "You can draw an image, then change its appearance by changing
+    /// the associated output map location ... you do not have to redraw an
+    /// image to change its color" (`[[source: vt3xx-screen-control]]`,
+    /// "Output Mapping"), and xterm's shared graphics, which draw from the
+    /// one shared set (`[[source: xterm-graphics-c]]`). Taking the last
+    /// colour once leaves what taking each in turn would: a picture
+    /// stored between two definitions drew with the colour the set held
+    /// then, which the later one replaces either way. A terminal calls it
+    /// at each read's end and before anything in a read looks at a
+    /// picture's pixels, so every frame, drawn between reads, shows what a
+    /// recolour at each body's end would. Nothing scanned when no colour
+    /// changed.
+    #[inline]
+    pub fn recolour(&mut self, store: &mut ImageStore) {
+        if self.redefined != RegisterSet::NONE {
+            self.recolour_owed(store);
         }
+    }
+
+    /// [`SixelStream::recolour`] with a colour owed.
+    #[cold]
+    #[inline(never)]
+    fn recolour_owed(&mut self, store: &mut ImageStore) {
+        let (changed, shared) = (self.redefined, &self.shared);
+        store.recolour(|r| {
+            let r = usize::from(r);
+            changed.has(r).then(|| shared[r])
+        });
+        self.redefined = RegisterSet::NONE;
     }
 
     /// One past the highest word of its claim this Sixel has written so far
