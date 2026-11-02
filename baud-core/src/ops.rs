@@ -3976,9 +3976,11 @@ impl Paint<'_, '_> {
     /// **Each listed mode DECSET acts on keeps the value `DECRQM` would
     /// answer**, so what is saved is what an application asking would have
     /// been told, and one listed twice keeps its last value -- one level, as
-    /// DECSC's is. A mode DECSET does not act on is counted, a parameter at a
-    /// time, as DECSET's wildcard counts it: unnamed, the read-only `?1020`
-    /// to `?1023`, the permanent `?2027` ([`PrivateMode::slot`]).
+    /// DECSC's is. **The keyboards and the mouse encodings are one value
+    /// each**, saved whole whichever member is listed. A mode DECSET does
+    /// not act on is counted, a parameter at a time, as DECSET's wildcard
+    /// counts it: unnamed, the read-only `?1020` to `?1023`, the permanent
+    /// `?2027` ([`PrivateMode::slot`]).
     ///
     /// **`?1048` saves the cursor**, as xterm's `savemodes` runs
     /// `CursorSave` for it (`[[source: xterm-reset]]`'s file): the mode
@@ -3996,6 +3998,11 @@ impl Paint<'_, '_> {
             // is listed (`SavedModes::save_keyboard`).
             if let PrivateMode::Keyboard(_) = m {
                 self.cold.xtsave.save_keyboard(self.cold.keyboard);
+                return;
+            }
+            // **And so are the mouse encodings** (`SavedModes::save_encoding`).
+            if m.encoding().is_some() {
+                self.cold.xtsave.save_encoding(self.cold.mouse_encoding);
                 return;
             }
             let value = match self.private_state(m) {
@@ -4061,6 +4068,23 @@ impl Paint<'_, '_> {
                             node,
                             at,
                         ),
+                    },
+                    _ => {}
+                }
+                return;
+            }
+            // **The mouse encodings come back whole** in the same way:
+            // through DECSET of the encoding saved, or a DECRST of the one
+            // in force for X10, which no mode selects.
+            if m.encoding().is_some() {
+                let now = self.cold.mouse_encoding;
+                match self.cold.xtsave.saved_encoding() {
+                    Some(e) if e != now => match (e.mode(), now.mode()) {
+                        (Some(saved), _) => self.set_private_mode(saved, ModeChange::Set, node, at),
+                        (None, Some(in_force)) => {
+                            self.set_private_mode(in_force, ModeChange::Reset, node, at)
+                        }
+                        (None, None) => {}
                     },
                     _ => {}
                 }

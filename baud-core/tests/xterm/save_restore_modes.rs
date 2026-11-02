@@ -21,10 +21,11 @@
 //! `c132` resource `?40` sets (XT-3), restores `?1049` without the cursor or
 //! the clear (XT-6), and keeps the cache across `RIS` (XT-8); and where the
 //! text is silent, xterm re-applies `?6`, and `?3` under `c132`, at a value
-//! already in force, and baud changes nothing (XT-7). The rest are open
-//! rather than followed here: it saves one tracking level under all four
-//! mouse modes and one encoding under all four encodings, and restores a
-//! never-saved mode from a zeroed array.
+//! already in force, and baud changes nothing (XT-7). Like xterm, baud keeps
+//! the four mouse encodings as one value, as it keeps the six keyboards
+//! (since 2026-11-01). The rest are open rather than followed here: xterm
+//! saves one tracking level under all four mouse modes, where baud keeps a
+//! value for each, and restores a never-saved mode from a zeroed array.
 
 use crate::support;
 use baud_core::*;
@@ -185,9 +186,11 @@ fn xtrestore_has_the_side_effects_of_setting_the_mode() {
 /// was saved, in either order -- a reset of `?1003` restored while `?1002`
 /// is in force is no change to make. A mode restored to a value it already
 /// has keeps every effect it has: `?1049 r` saved set, on the alternate
-/// screen, does not clear it. The text is silent on a value already in
-/// force; xterm re-applies `?6` whatever its value, and `?3` too under its
-/// `c132` resource, and baud changes nothing (since 2026-10-10).
+/// screen, does not clear it, and an encoding restored while it is in
+/// force keeps the cell a report was last sent from. The text is silent
+/// on a value already in force; xterm re-applies `?6` whatever its value,
+/// and `?3` too under its `c132` resource, and baud changes nothing (since
+/// 2026-10-10).
 #[test]
 fn a_restore_changes_only_what_differs_from_the_saved_value() {
     for restore in [&b"\x1b[?1000;1002;1003r"[..], b"\x1b[?1003;1002;1000r"] {
@@ -198,14 +201,44 @@ fn a_restore_changes_only_what_differs_from_the_saved_value() {
             assert_eq!(ask(t, 1002), 1);
         });
     }
+    // The encodings are one value, so restoring two of them in either order
+    // puts back the one saved, X10 included, and the second has nothing left
+    // to change.
     for restore in [&b"\x1b[?1006;1015r"[..], b"\x1b[?1015;1006r"] {
         support::with_corpus(|t| {
             feed(t, b"\x1b[?1006h\x1b[?1006;1015s\x1b[?1015h");
             feed(t, restore);
-            assert_eq!(ask(t, 1006), 1, "the encoding saved is back");
-            assert_eq!(ask(t, 1015), 2);
+            assert_eq!(encoding(t), Some(1006), "the encoding saved is back");
+        });
+        support::with_corpus(|t| {
+            feed(t, b"\x1b[?1006;1015s\x1b[?1006h");
+            feed(t, restore);
+            assert_eq!(encoding(t), None, "X10 saved is back");
         });
     }
+    // A restore at the encoding in force changes nothing, not even the cell
+    // a report was last sent from, which a DECSET of it forgets.
+    support::with_corpus(|t| {
+        let here = MouseEvent {
+            button: MouseButton::None,
+            mods: MouseMods::NONE,
+            kind: MouseKind::Motion,
+            col: Col::at_index(4),
+            row: Row::from_index(5),
+            px: None,
+        };
+        let sent = |t: &mut Term<'_>| {
+            t.clear_reply();
+            t.mouse_report(here);
+            t.reply().to_vec()
+        };
+        feed(t, b"\x1b[?1003h\x1b[?1006h\x1b[?1006s");
+        assert_eq!(sent(t), b"\x1b[<35;5;6M");
+        feed(t, b"\x1b[?1015;1006r");
+        assert!(sent(t).is_empty(), "the cell is kept");
+        feed(t, b"\x1b[?1006h");
+        assert_eq!(sent(t), b"\x1b[<35;5;6M", "the control: DECSET forgets it");
+    });
     support::with_corpus(|t| {
         // `?1002` saved reset while `?1000` was in force, and `?1000` in
         // force again at the restore: `?1002` is reset already.
@@ -227,6 +260,78 @@ fn a_restore_changes_only_what_differs_from_the_saved_value() {
             " kept",
             "not cleared"
         );
+    });
+}
+
+/// Which encoding `DECRQM` says is in force: the one of `?1005`, `?1006`,
+/// `?1015` and `?1016` answering set, or `None` for X10, which no mode
+/// selects.
+fn encoding(t: &mut Term<'_>) -> Option<u16> {
+    let set: Vec<u16> = [1005u16, 1006, 1015, 1016]
+        .into_iter()
+        .filter(|m| ask(t, *m) == 1)
+        .collect();
+    assert!(set.len() <= 1, "one encoding at a time: {set:?}");
+    set.first().copied()
+}
+
+/// **XTSAVE keeps the four mouse encodings as one value**, whichever is
+/// listed, and XTRESTORE of any of them brings back the encoding saved --
+/// X10, which no mode selects, included -- so a restore can set or reset an
+/// encoding that was not listed. ctlseqs has "two sets of mutually exclusive
+/// modes", the second of them "protocol encoding", and xterm keeps the four
+/// in one saved value, `DP_X_EXT_MOUSE`. A family never saved restores
+/// nothing, and the tracking levels are not of it: each stays a value of
+/// its own.
+#[test]
+fn xtsave_keeps_the_mouse_encodings_as_one_value() {
+    for (bytes, want, what) in [
+        (
+            &b"\x1b[?1006h\x1b[?1015s\x1b[?1015h\x1b[?1015r"[..],
+            Some(1006),
+            "saved under ?1015 while ?1006 was in force",
+        ),
+        (
+            b"\x1b[?1006h\x1b[?1006s\x1b[?1015h\x1b[?1005r",
+            Some(1006),
+            "saved under ?1006, restored under ?1005",
+        ),
+        (
+            b"\x1b[?1016h\x1b[?1005s\x1b[?1016l\x1b[?1006r",
+            Some(1016),
+            "saved under ?1005, restored under ?1006",
+        ),
+        (
+            b"\x1b[?1006s\x1b[?1006h\x1b[?1015h\x1b[?1016r",
+            None,
+            "X10 saved, restored under ?1016",
+        ),
+        (
+            b"\x1b[?1006h\x1b[?1015r",
+            Some(1006),
+            "never saved, nothing restored",
+        ),
+    ] {
+        support::with_corpus(|t| {
+            let counted = (t.unsupported, t.unsupported_param);
+            feed(t, bytes);
+            assert_eq!(encoding(t), want, "{what}");
+            assert_eq!(
+                (t.unsupported, t.unsupported_param),
+                counted,
+                "{what}: acted on, not counted"
+            );
+        });
+    }
+    support::with_corpus(|t| {
+        feed(t, b"\x1b[?1000h\x1b[?1006s\x1b[?1000l\x1b[?1000r");
+        assert_eq!(
+            t.mouse_tracking(),
+            MouseTracking::Off,
+            "an encoding saved saves no tracking level"
+        );
+        feed(t, b"\x1b[?1006h\x1b[?1000s\x1b[?1006l\x1b[?1006r");
+        assert_eq!(encoding(t), None, "a level saved saves no encoding");
     });
 }
 

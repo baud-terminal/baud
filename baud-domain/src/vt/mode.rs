@@ -1524,25 +1524,75 @@ impl SavedModes {
     /// settings ... saved and restored independently": the family is one
     /// setting, a keyboard.
     pub fn save_keyboard(&mut self, k: Keyboard) {
-        for m in KEYBOARDS {
-            if let Some(slot) = PrivateMode::Keyboard(m).slot() {
-                self.save(slot, ModeChange::of(m == k));
-            }
-        }
+        self.save_one_of(&KEYBOARDS, |m| PrivateMode::Keyboard(m).slot(), k);
     }
 
     /// The keyboard kept by [`SavedModes::save_keyboard`], or `None` if the
     /// family was never saved.
     pub fn saved_keyboard(self) -> Option<Keyboard> {
+        self.saved_one_of(
+            &KEYBOARDS,
+            |m| PrivateMode::Keyboard(m).slot(),
+            Keyboard::Default,
+        )
+    }
+
+    /// **Keep the mouse encodings as one value**, whichever of `?1005`,
+    /// `?1006`, `?1015` and `?1016` was listed, as the keyboards are: set
+    /// for the encoding in force and reset for the rest, none set for X10.
+    /// ctlseqs has "two sets of mutually exclusive modes", the second
+    /// "protocol encoding" (`[[source: ctlseqs]]`), so the family is one
+    /// setting, an encoding, and xterm keeps the four in one saved value,
+    /// `DP_X_EXT_MOUSE` (`[[source: xterm-reset]]`, charproc.c 8226-8233).
+    pub fn save_encoding(&mut self, e: MouseEncoding) {
+        self.save_one_of(&ENCODINGS, encoding_slot, e);
+    }
+
+    /// The encoding kept by [`SavedModes::save_encoding`], or `None` if the
+    /// family was never saved.
+    pub fn saved_encoding(self) -> Option<MouseEncoding> {
+        self.saved_one_of(&ENCODINGS, encoding_slot, MouseEncoding::X10)
+    }
+
+    /// Every member of an exclusive family saved, set for `in_force` alone.
+    fn save_one_of<T: Copy + PartialEq>(
+        &mut self,
+        family: &[T],
+        slot: fn(T) -> Option<ModeSlot>,
+        in_force: T,
+    ) {
+        for &m in family {
+            if let Some(s) = slot(m) {
+                self.save(s, ModeChange::of(m == in_force));
+            }
+        }
+    }
+
+    /// The member [`SavedModes::save_one_of`] kept, `default` if none was
+    /// set, or `None` if a member was never saved.
+    fn saved_one_of<T: Copy>(
+        self,
+        family: &[T],
+        slot: fn(T) -> Option<ModeSlot>,
+        default: T,
+    ) -> Option<T> {
         let mut kept = None;
-        for m in KEYBOARDS {
-            match PrivateMode::Keyboard(m).slot().and_then(|s| self.saved(s)) {
+        for &m in family {
+            match slot(m).and_then(|s| self.saved(s)) {
                 None => return None,
                 Some(ModeChange::Set) => kept = Some(m),
                 Some(ModeChange::Reset) => {}
             }
         }
-        Some(kept.unwrap_or(Keyboard::Default))
+        Some(kept.unwrap_or(default))
+    }
+}
+
+/// The slot of the mode that selects `e`; X10 has none.
+fn encoding_slot(e: MouseEncoding) -> Option<ModeSlot> {
+    match e.mode() {
+        Some(m) => m.slot(),
+        None => None,
     }
 }
 
@@ -1571,8 +1621,11 @@ impl PrivateMode {
     /// not `?2` or `?8`, and `?3` only under the `c132` resource `?40` sets,
     /// where baud saves `?3` whatever `?40` says, since 2026-10-10 -- a
     /// restore of it acts only under `?40`, as DECSET does; and one slot for
-    /// all five tracking levels and one for all four encodings, still an open
-    /// question.
+    /// `?1000`-`?1003` (`DP_X_MOUSE`, charproc.c 8212-8220) and one for `?9`
+    /// (`DP_X_X10MSE`, 8091-8093), each holding the tracking level, where
+    /// baud keeps one for each mode. The four encodings keep a slot each
+    /// here and are saved together, one value as xterm keeps them
+    /// ([`SavedModes::save_encoding`]).
     pub const fn slot(self) -> Option<ModeSlot> {
         let n = match self {
             PrivateMode::CursorKeys => 0,

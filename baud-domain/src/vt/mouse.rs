@@ -421,6 +421,57 @@ impl MouseEncoding {
             ModeChange::Reset => self,
         }
     }
+
+    /// The private mode that selects it, or `None` for X10, which no mode
+    /// selects.
+    pub const fn mode(self) -> Option<PrivateMode> {
+        match self {
+            MouseEncoding::X10 => None,
+            MouseEncoding::Utf8 => Some(PrivateMode::MouseUtf8),
+            MouseEncoding::Sgr => Some(PrivateMode::MouseSgr),
+            MouseEncoding::Urxvt => Some(PrivateMode::MouseUrxvt),
+            MouseEncoding::SgrPixels => Some(PrivateMode::MouseSgrPixels),
+        }
+    }
+}
+
+impl PrivateMode {
+    /// The encoding this mode selects, if it is one of `?1005`, `?1006`,
+    /// `?1015` and `?1016`: the family XTSAVE keeps as one value.
+    pub const fn encoding(self) -> Option<MouseEncoding> {
+        match self {
+            PrivateMode::MouseUtf8 => Some(MouseEncoding::Utf8),
+            PrivateMode::MouseSgr => Some(MouseEncoding::Sgr),
+            PrivateMode::MouseUrxvt => Some(MouseEncoding::Urxvt),
+            PrivateMode::MouseSgrPixels => Some(MouseEncoding::SgrPixels),
+            _ => None,
+        }
+    }
+}
+
+/// The encodings a private mode selects, every [`MouseEncoding`] but X10.
+pub const ENCODINGS: [MouseEncoding; 4] = [
+    MouseEncoding::Utf8,
+    MouseEncoding::Sgr,
+    MouseEncoding::Urxvt,
+    MouseEncoding::SgrPixels,
+];
+
+#[cfg(test)]
+mod encoding_modes {
+    use super::*;
+
+    /// Each encoding a mode selects is the one that mode names, and X10 is
+    /// selected by none.
+    #[test]
+    fn each_encoding_is_its_modes() {
+        for e in ENCODINGS {
+            let m = e.mode().expect("a mode selects it");
+            assert_eq!(m.encoding(), Some(e), "{e:?}");
+        }
+        assert_eq!(MouseEncoding::X10.mode(), None);
+        assert_eq!(PrivateMode::MouseNormal.encoding(), None);
+    }
 }
 
 /// `?1007` -- whether the wheel on the alternate screen sends the cursor
