@@ -4077,7 +4077,7 @@ impl<'b> Term<'b> {
             .first()
             .map_or(LineRendition::Single, |u| u.rendition());
         let cursor = (st.active == ActiveDisplay::Status)
-            .then(|| st.park_cursor(&self.cold, self.cols))
+            .then(|| st.park_cursor(rendition, &self.cold, self.cols))
             .flatten();
         Some(StatusLine {
             cells,

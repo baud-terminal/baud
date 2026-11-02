@@ -1332,6 +1332,53 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **DECLRMM, DECSLRM and the displays apart**, so margin mode set or
+    // reset on either display, margins set on either and the line entered
+    // and left between them are generated: `decstbm-decslrm` sets the mode
+    // and the margins together and only ever on, so no program reset the
+    // mode on one display with margins set on the other.
+    Atom {
+        name: "declrmm-on",
+        bytes: b"\x1b[?69h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "declrmm-off",
+        bytes: b"\x1b[?69l",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decslrm",
+        bytes: b"\x1b[5;16s",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decssdt-host",
+        bytes: b"\x1b[2$~",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decsasd-status",
+        bytes: b"\x1b[1$}",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decstr",
+        bytes: b"\x1b[!p",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "deccolm",
+        bytes: b"\x1b[?40h\x1b[?3l",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -1797,6 +1844,65 @@ fn the_status_atoms_reach_the_line() {
     assert_eq!(t.status_type(), StatusType::Indicator);
     support::feed(&mut t, &bytes_of(&[atom("status-none")]));
     assert!(t.status_line().is_none());
+}
+
+/// **The margin-mode atoms reach DECLRMM, DECSLRM and both displays**,
+/// the control the status atoms have: `decslrm` sets margins only under
+/// `declrmm-on` and `declrmm-off` puts them back, on the main display and
+/// on the line, each answered by DECRQM and DECRQSS on the display that
+/// received them; `decssdt-host` and `decsasd-status` select the line, and
+/// `decstr` leaves it; `deccolm` clears the screen. An atom that never
+/// reached its control would leave the margin mode where it was, and no
+/// program would reset it with margins set on the other display.
+#[test]
+fn the_margin_mode_atoms_reach_both_displays() {
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    let ask = |t: &mut Term<'_>| {
+        t.clear_reply();
+        support::feed(t, b"\x1b[?69$p\x1bP$qs\x1b\\");
+        t.reply().to_vec()
+    };
+    support::feed(&mut t, &bytes_of(&[atom("decslrm")]));
+    assert_eq!(
+        ask(&mut t),
+        b"\x1b[?69;2$y\x1bP1$r1;20s\x1b\\",
+        "SCOSC under ?69l"
+    );
+    support::feed(&mut t, &bytes_of(&[atom("declrmm-on"), atom("decslrm")]));
+    assert_eq!(ask(&mut t), b"\x1b[?69;1$y\x1bP1$r5;16s\x1b\\");
+    support::feed(&mut t, &bytes_of(&[atom("declrmm-off")]));
+    assert_eq!(ask(&mut t), b"\x1b[?69;2$y\x1bP1$r1;20s\x1b\\");
+    support::feed(&mut t, &bytes_of(&[atom("decssdt-host")]));
+    assert_eq!(t.status_type(), StatusType::HostWritable);
+    assert_eq!(t.active_display(), ActiveDisplay::Main);
+    support::feed(&mut t, &bytes_of(&[atom("decsasd-status")]));
+    assert_eq!(t.active_display(), ActiveDisplay::Status);
+    support::feed(&mut t, &bytes_of(&[atom("declrmm-on"), atom("decslrm")]));
+    assert_eq!(
+        ask(&mut t),
+        b"\x1b[?69;1$y\x1bP1$r5;16s\x1b\\",
+        "the line's margins"
+    );
+    support::feed(&mut t, &bytes_of(&[atom("declrmm-off")]));
+    assert_eq!(
+        ask(&mut t),
+        b"\x1b[?69;2$y\x1bP1$r1;20s\x1b\\",
+        "the line's margins"
+    );
+    support::feed(&mut t, &bytes_of(&[atom("decstr")]));
+    assert_eq!(t.active_display(), ActiveDisplay::Main);
+    support::feed(&mut t, b"x");
+    assert!(
+        t.row(Row::ZERO)
+            .is_some_and(|r| r[0].content != Content::EMPTY)
+    );
+    support::feed(&mut t, &bytes_of(&[atom("deccolm")]));
+    assert!(
+        t.row(Row::ZERO)
+            .is_some_and(|r| r[0].content == Content::EMPTY)
+    );
 }
 
 /// **The path atoms reach the rows**, the control the status atoms have:
@@ -2317,6 +2423,65 @@ fn a_wide_run_past_the_limit_on_a_double_status_line_agrees_atom_by_atom() {
             drive_at(&bytes_of(&prog), 4096, w),
             drive_atomwise(&prog, w)
         );
+    }
+}
+
+/// **DECLRMM set on the status line makes the line's own row single-width
+/// too**, as it makes the main display's: found at 200,000 cases on the
+/// base, with the alphabet 174 atoms long, where the line kept its
+/// double-width row under DECLRMM, so `CNL` under DECRLM took the line's
+/// start from the margin the one read had left, column 15 counted from
+/// one, and from the half a read beginning on the line took again, column
+/// 10, atom by atom.
+#[test]
+fn declrmm_on_a_double_status_line_agrees_atom_by_atom() {
+    let prog: Vec<usize> = [
+        "status-host-on",
+        "decrlm-on",
+        "decdwl",
+        "decstbm-decslrm",
+        "cnl",
+        "latin1-dcs-osc",
+    ]
+    .iter()
+    .map(|n| atom(n))
+    .collect();
+    for w in [AmbiguousWidth::Narrow, AmbiguousWidth::Wide] {
+        let one = drive_at(&bytes_of(&prog), 4096, w);
+        assert_eq!(one.7.2.as_ref().map(|l| l.1), Some(Some(Col::at_index(14))));
+        assert_eq!(one, drive_atomwise(&prog, w));
+    }
+}
+
+/// **A margin mode reset on one display puts back the other's margins**,
+/// the two programs the widened alphabet shrank to on the base in a debug
+/// build: DECCOLM received on the status line, within 8,000 cases, and
+/// with `decstr` and `deccolm` left out, DECLRMM reset there, a rare find
+/// of the atom-at-a-time property alone. Each left the other display with
+/// margins and the mode reset, and the next move tripped `Paint::place`'s
+/// assertion (`declrmm_reset_on_either_display_puts_back_both_displays_margins`
+/// holds what an optimised build showed).
+#[test]
+fn a_margin_mode_reset_on_one_display_agrees_atom_by_atom() {
+    let programs: [&[&str]; 2] = [
+        &[
+            "decstbm-decslrm",
+            "status-host-on",
+            "declrmm-off",
+            "status-main",
+            "hpr",
+        ],
+        &["status-host-on", "decstbm-decslrm", "deccolm", "decfi"],
+    ];
+    for names in programs {
+        let prog: Vec<usize> = names.iter().map(|n| atom(n)).collect();
+        for w in [AmbiguousWidth::Narrow, AmbiguousWidth::Wide] {
+            assert_eq!(
+                drive_at(&bytes_of(&prog), 4096, w),
+                drive_atomwise(&prog, w),
+                "{names:?}"
+            );
+        }
     }
 }
 

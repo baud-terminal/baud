@@ -39,7 +39,24 @@
 //! "under the terminal's BDSM" (`docs/bidi.md`, the status line's row),
 //! and DCSM is kept with it; §14.2.3's general clause lists neither among
 //! its exceptions, an open question (`docs/vt-coverage.md`, the SLH / SLL
-//! row).
+//! row). **DECLRMM is the terminal's and the side margins each display's**,
+//! so the mode's reset on either display puts back both displays' margins,
+//! the parked one's here ([`Parked::reset_side_margins`]), and its set
+//! makes both displays' lines single-width, the line's row with the main
+//! display's (`Paint::single_width_pages`), a wrap pending at a
+//! double-width row's half kept waiting there ([`Parked::single_width`]).
+//! Which display the mode belongs to is an open question, read both ways.
+//! For both displays, DECLRMM's own text speaks of "every page" and of
+//! "Page Memory for the Session" (070-5 p. 5-29). For the line alone, with
+//! the line selected "most ANSI control functions received will affect
+//! only the Status Display" (070-14 §14.2.3, p. 14-8), and DECLRMM is not
+//! among its exceptions; and the VT420's "most of the control functions
+//! that affect the main display also affect the status line"
+//! (`[[source: vt420-rm]]` p. 221) carries an exceptions list in which
+//! DECSCLM and IRM read "Affects the main display and the status line",
+//! and tab stops and DECAWM the same, so its rule has a control act on the
+//! line rather than on both displays (the `?69` row). DECCOLM puts back
+//! the line's margins and homes its cursor too, whatever `?95` says.
 //!
 //! **Between reads the terminal is the main display's**: a read that ends
 //! on the line swaps back before it writes its state to [`crate::Term`],
@@ -194,12 +211,67 @@ impl Parked {
 }
 
 impl Parked {
+    /// **The parked display's side margins put back**, by DECLRMM's reset
+    /// or DECCOLM on the other: DECLRMM is the terminal's and the margins
+    /// each display's, so its reset leaves neither display with a margin no
+    /// mode admits to. A wrap pending at the old right margin keeps waiting
+    /// on it, as on the display written ([`crate::ops::kept_at_margin`]);
+    /// the fence is taken again when the display is swapped in.
+    pub(crate) fn reset_side_margins(&mut self, cols: Cols) {
+        let right = Col::at_index(cols.index().saturating_sub(1));
+        self.cx = crate::ops::kept_at_margin(self.cx, self.right, cols);
+        self.left = Col::ZERO;
+        self.right = right;
+        self.fence = right;
+    }
+
+    /// **The fence the parked display's cursor is read against** on a row
+    /// of rendition `r`, as a report reads the display written
+    /// ([`crate::bounds::report_fence`]): the right margin, the half's last
+    /// column on a double-width row ([`crate::paint::fence_of`]), or the
+    /// display's SLL limit while a wrap waits there.
+    pub(crate) fn report_fence(&self, r: LineRendition, cold: &Cold, cols: Cols) -> Col {
+        let own = crate::paint::fence_of(r, self.right, cols);
+        match self.pinned == Pinned::AtLimit {
+            true => crate::bounds::limited_by(own, self.bounds, cold, cols),
+            false => own,
+        }
+    }
+
+    /// **The line's row made single-width by DECLRMM's set**, `r` its
+    /// rendition until then: a wrap pending at a double-width row's half
+    /// keeps waiting there, as on the main display
+    /// ([`crate::ops::kept_at_half`]). The fence is taken again when the
+    /// line is swapped in.
+    pub(crate) fn single_width(&mut self, r: LineRendition, cold: &Cold, cols: Cols) {
+        if !r.is_double() {
+            return;
+        }
+        let fence = self.report_fence(r, cold, cols);
+        if let Some(cx) = crate::ops::kept_at_half(self.cx, fence, self.right, cols) {
+            self.cx = cx;
+            self.pinned = Pinned::Before;
+        }
+    }
+
+    /// **The parked display's cursor home**, by DECCOLM on the other: a
+    /// move, so it ends a wrap waiting, as [`Paint::set_col`] ends the
+    /// written display's.
+    fn home(&mut self) {
+        self.cy = Row::ZERO;
+        self.cx = CursorCol::moved(Col::ZERO);
+        self.pinned = Pinned::Before;
+    }
+
     /// **DECSTR's reset of the line's own state**, kept parked: the
     /// rendition, DECSCA, the character sets, origin mode, the cursor
     /// shown, nothing saved and margins at its edges, as the soft reset
     /// leaves the main display's; its position stays, as the main
-    /// display's does, and its line home and limit, which `DECSTR` keeps.
+    /// display's does, and its line home and limit, which `DECSTR` keeps. A
+    /// wrap pending at a right margin narrower than the line keeps waiting
+    /// on it, as the main display's does ([`Paint::reset_side_margins`]).
     fn soft_reset(&mut self, cols: Cols) {
+        self.reset_side_margins(cols);
         let fresh = Parked::fresh(cols);
         *self = Parked {
             cy: self.cy,
@@ -255,14 +327,12 @@ impl Status {
     }
 
     /// The line's cursor between reads, when its DECTCEM shows it: the
-    /// column the cell is drawn at, a pending wrap's the last, and the
-    /// line's own SLL limit while a wrap waits there, as a report reads it
-    /// (`crate::bounds`).
-    pub(crate) fn park_cursor(&self, cold: &Cold, cols: Cols) -> Option<Col> {
-        let fence = match self.park.pinned == Pinned::AtLimit {
-            true => crate::bounds::limited_by(self.park.right, self.park.bounds, cold, cols),
-            false => self.park.right,
-        };
+    /// column the cell is drawn at, and a pending wrap's the one CPR
+    /// reports -- the right margin, the half's last column on a
+    /// double-width row `r`, or the line's own SLL limit while a wrap waits
+    /// there ([`Parked::report_fence`]).
+    pub(crate) fn park_cursor(&self, r: LineRendition, cold: &Cold, cols: Cols) -> Option<Col> {
+        let fence = self.park.report_fence(r, cold, cols);
         (self.park.cursor == ModeChange::Set).then(|| self.park.cx.reported(fence, cols))
     }
 
@@ -595,17 +665,21 @@ impl Paint<'_, '_> {
     /// both the Main Display and the Host Writable Status Line. The Status
     /// Display cursor is moved to the home position" (070-14 p. 14-9).
     /// Its state stays, as the main display's does; only the cells go, and
-    /// the cursor home. Called with the main display live.
+    /// the cursor home. **`?95` withholds the clear and not the home**, as
+    /// it withholds only the main display's clear ("When enabled, a column
+    /// mode change ... does not clear the screen", `[[source:
+    /// vt510-decncsm]]`). Called with the main display live.
     pub(crate) fn status_column_mode(&mut self) {
         if self.strs.status.kind != StatusType::HostWritable {
             return;
         }
-        if let Some(u) = self.status.used.first_mut() {
-            *u = RowExtent::ZERO;
+        if !self.cold.modes.is_set(ModeBit::NoClearOnColumn) {
+            if let Some(u) = self.status.used.first_mut() {
+                *u = RowExtent::ZERO;
+            }
+            self.status.cells.fill(PackedCell::EMPTY);
         }
-        self.status.cells.fill(PackedCell::EMPTY);
-        self.strs.status.park.cy = Row::ZERO;
-        self.strs.status.park.cx = CursorCol::moved(Col::ZERO);
+        self.strs.status.park.home();
     }
 
     /// `f` on the main display, the line swapped out around it: what acts
@@ -689,21 +763,51 @@ impl Term<'_> {
     /// the narrower of the two widths blanked, its margins at its edges and
     /// its cursor inside them, "If Column Mode (DECCOLM) is changed, the
     /// width of the Status Display changes" (070-14 p. 14-5). Between
-    /// reads, so the line's state is the parked one.
+    /// reads, so the line's state is the parked one. **A wrap pending on
+    /// the line stays pending**, on the column it waited on clamped to the
+    /// line's new end, as the main display's does
+    /// ([`Term::resize_cursor_and_margins`]): the line dropped one waiting
+    /// at a right margin, and the next character went one past it, or at
+    /// its last column, and the next character went over it.
     pub(crate) fn status_resized(&mut self, old: Cols) {
         let cols = self.cols;
         let (lo, hi) = (old.index().min(cols.index()), old.index().max(cols.index()));
         if let Some(cells) = self.store.status.cells.get_mut(lo..hi) {
             cells.fill(PackedCell::EMPTY);
         }
+        let r = self
+            .store
+            .status
+            .used
+            .first()
+            .map_or(LineRendition::Single, |u| u.rendition());
         let right = Col::at_index(cols.index().saturating_sub(1));
         let p = &mut self.store.strs.status.park;
+        let was = p.report_fence(r, &self.cold, old);
+        let waited = match p.cx.at(was, old) {
+            CursorAt::Pending(_) => Some(p.cx.reported(was, old)),
+            CursorAt::Column(_) | CursorAt::Placed(_) => None,
+        };
         p.left = Col::ZERO;
         p.right = right;
         p.fence = right;
         p.reach = cols;
-        if p.cx.col() > right {
-            p.cx = CursorCol::moved(right);
+        let clamped = p.cx.col().min(right);
+        if clamped != p.cx.raw() {
+            p.pinned = Pinned::Before;
+        }
+        p.cx = CursorCol::moved(clamped);
+        let own = crate::paint::fence_of(r, right, cols);
+        if p.cx.raw() > own {
+            p.cx = CursorCol::moved(own);
+        }
+        if let Some(w) = waited {
+            let w = w.min(own);
+            p.cx = match w == own {
+                true => CursorCol::written(w.after()),
+                false => CursorCol::waiting(w),
+            };
+            p.pinned = Pinned::Before;
         }
         self.redraw_indicator();
     }

@@ -3829,37 +3829,47 @@ impl Paint<'_, '_> {
     /// flag. Untagged, the sentinel one past the old margin read as a
     /// column under the wider ones, and the next character went there.
     pub(crate) fn reset_side_margins(&mut self) {
-        let waits = !self.cx.is_placed()
-            && self.cold.right.index() + 1 < self.cols.index()
-            && self.cx.col().index() == self.cold.right.index() + 1;
         let right = self.cold.right;
         self.cold.left = Col::ZERO;
         self.cold.right = Col::at_index(self.cols.index() - 1);
         self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
-        self.cx = match (self.cx.is_waiting(), waits) {
-            (true, _) => self.cx,
-            (false, true) => CursorCol::waiting(right),
-            (false, false) => CursorCol::moved(self.cx.col()),
-        };
+        self.cx = kept_at_margin(self.cx, right, self.cols);
         self.row_changed_to(self.cy);
     }
 
-    /// **`DECLRMM` set: every line single-width**, on both screens.
-    /// `[[source: dec-std-070]]` p. 5-29: "When DECLRMM is set, all line
-    /// attributes currently in Page Memory for the Session will be reset to
-    /// Single Wide, Single High", its algorithm setting `line_rendition[i] =
-    /// SINGLE_WIDTH` for every line of the page memory, which is the screen
-    /// of each surface and not the history behind it. A line keeps its
-    /// cells: the reset is DECSWL's, which loses nothing (p. 5-96).
+    /// **`DECLRMM` set: every line single-width**, on both screens and
+    /// the status line's row. `[[source: dec-std-070]]` p. 5-29: "When
+    /// DECLRMM is set, all line attributes currently in Page Memory for the
+    /// Session will be reset to Single Wide, Single High", its algorithm
+    /// setting `line_rendition[i] = SINGLE_WIDTH` for every line of the
+    /// page memory, which is the screen of each surface and not the history
+    /// behind it; and "In the set state ... no line attributes other than
+    /// Single Wide may be used", so the host-writable line, under the
+    /// terminal's DECLRMM (`crate::status`), goes single-width with them. A
+    /// line keeps its cells: the reset is DECSWL's, which loses nothing (p.
+    /// 5-96).
+    ///
+    /// **A wrap pending at a double-width line's half keeps waiting
+    /// there** ([`kept_at_half`]), the main display's on the cursor's line
+    /// and the status line's on its row: `set_left_right_margins_mode()`
+    /// (p. 5-30) sets each line's rendition and leaves the Last Column Flag
+    /// alone, so the cursor still reports the half's last column and the
+    /// next character wraps first. Untagged, the sentinel one past the half
+    /// read as a column of the single-width line, and the next character
+    /// went there.
     #[cold]
     #[inline(never)]
     pub(crate) fn single_width_pages(&mut self) {
-        // The page memory is the main display's, both its screens, from
-        // the status line too.
+        // From the status line too, its row then parked with the rest.
         if self.on_status() {
             self.on_main(|p| p.single_width_pages());
             return;
         }
+        // Read while the cursor's line is still double-width.
+        let kept = match self.view.rendition(self.cy).is_double() {
+            true => kept_at_half(self.cx, self.report_fence(), self.cold.right, self.cols),
+            false => None,
+        };
         for live in [true, false] {
             for y in 0..self.rows.index() {
                 let r = Row::from_index(y);
@@ -3872,6 +3882,20 @@ impl Paint<'_, '_> {
                 }
             }
             self.view.swap_surface(&mut self.other);
+        }
+        if let Some(cx) = kept {
+            self.cx = cx;
+            self.cold.pinned = crate::term::Pinned::Before;
+        }
+        // The line's row, while the main display is written: its fence is
+        // taken again when it is swapped in.
+        if let Some(u) = self.status.used.first_mut() {
+            let cols = self.cols;
+            self.strs
+                .status
+                .park
+                .single_width(u.rendition(), self.cold, cols);
+            *u = u.with_rendition(LineRendition::Single, cols);
         }
         self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
     }
@@ -4307,7 +4331,12 @@ impl Paint<'_, '_> {
             // status line, DECCOLM is the main display's**, and clears the
             // line too: "DECCOLM affects both the Main Display and the Status
             // Display simultaneously ... Receipt of this sequence will clear
-            // both" (`[[source: dec-std-070]]` 070-14 p. 14-9).
+            // both" (`[[source: dec-std-070]]` 070-14 p. 14-9), and "The
+            // Status Display cursor is moved to the home position". **It
+            // puts back the line's side margins and homes its cursor**,
+            // parked here, whatever `?95` says, which withholds the clear
+            // alone: the scrolling region it eliminates is both displays',
+            // and DECLRMM, which it resets, is the terminal's.
             PrivateMode::Column132 if self.on_status() => {
                 self.on_main(|p| p.set_private_mode(m, change, node, at));
             }
@@ -4320,11 +4349,13 @@ impl Paint<'_, '_> {
                 self.cold.top = Row::ZERO;
                 self.cold.bot = Row::from_index(self.rows.index() - 1);
                 self.reset_side_margins();
+                let cols = self.cols;
+                self.strs.status.park.reset_side_margins(cols);
                 self.cold.modes.reset(ModeBit::SideMargins);
                 if !self.cold.modes.is_set(ModeBit::NoClearOnColumn) {
                     self.clear_screen();
-                    self.status_column_mode();
                 }
+                self.status_column_mode();
                 self.home();
                 self.ask_width(PageWidth::of_column_mode(change), node);
             }
@@ -4357,12 +4388,22 @@ impl Paint<'_, '_> {
             // **`DECLRMM` is what makes `DECSLRM` mean anything**, and
             // clearing it puts the margins back rather than leaving a region
             // no mode admits to. `[[source: ctlseqs]]` for `?69 l`: "disable
-            // left and right margin mode".
+            // left and right margin mode". **The mode is the terminal's and
+            // the margins each display's** (`crate::status`), so a reset on
+            // either display puts back both displays' margins, the parked
+            // one's too, and a set makes both displays' lines single-width:
+            // "In the reset state, the left and right scrolling margins in
+            // every page ... are set to be at the extremes of the page"
+            // (`[[source: dec-std-070]]` p. 5-29).
             PrivateMode::ReverseWrap => self.cold.modes.apply(ModeBit::ReverseWrap, on),
             PrivateMode::LeftRightMargin => {
                 self.cold.modes.apply(ModeBit::SideMargins, on);
                 match on {
-                    false => self.reset_side_margins(),
+                    false => {
+                        self.reset_side_margins();
+                        let cols = self.cols;
+                        self.strs.status.park.reset_side_margins(cols);
+                    }
                     true => self.single_width_pages(),
                 }
             }
@@ -5694,6 +5735,43 @@ impl Paint<'_, '_> {
         // A pending wrap survives: at the screen's edge `cx` is kept as it
         // is, and at a narrower right margin the margins put back keep it
         // waiting on the margin's column ([`Paint::reset_side_margins`]).
+    }
+}
+
+/// **The cursor as the side margins put back leave it**, on the display
+/// written ([`Paint::reset_side_margins`]) or the one parked
+/// (`crate::status`): a wrap pending one past `right`, the old right
+/// margin, left of the last column waits on `right`'s column, one already
+/// waiting stays, and a cursor placed one past `right` keeps its column as
+/// an ordinary one.
+pub(crate) fn kept_at_margin(cx: CursorCol, right: Col, cols: Cols) -> CursorCol {
+    let waits = !cx.is_placed()
+        && right.index() + 1 < cols.index()
+        && cx.col().index() == right.index() + 1;
+    match (cx.is_waiting(), waits) {
+        (true, _) => cx,
+        (false, true) => CursorCol::waiting(right),
+        (false, false) => CursorCol::moved(cx.col()),
+    }
+}
+
+/// **A wrap pending at a double-width line's half, as the line goes
+/// single-width** ([`Paint::single_width_pages`]), on the display written
+/// or the one parked (`crate::status`): `fence`, where the wrap waits, is
+/// the half's last column or a line limit left of it, and `own` the
+/// single-width line's fence. The wrap keeps waiting on the column it
+/// reports, as a resize keeps one (`Term::resize_cursor_and_margins`);
+/// `None` where no wrap waits, and the cursor keeps its column.
+pub(crate) fn kept_at_half(cx: CursorCol, fence: Col, own: Col, cols: Cols) -> Option<CursorCol> {
+    match cx.at(fence, cols) {
+        CursorAt::Pending(_) => {
+            let w = cx.reported(fence, cols).min(own);
+            Some(match w == own {
+                true => CursorCol::written(w.after()),
+                false => CursorCol::waiting(w),
+            })
+        }
+        CursorAt::Column(_) | CursorAt::Placed(_) => None,
     }
 }
 

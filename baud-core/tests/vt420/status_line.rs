@@ -359,6 +359,48 @@ fn deccolm_clears_the_line_and_homes_its_cursor() {
     });
 }
 
+/// **And with `?95` set, it homes the line's cursor still**: "The Status
+/// Display cursor is moved to the home position" (070-14 item 5, p. 14-9),
+/// and `?95` withholds the clear and nothing else ("When enabled, a column
+/// mode change ... does not clear the screen", `[[source:
+/// vt510-decncsm]]`), as the main display's cursor goes home under it.
+/// Received on either display, the line's cursor stayed where it was.
+#[test]
+fn deccolm_homes_the_lines_cursor_with_the_screen_kept() {
+    let deccolm = b"\x1b[?95h\x1b[?40h\x1b[?3l";
+    for from in [deccolm.to_vec(), [ON, deccolm.as_slice(), OFF].concat()] {
+        support::with_term(&WS, |t| {
+            support::feed(t, &[HOST, ON, b"abc", OFF].concat());
+            support::feed(t, &from);
+            t.clear_reply();
+            support::feed(t, &[ON, b"\x1b[6n", OFF].concat());
+            assert_eq!(show(t.reply()), "\\x1b[1;1R", "{}", show(&from));
+            assert_eq!(status(t), "abc", "`?95` keeps the text: {}", show(&from));
+        });
+    }
+}
+
+/// **DECCOLM's home ends a wrap waiting on the line**, as every move ends
+/// the Last Column Flag (`[[source: dec-std-070]]` D.6.1) and as the main
+/// display's home ends its own: under DECRLM a character written at the
+/// line's left margin leaves a wrap waiting there, and after the home the
+/// next character went to the next line, erasing the line, rather than
+/// home.
+#[test]
+fn deccolm_ends_a_wrap_waiting_on_the_line() {
+    let line = |keep: &[u8]| {
+        support::with_term(&WS, |t| {
+            support::feed(t, &[HOST, ON, b"\x1b[?34ha", OFF].concat());
+            support::feed(t, &[keep, b"\x1b[?40h\x1b[?3l"].concat());
+            support::feed(t, &[ON, b"b", OFF].concat());
+            status(t)
+        })
+    };
+    // Cleared, or kept with `?95` set, where the `b` overwrites the `a`:
+    // home either way.
+    assert_eq!([line(b""), line(b"\x1b[?95h")], ["b", "b"]);
+}
+
 /// "DECANM - ANSI/VT52 Mode: This sequence is ignored if received in the
 /// Status Display" (070-14 p. 14-8).
 #[test]
@@ -738,8 +780,8 @@ fn a_cluster_sweep_keeps_the_lines_clusters() {
     });
 }
 
-/// **DECLRMM's single-width pages are the main display's**: set from the
-/// line, a double-width line of the main display goes single-width.
+/// **DECLRMM's single-width pages are the main display's too**: set from
+/// the line, a double-width line of the main display goes single-width.
 #[test]
 fn declrmm_from_the_line_resets_the_main_displays_lines() {
     support::with_term(&WS, |t| {
@@ -747,6 +789,209 @@ fn declrmm_from_the_line_resets_the_main_displays_lines() {
         assert!(t.line_rendition(Row::ZERO).is_some_and(|r| r.is_double()));
         support::feed(t, &[HOST, ON, b"\x1b[?69h", OFF].concat());
         assert_eq!(t.line_rendition(Row::ZERO), Some(LineRendition::Single));
+    });
+}
+
+/// What each display answers for DECLRMM and its margins, the line's
+/// read with it selected.
+fn margins(t: &mut Term<'_>, on_line: bool) -> String {
+    let ask = b"\x1b[?69$p\x1bP$qs\x1b\\";
+    t.clear_reply();
+    match on_line {
+        true => support::feed(t, &[ON, ask.as_slice(), OFF].concat()),
+        false => support::feed(t, ask),
+    }
+    show(t.reply())
+}
+
+/// **DECLRMM is the terminal's, and its reset puts back both displays'
+/// margins**: each display keeps its own margins, and "In the reset state,
+/// the left and right scrolling margins in every page ... are set to be at
+/// the extremes of the page" (`[[source: dec-std-070]]` p. 5-29). Reset on
+/// the line, the main display's margins stayed where DECSLRM set them, so
+/// it wrapped at column 16 with the mode reset and DECRQSS named a margin
+/// DECRQM said was off; a debug build asserted at the first move. Reset on
+/// the main display, the line kept its own and wrapped there.
+#[test]
+fn declrmm_reset_on_either_display_puts_back_both_displays_margins() {
+    let off: [(&[u8], &str); 2] = [
+        (&[ON, b"\x1b[?69l", OFF].concat(), "on the line"),
+        (b"\x1b[?69l", "on the main display"),
+    ];
+    for (reset, at) in off {
+        support::with_term(&WS, |t| {
+            support::feed(t, b"\x1b[?69h\x1b[5;16s");
+            support::feed(t, &[HOST, ON, b"\x1b[3;12s", OFF].concat());
+            support::feed(t, reset);
+            let edges = "\\x1b[?69;2$y\\x1bP1$r1;20s\\x1b\\\\";
+            assert_eq!(margins(t, false), edges, "the main display, {at}");
+            assert_eq!(margins(t, true), edges, "the line, {at}");
+            support::feed(t, b"\x1b[Habcdefghijklmnopqrst");
+            assert_eq!(main_row(t, Row::ZERO), "abcdefghijklmnopqrst", "{at}");
+            support::feed(t, &[ON, b"\rABCDEFGHIJKLMNOPQRST", OFF].concat());
+            assert_eq!(status(t), "ABCDEFGHIJKLMNOPQRST", "{at}");
+        });
+    }
+}
+
+/// **DECCOLM puts back the line's margins as the main display's**, with
+/// the screen cleared or kept (`?95`): it "affects both the Main Display
+/// and the Status Display simultaneously" (070-14 p. 14-9), eliminates
+/// the scrolling region (p. 5-71) and resets DECLRMM, the terminal's
+/// (`[[source: vt510-deccolm]]`). The line kept its margins under the mode
+/// reset and wrapped at them.
+#[test]
+fn deccolm_puts_back_the_lines_margins() {
+    for keep in [b"".as_slice(), b"\x1b[?95h"] {
+        support::with_term(&WS, |t| {
+            support::feed(t, &[HOST, ON, b"\x1b[?69h\x1b[5;16s", OFF].concat());
+            support::feed(t, &[keep, b"\x1b[?40h\x1b[?3l"].concat());
+            let edges = "\\x1b[?69;2$y\\x1bP1$r1;20s\\x1b\\\\";
+            assert_eq!(margins(t, true), edges, "{}", show(keep));
+            support::feed(t, &[ON, b"\rABCDEFGHIJKLMNOPQRST", OFF].concat());
+            assert_eq!(status(t), "ABCDEFGHIJKLMNOPQRST", "{}", show(keep));
+        });
+    }
+}
+
+/// **DECLRMM set on either display makes the line's row single-width**,
+/// as it makes the main display's: "In the set state ... no line
+/// attributes other than Single Wide may be used" (`[[source:
+/// dec-std-070]]` p. 5-29), and the mode is the terminal's. The line kept
+/// a double-width row under DECLRMM, so a line start taken in one read
+/// from its margins and in the next from its half put the cursor in two
+/// places (`declrmm_on_a_double_status_line_agrees_atom_by_atom`).
+#[test]
+fn declrmm_set_makes_the_lines_row_single_width() {
+    for set in [[ON, b"\x1b[?69h", OFF].concat(), b"\x1b[?69h".to_vec()] {
+        support::with_term(&WS, |t| {
+            support::feed(t, &[HOST, ON, b"\x1b#6ab", OFF].concat());
+            let row = |t: &Term<'_>| t.status_view().map(|v| v.rendition(Row::ZERO));
+            assert_eq!(row(t), Some(LineRendition::DoubleWidth));
+            support::feed(t, &set);
+            assert_eq!(row(t), Some(LineRendition::Single), "{}", show(&set));
+            assert_eq!(status(t), "ab", "the cells stay, as DECSWL keeps them");
+            // A read that begins on the line takes its fence again, from
+            // the row, and DECSLRM in the read before took it from the
+            // margin.
+            support::feed(t, &[ON, b"\x1b[5;16s", OFF].concat());
+            support::feed(t, &[ON, b"\x1b[?34h\x1b[E"].concat());
+            assert_eq!(
+                t.status_line().and_then(|l| l.cursor),
+                Some(Col::at_index(15))
+            );
+        });
+    }
+}
+
+/// **DECSTR keeps a wrap pending at the line's narrower right margin**, as
+/// it keeps the main display's: the margins it puts back assign no
+/// position (`[[source: dec-std-070]]` 070-4 p. 32, note c), so the line's
+/// cursor still reports the margin's column and the next character wraps
+/// first. The line dropped the wait, reported the column after the margin
+/// and wrote there.
+#[test]
+fn decstr_keeps_a_wrap_pending_at_the_lines_margin() {
+    support::with_term(&WS, |t| {
+        support::feed(
+            t,
+            &[HOST, ON, b"\x1b[?69h\x1b[1;10sabcdefghij", OFF].concat(),
+        );
+        support::feed(t, b"\x1b[!p");
+        t.clear_reply();
+        support::feed(t, &[ON, b"\x1b[6nX", OFF].concat());
+        assert_eq!(show(t.reply()), "\\x1b[1;10R");
+        assert_eq!(status(t), "X", "the wrap scrolled the line, erasing it");
+    });
+}
+
+/// **A resize keeps a wrap pending on the line**, as it keeps the main
+/// display's: on the column it waited on, a right margin's or the last
+/// column's, clamped to the line's new end, where the line put the
+/// cursor one past it, or on its last column with no wrap pending, and
+/// the next character went there.
+#[test]
+fn a_resize_keeps_a_wrap_pending_on_the_line() {
+    let narrow = WinSize {
+        ws_row: 6,
+        ws_col: 15,
+    };
+    let cases: [(&[u8], &str); 2] = [
+        (b"\x1b[?69h\x1b[1;10sabcdefghij", "\\x1b[1;10R"),
+        (b"abcdefghijklmnopqrst", "\\x1b[1;15R"),
+    ];
+    for (fill, cpr) in cases {
+        support::with_term(&WS, |t| {
+            support::feed(t, &[HOST, ON, fill, OFF].concat());
+            assert_eq!(t.resize(&narrow), Resized::Ok);
+            t.clear_reply();
+            support::feed(t, &[ON, b"\x1b[6nX", OFF].concat());
+            assert_eq!(show(t.reply()), cpr, "{}", show(fill));
+            assert_eq!(status(t), "X", "the wrap scrolled the line: {}", show(fill));
+        });
+    }
+}
+
+/// **DECLRMM set keeps a wrap pending at the half of the line's
+/// double-width row**, as the row goes single-width:
+/// `set_left_right_margins_mode()` (`[[source: dec-std-070]]` p. 5-30)
+/// sets each line's rendition and leaves the Last Column Flag alone, so
+/// the cursor still reports the half's last column and the next character
+/// wraps first. Untagged, the sentinel one past the half reads as an
+/// ordinary column of the single-width row, CPR naming the column after
+/// the half and the next character going there.
+#[test]
+fn declrmm_set_keeps_a_wrap_pending_at_the_lines_half() {
+    for set in [[ON, b"\x1b[?69h", OFF].concat(), b"\x1b[?69h".to_vec()] {
+        support::with_term(&WS, |t| {
+            support::feed(t, &[HOST, ON, b"\x1b#6abcdefghij", OFF].concat());
+            t.clear_reply();
+            support::feed(t, &[ON, b"\x1b[6n", OFF].concat());
+            assert_eq!(show(t.reply()), "\\x1b[1;10R", "the wait, before");
+            support::feed(t, &set);
+            t.clear_reply();
+            support::feed(t, &[ON, b"\x1b[6nX", OFF].concat());
+            assert_eq!(show(t.reply()), "\\x1b[1;10R", "{}", show(&set));
+            assert_eq!(status(t), "X", "the wrap scrolled the line: {}", show(&set));
+        });
+    }
+}
+
+/// **And at the half of the main display's double-width line**, by the
+/// same rule, the mode set on either display: the cursor reported the
+/// column after the half and the next character went there, the wrap
+/// lost.
+#[test]
+fn declrmm_set_keeps_a_wrap_pending_at_a_double_lines_half() {
+    for set in [[ON, b"\x1b[?69h", OFF].concat(), b"\x1b[?69h".to_vec()] {
+        support::with_term(&WS, |t| {
+            support::feed(t, &[HOST, b"\x1b#6abcdefghij"].concat());
+            t.clear_reply();
+            support::feed(t, b"\x1b[6n");
+            assert_eq!(show(t.reply()), "\\x1b[1;10R", "the wait, before");
+            support::feed(t, &set);
+            t.clear_reply();
+            support::feed(t, b"\x1b[6nX");
+            assert_eq!(show(t.reply()), "\\x1b[1;10R", "{}", show(&set));
+            assert_eq!(main_row(t, Row::ZERO), "abcdefghij", "{}", show(&set));
+            assert_eq!(main_row(t, Row::from_index(1)), "X", "{}", show(&set));
+        });
+    }
+}
+
+/// **The line's cursor is drawn where CPR reports it** while a wrap waits
+/// at its double-width row's half: the column the drawn cursor is read
+/// against is the half's last, as the report's is. It was read against
+/// the right margin, and named the column after the one CPR reports.
+#[test]
+fn the_lines_cursor_is_drawn_where_cpr_reports_it_on_a_double_row() {
+    support::with_term(&WS, |t| {
+        support::feed(t, &[HOST, ON, b"\x1b#6abcdefghij"].concat());
+        let cursor = t.status_line().and_then(|l| l.cursor);
+        assert_eq!(cursor, Some(Col::at_index(9)));
+        t.clear_reply();
+        support::feed(t, b"\x1b[6n");
+        assert_eq!(show(t.reply()), "\\x1b[1;10R");
     });
 }
 

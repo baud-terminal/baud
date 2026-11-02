@@ -584,6 +584,12 @@ group  = "C"
 # change-barred; ICH's notes 1 and 2, change-barred (p. 5-142), and its algorithm, unbarred,
 # 'ignore if we're outside the scrolling area' over a line test printed inverted (p. 5-143);
 # 5.16.4, Rev AX11 To AX12, items 1, 12, 14, 22 and 24 (pp. 5-221 to 5-223).
+# Read 2026-11-02 for DECLRMM on the status line, the copy whose sha256 matches, on the text
+# layer [text]: 070-14 §14.2, §14.2.2 and §14.2.3 (pp. 14-4, 14-7 to 14-10), DECLRMM and
+# DECSLRM (pp. 5-27 to 5-30), "In the reset state, the left and right scrolling margins in
+# every page ... are set to be at the extremes of the page" and "all line attributes
+# currently in Page Memory for the Session will be reset to Single Wide", DECCOLM (p. 5-71)
+# and D.6.1's Last Column Flag list (pp. D-13 and D-14), which does not name DECLRMM.
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -17281,6 +17287,12 @@ group  = "C"
 # margins' (p. 148); DCH and ICH, each with 'has no effect outside the scrolling margins'
 # (pp. 152, 153); 'Erasing Text', 'They are not restricted by margins' (p. 153); the
 # glossary's 'Scrolling margins: The top, bottom, left, and right boundaries' (p. 353).
+# Read 2026-11-02 for DECLRMM on the status line, the copy whose sha256 matches, on the text
+# layer [text]: the Notes on DECSSDT, p. 221 (PDF 243), "most of the control functions that
+# affect the main display also affect the status line", with its list of exceptions, which
+# names DECAWM, DECSCLM, IRM and the tab stops and not DECLRMM; DECCOLM's notes, p. 131,
+# "Sets the left, right, top and bottom scrolling margins to their default positions" and
+# "clears data from the status line if the status line is set to host-writable".
 
 [sources.vt510-rm-b]
 key    = "vt510-rm-b"
