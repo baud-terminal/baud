@@ -80,9 +80,9 @@ with their keysyms resolved through X.Org's keysymdef.h
            and
            https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/6d3907b6d5dc4aa7d7ee6ee5d7d8714e7466630b/include/X11/keysymdef.h
 
-The termcap keyboard's table: each key ncurses' xterm-256color terminal
-description names, with the string that description gives it, in the order
-of xterm's xtermcap.c table
+The termcap keyboard's table: each key of xterm's xtermcap.c table that
+ncurses' xterm-256color terminal description gives a string, with that
+string, in the order of xterm's table
   Files:   src/vt/key/termcap_data.rs
   Holder:  Thomas E. Dickey and the Free Software Foundation (ncurses);
            Thomas E. Dickey (xterm)
