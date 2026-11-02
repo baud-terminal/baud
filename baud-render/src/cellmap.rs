@@ -241,7 +241,11 @@ impl MapEntry {
             crate::Glyphs::One => 0,
             crate::Glyphs::Several => MapEntry::SEVERAL,
         };
-        Code(glyph | role | face | several)
+        let past = match s.overflow {
+            crate::fit::Overflow::Inside => 0,
+            crate::fit::Overflow::Past => MapEntry::PAST,
+        };
+        Code(glyph | role | face | several | past)
     }
 
     const STARTS: u32 = 1 << 16;
@@ -249,6 +253,9 @@ impl MapEntry {
     const FACE_SHIFT: u32 = 18;
     /// Past the face's eight bits: the glyph is the first of several.
     const SEVERAL: u32 = 1 << 26;
+    /// The glyph is a letter of a joining script reaching past its cell,
+    /// which rule D may fit (`crate::fit`).
+    const PAST: u32 = 1 << 27;
 
     /// The face the entry's glyph is on, as the code the renderer indexes
     /// its faces by.
@@ -311,6 +318,22 @@ impl MapEntry {
 
     pub fn ends_pair(&self) -> bool {
         self.pad.0 & MapEntry::ENDS != 0
+    }
+
+    /// **Whether the overlay draws the cell whole**, by a record: the
+    /// codepoint shapes to several glyphs alone, which an entry cannot
+    /// draw, or it is a letter of a joining script reaching past its cell,
+    /// which rule D draws full size or fitted by the cells beside it
+    /// (`crate::fit`), which an entry cannot know.
+    pub fn listed(&self) -> bool {
+        self.glyphs() == crate::Glyphs::Several || self.reaches_past()
+    }
+
+    /// Whether the glyph is a letter of a joining script reaching past its
+    /// cell, which rule D draws full size or fitted by the cells beside it
+    /// (`crate::fit`).
+    pub fn reaches_past(&self) -> bool {
+        self.pad.0 & MapEntry::PAST != 0
     }
 
     /// How many glyphs the codepoint shapes to alone: the entry draws
@@ -411,11 +434,13 @@ pub struct GlyphMap<'m> {
     /// atlas has moved every slot.
     grown: Tally,
     stats: MapStats,
-    /// The cells whose codepoint shapes to several glyphs alone, in screen
-    /// order, from the last walk: the overlay draws them by records.
+    /// The cells whose codepoint shapes to several glyphs alone, and those
+    /// holding a letter of a joining script that reaches past its cell
+    /// ([`MapEntry::listed`]), in screen order, from the last walk: the
+    /// overlay draws them by records.
     several: Vec<(Row, Col)>,
     /// How many entries since the map was last emptied draw the first of
-    /// several glyphs.
+    /// several glyphs or a letter that reaches past its cell.
     decomposed: Tally,
     /// Where the ink of the entries since the map was last emptied lies.
     reach: Reach,
@@ -495,8 +520,9 @@ impl<'m> GlyphMap<'m> {
     }
 
     /// The cells on the last walk's screen whose codepoint shapes to
-    /// several glyphs alone, which no entry can draw whole, in screen
-    /// order.
+    /// several glyphs alone, which no entry can draw whole, and those
+    /// holding a letter of a joining script that reaches past its cell,
+    /// which rule D judges against the cells beside it, in screen order.
     pub fn several(&self) -> &[(Row, Col)] {
         &self.several
     }
@@ -583,10 +609,11 @@ impl<'m> GlyphMap<'m> {
             self.clear();
         }
         let mut changed = self.rings(r);
-        // The cells a decomposed letter is in are listed only while the map
-        // holds an entry for one, so a screen that never showed one walks
-        // as it did before they were listed. The walk that meets the
-        // map's first such entry lists none before it, and walks again.
+        // The cells a decomposed letter or one reaching past its cell is in
+        // are listed only while the map holds an entry for one, so a screen
+        // that never showed one walks as it did before they were listed.
+        // The walk that meets the map's first such entry lists none before
+        // it, and walks again.
         let tallies = (self.stats.dropped_marks, self.stats.pair_tests);
         let listed = self.decomposed.value() > 0;
         changed |= match listed {
@@ -606,7 +633,7 @@ impl<'m> GlyphMap<'m> {
 
     /// One walk over the screen for [`GlyphMap::ensure`]: every cell's
     /// entry made present, the pair candidates into `candidates`, and with
-    /// `LIST` the cells whose entry draws the first of several glyphs into
+    /// `LIST` the cells the overlay draws whole ([`MapEntry::listed`]) into
     /// [`GlyphMap::several`]. Whether an entry was added.
     fn walk<const LIST: bool>(
         &mut self,
@@ -637,7 +664,7 @@ impl<'m> GlyphMap<'m> {
                 let span = CellSpan::at(row, Col::at_index(x));
                 let (glyph, starts, ends, face) = match self.probe(cp, style, span).copied() {
                     Some(e) => {
-                        if LIST && e.glyphs() == crate::Glyphs::Several {
+                        if LIST && e.listed() {
                             self.several.push((Row::from_index(y), Col::at_index(x)));
                         }
                         (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
@@ -645,7 +672,7 @@ impl<'m> GlyphMap<'m> {
                     None => {
                         let e = self.miss(r, cp, style, span);
                         changed = true;
-                        if LIST && e.glyphs() == crate::Glyphs::Several {
+                        if LIST && e.listed() {
                             self.several.push((Row::from_index(y), Col::at_index(x)));
                         }
                         (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
@@ -693,7 +720,7 @@ impl<'m> GlyphMap<'m> {
         }
         let e = MapEntry::of(CellKey::of(cp, style, span), single);
         self.insert(e);
-        if e.glyphs() == crate::Glyphs::Several {
+        if e.listed() {
             self.decomposed.bump();
         }
         e

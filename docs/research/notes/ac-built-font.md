@@ -60,8 +60,9 @@ stack.
   its 10,609 inked icons draw past a 0.6-em cell, the widest 1.10 em (measured).
   The run-time fitting by the patcher's rule (the generated patcher table, and
   Nerd scope C, which draws the fitted Nerd glyph over JetBrains Mono's own) and
-  baud's own over-wide rule D are decided in the plan and not built (source; no
-  branch carries them).
+  baud's own over-wide rule D are decided in the plan and not built for them;
+  rule D is built for the letters of the joining scripts alone
+  (`baud-render/src/fit.rs`, `docs/bidi.md`).
 - **~~There is no run-time system fallback.~~** *Built 2026-10-26*: a
   character no listed face maps is asked of the system the first time a frame
   draws it -- CoreText's `CTFontCreateForString` from the

@@ -45,6 +45,9 @@ use baud_render::{
     VideoFlash, Widths, Window, compose_slide, quad_coverage, slide_offsets,
 };
 
+#[path = "../../baud-font/tests/sha256/mod.rs"]
+mod sha256;
+
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
 /// and a scene that never reaches a far column cannot show a path that
 /// stops short of one -- which is what asciiquarium was reported doing,
@@ -13110,6 +13113,153 @@ fn arabic_letters_draw_joined_on_every_arm() {
     }
 }
 
+/// **A letter of a joining script wider than its cell draws alike on every
+/// arm**, by rule D (`baud-render/src/fit.rs`): full size into the cells
+/// its ink reaches when they are blank, else fitted to its one cell, its
+/// marks with it. On `joining-cases.ttf`, whose sad is 1300 units isolated
+/// and 950 medial against a cell of 600: a sad beside a reh, which the
+/// cell arm's map lists for a record; one beside two blank cells, drawn
+/// full size; one carrying a fatha, a marked cell; medial sads joined
+/// between behs, joined cells; one beside a wide character; and one in the
+/// last column -- each with BDSM set and reset. Then a letter typed into
+/// the blank cell a full-size sad reaches, which fits it on every arm,
+/// as the cell arm's cache keeps the two drawings apart.
+#[test]
+fn an_over_wide_letter_draws_alike_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let cases = read("baud-font/tests/var/joining-cases.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&cases).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let rows = [
+        "\u{0635}\u{0631}",
+        "\u{0635}  \u{0631}",
+        "\u{0635}\u{064E}\u{0631}",
+        "\u{0628}\u{0635}\u{0635}\u{0628}",
+        "\u{0635}\u{4E2D}",
+    ];
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    // A line of Latin under the words, so the map holds the glyphs of a
+    // screen.
+    let fox = "\x1b[9;3HThe quick brown fox jumps 0123456789".as_bytes();
+    arms!(fresh() => arms, t);
+    for implicit in [true, false] {
+        feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H");
+        feed(&mut t, if implicit { b"\x1b[8h" } else { b"\x1b[8l" });
+        feed(&mut t, fox);
+        for (i, row) in rows.iter().enumerate() {
+            feed(&mut t, format!("\x1b[{};3H{row}", i + 2).as_bytes());
+        }
+        feed(
+            &mut t,
+            format!("\x1b[8;{}H\u{0635}", usize::from(WS.ws_col)).as_bytes(),
+        );
+        let drawn = three(
+            &mut arms,
+            &mut t,
+            if implicit { "BDSM set" } else { "BDSM reset" },
+        );
+        // The control: the same rows with every sad written as a reh draw
+        // otherwise, so the frames compared hold the sads.
+        feed(&mut t, b"\x1b[2J");
+        feed(&mut t, fox);
+        for (i, row) in rows.iter().enumerate() {
+            let rehs = row.replace('\u{0635}', "\u{0631}");
+            feed(&mut t, format!("\x1b[{};3H{rehs}", i + 2).as_bytes());
+        }
+        let control = three(&mut arms, &mut t, "the control");
+        assert!(differing(&drawn, &control) > 0, "the control differs");
+    }
+    // Full size beside two blanks, then a letter typed where it reached.
+    feed(&mut t, b"\x1b[2J\x1b[8l");
+    feed(&mut t, fox);
+    feed(&mut t, "\x1b[2;3H\u{0635}  \u{0631}".as_bytes());
+    let full = three(&mut arms, &mut t, "full size");
+    feed(&mut t, "\x1b[2;4H\u{0628}".as_bytes());
+    let typed = three(&mut arms, &mut t, "typed beside");
+    assert!(
+        differing(&full, &typed) > 0,
+        "the sad fitted once typed beside"
+    );
+    feed(&mut t, b"\x1b[2;4H ");
+    let again = three(&mut arms, &mut t, "erased again");
+    assert_eq!(differing(&full, &again), 0, "full size again");
+    // The README's line on Noto Sans Arabic 2.013, where the README's font
+    // cache holds it (`scripts/readme-capture.sh`): its letters, fitted
+    // and not, its dots placed by `GPOS` and its words in a row of their
+    // own, alike on every arm. The cache is found as
+    // `baud-render/tests/overwide_letters.rs` and `baud-font/tests/arabic.rs`
+    // find it, and its file held to the first's pin, so the three skip or
+    // run together.
+    const SHA: &str = "bd86ca02f087d7f3c3788ba458fb6b73744c7639ed276b8d870dba6def6c40d0";
+    let cache = std::env::var_os("NOTO_CACHE")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("XDG_CACHE_HOME")
+                .map(|d| std::path::PathBuf::from(d).join("baud-readme"))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache/baud-readme"))
+        });
+    if let Some(noto) = cache.and_then(|d| std::fs::read(d.join("NotoSansArabic-Regular.ttf")).ok())
+    {
+        assert_eq!(
+            sha256::sha256_hex(&noto),
+            SHA,
+            "the cache's file is not the pinned one"
+        );
+        let faces = [
+            Face::parse(&built).expect("parse"),
+            Face::parse(&noto).expect("parse"),
+        ];
+        let fresh = || {
+            Renderer::new(
+                Stack::new(&faces).unwrap(),
+                PxSize::of(14.0).unwrap(),
+                Theme::dark(),
+                Blend::Native,
+                Cols::of_index(usize::from(WS.ws_col)),
+                Rows::of_index(usize::from(WS.ws_row)),
+            )
+            .unwrap()
+        };
+        arms!(fresh() => arms, t);
+        for mode in [b"\x1b[8h", b"\x1b[8l"] {
+            feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H");
+            feed(&mut t, mode);
+            feed(&mut t, fox);
+            feed(
+                &mut t,
+                "\x1b[2;3H\u{0627}\u{0644}\u{0637}\u{0631}\u{0641}\u{064A}\u{0629} \u{062A}\u{0636}\u{0639} \u{0643}\u{0644} \u{062D}\u{0631}\u{0641} \u{0641}\u{064A} \u{0627}\u{0644}\u{0634}\u{0628}\u{0643}\u{0629}.".as_bytes(),
+            );
+            feed(&mut t, "\x1b[4;3H\u{0636} \u{0635}\u{064E}".as_bytes());
+            let _ = three(&mut arms, &mut t, "Noto Sans Arabic");
+        }
+    }
+}
+
 /// **A joined letter is drawn with the letters of its word around it,
 /// alike on every arm**: a face's contextual lookups across letters read
 /// the cells before and after it in logical order (`rlig`, `rclt`, `calt`;
@@ -13119,8 +13269,8 @@ fn arabic_letters_draw_joined_on_every_arm() {
 /// a beth than after a yudh: each word written with an erased cell between
 /// its two letters, which joining passes through and the word leaves out,
 /// so neither letter's ink is in the other's cell, the alaph's cell draws
-/// differently after the two; and an alaph a soft wrap parts from its beth
-/// draws as the one an erased cell parts. Alaph after he (fin2), after
+/// differently after the two, and so does an alaph a soft wrap parts
+/// from a beth and from a yudh. Alaph after he (fin2), after
 /// dalath (fin3) and alone draws alike on every arm. When the letter before a
 /// wrapped alaph changes from yudh to beth, its form stays final and only
 /// its word changes, and each arm draws what a fresh renderer draws. On SF
@@ -13222,9 +13372,14 @@ fn a_joined_letter_reads_its_word_on_every_arm() {
         let frame = three(arms, t, what);
         crop(arms, &frame, 4, 0)
     };
-    assert_eq!(
+    // The wrapped alaph is drawn in the last column, where rule D fits it
+    // to its cell (`baud-render/src/fit.rs`; its ink is 849 units after a
+    // yudh and 913 after a beth, uni0710.fina.wideX, each over 1.1 cells
+    // of 600), so it is held to the alaph wrapped after a yudh, as the
+    // alaph after an erased cell is above.
+    assert_ne!(
         wrapped(&mut t, &mut arms, "\u{0712}", "beth, a soft wrap, alaph"),
-        after_beth,
+        wrapped(&mut t, &mut arms, "\u{071D}", "yudh, a soft wrap, alaph"),
         "the word reaches across the wrap"
     );
     // The letter before a wrapped alaph changed: its form stays final, its

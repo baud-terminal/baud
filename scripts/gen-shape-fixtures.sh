@@ -1245,6 +1245,45 @@ print("%016x" % h)' "$named")
 0628 0020 0628
 SEQS
   done
+  # Noto Sans Arabic 2.013, whose letters are wider than a cell and whose
+  # dotted letters its `ccmp` takes apart into a skeleton and a dot placed
+  # by `GPOS`: every word of the README's line, and the lone letters. Pinned
+  # by tag and sha256 and fetched once into the cache devanagari.txt's Noto
+  # face is read from, named `noto-cache/` in the path column.
+  noto_url=https://raw.githubusercontent.com/notofonts/notofonts.github.io/noto-monthly-release-2026.10.01/fonts/NotoSansArabic/unhinted/ttf/NotoSansArabic-Regular.ttf
+  noto_sha=bd86ca02f087d7f3c3788ba458fb6b73744c7639ed276b8d870dba6def6c40d0
+  cache=${NOTO_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/baud-readme}
+  noto=$cache/NotoSansArabic-Regular.ttf
+  if [ ! -e "$noto" ]; then
+    mkdir -p "$cache"
+    curl -sSfL -o "$noto.part" "$noto_url" || exit 1
+    mv "$noto.part" "$noto"
+  fi
+  [ "$(shasum -a 256 "$noto" | cut -d' ' -f1)" = "$noto_sha" ] || {
+    echo "$noto does not hash to its pin" >&2
+    exit 1
+  }
+  fnv=$(python3 -c 'import sys
+h = 0xcbf29ce484222325
+for b in open(sys.argv[1], "rb").read():
+    h = ((h ^ b) * 0x100000001b3) & 0xffffffffffffffff
+print("%016x" % h)' "$noto")
+  while IFS= read -r cps; do
+    shaped=$(hb-shape --no-glyph-names --features="$AR_FEATURES" -u "$cps" "$noto")
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "noto-cache/NotoSansArabic-Regular.ttf" 0 "$fnv" "$AR_FEATURES" "$cps" "$shaped"
+  done <<'SEQS'
+0627 0644 0637 0631 0641 064A 0629
+062A 0636 0639
+0643 0644
+062D 0631 0641
+0641 064A
+0627 0644 0634 0628 0643 0629 002E
+0636
+0635
+0641
+062D 0631
+0631 0641
+SEQS
 } >"$AR_OUT"
 rm -rf "$AR_DIR"
 wc -l "$AR_OUT"

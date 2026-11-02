@@ -310,6 +310,9 @@ struct Reached {
 /// **Every line of `arabic.txt` joins as hb-shape joined it.** The macOS
 /// faces' lines run on macOS only, as `script.txt`'s do; the built
 /// Regular's run everywhere and are the control, a face with no Arabic.
+/// Noto Sans Arabic's, the README's line among them, run where the README's
+/// font cache holds the pinned file: its letters are wider than a cell,
+/// and its glyphs, clusters and offsets are hb-shape's all the same.
 #[test]
 fn every_arabic_fixture_joins_as_harfbuzz_does() {
     let on_macos = cfg!(target_os = "macos");
@@ -394,6 +397,18 @@ fn every_contextual_fixture_joins_as_harfbuzz_does() {
     assert_eq!(r.departed, Count(0));
 }
 
+/// Where `noto-cache/` in the path column points: the cache the README
+/// capture fetches its pinned Noto faces into, as `devanagari.rs` reads it.
+fn noto_cache() -> Option<std::path::PathBuf> {
+    if let Some(d) = std::env::var_os("NOTO_CACHE") {
+        return Some(d.into());
+    }
+    if let Some(d) = std::env::var_os("XDG_CACHE_HOME") {
+        return Some(std::path::PathBuf::from(d).join("baud-readme"));
+    }
+    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache/baud-readme"))
+}
+
 /// Every line of `file`, laid out by hb-shape the way `laid` says, joined
 /// and shaped cell by cell and held to it.
 fn joins_as_harfbuzz_does(file: &str, laid: Laid) -> Reached {
@@ -418,12 +433,22 @@ fn joins_as_harfbuzz_does(file: &str, laid: Laid) -> Reached {
         if system && !on_macos {
             continue;
         }
+        // A face pinned outside the repository, read from the README's
+        // font cache, and its lines left out where the cache lacks it.
+        let cached = path
+            .strip_prefix("noto-cache/")
+            .map(|name| noto_cache().map(|d| d.join(name)));
+        let cached = match cached {
+            Some(Some(p)) if p.exists() => Some(p),
+            Some(_) => continue,
+            None => None,
+        };
         let renamed = features.contains("gsub=renamed");
         let data = files.entry((path.to_string(), renamed)).or_insert_with(|| {
-            let full = if system {
-                path.to_string()
-            } else {
-                format!("{root}/{path}")
+            let full = match (&cached, system) {
+                (Some(p), _) => p.to_string_lossy().into_owned(),
+                (None, true) => path.to_string(),
+                (None, false) => format!("{root}/{path}"),
             };
             let mut d = std::fs::read(&full).unwrap_or_else(|e| panic!("{full}: {e}"));
             assert_eq!(

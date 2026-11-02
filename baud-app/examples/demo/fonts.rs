@@ -37,11 +37,10 @@ impl Pinned {
 /// is the CBDT build baud-font reads, at tag `v2.051`; Noto Sans CJK SC at
 /// `Sans2.004`, the two `scripts/readme-capture.sh` pins; Noto Naskh
 /// Arabic 2.021 and Noto Sans Devanagari 2.007 from Noto's monthly release
-/// of 2026-10-01. Naskh rather than Noto Sans Arabic, which drew تضع
-/// without the dot of its ض and حرف without its ر in baud's grid, where
-/// Naskh draws every letter of the line. One CJK face draws all three
-/// languages, its Han in their Chinese forms, as baud picks a face by
-/// character and not by language.
+/// of 2026-10-01. A Naskh letter wider than its cell, as the medial sad
+/// is, is fitted to the cell (`baud-render/src/fit.rs`). One CJK face
+/// draws all three languages, its Han in their Chinese forms, as baud
+/// picks a face by character and not by language.
 pub const PINNED: [Pinned; 4] = [
     Pinned {
         name: "Noto Color Emoji",

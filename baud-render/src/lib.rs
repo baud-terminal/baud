@@ -44,6 +44,7 @@ pub mod effect;
 mod find;
 pub mod fire;
 pub mod fireworks;
+mod fit;
 mod flash;
 mod guide;
 pub mod ice;

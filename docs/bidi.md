@@ -334,6 +334,26 @@ the screen; step 3 joins Arabic letters.
   draws each of those letters alone in its cell, as the grid draws no
   ligature but lam-alef
   (`a_word_takes_no_letter_into_a_ligature_across_cells`).
+- **A letter wider than its cell is fitted to it, as rule D draws any
+  glyph.** A proportional face draws a letter at its own width, and the
+  grid gives each letter one cell: on Noto Sans Arabic the medial sad is
+  949 units of an em of 1000 against a cell of 600, and drawn that wide it
+  covered the letter beside it -- تضع lost the dot of its ض under the ت's
+  two dots, and حرف its ر under the ف. A letter of a joining script
+  (Joining_Type D, R or L) whose ink is over 1.1 cells wide is drawn full
+  size into the cells its ink reaches when they are blank -- empty or a
+  space, a wide character not blank -- and otherwise fitted to its one
+  cell: scaled by its ink, the baseline kept, its marks scaled and moved
+  with it. The last column fits. Each cell is judged on its own, by the
+  cells drawn beside it with BDSM set or reset, alike on every draw path
+  (`an_over_wide_letter_beside_a_letter_is_fitted_to_its_cell`,
+  `the_cells_beside_a_letter_are_the_ones_drawn_beside_it`,
+  `an_over_wide_letter_draws_alike_on_every_arm`), and, where the README's
+  font cache holds the pinned face, the README's line draws every letter
+  on Noto Sans Arabic
+  (`the_readme_line_draws_every_letter_on_noto_sans_arabic`). As rule D
+  states, a letter changes size when something is typed into the blank
+  cell it reached.
 - **Arabic and Syriac draw with no font of your own.** No face of baud's
   macOS stack maps either script, and a character no listed face maps is
   asked of the system the first frame that draws it and drawn from the face
@@ -940,11 +960,23 @@ eight rounds with the first dropped, on mains:
   Pro) is drawn through its presentation forms, which differ from its own
   chains where those pick an alternate (a final farsi yeh) or form the
   Allah ligature without the shadda 9.2.11 asks for.
-- **A system face's letters at baud's size**: a face the system answers is
-  drawn at the embedded font's em and not narrowed to the cell (rule D,
-  decided and unbuilt), so Noto Sans Syriac, which is proportional, runs
-  past its cells into its neighbours; Courier New's Arabic is 0.6 em, the
-  cell's width, and fits.
+- **A letter's width in its cell**: a letter narrower than its cell is
+  drawn at the face's size, so its joining strokes stop short of its
+  neighbours'; one whose ink is 1.1 cells wide or less is drawn at the
+  face's size and overlaps the next cell as far as its ink reaches past
+  its own: a tenth of a cell when the ink starts at the cell's edge, more
+  when it starts further in or a mark sits past it. Fitted to its cell are
+  only the letters of a joining script: a presentation form (U+FB50 to
+  U+FEFC), which has no joining type, a lam-alef ligature, which takes two
+  cells, a letter SAPV 17 slants, and an input method's composition are
+  drawn at the face's size and can still run past their cells, as can the
+  symbols and icons the rest of rule D is for. Courier New's Arabic is 0.6
+  em, the cell's width, and fits.
+- **An over-wide letter in a contextual rule, on the cell path**: a letter
+  that reaches past its cell is drawn by itself, outside the ligature
+  window, so a face rule spanning it and a neighbour applies on the CPU
+  and instance paths and not on the cell path. No such case was found on
+  SF Arabic, Noto Sans Arabic, Noto Naskh Arabic or Noto Sans Syriac.
 - **A mark on a flipped glyph**: on a flipped base a mark's image is put
   where the flip puts its box, not where the flip puts its attachment
   point, so it is exact only for a mark centred on its attachment point.

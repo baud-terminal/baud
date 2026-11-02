@@ -56,8 +56,8 @@ use crate::units::{Coverage, Tally, slots};
 use baud_domain::{Chan, Codepoint, GlyphId};
 use baud_font::bytes::Index;
 use baud_font::{
-    Bounds, Canvas, Drawn, Extent, Face, Fit, Mirror, Palette, PaletteEntry, Phase, Png, Ppem, Px,
-    Rasterizer, Reach, Scale, Sink, Strike, Stroker, VarPoint,
+    Bounds, Canvas, Drawn, Extent, Face, Fit, InkBox, Mirror, Palette, PaletteEntry, Phase, Png,
+    Ppem, Px, Rasterizer, Reach, Scale, Sink, Strike, Stroker, VarPoint,
 };
 use std::collections::HashMap;
 
@@ -228,10 +228,10 @@ impl Stretch {
             Stretch::Tall => 2,
         }
     }
-    fn xf(self) -> f32 {
+    pub(crate) fn xf(self) -> f32 {
         f32::from(i16::try_from(self.x()).unwrap_or(1))
     }
-    fn yf(self) -> f32 {
+    pub(crate) fn yf(self) -> f32 {
         f32::from(i16::try_from(self.y()).unwrap_or(1))
     }
 }
@@ -538,6 +538,11 @@ struct Memo {
     /// **The glyphs drawn sheared left**, flipped first or not, by the
     /// lean's bits: an italic SAPV 17 slants left ([`Atlas::slot_sheared_at`]).
     sheared: HashMap<(GlyphKey, Flip, u32), Option<Slot>>,
+    /// **The glyphs drawn smaller to fit their one cell**, by the scale's
+    /// bits: a letter of a joining script wider than its cell
+    /// ([`Atlas::slot_fitted_at`], `crate::fit`). A map of its own, so the
+    /// key every other glyph is looked up by is no wider for it.
+    fitted: HashMap<(GlyphKey, u32), Option<Slot>>,
 }
 
 /// Whether a glyph's image is flipped left to right: a mirrored
@@ -560,6 +565,7 @@ impl Memo {
             procedural_mirrored: HashMap::new(),
             flipped: HashMap::new(),
             sheared: HashMap::new(),
+            fitted: HashMap::new(),
         }
     }
 
@@ -571,6 +577,7 @@ impl Memo {
             && self.procedural_mirrored.is_empty()
             && self.flipped.is_empty()
             && self.sheared.is_empty()
+            && self.fitted.is_empty()
     }
 }
 
@@ -600,6 +607,9 @@ pub struct Atlas {
     /// Colour glyphs drawn at a size of their own inside an alpha, the
     /// badge's, by face, glyph, scale and the alpha, voided with the rest.
     faded: HashMap<(FaceIx, GlyphIx, ScaleKey, u8), Option<Slot>>,
+    /// Each glyph's ink box in font units, by face and glyph: a function of
+    /// the outline alone, so of no size, and voided with the rest.
+    inks: HashMap<(FaceIx, GlyphIx), Option<InkBox>>,
     scratch: Vec<f32>,
     /// The points of a varied outline ([`outline`]), grown to the largest
     /// need asked so far and kept.
@@ -632,6 +642,7 @@ impl Atlas {
             sized: HashMap::new(),
             stroked: HashMap::new(),
             faded: HashMap::new(),
+            inks: HashMap::new(),
             scratch: Vec::new(),
             var: Vec::new(),
             coverage: Vec::new(),
@@ -742,6 +753,7 @@ impl Atlas {
         self.sized.clear();
         self.stroked.clear();
         self.faded.clear();
+        self.inks.clear();
         self.clear_mask(mask);
         self.clear_color(color);
         self.generation = Generation(self.generation.0.wrapping_add(1));
@@ -1165,6 +1177,61 @@ impl Atlas {
             self.held.sheared.insert(key, sheared);
         }
         sheared
+    }
+
+    /// **A glyph's ink box in font units**: its outline's control-point
+    /// box at the face's instance, `None` for a glyph with no outline or
+    /// one the face refuses. What `crate::fit` measures a cell's ink by,
+    /// alike on every path; drawn once a glyph and kept.
+    pub fn ink(&mut self, face: &Face<'_>, ix: FaceIx, id: GlyphId) -> Option<InkBox> {
+        let key = (ix, GlyphIx(u16::try_from(id.index()).unwrap_or(u16::MAX)));
+        if let Some(known) = self.inks.get(&key) {
+            return *known;
+        }
+        let mut b = Bounds::new();
+        let ink = match outline(&mut self.var, face, id, &mut b) {
+            Drawn::NeedsScratch(_) | Drawn::Refused => None,
+            _ => b.ink(),
+        };
+        self.inks.insert(key, ink);
+        ink
+    }
+
+    /// **[`Atlas::slot_at`]'s glyph drawn `factor` times its size**, its
+    /// outline rasterised at that scale on a line drawn at `stretch`: a
+    /// letter of a joining script fitted to its one cell (`crate::fit`).
+    /// A glyph with no outline to draw smaller -- a bitmap, a colour glyph
+    /// -- keeps its own image, as does one the sheet cannot grow to hold.
+    /// Drawn once a glyph, phase and factor, and kept.
+    pub fn slot_fitted_at(
+        &mut self,
+        face: &Face<'_>,
+        ix: FaceIx,
+        id: GlyphId,
+        scale: Scale,
+        (phase, stretch): (Phase, Stretch),
+        factor: f32,
+    ) -> Option<Slot> {
+        let glyph = GlyphKey {
+            face: ix,
+            glyph: GlyphIx(u16::try_from(id.index()).unwrap_or(u16::MAX)),
+            stretch,
+            phase,
+        };
+        let key = (glyph, factor.to_bits());
+        if let Some(known) = self.held.fitted.get(&key) {
+            return *known;
+        }
+        let own = self.slot_at(face, ix, id, scale, phase, stretch);
+        let xy = (stretch.xf() * factor, stretch.yf() * factor);
+        let slot = match own {
+            Some(s) if s.kind == Kind::Mask => {
+                self.rasterise_by(face, id, scale, phase, xy).or(own)
+            }
+            other => other,
+        };
+        self.held.fitted.insert(key, slot);
+        slot
     }
 
     /// `own`'s texels sheared left by `lean`, in a slot of their own on its
@@ -1607,12 +1674,26 @@ impl Atlas {
         phase: Phase,
         stretch: Stretch,
     ) -> Option<Slot> {
+        self.rasterise_by(face, id, scale, phase, (stretch.xf(), stretch.yf()))
+    }
+
+    /// [`Atlas::rasterise`] with the outline scaled by `sx` across and `sy`
+    /// down beyond `scale`: a line's stretch, and a fitted glyph's factor
+    /// on top of it.
+    fn rasterise_by(
+        &mut self,
+        face: &Face<'_>,
+        id: GlyphId,
+        scale: Scale,
+        phase: Phase,
+        (sx, sy): (f32, f32),
+    ) -> Option<Slot> {
         let mut b = Bounds::new();
         if let Drawn::NeedsScratch(_) | Drawn::Refused = outline(&mut self.var, face, id, &mut b) {
             self.stats.refused.bump();
             return None;
         }
-        let fit = Fit::stretched(&b, scale, phase, stretch.xf(), stretch.yf())?;
+        let fit = Fit::stretched(&b, scale, phase, sx, sy)?;
         let cells = fit.extent.cells()?;
         if self.coverage.len() < cells {
             self.coverage.resize(cells, 0);

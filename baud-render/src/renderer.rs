@@ -426,6 +426,28 @@ pub struct ClusterGlyph {
     /// Where the cluster sits in its span, from its base: every glyph of a
     /// cluster takes its base's phase, so a mark moves with the letter.
     pub phase: Phase,
+    /// The shaper's offsets in font units, which a cell fitted to its one
+    /// cell places its glyphs from ([`Renderer::fit_glyphs`]).
+    pub(crate) units: Units,
+}
+
+/// **A glyph's shaper offsets from its cell's origin, in font units**:
+/// what [`Placed`] carries, kept on a [`ClusterGlyph`] beside the pixels
+/// they were rounded to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Units {
+    dx: i16,
+    dy: i16,
+}
+
+impl Units {
+    /// No offset: a glyph baud draws itself.
+    pub(crate) const ZERO: Units = Units { dx: 0, dy: 0 };
+
+    /// `p`'s offsets.
+    pub(crate) fn of(p: &Placed) -> Units {
+        Units { dx: p.dx, dy: p.dy }
+    }
 }
 
 /// Whether `cp` is an icon codepoint -- the Private Use Areas -- whose
@@ -454,6 +476,9 @@ pub struct Single {
     pub role: PairRole,
     pub face: FaceIx,
     pub glyphs: Glyphs,
+    /// Whether the glyph is a letter of a joining script reaching past its
+    /// cell, which rule D may fit (`crate::fit`).
+    pub(crate) overflow: crate::fit::Overflow,
 }
 
 /// How many glyphs a codepoint shapes to alone. One is what a map entry
@@ -7458,6 +7483,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 dx: 0,
                 dy: 0,
                 phase: Phase::ZERO,
+                units: Units::ZERO,
             }];
         }
         let face = self.face_for(cps, style);
@@ -7481,6 +7507,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 dx: scale.px(f32::from(p.dx)).round() as i32,
                 dy: scale.px(f32::from(p.dy)).round() as i32,
                 phase,
+                units: Units::of(p),
             });
         }
         out
@@ -7511,6 +7538,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 dx: 0,
                 dy: 0,
                 phase: Phase::ZERO,
+                units: Units::ZERO,
             }];
         }
         let face = self.face_for(cps, style);
@@ -7532,6 +7560,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 dx: scale.px(f32::from(p.dx)).round() as i32 * stretch.x(),
                 dy: scale.px(f32::from(p.dy)).round() as i32 * stretch.y(),
                 phase,
+                units: Units::of(p),
             });
         }
         out
@@ -7576,6 +7605,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 dx: 0,
                 dy: 0,
                 phase: Phase::ZERO,
+                units: Units::ZERO,
             }];
         }
         let face = self.face_for(cps, style);
@@ -7608,6 +7638,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 dx: slot.map_or(dx, |s| InSpan { width, dx }.mirrored(s)),
                 dy: scale.px(f32::from(p.dy)).round() as i32 * stretch.y(),
                 phase,
+                units: Units::of(p),
             });
         }
         out
@@ -7715,6 +7746,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 dx: scale.px(f32::from(p.dx)).round() as i32,
                 dy: scale.px(f32::from(p.dy)).round() as i32,
                 phase,
+                units: Units::of(p),
             });
         }
         out
@@ -7763,6 +7795,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 dx: scale.px(f32::from(p.dx)).round() as i32 * stretch.x(),
                 dy: scale.px(f32::from(p.dy)).round() as i32 * stretch.y(),
                 phase,
+                units: Units::of(p),
             });
         }
         out
@@ -7872,6 +7905,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 dx: scale.px(f32::from(p.dx)).round() as i32 * stretch.x() + shift,
                 dy: scale.px(f32::from(p.dy)).round() as i32 * stretch.y(),
                 phase,
+                units: Units::of(p),
             };
             match of_lam {
                 true => lams.push(g),
@@ -7912,6 +7946,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 role: PairRole::Neither,
                 face: FaceIx::PRIMARY,
                 glyphs: Glyphs::One,
+                overflow: crate::fit::Overflow::Inside,
             });
         }
         let face = self.face_for(core::slice::from_ref(&cp), style);
@@ -7933,6 +7968,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
             _ => Glyphs::Several,
         };
         let scale = self.scales[face.index()];
+        // A letter of a joining script over 1.1 cells wide, which the
+        // overlay draws by a record so rule D judges it against the cells
+        // beside it (`crate::fit`).
+        let overflow = match crate::fit::takes_forms(cp) {
+            true => {
+                let mine = shaped
+                    .glyphs()
+                    .iter()
+                    .map(|q| (q.id, scale.px(f32::from(q.dx))));
+                let ink = self.ink_of(face, mine, Stretch::One);
+                let cell = self.metrics.cell_w.value() as f32;
+                match crate::fit::Overwide::of(ink, cell) {
+                    Some(_) => crate::fit::Overflow::Past,
+                    None => crate::fit::Overflow::Inside,
+                }
+            }
+            false => crate::fit::Overflow::Inside,
+        };
         let f = self.stack.face(face);
         let role = self.pairs[face.index()].role(p.id);
         let phase = self.phase_in(face, cp, span);
@@ -7950,6 +8003,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             role,
             face,
             glyphs,
+            overflow,
         })
     }
 
@@ -8091,6 +8145,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         dx: scale.px(f32::from(p.dx)).round() as i32,
                         dy: scale.px(f32::from(p.dy)).round() as i32,
                         phase,
+                        units: Units::of(p),
                     });
                 }
             }
@@ -9155,6 +9210,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let last = end.0.saturating_sub(first.0).saturating_sub(1);
         let back = |c: CellIx| CellIx(c.0.saturating_sub(first.0).min(last));
         let mut out = Shaped::EMPTY;
+        out.set_joins(shaped.joins());
         for p in shaped.glyphs() {
             let moved = Placed {
                 cell: back(p.cell),
@@ -9253,12 +9309,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // shaped with the joining features, and marks the renderer as
             // having drawn one; any other with the grid's, as before joining
             // existed. The shaper tested each base as it was pushed.
-            let features = match shaper.joins() {
-                true => {
+            let joins = match shaper.joins() {
+                true => crate::bidi::Joins::Seen,
+                false => crate::bidi::Joins::Unseen,
+            };
+            let features = match joins {
+                crate::bidi::Joins::Seen => {
                     self.joins_seen = crate::bidi::Joins::Seen;
                     Features::JOINING
                 }
-                false => Features::GRID,
+                crate::bidi::Joins::Unseen => Features::GRID,
             };
             let (buf, shaped) = shaper.finish(features, script);
             // A need past the budget grows the scratch to the budget, so the
@@ -9275,6 +9335,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 usize::try_from(shaped.ink_refused.value()).unwrap_or(usize::MAX),
             ));
             let mut out = Shaped::EMPTY;
+            out.set_joins(joins);
             for g in buf.as_slice() {
                 let at = CellIx(u8::try_from(g.cluster.0).unwrap_or(u8::MAX));
                 if g.ignorable == Ignorable::Yes || !own.contains(&at) {
@@ -9894,6 +9955,134 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// **The cells of a run fitted to their one cell by rule D**
+    /// (`crate::fit`): of the cells from visual column `start` of row `r`
+    /// whose glyphs `shaped` holds on `face`, each whose base is a letter
+    /// that takes a joining form and whose ink is over 1.1 cells wide, where
+    /// a cell its ink reaches is not blank or not on the line, with the
+    /// scale and move that fit it.
+    fn narrows(
+        &mut self,
+        term: &Term<'_>,
+        face: FaceIx,
+        r: Row,
+        start: Col,
+        shaped: &Shaped,
+    ) -> Vec<(CellIx, crate::fit::Narrow)> {
+        let size = self.size_of(r);
+        let st = Stretch::of(size);
+        let range = self.row_cells(r);
+        let end = match size.is_double() {
+            true => Col::at_index(size.end_of_line(Cols::of_index(range.len())).index()),
+            false => Col::at_index(range.len()),
+        };
+        let cell = self.metrics.cell_w.value() as f32 * st.xf();
+        let scale = self.scales[face.index()];
+        let glyphs = shaped.glyphs();
+        let mut out = Vec::new();
+        for (i, p) in glyphs.iter().enumerate() {
+            // Each cell once, at its first glyph.
+            if glyphs[..i].iter().any(|q| q.cell == p.cell) {
+                continue;
+            }
+            let col = start.index() + usize::from(p.cell.0);
+            let base = self
+                .cur
+                .get(range.start + col)
+                .and_then(|c| drawn_base(term, *c));
+            if !base.is_some_and(crate::fit::takes_forms) {
+                continue;
+            }
+            let mine = glyphs
+                .iter()
+                .filter(|q| q.cell == p.cell)
+                .map(|q| (q.id, scale.px(f32::from(q.dx)) * st.xf()));
+            let ink = self.ink_of(face, mine, st);
+            let Some(wide) = crate::fit::Overwide::of(ink, cell) else {
+                continue;
+            };
+            let row = &self.cur[range.clone()];
+            let blank = |x: Col| {
+                row.get(x.index())
+                    .map_or(crate::fit::Blank::No, |c| crate::fit::Blank::of(term, *c))
+            };
+            if let crate::fit::Fitting::Fitted(n) = wide.fitting(Col::at_index(col), end, blank) {
+                out.push((p.cell, n));
+            }
+        }
+        out
+    }
+
+    /// **Where the glyphs of one cell on `face` put ink**, each `along`
+    /// pixels across from the cell's origin, on a line drawn at `stretch`:
+    /// the union of their outlines' boxes ([`Atlas::ink`]), in pixels from
+    /// the origin. What every path measures a cell's ink by, so they fit
+    /// the same cells.
+    fn ink_of(
+        &mut self,
+        face: FaceIx,
+        glyphs: impl Iterator<Item = (GlyphId, f32)>,
+        stretch: Stretch,
+    ) -> crate::fit::Ink {
+        let s = self.scales[face.index()].px(1.0) * stretch.xf();
+        let f = self.stack.face(face);
+        let mut ink = crate::fit::Ink::NONE;
+        for (id, along) in glyphs {
+            if let Some(b) = self.atlas.ink(f, face, id) {
+                ink = ink.with(along + b.left as f32 * s, along + b.right as f32 * s);
+            }
+        }
+        ink
+    }
+
+    /// **A record's cell over 1.1 cells wide**, or `None`: [`Renderer::ink_of`]
+    /// of one cell's `glyphs` on a line drawn at `stretch`, from their
+    /// offsets in font units, as [`Renderer::narrows`] measures a run's.
+    pub(crate) fn overwide(
+        &mut self,
+        glyphs: &[ClusterGlyph],
+        stretch: Stretch,
+    ) -> Option<crate::fit::Overwide> {
+        let face = glyphs.iter().find_map(|g| match g.source {
+            GlyphSource::Face(f) => Some(f),
+            GlyphSource::Procedural => None,
+        })?;
+        let scale = self.scales[face.index()];
+        let mine = glyphs
+            .iter()
+            .filter(|g| g.source == GlyphSource::Face(face))
+            .map(|g| (g.id, scale.px(f32::from(g.units.dx)) * stretch.xf()));
+        let ink = self.ink_of(face, mine, stretch);
+        crate::fit::Overwide::of(ink, self.metrics.cell_w.value() as f32 * stretch.xf())
+    }
+
+    /// **`glyphs` -- one cell's, on a line drawn at `stretch` -- fitted to
+    /// their cell** by `narrow` (`crate::fit`): each drawn that much smaller
+    /// ([`Atlas::slot_fitted_at`]) and placed from its offsets in font
+    /// units, as [`Renderer::emit`] places a fitted cell's. A glyph baud
+    /// draws itself keeps its place.
+    pub(crate) fn fit_glyphs(
+        &mut self,
+        glyphs: &mut [ClusterGlyph],
+        narrow: crate::fit::Narrow,
+        stretch: Stretch,
+    ) {
+        for g in glyphs.iter_mut() {
+            let GlyphSource::Face(face) = g.source else {
+                continue;
+            };
+            let f = self.stack.face(face);
+            let scale = self.scales[face.index()];
+            let at = (Phase::ZERO, stretch);
+            g.slot = self
+                .atlas
+                .slot_fitted_at(f, face, g.id, scale, at, narrow.factor());
+            g.dx = narrow.across(scale.px(f32::from(g.units.dx)) * stretch.xf());
+            g.dy = narrow.up(scale.px(f32::from(g.units.dy)) * stretch.yf());
+            g.phase = Phase::ZERO;
+        }
+    }
+
     /// Instances for a shaped run starting at column `start` of row `r`;
     /// with `MIRRORED`, drawn as `drawn` says: flipped, for a mirrored cell
     /// ([`crate::bidi::Mirrored::Flipped`]), its first glyph's image
@@ -9911,6 +10100,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let drawn = drawn.filter(|_| MIRRORED);
         let flipped = drawn.is_some_and(|d| d.mirrored == Some(crate::bidi::Mirrored::Flipped));
         let lean = drawn.and_then(|d| d.lean);
+        // **A letter of a joining script wider than its cell**, fitted to it
+        // where rule D says so (`crate::fit`): asked only of a run that held
+        // a letter that takes a joining form, and not of a flipped or
+        // slanted cell.
+        let narrows = match shaped.joins() == crate::bidi::Joins::Seen && !flipped && lean.is_none()
+        {
+            true => self.narrows(term, face, r, start, shaped),
+            false => Vec::new(),
+        };
         let size = self.size_of(r);
         let st = Stretch::of(size);
         let scale = self.scales[face.index()];
@@ -9962,15 +10160,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             // A flipped cell's base is its first glyph; its marks keep their
             // own images.
-            let slot = match MIRRORED && flipped && i == 0 {
-                true => self.atlas.slot_flipped_at(f, face, p.id, scale, phase, st),
-                false => self.atlas.slot_at(f, face, p.id, scale, phase, st),
+            let narrow = match narrows.is_empty() {
+                true => None,
+                false => narrows.iter().find(|&&(c, _)| c == p.cell).map(|&(_, n)| n),
+            };
+            let slot = match (narrow, MIRRORED && flipped && i == 0) {
+                (Some(n), _) => {
+                    let at = (Phase::ZERO, st);
+                    self.atlas
+                        .slot_fitted_at(f, face, p.id, scale, at, n.factor())
+                }
+                (None, true) => self.atlas.slot_flipped_at(f, face, p.id, scale, phase, st),
+                (None, false) => self.atlas.slot_at(f, face, p.id, scale, phase, st),
             };
             let Some(slot) = slot else {
                 continue;
             };
-            let dx = scale.px(f32::from(p.dx)).round() as i32 * st.x();
-            let dy = scale.px(f32::from(p.dy)).round() as i32 * st.y();
+            let (dx, dy) = match narrow {
+                Some(n) => (
+                    n.across(scale.px(f32::from(p.dx)) * st.xf()),
+                    n.up(scale.px(f32::from(p.dy)) * st.yf()),
+                ),
+                None => (
+                    scale.px(f32::from(p.dx)).round() as i32 * st.x(),
+                    scale.px(f32::from(p.dy)).round() as i32 * st.y(),
+                ),
+            };
             let dx = match MIRRORED && flipped {
                 true => InSpan {
                     width: cell_w * i32::try_from(span.cells().index()).unwrap_or(1),

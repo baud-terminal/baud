@@ -128,6 +128,11 @@ use crate::renderer::PairGlyphs;
 /// The cluster map and the walk that fills the overlay from it.
 pub struct Overlay {
     clusters: HashMap<ClusterKey, Vec<ClusterGlyph>>,
+    /// A cluster's ink measured against its cell, by the key its glyphs
+    /// are kept under: `None` where it is not over 1.1 cells wide
+    /// (`crate::fit`), so a letter of a joining script is measured once
+    /// and not on every frame.
+    wides: HashMap<ClusterKey, Option<crate::fit::Overwide>>,
     /// A lam-alef pair's content to the glyphs its lam's cell and its
     /// alef's cell draw, or `None` where the two take different faces.
     pairs: HashMap<ClusterKey, Option<PairGlyphs>>,
@@ -436,6 +441,12 @@ impl ClusterKey {
         ))
     }
 
+    /// A cell fitted to its one cell by rule D (`crate::fit`): a different
+    /// cluster from the same codepoints drawn full size.
+    fn fitted(self) -> ClusterKey {
+        ClusterKey((self.0 ^ 0xfa).wrapping_mul(ClusterKey::PRIME))
+    }
+
     /// A cell drawn flipped left to right (UAX #9 L4): a different cluster
     /// from the same codepoints drawn as they are.
     fn flipped(self) -> ClusterKey {
@@ -477,6 +488,7 @@ impl Overlay {
     pub fn new() -> Overlay {
         Overlay {
             clusters: HashMap::new(),
+            wides: HashMap::new(),
             pairs: HashMap::new(),
             windows: HashMap::new(),
             grown: Tally::default(),
@@ -547,6 +559,7 @@ impl Overlay {
             if r.atlas_stats().grown.value() != self.grown.value() {
                 self.grown = r.atlas_stats().grown;
                 self.clusters.clear();
+                self.wides.clear();
                 self.pairs.clear();
                 self.windows.clear();
             }
@@ -1065,6 +1078,55 @@ impl Overlay {
         self.over.extend_from_slice(&self.staged);
     }
 
+    /// **The cell at `at`'s glyphs as rule D draws them** (`crate::fit`):
+    /// `glyphs`, kept under `key`, unless its `base` is a letter of a
+    /// joining script whose ink is over 1.1 cells wide and a cell the ink
+    /// reaches is not blank or not on the row, when they are fitted to the
+    /// cell -- kept under a key of their own, so the cell fitted and the
+    /// same cell full size are two entries. The cells beside it are read
+    /// from the view, in the order the row is drawn in.
+    fn fit(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        r: &mut Renderer<'_, '_>,
+        (x, y): (usize, usize),
+        (base, key): (Codepoint, ClusterKey),
+        glyphs: Vec<ClusterGlyph>,
+    ) -> Vec<ClusterGlyph> {
+        if !crate::fit::takes_forms(base) {
+            return glyphs;
+        }
+        let wide = match self.wides.get(&key) {
+            Some(&w) => w,
+            None => {
+                let w = r.overwide(&glyphs, Stretch::One);
+                self.wides.insert(key, w);
+                w
+            }
+        };
+        let Some(wide) = wide else {
+            return glyphs;
+        };
+        let row = scene.view.row(Row::from_index(y));
+        let end = Col::at_index(row.len().min(scene.view.cols().index()));
+        let blank = |c: Col| {
+            row.get(c.index()).map_or(crate::fit::Blank::No, |cell| {
+                crate::fit::Blank::of(scene.term, *cell)
+            })
+        };
+        let crate::fit::Fitting::Fitted(n) = wide.fitting(Col::at_index(x), end, blank) else {
+            return glyphs;
+        };
+        let key = key.fitted();
+        if let Some(g) = self.clusters.get(&key) {
+            return g.clone();
+        }
+        let mut g = glyphs;
+        r.fit_glyphs(&mut g, n, Stretch::One);
+        self.clusters.insert(key, g.clone());
+        g
+    }
+
     /// The cell at `at` drawn whole by records: its base and every
     /// codepoint attached to it, shaped once as a cluster and kept, the
     /// cell masked off the map.
@@ -1113,6 +1175,10 @@ impl Overlay {
                 self.clusters.insert(key, g.clone());
                 g
             }
+        };
+        let glyphs = match lean {
+            None => self.fit(scene, r, at, (cp, key), glyphs),
+            Some(_) => glyphs,
         };
         self.stats.cells.bump();
         mask[y * geom.cols.index() + x] |= MASK_RECORD;
@@ -1250,6 +1316,10 @@ impl Overlay {
                 self.clusters.insert(key, g.clone());
                 g
             }
+        };
+        let glyphs = match (lean, cps.first()) {
+            (None, Some(&base)) => self.fit(scene, r, at, (base, key), glyphs),
+            _ => glyphs,
         };
         self.stats.cells.bump();
         mask[y * geom.cols.index() + x] |= MASK_RECORD;
@@ -1657,6 +1727,10 @@ impl Overlay {
                         crate::cellmap::face_of(scene.styles, *cell),
                         CellSpan::at(row, Col::at_index(x)),
                     )
+                    // A letter reaching past its cell cuts the window: the
+                    // pass that judges it by the cells beside it draws it
+                    // (`crate::fit`).
+                    .filter(|e| !e.reaches_past())
                     .map(|e| (cp, e.face(), e.starts_pair() || e.ends_pair()))
             });
             // A marked cell is drawn from the face its whole cluster takes

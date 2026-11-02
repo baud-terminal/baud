@@ -53,13 +53,28 @@ pub struct PlacedCount(u8);
 pub struct Shaped {
     placed: [Placed; PLACED_MAX],
     len: PlacedCount,
+    /// Whether the run held a letter that takes a joining form, which the
+    /// shaper tested as it took each cluster: a run without one is never
+    /// fitted to its cells (`crate::fit`), and is asked nothing more.
+    joins: crate::bidi::Joins,
 }
 
 impl Shaped {
     pub const EMPTY: Shaped = Shaped {
         placed: [Placed::NONE; PLACED_MAX],
         len: PlacedCount(0),
+        joins: crate::bidi::Joins::Unseen,
     };
+
+    /// Whether the run held a letter that takes a joining form.
+    pub(crate) fn joins(&self) -> crate::bidi::Joins {
+        self.joins
+    }
+
+    /// Records whether the run held a letter that takes a joining form.
+    pub(crate) fn set_joins(&mut self, joins: crate::bidi::Joins) {
+        self.joins = joins;
+    }
 
     /// Appends a glyph; `None` once the run is full, which the caller
     /// treats as a run it cannot cache or draw beyond.

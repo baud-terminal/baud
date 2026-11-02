@@ -653,11 +653,11 @@ tests = ["baud-app/src/config.rs::the_default_stack_carries_han_kana_hangul_deva
 id = "fallback-list"
 area = "text"
 name = "Any script, from the system's fonts"
-does = "A character the first font lacks comes from the next font that has it, one character at a time, and one that neither your fonts nor baud's have comes from the font your system picks for it, so Arabic, Syriac, Thaana and N'Ko draw with no font of your own, Arabic and Syriac joined: CoreText's choice on macOS, fontconfig's match on Linux, found the first time such a character appears and kept."
+does = "A character the first font lacks comes from the next font that has it, one character at a time, and one that neither your fonts nor baud's have comes from the font your system picks for it, so Arabic, Syriac, Thaana and N'Ko draw with no font of your own, Arabic and Syriac joined: CoreText's choice on macOS, fontconfig's match on Linux, found the first time such a character appears and kept. A letter of Arabic, Syriac or another joining script that a proportional font draws more than 1.1 cells wide is drawn smaller to fit its cell, unless the cells it reaches are empty or hold a space."
 status = "partial"
-gap = "a system font's letters are drawn at the size of baud's own, not narrowed to the cell, so a proportional one such as Noto Sans Syriac overlaps its neighbours; on Linux fontconfig's language and alias preferences are not followed."
+gap = "a letter narrower than its cell leaves a gap where it joins its neighbours; a presentation form, a lam-alef, a letter SAPV 17 slants, a letter of a script that does not join (Thaana), and a symbol still overlap the next cell when wider than their own; on Linux fontconfig's language and alias preferences are not followed."
 platform = "both"
-tests = ["baud-render/tests/refused_glyph.rs::a_refused_glyph_falls_back_to_the_next_face_that_carries_it", "baud-app/src/host.rs::the_system_draws_arabic_and_syriac_no_listed_face_has", "baud-app/src/discover.rs::the_charset_match_picks_a_face_per_character"]
+tests = ["baud-render/tests/refused_glyph.rs::a_refused_glyph_falls_back_to_the_next_face_that_carries_it", "baud-app/src/host.rs::the_system_draws_arabic_and_syriac_no_listed_face_has", "baud-app/src/discover.rs::the_charset_match_picks_a_face_per_character", "baud-render/tests/overwide_letters.rs::an_over_wide_letter_beside_a_letter_is_fitted_to_its_cell"]
 
 [[feature]]
 id = "missing-glyph"
