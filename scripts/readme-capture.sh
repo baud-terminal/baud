@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Remakes the README's pictures in assets/readme/, every one of them filmed
-# from baud itself. Since 2026-11-01 the README shows only text.png and a
+# from baud itself. Since 2026-11-01 the README shows one picture, a
 # hero.gif that is a screen recording of a real session (assets/readme/
-# README.md); the hero, images, tools and trail takes below are kept for
-# ONLY= runs and are no longer in the README, and the default makes text.png. macOS only: it records baud's window through
+# README.md); the takes below are kept for ONLY= runs and none is in the
+# README. The default makes text.png. macOS only: it records baud's window through
 # ScreenCaptureKit (scripts/trail-record.swift), so the terminal running it
 # needs Screen Recording, and it raises the window and drives the pointer
 # through System Events, which needs Accessibility.

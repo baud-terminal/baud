@@ -2152,14 +2152,6 @@ upstream = "https://github.com/elementary/wallpapers"
 status   = "kept"
 
 [[tree]]
-what     = "The README's text.png carries renderings of Noto Color Emoji v2.051 and Noto Sans CJK SC 2.004 (Google), fetched at capture time by scripts/readme-capture.sh, pinned by sha256 and not committed; the rest is baud's embedded faces. No Apple face is in its stack (re-shot 2026-10-17 with an open emoji font). The OFL covers the fonts, not what is drawn with them"
-paths    = ["assets/readme/text.png"]
-licence  = "OFL-1.1"
-notice   = "none needed"
-upstream = "https://github.com/googlefonts/noto-emoji/tree/v2.051/fonts, https://github.com/notofonts/noto-cjk/tree/Sans2.004"
-status   = "kept"
-
-[[tree]]
 what     = "A recording of pipes.sh 1.3.0's output, captured by scripts/capture-tui.py on 2026-10-28 (tests/recordings/README.md): cursor moves, SGRs and characters from the program's own ASCII pipe sets, no art. pipes.sh is MIT (Pipeseroni/pipes.sh contributors, Yu-Jie Lin, Matthew Simpson); the capture copies none of its code"
 paths    = ["tests/recordings/ascii/pipes.raw"]
 licence  = "CC-BY-NC-SA-4.0"

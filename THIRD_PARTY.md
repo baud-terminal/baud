@@ -23,9 +23,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 | open | 0 | 5 | an open question, recorded where the file is |
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 316 | 49 | redistributable, and its notice is satisfied |
+| kept | 316 | 48 | redistributable, and its notice is satisfied |
 | own | 263 | 7 | the work of baud's author |
-| total | 596 | 61 | |
+| total | 596 | 60 | |
 
 ## Licence texts in LICENSES/
 
@@ -454,14 +454,6 @@ they were built from.
 - **Notice:** none needed
 - **From:** https://github.com/elementary/wallpapers
 - **Files:** [assets/readme/hero.gif](assets/readme/hero.gif)
-
-### The README's text.png carries renderings of Noto Color Emoji v2.051 and Noto Sans CJK SC 2.004 (Google), fetched at capture time by scripts/readme-capture.sh, pinned by sha256 and not committed; the rest is baud's embedded faces. No Apple face is in its stack (re-shot 2026-10-17 with an open emoji font). The OFL covers the fonts, not what is drawn with them
-
-- **Status:** kept -- redistributable, and its notice is satisfied
-- **Licence:** OFL-1.1
-- **Notice:** none needed
-- **From:** https://github.com/googlefonts/noto-emoji/tree/v2.051/fonts, https://github.com/notofonts/noto-cjk/tree/Sans2.004
-- **Files:** [assets/readme/text.png](assets/readme/text.png)
 
 ### The Independent JPEG Group's test images from release 6b, unmodified: testorig.jpg, testprog.jpg and testimg.ppm, the reference decode of both
 

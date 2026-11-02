@@ -13,14 +13,6 @@ a plain `baud ❯`, so nothing names the machine. Encoded with gifski at
 loops clean. neo's katakana are drawn by the macOS system font baud falls
 back to, as baud's own font has none.
 
-`text.png` is made by `scripts/readme-capture.sh`, which remakes it and
-checks it, in one window, 80x24 at 16 pt (776x548 pt), in Dark, with baud's
-defaults except a steady cursor and the fonts.
-
-| file | what it shows | made by |
-|---|---|---|
-| `text.png` | emoji sequences, flags, Chinese, Japanese, Nerd Font icons and JetBrains Mono ligatures, in a table whose right border stays straight; drawn from open faces only, baud's own with Noto Color Emoji and Noto Sans CJK SC, so no Apple font drew any of it (the icons row does show the Nerd Font's Apple logo) | `scripts/readme-demo-text.sh`, `scripts/readme-text.txt` |
-
 `social.png` is a 1280x640 card for the repository's social preview,
 which GitHub takes only as an upload in the repository's settings, never
 from the tree: the lockup and the tagline over a darkened frame of the
