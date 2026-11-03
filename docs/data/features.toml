@@ -1668,14 +1668,11 @@ shipped = ["SQ-v1.0-09"]
 id = "new-window"
 area = "window"
 name = "More than one window"
-does = "Cmd-N opens another window with its own shell, in the folder the window you opened it from is in, a step down and to the right of it. Cmd-W or the close button closes one window and ends its shell, the others carry on, and a shell that exits closes only its own window; Cmd-Q quits them all. Closing the last window quits baud. On Linux, Ctrl+Shift+N opens a new baud in the same folder, as foot does."
-status = "partial"
-gap = "on a Mac, closing the last window quits baud until the window library baud's Mac window is built with offers a File menu with New Window and a reopen from the Dock icon; then baud will stay running with no window open, as Mac apps do. The Linux window has run only headless."
+does = "Cmd-N or File > New Window opens another window with its own shell, in the folder the window you opened it from is in, a step down and to the right of it. Cmd-W or the close button closes one window and ends its shell, the others carry on, and a shell that exits closes only its own window; Cmd-Q quits them all. On a Mac, closing the last window leaves baud running, as Mac apps do, and File > New Window or a click on its Dock icon opens another. On Linux, Ctrl+Shift+N opens a new baud in the same folder, as foot does."
+status = "built"
 platform = "both"
-tests = ["baud-app/src/windows.rs::closing_one_of_three_windows_leaves_the_other_two_their_own_terminals", "baud-app/src/windows.rs::closing_the_last_window_quits_and_closing_one_of_two_does_not", "baud-app/src/windows.rs::command_n_alone_opens_a_window", "baud-app/src/pty.rs::a_new_windows_shell_starts_in_the_directory_it_inherits", "baud-app/src/pty.rs::a_closed_windows_pty_hangs_up_its_shell", "baud-app/src/app.rs::a_window_closes_alone_and_its_shells_exit_closes_only_it", "baud-present-wayland/tests/handshake.rs::ctrl_shift_n_asks_for_a_new_window"]
-rows = ["input:A new window: Command-N on macOS, Ctrl+Shift+N on Linux; Command-W and the close button"]
-behind = "other Mac terminals open a new window from the File menu or the Dock icon after the last one closed."
-roadmap = ["SQ-v1.0-10"]
+tests = ["baud-app/src/windows.rs::closing_one_of_three_windows_leaves_the_other_two_their_own_terminals", "baud-app/src/windows.rs::closing_the_last_window_or_one_of_two_leaves_the_app_running", "baud-app/src/windows.rs::command_n_alone_opens_a_window", "baud-app/src/windows.rs::a_new_window_asked_of_one_window_is_opened_by_it_once", "baud-app/src/app.rs::the_file_menus_new_window_opens_from_the_window_asked", "baud-app/src/pty.rs::a_new_windows_shell_starts_in_the_directory_it_inherits", "baud-app/src/pty.rs::a_closed_windows_pty_hangs_up_its_shell", "baud-app/src/app.rs::a_window_closes_alone_and_its_shells_exit_closes_only_it", "baud-present-wayland/tests/handshake.rs::ctrl_shift_n_asks_for_a_new_window"]
+rows = ["input:A new window: Command-N and File > New Window on macOS, Ctrl+Shift+N on Linux; Command-W and the close button"]
 
 [[feature]]
 id = "title-restore"

@@ -8,11 +8,11 @@
 //! (`[[source: apple-hig-keyboards]]`), and its menu bar puts both in the
 //! File menu (`[[source: apple-hig-the-menu-bar]]`).
 //!
-//! **For now the app quits when its last window closes**
-//! ([`LAST_WINDOW`]): the window crate has no New Window menu item and
-//! no Dock reopen, so an app left running with no window would have
-//! nothing that opens one. With those, it will stay running, AppKit's
-//! answer when no delegate says otherwise: `NO` from
+//! **The app stays running when its last window closes**
+//! ([`LAST_WINDOW`]): the window crate's File menu has New Window and its
+//! application delegate the Dock's reopen, and both reach the app with no
+//! window open ([`Asked`] is the hand-off to a window that is). That is
+//! AppKit's answer when no delegate says otherwise: `NO` from
 //! `applicationShouldTerminateAfterLastWindowClosed:`, and "control
 //! returns to the main event loop and the application is not terminated"
 //! (`[[source: apple-nsapplicationdelegate-terminate-after-last-window-closed]]`).
@@ -129,30 +129,28 @@ pub enum Left {
 #[cfg(any(target_os = "macos", test))]
 #[allow(
     dead_code,
-    reason = "LAST_WINDOW chooses one; the other waits on the window crate"
+    reason = "LAST_WINDOW chooses one; Quit is what the app did before File > New Window"
 )]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LastWindow {
     /// The app quits, as it did when its one window's shell exited.
     Quit,
     /// The app keeps running with no window, as AppKit does with no
-    /// delegate; it waits on a way to open a window from there.
+    /// delegate, and File > New Window or a Dock click opens one.
     StayRunning,
 }
 
-/// **The last window's close quits the app, for now.** A Mac app that
+/// **The last window's close leaves the app running.** A Mac app that
 /// stays running with no window opens one again from File > New Window
 /// or a click on its Dock icon
-/// (`[[source: apple-nsapplicationdelegate-should-handle-reopen]]`), and
-/// the window crate (1.0.0-beta.6) offers neither: no File menu, no
-/// application delegate, so no `applicationShouldHandleReopen:` and no
-/// `applicationShouldTerminateAfterLastWindowClosed:`. Staying running
-/// would leave an app with no window and nothing that opens one; quitting
-/// is what the app did before it had more than one window. When the crate
-/// has a New Window item and the reopen hook, this becomes
-/// [`LastWindow::StayRunning`].
+/// (`[[source: apple-nsapplicationdelegate-should-handle-reopen]]`). The
+/// window crate offers both since 1.0.0-beta.7, its File menu and an
+/// application delegate whose `newWindow:` and
+/// `applicationShouldHandleReopen:` reach the app with no window open, and
+/// the app opens a window from either. [`LastWindow::Quit`] is what the
+/// app did before it had more than one window.
 #[cfg(any(target_os = "macos", test))]
-pub const LAST_WINDOW: LastWindow = LastWindow::Quit;
+pub const LAST_WINDOW: LastWindow = LastWindow::StayRunning;
 
 /// What the app does after a window's close.
 #[cfg(any(target_os = "macos", test))]
@@ -244,13 +242,44 @@ pub enum Command {
 }
 
 /// **The window chord a Command key names on macOS**: Command-N alone
-/// opens a window. Command-W and Command-Q are the menu's own (`Close`
-/// and `Quit`, which AppKit performs), so they never reach the view.
+/// opens a window, where the File menu's New Window did not take it.
+/// Command-W and Command-Q are the menu's own (`Close` and `Quit`, which
+/// AppKit performs), so they never reach the view.
 #[cfg(any(target_os = "macos", test))]
 pub fn mac_chord(characters: &str, held: Command) -> Option<Chord> {
     match (characters, held) {
         ("n", Command::Alone) => Some(Chord::New),
         _ => None,
+    }
+}
+
+/// **A New Window asked of one window, until its driver takes it**: the
+/// File menu's New Window reaches the app delegate inside the menu's
+/// action, and the window it was asked from opens one on its view's next
+/// wake, outside that action, as its own Command-N does.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Default)]
+pub struct Asked(std::cell::Cell<Option<WindowId>>);
+
+#[cfg(any(target_os = "macos", test))]
+impl Asked {
+    pub const fn new() -> Asked {
+        Asked(std::cell::Cell::new(None))
+    }
+
+    /// A New Window asked of `of`, in place of any asked before.
+    pub fn ask(&self, of: WindowId) {
+        self.0.set(Some(of));
+    }
+
+    /// Whether the window `me` was asked, the ask taken with the answer,
+    /// so one ask opens one window.
+    pub fn take(&self, me: Option<WindowId>) -> bool {
+        let asked = me.is_some() && self.0.get() == me;
+        if asked {
+            self.0.set(None);
+        }
+        asked
     }
 }
 
@@ -346,8 +375,8 @@ pub fn spawn_window(dir: Option<&std::path::Path>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AfterClose, Chord, Clicked, Command, LAST_WINDOW, LastWindow, Left, Started, Windows,
-        after_close, clicked, inherited, mac_chord, started,
+        AfterClose, Asked, Chord, Clicked, Command, LAST_WINDOW, LastWindow, Left, Started,
+        Windows, after_close, clicked, inherited, mac_chord, started,
     };
     use baud_core::{FileHost, Owned, Term, WorkingDirectory};
     use baud_domain::{BytePos, ReadLen, Row, WinSize};
@@ -424,13 +453,14 @@ mod tests {
         assert_eq!(left, Left::None, "it was the only one open");
     }
 
-    /// **Closing one of two windows leaves the app running, and closing
-    /// the last quits it**, the interim until the window crate offers a
-    /// way to open a window with none open (`LAST_WINDOW`). The control is
-    /// the kept path: told to stay running, the last close leaves the app
-    /// running, so the quit comes from the choice and not the close.
+    /// **Closing one of two windows leaves the app running, and so does
+    /// closing the last**, now that File > New Window and a Dock click
+    /// open a window with none open (`LAST_WINDOW`). The control is the
+    /// other choice: told to quit, the last close quits the app, so the
+    /// app runs on from the choice and not from the close. Perturbation:
+    /// choose to quit and the last close quits it.
     #[test]
-    fn closing_the_last_window_quits_and_closing_one_of_two_does_not() {
+    fn closing_the_last_window_or_one_of_two_leaves_the_app_running() {
         let mut stores: Vec<Owned> = (0..2).map(|_| Owned::new(&WS)).collect();
         let mut set = Windows::new();
         let ids: Vec<_> = stores
@@ -445,14 +475,14 @@ mod tests {
         );
         let (_, left) = set.close(ids[1]).expect("the second was open");
         assert_eq!(
-            after_close(left, LastWindow::StayRunning),
-            AfterClose::Run,
-            "the control: the kept path stays running"
+            after_close(left, LastWindow::Quit),
+            AfterClose::Quit,
+            "the control: told to quit, the last close quits"
         );
         assert_eq!(
             after_close(left, LAST_WINDOW),
-            AfterClose::Quit,
-            "the last window closed: the app quits"
+            AfterClose::Run,
+            "the last window closed: the app runs on"
         );
     }
 
@@ -512,6 +542,29 @@ mod tests {
         assert_eq!(mac_chord("n", Command::WithOthers), None);
         assert_eq!(mac_chord("w", Command::Alone), None);
         assert_eq!(mac_chord("N", Command::Alone), None);
+    }
+
+    /// **A New Window asked of one window is opened by it, once**: the
+    /// other window's wake, or a driver not yet given its key, takes
+    /// nothing, and the window asked takes it on its first wake and not
+    /// again. Perturbations: answer any window and the other's wake opens
+    /// it; keep the ask after it is taken and the second wake opens a
+    /// second window.
+    #[test]
+    fn a_new_window_asked_of_one_window_is_opened_by_it_once() {
+        let mut w = Windows::new();
+        let (a, b) = (w.open(()), w.open(()));
+        let asked = Asked::new();
+        assert!(!asked.take(Some(a)), "nothing asked");
+        asked.ask(a);
+        assert!(!asked.take(Some(b)), "another window");
+        assert!(!asked.take(None), "a driver not yet given its key");
+        assert!(asked.take(Some(a)), "the window asked");
+        assert!(!asked.take(Some(a)), "once");
+        asked.ask(a);
+        asked.ask(b);
+        assert!(!asked.take(Some(a)), "the later ask replaces it");
+        assert!(asked.take(Some(b)));
     }
 
     /// The `OSC 7` path wins over the directory read for the title, a

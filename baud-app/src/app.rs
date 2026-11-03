@@ -4314,6 +4314,9 @@ thread_local! {
     /// window is opened and closed.
     static OPEN: std::cell::RefCell<crate::windows::Windows<Open>> =
         const { std::cell::RefCell::new(crate::windows::Windows::new()) };
+    /// **A New Window the File menu asked of one window**, until that
+    /// window's driver takes it (`new_window_from_menu`).
+    static ASKED: crate::windows::Asked = const { crate::windows::Asked::new() };
     /// **Every window's progress, for the one Dock tile** (`notify::DockBars`).
     static DOCK: std::cell::RefCell<crate::notify::DockBars<crate::windows::WindowId>> =
         const { std::cell::RefCell::new(crate::notify::DockBars::new()) };
@@ -4362,9 +4365,9 @@ fn open_window(at: Option<std::path::PathBuf>) {
 /// count it (`lent::Drawing`); the process watch ends its thread and
 /// closes its kqueue (`fg::Watch`). What stays is the view, which the
 /// window crate's waker retains, and the `Gone` responder in it. The other
-/// windows go on; when it was the last, the app quits, for now
-/// (`windows::LAST_WINDOW`). A second close of the same window finds
-/// nothing.
+/// windows go on, and when it was the last the app runs on with none, for
+/// File > New Window or a Dock click to open one (`windows::LAST_WINDOW`).
+/// A second close of the same window finds nothing.
 fn closed(id: crate::windows::WindowId) {
     let Some((open, left)) = OPEN.with_borrow_mut(|o| o.close(id)) else {
         return;
@@ -4386,6 +4389,41 @@ fn closed(id: crate::windows::WindowId) {
         if let Some(mtm) = MainThreadMarker::new() {
             NSApplication::sharedApplication(mtm).terminate(None);
         }
+    }
+}
+
+/// **File > New Window**, and Command-N, which the menu's key equivalent
+/// takes before the view does: the app delegate's `newWindow:`
+/// (`macos_liquid_glass::app::AppDelegate`). The window of baud's it was
+/// asked from -- the key window, else the main one, while a panel has the
+/// keyboard -- opens one as its own Command-N does, in its directory
+/// (`Driver::new_window`), at its view's next wake, outside the menu's
+/// action. With no window of baud's in front, one opens where a launch
+/// starts. The window crate calls this for a Dock click with no window
+/// shown too, and a minimized window counts as shown there
+/// (`[[source: apple-nsapplicationdelegate-should-handle-reopen]]`).
+fn new_window_from_menu() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let asked = [app.keyWindow(), app.mainWindow()]
+        .into_iter()
+        .flatten()
+        .find_map(|front| {
+            OPEN.with_borrow(|o| {
+                o.ids().into_iter().find_map(|id| {
+                    let open = o.get(id)?;
+                    std::ptr::eq(open.window.ns_window(), &*front).then(|| (id, open.view.waker()))
+                })
+            })
+        });
+    match asked {
+        Some((id, waker)) => {
+            ASKED.with(|a| a.ask(id));
+            waker.wake();
+        }
+        None => dispatch2::DispatchQueue::main().exec_async(|| open_window(None)),
     }
 }
 
@@ -7205,7 +7243,7 @@ mod drag_tests {
     /// when it was the last and `windows::LAST_WINDOW` says to quit, after
     /// the window's driver, and so its shell, is let go; the pump's end of
     /// the stream asks for its own window's close and terminates nothing,
-    /// so a shell's exit in the last window quits through that close; every
+    /// so a shell's exit in the last window goes through that close; every
     /// window is put in the open windows, and its close heard, before its
     /// responder is installed; and the close swaps the driver out on a
     /// later turn, its display link stopped. Command-N, heard in the key
@@ -7270,7 +7308,7 @@ mod drag_tests {
             .1;
         assert!(
             quits.contains(terminate),
-            "the last window's close quits the app: {close}"
+            "told to quit, the last window's close quits the app: {close}"
         );
         assert!(
             SRC.contains(concat!("exec_async(move || ", "closed(id));")),
@@ -11909,6 +11947,11 @@ impl Responder for Driver {
         {
             startup_first("first completion", &FIRST_DONE);
         }
+        // A New Window the File menu asked of this window
+        // (`new_window_from_menu`), opened as its Command-N opens one.
+        if ASKED.with(|a| a.take(self.window_id)) {
+            self.new_window();
+        }
         let (began, start) = (host_now(), Instant::now());
         self.pump(Trigger::Wake);
         self.app.launch_log.turn(began, start.elapsed());
@@ -12125,6 +12168,12 @@ pub fn run() {
     // The menu before the run loop: key equivalents need it from the first
     // event, and nothing on screen waits for it.
     macos_liquid_glass::menu::install_main_menu(&ns_app, mtm, "baud");
+    // File > New Window reaches the app through its delegate, with a window
+    // or without (`new_window_from_menu`). Kept for the process:
+    // `NSApplication.delegate` holds it weakly.
+    let delegate = macos_liquid_glass::app::AppDelegate::install(&ns_app, mtm);
+    delegate.on_new_window(new_window_from_menu);
+    core::mem::forget(delegate);
     startup_mark("menu");
     // **The window is shown once the app has finished launching, with its
     // first frame already on its layer**, and the launch logo starts on the
@@ -17402,6 +17451,65 @@ mod tests {
             Chord::Other
         );
         assert_eq!(link_chord(none), Chord::Other);
+    }
+
+    /// **The File menu's New Window opens a window from the one it was
+    /// asked of**: the app delegate is installed with the menu, before
+    /// the run loop, and kept for the process; its hook asks the key or
+    /// main window of baud's and wakes it, or opens one where a launch
+    /// starts; the wake of the window asked opens it as its own Command-N
+    /// does, before the pump. AppKit-bound, so this holds the source.
+    /// Perturbation: drop the ask from the wake and the hook's window opens
+    /// nothing.
+    #[test]
+    fn the_file_menus_new_window_opens_from_the_window_asked() {
+        const SRC: &str = include_str!("app.rs");
+        let menu = SRC
+            .find(concat!(
+                "menu::install_main_menu(",
+                "&ns_app, mtm, \"baud\");"
+            ))
+            .expect("the menu");
+        let delegate = SRC
+            .find(concat!("app::AppDelegate::install(", "&ns_app, mtm)"))
+            .expect("the delegate");
+        let hook = SRC
+            .find(concat!("delegate.on_new_window(", "new_window_from_menu);"))
+            .expect("the hook");
+        let kept = SRC
+            .find(concat!("core::mem::forget(", "delegate);"))
+            .expect("kept for the process");
+        assert!(menu < delegate && delegate < hook && hook < kept);
+        assert!(
+            SRC[kept..].contains(concat!("ns_app.", "run();")),
+            "before the run loop"
+        );
+        let from_menu = SRC
+            .split(concat!("\nfn new_window_from_", "menu() {"))
+            .nth(1)
+            .expect("the hook's body");
+        let from_menu = &from_menu[..from_menu.find("\n}\n").expect("its end")];
+        assert!(from_menu.contains(concat!("a.ask(", "id)")));
+        assert!(from_menu.contains(concat!("waker.", "wake();")));
+        assert!(from_menu.contains(concat!("open_window(", "None)")));
+        let wake = SRC
+            .split(concat!(
+                "    fn wake(&mut self) {\n        startup_first(",
+                "\"run loop\""
+            ))
+            .nth(1)
+            .expect("the driver's wake");
+        let wake = &wake[..wake.find("\n    }\n").expect("its end")];
+        let taken = wake
+            .find(concat!("ASKED.with(|a| a.take(", "self.window_id))"))
+            .expect("the ask taken");
+        let opened = wake
+            .find(concat!("self.new_", "window();"))
+            .expect("opened");
+        let pumped = wake
+            .find(concat!("self.pump(", "Trigger::Wake);"))
+            .expect("pumped");
+        assert!(taken < opened && opened < pumped);
     }
 
     /// The monitor that hands AppKit's kept key-ups to the view is
