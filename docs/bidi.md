@@ -353,7 +353,15 @@ the screen; step 3 joins Arabic letters.
   on Noto Sans Arabic
   (`the_readme_line_draws_every_letter_on_noto_sans_arabic`). As rule D
   states, a letter changes size when something is typed into the blank
-  cell it reached.
+  cell it reached. **One case is an open defect: a letter an input method
+  composes straight beside a written one.** While it is composed it is
+  drawn full size, and so is a written letter beside it wider than its
+  cell, where once it is committed each is fitted: on Noto Sans Syriac
+  an alaph composed after a beth draws 102 pixels away from the same
+  alaph written there, and 68 after a yudh. The written letter reads the
+  composition's cell as blank, as the grid holds it, and the
+  composition's own letters are never fitted. With a blank cell between
+  them the two agree (`an_italic_letter_reads_its_word_on_every_arm`).
 - **Arabic and Syriac draw with no font of your own.** No face of baud's
   macOS stack maps either script, and a character no listed face maps is
   asked of the system the first frame that draws it and drawn from the face
