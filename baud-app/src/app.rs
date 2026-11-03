@@ -46,6 +46,7 @@ use baud_present_macos::{
     journal::{Reshape, Wheel},
     screens::{Built, Compare, Screens},
 };
+use baud_render::Led;
 use baud_render::Place;
 use baud_render::{
     Blend, BlinkPhases, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Instance, Look,
@@ -1581,7 +1582,7 @@ impl App {
         };
         let m = self.renderer.metrics();
         self.pty.resize(&ws, m.cell_w, m.cell_h);
-        self.flush_reply();
+        self.flush_reply(Asked::Unasked);
     }
 
     /// Sends a key to the core and whatever it answers to the shell, and
@@ -1592,6 +1593,11 @@ impl App {
         // Into an empty buffer, so the key always fits and `false` is only a
         // key that encodes to nothing (`reads::input`).
         let drawn = self.term.images().generation();
+        // A reply the terminal queued on its own goes out ahead of the key,
+        // through `reads::input`: AA's, not the key's.
+        if !self.term.reply().is_empty() {
+            self.activity.seen(Led::Aa, host_now());
+        }
         let encoded = crate::reads::input(&mut self.term, |t| t.key(e), |b| self.outbox.push(b));
         // An arrow key moved a ReGIS input cursor, or a key ended the input
         // and took it away: a frame, and the tick's pump feeds the reads
@@ -1606,7 +1612,7 @@ impl App {
         // KAM does not lock and SRM does not draw, and restarts the caret
         // itself.
         self.caret.input(host_now());
-        match (encoded, self.flush_reply()) {
+        match (encoded, self.flush_reply(Asked::Typed)) {
             (true, Sent::Bytes) => Sent::Bytes,
             _ => Sent::Nothing,
         }
@@ -1640,24 +1646,35 @@ impl App {
     ///
     /// The reply was copied out and cleared whether or not the write went,
     /// so a short write lost the rest; the outbox keeps it.
-    fn flush_reply(&mut self) -> Sent {
+    fn flush_reply(&mut self, asked: Asked) -> Sent {
+        let now = host_now();
+        // AA: a reply the terminal queued on its own, at the flush that
+        // sends it.
+        match asked {
+            Asked::Unasked if !self.term.reply().is_empty() => self.activity.seen(Led::Aa, now),
+            Asked::Unasked | Asked::Typed => {}
+        }
         self.outbox.push(self.term.reply());
         self.term.clear_reply();
         if self.outbox.is_empty() {
             return Sent::Nothing;
         }
         // SD lights for a write the kernel took any of, never for bytes
-        // still owed.
+        // still owed; CS, inverted, for a write it refused any of.
         match self.pty.write(&mut self.outbox) {
             Wrote::All => {
-                self.activity.sent(host_now());
+                self.activity.seen(Led::Sd, now);
                 Sent::Bytes
             }
             Wrote::Part => {
-                self.activity.sent(host_now());
+                self.activity.seen(Led::Sd, now);
+                self.activity.seen(Led::Cs, now);
                 Sent::Nothing
             }
-            Wrote::Nothing => Sent::Nothing,
+            Wrote::Nothing => {
+                self.activity.seen(Led::Cs, now);
+                Sent::Nothing
+            }
         }
     }
 
@@ -3936,6 +3953,10 @@ struct Driver {
     /// (`lights.rs`), and the appearance the body under the strip draws in.
     lights: crate::lights::Strip,
     lights_appearance: Appearance,
+    /// OH's and CD's sampler of the job in front, and the kernel's reads
+    /// it makes, on the tick while the lights are on (`front.rs`).
+    front: crate::front::Front,
+    procs: crate::front::Live,
     /// The config's files watched and the config as last read, while
     /// `config_reload` is on (`reload.rs`).
     reload: Option<Reloading>,
@@ -9478,7 +9499,10 @@ mod motion_tests {
                     if let Some(t) = trace.as_mut() { t.fed(&chunk.bytes); }
                     &chunk.bytes[..]
                 }),
-                |b| outbox.push(b),
+                |b| {
+                    outbox.push(b);
+                    answered = Answered::Yes;
+                },
                 |t| {
                     pasteboard("#,
             r#"clips.poll(t, osc52));
@@ -10121,6 +10145,23 @@ enum Sent {
     Bytes,
 }
 
+/// **Whose action a reply in the core's buffer answers**, for AA: one the
+/// user's key, click, wheel or paste brought, or one the terminal queued
+/// on its own -- a focus report, a size report after a resize, a colour
+/// scheme's, a held DSR's -- which nobody typed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Asked {
+    Typed,
+    Unasked,
+}
+
+/// Whether a pump's reads queued a reply, which AA shows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Answered {
+    No,
+    Yes,
+}
+
 impl Driver {
     /// A key the user pressed: sent to the core and on to the child, with
     /// the instrument's first two stamps around it -- the key event's own
@@ -10366,6 +10407,7 @@ impl Driver {
         // A process the title watches forked, exec'd or exited.
         if self.watch.as_ref().map(crate::fg::Watch::take) == Some(crate::fg::Moved::Moved) {
             self.derive.moved();
+            self.front.moved();
         }
         if let Trigger::Tick = trigger {
             self.title_check();
@@ -10417,13 +10459,17 @@ impl Driver {
             self.app
                 .launch_log
                 .read(chunk.at, baud_domain::ReadLen::of(&chunk.bytes));
+            // HS: a read as long as the tty hands back, one compare a read.
+            if baud_render::lights::full(&chunk.bytes) {
+                self.app.activity.seen(Led::Hs, chunk.at);
+            }
         }
         if !drained.chunks.is_empty() {
             startup_first("first bytes", &FIRST_BYTES);
             // RD: the latest read's own stamp, taken by the reader as the
             // read returned -- one store a drain, not a byte's work.
             if let Some(last) = drained.chunks.last() {
-                self.app.activity.received(last.at);
+                self.app.activity.seen(Led::Rd, last.at);
             }
             // The reader stamped each read as it returned: the first one
             // after a key's write is that key's echo.
@@ -10471,6 +10517,8 @@ impl Driver {
         let osc52 = self.app.clipboard.osc52;
         let host = self.app.sizing.host();
         let mut resized = None;
+        // AA, for a reply the feed queued: one store a reply, not a byte's.
+        let mut answered = Answered::No;
         // A program's notifications, taken read by read: the core keeps
         // eight a read (`notify.rs`).
         let icons = &mut self.app.notes.icons;
@@ -10496,7 +10544,10 @@ impl Driver {
                 }
                 &chunk.bytes[..]
             }),
-            |b| outbox.push(b),
+            |b| {
+                outbox.push(b);
+                answered = Answered::Yes;
+            },
             |t| {
                 pasteboard(clips.poll(t, osc52));
                 resized = honour(widths.poll(t, host), t).or(resized);
@@ -10543,6 +10594,9 @@ impl Driver {
                 .hear(&self.app.term, Instant::now(), self.app.interval)
         {
             self.ring_bell(volume);
+        }
+        if answered == Answered::Yes {
+            self.app.activity.seen(Led::Aa, host_now());
         }
         // A program's notifications, progress and attention request, shown
         // or not as `notify::plan` says (`notify.rs`), after the bell, as
@@ -10752,7 +10806,7 @@ impl Driver {
                 self.app.pending = Pending::Dirty;
             }
         }
-        self.app.flush_reply();
+        self.app.flush_reply(Asked::Unasked);
         if drained.stream == Stream::Closed {
             // The child is gone: the window has nothing left to show, once
             // the log has written what this read and the ones before it
@@ -11146,7 +11200,7 @@ impl Responder for Driver {
         // the frame follows the core's region, not the reply.
         let tracked = self.app.term.highlight();
         if self.app.term.mouse_report(e) {
-            self.app.flush_reply();
+            self.app.flush_reply(Asked::Typed);
         }
         if self.app.term.highlight() != tracked {
             self.app.pending = Pending::Dirty;
@@ -11196,7 +11250,7 @@ impl Responder for Driver {
                 let outbox = &mut self.app.outbox;
                 let mods = mouse_mods(event.modifiers);
                 crate::wheel::report(&mut self.app.term, lines, at, mods, |b| outbox.push(b));
-                self.app.flush_reply();
+                self.app.flush_reply(Asked::Typed);
                 return;
             }
             Route::Keys => {
@@ -11211,7 +11265,7 @@ impl Responder for Driver {
                     );
                 }
                 self.app.caret.input(host_now());
-                self.app.flush_reply();
+                self.app.flush_reply(Asked::Typed);
                 return;
             }
             Route::Nothing => return,
@@ -12030,8 +12084,10 @@ impl Opening {
             icon_x: 0.0,
             icon_size: 0.0,
             icon_inset: inset,
-            lights: crate::lights::Strip::new(0.0),
+            lights: crate::lights::Strip::new(0.0, 0.0),
             lights_appearance: glass.appearance(&window),
+            front: crate::front::Front::new(),
+            procs: crate::front::Live::new(),
             reload: None,
             notice,
             glass_live: std::rc::Rc::new(std::cell::Cell::new(glass_cfg)),
@@ -12221,7 +12277,13 @@ impl Opening {
         driver.icon = icon_iv;
         driver.icon_x = icon_x;
         driver.icon_size = icon_s;
-        driver.lights = crate::lights::Strip::new(lights_right);
+        // And stop short of baud's mark, a light's gap clear of it.
+        let mark_end = match icon_s > 0.0 {
+            true => icon_x + icon_s,
+            false => 74.0,
+        };
+        let lights_left = mark_end + CGFloat::from(baud_render::lights::PAIR);
+        driver.lights = crate::lights::Strip::new(lights_right, lights_left);
         startup_mark("titlebar");
         // The glass under the terminal now that the first frame is on the
         // layer: ordering a window whose content is a glass effect view costs
@@ -13356,7 +13418,7 @@ impl Driver {
         }
         self.app.focus = f;
         if self.app.term.focus(f) {
-            self.app.flush_reply();
+            self.app.flush_reply(Asked::Unasked);
         }
         // Losing the keyboard shows a pointer a key hid, but at mode 3,
         // as xterm's `unselectwindow` does on a focus-out.
@@ -13812,7 +13874,7 @@ impl Driver {
         let cell_w = cell_px(self.app.renderer.metrics().cell_w);
         let outbox = &mut self.app.outbox;
         crate::gesture::clicked(&mut self.app.term, at, cell_w, |b| outbox.push(b));
-        self.app.flush_reply();
+        self.app.flush_reply(Asked::Typed);
     }
 
     /// **Command-Up and Command-Down jump to the previous and the next
@@ -13901,7 +13963,24 @@ impl Driver {
         let Some(now) = HostTime::of_secs(target) else {
             return;
         };
-        let shown = self.app.activity.step(now);
+        let setting = self.app.activity_lights;
+        // OH and CD: the job in front, read only while the lights are on.
+        let shell = self.app.pty.child();
+        if let Some((oh, cd)) = self.front.tick(setting, &mut self.procs, shell, now) {
+            crate::lights::feed(&mut self.app.activity, Led::Oh, oh, now);
+            crate::lights::feed(&mut self.app.activity, Led::Cd, cd, now);
+        }
+        // SYN and FAX: the core's state at the tick.
+        if setting == baud_render::ActivityLights::On {
+            if self.app.term.synchronized_output() {
+                self.app.activity.seen(Led::Syn, now);
+            }
+            if self.app.term.images().any_placed() {
+                self.app.activity.seen(Led::Fax, now);
+            }
+        }
+        let pace = crate::access::lights_pace(self.app.motion);
+        let shown = self.app.activity.step(now, pace);
         let body = match self.glass.kind() {
             BodyKind::Standard => crate::lights::Body::Standard,
             BodyKind::Glass => crate::lights::Body::Glass,
@@ -13913,7 +13992,7 @@ impl Driver {
             backdrop: crate::lights::under(body, self.lights_appearance),
         };
         self.lights.show(
-            self.app.activity_lights,
+            setting,
             wanted,
             shown,
             &self.app.renderer,
@@ -14589,11 +14668,11 @@ impl Driver {
         // Through the outbox, behind anything owed and ahead of anything
         // typed after it: a paste longer than the slave's queue -- 1022
         // bytes on Darwin -- waited in `write(2)` for the child to read it.
-        self.app.flush_reply();
+        self.app.flush_reply(Asked::Unasked);
         let pty = &self.app.pty;
         let form = crate::paste::form(&self.app.term, || pty.literal_next(), || pty.specials());
         self.app.outbox.push(&crate::paste::bytes(&text, form));
-        self.app.flush_reply();
+        self.app.flush_reply(Asked::Typed);
     }
 
     /// The cell under a point in the view, clamped to the grid: the view
@@ -14641,7 +14720,7 @@ impl Driver {
         let at = self.pointer_under(event.x, event.y);
         let outbox = &mut self.app.outbox;
         crate::wheel::report_on(&mut self.app.term, axis, cols, at, mods, |b| outbox.push(b));
-        self.app.flush_reply();
+        self.app.flush_reply(Asked::Typed);
     }
 
     /// The cell under a view point and the pixel it is at: what a mouse
@@ -14659,7 +14738,7 @@ impl Driver {
     /// frame for the indicator line.
     fn locator_owed(&mut self, owed: LocatorOwed) {
         if owed.reply == Reply::Queued {
-            self.app.flush_reply();
+            self.app.flush_reply(Asked::Typed);
         }
         if owed.frame == LineFrame::Owed {
             self.app.pending = Pending::Dirty;

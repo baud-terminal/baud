@@ -105,8 +105,8 @@ pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold
 pub use guide::{CURSOR_GUIDE, GuideLook};
 pub use instance::{Instance, Screen};
 pub use lights::{
-    Activity, ActivityLights, ByShown, GROUND_DARK, GROUND_LIGHT, Glow, Light, LightsImage,
-    LightsLook, Shown,
+    Activity, ActivityLights, ByLed, ByLight, GROUND_DARK, GROUND_LIGHT, Glow, Led, Light,
+    LightsImage, LightsLook, Pace, READ_CEILING, Shown,
 };
 pub use linked::{LinkLook, LinkSpan};
 pub use metrics::{Metrics, PxSize};

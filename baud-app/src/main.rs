@@ -131,6 +131,9 @@ mod lent;
 // the classifier runs everywhere, the system's list is read on macOS.
 #[cfg(any(target_os = "macos", test))]
 mod layouts;
+// What the activity lights' OH and CD read of the job in front.
+#[cfg(target_os = "macos")]
+mod front;
 // The activity lights in the title strip: the Linux window has none.
 #[cfg(target_os = "macos")]
 mod lights;

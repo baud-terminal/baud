@@ -1545,7 +1545,7 @@ mod tests {
         assert_eq!(app.matches(told).count(), 2, "two locator halves");
         let owed = concat!(
             "        if owed.reply == Reply::Queued {\n",
-            "            self.app.flush_reply();\n",
+            "            self.app.flush_reply(Asked::Typed);\n",
             "        }\n",
             "        if owed.frame == LineFrame::Owed {\n",
             "            self.app.pending = Pending::Dirty;\n",

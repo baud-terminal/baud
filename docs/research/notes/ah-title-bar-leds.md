@@ -1,9 +1,10 @@
 # AH. Lights on the title bar: what each LED may honestly light for
 
 **Status: research draft, 2026-10-09; revised the same day after a read-only
-review. The RD and SD pair was built on 2026-10-24 (section 10); every other
-light in this note is unbuilt.** Every baud file:line citation in this note is
-pinned at commit `473ff12`.
+review. The RD and SD pair was built on 2026-10-24 (section 10), and seven
+more modem lights on 2026-11-03 (section 11); ARQ, the network pair, DK, CPU
+and MEM are unbuilt.** Every baud file:line citation in this note is pinned at
+commit `473ff12`, except in section 11.
 
 - Section 1 holds the two requests.
 - Sections 2 to 5 cover the sources each LED would rest on, what one process
@@ -1490,7 +1491,8 @@ build line in each file's header into `PROBES`, a directory of your choice.
 ## 10. Built: the RD and SD pair (2026-10-24)
 
 Roadmap F1-20 is the pty pair only, so this is what was built of the note.
-Q1, Q3 to Q5, Q8 and the rest of Q2 stay open.
+Q1, Q3 to Q5, Q8 and the rest of Q2 stay open; section 11 answers Q3, Q4,
+Q6's Reduce Motion half and Q8, and part of Q1, Q2 and Q9.
 
 - **What lights them.** RD: the stamp the reader already puts on each
   read, the latest a drain brought (3.1). SD: each write the kernel took any of; a write that took none,
@@ -1516,12 +1518,77 @@ Q1, Q3 to Q5, Q8 and the rest of Q2 stay open.
 - **Accessibility (Q6).** Dim Flashing Lights draws a lit light at the
   most of its colour that makes no WCAG flash over any grey the body
   under the strip can be: the standard material's range, or black to
-  white over the glass. Reduce Motion changes nothing.
+  white over the glass. Reduce Motion changed nothing; section 11
+  replaces that.
 - **The setting.** `[window] activity_lights = "on" | "off"`, on by default. It takes effect at once on reload.
 - **Linux.** Nothing: the Linux window has no title bar.
 - **Open.** Whether Increase Contrast re-colours the lights is
   unverified: their colours are re-read only when the style observer
-  fires. The image view has a tooltip but no accessibility label, and the tooltip is a change a user sees that no decision covered.
+  fires. The image view has a tooltip but no accessibility label, and the tooltip is a change a user sees that no decision covered;
+  section 11 gives each light its own.
 
 Decision log 1473 to 1476.
 
+## 11. Built: seven more lights (2026-11-03)
+
+The strip is now HS AA CD OH RD SD CS FAX SYN, in the order the 1988
+Courier manual's table lists them (2.3; the V.34 and V.Everything manuals
+list SYN before ARQ/FAX), with TR, MR and RS left out (rule 5 of 6.6) and
+FAX in ARQ's slot. What lights each is 6.1's analogue, built as follows:
+
+- **HS**: a reader chunk of `TTYCLSIZE`, 1024 bytes (`lights::full`), one
+  compare a read. **AA**: a reply the core queued during a feed (the
+  `paced` sink), or one at a flush the terminal made on its own: a focus
+  report, `?2048` after a resize, `?2031`, a held DSR. Keys, clicks, the
+  wheel and a paste do not light it (Q3: AA, not SD alone; SD still counts
+  every write). **CS**: `Wrote::Part` or `Wrote::Nothing`. **SYN**:
+  `synchronized_output()` at each display tick, after the tick's pump; a
+  program that opens and closes `?2026` within one burst of reads is not
+  seen. **FAX**: `images().any_placed()` at a tick, a state (Q2).
+- **OH and CD** (`front.rs`, Q4): on every tick while the lights are on,
+  the shell's `PROC_PIDTBSDINFO` (`e_tpgid` against `pbi_pgid`) and each
+  ssh member's `PROC_PIDLISTFDS` then `PROC_PIDFDSOCKETINFO`; the members
+  listed and named only when the group in front changes, when the process
+  watch reports a fork, exec or exit, and once a second otherwise. Off, a
+  tick makes no process read (section 7's zero-cost test, as a counting
+  fake).
+- **Q8**: a refused read, `EPERM`, draws the light as a ring in the letters'
+  grey, neither lit nor dark; pid 1's record is refused on this Mac. Only
+  OH and CD read another process, so only they can show it.
+- **Q1 and Q5**: Q1 is answered in part, by its option (b): SYN and FAX
+  show two of 5.4's core states, and the rest of that list (the keyboard
+  protocol, mouse reporting, bracketed paste, the alternate screen, 8-bit
+  controls, the encoding) has no light. Q5 stays open, with DK, CPU and
+  MEM unbuilt, and so does Q2's network pair.
+- **Look (Q7, Q9)**: one view a light, each with its own tooltip naming its
+  letters and its meaning; colours by direction, AppKit's green for what
+  comes in (RD, HS), orange for what goes out (SD, AA, CS), blue for a
+  state (CD, OH, FAX, SYN); CS's letters carry a bar for its inversion. In
+  a narrow window a light that would reach baud's mark is not drawn, the
+  leftmost first.
+- **Timing (Q6)**: every light, the states too, on the 200 ms hold and
+  dwell, so each meets SC 2.3.1's count and the strip its area clause.
+  **Reduce Motion** makes both two seconds: a stream of activity is one
+  steady light, as blinking text is held steady. Dim Flashing Lights caps
+  each lit colour as before, one scan a colour, and draws OH's and CD's
+  ring faint on the dark lamp, capped so that none of a light's three
+  states is a flash from another (`ring_cap`). The cursor's blink settings
+  govern the insertion point only and are not read.
+- **ARQ (8.1)**: unbuilt. From this build's test environment a child's TCP
+  record was absent from `pcblist64` while the probe's own were present,
+  and `netstat -an -p tcp`, the control, printed nothing at all; the
+  environment cannot tell the system's filter from a sandbox's, so
+  visibility stays **UNVERIFIED** and no light rests on it.
+- **Cost**, from a timing run for this build on this Mac, two launches of
+  seven rounds, medians and their ranges; an `nc` child connected to a
+  listener stood in for the ssh: the shell's record 0.16-0.18 us; one
+  connected member's sockets 1.06-1.08 us; listing the group 7.96-8.16 us;
+  a steady tick with one connected member in front, the once-a-second
+  listing included, 1.30-1.32 us. On a look change, the 27 pictures at 2x
+  take 0.59-0.62 ms, and a dimmed look 3.1-5.2 ms over the standard
+  material, and over the glass 13.2-13.3 ms dark and 55.0-57.1 ms light,
+  most of it the three colours' caps; once a session for each look.
+  Nothing is added to a byte's path: HS is one compare a read and AA one
+  store a reply.
+
+Decision log 2410 to 2417.

@@ -4809,6 +4809,30 @@ impl<'f, 'a> Renderer<'f, 'a> {
         crate::lights::draw(face, look, shown, scale, height, out)
     }
 
+    /// **One activity light at `light`**, in the badge's face, the picture
+    /// a view of its own shows ([`crate::lights::draw_led`]).
+    pub fn activity_light(
+        &self,
+        look: &crate::LightsLook,
+        led: crate::Led,
+        light: crate::Light,
+        scale: f32,
+        height: f32,
+        out: &mut crate::LightsImage,
+    ) -> Option<()> {
+        let face = self.stack.face(self.stack.badge());
+        crate::lights::draw_led(face, look, led, light, scale, height, out)
+    }
+
+    /// Where each activity light sits at `scale`, in device pixels, and
+    /// the strip's width ([`crate::lights::layout`]).
+    pub fn activity_lights_layout(
+        &self,
+        scale: f32,
+    ) -> Option<(crate::ByLed<crate::lights::Slot>, baud_font::Px)> {
+        crate::lights::layout(self.stack.face(self.stack.badge()), scale)
+    }
+
     /// The activity lights' width in points, in the badge's face.
     pub fn activity_lights_width(&self) -> f32 {
         crate::lights::width(self.stack.face(self.stack.badge()))

@@ -2,10 +2,13 @@
 //! resolved under the window's appearance, and the picture an image view
 //! shows, made from the pixels `baud_render::lights` draws.
 //!
-//! The colours are AppKit's dynamic system colours -- `systemGreenColor`
-//! for RD, `systemOrangeColor` for SD, `secondaryLabelColor` for the
-//! letters -- resolved under the appearance as the unemphasized selection
-//! is ([`crate::selection`]): "Prefer system-defined colors. These colors
+//! The colours are AppKit's dynamic system colours, by what each light
+//! says of the line's direction -- `systemGreenColor` for what comes in
+//! (RD, HS), `systemOrangeColor` for what goes out (SD, AA, CS),
+//! `systemBlueColor` for the state of the session and the screen (CD, OH,
+//! FAX, SYN), `secondaryLabelColor` for the letters -- resolved under the
+//! appearance as the unemphasized selection is ([`crate::selection`]):
+//! "Prefer system-defined colors. These colors
 //! have their own accessible variants that automatically adapt when people
 //! adjust their color preferences, such as enabling Increase Contrast or
 //! toggling between the light and dark appearances"
@@ -16,7 +19,7 @@
 #![allow(unsafe_code)]
 
 use baud_domain::Chan;
-use baud_render::{Argb, LightsImage};
+use baud_render::{Argb, ByLed, Led, LightsImage};
 use block2::RcBlock;
 use core::cell::Cell;
 use macos_liquid_glass::objc2::AnyThread;
@@ -26,20 +29,45 @@ use macos_liquid_glass::objc2_app_kit::{
 };
 use macos_liquid_glass::objc2_foundation::NSSize;
 
-/// RD's and SD's lit colours and the letters' colour, under `appearance`.
-pub fn colours(appearance: &NSAppearance) -> ([Argb; 2], Argb) {
-    let out = Cell::new(([Argb::default(); 2], Argb::default()));
+/// Which of the three colours a light takes: in, out or a state.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Direction {
+    In,
+    Out,
+    State,
+}
+
+/// `led`'s direction: RD and HS bring data in, SD, AA and CS send it out
+/// or fail to, and the rest show a state.
+pub fn direction(led: Led) -> Direction {
+    match led {
+        Led::Rd | Led::Hs => Direction::In,
+        Led::Sd | Led::Aa | Led::Cs => Direction::Out,
+        Led::Cd | Led::Oh | Led::Fax | Led::Syn => Direction::State,
+    }
+}
+
+/// Every light's lit colour and the letters' colour, under `appearance`.
+pub fn colours(appearance: &NSAppearance) -> (ByLed<Argb>, Argb) {
+    let out = Cell::new(([Argb::default(); 3], Argb::default()));
     let resolve = RcBlock::new(|| {
         out.set((
             [
                 srgb(&NSColor::systemGreenColor()),
                 srgb(&NSColor::systemOrangeColor()),
+                srgb(&NSColor::systemBlueColor()),
             ],
             srgb(&NSColor::secondaryLabelColor()),
         ));
     });
     appearance.performAsCurrentDrawingAppearance(&resolve);
-    out.get()
+    let ([inward, outward, state], label) = out.get();
+    let lit = ByLed::of(|l| match direction(l) {
+        Direction::In => inward,
+        Direction::Out => outward,
+        Direction::State => state,
+    });
+    (lit, label)
 }
 
 /// A colour in sRGB with its alpha, each channel rounded to eight bits; a
@@ -123,23 +151,27 @@ mod tests {
     }
 
     /// **AppKit's own colours, resolved headless under each appearance**:
-    /// green and orange lit colours that differ between light and dark,
-    /// opaque, and letters that are AppKit's secondary label, translucent.
+    /// green for what comes in, orange for what goes out and blue for a
+    /// state, the same within each direction, lit colours that differ
+    /// between light and dark, opaque, and letters that are AppKit's
+    /// secondary label, translucent.
     #[test]
     fn the_lights_take_appkits_colours_under_each_appearance() {
         let (lit_light, label_light) = colours(&named("NSAppearanceNameAqua"));
         let (lit_dark, label_dark) = colours(&named("NSAppearanceNameDarkAqua"));
         for lit in [lit_light, lit_dark] {
-            let [rd, sd] = lit;
-            assert_eq!((rd.a().get(), sd.a().get()), (0xFF, 0xFF));
-            assert!(
-                rd.g().get() > rd.r().get() && rd.g().get() > rd.b().get(),
-                "{rd:?} is green"
-            );
-            assert!(
-                sd.r().get() > sd.g().get() && sd.g().get() > sd.b().get(),
-                "{sd:?} is orange"
-            );
+            for (led, &c) in lit.iter() {
+                assert_eq!(c.a().get(), 0xFF, "{led:?}");
+                let (r, g, b) = (c.r().get(), c.g().get(), c.b().get());
+                match direction(led) {
+                    Direction::In => assert!(g > r && g > b, "{led:?} {c:?} is green"),
+                    Direction::Out => assert!(r > g && g > b, "{led:?} {c:?} is orange"),
+                    Direction::State => assert!(b > g && g > r, "{led:?} {c:?} is blue"),
+                }
+            }
+            assert_eq!(lit.rd, lit.hs, "in, one colour");
+            assert_eq!((lit.sd, lit.aa), (lit.cs, lit.cs), "out, one colour");
+            assert_eq!((lit.cd, lit.oh, lit.fax), (lit.syn, lit.syn, lit.syn));
         }
         assert_ne!(lit_light, lit_dark, "each appearance its own");
         assert!(label_light.a().get() < 0xFF && label_dark.a().get() < 0xFF);

@@ -1,26 +1,34 @@
-//! **The activity lights in the macOS title strip**: RD (Receive Data) for
-//! bytes read from the child, SD (Send Data) for bytes the kernel took from
-//! baud, at the strip's right -- the Hayes Smartmodem's names for the two.
+//! **The activity lights in the macOS title strip**: nine lights at the
+//! strip's right, each named with a modem's letters -- HS AA CD OH RD SD
+//! CS FAX SYN, in the order a 1988 U.S. Robotics Courier manual's table
+//! lists them (`baud_render::lights`) -- and each lit only for something
+//! baud measured.
 //!
-//! **Where**: an image view in baud's own container, as the app icon is,
-//! re-placed on every resize -- the title strip is AppKit's, drawn over the
-//! glass, and the `macos-liquid-glass` window crate has no
+//! **Where**: one image view a light in baud's own container, as the app
+//! icon is, re-placed on every resize -- the title strip is AppKit's, drawn
+//! over the glass, and the `macos-liquid-glass` window crate has no
 //! titlebar-accessory API (note AH, 5.1), so baud draws where it already
-//! draws. The pixels are baud's renderer's (`Renderer::activity_lights`),
-//! one picture for each of the four states, drawn when the scale, the
+//! draws. A view a light gives each its own hover text, AppKit's
+//! `toolTip`, shown only while the pointer is over that light, and its
+//! frame is the tooltip's rectangle wherever the view is placed. A light
+//! that would reach baud's mark in a narrow window is not drawn, the
+//! leftmost first, so nothing covers the traffic lights or the mark.
+//!
+//! **The pixels are baud's renderer's** (`Renderer::activity_light`): each
+//! light's three pictures, dark, lit and unread, drawn when the scale, the
 //! appearance or Dim Flashing Lights changes; a light that changes swaps
-//! the view's picture and builds no frame of the grid. The clocks step on
-//! the display link's tick, which already runs, from the stamp the reader
-//! already puts on each read (the latest a drain brought) and a stamp on
-//! each write the kernel took any of: nothing is added to a byte's path,
-//! and nothing is timed off the link.
+//! its view's picture and builds no frame of the grid. The clocks step on
+//! the display link's tick, which already runs, from the stamps the pump
+//! and the writes already take, and the process reads of OH and CD
+//! (`front.rs`) run on that tick while the lights are on: nothing is added
+//! to a byte's path, and nothing is timed off the link.
 //!
 //! The Linux window has no title bar -- no compositor decorations are asked
 //! for and none are drawn -- so the lights are this driver's alone.
 
 use baud_render::{
-    ActivityLights, Argb, Backdrop, ByShown, GROUND_DARK, GROUND_LIGHT, Glow, LightsImage,
-    LightsLook, Renderer, Shown,
+    ActivityLights, Argb, Backdrop, ByLed, ByLight, GROUND_DARK, GROUND_LIGHT, Glow, Led, Light,
+    LightsImage, LightsLook, Renderer, Shown,
 };
 use macos_liquid_glass::drawable::Appearance;
 use macos_liquid_glass::objc2::rc::Retained;
@@ -30,8 +38,8 @@ use macos_liquid_glass::objc2_app_kit::{
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 
-/// What the four pictures were drawn for: a change of any of them draws
-/// them again.
+/// What the pictures were drawn for: a change of any of them draws them
+/// again.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) struct Drawn {
     pub(crate) scale: CGFloat,
@@ -68,27 +76,33 @@ pub(crate) fn under(body: Body, appearance: Appearance) -> Backdrop {
 pub(crate) enum Step {
     /// Nothing changed, or the lights are off.
     Nothing,
-    /// A light changed: the view takes another of the pictures it has.
+    /// A light changed: its view takes another of the pictures it has.
     Swap,
     /// The pictures are for another scale, appearance or glow, or there are
     /// none: draw them, then show the state.
     Redraw,
 }
 
-/// **What a tick owes the lights**: nothing while they are off; the four
+/// **What a tick owes the lights**: nothing while they are off; the
 /// pictures again when what they were drawn for is not what is wanted; a
-/// swap when only the state moved.
+/// swap when a light's state moved from what its view shows.
 pub(crate) fn step(
     setting: ActivityLights,
     wanted: Drawn,
     have: Option<Drawn>,
     shown: Shown,
-    on_view: Option<Shown>,
+    on_view: ByLed<Option<Light>>,
 ) -> Step {
     match setting {
         ActivityLights::Off => Step::Nothing,
         ActivityLights::On if have != Some(wanted) => Step::Redraw,
-        ActivityLights::On if on_view != Some(shown) => Step::Swap,
+        ActivityLights::On
+            if Led::ALL
+                .iter()
+                .any(|&l| *on_view.get(l) != Some(*shown.get(l))) =>
+        {
+            Step::Swap
+        }
         ActivityLights::On => Step::Nothing,
     }
 }
@@ -101,48 +115,96 @@ pub(crate) fn glow(flashing: baud_present_macos::settings::Flashing) -> Glow {
     }
 }
 
-/// **Where the view goes in its superview**, bottom-left origin: flush
-/// with the strip's top, `right` in from the right edge, the strip's
-/// `inset` tall.
-pub(crate) fn frame(container: NSSize, inset: CGFloat, right: CGFloat, width: CGFloat) -> NSRect {
-    NSRect::new(
-        NSPoint::new(
-            (container.width - right - width).max(0.0),
-            container.height - inset,
-        ),
-        NSSize::new(width, inset),
-    )
+/// **What OH's or CD's reading tells its clock**: a lit reading is the
+/// light's thing seen, a refused one its read refused, a dark one
+/// nothing.
+pub(crate) fn feed(
+    activity: &mut baud_render::Activity,
+    led: Led,
+    reading: crate::front::Reading,
+    now: baud_domain::HostTime,
+) {
+    match reading {
+        crate::front::Reading::Lit => activity.seen(led, now),
+        crate::front::Reading::Refused => activity.refused(led, now),
+        crate::front::Reading::Dark => {}
+    }
 }
 
-/// The view, its pictures, and what it shows.
-pub(crate) struct Strip {
-    view: Option<Retained<NSImageView>>,
-    pictures: Option<(Drawn, ByShown<Retained<NSImage>>)>,
-    on_view: Option<Shown>,
-    /// The strip's width in points, from the renderer's face.
-    width: CGFloat,
-    /// The gap kept at the strip's right, the traffic lights' at its left.
+/// A light's place in the strip, in points from the strip's left, and the
+/// strip's width: from the renderer's layout at the scale drawn.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Spans {
+    pub(crate) at: ByLed<(CGFloat, CGFloat)>,
+    pub(crate) width: CGFloat,
+}
+
+/// **Each light's frame in its superview and the text it shows on hover**,
+/// bottom-left origin: the strip flush with the container's top, `right`
+/// in from its right edge, the strip's `inset` tall, its left end on a
+/// whole device pixel at `scale`; a light that would start left of `left`
+/// -- baud's mark -- is not placed, so in a narrow window the leftmost go
+/// first.
+pub(crate) fn placed(
+    container: NSSize,
+    inset: CGFloat,
     right: CGFloat,
+    left: CGFloat,
+    scale: CGFloat,
+    spans: &Spans,
+) -> ByLed<Option<(NSRect, &'static str)>> {
+    let scale = scale.max(1.0);
+    let x0 = ((container.width - right - spans.width) * scale).round() / scale;
+    let y = container.height - inset;
+    ByLed::of(|led| {
+        let (start, width) = *spans.at.get(led);
+        let x = x0 + start;
+        (x >= left).then(|| {
+            (
+                NSRect::new(NSPoint::new(x, y), NSSize::new(width, inset)),
+                led.tip(),
+            )
+        })
+    })
+}
+
+/// The views, their pictures, and what each shows.
+pub(crate) struct Strip {
+    views: ByLed<Option<Retained<NSImageView>>>,
+    pictures: Option<(Drawn, ByLed<ByLight<Retained<NSImage>>>)>,
+    on_view: ByLed<Option<Light>>,
+    /// Each light's place, from the renderer's layout.
+    spans: Spans,
+    /// The scale the spans are whole device pixels at.
+    scale: CGFloat,
+    /// The gap kept at the strip's right, the traffic lights' at its left,
+    /// and the least x a light may start at: past baud's mark.
+    right: CGFloat,
+    left: CGFloat,
     /// The looks drawn so far this session, by what they were made from: a
-    /// dimmed look takes 0.63-1.7 ms to make over the standard material and
-    /// 2.6-18 ms over the glass on this machine, so a flip back to an
-    /// appearance, or a move to a display of another scale, does not make
-    /// it again.
+    /// dimmed look scans each of its three colours over the backdrop, so a
+    /// flip back to an appearance, or a move to a display of another
+    /// scale, does not make it again.
     looks: Vec<(LookKey, LightsLook)>,
 }
 
 /// What a look is made from: the lit and letter colours, the strip's grey,
 /// the glow and the backdrop.
-type LookKey = ([Argb; 2], Argb, Argb, Glow, Backdrop);
+type LookKey = (ByLed<Argb>, Argb, Argb, Glow, Backdrop);
 
 impl Strip {
-    pub(crate) fn new(right: CGFloat) -> Strip {
+    pub(crate) fn new(right: CGFloat, left: CGFloat) -> Strip {
         Strip {
-            view: None,
+            views: ByLed::default(),
             pictures: None,
-            on_view: None,
-            width: 0.0,
+            on_view: ByLed::default(),
+            spans: Spans {
+                at: ByLed::default(),
+                width: 0.0,
+            },
+            scale: 1.0,
             right,
+            left,
             looks: Vec::new(),
         }
     }
@@ -151,12 +213,12 @@ impl Strip {
     /// tick draws them again.
     pub(crate) fn stale(&mut self) {
         self.pictures = None;
-        self.on_view = None;
+        self.on_view = ByLed::default();
     }
 
     /// **The lights at `shown`**, under `setting`, in `container`'s strip
-    /// of `inset` points: the view put up, its pictures drawn and swapped,
-    /// or taken down.
+    /// of `inset` points: the views put up, their pictures drawn and
+    /// swapped, or taken down.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn show(
         &mut self,
@@ -169,10 +231,12 @@ impl Strip {
         inset: CGFloat,
     ) {
         if setting == ActivityLights::Off {
-            if let Some(v) = self.view.take() {
-                v.removeFromSuperview();
+            for led in Led::ALL {
+                if let Some(v) = self.views.get_mut(led).take() {
+                    v.removeFromSuperview();
+                }
             }
-            self.on_view = None;
+            self.on_view = ByLed::default();
             return;
         }
         let have = self.pictures.as_ref().map(|(d, _)| *d);
@@ -184,27 +248,44 @@ impl Strip {
                 let Some(drawn) = pictures(renderer, &look, wanted, inset) else {
                     return;
                 };
-                self.width = CGFloat::from(renderer.activity_lights_width());
+                let Some(spans) = spans(renderer, wanted.scale) else {
+                    return;
+                };
+                self.spans = spans;
+                self.scale = wanted.scale;
                 self.pictures = Some((wanted, drawn));
+                self.on_view = ByLed::default();
             }
             Step::Swap => {}
         }
-        if self.view.is_none() {
+        if self.views.iter().any(|(_, v)| v.is_none()) {
             let Some(mtm) = MainThreadMarker::new() else {
                 return;
             };
-            let v = NSImageView::new(mtm);
-            v.setImageScaling(NSImageScaling::ScaleNone);
-            v.setToolTip(Some(&NSString::from_str(
-                "RD: bytes coming in from the program. SD: bytes going out to it.",
-            )));
-            container.addSubview(&v);
-            self.view = Some(v);
+            for led in Led::ALL {
+                if self.views.get(led).is_some() {
+                    continue;
+                }
+                let v = NSImageView::new(mtm);
+                v.setImageScaling(NSImageScaling::ScaleNone);
+                v.setToolTip(Some(&NSString::from_str(led.tip())));
+                container.addSubview(&v);
+                *self.views.get_mut(led) = Some(v);
+            }
         }
         self.place(container, inset);
-        if let (Some(v), Some((_, p))) = (&self.view, &self.pictures) {
-            v.setImage(Some(p.get(shown)));
-            self.on_view = Some(shown);
+        let Some((_, p)) = &self.pictures else {
+            return;
+        };
+        for led in Led::ALL {
+            let light = *shown.get(led);
+            if *self.on_view.get(led) == Some(light) {
+                continue;
+            }
+            if let Some(v) = self.views.get(led) {
+                v.setImage(Some(p.get(led).get(light)));
+                *self.on_view.get_mut(led) = Some(light);
+            }
         }
     }
 
@@ -226,39 +307,93 @@ impl Strip {
         look
     }
 
-    /// Re-place the view at the strip's right: on every resize.
+    /// Re-place every view at the strip's right, and hide the ones a
+    /// narrow window has no room for: on every resize.
     pub(crate) fn place(&self, container: &NSView, inset: CGFloat) {
-        if let Some(v) = &self.view {
-            v.setFrame(frame(container.frame().size, inset, self.right, self.width));
+        let frames = placed(
+            container.frame().size,
+            inset,
+            self.right,
+            self.left,
+            self.scale,
+            &self.spans,
+        );
+        for led in Led::ALL {
+            let Some(v) = self.views.get(led) else {
+                continue;
+            };
+            match frames.get(led) {
+                Some((rect, _)) => {
+                    v.setFrame(*rect);
+                    v.setHidden(false);
+                }
+                None => v.setHidden(true),
+            }
         }
     }
 }
 
-/// The four pictures of `look` at `wanted`'s scale, `inset` points tall.
+/// Every light's place in points at `scale`, from the renderer's layout in
+/// device pixels.
+fn spans(renderer: &Renderer<'_, '_>, scale: CGFloat) -> Option<Spans> {
+    let (slots, width) = renderer.activity_lights_layout(scale as f32)?;
+    let pt = |px: baud_font::Px| CGFloat::from(px.value()) / scale;
+    Some(Spans {
+        at: ByLed::of(|l| {
+            let s = slots.get(l);
+            (pt(s.start), pt(s.width))
+        }),
+        width: pt(width),
+    })
+}
+
+/// Each light's three pictures of `look` at `wanted`'s scale, `inset`
+/// points tall.
 fn pictures(
     renderer: &Renderer<'_, '_>,
     look: &LightsLook,
     wanted: Drawn,
     inset: CGFloat,
-) -> Option<ByShown<Retained<NSImage>>> {
+) -> Option<ByLed<ByLight<Retained<NSImage>>>> {
     let mut img = LightsImage::new();
-    let mut one = |s: Shown| {
-        renderer.activity_lights(look, s, wanted.scale as f32, inset as f32, &mut img)?;
+    let mut one = |led: Led, light: Light| {
+        renderer.activity_light(
+            look,
+            led,
+            light,
+            wanted.scale as f32,
+            inset as f32,
+            &mut img,
+        )?;
         baud_present_macos::lights::picture(&img, wanted.scale)
     };
-    let [dark, rd, sd, both] = Shown::ALL.map(&mut one);
-    Some(ByShown {
-        dark: dark?,
-        rd: rd?,
-        sd: sd?,
-        both: both?,
+    let mut all: Vec<Option<ByLight<Retained<NSImage>>>> = Vec::new();
+    for led in Led::ALL {
+        let [dark, lit, unread] = Light::ALL.map(|l| one(led, l));
+        all.push(Some(ByLight {
+            dark: dark?,
+            lit: lit?,
+            unread: unread?,
+        }));
+    }
+    let mut it = all.into_iter();
+    let mut next = || it.next().flatten();
+    Some(ByLed {
+        hs: next()?,
+        aa: next()?,
+        cd: next()?,
+        oh: next()?,
+        rd: next()?,
+        sd: next()?,
+        cs: next()?,
+        fax: next()?,
+        syn: next()?,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use baud_render::Light;
 
     fn at() -> Drawn {
         Drawn {
@@ -268,22 +403,42 @@ mod tests {
             backdrop: Backdrop::under_window_dark(),
         }
     }
-    const RD: Shown = Shown {
-        rd: Light::Lit,
-        sd: Light::Dark,
-    };
+
+    fn rd_lit() -> Shown {
+        ByLed {
+            rd: Light::Lit,
+            ..Shown::DARK
+        }
+    }
+
+    fn showing(s: Shown) -> ByLed<Option<Light>> {
+        ByLed::of(|l| Some(*s.get(l)))
+    }
 
     /// **A light that changes swaps a picture, and only a change of what
-    /// they were drawn for draws them again**: a new state swaps, the same
-    /// state does nothing, a new scale, appearance or glow redraws, and
-    /// off does nothing whatever moved.
+    /// they were drawn for draws them again**: a new state of any one
+    /// light swaps, the same state does nothing, a new scale, appearance
+    /// or glow redraws, and off does nothing whatever moved.
     #[test]
     fn a_change_of_light_swaps_and_a_change_of_look_redraws() {
         use ActivityLights::{Off, On};
         let at = at();
-        assert_eq!(step(On, at, None, RD, None), Step::Redraw);
-        assert_eq!(step(On, at, Some(at), RD, Some(Shown::DARK)), Step::Swap);
-        assert_eq!(step(On, at, Some(at), RD, Some(RD)), Step::Nothing);
+        let rd = rd_lit();
+        assert_eq!(step(On, at, None, rd, ByLed::default()), Step::Redraw);
+        assert_eq!(step(On, at, Some(at), rd, showing(Shown::DARK)), Step::Swap);
+        assert_eq!(step(On, at, Some(at), rd, showing(rd)), Step::Nothing);
+        for led in Led::ALL {
+            let one = {
+                let mut s = Shown::DARK;
+                *s.get_mut(led) = Light::Unread;
+                s
+            };
+            assert_eq!(
+                step(On, at, Some(at), one, showing(Shown::DARK)),
+                Step::Swap,
+                "{led:?}"
+            );
+        }
         for other in [
             Drawn { scale: 1.0, ..at },
             Drawn {
@@ -299,11 +454,11 @@ mod tests {
                 ..at
             },
         ] {
-            assert_eq!(step(On, other, Some(at), RD, Some(RD)), Step::Redraw);
+            assert_eq!(step(On, other, Some(at), rd, showing(rd)), Step::Redraw);
         }
-        assert_eq!(step(Off, at, None, RD, None), Step::Nothing);
+        assert_eq!(step(Off, at, None, rd, ByLed::default()), Step::Nothing);
         assert_eq!(
-            step(Off, at, Some(at), RD, Some(Shown::DARK)),
+            step(Off, at, Some(at), rd, showing(Shown::DARK)),
             Step::Nothing
         );
     }
@@ -325,29 +480,128 @@ mod tests {
         }
     }
 
-    /// **The view sits at the strip's right, the strip's height, its top
-    /// the window's**, and a window narrower than the lights keeps them
-    /// inside it.
-    #[test]
-    fn the_lights_sit_at_the_strips_right() {
-        let f = frame(NSSize::new(800.0, 500.0), 28.0, 9.0, 50.0);
-        assert_eq!(
-            f,
-            NSRect::new(NSPoint::new(741.0, 472.0), NSSize::new(50.0, 28.0))
-        );
-        let f = frame(NSSize::new(40.0, 100.0), 28.0, 9.0, 50.0);
-        assert_eq!(f.origin.x, 0.0);
+    /// Nine lights 20 points apart, each 15 wide, the last ending at 175.
+    fn spans_for_test() -> Spans {
+        let mut x = 0.0;
+        Spans {
+            at: ByLed::of(|_| {
+                let s = (x, 15.0);
+                x += 20.0;
+                s
+            }),
+            width: 175.0,
+        }
     }
 
-    /// **The four pictures, headless, under either appearance and glow**:
-    /// drawn by the renderer in baud's embedded JetBrains Mono Bold with
-    /// AppKit's colours, each the strip's width and height in points at the
-    /// scale asked, and a lit picture differs from the dark one.
+    /// **The lights sit at the strip's right, the strip's height, its top
+    /// the window's, left to right in the panel's order**, the last
+    /// `right` in from the edge; and in a window too narrow for them all,
+    /// the ones that would reach the mark are not placed, the leftmost
+    /// first, while the rest keep their places.
     #[test]
-    fn the_pictures_are_drawn_at_the_strips_size() {
+    fn the_lights_sit_at_the_strips_right_and_a_narrow_window_drops_the_leftmost() {
+        let spans = spans_for_test();
+        let wide = placed(NSSize::new(800.0, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
+        let mut last_end = None;
+        for led in Led::ALL {
+            let (r, _) = wide.get(led).expect("every light in a wide window");
+            assert_eq!((r.origin.y, r.size.height), (472.0, 28.0), "{led:?}");
+            if let Some(end) = last_end {
+                assert!(r.origin.x >= end, "{led:?} right of the last");
+            }
+            last_end = Some(r.origin.x + r.size.width);
+        }
+        assert_eq!(wide.syn.unwrap().0.origin.x + 15.0, 800.0 - 9.0);
+        // 300 points: the strip starts at 116, so the first light, at 116,
+        // clears a mark ending at 100; at 250 it starts at 66, so the
+        // first three (66, 86) would reach it and the fourth (106) is
+        // placed.
+        let some = placed(NSSize::new(300.0, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
+        assert!(Led::ALL.iter().all(|&l| some.get(l).is_some()));
+        let narrow = placed(NSSize::new(250.0, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
+        let kept: Vec<Led> = Led::ALL
+            .into_iter()
+            .filter(|&l| narrow.get(l).is_some())
+            .collect();
+        assert_eq!(&kept[..], &Led::ALL[2..], "the two leftmost go");
+        for &l in &kept {
+            assert_eq!(narrow.get(l).unwrap().0, {
+                let (r, t) = wide.get(l).unwrap();
+                assert_eq!(t, l.tip());
+                NSRect::new(NSPoint::new(r.origin.x - 550.0, r.origin.y), r.size)
+            });
+        }
+        // The strip's left end lands on a whole device pixel.
+        let odd = placed(NSSize::new(800.25, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
+        let x = odd.hs.unwrap().0.origin.x * 2.0;
+        assert_eq!(x, x.round());
+    }
+
+    /// **Each light's rectangle shows its own text, and only its own**:
+    /// the point at the middle of every placed light falls in that light's
+    /// rectangle and in no other's, and the text there names that light's
+    /// letters and nothing else's; the texts are nine different ones, each
+    /// spelling out its letters, CS's saying it is inverted.
+    #[test]
+    fn each_lights_rectangle_maps_to_its_own_hover_text() {
+        let spans = spans_for_test();
+        let frames = placed(NSSize::new(800.0, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
+        let inside = |r: &NSRect, p: NSPoint| {
+            p.x >= r.origin.x
+                && p.x < r.origin.x + r.size.width
+                && p.y >= r.origin.y
+                && p.y < r.origin.y + r.size.height
+        };
+        for led in Led::ALL {
+            let (r, _) = frames.get(led).unwrap();
+            let mid = NSPoint::new(r.origin.x + r.size.width / 2.0, r.origin.y + 14.0);
+            let hits: Vec<&str> = frames
+                .iter()
+                .filter_map(|(_, f)| *f)
+                .filter(|(r, _)| inside(r, mid))
+                .map(|(_, t)| t)
+                .collect();
+            assert_eq!(hits, [led.tip()], "{led:?}");
+            let tip = led.tip();
+            assert!(tip.starts_with(&format!("{} -- ", led.letters())), "{tip}");
+            for other in Led::ALL.into_iter().filter(|&o| o != led) {
+                assert_ne!(tip, other.tip());
+                assert!(
+                    !tip.starts_with(&format!("{} ", other.letters())),
+                    "{tip} names {other:?}"
+                );
+            }
+        }
+        assert!(Led::Cs.tip().contains("inverted"), "{}", Led::Cs.tip());
+        assert!(Led::Rd.tip().contains("Receive Data"));
+        assert!(Led::Sd.tip().contains("Send Data"));
+    }
+
+    /// **A reading feeds its light's clock**: lit lights it, refused shows
+    /// the ring, dark does nothing.
+    #[test]
+    fn a_reading_lights_rings_or_leaves_its_light() {
+        use baud_domain::HostTime;
+        use baud_render::{Activity, Pace};
+        use core::time::Duration;
+        let t = |ms: u64| HostTime::ZERO.plus(Duration::from_millis(1000 + ms));
+        let mut a = Activity::new();
+        feed(&mut a, Led::Oh, crate::front::Reading::Lit, t(0));
+        feed(&mut a, Led::Cd, crate::front::Reading::Refused, t(0));
+        feed(&mut a, Led::Rd, crate::front::Reading::Dark, t(0));
+        let s = a.step(t(0), Pace::Full);
+        assert_eq!((s.oh, s.cd, s.rd), (Light::Lit, Light::Unread, Light::Dark));
+    }
+
+    /// **Each light's three pictures, headless, under either appearance and
+    /// glow**: drawn by the renderer in baud's embedded JetBrains Mono Bold
+    /// with AppKit's colours, each its light's width and the strip's height
+    /// in points at the scale asked, its lit and dark pictures different,
+    /// and for OH and CD, which can be unread, the unread one a third.
+    #[test]
+    fn each_lights_pictures_are_drawn_at_its_size() {
         use baud_domain::{Cols, Rows};
         use baud_render::{Blend, PxSize, Stack, Theme};
-        use macos_liquid_glass::objc2_foundation::NSString;
         let faces = [baud_font::Face::parse(crate::embedded::BOLD.bytes).unwrap()];
         let r = Renderer::new(
             Stack::new(&faces).unwrap(),
@@ -370,35 +624,55 @@ mod tests {
                     appearance,
                     backdrop: under(Body::Standard, appearance),
                 };
-                let mut strip = Strip::new(9.0);
+                let mut strip = Strip::new(9.0, 100.0);
                 let look = strip.look(&ns, wanted);
                 assert_eq!(strip.look(&ns, wanted), look, "made once");
                 assert_eq!(strip.looks.len(), 1, "and kept");
-                let p = pictures(&r, &look, wanted, 28.0).expect("four pictures");
-                let width = CGFloat::from(r.activity_lights_width());
-                for s in Shown::ALL {
-                    let size = p.get(s).size();
-                    assert_eq!(size.height, 28.0, "{name}");
-                    assert!(
-                        (size.width - width).abs() <= 0.5,
-                        "{name}: {size:?} for {width}"
-                    );
+                let p = pictures(&r, &look, wanted, 28.0).expect("every picture");
+                let s = spans(&r, 2.0).expect("the layout");
+                assert!((s.width - CGFloat::from(r.activity_lights_width())).abs() <= 0.5);
+                for led in Led::ALL {
+                    let (_, width) = *s.at.get(led);
+                    let pics = p.get(led);
+                    for light in Light::ALL {
+                        let size = pics.get(light).size();
+                        assert_eq!(size.height, 28.0, "{name} {led:?}");
+                        assert_eq!(size.width, width, "{name} {led:?} {light:?}");
+                    }
+                    let tiff = Light::ALL.map(|l| pics.get(l).TIFFRepresentation());
+                    assert_ne!(tiff[0], tiff[1], "{name} {glow:?} {led:?}: lit is not dark");
+                    if led.reads_a_process() {
+                        assert_ne!(tiff[0], tiff[2], "{name} {led:?}: unread is not dark");
+                        assert_ne!(tiff[1], tiff[2], "{name} {led:?}: unread is not lit");
+                    }
                 }
-                assert_ne!(
-                    p.dark.TIFFRepresentation(),
-                    p.both.TIFFRepresentation(),
-                    "{name} {glow:?}: lit is not dark"
-                );
             }
         }
     }
 
-    /// **The tick lights them, the pump and the write feed them**: the
-    /// driver steps the clocks on the display link's tick and shows them
-    /// through this module, a drain that brought bytes gives RD its latest
-    /// read's stamp, a write the kernel took any of stamps SD and one it
-    /// took nothing of does not, the window's appearance makes the
-    /// pictures stale, and a resize re-places them.
+    /// **Dim Flashing Lights draws every lit light faint**: macOS's setting,
+    /// read into the same value the text blink's dimmed phases read, maps to
+    /// the faint look when on and to the full one when off. Perturbation: map
+    /// `Flashing::Dimmed` to `Glow::Full` -- the setting stops dimming the
+    /// lights and this goes red.
+    #[test]
+    fn dim_flashing_lights_draws_the_lights_faint() {
+        use baud_present_macos::settings::Flashing;
+        assert_eq!(glow(Flashing::Full), Glow::Full);
+        assert_eq!(glow(Flashing::Dimmed), Glow::Dimmed);
+    }
+
+    /// **The tick lights them, the pump and the writes feed them**: the
+    /// driver steps the clocks on the display link's tick at the motion
+    /// preference's pace and shows them through this module at the glow
+    /// the Dim Flashing Lights setting gives (`glow`); the tick reads
+    /// OH and CD only through `Front::tick`, and SYN and FAX from the
+    /// core's state at the tick, the frame baud holds or shows; a drain that brought bytes gives RD its latest read's
+    /// stamp and HS each full read's; a reply the core queued during a feed,
+    /// or one nobody typed at a flush, lights AA; a write the kernel took
+    /// any of stamps SD, and one it refused any of stamps CS; the process
+    /// watch tells the sampler; the window's appearance makes the pictures
+    /// stale, and a resize re-places them.
     #[test]
     fn the_driver_ticks_feeds_and_places_the_lights() {
         const SRC: &str = include_str!("app.rs");
@@ -413,23 +687,51 @@ mod tests {
             "the tick shows them"
         );
         let show = body(concat!("    fn show_lights(&mut self, ", "target: f64) {"));
-        assert!(show.contains("self.app.activity.step(now)"), "{show}");
-        assert!(show.contains("self.lights.show("), "{show}");
+        for want in [
+            "self.front.tick(setting, &mut self.procs, shell, now)",
+            "crate::lights::feed(&mut self.app.activity, Led::Oh, oh, now);",
+            "crate::lights::feed(&mut self.app.activity, Led::Cd, cd, now);",
+            "self.app.term.synchronized_output()",
+            "self.app.term.images().any_placed()",
+            "crate::access::lights_pace(self.app.motion)",
+            "glow: crate::lights::glow(self.app.flashing),",
+            "self.lights.show(",
+        ] {
+            assert!(show.contains(want), "{want}\n{show}");
+        }
         let pump = body(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"));
-        assert!(pump.contains("self.app.activity.received(last.at);"), "RD");
-        let flush = body(concat!("    fn flush_reply(&mut self) ", "-> Sent {"));
+        for want in [
+            "self.app.activity.seen(Led::Rd, last.at);",
+            "self.app.activity.seen(Led::Hs, chunk.at);",
+            "baud_render::lights::full(&chunk.bytes)",
+            "self.app.activity.seen(Led::Aa, host_now());",
+            "self.front.moved();",
+            "self.app.flush_reply(Asked::Unasked);",
+        ] {
+            assert!(pump.contains(want), "{want}");
+        }
+        let flush = body(concat!(
+            "    fn flush_reply(&mut self, ",
+            "asked: Asked) -> Sent {"
+        ));
+        for want in [
+            "Asked::Unasked if !self.term.reply().is_empty() => self.activity.seen(Led::Aa, now),",
+            "Wrote::All => {\n                self.activity.seen(Led::Sd, now);",
+            "Wrote::Part => {\n                self.activity.seen(Led::Sd, now);\n                self.activity.seen(Led::Cs, now);",
+            "Wrote::Nothing => {\n                self.activity.seen(Led::Cs, now);",
+        ] {
+            assert!(flush.contains(want), "{want}\n{flush}");
+        }
+        let focus = body(concat!(
+            "    fn set_focus(&mut self, ",
+            "f: baud_core::Focus) {"
+        ));
         assert!(
-            flush.contains("Wrote::All => {\n                self.activity.sent(host_now());"),
-            "{flush}"
+            focus.contains("self.app.flush_reply(Asked::Unasked);"),
+            "{focus}"
         );
-        assert!(
-            flush.contains("Wrote::Part => {\n                self.activity.sent(host_now());"),
-            "{flush}"
-        );
-        assert!(
-            flush.contains("Wrote::Nothing => Sent::Nothing,"),
-            "{flush}"
-        );
+        let tell = body(concat!("    fn tell_pty(&mut self) ", "{"));
+        assert!(tell.contains("self.flush_reply(Asked::Unasked);"), "{tell}");
         let style = body(concat!("    fn apply_style(&mut self) ", "{"));
         assert!(style.contains("self.lights.stale();"), "{style}");
         let resized = body(concat!(

@@ -528,11 +528,18 @@ copy_on_select = "on"
 # where the window is and how big it is either way.
 [window]
 operations = "on"
-# Two small lights at the right of the title bar, as on a modem's front
-# panel: RD (Receive Data) flashes when baud receives data from the
-# program, SD (Send Data) when baud sends data to it (your keys, a paste,
-# the terminal's answers). "on" by default; "off"
-# takes them away. macOS only: the Linux window has no title bar.
+# Nine small lights at the right of the title bar, as on a modem's front
+# panel: HS (High Speed) while the program's output floods in, AA (Auto
+# Answer) when baud answers the program on its own, CD (Carrier Detect)
+# while the program in front is ssh with its connection up, OH (Off Hook)
+# while a program other than the shell is in front, RD (Receive Data) and
+# SD (Send Data) when baud receives data from the program and sends data
+# to it, CS (Clear to Send, inverted, with a bar) when the program stops
+# taking what baud sends, FAX while a picture is shown, and SYN while the
+# program holds the screen to draw it at once. Hold the pointer over one
+# to see what it means. They follow Reduce Motion (steady) and Dim
+# Flashing Lights (faint). "on" by default; "off" takes them all away.
+# macOS only: the Linux window has no title bar.
 activity_lights = "on"
 # Whether the desktop may show a frame the moment it is drawn, even partway
 # through the screen's refresh: the least delay, at the price of a moving

@@ -82,6 +82,21 @@ pub(crate) fn image_motion(
     }
 }
 
+/// **How fast the activity lights may change, from the motion
+/// preference**: their own 200 ms clock with full motion, and under
+/// reduced motion two seconds a change, so a stream of activity reads as
+/// one steady light -- "reducing automatic and repetitive animations"
+/// (`[[source: apple-hig-accessibility]]`), as blinking text is held
+/// steady rather than hidden (`effects::text_blink`). Only the macOS
+/// window has the lights.
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn lights_pace(m: crate::config::SystemMotion) -> baud_render::Pace {
+    match m {
+        crate::config::SystemMotion::Full => baud_render::Pace::Full,
+        crate::config::SystemMotion::Reduced => baud_render::Pace::Steady,
+    }
+}
+
 /// Increase Contrast: "UI should be presented with high contrast such as
 /// utilizing a less subtle color palette or bolder lines"
 /// ([[source: macos-sdk-nsaccessibility-h]] line 93); on Linux the
@@ -131,6 +146,22 @@ mod tests {
     use super::*;
     use crate::config::SystemMotion;
     use baud_domain::ImageMotion;
+
+    /// **Reduce Motion holds the activity lights steady**: full motion
+    /// keeps their 200 ms clock, reduced motion makes it two seconds, both
+    /// hold and dwell, through the one mapping the driver reads.
+    #[test]
+    fn reduce_motion_holds_the_activity_lights_steady() {
+        use baud_render::Pace;
+        use core::time::Duration;
+        assert_eq!(lights_pace(SystemMotion::Full), Pace::Full);
+        assert_eq!(lights_pace(SystemMotion::Reduced), Pace::Steady);
+        let (full, steady) = (Pace::Full.timing(), Pace::Steady.timing());
+        assert_eq!(full.hold, Duration::from_millis(200));
+        assert_eq!(full.dwell, Duration::from_millis(200));
+        assert_eq!(steady.hold, Duration::from_secs(2));
+        assert_eq!(steady.dwell, Duration::from_secs(2));
+    }
 
     /// **Under `"os"` a kitty animation plays only with full motion and
     /// Animated Images on; `"on"` always plays and `"off"` always holds**,

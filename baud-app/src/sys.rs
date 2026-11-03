@@ -1081,6 +1081,65 @@ pub const CTL_KERN: c_int = 1;
 #[cfg(target_os = "macos")]
 pub const KERN_PROCARGS2: c_int = 49;
 
+// **What the activity lights' OH and CD read of the job in front**
+// (`front.rs`, note AH 3.2 and 3.3), through the same "private interfaces"
+// (`[[source: macos-sdk-libproc-h]]` 41-44) and `sys/proc_info.h`'s
+// records (`[[source: macos-sdk-sys-proc-info-h]]`), each taken as bytes
+// at the offsets the probe pins, as `proc_vnodepathinfo` is.
+
+/// `proc_pidinfo`'s flavor for `struct proc_bsdinfo`: `pbi_pgid`, the
+/// process's own group, and `e_tpgid`, "tty process group id", the
+/// foreground group of its controlling terminal.
+#[cfg(target_os = "macos")]
+pub const PROC_PIDTBSDINFO: c_int = 3;
+#[cfg(target_os = "macos")]
+pub const BSDINFO_SIZE: usize = 136;
+#[cfg(target_os = "macos")]
+pub const BSDINFO_PGID: usize = 100;
+#[cfg(target_os = "macos")]
+pub const BSDINFO_TPGID: usize = 112;
+
+/// `proc_pidinfo`'s flavor for `struct proc_bsdshortinfo`, whose
+/// `pbsi_comm` is the program's name, `MAXCOMLEN` bytes: answered for a
+/// root process too (note AH 3.8, measured against pid 1).
+#[cfg(target_os = "macos")]
+pub const PROC_PIDT_SHORTBSDINFO: c_int = 13;
+#[cfg(target_os = "macos")]
+pub const BSDSHORTINFO_SIZE: usize = 64;
+#[cfg(target_os = "macos")]
+pub const BSDSHORTINFO_COMM: usize = 16;
+#[cfg(target_os = "macos")]
+pub const MAXCOMLEN: usize = 16;
+
+/// `proc_pidinfo`'s flavor for the process's descriptors, an array of
+/// `struct proc_fdinfo`, `proc_fd` then `proc_fdtype`; a socket's type.
+#[cfg(target_os = "macos")]
+pub const PROC_PIDLISTFDS: c_int = 1;
+#[cfg(target_os = "macos")]
+pub const FDINFO_SIZE: usize = 8;
+#[cfg(target_os = "macos")]
+pub const FDINFO_FD: usize = 0;
+#[cfg(target_os = "macos")]
+pub const FDINFO_TYPE: usize = 4;
+#[cfg(target_os = "macos")]
+pub const PROX_FDTYPE_SOCKET: c_int = 2;
+
+/// `proc_pidfdinfo`'s flavor for `struct socket_fdinfo`: its `soi_kind`,
+/// `SOCKINFO_TCP` for a TCP socket, and that socket's `tcpsi_state`,
+/// `TSI_S_ESTABLISHED` once connected.
+#[cfg(target_os = "macos")]
+pub const PROC_PIDFDSOCKETINFO: c_int = 3;
+#[cfg(target_os = "macos")]
+pub const SOCKET_FDINFO_SIZE: usize = 792;
+#[cfg(target_os = "macos")]
+pub const SOCKET_FDINFO_KIND: usize = 256;
+#[cfg(target_os = "macos")]
+pub const SOCKET_FDINFO_TCP_STATE: usize = 344;
+#[cfg(target_os = "macos")]
+pub const SOCKINFO_TCP: c_int = 2;
+#[cfg(target_os = "macos")]
+pub const TSI_S_ESTABLISHED: c_int = 4;
+
 /// A `uint64_t` argument to `proc_pidinfo`: a tid or a descriptor for
 /// some flavors, zero for this one.
 #[cfg(target_os = "macos")]
@@ -1188,6 +1247,15 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn proc_pidpath(pid: Pid, buffer: *mut c_void, size: PathSize) -> c_int;
     pub fn proc_listchildpids(ppid: Pid, buffer: *mut c_void, size: c_int) -> c_int;
+    /// "a count of pids" in the group (`[[source: xnu-libproc-c]]` 76-85).
+    pub fn proc_listpgrppids(pgrpid: Pid, buffer: *mut c_void, size: c_int) -> c_int;
+    pub fn proc_pidfdinfo(
+        pid: Pid,
+        fd: c_int,
+        flavor: c_int,
+        buffer: *mut c_void,
+        size: c_int,
+    ) -> c_int;
     pub fn sysctl(
         name: *mut c_int,
         namelen: c_uint,
@@ -1461,6 +1529,26 @@ int main(void) {
            offsetof(struct proc_vnodepathinfo, pvi_cdir.vip_path));
     printf("MAXPATHLEN=%lld\n", (long long)MAXPATHLEN);
     printf("PROC_PIDPATHINFO_MAXSIZE=%lld\n", (long long)PROC_PIDPATHINFO_MAXSIZE);
+    printf("PROC_PIDTBSDINFO=%lld\n", (long long)PROC_PIDTBSDINFO);
+    printf("proc_bsdinfo.size=%zu\n", sizeof(struct proc_bsdinfo));
+    printf("proc_bsdinfo.pgid=%zu\n", offsetof(struct proc_bsdinfo, pbi_pgid));
+    printf("proc_bsdinfo.tpgid=%zu\n", offsetof(struct proc_bsdinfo, e_tpgid));
+    printf("PROC_PIDT_SHORTBSDINFO=%lld\n", (long long)PROC_PIDT_SHORTBSDINFO);
+    printf("proc_bsdshortinfo.size=%zu\n", sizeof(struct proc_bsdshortinfo));
+    printf("proc_bsdshortinfo.comm=%zu\n", offsetof(struct proc_bsdshortinfo, pbsi_comm));
+    printf("MAXCOMLEN=%lld\n", (long long)MAXCOMLEN);
+    printf("PROC_PIDLISTFDS=%lld\n", (long long)PROC_PIDLISTFDS);
+    printf("proc_fdinfo.size=%zu\n", sizeof(struct proc_fdinfo));
+    printf("proc_fdinfo.fd=%zu\n", offsetof(struct proc_fdinfo, proc_fd));
+    printf("proc_fdinfo.type=%zu\n", offsetof(struct proc_fdinfo, proc_fdtype));
+    printf("PROX_FDTYPE_SOCKET=%lld\n", (long long)PROX_FDTYPE_SOCKET);
+    printf("PROC_PIDFDSOCKETINFO=%lld\n", (long long)PROC_PIDFDSOCKETINFO);
+    printf("socket_fdinfo.size=%zu\n", sizeof(struct socket_fdinfo));
+    printf("socket_fdinfo.kind=%zu\n", offsetof(struct socket_fdinfo, psi.soi_kind));
+    printf("socket_fdinfo.tcp_state=%zu\n",
+           offsetof(struct socket_fdinfo, psi.soi_proto.pri_tcp.tcpsi_state));
+    printf("SOCKINFO_TCP=%lld\n", (long long)SOCKINFO_TCP);
+    printf("TSI_S_ESTABLISHED=%lld\n", (long long)TSI_S_ESTABLISHED);
     printf("CTL_KERN=%lld\n", (long long)CTL_KERN);
     printf("KERN_PROCARGS2=%lld\n", (long long)KERN_PROCARGS2);
     printf("kevent.size=%zu\n", sizeof(struct kevent));
@@ -1662,6 +1750,20 @@ int main(void) {
                 offset_of!(MachTaskBasicInfo, policy) as i128
             );
             assert_eq!(h["mach_port_t.size"], size_of::<MachPort>() as i128);
+            assert_eq!(h["proc_bsdinfo.size"], BSDINFO_SIZE as i128);
+            assert_eq!(h["proc_bsdinfo.pgid"], BSDINFO_PGID as i128);
+            assert_eq!(h["proc_bsdinfo.tpgid"], BSDINFO_TPGID as i128);
+            assert_eq!(h["proc_bsdshortinfo.size"], BSDSHORTINFO_SIZE as i128);
+            assert_eq!(h["proc_bsdshortinfo.comm"], BSDSHORTINFO_COMM as i128);
+            assert_eq!(h["proc_fdinfo.size"], FDINFO_SIZE as i128);
+            assert_eq!(h["proc_fdinfo.fd"], FDINFO_FD as i128);
+            assert_eq!(h["proc_fdinfo.type"], FDINFO_TYPE as i128);
+            assert_eq!(h["socket_fdinfo.size"], SOCKET_FDINFO_SIZE as i128);
+            assert_eq!(h["socket_fdinfo.kind"], SOCKET_FDINFO_KIND as i128);
+            assert_eq!(
+                h["socket_fdinfo.tcp_state"],
+                SOCKET_FDINFO_TCP_STATE as i128
+            );
             assert_eq!(h["proc_vnodepathinfo.size"], VNODEPATHINFO_SIZE as i128);
             assert_eq!(
                 h["proc_vnodepathinfo.cdir_path"],
@@ -1754,6 +1856,17 @@ int main(void) {
                 h["PROC_PIDPATHINFO_MAXSIZE"],
                 PROC_PIDPATHINFO_MAXSIZE as i128
             );
+            assert_eq!(h["PROC_PIDTBSDINFO"], i128::from(PROC_PIDTBSDINFO));
+            assert_eq!(
+                h["PROC_PIDT_SHORTBSDINFO"],
+                i128::from(PROC_PIDT_SHORTBSDINFO)
+            );
+            assert_eq!(h["MAXCOMLEN"], MAXCOMLEN as i128);
+            assert_eq!(h["PROC_PIDLISTFDS"], i128::from(PROC_PIDLISTFDS));
+            assert_eq!(h["PROX_FDTYPE_SOCKET"], i128::from(PROX_FDTYPE_SOCKET));
+            assert_eq!(h["PROC_PIDFDSOCKETINFO"], i128::from(PROC_PIDFDSOCKETINFO));
+            assert_eq!(h["SOCKINFO_TCP"], i128::from(SOCKINFO_TCP));
+            assert_eq!(h["TSI_S_ESTABLISHED"], i128::from(TSI_S_ESTABLISHED));
             assert_eq!(h["CTL_KERN"], i128::from(CTL_KERN));
             assert_eq!(h["KERN_PROCARGS2"], i128::from(KERN_PROCARGS2));
             assert_eq!(h["EVFILT_PROC"], i128::from(EVFILT_PROC));

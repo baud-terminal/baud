@@ -411,10 +411,11 @@ pub struct Config {
     /// which refuses every one. A program on the other end of the line, a
     /// remote one included, can otherwise move or hide the window.
     pub window_ops: baud_domain::WindowOps,
-    /// `[window] activity_lights`: whether two modem-style lights at the
-    /// right of the title strip show bytes coming in (RD) and going out
-    /// (SD), `"on"` by default, or `"off"`. macOS only: the Linux window
-    /// has no title bar (`baud_render::lights`).
+    /// `[window] activity_lights`: whether the nine modem-style lights at
+    /// the right of the title strip are shown (`baud_render::lights`),
+    /// `"on"` by default, or `"off"`, which also reads nothing for them.
+    /// One switch for all nine. macOS only: the Linux window has no title
+    /// bar.
     pub activity_lights: baud_render::ActivityLights,
     /// `[window] tearing`: whether the window may be shown torn for the
     /// least delay, `"off"` by default -- research decision D14, "an
