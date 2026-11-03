@@ -25,9 +25,10 @@ named there as not a feature, and the build fails when one is neither.
 [[item]]
 id = "B1-01"
 area = "input"
-status = "in_progress"
+status = "done"
+date = "2026-11-03"
 title = "Key releases and modifier keys on macOS"
-summary = "Programs that ask will learn when a key is let go and when Shift, Control, Option or Command is pressed on its own. The Linux version already sends them."
+summary = "Programs that ask learn when a key is let go and when Shift, Control, Option or Command is pressed on its own, on macOS as on Linux, with Caps Lock reported while it is on."
 
 [[item]]
 id = "B1-13"
@@ -173,9 +174,10 @@ summary = "Programs can tell baud the folder they are in, post a desktop notific
 [[item]]
 id = "SQ-v1.0-10"
 area = "window"
-status = "planned"
+status = "done"
+date = "2026-11-03"
 title = "Cmd-N opens a new window"
-summary = "Open another window, including after the last one closed."
+summary = "Open another window, including after the last one closed: on a Mac, closing the last window leaves baud running, and File > New Window or a click on its Dock icon opens another."
 
 [[item]]
 id = "SQ-v1.0-11"

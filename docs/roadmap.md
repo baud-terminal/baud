@@ -66,7 +66,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## Keyboard, mouse and clipboard
 
-- [ ] **Key releases and modifier keys on macOS** — Programs that ask will learn when a key is let go and when Shift, Control, Option or Command is pressed on its own. The Linux version already sends them. *In progress.*
+- [x] **Key releases and modifier keys on macOS** — Programs that ask learn when a key is let go and when Shift, Control, Option or Command is pressed on its own, on macOS as on Linux, with Caps Lock reported while it is on. (2026-11-03)
 - [x] **Copy on select** — Selecting text copies it, on by default with a setting to turn it off, and the selection takes the colours you or your theme choose. (2026-10-22)
 - [x] **See where a link goes before opening it** — Holding Cmd marks the linked text and shows its address. (2026-10-22)
 - [x] **Keypad and Backspace key modes** — Programs can choose whether the keypad types digits or sends its own codes, whether Backspace sends DEL or BS and whether Delete sends DEL, as on DEC terminals, and ask which they have. (2026-10-20)
@@ -92,7 +92,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 - [ ] **A window title with the folder and the running program** — When a program sets no title, the window shows the current folder and what is running in it; on a Mac the title bar does not draw it yet. *In progress.*
 - [ ] **A slide when full-screen programs open and close** — The screen slides between your shell and a full-screen program, as an option beside today's fade.
-- [ ] **Cmd-N opens a new window** — Open another window, including after the last one closed.
+- [x] **Cmd-N opens a new window** — Open another window, including after the last one closed: on a Mac, closing the last window leaves baud running, and File > New Window or a click on its Dock icon opens another. (2026-11-03)
 - [x] **A launch splash** — baud's colour logo at launch, coming out of a burst of plasma and swept back out, each from left to right, with a setting to turn it off. With reduced motion on it shows whole and fades instead, on Linux once the desktop has reported the setting. (2026-10-24)
 - [x] **A prompt pinned to the bottom** — An optional mode that keeps the shell prompt at the bottom of the window, for a shell that marks its prompts. (2026-10-24)
 - [x] **Activity lights in the title bar** — Small modem-style lights, RD (Receive Data) and SD (Send Data), for data baud receives from the program and sends to it, with a setting to turn them off. On macOS; the Linux window has no title bar. (2026-10-24)
