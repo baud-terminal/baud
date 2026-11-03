@@ -391,7 +391,7 @@ pub(crate) fn lay(
 
 /// A syllable's place among its word's, left to right.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) struct SyllableIx(pub usize);
+pub(crate) struct SyllableIx(pub u16);
 
 /// Whether a word drawn whole holds a cell.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

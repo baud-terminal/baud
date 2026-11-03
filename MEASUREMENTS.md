@@ -1364,6 +1364,62 @@ their words by records on every frame, their rows changed or not.
 `ingest2`'s machine code is the word layout commit's, its `__TEXT,__text`
 hashing the same.
 
+## A row's words laid once (2026-11-03)
+
+**A frame over rows whose cells did not change lays none of their words
+and, on the cell path, draws the records it drew: the app's frame loop
+over an unchanged screen costs vim-unicode 59.7 us of CPU a frame where
+it cost 93.0, and cat-cjk 37.2 where it cost 51.8, against 56.7 and 38.0
+before words were drawn whole.** Taken 2026-11-03, Apple M5 Max, macOS
+27.0, on AC. Four arms at one path -- the build before words were drawn
+whole and the parent, each given this change's `FRAME_IDLE` on the app
+arm, this change and a `cmp`-identical copy of it -- five rotated rounds
+of three a process, the first round and each process's first dropped;
+JetBrains Mono with Kohinoor Devanagari behind it.
+`frame_gpu`'s app arm at 2 MB/s, then `FRAME_IDLE=200` frames over the
+last screen with `FRAME_CARET=switch`, median CPU us a frame [range]:
+
+| recording | before words | parent | change | A/A copy |
+|---|---|---|---|---|
+| vim-unicode | 56.7 [55.9-60.9] | 93.0 [92.2-93.5] | 59.7 [58.8-60.9] | 59.5 |
+| cat-cjk | 38.0 [38.0-40.6] | 51.8 [51.5-53.4] | 37.2 [37.0-38.1] | 37.2 |
+| less-cjk | 21.5 [21.3-22.1] | 21.8 [21.5-22.2] | 21.4 [21.3-22.0] | 21.6 |
+| btop | 21.6 [21.3-23.5] | 23.7 [21.7-24.2] | 22.6 [21.6-24.5] | 22.4 |
+| cat-scroll | 29.6 [28.2-31.7] | 29.7 [27.4-31.0] | 29.0 [28.0-29.5] | 29.8 |
+
+With BDSM reset: btop 21.2 against 24.1 and 20.1, vim-unicode 48.9
+against 78.2 and 47.5, cat-cjk 25.6 against 44.3 and 26.6. On the app
+arm's own frames, every read a frame, the rows do change: about half of
+vim-unicode's frames bring 11 or 12 rows not kept before and every
+cat-cjk frame 11 to 15, and the medians stay the parent's -- vim-unicode
+79.9 [77.2-85.2] against 78.9 [77.2-81.7], cat-cjk 90.5 [86.8-104.0]
+against 86.8 [82.8-87.6], ranges overlapping, as in two earlier sweeps
+-- while BDSM reset no longer folds a row: btop 47.0 [46.1-47.8] against
+50.4 [49.5-51.7] and 47.4. A kept answer for that fold, each row compared
+whole with a copy, saved 0.6 of its 3.5 us; the glyph map's walk notes
+each row's blocks on the entries it probes instead.
+
+A row is kept while it holds a syllable or a word, measured on rows of
+distinct Hindi words: 18.5 KB a row at 200 columns and 39.7 KB at 400 on
+average, a glyph's place 36 bytes, and the cell path's records kept for
+it 6.3 KB and 12.6 KB. At most twice the window's rows are kept, a bound
+of 2.0 MB at 200x50 and 12.5 MB at 400x150 from the most a row took, for
+rows as wide as the window. A window made smaller drops the rows used
+longest ago down to twice its new rows, and rows of its old width stay
+until rows of its new width take their places: from 400x150 to 200x50,
+up to 4.2 MB, and 3.1 MB on a screen that then does not change, from the
+same most a row took; a frame reads only the rows on screen. The CPU
+frame bench
+draws the same frames, rows, instances and glyphs, and retires
++0.13% on vim-unicode, +0.39% cat-cjk, -0.26% less-cjk, +0.20% btop and
++0.24% cat-scroll against the parent, the A/A copy within 0.03 points,
+cycles overlapping. `FRAME_HASH=on` gives the parent's pixels on all five
+with BDSM set and reset, and `frame_gpu`'s `FRAME_HASH=check` after 20
+idle frames the parent's digest on each of the async, copied and app
+arms; the app arm, which alone reorders, differs from the copied arm on
+vim-unicode with BDSM set in both builds, the check reporting it. The
+`ingest2` binary is `cmp`-identical to the parent's.
+
 ## The cursor blink's cost: a battery reading, unmeasured on mains
 
 **Taken at `7f8413d`, 2026-09-25, on battery at 30%** -- not quotable by this file's own rule, a retake on mains owed. It is

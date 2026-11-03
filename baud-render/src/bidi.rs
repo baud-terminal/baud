@@ -605,6 +605,13 @@ impl Orders {
         self.rows.get(r.index()).and_then(Option::as_ref)
     }
 
+    /// **The logical column each visual column of row `r` shows**, where
+    /// the row is drawn in another order: none where it is drawn in its
+    /// own.
+    pub(crate) fn logical_cols(&self, r: Row) -> Option<&[Col]> {
+        self.row(r).map(|o| &o.from[..])
+    }
+
     /// The visual column logical column `c` of row `r` is drawn at.
     pub fn visual_col(&self, r: Row, c: Col) -> Col {
         self.row(r)

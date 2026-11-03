@@ -256,6 +256,11 @@ impl MapEntry {
     /// The glyph is a letter of a joining script reaching past its cell,
     /// which rule D may fit (`crate::fit`).
     const PAST: u32 = 1 << 27;
+    /// The codepoint is in a block a legacy cluster parts at or after, or
+    /// one of Devanagari's ([`baud_domain::in_syllable_block`]): a row of
+    /// none holds no syllable and no word (`crate::syllable::may_hold`).
+    /// The shader reads no bit of the pad word.
+    const SYLLABLES: u32 = 1 << 28;
 
     /// The face the entry's glyph is on, as the code the renderer indexes
     /// its faces by.
@@ -282,6 +287,18 @@ impl MapEntry {
                 top: Screen(i16::try_from(s.top).unwrap_or(i16::MAX)),
                 pad,
             },
+        }
+    }
+
+    /// The entry, its codepoint `cp`'s block noted in the pad word
+    /// ([`MapEntry::SYLLABLES`]).
+    fn with_block(self, cp: Codepoint) -> MapEntry {
+        match baud_domain::in_syllable_block(cp.value()) {
+            true => MapEntry {
+                pad: Code(self.pad.0 | MapEntry::SYLLABLES),
+                ..self
+            },
+            false => self,
         }
     }
 
@@ -444,6 +461,26 @@ pub struct GlyphMap<'m> {
     decomposed: Tally,
     /// Where the ink of the entries since the map was last emptied lies.
     reach: Reach,
+    /// **What each row of the last walk holds of a syllable**, with BDSM
+    /// reset: found on the probe of each cell's entry, which carries its
+    /// codepoint's block ([`MapEntry::SYLLABLES`]), and whether the row holds
+    /// a cluster, whose marks the entries do not see. The window's walk of
+    /// the overlay reads it where the layout keeps no answer
+    /// (`crate::overlay`), with the width and height walked: none where the
+    /// walk noted none.
+    rows: Vec<RowParts>,
+    walked: (Cols, baud_domain::Rows),
+}
+
+/// What one row of a walk holds of a syllable ([`GlyphMap::row_parts`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum RowParts {
+    /// No codepoint of a block a syllable is made of, and no cluster.
+    Neither,
+    /// A codepoint of such a block.
+    Blocks,
+    /// No such codepoint but a cluster, whose base or marks may be one.
+    Clusters,
 }
 
 /// A position in the map.
@@ -483,6 +520,21 @@ impl<'m> GlyphMap<'m> {
             several: Vec::new(),
             decomposed: Tally::default(),
             reach: Reach::NONE,
+            rows: Vec::new(),
+            walked: (Cols::of_index(0), baud_domain::Rows::ZERO),
+        }
+    }
+
+    /// **What row `r` of the last walk holds of a syllable**, where that
+    /// walk was `cols` by `rows`: none otherwise.
+    pub(crate) fn row_parts(
+        &self,
+        r: Row,
+        (cols, rows): (Cols, baud_domain::Rows),
+    ) -> Option<RowParts> {
+        match self.walked == (cols, rows) {
+            true => self.rows.get(r.index()).copied(),
+            false => None,
         }
     }
 
@@ -616,13 +668,21 @@ impl<'m> GlyphMap<'m> {
         // it, and walks again.
         let tallies = (self.stats.dropped_marks, self.stats.pair_tests);
         let listed = self.decomposed.value() > 0;
-        changed |= match listed {
-            false => self.walk::<false>(term, vp, styles, r, candidates),
-            true => self.walk::<true>(term, vp, styles, r, candidates),
+        // Each row's syllable blocks are noted only where the layout keeps
+        // no answer for the overlay: with BDSM reset.
+        let parts = term.bidi_support() == baud_core::BidiSupport::Explicit;
+        changed |= match (listed, parts) {
+            (false, false) => self.walk::<false, false>(term, vp, styles, r, candidates),
+            (false, true) => self.walk::<false, true>(term, vp, styles, r, candidates),
+            (true, false) => self.walk::<true, false>(term, vp, styles, r, candidates),
+            (true, true) => self.walk::<true, true>(term, vp, styles, r, candidates),
         };
         if !listed && self.decomposed.value() > 0 {
             (self.stats.dropped_marks, self.stats.pair_tests) = tallies;
-            changed |= self.walk::<true>(term, vp, styles, r, candidates);
+            changed |= match parts {
+                false => self.walk::<true, false>(term, vp, styles, r, candidates),
+                true => self.walk::<true, true>(term, vp, styles, r, candidates),
+            };
         }
         // A clear on the walk took the rings' entries with it.
         changed |= self.rings(r);
@@ -632,10 +692,12 @@ impl<'m> GlyphMap<'m> {
     }
 
     /// One walk over the screen for [`GlyphMap::ensure`]: every cell's
-    /// entry made present, the pair candidates into `candidates`, and with
+    /// entry made present, the pair candidates into `candidates`, with
     /// `LIST` the cells the overlay draws whole ([`MapEntry::listed`]) into
-    /// [`GlyphMap::several`]. Whether an entry was added.
-    fn walk<const LIST: bool>(
+    /// [`GlyphMap::several`], and with `PARTS` what each row holds of a
+    /// syllable, from the entries probed ([`GlyphMap::row_parts`]). Whether
+    /// an entry was added.
+    fn walk<const LIST: bool, const PARTS: bool>(
         &mut self,
         term: &Term<'_>,
         vp: Viewport<'_>,
@@ -645,14 +707,21 @@ impl<'m> GlyphMap<'m> {
     ) -> bool {
         candidates.clear();
         self.several.clear();
+        self.rows.clear();
+        self.walked = match PARTS {
+            true => (vp.cols(), vp.rows()),
+            false => (Cols::of_index(0), baud_domain::Rows::ZERO),
+        };
         let mut changed = false;
         let cols = vp.cols().index();
         for y in 0..vp.rows().index() {
             let row = vp.row(Row::from_index(y));
             let mut prev: Option<(GlyphId, Code)> = None;
+            let (mut pads, mut marked) = (0, false);
             for (x, cell) in row.iter().enumerate().take(cols) {
                 if cell.flags.is_marked() {
                     self.stats.dropped_marks.bump();
+                    marked |= PARTS;
                 }
                 let Some(cp) = crate::renderer::drawn_base(term, *cell) else {
                     if cell.content != Content::WIDE_TAIL {
@@ -667,6 +736,9 @@ impl<'m> GlyphMap<'m> {
                         if LIST && e.listed() {
                             self.several.push((Row::from_index(y), Col::at_index(x)));
                         }
+                        if PARTS {
+                            pads |= e.pad.0;
+                        }
                         (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
                     }
                     None => {
@@ -674,6 +746,9 @@ impl<'m> GlyphMap<'m> {
                         changed = true;
                         if LIST && e.listed() {
                             self.several.push((Row::from_index(y), Col::at_index(x)));
+                        }
+                        if PARTS {
+                            pads |= e.pad.0;
                         }
                         (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
                     }
@@ -691,6 +766,14 @@ impl<'m> GlyphMap<'m> {
                     }
                 }
                 prev = starts.then_some((glyph, face));
+            }
+            if PARTS {
+                self.rows
+                    .push(match (pads & MapEntry::SYLLABLES != 0, marked) {
+                        (true, _) => RowParts::Blocks,
+                        (false, true) => RowParts::Clusters,
+                        (false, false) => RowParts::Neither,
+                    });
             }
         }
         changed
@@ -718,7 +801,7 @@ impl<'m> GlyphMap<'m> {
         if self.stats.live.value().saturating_mul(4) >= u64::try_from(MAP_SLOTS * 3).unwrap_or(0) {
             self.clear();
         }
-        let e = MapEntry::of(CellKey::of(cp, style, span), single);
+        let e = MapEntry::of(CellKey::of(cp, style, span), single).with_block(cp);
         self.insert(e);
         if e.listed() {
             self.decomposed.bump();

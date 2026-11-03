@@ -58,6 +58,13 @@ pub struct OverlayStats {
     /// Cells of a picture drawn in text, whose backgrounds the shader draws
     /// solid under the dim.
     pub pictured: Tally,
+    /// Rows walked this frame for their syllables and words: a row kept
+    /// since an earlier frame (`crate::kept`) is not walked again.
+    pub walked: Tally,
+    /// Rows this frame tested for whether they may hold a syllable by the
+    /// pass of a block table, where neither the layout nor the glyph map's
+    /// walk of the view answered.
+    pub folded: Tally,
 }
 
 /// The overlay mask's bits, one byte a screen cell. The shader reads the
@@ -183,6 +190,9 @@ pub struct Overlay {
     /// records, where it sits on a Devanagari word's cell and lights its
     /// syllable's span (`crate::word`).
     cursor: CursorDrawn,
+    /// Each window row's words and syllables as the last frame drew them
+    /// ([`Painted`]).
+    painted: Vec<Option<Painted>>,
 }
 
 /// **The walk of a smooth scroll's leaving row**, apart from the window's:
@@ -193,6 +203,85 @@ struct Slide {
     walk: Overlay,
     candidates: Vec<Candidate>,
     several: Vec<(Row, Col)>,
+}
+
+/// **A row's words and syllables as a frame drew them**, kept by window
+/// row for the next frame to draw again while nothing they are drawn from
+/// moved: the kept row (`crate::kept`), so its cells and every word's
+/// layout; the slide's pan, the blink phases and the selection's colours;
+/// each rendition the row's cells name, resolved; the pictures found on
+/// it; and its row of the mask as the passes before left it. A row the
+/// block cursor or the selection is on is painted again from its kept
+/// layout each frame, never from these. What it drew -- its records, the
+/// parts of them above the row, each cell drawn and its records' places
+/// from the row's first, and the mask after -- is appended as drawn.
+struct Painted {
+    kept: crate::kept::KeptIx,
+    pan: Px,
+    blink: BlinkPhases,
+    hilite: Hilite,
+    styles: Vec<(baud_domain::StyleId, Resolved)>,
+    /// The row's cells in a picture, where a frame found any.
+    pictured: Option<Vec<Pictured>>,
+    before: Vec<u8>,
+    after: Vec<u8>,
+    inside: Vec<Instance>,
+    above: Vec<Instance>,
+    emitted: Vec<Emitted>,
+    cells: Tally,
+}
+
+/// What a row's [`Painted`] must match to be drawn again, but its styles,
+/// pictures and mask, read where it is kept.
+#[derive(Clone, Copy, PartialEq)]
+struct PaintKey {
+    kept: crate::kept::KeptIx,
+    pan: Px,
+    blink: BlinkPhases,
+    hilite: Hilite,
+}
+
+impl Painted {
+    /// Whether it was drawn under `key`, over `styles`, the row's
+    /// `pictured` cells and its row of the mask `before`.
+    fn matches(
+        &self,
+        key: PaintKey,
+        styles: &[Resolved],
+        pictured: Option<&[Pictured]>,
+        before: &[u8],
+    ) -> bool {
+        key == (PaintKey {
+            kept: self.kept,
+            pan: self.pan,
+            blink: self.blink,
+            hilite: self.hilite,
+        }) && self
+            .styles
+            .iter()
+            .all(|&(id, res)| styles.get(id.index()).copied().unwrap_or_default() == res)
+            && self.pictured.as_deref() == pictured
+            && self.before == before
+    }
+}
+
+/// One row's words for [`Overlay::words`]: its index, its cells as the walk
+/// reads them, its words and the row kept that holds them laid
+/// (`crate::kept`), and the composition's letters beside it.
+type RowWords<'w> = (
+    usize,
+    &'w [PackedCell],
+    (&'w [crate::word::Word], Option<crate::kept::KeptIx>),
+    &'w Taken,
+);
+
+/// Whether the glyph map's last walk was over the view an overlay walk
+/// reads: the window's walk follows the map's over the same view, and the
+/// leaving row's follows the window's.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Walked {
+    This,
+    Elsewhere,
 }
 
 /// Whether a walk finds the pictures drawn in text on its view: the
@@ -207,6 +296,7 @@ enum Find {
 /// One cell the walk drew by records: where it is, its records' places in
 /// the frame's records and in the parts above their rows, and the box
 /// around their ink.
+#[derive(Clone, PartialEq, Debug)]
 struct Emitted {
     at: (Row, Col),
     inside: core::ops::Range<usize>,
@@ -245,7 +335,7 @@ impl Emitted {
 }
 
 /// A box of screen pixels, `x0..x1` by `y0..y1`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 struct InkBox {
     x0: i32,
     y0: i32,
@@ -322,6 +412,11 @@ impl Covered {
                 (c.row.index(), runs)
             })
         }))
+    }
+
+    /// Whether it covers a cell of row `y`.
+    fn on(&self, y: Row) -> bool {
+        self.0.as_ref().is_some_and(|(row, _)| y.index() == *row)
     }
 
     fn holds(&self, y: Row, x: Col) -> bool {
@@ -532,6 +627,7 @@ impl Overlay {
             sized: Vec::new(),
             slide: None,
             cursor: CursorDrawn::Shader,
+            painted: Vec::new(),
         }
     }
 
@@ -602,9 +698,16 @@ impl Overlay {
                 self.wides.clear();
                 self.pairs.clear();
                 self.windows.clear();
+                self.painted.clear();
             }
+            // The map's last walk was over this view where the caller gives
+            // no cells of several glyphs of its own: the window's.
+            let walked = match several {
+                Some(_) => Walked::Elsewhere,
+                None => Walked::This,
+            };
             let several = several.unwrap_or_else(|| scene.map.several());
-            self.walk(scene, several, r, mask, records, &pictures);
+            self.walk(scene, (several, walked), r, mask, records, &pictures);
             if r.atlas_stats().grown.value() == self.grown.value() {
                 break;
             }
@@ -633,7 +736,7 @@ impl Overlay {
     fn walk(
         &mut self,
         scene: &Scene<'_, '_>,
-        several: &[(Row, Col)],
+        (several, walked): (&[(Row, Col)], Walked),
         r: &mut Renderer<'_, '_>,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
@@ -979,11 +1082,16 @@ impl Overlay {
         // A row that holds no character a syllable or a word is made of is
         // let go before it is copied: as this frame's layout found it in its
         // own pass over the row, where the view is the window it laid out --
-        // no display re-breaks it -- else by that pass of a block table
-        // (`crate::syllable::may_hold`). Read with a composition's cells
-        // empty, it holds no more.
+        // no display re-breaks it -- else as the glyph map's walk of the view
+        // found it on the entries it probed (`GlyphMap::row_parts`), the
+        // marks of a row that holds a cluster read here, else by that pass
+        // of a block table (`crate::syllable::may_hold`). Read with a
+        // composition's cells empty, it holds no more.
         self.cursor = CursorDrawn::Shader;
+        self.stats.walked = Tally::default();
+        self.stats.folded = Tally::default();
         let laid = r.bidi().display().is_none();
+        let walked_as = (view.cols(), view.rows());
         for y in 0..rows {
             let at = Row::from_index(y);
             if view.rendition(at).is_double() {
@@ -993,44 +1101,132 @@ impl Overlay {
             let held = match r.bidi().syllables(at) {
                 crate::bidi::Opens::Yes if laid => true,
                 crate::bidi::Opens::No if laid => false,
-                _ => crate::syllable::may_hold(term, &cells[..cols.min(cells.len())]),
+                _ => {
+                    let cells = &cells[..cols.min(cells.len())];
+                    let parts = match walked {
+                        Walked::This => scene.map.row_parts(at, walked_as),
+                        Walked::Elsewhere => None,
+                    };
+                    match parts {
+                        Some(crate::cellmap::RowParts::Neither) => false,
+                        Some(crate::cellmap::RowParts::Blocks) => true,
+                        Some(crate::cellmap::RowParts::Clusters) => {
+                            crate::syllable::clusters_may_hold(term, cells)
+                        }
+                        None => {
+                            self.stats.folded.bump();
+                            crate::syllable::may_hold(term, cells)
+                        }
+                    }
+                }
             };
             if !held {
                 continue;
             }
-            let row: Vec<PackedCell> = cells
-                .iter()
-                .take(cols)
-                .enumerate()
-                .map(|(x, c)| match covered.holds(at, Col::at_index(x)) {
-                    true => PackedCell::EMPTY,
-                    false => *c,
-                })
-                .collect();
-            let logical = |v: Col| orders.logical_col(at, v);
-            let (parted, letters) = crate::syllable::walk(term, &row, logical);
-            let words = match letters {
-                crate::word::Letters::Seen => {
-                    crate::word::of_row(term, &row, logical, &parted, |x| {
-                        taken.held(at, Col::at_index(x))
-                    })
+            // The row as the walk reads it: copied only where a composition
+            // covers some of it.
+            let blanked: Vec<PackedCell>;
+            let row: &[PackedCell] = match covered.on(at) {
+                true => {
+                    blanked = cells
+                        .iter()
+                        .take(cols)
+                        .enumerate()
+                        .map(|(x, c)| match covered.holds(at, Col::at_index(x)) {
+                            true => PackedCell::EMPTY,
+                            false => *c,
+                        })
+                        .collect();
+                    &blanked
                 }
-                crate::word::Letters::None => Vec::new(),
+                false => &cells[..cols.min(cells.len())],
             };
-            if !words.is_empty() {
+            let logical = |v: Col| orders.logical_col(at, v);
+            let find = || {
+                let (parted, letters) = crate::syllable::walk(term, row, logical);
+                let words = match letters {
+                    crate::word::Letters::Seen => {
+                        crate::word::of_row(term, row, logical, &parted, |x| {
+                            taken.held(at, Col::at_index(x))
+                        })
+                    }
+                    crate::word::Letters::None => Vec::new(),
+                };
+                crate::kept::Found { parted, words }
+            };
+            // **Kept while the row is the same** (`crate::kept`): a row
+            // which no display re-breaks and no composition covers is walked
+            // and its words laid only where no row kept holds its cells in
+            // the order they are drawn in.
+            let keep = laid && !covered.on(at) && !taken.on(at);
+            let order = orders.logical_cols(at).unwrap_or(&[]);
+            let (kept, found, asked) = match keep {
+                true => {
+                    let (k, f, asked) = r.kept_row(term, (at, view.rows()), (row, order), find);
+                    (Some(k), f, asked)
+                }
+                false => (None, std::rc::Rc::new(find()), crate::kept::Asked::Found),
+            };
+            if asked == crate::kept::Asked::Found {
+                self.stats.walked.bump();
+            }
+            // **Drawn again as the last frame drew it** ([`Painted`]), where
+            // the row is kept and was on this window row the last frame, no
+            // light is on it and nothing it is drawn from moved; kept for
+            // the next frame from the second frame a row stays. A debug
+            // build draws it, and requires what it draws to be what was
+            // kept.
+            let span = y * cols..(y + 1) * cols;
+            let unlit = paint.block.is_none_or(|(cr, _, _)| cr != at)
+                && paint.highlight.is_none_or(|h| !h.covers_row(at));
+            let here = asked == crate::kept::Asked::Here;
+            let key = kept.filter(|_| unlit && here).map(|k| PaintKey {
+                kept: k,
+                pan: geom.pan,
+                blink: paint.blink,
+                hilite: paint.hilite,
+            });
+            if self.painted.len() < rows {
+                self.painted.resize_with(rows, || None);
+            }
+            let pictured = (self.stats.pictured.value() > 0).then(|| pictures.row(at));
+            let again = key.and_then(|k| {
+                self.painted[y]
+                    .take()
+                    .filter(|p| p.matches(k, styles, pictured, &mask[span.clone()]))
+            });
+            if let Some(p) = again.as_ref().filter(|_| !cfg!(debug_assertions)) {
+                let (inside, above) = (records.len(), self.over.len());
+                records.extend_from_slice(&p.inside);
+                self.over.extend_from_slice(&p.above);
+                self.emitted.extend(p.emitted.iter().map(|e| Emitted {
+                    at: e.at,
+                    inside: e.inside.start + inside..e.inside.end + inside,
+                    above: e.above.start + above..e.above.end + above,
+                    ink: e.ink,
+                }));
+                mask[span].copy_from_slice(&p.after);
+                self.stats.cells.add(p.cells);
+                self.painted[y] = again;
+                continue;
+            }
+            let before = key.map(|_| mask[span.clone()].to_vec());
+            let start = (records.len(), self.over.len(), self.emitted.len());
+            let cells_before = self.stats.cells;
+            if !found.words.is_empty() {
                 self.words(
                     scene,
                     r,
-                    (y, &row, &words, &taken),
+                    (y, row, (&found.words, kept), &taken),
                     mask,
                     records,
                     &paint,
                     &geom,
                 );
             }
-            for s in parted {
+            for &s in &found.parted {
                 let from = s.at.index();
-                let held = words.iter().any(|w| w.holds(s.at))
+                let held = found.words.iter().any(|w| w.holds(s.at))
                     || (from..from + s.cells.index()).any(|x| {
                         mask.get(y * cols + x).is_none_or(|m| m & MASK_RECORD != 0)
                             || covered.holds(at, Col::at_index(x))
@@ -1039,6 +1235,56 @@ impl Overlay {
                     self.syllable(scene, r, (from, y), s.cells, mask, records, &paint, &geom);
                 }
             }
+            let (Some(key), Some(before)) = (key, before) else {
+                continue;
+            };
+            let (inside, above) = (start.0, start.1);
+            let mut styles_of: Vec<(baud_domain::StyleId, Resolved)> = Vec::new();
+            for (i, c) in row.iter().enumerate() {
+                let run = i > 0 && row[i - 1].style == c.style;
+                if !run && !styles_of.iter().any(|&(id, _)| id == c.style) {
+                    let res = styles.get(c.style.index()).copied().unwrap_or_default();
+                    styles_of.push((c.style, res));
+                }
+            }
+            let painted = Painted {
+                kept: key.kept,
+                pan: key.pan,
+                blink: key.blink,
+                hilite: key.hilite,
+                styles: styles_of,
+                pictured: pictured.map(<[Pictured]>::to_vec),
+                before,
+                after: mask[span].to_vec(),
+                inside: records[inside..].to_vec(),
+                above: self.over[above..].to_vec(),
+                emitted: self.emitted[start.2..]
+                    .iter()
+                    .map(|e| Emitted {
+                        at: e.at,
+                        inside: e.inside.start - inside..e.inside.end - inside,
+                        above: e.above.start - above..e.above.end - above,
+                        ink: e.ink,
+                    })
+                    .collect(),
+                cells: Tally::of(
+                    usize::try_from(self.stats.cells.value() - cells_before.value()).unwrap_or(0),
+                ),
+            };
+            if let Some(p) = &again {
+                debug_assert!(
+                    (&p.inside, &p.above, &p.emitted, &p.after, p.cells)
+                        == (
+                            &painted.inside,
+                            &painted.above,
+                            &painted.emitted,
+                            &painted.after,
+                            painted.cells
+                        ),
+                    "a row drawn again draws what was kept"
+                );
+            }
+            self.painted[y] = Some(painted);
         }
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
@@ -1348,7 +1594,7 @@ impl Overlay {
         &mut self,
         scene: &Scene<'_, '_>,
         r: &mut Renderer<'_, '_>,
-        (y, row, words, taken): (usize, &[PackedCell], &[crate::word::Word], &Taken),
+        (y, row, (words, kept), taken): RowWords<'_>,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
         paint: &Paint<'_>,
@@ -1431,7 +1677,7 @@ impl Overlay {
         // composition's ([`Taken::ink_before`]): its ink's right edge, which
         // a residue closes on, as the instance path lays them.
         let mut prev: Option<(Col, f32)> = None;
-        for w in words {
+        for (i, w) in words.iter().enumerate() {
             let first = w.at.index();
             if (first..w.end().index())
                 .any(|x| mask.get(y * cols + x).is_none_or(|m| m & MASK_RECORD != 0))
@@ -1454,8 +1700,7 @@ impl Overlay {
             let before = taken.ink_before(at, w.at, prev);
             let laid = r.word_at(
                 scene.term,
-                at,
-                row,
+                (at, row, kept.map(|k| (k, crate::kept::WordIx(i)))),
                 (w, &wp, before),
                 &under,
                 &mut drawn_word,

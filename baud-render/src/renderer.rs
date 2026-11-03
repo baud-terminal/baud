@@ -148,7 +148,7 @@ pub enum VideoFlash {
 /// Moves on every [`Renderer::set_theme`]: every resolved slot depends on
 /// the theme.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-struct ThemeGen(u32);
+pub(crate) struct ThemeGen(u32);
 
 /// What a resolved slot depends on besides the slot: the theme, the video --
 /// `?5` or a flash's -- and the colours the core holds, as an epoch.
@@ -1084,6 +1084,7 @@ fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
 /// **Where one glyph of a laid word is drawn**: its syllable, its glyph,
 /// its slot at the quarter pixel it falls on, its place from the row's left
 /// edge in whole pixels, its pen to the quarter, and its rise in pixels.
+#[derive(PartialEq, Debug)]
 struct GlyphPlace {
     syllable: crate::word::SyllableIx,
     id: GlyphId,
@@ -1091,6 +1092,22 @@ struct GlyphPlace {
     whole: i32,
     pen: f32,
     dy: i32,
+}
+
+/// **A word laid and placed, for drawing in any light**
+/// ([`Renderer::word_layout`]): how and at which instance it was placed,
+/// its pen's start, each syllable's pen boundary and its ink, in pixels
+/// from the row's left edge, and each of its glyphs' places
+/// ([`Renderer::word_glyph_places`]). What a frame paints a word from
+/// ([`Renderer::word_painted`]), and what [`crate::kept::KeptRows`] keeps
+/// of it: no shaped run, which the run cache holds.
+#[derive(PartialEq, Debug)]
+pub(crate) struct WordLayout {
+    laid: crate::word::Laid,
+    x0: f32,
+    bounds: Vec<f32>,
+    ink: crate::fit::Ink,
+    places: Vec<GlyphPlace>,
 }
 
 /// **A word laid** ([`Renderer::lay_word`]): the face it is drawn on, how
@@ -1108,13 +1125,15 @@ struct LaidWord {
 }
 
 /// A row's Devanagari words, each one's syllables in their light, the
-/// row's cells as they draw (`crate::word`) and the syllables the core
-/// parted on it (`crate::syllable`), for the runs.
+/// row's cells as they draw (`crate::word`), the syllables the core parted
+/// on it (`crate::syllable`), and the row kept that holds its words laid
+/// (`crate::kept`), for the runs.
 type Worded<'w> = (
     &'w [crate::word::Word],
     &'w [crate::word::WordPaint],
     &'w [crate::word::Under],
     &'w [crate::syllable::Syllable],
+    Option<crate::kept::KeptIx>,
 );
 
 type RowCells<'a> = (
@@ -2072,6 +2091,12 @@ pub struct Renderer<'f, 'a> {
     sized_converted: Tally,
     /// How many rows the syllable walk has read ([`Renderer::syllable_rows`]).
     syllable_rows: Tally,
+    /// How many words have been laid ([`Renderer::words_laid`]).
+    words_laid: Tally,
+    /// **Each row's words, kept while the row is the same**
+    /// (`crate::kept`), so a frame lays only the words of the rows that
+    /// changed.
+    kept: crate::kept::KeptRows,
     /// Moves on every [`Renderer::set_theme`], and on every
     /// [`Renderer::restack`]: a resolved slot names the face style and the
     /// font its stack has faces for, so a copy resolved against the old
@@ -2610,6 +2635,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             sized_rows: Vec::new(),
             sized_converted: Tally::default(),
             syllable_rows: Tally::default(),
+            words_laid: Tally::default(),
+            kept: crate::kept::KeptRows::default(),
             theme_gen: ThemeGen::default(),
             bg: Vec::new(),
             fg: Vec::new(),
@@ -5172,7 +5199,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// **How many rows a convert has walked for their syllables and words**
     /// since the renderer was made (`crate::syllable`): a row of no
     /// character a legacy cluster parts at or after and no Devanagari
-    /// letter is let go by one pass of a block table and never counted.
+    /// letter is let go by one pass of a block table and never counted,
+    /// and a row whose cells a row kept holds (`crate::kept`) is not
+    /// walked again.
     pub fn syllable_rows(&self) -> Tally {
         self.syllable_rows
     }
@@ -5401,6 +5430,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.dirty = vec![false; rows.index()];
         self.repaint = vec![Repaint::Whole; rows.index()];
         self.known = Prev::Unknown;
+        self.kept.fit(rows);
     }
 
     fn row_cells(&self, r: Row) -> core::ops::Range<usize> {
@@ -8027,6 +8057,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if all.is_empty() || syllables.is_empty() {
             return None;
         }
+        self.words_laid.bump();
         let base = self.face_for(&all, style);
         let faces: Vec<FaceIx> = core::iter::once(base)
             .chain(self.stack.narrower(base))
@@ -8139,7 +8170,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     .atlas
                     .slot_at(f, w.face, p.id, scale, phase, Stretch::One);
                 out.push(GlyphPlace {
-                    syllable: crate::word::SyllableIx(k),
+                    syllable: crate::word::SyllableIx(u16::try_from(k).unwrap_or(u16::MAX)),
                     id: p.id,
                     slot,
                     whole: whole as i32,
@@ -8168,15 +8199,57 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// cell of the row as it draws, the word's cells unlit; `paint` the
     /// word's syllables'. What every path draws a word from, in the
     /// instance path's place on the screen.
+    ///
+    /// **Word `i` of the kept row `kept` names** (`crate::kept`) is laid
+    /// again only where it was laid after a word ending elsewhere or in
+    /// another face, else painted from its kept layout in this frame's
+    /// light: the cursor and the selection never lay it. A row that names
+    /// none is laid.
     pub(crate) fn word_at(
         &mut self,
         term: &Term<'_>,
-        r: Row,
-        row: &[PackedCell],
+        (r, row, kept): (
+            Row,
+            &[PackedCell],
+            Option<(crate::kept::KeptIx, crate::kept::WordIx)>,
+        ),
         (w, paint, prev): (&crate::word::Word, &crate::word::WordPaint, Option<f32>),
         under: &[crate::word::Under],
         out: &mut Vec<Instance>,
     ) -> Option<crate::word::WordLaid> {
+        let style = self.face_style(*row.get(w.at.index())?);
+        let cols = Cols::of_index(row.len());
+        let Some(ki) = kept else {
+            let layout = self.word_layout(term, row, (w, style), (cols, prev))?;
+            return Some(self.word_painted(r, &layout, (w, paint), under, out));
+        };
+        if !self.kept.has_word(ki, prev, style) {
+            let layout = self.word_layout(term, row, (w, style), (cols, prev));
+            self.kept.keep_word(ki, prev, style, layout);
+        } else if cfg!(debug_assertions) {
+            // A debug build lays a kept word again, uncounted, and requires
+            // the layout kept to be the one it lays.
+            let laid = self.words_laid;
+            let again = self.word_layout(term, row, (w, style), (cols, prev));
+            self.words_laid = laid;
+            debug_assert!(
+                again.as_ref() == self.kept.word(ki),
+                "a kept word's layout is the one its row lays"
+            );
+        }
+        let layout = self.kept.word(ki)?;
+        Some(self.word_painted(r, layout, (w, paint), under, out))
+    }
+
+    /// **Word `w` of `row` laid and placed** ([`WordLayout`]), in face
+    /// `style`, on a row `cols` wide after a word ending at `prev`.
+    fn word_layout(
+        &mut self,
+        term: &Term<'_>,
+        row: &[PackedCell],
+        (w, style): (&crate::word::Word, TextFace),
+        (cols, prev): (Cols, Option<f32>),
+    ) -> Option<WordLayout> {
         let parts: Vec<Vec<Codepoint>> = w
             .syllables
             .iter()
@@ -8189,14 +8262,41 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     .collect()
             })
             .collect();
-        let style = self.face_style(*row.get(w.at.index())?);
-        self.word_drawn(
-            r,
-            (&parts, style),
-            (w, paint, prev),
-            (under, Cols::of_index(row.len())),
-            out,
-        )
+        self.word_placed((&parts, style), w, (cols, prev))
+    }
+
+    /// **The kept row of window row `at`, holding `cells` in the order
+    /// they are drawn in** (`crate::kept`), its syllables and words as
+    /// `find` finds them where no row kept holds those cells so.
+    pub(crate) fn kept_row(
+        &mut self,
+        term: &Term<'_>,
+        (at, rows): (Row, Rows),
+        cells: (&[PackedCell], &[Col]),
+        find: impl FnOnce() -> crate::kept::Found,
+    ) -> (
+        crate::kept::KeptIx,
+        std::rc::Rc<crate::kept::Found>,
+        crate::kept::Asked,
+    ) {
+        let stamp = crate::kept::Stamp {
+            clusters: term.cluster_epoch(),
+            metrics: self.metrics,
+            scale: self.scales.first().copied(),
+            grown: self.atlas.stats().grown,
+            theme: self.theme_gen,
+            styles: term
+                .variants_seen()
+                .then(|| (term.style_table(), term.style_writes())),
+        };
+        self.kept.row(stamp, (at, rows.index()), cells, find)
+    }
+
+    /// How many words have been laid since the renderer was made
+    /// ([`Renderer::lay_word`]): a word of a row kept since an earlier
+    /// frame is painted from its layout and not counted (`crate::kept`).
+    pub fn words_laid(&self) -> Tally {
+        self.words_laid
     }
 
     /// **Where a word's ink ends** as [`Renderer::lay_word`] lays it, in
@@ -8225,12 +8325,47 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (under, cols): (&[crate::word::Under], Cols),
         out: &mut Vec<Instance>,
     ) -> Option<crate::word::WordLaid> {
+        let layout = self.word_placed((parts, style), w, (cols, prev))?;
+        Some(self.word_painted(r, &layout, (w, paint), under, out))
+    }
+
+    /// **A word whose syllables hold `parts` laid and its glyphs placed**
+    /// ([`WordLayout`]), in face `style`, on a row `cols` wide after a word
+    /// ending at `prev`: what [`Renderer::word_painted`] draws it from.
+    fn word_placed(
+        &mut self,
+        (parts, style): (&[Vec<Codepoint>], TextFace),
+        w: &crate::word::Word,
+        (cols, prev): (Cols, Option<f32>),
+    ) -> Option<WordLayout> {
         let laid_word = self.lay_word(
             (parts, &w.syllables),
             style,
             (w.at, w.cells, w.room),
             (cols, prev),
         )?;
+        let places = self.word_glyph_places(&laid_word);
+        Some(WordLayout {
+            laid: laid_word.laid,
+            x0: laid_word.x0,
+            bounds: laid_word.bounds,
+            ink: laid_word.measure.ink,
+            places,
+        })
+    }
+
+    /// **Word `w` drawn into `out` from its layout**, in its syllables'
+    /// `paint` and over `under`, every cell of row `r` as it draws: the
+    /// lit rectangles over the syllables' pen spans, then each glyph at its
+    /// place, cut where its ground is another's ([`Renderer::word_at`]).
+    fn word_painted(
+        &self,
+        r: Row,
+        laid_word: &WordLayout,
+        (w, paint): (&crate::word::Word, &crate::word::WordPaint),
+        under: &[crate::word::Under],
+        out: &mut Vec<Instance>,
+    ) -> crate::word::WordLaid {
         let n_syl = w.syllables.len();
         let bounds = &laid_word.bounds;
         let spans: Vec<(i32, i32)> = (0..n_syl)
@@ -8296,9 +8431,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .map_or(paint.syllables[0].0, |u| u.colours)
         };
         let mut pens = Vec::new();
-        for g in self.word_glyph_places(&laid_word) {
+        for g in &laid_word.places {
             pens.push((g.id, g.pen));
-            let (colours, _, text) = paint.syllables[g.syllable.0];
+            let (colours, _, text) = paint.syllables[usize::from(g.syllable.0)];
             let Some(slot) = g.slot.filter(|_| text.draws()) else {
                 continue;
             };
@@ -8315,7 +8450,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             cut_by_ground(inst, colours, self.metrics.cell_w, &lit, &ground, out);
         }
-        Some(crate::word::WordLaid {
+        crate::word::WordLaid {
             at: w.at,
             cells: w.cells,
             room: (
@@ -8327,13 +8462,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             instance: laid_word.laid.instance,
             how: laid_word.laid.how,
             ink: (
-                laid_word.x0 + laid_word.measure.ink.left,
-                laid_word.x0 + laid_word.measure.ink.right,
+                laid_word.x0 + laid_word.ink.left,
+                laid_word.x0 + laid_word.ink.right,
             ),
             syllables: w.syllables.iter().map(|s| (s.at, s.cells)).collect(),
             spans,
             pens,
-        })
+        }
     }
 
     /// The syllable `s` of row `r` drawn into `out` from its first cell
@@ -9439,28 +9574,59 @@ impl<'f, 'a> Renderer<'f, 'a> {
             crate::bidi::Opens::No => false,
             crate::bidi::Opens::Unknown => crate::syllable::may_hold(term, walked),
         };
-        let (syllables, letters) = match held {
-            true => {
-                self.syllable_rows.bump();
-                crate::syllable::walk(term, walked, logical_of)
+        // **Kept while the row is the same** (`crate::kept`): a single-width
+        // row which no display re-breaks and no composition is on is walked
+        // and its words laid only where no row kept holds its cells in the
+        // order they are drawn in.
+        let keep = held
+            && !size.is_double()
+            && !self.taken.on(r)
+            && self.composition.as_ref().is_none_or(|c| c.row != r)
+            && self.bidi.orders().display().is_none();
+        let (found, kept) = match (keep, held) {
+            (_, false) => (None, None),
+            (true, true) => {
+                let rows = self.rows;
+                let (k, found, asked) = self.kept_row(term, (r, rows), (walked, &logical), || {
+                    let (parted, letters) = crate::syllable::walk(term, walked, logical_of);
+                    let words = match letters {
+                        crate::word::Letters::Seen => {
+                            crate::word::of_row(term, walked, logical_of, &parted, |_| None)
+                        }
+                        crate::word::Letters::None => Vec::new(),
+                    };
+                    crate::kept::Found { parted, words }
+                });
+                if asked == crate::kept::Asked::Found {
+                    self.syllable_rows.bump();
+                }
+                (Some(found), Some(k))
             }
-            false => (Vec::new(), crate::word::Letters::None),
+            (false, true) => {
+                self.syllable_rows.bump();
+                let (parted, letters) = crate::syllable::walk(term, walked, logical_of);
+                // A composition's cells read as what they will hold, and the
+                // letters beside it that its words take in, which it draws,
+                // drawn unlit here as a word's own cells are
+                // ([`crate::overlay::Taken`]).
+                let taken = &self.taken;
+                let words = match size.is_double() || letters == crate::word::Letters::None {
+                    true => Vec::new(),
+                    false => crate::word::of_row(term, walked, logical_of, &parted, |x| {
+                        taken.held(r, Col::at_index(x))
+                    }),
+                };
+                (
+                    Some(std::rc::Rc::new(crate::kept::Found { parted, words })),
+                    None,
+                )
+            }
         };
-        // A composition's cells read as what they will hold, and the letters
-        // beside it that its words take in, which it draws, drawn unlit
-        // here as a word's own cells are ([`crate::overlay::Taken`]).
-        let taken = &self.taken;
-        let words: Vec<crate::word::Word> =
-            match size.is_double() || letters == crate::word::Letters::None {
-                true => Vec::new(),
-                false => crate::word::of_row(
-                    term,
-                    &row[..line_end.min(row.len())],
-                    logical_of,
-                    &syllables,
-                    |x| taken.held(r, Col::at_index(x)),
-                ),
-            };
+        let (syllables, words): (&[crate::syllable::Syllable], &[crate::word::Word]) = match &found
+        {
+            Some(f) => (&f.parted, &f.words),
+            None => (&[], &[]),
+        };
         let beside: Vec<usize> = match self.taken.on(r) {
             true => self.taken.beside(r).collect(),
             false => Vec::new(),
@@ -9477,7 +9643,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         if !words.is_empty() || !beside.is_empty() {
             lights = vec![crate::word::Light::NONE; row.len()];
-            for w in &words {
+            for w in words {
                 for x in w.at.index()..w.end().index() {
                     self.worded[range.start + x] = crate::word::Worded::Yes;
                 }
@@ -9730,7 +9896,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             };
         self.laid[r.index()].clear();
-        let worded = (&words[..], &paints[..], &under[..], &syllables[..]);
+        let worded = (words, &paints[..], &under[..], syllables, kept);
         self.row_runs(
             term,
             r,
@@ -9822,7 +9988,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         r: Row,
         (row, seams, joins, mirrors, slants): RowCells<'_>,
         (st, line_end): (Stretch, usize),
-        (words, paints, grounds, syllables): Worded<'_>,
+        (words, paints, grounds, syllables, kept): Worded<'_>,
         instances: &mut Vec<Instance>,
         exc: &mut Exceptions,
     ) {
@@ -9907,8 +10073,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         w.at,
                         self.laid[r.index()].last().map(|l| (l.at, l.ink.1)),
                     );
-                    let laid =
-                        self.word_at(term, r, row, (w, &paints[wi], prev), grounds, instances);
+                    let laid = self.word_at(
+                        term,
+                        (r, row, kept.map(|k| (k, crate::kept::WordIx(wi)))),
+                        (w, &paints[wi], prev),
+                        grounds,
+                        instances,
+                    );
                     if let Some(l) = laid {
                         self.laid[r.index()].push(l);
                     }
@@ -11552,5 +11723,73 @@ mod layouts {
             &Stack::with_roles(&faces, &roles).unwrap(),
             PxSize::of(28.0).unwrap(),
         );
+    }
+}
+
+/// **At most twice the window's rows are kept** (`crate::kept`).
+#[cfg(test)]
+mod kept_bound {
+    use super::*;
+    use baud_core::Owned;
+    use baud_domain::{Content, WinSize};
+
+    /// A row of `cols` cells, the first of them `c`.
+    fn row(c: Codepoint, cols: Cols) -> Vec<PackedCell> {
+        let mut cells = vec![PackedCell::EMPTY; cols.index()];
+        cells[0].content = Content::codepoint(c);
+        cells
+    }
+
+    /// **A window made smaller keeps twice its new rows**: sixteen rows
+    /// kept on a window of eight, the window cut to two keeps four, and
+    /// they are the four asked for last.
+    #[test]
+    fn a_window_made_smaller_keeps_twice_its_new_rows() {
+        let data = std::fs::read(format!(
+            "{}/../baud-app/fonts/built/Regular.ttf",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap();
+        let faces = [Face::parse(&data).unwrap()];
+        let ws = WinSize {
+            ws_col: 16,
+            ws_row: 8,
+        };
+        let (cols, rows) = (Cols::of_index(16), Rows::of_index(8));
+        let mut owned = Owned::new(&ws);
+        let t = Term::new(owned.storage(), &ws);
+        let mut r = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            cols,
+            rows,
+        )
+        .unwrap();
+        let found = || crate::kept::Found {
+            parted: Vec::new(),
+            words: Vec::new(),
+        };
+        let ask = |r: &mut Renderer<'_, '_>, n: u8, (y, rows): (usize, Rows)| {
+            let cells = row(Codepoint::from_char(char::from(b'A' + n)), cols);
+            r.kept_row(&t, (Row::from_index(y), rows), (&cells, &[]), found)
+                .2
+        };
+        for n in 0..16 {
+            ask(&mut r, n, (usize::from(n % 8), rows));
+        }
+        assert_eq!(r.kept.held(), Rows::of_index(16), "the premise: 16 kept");
+        let small = Rows::of_index(2);
+        r.resize(cols, small);
+        assert!(
+            r.kept.held().index() <= 4,
+            "at most twice the window's rows kept: {:?} for a window of 2",
+            r.kept.held()
+        );
+        for n in 12..16 {
+            let asked = ask(&mut r, n, (usize::from(n % 2), small));
+            assert_ne!(asked, crate::kept::Asked::Found, "row {n}, asked last");
+        }
     }
 }

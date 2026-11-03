@@ -49,6 +49,7 @@ mod flash;
 mod guide;
 pub mod ice;
 mod instance;
+mod kept;
 pub mod lightning;
 pub mod lights;
 mod linked;

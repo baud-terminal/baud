@@ -352,9 +352,12 @@ fn main() {
     let wanted = std::env::var("FRAME_ARMS").ok();
     // `FRAME_FIRST=n` reports the first n frames of every replay apart:
     // their convert a frame and the map misses they took, beside the rest.
-    // `FRAME_IDLE=n`: after the replay, n more frames on the cell arms with
-    // nothing read -- the frame a caret blink or a trail step draws, where
-    // nothing in the grid, the table or the palette changed. Reported apart.
+    // `FRAME_IDLE=n`: after the replay, n more frames on the cell arms and
+    // the app arm over the last screen with nothing read but, under
+    // `FRAME_CARET`, one DECSCUSR 1 and `?25h` on the first -- the frame a
+    // caret blink or a trail step draws, where nothing in the grid, the
+    // table or the palette changed. Reported apart: the app arm's line is
+    // its CPU a frame.
     let idle_n: usize = std::env::var("FRAME_IDLE")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -557,6 +560,12 @@ fn main() {
                 // Whether anything was fed since the last frame was built:
                 // the app builds none over a screen nothing touched.
                 let mut dirty = false;
+                // `FRAME_IDLE`'s frames after the replay, each built over
+                // the screen the last one drew with nothing read but, under
+                // `FRAME_CARET`, one DECSCUSR 1 and `?25h` on the first, the
+                // cursor's blink phase changed, and their CPU a frame.
+                let (mut idle_left, mut idling, mut shown) = (idle_n, false, false);
+                let mut idle_per: Vec<Duration> = Vec::new();
                 let t0 = Instant::now();
                 let mut due = t0;
                 loop {
@@ -580,6 +589,22 @@ fn main() {
                         total = Some(t0.elapsed());
                     }
                     let fin = total.is_some();
+                    if fin && !dirty && idle_left > 0 {
+                        while m.presenter.in_flight() == InFlight::Busy {
+                            std::hint::spin_loop();
+                        }
+                        idle_left -= 1;
+                        if let Some(pair) = caret {
+                            if !shown {
+                                let tail = b"\x1b[1 q\x1b[?25h";
+                                t.write_at(BytePos::ZERO, tail);
+                                t.feed(BytePos::ZERO, ReadLen::from_index(tail.len()));
+                                shown = true;
+                            }
+                            r.set_cursor_blink(pair[idle_left % 2]);
+                        }
+                        (dirty, idling) = (true, true);
+                    }
                     if fin && !dirty {
                         break;
                     }
@@ -699,6 +724,9 @@ fn main() {
                         None => panic!("draw_cells through the presenter"),
                     }
                     if fin {
+                        if idling {
+                            idle_per.push(df);
+                        }
                         continue;
                     }
                     committed += 1;
@@ -733,6 +761,15 @@ the first cpu {:.1}, copy {:.2}",
                     first(0),
                     first(1),
                 );
+                if !idle_per.is_empty() {
+                    let mut v = idle_per.clone();
+                    v.sort();
+                    println!(
+                        "      idle: {} frames over the last screen; median cpu {:.1} us/frame",
+                        v.len(),
+                        v.get(v.len() / 2).copied().map_or(f64::NAN, us),
+                    );
+                }
                 if hash {
                     // The surface the last frame went to, its rows cut to
                     // the target's width: the presenter's next, one back.
