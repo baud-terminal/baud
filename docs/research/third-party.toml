@@ -46,6 +46,11 @@
 #            refuses one); `what`
 #            is the row as THIRD_PARTY.md shows it in the repository
 #   holder   whose the material is, as the NOTICE names it
+#   spdx     what the entry adds to the `license` field of a crate that
+#            carries its files, where `licence` is not an SPDX expression
+#            crates.io takes (scripts/check-publish.py, SPDX_IDS): "" for
+#            facts and protocol interface data, which carry no licence; the
+#            licence taken, where the entry is offered under a choice
 #   from     the URLs the NOTICE gives, where `upstream` is not one URL; an
 #            entry under docs/research/sources/ stands for the URL the
 #            manifest records for that file
@@ -56,7 +61,10 @@
 # since. It is not legal advice.
 
 # ── The licence texts in LICENSES/. `sha256` is the committed file's; the
-# check re-hashes it, so a hand edit to a text fails.
+# check re-hashes it, so a hand edit to a text fails. `needs` lists the texts
+# a text names as part of its own notice (macos-man-notices.txt names the
+# APSL 2.0 for kqueue(2)): a text cited is a citation of each of those, and
+# a crate that carries it carries them too.
 
 [text."alacritty-Apache-2.0.txt"]
 licence = "Apache-2.0"
@@ -112,12 +120,6 @@ from    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/LICENSE"
 how     = "fetched"
 sha256  = "d534a23a31500a0ac958d9634b84f532bd73ff1aca1bb8f7debbcbebc16ff39a"
 
-[text."FTL.txt"]
-licence = "FTL"
-from    = "https://gitlab.freedesktop.org/freetype/freetype/-/raw/e2526d30e673c3063209bcbad8bdfc7fe1745fc3/docs/FTL.TXT"
-how     = "fetched"
-sha256  = "5a5ee54c5001bbad1cdc1a57cc3dd4c42199b2da09d39c7ee41fab002d02967f"
-
 [text."fzf-MIT.txt"]
 licence = "MIT"
 from    = "https://raw.githubusercontent.com/junegunn/fzf/a140afeb4d733cad3c96a56bf6db7e26853b6757/LICENSE"
@@ -129,18 +131,6 @@ licence = "MIT"
 from    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3/LICENSE"
 how     = "fetched"
 sha256  = "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1"
-
-[text."GPL-2.0-only.txt"]
-licence = "GPL-2.0-only"
-from    = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-2.0-only.txt"
-how     = "fetched"
-sha256  = "aaf135472f81c5b4a0dca9367e5bb5e9750032b5bebe5442b36e4c0a47430df3"
-
-[text."GPL-3.0-only.txt"]
-licence = "GPL-3.0-only"
-from    = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-3.0-only.txt"
-how     = "fetched"
-sha256  = "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0"
 
 [text."harfbuzz-COPYING.txt"]
 licence = "MIT-Modern-Variant"
@@ -177,12 +167,7 @@ licence = "APSL-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC"
 from    = "$SDKROOT/usr/share/man/{man2/kqueue.2,man3/clock_gettime.3,man3/tcgetpgrp.3}, macOS 27.0 SDK"
 how     = "built"
 sha256  = "8f831f5ead7d9f05b07584d0170b7a323d542483044b80ba7d224967cffa838a"
-
-[text."MPL-2.0.txt"]
-licence = "MPL-2.0"
-from    = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/MPL-2.0.txt"
-how     = "fetched"
-sha256  = "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172"
+needs   = ["LICENSES/APSL-2.0.txt"]
 
 [text."msdfgen-MIT.txt"]
 licence = "MIT"
@@ -472,62 +457,6 @@ files   = [
   "ecma-35-6th-1994.pdf",
   "ecma-48-5th-1991.pdf",
   "ecma-tr53-2nd-1992.pdf",
-]
-
-[upstream.linux]
-name    = "Linux, drivers/tty (n_tty.c is GPL-1.0-or-later, the rest GPL-2.0)"
-licence = "GPL-2.0-only AND GPL-1.0-or-later"
-notice  = "LICENSES/GPL-2.0-only.txt"
-status  = "copyleft"
-files   = [
-  "linux-n_tty.c",
-  "linux-pty.c",
-  "linux-tty_buffer.c",
-  "linux-vt-console.c",
-]
-
-[upstream.mosh]
-name    = "mosh 1.4.0 (Keith Winstein and contributors), with its OpenSSL linking exception in the file"
-licence = "GPL-3.0-or-later"
-notice  = "LICENSES/GPL-3.0-only.txt"
-status  = "copyleft"
-files   = [
-  "mosh-1.4.0-stmclient.cc",
-  "mosh-1.4.0-terminaloverlay.cc",
-  "mosh-1.4.0-terminaloverlay.h",
-]
-
-[upstream.helix]
-name    = "helix editor"
-licence = "MPL-2.0"
-notice  = "LICENSES/MPL-2.0.txt"
-status  = "copyleft"
-files   = [
-  "helix-079a789-termina.rs",
-  "helix-editor.rs",
-  "helix-tui-crossterm.rs",
-  "helix-tui-terminal.rs",
-]
-
-[upstream.xnu]
-name    = "XNU, bsd/kern and bsd/sys tty sources (Apple Inc.)"
-licence = "APSL-2.0"
-notice  = "LICENSES/APSL-2.0.txt"
-status  = "copyleft"
-files   = [
-  "xnu-tty.c",
-  "xnu-tty.h",
-  "xnu-tty_dev.c",
-  "xnu-tty_subr.c",
-]
-
-[upstream.freetype]
-name    = "FreeType, src/smooth/ftgrays.c"
-licence = "FTL OR GPL-2.0-or-later"
-notice  = "LICENSES/FTL.txt"
-status  = "copyleft"
-files   = [
-  "freetype-ftgrays.c",
 ]
 
 [upstream.alacritty]
@@ -1761,20 +1690,25 @@ public   = "Symbols Nerd Font Mono 3.5.1, an icon font embedded in the app, unmo
 holder   = "Ryan L McIntyre (Nerd Fonts), and each icon set's authors"
 
 [[tree]]
-what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as open"
+what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia Mono the build reads is byte for byte ttf/CascadiaMono.ttf of Microsoft's v2407.24 release, checked on 2026-11-03 against the release zip, and the repository's LICENSE at that tag is the OFL 1.1; the release binary's own name table carries a notice that differs from it, which FONTLOG.txt records. Shipped under the OFL, decided 2026-11-03"
 paths    = ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf", "baud-app/fonts/built/Italic.ttf", "baud-app/fonts/built/BoldItalic.ttf", "baud-app/fonts/built/FONTLOG.txt", "baud-app/fonts/built/AUTHORS.txt"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/built/OFL.txt"
 upstream = "https://github.com/JetBrains/JetBrainsMono, https://github.com/microsoft/cascadia-code and https://github.com/notofonts/devanagari"
-status   = "open"
+status   = "kept"
+public   = "baud's embedded font in four styles, Regular, Bold, Italic and Bold Italic: JetBrains Mono 2.304 with Hebrew drawn from Cascadia Mono (Cascadia Code v2407.24) and Noto Sans Devanagari 2.007 merged in, a Modified Version under the SIL Open Font License 1.1. FONTLOG.txt says what changed against each, and AUTHORS.txt names their authors"
+holder   = "The JetBrains Mono Project Authors; Microsoft Corporation, with Reserved Font Name Cascadia Code; The Noto Project Authors"
+from     = ["https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304", "https://github.com/microsoft/cascadia-code/releases/tag/v2407.24", "https://github.com/notofonts/devanagari"]
 
 [[tree]]
-what     = "Cascadia Mono from Cascadia Code v2407.24, and the dagesh anchors read out of it; the same open call as the built font"
+what     = "Cascadia Mono from Cascadia Code v2407.24, byte for byte ttf/CascadiaMono.ttf of Microsoft's release zip (checked 2026-11-03; hebrew/SOURCE gives the URL and both sha256s), and the dagesh anchors read out of it: under the OFL 1.1, the licence of the release's repository at its tag (OFL.txt beside them), decided 2026-11-03"
 paths    = ["baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf", "baud-app/fonts/glyphs/languages/hebrew/anchors-400.json", "baud-app/fonts/glyphs/languages/hebrew/anchors-700.json"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/glyphs/languages/hebrew/OFL.txt"
 upstream = "https://github.com/microsoft/cascadia-code/releases/tag/v2407.24"
-status   = "open"
+status   = "kept"
+public   = "Cascadia Mono from Cascadia Code v2407.24, unmodified, and the dagesh anchors read out of it, under the SIL Open Font License 1.1"
+holder   = "Microsoft Corporation, with Reserved Font Name Cascadia Code"
 
 [[tree]]
 what     = "The Devanagari merge module and the record of the Noto Sans Devanagari file it merges from: baud's own code and text under the repository's licence, as the Hebrew build modules are; the font itself is fetched by its pinned URL and sha256 at font-build time and is not in the tree, and its copyright line is in the built font's OFL.txt"
@@ -1927,6 +1861,7 @@ holder   = "Unicode, Inc."
 what     = "kitty's colour names, generated by scripts/gen-colour-names.py from X.Org's rgb.txt at 749182c and one name, DebianRed (215, 7, 81), which Debian added to its rgb.txt in 2004 (bug 243288, a value sampled from the Debian logo) and kitty's table carries; and kitty-colours.txt, baud's probes, rgb.txt's names and the numbers kitty's own C parser gives for them (and, for an oklch( or lab( colour outside sRGB, its Go conversion), written by scripts/kitty-colour-oracle.sh with no kitty text copied. A name and a value are facts (37 CFR 202.1(a); Compendium III 313.3(C), 313.4(C), 313.4(K)), and a program's output is not, in general, covered by the program's copyright (GPL FAQ, WhatCaseIsOutputGPL)"
 paths    = ["baud-domain/src/themefile/colour_names.rs", "baud-domain/tests/kitty-colours.txt"]
 licence  = "MIT-open-group (rgb.txt); DebianRed from Debian xorg debian/local/rgb.txt, a name and a value"
+spdx     = "MIT-open-group"
 notice   = "LICENSES/xorg-rgb-COPYING.txt"
 upstream = "docs/research/sources/xorg-rgb-749182c.txt"
 status   = "kept"
@@ -1995,11 +1930,31 @@ holder   = "Unicode, Inc."
 from     = ["docs/research/sources/iso8859-1.txt", "docs/research/sources/iso8859-2.txt", "docs/research/sources/iso8859-5.txt", "docs/research/sources/iso8859-7.txt", "docs/research/sources/iso8859-8.txt", "docs/research/sources/iso8859-9.txt"]
 
 [[tree]]
-what     = "DEC Supplemental, JIS-Katakana and JIS-Roman, generated by scripts/gen-dec-sets.py: DEC Supplemental from DEC's VT220 Table 2-3 as vt100.net transcribes it, JIS-Katakana from Unicode's JIS0201.TXT, each checked against xterm's charsets.h macros; and vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests and the generator read, written by scripts/extract-vt220-tables.py from the two pages, fetched by URL and hash-checked, no prose copied. Whether a codepoint table carries the transcription's terms (no grant found) is open; JIS0201.TXT's notice is in the tree"
-paths    = ["baud-domain/src/dec_sets_data.rs", "baud-domain/tests/vt220_tables.tsv"]
-licence  = "LicenseRef-NoGrant (vt100.net's transcription), if the table carries any; Unicode-3.0 (JIS0201.TXT)"
+what     = "DEC Supplemental in dec_sets_data.rs, generated by scripts/gen-dec-sets.py from xterm's charsets.h macro map_DEC_Supp_Graphic, as the national sets are, and checked cell for cell against DEC's VT220 Table 2-3 (vt220_tables.tsv) and EK-PPLV2-PM Figure A-2. At 5/15 xterm draws `_` and DEC's Table 2-3, the VT320's Appendix E and Figure A-2 all have ß; DEC's text is the standard, so the cell is ß (CONFORM in the generator; note AF section 3.1). The values no longer come from vt100.net's transcription, decided 2026-11-03"
+paths    = ["baud-domain/src/dec_sets_data.rs"]
+licence  = "X11"
+notice   = "LICENSES/xterm-COPYING.txt"
+upstream = "docs/research/sources/xterm-charsets.h"
+status   = "kept"
+public   = "DEC Supplemental, generated from xterm's charsets.h, with 5/15, the one cell where xterm departs from DEC's VT220 manual, as the manual has it: ß"
+holder   = "Thomas E. Dickey (xterm)"
+
+[[tree]]
+what     = "JIS-Katakana and JIS-Roman in dec_sets_data.rs, generated by scripts/gen-dec-sets.py: JIS-Katakana's 63 characters and JIS-Roman's Yen sign from Unicode's JIS0201.TXT, at the positions DEC's EK-PPLV2-PM and VT382 manual give, each checked against xterm's charsets.h macros"
+paths    = ["baud-domain/src/dec_sets_data.rs"]
+licence  = "Unicode-3.0"
 notice   = "LICENSES/Unicode-3.0.txt"
-upstream = "https://vt100.net/docs/vt220-rm/chapter2.html (dec-special-graphics in MANIFEST.toml), docs/research/sources/JIS0201.TXT and docs/research/sources/xterm-charsets.h"
+upstream = "docs/research/sources/JIS0201.TXT"
+status   = "kept"
+public   = "JIS-Katakana and JIS-Roman, generated from Unicode's JIS0201.TXT"
+holder   = "Unicode, Inc."
+
+[[tree]]
+what     = "vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests and the DEC sets' generator check against, written by scripts/extract-vt220-tables.py from vt100.net's two pages, fetched by URL and hash-checked, no prose copied. Whether a codepoint table carries the transcription's terms (no grant found) is open; no crate carries the file"
+paths    = ["baud-domain/tests/vt220_tables.tsv"]
+licence  = "LicenseRef-NoGrant (vt100.net's transcription), if the table carries any"
+notice   = "none"
+upstream = "https://vt100.net/docs/vt220-rm/chapter2.html (dec-special-graphics in MANIFEST.toml)"
 status   = "open"
 
 [[tree]]
@@ -2043,17 +1998,21 @@ public   = "DirectWrite's grayscale text-contrast curve as Windows Terminal port
 holder   = "Microsoft Corporation"
 
 [[tree]]
-what     = "The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Whether a chosen set of sixteen values is protectable is unverified"
+what     = "The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Kept as facts, sixteen colour values, credited, and no GPL text ships for them, decided 2026-11-03"
 paths    = ["baud-render/src/color.rs"]
 licence  = "none claimed; Modus itself is GPL-3.0-or-later"
+spdx     = ""
 notice   = "credit at MODUS_OPERANDI"
 upstream = "https://github.com/protesilaos/modus-themes"
-status   = "open"
+status   = "kept"
+public   = "The light theme's sixteen colours, Modus Operandi's sixteen colour values but entry 7, which baud darkens, kept as facts and credited at MODUS_OPERANDI. No text of Modus is used"
+holder   = "Protesilaos Stavrou (Modus themes), (C) Free Software Foundation"
 
 [[tree]]
 what     = "The quad cursor trail follows kitty's design -- four corners chasing the cursor's at per-corner rates -- with kitty's defaults (decay 0.1 s and 0.4 s, a start threshold of two cells) and its half-pixel end. Its rate choice, which had followed kitty's cursor_trail.c term for term, was re-derived on 2026-10-25 from the derivation in note W, section 8, after a line-by-line audit against kitty v0.49.2, and so were the copies of it in four research prototypes under note W; no line of kitty's is ported"
 paths    = ["baud-render/src/trail.rs", "docs/research/notes/w/liquid-proto.py", "docs/research/notes/w/ufo-proto2.py", "docs/research/notes/w/ice-prototype.swift", "docs/research/notes/w/orb-harness.swift"]
 licence  = "none claimed; kitty is GPL-3.0-only"
+spdx     = ""
 notice   = "none needed"
 upstream = "https://github.com/kovidgoyal/kitty/blob/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/cursor_trail.c"
 status   = "kept"
@@ -2064,6 +2023,7 @@ holder   = "baud's author; the design it follows is Kovid Goyal's (kitty)"
 what     = "The kitty theme reader's colour values (kitty_colour in terminals.rs) and its oklch( and lab( colours (oklab.rs) read and draw as kitty does: kitty's behaviour, its constants (a JND of 0.02, a convergence of 1e-4, a grey below a chroma of 1e-5) and its departures from CSS Color 4 and X11, which note AR's O14 keeps. Both had followed kitty's colors.c and tools/utils/style/colorspaces.go step for step, and were re-derived on 2026-10-25 from the rules in note AR after a line-by-line audit against kitty v0.49.2. The oracle script's driver now compiles kitty's own parse_color body from the fetched, hash-checked file instead of carrying a copy; no line of kitty's is ported"
 paths    = ["baud-domain/src/themefile/terminals.rs", "baud-domain/src/themefile/oklab.rs", "scripts/kitty-colour-oracle.sh"]
 licence  = "none claimed; kitty is GPL-3.0-only"
+spdx     = ""
 notice   = "none needed"
 upstream = "https://github.com/kovidgoyal/kitty/blob/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/colors.c"
 status   = "kept"
@@ -2074,6 +2034,7 @@ holder   = "baud's author; the behaviour it follows is Kovid Goyal's (kitty)"
 what     = "The OKLab matrices in oklab.rs, number for number and sum for sum Björn Ottosson's published linear_srgb_to_oklab and oklab_to_linear_srgb, which his OKLab post offers in the public domain or under MIT"
 paths    = ["baud-domain/src/themefile/oklab.rs"]
 licence  = "public domain, or MIT"
+spdx     = "MIT"
 notice   = "LICENSES/ottosson-MIT.txt"
 upstream = "https://bottosson.github.io/posts/oklab/"
 status   = "kept"
@@ -2133,17 +2094,21 @@ public   = "The CFF Standard Encoding, a 256-entry code-to-SID table generated f
 holder   = "Adobe Systems Incorporated"
 
 [[tree]]
-what     = "The kitty keyboard protocol's functional-key numbers in input.rs, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied; that documentation is GPL-3.0. Whether a protocol's key-to-number table carries kitty's licence is open"
+what     = "The kitty keyboard protocol's functional-key numbers in input.rs (kitty_number), with the X keysym of each key as kitty's keyboard layer maps them, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied. The numbers are what an application and a terminal exchange in kitty's protocol, so they are kept as the protocol's interface data, as the placeholder diacritics are, attributed to kitty v0.49.2; kitty's documentation is GPL-3.0, none of its text is kept, and no GPL text ships with the crate, decided 2026-11-03"
 paths    = ["baud-domain/src/input.rs", "baud-core/tests/kitty_functional_keys.tsv", "baud-core/tests/kitty_legacy_c0.tsv"]
-licence  = "GPL-3.0-only (kitty's documentation), if the table carries any"
-notice   = "LICENSES/GPL-3.0-only.txt"
-upstream = "https://sw.kovidgoyal.net/kitty/keyboard-protocol/"
-status   = "open"
+licence  = "protocol interface data, attributed to kitty v0.49.2 (Kovid Goyal)"
+spdx     = ""
+notice   = "none"
+upstream = "https://github.com/kovidgoyal/kitty/blob/v0.49.2/docs/keyboard-protocol.rst"
+status   = "kept"
+public   = "The kitty keyboard protocol's key numbers in input.rs, the numbers an application and a terminal exchange in that protocol, kept as the protocol's interface data. No text of kitty's documentation is kept"
+holder   = "Kovid Goyal (kitty v0.49.2)"
 
 [[tree]]
 what     = "The Unicode placeholder diacritic table in placeholder_data.rs, generated by scripts/gen-placeholder-table.py from placeholder-diacritics.txt, the 297 codepoints of kitty's rowcolumn-diacritics.txt (fetched by URL and hash-checked, nothing else of the file kept), a list derived from UnicodeData.txt that every client of the kitty graphics protocol must send; that file is in kitty's tree. Kept as the protocol's interface data, attributed to kitty v0.49.2"
 paths    = ["baud-domain/src/placeholder_data.rs", "docs/data/placeholder-diacritics.txt"]
 licence  = "protocol interface data, attributed to kitty v0.49.2 (Kovid Goyal)"
+spdx     = ""
 notice   = "none"
 upstream = "https://github.com/kovidgoyal/kitty/blob/v0.49.2/gen/rowcolumn-diacritics.txt"
 status   = "kept"
@@ -2154,6 +2119,7 @@ holder   = "Kovid Goyal (kitty v0.49.2)"
 what     = "The OSC 1337 key names in iterm_keys.rs, 39 that iTerm2's documentation names and 54 that its VT100Terminal.m compares, written by scripts/gen-iterm2-keys.py from the pages and the source (GPL-2.0, external in the manifest, fetched by URL and hash-checked, no prose or code kept): the words an application sends to iTerm2's protocol. Kept as the protocol's interface data, attributed to iTerm2 at 964a75d (George Nachman)"
 paths    = ["baud-domain/src/vt/iterm_keys.rs"]
 licence  = "protocol interface data, attributed to iTerm2 at 964a75d (George Nachman)"
+spdx     = ""
 notice   = "none"
 upstream = "https://github.com/gnachman/iTerm2/blob/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m"
 status   = "kept"

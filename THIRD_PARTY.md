@@ -20,12 +20,11 @@ advice; where a file's status is a choice still open, this file says so and deci
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| open | 0 | 5 | an open question, recorded where the file is |
-| copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
+| open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 319 | 48 | redistributable, and its notice is satisfied |
+| kept | 319 | 54 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 605 | 61 | |
+| total | 589 | 63 | |
 
 ## Licence texts in LICENSES/
 
@@ -43,11 +42,8 @@ they were built from.
 | [fontdue-MIT.txt](LICENSES/fontdue-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/mooman219/fontdue/2924772fb4439b8aca40b1bffca70088acba5a1b/LICENSE-MIT | a72354dd6206c20d |
 | [fonttools-MIT.txt](LICENSES/fonttools-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/LICENSE | 6787208f83f659cc |
 | [foot-MIT.txt](LICENSES/foot-MIT.txt) | MIT | fetched: https://codeberg.org/dnkl/foot/raw/tag/1.21.0/LICENSE | d534a23a31500a0a |
-| [FTL.txt](LICENSES/FTL.txt) | FTL | fetched: https://gitlab.freedesktop.org/freetype/freetype/-/raw/e2526d30e673c3063209bcbad8bdfc7fe1745fc3/docs/FTL.TXT | 5a5ee54c5001bbad |
 | [fzf-MIT.txt](LICENSES/fzf-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/junegunn/fzf/a140afeb4d733cad3c96a56bf6db7e26853b6757/LICENSE | a296f423c0d30ce3 |
 | [ghostty-MIT.txt](LICENSES/ghostty-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3/LICENSE | 386211873e5b7a02 |
-| [GPL-2.0-only.txt](LICENSES/GPL-2.0-only.txt) | GPL-2.0-only | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-2.0-only.txt | aaf135472f81c5b4 |
-| [GPL-3.0-only.txt](LICENSES/GPL-3.0-only.txt) | GPL-3.0-only | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-3.0-only.txt | fb981668c18a279e |
 | [harfbuzz-COPYING.txt](LICENSES/harfbuzz-COPYING.txt) | MIT-Modern-Variant | fetched: https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/COPYING | ba8f810f2455c2f0 |
 | [highway-LICENSE.txt](LICENSES/highway-LICENSE.txt) | Apache-2.0 OR BSD-3-Clause | fetched: https://raw.githubusercontent.com/google/highway/b93ad441d9cbeb7d7629281992b796a73033996a/LICENSE | 85de9303e7a81f35 |
 | [ijg-README.txt](LICENSES/ijg-README.txt) | IJG | fetched: README in https://www.ijg.org/files/jpegsrc.v6b.tar.gz (sha256 75c3ec241e9996504fe02a9ed4d12f16b74ade713972f3db9e65ce95cd27e35d), unaltered as its condition (1) requires | 4cf9c190f184019b |
@@ -58,7 +54,6 @@ they were built from.
 | [libxkbcommon-LICENSE.txt](LICENSES/libxkbcommon-LICENSE.txt) | MIT AND HPND | fetched: https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/LICENSE | 967e97b28658f003 |
 | [lscolors-MIT.txt](LICENSES/lscolors-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/sharkdp/lscolors/fd932f838d055990378e3d73fbd5d61185da495e/LICENSE-MIT | f9c4c77baa382800 |
 | [macos-man-notices.txt](LICENSES/macos-man-notices.txt) | APSL-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC | built: $SDKROOT/usr/share/man/{man2/kqueue.2,man3/clock_gettime.3,man3/tcgetpgrp.3}, macOS 27.0 SDK | 8f831f5ead7d9f05 |
-| [MPL-2.0.txt](LICENSES/MPL-2.0.txt) | MPL-2.0 | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/MPL-2.0.txt | 66a3107d5ad6a058 |
 | [msdfgen-MIT.txt](LICENSES/msdfgen-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/Chlumsky/msdfgen/1c106ed8117893bf943e577f62eb0665fb271e46/LICENSE.txt | 32a94b25ad7072a7 |
 | [msdos-4.0-MIT.txt](LICENSES/msdos-4.0-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/microsoft/MS-DOS/2d04cacc5322951f187bb17e017c12920ac8ebe2/LICENSE | b5179f780ec212a4 |
 | [msdos-MIT.txt](LICENSES/msdos-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/microsoft/MS-DOS/80ab2fddfdf30f09f0a0a637654cbb3cd5c7baa6/LICENSE.md | 51c6e2eb6150b705 |
@@ -95,45 +90,13 @@ they were built from.
 
 ## In the tree outside docs/research/sources/
 
-### baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as open
+### vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests and the DEC sets' generator check against, written by scripts/extract-vt220-tables.py from vt100.net's two pages, fetched by URL and hash-checked, no prose copied. Whether a codepoint table carries the transcription's terms (no grant found) is open; no crate carries the file
 
 - **Status:** open -- an open question, recorded where the file is
-- **Licence:** OFL-1.1
-- **Notice:** [baud-app/fonts/built/OFL.txt](baud-app/fonts/built/OFL.txt)
-- **From:** https://github.com/JetBrains/JetBrainsMono, https://github.com/microsoft/cascadia-code and https://github.com/notofonts/devanagari
-- **Files:** [baud-app/fonts/built/Regular.ttf](baud-app/fonts/built/Regular.ttf), [baud-app/fonts/built/Bold.ttf](baud-app/fonts/built/Bold.ttf), [baud-app/fonts/built/Italic.ttf](baud-app/fonts/built/Italic.ttf), [baud-app/fonts/built/BoldItalic.ttf](baud-app/fonts/built/BoldItalic.ttf), [baud-app/fonts/built/FONTLOG.txt](baud-app/fonts/built/FONTLOG.txt), [baud-app/fonts/built/AUTHORS.txt](baud-app/fonts/built/AUTHORS.txt)
-
-### Cascadia Mono from Cascadia Code v2407.24, and the dagesh anchors read out of it; the same open call as the built font
-
-- **Status:** open -- an open question, recorded where the file is
-- **Licence:** OFL-1.1
-- **Notice:** [baud-app/fonts/glyphs/languages/hebrew/OFL.txt](baud-app/fonts/glyphs/languages/hebrew/OFL.txt)
-- **From:** https://github.com/microsoft/cascadia-code/releases/tag/v2407.24
-- **Files:** [baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf](baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf), [baud-app/fonts/glyphs/languages/hebrew/anchors-400.json](baud-app/fonts/glyphs/languages/hebrew/anchors-400.json), [baud-app/fonts/glyphs/languages/hebrew/anchors-700.json](baud-app/fonts/glyphs/languages/hebrew/anchors-700.json)
-
-### DEC Supplemental, JIS-Katakana and JIS-Roman, generated by scripts/gen-dec-sets.py: DEC Supplemental from DEC's VT220 Table 2-3 as vt100.net transcribes it, JIS-Katakana from Unicode's JIS0201.TXT, each checked against xterm's charsets.h macros; and vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests and the generator read, written by scripts/extract-vt220-tables.py from the two pages, fetched by URL and hash-checked, no prose copied. Whether a codepoint table carries the transcription's terms (no grant found) is open; JIS0201.TXT's notice is in the tree
-
-- **Status:** open -- an open question, recorded where the file is
-- **Licence:** LicenseRef-NoGrant (vt100.net's transcription), if the table carries any; Unicode-3.0 (JIS0201.TXT)
-- **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
-- **From:** https://vt100.net/docs/vt220-rm/chapter2.html (dec-special-graphics in MANIFEST.toml), docs/research/sources/JIS0201.TXT and docs/research/sources/xterm-charsets.h
-- **Files:** [baud-domain/src/dec_sets_data.rs](baud-domain/src/dec_sets_data.rs), [baud-domain/tests/vt220_tables.tsv](baud-domain/tests/vt220_tables.tsv)
-
-### The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Whether a chosen set of sixteen values is protectable is unverified
-
-- **Status:** open -- an open question, recorded where the file is
-- **Licence:** none claimed; Modus itself is GPL-3.0-or-later
-- **Notice:** credit at MODUS_OPERANDI
-- **From:** https://github.com/protesilaos/modus-themes
-- **Files:** [baud-render/src/color.rs](baud-render/src/color.rs)
-
-### The kitty keyboard protocol's functional-key numbers in input.rs, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied; that documentation is GPL-3.0. Whether a protocol's key-to-number table carries kitty's licence is open
-
-- **Status:** open -- an open question, recorded where the file is
-- **Licence:** GPL-3.0-only (kitty's documentation), if the table carries any
-- **Notice:** [LICENSES/GPL-3.0-only.txt](LICENSES/GPL-3.0-only.txt)
-- **From:** https://sw.kovidgoyal.net/kitty/keyboard-protocol/
-- **Files:** [baud-domain/src/input.rs](baud-domain/src/input.rs), [baud-core/tests/kitty_functional_keys.tsv](baud-core/tests/kitty_functional_keys.tsv), [baud-core/tests/kitty_legacy_c0.tsv](baud-core/tests/kitty_legacy_c0.tsv)
+- **Licence:** LicenseRef-NoGrant (vt100.net's transcription), if the table carries any
+- **Notice:** none
+- **From:** https://vt100.net/docs/vt220-rm/chapter2.html (dec-special-graphics in MANIFEST.toml)
+- **Files:** [baud-domain/tests/vt220_tables.tsv](baud-domain/tests/vt220_tables.tsv)
 
 ### JetBrains Mono 2.304, embedded in the app, unmodified
 
@@ -158,6 +121,22 @@ they were built from.
 - **Notice:** [baud-app/fonts/symbols-nerd-font/LICENSE](baud-app/fonts/symbols-nerd-font/LICENSE)
 - **From:** https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1
 - **Files:** [baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf](baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf), [baud-app/fonts/symbols-nerd-font/README.md](baud-app/fonts/symbols-nerd-font/README.md), [baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE](baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE)
+
+### baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia Mono the build reads is byte for byte ttf/CascadiaMono.ttf of Microsoft's v2407.24 release, checked on 2026-11-03 against the release zip, and the repository's LICENSE at that tag is the OFL 1.1; the release binary's own name table carries a notice that differs from it, which FONTLOG.txt records. Shipped under the OFL, decided 2026-11-03
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** [baud-app/fonts/built/OFL.txt](baud-app/fonts/built/OFL.txt)
+- **From:** https://github.com/JetBrains/JetBrainsMono, https://github.com/microsoft/cascadia-code and https://github.com/notofonts/devanagari
+- **Files:** [baud-app/fonts/built/Regular.ttf](baud-app/fonts/built/Regular.ttf), [baud-app/fonts/built/Bold.ttf](baud-app/fonts/built/Bold.ttf), [baud-app/fonts/built/Italic.ttf](baud-app/fonts/built/Italic.ttf), [baud-app/fonts/built/BoldItalic.ttf](baud-app/fonts/built/BoldItalic.ttf), [baud-app/fonts/built/FONTLOG.txt](baud-app/fonts/built/FONTLOG.txt), [baud-app/fonts/built/AUTHORS.txt](baud-app/fonts/built/AUTHORS.txt)
+
+### Cascadia Mono from Cascadia Code v2407.24, byte for byte ttf/CascadiaMono.ttf of Microsoft's release zip (checked 2026-11-03; hebrew/SOURCE gives the URL and both sha256s), and the dagesh anchors read out of it: under the OFL 1.1, the licence of the release's repository at its tag (OFL.txt beside them), decided 2026-11-03
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** [baud-app/fonts/glyphs/languages/hebrew/OFL.txt](baud-app/fonts/glyphs/languages/hebrew/OFL.txt)
+- **From:** https://github.com/microsoft/cascadia-code/releases/tag/v2407.24
+- **Files:** [baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf](baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf), [baud-app/fonts/glyphs/languages/hebrew/anchors-400.json](baud-app/fonts/glyphs/languages/hebrew/anchors-400.json), [baud-app/fonts/glyphs/languages/hebrew/anchors-700.json](baud-app/fonts/glyphs/languages/hebrew/anchors-700.json)
 
 ### Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors, decided 2026-10-28
 
@@ -335,6 +314,22 @@ they were built from.
 - **From:** docs/research/sources/iso8859-1.txt, iso8859-2.txt, iso8859-5.txt, iso8859-7.txt, iso8859-8.txt and iso8859-9.txt
 - **Files:** [baud-domain/src/iso96_data.rs](baud-domain/src/iso96_data.rs)
 
+### DEC Supplemental in dec_sets_data.rs, generated by scripts/gen-dec-sets.py from xterm's charsets.h macro map_DEC_Supp_Graphic, as the national sets are, and checked cell for cell against DEC's VT220 Table 2-3 (vt220_tables.tsv) and EK-PPLV2-PM Figure A-2. At 5/15 xterm draws `_` and DEC's Table 2-3, the VT320's Appendix E and Figure A-2 all have ß; DEC's text is the standard, so the cell is ß (CONFORM in the generator; note AF section 3.1). The values no longer come from vt100.net's transcription, decided 2026-11-03
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** X11
+- **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
+- **From:** docs/research/sources/xterm-charsets.h
+- **Files:** [baud-domain/src/dec_sets_data.rs](baud-domain/src/dec_sets_data.rs)
+
+### JIS-Katakana and JIS-Roman in dec_sets_data.rs, generated by scripts/gen-dec-sets.py: JIS-Katakana's 63 characters and JIS-Roman's Yen sign from Unicode's JIS0201.TXT, at the positions DEC's EK-PPLV2-PM and VT382 manual give, each checked against xterm's charsets.h macros
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** Unicode-3.0
+- **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
+- **From:** docs/research/sources/JIS0201.TXT
+- **Files:** [baud-domain/src/dec_sets_data.rs](baud-domain/src/dec_sets_data.rs)
+
 ### The app compiles in ncurses' xterm-256color terminfo entry (infocmp output) to read the flash's padding
 
 - **Status:** kept -- redistributable, and its notice is satisfied
@@ -366,6 +361,14 @@ they were built from.
 - **Notice:** [LICENSES/windows-terminal-MIT.txt](LICENSES/windows-terminal-MIT.txt)
 - **From:** https://github.com/microsoft/terminal/blob/4e2b8bd9264642475d1398c11a5fd2aba06f373e/src/renderer/atlas/dwrite_helpers.hlsl
 - **Files:** [baud-domain/build.rs](baud-domain/build.rs), [baud-domain/src/contrast.rs](baud-domain/src/contrast.rs)
+
+### The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Kept as facts, sixteen colour values, credited, and no GPL text ships for them, decided 2026-11-03
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** none claimed; Modus itself is GPL-3.0-or-later
+- **Notice:** credit at MODUS_OPERANDI
+- **From:** https://github.com/protesilaos/modus-themes
+- **Files:** [baud-render/src/color.rs](baud-render/src/color.rs)
 
 ### The quad cursor trail follows kitty's design -- four corners chasing the cursor's at per-corner rates -- with kitty's defaults (decay 0.1 s and 0.4 s, a start threshold of two cells) and its half-pixel end. Its rate choice, which had followed kitty's cursor_trail.c term for term, was re-derived on 2026-10-25 from the derivation in note W, section 8, after a line-by-line audit against kitty v0.49.2, and so were the copies of it in four research prototypes under note W; no line of kitty's is ported
 
@@ -430,6 +433,14 @@ they were built from.
 - **Notice:** in the file
 - **From:** https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf
 - **Files:** [baud-font/src/standard_encoding.rs](baud-font/src/standard_encoding.rs)
+
+### The kitty keyboard protocol's functional-key numbers in input.rs (kitty_number), with the X keysym of each key as kitty's keyboard layer maps them, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied. The numbers are what an application and a terminal exchange in kitty's protocol, so they are kept as the protocol's interface data, as the placeholder diacritics are, attributed to kitty v0.49.2; kitty's documentation is GPL-3.0, none of its text is kept, and no GPL text ships with the crate, decided 2026-11-03
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** protocol interface data, attributed to kitty v0.49.2 (Kovid Goyal)
+- **Notice:** none
+- **From:** https://github.com/kovidgoyal/kitty/blob/v0.49.2/docs/keyboard-protocol.rst
+- **Files:** [baud-domain/src/input.rs](baud-domain/src/input.rs), [baud-core/tests/kitty_functional_keys.tsv](baud-core/tests/kitty_functional_keys.tsv), [baud-core/tests/kitty_legacy_c0.tsv](baud-core/tests/kitty_legacy_c0.tsv)
 
 ### The Unicode placeholder diacritic table in placeholder_data.rs, generated by scripts/gen-placeholder-table.py from placeholder-diacritics.txt, the 297 codepoints of kitty's rowcolumn-diacritics.txt (fetched by URL and hash-checked, nothing else of the file kept), a list derived from UnicodeData.txt that every client of the kitty graphics protocol must send; that file is in kitty's tree. Kept as the protocol's interface data, attributed to kitty v0.49.2
 
@@ -588,72 +599,6 @@ they were built from.
 Copies of other people's documents and code that baud's research cites, pinned by sha256 in
 [MANIFEST.toml](docs/research/sources/MANIFEST.toml). Each group gives the licence, where its
 notice is, and the URL each file was copied from.
-
-### FreeType, src/smooth/ftgrays.c
-
-- **Status:** copyleft -- redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open
-- **Licence:** FTL OR GPL-2.0-or-later
-- **Notice:** [LICENSES/FTL.txt](LICENSES/FTL.txt)
-- **Files:** 1
-
-| file | copied from |
-|---|---|
-| [freetype-ftgrays.c](docs/research/sources/freetype-ftgrays.c) | https://gitlab.freedesktop.org/freetype/freetype/-/raw/master/src/smooth/ftgrays.c |
-
-### helix editor
-
-- **Status:** copyleft -- redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open
-- **Licence:** MPL-2.0
-- **Notice:** [LICENSES/MPL-2.0.txt](LICENSES/MPL-2.0.txt)
-- **Files:** 4
-
-| file | copied from |
-|---|---|
-| [helix-079a789-termina.rs](docs/research/sources/helix-079a789-termina.rs) | https://raw.githubusercontent.com/helix-editor/helix/079a789e8cb08ead67f19e1971a1b7438b37354b/helix-tui/src/backend/termina.rs |
-| [helix-editor.rs](docs/research/sources/helix-editor.rs) | https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-term/src/ui/editor.rs |
-| [helix-tui-crossterm.rs](docs/research/sources/helix-tui-crossterm.rs) | https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-tui/src/backend/crossterm.rs |
-| [helix-tui-terminal.rs](docs/research/sources/helix-tui-terminal.rs) | https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-tui/src/terminal.rs |
-
-### Linux, drivers/tty (n_tty.c is GPL-1.0-or-later, the rest GPL-2.0)
-
-- **Status:** copyleft -- redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open
-- **Licence:** GPL-2.0-only AND GPL-1.0-or-later
-- **Notice:** [LICENSES/GPL-2.0-only.txt](LICENSES/GPL-2.0-only.txt)
-- **Files:** 4
-
-| file | copied from |
-|---|---|
-| [linux-n_tty.c](docs/research/sources/linux-n_tty.c) | https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/n_tty.c |
-| [linux-pty.c](docs/research/sources/linux-pty.c) | https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/pty.c |
-| [linux-tty_buffer.c](docs/research/sources/linux-tty_buffer.c) | https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/tty_buffer.c |
-| [linux-vt-console.c](docs/research/sources/linux-vt-console.c) | https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/vt/vt.c |
-
-### mosh 1.4.0 (Keith Winstein and contributors), with its OpenSSL linking exception in the file
-
-- **Status:** copyleft -- redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open
-- **Licence:** GPL-3.0-or-later
-- **Notice:** [LICENSES/GPL-3.0-only.txt](LICENSES/GPL-3.0-only.txt)
-- **Files:** 3
-
-| file | copied from |
-|---|---|
-| [mosh-1.4.0-stmclient.cc](docs/research/sources/mosh-1.4.0-stmclient.cc) | https://raw.githubusercontent.com/mobile-shell/mosh/mosh-1.4.0/src/frontend/stmclient.cc |
-| [mosh-1.4.0-terminaloverlay.cc](docs/research/sources/mosh-1.4.0-terminaloverlay.cc) | https://raw.githubusercontent.com/mobile-shell/mosh/mosh-1.4.0/src/frontend/terminaloverlay.cc |
-| [mosh-1.4.0-terminaloverlay.h](docs/research/sources/mosh-1.4.0-terminaloverlay.h) | https://raw.githubusercontent.com/mobile-shell/mosh/mosh-1.4.0/src/frontend/terminaloverlay.h |
-
-### XNU, bsd/kern and bsd/sys tty sources (Apple Inc.)
-
-- **Status:** copyleft -- redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open
-- **Licence:** APSL-2.0
-- **Notice:** [LICENSES/APSL-2.0.txt](LICENSES/APSL-2.0.txt)
-- **Files:** 4
-
-| file | copied from |
-|---|---|
-| [xnu-tty.c](docs/research/sources/xnu-tty.c) | https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty.c |
-| [xnu-tty.h](docs/research/sources/xnu-tty.h) | https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/sys/tty.h |
-| [xnu-tty_dev.c](docs/research/sources/xnu-tty_dev.c) | https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty_dev.c |
-| [xnu-tty_subr.c](docs/research/sources/xnu-tty_subr.c) | https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty_subr.c |
 
 ### vt100.net, 'A parser for DEC's ANSI-compatible video terminals' (Paul Flo Williams). Its RDF names CC BY-NC-SA 3.0, and it sits in the inline SVG's metadata with dc:type StillImage and the diagram's title, so it describes the state diagram. The footer naming CC BY 4.0 is inside an HTML comment in this copy, and vt100.net's emulation index carries a copyright line and no licence (manifest `vt100-net-emu-index`). The same footer was visible on 2023-09-06 and 2023-09-24 over an article line for line this copy's (manifest `williams-dec-ansi-parser-20230906` and `williams-dec-ansi-parser-20230924`), and CC BY 4.0 calls its grant irrevocable (2(a)(1)) and says stopping distribution does not end it (6(c); `cc-by-4-0-legalcode`). The whole file is kept under the stricter BY-NC-SA 3.0.
 

@@ -16,15 +16,18 @@ use crate::{Codepoint, DEC_ERROR_CHARACTER};
 /// DEC's error character, at a reserved position.
 const E: Codepoint = DEC_ERROR_CHARACTER;
 
-/// DEC Supplemental, `ESC ( <` and `ESC ( % 5`: `[[source: dec-special-graphics]]`
-/// Table 2-3's right half, its 81 glyphs and, in its 13 empty cells, the
-/// error character -- the cells `[[source: dec-pplv2-pm]]` Figure A-2 hatches
-/// and §A.2 says print it.
+/// DEC Supplemental, `ESC ( <` and `ESC ( % 5`: `[[source: xterm-charsets]]`'
+/// `map_DEC_Supp_Graphic`, its 81 glyphs and, in its 13 `UNDEF` cells, the
+/// error character, checked cell for cell against
+/// `[[source: dec-special-graphics]]` Table 2-3's right half, whose 13 empty
+/// cells are the ones `[[source: dec-pplv2-pm]]` Figure A-2 hatches and §A.2
+/// says print the error character.
 ///
-/// Where `[[source: xterm-charsets]]`' macro, practice, differs:
+/// Where the macro departs from DEC's text, the standard, the cell is DEC's:
 ///
-/// * `0x5f`: xterm's `UNI(0x5F, 0x005F)` draws `_`; Table 2-3,
-///   `[[source: vt320-uu-appe]]` and Figure A-2 have ß (note AF §3.1).
+/// * `0x5f`: xterm's `UNI(0x5F, 0x005F)` draws `_`; DEC's Table 2-3,
+///   `[[source: vt320-uu-appe]]` and `[[source: dec-pplv2-pm]]` Figure A-2
+///   all have ß, so the table has ß (note AF §3.1).
 pub(crate) static DEC_SUPPLEMENTAL: [Codepoint; 94] = [
     Codepoint(0x00a1), // 0x21 INVERTED EXCLAMATION MARK
     Codepoint(0x00a2), // 0x22 CENT SIGN

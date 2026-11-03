@@ -11,7 +11,9 @@ The checks, each of which has to be able to fail:
   - every `retrieved` file in the manifest is in exactly one group, and no
     group names a file the manifest does not hold as `retrieved`;
   - every file in LICENSES/ has a [text] entry and hashes to it, every entry's
-    file exists, and every text is cited by some group or [[tree]] entry;
+    file exists, and every text is cited by some group or [[tree]] entry, or
+    is in the `needs` of a text that is: a text another one names as part of
+    its notice is cited through it, and a `needs` naming no text fails;
   - every `notice` that is a path, and every [[tree]] path, exists;
   - every status is one the sidecar defines;
   - every repository path LICENSE names exists (see licence_paths);
@@ -222,6 +224,18 @@ def check(side, url):
         if name not in texts:
             errs.append(f"LICENSES/{name} has no [text] entry in {SIDECAR}")
     cited = {g["notice"] for g in side["upstream"].values()} | {t["notice"] for t in side["tree"]}
+    # A text that names another as part of its own notice cites it.
+    for name, t in sorted(texts.items()):
+        for need in t.get("needs", []):
+            if need.removeprefix("LICENSES/") not in texts:
+                errs.append(f"[text] {name} needs {need}, which has no [text] entry")
+    todo = [c for c in cited if c.startswith("LICENSES/")]
+    while todo:
+        c = todo.pop()
+        for need in texts.get(c.removeprefix("LICENSES/"), {}).get("needs", []):
+            if need not in cited:
+                cited.add(need)
+                todo.append(need)
     for name, t in sorted(texts.items()):
         p = os.path.join(ROOT, "LICENSES", name)
         if not os.path.exists(p):

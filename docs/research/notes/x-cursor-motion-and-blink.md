@@ -812,7 +812,7 @@ The task says vim and every curses `endwin` send cnorm (`\E[?12l\E[?25h`) at exi
 … ESC[?25h ESC[2 q | ESC[0 q ESC[2 q ESC[?12l ESC[?25h | ESC[?1006l … ESC[?1049l
 ```
 
-- The middle group is `reset_cursor_approach` (`docs/research/sources/helix-tui-crossterm.rs:38-51`): `0 q`, then `Se`, then cnorm.
+- The middle group is `reset_cursor_approach` ([[source: helix-tui-crossterm]] lines 38-51): `0 q`, then `Se`, then cnorm.
   - It is written before `LeaveAlternateScreen` (`:205-221`), so all of it lands on the alternate screen.
 - `Se` is `\E[2 q`, an explicit steady block, from macOS's `/usr/share/terminfo/78/xterm-256color`. `infocmp -x` shows `Se=\E[2 q, Ss=\E[%p1%d q`, and baud gives its child `TERM=xterm-256color` (`baud-app/src/bell.rs:67-74`).
 - `TERM=xterm-256color tput cnorm | od -c` gives `033 [ ? 1 2 l 033 [ ? 2 5 h`, and `tput cvvis` gives `033 [ ? 1 2 ; 2 5 h` (**run**).

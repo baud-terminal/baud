@@ -44,15 +44,14 @@ its marked generated block is generated
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://www.unicode.org/Public/
 
-The light theme's sixteen colours, Modus Operandi's but entry 7, which baud
-darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation,
-GPL-3.0-or-later), credited at the constant, which keeps Operandi's own
-sixteen; no file text is copied. Whether a chosen set of sixteen values is
-protectable is unverified
+The light theme's sixteen colours, Modus Operandi's sixteen colour values
+but entry 7, which baud darkens, kept as facts and credited at
+MODUS_OPERANDI. No text of Modus is used
   Files:   src/color.rs
+  Holder:  Protesilaos Stavrou (Modus themes), (C) Free Software Foundation
   Licence: none claimed; Modus itself is GPL-3.0-or-later
   Notice:  credit at MODUS_OPERANDI
-  Status:  open: an open question, recorded where the file is
+  Status:  kept: redistributable, and its notice is satisfied
   From:    https://github.com/protesilaos/modus-themes
 
 The quad cursor trail follows kitty's design, four corners chasing the

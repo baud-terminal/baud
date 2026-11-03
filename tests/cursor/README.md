@@ -24,7 +24,8 @@ and nudges the blink at start -- and at exit `?1049l ?25h`, with no `?12`.
 
 `helix-exit.raw` is helix 25.07.1. Its exit writes `CSI 0 SP q`, then the
 terminfo's `Se`, then `cnorm`, all before it leaves the alternate screen
-(`reset_cursor_approach` in `docs/research/sources/helix-tui-crossterm.rs`):
+(`reset_cursor_approach` in helix's `helix-tui/src/backend/crossterm.rs`,
+[[source: helix-tui-crossterm]]):
 `0 q 2 q ?12l ?25h`, after the last frame's own `?25h 2 q`, then `?1049l`.
 **Those bytes depend on the system's `xterm-256color`**: this machine's
 `infocmp -x xterm-256color` gives

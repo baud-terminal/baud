@@ -2222,11 +2222,13 @@ author = "Linux kernel contributors"
 year   = 2026
 venue  = "The Linux kernel"
 url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/n_tty.c"
-file   = "linux-n_tty.c"
+file   = ""
 sha256 = "5f33bf3bca249d246c2bbf85f7852e77dd65dc14e57a135a83fa03adb9dda0a9"
 bytes  = 64766
-status = "retrieved"
+status = "external"
 group  = "E"
+# Linux's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 # `#define N_TTY_BUF_SIZE 4096` is line 59 of this file, not of a header: it
 # moved out of `include/linux/tty.h`, which is why a grep of that header at this
 # commit finds nothing. The 4095 is `n_tty_receive_buf_common`: `room =
@@ -2241,11 +2243,13 @@ author = "Linux kernel contributors"
 year   = 2026
 venue  = "The Linux kernel"
 url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/tty_buffer.c"
-file   = "linux-tty_buffer.c"
+file   = ""
 sha256 = "6a4177ae3040469cb56960b6cdcd76464f8121a01dd16c78478addc05ebf9c0d"
 bytes  = 16707
-status = "retrieved"
+status = "external"
 group  = "E"
+# Linux's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 # `tty_flip_buffer_push` -> `tty_buffer_queue_work` -> `queue_work(flip_wq ?:
 # system_dfl_wq, &buf->work)`, and the work is `flush_to_ldisc`. That is the
 # "`queue_work()` hop" eBPF cannot remove: a byte written to
@@ -2259,11 +2263,13 @@ author = "Linux kernel contributors"
 year   = 2026
 venue  = "The Linux kernel"
 url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/pty.c"
-file   = "linux-pty.c"
+file   = ""
 sha256 = "199d8e94c5d78bccdf6b18f928d8adf85280a54c09cedbb0706047c612be4059"
 bytes  = 24170
-status = "retrieved"
+status = "external"
 group  = "E"
+# Linux's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 # `pty_write` is one call: `tty_insert_flip_string_and_push_buffer(to->port,
 # buf, c)`. There is no path from a pty write to the reader that does not go
 # through the flip buffer and the ldisc, which is why `splice()` onto a pty
@@ -2276,11 +2282,13 @@ author = "Apple"
 year   = 2026
 venue  = "XNU, apple-oss-distributions"
 url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty.c"
-file   = "xnu-tty.c"
+file   = ""
 sha256 = "de57a5a52aa5dba2e484eb65a53fbc1ef70c567589490066e134b325a7145d35"
 bytes  = 87549
-status = "retrieved"
+status = "external"
 group  = "E"
+# XNU's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 # `ttymalloc` allocates all three queues at `TTYCLSIZE` under the comment
 # "default to TTYCLSIZE(1024) chars for now". `ttwrite` stops filling `t_outq`
 # at `t_hiwat`, which `ttsetwater` derives from the line speed and clamps to
@@ -2294,11 +2302,13 @@ author = "Apple"
 year   = 2026
 venue  = "XNU, apple-oss-distributions"
 url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/sys/tty.h"
-file   = "xnu-tty.h"
+file   = ""
 sha256 = "7da03a971feb8dd30e3e02e1249bf3fe9d7b7b8ff3904def08ce0615b750f8ed"
 bytes  = 14134
-status = "retrieved"
+status = "external"
 group  = "E"
+# XNU's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 # `TTYCLSIZE 1024` (line 105) and `TTYHOG 1024` (line 181) are the same number
 # for different queues. Only the first is on the emulator's read path.
 
@@ -2309,11 +2319,13 @@ author = "Apple"
 year   = 2026
 venue  = "XNU, apple-oss-distributions"
 url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty_dev.c"
-file   = "xnu-tty_dev.c"
+file   = ""
 sha256 = "a9bd50db11211d42f368654b26212d04d93ae2affceee0d7abc6e4eb7e06fd9e"
 bytes  = 30096
-status = "retrieved"
+status = "external"
 group  = "E"
+# XNU's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 # `ptcread` drains `t_outq` with `q_to_b` in `BUFSIZ` (100-byte, local to this
 # file) steps until the request is met or the queue is empty -- so one master
 # `read(2)` returns at most what the replica's output clist holds. `ptcwrite`
@@ -2328,11 +2340,13 @@ author = "Apple"
 year   = 2026
 venue  = "XNU, apple-oss-distributions"
 url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty_subr.c"
-file   = "xnu-tty_subr.c"
+file   = ""
 sha256 = "841000a711638667bef7c9d4aa5bc7fdf610327c39c93c6d3eb4c75fd400cc58"
 bytes  = 11809
-status = "retrieved"
+status = "external"
 group  = "E"
+# XNU's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 # `clalloc(clp, size, quot)` sets `c_cn = size`, and `b_to_q` loops `while
 # (count > 0 && clp->c_cc < clp->c_cn)`: a clist is a fixed ring that cannot be
 # overfilled, and a writer that offers more than fits keeps the remainder.
@@ -2659,10 +2673,12 @@ author = "Linux kernel contributors"
 year   = 2026
 venue  = "The Linux kernel"
 url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/vt/vt.c"
-file   = "linux-vt-console.c"
+file   = ""
 sha256 = "4501ad46d48c11d4a44d1c01d2ccfb07de291a281b323dbe08fea8d954b3cfdd"
-status = "retrieved"
+status = "external"
 group  = "A"
+# Linux's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 
 [sources.vt100-avr]
 key    = "vt100-avr"
@@ -6118,14 +6134,17 @@ title  = "ftgrays.c -- FreeType's exact-area 'smooth' rasteriser (gray_render_li
 author = "David Turner and FreeType contributors"
 year   = 2026
 venue  = "freetype/freetype src/smooth/ftgrays.c (FTL)"
-url    = "https://gitlab.freedesktop.org/freetype/freetype/-/raw/master/src/smooth/ftgrays.c"
-file   = "freetype-ftgrays.c"
+url    = "https://gitlab.freedesktop.org/freetype/freetype/-/raw/ee38c68245653b3b09e1afaa63fe2deb0d5ff3ee/src/smooth/ftgrays.c"
+file   = ""
 sha256 = "404be11bb3d3eb0086bb38bda04388639d991b538e2b452b56ee51e29b2b5845"
 bytes  = 60670
-status = "retrieved"
+status = "external"
 group  = "J"
-# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
-# permissively-licensed reference source, re-hashed on commit.
+# FreeType's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree). It was copied from the master branch's URL,
+# https://gitlab.freedesktop.org/freetype/freetype/-/raw/master/src/smooth/ftgrays.c,
+# which serves other bytes since; commit ee38c682 serves these, so the
+# URL is pinned to it.
 
 [sources.skia-skscan-aaapath]
 key    = "skia-skscan-aaapath"
@@ -9951,11 +9970,13 @@ author = "Keith Winstein and the Mosh contributors"
 year   = 2022
 venue  = "github.com/mobile-shell/mosh, tag mosh-1.4.0"
 url    = "https://raw.githubusercontent.com/mobile-shell/mosh/mosh-1.4.0/src/frontend/terminaloverlay.cc"
-file   = "mosh-1.4.0-terminaloverlay.cc"
+file   = ""
 sha256 = "cbd55fdf3fff12ef889474bd2b91e90e769e0651ae9871f9458d4b5344085c94"
 bytes  = 26276
-status = "retrieved"
+status = "external"
 group  = "Q"
+# mosh's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 [sources.mosh-terminaloverlay-h]
 key    = "mosh-terminaloverlay-h"
 title  = "Mosh 1.4.0, src/frontend/terminaloverlay.h -- the prediction engine's types and its thresholds: SRTT_TRIGGER_LOW/HIGH (20/30 ms), FLAG_TRIGGER_LOW/HIGH (50/80 ms), GLITCH_THRESHOLD (250 ms), GLITCH_FLAG_THRESHOLD (5 s), the display preferences"
@@ -9963,11 +9984,13 @@ author = "Keith Winstein and the Mosh contributors"
 year   = 2022
 venue  = "github.com/mobile-shell/mosh, tag mosh-1.4.0"
 url    = "https://raw.githubusercontent.com/mobile-shell/mosh/mosh-1.4.0/src/frontend/terminaloverlay.h"
-file   = "mosh-1.4.0-terminaloverlay.h"
+file   = ""
 sha256 = "37f1742d544ee919e5dc1130cc928512d139cef626a6d681efe1b219332d048e"
 bytes  = 10994
-status = "retrieved"
+status = "external"
 group  = "Q"
+# mosh's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 [sources.mosh-stmclient-cc]
 key    = "mosh-stmclient-cc"
 title  = "Mosh 1.4.0, src/frontend/stmclient.cc -- the client loop: where a keystroke is handed to the prediction engine and where the overlay is applied to the framebuffer before display"
@@ -9975,11 +9998,13 @@ author = "Keith Winstein and the Mosh contributors"
 year   = 2022
 venue  = "github.com/mobile-shell/mosh, tag mosh-1.4.0"
 url    = "https://raw.githubusercontent.com/mobile-shell/mosh/mosh-1.4.0/src/frontend/stmclient.cc"
-file   = "mosh-1.4.0-stmclient.cc"
+file   = ""
 sha256 = "3ca6137227a90ae0d92ef57dce196b9a1cccf162ef9b7b40af819d527255590e"
 bytes  = 18327
-status = "retrieved"
+status = "external"
 group  = "Q"
+# mosh's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 [sources.mosh-paper]
 key    = "mosh-paper"
 title  = "Mosh: An Interactive Remote Shell for Mobile Clients -- the USENIX ATC 2012 paper; section 3.2 is speculative local echo: what is predicted, the epoch and confirmation scheme, the underline for unconfirmed predictions, and the measured 70 % of keystrokes predicted"
@@ -10076,11 +10101,13 @@ author = "Linux kernel contributors"
 year   = 2026
 venue  = "torvalds/linux @ cf72cbb3"
 url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/vt/vt.c"
-file   = "linux-vt-console.c"
+file   = ""
 sha256 = "4501ad46d48c11d4a44d1c01d2ccfb07de291a281b323dbe08fea8d954b3cfdd"
 bytes  = 124238
-status = "retrieved"
+status = "external"
 group  = "C"
+# Linux's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 
 [sources.xterm-sgr]
 key    = "xterm-sgr"
@@ -10926,11 +10953,13 @@ author = "Linux kernel contributors"
 year   = 2026
 venue  = "torvalds/linux @ cf72cbb3"
 url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/vt/vt.c"
-file   = "linux-vt-console.c"
+file   = ""
 sha256 = "4501ad46d48c11d4a44d1c01d2ccfb07de291a281b323dbe08fea8d954b3cfdd"
 bytes  = 124238
-status = "retrieved"
+status = "external"
 group  = "C"
+# Linux's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 
 [sources.sfte-ris]
 key    = "sfte-ris"
@@ -11749,11 +11778,13 @@ author = "the helix contributors"
 year   = 2025
 venue  = "helix editor"
 url    = "https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-term/src/ui/editor.rs"
-file   = "helix-editor.rs"
+file   = ""
 sha256 = "9019515fed59f910fac91ebb67996f0c634de0dc74dda84b14e7bf91124a8798"
 bytes  = 63034
-status = "retrieved"
+status = "external"
 group  = "V"
+# helix's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 
 [sources.helix-tui-terminal]
 key    = "helix-tui-terminal"
@@ -11762,11 +11793,13 @@ author = "the helix contributors"
 year   = 2025
 venue  = "helix editor"
 url    = "https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-tui/src/terminal.rs"
-file   = "helix-tui-terminal.rs"
+file   = ""
 sha256 = "978282129c7c01e8deb1c54ba201173f2d723d35a17a33102b50a515fc84dec4"
 bytes  = 7026
-status = "retrieved"
+status = "external"
 group  = "V"
+# helix's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 
 [sources.helix-tui-crossterm]
 key    = "helix-tui-crossterm"
@@ -11775,11 +11808,13 @@ author = "the helix contributors"
 year   = 2025
 venue  = "helix editor"
 url    = "https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-tui/src/backend/crossterm.rs"
-file   = "helix-tui-crossterm.rs"
+file   = ""
 sha256 = "eae2d4eebd20d22fd8cd95edd798557722e618fc74c3dd448bac6e996361a8a4"
 bytes  = 16251
-status = "retrieved"
+status = "external"
 group  = "V"
+# helix's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 
 # Group Y -- note Y, palettes (V16). Retrieved where the licence is permissive or the
 # document public; external (hashed, not committed) for GPL/LGPL code and text and
@@ -12246,11 +12281,13 @@ author = "the helix contributors"
 year   = 2026
 venue  = "helix editor (MPL-2.0)"
 url    = "https://raw.githubusercontent.com/helix-editor/helix/079a789e8cb08ead67f19e1971a1b7438b37354b/helix-tui/src/backend/termina.rs"
-file   = "helix-079a789-termina.rs"
+file   = ""
 sha256 = "03fbe1873a7e3e88cc02988a558b7d3add57f17d75c0adac3345a095b599946b"
 bytes  = 26589
-status = "retrieved"
+status = "external"
 group  = "Y"
+# helix's own file, removed from the repository on 2026-11-03 (the copyleft
+# research files were removed from the tree); this URL serves these bytes.
 
 [sources.iterm2-ptysession]
 key    = "iterm2-ptysession"
@@ -25863,6 +25900,99 @@ sha256 = "8058b127a263105c72d41338244cc63d0e6662397a9c9c3409f5e6605417d44c"
 bytes  = 25664
 status = "external"
 group  = "AN"
+
+[sources.cargo-1ef25ea-manifest-license]
+key    = "cargo-1ef25ea-manifest-license"
+title  = "The Cargo Book, reference/manifest.md at 1ef25ea -- \"The license and license-file fields\": crates.io reads `license` as an SPDX 2.3 licence expression; a nonstandard licence may name a file in `license-file` instead"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/1ef25ea3d391374fe3bed4dcbe24f0d3be3ab8f9/doc/book/src/reference/manifest.md"
+file   = ""
+sha256 = "8058b127a263105c72d41338244cc63d0e6662397a9c9c3409f5e6605417d44c"
+bytes  = 25664
+status = "external"
+group  = "AN"
+# The same file as cargo-1ef25ea-manifest-publish, cited for lines 242-279.
+# Fetched and read 2026-11-03: "The name must be a known license from the
+# SPDX license list 3.20", and the grammar it names, SPDX 2.3's, has
+# LicenseRef- for a licence the list lacks.
+
+[sources.crates-io-b676909-licenses-rs]
+key    = "crates-io-b676909-licenses-rs"
+title  = "crates.io src/licenses.rs at b676909 -- parse_license_expr: spdx's parse_mode with allow_unknown false"
+author = "The crates.io developers"
+year   = 2025
+venue  = "rust-lang/crates.io (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/crates.io/b6769095658e30994c9320ce7438f0f4c1535275/src/licenses.rs"
+file   = ""
+sha256 = "6169c5923b196a1a43ed08882cba814326f98b82af4d43680c6adb663b54cfcd"
+bytes  = 931
+status = "external"
+group  = "AN"
+# The last commit to touch the file when fetched, 2026-11-03. What a publish
+# runs on `license`: an identifier on the list or a LicenseRef- passes, any
+# other term fails. Run on baud's eight generated fields through spdx
+# 0.13.6, with an unknown term as the control, which failed.
+
+[sources.crates-io-c7d5e23-publish-rs]
+key    = "crates-io-c7d5e23-publish-rs"
+title  = "crates.io src/controllers/krate/publish.rs at c7d5e23 -- a `license-file` with no `license` is recorded as \"non-standard\""
+author = "The crates.io developers"
+year   = 2026
+venue  = "rust-lang/crates.io (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/crates.io/c7d5e23b090b89f4717ba10a3bfdd562c299832f/src/controllers/krate/publish.rs"
+file   = ""
+sha256 = "79b4f1f24747a7d7aac7e5e8876d7c2edad103adf85e3039708ef262058ad2dc"
+bytes  = 44410
+status = "external"
+group  = "AN"
+# Lines 376-392. Fetched 2026-11-03.
+
+[sources.crates-io-61edf7b-cargo-toml]
+key    = "crates-io-61edf7b-cargo-toml"
+title  = "crates.io Cargo.toml at 61edf7b -- spdx = \"=0.13.6\""
+author = "The crates.io developers"
+year   = 2026
+venue  = "rust-lang/crates.io (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/crates.io/61edf7bf92d8eca0c0d6e6999e32448a5c2c2cac/Cargo.toml"
+file   = ""
+sha256 = "1b2b253f5cb2f9b3dde2127e1348d56645f521fb6c00e4cde2cb40d45954b721"
+bytes  = 8824
+status = "external"
+group  = "AN"
+# Line 159. Fetched 2026-11-03.
+
+[sources.spdx-0-13-6-crate]
+key    = "spdx-0-13-6-crate"
+title  = "spdx 0.13.6 (EmbarkStudios), the crate -- SPDX License List 3.29.0 in identifiers.rs; lexer.rs takes LicenseRef- in every parse mode"
+author = "Embark Studios"
+year   = 2026
+venue  = "crates.io (Apache-2.0)"
+url    = "https://static.crates.io/crates/spdx/spdx-0.13.6.crate"
+file   = ""
+sha256 = "646c5a367da914e3babcb9cd8e91c37ccaac42325b8f86f036513ad103f2a716"
+bytes  = 3143855
+status = "external"
+group  = "AN"
+# src/lexer.rs lines 290-345: a term on the list, then LicenseRef-, then
+# (only with allow_unknown) an unknown term. Fetched 2026-11-03.
+
+[sources.spdx-license-list-3-29-0-json]
+key    = "spdx-license-list-3-29-0-json"
+title  = "SPDX License List 3.29.0, json/licenses.json -- 740 licence identifiers"
+author = "The SPDX Legal Team"
+year   = 2026
+venue  = "spdx/license-list-data at v3.29.0"
+url    = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/json/licenses.json"
+file   = ""
+sha256 = "47d1cc681abe31166b342b6cc4aab13a6ba8ea5c48794697fe3bf8b1dbaf509a"
+bytes  = 339359
+status = "external"
+group  = "AN"
+# What scripts/check-publish.py's SPDX_IDS were each checked against,
+# 2026-11-03: all fifteen are on it and none is deprecated. It lists TekHVC,
+# which the sidecar's LicenseRef-Tektronix-TekHVC predates.
 
 [sources.release-plz-action-v0-5-131]
 key    = "release-plz-action-v0-5-131"

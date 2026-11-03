@@ -1039,9 +1039,11 @@ decision 8, weighed again with its measured scope, and still interim.
   should not be "JetBrains Mono".
 - ~~Shear or optically corrected italic.~~ Optically corrected, section 4c.
 - ~~The italic lean.~~ Right, decided on 2026-10-24.
-- The licence call.
+- ~~The licence call.~~ Answered on 2026-11-03: the built font ships under the
+  OFL 1.1, after CascadiaMono.ttf was checked byte for byte against
+  Microsoft's v2407.24 release (FONTLOG.txt, Licence; hebrew/SOURCE).
 
-The licence call, stated precisely: the built files carry Microsoft's copyright
+The licence call, as it stood: the built files carry Microsoft's copyright
 line, with the Reserved Font Name, in nameID 0, and JetBrains Mono's OFL sentence
 in nameID 13. They do not carry the Cascadia release binary's "Microsoft supplied
 font ... Any other use is prohibited".

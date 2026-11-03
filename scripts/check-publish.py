@@ -11,6 +11,9 @@
     python3 scripts/check-publish.py --write-notices
                                                 write each crate's NOTICE, and
                                                 check the rest
+    python3 scripts/check-publish.py --write-licences
+                                                write each crate's `license`
+                                                field, and check the rest
 
 Exit 0 when everything passes, 1 on any FAIL, and 2 under --release when the
 only thing left is a row awaiting the owner.
@@ -23,8 +26,15 @@ has to be able to fail:
     its dependencies, target-specific and optional ones included; every other
     member is in UNPUBLISHED and carries `publish = false`;
   - each published manifest has a description, a readme that exists, the
-    repository, the workspace's licence, a rust-version, and keywords and
-    categories crates.io accepts;
+    repository, a rust-version, and keywords and categories crates.io
+    accepts;
+  - each published crate's `license` is what licence_expr() gives from its
+    own file list: CC-BY-NC-SA-4.0, baud's, AND the licence of every
+    `docs/research/third-party.toml` entry with a file in the crate, an
+    SPDX expression whose every term is an identifier of SPDX_IDS or a
+    LicenseRef- (--write-licences writes it); an entry whose `licence` is
+    not such an expression says what it adds in `spdx`, "" when it adds
+    nothing, or the check fails;
   - each dependency of a published crate on a workspace crate names the
     version being released as well as its path: cargo refuses to package one
     that does not, and drops the path from what it uploads;
@@ -32,7 +42,8 @@ has to be able to fail:
     root's, and the notice every third-party file in it needs: for each
     `docs/research/third-party.toml` entry with a file in the list, a notice
     in LICENSES/ must be in the crate's own LICENSES/, byte for byte the
-    root's, and a notice that is another file must be in the list;
+    root's, with each text its [text] entry `needs`, and a notice that is
+    another file must be in the list;
   - no published crate ships a file of a `docs/research/third-party.toml`
     entry whose status is one of UNSETTLED: without --release each is
     printed and the check still passes, since what is missing is a
@@ -81,6 +92,44 @@ import tomllib
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SIDECAR = "docs/research/third-party.toml"
 LICENCE = "CC-BY-NC-SA-4.0"
+# What crates.io takes in `license`, and so what licence_expr() may write.
+# Cargo's reference ("The license and license-file fields",
+# [[source: cargo-1ef25ea-manifest-license]]) says crates.io reads the field
+# as an SPDX 2.3 licence expression, AND and OR joining licences, that the
+# name must be on the SPDX License List 3.20 (a version the parser has
+# since passed: Unicode-3.0 postdates it, so the parser's 3.29.0 governs),
+# and that a nonstandard licence may name a file in `license-file` instead.
+# crates.io's parser ([[source: crates-io-b676909-licenses-rs]]) parses it
+# with spdx =0.13.6 ([[source: crates-io-61edf7b-cargo-toml]]), which
+# carries SPDX License List 3.29.0, takes an identifier on that list or a
+# LicenseRef- term, and refuses any other term (`allow_unknown: false`;
+# [[source: spdx-0-13-6-crate]] lexer.rs); a `license-file` with no
+# `license` is recorded as "non-standard"
+# ([[source: crates-io-c7d5e23-publish-rs]]), which would hide baud's own
+# licence. So each crate sets `license`, and every term in it is one of
+# these identifiers, each on the SPDX License List 3.29.0
+# ([[source: spdx-license-list-3-29-0-json]]), or a LicenseRef-. An
+# identifier a row comes to use is added here once it is checked against
+# that list.
+SPDX_IDS = frozenset({
+    "Apache-2.0",
+    "CC-BY-4.0",
+    "CC-BY-NC-SA-4.0",
+    "CC-BY-ND-4.0",
+    "HPND",
+    "HPND-sell-variant",
+    "IJG",
+    "MIT",
+    "MIT-Modern-Variant",
+    "MIT-open-group",
+    "OFL-1.1",
+    "Unicode-3.0",
+    "Unlicense",
+    "X11",
+    "Zlib",
+})
+# A LicenseRef- term as the SPDX 2.3 grammar spells its idstring.
+LICENCE_REF = re.compile(r"^LicenseRef-[A-Za-z0-9.-]+$")
 UNPUBLISHED = {"baud-bench", "baud-difftest", "baud-sfte-difftest"}
 # Statuses that say the licence of a file is not settled. A file under one
 # of these may sit in the repository, and must not go out in a published
@@ -331,6 +380,75 @@ def notice(name, entries, src, g, repo, tops):
     return "\n".join(o) + "\n", found
 
 
+def spdx_ok(expr):
+    """Whether `expr` is an SPDX licence expression crates.io takes:
+    operands of SPDX_IDS or LicenseRef- terms joined by AND and OR, in
+    balanced parentheses. WITH is refused, since no exception is listed."""
+    toks = re.findall(r"\(|\)|[^\s()]+", expr)
+    depth, want_operand = 0, True
+    for tok in toks:
+        if tok == "(":
+            if not want_operand:
+                return False
+            depth += 1
+        elif tok == ")":
+            if want_operand or depth == 0:
+                return False
+            depth -= 1
+        elif tok in ("AND", "OR"):
+            if want_operand:
+                return False
+            want_operand = True
+        else:
+            if not want_operand or not (tok in SPDX_IDS or LICENCE_REF.match(tok)):
+                return False
+            want_operand = False
+    return bool(toks) and depth == 0 and not want_operand
+
+
+def row_spdx(e):
+    """What sidecar entry `e` adds to a crate's licence field: its `spdx`
+    when it has one ("" for facts and protocol data, which carry no
+    licence), else its `licence` when that is an expression crates.io
+    takes, else None."""
+    if "spdx" in e:
+        return e["spdx"]
+    return e["licence"] if spdx_ok(e["licence"]) else None
+
+
+def licence_expr(terms):
+    """The licence field of a crate whose third-party files add `terms`:
+    baud's own licence AND each of them. A term of ANDs alone is split into
+    its licences, so each is named once; a term with an OR is kept whole in
+    parentheses, since AND binds tighter than OR."""
+    out = set()
+    for s in terms:
+        if not s:
+            continue
+        toks = re.findall(r"\(|\)|[^\s()]+", s)
+        if "OR" in toks or "(" in toks:
+            out.add(s if s.startswith("(") and s.endswith(")") else f"({s})")
+        else:
+            out.update(x for x in toks if x != "AND")
+    out.discard(LICENCE)
+    return " AND ".join([LICENCE] + sorted(out))
+
+
+def write_licence(path, expr):
+    """Set the `license` of the manifest at `path` to `expr`, in place of
+    whatever `license` line its [package] has."""
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    start = lines.index("[package]")
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
+    hits = [i for i in range(start, end) if re.match(r"^license(\.workspace)?\s*=", lines[i])]
+    if len(hits) != 1:
+        raise SystemExit(f"{path}: {len(hits)} license lines in [package], not one")
+    lines[hits[0]] = f'license = "{expr}"'
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+
 def root_settings(name, m, ws):
     """What is wrong with `m`, the manifest of the package `cargo install`
     builds as its own root, against the workspace's release settings."""
@@ -346,10 +464,10 @@ def root_settings(name, m, ws):
     return errs
 
 
-def check(size, verify, write):
+def check(size, verify, write, write_lic=False):
     """(errors, awaiting): what fails the check, and the shipped files whose
     rows await the owner. With `write`, each crate's NOTICE is written
-    first."""
+    first, and with `write_lic` its `license` field."""
     errs, awaiting = [], []
     ws = load("Cargo.toml")
     version = ws["workspace"]["package"]["version"]
@@ -376,8 +494,6 @@ def check(size, verify, write):
         for key in ("description", "repository", "rust-version"):
             if not field(p, ws, key):
                 errs.append(f"{n}: no {key}")
-        if field(p, ws, "license") != LICENCE:
-            errs.append(f"{n}: license is {field(p, ws, 'license')!r}, not {LICENCE}")
         readme = field(p, ws, "readme")
         if not readme or not os.path.isfile(os.path.join(ROOT, d, readme)):
             errs.append(f"{n}: readme {readme!r} is not a file")
@@ -402,6 +518,9 @@ def check(size, verify, write):
                 )
 
     side = load(SIDECAR)
+    for e in [*side["tree"], *side["upstream"].values()]:
+        if "spdx" in e and e["spdx"] and not spdx_ok(e["spdx"]):
+            errs.append(f"{SIDECAR}: spdx {e['spdx']!r} is no SPDX expression crates.io takes")
     entries = [{**t, "kind": "tree"} for t in side["tree"]]
     entries += [
         {**e, "what": e["name"], "paths": [f"{SOURCES}{f}" for f in e["files"]], "upstream": "", "kind": "source"}
@@ -435,6 +554,31 @@ def check(size, verify, write):
             src.setdefault(r, f)
             src.setdefault(os.path.normpath(os.path.join(d, f)), f)
         want_notice, found = notice(n, entries, src, g, repo, tops)
+        terms = []
+        for e in entries:
+            hit = [src[x] for x in e["paths"] if x in src]
+            if not hit:
+                continue
+            s = row_spdx(e)
+            if s is None:
+                line = (
+                    f"{n}: ships {', '.join(hit)} ({e['what'][:50]}...), whose licence {e['licence']!r} "
+                    "is no SPDX expression crates.io takes, and the entry has no spdx field"
+                )
+                (awaiting if e["status"] in UNSETTLED else errs).append(line)
+                continue
+            terms.append(s)
+        want_lic = licence_expr(terms)
+        if write_lic:
+            write_licence(os.path.join(ROOT, d, "Cargo.toml"), want_lic)
+        got_lic = load(os.path.join(d, "Cargo.toml"))["package"].get("license")
+        if isinstance(got_lic, dict):
+            got_lic = field({"license": got_lic}, ws, "license")
+        if got_lic != want_lic:
+            errs.append(
+                f"{n}: license is {got_lic!r}, and its files give {want_lic!r}: "
+                "run scripts/check-publish.py --write-licences"
+            )
         for status, what, f in found:
             line = f"{n}: NOTICE says {f!r} ({what[:50]}...)"
             # A row awaiting the owner is refused at release anyway, and is
@@ -461,11 +605,14 @@ def check(size, verify, write):
                 continue
             notice_ = notice_at
             if notice_.startswith("LICENSES/"):
-                local = os.path.join(d, notice_)
-                if notice_ not in files:
-                    errs.append(f"{n}: ships {src[hit[0]]} ({what}) without {notice_}")
-                elif not filecmp.cmp(os.path.join(ROOT, local), os.path.join(ROOT, notice_), shallow=False):
-                    errs.append(f"{n}: {notice_} is not the root's")
+                # A text another names as part of its notice goes with it.
+                needs = side["text"].get(notice_.removeprefix("LICENSES/"), {}).get("needs", [])
+                for text in [notice_, *needs]:
+                    local = os.path.join(d, text)
+                    if text not in files:
+                        errs.append(f"{n}: ships {src[hit[0]]} ({what}) without {text}")
+                    elif not filecmp.cmp(os.path.join(ROOT, local), os.path.join(ROOT, text), shallow=False):
+                        errs.append(f"{n}: {text} is not the root's")
             elif notice_ != "LICENSE" and notice_ not in src:
                 errs.append(f"{n}: ships {src[hit[0]]} ({what}) without its notice {notice_}")
 
@@ -496,7 +643,7 @@ def check(size, verify, write):
 def main():
     args = sys.argv[1:]
     release = "--release" in args
-    errs, awaiting = check("--size" in args, "--verify" in args, "--write-notices" in args)
+    errs, awaiting = check("--size" in args, "--verify" in args, "--write-notices" in args, "--write-licences" in args)
     for e in errs:
         print(f"FAIL {e}")
     for a in awaiting:

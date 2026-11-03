@@ -1142,6 +1142,9 @@ checked names against [[source: unicode-data]] for the positions it listed.
   `map_DEC_Supp_Graphic(chr = seven, chr = eight)` ([[source: xterm-charsets-c]]
   `charsets.c:443`), draws GR 0xDF as `_` where DEC has ß.
 - Read from source, not run.
+- Since 2026-11-03 the table is taken from this macro (X11), checked cell
+  for cell against Table 2-3, with 5/15 DEC's ß (`CONFORM` in
+  `scripts/gen-dec-sets.py`).
 
 ### 3.2 DEC Technical
 

@@ -33,9 +33,15 @@ The variable font's own name table says something else. nameID 0 is "© 2021 Mic
 Corporation. All Rights Reserved.", and nameID 13 opens "Microsoft supplied font. You may
 use this font to create, display, and print content as permitted by the license terms
 ...". The built files carry JetBrains Mono's nameID 13 (the OFL sentence), and their
-nameID 0 carries both projects' copyright lines. Which text governs is an open licence
-question (note AC). Until it is answered, the build is committed locally and nothing
-is pushed or released.
+nameID 0 carries both projects' copyright lines. Which text governs was the licence
+question (note AC), answered on 2026-11-03: the font is Microsoft's release under its
+repository's LICENSE, the OFL 1.1 above; the repository carries it under the OFL, and
+baud ships the built font under the OFL. Checked that day: the archive above,
+fetched again from its URL, hashes to its sha256 above (GitHub's release API gives no
+digest for the asset, so the hash is of that fetch); ttf/CascadiaMono.ttf in it is
+byte for byte the CascadiaMono.ttf here (cmp); the tag v2407.24 is commit
+56bcca3f2c1e4cb19458954f0e2bb4635960df91; and the licence fetched from the tag again
+is byte for byte OFL.txt.
 
 Designers, per the repository's README.md at the tag (line 78) and the font's nameID 9:
 Hebrew, Liron Lavi Turkenich; the family, Aaron Bell.

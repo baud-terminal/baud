@@ -17,8 +17,9 @@ Run from the directory holding `lines.txt`, so the status line names
 
 Helix draws every block cursor itself and hides the terminal's, but it still
 moves the terminal cursor to the primary selection each frame and then hides
-it (`draw` in `docs/research/sources/helix-tui-terminal.rs`, pinned from
-helix's own tree at 25.07.1), so its frames end `CUP` then `?25l`:
+it (`draw` in helix's `helix-tui/src/terminal.rs`,
+[[source: helix-tui-terminal]], pinned from helix's own tree at 25.07.1),
+so its frames end `CUP` then `?25l`:
 seven hides here, every one straight after a `CUP` -- to 1;8 at the first line,
 to 43;8 after `ge` and back to 1;8 after `gg`. The `:` opens the command line
 and shows the cursor at 50;2, which is the capture's one `?25h`. The capture

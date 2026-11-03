@@ -387,8 +387,8 @@ INTERIM PICKS
   (CHANGELOG). The rest of the name table
   (the prototype family name, nameID 3's tag) stays until decision 11, and is renamed
   once then.
-- Release: interim. No release bundle is made until the licence question below is
-  settled.
+- Release: settled on 2026-11-03. The four styles ship under the OFL 1.1 (the
+  licence question below, answered).
 - Configured stacks: INCLUDE_REGULAR_FOLLOW, interim. The decision is that a configured font list gets this Regular appended after
   the configured faces, before the icon face and STIX. It is a change to
   baud-app/src/config.rs, not to these files, and these files do not make it.
@@ -416,13 +416,20 @@ Microsoft product, service, or content in which this font was included. ... Any
 other use is prohibited." and then gives OFL-based terms. The files here carry
 Microsoft's copyright line in nameID 0 and JetBrains Mono's OFL sentence in nameID
 13. They do not carry that text, and OFL.txt here carries both copyright lines over
-the OFL 1.1. Whether that is enough to ship is open.
+the OFL 1.1. Answered on 2026-11-03: they ship under the OFL 1.1. The
+CascadiaMono.ttf the build reads was checked that day byte for byte against
+ttf/CascadiaMono.ttf of Microsoft's own release,
+https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip
+(sha256 e67a68ee3386db63f48b9054bd196ea752bc6a4ebb4df35adce6733da50c8474; the font
+08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2), and the repository's
+LICENSE at the release's tag, v2407.24 (commit 56bcca3f), is OFL.txt byte for byte:
+the font is Microsoft's OFL release, and hebrew/SOURCE records the check.
 
 The build modules under glyphs/languages/hebrew/build/ and casanchors.py beside
 them are baud code under the repository's licence, not Font Software, since
 2026-10-28. anchors-400.json and anchors-700.json are data read out of
-Cascadia Mono; hebrew/SOURCE states them under OFL.txt, as the font is, and the
-licence question should confirm it.
+Cascadia Mono; hebrew/SOURCE states them under OFL.txt, as the font is, which the
+answer of 2026-11-03 confirms.
 
 The repository's LICENSE is CC BY-NC-SA 4.0 (Cargo.toml: license = "CC-BY-NC-SA-4.0").
 OFL condition 5: "The Font Software, modified or unmodified, in part or in whole, must

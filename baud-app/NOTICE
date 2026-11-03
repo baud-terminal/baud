@@ -29,20 +29,23 @@ Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1
 
-baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with
-Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged
-in, a Modified Version under the OFL. The Cascadia release binary's own name
-table carries a notice that differs from its repository's licence;
-FONTLOG.txt records it as open
+baud's embedded font in four styles, Regular, Bold, Italic and Bold Italic:
+JetBrains Mono 2.304 with Hebrew drawn from Cascadia Mono (Cascadia Code
+v2407.24) and Noto Sans Devanagari 2.007 merged in, a Modified Version under
+the SIL Open Font License 1.1. FONTLOG.txt says what changed against each,
+and AUTHORS.txt names their authors
   Files:   fonts/built/AUTHORS.txt, fonts/built/Bold.ttf,
            fonts/built/BoldItalic.ttf, fonts/built/FONTLOG.txt,
            fonts/built/Italic.ttf, fonts/built/Regular.ttf
+  Holder:  The JetBrains Mono Project Authors; Microsoft Corporation, with
+           Reserved Font Name Cascadia Code; The Noto Project Authors
   Licence: OFL-1.1
   Notice:  fonts/built/OFL.txt
-  Status:  open: an open question, recorded where the file is
-  From:    https://github.com/JetBrains/JetBrainsMono,
-           https://github.com/microsoft/cascadia-code and
-           https://github.com/notofonts/devanagari
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
+           and
+           https://github.com/microsoft/cascadia-code/releases/tag/v2407.24
+           and https://github.com/notofonts/devanagari
 
 ncurses' xterm-256color terminfo entry, compiled into the app, which reads
 the visual bell's padding from it

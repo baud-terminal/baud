@@ -13,13 +13,17 @@ The standard is DEC's text and xterm's `charsets.h` is practice
 reads out of the pinned VT220 chapter, fetched by URL and hash-checked; where a
 text is `external` and nothing extracts it (EK-PPLV2-PM, the VT382 RM), what was
 read from it is a constant below with its citation. xterm's macro for each set is parsed too, and every place it differs from
-the table is named in `XTERM_DEPARTS` or the script fails: so the output says
-which cells are DEC's and xterm cannot drift silently.
+DEC's text is named, in `CONFORM` or `XTERM_DEPARTS`, or the script fails: so
+the output says which cells are DEC's and xterm cannot drift silently.
 
-* **DEC Supplemental** (`ESC ( <` and `ESC ( % 5`):
-  `[[source: dec-special-graphics]]` Table 2-3's right half, read from the table, 81 glyphs and 13
-  empty cells. The empty cells are checked against `[[source: dec-pplv2-pm]]`
-  Figure A-2's hatched (reserved) cells, a constant (note AF §3.1).
+* **DEC Supplemental** (`ESC ( <` and `ESC ( % 5`): xterm's
+  `map_DEC_Supp_Graphic`, under xterm's licence (X11), its 81 glyphs and its
+  13 `UNDEF` cells, checked cell for cell against
+  `[[source: dec-special-graphics]]` Table 2-3's right half, read from the
+  table, whose 13 empty cells are checked against `[[source: dec-pplv2-pm]]`
+  Figure A-2's hatched (reserved) cells, a constant (note AF §3.1). Where the
+  macro departs from DEC's text, DEC's text is the standard and the cell is
+  DEC's, listed in `CONFORM`: one cell, 5/15.
 * **JIS-Katakana** (`ESC ( I`): `[[source: dec-pplv2-pm]]` §A.12, "specified
   by JIS X 0201-1976. There are 63 characters defined", 2/1-5/15, the rest
   reserved; the characters from `[[source: unicode-jis0201]]`, read here,
@@ -75,14 +79,22 @@ OPEN = {
     ),
 }
 
-# Where xterm's macro differs from the table, by (set, byte): what xterm
-# draws, and why the table does not.
-XTERM_DEPARTS = {
+# The cells of a set taken from xterm's macro where the macro departs from
+# DEC's text, by (set, byte): the codepoint DEC's text gives, which the table
+# takes because the text is the standard, and why. The script fails unless
+# these are exactly the cells where the macro and DEC's text differ.
+CONFORM = {
     ("Supplemental", 0x5F): (
-        0x005F,
-        "xterm's `UNI(0x5F, 0x005F)` draws `_`; Table 2-3,",
-        "`[[source: vt320-uu-appe]]` and Figure A-2 have ß (note AF §3.1)",
+        0x00DF,
+        "xterm's `UNI(0x5F, 0x005F)` draws `_`; DEC's Table 2-3,",
+        "`[[source: vt320-uu-appe]]` and `[[source: dec-pplv2-pm]]` Figure A-2",
+        "all have ß, so the table has ß (note AF §3.1)",
     ),
+}
+
+# Where xterm's macro differs from a table built from DEC's text, by (set,
+# byte): what xterm draws, and why the table does not.
+XTERM_DEPARTS = {
     ("JisKatakana", 0x7E): (
         0x007E,
         "xterm's macro lists no 0x7E and so draws `~`; DEC reserves 7/14",
@@ -138,7 +150,9 @@ if empty != FIGURE_A2_RESERVED:
         "Table 2-3's empty cells are not Figure A-2's reserved ones: "
         f"{sorted(empty ^ FIGURE_A2_RESERVED)}"
     )
-supplemental = [table23[c] if table23.get(c) is not None else ERROR for c in range(0x21, 0x7F)]
+# DEC's text for DEC Supplemental, which the table taken from xterm's macro
+# is checked against cell for cell.
+dec_supplemental = [table23[c] if table23.get(c) is not None else ERROR for c in range(0x21, 0x7F)]
 
 # ── JIS X 0201, through Unicode's mapping ────────────────────────────────────
 jis = {}
@@ -163,13 +177,7 @@ if jis.get(JIS_ROMAN_YEN[0]) != JIS_ROMAN_YEN[1]:
 roman = list(range(0x21, 0x7F))
 roman[JIS_ROMAN_YEN[0] - 0x21] = JIS_ROMAN_YEN[1]
 
-TABLES = {
-    "Supplemental": supplemental,
-    "JisKatakana": katakana,
-    "JisRoman": roman,
-}
-
-# ── xterm's macros, as practice ──────────────────────────────────────────────
+# ── xterm's macros ───────────────────────────────────────────────────────────
 charsets_h = CHARSETS_H.read_text(errors="ignore").splitlines()
 MACROS = {
     "Supplemental": "map_DEC_Supp_Graphic",
@@ -207,18 +215,55 @@ def macro(name):
     return entries, default
 
 
-for set_, mac in MACROS.items():
+def xterm_cells(mac):
+    """What xterm draws at each of 2/1-7/14 through macro `mac`."""
     entries, default = macro(mac)
+    out = []
     for c in range(0x21, 0x7F):
         # Unlisted: the default arm, `dft`, is GR's Latin-1 code in the one
         # macro that has it (`charsets.c:443` passes `chr = eight`), and the
         # byte itself in a macro without one.
         if c in entries:
-            xterm = entries[c]
+            out.append(entries[c])
         elif default:
-            xterm = c | 0x80
+            out.append(c | 0x80)
         else:
-            xterm = c
+            out.append(c)
+    return out
+
+
+XTERM = {set_: xterm_cells(mac) for set_, mac in MACROS.items()}
+if failures:
+    sys.exit("\n".join(failures))
+
+# DEC Supplemental: xterm's macro, but where DEC's text is the standard and
+# the macro departs from it.
+supplemental = []
+for c, xterm, dec in zip(range(0x21, 0x7F), XTERM["Supplemental"], dec_supplemental):
+    dec = ERROR_CODEPOINT if dec == ERROR else dec
+    if ("Supplemental", c) in CONFORM:
+        want = CONFORM[("Supplemental", c)][0]
+        if xterm == dec or want != dec:
+            fail(f"Supplemental 0x{c:02X}: CONFORM gives U+{want:04X}, DEC's table U+{dec:04X}, xterm U+{xterm:04X}")
+        cell = want
+    else:
+        if xterm != dec:
+            fail(f"Supplemental 0x{c:02X}: xterm U+{xterm:04X}, DEC's table U+{dec:04X}, and no CONFORM entry")
+        cell = xterm
+    supplemental.append(ERROR if cell == ERROR_CODEPOINT else cell)
+if sum(1 for v in supplemental if v != ERROR) != 81:
+    fail("DEC Supplemental: not 81 defined positions")
+
+TABLES = {
+    "Supplemental": supplemental,
+    "JisKatakana": katakana,
+    "JisRoman": roman,
+}
+
+for set_ in MACROS:
+    if set_ == "Supplemental":
+        continue
+    for c, xterm in zip(range(0x21, 0x7F), XTERM[set_]):
         ours = TABLES[set_][c - 0x21]
         ours = ERROR_CODEPOINT if ours == ERROR else ours
         if (set_, c) in XTERM_DEPARTS:
@@ -232,10 +277,12 @@ if failures:
 
 DOCS = {
     "Supplemental": [
-        "/// DEC Supplemental, `ESC ( <` and `ESC ( % 5`: `[[source: dec-special-graphics]]`",
-        "/// Table 2-3's right half, its 81 glyphs and, in its 13 empty cells, the",
-        "/// error character -- the cells `[[source: dec-pplv2-pm]]` Figure A-2 hatches",
-        "/// and §A.2 says print it.",
+        "/// DEC Supplemental, `ESC ( <` and `ESC ( % 5`: `[[source: xterm-charsets]]`'",
+        "/// `map_DEC_Supp_Graphic`, its 81 glyphs and, in its 13 `UNDEF` cells, the",
+        "/// error character, checked cell for cell against",
+        "/// `[[source: dec-special-graphics]]` Table 2-3's right half, whose 13 empty",
+        "/// cells are the ones `[[source: dec-pplv2-pm]]` Figure A-2 hatches and §A.2",
+        "/// says print the error character.",
     ],
     "JisKatakana": [
         "/// JIS-Katakana, `ESC ( I`: 2/1-5/15 are JIS X 0201's katakana, which",
@@ -271,11 +318,20 @@ CONST = {"Supplemental": "DEC_SUPPLEMENTAL", "JisKatakana": "JIS_KATAKANA", "Jis
 for set_, table in TABLES.items():
     lines.extend(DOCS[set_])
     opens = [(b, why) for (s, b), why in OPEN.items() if s == set_]
+    conforms = [(b, d) for (s, b), d in CONFORM.items() if s == set_]
     departs = [(b, d) for (s, b), d in XTERM_DEPARTS.items() if s == set_]
     if opens:
         lines.append("///")
         lines.append("/// Open, drawing its byte until answered:")
         for b, why in opens:
+            lines.append("///")
+            lines.append(f"/// * `0x{b:02x}`: {why[0]}")
+            lines.extend(f"///   {w}" for w in why[1:])
+            lines[-1] += "."
+    if conforms:
+        lines.append("///")
+        lines.append("/// Where the macro departs from DEC's text, the standard, the cell is DEC's:")
+        for b, (_, *why) in conforms:
             lines.append("///")
             lines.append(f"/// * `0x{b:02x}`: {why[0]}")
             lines.extend(f"///   {w}" for w in why[1:])
