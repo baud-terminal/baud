@@ -47,6 +47,8 @@ struct Scene<'f, 'a> {
     r: Renderer<'f, 'a>,
     ws: WinSize,
     px: f32,
+    /// The last frame's pixels.
+    frame: Vec<u32>,
 }
 
 impl<'f, 'a> Scene<'f, 'a> {
@@ -64,7 +66,12 @@ impl<'f, 'a> Scene<'f, 'a> {
             Rows::of_index(usize::from(ws.ws_row)),
         )
         .unwrap();
-        Scene { r, ws, px }
+        Scene {
+            r,
+            ws,
+            px,
+            frame: Vec::new(),
+        }
     }
 
     /// One frame of `bytes` fed to a fresh terminal, `setup` first.
@@ -79,6 +86,7 @@ impl<'f, 'a> Scene<'f, 'a> {
         let mut px = vec![0u32; n];
         let mut target = Target::new(&mut px, w, w, h).unwrap();
         self.r.render(&mut t, &mut target, Damage::Full);
+        self.frame = px;
     }
 
     fn cell(&self) -> (i32, i32) {
@@ -704,5 +712,244 @@ fn a_rectangular_selection_lights_each_rows_syllables() {
         let lit: Vec<(i32, i32)> = s.lights(y).iter().map(|l| (l.0, l.1)).collect();
         let joined = (want.first().unwrap().0, want.last().unwrap().1);
         assert_eq!(lit, vec![joined], "row {y}: {lit:?} for {want:?}");
+    }
+}
+
+/// The built Regular and Bold, each at its full width and its narrower
+/// instances, as the app's default stack lays them out.
+fn styled<'a>(regular: &'a [u8], bold: &'a [u8]) -> (Vec<Face<'a>>, Vec<FaceRole>) {
+    let (mut faces, mut roles) = faces(regular);
+    let b = Face::parse(bold).unwrap();
+    let widths = baud_render::narrower_widths(&b, &[]);
+    faces.push(b);
+    roles.push(FaceRole::Style(baud_render::FaceStyle::Bold));
+    for w in widths {
+        let mut f = Face::parse(bold).unwrap();
+        f.set_variations(&[Variation {
+            tag: Tag::from_bytes(*b"wdth"),
+            value: Fixed::from_f32(w),
+        }]);
+        faces.push(f);
+        roles.push(FaceRole::Narrower);
+    }
+    (faces, roles)
+}
+
+/// The words `text` lays on row 1 from column 3, on a fresh renderer.
+fn laid(s: &mut Scene<'_, '_>, text: &str) -> Vec<baud_render::WordLaid> {
+    s.draw(|_| {}, &format!("\x1b[?25l\x1b[2;3H{text}\x1b[m"));
+    s.r.words_on(Row::from_index(1)).to_vec()
+}
+
+/// **A word draws each syllable in the face its rendition names**
+/// (`[[source: ecma48]]` 8.3.117: SGR establishes "graphic rendition
+/// aspects for subsequent text"): टर्मि and then नल in SGR 1, its reverse,
+/// and अ then क्षर in SGR 1, on the built Regular and Bold -- one word over
+/// all its cells, its glyphs the ones the word in one face shapes, those of
+/// the syllables before the change on the face the regular word is drawn
+/// from and those after on the bold word's. Shaped whole in its first
+/// cell's face, the bold syllables were laid at the regular face's
+/// advances, where the word in one face is laid.
+#[test]
+fn a_word_draws_each_syllable_in_the_face_its_rendition_names() {
+    let (regular, bold) = (
+        read("baud-app/fonts/built/Regular.ttf"),
+        read("baud-app/fonts/built/Bold.ttf"),
+    );
+    let (faces, roles) = styled(&regular, &bold);
+    let ws = WinSize {
+        ws_col: 40,
+        ws_row: 4,
+    };
+    for px in [24.0f32, 28.0] {
+        let mut s = Scene::new(&faces, &roles, px, &ws);
+        for (head, tail) in [("टर्मि", "नल"), ("अ", "क्षर")] {
+            let word = format!("{head}{tail}");
+            let one = |s: &mut Scene<'_, '_>, sgr: &str, text: &str| {
+                let w = laid(s, &format!("{sgr}{text}"));
+                assert_eq!(w.len(), 1, "{sgr:?}{text}: {w:?}");
+                w[0].clone()
+            };
+            let plain = one(&mut s, "", &word);
+            let thick = one(&mut s, "\x1b[1m", &word);
+            let (r, b) = (plain.faces[0], thick.faces[0]);
+            assert!(
+                plain.faces.iter().all(|&f| f == r) && thick.faces.iter().all(|&f| f == b),
+                "the premise: a word in one face is drawn from one"
+            );
+            assert_ne!(r, b, "the premise: the bold word is on another face");
+            // The glyphs the head draws alone, in the regular face.
+            let n = one(&mut s, "", head).pens.len();
+            for (what, text, first, then) in [
+                ("bold after", format!("{head}\x1b[1m{tail}"), r, b),
+                ("regular after", format!("\x1b[1m{head}\x1b[m{tail}"), b, r),
+            ] {
+                let mixed = one(&mut s, "", &text);
+                assert_eq!(
+                    (mixed.at, mixed.cells),
+                    (plain.at, plain.cells),
+                    "{what} {word} at {px}: one word over its cells"
+                );
+                let ids =
+                    |w: &baud_render::WordLaid| -> Vec<_> { w.pens.iter().map(|p| p.0).collect() };
+                assert_eq!(
+                    ids(&mixed),
+                    ids(&plain),
+                    "{what} {word} at {px}: its glyphs are the word's"
+                );
+                let want: Vec<_> = (0..mixed.pens.len())
+                    .map(|i| if i < n { first } else { then })
+                    .collect();
+                assert_eq!(
+                    mixed.faces, want,
+                    "{what} {word} at {px}: each syllable on its own face"
+                );
+                // The run on the second face starts where the first ends,
+                // past every glyph of the first at its own advance, to the
+                // quarter pixel a pen is placed at.
+                let f = &faces[first.index()];
+                let per = px / f32::from(f.units_per_em().value());
+                let end = mixed.pens[..n]
+                    .iter()
+                    .map(|&(id, pen)| pen + f32::from(f.advance(id).unwrap().value()) * per)
+                    .fold(f32::MIN, f32::max);
+                assert!(
+                    mixed.pens[n].1 >= end - 0.25,
+                    "{what} {word} at {px}: the second face's run starts at {}, before the first's end at {end}",
+                    mixed.pens[n].1
+                );
+                let same = if first == r { &plain } else { &thick };
+                assert_ne!(
+                    mixed.pens, same.pens,
+                    "{what} {word} at {px}: laid at its faces' own advances"
+                );
+            }
+        }
+        // **Narrowed, each syllable at its own face's instance**: with
+        // `?2027` set टर्मिनल is four cells, and between two bars it is laid
+        // narrower, each half at the same step of its own face's `wdth`.
+        let narrow = one_word(&mut s, "\x1b[?2027h|टर्मि\x1b[1mनल\x1b[m|");
+        let j = narrow.instance;
+        assert!(j > 0, "the premise: narrowed at {px}, {narrow:?}");
+        let (r, b) = (
+            one_word(&mut s, "टर्मिनल").faces[0],
+            one_word(&mut s, "\x1b[1mटर्मिनल").faces[0],
+        );
+        let n = one_word(&mut s, "\x1b[?2027h|टर्मि|").pens.len();
+        let want: Vec<usize> = (0..narrow.pens.len())
+            .map(|i| if i < n { r.index() + j } else { b.index() + j })
+            .collect();
+        let got: Vec<usize> = narrow.faces.iter().map(|f| f.index()).collect();
+        assert_eq!(
+            got, want,
+            "at {px}: each half at its own face's instance {j}"
+        );
+    }
+}
+
+/// The one word `text` lays on row 1 from column 3.
+fn one_word(s: &mut Scene<'_, '_>, text: &str) -> baud_render::WordLaid {
+    let w = laid(s, text);
+    assert_eq!(w.len(), 1, "{text:?}: {w:?}");
+    w[0].clone()
+}
+
+/// **A face change inside one syllable draws the syllable in its first
+/// cell's face**, as its colours are: र् and then मि in SGR 1, under each
+/// count, and the reverse, are laid as the syllable र्मि in the face of
+/// र्'s rendition, its shaping kept (`[[source: w3c-css-text-3]]` 1.4: a typographic
+/// character unit divided by a boundary "may be rendered as belonging to
+/// either side of the boundary"). The syllable is not cut: cut, र्
+/// would draw with a visible virama and no reph.
+#[test]
+fn a_face_change_inside_a_syllable_draws_it_in_its_first_cells_face() {
+    let (regular, bold) = (
+        read("baud-app/fonts/built/Regular.ttf"),
+        read("baud-app/fonts/built/Bold.ttf"),
+    );
+    let (faces, roles) = styled(&regular, &bold);
+    let ws = WinSize {
+        ws_col: 40,
+        ws_row: 4,
+    };
+    let mut s = Scene::new(&faces, &roles, 28.0, &ws);
+    for (setup, inside, whole) in [
+        ("", "र्\x1b[1mमि", "र्मि"),
+        // An SGR ends the cluster in the core, so with `?2027` set the
+        // syllable is two cells either way.
+        ("\x1b[?2027h", "र्\x1b[1mमि", "र्\x1b[mमि"),
+        ("", "\x1b[1mर्\x1b[mमि", "\x1b[1mर्मि"),
+        ("", "टर्\x1b[1mमि\x1b[mनल", "टर्मिनल"),
+    ] {
+        let cut = laid(&mut s, &format!("{setup}{inside}"));
+        let one = laid(&mut s, &format!("{setup}{whole}"));
+        assert_eq!(cut.len(), 1, "{inside:?}: {cut:?}");
+        assert_eq!(
+            (&cut[0].pens, &cut[0].faces, &cut[0].spans),
+            (&one[0].pens, &one[0].faces, &one[0].spans),
+            "{setup:?}{inside:?}: drawn as {whole:?}"
+        );
+    }
+}
+
+/// **A colour change inside a word keeps its shaping** -- it does not
+/// change a glyph (`[[source: w3c-css-text-3]]` 7.3: shaping "must not be
+/// broken ... if the only formatting changes do not affect the glyphs"):
+/// टर्मि and then नल in red is laid glyph for glyph and pen for pen as
+/// the word in one colour, नल's glyphs in red and the rest in the default
+/// colour. So is a change of ground, नल on red and टर्मि on green then
+/// the default ground, each a frame the word in one rendition is not.
+#[test]
+fn a_colour_change_inside_a_word_keeps_its_shaping() {
+    let (regular, bold) = (
+        read("baud-app/fonts/built/Regular.ttf"),
+        read("baud-app/fonts/built/Bold.ttf"),
+    );
+    let (faces, roles) = styled(&regular, &bold);
+    let ws = WinSize {
+        ws_col: 40,
+        ws_row: 4,
+    };
+    let mut s = Scene::new(&faces, &roles, 28.0, &ws);
+    let plain = laid(&mut s, "टर्मिनल");
+    let red = laid(&mut s, "टर्मि\x1b[38;2;255;0;0mनल");
+    assert_eq!(
+        (&red[0].pens, &red[0].faces, &red[0].spans),
+        (&plain[0].pens, &plain[0].faces, &plain[0].spans),
+        "one shaping"
+    );
+    // The glyphs left to right: the default colour's, then नल's, in red.
+    let mut ink: Vec<(i32, u32)> = s
+        .on_row(1)
+        .iter()
+        .filter(|i| i.kind == baud_render::Kind::Mask)
+        .map(|i| (i32::from(i.x.0), i.color.0))
+        .collect();
+    ink.sort_unstable();
+    let first = ink
+        .iter()
+        .position(|g| g.1 != ink[0].1)
+        .expect("two colours");
+    assert!(
+        first >= 2 && ink.len() - first >= 2 && ink[first..].iter().all(|g| g.1 == ink[first].1),
+        "the default colour's glyphs, then नल's: {ink:x?}"
+    );
+    let c = ink[first].1;
+    let (r, g, b) = (c >> 16 & 255, c >> 8 & 255, c & 255);
+    assert!(r > 200 && g < 60 && b < 60, "नल red: {c:x}");
+    laid(&mut s, "टर्मिनल");
+    let none = s.frame.clone();
+    for text in ["टर्मि\x1b[41mनल", "\x1b[42mटर्मि\x1b[49mनल"] {
+        let ground = laid(&mut s, text);
+        assert_eq!(ground.len(), 1, "{text:?}: one word: {ground:?}");
+        assert_eq!(
+            (&ground[0].pens, &ground[0].faces, &ground[0].spans),
+            (&plain[0].pens, &plain[0].faces, &plain[0].spans),
+            "{text:?}: one shaping"
+        );
+        assert!(
+            s.frame != none,
+            "{text:?}: the premise: its ground is drawn"
+        );
     }
 }

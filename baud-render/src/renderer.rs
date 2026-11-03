@@ -1081,12 +1081,14 @@ fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
 /// A row's cells as [`Renderer::runs`] reads them: the cells in their
 /// drawn order, where shaping must stop, and the joined and mirrored
 /// cells, by visual column.
-/// **Where one glyph of a laid word is drawn**: its syllable, its glyph,
-/// its slot at the quarter pixel it falls on, its place from the row's left
-/// edge in whole pixels, its pen to the quarter, and its rise in pixels.
+/// **Where one glyph of a laid word is drawn**: its syllable, its face
+/// and glyph, its slot at the quarter pixel it falls on, its place from the
+/// row's left edge in whole pixels, its pen to the quarter, and its rise in
+/// pixels.
 #[derive(PartialEq, Debug)]
 struct GlyphPlace {
     syllable: crate::word::SyllableIx,
+    face: FaceIx,
     id: GlyphId,
     slot: Option<crate::atlas::Slot>,
     whole: i32,
@@ -1110,18 +1112,51 @@ pub(crate) struct WordLayout {
     places: Vec<GlyphPlace>,
 }
 
-/// **A word laid** ([`Renderer::lay_word`]): the face it is drawn on, how
-/// and at which instance it was placed, its pieces shaped and each
-/// glyph's syllable, its pen's start and each syllable's pen boundary in
-/// pixels from the row's left edge, and its measure there.
+/// **A word laid** ([`Renderer::lay_word`]): how and at which instance it
+/// was placed, its pieces shaped, the face each is drawn on and where it
+/// starts, each glyph's syllable, its pen's start and each syllable's pen
+/// boundary in pixels from the row's left edge, and its measure there.
 struct LaidWord {
-    face: FaceIx,
     laid: crate::word::Laid,
     shapes: Vec<Shaped>,
+    at: Vec<PieceAt>,
     owner: Vec<Vec<usize>>,
     x0: f32,
     bounds: Vec<f32>,
     measure: crate::word::Measure,
+}
+
+/// **Where a piece of a word starts** ([`Renderer::lay_word`]): the face it
+/// is shaped on, and its pen's start from the word's -- `px` pixels where
+/// its face's run of pieces starts, then `units` of that face's font units,
+/// the pieces of one face going on from one another in font units as one
+/// run does, so a word in one face is laid as a run.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct PieceAt {
+    face: FaceIx,
+    px: f32,
+    units: i32,
+}
+
+impl PieceAt {
+    /// The pen of glyph `g` of this piece, in pixels from the word's.
+    fn pen(self, r: &Renderer<'_, '_>, g: &Placed) -> f32 {
+        self.px + r.scales[self.face.index()].px((self.units + i32::from(g.dx)) as f32)
+    }
+
+    /// Where the piece after this one, `sh`, starts on the same face.
+    fn after(self, sh: &Shaped) -> PieceAt {
+        PieceAt {
+            units: self.units + i32::from(sh.end()),
+            ..self
+        }
+    }
+
+    /// This start in pixels from the word's pen: where a piece on another
+    /// face goes on from, and the word's advance after its last.
+    fn edge(self, r: &Renderer<'_, '_>) -> f32 {
+        self.px + r.scales[self.face.index()].px(self.units as f32)
+    }
 }
 
 /// A row's Devanagari words, each one's syllables in their light, the
@@ -8004,113 +8039,168 @@ impl<'f, 'a> Renderer<'f, 'a> {
         shaped
     }
 
-    /// A word's pieces on `face` and its [`crate::word::Measure`] there, in
-    /// pixels from its pen's start: each piece goes on from the one before.
+    /// **A word's pieces, each on its face, and its
+    /// [`crate::word::Measure`]**, in pixels from its pen's start: each
+    /// piece goes on from the one before, in font units on one face and in
+    /// pixels where the face changes ([`PieceAt`]); `faces` gives each
+    /// piece's face.
     fn word_measure(
         &mut self,
-        face: FaceIx,
         script: Script,
         cut: (&[Vec<Codepoint>], &[crate::syllable::Syllable]),
         pieces: &[core::ops::Range<usize>],
-    ) -> (Vec<Shaped>, crate::word::Measure) {
+        faces: impl Fn(usize) -> FaceIx,
+    ) -> (Vec<Shaped>, Vec<PieceAt>, crate::word::Measure) {
         let shapes: Vec<Shaped> = pieces
             .iter()
-            .map(|p| self.word_piece(face, script, cut, p.clone()))
+            .enumerate()
+            .map(|(i, p)| self.word_piece(faces(i), script, cut, p.clone()))
             .collect();
-        let scale = self.scales[face.index()];
-        let s1 = scale.px(1.0);
-        let f = self.stack.face(face);
         let mut ink = crate::fit::Ink::NONE;
-        let mut origin = 0i32;
-        for sh in &shapes {
+        let mut at: Vec<PieceAt> = Vec::with_capacity(shapes.len());
+        // Where the next piece starts.
+        let mut next = PieceAt {
+            face: faces(0),
+            px: 0.0,
+            units: 0,
+        };
+        for (i, sh) in shapes.iter().enumerate() {
+            let face = faces(i);
+            if face != next.face {
+                next = PieceAt {
+                    face,
+                    px: next.edge(self),
+                    units: 0,
+                };
+            }
+            let here = next;
+            at.push(here);
+            let scale = self.scales[face.index()];
+            let s1 = scale.px(1.0);
+            let f = self.stack.face(face);
             for p in sh.glyphs() {
-                let along = scale.px((origin + i32::from(p.dx)) as f32);
+                let along = here.pen(self, p);
                 if let Some(b) = self.atlas.ink(f, face, p.id) {
                     ink = ink.with(along + b.left as f32 * s1, along + b.right as f32 * s1);
                 }
             }
-            origin += i32::from(sh.end());
+            next = here.after(sh);
         }
-        let advance = scale.px(origin as f32);
+        let advance = next.edge(self);
         if ink.left > ink.right {
             ink = crate::fit::Ink {
                 left: 0.0,
                 right: advance,
             };
         }
-        (shapes, crate::word::Measure { advance, ink })
+        (shapes, at, crate::word::Measure { advance, ink })
     }
 
     /// **Lays a word whose syllables hold `parts`** (`crate::word`), the
-    /// cells `syllables` from `at` on a row `cols` wide, in `room`: shaped as
-    /// one run on its face and each narrower instance in turn, the first
+    /// cells `syllables` from `at` on a row `cols` wide, in `room`, each
+    /// syllable in the face `styles` names for it: shaped as runs of
+    /// syllables on one face -- cut where the face changes, as a run of the
+    /// grid is cut where its cells' face does -- laid end to end, on each
+    /// face and then each narrower instance of it in turn, the first
     /// [`crate::word::lay`] takes, and each syllable's pen boundary, in
     /// pixels from the row's left edge.
     fn lay_word(
         &mut self,
         (parts, syllables): (&[Vec<Codepoint>], &[crate::syllable::Syllable]),
-        style: TextFace,
+        styles: &[TextFace],
         (at, cells, room): (Col, Cols, crate::word::Room),
         (cols, prev): (Cols, Option<f32>),
     ) -> Option<LaidWord> {
         let all: Vec<Codepoint> = parts.concat();
-        if all.is_empty() || syllables.is_empty() {
+        if all.is_empty() || syllables.is_empty() || styles.len() != syllables.len() {
             return None;
         }
         self.words_laid.bump();
-        let base = self.face_for(&all, style);
-        let faces: Vec<FaceIx> = core::iter::once(base)
-            .chain(self.stack.narrower(base))
+        // **Each run of syllables in one face**: a run of one style, on the
+        // face its letters take in it, and runs on one face shaped as one.
+        let mut runs: Vec<(core::ops::Range<usize>, FaceIx)> = Vec::new();
+        let mut k = 0;
+        while k < syllables.len() {
+            let mut m = k + 1;
+            while m < syllables.len() && styles[m] == styles[k] {
+                m += 1;
+            }
+            let face = match (k, m) {
+                (0, m) if m == syllables.len() => self.face_for(&all, styles[k]),
+                _ => self.face_for(&parts[k..m].concat(), styles[k]),
+            };
+            match runs.last_mut() {
+                Some((r, f)) if *f == face => r.end = m,
+                _ => runs.push((k..m, face)),
+            }
+            k = m;
+        }
+        let base = runs[0].1;
+        let instances: Vec<Vec<FaceIx>> = runs
+            .iter()
+            .map(|&(_, f)| core::iter::once(f).chain(self.stack.narrower(f)).collect())
             .collect();
+        let n_inst = instances.iter().map(Vec::len).max().unwrap_or(1);
         let script = Script::of_cluster(&all);
-        let upem = u32::from(self.stack.face(base).units_per_em().value()).max(1);
         // **A piece's pens fit its sixteen-bit offsets**: at two ems a cell at
         // most, a piece of 16,000 / upem cells -- 16 on a face of 1000 units
-        // -- cut where a syllable ends, the next going on from its end.
-        let per = usize::try_from(16_000 / upem)
-            .unwrap_or(1)
-            .clamp(1, RUN_CELLS);
+        // -- cut where a syllable ends, the next going on from its end; and
+        // cut where the face changes.
         let mut pieces: Vec<core::ops::Range<usize>> = Vec::new();
-        let (mut from, mut n) = (0usize, 0usize);
-        for (i, s) in syllables.iter().enumerate() {
-            if n > 0 && n + s.cells.index() > per {
-                pieces.push(from..i);
-                from = i;
-                n = 0;
+        let mut piece_run: Vec<usize> = Vec::new();
+        for (ri, (run, face)) in runs.iter().enumerate() {
+            let upem = u32::from(self.stack.face(*face).units_per_em().value()).max(1);
+            let per = usize::try_from(16_000 / upem)
+                .unwrap_or(1)
+                .clamp(1, RUN_CELLS);
+            let (mut from, mut n) = (run.start, 0usize);
+            for i in run.clone() {
+                let s = syllables[i];
+                if n > 0 && n + s.cells.index() > per {
+                    pieces.push(from..i);
+                    piece_run.push(ri);
+                    from = i;
+                    n = 0;
+                }
+                n += s.cells.index();
             }
-            n += s.cells.index();
+            pieces.push(from..run.end);
+            piece_run.push(ri);
         }
-        pieces.push(from..syllables.len());
         let cut = (parts, syllables);
         let cell = self.metrics.cell_w.value() as f32;
+        let upem0 = u32::from(self.stack.face(base).units_per_em().value()).max(1);
         let scale0 = self.scales[base.index()];
         let grid = crate::word::Grid {
             cell,
-            gap: WORD_GAP_EM * scale0.px(upem as f32),
+            gap: WORD_GAP_EM * scale0.px(upem0 as f32),
             cols,
         };
-        let mut shaped: Vec<Option<(Vec<Shaped>, crate::word::Measure)>> = vec![None; faces.len()];
+        let face_at = |j: usize, i: usize| {
+            let inst = &instances[piece_run[i]];
+            inst[j.min(inst.len() - 1)]
+        };
+        type Measured = (Vec<Shaped>, Vec<PieceAt>, crate::word::Measure);
+        let mut shaped: Vec<Option<Measured>> = (0..n_inst).map(|_| None).collect();
         let before = prev.map(|p| p - cell * at.index() as f32);
-        let laid = crate::word::lay((at, cells), room, grid, (faces.len(), before), |j| {
-            let (shapes, m) = self.word_measure(faces[j], script, cut, &pieces);
-            shaped[j] = Some((shapes, m));
+        let laid = crate::word::lay((at, cells), room, grid, (n_inst, before), |j| {
+            let measured = self.word_measure(script, cut, &pieces, |i| face_at(j, i));
+            let m = measured.2;
+            shaped[j] = Some(measured);
             Some(m)
         });
-        let j = laid.instance.min(faces.len() - 1);
-        let face = faces[j];
-        let (shapes, measure) = match shaped[j].take() {
+        let j = laid.instance.min(n_inst - 1);
+        let (shapes, at_of, measure) = match shaped[j].take() {
             Some(s) => s,
-            None => self.word_measure(face, script, cut, &pieces),
+            None => self.word_measure(script, cut, &pieces, |i| face_at(j, i)),
         };
-        let scale = self.scales[face.index()];
         let x0 = cell * at.index() as f32 + laid.off;
         // Each syllable's pen boundary, from the first glyph of its cluster,
         // and the word's end; each glyph's syllable.
         let n_syl = syllables.len();
         let mut bounds = vec![f32::NAN; n_syl + 1];
         let mut owner: Vec<Vec<usize>> = Vec::with_capacity(shapes.len());
-        let mut origin = 0i32;
-        for (piece, sh) in pieces.iter().zip(&shapes) {
+        for ((piece, sh), &here) in pieces.iter().zip(&shapes).zip(&at_of) {
             let first = syllables[piece.start].at.index();
             let mut own = Vec::with_capacity(sh.glyphs().len());
             for p in sh.glyphs() {
@@ -8118,14 +8208,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     .find(|&k| syllables[k].at.index() - first == usize::from(p.cell.0))
                     .unwrap_or(piece.start);
                 if bounds[k].is_nan() {
-                    bounds[k] = x0 + scale.px((origin + i32::from(p.dx)) as f32);
+                    bounds[k] = x0 + here.pen(self, p);
                 }
                 own.push(k);
             }
             owner.push(own);
-            origin += i32::from(sh.end());
         }
-        bounds[n_syl] = x0 + scale.px(origin as f32);
+        bounds[n_syl] = x0 + measure.advance;
         for k in (0..n_syl).rev() {
             if bounds[k].is_nan() {
                 bounds[k] = bounds[k + 1];
@@ -8135,12 +8224,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             bounds[k] = bounds[k].max(bounds[k - 1]);
         }
         Some(LaidWord {
-            face,
             laid: crate::word::Laid {
                 instance: j,
                 ..laid
             },
             shapes,
+            at: at_of,
             owner,
             x0,
             bounds,
@@ -8152,13 +8241,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// glyph, its slot at the quarter pixel it falls on, and its place from
     /// the row's left edge, whole pixels and that quarter.
     fn word_glyph_places(&mut self, w: &LaidWord) -> Vec<GlyphPlace> {
-        let scale = self.scales[w.face.index()];
-        let f = self.stack.face(w.face);
         let mut out = Vec::new();
-        let mut origin = 0i32;
-        for (sh, own) in w.shapes.iter().zip(&w.owner) {
+        for ((sh, own), &here) in w.shapes.iter().zip(&w.owner).zip(&w.at) {
+            let scale = self.scales[here.face.index()];
+            let f = self.stack.face(here.face);
             for (p, &k) in sh.glyphs().iter().zip(own) {
-                let at = w.x0 + scale.px((origin + i32::from(p.dx)) as f32);
+                let at = w.x0 + here.pen(self, p);
                 let mut whole = at.floor();
                 let mut q = ((at - whole) * PEN_STEPS).round() / PEN_STEPS;
                 if q >= 1.0 {
@@ -8168,9 +8256,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let phase = Phase::of_fraction(q);
                 let slot = self
                     .atlas
-                    .slot_at(f, w.face, p.id, scale, phase, Stretch::One);
+                    .slot_at(f, here.face, p.id, scale, phase, Stretch::One);
                 out.push(GlyphPlace {
                     syllable: crate::word::SyllableIx(u16::try_from(k).unwrap_or(u16::MAX)),
+                    face: here.face,
                     id: p.id,
                     slot,
                     whole: whole as i32,
@@ -8178,7 +8267,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     dy: scale.px(f32::from(p.dy)).round() as i32,
                 });
             }
-            origin += i32::from(sh.end());
         }
         out
     }
@@ -8201,18 +8289,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// instance path's place on the screen.
     ///
     /// **Word `i` of the kept row `kept` names** (`crate::kept`) is laid
-    /// again only where it was laid after a word ending elsewhere or in
-    /// another face, else painted from its kept layout in this frame's
-    /// light: the cursor and the selection never lay it. A row that names
-    /// none is laid.
+    /// again only where it was laid after a word ending elsewhere or with a
+    /// syllable in another face, else painted from its kept layout in this
+    /// frame's light: the cursor and the selection never lay it. A row that
+    /// names none is laid.
     ///
-    /// **`style` is the face its first cell's rendition names in the
-    /// table the frame draws with**: the renderer's own on the instance and
-    /// CPU paths, the buffer set's on the cell path, which the renderer's
-    /// own is not kept to.
+    /// **`styles` are the faces its syllables' first cells' renditions name
+    /// in the table the frame draws with** ([`crate::word::faces_of`]): the
+    /// renderer's own on the instance and CPU paths, the buffer set's on
+    /// the cell path, which the renderer's own is not kept to.
     pub(crate) fn word_at(
         &mut self,
-        (term, style): (&Term<'_>, TextFace),
+        (term, styles): (&Term<'_>, &[TextFace]),
         (r, row, kept): (
             Row,
             &[PackedCell],
@@ -8225,17 +8313,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
         row.get(w.at.index())?;
         let cols = Cols::of_index(row.len());
         let Some(ki) = kept else {
-            let layout = self.word_layout(term, row, (w, style), (cols, prev))?;
+            let layout = self.word_layout(term, row, (w, styles), (cols, prev))?;
             return Some(self.word_painted(r, &layout, (w, paint), under, out));
         };
-        if !self.kept.has_word(ki, prev, style) {
-            let layout = self.word_layout(term, row, (w, style), (cols, prev));
-            self.kept.keep_word(ki, prev, style, layout);
+        if !self.kept.has_word(ki, prev, styles) {
+            let layout = self.word_layout(term, row, (w, styles), (cols, prev));
+            self.kept.keep_word(ki, prev, styles, layout);
         } else if cfg!(debug_assertions) {
             // A debug build lays a kept word again, uncounted, and requires
             // the layout kept to be the one it lays.
             let laid = self.words_laid;
-            let again = self.word_layout(term, row, (w, style), (cols, prev));
+            let again = self.word_layout(term, row, (w, styles), (cols, prev));
             self.words_laid = laid;
             debug_assert!(
                 again.as_ref() == self.kept.word(ki),
@@ -8246,13 +8334,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         Some(self.word_painted(r, layout, (w, paint), under, out))
     }
 
-    /// **Word `w` of `row` laid and placed** ([`WordLayout`]), in face
-    /// `style`, on a row `cols` wide after a word ending at `prev`.
+    /// **Word `w` of `row` laid and placed** ([`WordLayout`]), each
+    /// syllable in its face of `styles`, on a row `cols` wide after a word
+    /// ending at `prev`.
     fn word_layout(
         &mut self,
         term: &Term<'_>,
         row: &[PackedCell],
-        (w, style): (&crate::word::Word, TextFace),
+        (w, styles): (&crate::word::Word, &[TextFace]),
         (cols, prev): (Cols, Option<f32>),
     ) -> Option<WordLayout> {
         let parts: Vec<Vec<Codepoint>> = w
@@ -8267,7 +8356,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     .collect()
             })
             .collect();
-        self.word_placed((&parts, style), w, (cols, prev))
+        self.word_placed((&parts, styles), w, (cols, prev))
     }
 
     /// **The kept row of window row `at`, holding `cells` in the order
@@ -8310,42 +8399,44 @@ impl<'f, 'a> Renderer<'f, 'a> {
     pub(crate) fn word_ink(
         &mut self,
         cut: (&[Vec<Codepoint>], &[crate::syllable::Syllable]),
-        style: TextFace,
+        styles: &[TextFace],
         place: (Col, Cols, crate::word::Room),
         (cols, prev): (Cols, Option<f32>),
     ) -> Option<f32> {
-        self.lay_word(cut, style, place, (cols, prev))
+        self.lay_word(cut, styles, place, (cols, prev))
             .map(|w| w.x0 + w.measure.ink.right)
     }
 
-    /// [`Renderer::word_at`] for a word whose syllables hold `parts`, in
-    /// face `style`, on a row `cols` wide: what an input method's
-    /// composition draws a word it holds by, the letters written beside it
-    /// that it takes in among its syllables, as its commit will be drawn.
+    /// [`Renderer::word_at`] for a word whose syllables hold `parts`, each
+    /// in its face of `styles`, on a row `cols` wide: what an input
+    /// method's composition draws a word it holds by, the letters written
+    /// beside it that it takes in among its syllables, as its commit will
+    /// be drawn.
     pub(crate) fn word_drawn(
         &mut self,
         r: Row,
-        (parts, style): (&[Vec<Codepoint>], TextFace),
+        (parts, styles): (&[Vec<Codepoint>], &[TextFace]),
         (w, paint, prev): (&crate::word::Word, &crate::word::WordPaint, Option<f32>),
         (under, cols): (&[crate::word::Under], Cols),
         out: &mut Vec<Instance>,
     ) -> Option<crate::word::WordLaid> {
-        let layout = self.word_placed((parts, style), w, (cols, prev))?;
+        let layout = self.word_placed((parts, styles), w, (cols, prev))?;
         Some(self.word_painted(r, &layout, (w, paint), under, out))
     }
 
     /// **A word whose syllables hold `parts` laid and its glyphs placed**
-    /// ([`WordLayout`]), in face `style`, on a row `cols` wide after a word
-    /// ending at `prev`: what [`Renderer::word_painted`] draws it from.
+    /// ([`WordLayout`]), each syllable in its face of `styles`, on a row
+    /// `cols` wide after a word ending at `prev`: what
+    /// [`Renderer::word_painted`] draws it from.
     fn word_placed(
         &mut self,
-        (parts, style): (&[Vec<Codepoint>], TextFace),
+        (parts, styles): (&[Vec<Codepoint>], &[TextFace]),
         w: &crate::word::Word,
         (cols, prev): (Cols, Option<f32>),
     ) -> Option<WordLayout> {
         let laid_word = self.lay_word(
             (parts, &w.syllables),
-            style,
+            styles,
             (w.at, w.cells, w.room),
             (cols, prev),
         )?;
@@ -8436,8 +8527,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .map_or(paint.syllables[0].0, |u| u.colours)
         };
         let mut pens = Vec::new();
+        let mut faces = Vec::new();
         for g in &laid_word.places {
             pens.push((g.id, g.pen));
+            faces.push(g.face);
             let (colours, _, text) = paint.syllables[usize::from(g.syllable.0)];
             let Some(slot) = g.slot.filter(|_| text.draws()) else {
                 continue;
@@ -8473,6 +8566,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             syllables: w.syllables.iter().map(|s| (s.at, s.cells)).collect(),
             spans,
             pens,
+            faces,
         }
     }
 
@@ -10078,10 +10172,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         w.at,
                         self.laid[r.index()].last().map(|l| (l.at, l.ink.1)),
                     );
-                    let first = row.get(w.at.index()).copied();
-                    let style = self.face_style(first.unwrap_or(PackedCell::EMPTY));
+                    let styles = crate::word::faces_of(&self.styles, row, w);
                     let laid = self.word_at(
-                        (term, style),
+                        (term, &styles),
                         (r, row, kept.map(|k| (k, crate::kept::WordIx(wi)))),
                         (w, &paints[wi], prev),
                         grounds,

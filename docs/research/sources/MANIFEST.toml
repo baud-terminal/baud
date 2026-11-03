@@ -3630,6 +3630,40 @@ group  = "J"
 # pinned tag. Practice, not the text: where it and the Devanagari
 # specification differ, baud-font/src/indic.rs names the departure.
 
+[sources.harfbuzz-14-5-1-buffer-h]
+key    = "harfbuzz-14-5-1-buffer-h"
+title  = "hb-buffer.h -- the cluster levels: CHARACTERS, where no cluster value is merged"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-buffer.h"
+file   = ""
+sha256 = "c9d608ef2ab9fdcbe3b285418a3662fb075a579fb7fd3010e75cfb1ae8263566"
+bytes  = 31931
+status = "external"
+group  = "J"
+# Read as reference 2026-11-03, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. hb_buffer_cluster_level_t: at CHARACTERS each character keeps
+# its own cluster value, in no monotone order (note AB, Q25).
+
+[sources.harfbuzz-14-5-1-buffer-hh]
+key    = "harfbuzz-14-5-1-buffer-hh"
+title  = "hb-buffer.hh -- merge_clusters(), which at a level that is not monotone only marks the range unsafe to break"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-buffer.hh"
+file   = ""
+sha256 = "0ec8f13b1b911c65657f7e1c9f05f724c888dbcd9a95397de369c540c7f71b00"
+bytes  = 21677
+status = "external"
+group  = "J"
+# Read as reference 2026-11-03, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag. merge_clusters() merges at the monotone levels baud-font's
+# Indic shaper follows, and at CHARACTERS returns unmerged (note AB, Q25).
+
 [sources.harfbuzz-14-5-1-gsubgpos]
 key    = "harfbuzz-14-5-1-gsubgpos"
 title  = "hb-ot-layout-gsubgpos.hh -- the matcher: masks, per-syllable matching, the joiners"
@@ -7577,6 +7611,11 @@ group  = "J"
 # joining forms chosen) as if the word were still whole", which baud's
 # joining across a terminal's soft wrap follows (note AB section 13).
 # Byte-identical to www.w3.org/TR/css-text-3/ on 2026-10-24.
+# Re-read 2026-11-03, the same hash: 1.4's "typographic character unit
+# divided by an element boundary", which "may be rendered as belonging to
+# either side of the boundary", a Devanagari syllable that unit; and 7.3's
+# shaping across inline box boundaries, never broken where "the only
+# formatting changes do not affect the glyphs" (note AB, Q25).
 
 [sources.w3c-compositing-1]
 key    = "w3c-compositing-1"

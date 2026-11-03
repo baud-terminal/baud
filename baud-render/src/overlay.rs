@@ -1698,14 +1698,11 @@ impl Overlay {
             };
             let mut drawn_word = Vec::new();
             let before = taken.ink_before(at, w.at, prev);
-            // The word's face from the frame's table, which the renderer's
-            // own is not kept to on this path.
-            let style = crate::cellmap::face_of(
-                scene.styles,
-                row.get(first).copied().unwrap_or(PackedCell::EMPTY),
-            );
+            // Its syllables' faces from the frame's table, which the
+            // renderer's own is not kept to on this path.
+            let styles = crate::word::faces_of(scene.styles, row, w);
             let laid = r.word_at(
-                (scene.term, style),
+                (scene.term, &styles),
                 (at, row, kept.map(|k| (k, crate::kept::WordIx(i)))),
                 (w, &wp, before),
                 &under,
@@ -4178,11 +4175,18 @@ pub(crate) fn composition_parts(
             left: (crate::word::Blanks(at - l), side(l.checked_sub(1))),
             right: (crate::word::Blanks(rr - at - cells), side(Some(rr))),
         };
-        // Its face is its first cell's, as the grid's word takes it.
-        let style = match all[word[0].0].3 {
-            Some(i) => styled[i].2.1,
-            None => crate::cellmap::face_of(styles, cell_at(at).unwrap_or(PackedCell::EMPTY)),
-        };
+        // Each syllable's face is its first cluster's, as the grid's word
+        // takes it.
+        let faces: Vec<crate::TextFace> = word
+            .iter()
+            .map(|u| match all[u.0].3 {
+                Some(i) => styled[i].2.1,
+                None => crate::cellmap::face_of(
+                    styles,
+                    cell_at(all[u.0].1).unwrap_or(PackedCell::EMPTY),
+                ),
+            })
+            .collect();
         // Each syllable in its first cluster's colours under the light of
         // the letters taken in that it holds; the composition's own cells
         // are lit by the grid, as the cells under it are.
@@ -4255,17 +4259,11 @@ pub(crate) fn composition_parts(
                         .collect()
                 })
                 .collect();
-            let face = crate::cellmap::face_of(
-                styles,
-                grid_row
-                    .get(g.at.index())
-                    .copied()
-                    .unwrap_or(PackedCell::EMPTY),
-            );
+            let faces = crate::word::faces_of(styles, &grid_row, g);
             last = r
                 .word_ink(
                     (&cut, &g.syllables),
-                    face,
+                    &faces,
                     (g.at, g.cells, g.room),
                     (cols, last),
                 )
@@ -4275,7 +4273,7 @@ pub(crate) fn composition_parts(
         let mut drawn_word = Vec::new();
         if let Some(l) = r.word_drawn(
             c.row,
-            (&parts, style),
+            (&parts, &faces),
             (&w, &paint, last),
             (&under, cols),
             &mut drawn_word,

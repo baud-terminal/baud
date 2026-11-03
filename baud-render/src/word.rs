@@ -219,6 +219,31 @@ pub(crate) fn of_row(
     out
 }
 
+/// **The face each syllable of `w` is drawn in**: the face its first
+/// cell's rendition names in `table`, the resolved table the frame draws
+/// with ([`crate::cellmap::face_of`]) -- as each syllable takes its
+/// colours from its first cell ([`WordPaint`]), and as one cell holds a
+/// cluster in one rendition. A word whose syllables name two faces is
+/// shaped in runs cut where the face changes
+/// (`crate::renderer::Renderer::word_at`): `[[source: ecma48]]` 8.3.117
+/// has SGR "establish one or more graphic rendition aspects for
+/// subsequent text".
+pub(crate) fn faces_of(
+    table: &[crate::cellmap::Resolved],
+    row: &[PackedCell],
+    w: &Word,
+) -> Vec<crate::TextFace> {
+    w.syllables
+        .iter()
+        .map(|s| {
+            crate::cellmap::face_of(
+                table,
+                row.get(s.at.index()).copied().unwrap_or(PackedCell::EMPTY),
+            )
+        })
+        .collect()
+}
+
 /// **A word's measure on one instance**, in pixels from its pen's start:
 /// its advance, from its first pen to the end of its last spacing glyph,
 /// and where its ink lies.
@@ -422,6 +447,9 @@ pub struct WordLaid {
     pub spans: Vec<(i32, i32)>,
     /// Each glyph and the pen it is drawn at, to a quarter of a pixel.
     pub pens: Vec<(GlyphId, f32)>,
+    /// The face each glyph of `pens` is drawn from: its syllable's, or a
+    /// narrower instance of it.
+    pub faces: Vec<crate::FaceIx>,
 }
 
 /// **What lights a cell**: the selection, the block cursor, and the

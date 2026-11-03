@@ -13874,7 +13874,19 @@ fn a_slanted_lam_alef_is_read_in_its_word_on_every_arm() {
 /// tells two faces that draw alike apart. The instance arm's frame, the
 /// cells the records drew, and the cell `crop` of the frame.
 fn first_frame(
+    fonts: (&[Face<'_>], &[FaceRole]),
+    text: &str,
+    crop: (usize, usize),
+    what: &str,
+) -> (Vec<u32>, Tally, Vec<u32>) {
+    first_frame_with(fonts, |_| {}, text, crop, what)
+}
+
+/// [`first_frame`] with `setup` done to the terminal before `text` is
+/// fed: an embedder's setting, which no byte sets.
+fn first_frame_with(
     (faces, roles): (&[Face<'_>], &[FaceRole]),
+    setup: impl FnOnce(&mut Term<'_>),
     text: &str,
     crop: (usize, usize),
     what: &str,
@@ -13890,6 +13902,7 @@ fn first_frame(
     .unwrap();
     arms!(renderer => arms, t);
     arms.reads = Reads::Copy;
+    setup(&mut t);
     feed(&mut t, text.as_bytes());
     let (a, b) = arms.draw(&mut t);
     let glyph = |i: &Instance| (i.kind, i.x, i.y, i.w, i.h, i.u, i.v);
@@ -15118,6 +15131,13 @@ fn a_paragraph_inside_side_margins_draws_alike_on_every_arm() {
 /// start, is drawn as two. The premises: the syllables went to the
 /// records, and the three frames differ, the columns having moved; a line
 /// of Latin keeps the map's own premise, that it holds the scene's glyphs.
+///
+/// Kohinoor has no bold face of its own here, so its bold line draws from
+/// the regular face; the line and its bold are drawn again on the app's
+/// stack (`app_stack`), whose built Bold draws Devanagari, under each
+/// count, each the first frame of a renderer of its own (`first_frame`),
+/// so an arm that drew a bold syllable from the regular face would draw
+/// another glyph than the instance arm's.
 #[test]
 fn a_syllable_draws_alike_on_every_arm() {
     let data = std::fs::read(format!(
@@ -15220,6 +15240,38 @@ fn a_syllable_draws_alike_on_every_arm() {
         reach.is_some_and(|(c0, _, c1, _)| c0 == 0 && c1 >= 2),
         "கொ is drawn at its face's size, past its two cells: {reach:?}"
     );
+    // **On the app's stack**, the bold line in the built Bold.
+    let files = app_files();
+    let (faces, roles) = app_stack(&files);
+    let mut renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    let cps: Vec<Codepoint> = line.chars().map(Codepoint::from_char).collect();
+    assert_ne!(
+        renderer.face_for(&cps, FaceStyle::Bold),
+        renderer.face_for(&cps, FaceStyle::Regular),
+        "the premise: the bold face draws the line's Devanagari"
+    );
+    for (setup, marks) in [
+        ("", baud_domain::SpacingMarks::Column),
+        ("", baud_domain::SpacingMarks::Joined),
+        ("\x1b[?2027h", baud_domain::SpacingMarks::Column),
+    ] {
+        let what = format!("{setup:?} {marks:?} on the app's stack");
+        first_frame_with(
+            (&faces, &roles),
+            |t| t.set_spacing_marks(marks),
+            &format!("\x1b[?25l{setup}{line}\r\n\x1b[1m{line}\x1b[m"),
+            (0, 0),
+            &what,
+        );
+    }
 }
 
 /// **A Devanagari word, the block cursor on each of its cells and a
@@ -15430,4 +15482,178 @@ fn bold_and_italic_hindi_draw_alike_on_every_arm() {
         renderer.face_for(&cps, FaceStyle::Regular),
         "the premise: the italic face draws the line's Devanagari"
     );
+}
+
+/// The app's faces: the built Regular, the icon face, and the built Bold,
+/// Italic and Bold Italic, each with its role.
+fn app_files() -> Vec<(Vec<u8>, FaceRole)> {
+    let here = |p: &str| {
+        std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|e| panic!("{p}: {e}"))
+    };
+    vec![
+        (here("baud-app/fonts/built/Regular.ttf"), FaceRole::Fallback),
+        (
+            here("baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
+            FaceRole::Fallback,
+        ),
+        (
+            here("baud-app/fonts/built/Bold.ttf"),
+            FaceRole::Style(FaceStyle::Bold),
+        ),
+        (
+            here("baud-app/fonts/built/Italic.ttf"),
+            FaceRole::Style(FaceStyle::Italic),
+        ),
+        (
+            here("baud-app/fonts/built/BoldItalic.ttf"),
+            FaceRole::Style(FaceStyle::BoldItalic),
+        ),
+    ]
+}
+
+/// **The app's stack** over [`app_files`]: each face followed by its
+/// narrower instances.
+fn app_stack(files: &[(Vec<u8>, FaceRole)]) -> (Vec<Face<'_>>, Vec<FaceRole>) {
+    let (mut faces, mut roles) = (Vec::new(), Vec::new());
+    for (data, role) in files {
+        let face = Face::parse(data).expect("parse");
+        let widths = baud_render::narrower_widths(&face, &[]);
+        faces.push(face);
+        roles.push(*role);
+        for w in widths {
+            let mut narrow = Face::parse(data).expect("parse");
+            narrow.set_variations(&[baud_font::var::Variation {
+                tag: baud_font::Tag::from_bytes(*b"wdth"),
+                value: baud_font::var::Fixed::from_f32(w),
+            }]);
+            faces.push(narrow);
+            roles.push(FaceRole::Narrower);
+        }
+    }
+    assert!(
+        roles.iter().filter(|r| **r == FaceRole::Narrower).count() >= 60,
+        "the premise: every built face has its narrower instances"
+    );
+    (faces, roles)
+}
+
+/// **A word whose face changes between its syllables draws each syllable
+/// in its own face, alike on every arm** (`[[source: ecma48]]` 8.3.117), on
+/// the app's stack -- the built faces, each followed by its narrower
+/// instances, behind the icon face: टर्मि and then नल in SGR 1 and back to
+/// 0, under each count, अ then क्षर in SGR 1, and नल in SGR 3 and 1;3,
+/// each the first frame of a renderer of its own (`first_frame`). Each in
+/// bold draws as neither the word in its first syllable's face nor the
+/// word in its last's; drawn whole in its first cell's face, the word drew
+/// as the first. A change inside one syllable draws the syllable in its
+/// first cell's face, as the syllable written in one rendition draws, and
+/// a change of colour alone draws, of the text or of its ground. And मल
+/// composed after a bold क draws as the same letters written there.
+#[test]
+fn a_word_whose_face_changes_draws_alike_on_every_arm() {
+    let files = app_files();
+    let (faces, roles) = app_stack(&files);
+    let frame = |text: &str, what: &str| {
+        first_frame(
+            (&faces, &roles),
+            &format!("\x1b[?25l\x1b[2;3H{text}\x1b[m\x1b[4;1Hthe quick brown fox 0123456789"),
+            (1, 2),
+            what,
+        )
+        .0
+    };
+    for (what, mixed, first, last) in [
+        ("bold after", "टर्मि\x1b[1mनल", "टर्मिनल", "\x1b[1mटर्मिनल"),
+        (
+            "regular after",
+            "\x1b[1mटर्मि\x1b[mनल",
+            "\x1b[1mटर्मिनल",
+            "टर्मिनल",
+        ),
+        (
+            "bold after under ?2027",
+            "\x1b[?2027hटर्मि\x1b[1mनल",
+            "\x1b[?2027hटर्मिनल",
+            "\x1b[?2027h\x1b[1mटर्मिनल",
+        ),
+        ("bold after a vowel", "अ\x1b[1mक्षर", "अक्षर", "\x1b[1mअक्षर"),
+    ] {
+        let drawn = frame(mixed, what);
+        assert!(
+            drawn != frame(first, &format!("{what}: its first face")),
+            "{what}: drawn in its first syllable's face"
+        );
+        assert!(
+            drawn != frame(last, &format!("{what}: its last face")),
+            "{what}: drawn in its last syllable's face"
+        );
+    }
+    // The built Italic draws Devanagari upright, as the Regular's pixels:
+    // each arm alike, and every glyph the cell arm draws the instance
+    // arm's, from the same face (`first_frame`).
+    for (what, mixed) in [
+        ("italic after", "टर्मि\x1b[3mनल"),
+        ("bold italic after", "टर्मि\x1b[1;3mनल"),
+    ] {
+        frame(mixed, what);
+    }
+    for (what, inside, whole) in [
+        ("bold inside a syllable", "टर्\x1b[1mमि\x1b[mनल", "टर्मिनल"),
+        (
+            "regular inside a syllable",
+            "\x1b[1mर्\x1b[mमि",
+            "\x1b[1mर्मि",
+        ),
+    ] {
+        assert_eq!(
+            differing(
+                &frame(inside, what),
+                &frame(whole, &format!("{what}: whole"))
+            ),
+            0,
+            "{what}: drawn as the syllable in its first cell's face"
+        );
+    }
+    assert!(
+        frame("टर्मि\x1b[31mनल", "red after") != frame("टर्मिनल", "red after: plain"),
+        "the premise: the colour draws"
+    );
+    for (what, ground) in [
+        ("a red ground after", "टर्मि\x1b[41mनल"),
+        ("a green ground before", "\x1b[42mटर्मि\x1b[49mनल"),
+    ] {
+        assert!(
+            frame(ground, what) != frame("टर्मिनल", &format!("{what}: plain")),
+            "the premise: {what} draws"
+        );
+    }
+    // **Composed**: मल composed after a bold क draws as the same letters
+    // written there underlined, the क bold and मल regular.
+    let renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let failed = std::cell::RefCell::new(Vec::<String>::new());
+    let fail = |what: String| failed.borrow_mut().push(what);
+    composed_as_written(
+        &mut arms,
+        &mut t,
+        (
+            "\x1bc\x1b[2 q\x1b[5;1HThe quick brown fox jumps over the lazy dog 0123456789\
+             \x1b[3;1Hab\x1b[1m\u{915}\x1b[m",
+            "\u{92e}\u{932}",
+        ),
+        "a bold letter taken in",
+        &three_arms,
+        &fail,
+    );
+    let failed = failed.into_inner();
+    assert!(failed.is_empty(), "{failed:#?}");
 }

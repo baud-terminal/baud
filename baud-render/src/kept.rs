@@ -21,7 +21,8 @@
 //! The modes that decide where a syllable is parted (`?2027`,
 //! `join_spacing_marks`) are in the cells: the core parts by them and the
 //! renderer re-forms by one rule whatever they are. Each word is laid
-//! again where the word before it ends elsewhere, or its face is another.
+//! again where the word before it ends elsewhere, or a syllable's face is
+//! another.
 //!
 //! **Bounded at twice the window's rows**, so a scroll either way finds
 //! every row it moved; past that the row used longest ago goes, and a
@@ -124,10 +125,11 @@ impl Before {
 }
 
 /// One word of a kept row, laid after the word before it ended at
-/// `before` and in `style`: `None` where it could not be laid.
+/// `before` and each syllable in its face of `styles`: `None` where it
+/// could not be laid.
 struct KeptWord {
     before: Before,
-    style: TextFace,
+    styles: Vec<TextFace>,
     layout: Option<WordLayout>,
 }
 
@@ -279,26 +281,27 @@ impl KeptRows {
     }
 
     /// Whether word `i` of kept row `k` was laid after a word ending at
-    /// `prev`, in `style`.
+    /// `prev`, each syllable in its face of `styles`: a cell's rendition
+    /// names its slot, and a slot written again names another face.
     pub(crate) fn has_word(
         &self,
         (k, i): (KeptIx, WordIx),
         prev: Option<f32>,
-        style: TextFace,
+        styles: &[TextFace],
     ) -> bool {
         self.get(k)
             .and_then(|row| row.laid.get(i.0))
             .and_then(Option::as_ref)
-            .is_some_and(|w| w.before == Before::of(prev) && w.style == style)
+            .is_some_and(|w| w.before == Before::of(prev) && w.styles == styles)
     }
 
-    /// Word `i` of kept row `k`, laid after a word ending at `prev`, in
-    /// `style`, kept.
+    /// Word `i` of kept row `k`, laid after a word ending at `prev`, each
+    /// syllable in its face of `styles`, kept.
     pub(crate) fn keep_word(
         &mut self,
         (k, i): (KeptIx, WordIx),
         prev: Option<f32>,
-        style: TextFace,
+        styles: &[TextFace],
         layout: Option<WordLayout>,
     ) {
         let slot = self
@@ -309,7 +312,7 @@ impl KeptRows {
         if let Some(slot) = slot {
             *slot = Some(KeptWord {
                 before: Before::of(prev),
-                style,
+                styles: styles.to_vec(),
                 layout,
             });
         }
