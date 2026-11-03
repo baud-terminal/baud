@@ -254,7 +254,7 @@ area = "window"
 status = "done"
 date = "2026-10-24"
 title = "Activity lights in the title bar"
-summary = "Small modem-style lights for bytes coming in and going out, with a setting to turn them off. On macOS; the Linux window has no title bar."
+summary = "Small modem-style lights, RD (Receive Data) and SD (Send Data), for data baud receives from the program and sends to it, with a setting to turn them off. On macOS; the Linux window has no title bar."
 
 [[item]]
 id = "F1-23"

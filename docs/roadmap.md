@@ -95,7 +95,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **Cmd-N opens a new window** — Open another window, including after the last one closed.
 - [x] **A launch splash** — baud's colour logo at launch, coming out of a burst of plasma and swept back out, each from left to right, with a setting to turn it off. With reduced motion on it shows whole and fades instead, on Linux once the desktop has reported the setting. (2026-10-24)
 - [x] **A prompt pinned to the bottom** — An optional mode that keeps the shell prompt at the bottom of the window, for a shell that marks its prompts. (2026-10-24)
-- [x] **Activity lights in the title bar** — Small modem-style lights for bytes coming in and going out, with a setting to turn them off. On macOS; the Linux window has no title bar. (2026-10-24)
+- [x] **Activity lights in the title bar** — Small modem-style lights, RD (Receive Data) and SD (Send Data), for data baud receives from the program and sends to it, with a setting to turn them off. On macOS; the Linux window has no title bar. (2026-10-24)
 - [x] **Blinking text follows Dim Flashing Lights** — With macOS's Dim Flashing Lights on, blinking text keeps its rates but dims in its off phase instead of vanishing, and switching the setting shows at once. (2026-10-22)
 - [x] **Readable colours on the light and dark glass** — Every built-in light and dark colour but the page's own reads at 4.5:1 on its page, and the see-through window is dimmed enough to keep text readable over a white or a black wallpaper. (2026-10-18)
 - [x] **Reverse video swaps every cell's colours** — With the reverse-screen mode on, foreground and background swap on every cell, including cells with explicit colours, as the DEC standard says. (2026-10-14)

@@ -1,5 +1,6 @@
-//! **The activity lights in the macOS title strip**: RD for bytes read from
-//! the child, SD for bytes the kernel took from baud, at the strip's right.
+//! **The activity lights in the macOS title strip**: RD (Receive Data) for
+//! bytes read from the child, SD (Send Data) for bytes the kernel took from
+//! baud, at the strip's right -- the Hayes Smartmodem's names for the two.
 //!
 //! **Where**: an image view in baud's own container, as the app icon is,
 //! re-placed on every resize -- the title strip is AppKit's, drawn over the
