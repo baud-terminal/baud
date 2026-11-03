@@ -247,6 +247,25 @@ impl Arms<'_, '_> {
         (a, b)
     }
 
+    /// **The glyph map warmed by the cell arm alone**, as the app's cell
+    /// path draws, which converts nothing: a line of Latin in the default
+    /// rendition, so a scene drawn next on a fresh renderer finds the map
+    /// in use (`Arms::draw`) and the renderer's own rendition table still
+    /// unresolved, as the cell arm's first frame meets it.
+    fn warm(&mut self, t: &mut Term<'_>) {
+        feed(
+            t,
+            b"\x1bc\x1b[?25lThe quick brown fox jumps over the lazy dog 0123456789",
+        );
+        let (w, h) = self.target_size();
+        let target = self.gpu.offscreen(w, h).expect("target");
+        self.with_cells(t, |gpu, renderer, input| {
+            let Some(Drawn::Frame(_)) = gpu.draw_cells(renderer, input, &target, Done::Wait) else {
+                panic!("draw_cells");
+            };
+        });
+    }
+
     /// The size `draw` draws its targets at.
     fn target_size(&self) -> (Px, Px) {
         let (fw, fh) = self.renderer.whole_size();
@@ -9658,16 +9677,17 @@ fn precomposed_letters() -> Vec<char> {
 /// above, a hook the row below. The letters whose pixels differ between the arms: each with
 /// the count on the cell arm and on the CPU arm, and how many glyphs it
 /// shapes to alone.
-fn letters_gate(
-    arms: &mut Arms<'_, '_>,
-    t: &mut Term<'_>,
+fn letters_gate<'f, 'a>(
+    fresh: &dyn Fn() -> Renderer<'f, 'a>,
     letters: &[char],
     sgr: &str,
     style: FaceStyle,
 ) -> Vec<(char, usize, usize, usize)> {
-    let (pw, _) = arms.renderer.frame_size();
+    let (pw, m) = {
+        let r = fresh();
+        (r.frame_size().0, r.metrics())
+    };
     let w = usize::try_from(pw.value()).unwrap();
-    let m = arms.renderer.metrics();
     let (cw, ch) = (
         usize::try_from(m.cell_w.value()).unwrap(),
         usize::try_from(m.cell_h.value()).unwrap(),
@@ -9680,7 +9700,13 @@ fn letters_gate(
     let mut empty: Option<Vec<u32>> = None;
     let mut split = Vec::new();
     let mut inked = 0;
-    for screen in letters.chunks(per_screen) {
+    for screen in letters.chunks(even(letters.len(), per_screen)) {
+        // Each screen the first frame of a renderer of its own
+        // (`first_frame`): a renderer the last screen's conversion
+        // resolved the rendition for would hide a cell arm that read it.
+        arms!(fresh() => arms, t);
+        let (arms, t) = (&mut arms, &mut t);
+        arms.warm(t);
         let mut text = format!("\x1bc\x1b[?25l{sgr}");
         let mut at = Vec::new();
         for (i, &c) in screen.iter().enumerate() {
@@ -9745,6 +9771,14 @@ fn letters_gate(
     split
 }
 
+/// **The size of the chunks `n` items fall into, at most `most` a chunk
+/// and as even as that allows**, so no screen is left a handful of letters
+/// -- `Arms::draw` requires the map to hold a screen's glyphs.
+fn even(n: usize, most: usize) -> usize {
+    let chunks = n.div_ceil(most.max(1)).max(1);
+    n.div_ceil(chunks).max(1)
+}
+
 /// `c`'s full canonical decomposition in canonical order
 /// (`[[source: unicode18-ch3]]` D68, D109), from `baud_font`'s tables:
 /// `None` for a letter that has none.
@@ -9787,15 +9821,16 @@ fn canonical_decomposition(c: char) -> Option<String> {
 /// decomposition typed, at the places `letters_gate` uses: the letters
 /// whose two forms differ on some arm, each with the pixels by which they
 /// differ on the instance, cell and CPU arms.
-fn forms_gate(
-    arms: &mut Arms<'_, '_>,
-    t: &mut Term<'_>,
+fn forms_gate<'f, 'a>(
+    fresh: &dyn Fn() -> Renderer<'f, 'a>,
     letters: &[char],
     sgr: &str,
 ) -> Vec<(char, String, [usize; 3])> {
-    let (pw, _) = arms.renderer.frame_size();
+    let (pw, m) = {
+        let r = fresh();
+        (r.frame_size().0, r.metrics())
+    };
     let w = usize::try_from(pw.value()).unwrap();
-    let m = arms.renderer.metrics();
     let (cw, ch) = (
         usize::try_from(m.cell_w.value()).unwrap(),
         usize::try_from(m.cell_h.value()).unwrap(),
@@ -9808,9 +9843,13 @@ fn forms_gate(
         .filter_map(|&c| canonical_decomposition(c).map(|d| (c, d)))
         .collect();
     let mut split = Vec::new();
-    for screen in pairs.chunks(per_screen) {
+    for screen in pairs.chunks(even(pairs.len(), per_screen)) {
         let mut frames = Vec::new();
         for decomposed in [false, true] {
+            // Each form the first frame of a renderer of its own.
+            arms!(fresh() => arms, t);
+            let (arms, t) = (&mut arms, &mut t);
+            arms.warm(t);
             let mut text = format!("\x1bc\x1b[?25l{sgr}");
             for (i, (c, d)) in screen.iter().enumerate() {
                 let (col, row) = (1 + 3 * (i % per_row), 1 + 3 * (i / per_row));
@@ -9916,16 +9955,19 @@ fn every_precomposed_letter_draws_alike_on_every_arm() {
             .map(|(b, i, _)| Face::parse_index(b, baud_font::FaceIndex::of(*i)).expect("parse"))
             .collect();
         let roles: Vec<FaceRole> = files.iter().map(|(_, _, r)| *r).collect();
-        let mut renderer = Renderer::new(
-            Stack::with_roles(&faces, &roles).unwrap(),
-            PxSize::of(14.0).unwrap(),
-            theme.clone(),
-            Blend::Native,
-            Cols::of_index(usize::from(WS.ws_col)),
-            Rows::of_index(usize::from(WS.ws_row)),
-        )
-        .unwrap();
+        let fresh = || {
+            Renderer::new(
+                Stack::with_roles(&faces, &roles).unwrap(),
+                PxSize::of(14.0).unwrap(),
+                theme.clone(),
+                Blend::Native,
+                Cols::of_index(usize::from(WS.ws_col)),
+                Rows::of_index(usize::from(WS.ws_row)),
+            )
+            .unwrap()
+        };
         if chain == "stock" {
+            let mut renderer = fresh();
             let alone = |r: &mut Renderer<'_, '_>, c: char| {
                 let cp = baud_domain::Codepoint::new(u32::from(c)).unwrap();
                 r.cluster(&[cp], FaceStyle::Regular, baud_render::CellSpan::One)
@@ -9941,13 +9983,12 @@ fn every_precomposed_letter_draws_alike_on_every_arm() {
                 "the premise: U+00E9 shapes to one"
             );
         }
-        arms!(renderer => arms, t);
         for (name, sgr, style) in [
             ("regular", "", FaceStyle::Regular),
             ("bold", "\x1b[1m", FaceStyle::Bold),
             ("italic", "\x1b[3m", FaceStyle::Italic),
         ] {
-            for (letter, d, [inst, cell, cpu]) in forms_gate(&mut arms, &mut t, &letters, sgr) {
+            for (letter, d, [inst, cell, cpu]) in forms_gate(&fresh, &letters, sgr) {
                 split.push(format!(
                     "{chain} {name} U+{:04X} {} against {:04X?}: the decomposition differs by {} px on the instance arm, {} on the cell arm, {} on the CPU arm",
                     u32::from(letter),
@@ -9958,8 +9999,7 @@ fn every_precomposed_letter_draws_alike_on_every_arm() {
                     cpu
                 ));
             }
-            for (letter, gpu, soft, glyphs) in letters_gate(&mut arms, &mut t, &letters, sgr, style)
-            {
+            for (letter, gpu, soft, glyphs) in letters_gate(&fresh, &letters, sgr, style) {
                 let cp = baud_domain::Codepoint::new(u32::from(letter)).unwrap();
                 let mapped = faces.iter().any(|f| f.glyph(cp).is_some());
                 split.push(format!(
@@ -10091,19 +10131,23 @@ fn the_cell_path_draws_the_notice_as_the_instance_path_does() {
     ))
     .expect("face");
     let faces = [Face::parse(&data).expect("parse")];
-    let renderer = Renderer::new(
-        Stack::new(&faces).unwrap(),
-        PxSize::of(14.0).unwrap(),
-        Theme::dark(),
-        Blend::Native,
-        Cols::of_index(usize::from(WS.ws_col)),
-        Rows::of_index(usize::from(WS.ws_row)),
-    )
-    .unwrap();
-    arms!(renderer => arms, t);
-    scene(&mut t);
-    arms.renderer.fit(&t);
-    let (bare, _) = arms.draw(&mut t);
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let bare = {
+        arms!(fresh() => arms, t);
+        scene(&mut t);
+        arms.renderer.fit(&t);
+        arms.draw(&mut t).0
+    };
     let notice: Vec<baud_domain::Codepoint> =
         "~/.config/baud/config.toml line 12: \"font_size 15\" is not key = value"
             .chars()
@@ -10113,13 +10157,21 @@ fn the_cell_path_draws_the_notice_as_the_instance_path_does() {
         ws_col: WS.ws_col,
         ws_row: WS.ws_row - 1,
     };
-    let _ = t.resize(&less);
-    arms.renderer.set_notice(Some(notice));
-    for (open, name) in [
+    // Each scene the first frame of a renderer of its own (`first_frame`),
+    // its bytes fed to a terminal of its own.
+    let opens = [
         (b"".as_slice(), "the notice"),
         (b"\x1b[1$~".as_slice(), "the notice under the indicator"),
-    ] {
-        feed(&mut t, open);
+    ];
+    for k in 0..opens.len() {
+        let name = opens[k].1;
+        arms!(fresh() => arms, t);
+        scene(&mut t);
+        let _ = t.resize(&less);
+        arms.renderer.set_notice(Some(notice.clone()));
+        for (open, _) in &opens[..=k] {
+            feed(&mut t, open);
+        }
         arms.renderer.fit(&t);
         let (a, _) = arms.draw(&mut t);
         let c = arms.draw_copied(&mut t);
@@ -10128,13 +10180,15 @@ fn the_cell_path_draws_the_notice_as_the_instance_path_does() {
         assert_eq!(differing(&a, &c), 0, "{name}: the cell arm disagrees");
         assert_eq!(differing(&a, &cpu), 0, "{name}: the CPU arm disagrees");
         assert_ne!(a, bare, "{name}: the notice reached the pixels");
+        if k + 1 == opens.len() {
+            feed(&mut t, b"\x1b[0$~");
+            arms.renderer.set_notice(None);
+            let _ = t.resize(&WS);
+            arms.renderer.fit(&t);
+            let (after, _) = arms.draw(&mut t);
+            assert_eq!(after.len(), bare.len(), "the notice's row is gone");
+        }
     }
-    feed(&mut t, b"\x1b[0$~");
-    arms.renderer.set_notice(None);
-    let _ = t.resize(&WS);
-    arms.renderer.fit(&t);
-    let (after, _) = arms.draw(&mut t);
-    assert_eq!(after.len(), bare.len(), "the notice's row is gone");
 }
 
 /// **The status line on the cell path is the instance path's**: its row
@@ -10149,21 +10203,25 @@ fn the_cell_path_draws_the_status_line_as_the_instance_path_does() {
     ))
     .expect("face");
     let faces = [Face::parse(&data).expect("parse")];
-    let renderer = Renderer::new(
-        Stack::new(&faces).unwrap(),
-        PxSize::of(14.0).unwrap(),
-        Theme::dark(),
-        Blend::Native,
-        Cols::of_index(usize::from(WS.ws_col)),
-        Rows::of_index(usize::from(WS.ws_row)),
-    )
-    .unwrap();
-    arms!(renderer => arms, t);
-    scene(&mut t);
-    feed(&mut t, b"\x1b[2 q");
-    arms.renderer.fit(&t);
-    let (bare, _) = arms.draw(&mut t);
-    for (open, name) in [
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let bare = {
+        arms!(fresh() => arms, t);
+        scene(&mut t);
+        feed(&mut t, b"\x1b[2 q");
+        arms.renderer.fit(&t);
+        arms.draw(&mut t).0
+    };
+    let opens = [
         (b"\x1b[1$~".as_slice(), "the indicator"),
         (
             b"\x1b[2$~\x1b[1$}mail: \x1b[1;31m3\x1b[0m".as_slice(),
@@ -10181,8 +10239,17 @@ fn the_cell_path_draws_the_status_line_as_the_instance_path_does() {
             "\x1b[1$}\x1b[2K\x1b[41m\u{5E9}\u{5DC}\u{5D5}\u{5DD}\x1b[0m 42".as_bytes(),
             "a Hebrew host-writable line, selected",
         ),
-    ] {
-        feed(&mut t, open);
+    ];
+    // Each scene the first frame of a renderer of its own (`first_frame`),
+    // the bytes up to it fed to a terminal of its own.
+    for k in 0..opens.len() {
+        let name = opens[k].1;
+        arms!(fresh() => arms, t);
+        scene(&mut t);
+        feed(&mut t, b"\x1b[2 q");
+        for (open, _) in &opens[..=k] {
+            feed(&mut t, open);
+        }
         arms.renderer.fit(&t);
         let (a, _) = arms.draw(&mut t);
         let c = arms.draw_copied(&mut t);
