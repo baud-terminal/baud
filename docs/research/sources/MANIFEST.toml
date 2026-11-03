@@ -3664,6 +3664,24 @@ group  = "J"
 # pinned tag. merge_clusters() merges at the monotone levels baud-font's
 # Indic shaper follows, and at CHARACTERS returns unmerged (note AB, Q25).
 
+[sources.harfbuzz-14-5-1-buffer-cc]
+key    = "harfbuzz-14-5-1-buffer-cc"
+title  = "hb-buffer.cc -- delete_glyph(), which passes a deleted glyph's cluster back to the glyphs before it at every level"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-buffer.cc"
+file   = ""
+sha256 = "58bd6aa7a3e93d21fe02041c53d9de7dea9e9cbc6d1826583ebff42952539245"
+bytes  = 61952
+status = "external"
+group  = "J"
+# Read as reference 2026-11-03, at the version of the hb-shape the
+# Devanagari fixtures are made with; not committed -- a source file at a
+# pinned tag, the same bytes as harfbuzz-hb-buffer's at 64e2b53.
+# delete_glyph() merges a cluster backward with no test of the level, which
+# baud-font's deletion keeps at CHARACTERS (note AB, Q25).
+
 [sources.harfbuzz-14-5-1-gsubgpos]
 key    = "harfbuzz-14-5-1-gsubgpos"
 title  = "hb-ot-layout-gsubgpos.hh -- the matcher: masks, per-syllable matching, the joiners"

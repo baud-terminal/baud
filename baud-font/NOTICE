@@ -25,17 +25,19 @@ its marked generated block is generated
   From:    https://www.unicode.org/Public/
 
 Code transcribed from HarfBuzz (12.3.0, commit 64e2b53 for morx.rs and
-shape.rs, 10.2.0 for layout.rs, and 14.5.1 for indic.rs, syllabic.rs and
-indic_data.rs): morx.rs's extended state machine and its subtables;
-gvar.rs's delta application and its packed point and delta readers; ivs.rs's
-region scalar; shape.rs's fallback mark placement and its Hebrew tables;
-indic.rs's Indic reordering, syllable grammar and dotted circles,
-syllabic.rs's Indic categories and positions, and indic_data.rs's mapping of
-the Unicode Indic categories to them; re-expressed, glyf.rs's phantom-point
-walk; and layout.rs's glyph-set digest
-  Files:   src/glyf.rs, src/gvar.rs, src/indic.rs, src/indic_data.rs,
-           src/ivs.rs, src/layout.rs, src/morx.rs, src/shape.rs,
-           src/syllabic.rs
+shape.rs, 10.2.0 for layout.rs, and 14.5.1 for indic.rs, syllabic.rs,
+indic_data.rs and buffer.rs): morx.rs's extended state machine and its
+subtables; gvar.rs's delta application and its packed point and delta
+readers; ivs.rs's region scalar; shape.rs's fallback mark placement and its
+Hebrew tables; indic.rs's Indic reordering, syllable grammar and dotted
+circles, syllabic.rs's Indic categories and positions, and indic_data.rs's
+mapping of the Unicode Indic categories to them; re-expressed, glyf.rs's
+phantom-point walk; buffer.rs's deletion at the CHARACTERS cluster level,
+which passes a deleted glyph's cluster back as HarfBuzz's delete_glyph()
+does; and layout.rs's glyph-set digest
+  Files:   src/buffer.rs, src/glyf.rs, src/gvar.rs, src/indic.rs,
+           src/indic_data.rs, src/ivs.rs, src/layout.rs, src/morx.rs,
+           src/shape.rs, src/syllabic.rs
   Holder:  The HarfBuzz authors its COPYING lists (Google, Red Hat, Behdad
            Esfahbod and others)
   Licence: MIT-Modern-Variant

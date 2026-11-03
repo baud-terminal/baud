@@ -15613,10 +15613,14 @@ fn app_stack(files: &[(Vec<u8>, FaceRole)]) -> (Vec<Face<'_>>, Vec<FaceRole>) {
 /// each the first frame of a renderer of its own (`first_frame`). Each in
 /// bold draws as neither the word in its first syllable's face nor the
 /// word in its last's; drawn whole in its first cell's face, the word drew
-/// as the first. A change inside one syllable draws the syllable in its
-/// first cell's face, as the syllable written in one rendition draws, and
-/// a change of colour alone draws, of the text or of its ground. And मल
-/// composed after a bold क draws as the same letters written there.
+/// as the first. A change inside one syllable to the bold or bold italic
+/// face of its first cell's family draws each glyph from its own cell's
+/// face, as neither the syllable in its first face nor in its last; drawn
+/// whole in its first cell's face, it drew as the first. A change between
+/// upright and italic inside one draws the syllable in its first cell's
+/// face, as the syllable written in one rendition draws, and a change of
+/// colour alone draws, of the text or of its ground. And मल composed after
+/// a bold क draws as the same letters written there.
 #[test]
 fn a_word_whose_face_changes_draws_alike_on_every_arm() {
     let files = app_files();
@@ -15665,12 +15669,44 @@ fn a_word_whose_face_changes_draws_alike_on_every_arm() {
     ] {
         frame(mixed, what);
     }
-    for (what, inside, whole) in [
-        ("bold inside a syllable", "टर्\x1b[1mमि\x1b[mनल", "टर्मिनल"),
+    for (what, inside, first, last) in [
+        (
+            "bold inside a syllable",
+            "टर्\x1b[1mमि\x1b[mनल",
+            "टर्मिनल",
+            "\x1b[1mटर्मिनल",
+        ),
         (
             "regular inside a syllable",
             "\x1b[1mर्\x1b[mमि",
             "\x1b[1mर्मि",
+            "र्मि",
+        ),
+        ("a bold sign", "म\x1b[1mि", "मि", "\x1b[1mमि"),
+        (
+            "bold italic inside a syllable",
+            "\x1b[3mर्\x1b[1;3mमि",
+            "\x1b[3mर्मि",
+            "\x1b[1;3mर्मि",
+        ),
+    ] {
+        let drawn = frame(inside, what);
+        assert!(
+            drawn != frame(first, &format!("{what}: its first face")),
+            "{what}: drawn in its first cell's face"
+        );
+        assert!(
+            drawn != frame(last, &format!("{what}: its last face")),
+            "{what}: drawn in its last cell's face"
+        );
+    }
+    for (what, inside, whole) in [
+        ("a conjunct on its first cell", "क्\x1b[1mष", "क्ष"),
+        ("italic inside a syllable", "र्\x1b[3mमि", "र्मि"),
+        (
+            "bold upright inside a syllable",
+            "\x1b[3mर्\x1b[23;1mमि",
+            "\x1b[3mर्मि",
         ),
     ] {
         assert_eq!(
@@ -15696,31 +15732,44 @@ fn a_word_whose_face_changes_draws_alike_on_every_arm() {
         );
     }
     // **Composed**: मल composed after a bold क draws as the same letters
-    // written there underlined, the क bold and मल regular.
-    let renderer = Renderer::new(
-        Stack::with_roles(&faces, &roles).unwrap(),
-        PxSize::of(14.0).unwrap(),
-        Theme::dark(),
-        Blend::Native,
-        Cols::of_index(usize::from(WS.ws_col)),
-        Rows::of_index(usize::from(WS.ws_row)),
-    )
-    .unwrap();
-    arms!(renderer => arms, t);
+    // written there underlined, the क bold and मल regular; and मि composed
+    // after a bold र्, inside the one syllable र्मि, the same, its glyphs
+    // each from its own cell's face. Each on a renderer of its own.
     let failed = std::cell::RefCell::new(Vec::<String>::new());
     let fail = |what: String| failed.borrow_mut().push(what);
-    composed_as_written(
-        &mut arms,
-        &mut t,
+    for (taken, composed, what) in [
+        ("\u{915}", "\u{92e}\u{932}", "a bold letter taken in"),
         (
-            "\x1bc\x1b[2 q\x1b[5;1HThe quick brown fox jumps over the lazy dog 0123456789\
-             \x1b[3;1Hab\x1b[1m\u{915}\x1b[m",
-            "\u{92e}\u{932}",
+            "\u{930}\u{94d}",
+            "\u{92e}\u{93f}",
+            "a bold part of the syllable taken in",
         ),
-        "a bold letter taken in",
-        &three_arms,
-        &fail,
-    );
+    ] {
+        let renderer = Renderer::new(
+            Stack::with_roles(&faces, &roles).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap();
+        arms!(renderer => arms, t);
+        composed_as_written(
+            &mut arms,
+            &mut t,
+            (
+                &format!(
+                    "\x1bc\x1b[2 q\x1b[5;1HThe quick brown fox jumps over the lazy dog \
+                     0123456789\x1b[3;1Hab\x1b[1m{taken}\x1b[m"
+                ),
+                composed,
+            ),
+            what,
+            &three_arms,
+            &fail,
+        );
+    }
     let failed = failed.into_inner();
     assert!(failed.is_empty(), "{failed:#?}");
 }

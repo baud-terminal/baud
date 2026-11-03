@@ -988,7 +988,7 @@ impl<'a> Gsub<'a> {
         let n: u16 = seq.read(Offset::ZERO)?;
         let ids: Array<'a, u16> = seq.array(Offset::of(2u32), Count::of(n))?;
         let Some(more) = Count::of(n).minus(Count::of(1u32)) else {
-            buf.remove(pos)?;
+            buf.delete(pos)?;
             return Some(Applied {
                 next: pos,
                 delta: Delta::removed(Count::of(1u32)),

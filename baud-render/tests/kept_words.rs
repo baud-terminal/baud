@@ -472,9 +472,28 @@ fn a_row_drawn_in_another_order_is_laid_again() {
 /// cells name the same slot and their face is bold. The row is kept by its
 /// cells, and its word, kept by its first syllable's face, was painted
 /// from the layout laid in the regular face; each word is kept by every
-/// syllable's face, and the frame draws what a fresh renderer draws.
+/// cell's face, and the frame draws what a fresh renderer draws.
 #[test]
 fn a_syllable_whose_rendition_names_another_face_lays_its_word_again() {
+    evicted_lays_again("टर्मि\x1b[38;2;200;10;10mनल", 6, "नल");
+}
+
+/// **A word is laid again where a cell inside a syllable names another
+/// face**, its syllable's first cell's the same: र् and then मि in the
+/// table's last free slot, which a bold rendition then evicts, so म and ि
+/// are bold and र् is not. Each glyph of र्मि is drawn from its own cell's
+/// face, so a word kept by its syllables' first cells' faces alone was
+/// painted with म and the reph-and-ि glyph regular.
+#[test]
+fn a_cell_inside_a_syllable_that_names_another_face_lays_its_word_again() {
+    evicted_lays_again("र्\x1b[38;2;200;10;10mमि", 3, "मि");
+}
+
+/// The rendition table full of named slots, `text` written at column 2 of
+/// row 1 with its tail in the table's last free slot, the cell at column
+/// `at` naming it; then a bold rendition that evicts that slot. The word
+/// lays again, and draws what a fresh renderer draws.
+fn evicted_lays_again(text: &str, at: usize, tail: &str) {
     let (regular, bold) = (
         read("baud-app/fonts/built/Regular.ttf"),
         read("baud-app/fonts/built/Bold.ttf"),
@@ -502,7 +521,7 @@ fn a_syllable_whose_rendition_names_another_face_lays_its_word_again() {
     }
     before.push_str("\x1b[0m");
     before.push_str(&"\n".repeat(10));
-    before.push_str("\x1b[H\x1b[?25l\x1b[2;3Hटर्मि\x1b[38;2;200;10;10mनल\x1b[0m\x1b[6;1H");
+    before.push_str(&format!("\x1b[H\x1b[?25l\x1b[2;3H{text}\x1b[0m\x1b[6;1H"));
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, &before);
@@ -511,7 +530,7 @@ fn a_syllable_whose_rendition_names_another_face_lays_its_word_again() {
         "the premise: the table is full"
     );
     let row = |t: &Term<'_>| t.row(Row::from_index(1)).expect("a row").to_vec();
-    let (slot, len) = (row(&t)[6].style, t.styles().len());
+    let (slot, len) = (row(&t)[at].style, t.styles().len());
     let thief = plane
         .find(|&c| {
             let w = baud_domain::StyleWord::DEFAULT
@@ -538,8 +557,10 @@ fn a_syllable_whose_rendition_names_another_face_lays_its_word_again() {
         "the premise: the word's cells are the same"
     );
     assert!(
-        t.style_of(row(&t)[6]).attrs().has(baud_domain::Attrs::BOLD),
-        "the premise: नल's slot is bold now"
+        t.style_of(row(&t)[at])
+            .attrs()
+            .has(baud_domain::Attrs::BOLD),
+        "the premise: {tail}'s slot is bold now"
     );
     let laid = r.words_laid();
     let (drawn, _) = cells.frame(&mut r, &t, (None, None));

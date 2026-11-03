@@ -219,29 +219,35 @@ pub(crate) fn of_row(
     out
 }
 
-/// **The face each syllable of `w` is drawn in**: the face its first
-/// cell's rendition names in `table`, the resolved table the frame draws
-/// with ([`crate::cellmap::face_of`]) -- as each syllable takes its
-/// colours from its first cell ([`WordPaint`]), and as one cell holds a
-/// cluster in one rendition. A word whose syllables name two faces is
-/// shaped in runs cut where the face changes
-/// (`crate::renderer::Renderer::word_at`): `[[source: ecma48]]` 8.3.117
-/// has SGR "establish one or more graphic rendition aspects for
-/// subsequent text".
+/// **The face each cell of `w` is drawn in**, from its first: the face its
+/// rendition names in `table`, the resolved table the frame draws with
+/// ([`crate::cellmap::face_of`]). A syllable is shaped in its first cell's
+/// face, as it takes its colours from that cell ([`WordPaint`]), and a
+/// word whose syllables name two faces is shaped in runs cut where the
+/// face changes (`crate::renderer::Renderer::word_at`): `[[source:
+/// ecma48]]` 8.3.117 has SGR "establish one or more graphic rendition
+/// aspects for subsequent text". Within a syllable each glyph is drawn
+/// from its own cell's face where that face numbers its glyphs as the
+/// syllable's does.
 pub(crate) fn faces_of(
     table: &[crate::cellmap::Resolved],
     row: &[PackedCell],
     w: &Word,
 ) -> Vec<crate::TextFace> {
-    w.syllables
-        .iter()
-        .map(|s| {
-            crate::cellmap::face_of(
-                table,
-                row.get(s.at.index()).copied().unwrap_or(PackedCell::EMPTY),
-            )
-        })
+    (w.at.index()..w.end().index())
+        .map(|c| crate::cellmap::face_of(table, row.get(c).copied().unwrap_or(PackedCell::EMPTY)))
         .collect()
+}
+
+/// **A word's text**: each syllable's characters, its cells' in order,
+/// and how many of them each of the word's cells holds, from its first --
+/// none for a wide character's tail -- so a syllable whose cells are drawn
+/// from two faces is shaped with each cell its own cluster
+/// (`crate::renderer::Renderer::word_at`).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub(crate) struct WordText {
+    pub parts: Vec<Vec<Codepoint>>,
+    pub held: Vec<usize>,
 }
 
 /// **A word's measure on one instance**, in pixels from its pen's start:
@@ -447,8 +453,9 @@ pub struct WordLaid {
     pub spans: Vec<(i32, i32)>,
     /// Each glyph and the pen it is drawn at, to a quarter of a pixel.
     pub pens: Vec<(GlyphId, f32)>,
-    /// The face each glyph of `pens` is drawn from: its syllable's, or a
-    /// narrower instance of it.
+    /// The face each glyph of `pens` is drawn from: its syllable's, its
+    /// own cell's where that face numbers its glyphs alike, or a narrower
+    /// instance of either.
     pub faces: Vec<crate::FaceIx>,
 }
 

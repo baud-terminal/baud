@@ -4164,6 +4164,17 @@ pub(crate) fn composition_parts(
                     .collect()
             })
             .collect();
+        // Each cell's characters: a cluster's at its first.
+        let mut counts = vec![0usize; cells];
+        for cl in word.iter().flat_map(|u| &all[u.0..u.0 + u.1]) {
+            if let Some(h) = cl.1.checked_sub(at).and_then(|x| counts.get_mut(x)) {
+                *h = cl.0.len();
+            }
+        }
+        let text = crate::word::WordText {
+            parts,
+            held: counts,
+        };
         let (mut l, mut rr) = (at, at + cells);
         while l > 0 && held(l - 1) == Held::Blank {
             l -= 1;
@@ -4175,18 +4186,19 @@ pub(crate) fn composition_parts(
             left: (crate::word::Blanks(at - l), side(l.checked_sub(1))),
             right: (crate::word::Blanks(rr - at - cells), side(Some(rr))),
         };
-        // Each syllable's face is its first cluster's, as the grid's word
-        // takes it.
-        let faces: Vec<crate::TextFace> = word
-            .iter()
-            .map(|u| match all[u.0].3 {
+        // Each cell's face is its cluster's, as the grid's word takes it.
+        let mut faces = vec![crate::TextFace::default(); cells];
+        for cl in word.iter().flat_map(|u| &all[u.0..u.0 + u.1]) {
+            let face = match cl.3 {
                 Some(i) => styled[i].2.1,
-                None => crate::cellmap::face_of(
-                    styles,
-                    cell_at(all[u.0].1).unwrap_or(PackedCell::EMPTY),
-                ),
-            })
-            .collect();
+                None => crate::cellmap::face_of(styles, cell_at(cl.1).unwrap_or(PackedCell::EMPTY)),
+            };
+            for x in cl.1..cl.1 + cl.2 {
+                if let Some(f) = x.checked_sub(at).and_then(|x| faces.get_mut(x)) {
+                    *f = face;
+                }
+            }
+        }
         // Each syllable in its first cluster's colours under the light of
         // the letters taken in that it holds; the composition's own cells
         // are lit by the grid, as the cells under it are.
@@ -4246,19 +4258,7 @@ pub(crate) fn composition_parts(
             room,
         };
         while let Some(g) = grid_words.get(next_grid).filter(|g| g.at.index() < at) {
-            let cut: Vec<Vec<Codepoint>> = g
-                .syllables
-                .iter()
-                .map(|s| {
-                    grid_row
-                        .iter()
-                        .skip(s.at.index())
-                        .take(s.cells.index())
-                        .filter(|c| !c.content.is_wide_tail())
-                        .flat_map(|c| crate::renderer::cell_cps(term, *c))
-                        .collect()
-                })
-                .collect();
+            let cut = crate::renderer::word_text(term, &grid_row, g);
             let faces = crate::word::faces_of(styles, &grid_row, g);
             last = r
                 .word_ink(
@@ -4273,7 +4273,7 @@ pub(crate) fn composition_parts(
         let mut drawn_word = Vec::new();
         if let Some(l) = r.word_drawn(
             c.row,
-            (&parts, &faces),
+            (&text, &faces),
             (&w, &paint, last),
             (&under, cols),
             &mut drawn_word,

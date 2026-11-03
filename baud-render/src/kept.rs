@@ -21,8 +21,9 @@
 //! The modes that decide where a syllable is parted (`?2027`,
 //! `join_spacing_marks`) are in the cells: the core parts by them and the
 //! renderer re-forms by one rule whatever they are. Each word is laid
-//! again where the word before it ends elsewhere, or a syllable's face is
-//! another.
+//! again where the word before it ends elsewhere, or a cell's face is
+//! another: a syllable is shaped in its first cell's face, and each glyph
+//! drawn from its own cell's where the two number their glyphs alike.
 //!
 //! **Bounded at twice the window's rows**, so a scroll either way finds
 //! every row it moved; past that the row used longest ago goes, and a
@@ -125,8 +126,8 @@ impl Before {
 }
 
 /// One word of a kept row, laid after the word before it ended at
-/// `before` and each syllable in its face of `styles`: `None` where it
-/// could not be laid.
+/// `before` and each cell in its face of `styles`: `None` where it could
+/// not be laid.
 struct KeptWord {
     before: Before,
     styles: Vec<TextFace>,
@@ -281,7 +282,7 @@ impl KeptRows {
     }
 
     /// Whether word `i` of kept row `k` was laid after a word ending at
-    /// `prev`, each syllable in its face of `styles`: a cell's rendition
+    /// `prev`, each cell in its face of `styles`: a cell's rendition
     /// names its slot, and a slot written again names another face.
     pub(crate) fn has_word(
         &self,
@@ -296,7 +297,7 @@ impl KeptRows {
     }
 
     /// Word `i` of kept row `k`, laid after a word ending at `prev`, each
-    /// syllable in its face of `styles`, kept.
+    /// cell in its face of `styles`, kept.
     pub(crate) fn keep_word(
         &mut self,
         (k, i): (KeptIx, WordIx),

@@ -189,11 +189,35 @@ pub enum Pens {
     Run,
 }
 
+/// **Which cell a glyph keeps where a shaper reorders or joins the glyphs
+/// of several cells**: HarfBuzz's cluster levels
+/// (`[[source: harfbuzz-14-5-1-buffer-h]]`), the two a terminal reads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ClusterLevel {
+    /// HarfBuzz's default, `MONOTONE_GRAPHEMES`: what the Indic engine moves
+    /// across cells merges them, so every glyph of a reordered syllable
+    /// names its first cell and the cells stay in order -- what a grid
+    /// draws a syllable whole from.
+    #[default]
+    Monotone,
+    /// `CHARACTERS`: each glyph keeps the cell it came from, "not merged
+    /// into monotone order", and a ligature the first matched glyph's, so
+    /// a renderer knows which cell each glyph of a syllable is: what a
+    /// syllable whose cells are in two renditions is drawn from. On every
+    /// line of the Devanagari fixtures the glyphs and their pens are the
+    /// default level's and only the cells differ
+    /// (`the_characters_level_keeps_cells_as_harfbuzz_does`); a mark on a
+    /// ligature takes its component by cell (gpos.rs), so a font that
+    /// attaches one there can differ.
+    Characters,
+}
+
 /// The buffer: `len` live glyphs at the front of a caller's slice.
 pub struct Buffer<'b> {
     glyphs: &'b mut [Glyph],
     len: Count,
     pens: Pens,
+    clusters: ClusterLevel,
 }
 
 impl<'b> Buffer<'b> {
@@ -203,6 +227,7 @@ impl<'b> Buffer<'b> {
             glyphs: storage,
             len: Count::ZERO,
             pens: Pens::Cell,
+            clusters: ClusterLevel::Monotone,
         }
     }
 
@@ -215,6 +240,16 @@ impl<'b> Buffer<'b> {
     /// positioned.
     pub fn set_pens(&mut self, pens: Pens) {
         self.pens = pens;
+    }
+
+    /// Which cell a reordered or joined glyph keeps ([`ClusterLevel`]).
+    pub fn cluster_level(&self) -> ClusterLevel {
+        self.clusters
+    }
+
+    /// Keeps the cells as `level` says: set before the buffer is shaped.
+    pub fn set_cluster_level(&mut self, level: ClusterLevel) {
+        self.clusters = level;
     }
 
     /// Appends a glyph; `None` when the storage is full.
@@ -305,5 +340,33 @@ impl<'b> Buffer<'b> {
         self.glyphs.copy_within(at + 1..n, at);
         self.len = Count::of(self.len.value().saturating_sub(1));
         Some(g)
+    }
+
+    /// **Deletes glyph `i`**, as a lookup that substitutes it with nothing
+    /// does. At [`ClusterLevel::Characters`] a cell no glyph beside it
+    /// keeps passes back to the glyphs before it that share one cell, where
+    /// it is the lower of the two, as HarfBuzz's `delete_glyph()` merges a
+    /// cluster backward at every level
+    /// (`[[source: harfbuzz-14-5-1-buffer-cc]]`); at the monotone level
+    /// every cell is left as it was.
+    pub fn delete(&mut self, i: Index) -> Option<Glyph> {
+        let at = i.slot();
+        let g = self.get(i)?;
+        if self.clusters == ClusterLevel::Characters {
+            let n = self.len.slot();
+            let next = self.glyphs.get(at + 1).filter(|_| at + 1 < n);
+            let before = at.checked_sub(1).and_then(|b| self.glyphs.get(b));
+            let survives = next.is_some_and(|h| h.cluster == g.cluster)
+                || before.is_some_and(|h| h.cluster == g.cluster);
+            if let Some(&b) = before.filter(|b| !survives && g.cluster < b.cluster) {
+                for h in self.glyphs[..at].iter_mut().rev() {
+                    if h.cluster != b.cluster {
+                        break;
+                    }
+                    h.cluster = g.cluster;
+                }
+            }
+        }
+        self.remove(i)
     }
 }

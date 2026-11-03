@@ -79,7 +79,7 @@
 //!    None", "This feature needs to be implemented prior to any other
 //!    feature" (`[[source: ms-opentype-features-ae]]`, ccmp).
 
-use crate::buffer::{Buffer, Glyph, Ignorable, Mark};
+use crate::buffer::{Buffer, ClusterLevel, Glyph, Ignorable, Mark};
 use crate::bytes::{Count, Index};
 use crate::face::Face;
 use crate::gsub::{Context, Gsub};
@@ -175,6 +175,8 @@ pub(crate) struct Plan<'a> {
     vatu: LookupSet,
     context: Context,
     gdef: crate::layout::Gdef<'a>,
+    /// Which cell a glyph moved across cells keeps ([`merge`]).
+    clusters: ClusterLevel,
 }
 
 /// The masked features, each with its mask, in the order the basic stages
@@ -287,7 +289,17 @@ impl<'a> Plan<'a> {
                 Spec::Old => Context::Any,
             },
             gdef: face.gdef(),
+            clusters: ClusterLevel::Monotone,
         })
+    }
+
+    /// This plan with the glyphs it reorders keeping their cells as
+    /// `level` says.
+    pub(crate) fn keeping(self, level: ClusterLevel) -> Plan<'a> {
+        Plan {
+            clusters: level,
+            ..self
+        }
     }
 
     fn would(&self, set: &LookupSet, glyphs: &[GlyphId]) -> bool {
@@ -678,10 +690,13 @@ fn is_halant(g: &Glyph) -> bool {
 /// cells of its components: each takes the first cell and spans to the
 /// last, and a glyph beside the range in one of its edge cells goes with
 /// them (HarfBuzz's `merge_clusters()`). Reordering a glyph out of its cell
-/// draws it over the cells it moved across.
-fn merge(glyphs: &mut [Glyph], span: Range<usize>) {
+/// draws it over the cells it moved across. At
+/// [`ClusterLevel::Characters`] nothing merges and each glyph keeps its
+/// cell, as `merge_clusters()` at a level that is not monotone only marks
+/// the range unsafe to break (`[[source: harfbuzz-14-5-1-buffer-hh]]`).
+fn merge(level: ClusterLevel, glyphs: &mut [Glyph], span: Range<usize>) {
     let Range { start, end } = span;
-    if end <= start + 1 || end > glyphs.len() {
+    if level == ClusterLevel::Characters || end <= start + 1 || end > glyphs.len() {
         return;
     }
     let range = glyphs.get(start..end).unwrap_or(&[]);
@@ -1013,7 +1028,7 @@ fn reorder_syllable(plan: &Plan<'_>, g: &mut [Glyph], span: Range<usize>) {
     // merges cells with the base; what is before it merges in the final
     // reordering.
     if plan.spec == Spec::Old || !tracked {
-        merge(g, base..end);
+        merge(plan.clusters, g, base..end);
     } else {
         for i in base..end {
             if g[i].syllabic.syllable.is_visited() {
@@ -1028,7 +1043,7 @@ fn reorder_syllable(plan: &Plan<'_>, g: &mut [Glyph], span: Range<usize>) {
                 g[j].syllabic.syllable = Syllable::VISITED;
                 j = next;
             }
-            merge(g, base.max(lo)..hi + 1);
+            merge(plan.clusters, g, base.max(lo)..hi + 1);
         }
     }
     for x in &mut g[start..end] {
@@ -1212,13 +1227,13 @@ fn final_syllable(plan: &Plan<'_>, g: &mut [Glyph], span: Range<usize>) {
                         base -= 1;
                     }
                     g[old_pos..=new_pos].rotate_left(1);
-                    merge(g, new_pos..end.min(base + 1));
+                    merge(plan.clusters, g, new_pos..end.min(base + 1));
                     new_pos -= 1;
                 }
                 i -= 1;
             }
         } else if let Some(i) = (start..base).find(|&i| g[i].syllabic.position == Position::PRE_M) {
-            merge(g, i..end.min(base + 1));
+            merge(plan.clusters, g, i..end.min(base + 1));
         }
     }
 
@@ -1232,7 +1247,7 @@ fn final_syllable(plan: &Plan<'_>, g: &mut [Glyph], span: Range<usize>) {
             ^ g[start].syllabic.formed.ligated_alone())
     {
         let At(new_reph_pos) = reph_target(plan, g, start..end, At(base));
-        merge(g, start..new_reph_pos + 1);
+        merge(plan.clusters, g, start..new_reph_pos + 1);
         g[start..=new_reph_pos].rotate_left(1);
         if start < base && base <= new_reph_pos {
             base -= 1;
@@ -1260,7 +1275,7 @@ fn final_syllable(plan: &Plan<'_>, g: &mut [Glyph], span: Range<usize>) {
                     new_pos += 1;
                 }
                 let old_pos = i;
-                merge(g, new_pos..old_pos + 1);
+                merge(plan.clusters, g, new_pos..old_pos + 1);
                 g[new_pos..=old_pos].rotate_right(1);
             }
         }

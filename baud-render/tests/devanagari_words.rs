@@ -854,15 +854,22 @@ fn one_word(s: &mut Scene<'_, '_>, text: &str) -> baud_render::WordLaid {
     w[0].clone()
 }
 
-/// **A face change inside one syllable draws the syllable in its first
-/// cell's face**, as its colours are: र् and then मि in SGR 1, under each
-/// count, and the reverse, are laid as the syllable र्मि in the face of
-/// र्'s rendition, its shaping kept (`[[source: w3c-css-text-3]]` 1.4: a typographic
-/// character unit divided by a boundary "may be rendered as belonging to
-/// either side of the boundary"). The syllable is not cut: cut, र्
-/// would draw with a visible virama and no reph.
+/// **A face change inside one syllable draws each glyph from its own
+/// cell's face** (`[[source: ecma48]]` 8.3.117: SGR establishes "graphic
+/// rendition aspects for subsequent text"): the syllable is shaped once in
+/// its first cell's face with each cell's glyphs keeping their cell, as at
+/// HarfBuzz's CHARACTERS level, and laid glyph for glyph and pen for pen
+/// as the syllable written in that face. On the built Regular and Bold,
+/// which number their glyphs alike: र् and then मि in SGR 1, under each
+/// count, draws the font's one glyph for र्'s reph and the sign ि, which
+/// keeps the sign's cell, and म bold, and the empty glyph र् leaves
+/// regular; the reverse draws them the other way, at the bold syllable's
+/// pens; म and then the sign in SGR 1 draws the sign bold beside a regular
+/// म; and क् and then ष in SGR 1 draws the conjunct क्ष, one glyph on क्'s
+/// cell, regular. Drawn whole in its first cell's face, every glyph of
+/// each was on that face.
 #[test]
-fn a_face_change_inside_a_syllable_draws_it_in_its_first_cells_face() {
+fn a_face_change_inside_a_syllable_draws_each_glyph_in_its_cells_face() {
     let (regular, bold) = (
         read("baud-app/fonts/built/Regular.ttf"),
         read("baud-app/fonts/built/Bold.ttf"),
@@ -873,22 +880,113 @@ fn a_face_change_inside_a_syllable_draws_it_in_its_first_cells_face() {
         ws_row: 4,
     };
     let mut s = Scene::new(&faces, &roles, 28.0, &ws);
-    for (setup, inside, whole) in [
-        ("", "र्\x1b[1mमि", "र्मि"),
+    let r = one_word(&mut s, "र्मि").faces[0];
+    let b = one_word(&mut s, "\x1b[1mर्मि").faces[0];
+    assert_ne!(r, b, "the premise: the bold syllable is on another face");
+    for (setup, inside, whole, want) in [
+        ("", "र्\x1b[1mमि", "र्मि", vec![b, b, r]),
         // An SGR ends the cluster in the core, so with `?2027` set the
         // syllable is two cells either way.
-        ("\x1b[?2027h", "र्\x1b[1mमि", "र्\x1b[mमि"),
-        ("", "\x1b[1mर्\x1b[mमि", "\x1b[1mर्मि"),
-        ("", "टर्\x1b[1mमि\x1b[mनल", "टर्मिनल"),
+        ("\x1b[?2027h", "र्\x1b[1mमि", "र्\x1b[mमि", vec![b, b, r]),
+        ("", "\x1b[1mर्\x1b[mमि", "\x1b[1mर्मि", vec![r, r, b]),
+        ("", "म\x1b[1mि", "मि", vec![b, r]),
+        ("", "क्\x1b[1mष", "क्ष", vec![r]),
+        ("", "टर्\x1b[1mमि\x1b[mनल", "टर्मिनल", vec![r, b, b, r, r, r]),
     ] {
-        let cut = laid(&mut s, &format!("{setup}{inside}"));
-        let one = laid(&mut s, &format!("{setup}{whole}"));
-        assert_eq!(cut.len(), 1, "{inside:?}: {cut:?}");
-        assert_eq!(
-            (&cut[0].pens, &cut[0].faces, &cut[0].spans),
-            (&one[0].pens, &one[0].faces, &one[0].spans),
-            "{setup:?}{inside:?}: drawn as {whole:?}"
+        let mixed = one_word(&mut s, &format!("{setup}{inside}"));
+        let one = one_word(&mut s, &format!("{setup}{whole}"));
+        assert!(
+            one.faces.iter().all(|&f| f == one.faces[0]),
+            "the premise: {whole:?} is drawn from one face"
         );
+        assert_eq!(
+            (&mixed.pens, &mixed.spans, mixed.at, mixed.cells),
+            (&one.pens, &one.spans, one.at, one.cells),
+            "{setup:?}{inside:?}: laid as {whole:?}"
+        );
+        assert_eq!(
+            mixed.faces, want,
+            "{setup:?}{inside:?}: each glyph from its cell's face"
+        );
+    }
+}
+
+/// The built Regular, Bold, Italic and Bold Italic, each followed by its
+/// narrower instances, as the app's default stack lays them out.
+fn four<'a>(files: &'a [(Vec<u8>, FaceRole)]) -> (Vec<Face<'a>>, Vec<FaceRole>) {
+    let (mut faces, mut roles) = (Vec::new(), Vec::new());
+    for (data, role) in files {
+        let face = Face::parse(data).unwrap();
+        let widths = baud_render::narrower_widths(&face, &[]);
+        faces.push(face);
+        roles.push(*role);
+        for w in widths {
+            let mut f = Face::parse(data).unwrap();
+            f.set_variations(&[Variation {
+                tag: Tag::from_bytes(*b"wdth"),
+                value: Fixed::from_f32(w),
+            }]);
+            faces.push(f);
+            roles.push(FaceRole::Narrower);
+        }
+    }
+    (faces, roles)
+}
+
+/// **Between an upright face and an italic one a syllable is drawn whole
+/// in its first cell's face**, and between the built Italic and Bold
+/// Italic each glyph in its own cell's: the italic faces carry their own
+/// upright Devanagari, numbered apart from the Regular's and the Bold's
+/// and alike between them. र् and then मि in SGR 3, in SGR 1;3, and from
+/// SGR 1 to SGR 3 are laid and drawn as र्मि in the face of र्'s rendition;
+/// र् in SGR 3 and then मि in SGR 1;3 draws the reph-and-ि glyph and म bold
+/// italic and र्'s empty glyph italic, at the italic syllable's pens, and
+/// the reverse the other way.
+#[test]
+fn a_face_change_to_italic_inside_a_syllable_keeps_its_first_cells_face() {
+    use baud_render::FaceStyle;
+    let files: Vec<(Vec<u8>, FaceRole)> = [
+        ("Regular", FaceRole::Fallback),
+        ("Bold", FaceRole::Style(FaceStyle::Bold)),
+        ("Italic", FaceRole::Style(FaceStyle::Italic)),
+        ("BoldItalic", FaceRole::Style(FaceStyle::BoldItalic)),
+    ]
+    .into_iter()
+    .map(|(n, role)| (read(&format!("baud-app/fonts/built/{n}.ttf")), role))
+    .collect();
+    let (faces, roles) = four(&files);
+    let ws = WinSize {
+        ws_col: 40,
+        ws_row: 4,
+    };
+    let mut s = Scene::new(&faces, &roles, 28.0, &ws);
+    let face = |s: &mut Scene<'_, '_>, sgr: &str| one_word(s, &format!("{sgr}र्मि")).faces[0];
+    let (r, b, i, bi) = (
+        face(&mut s, ""),
+        face(&mut s, "\x1b[1m"),
+        face(&mut s, "\x1b[3m"),
+        face(&mut s, "\x1b[1;3m"),
+    );
+    assert!(
+        r != i && b != bi && i != bi,
+        "the premise: four faces, {r:?} {b:?} {i:?} {bi:?}"
+    );
+    for (inside, whole, want) in [
+        ("र्\x1b[3mमि", "र्मि", vec![r, r, r]),
+        ("र्\x1b[1;3mमि", "र्मि", vec![r, r, r]),
+        ("\x1b[1mर्\x1b[3mमि", "\x1b[1mर्मि", vec![b, b, b]),
+        ("\x1b[3mर्\x1b[mमि", "\x1b[3mर्मि", vec![i, i, i]),
+        ("\x1b[3mर्\x1b[1;3mमि", "\x1b[3mर्मि", vec![bi, bi, i]),
+        ("\x1b[1;3mर्\x1b[22mमि", "\x1b[1;3mर्मि", vec![i, i, bi]),
+    ] {
+        let mixed = one_word(&mut s, inside);
+        let one = one_word(&mut s, whole);
+        assert_eq!(
+            (&mixed.pens, &mixed.spans),
+            (&one.pens, &one.spans),
+            "{inside:?}: laid as {whole:?}"
+        );
+        assert_eq!(mixed.faces, want, "{inside:?}: the faces it is drawn from");
     }
 }
 

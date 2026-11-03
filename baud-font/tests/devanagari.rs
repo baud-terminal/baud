@@ -25,10 +25,10 @@
 
 mod sha256;
 
-use baud_domain::{ClusterBreak, Codepoint, GlyphId};
+use baud_domain::{ClusterBreak, ClusterCells, Codepoint, GlyphId, GraphemeClass};
 use baud_font::{
-    Cluster, Digest, Face, FaceIndex, Features, Glyph, Ignorable, MAX_LOOKUPS, Pens, Script,
-    Shaper, Unresolved, resolve,
+    Cluster, ClusterLevel, Digest, Face, FaceIndex, Features, Glyph, Ignorable, MAX_LOOKUPS, Pens,
+    Script, Shaper, Unresolved, resolve,
 };
 
 /// A code point index, hb-shape's cluster.
@@ -814,4 +814,185 @@ fn narrowed_noto_shapes_as_harfbuzz_does() {
             None => eprintln!("the variable file is not in the cache: skipped"),
         }
     }
+}
+
+/// The cells the core gives `cps` while `?2027` is reset: each legacy
+/// grapheme cluster a cell ([`ClusterCells::Legacy`]), so a consonant after
+/// a virama and a spacing vowel sign each start one, as the core's writer
+/// parts the extended machine where it joins by GB9a, GB9b or GB9c --
+/// र्मि is the three cells र्, म and ि the renderer joins into a syllable.
+fn legacy_cells(cps: &[Codepoint]) -> Vec<core::ops::Range<usize>> {
+    let mut machine = ClusterBreak::new();
+    let mut out: Vec<core::ops::Range<usize>> = Vec::new();
+    for (i, &c) in cps.iter().enumerate() {
+        let (class, lb) = GraphemeClass::of_with_lookback(c);
+        let before = machine;
+        let joined = !machine.is_break_classified(class, lb);
+        let parted = joined && before.parts_at(ClusterCells::Legacy, class, lb, c);
+        if parted {
+            machine = ClusterBreak::restart(class, lb);
+        }
+        match out.last_mut() {
+            Some(last) if joined && !parted => last.end = i + 1,
+            _ => out.push(i..i + 1),
+        }
+    }
+    out
+}
+
+/// `cps` cut into `cut`, a cell a cluster, shaped as one run laid end to
+/// end at cluster level `level`, with the lookup digests a renderer keeps:
+/// each glyph's id, cell, pen from the run's start and rise.
+fn shaped_at(
+    face: &Face<'_>,
+    cps: &[Codepoint],
+    cut: &[core::ops::Range<usize>],
+    level: ClusterLevel,
+) -> Vec<(GlyphId, usize, i32, i32)> {
+    let mut digests = vec![Digest::EMPTY; MAX_LOOKUPS];
+    if let Some(gsub) = face.gsub() {
+        gsub.digests(Features::JOINING, &mut digests);
+    }
+    let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256];
+    let mut shaper = Shaper::new(face, &mut storage);
+    shaper.accelerate(&digests);
+    shaper.lay_as_run();
+    if level == ClusterLevel::Characters {
+        shaper.keep_cells();
+    }
+    for (k, r) in cut.iter().enumerate() {
+        shaper
+            .push_cluster(&cps[r.clone()], Cluster(u16::try_from(k).unwrap()))
+            .unwrap();
+    }
+    let script = Script::of_cluster(cps);
+    let (buf, done) = shaper.finish(Features::GRID, script);
+    assert!(done.declined.is_zero(), "{cps:04X?}: lookups declined");
+    buf.as_slice()
+        .iter()
+        .map(|g| {
+            (
+                g.id,
+                usize::from(g.cluster.0),
+                i32::from(g.dx),
+                i32::from(g.dy),
+            )
+        })
+        .collect()
+}
+
+/// **At HarfBuzz's CHARACTERS cluster level every line of
+/// `devanagari.txt` keeps its cells as hb-shape keeps them**
+/// (`[[source: harfbuzz-14-5-1-buffer-h]]`: the cluster values "are not
+/// merged into monotone order"): `tests/shape/devanagari-characters.txt`
+/// is each line shaped by hb-shape at `--cluster-level=2`, on
+/// `devanagari.txt`'s faces and the built Italic and Bold Italic. Cut into
+/// the cells the core gives it under each count -- each legacy cluster a
+/// cell while `?2027` is reset, each extended one while it is set -- and
+/// shaped as a run with each cell's glyphs keeping it
+/// ([`ClusterLevel::Characters`]), every glyph's id, pen and rise is
+/// hb-shape's and so is the cell it names, the cell holding its code point
+/// index. The glyphs and pens are the default level's on every line, and
+/// only the cells differ: on the built Regular, the cells of 96 lines
+/// under the legacy count and of one under the extended count.
+#[test]
+fn the_characters_level_keeps_cells_as_harfbuzz_does() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/shape/devanagari-characters.txt"
+    ))
+    .unwrap();
+    let mut files: std::collections::HashMap<String, Option<Vec<u8>>> = Default::default();
+    let mut mismatches = Vec::new();
+    let mut lines_by_face: std::collections::BTreeMap<String, usize> = Default::default();
+    // Lines of the built Regular whose cells the level changes, by count.
+    let (mut kept_legacy, mut kept_extended) = (0usize, 0usize);
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+    {
+        let f: Vec<&str> = line.split('\t').collect();
+        let (path, index, digest, cps, body) = (f[0], f[1], f[2], f[4], f[5]);
+        let data = files.entry(path.to_string()).or_insert_with(|| {
+            let d = face_file(path)?;
+            assert_eq!(
+                fnv64(&d),
+                digest,
+                "{path} is not the file the fixtures were shaped with"
+            );
+            Some(d)
+        });
+        let Some(data) = data else {
+            continue;
+        };
+        let face = Face::parse_index(data, FaceIndex::of(index.parse().unwrap())).unwrap();
+        let cps: Vec<Codepoint> = cps
+            .split_whitespace()
+            .map(|h| Codepoint::new(u32::from_str_radix(h, 16).unwrap()).unwrap())
+            .collect();
+        let hb = parse_positioned(body);
+        let mut agreed = true;
+        for (count, cut) in [("legacy", legacy_cells(&cps)), ("extended", cells(&cps))] {
+            let cell_of = |c: CodeIndex| cut.iter().rposition(|r| r.start <= c.0).unwrap();
+            let mut pen = 0i32;
+            let want: Vec<(GlyphId, usize, i32, i32)> = hb
+                .iter()
+                .map(|e| {
+                    let g = (e.id, cell_of(e.cluster), pen + e.dx, e.dy);
+                    pen += e.ax;
+                    g
+                })
+                .collect();
+            let got = shaped_at(&face, &cps, &cut, ClusterLevel::Characters);
+            if got != want {
+                mismatches.push(format!(
+                    "{path} {count} {cps:04X?}:\n  baud     {got:?}\n  hb-shape {want:?}"
+                ));
+                agreed = false;
+                continue;
+            }
+            let merged = shaped_at(&face, &cps, &cut, ClusterLevel::Monotone);
+            let drawn = |v: &[(GlyphId, usize, i32, i32)]| -> Vec<(GlyphId, i32, i32)> {
+                v.iter().map(|&(id, _, x, y)| (id, x, y)).collect()
+            };
+            assert_eq!(
+                drawn(&got),
+                drawn(&merged),
+                "{path} {count} {cps:04X?}: the level changes a glyph or a pen"
+            );
+            if path == "baud-app/fonts/built/Regular.ttf" && got != merged {
+                match count {
+                    "legacy" => kept_legacy += 1,
+                    _ => kept_extended += 1,
+                }
+            }
+        }
+        if agreed {
+            *lines_by_face.entry(path.to_string()).or_default() += 1;
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} of devanagari-characters.txt's cuts differ:\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
+    );
+    eprintln!("{lines_by_face:?}, cells kept {kept_legacy} legacy, {kept_extended} extended");
+    for face in [
+        "baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf",
+        "baud-app/fonts/built/Regular.ttf",
+        "baud-app/fonts/built/Bold.ttf",
+        "baud-app/fonts/built/Italic.ttf",
+        "baud-app/fonts/built/BoldItalic.ttf",
+    ] {
+        let n = lines_by_face.get(face).copied().unwrap_or(0);
+        assert!(n >= 390, "{n} lines of {face}");
+    }
+    if cfg!(target_os = "macos") {
+        assert!(lines_by_face.len() >= 9, "{lines_by_face:?}");
+    }
+    assert!(
+        kept_legacy >= 90 && kept_extended >= 1 && kept_extended < kept_legacy,
+        "the premise: the level keeps cells the default merges, {kept_legacy} legacy, {kept_extended} extended"
+    );
 }

@@ -25,7 +25,9 @@
 //! cluster's advance to its cell span -- is the renderer's to apply, since
 //! only it knows the cell size.
 
-use crate::buffer::{Attached, Buffer, Cluster, Forms, Glyph, Ignorable, Mark, Pens, Positioned};
+use crate::buffer::{
+    Attached, Buffer, Cluster, ClusterLevel, Forms, Glyph, Ignorable, Mark, Pens, Positioned,
+};
 use crate::bytes::Count;
 use crate::cmap::Variation;
 use crate::compose::{CCC, COMPOSE, DECOMPOSE};
@@ -1113,6 +1115,16 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         self.buf.set_pens(Pens::Run);
     }
 
+    /// Keeps each glyph's cell where the Indic engine reorders a syllable
+    /// across cells ([`ClusterLevel::Characters`]), as HarfBuzz's
+    /// `merge_clusters()` returns unmerged at that level
+    /// (`[[source: harfbuzz-14-5-1-buffer-hh]]`). For a run laid end to end
+    /// ([`Shaper::lay_as_run`]): pens from each cell's origin need its
+    /// glyphs together.
+    pub fn keep_cells(&mut self) {
+        self.buf.set_cluster_level(ClusterLevel::Characters);
+    }
+
     fn glyph_of(&mut self, c: Codepoint) -> GlyphId {
         match self.face.glyph(c) {
             Some(g) => g,
@@ -1430,7 +1442,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         // A script an Indic shaper takes, on a face that does not give it
         // only `DFLT`: reordered and substituted in the Indic engine's
         // stages ([`indic::substitute`]).
-        let plan = indic::Plan::new(self.face, script);
+        let plan = indic::Plan::new(self.face, script).map(|p| p.keeping(self.buf.cluster_level()));
         let mut declined = match (self.face.gsub(), self.face.morx()) {
             _ if plan.is_some() => match &plan {
                 Some(p) => indic::substitute(p, &mut self.buf, features, self.digests),
