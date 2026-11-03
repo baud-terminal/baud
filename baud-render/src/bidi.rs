@@ -119,10 +119,10 @@ use baud_domain::{Attrs, DecimalMark, Mirroring, Slant, Variants, forced_form};
 use baud_domain::{
     Bidi, BidiClass, BidiDirection, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror,
     CharacterPath, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm,
-    JoiningType, LamAlef, LineBidi, PackedCell, Row, RowExtent, RowRot, RowWritten, Rows,
-    STRING_DEPTH, Stride, StringId, StyleId, StyleWrites, TableSerial, Viewport, Wrap, alaphs,
-    box_counterpart, chain_runs, in_layout_block, is_table_rule, join, lam_alefs, mirroring_glyph,
-    opens_rtl, order_strings, string_chain, takes_form,
+    JoiningType, LamAlef, LineBidi, PackedCell, Row, RowBlocks, RowExtent, RowRot, RowWritten,
+    Rows, STRING_DEPTH, Stride, StringId, StyleId, StyleWrites, TableSerial, Viewport, Wrap,
+    alaphs, box_counterpart, chain_runs, in_layout_block, is_table_rule, join, lam_alefs,
+    mirroring_glyph, opens_rtl, order_strings, string_chain, takes_form,
 };
 
 use std::rc::Rc;
@@ -314,6 +314,13 @@ pub struct Orders {
     /// is then a display line, and a stored cell is found in it through
     /// [`Orders::shown_at`].
     display: Option<Rc<Display>>,
+    /// **Whether each window row may hold a syllable or a word**
+    /// (`crate::syllable::may_hold`), as this layout's test of the row
+    /// found it in the pass it made for its own answers, the row read from
+    /// the window: [`Opens::Unknown`] for a row this layout did not ask, or
+    /// asked as an input method's text or an echo writes it, which a
+    /// caller then tests itself.
+    syllables: Vec<Opens>,
 }
 
 impl Default for Orders {
@@ -325,6 +332,7 @@ impl Default for Orders {
             joins: Vec::new(),
             joined_any: Any::No,
             display: None,
+            syllables: Vec::new(),
         }
     }
 }
@@ -333,6 +341,24 @@ impl Orders {
     /// Whether any row of the window is drawn in another order.
     pub fn any(&self) -> bool {
         self.any == Any::Yes
+    }
+
+    /// **Whether window row `r` may hold a syllable or a word**, as this
+    /// layout's test of it found: `Unknown` where it did not ask, or read
+    /// the row as something written over it.
+    pub(crate) fn syllables(&self, r: Row) -> Opens {
+        self.syllables.get(r.index()).copied().unwrap_or_default()
+    }
+
+    /// Row `r`'s answer `h` kept for [`Orders::syllables`], where the test
+    /// read the row from the window: a row `written` covers holds another's
+    /// cells.
+    fn keep_syllables(&mut self, r: Row, written: &impl Over, h: Holds) {
+        if written.row(r).is_none() {
+            if let Some(s) = self.syllables.get_mut(r.index()) {
+                *s = h.syllables;
+            }
+        }
     }
 
     /// Whether any cell of the window is drawn joined.
@@ -1054,7 +1080,7 @@ pub enum Rejoin {
 
 /// Whether a row holds a character that can make its paragraph reorder.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-enum Opens {
+pub(crate) enum Opens {
     #[default]
     Unknown,
     No,
@@ -1074,6 +1100,9 @@ struct Seen {
     /// Whether each row holds a letter that takes a joining form, found by
     /// the same test as `opens`.
     joins: Vec<Opens>,
+    /// Whether each row may hold a syllable or a word, found by the same
+    /// pass (`Holds::syllables`).
+    syllables: Vec<Opens>,
     /// **Whether each row holds a cell written in an SDS or SRS string**,
     /// found when the row is tested and kept while its cells are the same,
     /// so a frame reads the renditions of the rows that changed and no
@@ -1104,6 +1133,9 @@ struct Holds {
     /// Whether it holds a cell written in an SDS or SRS string: `No`
     /// until one has been begun ([`Term::strings_seen`]).
     strung: Opens,
+    /// Whether it may hold a syllable or a word
+    /// (`crate::syllable::may_hold`), from the same pass.
+    syllables: Opens,
 }
 
 impl Holds {
@@ -1111,6 +1143,7 @@ impl Holds {
         opens: Opens::No,
         joins: Opens::No,
         strung: Opens::No,
+        syllables: Opens::No,
     };
 }
 
@@ -1122,6 +1155,7 @@ impl Seen {
         if self.opens.len() <= y {
             self.opens.resize(y + 1, Opens::Unknown);
             self.joins.resize(y + 1, Opens::Unknown);
+            self.syllables.resize(y + 1, Opens::Unknown);
         }
         if self.strung.len() <= y {
             self.strung.resize(y + 1, Opens::Unknown);
@@ -1139,6 +1173,7 @@ impl Seen {
                 opens: self.opens[y],
                 joins: self.joins[y],
                 strung: self.strung[y],
+                syllables: self.syllables[y],
             };
         }
         kept.copy_from_slice(cells);
@@ -1148,6 +1183,7 @@ impl Seen {
             ..row_holds(term, cells)
         };
         (self.opens[y], self.joins[y], self.strung[y]) = (h.opens, h.joins, h.strung);
+        self.syllables[y] = h.syllables;
         h
     }
 
@@ -1414,6 +1450,7 @@ impl Reorder {
             self.seen.opens.clear();
             self.seen.joins.clear();
             self.seen.strung.clear();
+            self.seen.syllables.clear();
         }
         match term.bidi_support() {
             BidiSupport::Explicit => {
@@ -1520,6 +1557,8 @@ impl Reorder {
         self.last = Last::LaidOut;
         self.orders.rows.clear();
         self.orders.rows.resize_with(nrows, || None);
+        self.orders.syllables.clear();
+        self.orders.syllables.resize(nrows, Opens::Unknown);
         self.forget_joins(vp.rows());
         self.seen.styles_moved(term);
         let explicit = term.bidi_support() == BidiSupport::Explicit;
@@ -1535,6 +1574,7 @@ impl Reorder {
             self.seen.opens.clear();
             self.seen.joins.clear();
             self.seen.strung.clear();
+            self.seen.syllables.clear();
         }
         let row_of = |r: Row| written.row(r).unwrap_or_else(|| vp.row(r));
         if explicit {
@@ -1544,7 +1584,9 @@ impl Reorder {
             };
             for y in 0..n {
                 let r = Row::from_index(y);
-                if self.seen.holds(term, r, row_of(r), &mut self.work).joins == Opens::Yes {
+                let h = self.seen.holds(term, r, row_of(r), &mut self.work);
+                self.orders.keep_syllables(r, written, h);
+                if h.joins == Opens::Yes {
                     self.join_shown(term, r, row_of(r));
                 }
             }
@@ -1602,6 +1644,8 @@ impl Reorder {
         self.work = Work::default();
         self.orders.rows.clear();
         self.orders.rows.resize_with(nrows, || None);
+        // No row is tested here: a caller tests each row for its syllables.
+        self.orders.syllables.clear();
         self.seen.styles_moved(term);
         // The status line's joins, after the window's, are found again
         // below whatever the window keeps.
@@ -1850,6 +1894,7 @@ impl Reorder {
         for y in first.index()..=last.index() {
             let r = Row::from_index(y);
             let h = self.seen.holds(term, r, row_of(r), &mut self.work);
+            self.orders.keep_syllables(r, written, h);
             drawn_opens |= h.opens == Opens::Yes;
             drawn_joins |= h.joins == Opens::Yes;
             drawn_strung |= h.strung == Opens::Yes;
@@ -3344,24 +3389,35 @@ fn chars_of(term: &Term<'_>, cells: &[PackedCell]) -> Chars {
 }
 
 /// **What a row holds that its layout reads**: one pass with no early
-/// exit and one load a cell from [`baud_domain::LAYOUT_BLOCKS`], and only
-/// for a row it holds back -- one with a character in a block that holds a
-/// right-to-left character or a joining letter, or one with a cluster --
-/// each answer's test of its cells. A row of Latin, of Han or of box
-/// drawing holds nothing.
+/// exit and one load a cell from [`baud_domain::ROW_BLOCKS`]
+/// ([`RowBlocks`]). That pass answers whether the row may hold a syllable
+/// or a word (`crate::syllable::may_hold`), reading a cluster's base and
+/// marks only for a row that holds one. Each other answer's test of the
+/// cells runs only for a row the pass holds back: one with a character in
+/// a block that holds a right-to-left character or a joining letter, or one
+/// with a cluster. A row of Latin, of Han or of box drawing holds nothing.
 fn row_holds(term: &Term<'_>, cells: &[PackedCell]) -> Holds {
-    if !may_hold(cells) {
-        return Holds::NOTHING;
-    }
+    let (blocks, marked) = cells.iter().fold((RowBlocks::NONE, false), |(b, m), c| {
+        (b | RowBlocks::of(c.content.bits()), m | c.flags.is_marked())
+    });
     let yes = |b: bool| match b {
         true => Opens::Yes,
         false => Opens::No,
     };
+    let syllables =
+        yes(blocks.syllables() || (marked && crate::syllable::clusters_may_hold(term, cells)));
+    if !(blocks.layout() || marked) {
+        return Holds {
+            syllables,
+            ..Holds::NOTHING
+        };
+    }
     Holds {
         opens: yes(opens_in(term, cells)),
         joins: yes(joins_in(term, cells)),
         // [`Seen::holds`] asks it of every row, a layout block or not.
         strung: Opens::No,
+        syllables,
     }
 }
 

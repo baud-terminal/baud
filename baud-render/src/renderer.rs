@@ -2070,6 +2070,8 @@ pub struct Renderer<'f, 'a> {
     sized_rows: Vec<Option<SizedRow>>,
     /// How many of those conversions were made rather than reused.
     sized_converted: Tally,
+    /// How many rows the syllable walk has read ([`Renderer::syllable_rows`]).
+    syllable_rows: Tally,
     /// Moves on every [`Renderer::set_theme`], and on every
     /// [`Renderer::restack`]: a resolved slot names the face style and the
     /// font its stack has faces for, so a copy resolved against the old
@@ -2607,6 +2609,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             styles_stamp: StyleStamp::default(),
             sized_rows: Vec::new(),
             sized_converted: Tally::default(),
+            syllable_rows: Tally::default(),
             theme_gen: ThemeGen::default(),
             bg: Vec::new(),
             fg: Vec::new(),
@@ -5164,6 +5167,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// than reused, since the renderer was made.
     pub fn sized_converted(&self) -> Tally {
         self.sized_converted
+    }
+
+    /// **How many rows a convert has walked for their syllables and words**
+    /// since the renderer was made (`crate::syllable`): a row of no
+    /// character a legacy cluster parts at or after and no Devanagari
+    /// letter is let go by one pass of a block table and never counted.
+    pub fn syllable_rows(&self) -> Tally {
+        self.syllable_rows
     }
 
     /// The default-background colour, straight (not premultiplied), for a
@@ -9419,8 +9430,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // line: each drawn whole, its cells' own colours unlit and the
         // selection and the block cursor drawn over its syllables' spans.
         // The syllables the core parted, which the words and the runs read.
-        let (syllables, letters) =
-            crate::syllable::of_row(term, &row[..line_end.min(row.len())], logical_of);
+        // A row that holds none is not walked: as this frame's layout found
+        // it in its own pass over the row, else by that pass of a block
+        // table (`crate::syllable::may_hold`).
+        let walked = &row[..line_end.min(row.len())];
+        let held = match self.bidi.orders().syllables(r) {
+            crate::bidi::Opens::Yes => true,
+            crate::bidi::Opens::No => false,
+            crate::bidi::Opens::Unknown => crate::syllable::may_hold(term, walked),
+        };
+        let (syllables, letters) = match held {
+            true => {
+                self.syllable_rows.bump();
+                crate::syllable::walk(term, walked, logical_of)
+            }
+            false => (Vec::new(), crate::word::Letters::None),
+        };
         // A composition's cells read as what they will hold, and the letters
         // beside it that its words take in, which it draws, drawn unlit
         // here as a word's own cells are ([`crate::overlay::Taken`]).
@@ -9723,8 +9748,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// **One row's runs of cells shaped by one face**, for
     /// [`Renderer::convert_row`]: a row that holds no joined or mirrored
-    /// cell by the loop that reads neither, as it ran before joining
-    /// existed, and one that holds one by [`Renderer::joined_runs`].
+    /// cell, no syllable and no word by the loop that reads none of them,
+    /// as it ran before joining existed, and one that holds one by
+    /// [`Renderer::joined_runs`].
     #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     fn row_runs(
@@ -9743,6 +9769,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         match orders.joins(r).is_none()
             && orders.mirrors(r).is_empty()
             && orders.slants(r).is_empty()
+            && words.0.is_empty()
+            && words.3.is_empty()
         {
             true => self.runs::<false>(
                 term,
@@ -9758,11 +9786,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// [`Renderer::row_runs`] for a row that holds a joined or a mirrored
-    /// cell: each joined cell shaped alone in its form, a lam-alef pair
-    /// drawn together, and a mirrored cell drawn as L4 has it
-    /// ([`crate::bidi::Mirrored`]). Out of line, so the loop every other row
-    /// runs holds none of it. The row's joined and mirrored cells are
-    /// copied, so shaping may borrow the renderer mutably.
+    /// cell, a syllable or a word: each joined cell shaped alone in its
+    /// form, a lam-alef pair drawn together, a mirrored cell drawn as L4 has
+    /// it ([`crate::bidi::Mirrored`]), and each word and syllable drawn whole
+    /// (`crate::word`, `crate::syllable`). Out of line, so the loop every
+    /// other row runs holds none of it. The row's joined and mirrored cells
+    /// are copied, so shaping may borrow the renderer mutably.
     #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     fn joined_runs(
@@ -9784,7 +9813,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// The runs of one row, `LAID` for a row that holds a joined or a
-    /// mirrored cell.
+    /// mirrored cell, a syllable or a word.
     #[inline(always)]
     #[allow(clippy::too_many_arguments)]
     fn runs<const LAID: bool>(
@@ -9864,28 +9893,33 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 c += 1;
                 continue;
             };
-            while words.get(wi).is_some_and(|w| w.at.index() < c) {
-                wi += 1;
-            }
-            if let Some(w) = words.get(wi).filter(|w| w.at.index() == c) {
-                // The word before it on the row, laid already: its ink's
-                // right edge, which a residue closes on.
-                let prev = self.taken.ink_before(
-                    r,
-                    w.at,
-                    self.laid[r.index()].last().map(|l| (l.at, l.ink.1)),
-                );
-                let laid = self.word_at(term, r, row, (w, &paints[wi], prev), grounds, instances);
-                if let Some(l) = laid {
-                    self.laid[r.index()].push(l);
+            // A word, then a syllable no word holds, each drawn whole: on
+            // the laid loop alone, which every row holding one takes.
+            if LAID {
+                while words.get(wi).is_some_and(|w| w.at.index() < c) {
+                    wi += 1;
                 }
-                c = w.end().index().max(c + 1);
-                continue;
-            }
-            if let Some(s) = syl.at(Col::at_index(c)) {
-                self.syllable_at(term, r, row, s, instances);
-                c += s.cells.index();
-                continue;
+                if let Some(w) = words.get(wi).filter(|w| w.at.index() == c) {
+                    // The word before it on the row, laid already: its ink's
+                    // right edge, which a residue closes on.
+                    let prev = self.taken.ink_before(
+                        r,
+                        w.at,
+                        self.laid[r.index()].last().map(|l| (l.at, l.ink.1)),
+                    );
+                    let laid =
+                        self.word_at(term, r, row, (w, &paints[wi], prev), grounds, instances);
+                    if let Some(l) = laid {
+                        self.laid[r.index()].push(l);
+                    }
+                    c = w.end().index().max(c + 1);
+                    continue;
+                }
+                if let Some(s) = syl.at(Col::at_index(c)) {
+                    self.syllable_at(term, r, row, s, instances);
+                    c += s.cells.index();
+                    continue;
+                }
             }
             if crate::boxes::covers(base) {
                 // Box drawing, a block element or braille: baud's own mask
@@ -9952,7 +9986,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // digest test and a pair test per cell, which the bench reads
             // and the app must not pay for.
             #[cfg(feature = "exceptions")]
-            let prefilter = self.starters[self.layouts[face.index()]];
+            let layout = self.layouts[face.index()];
+            #[cfg(feature = "exceptions")]
+            let prefilter = self.starters[layout];
             #[cfg(feature = "exceptions")]
             let mut starters_here = Tally::default();
             #[cfg(feature = "exceptions")]
@@ -9976,9 +10012,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // letters reversed.
                 if c > start
                     && (seam(c)
-                        || (LAID && (joined(c).is_some() || joined(start).is_some()))
-                        || syl.at(Col::at_index(c)).is_some()
-                        || word_starts(c)
+                        || (LAID
+                            && (joined(c).is_some()
+                                || joined(start).is_some()
+                                || syl.at(Col::at_index(c)).is_some()
+                                || word_starts(c)))
                         || crate::boxes::covers(cp)
                         || self.face_of_cell(term, cell, cp) != face
                         || (varies == Varies::Yes
@@ -9993,7 +10031,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 {
                     let glyph = self.stack.face(face).glyph(cp);
                     if let (Some(p), Some(g)) = (prev_glyph, glyph) {
-                        if self.pairs[self.layouts[face.index()]].admits(p, g) {
+                        if self.pairs[layout].admits(p, g) {
                             pair_here.bump();
                         }
                     }

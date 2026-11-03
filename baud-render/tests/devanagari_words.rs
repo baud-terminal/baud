@@ -145,6 +145,48 @@ fn corpus() -> Vec<String> {
         .collect()
 }
 
+/// **A row with nothing to re-form is not walked for its syllables and
+/// words**: a frame of ASCII, Han, box drawing, braille, Hebrew, a
+/// combining accent and emoji with a skin tone lets every row go by one
+/// pass of a block table (`baud_domain::SYLLABLE_BLOCKS`), and the frame
+/// with the README's Hindi line, Thai with SARA AM and Bengali with a
+/// spacing vowel sign among them walks those three rows and no other --
+/// with BDSM set, where the layout's own pass over each row answers, and
+/// reset, where the conversion makes that pass itself.
+#[test]
+fn a_row_with_nothing_to_re_form_is_not_walked() {
+    for bdsm in ["", "\x1b[8l"] {
+        walks_only_the_rows_with_something_to_re_form(bdsm);
+    }
+}
+
+fn walks_only_the_rows_with_something_to_re_form(bdsm: &str) {
+    let regular = read("baud-app/fonts/built/Regular.ttf");
+    let (faces, roles) = faces(&regular);
+    let ws = WinSize {
+        ws_col: 40,
+        ws_row: 8,
+    };
+    let mut s = Scene::new(&faces, &roles, 28.0, &ws);
+    let plain = "plain ascii\r\n\u{4E2D}\u{6587}\r\n\u{250C}\u{2500}\u{2510}\u{28FF}\r\n\
+                 \u{05E9}\u{05DC}\u{05D5}\u{05DD}\r\ne\u{0301}\r\n\u{1F44D}\u{1F3FD}";
+    s.draw(|_| {}, &format!("{bdsm}{plain}"));
+    assert_eq!(
+        s.r.syllable_rows().value(),
+        0,
+        "{bdsm:?}: nothing to re-form"
+    );
+    let mixed = format!(
+        "{bdsm}plain\r\n{README}\r\n\u{0E19}\u{0E33}\r\nascii\r\n\u{0995}\u{09BE}\r\n\u{2500}"
+    );
+    s.draw(|_| {}, &mixed);
+    assert_eq!(
+        s.r.syllable_rows().value(),
+        3,
+        "{bdsm:?}: the Hindi, Thai and Bengali rows alone"
+    );
+}
+
 /// **No glyph is scaled, and no two words' ink comes closer than a word
 /// space**, over every word of the corpus run together at 80 columns, at
 /// 24 and 28 px, under the default count, `?2027` and spacing marks

@@ -484,9 +484,21 @@ pub struct Stack<'f, 'a> {
     /// alone ([`FontSlot`]), a style and its face: kept out of the chain as
     /// the styled faces are.
     fonts: Vec<(FontSlot, FaceStyle, FaceIx)>,
-    /// Each narrower instance and the face it narrows ([`FaceRole::Narrower`]),
-    /// in the order given, widest first: kept out of the chain.
-    narrower: Vec<(FaceIx, FaceIx)>,
+    /// **Each face's base, by its place, where it is a narrower instance**
+    /// ([`FaceRole::Narrower`]): the nearest face before it that is not
+    /// itself one, so a base's instances are the faces just after it, in the
+    /// order given, widest first. Kept out of the chain; built with the
+    /// stack, so a face's base is one load, and its instances
+    /// ([`Stack::narrower`]) a range of places, `instances` long.
+    narrows: Vec<Option<FaceIx>>,
+    /// How many narrower instances follow each face, by its place: none for
+    /// a face the caller gave none, and for an instance.
+    instances: Vec<u8>,
+    /// **The faces that answer for what the stack draws**, in its order:
+    /// every face but a narrower instance, which draws what its base draws
+    /// ([`Stack::answering`]). Built with the stack, so a search over them
+    /// does not pass the default stack's 60 instances.
+    answers: Vec<FaceIx>,
     /// Each face's role, by its place: what [`Stack::is_styled`] reads, one
     /// load a face where it scanned the narrower instances, which the
     /// default stack holds 60 of.
@@ -541,11 +553,14 @@ impl<'f, 'a> Stack<'f, 'a> {
             faces,
             styled: Styled::default(),
             fonts: Vec::new(),
-            narrower: Vec::new(),
+            narrows: vec![None; faces.len()],
+            instances: vec![0; faces.len()],
+            answers: Vec::new(),
             roles: vec![FaceRole::Fallback; faces.len()],
             chain: Vec::new(),
         };
         stack.chain = stack.each().collect();
+        stack.answers = stack.each().collect();
         Some(stack)
     }
 
@@ -559,13 +574,19 @@ impl<'f, 'a> Stack<'f, 'a> {
             return None;
         }
         let mut stack = Stack::new(faces)?;
+        // The nearest face so far that is not a narrower instance: the base
+        // of each instance after it.
+        let mut base = FaceIx::PRIMARY;
         for (i, role) in roles.iter().enumerate() {
             let ix = FaceIx(u8::try_from(i).ok()?);
+            if *role != FaceRole::Narrower {
+                base = ix;
+            }
             let slot = match role {
                 FaceRole::Fallback => continue,
                 FaceRole::Narrower => {
-                    let of = roles[..i].iter().rposition(|r| *r != FaceRole::Narrower)?;
-                    stack.narrower.push((FaceIx(u8::try_from(of).ok()?), ix));
+                    stack.narrows[i] = Some(base);
+                    stack.instances[base.index()] += 1;
                     continue;
                 }
                 FaceRole::Style(style) => stack.styled.slot(*style)?,
@@ -587,6 +608,11 @@ impl<'f, 'a> Stack<'f, 'a> {
         stack.roles = roles.to_vec();
         let chain = stack.each().filter(|ix| !stack.is_styled(*ix)).collect();
         stack.chain = chain;
+        let answers = stack
+            .each()
+            .filter(|ix| stack.narrows(*ix).is_none())
+            .collect();
+        stack.answers = answers;
         Some(stack)
     }
 
@@ -634,13 +660,15 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// the nearest face before it that is not itself narrower; `None` for
     /// any other face.
     pub fn narrows(&self, ix: FaceIx) -> Option<FaceIx> {
-        self.narrower.iter().find(|n| n.1 == ix).map(|n| n.0)
+        self.narrows.get(ix.index()).copied().flatten()
     }
 
     /// **The narrower instances of face `of`**, widest first
-    /// ([`FaceRole::Narrower`]): none for a face the caller gave none.
+    /// ([`FaceRole::Narrower`]): none for a face the caller gave none. The
+    /// places just after it, as many as it has: no search.
     pub fn narrower(&self, of: FaceIx) -> impl Iterator<Item = FaceIx> + '_ {
-        self.narrower.iter().filter(move |n| n.0 == of).map(|n| n.1)
+        let n = self.instances.get(of.index()).copied().unwrap_or(0);
+        (1..=n).filter_map(move |k| of.0.checked_add(k).map(FaceIx))
     }
 
     /// Whether the stack has a face for `font`, an alternative alone or
@@ -808,7 +836,10 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// decomposition typed (`Stack::select_cluster` keeps the base's face).
     fn drawn_as(&self, c: Codepoint) -> Codepoint {
         if baud_font::decompose(c).is_none()
-            || self.each().any(|ix| self.carries(ix, c) != Draws::No)
+            || self
+                .answers
+                .iter()
+                .any(|ix| self.carries(*ix, c) != Draws::No)
         {
             return c;
         }
@@ -927,12 +958,7 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// being out of the chain, and draws what the face it narrows draws, so
     /// its answers decide nothing -- and the default stack holds 60.
     fn answering(&self) -> impl Iterator<Item = (usize, &Face<'a>)> + '_ {
-        self.faces
-            .iter()
-            .enumerate()
-            .zip(&self.roles)
-            .filter(|(_, r)| **r != FaceRole::Narrower)
-            .map(|(f, _)| f)
+        self.answers.iter().map(|ix| (ix.index(), self.face(*ix)))
     }
 
     /// Decide every entry of block `blk` of `t`, for all eight styles and

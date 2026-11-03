@@ -1205,9 +1205,9 @@ with an A/A copy `cmp` finds identical to the change:
 The four rounds kept agree within 0.1 points of each arm's median. btop
 draws what its parent draws -- the same frames, rows, instances, cache
 hits and glyphs rasterised -- and holds no Devanagari: its 2.39% is paid
-by rows that hold none, and what pays it -- the core's column count, the
-syllable walk's pass over each cell, the word marks, the light kept per
-cell -- is unmeasured. cat-cjk and vim-unicode draw other work, their
+by rows that hold none: the syllable walk over each cell, and the word
+and syllable tests in the run loop (below, "Rows with nothing to
+re-form"). cat-cjk and vim-unicode draw other work, their
 Devanagari in more columns: cat-cjk rasterises 39 glyphs where it
 rasterised 33, and the cells of runs a prefiltered path would shape a
 frame are 396.3 where they were 426.2, vim-unicode's 950.0 where they
@@ -1312,6 +1312,57 @@ Nothing is built on first need: the difference is the narrowed words'
 glyphs rasterised at their widths and each word measured at the
 instances it tried. Drawn again, 1.606 ms and 44.02 million against
 1.578 and 43.42.
+
+## Rows with nothing to re-form (2026-11-03)
+
+**A row with no character a syllable or a word is made of is let go by
+the layout's own pass over it, and its runs are drawn by the loop that
+reads neither: the five recordings with no Devanagari retire 0.06-0.22%
+fewer instructions than before words were drawn whole, where they
+retired 1.01-2.45% more.** What paid it on btop, by ceiling arms of the
+word layout's commit: the syllable walk, 77.6 million of its 89.3
+million instructions, and the rest the word and syllable tests of the
+run loop and the light kept a cell, whose arm without them as well came
+within 0.12% of the earlier build. Taken 2026-11-03, Apple M5
+Max, macOS 27.0, on AC, load 3-8. `frame`, JetBrains Mono with Kohinoor
+Devanagari behind it, five reps a process, whole-process instructions
+(`/usr/bin/time -l`), five rotated rounds with the first dropped,
+against the median of the build before words were drawn whole, whose
+own rounds lie within 0.11 points of it: the word layout's commit; the
+gate as a pass of the renderer's own, one load a cell from the block
+table; and the gate as built, the layout's pass answering, with a
+`cmp`-identical A/A copy. Median [range]:
+
+| recording | word layout | own pass | built | A/A copy |
+|---|---|---|---|---|
+| btop | +2.45% | +0.11% | -0.22% [-0.23, -0.12] | -0.21% |
+| cat-scroll | +1.75% | +0.21% | -0.09% [-0.10, -0.01] | -0.08% |
+| pipes | +1.01% | +0.09% | -0.07% [-0.08, -0.07] | -0.06% |
+| git-log | +1.49% | +0.17% | -0.06% [-0.07, +0.14] | -0.06% |
+| less-pager | +1.71% | +0.21% | -0.10% [-0.12, -0.05] | -0.09% |
+| vim-unicode | +1.78% | +0.90% | +0.54% [+0.53, +0.62] | +0.53% |
+| cat-cjk | +1.99% | +1.17% | +0.87% [+0.84, +0.91] | +0.89% |
+| less-cjk | +2.24% | +1.22% | +0.82% [+0.80, +1.04] | +0.81% |
+
+Every arm draws the word layout's rows, instances, cache hits and
+glyphs, and `FRAME_HASH=on` gives its pixels on every recording, the
+earlier build's on the five without Devanagari; cycles overlap the
+earlier build's range on those five. With BDSM reset the layout keeps
+no answer for a row, and the renderer's own pass answers: btop +0.06%, cat-scroll
++0.21%, vim-unicode +0.90%, cat-cjk +1.15%, where the word layout's
+commit retired +2.45, +1.72, +1.82 and +2.04%.
+
+The cell path's frame loop, `frame_gpu`'s app arm fed at 2 MB/s so
+every read is a frame of its own, CPU microseconds a frame, five rotated
+rounds of three a process, the first round and each process's first
+dropped: btop 55.9 [54.3-62.8] against the earlier
+build's 56.5 [53.4-62.2] and the word layout's 81.8, cat-scroll 110.9
+against 111.0 and 126.3. With BDSM reset it folds every row of every
+frame: btop 53.1-55.8 against 48.8 and 75.2. vim-unicode, 88.5 against
+62.1 and 98.9, and cat-cjk, 97.0 against 78.8 and 111.9, lay and draw
+their words by records on every frame, their rows changed or not.
+`ingest2`'s machine code is the word layout commit's, its `__TEXT,__text`
+hashing the same.
 
 ## The cursor blink's cost: a battery reading, unmeasured on mains
 

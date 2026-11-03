@@ -331,6 +331,92 @@ pub fn is_spacing_extend(cp: Codepoint) -> bool {
     ranges.get(i).is_some_and(|&(start, _)| start <= v)
 }
 
+/// **The Devanagari ranges**: the Devanagari block, U+0900-097F, its
+/// Extended block, U+A8E0-A8FF, and the Vedic Extensions, U+1CD0-1CFF, each
+/// first and last -- the letters a renderer draws a word of whole, the
+/// danda and the digits with them.
+pub const DEVANAGARI_RANGES: [(u32, u32); 3] =
+    [(0x0900, 0x097F), (0xA8E0, 0xA8FF), (0x1CD0, 0x1CFF)];
+
+/// **A bit for each 256-character block that holds a character a renderer
+/// re-forming syllables and Devanagari words reads**: one a legacy cluster
+/// parts at or after ([`ClusterBreak::parts_at`] under
+/// [`ClusterCells::Legacy`]) -- a Prepend, whose successor GB9b joins, a
+/// SpacingMark (GB9a), an InCB consonant (GB9c), or a spacing mark classed
+/// Extend ([`is_spacing_extend`]) -- or one of [`DEVANAGARI_RANGES`].
+/// Compiled at build time from the class table, the spacing Extend ranges
+/// and those, one test of each distinct block's 256 entries, and a zero
+/// word after the 68 for every word past U+10FFFF: text none of whose
+/// characters is in a block this sets is never parted and holds no
+/// Devanagari letter, so a row of it is let go by one load a cell.
+pub static SYLLABLE_BLOCKS: [u64; 69] = syllable_blocks();
+
+/// Whether `w` -- a codepoint, or a cell's word, every one past U+10FFFF
+/// answered no -- is in a block [`SYLLABLE_BLOCKS`] sets: one load, the
+/// block clamped to the zero word rather than tested, so a row's pass
+/// has no branch a cell.
+#[inline(always)]
+pub fn in_syllable_block(w: u32) -> bool {
+    let block = (w >> 8).min(68 * 64);
+    SYLLABLE_BLOCKS[(block >> 6) as usize] >> (block & 63) & 1 == 1
+}
+
+pub(crate) const fn syllable_blocks() -> [u64; 69] {
+    let blocks = grapheme_data::BREAK_BLOCKS;
+    let index = grapheme_data::BREAK_INDEX;
+    let distinct = blocks.len() / 256;
+    let mut parts = [false; 256];
+    let mut b = 0;
+    while b < distinct {
+        let mut i = 0;
+        while i < 256 {
+            let byte = blocks[b * 256 + i];
+            let class = byte & 0xf;
+            // The class in the low nibble, by `FROM_INDEX`; the lookback in
+            // the high one, whose third bit is an InCB consonant
+            // ([`Lookback::consonant`]).
+            if class == GraphemeClass::Prepend as u8
+                || class == GraphemeClass::SpacingMark as u8
+                || (byte >> 4) & 4 != 0
+            {
+                parts[b] = true;
+            }
+            i += 1;
+        }
+        b += 1;
+    }
+    let mut out = [0u64; 69];
+    let mut k = 0;
+    while k < index.len() {
+        if parts[index[k] as usize] {
+            out[k / 64] |= 1 << (k % 64);
+        }
+        k += 1;
+    }
+    let spacing = &grapheme_data::SPACING_EXTEND;
+    let mut r = 0;
+    while r < spacing.len() {
+        out = with_blocks(out, spacing[r]);
+        r += 1;
+    }
+    let mut r = 0;
+    while r < DEVANAGARI_RANGES.len() {
+        out = with_blocks(out, DEVANAGARI_RANGES[r]);
+        r += 1;
+    }
+    out
+}
+
+/// `out` with the bit of every block from `first` to `last` set.
+const fn with_blocks(mut out: [u64; 69], (first, last): (u32, u32)) -> [u64; 69] {
+    let mut k = (first >> 8) as usize;
+    while k <= (last >> 8) as usize {
+        out[k / 64] |= 1 << (k % 64);
+        k += 1;
+    }
+    out
+}
+
 /// **Which rule of `[[source: uax29]]` joined a character to the cluster
 /// before it**, as far as the two variants differ: [`ClusterRules::rule`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

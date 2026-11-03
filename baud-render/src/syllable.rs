@@ -34,7 +34,37 @@
 //! a right-to-left paragraph keeps its order and its syllables.
 
 use baud_core::Term;
-use baud_domain::{ClusterBreak, ClusterCells, Codepoint, Col, Cols, GraphemeClass, PackedCell};
+use baud_domain::{
+    ClusterBreak, ClusterCells, Codepoint, Col, Cols, GraphemeClass, PackedCell, in_syllable_block,
+};
+
+/// **Whether [`of_row`] may find a syllable or a word on `row`**: one pass
+/// with no early exit and one load a cell from
+/// [`baud_domain::SYLLABLE_BLOCKS`], and for a row that holds a cluster its
+/// clusters' bases and marks -- every codepoint the walk steps. A row of
+/// ASCII, Han, box drawing or braille is let go after that one pass, as
+/// the layout's own test lets it go (`crate::bidi`), and its runs are drawn
+/// by the loop that reads no syllable and no word, as they were before
+/// syllables were re-formed.
+pub(crate) fn may_hold(term: &Term<'_>, row: &[PackedCell]) -> bool {
+    let (any, marked) = row.iter().fold((false, false), |(any, m), c| {
+        (
+            any | in_syllable_block(c.content.bits()),
+            m | c.flags.is_marked(),
+        )
+    });
+    any || (marked && clusters_may_hold(term, row))
+}
+
+/// [`may_hold`]'s answer for the clusters of `row`: whether a cell that
+/// holds one has a base or a mark in a block
+/// [`baud_domain::SYLLABLE_BLOCKS`] sets. The layout's own pass asks it of a
+/// row that holds a cluster (`crate::bidi`).
+pub(crate) fn clusters_may_hold(term: &Term<'_>, row: &[PackedCell]) -> bool {
+    row.iter().filter(|c| c.flags.is_marked()).any(|c| {
+        in_syllable_block(term.base_of(*c).bits()) || term.cluster_marks(*c).any(in_syllable_block)
+    })
+}
 
 /// One syllable on a row: the cells from `at`, `cells` of them, a wide
 /// character's tail among them counted.
@@ -50,12 +80,26 @@ pub(crate) struct Syllable {
 /// drawn column shows. A cell's marks go through the machine too, so a
 /// consonant after a cell holding a virama joins it. A cell that draws
 /// nothing ends what may join. A row of ASCII, CJK or any text the rules
-/// never part holds none, and costs one table load a cell.
+/// never part holds none, and [`may_hold`] lets it go unwalked by one table
+/// load a cell.
 ///
 /// **And whether the walk met a Devanagari letter**
 /// (`crate::word::is_letter`), read from the base each cell's walk asks for
 /// anyway, so a row of none is known to hold no word at no further cost.
 pub(crate) fn of_row(
+    term: &Term<'_>,
+    row: &[PackedCell],
+    logical: impl Fn(Col) -> Col,
+) -> (Vec<Syllable>, crate::word::Letters) {
+    match may_hold(term, row) {
+        true => walk(term, row, logical),
+        false => (Vec::new(), crate::word::Letters::None),
+    }
+}
+
+/// [`of_row`]'s walk, for a caller that asked [`may_hold`] itself: every
+/// cell of `row` through the machine.
+pub(crate) fn walk(
     term: &Term<'_>,
     row: &[PackedCell],
     logical: impl Fn(Col) -> Col,

@@ -215,6 +215,66 @@ pub fn in_layout_block(cp: u32) -> bool {
         .is_some_and(|w| w >> (block & 63) & 1 == 1)
 }
 
+/// **What a 256-character block holds that a row's one pass reads**: a
+/// character that can make its paragraph reorder or a letter that takes a
+/// joining form ([`LAYOUT_BLOCKS`]), and a character a renderer re-forming
+/// syllables and Devanagari words reads ([`crate::SYLLABLE_BLOCKS`]) --
+/// two bits, one load from [`ROW_BLOCKS`], so a row's layout test asks
+/// both in the pass it made for the first alone.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct RowBlocks(u8);
+
+impl RowBlocks {
+    /// Neither: what every word past U+10FFFF holds.
+    pub const NONE: RowBlocks = RowBlocks(0);
+
+    /// What `w`'s block holds -- a codepoint, or a cell's word, every one
+    /// past U+10FFFF holding neither: one load, the block clamped to the
+    /// zero word past the table rather than tested, so a row's pass has no
+    /// branch a cell.
+    #[inline(always)]
+    pub fn of(w: u32) -> RowBlocks {
+        let bit = (w >> 8).min(68 * 64) * 2;
+        RowBlocks((ROW_BLOCKS[(bit >> 6) as usize] >> (bit & 63) & 3) as u8)
+    }
+
+    /// Whether the block holds a character that can make its paragraph
+    /// reorder or a letter that takes a joining form ([`in_layout_block`]).
+    pub fn layout(self) -> bool {
+        self.0 & 1 != 0
+    }
+
+    /// Whether it holds a character a renderer re-forming syllables and
+    /// Devanagari words reads ([`crate::in_syllable_block`]).
+    pub fn syllables(self) -> bool {
+        self.0 & 2 != 0
+    }
+}
+
+impl core::ops::BitOr for RowBlocks {
+    type Output = RowBlocks;
+    fn bitor(self, o: RowBlocks) -> RowBlocks {
+        RowBlocks(self.0 | o.0)
+    }
+}
+
+/// **[`LAYOUT_BLOCKS`] and [`crate::SYLLABLE_BLOCKS`] interleaved**, a
+/// block's two bits side by side ([`RowBlocks`]), compiled at build time,
+/// and a zero word after them for every word past U+10FFFF.
+pub static ROW_BLOCKS: [u64; 137] = row_blocks();
+
+const fn row_blocks() -> [u64; 137] {
+    let (layout, syllables) = (layout_blocks(), crate::grapheme::syllable_blocks());
+    let mut out = [0u64; 137];
+    let mut k = 0;
+    while k < 68 * 64 {
+        let bits = (layout[k / 64] >> (k % 64) & 1) | (syllables[k / 64] >> (k % 64) & 1) << 1;
+        out[k * 2 / 64] |= bits << (k * 2 % 64);
+        k += 1;
+    }
+    out
+}
+
 const fn layout_blocks() -> [u64; 68] {
     let (rtl, joins) = (crate::bidi::rtl_blocks(), join_blocks());
     let mut out = [0u64; 68];

@@ -255,3 +255,106 @@ fn the_mode_and_the_setting_choose_the_cells() {
     }
     assert_eq!(ClusterCells::default(), ClusterCells::Legacy);
 }
+
+/// Which inputs -- class and lookback, by their places in [`inputs`] --
+/// some codepoint in a block `in_block` answers no for takes, and the
+/// first codepoint taking each.
+fn inputs_outside(in_block: impl Fn(u32) -> bool) -> Vec<((GraphemeClass, Lookback), u32)> {
+    let ins = inputs();
+    let mut first: Vec<Option<u32>> = vec![None; ins.len()];
+    for v in (0..=0x10_FFFFu32).filter(|&v| !in_block(v)) {
+        let Some(c) = Codepoint::new(v) else { continue };
+        let (class, lb) = GraphemeClass::of_with_lookback(c);
+        let at = ins
+            .iter()
+            .position(|&(k, l)| k == class && l == lb)
+            .expect("every class and lookback is an input");
+        first[at].get_or_insert(v);
+    }
+    ins.into_iter()
+        .zip(first)
+        .filter_map(|(i, f)| f.map(|v| (i, v)))
+        .collect()
+}
+
+/// The first (state, input) the machine reaches from the start of text on
+/// `ins` alone at which a legacy cluster parts: the codepoint that parts,
+/// or none.
+fn first_part(ins: &[((GraphemeClass, Lookback), u32)]) -> Option<u32> {
+    let mut seen: HashSet<ClusterBreak> = HashSet::new();
+    let mut queue: VecDeque<ClusterBreak> = [ClusterBreak::after_control()].into();
+    while let Some(m) = queue.pop_front() {
+        if !seen.insert(m) {
+            continue;
+        }
+        for &((class, lb), v) in ins {
+            let mut next = m;
+            let joins = !next.is_break_classified(class, lb);
+            if joins && m.parts(ClusterCells::Legacy, class, lb) {
+                return Some(v);
+            }
+            queue.push_back(next);
+        }
+    }
+    None
+}
+
+/// **Text none of whose characters is in a block `SYLLABLE_BLOCKS` sets is
+/// never parted, and holds no Devanagari letter**: from the start of text,
+/// every state the machine reaches on the inputs such characters take, at
+/// every one of those inputs, joins without parting, and none of them is a
+/// spacing mark classed Extend or in `DEVANAGARI_RANGES` -- so a renderer
+/// re-forming syllables and words lets a row of them go unread. The
+/// control: the same walk with the blocks of U+0600, a Prepend, left out
+/// of the table finds a part, U+0600 and then what follows it.
+#[test]
+fn text_outside_the_syllable_blocks_never_parts() {
+    use baud_domain::{DEVANAGARI_RANGES, in_syllable_block, is_spacing_extend};
+    let outside = inputs_outside(in_syllable_block);
+    assert_eq!(first_part(&outside), None, "a part outside the table");
+    for v in (0..=0x10_FFFFu32).filter(|&v| !in_syllable_block(v)) {
+        let Some(c) = Codepoint::new(v) else { continue };
+        assert!(!is_spacing_extend(c), "{v:04X}: a spacing Extend");
+        assert!(
+            !DEVANAGARI_RANGES.iter().any(|&(a, z)| a <= v && v <= z),
+            "{v:04X}: a Devanagari letter"
+        );
+    }
+    // Every word past U+10FFFF -- a blank, a wide tail, a cluster's -- is
+    // answered no, by the zero word past the table.
+    for w in [0x11_0000, 0x11_0001, 0x12_0001, 0x13_0000, u32::MAX] {
+        assert!(!in_syllable_block(w), "{w:X}");
+    }
+    let control = inputs_outside(|v| in_syllable_block(v) && v >> 8 != 0x06);
+    assert!(
+        first_part(&control).is_some(),
+        "the control: the Prepend's block left out finds a part"
+    );
+    // And ASCII, Han, Hebrew, box drawing and braille are outside it.
+    for v in [0x41, 0x4E2D, 0x05D0, 0x2500, 0x2800] {
+        assert!(!in_syllable_block(v), "{v:04X}");
+    }
+}
+
+/// **The row table is the layout table and the syllable table side by
+/// side**: at every block, `RowBlocks` answers what `in_layout_block` and
+/// `in_syllable_block` answer, and for every word past U+10FFFF neither --
+/// so the layout's one pass a row asks both. The control: some block
+/// answers each alone.
+#[test]
+fn the_row_blocks_are_the_layout_and_syllable_blocks() {
+    use baud_domain::{RowBlocks, in_layout_block, in_syllable_block};
+    let (mut layout_only, mut syllables_only) = (0, 0);
+    for b in 0..0x1100u32 {
+        let w = b << 8;
+        let row = RowBlocks::of(w);
+        assert_eq!(row.layout(), in_layout_block(w), "{w:X}: layout");
+        assert_eq!(row.syllables(), in_syllable_block(w), "{w:X}: syllables");
+        layout_only += usize::from(row.layout() && !row.syllables());
+        syllables_only += usize::from(row.syllables() && !row.layout());
+    }
+    assert!(layout_only > 0 && syllables_only > 0, "the control");
+    for w in [0x11_0000, 0x11_0001, 0x12_0001, 0x13_0000, u32::MAX] {
+        assert_eq!(RowBlocks::of(w), RowBlocks::NONE, "{w:X}");
+    }
+}

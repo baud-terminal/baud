@@ -45,7 +45,10 @@ use baud_domain::{Chan, Codepoint, Col, Cols, Content, GlyphId, PackedCell};
 /// danda and the digits with them, as a run of the script is what a face
 /// shapes as one.
 pub(crate) fn is_letter(c: Codepoint) -> bool {
-    matches!(c.value(), 0x0900..=0x097F | 0xA8E0..=0xA8FF | 0x1CD0..=0x1CFF)
+    let v = c.value();
+    baud_domain::DEVANAGARI_RANGES
+        .iter()
+        .any(|&(a, z)| a <= v && v <= z)
 }
 
 /// Whether a row holds a Devanagari letter at all, which

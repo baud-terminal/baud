@@ -976,14 +976,29 @@ impl Overlay {
         // drawn whole by records, every one of its cells masked, as the
         // instance path draws it from the same glyphs. A composition's
         // cells are read as empty, as the instance path blanks them.
+        // A row that holds no character a syllable or a word is made of is
+        // let go before it is copied: as this frame's layout found it in its
+        // own pass over the row, where the view is the window it laid out --
+        // no display re-breaks it -- else by that pass of a block table
+        // (`crate::syllable::may_hold`). Read with a composition's cells
+        // empty, it holds no more.
         self.cursor = CursorDrawn::Shader;
+        let laid = r.bidi().display().is_none();
         for y in 0..rows {
             let at = Row::from_index(y);
             if view.rendition(at).is_double() {
                 continue;
             }
-            let row: Vec<PackedCell> = view
-                .row(at)
+            let cells = view.row(at);
+            let held = match r.bidi().syllables(at) {
+                crate::bidi::Opens::Yes if laid => true,
+                crate::bidi::Opens::No if laid => false,
+                _ => crate::syllable::may_hold(term, &cells[..cols.min(cells.len())]),
+            };
+            if !held {
+                continue;
+            }
+            let row: Vec<PackedCell> = cells
                 .iter()
                 .take(cols)
                 .enumerate()
@@ -993,7 +1008,7 @@ impl Overlay {
                 })
                 .collect();
             let logical = |v: Col| orders.logical_col(at, v);
-            let (parted, letters) = crate::syllable::of_row(term, &row, logical);
+            let (parted, letters) = crate::syllable::walk(term, &row, logical);
             let words = match letters {
                 crate::word::Letters::Seen => {
                     crate::word::of_row(term, &row, logical, &parted, |x| {
