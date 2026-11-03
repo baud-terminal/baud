@@ -8205,9 +8205,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// another face, else painted from its kept layout in this frame's
     /// light: the cursor and the selection never lay it. A row that names
     /// none is laid.
+    ///
+    /// **`style` is the face its first cell's rendition names in the
+    /// table the frame draws with**: the renderer's own on the instance and
+    /// CPU paths, the buffer set's on the cell path, which the renderer's
+    /// own is not kept to.
     pub(crate) fn word_at(
         &mut self,
-        term: &Term<'_>,
+        (term, style): (&Term<'_>, TextFace),
         (r, row, kept): (
             Row,
             &[PackedCell],
@@ -8217,7 +8222,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         under: &[crate::word::Under],
         out: &mut Vec<Instance>,
     ) -> Option<crate::word::WordLaid> {
-        let style = self.face_style(*row.get(w.at.index())?);
+        row.get(w.at.index())?;
         let cols = Cols::of_index(row.len());
         let Some(ki) = kept else {
             let layout = self.word_layout(term, row, (w, style), (cols, prev))?;
@@ -8629,13 +8634,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// `at` ([`Renderer::word_on`]), on the face that draws it.
     pub(crate) fn joined_word(
         &mut self,
-        term: &Term<'_>,
+        (term, styles): (&Term<'_>, &[Resolved]),
         cps: &[Codepoint],
         style: TextFace,
         (around, at): (WordAround<'_>, (Row, Col)),
     ) -> Word {
         let face = self.face_for(cps, style);
-        self.word_on(term, face, around, at)
+        self.word_on((term, styles), face, around, at)
     }
 
     /// [`Renderer::cluster`] for a cell whose letter the layout joined:
@@ -10073,8 +10078,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         w.at,
                         self.laid[r.index()].last().map(|l| (l.at, l.ink.1)),
                     );
+                    let first = row.get(w.at.index()).copied();
+                    let style = self.face_style(first.unwrap_or(PackedCell::EMPTY));
                     let laid = self.word_at(
-                        term,
+                        (term, style),
                         (r, row, kept.map(|k| (k, crate::kept::WordIx(wi)))),
                         (w, &paints[wi], prev),
                         grounds,
@@ -10252,7 +10259,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 key = fold_form(key, FormKey::Cell, j.form);
                 let (before, after) = self.bidi.orders().around(r, &j);
                 let (before, after) = (before.to_vec(), after.to_vec());
-                word = self.word_on(term, face, (&before, &after), (r, Col::at_index(start)));
+                let styles = core::mem::take(&mut self.styles);
+                word = self.word_on(
+                    (term, &styles),
+                    face,
+                    (&before, &after),
+                    (r, Col::at_index(start)),
+                );
+                self.styles = styles;
                 key = word.fold(key);
             }
             let form: &[Option<baud_domain::JoiningForm>] = match form[0] {
@@ -10319,10 +10333,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// of this face reads, or that draws nothing. The joined cell is at
     /// visual `at`, and its word in its level run: at a right-to-left
     /// level, a cell SAPV 17 slants is drawn by its upright style's face,
-    /// as the cell itself is.
+    /// as the cell itself is. Each cell's style is read from `styles`, the
+    /// table the frame draws with ([`Renderer::word_at`]).
     pub(crate) fn word_on(
         &mut self,
-        term: &Term<'_>,
+        (term, styles): (&Term<'_>, &[Resolved]),
         face: FaceIx,
         (before, after): WordAround<'_>,
         (r, v): (Row, Col),
@@ -10341,7 +10356,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let leans = self.bidi.orders().right_to_left(r, v) && term.variants_seen();
         let mut take = |w: &crate::bidi::WordCell| {
             let base = drawn_base(term, w.cell)?;
-            let style = self.face_style(w.cell);
+            let style = crate::cellmap::face_of(styles, w.cell);
             let style = match leans && crate::bidi::slanted(term, w.cell) {
                 true => self.lean(style).map_or(style, |_| style.upright()),
                 false => style,
@@ -10960,7 +10975,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let lean = self.slant_at(r, Col::at_index(c), style);
                 let style = lean.map_or(style, |_| style.upright());
                 let face = self.face_for(&lam_cps, style);
-                let word = self.pair_word(term, r, (c, None), face);
+                let styles = core::mem::take(&mut self.styles);
+                let word = self.pair_word((term, &styles), r, (c, None), face);
+                self.styles = styles;
                 let Some(mut g) = self.lam_alef(
                     (&lam_cps, &alef_cps),
                     form,
@@ -11016,7 +11033,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             false => LamAt::Left,
         };
         let face = self.face_for(&lam_cps, style);
-        let word = self.pair_word(term, r, (lam_c, Some(alef_c)), face);
+        let styles = core::mem::take(&mut self.styles);
+        let word = self.pair_word((term, &styles), r, (lam_c, Some(alef_c)), face);
+        self.styles = styles;
         let Some(mut g) = self.lam_alef(
             (&lam_cps, &alef_cps),
             lam_form,
@@ -11078,7 +11097,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// alef.
     pub(crate) fn pair_word(
         &mut self,
-        term: &Term<'_>,
+        (term, styles): (&Term<'_>, &[Resolved]),
         r: Row,
         (lam, alef): (usize, Option<usize>),
         face: FaceIx,
@@ -11093,7 +11112,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             None => lam_after.get(1..).unwrap_or(&[]),
         };
         let (before, after) = (before.to_vec(), after.to_vec());
-        self.word_on(term, face, (&before, &after), (r, Col::at_index(lam)))
+        self.word_on(
+            (term, styles),
+            face,
+            (&before, &after),
+            (r, Col::at_index(lam)),
+        )
     }
 
     /// **Whether a lam-alef pair a soft wrap parts is drawn as the

@@ -1698,8 +1698,14 @@ impl Overlay {
             };
             let mut drawn_word = Vec::new();
             let before = taken.ink_before(at, w.at, prev);
+            // The word's face from the frame's table, which the renderer's
+            // own is not kept to on this path.
+            let style = crate::cellmap::face_of(
+                scene.styles,
+                row.get(first).copied().unwrap_or(PackedCell::EMPTY),
+            );
             let laid = r.word_at(
-                scene.term,
+                (scene.term, style),
                 (at, row, kept.map(|k| (k, crate::kept::WordIx(i)))),
                 (w, &wp, before),
                 &under,
@@ -1901,7 +1907,7 @@ impl Overlay {
             key = key.fold(c);
         }
         let word = r.joined_word(
-            scene.term,
+            (scene.term, scene.styles),
             &cps,
             style,
             (around, (Row::from_index(y), Col::at_index(x))),
@@ -2113,7 +2119,12 @@ impl Overlay {
             PairSpan::LamCell => None,
             PairSpan::Cells(..) => Some(alef_x),
         };
-        let word = r.pair_word(scene.term, window_row, (lam_x, alef_at), face);
+        let word = r.pair_word(
+            (scene.term, scene.styles),
+            window_row,
+            (lam_x, alef_at),
+            face,
+        );
         let mut key = ClusterKey::start().word(style.code());
         for &c in &lam {
             key = key.fold(c);
@@ -4452,7 +4463,7 @@ fn joined_pieces(
         };
         let (lam_v, lam_cps, _, style) = pieces[lam];
         let face = r.face_for(lam_cps, style);
-        let word = r.pair_word(term, row, (lam_v, Some(pieces[alef].0)), face);
+        let word = r.pair_word((term, styles), row, (lam_v, Some(pieces[alef].0)), face);
         if let Some(g) = r.lam_alef(
             (lam_cps, pieces[alef].1),
             lam_form,
@@ -4521,7 +4532,7 @@ fn joined_pieces(
         let lam_cps = crate::renderer::cell_cps(term, lam_cell);
         let alef_cps = crate::renderer::cell_cps(term, alef_cell);
         let face = r.face_for(&lam_cps, style);
-        let word = r.pair_word(term, row, (lam_v, Some(alef_v)), face);
+        let word = r.pair_word((term, styles), row, (lam_v, Some(alef_v)), face);
         if r.lam_alef(
             (&lam_cps, &alef_cps),
             lam_form,
@@ -4545,7 +4556,7 @@ fn joined_pieces(
             (b.to_vec(), a.to_vec())
         };
         let word = r.joined_word(
-            term,
+            (term, styles),
             cps,
             style,
             ((&before, &after), (row, Col::at_index(v))),

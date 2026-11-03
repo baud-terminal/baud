@@ -13862,6 +13862,178 @@ fn a_slanted_lam_alef_is_read_in_its_word_on_every_arm() {
     }
 }
 
+/// **`text` drawn on every arm as the first frame of a renderer of its
+/// own**: the cell arm walks the screen before any conversion has
+/// resolved the renderer's own rendition table, as the app's cell path,
+/// which converts nothing, walks every frame. The arms share one
+/// renderer, so a scene drawn after another reads what the last frame's
+/// conversion resolved there, and a rendition first named this frame is
+/// missing from it. Every arm draws the instance arm's pixels, and every
+/// glyph the cell arm's records draw is one of the instance arm's -- the
+/// same atlas slot at the same place, so the same face's glyph -- which
+/// tells two faces that draw alike apart. The instance arm's frame, the
+/// cells the records drew, and the cell `crop` of the frame.
+fn first_frame(
+    (faces, roles): (&[Face<'_>], &[FaceRole]),
+    text: &str,
+    crop: (usize, usize),
+    what: &str,
+) -> (Vec<u32>, Tally, Vec<u32>) {
+    let renderer = Renderer::new(
+        Stack::with_roles(faces, roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    arms.reads = Reads::Copy;
+    feed(&mut t, text.as_bytes());
+    let (a, b) = arms.draw(&mut t);
+    let glyph = |i: &Instance| (i.kind, i.x, i.y, i.w, i.h, i.u, i.v);
+    let instances: Vec<_> = arms.renderer.instances().map(glyph).collect();
+    let stray = arms
+        .records
+        .iter()
+        .filter(|i| i.kind == Kind::Mask && !instances.contains(&glyph(i)))
+        .count();
+    let copied = arms.draw_copied(&mut t);
+    let cpu = cpu_frame(&mut arms, &mut t);
+    assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+    assert_eq!(
+        differing(&a, &copied),
+        0,
+        "{what}: the cell arm over the copy differs"
+    );
+    assert_eq!(differing(&a, &cpu), 0, "{what}: the CPU arm differs");
+    assert_eq!(
+        stray, 0,
+        "{what}: glyph records the instance arm does not draw"
+    );
+    let cell = crop_cell(&arms, &a, crop);
+    (a, arms.exceptions.stats().cells, cell)
+}
+
+/// **An italic letter reads its word on every arm** where the stack's
+/// italic face draws its script: on Noto Sans Syriac an alaph after a
+/// beth, with an erased cell between them and touching, takes the wider
+/// final its `rlig` picks there, and on SF Arabic a kaf before a lam-alef
+/// pair the form its `rclt` picks before a lam, with BDSM set and reset --
+/// all in `SGR 3` and no SAPV, each the first frame of a renderer of its
+/// own (`first_frame`); and an alaph composed after an italic beth and an
+/// erased cell, over an italic blank, draws as the same alaph written
+/// there. While a joined letter read its neighbours' styles from the
+/// renderer's own rendition table, which the cell path does not resolve
+/// and a composition set aside while it drew, the cell arm read the italic
+/// beth and lam as regular, on another face than the letter's, and every
+/// arm drew the composed alaph so, each letter as if alone. The premises:
+/// the italic alaph after a beth is not the one after a yudh, the italic
+/// kaf before a lam not the one before a meem, and the composition joins.
+#[test]
+fn an_italic_letter_reads_its_word_on_every_arm() {
+    let built = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let syriac = std::fs::read("/System/Library/Fonts/Supplemental/NotoSansSyriac-Regular.ttf")
+        .expect("Noto Sans Syriac, which macOS ships; this test cannot skip itself");
+    let arabic = std::fs::read("/System/Library/Fonts/SFArabic.ttf")
+        .expect("SF Arabic, which macOS ships; this test cannot skip itself");
+    // The italic face a second copy of the script's face: a face of its
+    // own for the italic style, which draws the script.
+    let roles = [
+        FaceRole::Fallback,
+        FaceRole::Fallback,
+        FaceRole::Style(FaceStyle::Italic),
+    ];
+    let screen = |mode: &str, word: &str| {
+        format!(
+            "\x1b[?25l\x1b[8;3HThe quick brown fox jumps 0123456789\
+             \x1b[2;1H{mode}\x1b[2;3H\x1b[3m{word}"
+        )
+    };
+    let syriac_faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&syriac).expect("parse"),
+        Face::parse(&syriac).expect("parse"),
+    ];
+    let (beth, yudh, alaph) = ('\u{0712}', '\u{071D}', '\u{0710}');
+    let mut alaphs = Vec::new();
+    for (word, at) in [
+        (format!("{beth}\x1b[C{alaph}"), 4),
+        (format!("{yudh}\x1b[C{alaph}"), 4),
+        (format!("{beth}{alaph}"), 3),
+    ] {
+        let what = format!("Syriac {word:?}");
+        let (_, _, cell) = first_frame(
+            (&syriac_faces, &roles),
+            &screen("\x1b[8h", &word),
+            (1, at),
+            &what,
+        );
+        alaphs.push(cell);
+    }
+    assert_ne!(
+        alaphs[0], alaphs[1],
+        "the premise: the italic alaph reads its beth"
+    );
+    // **Composed**: an alaph composed after an italic beth and an erased
+    // cell, over an italic blank, draws as the same alaph written there.
+    let renderer = Renderer::new(
+        Stack::with_roles(&syriac_faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let failed = std::cell::RefCell::new(Vec::<String>::new());
+    let fail = |what: String| failed.borrow_mut().push(what);
+    let scene = format!(
+        "\x1bc\x1b[2 q\x1b[8h\x1b[2;3HThe quick brown fox jumps 0123456789\
+         \x1b[3;3H\x1b[3m{beth}\x1b[C \x1b[D"
+    );
+    let joined = composed_as_written(
+        &mut arms,
+        &mut t,
+        (&scene, &alaph.to_string()),
+        "Syriac composed",
+        &three_arms,
+        &fail,
+    );
+    assert!(joined, "the premise: the composition joins");
+    let failed = failed.into_inner();
+    assert!(failed.is_empty(), "{failed:#?}");
+    let arabic_faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&arabic).expect("parse"),
+        Face::parse(&arabic).expect("parse"),
+    ];
+    let (kaf, lam, meem, alef) = ('\u{0643}', '\u{0644}', '\u{0645}', '\u{0627}');
+    for mode in ["\x1b[8h", "\x1b[8l\x1b[2 k"] {
+        let mut kafs = Vec::new();
+        for word in [
+            format!("{kaf}{lam}{alef}"),
+            format!("{kaf}{meem}{alef}"),
+            format!("{kaf}\x1b[C{lam}{alef}"),
+        ] {
+            let what = format!("Arabic {mode:?} {word:?}");
+            let (_, _, cell) =
+                first_frame((&arabic_faces, &roles), &screen(mode, &word), (1, 2), &what);
+            kafs.push(cell);
+        }
+        assert_ne!(
+            kafs[0], kafs[1],
+            "{mode:?}: the premise, the italic kaf reads the lam after it"
+        );
+    }
+}
+
 /// **A status line's joined letter reads its word, on every arm**, as a
 /// main row's does: an alaph after a beth on the host-writable status line
 /// draws the wider final Noto Sans Syriac's `rlig` picks after a beth, the
@@ -15174,4 +15346,88 @@ fn a_devanagari_word_and_its_lights_draw_alike_on_every_arm() {
         }
     }
     assert!(drawn >= 60, "{drawn} frames compared");
+}
+
+/// **Bold and italic Hindi draw alike on every arm**, in the faces the
+/// embedded font's four built styles give them (`baud-app/fonts/built/`,
+/// `docs/research/notes/ac-built-font.md`): the Hindi line of the README
+/// clip's `HELLO` (`baud-app/examples/demo/session.rs`) in regular,
+/// `SGR 1`, `SGR 3` and `SGR 1;3`, and bold with `?2027` set,
+/// behind the icon face as the app stacks them; a word whose rendition
+/// changes inside it, either way; and a bold Latin line, which the map
+/// draws. Each is the first frame of a renderer of its own (`first_frame`).
+/// While a word took its face from the renderer's own rendition table, which
+/// the cell path does not resolve, the cell arm laid bold Hindi in the
+/// Regular face, 1371 of the frame's pixels away from the other arms, and
+/// italic Hindi in the Regular face's glyphs, which draw the Italic face's
+/// pixels, its Devanagari upright. The premises: the words went to the
+/// records, the bold faces' frames are not the regular one, and the italic
+/// face draws the line's Devanagari with glyphs of its own.
+#[test]
+fn bold_and_italic_hindi_draw_alike_on_every_arm() {
+    let here = |p: &str| {
+        std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|e| panic!("{p}: {e}"))
+    };
+    let files = [
+        here("baud-app/fonts/built/Regular.ttf"),
+        here("baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
+        here("baud-app/fonts/built/Bold.ttf"),
+        here("baud-app/fonts/built/Italic.ttf"),
+        here("baud-app/fonts/built/BoldItalic.ttf"),
+    ];
+    let faces: Vec<Face<'_>> = files
+        .iter()
+        .map(|d| Face::parse(d).expect("parse"))
+        .collect();
+    let roles = [
+        FaceRole::Fallback,
+        FaceRole::Fallback,
+        FaceRole::Style(FaceStyle::Bold),
+        FaceRole::Style(FaceStyle::Italic),
+        FaceRole::Style(FaceStyle::BoldItalic),
+    ];
+    let line = "टर्मिनल हर अक्षर को ग्रिड में रखता है।";
+    let mut frames = Vec::new();
+    for (name, setup, text, words) in [
+        ("regular", "", line, 12),
+        ("bold", "\x1b[1m", line, 12),
+        ("italic", "\x1b[3m", line, 12),
+        ("bold italic", "\x1b[1;3m", line, 12),
+        ("bold under ?2027", "\x1b[?2027h\x1b[1m", line, 12),
+        ("bold from inside a word", "", "र्\x1b[1mमि", 3),
+        ("regular from inside a word", "\x1b[1m", "र्\x1b[mमि", 3),
+        ("bold Latin", "\x1b[1m", "the quick brown fox", 0),
+    ] {
+        let (frame, cells, _) = first_frame(
+            (&faces, &roles),
+            &format!(
+                "\x1b[?25l\x1b[2;3H{setup}{text}\x1b[m\x1b[4;1Hthe quick brown fox 0123456789"
+            ),
+            (1, 2),
+            name,
+        );
+        assert!(
+            cells.value() >= words,
+            "{name}: the words went to the records: {cells:?}"
+        );
+        frames.push(frame);
+    }
+    assert!(frames[1] != frames[0], "bold Hindi is the Regular's");
+    assert!(frames[3] != frames[0], "bold-italic Hindi is the Regular's");
+    let mut renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    let cps: Vec<Codepoint> = line.chars().map(Codepoint::from_char).collect();
+    assert_ne!(
+        renderer.face_for(&cps, FaceStyle::Italic),
+        renderer.face_for(&cps, FaceStyle::Regular),
+        "the premise: the italic face draws the line's Devanagari"
+    );
 }
