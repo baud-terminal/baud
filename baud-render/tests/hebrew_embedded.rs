@@ -86,7 +86,7 @@ fn may_differ(t: &Term<'_>, added: &dyn Fn(Codepoint) -> bool) -> (Vec<bool>, us
 /// Devanagari) or the one right of it, and a recording with none paints the
 /// same frame byte for byte. The control: `vim-unicode`'s Hebrew and
 /// Devanagari, `.notdef` boxes in the stock file, draw, and `cat-cjk`'s --
-/// 88 and 85 cells, which change 110 and 47 (a cell beside one counted,
+/// 99 and 97 cells, which change 99 and 47 (a cell beside one counted,
 /// and a cell whose only added character is a joiner, ZWJ or ZWNJ, which
 /// neither file draws, not) --
 /// measured, and pinned, so a recording or a mask that moves says so.
@@ -162,8 +162,8 @@ fn the_built_regular_paints_every_recording_as_stock_does_but_what_it_adds() {
     assert_eq!(
         carrying,
         [
-            ("utf8/cat-cjk.raw", 85, 47),
-            ("utf8/vim-unicode.raw", 88, 110)
+            ("utf8/cat-cjk.raw", 97, 47),
+            ("utf8/vim-unicode.raw", 99, 99)
         ],
         "the control: the recordings that carry what the build added, its cells and the cells that changed"
     );

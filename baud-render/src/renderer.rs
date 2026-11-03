@@ -43,7 +43,7 @@ use baud_font::bytes::Count;
 use baud_font::{
     Cluster, Digest as LookupDigest, Direction, Engine, Face, Features, Glyph, Ignorable,
     LookupSet, MAX_LOOKUPS, MarkPlacement, Normalised, PerScript, Phase, Px, Scale, Script,
-    ScriptTag, Shaper, Substitution, Unresolved, VarPoint, Walked,
+    ScriptTag, Shaper, Substitution, Tag, Unresolved, VarPoint, Walked,
 };
 use std::time::{Duration, Instant};
 
@@ -313,7 +313,7 @@ pub struct Exceptions {
 /// tables by `Gsub::pairs`. `admits` says whether two adjacent glyphs could
 /// start a match; a run with no admitted pair shapes to what its cells
 /// shape to alone.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Debug)]
 pub struct Pairs {
     /// By first glyph: the digest of what may follow it, `None` for a
     /// glyph no rule begins on. Indexed rather than hashed: the walk asks
@@ -660,6 +660,86 @@ fn solid(x: Screen, y: Screen, w: Px, h: Px, color: Argb) -> Instance {
     }
 }
 
+/// The first word of a word piece's run-cache key (`crate::word`): a
+/// word's run is laid end to end, never a grid run's.
+const WORD_KEY: u32 = 0x5744_0000;
+
+/// **The space kept between two Devanagari words**, in ems of the word's
+/// face: 0.26, Noto Sans Devanagari's own space at its full width, for
+/// every count, size and instance (`crate::word`).
+const WORD_GAP_EM: f32 = 0.26;
+
+/// **A glyph laid at its natural pen is placed to a quarter of a pixel**:
+/// its mask rasterised at one of four phases, so a word's headline joins
+/// where the face's does, and a glyph takes at most four atlas slots.
+const PEN_STEPS: f32 = 4.0;
+
+/// **`inst`, a glyph of a word in its syllable's `own` colours, cut where
+/// the ground under it is another**: at every cell edge and lit
+/// rectangle's edge it crosses, each piece whose ground is not its
+/// syllable's taken in that ground's text colour, the pieces alike in
+/// colour kept whole -- so no ink lies in the colour of the ground under
+/// it. A colour glyph is drawn whole: its colours are its own.
+fn cut_by_ground(
+    inst: Instance,
+    own: crate::word::Colours,
+    cell: Px,
+    lit: &[(i32, i32, crate::word::Colours)],
+    ground: &dyn Fn(i32) -> crate::word::Colours,
+    out: &mut Vec<Instance>,
+) {
+    let x0 = i32::from(inst.x.0);
+    let x1 = x0 + i32::from(inst.w.0);
+    let cell = px_i32(cell).max(1);
+    if inst.kind != Kind::Mask || x1 <= x0 {
+        out.push(inst);
+        return;
+    }
+    let mut cuts: Vec<i32> = vec![x0, x1];
+    let mut e = (x0.div_euclid(cell) + 1) * cell;
+    while e < x1 {
+        cuts.push(e);
+        e += cell;
+    }
+    for &(l, r, _) in lit {
+        for v in [l, r] {
+            if v > x0 && v < x1 {
+                cuts.push(v);
+            }
+        }
+    }
+    cuts.sort_unstable();
+    cuts.dedup();
+    let colour = |a: i32| {
+        let g = ground(a);
+        match g.bg == own.bg {
+            true => own,
+            false => g,
+        }
+    };
+    let mut a = x0;
+    let mut now = colour(x0);
+    for &b in cuts.iter().skip(1) {
+        let next = match b < x1 {
+            true => colour(b),
+            false => now,
+        };
+        if b < x1 && (next.fg, next.curve) == (now.fg, now.curve) {
+            continue;
+        }
+        out.push(Instance {
+            x: Screen(i16::try_from(a).unwrap_or(i16::MAX)),
+            w: Tex(u16::try_from(b - a).unwrap_or(0)),
+            u: Tex(inst.u.0.saturating_add(u16::try_from(a - x0).unwrap_or(0))),
+            color: now.fg,
+            curve: now.curve,
+            ..inst
+        });
+        a = b;
+        now = next;
+    }
+}
+
 /// **A line's geometry, the one function every drawn thing on it goes
 /// through.** A character on a line of rendition `size` takes a box
 /// `stretch.x()` cells wide and `stretch.y()` tall (`[[source:
@@ -885,6 +965,7 @@ enum Varies {
 }
 
 /// One face's [`Selection`] per script.
+#[derive(Debug)]
 struct Selections {
     by_script: PerScript<Selection>,
     /// Whether a script selects what Common selects -- the same lookups,
@@ -1000,6 +1081,42 @@ fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
 /// A row's cells as [`Renderer::runs`] reads them: the cells in their
 /// drawn order, where shaping must stop, and the joined and mirrored
 /// cells, by visual column.
+/// **Where one glyph of a laid word is drawn**: its syllable, its glyph,
+/// its slot at the quarter pixel it falls on, its place from the row's left
+/// edge in whole pixels, its pen to the quarter, and its rise in pixels.
+struct GlyphPlace {
+    syllable: crate::word::SyllableIx,
+    id: GlyphId,
+    slot: Option<crate::atlas::Slot>,
+    whole: i32,
+    pen: f32,
+    dy: i32,
+}
+
+/// **A word laid** ([`Renderer::lay_word`]): the face it is drawn on, how
+/// and at which instance it was placed, its pieces shaped and each
+/// glyph's syllable, its pen's start and each syllable's pen boundary in
+/// pixels from the row's left edge, and its measure there.
+struct LaidWord {
+    face: FaceIx,
+    laid: crate::word::Laid,
+    shapes: Vec<Shaped>,
+    owner: Vec<Vec<usize>>,
+    x0: f32,
+    bounds: Vec<f32>,
+    measure: crate::word::Measure,
+}
+
+/// A row's Devanagari words, each one's syllables in their light, the
+/// row's cells as they draw (`crate::word`) and the syllables the core
+/// parted on it (`crate::syllable`), for the runs.
+type Worded<'w> = (
+    &'w [crate::word::Word],
+    &'w [crate::word::WordPaint],
+    &'w [crate::word::Under],
+    &'w [crate::syllable::Syllable],
+);
+
 type RowCells<'a> = (
     &'a [PackedCell],
     &'a [bool],
@@ -1815,26 +1932,29 @@ pub struct Renderer<'f, 'a> {
     /// the cache misses asks `shape` a lookup per marked cell too.
     cluster_covers: ClusterMemo<Cover>,
     scales: Vec<Scale>,
-    /// Per face, a digest per `GSUB` lookup the grid features name, so a
+    /// Per face, where its layout tables are below: its own, or a narrower
+    /// instance's base's ([`Layout`]).
+    layouts: Vec<Layout>,
+    /// Per layout, a digest per `GSUB` lookup the grid features name, so a
     /// cache miss opens only the lookups that can touch the run.
-    digests: Vec<Vec<LookupDigest>>,
-    /// Per face, the prefilter the counts in [`Exceptions`] ask.
+    digests: ByLayout<Vec<LookupDigest>>,
+    /// Per layout, the prefilter the counts in [`Exceptions`] ask.
     #[cfg(feature = "exceptions")]
-    starters: Vec<Starter>,
-    /// Per face, the glyph pairs its rules can begin on.
-    pairs: Vec<Pairs>,
-    /// Per face, the longest sequence a rule can match, in glyphs; `None`
+    starters: ByLayout<Starter>,
+    /// Per layout, the glyph pairs its rules can begin on.
+    pairs: ByLayout<Pairs>,
+    /// Per layout, the longest sequence a rule can match, in glyphs; `None`
     /// for a face with no substitution rules or one whose tables could
     /// not be walked.
-    extents: Vec<Option<Count>>,
-    /// Per face, how many cells of its word either side a joined cell's
+    extents: ByLayout<Option<Count>>,
+    /// Per layout, how many cells of its word either side a joined cell's
     /// shaping reads ([`baud_font::joined_reach`]), at most
     /// [`WORD_REACH_MAX`].
-    reaches: Vec<Count>,
-    /// Per face, which lookups each script selects
+    reaches: ByLayout<Count>,
+    /// Per layout, which lookups each script selects
     /// (`[[source: ms-opentype-chapter2]]`, ScriptList table), so a run is
     /// cut where they change.
-    selections: Vec<Selections>,
+    selections: ByLayout<Selections>,
     /// The row being converted, each cell's script settled in context
     /// (UAX #24, [`baud_font::resolve`]); filled only for a row with a run
     /// on a face whose scripts select different lookups.
@@ -1964,6 +2084,15 @@ pub struct Renderer<'f, 'a> {
     /// emitted for a hidden cell are dropped where they are emitted, so a
     /// run shapes the same in both blink phases.
     text: Vec<Text>,
+    /// Per cell, whether a Devanagari word drawn whole holds it
+    /// (`crate::word`): its own colours are drawn unlit, the selection and
+    /// the block cursor over its syllable's span.
+    worded: Vec<crate::word::Worded>,
+    /// Per row, the words the last convert of it drew, where they went.
+    laid: Vec<Vec<crate::word::WordLaid>>,
+    /// Per row, whether the last convert of it found a word, so a row of
+    /// none clears no cell's [`Renderer::worded`] mark.
+    row_worded: Vec<crate::word::Worded>,
     /// Per row, whether the last convert of it saw blinking text. A row a
     /// frame does not convert is unchanged, so its answer still holds, and
     /// `blink_seen` is the whole screen's.
@@ -2054,6 +2183,10 @@ pub struct Renderer<'f, 'a> {
     composition: Option<Composition>,
     last_composition: Option<Composition>,
     compose_inst: Vec<Instance>,
+    /// The cells this frame's composition draws ([`crate::overlay::Taken`]):
+    /// the letters beside it its words take in, converted blank and drawn
+    /// unlit, and what its cells will hold, which the row's words read.
+    taken: crate::overlay::Taken,
     /// The composition's pages and glyphs on a row that joins, drawn in
     /// that row's order by [`Renderer::convert_row`] ([`Splice`]).
     splice: Option<Splice>,
@@ -2249,17 +2382,70 @@ pub struct Renderer<'f, 'a> {
     ink_scratch: Vec<VarPoint>,
 }
 
+/// **Where a face's layout tables are** in the renderer's per-layout
+/// lists ([`ByLayout`]): what is built from its `GSUB`, `GPOS`, `GDEF` and
+/// `morx` -- lookup digests, pair tables, extents, reaches, per-script
+/// selections. One per face, but a narrower instance
+/// ([`crate::FaceRole::Narrower`]) takes its base's: by its role it is its
+/// base's face read at another width, and the tables are built from those
+/// four alone, a face's variation coordinates entering none of them, so
+/// they are the same tables (`same_layout`, asserted in debug builds). The default stack's 60 narrower instances
+/// built them 60 times more: with the face table's proposals, 2.5 ms of
+/// `Renderer::new` and 7 MB at launch in a release build.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Layout(u8);
+
+/// One entry per [`Layout`]: a face's is `self[layouts[face]]`.
+struct ByLayout<T>(Vec<T>);
+
+impl<T> ByLayout<T> {
+    fn get(&self, at: Layout) -> Option<&T> {
+        self.0.get(usize::from(at.0))
+    }
+
+    /// Every layout's entry, once each.
+    fn all(&self) -> &[T] {
+        &self.0
+    }
+}
+
+impl<T> core::ops::Index<Layout> for ByLayout<T> {
+    type Output = T;
+    fn index(&self, at: Layout) -> &T {
+        &self.0[usize::from(at.0)]
+    }
+}
+
+impl<T> FromIterator<T> for ByLayout<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(i: I) -> ByLayout<T> {
+        ByLayout(i.into_iter().collect())
+    }
+}
+
+/// Whether `a` and `b` hold the same layout tables, byte for byte: the
+/// same `GSUB`, `GPOS`, `GDEF` and `morx`, or both without one. A narrower
+/// instance's contract with its base ([`Layout`]), checked where debug
+/// assertions are on: 141 KB a built face, 8.4 MB over the default
+/// stack's 60, which a release launch does not read.
+fn same_layout(a: &Face<'_>, b: &Face<'_>) -> bool {
+    [Tag::GSUB, Tag::GPOS, Tag::GDEF, Tag::MORX]
+        .into_iter()
+        .all(|t| a.table(t).map(|x| x.as_slice()) == b.table(t).map(|x| x.as_slice()))
+}
+
 /// What the renderer reads of each face of its stack, built once per
-/// stack: by [`Renderer::new`], and again by [`Renderer::restack`].
+/// stack: by [`Renderer::new`], and again by [`Renderer::restack`]; the
+/// layout tables once per [`Layout`].
 struct PerFace {
     scales: Vec<Scale>,
-    digests: Vec<Vec<LookupDigest>>,
+    layouts: Vec<Layout>,
+    digests: ByLayout<Vec<LookupDigest>>,
     #[cfg(feature = "exceptions")]
-    starters: Vec<Starter>,
-    pairs: Vec<Pairs>,
-    extents: Vec<Option<Count>>,
-    reaches: Vec<Count>,
-    selections: Vec<Selections>,
+    starters: ByLayout<Starter>,
+    pairs: ByLayout<Pairs>,
+    extents: ByLayout<Option<Count>>,
+    reaches: ByLayout<Count>,
+    selections: ByLayout<Selections>,
     faces: Vec<FaceIx>,
 }
 
@@ -2270,8 +2456,24 @@ impl PerFace {
             .iter()
             .map(|f| Scale::of(size.value(), f.units_per_em()))
             .collect();
-        let digests = stack
-            .faces()
+        // Each face's layout, and the face each layout is built from: a
+        // narrower instance takes its base's.
+        let mut layouts: Vec<Layout> = Vec::with_capacity(stack.faces().len());
+        let mut built: Vec<&Face<'_>> = Vec::new();
+        for ix in stack.each() {
+            let shared = stack.narrows(ix).and_then(|b| {
+                debug_assert!(
+                    same_layout(stack.face(ix), stack.face(b)),
+                    "a narrower instance holds its base's layout tables"
+                );
+                layouts.get(b.index()).copied()
+            });
+            layouts.push(shared.unwrap_or_else(|| {
+                built.push(stack.face(ix));
+                Layout(u8::try_from(built.len() - 1).unwrap_or(u8::MAX))
+            }));
+        }
+        let digests = built
             .iter()
             .map(|f| {
                 let mut d = Vec::new();
@@ -2283,8 +2485,7 @@ impl PerFace {
             })
             .collect();
         #[cfg(feature = "exceptions")]
-        let starters = stack
-            .faces()
+        let starters = built
             .iter()
             .map(|f| match (Substitution::of(f), f.gsub()) {
                 (Substitution::Gsub, Some(gsub)) => {
@@ -2296,9 +2497,8 @@ impl PerFace {
                 _ => Starter::Plain,
             })
             .collect();
-        let pairs = stack.faces().iter().map(Pairs::of).collect();
-        let extents = stack
-            .faces()
+        let pairs = built.iter().map(|f| Pairs::of(f)).collect();
+        let extents = built
             .iter()
             .map(|f| {
                 f.gsub()
@@ -2306,15 +2506,15 @@ impl PerFace {
                     .and_then(|g| g.extent(Features::GRID))
             })
             .collect();
-        let reaches = stack
-            .faces()
+        let reaches = built
             .iter()
             .map(|f| Count::of(baud_font::joined_reach(f).value().min(WORD_REACH_MAX)))
             .collect();
-        let selections: Vec<Selections> = stack.faces().iter().map(Selections::of).collect();
+        let selections = built.iter().map(|f| Selections::of(f)).collect();
         let faces = stack.each().collect();
         PerFace {
             scales,
+            layouts,
             digests,
             #[cfg(feature = "exceptions")]
             starters,
@@ -2341,6 +2541,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let metrics = Metrics::of(stack.primary(), size)?;
         let PerFace {
             scales,
+            layouts,
             digests,
             #[cfg(feature = "exceptions")]
             starters,
@@ -2358,6 +2559,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             cluster_covers: ClusterMemo::new(Question::Cover, Cover::Whole),
             stack,
             scales,
+            layouts,
             #[cfg(feature = "exceptions")]
             starters,
             pairs,
@@ -2410,6 +2612,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             fg: Vec::new(),
             curve: Vec::new(),
             text: Vec::new(),
+            worded: Vec::new(),
+            laid: Vec::new(),
+            row_worded: Vec::new(),
             row_blinks: Vec::new(),
             per_row: Vec::new(),
             glyph_ends: Vec::new(),
@@ -2446,6 +2651,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             splash_inst: Vec::new(),
             composition: None,
             last_composition: None,
+            taken: crate::overlay::Taken::default(),
             compose_inst: Vec::new(),
             splice: None,
             find: None,
@@ -2522,7 +2728,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The widest reach of the stack's faces: how many cells of its word
     /// either side of a joined cell the layout keeps.
     fn widest_reach(&self) -> Count {
-        widest_of(&self.reaches)
+        widest_of(self.reaches.all())
     }
 
     /// **How many cells of its word either side of a joined cell this
@@ -2593,6 +2799,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let metrics = Metrics::of(stack.primary(), size)?;
         let PerFace {
             scales,
+            layouts,
             digests,
             #[cfg(feature = "exceptions")]
             starters,
@@ -2606,6 +2813,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.stack = stack;
         self.theme_gen = ThemeGen(self.theme_gen.0.wrapping_add(1));
         self.scales = scales;
+        self.layouts = layouts;
         self.digests = digests;
         #[cfg(feature = "exceptions")]
         {
@@ -2862,6 +3070,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// resolved colours swap, before the block cursor's own swap.
     pub fn set_highlight(&mut self, highlight: Option<Highlight>) {
         self.highlight = highlight;
+    }
+
+    /// The selection the next frame draws ([`Renderer::set_highlight`]).
+    pub(crate) fn highlight(&self) -> Option<Highlight> {
+        self.highlight
     }
 
     /// The scrollbar for the next frame, or none: where the window sits,
@@ -3177,7 +3390,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             ..
         } = &mut **self.beside.get_or_insert_with(Box::default);
         let leaving = leaving.get_or_insert_with(crate::bidi::Reorder::new);
-        leaving.set_reach(widest_of(&self.reaches));
+        leaving.set_reach(widest_of(self.reaches.all()));
         leaving.set_word_wrap(self.word_wrap);
         leaving.lay_out_top(term, above, self.joins_seen);
         let up = leaving.view(term, above);
@@ -5166,6 +5379,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.fg = vec![Argb(0); cells];
         self.curve = vec![CurveRow::default(); cells];
         self.text = vec![Text::Drawn; cells];
+        self.worded = vec![crate::word::Worded::No; cells];
+        self.laid = vec![Vec::new(); rows.index()];
+        self.row_worded = vec![crate::word::Worded::No; rows.index()];
         self.row_blinks = vec![Blinking::UNSEEN; rows.index()];
         self.per_row = (0..rows.index()).map(|_| Vec::new()).collect();
         self.glyph_ends = vec![0; rows.index()];
@@ -6122,7 +6338,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             _ => BlockCursor::No,
         };
+        // A word's cell is drawn unlit, its light over its syllable's span.
+        let at = row.index() * self.cols.index() + col.index();
+        if self.worded.get(at) == Some(&crate::word::Worded::Yes) {
+            return res.ground(Selected::No, BlockCursor::No);
+        }
         res.ground(selected, block)
+    }
+
+    /// **The Devanagari words the last convert of row `r` drew**, and where
+    /// (`crate::word`): none on a row it did not convert since it was last
+    /// drawn, or that holds none.
+    pub fn words_on(&self, r: Row) -> &[crate::word::WordLaid] {
+        self.laid.get(r.index()).map_or(&[], Vec::as_slice)
     }
 
     /// Each cell's [`Ground`], row-major, as the last convert drew it:
@@ -6541,6 +6769,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // Laid out with it written there (`bidi::Written`), its cells are
         // drawn where the row's order puts them, as the same text written.
         let mut under = PackedCell::EMPTY;
+        self.taken = crate::overlay::Taken::default();
         if let Some(c) = &composition {
             let (start, end) = c.columns(c.width_on(&vp));
             let at = c.row.index() * ncols;
@@ -6550,6 +6779,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let orders = self.bidi.orders();
             for x in start..end {
                 let v = orders.visual_col(c.row, Col::at_index(x)).index();
+                if let Some(cell) = self.cur.get_mut(at + v) {
+                    *cell = PackedCell {
+                        content: baud_domain::Content::EMPTY,
+                        style: cell.style,
+                        flags: baud_domain::CellFlags::NONE,
+                    };
+                }
+            }
+            // The letters written beside it that its words take in, the
+            // same way: its records draw them, in one word with its own.
+            self.taken = c.taken(term, orders, c.width_on(&vp), vp.rendition(c.row));
+            for v in self.taken.beside(c.row) {
                 if let Some(cell) = self.cur.get_mut(at + v) {
                     *cell = PackedCell {
                         content: baud_domain::Content::EMPTY,
@@ -7588,6 +7829,528 @@ impl<'f, 'a> Renderer<'f, 'a> {
         out
     }
 
+    /// **A syllable shaped alone and drawn across exactly `cells` cells**
+    /// (`crate::syllable`): its glyphs centred in the cells, to the whole
+    /// pixel, by the syllable's advance -- from its leftmost pen position to
+    /// the end of its last spacing glyph -- at the face's size whatever its
+    /// width, never scaled: one wider than its cells overlaps the cells
+    /// beside it. A Devanagari syllable inside a word is drawn with the
+    /// word (`crate::word`); this draws the rest, and an input method's
+    /// composition. Every glyph's offset is from the syllable's first cell.
+    pub(crate) fn syllable(
+        &mut self,
+        cps: &[Codepoint],
+        style: TextFace,
+        cells: Cols,
+        stretch: Stretch,
+    ) -> Vec<ClusterGlyph> {
+        if cps.is_empty() {
+            return Vec::new();
+        }
+        let face = self.face_for(cps, style);
+        let clusters = [ClusterIn {
+            cps: cps.to_vec(),
+            at: CellIx(0),
+        }];
+        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[], ..);
+        let scale = self.scales[face.index()];
+        let f = self.stack.face(face);
+        let gdef = f.gdef();
+        let glyphs = shaped.glyphs();
+        let lo = glyphs
+            .iter()
+            .map(|p| i32::from(p.dx))
+            .min()
+            .unwrap_or(0)
+            .min(0);
+        let hi = glyphs
+            .iter()
+            .filter(|p| !gdef.is_mark(p.id))
+            .filter_map(|p| Some(i32::from(p.dx) + i32::from(f.advance(p.id)?.value())))
+            .max()
+            .unwrap_or(0);
+        let units = (hi - lo).max(0);
+        let cell_w = self.metrics.cell_w.value();
+        let span_px = cell_w.saturating_mul(u32::try_from(cells.index()).unwrap_or(1)) as f32;
+        let adv_px = scale.px(units as f32);
+        let mut out = Vec::new();
+        // Centred by whole pixels: half the slack, from the cells' left
+        // edge, each glyph rasterised at no phase of its own.
+        let off = ((span_px - adv_px) / 2.0).round() as i32;
+        for p in glyphs {
+            out.push(ClusterGlyph {
+                id: p.id,
+                source: GlyphSource::Face(face),
+                slot: self
+                    .atlas
+                    .slot_at(f, face, p.id, scale, Phase::ZERO, stretch),
+                dx: (scale.px((i32::from(p.dx) - lo) as f32).round() as i32 + off) * stretch.x(),
+                dy: scale.px(f32::from(p.dy)).round() as i32 * stretch.y(),
+                phase: Phase::ZERO,
+                units: Units::of(p),
+            });
+        }
+        out
+    }
+
+    /// **The colours cell `col` of row `r` draws in under `light`**: its
+    /// rendition's, swapped by the selection and the block cursor as
+    /// [`Renderer::convert_row`] swaps them.
+    fn paint_of(
+        &self,
+        r: Row,
+        col: Col,
+        cell: PackedCell,
+        light: crate::word::Light,
+    ) -> crate::cellmap::Drawn {
+        let res = self
+            .styles
+            .get(cell.style.index())
+            .copied()
+            .unwrap_or_default();
+        res.drawn(Swaps {
+            pictured: self.pictures.at(r, col),
+            line: Line::of(cell.content),
+            selected: light.selected,
+            hilite: self.hilite,
+            block: light.block,
+            blink: self.blink,
+            cursor: light.cursor,
+        })
+    }
+
+    /// **One piece of a word on `face`, shaped as a run** (`crate::word`):
+    /// the syllables `range` of `syllables`, each a cluster at its first
+    /// cell's offset from the piece's, their pens laid end to end, through
+    /// the run cache under a key of their codepoints and cells -- a word's
+    /// key is never a grid run's -- with the piece's advance in font units
+    /// kept beside the glyphs ([`Shaped::end`]).
+    fn word_piece(
+        &mut self,
+        face: FaceIx,
+        script: Script,
+        (parts, syllables): (&[Vec<Codepoint>], &[crate::syllable::Syllable]),
+        range: core::ops::Range<usize>,
+    ) -> Shaped {
+        let first = syllables[range.start].at.index();
+        let mut key = Key::start()
+            .fold(WORD_KEY)
+            .fold(u32::try_from(face.index()).unwrap_or(0));
+        let mut clusters = Vec::with_capacity(range.len());
+        for i in range {
+            for cp in &parts[i] {
+                key = key.fold(cp.value());
+            }
+            let s = syllables[i];
+            key = key.fold(u32::try_from(s.cells.index()).unwrap_or(0) << 24);
+            clusters.push(ClusterIn {
+                cps: parts[i].clone(),
+                at: CellIx(u8::try_from(s.at.index() - first).unwrap_or(u8::MAX)),
+            });
+        }
+        // A hit is a word's run, laid end to end; a grid run under the same
+        // key, which only a collision of the fold could give, is shaped again.
+        if let Some(hit) = self
+            .cache
+            .get(key)
+            .filter(|h| h.pens() == baud_font::Pens::Run)
+        {
+            return hit;
+        }
+        let mut shaped = self.shape_laid(face, script, &clusters, &[], .., baud_font::Pens::Run);
+        shaped.set_run(self.stack.face(face));
+        self.cache.put(key, shaped);
+        shaped
+    }
+
+    /// A word's pieces on `face` and its [`crate::word::Measure`] there, in
+    /// pixels from its pen's start: each piece goes on from the one before.
+    fn word_measure(
+        &mut self,
+        face: FaceIx,
+        script: Script,
+        cut: (&[Vec<Codepoint>], &[crate::syllable::Syllable]),
+        pieces: &[core::ops::Range<usize>],
+    ) -> (Vec<Shaped>, crate::word::Measure) {
+        let shapes: Vec<Shaped> = pieces
+            .iter()
+            .map(|p| self.word_piece(face, script, cut, p.clone()))
+            .collect();
+        let scale = self.scales[face.index()];
+        let s1 = scale.px(1.0);
+        let f = self.stack.face(face);
+        let mut ink = crate::fit::Ink::NONE;
+        let mut origin = 0i32;
+        for sh in &shapes {
+            for p in sh.glyphs() {
+                let along = scale.px((origin + i32::from(p.dx)) as f32);
+                if let Some(b) = self.atlas.ink(f, face, p.id) {
+                    ink = ink.with(along + b.left as f32 * s1, along + b.right as f32 * s1);
+                }
+            }
+            origin += i32::from(sh.end());
+        }
+        let advance = scale.px(origin as f32);
+        if ink.left > ink.right {
+            ink = crate::fit::Ink {
+                left: 0.0,
+                right: advance,
+            };
+        }
+        (shapes, crate::word::Measure { advance, ink })
+    }
+
+    /// **Lays a word whose syllables hold `parts`** (`crate::word`), the
+    /// cells `syllables` from `at` on a row `cols` wide, in `room`: shaped as
+    /// one run on its face and each narrower instance in turn, the first
+    /// [`crate::word::lay`] takes, and each syllable's pen boundary, in
+    /// pixels from the row's left edge.
+    fn lay_word(
+        &mut self,
+        (parts, syllables): (&[Vec<Codepoint>], &[crate::syllable::Syllable]),
+        style: TextFace,
+        (at, cells, room): (Col, Cols, crate::word::Room),
+        (cols, prev): (Cols, Option<f32>),
+    ) -> Option<LaidWord> {
+        let all: Vec<Codepoint> = parts.concat();
+        if all.is_empty() || syllables.is_empty() {
+            return None;
+        }
+        let base = self.face_for(&all, style);
+        let faces: Vec<FaceIx> = core::iter::once(base)
+            .chain(self.stack.narrower(base))
+            .collect();
+        let script = Script::of_cluster(&all);
+        let upem = u32::from(self.stack.face(base).units_per_em().value()).max(1);
+        // **A piece's pens fit its sixteen-bit offsets**: at two ems a cell at
+        // most, a piece of 16,000 / upem cells -- 16 on a face of 1000 units
+        // -- cut where a syllable ends, the next going on from its end.
+        let per = usize::try_from(16_000 / upem)
+            .unwrap_or(1)
+            .clamp(1, RUN_CELLS);
+        let mut pieces: Vec<core::ops::Range<usize>> = Vec::new();
+        let (mut from, mut n) = (0usize, 0usize);
+        for (i, s) in syllables.iter().enumerate() {
+            if n > 0 && n + s.cells.index() > per {
+                pieces.push(from..i);
+                from = i;
+                n = 0;
+            }
+            n += s.cells.index();
+        }
+        pieces.push(from..syllables.len());
+        let cut = (parts, syllables);
+        let cell = self.metrics.cell_w.value() as f32;
+        let scale0 = self.scales[base.index()];
+        let grid = crate::word::Grid {
+            cell,
+            gap: WORD_GAP_EM * scale0.px(upem as f32),
+            cols,
+        };
+        let mut shaped: Vec<Option<(Vec<Shaped>, crate::word::Measure)>> = vec![None; faces.len()];
+        let before = prev.map(|p| p - cell * at.index() as f32);
+        let laid = crate::word::lay((at, cells), room, grid, (faces.len(), before), |j| {
+            let (shapes, m) = self.word_measure(faces[j], script, cut, &pieces);
+            shaped[j] = Some((shapes, m));
+            Some(m)
+        });
+        let j = laid.instance.min(faces.len() - 1);
+        let face = faces[j];
+        let (shapes, measure) = match shaped[j].take() {
+            Some(s) => s,
+            None => self.word_measure(face, script, cut, &pieces),
+        };
+        let scale = self.scales[face.index()];
+        let x0 = cell * at.index() as f32 + laid.off;
+        // Each syllable's pen boundary, from the first glyph of its cluster,
+        // and the word's end; each glyph's syllable.
+        let n_syl = syllables.len();
+        let mut bounds = vec![f32::NAN; n_syl + 1];
+        let mut owner: Vec<Vec<usize>> = Vec::with_capacity(shapes.len());
+        let mut origin = 0i32;
+        for (piece, sh) in pieces.iter().zip(&shapes) {
+            let first = syllables[piece.start].at.index();
+            let mut own = Vec::with_capacity(sh.glyphs().len());
+            for p in sh.glyphs() {
+                let k = (piece.clone())
+                    .find(|&k| syllables[k].at.index() - first == usize::from(p.cell.0))
+                    .unwrap_or(piece.start);
+                if bounds[k].is_nan() {
+                    bounds[k] = x0 + scale.px((origin + i32::from(p.dx)) as f32);
+                }
+                own.push(k);
+            }
+            owner.push(own);
+            origin += i32::from(sh.end());
+        }
+        bounds[n_syl] = x0 + scale.px(origin as f32);
+        for k in (0..n_syl).rev() {
+            if bounds[k].is_nan() {
+                bounds[k] = bounds[k + 1];
+            }
+        }
+        for k in 1..=n_syl {
+            bounds[k] = bounds[k].max(bounds[k - 1]);
+        }
+        Some(LaidWord {
+            face,
+            laid: crate::word::Laid {
+                instance: j,
+                ..laid
+            },
+            shapes,
+            owner,
+            x0,
+            bounds,
+            measure,
+        })
+    }
+
+    /// **Where each glyph of a laid word is drawn**: its syllable, its
+    /// glyph, its slot at the quarter pixel it falls on, and its place from
+    /// the row's left edge, whole pixels and that quarter.
+    fn word_glyph_places(&mut self, w: &LaidWord) -> Vec<GlyphPlace> {
+        let scale = self.scales[w.face.index()];
+        let f = self.stack.face(w.face);
+        let mut out = Vec::new();
+        let mut origin = 0i32;
+        for (sh, own) in w.shapes.iter().zip(&w.owner) {
+            for (p, &k) in sh.glyphs().iter().zip(own) {
+                let at = w.x0 + scale.px((origin + i32::from(p.dx)) as f32);
+                let mut whole = at.floor();
+                let mut q = ((at - whole) * PEN_STEPS).round() / PEN_STEPS;
+                if q >= 1.0 {
+                    whole += 1.0;
+                    q = 0.0;
+                }
+                let phase = Phase::of_fraction(q);
+                let slot = self
+                    .atlas
+                    .slot_at(f, w.face, p.id, scale, phase, Stretch::One);
+                out.push(GlyphPlace {
+                    syllable: crate::word::SyllableIx(k),
+                    id: p.id,
+                    slot,
+                    whole: whole as i32,
+                    pen: whole + q,
+                    dy: scale.px(f32::from(p.dy)).round() as i32,
+                });
+            }
+            origin += i32::from(sh.end());
+        }
+        out
+    }
+
+    /// **A Devanagari word drawn whole** into `out` (`crate::word`): shaped
+    /// as one run at its face's natural advances, laid in its columns by
+    /// [`crate::word::lay`] -- centred, into the blank cells beside it,
+    /// shifted, at a narrower instance, never scaled -- each glyph at its
+    /// pen to a quarter of a pixel, in its syllable's colours.
+    ///
+    /// **A syllable the selection or the block cursor lights is lit over its
+    /// pen span** (`[[source: ecma48]]` 4.2.27): a rectangle in its light's
+    /// ground laid under the glyphs, reaching the word's edge cell where the
+    /// cell past it is lit alike, and every glyph mask cut where the ground
+    /// under it is another than its syllable's, each piece in that ground's
+    /// text colour -- so no ink is drawn in the colour of the ground it lies
+    /// on, whatever lit or coloured the cells under it. `under` is every
+    /// cell of the row as it draws, the word's cells unlit; `paint` the
+    /// word's syllables'. What every path draws a word from, in the
+    /// instance path's place on the screen.
+    pub(crate) fn word_at(
+        &mut self,
+        term: &Term<'_>,
+        r: Row,
+        row: &[PackedCell],
+        (w, paint, prev): (&crate::word::Word, &crate::word::WordPaint, Option<f32>),
+        under: &[crate::word::Under],
+        out: &mut Vec<Instance>,
+    ) -> Option<crate::word::WordLaid> {
+        let parts: Vec<Vec<Codepoint>> = w
+            .syllables
+            .iter()
+            .map(|s| {
+                row.iter()
+                    .skip(s.at.index())
+                    .take(s.cells.index())
+                    .filter(|c| !c.content.is_wide_tail())
+                    .flat_map(|c| cell_cps(term, *c))
+                    .collect()
+            })
+            .collect();
+        let style = self.face_style(*row.get(w.at.index())?);
+        self.word_drawn(
+            r,
+            (&parts, style),
+            (w, paint, prev),
+            (under, Cols::of_index(row.len())),
+            out,
+        )
+    }
+
+    /// **Where a word's ink ends** as [`Renderer::lay_word`] lays it, in
+    /// pixels from the row's left edge: what the word after it closes on
+    /// where that one fits at no width (`crate::word::lay`).
+    pub(crate) fn word_ink(
+        &mut self,
+        cut: (&[Vec<Codepoint>], &[crate::syllable::Syllable]),
+        style: TextFace,
+        place: (Col, Cols, crate::word::Room),
+        (cols, prev): (Cols, Option<f32>),
+    ) -> Option<f32> {
+        self.lay_word(cut, style, place, (cols, prev))
+            .map(|w| w.x0 + w.measure.ink.right)
+    }
+
+    /// [`Renderer::word_at`] for a word whose syllables hold `parts`, in
+    /// face `style`, on a row `cols` wide: what an input method's
+    /// composition draws a word it holds by, the letters written beside it
+    /// that it takes in among its syllables, as its commit will be drawn.
+    pub(crate) fn word_drawn(
+        &mut self,
+        r: Row,
+        (parts, style): (&[Vec<Codepoint>], TextFace),
+        (w, paint, prev): (&crate::word::Word, &crate::word::WordPaint, Option<f32>),
+        (under, cols): (&[crate::word::Under], Cols),
+        out: &mut Vec<Instance>,
+    ) -> Option<crate::word::WordLaid> {
+        let laid_word = self.lay_word(
+            (parts, &w.syllables),
+            style,
+            (w.at, w.cells, w.room),
+            (cols, prev),
+        )?;
+        let n_syl = w.syllables.len();
+        let bounds = &laid_word.bounds;
+        let spans: Vec<(i32, i32)> = (0..n_syl)
+            .map(|k| (bounds[k].round() as i32, bounds[k + 1].round() as i32))
+            .collect();
+        // The lit rectangles: each run of syllables one light lights alike.
+        let cell_i = i32::try_from(self.metrics.cell_w.value())
+            .unwrap_or(1)
+            .max(1);
+        let edge_l = i32::try_from(w.at.index()).unwrap_or(0) * cell_i;
+        let edge_r = i32::try_from(w.end().index()).unwrap_or(0) * cell_i;
+        let light_at = |x: Option<usize>| x.and_then(|x| under.get(x)).map(|u| u.light);
+        let mut lit: Vec<(i32, i32, crate::word::Colours)> = Vec::new();
+        let mut k = 0;
+        while k < n_syl {
+            let (colours, light, _) = paint.syllables[k];
+            if !light.lit() {
+                k += 1;
+                continue;
+            }
+            let mut m = k;
+            while m + 1 < n_syl
+                && paint.syllables[m + 1].1 == light
+                && paint.syllables[m + 1].0 == colours
+            {
+                m += 1;
+            }
+            let block = matches!(light.block, BlockCursor::Yes(_));
+            let mut l = spans[k].0;
+            let mut rr = spans[m].1;
+            if k == 0 && !block && light_at(w.at.index().checked_sub(1)) == Some(light) {
+                l = l.min(edge_l);
+            }
+            if m + 1 == n_syl && !block && light_at(Some(w.end().index())) == Some(light) {
+                rr = rr.max(edge_r);
+            }
+            if rr > l {
+                lit.push((l, rr, colours));
+            }
+            k = m + 1;
+        }
+        let band = self.band(r);
+        let top = i32::try_from(band.top.value()).unwrap_or(0);
+        let baseline = i32::try_from(self.metrics.baseline.value()).unwrap_or(0);
+        for &(l, rr, c) in &lit {
+            out.push(solid(
+                screen(l),
+                screen(top),
+                Px::of(u32::try_from(rr - l).unwrap_or(0)),
+                self.metrics.cell_h,
+                c.bg,
+            ));
+        }
+        // What the ground at `x` is drawn in: a lit rectangle's, else the
+        // cell's own.
+        let ground = |x: i32| -> crate::word::Colours {
+            if let Some(&(_, _, c)) = lit.iter().find(|&&(l, rr, _)| x >= l && x < rr) {
+                return c;
+            }
+            let c = usize::try_from(x.div_euclid(cell_i)).unwrap_or(0);
+            under
+                .get(c.min(under.len().saturating_sub(1)))
+                .map_or(paint.syllables[0].0, |u| u.colours)
+        };
+        let mut pens = Vec::new();
+        for g in self.word_glyph_places(&laid_word) {
+            pens.push((g.id, g.pen));
+            let (colours, _, text) = paint.syllables[g.syllable.0];
+            let Some(slot) = g.slot.filter(|_| text.draws()) else {
+                continue;
+            };
+            let inst = Instance {
+                x: Screen(i16::try_from(g.whole + slot.left).unwrap_or(i16::MAX)),
+                y: Screen(i16::try_from(top + baseline - g.dy + slot.top).unwrap_or(i16::MAX)),
+                w: slot.w,
+                h: slot.h,
+                u: slot.x,
+                v: slot.y,
+                color: colours.fg,
+                kind: slot.kind,
+                curve: colours.curve,
+            };
+            cut_by_ground(inst, colours, self.metrics.cell_w, &lit, &ground, out);
+        }
+        Some(crate::word::WordLaid {
+            at: w.at,
+            cells: w.cells,
+            room: (
+                w.room.left.0.0,
+                w.room.left.1,
+                w.room.right.0.0,
+                w.room.right.1,
+            ),
+            instance: laid_word.laid.instance,
+            how: laid_word.laid.how,
+            ink: (
+                laid_word.x0 + laid_word.measure.ink.left,
+                laid_word.x0 + laid_word.measure.ink.right,
+            ),
+            syllables: w.syllables.iter().map(|s| (s.at, s.cells)).collect(),
+            spans,
+            pens,
+        })
+    }
+
+    /// The syllable `s` of row `r` drawn into `out` from its first cell
+    /// ([`Renderer::syllable`]): every cell's base and marks, in order, as
+    /// one cluster, in the first cell's style and colours.
+    fn syllable_at(
+        &mut self,
+        term: &Term<'_>,
+        r: Row,
+        row: &[PackedCell],
+        s: crate::syllable::Syllable,
+        out: &mut Vec<Instance>,
+    ) {
+        let mut cps = Vec::new();
+        for cell in row.iter().skip(s.at.index()).take(s.cells.index()) {
+            if !cell.content.is_wide_tail() {
+                cps.extend(cell_cps(term, *cell));
+            }
+        }
+        let Some(&first) = row.get(s.at.index()) else {
+            return;
+        };
+        let style = self.face_style(first);
+        let st = Stretch::of(self.size_of(r));
+        let g = self.syllable(&cps, style, s.cells, st);
+        self.emit_glyphs(r, s.at, &g, out);
+    }
+
     /// **[`Renderer::cluster`] drawn flipped**, for a cell L4 mirrors that
     /// has no Bidi_Mirroring_Glyph ([`crate::bidi::Mirrored::Flipped`]): the
     /// first glyph, the base's, flipped left to right
@@ -8009,7 +8772,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             false => crate::fit::Overflow::Inside,
         };
         let f = self.stack.face(face);
-        let role = self.pairs[face.index()].role(p.id);
+        let role = self.pairs[self.layouts[face.index()]].role(p.id);
         let phase = self.phase_in(face, cp, span);
         let slot = self
             .atlas
@@ -8034,7 +8797,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     pub fn admits(&self, face: Code, a: GlyphId, b: GlyphId) -> bool {
         usize::try_from(face.0)
             .ok()
-            .and_then(|i| self.pairs.get(i))
+            .and_then(|i| self.layouts.get(i))
+            .and_then(|&l| self.pairs.get(l))
             .is_some_and(|p| p.admits(a, b))
     }
 
@@ -8042,7 +8806,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     pub fn extent(&self, face: Code) -> Option<Count> {
         usize::try_from(face.0)
             .ok()
-            .and_then(|i| self.extents.get(i))
+            .and_then(|i| self.layouts.get(i))
+            .and_then(|&l| self.extents.get(l))
             .copied()
             .flatten()
     }
@@ -8081,7 +8846,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         let mut out: Vec<Vec<ClusterGlyph>> = vec![Vec::new(); cells.len()];
         let (scripts, picks): (Vec<Script>, Vec<Selection>) =
-            match self.selections.get(facex.index()) {
+            match (self.layouts.get(facex.index())).and_then(|&l| self.selections.get(l)) {
                 Some(sel) if sel.varies == Varies::Yes => {
                     let unresolved: Vec<Unresolved> =
                         cells.iter().map(|(cps, _)| Unresolved::of(cps)).collect();
@@ -8500,8 +9265,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// Whether `face`'s scripts select different lookups.
     fn varies(&self, face: FaceIx) -> Varies {
-        self.selections
+        self.layouts
             .get(face.index())
+            .and_then(|&l| self.selections.get(l))
             .map_or(Varies::No, |s| s.varies)
     }
 
@@ -8518,6 +9284,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.row_scripts.resize(row.len(), Script::COMMON);
         let apart = |s: Script| {
             self.selections
+                .all()
                 .iter()
                 .any(|sel| sel.varies == Varies::Yes && !sel.alike[s])
         };
@@ -8549,7 +9316,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// whose scripts all select alike is shaped as Common, which is the
     /// same shaping.
     fn script_at(&self, face: FaceIx, col: Col) -> (Script, Selection) {
-        match self.selections.get(face.index()) {
+        match (self.layouts.get(face.index())).and_then(|&l| self.selections.get(l)) {
             Some(sel) if sel.varies == Varies::Yes => {
                 let s = self
                     .row_scripts
@@ -8590,6 +9357,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         );
         self.styles = styles;
         self.splice = parts.splice(self.bidi.orders(), c.row);
+        self.taken.set_inks(parts.inks.clone());
         parts
     }
 
@@ -8647,6 +9415,52 @@ impl<'f, 'a> Renderer<'f, 'a> {
             ),
             false => (row.len(), row.len()),
         };
+        // **The row's Devanagari words** (`crate::word`), on a single-width
+        // line: each drawn whole, its cells' own colours unlit and the
+        // selection and the block cursor drawn over its syllables' spans.
+        // The syllables the core parted, which the words and the runs read.
+        let (syllables, letters) =
+            crate::syllable::of_row(term, &row[..line_end.min(row.len())], logical_of);
+        // A composition's cells read as what they will hold, and the letters
+        // beside it that its words take in, which it draws, drawn unlit
+        // here as a word's own cells are ([`crate::overlay::Taken`]).
+        let taken = &self.taken;
+        let words: Vec<crate::word::Word> =
+            match size.is_double() || letters == crate::word::Letters::None {
+                true => Vec::new(),
+                false => crate::word::of_row(
+                    term,
+                    &row[..line_end.min(row.len())],
+                    logical_of,
+                    &syllables,
+                    |x| taken.held(r, Col::at_index(x)),
+                ),
+            };
+        let beside: Vec<usize> = match self.taken.on(r) {
+            true => self.taken.beside(r).collect(),
+            false => Vec::new(),
+        };
+        let mut lights: Vec<crate::word::Light> = Vec::new();
+        if self.row_worded[r.index()] == crate::word::Worded::Yes {
+            for x in range.clone() {
+                self.worded[x] = crate::word::Worded::No;
+            }
+        }
+        self.row_worded[r.index()] = match words.is_empty() && beside.is_empty() {
+            true => crate::word::Worded::No,
+            false => crate::word::Worded::Yes,
+        };
+        if !words.is_empty() || !beside.is_empty() {
+            lights = vec![crate::word::Light::NONE; row.len()];
+            for w in &words {
+                for x in w.at.index()..w.end().index() {
+                    self.worded[range.start + x] = crate::word::Worded::Yes;
+                }
+            }
+            for &x in beside.iter().filter(|&&x| x < row.len()) {
+                self.worded[range.start + x] = crate::word::Worded::Yes;
+            }
+        }
         let mut cursor_shapes: Vec<Instance> = Vec::new();
         // A sized line's ring parts, on its geometry already (`edges`).
         let mut rings: Vec<Instance> = Vec::new();
@@ -8693,6 +9507,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 Some((_, _, style)) if self.swaps(style) => BlockCursor::Yes(block_paint),
                 _ => BlockCursor::No,
             };
+            let opacity = here.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s));
+            // A word's cell draws unlit: what lights it is kept for its
+            // syllable's span.
+            let (selected, block) = match lights.get_mut(c) {
+                Some(l) => {
+                    *l = crate::word::Light {
+                        selected,
+                        block,
+                        cursor: opacity,
+                    };
+                    match self.worded[range.start + c] {
+                        crate::word::Worded::Yes => (Selected::No, BlockCursor::No),
+                        crate::word::Worded::No => (selected, block),
+                    }
+                }
+                None => (selected, block),
+            };
             let d = res.drawn(Swaps {
                 pictured: self.pictures.at(r, col),
                 line: Line::of(cell.content),
@@ -8700,7 +9531,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 hilite: self.hilite,
                 block,
                 blink: self.blink,
-                cursor: here.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s)),
+                cursor: opacity,
             });
             let (fg, hidden) = (d.fg, !d.text.draws());
             self.fg[range.start + c] = fg;
@@ -8831,7 +9662,59 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if let Some(s) = self.splice.as_ref().filter(|s| s.row == r) {
             instances.extend_from_slice(&s.pages);
         }
-        self.row_runs(term, r, (&row, &seams), (st, line_end), &mut instances, exc);
+        // Each word's syllables in their light, and the row's cells as they
+        // draw, the words' unlit.
+        let (paints, under): (Vec<crate::word::WordPaint>, Vec<crate::word::Under>) =
+            match words.is_empty() {
+                true => (Vec::new(), Vec::new()),
+                false => {
+                    let under = (0..row.len())
+                        .map(|x| crate::word::Under {
+                            colours: crate::word::Colours {
+                                fg: self.fg[range.start + x],
+                                bg: self.bg[range.start + x],
+                                curve: self.curve[range.start + x],
+                            },
+                            light: lights[x],
+                        })
+                        .collect();
+                    let paints = words
+                        .iter()
+                        .map(|w| crate::word::WordPaint {
+                            syllables: w
+                                .syllables
+                                .iter()
+                                .map(|s| {
+                                    let light = (s.at.index()..s.at.index() + s.cells.index())
+                                        .fold(crate::word::Light::NONE, |l, x| l.with(lights[x]));
+                                    let d = self.paint_of(r, s.at, row[s.at.index()], light);
+                                    (
+                                        crate::word::Colours {
+                                            fg: d.fg,
+                                            bg: d.bg,
+                                            curve: d.curve,
+                                        },
+                                        light,
+                                        d.text,
+                                    )
+                                })
+                                .collect(),
+                        })
+                        .collect();
+                    (paints, under)
+                }
+            };
+        self.laid[r.index()].clear();
+        let worded = (&words[..], &paints[..], &under[..], &syllables[..]);
+        self.row_runs(
+            term,
+            r,
+            (&row, &seams),
+            (st, line_end),
+            worded,
+            &mut instances,
+            exc,
+        );
         self.glyph_ends[r.index()] = instances.len();
         self.reach[r.index()] = Reach::of(&instances);
         instances.extend(shapes);
@@ -8843,12 +9726,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// cell by the loop that reads neither, as it ran before joining
     /// existed, and one that holds one by [`Renderer::joined_runs`].
     #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
     fn row_runs(
         &mut self,
         term: &Term<'_>,
         r: Row,
         (row, seams): (&[PackedCell], &[bool]),
         at: (Stretch, usize),
+        words: Worded<'_>,
         instances: &mut Vec<Instance>,
         exc: &mut Exceptions,
     ) {
@@ -8859,8 +9744,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
             && orders.mirrors(r).is_empty()
             && orders.slants(r).is_empty()
         {
-            true => self.runs::<false>(term, r, (row, seams, &[], &[], &[]), at, instances, exc),
-            false => self.joined_runs(term, r, (row, seams), at, instances, exc),
+            true => self.runs::<false>(
+                term,
+                r,
+                (row, seams, &[], &[], &[]),
+                at,
+                words,
+                instances,
+                exc,
+            ),
+            false => self.joined_runs(term, r, (row, seams), at, words, instances, exc),
         }
     }
 
@@ -8871,12 +9764,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// runs holds none of it. The row's joined and mirrored cells are
     /// copied, so shaping may borrow the renderer mutably.
     #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
     fn joined_runs(
         &mut self,
         term: &Term<'_>,
         r: Row,
         (row, seams): (&[PackedCell], &[bool]),
         at: (Stretch, usize),
+        words: Worded<'_>,
         instances: &mut Vec<Instance>,
         exc: &mut Exceptions,
     ) {
@@ -8885,18 +9780,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mirrors = orders.mirrors(r).to_vec();
         let slants = orders.slants(r).to_vec();
         let cells = (row, seams, &joins[..], &mirrors[..], &slants[..]);
-        self.runs::<true>(term, r, cells, at, instances, exc);
+        self.runs::<true>(term, r, cells, at, words, instances, exc);
     }
 
     /// The runs of one row, `LAID` for a row that holds a joined or a
     /// mirrored cell.
     #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
     fn runs<const LAID: bool>(
         &mut self,
         term: &Term<'_>,
         r: Row,
         (row, seams, joins, mirrors, slants): RowCells<'_>,
         (st, line_end): (Stretch, usize),
+        (words, paints, grounds, syllables): Worded<'_>,
         instances: &mut Vec<Instance>,
         exc: &mut Exceptions,
     ) {
@@ -8934,6 +9831,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut c = 0usize;
         // The row's mirrored cells walked with `c`, which only grows.
         let mut next = 0;
+        // **The row's syllables** (`crate::syllable`), each drawn whole
+        // from its first cell and kept out of every run.
+        let mut syl = crate::syllable::Walk::new(syllables);
+        // The row's words, walked with `c` as its syllables are.
+        let mut wi = 0usize;
+        let word_starts = |c: usize| {
+            !words.is_empty() && words.binary_search_by_key(&c, |w| w.at.index()).is_ok()
+        };
         while c < line_end {
             // A composition's glyphs at this cell, in the row's order.
             if LAID {
@@ -8959,6 +9864,29 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 c += 1;
                 continue;
             };
+            while words.get(wi).is_some_and(|w| w.at.index() < c) {
+                wi += 1;
+            }
+            if let Some(w) = words.get(wi).filter(|w| w.at.index() == c) {
+                // The word before it on the row, laid already: its ink's
+                // right edge, which a residue closes on.
+                let prev = self.taken.ink_before(
+                    r,
+                    w.at,
+                    self.laid[r.index()].last().map(|l| (l.at, l.ink.1)),
+                );
+                let laid = self.word_at(term, r, row, (w, &paints[wi], prev), grounds, instances);
+                if let Some(l) = laid {
+                    self.laid[r.index()].push(l);
+                }
+                c = w.end().index().max(c + 1);
+                continue;
+            }
+            if let Some(s) = syl.at(Col::at_index(c)) {
+                self.syllable_at(term, r, row, s, instances);
+                c += s.cells.index();
+                continue;
+            }
             if crate::boxes::covers(base) {
                 // Box drawing, a block element or braille: baud's own mask
                 // at the cell origin, across both cells of a wide one, never
@@ -9024,7 +9952,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // digest test and a pair test per cell, which the bench reads
             // and the app must not pay for.
             #[cfg(feature = "exceptions")]
-            let prefilter = self.starters[face.index()];
+            let prefilter = self.starters[self.layouts[face.index()]];
             #[cfg(feature = "exceptions")]
             let mut starters_here = Tally::default();
             #[cfg(feature = "exceptions")]
@@ -9049,6 +9977,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 if c > start
                     && (seam(c)
                         || (LAID && (joined(c).is_some() || joined(start).is_some()))
+                        || syl.at(Col::at_index(c)).is_some()
+                        || word_starts(c)
                         || crate::boxes::covers(cp)
                         || self.face_of_cell(term, cell, cp) != face
                         || (varies == Varies::Yes
@@ -9063,7 +9993,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 {
                     let glyph = self.stack.face(face).glyph(cp);
                     if let (Some(p), Some(g)) = (prev_glyph, glyph) {
-                        if self.pairs[face.index()].admits(p, g) {
+                        if self.pairs[self.layouts[face.index()]].admits(p, g) {
                             pair_here.bump();
                         }
                     }
@@ -9188,8 +10118,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (before, after): WordAround<'_>,
         (r, v): (Row, Col),
     ) -> Word {
-        let reach =
-            usize::try_from(self.reaches.get(face.index()).map_or(0, |c| c.value())).unwrap_or(0);
+        let reach = usize::try_from(
+            self.layouts
+                .get(face.index())
+                .and_then(|&l| self.reaches.get(l))
+                .map_or(0, |c| c.value()),
+        )
+        .unwrap_or(0);
         let mut word = Word::default();
         if reach == 0 {
             return word;
@@ -9299,6 +10234,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
         forms: &[Option<baud_domain::JoiningForm>],
         own: impl core::ops::RangeBounds<CellIx>,
     ) -> Shaped {
+        self.shape_laid(face, script, clusters, forms, own, baud_font::Pens::Cell)
+    }
+
+    /// [`Renderer::shape`] with the clusters laid as `pens` says: from each
+    /// cell's origin, or end to end as a word is set (`crate::word`).
+    fn shape_laid(
+        &mut self,
+        face: FaceIx,
+        script: Script,
+        clusters: &[ClusterIn],
+        forms: &[Option<baud_domain::JoiningForm>],
+        own: impl core::ops::RangeBounds<CellIx>,
+        pens: baud_font::Pens,
+    ) -> Shaped {
         // **A refused glyph box is shaped again with the scratch it named,
         // once.** The shaper reports the largest need of the run, so one
         // pass at that size draws every box it refused; a box past the
@@ -9309,8 +10258,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let have = self.ink_scratch.len();
             let f = self.stack.face(face);
             let mut shaper = Shaper::new(f, &mut self.storage);
-            shaper.accelerate(&self.digests[face.index()]);
+            shaper.accelerate(&self.digests[self.layouts[face.index()]]);
             shaper.scratch(&mut self.ink_scratch);
+            if pens == baud_font::Pens::Run {
+                shaper.lay_as_run();
+            }
             let mut unmapped = 0usize;
             for (i, cl) in clusters.iter().enumerate() {
                 let at = Cluster(u16::from(cl.at.0));
@@ -10435,5 +11387,132 @@ mod place_diff {
             );
             assert_eq!(rows.row(Row::from_index(n)), Some(&[][..]), "past the rows");
         }
+    }
+}
+
+/// **A narrower instance's layout tables are its base's** (`Layout`).
+#[cfg(test)]
+mod layouts {
+    use super::*;
+
+    fn built_face(name: &str) -> Vec<u8> {
+        std::fs::read(format!(
+            "{}/../baud-app/fonts/built/{name}.ttf",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    }
+
+    /// The face in `data` read at `wdth` `w`.
+    fn at_width<'a>(data: &'a [u8], w: f32) -> Face<'a> {
+        let mut f = Face::parse(data).unwrap();
+        f.set_variations(&[baud_font::var::Variation {
+            tag: Tag::from_bytes(*b"wdth"),
+            value: baud_font::var::Fixed::from_f32(w),
+        }]);
+        f
+    }
+
+    /// **A face's layout tables do not depend on the width it is read at**:
+    /// each built face and its instance at 62.5, the narrowest, each the
+    /// only face of its stack and so building its own, give the same
+    /// lookup digests, pair tables, extents, reaches and per-script
+    /// selections, value for value -- the premise on which a narrower
+    /// instance reads its base's. The control: the two are read at
+    /// different coordinates, and advance a Devanagari letter differently.
+    #[test]
+    fn a_faces_layout_tables_are_the_same_at_every_width() {
+        let px = PxSize::of(28.0).unwrap();
+        for name in ["Regular", "Bold", "Italic", "BoldItalic"] {
+            let data = built_face(name);
+            let full = [Face::parse(&data).unwrap()];
+            let narrow = [at_width(&data, 62.5)];
+            assert_ne!(full[0].coords(), narrow[0].coords(), "{name}: the control");
+            let ka = full[0].glyph(Codepoint::from_char('\u{915}')).unwrap();
+            assert_ne!(
+                full[0].advance(ka),
+                narrow[0].advance(ka),
+                "{name}: the control, KA narrower"
+            );
+            let a = PerFace::of(&Stack::new(&full).unwrap(), px);
+            let b = PerFace::of(&Stack::new(&narrow).unwrap(), px);
+            let l = Layout(0);
+            assert!(!a.digests[l].is_empty(), "{name}: the premise, a GSUB");
+            assert!(a.digests[l] == b.digests[l], "{name}: digests");
+            assert_eq!(a.pairs[l], b.pairs[l], "{name}: pairs");
+            assert_eq!(a.extents[l], b.extents[l], "{name}: extents");
+            assert_eq!(a.reaches[l], b.reaches[l], "{name}: reaches");
+            assert_eq!(
+                format!("{:?}", a.selections[l]),
+                format!("{:?}", b.selections[l]),
+                "{name}: selections"
+            );
+        }
+    }
+
+    /// **A narrower instance reads its base's layout tables, built once**:
+    /// the built Regular and its 15 instances, as the app's default stack
+    /// lays them, make one layout, where they made 16 -- 2.5 ms of a
+    /// launch's renderer and 7 MB over the four built faces. Each instance
+    /// reads its own base's: the Regular's and the Bold's, each with its
+    /// instances, make two. The control: the same file at another width,
+    /// given the role of a fallback, builds its own.
+    #[test]
+    fn a_narrower_instance_reads_its_bases_layout() {
+        let px = PxSize::of(28.0).unwrap();
+        let data = built_face("Regular");
+        let first = Face::parse(&data).unwrap();
+        let widths = crate::narrower_widths(&first, &[]);
+        assert_eq!(widths.len(), 15, "the premise: wdth 97.5 down to 62.5");
+        let mut faces = vec![first];
+        let mut roles = vec![crate::FaceRole::Fallback];
+        for w in &widths {
+            faces.push(at_width(&data, *w));
+            roles.push(crate::FaceRole::Narrower);
+        }
+        let stack = Stack::with_roles(&faces, &roles).unwrap();
+        let per = PerFace::of(&stack, px);
+        assert_eq!(per.digests.all().len(), 1, "one layout for 16 faces");
+        assert!(per.layouts.iter().all(|&l| l == Layout(0)));
+        assert_eq!(per.scales.len(), 16, "a scale for every face");
+        assert_eq!(per.faces.len(), 16, "every face by its code");
+        // Two bases, each with two instances.
+        let bold = built_face("Bold");
+        let faces = [
+            Face::parse(&data).unwrap(),
+            at_width(&data, 90.0),
+            at_width(&data, 75.0),
+            Face::parse(&bold).unwrap(),
+            at_width(&bold, 90.0),
+            at_width(&bold, 75.0),
+        ];
+        let n = crate::FaceRole::Narrower;
+        let bold_role = crate::FaceRole::Style(crate::FaceStyle::Bold);
+        let roles = [crate::FaceRole::Fallback, n, n, bold_role, n, n];
+        let per = PerFace::of(&Stack::with_roles(&faces, &roles).unwrap(), px);
+        assert_eq!(per.digests.all().len(), 2, "the Regular's and the Bold's");
+        let (r, b) = (Layout(0), Layout(1));
+        assert_eq!(per.layouts, [r, r, r, b, b, b]);
+        // The control: a fallback face is not an instance.
+        let faces = [Face::parse(&data).unwrap(), at_width(&data, 75.0)];
+        let fallback = [crate::FaceRole::Fallback; 2];
+        let per = PerFace::of(&Stack::with_roles(&faces, &fallback).unwrap(), px);
+        assert_eq!(per.digests.all().len(), 2, "the control: its own layout");
+    }
+
+    /// **Another file given the narrower role fails in a debug build**:
+    /// the Bold after the Regular as its instance, whose tables are not the
+    /// Regular's, panics rather than read them.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "a narrower instance holds its base's layout tables")]
+    fn another_file_as_a_narrower_instance_is_refused_in_debug() {
+        let (regular, bold) = (built_face("Regular"), built_face("Bold"));
+        let faces = [Face::parse(&regular).unwrap(), at_width(&bold, 75.0)];
+        let roles = [crate::FaceRole::Fallback, crate::FaceRole::Narrower];
+        let _ = PerFace::of(
+            &Stack::with_roles(&faces, &roles).unwrap(),
+            PxSize::of(28.0).unwrap(),
+        );
     }
 }

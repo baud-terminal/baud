@@ -158,6 +158,11 @@ const TTCF: u32 = 0x7474_6366; // 'ttcf'
 /// Construction reads and validates the required tables once; every accessor
 /// afterwards is a bounded read or a stored value, so a `Face` that exists
 /// answers every question without a further error path.
+///
+/// **A copy is the face parsed again**: every table it holds is a view of
+/// the same bytes, read at the same coordinates until the copy is given
+/// others ([`Face::set_variations`]), and the directory is not read again.
+#[derive(Clone)]
 pub struct Face<'a> {
     data: Bytes<'a>,
     records: Bytes<'a>,

@@ -31,8 +31,8 @@ use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
 use baud_domain::{
-    AmbiguousWidth, Attrs, Chan, Classified, ClusterBreak, Codepoint, Col, ColorWord, Cols,
-    Content, CursorStyle, GraphemeClass, LineRendition, PackedCell, Row, Rows, StyleWord,
+    AmbiguousWidth, Attrs, Chan, Classified, ClusterBreak, ClusterCells, Codepoint, Col, ColorWord,
+    Cols, Content, CursorStyle, GraphemeClass, LineRendition, PackedCell, Row, Rows, StyleWord,
     UnicodeWidths, Viewport, Vs16Width, Width, WidthPolicy, is_default_ignorable, vs16,
 };
 use baud_font::Px;
@@ -83,6 +83,12 @@ pub const MASK_BARE: u8 = 16;
 /// draws nothing there. `MASK_SIZED` in the cell shader.
 pub const MASK_SIZED: u8 = 4;
 
+/// The word a syllable's [`ClusterKey`] ends with, its cell count in the
+/// low bits: a syllable drawn across its cells is not the same codepoints
+/// drawn as a cluster in one, nor a lam-alef pair's span (`0x8000_0000`)
+/// or its lam cell (`0xC000_0000`).
+const SYLLABLE: u32 = 0x4000_0000;
+
 /// `BIDI`: the cell is on a row drawn in another order (`bidi.rs`), so
 /// whether it is selected is not the selection's column range but
 /// `SELECTED`, which the walk sets from the logical cell it shows -- the
@@ -90,6 +96,15 @@ pub const MASK_SIZED: u8 = 4;
 /// `MASK_SELECTED` in the cell shader.
 pub const MASK_BIDI: u8 = 32;
 pub const MASK_SELECTED: u8 = 64;
+
+/// **Who draws the block cursor**: the cell shader on its cell, or the
+/// records, over the span of the Devanagari syllable that holds its cell
+/// (`crate::word`), the shader then drawing none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CursorDrawn {
+    Shader,
+    Records,
+}
 
 /// What one frame's walk reads: the core for the marks, the view it is
 /// drawing, the resolved rendition table the shader reads, and the cursor.
@@ -164,6 +179,10 @@ pub struct Overlay {
     /// The leaving row's own walk, made on the first slide
     /// ([`Overlay::leaving`]).
     slide: Option<Box<Slide>>,
+    /// Who draws the block cursor this frame: the cell shader, or the
+    /// records, where it sits on a Devanagari word's cell and lights its
+    /// syllable's span (`crate::word`).
+    cursor: CursorDrawn,
 }
 
 /// **The walk of a smooth scroll's leaving row**, apart from the window's:
@@ -272,23 +291,35 @@ struct Geom {
     pan: Px,
 }
 
-/// The cells a composition covers on the view, its row and the visual
+/// The cells a composition draws on the view, its row and the visual
 /// runs it is drawn in, or none: what the walk reads as empty.
 #[derive(Clone)]
 struct Covered(Option<(usize, Vec<(Col, Cols)>)>);
 
 impl Covered {
     /// The visual cells `c` covers on a screen `cols` wide, laid as
-    /// written ([`Laid::AsWritten`]) through the row's order: one run on a
-    /// row drawn in its own order, more where the order splits it.
-    fn of(c: Option<&Composition>, cols: Cols, orders: &crate::bidi::Orders) -> Covered {
+    /// written ([`Laid::AsWritten`]) through the row's order -- one run on
+    /// a row drawn in its own order, more where the order splits it -- and
+    /// the letters written beside it that its words take in (`taken`).
+    fn of(
+        c: Option<&Composition>,
+        cols: Cols,
+        orders: &crate::bidi::Orders,
+        taken: &Taken,
+    ) -> Covered {
         Covered(c.and_then(|c| {
             let (start, end) = c.columns(cols);
             (end > start).then(|| {
-                (
-                    c.row.index(),
-                    orders.runs(c.row, Col::at_index(start), Col::at_index(end - 1)),
-                )
+                let mut runs = orders.runs(c.row, Col::at_index(start), Col::at_index(end - 1));
+                runs.extend(
+                    taken
+                        .beside
+                        .iter()
+                        .flatten()
+                        .filter(|_| taken.row == Some(c.row))
+                        .map(|&(at, n)| (Col::at_index(at), Cols::of_index(n))),
+                );
+                (c.row.index(), runs)
             })
         }))
     }
@@ -500,7 +531,16 @@ impl Overlay {
             staged: Vec::new(),
             sized: Vec::new(),
             slide: None,
+            cursor: CursorDrawn::Shader,
         }
+    }
+
+    /// **Who draws the block cursor** the last [`Overlay::ensure`] walked:
+    /// the records, where it sits on a Devanagari word's cell -- its
+    /// syllable's span lit by them, so the cell shader must draw no block
+    /// -- else the shader.
+    pub fn cursor_drawn(&self) -> CursorDrawn {
+        self.cursor
     }
 
     pub fn stats(&self) -> OverlayStats {
@@ -663,11 +703,45 @@ impl Overlay {
                 }
             }
         }
+        // The letters written beside the composition that its words take
+        // in ([`Taken`]): read as empty with its cells, and what its cells
+        // will hold read by the row's other words.
+        let mut taken = scene
+            .composition
+            .filter(|c| c.row.index() < view.rows().index())
+            .map_or_else(Taken::default, |c| {
+                c.taken(term, &orders, c.width_on(&view), view.rendition(c.row))
+            });
         let covered = Covered::of(
             scene.composition,
             scene.composition.map_or(view.cols(), |c| c.width_on(&view)),
             &orders,
+            &taken,
         );
+        // Its words as it lays them, which the row's word after one closes
+        // on where that fits at no width: laid here, before the row's.
+        if let Some(c) = scene
+            .composition
+            .filter(|c| taken.on(c.row) && c.text.iter().any(|&cp| crate::word::is_letter(cp)))
+        {
+            let under = view
+                .row(c.row)
+                .get(r.bidi().visual_col(c.row, c.col).index())
+                .copied()
+                .unwrap_or(PackedCell::EMPTY);
+            let laid = composition_parts(
+                r,
+                term,
+                (c, Laid::AsWritten),
+                under,
+                styles,
+                cursor,
+                view.cols(),
+                view.rendition(c.row),
+                scene.pan,
+            );
+            taken.set_inks(laid.inks);
+        }
         if self.windows.len() > WINDOWS_MAX {
             self.windows.clear();
         }
@@ -894,6 +968,60 @@ impl Overlay {
                         continue;
                     }
                     self.whole(scene, r, (x, y), mask, records, &paint, &geom);
+                }
+            }
+        }
+        // **The Devanagari words** (`crate::word`), then the syllables no
+        // word holds (`crate::syllable`), before the marked cells: each
+        // drawn whole by records, every one of its cells masked, as the
+        // instance path draws it from the same glyphs. A composition's
+        // cells are read as empty, as the instance path blanks them.
+        self.cursor = CursorDrawn::Shader;
+        for y in 0..rows {
+            let at = Row::from_index(y);
+            if view.rendition(at).is_double() {
+                continue;
+            }
+            let row: Vec<PackedCell> = view
+                .row(at)
+                .iter()
+                .take(cols)
+                .enumerate()
+                .map(|(x, c)| match covered.holds(at, Col::at_index(x)) {
+                    true => PackedCell::EMPTY,
+                    false => *c,
+                })
+                .collect();
+            let logical = |v: Col| orders.logical_col(at, v);
+            let (parted, letters) = crate::syllable::of_row(term, &row, logical);
+            let words = match letters {
+                crate::word::Letters::Seen => {
+                    crate::word::of_row(term, &row, logical, &parted, |x| {
+                        taken.held(at, Col::at_index(x))
+                    })
+                }
+                crate::word::Letters::None => Vec::new(),
+            };
+            if !words.is_empty() {
+                self.words(
+                    scene,
+                    r,
+                    (y, &row, &words, &taken),
+                    mask,
+                    records,
+                    &paint,
+                    &geom,
+                );
+            }
+            for s in parted {
+                let from = s.at.index();
+                let held = words.iter().any(|w| w.holds(s.at))
+                    || (from..from + s.cells.index()).any(|x| {
+                        mask.get(y * cols + x).is_none_or(|m| m & MASK_RECORD != 0)
+                            || covered.holds(at, Col::at_index(x))
+                    });
+                if !held {
+                    self.syllable(scene, r, (from, y), s.cells, mask, records, &paint, &geom);
                 }
             }
         }
@@ -1182,6 +1310,223 @@ impl Overlay {
         };
         self.stats.cells.bump();
         mask[y * geom.cols.index() + x] |= MASK_RECORD;
+        let (inside, above) = (records.len(), self.over.len());
+        Overlay::emit(records, &mut self.over, (x, y), &glyphs, cell, paint, geom);
+        self.emitted.push(Emitted::of(
+            (Row::from_index(y), Col::at_index(x)),
+            records,
+            &self.over,
+            inside..records.len(),
+            above..self.over.len(),
+        ));
+    }
+
+    /// **Row `y`'s Devanagari words drawn by records** (`crate::word`),
+    /// through [`Renderer::word_at`], which the instance path draws them by:
+    /// each cell's light read as the instance path reads it, its colours as
+    /// the cell shader draws them -- a word's own cells unlit, which
+    /// `MASK_BIDI` without `MASK_SELECTED` tells the shader, and the block
+    /// cursor off the shader where it sits on one ([`Overlay::cursor_drawn`])
+    /// -- every cell of a word masked.
+    #[allow(clippy::too_many_arguments)]
+    fn words(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        r: &mut Renderer<'_, '_>,
+        (y, row, words, taken): (usize, &[PackedCell], &[crate::word::Word], &Taken),
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+        paint: &Paint<'_>,
+        geom: &Geom,
+    ) {
+        let at = Row::from_index(y);
+        let cols = geom.cols.index();
+        let in_word = |x: usize| words.iter().any(|w| w.holds(Col::at_index(x)));
+        let light = |x: usize, cell: PackedCell| {
+            let selected = paint.highlight.is_some_and(|h| {
+                let c = Col::at_index(x);
+                match paint.orders {
+                    Some(o) => o.selects(&h, at, o.logical_col(at, c), cell.content),
+                    None => h.selects(at, c, cell.content),
+                }
+            });
+            let block = paint
+                .block
+                .is_some_and(|(cr, cc, _)| cr == at && cc.index() == x);
+            crate::word::Light {
+                selected: match selected {
+                    true => Selected::Yes,
+                    false => Selected::No,
+                },
+                block: match block {
+                    true => BlockCursor::Yes(paint.block_paint),
+                    false => BlockCursor::No,
+                },
+                cursor: paint.cursor,
+            }
+        };
+        let drawn = |x: usize, cell: PackedCell, l: crate::word::Light| {
+            let resolved = paint
+                .styles
+                .get(cell.style.index())
+                .copied()
+                .unwrap_or_default();
+            resolved.drawn(Swaps {
+                pictured: paint
+                    .pictures
+                    .map_or(Pictured::No, |p| p.at(at, Col::at_index(x))),
+                line: Line::of(cell.content),
+                selected: l.selected,
+                hilite: paint.hilite,
+                block: l.block,
+                blink: paint.blink,
+                cursor: l.cursor,
+            })
+        };
+        let colours = |d: crate::cellmap::Drawn| crate::word::Colours {
+            fg: d.fg,
+            bg: d.bg,
+            curve: d.curve,
+        };
+        let lights: Vec<crate::word::Light> =
+            row.iter().enumerate().map(|(x, c)| light(x, *c)).collect();
+        let under: Vec<crate::word::Under> = row
+            .iter()
+            .enumerate()
+            .map(|(x, c)| {
+                let l = match in_word(x) {
+                    true => crate::word::Light::NONE,
+                    false => lights[x],
+                };
+                crate::word::Under {
+                    colours: colours(drawn(x, *c, l)),
+                    light: lights[x],
+                }
+            })
+            .collect();
+        let pan = i32::try_from(geom.pan.value()).unwrap_or(0);
+        let top = Screen(
+            i16::try_from(
+                i32::try_from(y).unwrap_or(0) * i32::try_from(geom.m.cell_h.value()).unwrap_or(0)
+                    + pan,
+            )
+            .unwrap_or(i16::MAX),
+        );
+        // The word before each, laid already -- the row's own or the
+        // composition's ([`Taken::ink_before`]): its ink's right edge, which
+        // a residue closes on, as the instance path lays them.
+        let mut prev: Option<(Col, f32)> = None;
+        for w in words {
+            let first = w.at.index();
+            if (first..w.end().index())
+                .any(|x| mask.get(y * cols + x).is_none_or(|m| m & MASK_RECORD != 0))
+            {
+                continue;
+            }
+            let wp = crate::word::WordPaint {
+                syllables: w
+                    .syllables
+                    .iter()
+                    .map(|s| {
+                        let l = (s.at.index()..s.at.index() + s.cells.index())
+                            .fold(crate::word::Light::NONE, |l, x| l.with(lights[x]));
+                        let d = drawn(s.at.index(), row[s.at.index()], l);
+                        (colours(d), l, d.text)
+                    })
+                    .collect(),
+            };
+            let mut drawn_word = Vec::new();
+            let before = taken.ink_before(at, w.at, prev);
+            let laid = r.word_at(
+                scene.term,
+                at,
+                row,
+                (w, &wp, before),
+                &under,
+                &mut drawn_word,
+            );
+            prev = laid.map(|l| (l.at, l.ink.1)).or(prev);
+            let (inside, above) = (records.len(), self.over.len());
+            for inst in drawn_word {
+                let moved = Instance {
+                    y: Screen(i16::try_from(i32::from(inst.y.0) + pan).unwrap_or(i16::MAX)),
+                    ..inst
+                };
+                let (up, inner) = moved.cut_at(top);
+                self.over.extend(up);
+                records.extend(inner);
+            }
+            for (x, l) in lights.iter().enumerate().skip(first).take(w.cells.index()) {
+                if let Some(m) = mask.get_mut(y * cols + x) {
+                    *m = (*m | MASK_RECORD | MASK_BIDI) & !MASK_SELECTED;
+                }
+                if l.block != BlockCursor::No {
+                    self.cursor = CursorDrawn::Records;
+                }
+            }
+            self.stats.cells.add(Tally::of(w.cells.index()));
+            self.emitted.push(Emitted::of(
+                (at, w.at),
+                records,
+                &self.over,
+                inside..records.len(),
+                above..self.over.len(),
+            ));
+        }
+    }
+
+    /// **The syllable of `cells` cells from `at`** drawn whole by records
+    /// (`crate::syllable`): every cell's base and marks shaped once as one
+    /// cluster and kept, drawn across the cells ([`Renderer::syllable`]) in
+    /// the first cell's paint, every cell masked off the map.
+    #[allow(clippy::too_many_arguments)]
+    fn syllable(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        r: &mut Renderer<'_, '_>,
+        at: (usize, usize),
+        cells: Cols,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+        paint: &Paint<'_>,
+        geom: &Geom,
+    ) {
+        let (x, y) = at;
+        let (term, styles) = (scene.term, scene.styles);
+        let row = scene.view.row(Row::from_index(y));
+        let Some(&cell) = row.get(x) else {
+            return;
+        };
+        let style = crate::cellmap::face_of(styles, cell);
+        let mut key = ClusterKey::start().word(style.code());
+        let mut cps = Vec::new();
+        for c in row.iter().skip(x).take(cells.index()) {
+            if c.content.is_wide_tail() {
+                continue;
+            }
+            for cp in crate::renderer::cell_cps(term, *c) {
+                key = key.fold(cp);
+                cps.push(cp);
+            }
+        }
+        let key = key.word(Code(SYLLABLE | u32::try_from(cells.index()).unwrap_or(0)));
+        let glyphs = match self.clusters.get(&key) {
+            Some(g) => g.clone(),
+            None => {
+                self.stats.misses.bump();
+                let g = r.syllable(&cps, style, cells, Stretch::One);
+                self.clusters.insert(key, g.clone());
+                g
+            }
+        };
+        self.stats.cells.add(Tally::of(cells.index()));
+        for m in mask
+            .iter_mut()
+            .skip(y * geom.cols.index() + x)
+            .take(cells.index())
+        {
+            *m |= MASK_RECORD;
+        }
         let (inside, above) = (records.len(), self.over.len());
         Overlay::emit(records, &mut self.over, (x, y), &glyphs, cell, paint, geom);
         self.emitted.push(Emitted::of(
@@ -1904,6 +2249,26 @@ impl Overlay {
                 *slot |= MASK_RECORD;
             }
         }
+        // **The letters beside it its words take in** ([`Taken`]): masked
+        // as a word's cells are, unlit, the block cursor off the shader
+        // where it sits on one -- its words light their syllables' spans.
+        if laid == Laid::AsWritten {
+            let taken = c.taken(term, r.bidi(), cols, size);
+            let block_at = block
+                .filter(|(_, _, s)| {
+                    r.cursor_look() == CursorLook::Shaped
+                        && matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)
+                })
+                .map(|(br, bc, _)| (br, r.bidi().visual_col(br, bc).index()));
+            for x in taken.beside(c.row) {
+                if let Some(m) = mask.get_mut(c.row.index() * cols.index() + x) {
+                    *m = (*m | MASK_RECORD | MASK_BIDI) & !MASK_SELECTED;
+                }
+                if block_at == Some((c.row, x)) {
+                    self.cursor = CursorDrawn::Records;
+                }
+            }
+        }
         let mut parts =
             composition_parts(r, term, (c, laid), under, styles, block, cols, size, pan);
         // **On a row the layout joined, drawn in the row's order**, as the
@@ -2327,14 +2692,16 @@ pub struct Composition {
 /// **How the core measures the text it writes**, which a composition is
 /// laid out by: the columns an ambiguous character takes
 /// (`Term::ambiguous_width`; Private Use stays one column either way),
-/// the Unicode version's widths (`Term::unicode_widths`) and whether a
-/// `U+FE0F` widens the base before it (`Term::vs16_width`). The default
-/// is the core's at power-on.
+/// the Unicode version's widths (`Term::unicode_widths`), whether a
+/// `U+FE0F` widens the base before it (`Term::vs16_width`, read with the
+/// cells, `Vs16Width::widens_in`) and how much of a cluster a cell holds
+/// (`Term::cluster_cells`). The default is the core's at power-on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Measure {
     pub ambiguous: AmbiguousWidth,
     pub widths: UnicodeWidths,
     pub vs16: Vs16Width,
+    pub cells: ClusterCells,
 }
 
 impl Default for Measure {
@@ -2343,6 +2710,7 @@ impl Default for Measure {
             ambiguous: AmbiguousWidth::Narrow,
             widths: UnicodeWidths::Current,
             vs16: Vs16Width::Two,
+            cells: ClusterCells::Legacy,
         }
     }
 }
@@ -2354,6 +2722,7 @@ impl Measure {
             ambiguous: term.ambiguous_width(),
             widths: term.unicode_widths(),
             vs16: term.vs16_width(),
+            cells: term.cluster_cells(),
         }
     }
 }
@@ -2381,7 +2750,7 @@ impl Cluster {
             return;
         }
         let vs16 =
-            cp.value() == 0xFE0F && m.vs16 == Vs16Width::Two && before.is_some_and(vs16::widens);
+            cp.value() == 0xFE0F && m.vs16.widens_in(m.cells) && before.is_some_and(vs16::widens);
         let flag = cp.is_regional_indicator()
             && alone
             && m.widths == UnicodeWidths::Eight
@@ -2395,7 +2764,9 @@ impl Cluster {
 /// **`text` in clusters, as the core writes it after a character**, by
 /// `m`: `[[source: uax29]]`'s boundaries from the core's own machine,
 /// each cluster as wide as its first character and widened as the core
-/// widens it ([`Cluster::join`]); a character of no width that is not
+/// widens it ([`Cluster::join`]), and parted where the cells in force hold
+/// less than an extended cluster (`baud_domain::ClusterCells`), as the
+/// core parts it; a character of no width that is not
 /// Extend or ZWJ joins the cluster before it wherever the boundaries
 /// fall, an ignorable one at a boundary is dropped and ends what may
 /// join, and a mark at a boundary after that is a defective sequence
@@ -2428,7 +2799,14 @@ pub(crate) fn clusters(text: &[Codepoint], m: Measure) -> (usize, Vec<Cluster>) 
         }
         let cl = Classified::of(cp);
         let w = cl.width(policy);
-        let joins = !machine.is_break_classified(cl.class, cl.lookback);
+        let before = machine;
+        let mut joins = !machine.is_break_classified(cl.class, cl.lookback);
+        // A join the cells in force part takes a cell of its own, as the
+        // core's writer gives it one, the machine started again at it.
+        if joins && before.parts_at(m.cells, cl.class, cl.lookback, cp) {
+            machine = ClusterBreak::restart(cl.class, cl.lookback);
+            joins = false;
+        }
         let marks = matches!(cl.class, GraphemeClass::Extend | GraphemeClass::Zwj);
         if joins || (w == Width::ZERO && !marks) {
             match out.last_mut() {
@@ -2643,7 +3021,18 @@ impl Composition {
         let (_, laid) = clusters(&text, self.measure);
         let wide = cells.get(at + 1).is_some_and(|c| c.content.is_wide_tail());
         let first = laid.first()?;
-        if first.codes.start != 0 || first.codes.end <= k || (wide && first.span == CellSpan::One) {
+        // Or the cell's cluster whole, where what the text starts with takes
+        // a cell of its own and belongs to the syllable the cell ends
+        // (`crate::syllable`): the composition is drawn from the cell, the
+        // syllable across both, as the commit's will be.
+        let syllable = first.codes == (0..k)
+            && laid
+                .get(1)
+                .is_some_and(|n| crate::syllable::continues(&text[..k], n.cps[0]));
+        if first.codes.start != 0
+            || (first.codes.end <= k && !syllable)
+            || (wide && first.span == CellSpan::One)
+        {
             return None;
         }
         let hints = match self.hints.first() {
@@ -2831,6 +3220,233 @@ impl Composition {
     }
 }
 
+/// **The syllables among clusters laid along a row** (`crate::syllable`),
+/// each cluster its codepoints, its visual column and its cells: each the
+/// first cluster of it, how many it holds and the cells they take -- one of
+/// two or more clusters only where its cells lie left to right on the
+/// screen, as the grid finds a syllable along the row as drawn; on a line
+/// drawn in reverse each cluster is alone, as written there.
+fn units_of(clusters: &[(&[Codepoint], usize, usize)]) -> Vec<(usize, usize, usize)> {
+    let laid_right = |first: usize, n: usize| {
+        clusters[first..first + n]
+            .windows(2)
+            .all(|w| w[1].1 == w[0].1 + w[0].2)
+    };
+    let grouped = crate::syllable::of_clusters(clusters.iter().map(|&(cps, _, n)| (cps, n)));
+    let mut units = Vec::new();
+    let mut i = 0;
+    while i < clusters.len() {
+        match grouped.iter().find(|g| g.0 == i && laid_right(g.0, g.1)) {
+            Some(&g) => {
+                units.push(g);
+                i += g.1;
+            }
+            None => {
+                units.push((i, 1, clusters[i].2));
+                i += 1;
+            }
+        }
+    }
+    units
+}
+
+/// **The cells an input method's composition draws on its row**, laid as
+/// written ([`Laid::AsWritten`]), in visual columns: its own, and the
+/// letters of a Devanagari word written against it that its own letters
+/// continue (`crate::word`) -- one word with them once the commit is
+/// written, so the composition draws that word whole, as the commit's
+/// will be drawn, and the grid draws none of it -- each with what it will
+/// hold, which the row's other words are laid by.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Taken {
+    row: Option<Row>,
+    /// Each visual column it draws and what it will hold.
+    held: Vec<(usize, crate::word::Held)>,
+    /// The letters written against it that its words take in, left and
+    /// right: their first visual column and how many.
+    beside: [Option<(usize, usize)>; 2],
+    /// Its words as it lays them ([`Composed::inks`]).
+    inks: Vec<(usize, f32)>,
+}
+
+impl Taken {
+    /// Whether the composition is on row `r`.
+    pub(crate) fn on(&self, r: Row) -> bool {
+        self.row == Some(r)
+    }
+
+    /// Its words as it lays them this frame ([`Composed::inks`]).
+    pub(crate) fn set_inks(&mut self, inks: Vec<(usize, f32)>) {
+        self.inks = inks;
+    }
+
+    /// **The word before visual column `x` of row `r` that a word there
+    /// closes on** (`crate::word::lay`): of `grid`, the row's own word laid
+    /// last before it -- its first column and its ink's right edge -- and
+    /// the composition's last word before it, the one nearer, as the
+    /// commit's row will lay them in turn.
+    pub(crate) fn ink_before(&self, r: Row, x: Col, grid: Option<(Col, f32)>) -> Option<f32> {
+        let own = match self.row == Some(r) {
+            true => self
+                .inks
+                .iter()
+                .rev()
+                .find(|&&(at, _)| at < x.index())
+                .copied(),
+            false => None,
+        };
+        match (grid, own) {
+            (Some((g, gi)), Some((o, oi))) => Some(if o > g.index() { oi } else { gi }),
+            (Some((_, gi)), None) => Some(gi),
+            (None, Some((_, oi))) => Some(oi),
+            (None, None) => None,
+        }
+    }
+
+    /// What visual column `x` of row `r` will hold, where the composition
+    /// draws it.
+    pub(crate) fn held(&self, r: Row, x: Col) -> Option<crate::word::Held> {
+        match self.row == Some(r) {
+            true => self.held.iter().find(|h| h.0 == x.index()).map(|h| h.1),
+            false => None,
+        }
+    }
+
+    /// The visual columns of row `r` written beside the composition that
+    /// its words take in: what the grid converts blank and draws unlit,
+    /// their light drawn over their syllables' spans by the composition.
+    pub(crate) fn beside(&self, r: Row) -> impl Iterator<Item = usize> + '_ {
+        self.beside
+            .iter()
+            .flatten()
+            .filter(move |_| self.row == Some(r))
+            .flat_map(|&(at, n)| at..at + n)
+    }
+}
+
+impl Composition {
+    /// **The cells it draws on its row** ([`Taken`]) on a line `size`
+    /// drawn in `orders`, `cols` wide: the row read with its own cells blank,
+    /// as the grid reads it, and a word of that row's written against its
+    /// first or last cluster taken in where that cluster leads a syllable
+    /// with a letter, the row's text running on across it. None on a line
+    /// that is not single-width, where no word is laid.
+    pub(crate) fn taken(
+        &self,
+        term: &Term<'_>,
+        orders: &crate::bidi::Orders,
+        cols: Cols,
+        size: LineRendition,
+    ) -> Taken {
+        let pieces = self.pieces(cols);
+        if size.is_double()
+            || pieces.is_empty()
+            || self.row.index() >= term.viewport().rows().index()
+        {
+            return Taken::default();
+        }
+        let row = self.row;
+        let placed: Vec<(&Piece, usize)> = pieces
+            .iter()
+            .map(|p| {
+                let v = Laid::AsWritten.column(orders, row, p.col);
+                let v = match p.span {
+                    CellSpan::Two => v.min(Laid::AsWritten.column(orders, row, p.col.after())),
+                    CellSpan::One => v,
+                };
+                (p, v.index())
+            })
+            .collect();
+        let mut held = Vec::new();
+        for &(p, v) in &placed {
+            for k in 0..p.span.cells().index() {
+                let h = match p.cps.first() {
+                    Some(&cp) if cp == Codepoint::from_char(' ') => crate::word::Held::Blank,
+                    Some(&cp) if crate::word::is_letter(cp) && k == 0 => crate::word::Held::Letter,
+                    _ => crate::word::Held::Other,
+                };
+                held.push((v + k, h));
+            }
+        }
+        let clusters: Vec<(&[Codepoint], usize, usize)> = placed
+            .iter()
+            .map(|&(p, v)| (p.cps.as_slice(), v, p.span.cells().index()))
+            .collect();
+        let units = units_of(&clusters);
+        let lettered = |i: usize| {
+            clusters[i]
+                .0
+                .first()
+                .is_some_and(|&c| crate::word::is_letter(c))
+        };
+        let width = cols.index();
+        let screen = term.viewport();
+        let row_cells = screen.row(row);
+        let logical = |v: Col| orders.logical_col(row, v);
+        let mut drawn: Vec<PackedCell> = (0..width)
+            .map(|v| {
+                row_cells
+                    .get(logical(Col::at_index(v)).index())
+                    .copied()
+                    .unwrap_or(PackedCell::EMPTY)
+            })
+            .collect();
+        for &(x, _) in &held {
+            if let Some(cell) = drawn.get_mut(x) {
+                *cell = PackedCell::EMPTY;
+            }
+        }
+        let (parted, letters) = crate::syllable::of_row(term, &drawn, logical);
+        let words = match letters {
+            crate::word::Letters::Seen => {
+                crate::word::of_row(term, &drawn, logical, &parted, |_| None)
+            }
+            crate::word::Letters::None => Vec::new(),
+        };
+        // The row's text runs on from the cell before `v` into `v`.
+        let follows = |v: usize| {
+            v > 0
+                && v < width
+                && logical(Col::at_index(v)).index() == logical(Col::at_index(v - 1)).index() + 1
+        };
+        let mut beside = [None, None];
+        // A paragraph the layout re-broke draws other cells on the row
+        // than the core's: there the row's letters stay the grid's.
+        let units = match orders.display() {
+            Some(_) => Vec::new(),
+            None => units,
+        };
+        if let (Some(first), Some(last)) = (units.first(), units.last()) {
+            let left = clusters[first.0].1;
+            if lettered(first.0) && placed.iter().all(|&(_, v)| v >= left) && follows(left) {
+                beside[0] = words
+                    .iter()
+                    .find(|w| w.end().index() == left)
+                    .map(|w| (w.at.index(), w.cells.index()));
+            }
+            let right = clusters[last.0].1 + last.2;
+            let ends = placed
+                .iter()
+                .all(|&(p, v)| v + p.span.cells().index() <= right);
+            if lettered(last.0) && ends && follows(right) {
+                beside[1] = words
+                    .iter()
+                    .find(|w| w.at.index() == right)
+                    .map(|w| (w.at.index(), w.cells.index()));
+            }
+        }
+        for &(at, n) in beside.iter().flatten() {
+            held.extend((at..at + n).map(|x| (x, crate::word::Held::Letter)));
+        }
+        Taken {
+            row: Some(row),
+            held,
+            beside,
+            inks: Vec::new(),
+        }
+    }
+}
+
 /// Whether a composition's cluster is written where SAPV 17 slants an
 /// italic left ([`crate::bidi::Orders::slants`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2934,6 +3550,10 @@ pub(crate) struct Composed {
     /// and their parts above it.
     pub(crate) glyphs: Vec<(usize, Vec<Instance>, Vec<Instance>)>,
     pub(crate) rules: Vec<Instance>,
+    /// Each Devanagari word it draws ([`Taken::ink_before`]): its first
+    /// visual column and its ink's right edge, in pixels from the row's
+    /// left edge.
+    pub(crate) inks: Vec<(usize, f32)>,
 }
 
 impl Composed {
@@ -3054,6 +3674,363 @@ pub(crate) fn composition_parts(
             .collect::<Vec<_>>(),
         Stretch::One,
     );
+    // **The letters written beside it that its words take in** ([`Taken`]),
+    // which the grid leaves to it, on a row laid as written.
+    let taken = match laid {
+        Laid::AsWritten => c.taken(term, r.bidi(), cols, size),
+        Laid::OnScreen => Taken::default(),
+    };
+    let screen = term.viewport();
+    let row_cells = screen.row(c.row);
+    // The cell each visual column shows, as the row's order draws it.
+    let shows: Vec<usize> = (0..cols.index())
+        .map(|v| r.bidi().logical_col(c.row, Col::at_index(v)).index())
+        .collect();
+    let cell_at = |v: usize| shows.get(v).and_then(|&l| row_cells.get(l)).copied();
+    // **Every cluster in the order the row draws them**: the letters taken
+    // in on its left, its own, then those on its right -- each its
+    // codepoints, its visual column, its cells, and the piece it is.
+    let mut all: Vec<(Vec<Codepoint>, usize, usize, Option<usize>)> = Vec::new();
+    let take = |all: &mut Vec<(Vec<Codepoint>, usize, usize, Option<usize>)>,
+                side: Option<(usize, usize)>| {
+        for v in side.into_iter().flat_map(|(at, n)| at..at + n) {
+            if let Some(cell) = cell_at(v).filter(|c| !c.content.is_wide_tail()) {
+                all.push((crate::renderer::cell_cps(term, cell), v, 1, None));
+            }
+        }
+    };
+    take(&mut all, taken.beside[0]);
+    all.extend(
+        placed
+            .iter()
+            .enumerate()
+            .map(|(i, (p, v, _))| (p.cps.clone(), *v, p.span.cells().index(), Some(i))),
+    );
+    take(&mut all, taken.beside[1]);
+    // **The syllables among them** (`crate::syllable`), across the letters
+    // taken in, as the commit's row will part them.
+    let units = units_of(
+        &all.iter()
+            .map(|(cps, v, n, _)| (cps.as_slice(), *v, *n))
+            .collect::<Vec<_>>(),
+    );
+    // What a cell of the row holds once the commit is written: the
+    // composition's cluster over the cells it covers, the row's elsewhere.
+    use crate::word::Held;
+    let held = |x: usize| {
+        if let Some((p, v, _)) = placed
+            .iter()
+            .find(|(p, v, _)| x >= *v && x < v + p.span.cells().index())
+        {
+            return match p.cps.first() {
+                Some(&cp) if cp == Codepoint::from_char(' ') => Held::Blank,
+                Some(&cp) if crate::word::is_letter(cp) && x == *v => Held::Letter,
+                _ => Held::Other,
+            };
+        }
+        match cell_at(x) {
+            Some(cell) if crate::fit::Blank::of(term, cell) == crate::fit::Blank::Yes => {
+                Held::Blank
+            }
+            Some(cell)
+                if crate::renderer::drawn_base(term, cell).is_some_and(crate::word::is_letter) =>
+            {
+                Held::Letter
+            }
+            _ => Held::Other,
+        }
+    };
+    let side = |x: Option<usize>| match x.filter(|&x| x < cols.index()).map(held) {
+        None => crate::word::Side::Edge,
+        Some(Held::Letter) => crate::word::Side::Word,
+        Some(_) => crate::word::Side::Wall,
+    };
+    // **What lights each cell of the row** -- the selection, and the block
+    // cursor, which `block` puts at its visual cell -- and the colours a
+    // cell outside the composition draws: a letter taken in unlit, its
+    // light drawn over its syllable's span, as the grid draws a word's.
+    let highlight = r.highlight();
+    let lights: Vec<crate::word::Light> = (0..cols.index())
+        .map(|x| {
+            let cell = cell_at(x).unwrap_or(PackedCell::EMPTY);
+            let l = Col::at_index(shows.get(x).copied().unwrap_or(x));
+            crate::word::Light {
+                selected: match highlight
+                    .is_some_and(|h| r.bidi().selects(&h, c.row, l, cell.content))
+                {
+                    true => Selected::Yes,
+                    false => Selected::No,
+                },
+                block: match block.is_some_and(|(br, bc, _)| br == c.row && bc.index() == x) {
+                    true => BlockCursor::Yes(block_paint),
+                    false => BlockCursor::No,
+                },
+                cursor,
+            }
+        })
+        .collect();
+    let beside: Vec<usize> = taken.beside(c.row).collect();
+    let row_drawn = |cell: PackedCell, l: crate::word::Light| {
+        styles
+            .get(cell.style.index())
+            .copied()
+            .unwrap_or_default()
+            .drawn(Swaps {
+                pictured: Pictured::No,
+                line: Line::of(cell.content),
+                selected: l.selected,
+                hilite,
+                block: l.block,
+                blink,
+                cursor: l.cursor,
+            })
+    };
+    // A cluster of the composition drawn under `l` and its look's own
+    // selection.
+    let piece_drawn = |i: usize, l: crate::word::Light| {
+        let (look, one, _) = &styled[i];
+        one.drawn(Swaps {
+            pictured: Pictured::No,
+            line: Line::No,
+            selected: match (look.selected, l.selected) {
+                (Selected::No, Selected::No) => Selected::No,
+                _ => Selected::Yes,
+            },
+            hilite,
+            block: l.block,
+            blink,
+            cursor: l.cursor,
+        })
+    };
+    let colours = |d: crate::cellmap::Drawn| crate::word::Colours {
+        fg: d.fg,
+        bg: d.bg,
+        curve: d.curve,
+    };
+    // **A Devanagari word among them** (`crate::word`) is drawn whole by the
+    // word rule ([`Renderer::word_drawn`]), in the room the row leaves it,
+    // as the commit's text will be: its glyphs from its syllables' pens,
+    // the light on a letter taken in over its syllable's span, the ink over
+    // each cell's ground in that ground's text colour -- the block on a
+    // cell of its own, which the grid draws, among them. Its clusters draw
+    // no glyph of their own. A syllable no word holds is drawn whole from
+    // its first cluster's cell across its cells.
+    let letter = |u: &(usize, usize, usize)| {
+        all[u.0]
+            .0
+            .first()
+            .is_some_and(|&c| crate::word::is_letter(c))
+    };
+    // **The row's own words, as the grid lays them**: a word that fits at
+    // no width closes on the word before it by that word's ink
+    // (`crate::word::lay`), so each of its words is laid after the row's
+    // words before it, as the commit's row will lay them in turn, and the
+    // row's word after it closes on its ink ([`Taken::ink_before`]).
+    let grid_row: Vec<PackedCell> = (0..cols.index())
+        .map(|v| match taken.held(c.row, Col::at_index(v)) {
+            Some(_) => PackedCell::EMPTY,
+            None => cell_at(v).unwrap_or(PackedCell::EMPTY),
+        })
+        .collect();
+    let logical_of = |v: Col| Col::at_index(shows.get(v.index()).copied().unwrap_or(v.index()));
+    let grid_words = match laid {
+        Laid::OnScreen => Vec::new(),
+        Laid::AsWritten => match crate::syllable::of_row(term, &grid_row, logical_of) {
+            (parted, crate::word::Letters::Seen) => {
+                crate::word::of_row(term, &grid_row, logical_of, &parted, |x| {
+                    taken.held(c.row, Col::at_index(x))
+                })
+            }
+            (_, crate::word::Letters::None) => Vec::new(),
+        },
+    };
+    let mut next_grid = 0usize;
+    let mut last: Option<f32> = None;
+    let mut inks: Vec<(usize, f32)> = Vec::new();
+    let mut worded: Vec<(usize, Vec<Instance>, Vec<Instance>)> = Vec::new();
+    let mut k = 0;
+    while k < units.len() {
+        if !letter(&units[k]) {
+            let (first, n, cells) = units[k];
+            if let (true, Some(piece)) = (n > 1, all[first].3) {
+                let cps: Vec<Codepoint> = all[first..first + n]
+                    .iter()
+                    .flat_map(|cl| cl.0.iter().copied())
+                    .collect();
+                let style = styled[piece].2.1;
+                if let Some(slot) = joined.get_mut(piece) {
+                    *slot = Some(r.syllable(&cps, style, Cols::of_index(cells), Stretch::One));
+                }
+                for cl in &all[first + 1..first + n] {
+                    if let Some(slot) = cl.3.and_then(|i| joined.get_mut(i)) {
+                        *slot = Some(Vec::new());
+                    }
+                }
+            }
+            k += 1;
+            continue;
+        }
+        let mut m = k + 1;
+        while m < units.len()
+            && letter(&units[m])
+            && all[units[m].0].1 == all[units[m - 1].0].1 + units[m - 1].2
+        {
+            m += 1;
+        }
+        let word = &units[k..m];
+        let at = all[word[0].0].1;
+        let cells: usize = word.iter().map(|u| u.2).sum();
+        let syllables: Vec<crate::syllable::Syllable> = word
+            .iter()
+            .map(|u| crate::syllable::Syllable {
+                at: Col::at_index(all[u.0].1),
+                cells: Cols::of_index(u.2),
+            })
+            .collect();
+        let parts: Vec<Vec<Codepoint>> = word
+            .iter()
+            .map(|u| {
+                all[u.0..u.0 + u.1]
+                    .iter()
+                    .flat_map(|cl| cl.0.iter().copied())
+                    .collect()
+            })
+            .collect();
+        let (mut l, mut rr) = (at, at + cells);
+        while l > 0 && held(l - 1) == Held::Blank {
+            l -= 1;
+        }
+        while rr < cols.index() && held(rr) == Held::Blank {
+            rr += 1;
+        }
+        let room = crate::word::Room {
+            left: (crate::word::Blanks(at - l), side(l.checked_sub(1))),
+            right: (crate::word::Blanks(rr - at - cells), side(Some(rr))),
+        };
+        // Its face is its first cell's, as the grid's word takes it.
+        let style = match all[word[0].0].3 {
+            Some(i) => styled[i].2.1,
+            None => crate::cellmap::face_of(styles, cell_at(at).unwrap_or(PackedCell::EMPTY)),
+        };
+        // Each syllable in its first cluster's colours under the light of
+        // the letters taken in that it holds; the composition's own cells
+        // are lit by the grid, as the cells under it are.
+        let paint = crate::word::WordPaint {
+            syllables: word
+                .iter()
+                .map(|u| {
+                    let light = all[u.0..u.0 + u.1]
+                        .iter()
+                        .filter(|cl| cl.3.is_none())
+                        .flat_map(|cl| cl.1..cl.1 + cl.2)
+                        .fold(crate::word::Light::NONE, |l, x| {
+                            l.with(lights.get(x).copied().unwrap_or(crate::word::Light::NONE))
+                        });
+                    let d = match all[u.0].3 {
+                        Some(i) => piece_drawn(i, light),
+                        None => row_drawn(cell_at(all[u.0].1).unwrap_or(PackedCell::EMPTY), light),
+                    };
+                    (colours(d), light, d.text)
+                })
+                .collect(),
+        };
+        // Every cell of the row as the word's ink sees it: the
+        // composition's in its look under the block where it sits, a letter
+        // taken in unlit, any other as the grid draws it.
+        let under: Vec<crate::word::Under> = (0..cols.index())
+            .map(|x| {
+                if let Some(i) = placed
+                    .iter()
+                    .position(|(p, v, _)| x >= *v && x < v + p.span.cells().index())
+                {
+                    let l = crate::word::Light {
+                        selected: Selected::No,
+                        block: lights.get(x).map_or(BlockCursor::No, |l| l.block),
+                        cursor,
+                    };
+                    return crate::word::Under {
+                        colours: colours(piece_drawn(i, l)),
+                        light: crate::word::Light::NONE,
+                    };
+                }
+                let lit = lights.get(x).copied().unwrap_or(crate::word::Light::NONE);
+                let drawn_as = match beside.contains(&x) {
+                    true => crate::word::Light::NONE,
+                    false => lit,
+                };
+                crate::word::Under {
+                    colours: colours(row_drawn(cell_at(x).unwrap_or(PackedCell::EMPTY), drawn_as)),
+                    light: lit,
+                }
+            })
+            .collect();
+        let w = crate::word::Word {
+            at: Col::at_index(at),
+            cells: Cols::of_index(cells),
+            syllables,
+            room,
+        };
+        while let Some(g) = grid_words.get(next_grid).filter(|g| g.at.index() < at) {
+            let cut: Vec<Vec<Codepoint>> = g
+                .syllables
+                .iter()
+                .map(|s| {
+                    grid_row
+                        .iter()
+                        .skip(s.at.index())
+                        .take(s.cells.index())
+                        .filter(|c| !c.content.is_wide_tail())
+                        .flat_map(|c| crate::renderer::cell_cps(term, *c))
+                        .collect()
+                })
+                .collect();
+            let face = crate::cellmap::face_of(
+                styles,
+                grid_row
+                    .get(g.at.index())
+                    .copied()
+                    .unwrap_or(PackedCell::EMPTY),
+            );
+            last = r
+                .word_ink(
+                    (&cut, &g.syllables),
+                    face,
+                    (g.at, g.cells, g.room),
+                    (cols, last),
+                )
+                .or(last);
+            next_grid += 1;
+        }
+        let mut drawn_word = Vec::new();
+        if let Some(l) = r.word_drawn(
+            c.row,
+            (&parts, style),
+            (&w, &paint, last),
+            (&under, cols),
+            &mut drawn_word,
+        ) {
+            last = Some(l.ink.1);
+            inks.push((at, l.ink.1));
+        }
+        let top = Screen(i16::try_from(row_top).unwrap_or(i16::MAX));
+        let (mut inside, mut over) = (Vec::new(), Vec::new());
+        for inst in drawn_word {
+            let moved = Instance {
+                y: Screen(i16::try_from(i32::from(inst.y.0) + px(pan)).unwrap_or(i16::MAX)),
+                ..inst
+            };
+            let (up, inner) = moved.cut_at(top);
+            over.extend(up);
+            inside.extend(inner);
+        }
+        worded.push((at, inside, over));
+        for cl in word.iter().flat_map(|u| &all[u.0..u.0 + u.1]) {
+            if let Some(slot) = cl.3.and_then(|i| joined.get_mut(i)) {
+                *slot = Some(Vec::new());
+            }
+        }
+        k = m;
+    }
     for (i, ((p, x0, (shown, flip, _)), (look, one, (lean, style)))) in
         placed.into_iter().zip(styled).enumerate()
     {
@@ -3141,11 +4118,13 @@ pub(crate) fn composition_parts(
             });
         }
     }
+    glyphs_out.extend(worded);
     glyphs_out.sort_by_key(|&(x, _, _)| x);
     Composed {
         pages,
         glyphs: glyphs_out,
         rules,
+        inks,
     }
 }
 
@@ -3593,5 +4572,6 @@ fn sized_composition(
         pages,
         glyphs: glyphs_out,
         rules,
+        inks: Vec::new(),
     }
 }

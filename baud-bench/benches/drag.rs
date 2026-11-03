@@ -262,6 +262,7 @@ fn main() {
                     rotation: RowRot::NONE,
                     ring: Rows::of_index(vr),
                     cursor,
+                    cursor_drawn: exceptions.cursor_drawn(),
                     highlight: None,
                     overlay: &overlay[set],
                     records: &records,

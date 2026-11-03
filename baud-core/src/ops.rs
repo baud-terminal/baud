@@ -4136,7 +4136,7 @@ impl Paint<'_, '_> {
     /// each**, saved whole whichever member is listed. A mode DECSET does
     /// not act on is counted, a parameter at a time, as DECSET's wildcard
     /// counts it: unnamed, the read-only `?1020` to `?1023`, the permanent
-    /// `?2027` ([`PrivateMode::slot`]).
+    /// `?1014` and `?1044` ([`PrivateMode::slot`]).
     ///
     /// **`?1048` saves the cursor**, as xterm's `savemodes` runs
     /// `CursorSave` for it (`[[source: xterm-reset]]`'s file): the mode
@@ -4480,6 +4480,11 @@ impl Paint<'_, '_> {
                 }
             }
             PrivateMode::BracketedPaste => self.cold.modes.apply(ModeBit::BracketedPaste, on),
+            // **`?2027` measures the next character**: text already on the
+            // screen keeps the cells it was written in, as the draft's
+            // cursor-movement semantics "remain unchanged" (`[[source:
+            // mode2027]]`).
+            PrivateMode::GraphemeClustering => self.cold.modes.apply(ModeBit::GraphemeClusters, on),
             PrivateMode::FocusReporting => self.cold.modes.apply(ModeBit::FocusReporting, on),
             PrivateMode::SynchronizedOutput => {
                 if on && !self.cold.modes.is_set(ModeBit::SynchronizedOutput) {
@@ -5734,6 +5739,9 @@ impl Paint<'_, '_> {
             // "Keyboard action KAM: Unlocked" (`[[source: vt510-decstr]]`
             // Table 5-9), and xterm's common reset path clears `MODE_KAM`.
             ModeBit::KeyboardAction,
+            // "Both, Soft reset (DECSTR) as well as hard reset (RIS) will
+            // reset the mode" (`[[source: mode2027]]`, "Terminal Reset").
+            ModeBit::GraphemeClusters,
         ] {
             self.cold.modes.apply(m, power_on.is_set(m));
         }
@@ -6137,17 +6145,14 @@ impl Paint<'_, '_> {
                 Some(_) => ModeState::Set,
                 None => ModeState::Reset,
             },
-            // `?2027`: this core clusters per `[[source: uax29]]` and has no
-            // mode that stops it, so `1` would invite an application to try
-            // turning it off. `3` is the value DECRPM has for exactly this,
-            // and it is true: a `U+FE0F` widens its base (`Paint::attach`).
-            // Configured to one cell, the answer is `4`: neither is an answer
-            // an application can change, because bubbletea v2 resets `?2027`
-            // on exit, behind the shell.
-            PrivateMode::GraphemeClustering => match self.cold.vs16 {
-                Vs16Width::Two => ModeState::PermanentlySet,
-                Vs16Width::One => ModeState::PermanentlyReset,
-            },
+            // `?2027` answers the mode in force, `1` or `2`: "the reply will
+            // indicate each state accurately" (`[[source: mode2027]]`). Set,
+            // a `U+FE0F` widens its base under either `Vs16Width`, as the
+            // draft's VS16 rule requires; reset, as `Term::set_vs16_width`
+            // configures.
+            PrivateMode::GraphemeClustering => {
+                bit_state(self.cold.modes, ModeBit::GraphemeClusters)
+            }
             PrivateMode::SixelDisplay => self.sixel_state(ModeBit::SixelDisplay),
             PrivateMode::SixelPrivateRegisters => self.sixel_state(ModeBit::SixelPrivateRegisters),
             PrivateMode::SixelScrollsRight => self.sixel_state(ModeBit::SixelScrollsRight),

@@ -197,7 +197,9 @@ does not require conformance to UTS #51." ([[source: unicode18-ch22]] § 22.10)
   fallback" for a ZWJ sequence. baud draws ZWJ sequences as separate
   sub-images today, past their two cells, on every stack it ships, with or
   without a drop (section 2.7 has the counts). That departs from a "must not"
-  in a draft its README marks ALPHA.
+  in a draft its README marks ALPHA. *Superseded 2026-11-02:* `?2027` is a
+  switch, reset at power-on, so baud claims mode 2027's rules only while a
+  program sets it.
 
 **A correction to the reading that started this, and where it still holds.**
 The sentence "An implementation should not blindly delete such characters, nor
@@ -384,7 +386,9 @@ as a control ([[source: vt220-rm-ch4]], [[source: vt510-rm-ch4]]).
 **The mode 2027 draft** ([[source: mode2027]]; its README marks it ALPHA,
 [[source: mode2027-readme]]) is the only terminal-specific text found that
 prescribes a display. baud claims the mode: DECRQM `?2027` answers 3,
-permanently set (`docs/vt-coverage.md`, line 234). Its semantics section opens
+permanently set (`docs/vt-coverage.md`, line 234). *Superseded 2026-11-02:*
+`?2027` is a switch, reset at power-on, so baud claims mode 2027's rules only
+while a program sets it. Its semantics section opens
 "The following set of semantics MUST be adhered to if this VT mode 2027 is
 enabled", and it says:
 
@@ -523,7 +527,7 @@ which the project's same-pixels rule does not allow.
 | B: a ZWJ component | dropped; a shorter emoji draws | separate emoji, perhaps with a visible glue (UTS #51 § 2.5, § 2.2); the component is a graphic character (§ 5.21.6) | departs from § 5.21.6, and from the display UTS #51 describes (§ 2.5, descriptive) |
 | B: a reserved code point after a ZWJ (text from a later version, such as Emoji 18.0's U+1FAF9) | dropped; the base draws (measured on all three stacks) | not "blindly delete" it; a hex value, a box or a substitute glyph (§ 5.3, "Reserved and Private-Use Character Codes") | departs from § 5.3 |
 | B: a flag's second indicator | never on a shipped stack: every emoji face maps all 26 indicators. A pair the face has no flag for draws two letters past its two cells (spill, section 5.1). The letters are the face's own glyphs for a lone indicator: on Apple Color Emoji each is a letter in a dashed square; on Noto Color Emoji 2.042 each is a bare letter with no square (U+1F1E6 U+1F1E6 at 13 and 26 px, measured by baud's renderer, 2026-10-08; Noto 2.047 and 2.051 were not rendered) | letters in dotted squares, or one missing-flag glyph (Annex B.1), for any pair without a flag; for an invalid pair, C3 adds that the depiction must indicate "the presence of an invalid sequence", singleton letters allowed (if baud claims UTS #51) | partly: on Apple Color Emoji the letters are B.1's first option, with dashes where B.1 says dotted, as section 3 reads Terminal.app's dashed letters; on Noto 2.042 they are B.1's letters without its square. For an invalid pair, on either face, they are C3's singleton letters. On both faces they overflow the cluster's cells and cover the next character |
-| B: a ZWJ sequence under mode 2027, which baud answers permanently set | drawn as separate sub-images past the two cells, with or without a drop (sections 5.1 and 5.2; [[source: ad-obs-freq-emoji-rows]]). On Noto 2.042 and 2.047: 72 intact sequences with every code point mapped, the 59 intact wrestling sequences after the drop, 103 of the 106 the core alters (102 spill, one drops and spills) and 14 not fully qualified. On Noto 2.051: 103 core-altered and 4 not fully qualified. On macOS: 10 core-altered and 7 not fully qualified. The four bouncing-ball forms spill on every stack | "a single image with a width of 2 grid cells"; sub-images "must not be used as a fallback"; if it "cannot be rendered the display behavior is undefined" (mode 2027) | departs from a "must not" in a draft marked ALPHA, which baud claims at all times |
+| B: a ZWJ sequence under mode 2027, which baud answers permanently set (superseded 2026-11-02: `?2027` is a switch, reset at power-on, so baud claims mode 2027's rules only while a program sets it) | drawn as separate sub-images past the two cells, with or without a drop (sections 5.1 and 5.2; [[source: ad-obs-freq-emoji-rows]]). On Noto 2.042 and 2.047: 72 intact sequences with every code point mapped, the 59 intact wrestling sequences after the drop, 103 of the 106 the core alters (102 spill, one drops and spills) and 14 not fully qualified. On Noto 2.051: 103 core-altered and 4 not fully qualified. On macOS: 10 core-altered and 7 not fully qualified. The four bouncing-ball forms spill on every stack | "a single image with a width of 2 grid cells"; sub-images "must not be used as a fallback"; if it "cannot be rendered the display behavior is undefined" (mode 2027) | departs from a "must not" in a draft marked ALPHA, which baud claimed at all times until 2026-11-02 and claims since only while a program sets `?2027` |
 | B: an unsupported or invalid tag sequence | the face's shaping decides: the bare black flag on Apple Color Emoji, Noto's own "?" flag (section 2.4) | the base with a missing-glyph indicator, overlay recommended (C.1.1); something visibly wrong (C.1.2) | Apple: departs from C.1.1 and C.1.2, if baud claims UTS #51 conformance; Noto: matches |
 | C: nothing draws the base, a lone code point | the primary face's `.notdef` | a last-resort glyph or missing-glyph box (§ 5.21.6) | matches when the primary's `.notdef` is inked; not under a configured SF Mono |
 | C: nothing draws the base, a cluster with attachments (Hebrew at HEAD, Arabic on macOS, Devanagari and kana + U+3099 on Linux; section 5.3) | the primary face's one `.notdef`; the attachments are dropped and counted only internally. On Linux Hindi that includes consonants: 848 clusters, 1,631 code points left out, U+0915 among them ([[source: ad-obs-freq-replay]]) | a visible glyph "so that at least it is clear that there are characters present—and usually, how many are present"; for U+0915 itself, "Displaying nothing would give the user the impression that the character does not occur in the text at all" (§ 5.21.6) | partly: one box is visible, but it stands for several characters, against "how many are present" |
@@ -593,7 +597,8 @@ against the text quoted in section 2:
   Mode 2027 says a ZWJ sequence is "displayed as a single image with a width
   of 2 grid cells" and that sub-images "must not be used as a fallback". It
   binds a terminal that sets `?2027`. Whether a terminal sets it was read
-  for two of those below, and baud answers it permanently set (section 2.4):
+  for two of those below, and baud answers it permanently set (section 2.4;
+  superseded 2026-11-02, a switch reset at power-on):
   - VTE lists the mode and cannot set it ([[source: vte-modes-56bad78]]
     modes.py:1052-1054);
   - mintty offers it, off by default ([[source: mintty-termout-0aea388]]

@@ -1602,7 +1602,12 @@ mod flow {
         };
         let mut owned = baud_core::Owned::new(&ws);
         let mut term = baud_core::Term::new(owned.storage(), &ws);
-        crate::host::set_widths(&mut term, old.vs16_width, old.ambiguous_width);
+        crate::host::set_widths(
+            &mut term,
+            old.vs16_width,
+            old.ambiguous_width,
+            old.join_spacing_marks,
+        );
         let feed = |t: &mut baud_core::Term<'_>, b: &[u8]| {
             t.write_at(BytePos::ZERO, b);
             t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
@@ -1614,6 +1619,60 @@ mod flow {
         assert_eq!(term.ambiguous_width(), AmbiguousWidth::Wide);
         feed(&mut term, "\u{b1}".as_bytes());
         assert_eq!(term.cursor().1.index(), 3, "the next one is wide");
+    }
+
+    /// **`[text] join_spacing_marks` changes at once**, as `ambiguous_width`
+    /// does: the core takes it for the next spacing mark
+    /// (`Term::set_spacing_marks`), and the text already on the screen keeps
+    /// its columns.
+    #[test]
+    fn a_saved_join_spacing_marks_reaches_the_core_at_once() {
+        use baud_domain::{BytePos, ReadLen, SpacingMarks};
+        let d = Dir::new("flow-spacing-marks");
+        let cfg = d.at("config.toml");
+        std::fs::write(&cfg, "font_size = 13\n").unwrap();
+        let old = launch(&cfg);
+        let mut w = Watch::new(files(std::slice::from_ref(&cfg), &[], &[]));
+        let paths = [cfg.clone()];
+        let new = read(change(&mut w, &paths, Some(&cfg), || {
+            std::fs::write(
+                &cfg,
+                "font_size = 13\n[text]\njoin_spacing_marks = \"on\"\n",
+            )
+            .unwrap();
+        }));
+        assert_eq!(new.config.join_spacing_marks, SpacingMarks::Joined);
+        let parts = between(&old, &new.config, FaceFiles::Same);
+        assert!(
+            parts
+                .iter()
+                .any(|p| p.name() == "[text] join_spacing_marks"),
+            "{parts:?}"
+        );
+        assert_eq!(crate::live::later(&parts), None, "nothing waits");
+        let ws = baud_domain::WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let mut owned = baud_core::Owned::new(&ws);
+        let mut term = baud_core::Term::new(owned.storage(), &ws);
+        crate::host::set_widths(
+            &mut term,
+            old.vs16_width,
+            old.ambiguous_width,
+            old.join_spacing_marks,
+        );
+        let feed = |t: &mut baud_core::Term<'_>, b: &[u8]| {
+            t.write_at(BytePos::ZERO, b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        };
+        // कि: KA and VOWEL SIGN I, a spacing mark.
+        feed(&mut term, "कि".as_bytes());
+        assert_eq!(term.cursor().1.index(), 2, "the control: a column each");
+        term.set_spacing_marks(new.config.join_spacing_marks);
+        assert_eq!(term.spacing_marks(), SpacingMarks::Joined);
+        feed(&mut term, " कि".as_bytes());
+        assert_eq!(term.cursor().1.index(), 4, "the next vowel sign takes none");
     }
 
     /// **A saved theme file reaches the colours the core answers, and a

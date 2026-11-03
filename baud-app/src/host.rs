@@ -179,12 +179,15 @@ pub fn describe(geom: &CacheGeometry) -> String {
     )
 }
 
-/// The renderer's stack over `faces`, which `load_faces` read from `cfg`
-/// in its order: each face with the role its spec gives it, so the styled
-/// faces are drawn from and never fallen back through.
-pub fn stack<'f, 'a>(cfg: &Config, faces: &'f [Face<'a>]) -> baud_render::Stack<'f, 'a> {
-    let roles: Vec<baud_render::FaceRole> = cfg.faces.iter().map(|f| f.role).collect();
-    baud_render::Stack::with_roles(faces, &roles)
+/// The renderer's stack over the config's faces, in its order
+/// ([`crate::fonts::Fonts::configured`]): each face with the role its spec
+/// gives it, so the styled faces are drawn from and never fallen back
+/// through, and after each one with a `wdth` axis that draws Devanagari
+/// its narrower instances, which a word too wide for its columns is drawn
+/// at.
+pub fn stack(fonts: &crate::fonts::Fonts) -> baud_render::Stack<'static, 'static> {
+    let built = fonts.configured().expect("the config's faces");
+    baud_render::Stack::with_roles(built.faces, &built.roles)
         .expect("the config's faces: a fallback first, each style once")
 }
 
@@ -227,7 +230,12 @@ pub fn set_up_term<'t>(
     // changes (`linux.rs`'s `configure`).
     term.set_backing_scale(baud_domain::BackingScale::of(1.0));
     term.set_sixel_claim(cfg.sixel);
-    crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
+    crate::host::set_widths(
+        &mut term,
+        cfg.vs16_width,
+        cfg.ambiguous_width,
+        cfg.join_spacing_marks,
+    );
     crate::host::set_checksum(&mut term, cfg.checksum);
     crate::host::set_up(&mut term, cfg.set_up);
     crate::host::set_substitute(&mut term, cfg.substitute);
@@ -275,10 +283,44 @@ pub(crate) fn linux_driver_src() -> String {
 /// with its path and the reason (a `CFF2` table that does not read, say),
 /// because a terminal with no font draws nothing.
 #[cfg(test)]
-pub fn load_faces(cfg: &mut Config) -> &'static [Face<'static>] {
+pub fn load_faces(cfg: &mut Config) -> Loaded {
     resolved(cfg);
     let (data, mut held) = map_faces(cfg);
-    parse_faces(cfg, &data, &mut held)
+    let faces = parse_faces(cfg, &data, &mut held);
+    let fonts = crate::fonts::Fonts::new(cfg, data, faces, held);
+    Loaded {
+        faces,
+        stack: stack(&fonts),
+        place: places(&fonts),
+    }
+}
+
+/// What a launch makes of the config's faces ([`load_faces`]).
+#[cfg(test)]
+pub struct Loaded {
+    /// Each face, parsed, in the config's order.
+    pub faces: &'static [Face<'static>],
+    /// The renderer's stack over them ([`stack`]).
+    pub stack: baud_render::Stack<'static, 'static>,
+    /// Each stack face's place in the config's order ([`places`]).
+    pub place: Vec<usize>,
+}
+
+/// Each face of the stack `fonts` launch with ([`stack`]), by its place in
+/// the config's order: a face's narrower instances follow it in the
+/// stack, so a stack index is not the config's.
+#[cfg(test)]
+pub fn places(fonts: &crate::fonts::Fonts) -> Vec<usize> {
+    let mut place: Vec<usize> = Vec::new();
+    for role in fonts.configured().expect("the config's faces").roles {
+        let at = match (role, place.last()) {
+            (_, None) => 0,
+            (baud_render::FaceRole::Narrower, Some(&at)) => at,
+            (_, Some(&at)) => at + 1,
+        };
+        place.push(at);
+    }
+    place
 }
 
 /// `cfg`'s family names resolved against the system's fonts, as
@@ -379,7 +421,7 @@ pub fn refont(
 ) -> Result<crate::pty::Released, String> {
     let (data, faces, held) = faces_again(cfg)?;
     let next = crate::fonts::Fonts::new(cfg, data, faces, held);
-    if renderer.restack(stack(cfg, faces), size).is_none() {
+    if renderer.restack(stack(&next), size).is_none() {
         // SAFETY: the stack made of `next`'s faces was dropped by the
         // failed restack, which left the renderer's own as it was, and
         // nothing else was lent them.
@@ -437,7 +479,7 @@ pub fn follow_gaps(
             next.set(slot);
             renderer.restack(stack, size)
         }
-        None => renderer.restack(stack(&cfg, faces), size),
+        None => renderer.restack(stack(&next), size),
     };
     if restacked.is_none() {
         // SAFETY: the stack made of `next`'s faces was dropped by the failed
@@ -553,17 +595,20 @@ enum Wanted {
 }
 
 /// Tell the core how wide the configured text is: whether a `U+FE0F` widens
-/// its base (`vs16_width`) and how many columns an East Asian Ambiguous
-/// character takes (`[text] ambiguous_width`). One function for both
-/// drivers, called after `Term::new` and before the first feed, so the grid
-/// never holds cells measured under two policies.
+/// its base (`vs16_width`), how many columns an East Asian Ambiguous
+/// character takes (`[text] ambiguous_width`) and whether a spacing mark
+/// takes one (`[text] join_spacing_marks`). One function for both drivers,
+/// called after `Term::new` and before the first feed, so the grid never
+/// holds cells measured under two policies.
 pub fn set_widths(
     term: &mut baud_core::Term<'_>,
     vs16: baud_domain::Vs16Width,
     ambiguous: baud_domain::AmbiguousWidth,
+    marks: baud_domain::SpacingMarks,
 ) {
     term.set_vs16_width(vs16);
     term.set_ambiguous_width(ambiguous);
+    term.set_spacing_marks(marks);
 }
 
 /// Tell the core whether a program's request for a screen checksum
@@ -843,10 +888,11 @@ mod tests {
     }
 
     /// **A font reload gives the last fonts back**: their file's mapping
-    /// unmapped and their parsed stack freed, once the renderer is
-    /// restacked on the new ones, and it draws from those exactly as a
-    /// renderer made on them does. A file that is not a font changes
-    /// nothing and gives back what it mapped.
+    /// unmapped and their parsed faces freed -- the config's, and the
+    /// stack's, which carries the embedded faces' narrower instances --
+    /// once the renderer is restacked on the new ones, and it draws from
+    /// those exactly as a renderer made on them does. A file that is not a
+    /// font changes nothing and gives back what it mapped.
     #[test]
     fn a_font_reload_gives_the_last_fonts_back() {
         use baud_domain::{Cols, Rows};
@@ -885,9 +931,9 @@ mod tests {
             },
             PxSize::of(26.0).unwrap(),
         );
-        let renderer = |cfg: &crate::config::Config, faces| {
+        let renderer = |fonts: &crate::fonts::Fonts| {
             Renderer::new(
-                super::stack(cfg, faces),
+                super::stack(fonts),
                 px,
                 Theme::dark(),
                 Blend::Native,
@@ -911,23 +957,23 @@ mod tests {
         let (data, mut held) = super::map_faces(&ca);
         let faces = super::parse_faces(&ca, &data, &mut held);
         let mut fonts = crate::fonts::Fonts::new(&ca, data, faces, held);
-        let mut r = renderer(&ca, faces);
+        let mut r = renderer(&fonts);
         let drawn_a = draw(&mut r);
         let given = super::refont(&mut r, &mut fonts, &cb, px).expect("b loads");
         assert_eq!(
             given,
             crate::pty::Released {
                 unmapped: 1,
-                freed: 1
+                freed: 2
             },
-            "a's file and its stack"
+            "a's file, its faces and its stack"
         );
         let drawn_b = draw(&mut r);
         let (data, mut held) = super::map_faces(&cb);
-        let fresh_b = draw(&mut renderer(
-            &cb,
-            super::parse_faces(&cb, &data, &mut held),
-        ));
+        let faces_b = super::parse_faces(&cb, &data, &mut held);
+        let fresh_b = draw(&mut renderer(&crate::fonts::Fonts::new(
+            &cb, data, faces_b, held,
+        )));
         assert!(drawn_b == fresh_b, "drawn from b's faces");
         assert!(drawn_b != drawn_a, "the control: a and b draw differently");
         let cc = {
@@ -965,9 +1011,9 @@ mod tests {
             ws_col: 8,
         };
         let px = PxSize::of(26.0).unwrap();
-        let renderer = |cfg: &crate::config::Config, faces| {
+        let renderer = |fonts: &crate::fonts::Fonts| {
             Renderer::new(
-                super::stack(cfg, faces),
+                super::stack(fonts),
                 px,
                 Theme::dark(),
                 Blend::Native,
@@ -1016,11 +1062,11 @@ mod tests {
         let (data, mut held) = super::map_faces(&cfg);
         let faces = super::parse_faces(&cfg, &data, &mut held);
         let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
-        let mut r = renderer(&cfg, faces);
+        let mut r = renderer(&fonts);
         let cp = |v| Codepoint::new(v).unwrap();
         let (a, alef, han, beh, beth) = (cp(0x61), cp(0x05D0), cp(0x6C38), cp(0x0628), cp(0x0712));
         let before = draw(&mut r, scene.as_bytes());
-        let stack = super::stack(&cfg, faces);
+        let stack = super::stack(&fonts);
         let kept = [a, alef, han].map(|c| stack.select(c));
         for c in [beh, beth] {
             assert!(
@@ -1038,8 +1084,8 @@ mod tests {
             .expect("the system's faces load");
         assert_eq!(
             (given.unmapped, given.freed),
-            (0, 1),
-            "the last stack's parsed faces freed, and its six system files kept: \
+            (0, 2),
+            "the last fonts' parsed faces and stack freed, and its six system files kept: \
              the new stack is made of them too, and a file is mapped once"
         );
         let after = draw(&mut r, scene.as_bytes());
@@ -1061,19 +1107,21 @@ mod tests {
         again.faces = fonts.faces().to_vec();
         let (data, mut held) = super::map_faces(&again);
         let loaded = super::parse_faces(&again, &data, &mut held);
-        let stack = super::stack(&again, loaded);
+        let again_fonts = crate::fonts::Fonts::new(&again, data, loaded, held);
+        let stack = super::stack(&again_fonts);
+        let place = super::places(&again_fonts);
         for c in [beh, beth] {
-            let ix = stack.select(c);
+            let ix = place[stack.select(c).index()];
             assert!(
-                loaded[ix.index()].glyph(c).is_some(),
+                loaded[ix].glyph(c).is_some(),
                 "U+{:04X} draws from a face that maps it",
                 c.value()
             );
             assert!(
-                added.iter().any(|f| f.path == again.faces[ix.index()].path),
+                added.iter().any(|f| f.path == again.faces[ix].path),
                 "U+{:04X} draws from {}, a system face added behind the chain",
                 c.value(),
-                again.faces[ix.index()].path
+                again.faces[ix].path
             );
         }
         assert_eq!(
@@ -1092,7 +1140,7 @@ mod tests {
                 f.path
             );
         }
-        let fresh = draw(&mut renderer(&again, loaded), scene.as_bytes());
+        let fresh = draw(&mut renderer(&again_fonts), scene.as_bytes());
         assert!(
             after == fresh,
             "drawn from the faces added, as a fresh stack draws them"
@@ -1161,7 +1209,7 @@ mod tests {
         let (data, mut held) = super::map_faces(&cfg);
         let faces = super::parse_faces(&cfg, &data, &mut held);
         let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
-        let mut r = make(super::stack(&cfg, faces));
+        let mut r = make(super::stack(&fonts));
         let embedded = draw(&mut r, b"Ag");
         let menlo = fonts
             .resolve(b"Menlo")
@@ -1199,22 +1247,30 @@ mod tests {
     fn the_default_stack_loads_the_embedded_faces() {
         use baud_render::FaceStyle;
         let mut cfg = crate::config::Config::defaults();
-        let faces = super::load_faces(&mut cfg);
+        let l = super::load_faces(&mut cfg);
+        let (faces, stack) = (l.faces, &l.stack);
         assert_eq!(faces.len(), cfg.faces.len());
-        let stack = super::stack(&cfg, faces);
         let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
         let folder = baud_domain::Codepoint::new(0xF07B).unwrap();
         // The badge's face last, behind the three styles.
         let n = faces.len() - 1;
-        assert_eq!(stack.badge().index(), n, "the badge's face");
+        assert_eq!(l.place[stack.badge().index()], n, "the badge's face");
         for (style, face) in [
             (FaceStyle::Regular, 0),
             (FaceStyle::Bold, n - 3),
             (FaceStyle::Italic, n - 2),
             (FaceStyle::BoldItalic, n - 1),
         ] {
-            assert_eq!(stack.select_styled(a, style).index(), face, "{style:?}");
-            assert_eq!(stack.select_styled(folder, style).index(), 1, "{style:?}");
+            assert_eq!(
+                l.place[stack.select_styled(a, style).index()],
+                face,
+                "{style:?}"
+            );
+            assert_eq!(
+                l.place[stack.select_styled(folder, style).index()],
+                1,
+                "{style:?}"
+            );
         }
     }
 
@@ -1240,9 +1296,9 @@ mod tests {
             let mut cfg = crate::config::Config::defaults();
             let said = cfg.apply(&text);
             assert!(said.is_empty(), "{said:?}");
-            let faces = super::load_faces(&mut cfg);
-            let stack = super::stack(&cfg, faces);
-            let ix = stack.badge().index();
+            let l = super::load_faces(&mut cfg);
+            let stack = &l.stack;
+            let ix = l.place[stack.badge().index()];
             assert_eq!(cfg.faces[ix].role, FaceRole::Badge, "{text:?}");
             assert!(
                 matches!(cfg.faces[ix].from,
@@ -1252,7 +1308,7 @@ mod tests {
             );
             for style in FaceStyle::ALL {
                 assert_ne!(
-                    stack.select_styled(a, style).index(),
+                    l.place[stack.select_styled(a, style).index()],
                     ix,
                     "{text:?} {style:?}"
                 );
@@ -1271,8 +1327,8 @@ mod tests {
     fn the_default_stack_draws_hebrew_from_the_embedded_font() {
         use baud_render::FaceStyle;
         let mut cfg = crate::config::Config::defaults();
-        let faces = super::load_faces(&mut cfg);
-        let stack = super::stack(&cfg, faces);
+        let l = super::load_faces(&mut cfg);
+        let (faces, stack) = (l.faces, &l.stack);
         // The badge's face last, behind the three styles.
         let n = faces.len() - 1;
         for cp in [0x05D0, 0x05E9, 0x05B0] {
@@ -1282,10 +1338,13 @@ mod tests {
                 "U+{cp:04X}: the embedded Regular, faces[0], does not map it, so it draws as \
                  the primary's .notdef box"
             );
-            assert_eq!(stack.select_styled(c, FaceStyle::Regular).index(), 0);
+            assert_eq!(
+                l.place[stack.select_styled(c, FaceStyle::Regular).index()],
+                0
+            );
             assert!(faces[n - 3].glyph(c).is_some(), "U+{cp:04X}: the Bold face");
             assert_eq!(
-                stack.select_styled(c, FaceStyle::Bold).index(),
+                l.place[stack.select_styled(c, FaceStyle::Bold).index()],
                 n - 3,
                 "U+{cp:04X}: bold Hebrew draws from the embedded Bold"
             );
@@ -1295,7 +1354,7 @@ mod tests {
                     "U+{cp:04X}, {style:?}: the embedded italic face"
                 );
                 assert_eq!(
-                    stack.select_styled(c, style).index(),
+                    l.place[stack.select_styled(c, style).index()],
                     ix,
                     "U+{cp:04X}, {style:?}: italic Hebrew draws from the embedded italic face, \
                      not upright from the embedded Regular"
@@ -1323,7 +1382,7 @@ mod tests {
             let mut cfg = crate::config::Config::defaults();
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
-            let loaded = super::load_faces(&mut cfg);
+            let l = super::load_faces(&mut cfg);
             // The chain; the family's styled faces beside the file follow
             // it, out of the chain.
             let chain = cfg
@@ -1333,12 +1392,16 @@ mod tests {
                 .count();
             assert_eq!(chain, faces, "{extra:?}");
             assert!(
-                loaded[0].glyph(alef).is_none(),
+                l.faces[0].glyph(alef).is_none(),
                 "the control: FiraCode has no Hebrew"
             );
-            let stack = super::stack(&cfg, loaded);
-            assert_eq!(stack.select(a).index(), 0, "{extra:?}: Latin stays");
-            assert_eq!(stack.select(alef).index(), alef_in, "{extra:?}");
+            let stack = &l.stack;
+            assert_eq!(
+                l.place[stack.select(a).index()],
+                0,
+                "{extra:?}: Latin stays"
+            );
+            assert_eq!(l.place[stack.select(alef).index()], alef_in, "{extra:?}");
             if alef_in != 0 {
                 assert!(
                     matches!(cfg.faces[alef_in].from,
@@ -1367,8 +1430,7 @@ mod tests {
         let mut cfg = crate::config::Config::defaults();
         let said = cfg.apply(&format!("fonts = [\"{font}\"]\n"));
         assert!(said.is_empty(), "{said:?}");
-        let loaded = super::load_faces(&mut cfg);
-        let stack = super::stack(&cfg, loaded);
+        let stack = super::load_faces(&mut cfg).stack;
         for (style, file) in [
             (FaceStyle::Bold, "JetBrainsMono-Bold.ttf"),
             (FaceStyle::Italic, "JetBrainsMono-Italic.ttf"),
@@ -1419,7 +1481,7 @@ mod tests {
             let mut cfg = crate::config::Config::defaults();
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
-            let loaded = super::load_faces(&mut cfg);
+            let l = super::load_faces(&mut cfg);
             // The chain; the family's styled faces beside the file follow
             // it, out of the chain.
             let chain = cfg
@@ -1429,12 +1491,16 @@ mod tests {
                 .count();
             assert_eq!(chain, faces, "{extra:?}");
             assert!(
-                loaded[0].glyph(folder).is_none(),
+                l.faces[0].glyph(folder).is_none(),
                 "the control: no icon in it"
             );
-            let stack = super::stack(&cfg, loaded);
-            assert_eq!(stack.select(a).index(), 0, "{extra:?}");
-            assert_eq!(stack.select(folder).index(), folder_in, "{extra:?}");
+            let stack = &l.stack;
+            assert_eq!(l.place[stack.select(a).index()], 0, "{extra:?}");
+            assert_eq!(
+                l.place[stack.select(folder).index()],
+                folder_in,
+                "{extra:?}"
+            );
         }
     }
 
@@ -1522,7 +1588,7 @@ mod tests {
             let mut cfg = crate::config::Config::defaults();
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
-            let loaded = super::load_faces(&mut cfg);
+            let l = super::load_faces(&mut cfg);
             // The chain; the family's styled faces beside the file follow
             // it, out of the chain.
             let chain = cfg
@@ -1533,37 +1599,60 @@ mod tests {
             assert_eq!(chain, faces, "{extra:?}");
             for c in [arrow, bullet] {
                 assert!(
-                    loaded[0].glyph(c).is_none(),
+                    l.faces[0].glyph(c).is_none(),
                     "the control: not in the named face"
                 );
             }
-            let stack = super::stack(&cfg, loaded);
-            assert_eq!(stack.select(arrow).index(), drawn_by, "{extra:?}");
-            assert_eq!(stack.select(bullet).index(), drawn_by, "{extra:?}");
+            let stack = &l.stack;
+            assert_eq!(l.place[stack.select(arrow).index()], drawn_by, "{extra:?}");
+            assert_eq!(l.place[stack.select(bullet).index()], drawn_by, "{extra:?}");
         }
     }
 
     /// **The configured widths reach the core.** After `set_widths`, `±`
     /// (East Asian Ambiguous) takes the configured columns, U+E0B0 (a
-    /// Nerd Fonts separator, private use) one under either, and a heart
-    /// with `U+FE0F` the configured `vs16_width`; `DECRQM ?1021` says which.
+    /// Nerd Fonts separator, private use) one under either, a heart with
+    /// `U+FE0F` the configured `vs16_width`, and कि one column more unless
+    /// spacing marks are joined; `DECRQM ?1021` says which.
     #[test]
     fn set_widths_reaches_the_core() {
-        use baud_domain::{AmbiguousWidth, Vs16Width};
+        use baud_domain::{AmbiguousWidth, SpacingMarks, Vs16Width};
         let ws = WinSize {
             ws_row: 4,
             ws_col: 20,
         };
-        for (vs16, ambiguous, cols, rqm) in [
-            (Vs16Width::Two, AmbiguousWidth::Narrow, 4, "2"),
-            (Vs16Width::Two, AmbiguousWidth::Wide, 5, "1"),
-            (Vs16Width::One, AmbiguousWidth::Wide, 4, "1"),
+        for (vs16, ambiguous, marks, cols, rqm) in [
+            (
+                Vs16Width::Two,
+                AmbiguousWidth::Narrow,
+                SpacingMarks::Column,
+                6,
+                "2",
+            ),
+            (
+                Vs16Width::Two,
+                AmbiguousWidth::Wide,
+                SpacingMarks::Column,
+                7,
+                "1",
+            ),
+            (
+                Vs16Width::One,
+                AmbiguousWidth::Wide,
+                SpacingMarks::Joined,
+                5,
+                "1",
+            ),
         ] {
             let mut s = Owned::new(&ws);
             let mut t = Term::new(s.storage(), &ws);
-            super::set_widths(&mut t, vs16, ambiguous);
-            feed(&mut t, "±\u{E0B0}\u{2764}\u{FE0F}".as_bytes());
-            assert_eq!(t.cursor().1.index(), cols, "{vs16:?} {ambiguous:?}");
+            super::set_widths(&mut t, vs16, ambiguous, marks);
+            feed(&mut t, "±\u{E0B0}\u{2764}\u{FE0F}कि".as_bytes());
+            assert_eq!(
+                t.cursor().1.index(),
+                cols,
+                "{vs16:?} {ambiguous:?} {marks:?}"
+            );
             feed(&mut t, b"\x1b[?1021$p");
             let want = format!("\x1b[?1021;{rqm}$y");
             assert_eq!(t.reply(), want.as_bytes(), "{ambiguous:?}");
@@ -2827,5 +2916,78 @@ mod tests {
         pump(&mut t, WALK);
         assert_eq!(t.images().refusals, baud_domain::ImageRefusals::NONE);
         assert_eq!(t.images().placements().count(), 1, "the last preview");
+    }
+
+    /// Whether `fvar` axis `tag` of the font in `data` is flagged hidden
+    /// (`HIDDEN_AXIS`, 0x0001), read from the file's own bytes: the table
+    /// directory, then the axis records.
+    fn axis_hidden(data: &[u8], tag: &[u8; 4]) -> Option<bool> {
+        let u16_at = |at: usize| Some(u16::from_be_bytes(data.get(at..at + 2)?.try_into().ok()?));
+        let u32_at = |at: usize| Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?));
+        let tables = usize::from(u16_at(4)?);
+        let fvar = (0..tables)
+            .map(|k| 12 + 16 * k)
+            .find(|&r| data.get(r..r + 4) == Some(b"fvar"))?;
+        let fvar = usize::try_from(u32_at(fvar + 8)?).ok()?;
+        let axes = fvar + usize::from(u16_at(fvar + 4)?);
+        let (count, size) = (
+            usize::from(u16_at(fvar + 8)?),
+            usize::from(u16_at(fvar + 10)?),
+        );
+        (0..count)
+            .map(|k| axes + size * k)
+            .find(|&a| data.get(a..a + 4) == Some(tag.as_slice()))
+            .and_then(|a| u16_at(a + 16))
+            .map(|flags| flags & 1 != 0)
+    }
+
+    /// **The stack a launch draws with narrows a Devanagari word on the
+    /// built faces' own width axis**, with no config and no font
+    /// installed: it leads with the embedded Regular, whose `wdth` axis
+    /// (62.5 to 100, Noto Sans Devanagari's) is flagged hidden, which keeps
+    /// it out of a font menu and nothing else, and it holds the Regular's
+    /// 15 narrower instances, 97.5 down to 62.5, and the Bold's. At the
+    /// narrowest, क takes less than at the default and Latin's M the same.
+    /// Perturbation: the stack made of the config's faces alone, with no
+    /// instance -- the count assertion fails, 0 against 15.
+    #[test]
+    fn the_launch_stack_narrows_devanagari_on_the_built_faces_width_axis() {
+        use baud_domain::Codepoint;
+        use baud_render::{FaceIx, FaceStyle};
+        let mut cfg = crate::config::Config::defaults();
+        crate::host::resolved(&mut cfg);
+        let (data, mut held) = crate::host::map_faces(&cfg);
+        assert!(
+            data[0] == crate::embedded::REGULAR.bytes,
+            "the default stack leads with the embedded Regular"
+        );
+        assert_eq!(
+            axis_hidden(data[0], b"wdth"),
+            Some(true),
+            "its wdth axis is flagged hidden"
+        );
+        let faces = crate::host::parse_faces(&cfg, &data, &mut held);
+        assert_eq!(
+            baud_render::narrower_widths(&faces[0], &cfg.faces[0].variations).len(),
+            15,
+            "read as a wdth axis all the same"
+        );
+        let fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
+        let stack = crate::host::stack(&fonts);
+        let ka = Codepoint::from_char('\u{915}');
+        let em = Codepoint::from_char('M');
+        let regular: Vec<FaceIx> = stack.narrower(FaceIx::PRIMARY).collect();
+        assert_eq!(regular.len(), 15, "the Regular's narrower instances");
+        let bold = stack.select_styled(ka, FaceStyle::Bold);
+        assert_ne!(bold, FaceIx::PRIMARY, "bold क is the Bold's");
+        assert_eq!(stack.narrower(bold).count(), 15, "the Bold's");
+        assert!(
+            regular.iter().all(|&ix| stack.is_styled(ix)),
+            "out of the chain"
+        );
+        let (plain, narrowest) = (stack.face(FaceIx::PRIMARY), stack.face(regular[14]));
+        let width = |f: &baud_font::Face<'_>, c| f.advance(f.glyph(c).unwrap()).unwrap().value();
+        assert!(width(narrowest, ka) < width(plain, ka), "क narrows");
+        assert_eq!(width(narrowest, em), width(plain, em), "M does not");
     }
 }

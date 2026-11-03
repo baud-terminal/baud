@@ -66,17 +66,22 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// (UAX #9 P2-P3, 2026-10-24): one row of cat-cjk and eleven of
 /// vim-unicode start with a right-to-left letter and are drawn right to
 /// left against the right edge; every other row's pixels are the old
-/// frame's.
+/// frame's. cat-cjk and vim-unicode moved when `?2027` became a switch
+/// reset at power-on (2026-11-02): a cell holds a legacy grapheme cluster,
+/// so the ा and ी of each देवनागरी and the त of each नमस्ते take a cell of
+/// their own, and each syllable they part is drawn across its cells. Both
+/// moved again when each Devanagari word came to be drawn whole, at its
+/// face's natural advances and centred in its columns (2026-11-02).
 const GOLDEN: [(&str, u64); 9] = [
     ("ascii/pipes.raw", 0x21596d79a8e28041),
     ("utf8/btop.raw", 0x448ea46ab364ba76),
     ("ascii/cat-scroll.raw", 0x1a613c1d646560b1),
     ("ascii/git-log.raw", 0x2303bd10c2107db7),
     ("ascii/less-pager.raw", 0x41e082191ab41018),
-    ("utf8/cat-cjk.raw", 0x848bd3c8e7cc5925),
+    ("utf8/cat-cjk.raw", 0x9f702748dce8d5a5),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
-    ("utf8/vim-unicode.raw", 0xcc9318f5d404150a),
+    ("utf8/vim-unicode.raw", 0x8396158a5cd4494a),
 ];
 
 #[test]

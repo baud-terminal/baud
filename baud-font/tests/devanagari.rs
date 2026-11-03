@@ -27,8 +27,8 @@ mod sha256;
 
 use baud_domain::{ClusterBreak, Codepoint, GlyphId};
 use baud_font::{
-    Cluster, Digest, Face, FaceIndex, Features, Glyph, Ignorable, MAX_LOOKUPS, Script, Shaper,
-    Unresolved, resolve,
+    Cluster, Digest, Face, FaceIndex, Features, Glyph, Ignorable, MAX_LOOKUPS, Pens, Script,
+    Shaper, Unresolved, resolve,
 };
 
 /// A code point index, hb-shape's cluster.
@@ -99,13 +99,13 @@ fn cells(cps: &[Codepoint]) -> Vec<core::ops::Range<usize>> {
 /// and with the digests a renderer keeps for the face (`Gsub::digests` of
 /// the joining features, as `baud-render` fills them), which must agree:
 /// the Indic stages run lookups those features do not name.
-fn shaped(face: &Face<'_>, cps: &[Codepoint]) -> Vec<(GlyphId, usize, i32, i32)> {
-    let plain = shaped_with(face, cps, &[]);
+fn shaped(face: &Face<'_>, cps: &[Codepoint], pens: Pens) -> Vec<(GlyphId, usize, i32, i32)> {
+    let plain = shaped_with(face, cps, &[], pens);
     let mut digests = vec![Digest::EMPTY; MAX_LOOKUPS];
     if let Some(gsub) = face.gsub() {
         gsub.digests(Features::JOINING, &mut digests);
     }
-    let accelerated = shaped_with(face, cps, &digests);
+    let accelerated = shaped_with(face, cps, &digests, pens);
     assert_eq!(
         plain, accelerated,
         "{cps:04X?}: the lookup digests change the shaping"
@@ -117,6 +117,7 @@ fn shaped_with(
     face: &Face<'_>,
     cps: &[Codepoint],
     digests: &[Digest],
+    pens: Pens,
 ) -> Vec<(GlyphId, usize, i32, i32)> {
     let cells = cells(cps);
     let unresolved: Vec<Unresolved> = cells
@@ -133,6 +134,9 @@ fn shaped_with(
     let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256];
     let mut shaper = Shaper::new(face, &mut storage);
     shaper.accelerate(digests);
+    if pens == Pens::Run {
+        shaper.lay_as_run();
+    }
     for (k, r) in cells.iter().enumerate() {
         shaper
             .push_cluster(&cps[r.clone()], Cluster(u16::try_from(k).unwrap()))
@@ -155,8 +159,9 @@ fn shaped_with(
 
 /// hb-shape's glyphs for `cps`, each named by the cell its cluster falls
 /// in and offset from that cell's left edge, the pen where its first glyph
-/// starts.
-fn expected(cps: &[Codepoint], body: &str) -> Vec<(GlyphId, usize, i32, i32)> {
+/// starts -- or, laid as a run ([`Pens::Run`]), from the run's start, the
+/// pen hb-shape's advances reach.
+fn expected(cps: &[Codepoint], body: &str, pens: Pens) -> Vec<(GlyphId, usize, i32, i32)> {
     let starts: Vec<usize> = cells(cps).iter().map(|r| r.start).collect();
     let cell_of = |c: CodeIndex| starts.iter().rposition(|&s| s <= c.0).unwrap();
     let hb = parse_positioned(body);
@@ -169,7 +174,10 @@ fn expected(cps: &[Codepoint], body: &str) -> Vec<(GlyphId, usize, i32, i32)> {
     let mut left = std::collections::BTreeMap::new();
     for &(_, cell, pen) in &placed {
         let l = left.entry(cell).or_insert(pen);
-        *l = (*l).min(pen);
+        *l = match pens {
+            Pens::Cell => (*l).min(pen),
+            Pens::Run => 0,
+        };
     }
     placed
         .iter()
@@ -216,7 +224,7 @@ fn face_file(path: &str) -> Option<Vec<u8>> {
     Some(std::fs::read(format!("{root}/{path}")).unwrap_or_else(|e| panic!("{path}: {e}")))
 }
 
-fn devanagari_lines() -> Reached {
+fn devanagari_lines(pens: Pens) -> Reached {
     let text = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/shape/devanagari.txt"
@@ -248,8 +256,8 @@ fn devanagari_lines() -> Reached {
             .split_whitespace()
             .map(|h| Codepoint::new(u32::from_str_radix(h, 16).unwrap()).unwrap())
             .collect();
-        let got = shaped(&face, &cps);
-        let want = expected(&cps, body);
+        let got = shaped(&face, &cps, pens);
+        let want = expected(&cps, body, pens);
         if got != want {
             mismatches.push(format!(
                 "{path} {cps:04X?}:\n  baud    {got:?}\n  hb-shape {want:?}"
@@ -285,7 +293,7 @@ fn devanagari_lines() -> Reached {
 /// among them.
 #[test]
 fn every_devanagari_fixture_shapes_as_harfbuzz_does() {
-    let r = devanagari_lines();
+    let r = devanagari_lines(Pens::Cell);
     eprintln!("{r:?}");
     for face in [
         "baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf",
@@ -298,6 +306,38 @@ fn every_devanagari_fixture_shapes_as_harfbuzz_does() {
     if cfg!(target_os = "macos") {
         assert!(r.lines_by_face.len() >= 5, "{r:?}");
         assert!(r.counts.1 >= 300 && r.counts.2 >= 40, "{r:?}");
+    }
+    if let Some(n) = r
+        .lines_by_face
+        .get("noto-cache/NotoSansDevanagari-Regular.ttf")
+    {
+        assert!(*n >= 390, "{n} Noto lines");
+    }
+}
+
+/// **Laid as a run, every line of `devanagari.txt` is where hb-shape put
+/// it**: each cluster's pen goes on from the one before ([`Pens::Run`]),
+/// so every glyph's offset from the line's start is the pen hb-shape's
+/// advances reach plus its own offset -- the natural advances a word
+/// drawn whole at them is laid at, its headline as continuous as the
+/// face's. The same lines and faces as the cell test, the built faces'
+/// and the control's on every platform; with the pen started again at
+/// each cell most lines differ (2401 of the 3192 on macOS), the premise
+/// that the test reads the run's pens.
+#[test]
+fn every_devanagari_fixture_laid_as_a_run_is_where_harfbuzz_puts_it() {
+    let r = devanagari_lines(Pens::Run);
+    eprintln!("{r:?}");
+    for face in [
+        "baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf",
+        "baud-app/fonts/built/Regular.ttf",
+        "baud-app/fonts/built/Bold.ttf",
+    ] {
+        let n = r.lines_by_face.get(face).copied().unwrap_or(0);
+        assert!(n >= 390, "{n} lines of {face}");
+    }
+    if cfg!(target_os = "macos") {
+        assert!(r.lines_by_face.len() >= 5, "{r:?}");
     }
     if let Some(n) = r
         .lines_by_face
@@ -675,7 +715,7 @@ fn the_built_regular_draws_noto_at_every_width() {
             assert_eq!(path(&a, n), path(&b, m), "{n:?} at {wdth:?}");
         }
         let noto_space = a.glyph(Codepoint::new(0x20).unwrap()).unwrap();
-        let (sa, sb) = (shaped(&a, &line), shaped(&b, &line));
+        let (sa, sb) = (shaped(&a, &line, Pens::Cell), shaped(&b, &line, Pens::Cell));
         assert_eq!(sa.len(), sb.len(), "at {wdth:?}");
         for (x, y) in sa.iter().zip(&sb) {
             let want = if x.0 == noto_space {
@@ -692,4 +732,86 @@ fn the_built_regular_draws_noto_at_every_width() {
 /// The file's SHA-256, hex.
 fn sha256_of(data: &[u8]) -> String {
     sha256::sha256_hex(data)
+}
+
+/// Each line of `devanagari-wdth.txt` -- Noto Sans Devanagari's variable
+/// file at a narrower `wdth`, as hb-shape shaped it -- shaped at those
+/// coordinates and laid as `pens` says, against hb-shape: the lines
+/// compared, or `None` where the README's cache does not hold the file.
+fn narrowed_lines(pens: Pens) -> Option<usize> {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/shape/devanagari-wdth.txt"
+    ))
+    .unwrap();
+    let mut data: Option<Option<Vec<u8>>> = None;
+    let mut mismatches = Vec::new();
+    let mut compared = 0usize;
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+    {
+        let f: Vec<&str> = line.split('\t').collect();
+        let (path, index, digest, variations, cps, body) = (f[0], f[1], f[2], f[4], f[5], f[6]);
+        let bytes = data.get_or_insert_with(|| {
+            let d = face_file(path)?;
+            assert_eq!(
+                fnv64(&d),
+                digest,
+                "{path} is not the file the fixtures were shaped with"
+            );
+            Some(d)
+        });
+        let Some(bytes) = bytes else {
+            return None;
+        };
+        let mut face = Face::parse_index(bytes, FaceIndex::of(index.parse().unwrap())).unwrap();
+        let settings: Vec<baud_font::var::Variation> = variations
+            .split(',')
+            .map(|v| {
+                let (tag, value) = v.split_once('=').unwrap();
+                baud_font::var::Variation {
+                    tag: baud_font::Tag::from_bytes(tag.as_bytes().try_into().unwrap()),
+                    value: baud_font::var::Fixed::from_f32(value.parse().unwrap()),
+                }
+            })
+            .collect();
+        face.set_variations(&settings);
+        let cps: Vec<Codepoint> = cps
+            .split_whitespace()
+            .map(|h| Codepoint::new(u32::from_str_radix(h, 16).unwrap()).unwrap())
+            .collect();
+        let got = shaped(&face, &cps, pens);
+        let want = expected(&cps, body, pens);
+        if got != want {
+            mismatches.push(format!(
+                "{variations} {cps:04X?}:\n  baud    {got:?}\n  hb-shape {want:?}"
+            ));
+            continue;
+        }
+        compared += 1;
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} of devanagari-wdth.txt's lines differ:\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
+    );
+    Some(compared)
+}
+
+/// **Narrowed on its `wdth` axis, Noto Sans Devanagari shapes as hb-shape
+/// shapes it**, cell by cell and laid as a run: every Noto line of
+/// `devanagari.txt` at `wdth` 81.25 and at 62.5, the narrowest a word too
+/// wide for its columns is drawn at, its advances read through `HVAR` and
+/// its anchors through `GDEF`'s variation store. Where the cache does not
+/// hold the variable file, skipped.
+#[test]
+fn narrowed_noto_shapes_as_harfbuzz_does() {
+    for pens in [Pens::Cell, Pens::Run] {
+        match narrowed_lines(pens) {
+            Some(n) => assert!(n >= 790, "{pens:?}: {n} lines"),
+            None => eprintln!("the variable file is not in the cache: skipped"),
+        }
+    }
 }

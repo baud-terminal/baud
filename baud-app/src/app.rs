@@ -845,6 +845,9 @@ struct Boot {
     /// How many columns an ambiguous character takes, from `[text]
     /// ambiguous_width`.
     ambiguous_width: baud_domain::AmbiguousWidth,
+    /// Whether a spacing mark takes a column, from `[text]
+    /// join_spacing_marks`.
+    join_spacing_marks: baud_domain::SpacingMarks,
     /// `[clipboard]`.
     clipboard: crate::config::Clipboard,
     /// What a `BEL` does in a focused window, from `bell`.
@@ -945,7 +948,7 @@ impl Boot {
         // (`Renderer::fit`) once the grid is known, and the cell metrics --
         // what the grid is computed from -- do not depend on it.
         let mut renderer = Renderer::new(
-            crate::host::stack(&cfg, faces),
+            crate::host::stack(&fonts),
             PxSize::of(cfg.font_size * scale as f32).expect("size"),
             theme,
             Blend::Native,
@@ -999,6 +1002,7 @@ impl Boot {
             graphics_print: cfg.graphics_print,
             pointer_mode: cfg.pointer_mode,
             ambiguous_width: cfg.ambiguous_width,
+            join_spacing_marks: cfg.join_spacing_marks,
             clipboard: cfg.clipboard,
             bell: cfg.bell,
             notice,
@@ -1131,6 +1135,7 @@ impl App {
             graphics_print,
             pointer_mode,
             ambiguous_width,
+            join_spacing_marks,
             clipboard,
             bell: bell_style,
             // `run` takes both off `boot` for the driver.
@@ -1312,7 +1317,7 @@ impl App {
         // `OSC 1337 ; ReportCellSize` answers in points: the cell over this.
         term.set_backing_scale(baud_domain::BackingScale::of(scale));
         term.set_sixel_claim(sixel);
-        crate::host::set_widths(&mut term, vs16_width, ambiguous_width);
+        crate::host::set_widths(&mut term, vs16_width, ambiguous_width, join_spacing_marks);
         crate::host::set_checksum(&mut term, checksum);
         crate::host::set_up(&mut term, set_up);
         crate::host::set_substitute(&mut term, substitute);
@@ -1867,6 +1872,7 @@ impl App {
                         rotation: RowRot::NONE,
                         ring: b.ring,
                         cursor: None,
+                        cursor_drawn: cell.exceptions.cursor_drawn(),
                         highlight: b.highlight,
                         overlay: &cell.overlay[set],
                         records: &records,
@@ -2667,6 +2673,7 @@ impl App {
                     // One more row when sliding: the appended leaving row.
                     ring: Rows::of_index(vrows + lined + noticed + usize::from(sliding)),
                     cursor,
+                    cursor_drawn: cell.exceptions.cursor_drawn(),
                     highlight,
                     overlay: &cell.overlay[set],
                     records: &cell.records,
@@ -13148,6 +13155,7 @@ impl Driver {
                     }
                 }
                 Part::AmbiguousWidth => self.app.term.set_ambiguous_width(c.ambiguous_width),
+                Part::SpacingMarks => self.app.term.set_spacing_marks(c.join_spacing_marks),
                 Part::Scroll => self.app.scroll = c.scroll,
                 Part::Transition => self.app.screen_transition = c.screen_transition,
                 Part::Trail => {

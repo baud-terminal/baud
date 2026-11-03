@@ -496,7 +496,7 @@ pub fn run() {
     let theme = crate::palette::half_theme(half, &cfg.glass, cfg.floor, &halves);
     let margin = theme.bg.with_alpha(theme.bg_alpha);
     let mut renderer = Renderer::new(
-        crate::host::stack(&cfg, faces),
+        crate::host::stack(&fonts),
         PxSize::of(cfg.font_size).expect("size"),
         theme,
         Blend::Native,
@@ -1882,6 +1882,7 @@ impl Driver {
                     self.clipboard.copy_on_select = c.clipboard.copy_on_select;
                 }
                 Part::AmbiguousWidth => self.term.set_ambiguous_width(c.ambiguous_width),
+                Part::SpacingMarks => self.term.set_spacing_marks(c.join_spacing_marks),
                 Part::Splash => {
                     let setting = crate::splash::splash_override(
                         std::env::var("BAUD_SPLASH").ok().as_deref(),

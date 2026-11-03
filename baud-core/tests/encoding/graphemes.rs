@@ -242,11 +242,16 @@ fn a_leading_mark_has_no_base_and_is_counted() {
 // ── one cluster, one cell ───────────────────────────────────────────────────
 
 fn columns(s: &str) -> usize {
+    columns_after(b"", s)
+}
+
+/// The columns `s` takes once `setup` has been fed.
+fn columns_after(setup: &[u8], s: &str) -> usize {
     let ws = support::CORPUS;
     let mut st = Owned::new(&ws);
     let mut t = Term::new(st.storage(), &ws);
-    let bytes = s.as_bytes();
-    support::feed(&mut t, bytes);
+    support::feed(&mut t, setup);
+    support::feed(&mut t, s.as_bytes());
     t.cursor().1.index()
 }
 
@@ -277,10 +282,17 @@ fn a_flag_is_one_cluster() {
     );
 }
 
-/// An Indic conjunct stays whole (GB9c).
+/// An Indic conjunct stays whole (GB9c) while `?2027` is set, one cell;
+/// reset, its legacy clusters take a column each, as glibc counts them
+/// (`tests/syllable_columns.rs`).
 #[test]
 fn an_indic_conjunct_is_one_cluster() {
-    assert_eq!(columns("\u{915}\u{94d}\u{937}"), 1, "ka + virama + ssa");
+    assert_eq!(
+        columns_after(b"\x1b[?2027h", "\u{915}\u{94d}\u{937}"),
+        1,
+        "ka + virama + ssa"
+    );
+    assert_eq!(columns("\u{915}\u{94d}\u{937}"), 2, "ka + virama, ssa");
 }
 
 /// Clusters do not run together across unrelated text.
@@ -431,13 +443,10 @@ enum Why {
 /// passing fails this pin as surely as a new one failing does: the list moves
 /// when the departure does.
 const KNOWN: &[(usize, &[Before], Why)] = &[
-    // `06DD 0020`: alone the Prepend is dropped at column 0 and the space
-    // takes the cell the policy gives it; after a letter it is not.
-    (
-        365,
-        &[Before::TwoLetters, Before::ThreeLetters],
-        Why::AsciiAfterPrepend,
-    ),
+    // `06DD 0020`: U+06DD ARABIC END OF AYAH is a Prepended_Concatenation_Mark,
+    // a column of its own since 2026-11-02, so alone at column 0 it takes a
+    // cell as after a letter, and the space after it one more.
+    (365, &Before::ALL, Why::AsciiAfterPrepend),
     // `0061 0600 0062`, the file's own GB9b case.
     (764, &Before::ALL, Why::AsciiAfterPrepend),
 ];
@@ -445,21 +454,22 @@ const KNOWN: &[(usize, &[Before], Why)] = &[
 /// **Lines whose standard clustering starts a cluster with a zero-width
 /// codepoint**, which this core's cell model cannot give a cell of its own.
 ///
-/// Alone, that is every line that begins with a mark, a joiner or a Prepend,
-/// and every line with a Prepend after its first codepoint; after an ASCII
-/// letter only the Prepends are left, because GB9 joins the rest to it. And
-/// in both, every line where one follows a control, after which GB4 starts
-/// a cluster whatever comes: the even lines 28-140, a control then `U+0308`,
-/// and a control then a mark, a joiner or a Prepend, 33-40 and 43 after CR,
-/// 71-78 and 81 after LF, 109-116 and 119 after NUL; and 749, which ends
-/// `LF U+0308`. Alone, the lines that begin with a mark, a joiner or a
-/// Prepend and then hold a control join the rest: 141-146 and the like
-/// inside 140-292, and 331-336.
+/// Alone, that is every line that begins with a mark or a joiner; after an
+/// ASCII letter none are left, because GB9 joins them to it. And in both,
+/// every line where one follows a control, after which GB4 starts a cluster
+/// whatever comes: the even lines 28-140, a control then `U+0308`, and a
+/// control then a mark or a joiner, 33-40 after CR, 71-78 after LF, 109-116
+/// after NUL; and 749, which ends `LF U+0308`. Alone, the lines that begin
+/// with a mark or a joiner and then hold a control join the rest: 141-146
+/// and the like inside 140-292. The suite's Prepends, U+0600 and U+06DD,
+/// are Prepended_Concatenation_Marks, a column each since 2026-11-02, so no
+/// line starts a cluster with a zero-width Prepend any more.
 const ZERO_WIDTH_STARTS_ALONE: &[(usize, usize)] = &[
     (28, 28),
     (30, 30),
     (32, 40),
-    (42, 44),
+    (42, 42),
+    (44, 44),
     (46, 46),
     (48, 48),
     (50, 50),
@@ -473,7 +483,8 @@ const ZERO_WIDTH_STARTS_ALONE: &[(usize, usize)] = &[
     (66, 66),
     (68, 68),
     (70, 78),
-    (80, 82),
+    (80, 80),
+    (82, 82),
     (84, 84),
     (86, 86),
     (88, 88),
@@ -487,7 +498,8 @@ const ZERO_WIDTH_STARTS_ALONE: &[(usize, usize)] = &[
     (104, 104),
     (106, 106),
     (108, 116),
-    (118, 120),
+    (118, 118),
+    (120, 120),
     (122, 122),
     (124, 124),
     (126, 126),
@@ -498,26 +510,14 @@ const ZERO_WIDTH_STARTS_ALONE: &[(usize, usize)] = &[
     (136, 136),
     (138, 138),
     (140, 292),
-    (309, 310),
-    (331, 368),
-    (385, 386),
-    (423, 424),
-    (461, 462),
-    (499, 500),
-    (537, 538),
-    (575, 576),
-    (613, 614),
-    (651, 652),
-    (689, 690),
-    (727, 728),
     (749, 749),
-    (764, 764),
 ];
 const ZERO_WIDTH_STARTS_AFTER_LETTERS: &[(usize, usize)] = &[
     (28, 28),
     (30, 30),
     (32, 40),
-    (42, 44),
+    (42, 42),
+    (44, 44),
     (46, 46),
     (48, 48),
     (50, 50),
@@ -531,7 +531,8 @@ const ZERO_WIDTH_STARTS_AFTER_LETTERS: &[(usize, usize)] = &[
     (66, 66),
     (68, 68),
     (70, 78),
-    (80, 82),
+    (80, 80),
+    (82, 82),
     (84, 84),
     (86, 86),
     (88, 88),
@@ -545,7 +546,8 @@ const ZERO_WIDTH_STARTS_AFTER_LETTERS: &[(usize, usize)] = &[
     (104, 104),
     (106, 106),
     (108, 116),
-    (118, 120),
+    (118, 118),
+    (120, 120),
     (122, 122),
     (124, 124),
     (126, 126),
@@ -556,24 +558,7 @@ const ZERO_WIDTH_STARTS_AFTER_LETTERS: &[(usize, usize)] = &[
     (136, 136),
     (138, 138),
     (140, 140),
-    (157, 158),
-    (195, 196),
-    (233, 234),
-    (271, 272),
-    (309, 310),
-    (331, 368),
-    (385, 386),
-    (423, 424),
-    (461, 462),
-    (499, 500),
-    (537, 538),
-    (575, 576),
-    (613, 614),
-    (651, 652),
-    (689, 690),
-    (727, 728),
     (749, 749),
-    (764, 764),
 ];
 
 /// Wide enough that no line of the suite wraps, and deep enough that none
@@ -776,8 +761,29 @@ fn policy_screen(clusters: &[Vec<Codepoint>]) -> (Vec<Vec<Column>>, (Row, Col)) 
 /// Every row, the cursor and `marks_dropped` after feeding `bytes` in reads
 /// of at most `read`.
 fn through_term(bytes: &[u8], read: ReadLen) -> (Vec<Vec<Column>>, (Row, Col), usize) {
+    through_term_in(Cells::Extended, bytes, read)
+}
+
+/// Which clusters a cell holds while a test feeds it: `?2027` set, the
+/// extended ones `[[source: gbtest]]` lists, or reset, the legacy ones.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cells {
+    Extended,
+    Legacy,
+}
+
+/// [`through_term`] under `cells`: `?2027` set first for the extended
+/// clusters, a control the machine starts again after.
+fn through_term_in(
+    cells: Cells,
+    bytes: &[u8],
+    read: ReadLen,
+) -> (Vec<Vec<Column>>, (Row, Col), usize) {
     let mut owned = Owned::new(&SUITE_WS);
     let mut t = Term::new(owned.storage(), &SUITE_WS);
+    if cells == Cells::Extended {
+        support::feed(&mut t, b"\x1b[?2027h");
+    }
     for piece in bytes.chunks(read.index()) {
         t.write_at(BytePos::ZERO, piece);
         t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
@@ -994,6 +1000,83 @@ fn every_line_of_the_suite_clusters_through_the_terminal() {
         spread(ZERO_WIDTH_STARTS_AFTER_LETTERS),
         "the lines starting a cluster with a zero-width codepoint, after a letter"
     );
+}
+
+/// [`standard_clusters`] by the legacy rules instead: `[[source: uax29]]`'s
+/// "legacy grapheme cluster", the extended rules without GB9a, GB9b and
+/// GB9c, walked by `ClusterRules::is_break_in` from the start of text over
+/// the letters before the line and the line, and baud's one tailoring of
+/// them: a spacing mark UAX #29 classes Extend (`baud_domain::is_spacing_extend`)
+/// starts a cluster of its own, the rules started again at it.
+fn legacy_clusters(before: Before, c: &Case) -> Vec<Vec<Codepoint>> {
+    let mut rules = baud_domain::ClusterRules::new();
+    let mut out: Vec<Vec<Codepoint>> = Vec::new();
+    let all = before
+        .letters()
+        .chars()
+        .map(u32::from)
+        .chain(c.cps.iter().copied());
+    for v in all {
+        let cp = Codepoint::new(v).expect("the suite names scalar values");
+        let (class, lb) = GraphemeClass::of_with_lookback(cp);
+        let mut brk = rules.is_break_in(baud_domain::ClusterCells::Legacy, class, lb);
+        if !brk && class == GraphemeClass::Extend && baud_domain::is_spacing_extend(cp) {
+            rules = baud_domain::ClusterRules::new();
+            brk = rules.is_break_in(baud_domain::ClusterCells::Legacy, class, lb);
+        }
+        match out.last_mut() {
+            Some(k) if !brk => k.push(cp),
+            _ => out.push(vec![cp]),
+        }
+    }
+    out
+}
+
+/// **While `?2027` is reset every line of the suite parts as the legacy
+/// rules say**: one cell a legacy cluster, through the same policy and at
+/// every read size, so a spacing mark, a consonant after a virama and a
+/// character after a Prepend each take a cell. GB9b's departure for ASCII
+/// after a Prepend, pinned for the extended clusters above, is none here:
+/// the legacy rules break there too.
+#[test]
+fn every_line_of_the_suite_parts_as_the_legacy_rules_say() {
+    let mut wrong = Vec::new();
+    let mut parted = 0usize;
+    for before in Before::ALL {
+        for c in &cases() {
+            let clusters = legacy_clusters(before, c);
+            if clusters != standard_clusters(before, c) {
+                parted += 1;
+            }
+            let (want, at) = policy_screen(&clusters);
+            let bytes: Vec<u8> = clusters
+                .iter()
+                .flatten()
+                .map(|cp| char::from_u32(cp.value()).expect("a scalar value"))
+                .collect::<String>()
+                .into_bytes();
+            for read in 1..=bytes.len() {
+                let (screen, cursor, _) =
+                    through_term_in(Cells::Legacy, &bytes, ReadLen::from_index(read));
+                if screen != want || cursor != at {
+                    wrong.push(format!(
+                        "line {} {before:?}, read {read}: {:04X?}",
+                        c.line, c.cps
+                    ));
+                    break;
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} line-and-prefix pairs render other than the legacy clusters:\n  {}",
+        wrong.len(),
+        wrong.join("\n  ")
+    );
+    // A positive control: the legacy rules part some lines, so the two
+    // tests do not compare the same clusters.
+    assert!(parted > 100, "only {parted} lines part");
 }
 
 /// **A continuation with a width joins the ASCII letter before it**, by

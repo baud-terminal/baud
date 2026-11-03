@@ -3,8 +3,10 @@
 //! A text-default emoji followed by `U+FE0F` asks for emoji presentation, and
 //! baud draws it two cells wide -- the width tmux 3.6+, fish, macOS bash and
 //! readline, helix, lipgloss and Rich 14.3+ assume, and the one kitty, foot,
-//! ghostty, contour and Windows Terminal draw. `?2027` answers 3 (permanently
-//! set) and is true. The research is note Z's VS16 section.
+//! ghostty, contour and Windows Terminal draw. With [`Vs16Width::Two`], the
+//! default, a `U+FE0F` widens its base whichever state `?2027` is in;
+//! `DECRQM ?2027` answers the mode, `1` or `2`. The research is note Z's VS16
+//! section.
 //!
 //! Only the bases `[[source: emoji-variation-sequences]]` lists with an
 //! "emoji style" sequence widen, as ghostty, foot and kitty do: `A U+FE0F` is
@@ -16,7 +18,7 @@
 //! `BASES` is generated from the pinned file and
 //! `the_vs16_bases_are_the_pinned_files_emoji_style_sequences` holds it to it.
 
-use crate::Codepoint;
+use crate::{ClusterCells, Codepoint};
 
 /// Every base with an emoji-style variation sequence, keycaps excluded,
 /// sorted for a binary search: a lookup runs once per `U+FE0F`, never per byte.
@@ -187,19 +189,33 @@ pub fn presents_as_emoji(cp: Codepoint) -> bool {
 }
 
 /// What a `U+FE0F` after a listed base does to its width: the embedder's
-/// power-on choice, which `DECRQM ?2027` reports permanently.
+/// power-on choice.
 ///
 /// `Two` is the default, the width the programs named at the top of this
 /// module assume. `One` is the escape hatch for a session whose programs
 /// all measure with a legacy `wcwidth` -- zsh prompts
 /// outside tmux, glibc readline, prompt_toolkit -- the way ghostty's
 /// `grapheme-width-method = legacy` is: a configuration, not a mode an
-/// application can flip, because bubbletea v2 resets `?2027` on exit behind
-/// the shell and a resettable answer would leave the shell's terminal at the
-/// width the shell does not expect.
+/// application can flip. It holds while `?2027` is reset, the state at
+/// power-on and after both resets, where such a shell runs; a program that
+/// sets the mode is owed its VS16 rule ([`Vs16Width::widens_in`]), and its
+/// `?2027l` on exit, as bubbletea v2 sends behind the shell, returns the
+/// terminal to the shell's width.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum Vs16Width {
     #[default]
     Two,
     One,
+}
+
+impl Vs16Width {
+    /// **Whether a `U+FE0F` after a listed base widens it** in the cells
+    /// `cells` in force: always with `Two`, and with `One` while `?2027` is
+    /// set ([`ClusterCells::Extended`]), where the mode 2027 draft's VS16
+    /// rule "will force the grapheme cluster's width to be 2" and its
+    /// semantics "MUST be adhered to if this VT mode 2027 is enabled"
+    /// (`[[source: mode2027]]`).
+    pub fn widens_in(self, cells: ClusterCells) -> bool {
+        self == Vs16Width::Two || cells == ClusterCells::Extended
+    }
 }

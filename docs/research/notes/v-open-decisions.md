@@ -2444,7 +2444,8 @@ sets it. What changes is only what a program is told if it asks.
     compatibility tracking since 2026-10-09, and DECRQM answers it from the
     tracking level (`decrqm_answers_every_mouse_mode`); `?1047` and `?1048`
     still answer 0. And something answers 4: `?2027` with VS16 configured to
-    one cell (`one_cell_is_a_configuration_and_decrqm_reports_it`).
+    one cell, until `?2027` became a switch on 2026-11-02
+    (`one_cell_holds_while_the_mode_is_reset`).
 
 **What others do**
 
@@ -2487,7 +2488,8 @@ sets it. What changes is only what a program is told if it asks.
 - **C. Withdraw, and answer 4** (foot's answer). S. A one-off: nothing else in
   baud answers 4.
   - *Corrected 2026-10-10:* not a one-off: `?2027` with VS16 configured to
-    one cell answers 4 (the correction to **Today**'s DECRQM bullet).
+    one cell answers 4 (the correction to **Today**'s DECRQM bullet), until
+    `?2027` became a switch on 2026-11-02.
 - **D. Withdraw, and answer 0** (the house convention). S, and consistent with
   every other mode baud counts and refuses.
 - **E. The embedder-claim pattern, as `set_sixel_claim` does.** Keep the flag
@@ -3400,8 +3402,9 @@ The claim:
   `PrivateMode::GraphemeClustering => ModeState::PermanentlySet`
   (`baud-core/src/ops.rs`, line 1567); the doc at `baud-domain/src/vt/mode.rs`
   lines 302-304 says "baud always clusters".
-- `decrqm_reports_grapheme_clustering_as_permanent` in
-  `baud-core/tests/encoding/width.rs` pins the 3. `docs/vt-coverage.md` lines
+- A test in `baud-core/tests/encoding/width.rs` pinned the 3, which
+  `decrqm_reports_grapheme_cluster_mode_reset_at_power_on` replaced on
+  2026-11-02. `docs/vt-coverage.md` lines
   219 and 359 record it as done.
 - `?2027h` and `?2027l` are counted in `unsupported_param` (ops.rs:1109), not
   silently dropped.
@@ -4308,7 +4311,9 @@ the other state.
     does not zero it.
   - ?2027 answers 3, "permanently set". But `?2027h` and `?2027l` both still
     fall to `unsupported_param`, so it is *not* a precedent for splitting
-    refused from accepted requests.
+    refused from accepted requests. *Superseded 2026-11-02:* `?2027` is a
+    switch, reset at power-on, so baud claims mode 2027's rules only while a
+    program sets it; `?2027h` and `?2027l` set and reset it.
 - `docs/vt-coverage.md` has no row for any of the three.
 - None of the 21 recordings sends any of the three, in either direction. The
   reviewer grepped them, with `?1049` in btop as the positive control (a

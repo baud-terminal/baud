@@ -340,6 +340,14 @@ impl Paint<'_, '_> {
             let home = self.cx.col();
             self.set_col(CursorCol::moved(m.data(home)));
         }
+        // **Past column 0 the cluster machine is told a control went past**,
+        // as `return_fenced` tells it: `CR` leads to the ground because at
+        // column 0 a write restarts the machine itself, and under DECRLM the
+        // home is the right margin, where a mark after `CR LF` in one read
+        // joined the cluster before the return and, in two, took a cell.
+        if self.cx.col() != Col::ZERO {
+            self.cluster = baud_domain::ClusterBreak::after_control();
+        }
     }
 
     /// The cursor at the column `CR` chooses, before any map: the line's

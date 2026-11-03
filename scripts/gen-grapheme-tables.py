@@ -226,6 +226,25 @@ parts.append(as_bytestring(
 # class trie, exactly rather than as a 32-codepoint superset, so there is
 # nothing left for a separate probe to answer.
 
+# General category Mc that UAX #29 classes Extend: spacing marks with a
+# positive advance (UAX #44) that GB9 joins in both variants.
+mc = parse("unicode-derivedgeneralcategory.txt", ["Mc"])["Mc"]
+extend = set()
+for lo, hi in gbp["Extend"]:
+    extend.update(range(lo, hi + 1))
+spacing_extend = [(c, c) for lo, hi in mc for c in range(lo, hi + 1) if c in extend]
+parts.append(emit_ranges(
+    "SPACING_EXTEND", spacing_extend,
+    "\n".join([
+        "/// **The spacing marks UAX #29 classes Extend**: general category `Mc`",
+        "/// (`[[source: gc-data]]`) and",
+        "/// Grapheme_Cluster_Break `Extend` (`[[source: gbp-data]]`), such as",
+        "/// U+09BE BENGALI VOWEL SIGN AA and U+0BBE TAMIL VOWEL SIGN AA, which GB9",
+        "/// joins in both of `[[source: uax29]]`'s variants and which take a",
+        "/// column while `?2027` is reset (`ClusterBreak::parts_at`). Sorted, for",
+        "/// a binary search on the cold side of a join.",
+    ])))
+
 
 out = "\n\n".join(parts) + "\n"
 target = pathlib.Path("baud-domain/src/grapheme_data.rs")

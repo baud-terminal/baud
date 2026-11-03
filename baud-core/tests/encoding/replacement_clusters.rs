@@ -262,8 +262,8 @@ fn a_replacement_for_ill_formed_bytes_clusters_as_a_literal_one() {
 /// what holds the ground after a control to telling the cluster machine a
 /// control went past before it writes the substitute.
 ///
-/// A Prepend joins the cell before it (note AB's open GB9b departure), so
-/// U+0600 is on the `a`.
+/// U+0600 ARABIC NUMBER SIGN is a Prepended_Concatenation_Mark, a column
+/// of its own since 2026-11-02, so it takes the cell after the `a`.
 #[test]
 fn a_control_ends_the_cluster_before_a_replacement_for_ill_formed_bytes() {
     let mut checked = 0usize;
@@ -289,8 +289,9 @@ fn a_control_ends_the_cluster_before_a_replacement_for_ill_formed_bytes() {
                         .collect();
                     let got = seen(&bytes, &at, amb);
                     let what = format!("{gname} {amb:?}: a U+0600 {control:02X?} {bn} Z, {cut}");
-                    let fffd = 1 + skip;
-                    assert_eq!(got.0[0], "61+600", "{what}");
+                    let fffd = 2 + skip;
+                    assert_eq!(got.0[0], "61", "{what}");
+                    assert_eq!(got.0[1], "600", "{what}");
                     assert_eq!(
                         got.0[fffd], "FFFD",
                         "{what}: the U+FFFD in a cell of its own"

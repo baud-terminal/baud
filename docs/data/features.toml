@@ -636,7 +636,7 @@ area = "text"
 name = "Hindi and Devanagari shaped"
 does = "Hindi and the other languages written in Devanagari draw from the built-in font, with nothing to install and the same glyphs on macOS and Linux, bold text in bold, as the script is written: the vowel sign ि before the consonant it follows in the text, conjuncts such as क्ष, त्र and ज्ञ as one shape, half forms, reph over the consonant after it, and the nukta letters, glyph for glyph as HarfBuzz shapes them, in the built-in font, which carries Noto Sans Devanagari, and in the Mac's Kohinoor Devanagari, ITF Devanagari, Shree Devanagari 714 and Arial Unicode MS."
 status = "partial"
-gap = "a syllable takes one cell and is drawn at its font's size, so one wider than its cell, such as ग्रि, overlaps the cell after it; Devanagari MT and Devanagari Sangam MN, which HarfBuzz shapes through their morx tables, do not draw glyph for glyph as it does; a language's own forms, such as Marathi's or Nepali's, are not chosen; italic text draws Devanagari upright; the comparison with HarfBuzz runs on every system for the built-in font and on macOS for the Mac's faces; Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada and Malayalam stay together in their cells but are not shaped yet."
+gap = "a syllable a line wraps inside is drawn as two halves, the half on the next line on a dotted circle, and on a line a program has set to run right to left its letters are drawn each alone; on a double-width or double-height line a syllable is centred but not shrunk, and one an input method is composing there is drawn in pieces; Devanagari MT and Devanagari Sangam MN, which HarfBuzz shapes through their morx tables, do not draw glyph for glyph as it does; a language's own forms, such as Marathi's or Nepali's, are not chosen; italic text draws Devanagari upright; the comparison with HarfBuzz runs on every system for the built-in font and on macOS for the Mac's faces; Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada and Malayalam stay together in their cells but are not shaped yet."
 platform = "both"
 tests = ["baud-font/tests/devanagari.rs::every_devanagari_fixture_shapes_as_harfbuzz_does", "baud-font/tests/devanagari.rs::the_built_regular_shapes_devanagari_as_noto_does", "baud-app/src/embedded.rs::every_style_maps_the_devanagari_it_ships", "baud-app/src/config.rs::the_default_stack_draws_devanagari_from_the_embedded_regular", "baud-render/tests/devanagari_runs.rs::the_readme_line_draws_the_same_pixels_on_every_system"]
 
@@ -842,6 +842,27 @@ does = "Chinese, Japanese and Korean take two columns and marks take none, with 
 status = "built"
 platform = "both"
 tests = ["baud-core/tests/encoding/width.rs::wide_and_fullwidth_are_two_columns", "baud-core/tests/encoding/width.rs::width_tables_match_the_pinned_data"]
+
+[[feature]]
+id = "syllable-columns"
+area = "text"
+name = "Hindi lines up with your shell"
+does = "Hindi and the other Indic scripts, and Thai's and Lao's SARA AM, take the columns Linux shells, vim and programs built on glibc count -- a column for each letter and each spacing vowel sign -- so the cursor stays where they expect, each Hindi word drawn whole across its columns and any other syllable across its own. The editor helix and the unicode-width crate agree for Hindi, but count no column for vowel signs such as Tamil's ா and Bengali's া, which baud gives one. For the Mac's bash, zsh and tmux, which count a vowel sign as no column, one setting does the same; a program such as Neovim that asks for grapheme cluster mode gets a syllable in one cell."
+status = "partial"
+gap = "a syllable a line wraps inside is drawn as two halves; on a line a program has set to run right to left its cells are drawn one at a time; on a double-width or double-height line each syllable is centred in its own columns; a syllable outside Hindi wider than its columns overlaps the next."
+platform = "both"
+tests = ["baud-core/tests/syllable_columns.rs::the_cursor_lands_where_glibc_counts", "baud-core/tests/syllable_columns.rs::with_spacing_marks_joined_the_cursor_lands_where_the_mac_shells_count", "baud-core/tests/syllable_columns.rs::grapheme_cluster_mode_is_a_switch_reset_by_both_resets", "baud-present-macos/tests/cells.rs::a_syllable_draws_alike_on_every_arm", "baud-app/src/config.rs::join_spacing_marks_is_off_unless_on"]
+rows = ["vt:`?2027` — grapheme cluster mode"]
+
+[[feature]]
+id = "hindi-words"
+area = "text"
+name = "Hindi set like print"
+does = "Each Hindi word is drawn whole at its font's own spacing, its letters joined under one headline as in print, and centred in the columns your shell counts for it. A word too wide for them reaches into the empty columns beside it, keeping a word space from the next; in the built-in font, or any other with a width axis, it is drawn narrower at full height. Nothing is ever drawn smaller. A comma, a hyphen or a bracket written against a word stays against it, and the cursor and a selection mark the whole syllable they are on."
+status = "partial"
+gap = "with a font that has no width axis, such as the Mac's Kohinoor Devanagari, a word too wide for its room overlaps the next, most often while a program asks for grapheme cluster mode (?2027); the bar, underline and unfocused cursors stay on their column; a selection is not widened to whole syllables, and a rectangular one's edges follow each row's letters rather than a straight column; a block cursor on an empty column a word reaches shows that word's ink inside it, in the cursor's text colour; a block cursor on Hindi an input method is still composing covers its own column rather than the whole syllable, and so does the cursor when a composed word reaches the line's last column; a program's background colours stay on their columns; on a double-width or double-height line each syllable is drawn alone."
+platform = "both"
+tests = ["baud-render/tests/devanagari_words.rs::no_glyph_is_scaled_and_words_keep_a_word_space", "baud-render/tests/devanagari_words.rs::a_word_is_laid_where_harfbuzz_runs_it", "baud-render/tests/devanagari_words.rs::the_block_cursor_lights_the_syllable_that_holds_its_cell", "baud-render/tests/devanagari_words.rs::a_selection_lights_exactly_the_syllables_it_selects", "baud-render/tests/devanagari_words.rs::no_ink_lies_in_the_colour_of_its_ground", "baud-render/tests/devanagari_words.rs::a_word_written_against_punctuation_is_laid_against_it", "baud-render/tests/devanagari_words.rs::a_selection_across_words_leaves_no_hole", "baud-render/tests/devanagari_words.rs::a_rectangular_selection_lights_each_rows_syllables", "baud-render/tests/devanagari_words.rs::a_block_blinked_off_lights_nothing", "baud-font/tests/devanagari.rs::narrowed_noto_shapes_as_harfbuzz_does", "baud-present-macos/tests/cells.rs::a_devanagari_word_and_its_lights_draw_alike_on_every_arm", "baud-app/src/host.rs::the_launch_stack_narrows_devanagari_on_the_built_faces_width_axis"]
 
 [[feature]]
 id = "ambiguous-width"

@@ -486,10 +486,11 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
-    // **A U+FFFD for ill-formed bytes after a Prepend joins the cluster**,
-    // as a literal one does: a stray `80`, and a lead cut short at the end
-    // of the atom, which the next atom's first byte ends and which a split
-    // can fall inside.
+    // **A U+FFFD for ill-formed bytes after a Prepend is the character a
+    // literal one is to the cluster rules**: a cell after U+0600 while
+    // `?2027` is reset, joined to it by GB9b while set. A stray `80`, and a
+    // lead cut short at the end of the atom, which the next atom's first
+    // byte ends and which a split can fall inside.
     Atom {
         name: "fffd-after-prepend",
         bytes: b"a\xd8\x80\x80Z",
@@ -1379,6 +1380,57 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **Grapheme cluster mode, and the text it decides the cells of.**
+    // `?2027` set and reset, and Devanagari, where a cell holds an extended
+    // cluster while it is set and a legacy one while reset: a word with a
+    // reph, a virama, a conjunct and a pre-base vowel sign (टर्मिनल), a
+    // conjunct alone (क्ष), a vowel sign alone, which parts from or joins
+    // whatever atom came before, a visarga (दुःख), and the Thai SARA AM
+    // (กำ). Each is a run of one encoded length, so the run scanner sees
+    // it, and a read can cut any of them.
+    Atom {
+        name: "grapheme-mode-set",
+        bytes: b"\x1b[?2027h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "grapheme-mode-reset",
+        bytes: b"\x1b[?2027l",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "devanagari-word",
+        bytes:
+            b"\xe0\xa4\x9f\xe0\xa4\xb0\xe0\xa5\x8d\xe0\xa4\xae\xe0\xa4\xbf\xe0\xa4\xa8\xe0\xa4\xb2",
+        stride: 3,
+        count: 7,
+    },
+    Atom {
+        name: "devanagari-conjunct",
+        bytes: b"\xe0\xa4\x95\xe0\xa5\x8d\xe0\xa4\xb7",
+        stride: 3,
+        count: 3,
+    },
+    Atom {
+        name: "devanagari-vowel-sign",
+        bytes: b"\xe0\xa4\xbf",
+        stride: 3,
+        count: 1,
+    },
+    Atom {
+        name: "devanagari-visarga",
+        bytes: b"\xe0\xa4\xa6\xe0\xa5\x81\xe0\xa4\x83\xe0\xa4\x96",
+        stride: 3,
+        count: 4,
+    },
+    Atom {
+        name: "thai-sara-am",
+        bytes: b"\xe0\xb8\x81\xe0\xb8\xb3",
+        stride: 3,
+        count: 2,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -1752,7 +1804,9 @@ fn the_esc_inter_atom_draws_what_follows() {
 
 /// **The UTF-8 atoms inside a `CSI` and after a Prepend reach the edges they
 /// were added for**, the control the C1 atoms have: a character the `CSI`
-/// swallowed, or a U+FFFD that took a cell, would do so in every chunking.
+/// swallowed would do so in every chunking. After U+0600, a column of its
+/// own, the U+FFFD takes the next cell while `?2027` is reset and joins the
+/// sign while it is set, as a literal U+FFFD does.
 #[test]
 fn the_csi_and_prepend_atoms_reach_their_edges() {
     let row = |t: &Term<'_>| -> Vec<u32> {
@@ -1772,10 +1826,40 @@ fn the_csi_and_prepend_atoms_reach_their_edges() {
             assert_eq!(t.cursor().1, Col::at_index(2), "{name}: the cursor");
         });
     }
+    let cells = |t: &Term<'_>, n: usize| -> Vec<u32> {
+        t.viewport()[..n]
+            .iter()
+            .map(|c| t.base_of(*c).as_codepoint().map_or(0, |c| c.value()))
+            .collect()
+    };
     fed("fffd-after-prepend", &|t| {
-        assert_eq!(row(t), [u32::from(b'a'), u32::from(b'Z')]);
-        let marks: Vec<u32> = t.marks(Row::ZERO, Col::ZERO).collect();
-        assert_eq!(marks, [0x600, 0xfffd], "the U+FFFD joins the Prepend");
+        assert_eq!(
+            cells(t, 4),
+            [u32::from(b'a'), 0x600, 0xfffd, u32::from(b'Z')]
+        );
+    });
+    fed_after(b"\x1b[?2027h", "fffd-after-prepend", &|t| {
+        assert_eq!(cells(t, 3), [u32::from(b'a'), 0x600, u32::from(b'Z')]);
+        let marks: Vec<u32> = t.marks(Row::ZERO, Col::at_index(1)).collect();
+        assert_eq!(marks, [0xfffd], "the U+FFFD joins the Prepend");
+    });
+}
+
+/// **The grapheme cluster mode atoms reach both cells**: टर्मिनल fed alone
+/// takes six columns, a legacy cluster a cell, and after the set atom four,
+/// ट, र्मि, न and ल; the reset atom returns to six.
+#[test]
+fn the_grapheme_mode_atoms_reach_both_cells() {
+    fed("devanagari-word", &|t| {
+        assert_eq!(t.cursor().1, Col::at_index(6))
+    });
+    let set = bytes_of(&[atom("grapheme-mode-set")]);
+    fed_after(&set, "devanagari-word", &|t| {
+        assert_eq!(t.cursor().1, Col::at_index(4))
+    });
+    let both = bytes_of(&[atom("grapheme-mode-set"), atom("grapheme-mode-reset")]);
+    fed_after(&both, "devanagari-word", &|t| {
+        assert_eq!(t.cursor().1, Col::at_index(6))
     });
 }
 
@@ -1789,10 +1873,19 @@ fn atom(name: &str) -> usize {
 
 /// The atom called `name` fed alone, in one read, handed to `f`.
 fn fed(name: &str, f: &dyn Fn(&Term<'_>)) {
+    fed_after(b"", name, f);
+}
+
+/// [`fed`] once `setup` has been fed in a read of its own.
+fn fed_after(setup: &[u8], name: &str, f: &dyn Fn(&Term<'_>)) {
     let bytes = bytes_of(&[atom(name)]);
     let w = ws();
     let mut owned = Owned::new(&w).with_clipboard(CLIP);
     let mut t = Term::new(owned.storage(), &w);
+    if !setup.is_empty() {
+        t.write_at(BytePos::ZERO, setup);
+        t.feed(BytePos::ZERO, ReadLen::from_index(setup.len()));
+    }
     t.write_at(BytePos::ZERO, &bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     f(&t);

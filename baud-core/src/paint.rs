@@ -63,6 +63,15 @@ pub(crate) enum Fit {
     LeadAlone,
 }
 
+/// What [`Paint::continue_cluster`] did with a codepoint the machine
+/// joined: put it in the cell before, or left it for a cell of its own.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg(not(feature = "ceiling-no-classify"))]
+pub(crate) enum Continued {
+    Attached,
+    Parted,
+}
+
 /// The text path's writer: under IRM the gap opens.
 pub(crate) struct Plain;
 
@@ -1439,12 +1448,14 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[inline(always)]
     fn widen_for(&mut self, r: Row, owner: LeadCol, cp: Codepoint, base: Content, marks: &[u32]) {
         let n = marks.len();
-        // **A `U+FE0F` after a listed base makes it two cells** (`vs16.rs`).
-        // The codepoint before it decides, as ghostty's `graphemeWidthEffect`
-        // does: `U+2620 U+FE0F` inside a ZWJ family widens nothing, because
-        // the family's base is wide already, and a mark between the base and
-        // the selector means the selector is not the base's.
-        if cp.value() == 0xFE0F && self.cold.vs16 == Vs16Width::Two {
+        // **A `U+FE0F` after a listed base makes it two cells** (`vs16.rs`),
+        // under `Vs16Width::One` too while `?2027` is set
+        // (`Vs16Width::widens_in`). The codepoint before it decides, as
+        // ghostty's `graphemeWidthEffect` does: `U+2620 U+FE0F` inside a ZWJ
+        // family widens nothing, because the family's base is wide already,
+        // and a mark between the base and the selector means the selector is
+        // not the base's.
+        if cp.value() == 0xFE0F && self.cold.vs16.widens_in(self.cold.cluster_cells()) {
             let before = match n {
                 1 => base.as_codepoint(),
                 _ => Codepoint::new(marks[n - 2]),
@@ -1579,7 +1590,7 @@ impl<'a, 'b> Paint<'a, 'b> {
 
     /// A zero-width codepoint the cluster machine did not join to anything:
     /// it goes to the character the last write put down, the policy `glyph`
-    /// documents, found as [`Paint::attach_continuing`] finds it -- before the
+    /// documents, found as [`Paint::continue_cluster`] finds it -- before the
     /// cursor, **or under it** while a write in the last column with `DECAWM`
     /// reset has it pinned there. Reading `cx - 1` here put a mark after an
     /// `SGR`, a `BEL` or an `OSC`, and a `U+200B`, which the machine breaks
@@ -1677,31 +1688,55 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
-    /// A codepoint the cluster machine joined to the character before it:
-    /// the character the last write put down, which is before the cursor,
-    /// **or under it** where `DECAWM` is reset and that write ended in the
-    /// last column ([`crate::term::Pinned`]). Reading `cx - 1` there put
-    /// `e U+0301` in the last column on the letter left of the `e`, and a
-    /// `U+FE0F` after `☠ a` widened the `☠` over the `a`
-    /// (`tests/margin_pin.rs`).
+    /// **A codepoint the cluster machine joined to the cell before it**:
+    /// attached there, or, where the cells
+    /// in force hold less than an extended cluster ([`ClusterCells`]), a
+    /// cell of its own -- a spacing mark (GB9a, and an `Mc` that GB9 joins),
+    /// a consonant after a virama (GB9c), a character after a Prepend
+    /// (GB9b) -- which the caller then
+    /// writes as it writes a character that starts a cluster, the machine
+    /// started again at it. `before` is the machine before the codepoint,
+    /// which [`ClusterBreak::parts`] reads one generated bit by.
     ///
-    /// The pin is fresh here: a continuation means no control came between,
-    /// so the last write set it, and `DECAWM` cannot have changed since. A
-    /// resize of the primary carries the cursor with the character it is on,
-    /// wider or reflowed narrower, so the pin still names the last write
-    /// (`tests/margin_pin.rs`); the alternate screen's clamp on a narrower
-    /// resize is not examined.
+    /// **Attached to the character the last write put down**, which is
+    /// before the cursor, **or under it** where `DECAWM` is reset and that
+    /// write ended in the last column ([`crate::term::Pinned`]). Reading
+    /// `cx - 1` there put `e U+0301` in the last column on the letter left
+    /// of the `e`, and a `U+FE0F` after `☠ a` widened the `☠` over the `a`
+    /// (`tests/margin_pin.rs`). The pin is fresh here: a continuation means
+    /// no control came between, so the last write set it, and `DECAWM`
+    /// cannot have changed since. A resize of the primary carries the cursor
+    /// with the character it is on, wider or reflowed narrower, so the pin
+    /// still names the last write (`tests/margin_pin.rs`); the alternate
+    /// screen's clamp on a narrower resize is not examined.
+    ///
+    /// **Out of line, the decision with the attachment, in one call**: the
+    /// text path inlines the join's test and calls here only where the
+    /// machine joined, which a run of CJK or of Latin never does. The mode
+    /// bit is asked before the table, so while `?2027` is set a join costs
+    /// the bit test more than it did.
     #[cold]
     #[inline(never)]
     // `glyph`'s classified arm is the one caller, and `ceiling-no-classify`
     // compiles that arm out.
     #[cfg(not(feature = "ceiling-no-classify"))]
-    pub(crate) fn attach_continuing(&mut self, cp: Codepoint) {
+    pub(crate) fn continue_cluster(
+        &mut self,
+        before: ClusterBreak,
+        cl: Classified,
+        cp: Codepoint,
+    ) -> Continued {
+        if !self.cold.modes.is_set(ModeBit::GraphemeClusters)
+            && before.parts_at(self.cold.cluster_cells(), cl.class, cl.lookback, cp)
+        {
+            return Continued::Parted;
+        }
         let after = self.after_last_write();
         match self.clusters.may_name(cp) {
             true => self.attach_named(cp, after),
             false => self.attach_before(cp, after),
         }
+        Continued::Attached
     }
 
     /// **A continuation that may make a sequence the Unicode Standard

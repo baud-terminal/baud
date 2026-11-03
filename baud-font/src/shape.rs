@@ -25,7 +25,7 @@
 //! cluster's advance to its cell span -- is the renderer's to apply, since
 //! only it knows the cell size.
 
-use crate::buffer::{Attached, Buffer, Cluster, Forms, Glyph, Ignorable, Mark, Positioned};
+use crate::buffer::{Attached, Buffer, Cluster, Forms, Glyph, Ignorable, Mark, Pens, Positioned};
 use crate::bytes::Count;
 use crate::cmap::Variation;
 use crate::compose::{CCC, COMPOSE, DECOMPOSE};
@@ -1106,6 +1106,13 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         self.digests = digests;
     }
 
+    /// Lays the clusters end to end ([`Pens::Run`]): every glyph's `dx`
+    /// from the run's start, as the run is set, rather than from its
+    /// cluster's cell. A left-to-right run only.
+    pub fn lay_as_run(&mut self) {
+        self.buf.set_pens(Pens::Run);
+    }
+
     fn glyph_of(&mut self, c: Codepoint) -> GlyphId {
         match self.face.glyph(c) {
             Some(g) => g,
@@ -1331,6 +1338,9 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         // whatever `GDEF` calls the glyph. An Indic run zeroes neither.
         let no_gpos = gpos.is_none();
         let zeroing = marks == MarkAdvance::Zeroed;
+        // Laid as a run, left to right, a cluster's pen goes on from the one
+        // before rather than starting again at its cell.
+        let restart = self.buf.pens() == Pens::Cell || direction == Direction::RightToLeft;
         let mut pen = 0i32;
         let mut cluster: Option<Cluster> = None;
         let mut at = crate::bytes::Index::ZERO;
@@ -1338,7 +1348,9 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             let base = cluster != Some(g.cluster);
             if base {
                 cluster = Some(g.cluster);
-                pen = 0;
+                if restart {
+                    pen = 0;
+                }
             }
             let zeroed = g.ignorable == Ignorable::Yes
                 || (zeroing

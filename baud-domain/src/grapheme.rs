@@ -253,6 +253,109 @@ pub enum RunBlocker {
     Indic,
 }
 
+/// **How much of a cluster one cell holds**, which is how many columns a
+/// syllable takes: `[[source: uax29]]` § 3.1 defines two variants of the
+/// grapheme cluster, "the same rules ... except the rules GB9a, GB9b, and
+/// GB9c", and a terminal that puts one cluster in a cell counts columns by
+/// the variant it clusters by.
+///
+/// The machine is always the extended one ([`ClusterBreak`]); a join only
+/// the extended rules make -- a spacing mark (GB9a), a character after a
+/// Prepend (GB9b), a consonant after a virama (GB9c) -- is where the legacy
+/// variants start a cell of their own, which [`ClusterBreak::parts`] answers
+/// from a generated table. `the_legacy_variants_are_the_extended_machine_parted`
+/// holds that composition to the variants' own rules over every reachable
+/// pair of states.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ClusterCells {
+    /// One legacy grapheme cluster a cell: each letter and each spacing mark
+    /// a column, as glibc's `wcwidth`, unicode-width, vim and the Linux
+    /// shells count. The state at power-on and after `RIS` and `DECSTR`.
+    #[default]
+    Legacy,
+    /// One legacy grapheme cluster a cell, but a spacing mark joins the cell
+    /// before it (GB9a kept): each letter a column and a spacing mark none,
+    /// as the macOS shells and tmux count. The embedder's choice
+    /// ([`SpacingMarks::Joined`]).
+    LegacyMarksJoined,
+    /// One extended grapheme cluster a cell, its first character's width:
+    /// `?2027` set.
+    Extended,
+}
+
+impl ClusterCells {
+    /// The cells `?2027` and the embedder's [`SpacingMarks`] choose.
+    pub fn of(clusters: GraphemeMode, marks: SpacingMarks) -> ClusterCells {
+        match (clusters, marks) {
+            (GraphemeMode::Extended, _) => ClusterCells::Extended,
+            (GraphemeMode::Legacy, SpacingMarks::Column) => ClusterCells::Legacy,
+            (GraphemeMode::Legacy, SpacingMarks::Joined) => ClusterCells::LegacyMarksJoined,
+        }
+    }
+}
+
+/// **`?2027`'s two states**, the mode 2027 draft's (`[[source: mode2027]]`):
+/// set, "every consecutively written character on the terminal stream that
+/// is non-breakable as per UTS-29 will always end up in the same terminal's
+/// grid cell"; reset, "as undefined as if this specification was not
+/// implemented at all", which baud takes as legacy grapheme clusters.
+/// "Both, Soft reset (DECSTR) as well as hard reset (RIS) will reset the
+/// mode."
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum GraphemeMode {
+    #[default]
+    Legacy,
+    Extended,
+}
+
+/// **Whether a spacing mark takes a column** while `?2027` is reset: the
+/// embedder's choice, `[text] join_spacing_marks` in baud's configuration.
+/// `Column` is the default, UAX #44's "positive advance width" for `Mc`
+/// (`[[source: uax44]]`) and what glibc, unicode-width, vim and the Linux
+/// shells count; `Joined` is what the macOS shells and tmux count
+/// (`docs/research/notes/g-text-encoding.md` § 4.6).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SpacingMarks {
+    #[default]
+    Column,
+    Joined,
+}
+
+/// Whether `cp` is a spacing mark UAX #29 classes Extend (general category
+/// `Mc`, Grapheme_Cluster_Break `Extend`): a binary search over the 46
+/// generated ranges, on the cold side of a join alone.
+pub fn is_spacing_extend(cp: Codepoint) -> bool {
+    let v = cp.value();
+    let ranges = &crate::grapheme_data::SPACING_EXTEND;
+    let i = ranges.partition_point(|&(_, end)| end < v);
+    ranges.get(i).is_some_and(|&(start, _)| start <= v)
+}
+
+/// **Which rule of `[[source: uax29]]` joined a character to the cluster
+/// before it**, as far as the two variants differ: [`ClusterRules::rule`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Join {
+    /// A rule both variants have: GB3, GB6-GB8, GB9, GB11, GB12/13.
+    Both,
+    /// GB9a, `× SpacingMark`.
+    SpacingMark,
+    /// GB9b, `Prepend ×`.
+    Prepend,
+    /// GB9c, a consonant after a linker.
+    Conjunct,
+}
+
+impl Join {
+    /// Whether the variant `cells` makes this join too.
+    pub fn kept_by(self, cells: ClusterCells) -> bool {
+        match (self, cells) {
+            (Join::Both, _) | (_, ClusterCells::Extended) => true,
+            (Join::SpacingMark, ClusterCells::LegacyMarksJoined) => true,
+            (Join::SpacingMark | Join::Prepend | Join::Conjunct, _) => false,
+        }
+    }
+}
+
 impl ClusterBreak {
     pub fn new() -> ClusterBreak {
         ClusterBreak::default()
@@ -410,6 +513,64 @@ impl ClusterBreak {
         let e = crate::cluster_data::CLUSTER_NEXT[i];
         self.table_state = e & 0x7f;
         e & 0x80 != 0
+    }
+
+    /// **Whether a character the extended rules joined starts a cell of its
+    /// own under `cells`**, asked of the machine as it was *before* the
+    /// character (`self`): the join was GB9a, GB9b or GB9c, and `cells` is a
+    /// variant without it. One bit of a generated table per (state, input),
+    /// read only where the machine joined -- the cold side of a write.
+    ///
+    /// A character that parts takes the successor a boundary before it
+    /// would leave ([`ClusterBreak::restart`]), which is the variant's own
+    /// state: the two differ only in a regional indicator's parity after a
+    /// Prepend.
+    pub fn parts(self, cells: ClusterCells, cur: GraphemeClass, lb: Lookback) -> bool {
+        let table = match cells {
+            ClusterCells::Extended => return false,
+            ClusterCells::Legacy => crate::cluster_data::CLUSTER_PARTS_LEGACY,
+            ClusterCells::LegacyMarksJoined => crate::cluster_data::CLUSTER_PARTS_MARKS_JOINED,
+        };
+        let i = (self.table_state as usize) * 256 + ((cur as usize) | ((lb.bits() as usize) << 4));
+        table[i >> 3] >> (i & 7) & 1 != 0
+    }
+
+    /// **[`ClusterBreak::parts`], and the spacing marks UAX #29 classes
+    /// Extend**: a character the extended rules joined, `cp`, starts a cell
+    /// of its own under legacy clusters too where it is general category
+    /// `Mc` and GB9 joined it ([`is_spacing_extend`]) -- U+09BE BENGALI
+    /// VOWEL SIGN AA, U+0BBE TAMIL VOWEL SIGN AA, the Kannada vowel signs
+    /// U+0CC0-0CCB -- so each spacing vowel sign takes a column, as glibc's
+    /// `wcwidth` and vim count, where both of `[[source: uax29]]`'s variants
+    /// keep it in its letter's cluster; with spacing marks joined it joins
+    /// as the others do. The one test every caller asks: the core where a
+    /// write joined, the renderer re-forming a syllable, a composition's
+    /// layout.
+    pub fn parts_at(
+        self,
+        cells: ClusterCells,
+        cur: GraphemeClass,
+        lb: Lookback,
+        cp: Codepoint,
+    ) -> bool {
+        // The width before the search: an Extend that takes no column -- a
+        // nonspacing mark, a joiner, a selector, the most of them -- is no
+        // spacing mark, and its own table entry, which the write just read,
+        // says so without the search.
+        self.parts(cells, cur, lb)
+            || (cells == ClusterCells::Legacy
+                && cur == GraphemeClass::Extend
+                && Classified::of(cp).width(WidthPolicy::DEFAULT) != Width::ZERO
+                && is_spacing_extend(cp))
+    }
+
+    /// The machine after a boundary before a character of class `cur`:
+    /// what a control leaves, stepped by it. A boundary forgets the state
+    /// before it (`a_break_forgets_the_state_before_it`).
+    pub fn restart(cur: GraphemeClass, lb: Lookback) -> ClusterBreak {
+        let mut m = ClusterBreak::after_control();
+        let _ = m.is_break_classified(cur, lb);
+        m
     }
 }
 
@@ -569,52 +730,93 @@ impl ClusterRules {
 
     #[inline(always)]
     fn decide(&self, cur: GraphemeClass, lb: Lookback) -> bool {
+        self.rule(cur, lb).is_none()
+    }
+
+    /// **The rule that joins `cur` to the cluster before it**, or `None` at
+    /// a boundary: the extended rules in `[[source: uax29]]`'s order, the
+    /// first that matches deciding, as [`ClusterRules::is_break_by_rules`]
+    /// decides.
+    #[inline(always)]
+    pub fn rule(&self, cur: GraphemeClass, lb: Lookback) -> Option<Join> {
         use GraphemeClass::*;
         // GB1: sot ÷ Any -- there *is* a boundary before the first codepoint,
         // which is what the leading `÷` in every conformance case means.
-        let Some(prev) = self.prev else {
-            return true;
-        };
+        let prev = self.prev?;
         // GB3: CR × LF
         if prev == Cr && cur == Lf {
-            return false;
+            return Some(Join::Both);
         }
         // GB4: (Control | CR | LF) ÷
         if matches!(prev, Control | Cr | Lf) {
-            return true;
+            return None;
         }
         // GB5: ÷ (Control | CR | LF)
         if matches!(cur, Control | Cr | Lf) {
-            return true;
+            return None;
         }
         // GB6/7/8: Hangul syllable sequences.
         if prev == L && matches!(cur, L | V | Lv | Lvt) {
-            return false;
+            return Some(Join::Both);
         }
         if matches!(prev, Lv | V) && matches!(cur, V | T) {
-            return false;
+            return Some(Join::Both);
         }
         if matches!(prev, Lvt | T) && cur == T {
-            return false;
+            return Some(Join::Both);
         }
-        // GB9: × (Extend | ZWJ). GB9a: × SpacingMark. GB9b: Prepend ×.
-        if matches!(cur, Extend | Zwj) || cur == SpacingMark || prev == Prepend {
-            return false;
+        // GB9: × (Extend | ZWJ).
+        if matches!(cur, Extend | Zwj) {
+            return Some(Join::Both);
+        }
+        // GB9a: × SpacingMark.
+        if cur == SpacingMark {
+            return Some(Join::SpacingMark);
+        }
+        // GB9b: Prepend ×.
+        if prev == Prepend {
+            return Some(Join::Prepend);
         }
         // GB9c: an Indic conjunct stays whole.
         if self.incb == IncbLookback::ConsonantLinker && lb.consonant() {
-            return false;
+            return Some(Join::Conjunct);
         }
         // GB11: ExtPict Extend* ZWJ × ExtPict
         if self.pict == PictLookback::PictographicZwj && lb.pictographic() {
-            return false;
+            return Some(Join::Both);
         }
         // GB12/13: RI × RI, pairwise.
         if cur == RegionalIndicator && self.ri == RiParity::Odd {
-            return false;
+            return Some(Join::Both);
         }
         // GB999: Any ÷ Any
-        true
+        None
+    }
+
+    /// **The variant `cells`' own machine**, a step of it: the rules
+    /// `[[source: uax29]]` § 3.1 gives that variant -- the extended ones
+    /// without GB9a, GB9b and GB9c for legacy clusters, and without GB9b and
+    /// GB9c where spacing marks join -- the first that matches deciding, and
+    /// the state advanced by the decision. The definition the parted
+    /// extended machine ([`ClusterBreak::parts`]) answers to; tooling and
+    /// tests only.
+    pub fn is_break_in(&mut self, cells: ClusterCells, cur: GraphemeClass, lb: Lookback) -> bool {
+        let brk = match self.rule(cur, lb) {
+            None => true,
+            Some(j) => !j.kept_by(cells) && !self.later_rule_joins(cur, lb),
+        };
+        match lb.is_none() {
+            false => self.advance(cur, brk, lb),
+            true => self.advance_plain(cur, brk),
+        }
+        brk
+    }
+
+    /// Whether a rule after GB9c joins `cur` -- GB11, GB12/13 -- for a
+    /// variant that dropped the rule that matched first.
+    fn later_rule_joins(&self, cur: GraphemeClass, lb: Lookback) -> bool {
+        (self.pict == PictLookback::PictographicZwj && lb.pictographic())
+            || (cur == GraphemeClass::RegionalIndicator && self.ri == RiParity::Odd)
     }
 
     #[inline(always)]

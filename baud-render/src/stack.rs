@@ -413,16 +413,62 @@ struct RowId(u16);
 #[derive(Clone, Copy)]
 struct Filled(usize);
 
+/// **The `wdth` values a face's narrower instances are read at**
+/// ([`FaceRole::Narrower`]): from the width it is read at -- `settings`'
+/// `wdth`, else its axis's default -- down to its axis's least or 62.5,
+/// whichever is wider, in steps of 2.5, widest first, each a width Noto
+/// Sans Devanagari's axis reads between its named instances. None for a
+/// face with no `wdth` axis, one read at its narrowest already, or one
+/// that draws no Devanagari -- the one script whose words are narrowed --
+/// so a stack of other variable faces takes no instance.
+pub fn narrower_widths(face: &Face<'_>, settings: &[baud_font::var::Variation]) -> Vec<f32> {
+    const STEP: f32 = 2.5;
+    const LEAST: f32 = 62.5;
+    // DEVANAGARI LETTER KA.
+    if face.glyph(Codepoint::from_char('\u{915}')).is_none() {
+        return Vec::new();
+    }
+    let wdth = baud_font::Tag::from_bytes(*b"wdth");
+    let mut i = baud_font::bytes::Index::ZERO;
+    let axis = loop {
+        match face.axis(i) {
+            Some(a) if a.tag == wdth => break a,
+            Some(_) => i = i.next(),
+            None => return Vec::new(),
+        }
+    };
+    let now = settings
+        .iter()
+        .find(|v| v.tag == wdth)
+        .map_or(axis.default, |v| v.value)
+        .to_f32();
+    let floor = axis.min.to_f32().max(LEAST);
+    let mut out = Vec::new();
+    let mut w = now - STEP;
+    while w >= floor - 1e-3 {
+        out.push(w);
+        w -= STEP;
+    }
+    out
+}
+
 /// What a face is for in a [`Stack`]: part of the fallback chain every
 /// character tries in order, the face one style tries first, the face iTerm2's
-/// badge is drawn in, whatever face the text is ([`Stack::badge`]), or one
-/// style of an alternative font or of the Fraktur face ([`FontSlot`]).
+/// badge is drawn in, whatever face the text is ([`Stack::badge`]), one
+/// style of an alternative font or of the Fraktur face ([`FontSlot`]), or
+/// a narrower instance of a variable face ([`Stack::narrower`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FaceRole {
     Fallback,
     Style(FaceStyle),
     Badge,
     Font(FontSlot, FaceStyle),
+    /// **The face before it, read narrower on its `wdth` axis**: the nearest
+    /// face before it that is not itself narrower, at a narrower width, the
+    /// instances listed widest first. Never in the chain: a Devanagari word
+    /// too wide for its columns is drawn at the widest of them that fits
+    /// (`crate::word`), at full height, never scaled.
+    Narrower,
 }
 
 /// An ordered list of faces: the primary first, then the fallbacks tried
@@ -438,6 +484,21 @@ pub struct Stack<'f, 'a> {
     /// alone ([`FontSlot`]), a style and its face: kept out of the chain as
     /// the styled faces are.
     fonts: Vec<(FontSlot, FaceStyle, FaceIx)>,
+    /// Each narrower instance and the face it narrows ([`FaceRole::Narrower`]),
+    /// in the order given, widest first: kept out of the chain.
+    narrower: Vec<(FaceIx, FaceIx)>,
+    /// Each face's role, by its place: what [`Stack::is_styled`] reads, one
+    /// load a face where it scanned the narrower instances, which the
+    /// default stack holds 60 of.
+    roles: Vec<FaceRole>,
+    /// **The fallback chain, in order**: every face whose role is
+    /// [`FaceRole::Fallback`], the styled faces, the fonts' and the narrower
+    /// instances left out. A search of the chain walks it alone: the face
+    /// table asks it, for each character of a block it decides, which
+    /// faces draw the character in colour, and walking the default stack's
+    /// 60 narrower instances too cost a launch's first frame 0.8 million
+    /// instructions.
+    chain: Vec<FaceIx>,
 }
 
 /// One optional face per style; regular has none, being the chain. And
@@ -468,20 +529,24 @@ impl Styled {
             FaceStyle::BoldItalic => Some(&mut self.bold_italic),
         }
     }
-
-    fn holds(&self, ix: FaceIx) -> bool {
-        [self.bold, self.italic, self.bold_italic, self.badge].contains(&Some(ix))
-    }
 }
 
 impl<'f, 'a> Stack<'f, 'a> {
     /// `None` for an empty list or one longer than a byte can index.
     pub fn new(faces: &'f [Face<'a>]) -> Option<Stack<'f, 'a>> {
-        (!faces.is_empty() && faces.len() <= usize::from(u8::MAX)).then_some(Stack {
+        if faces.is_empty() || faces.len() > usize::from(u8::MAX) {
+            return None;
+        }
+        let mut stack = Stack {
             faces,
             styled: Styled::default(),
             fonts: Vec::new(),
-        })
+            narrower: Vec::new(),
+            roles: vec![FaceRole::Fallback; faces.len()],
+            chain: Vec::new(),
+        };
+        stack.chain = stack.each().collect();
+        Some(stack)
     }
 
     /// A stack whose faces each carry a role. `None` when the lengths
@@ -498,6 +563,11 @@ impl<'f, 'a> Stack<'f, 'a> {
             let ix = FaceIx(u8::try_from(i).ok()?);
             let slot = match role {
                 FaceRole::Fallback => continue,
+                FaceRole::Narrower => {
+                    let of = roles[..i].iter().rposition(|r| *r != FaceRole::Narrower)?;
+                    stack.narrower.push((FaceIx(u8::try_from(of).ok()?), ix));
+                    continue;
+                }
                 FaceRole::Style(style) => stack.styled.slot(*style)?,
                 FaceRole::Badge => &mut stack.styled.badge,
                 FaceRole::Font(font, style) => {
@@ -514,6 +584,9 @@ impl<'f, 'a> Stack<'f, 'a> {
             }
             *slot = Some(ix);
         }
+        stack.roles = roles.to_vec();
+        let chain = stack.each().filter(|ix| !stack.is_styled(*ix)).collect();
+        stack.chain = chain;
         Some(stack)
     }
 
@@ -548,10 +621,26 @@ impl<'f, 'a> Stack<'f, 'a> {
         }
     }
 
-    /// Whether `ix` is a styled face or a font's rather than one of the
-    /// chain.
+    /// Whether `ix` is a styled face, the badge's, a font's or a narrower
+    /// instance rather than one of the chain: any role but
+    /// [`FaceRole::Fallback`].
     pub fn is_styled(&self, ix: FaceIx) -> bool {
-        self.styled.holds(ix) || self.fonts.iter().any(|f| f.2 == ix)
+        self.roles
+            .get(ix.index())
+            .is_some_and(|r| *r != FaceRole::Fallback)
+    }
+
+    /// **The face `ix` is a narrower instance of** ([`FaceRole::Narrower`]):
+    /// the nearest face before it that is not itself narrower; `None` for
+    /// any other face.
+    pub fn narrows(&self, ix: FaceIx) -> Option<FaceIx> {
+        self.narrower.iter().find(|n| n.1 == ix).map(|n| n.0)
+    }
+
+    /// **The narrower instances of face `of`**, widest first
+    /// ([`FaceRole::Narrower`]): none for a face the caller gave none.
+    pub fn narrower(&self, of: FaceIx) -> impl Iterator<Item = FaceIx> + '_ {
+        self.narrower.iter().filter(move |n| n.0 == of).map(|n| n.1)
     }
 
     /// Whether the stack has a face for `font`, an alternative alone or
@@ -756,7 +845,7 @@ impl<'f, 'a> Stack<'f, 'a> {
         };
         let wants = |ix: FaceIx| self.carries(ix, c) == want;
         let own = self.styled.get(self.effective(style)).filter(|f| wants(*f));
-        own.or_else(|| self.each().find(|ix| !self.is_styled(*ix) && wants(*ix)))
+        own.or_else(|| self.chain.iter().copied().find(|ix| wants(*ix)))
             .unwrap_or_else(|| self.select_styled(c, style))
     }
 
@@ -771,8 +860,7 @@ impl<'f, 'a> Stack<'f, 'a> {
             Presentation::Colour => Draws::Colour,
         };
         let at = |ix: FaceIx| draws.get(ix.index()).copied().unwrap_or(Draws::No);
-        let chain =
-            |ok: &dyn Fn(Draws) -> bool| self.each().find(|ix| !self.is_styled(*ix) && ok(at(*ix)));
+        let chain = |ok: &dyn Fn(Draws) -> bool| self.chain.iter().copied().find(|ix| ok(at(*ix)));
         let own = self.styled.get(self.effective(style));
         own.filter(|f| at(*f) == want)
             .or_else(|| chain(&|d| d == want))
@@ -782,8 +870,9 @@ impl<'f, 'a> Stack<'f, 'a> {
     }
 
     /// The table [`Stack::select_presented`] becomes a lookup into. It
-    /// starts with every block unfilled: each face's `cmap` proposes the
-    /// blocks it could reach (`Face::candidates`), and every block is
+    /// starts with every block unfilled: each face's `cmap` but a narrower
+    /// instance's proposes the blocks it could reach (`Face::candidates`,
+    /// `Stack::answering`), and every block is
     /// decided the first time a cell lands in it ([`FaceTable::face`]), so
     /// a launch pays for the blocks its first frame touches and not for all
     /// of CJK. A character no face draws is entered as no face's, which
@@ -792,7 +881,7 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// nothing comes apart is all such characters.
     pub fn table(&self) -> FaceTable {
         let mut proposed: Vec<Vec<u8>> = vec![Vec::new(); FaceTable::BLOCKS];
-        for (i, face) in self.faces.iter().enumerate() {
+        for (i, face) in self.answering() {
             let Ok(i) = u8::try_from(i) else { continue };
             face.candidates(|a, b| {
                 for blk in Block::of(a).0..=Block::of(b).0 {
@@ -831,6 +920,19 @@ impl<'f, 'a> Stack<'f, 'a> {
             }
         }
         t
+    }
+
+    /// **The faces a block is proposed by and its entries asked of**, by
+    /// place: every face but a narrower instance, which is never chosen,
+    /// being out of the chain, and draws what the face it narrows draws, so
+    /// its answers decide nothing -- and the default stack holds 60.
+    fn answering(&self) -> impl Iterator<Item = (usize, &Face<'a>)> + '_ {
+        self.faces
+            .iter()
+            .enumerate()
+            .zip(&self.roles)
+            .filter(|(_, r)| **r != FaceRole::Narrower)
+            .map(|(f, _)| f)
     }
 
     /// Decide every entry of block `blk` of `t`, for all eight styles and
@@ -877,7 +979,7 @@ impl<'f, 'a> Stack<'f, 'a> {
                 // The rest of `Stack::carries` is the parts, asked of every
                 // face through the block's answers.
                 let mut d = draws.clone();
-                for (i, f) in self.faces.iter().enumerate() {
+                for (i, f) in self.answering() {
                     let mapped = d[i] != Draws::No || refused[i];
                     let mut has = |x: Codepoint| match parts.entry((i, x.value())) {
                         std::collections::hash_map::Entry::Occupied(e) => *e.get(),
@@ -895,7 +997,7 @@ impl<'f, 'a> Stack<'f, 'a> {
                     while let Some((a, _)) = baud_font::decompose(base) {
                         base = a;
                     }
-                    for (i, f) in self.faces.iter().enumerate() {
+                    for (i, f) in self.answering() {
                         d[i] = *leaves
                             .entry((i, base.value()))
                             .or_insert_with(|| f.glyph(base).map_or(Draws::No, |g| drawing(f, g)));
@@ -947,8 +1049,10 @@ impl<'f, 'a> Stack<'f, 'a> {
         if covers(first) {
             return first;
         }
-        self.each()
-            .filter(|ix| *ix != first && !self.is_styled(*ix))
+        self.chain
+            .iter()
+            .copied()
+            .filter(|ix| *ix != first)
             .find(|ix| covers(*ix))
             .unwrap_or(first)
     }
@@ -959,8 +1063,10 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// what a glyph the primary cannot draw draws as, the atlas drawing the
     /// `.notdef` in its place (`Atlas::slot`).
     pub fn select(&self, c: Codepoint) -> FaceIx {
-        self.each()
-            .find(|ix| !self.is_styled(*ix) && self.carries(*ix, c) != Draws::No)
+        self.chain
+            .iter()
+            .copied()
+            .find(|ix| self.carries(*ix, c) != Draws::No)
             .unwrap_or(FaceIx::PRIMARY)
     }
 }
@@ -1196,6 +1302,67 @@ mod tests {
             Stack::with_roles(&three, &[f, bold, bold]).is_none(),
             "bold twice"
         );
+    }
+
+    /// **A narrower instance proposes no block, answers no entry and is
+    /// out of the chain**: the built Regular and its 15 instances, as the
+    /// app's default stack lays them, propose what the Regular alone
+    /// proposes, and their table names the face the Regular's alone names
+    /// for every character of Basic Latin to Devanagari, Latin Extended
+    /// Additional, whose characters come apart, and the box drawings, in
+    /// every style and presentation, refusing as many. Each instance is
+    /// styled -- out of the chain, which is the Regular alone -- and
+    /// narrows the Regular.
+    #[test]
+    fn a_narrower_instance_proposes_nothing() {
+        let data = font("built/Regular.ttf");
+        let first = Face::parse(&data).unwrap();
+        let widths = narrower_widths(&first, &[]);
+        assert_eq!(widths.len(), 15, "the premise: wdth 97.5 down to 62.5");
+        let mut faces = vec![first];
+        let mut roles = vec![FaceRole::Fallback];
+        for w in &widths {
+            let mut f = Face::parse(&data).unwrap();
+            f.set_variations(&[baud_font::var::Variation {
+                tag: baud_font::Tag::from_bytes(*b"wdth"),
+                value: baud_font::var::Fixed::from_f32(*w),
+            }]);
+            faces.push(f);
+            roles.push(FaceRole::Narrower);
+        }
+        let s = Stack::with_roles(&faces, &roles).unwrap();
+        let alone = Stack::new(&faces[..1]).unwrap();
+        let (mut t, mut a) = (s.table(), alone.table());
+        assert!(
+            t.proposed.iter().flatten().all(|&i| i == 0),
+            "only the Regular proposes"
+        );
+        assert!(t.proposed == a.proposed, "what the Regular alone proposes");
+        let ranges = [0x0000..0x0A00u32, 0x1E00..0x1F00, 0x2500..0x2600];
+        let mut named = 0usize;
+        for v in ranges.into_iter().flatten() {
+            let Some(c) = Codepoint::new(v) else { continue };
+            for (style, p) in FaceTable::combos() {
+                assert_eq!(
+                    t.face(&s, c, style, p),
+                    a.face(&alone, c, style, p),
+                    "U+{v:04X}"
+                );
+            }
+            named += usize::from(faces[0].glyph(c).is_some());
+        }
+        assert!(
+            named > 600,
+            "the premise: the Regular draws {named} of them"
+        );
+        assert_eq!(t.refused().value(), a.refused().value(), "refused alike");
+        assert!(!s.is_styled(FaceIx::PRIMARY));
+        assert_eq!(s.chain, [FaceIx::PRIMARY], "the chain is the Regular");
+        assert_eq!(s.narrows(FaceIx::PRIMARY), None);
+        for ix in s.each().skip(1) {
+            assert!(s.is_styled(ix), "{ix:?} is out of the chain");
+            assert_eq!(s.narrows(ix), Some(FaceIx::PRIMARY), "{ix:?}");
+        }
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! needs the reachable state count, not the nominal one: 15 x 2 x 3 x 3 = 270
 //! combinations exist, but most may be unreachable.
 
-use baud_domain::{ClusterRules, GraphemeClass, Lookback, RunBlocker};
+use baud_domain::{ClusterCells, ClusterRules, GraphemeClass, Lookback, RunBlocker};
 use std::collections::HashSet;
 
 #[test]
@@ -50,7 +50,9 @@ fn report_reachable_cluster_states() {
 
 /// The cluster transition table as `scripts/gen-cluster-table.py` reads it:
 /// the state count, then one byte per (state, input), then one ready byte per
-/// state.
+/// state, then two bit tables of one bit per (state, input): where a join the
+/// extended rules make parts under legacy clusters, and where it parts with
+/// spacing marks joined ([`ClusterCells`]).
 ///
 /// States are numbered in breadth-first order from the initial one, and the
 /// map is only ever looked up, never iterated, so the bytes do not depend on
@@ -121,7 +123,35 @@ fn cluster_table_bytes() -> Vec<u8> {
     out.extend_from_slice(&(order.len() as u32).to_le_bytes());
     out.extend_from_slice(&table);
     out.extend_from_slice(&ready);
+    for cells in [ClusterCells::Legacy, ClusterCells::LegacyMarksJoined] {
+        out.extend_from_slice(&parts_bits(&order, cells));
+    }
     out
+}
+
+/// One bit per (state, input), bit `i & 7` of byte `i >> 3` for `i = state *
+/// 256 + input`: the extended rules join there and the variant `cells`
+/// breaks, each from the rules ([`ClusterRules::is_break_in`]).
+fn parts_bits(order: &[u16], cells: ClusterCells) -> Vec<u8> {
+    let mut bits = vec![0u8; order.len() * 256 / 8];
+    for (si, &st) in order.iter().enumerate() {
+        for b in 0u8..=255 {
+            if (b & 0xf) >= 14 {
+                continue;
+            }
+            let (cl, lb) = (
+                GraphemeClass::FROM_INDEX[usize::from(b & 0xf)],
+                Lookback::from_bits(b >> 4),
+            );
+            let joins = !ClusterRules::from_bits(st).is_break_by_rules(cl, lb);
+            let parts = ClusterRules::from_bits(st).is_break_in(cells, cl, lb);
+            if joins && parts {
+                let i = si * 256 + usize::from(b);
+                bits[i >> 3] |= 1 << (i & 7);
+            }
+        }
+    }
+    bits
 }
 
 /// Dump the cluster transition table for `scripts/gen-cluster-table.py`.

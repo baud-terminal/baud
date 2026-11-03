@@ -69,6 +69,9 @@ pub mod splash;
 mod stack;
 pub mod status;
 mod stress_data;
+mod syllable;
+mod word;
+pub use word::{How as WordHow, Side as WordSide, WordLaid};
 mod trail;
 mod transition;
 pub mod ufo;
@@ -107,7 +110,7 @@ pub use lights::{
 pub use linked::{LinkLook, LinkSpan};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{
-    Caret, Composition, Hints, Laid, MASK_BARE, MASK_BIDI, MASK_PICTURE, MASK_RECORD,
+    Caret, Composition, CursorDrawn, Hints, Laid, MASK_BARE, MASK_BIDI, MASK_PICTURE, MASK_RECORD,
     MASK_SELECTED, MASK_SIZED, Measure, Overlay, OverlayStats, Scene,
 };
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
@@ -130,6 +133,7 @@ pub use select::{
 pub use splash::{SplashLook, SplashPhase};
 pub use stack::{
     EmojiDefault, FaceIx, FaceRole, FaceStyle, FaceTable, FontSlot, Presentation, Stack, TextFace,
+    narrower_widths,
 };
 pub use status::{Leaving, StatusMarks};
 pub use stress_data::{STRESS_SKIP_BLOCKS, STRESS_SKIP_INDEX};

@@ -57,6 +57,14 @@ pub struct Shaped {
     /// shaper tested as it took each cluster: a run without one is never
     /// fitted to its cells (`crate::fit`), and is asked nothing more.
     joins: crate::bidi::Joins,
+    /// **Where each glyph's offset is from**: its cell's origin, as a grid
+    /// run lays it, or the run's start, a word laid at its natural
+    /// advances (`crate::word`), whose clusters go on from one another.
+    pens: baud_font::Pens,
+    /// A run laid as a run: its advance in font units, from its start to
+    /// the end of its last spacing glyph -- where the next piece of its
+    /// word goes on from. Zero for a grid run.
+    end: i16,
 }
 
 impl Shaped {
@@ -64,7 +72,35 @@ impl Shaped {
         placed: [Placed::NONE; PLACED_MAX],
         len: PlacedCount(0),
         joins: crate::bidi::Joins::Unseen,
+        pens: baud_font::Pens::Cell,
+        end: 0,
     };
+
+    /// Where each glyph's offset is from ([`baud_font::Pens`]).
+    pub(crate) fn pens(&self) -> baud_font::Pens {
+        self.pens
+    }
+
+    /// A run laid as a run: its advance in font units.
+    pub(crate) fn end(&self) -> i16 {
+        self.end
+    }
+
+    /// **Marks the run laid as a run on `face`**, its advance kept: from its
+    /// start to the end of its last spacing glyph, the furthest any glyph
+    /// that is not a mark reaches with its advance.
+    pub(crate) fn set_run(&mut self, face: &baud_font::Face<'_>) {
+        let gdef = face.gdef();
+        let end = self
+            .glyphs()
+            .iter()
+            .filter(|p| !gdef.is_mark(p.id))
+            .filter_map(|p| Some(i32::from(p.dx) + i32::from(face.advance(p.id)?.value())))
+            .max()
+            .unwrap_or(0);
+        self.pens = baud_font::Pens::Run;
+        self.end = i16::try_from(end.max(0)).unwrap_or(i16::MAX);
+    }
 
     /// Whether the run held a letter that takes a joining form.
     pub(crate) fn joins(&self) -> crate::bidi::Joins {

@@ -474,11 +474,9 @@ fn pins() -> Vec<Pin> {
     // three that diverge do so for ONE reason, read off the differing cells
     // rather than assumed: sfte has no UAX #29 grapheme clustering. A ZWJ
     // family is one cluster in two cells for baud and four separate people in
-    // eight cells for sfte; a regional-indicator pair is one flag against two;
-    // a Devanagari combining mark attaches to its base in baud and takes its
-    // own cell in sfte, shifting everything after it on the row by one. That
-    // is a feature baud has and sfte does not, not a defect in either, and the
-    // pin holds the count so the day it moves somebody reads why.
+    // eight cells for sfte; a regional-indicator pair is one flag against two.
+    // That is a feature baud has and sfte does not, not a defect in either,
+    // and the pin holds the count so the day it moves somebody reads why.
     const CLUSTERING: &str = "sfte has no UAX #29: ZWJ families, flags and \
                               combining marks each take their own cells";
     // **How far the first divergence of the two Devanagari recordings
@@ -486,10 +484,12 @@ fn pins() -> Vec<Pin> {
     // with (sfte.h's `_SFTE_CHAR_WIDTH`). glibc's C.UTF-8 gives the vowel
     // signs AA and II, U+093E and U+0940, one column each and macOS's gives
     // them none; they are the only characters in these two recordings the
-    // two tables disagree on, so sfte's rows run on by a cell at each and
-    // the boundary's divergence covers 250 cells on Linux and 165 on
-    // macOS. Which boundaries diverge is the same on both.
-    let devanagari = Cells::of(if cfg!(target_os = "linux") { 250 } else { 165 });
+    // two tables disagree on. baud gives each a column of its own since
+    // 2026-11-02, as glibc does, so on macOS sfte's rows fall short by a
+    // cell at each and the boundary's divergence covers 250 cells there and
+    // 165 on Linux, the other way round from before. Which boundaries
+    // diverge is the same on both.
+    let devanagari = Cells::of(if cfg!(target_os = "linux") { 165 } else { 250 });
     vec![
         Pin {
             path: "ascii/pipes.raw",
@@ -539,10 +539,12 @@ fn pins() -> Vec<Pin> {
             first_cells: devanagari,
             reason: CLUSTERING,
         },
+        // 33 boundaries and 137 cells until 2026-11-02, when the त of each
+        // नमस्ते took the column sfte's `wcwidth` gives it on both hosts.
         Pin {
             path: "utf8/vim-unicode.raw",
-            diverging_boundaries: Boundary::of(33),
-            first_cells: Cells::of(137),
+            diverging_boundaries: Boundary::of(29),
+            first_cells: Cells::of(12),
             reason: CLUSTERING,
         },
     ]

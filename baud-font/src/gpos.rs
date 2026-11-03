@@ -665,9 +665,12 @@ impl<'a> Run<'_, '_, 'a> {
             Direction::RightToLeft if first => return,
             Direction::RightToLeft => (pos, v.advance.saturating_neg()),
         };
+        // Laid as a run, an advance moves every glyph after it, the next
+        // clusters' too ([`crate::Pens::Run`]).
+        let run = buf.pens() == crate::Pens::Run && self.direction == Direction::LeftToRight;
         let mut at = from;
         while let Some(h) = buf.get_mut(at) {
-            if h.cluster != cluster {
+            if h.cluster != cluster && !run {
                 break;
             }
             if h.positioned == Positioned::No {

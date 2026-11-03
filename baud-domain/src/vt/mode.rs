@@ -476,6 +476,15 @@ pub enum ModeBit {
     /// Not a mode the host names; set and reset as the two change; no
     /// `DECRQM` or XTSAVE reaches it.
     CursorRouted,
+    /// `?2027`, grapheme cluster mode (`[[source: mode2027]]`): while set,
+    /// a cell holds an extended grapheme cluster, as wide as its first
+    /// character; while reset, a legacy one, so a spacing mark and a
+    /// consonant joined after a virama take a column each
+    /// ([`crate::ClusterCells`]). Off at power-on and after `RIS` and
+    /// `DECSTR`, as the draft's "Terminal Reset" says. Read where a write
+    /// joins a character to the cell before it, never on the text path's
+    /// bulk writers.
+    GraphemeClusters,
 }
 
 impl ModeBit {
@@ -622,11 +631,8 @@ pub enum PrivateMode {
     /// codes take one column whatever `?1021` says. baud always keeps them
     /// one column, so `DECRQM` answers it `1`.
     PrivateWidthResource,
-    /// `?2027` — grapheme clustering. baud always clusters and has no mode
-    /// that stops it, so `DECRQM` answers it permanently: `3` while a
-    /// `U+FE0F` widens its base and `4` when the embedder configures one cell.
-    /// Not a switch, where [`PrivateMode::Utf8Resource`] answers `1` or `2`
-    /// from the live input encoding.
+    /// `?2027` — grapheme cluster mode ([`ModeBit::GraphemeClusters`]):
+    /// a switch, reset at power-on, `DECRQM` answering `1` or `2`.
     GraphemeClustering,
     CursorVisible,      // ?25
     BracketedPaste,     // ?2004
@@ -1448,11 +1454,11 @@ impl ModeSlot {
 /// Each XTSAVE slot's mode as DECSET names it, by slot: the private modes
 /// DECTSR carries, and the controls DECRSTS restores them through.
 /// `every_slot_is_its_wire_number` holds each to [`PrivateMode::slot`].
-pub const SLOT_WIRE: [u16; 74] = [
+pub const SLOT_WIRE: [u16; 75] = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 25, 45, 47, 69, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007,
     1015, 1016, 1034, 1036, 1039, 1049, 2004, 2026, 2031, 2048, 1042, 1043, 40, 95, 80, 1070, 8452,
     117, 66, 67, 1035, 1037, 1010, 1011, 1041, 1045, 1046, 2001, 2005, 2006, 1047, 41, 30, 44, 46,
-    18, 19, 43, 1040, 2500, 2501, 1243, 96, 36, 34, 35, 1050, 1051, 1052, 1053, 1060, 1061,
+    18, 19, 43, 1040, 2500, 2501, 1243, 96, 36, 34, 35, 1050, 1051, 1052, 1053, 1060, 1061, 2027,
 ];
 
 const _: () = assert!(SLOT_WIRE.len() <= 128, "SavedModes keeps two words of each");
@@ -1611,9 +1617,9 @@ impl PrivateMode {
     /// The slot XTSAVE keeps this mode in: **every mode DECSET acts on, and
     /// no other** -- "Ps values are the same as for DECSET" -- but `?1048`,
     /// whose save is the cursor's. The named modes without one are that and
-    /// the nine DECSET cannot change: `?13`, `?14` and `?1020` to `?1023`
+    /// the eight DECSET cannot change: `?13`, `?14` and `?1020` to `?1023`
     /// are read-only (`[[source: ctlseqs]]` marks them so, and xterm's
-    /// `savemodes` keeps none of them), and `?1014`, `?1044` and `?2027` are
+    /// `savemodes` keeps none of them), and `?1014` and `?1044` are
     /// permanent here. An unnamed mode has none, and DECSET counts it, as a
     /// save and a restore of it are counted.
     ///
@@ -1705,6 +1711,7 @@ impl PrivateMode {
             PrivateMode::Keyboard(Keyboard::Sco) => 71,
             PrivateMode::Keyboard(Keyboard::Legacy) => 72,
             PrivateMode::Keyboard(Keyboard::Vt220) => 73,
+            PrivateMode::GraphemeClustering => 74,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -1712,7 +1719,6 @@ impl PrivateMode {
             | PrivateMode::CjkWidthResource
             | PrivateMode::EmojiWidthResource
             | PrivateMode::PrivateWidthResource
-            | PrivateMode::GraphemeClustering
             | PrivateMode::CursorBlinkResource
             | PrivateMode::CursorBlinkXor
             | PrivateMode::FastScroll

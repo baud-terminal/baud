@@ -325,6 +325,7 @@ impl Arms<'_, '_> {
             rotation: RowRot::NONE,
             ring: self.ring,
             cursor: None,
+            cursor_drawn: self.exceptions.cursor_drawn(),
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &records,
@@ -639,6 +640,7 @@ impl Arms<'_, '_> {
             rotation,
             ring,
             cursor,
+            cursor_drawn: self.exceptions.cursor_drawn(),
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
@@ -697,6 +699,7 @@ impl Arms<'_, '_> {
             rotation: RowRot::NONE,
             ring: Rows::of_index(ring),
             cursor,
+            cursor_drawn: self.exceptions.cursor_drawn(),
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
@@ -12284,6 +12287,110 @@ fn a_clustered_composition_draws_as_its_text_written_on_every_arm() {
     }
 }
 
+/// **A composition against a Devanagari word draws as its text written,
+/// on every arm** (`baud-render/src/word.rs`): the letters written against
+/// it that its own continue are one word with it once committed, which it
+/// draws whole, the grid leaving their cells to it, unlit. On Kohinoor
+/// Devanagari behind JetBrains Mono: कमल composed after a blank, the block
+/// cursor after it; मल and म composed after a written क, once with the क
+/// selected; क composed before a written ल, the block cursor after it on
+/// ल lighting ल's syllable; म between a written क and ल;
+/// क् before a written ष, the conjunct formed across them; मल after कि
+/// under `?2027`; `x` composed against a written कमल; and under `?2027`
+/// क्ति, which fits at no width, composed after a written क and a blank,
+/// and written after a composed क, closing on its ink -- each equal on
+/// the cell, copied-cell and CPU arms to the same text written underlined
+/// at the cursor, the cursor after it, and each against its premise, the
+/// frame without it. And with the input method's cursor on a syllable of
+/// a composed word, the ink over its block alike on every arm.
+#[test]
+fn a_composition_against_a_devanagari_word_draws_as_written_on_every_arm() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let deva = std::fs::read("/System/Library/Fonts/Kohinoor.ttc").expect("Kohinoor Devanagari");
+    let faces = [
+        Face::parse(&data).expect("parse"),
+        Face::parse_index(&deva, baud_font::FaceIndex::of(0u32)).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    // The क of `ab` and `क` on row 3, selected alone.
+    let ka = Highlight::new(
+        (Row::from_index(2), Col::at_index(2)),
+        (Row::from_index(2), Col::at_index(2)),
+        Region::Stream,
+    );
+    for (base, text, selected) in [
+        ("ab ", "\u{915}\u{92e}\u{932}", None),
+        ("ab\u{915}", "\u{92e}\u{932}", None),
+        ("ab\u{915}", "\u{92e}", None),
+        ("ab\u{915}", "\u{92e}\u{932}", Some(ka)),
+        ("ab  \u{932}\x1b[2D", "\u{915}", None),
+        ("ab \u{915} \u{932}\x1b[2D", "\u{92e}", None),
+        ("ab  \u{937}\x1b[2D", "\u{915}\u{94d}", None),
+        ("\x1b[?2027hab\u{915}\u{93f}", "\u{92e}\u{932}", None),
+        ("ab  \u{915}\u{92e}\u{932}\x1b[4D", "x", None),
+        ("\x1b[?2027h\u{915} ", "\u{915}\u{94d}\u{924}\u{93f}", None),
+        (
+            "\x1b[?2027h  \u{915}\u{94d}\u{924}\u{93f}\x1b[1G",
+            "\u{915}",
+            None,
+        ),
+    ] {
+        arms!(fresh() => arms, t);
+        arms.highlight = selected;
+        feed(
+            &mut t,
+            format!(
+                "\x1bc\x1b[2 q\x1b[5;1HThe quick brown fox jumps over the lazy dog 0123456789\x1b[3;1H{base}"
+            )
+            .as_bytes(),
+        );
+        let cps: Vec<_> = text
+            .chars()
+            .map(baud_domain::Codepoint::from_char)
+            .collect();
+        arms.composition = Some(Composition::at_cursor(&t, &cps, &[], Caret::End));
+        let composed = three_arms(&mut arms, &mut t, &format!("{base:?} {text:?}: composed"));
+        arms.composition = None;
+        let plain = three_arms(&mut arms, &mut t, &format!("{base:?} {text:?}: plain"));
+        feed(&mut t, format!("\x1b[4m{text}\x1b[24m").as_bytes());
+        let written = three_arms(&mut arms, &mut t, &format!("{base:?} {text:?}: written"));
+        assert!(
+            differing(&composed, &plain) > 0,
+            "{base:?} {text:?}: the composition is drawn"
+        );
+        let d = differing(&composed, &written);
+        assert_eq!(d, 0, "{base:?} {text:?}: as written, {d} pixels");
+    }
+    // The input method's cursor on म of कमल composed: the block on its
+    // cell, the word's ink over it in the cursor's text colour, alike on
+    // every arm.
+    arms!(fresh() => arms, t);
+    feed(
+        &mut t,
+        b"\x1bc\x1b[2 q\x1b[5;1HThe quick brown fox jumps over the lazy dog 0123456789\x1b[3;1Hab ",
+    );
+    let cps: Vec<_> = "\u{915}\u{92e}\u{932}"
+        .chars()
+        .map(baud_domain::Codepoint::from_char)
+        .collect();
+    arms.composition = Some(Composition::at_cursor(&t, &cps, &[], Caret::At(1)));
+    let _ = three_arms(&mut arms, &mut t, "the cursor on a composed syllable");
+}
+
 /// **A composition over text SAPV varies draws as its own text written,
 /// on every arm** (`[[source: ecma48]]` 8.3.108): `xyz` composed over
 /// digits value 2 draws as the Arabic script's is drawn as `xyz`, not as
@@ -14824,4 +14931,247 @@ fn a_paragraph_inside_side_margins_draws_alike_on_every_arm() {
     );
     let want = three(&mut arms, &mut t, "the visual order on the last two rows");
     assert_eq!(differing(&scrolled, &want), 0, "scrolled with its margins");
+}
+
+/// **A syllable is drawn alike on every arm**: the README's Hindi line,
+/// टर्मिनल हर अक्षर को ग्रिड में रखता है।, in Kohinoor Devanagari behind
+/// JetBrains Mono. With `?2027` reset each letter and spacing vowel sign
+/// takes a cell and every word is drawn whole, its syllables re-formed from
+/// the cells the core parted them into -- by the instance arm's runs, by
+/// records over masked cells on the cell arm, and from the instance list
+/// on the CPU arm; with spacing marks joined, the same over fewer cells, a
+/// vowel sign in its consonant's cell; with `?2027` set, a whole syllable
+/// in one cell. A
+/// syllable a soft wrap parts, its vowel sign alone at the next row's
+/// start, is drawn as two. The premises: the syllables went to the
+/// records, and the three frames differ, the columns having moved; a line
+/// of Latin keeps the map's own premise, that it holds the scene's glyphs.
+#[test]
+fn a_syllable_draws_alike_on_every_arm() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let deva = std::fs::read("/System/Library/Fonts/Kohinoor.ttc").expect("Kohinoor Devanagari");
+    let tamil = std::fs::read("/System/Library/Fonts/Supplemental/Tamil Sangam MN.ttc")
+        .expect("Tamil Sangam MN");
+    let faces = [
+        Face::parse(&data).expect("parse"),
+        Face::parse_index(&deva, baud_font::FaceIndex::of(0u32)).expect("parse"),
+        Face::parse_index(&tamil, baud_font::FaceIndex::of(0u32)).expect("parse"),
+    ];
+    let roles = [FaceRole::Fallback, FaceRole::Fallback, FaceRole::Fallback];
+    let renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let line = "टर्मिनल हर अक्षर को ग्रिड में रखता है।";
+    // ट, र् and म in the last three columns, ि at the next row's start.
+    let wrapped = format!("\x1b[4;{}H{line}", usize::from(WS.ws_col) - 2);
+    let mut frames = Vec::new();
+    for (setup, marks) in [
+        ("", baud_domain::SpacingMarks::Column),
+        ("", baud_domain::SpacingMarks::Joined),
+        ("\x1b[?2027h", baud_domain::SpacingMarks::Column),
+    ] {
+        t.set_spacing_marks(marks);
+        feed(
+            &mut t,
+            format!(
+                "\x1bc\x1b[?25l{setup}{line}\r\n\x1b[1m{line}\x1b[m\r\n\
+                 the quick brown fox jumps over 0123456789{wrapped}"
+            )
+            .as_bytes(),
+        );
+        let (a, b) = arms.draw(&mut t);
+        let cpu = cpu_frame(&mut arms, &mut t);
+        let stats = arms.exceptions.stats();
+        assert!(
+            stats.cells.value() >= 12,
+            "{setup:?} {marks:?}: the syllables went to the records: {stats:?}"
+        );
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{setup:?} {marks:?}: the GPU arms disagree"
+        );
+        assert_eq!(
+            differing(&a, &cpu),
+            0,
+            "{setup:?} {marks:?}: the CPU arm disagrees"
+        );
+        frames.push(a);
+    }
+    assert!(
+        differing(&frames[0], &frames[1]) > 0,
+        "the setting moved nothing"
+    );
+    assert!(differing(&frames[0], &frames[2]) > 0, "?2027 moved nothing");
+    t.set_spacing_marks(baud_domain::SpacingMarks::Column);
+    // **Never shrunk**: Tamil கொ, KA and the vowel sign O, is two cells
+    // whose glyphs in Tamil Sangam MN are wider than the two; a syllable
+    // outside a Devanagari word is centred in its cells at its face's
+    // size, so they reach into the `|` after them, alike on every arm.
+    // Against the same row with the syllable blank, the pixels that differ
+    // reach past its two cells.
+    let row = |s: &str| format!("\x1bc\x1b[?25l\x1b[2;1H{s}|");
+    feed(&mut t, row("கொ").as_bytes());
+    let (with, with_cell) = arms.draw(&mut t);
+    let with_cpu = cpu_frame(&mut arms, &mut t);
+    feed(&mut t, row("  ").as_bytes());
+    let (blank, _) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&with, &with_cell),
+        0,
+        "the GPU arms disagree on கொ"
+    );
+    assert_eq!(
+        differing(&with, &with_cpu),
+        0,
+        "the CPU arm disagrees on கொ"
+    );
+    let (fw, _) = arms.renderer.whole_size();
+    let m = arms.renderer.metrics();
+    let cell = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+    );
+    let reach = diff_box(&with, &blank, usize::try_from(fw.value()).unwrap(), cell);
+    assert!(
+        reach.is_some_and(|(c0, _, c1, _)| c0 == 0 && c1 >= 2),
+        "கொ is drawn at its face's size, past its two cells: {reach:?}"
+    );
+}
+
+/// **A Devanagari word, the block cursor on each of its cells and a
+/// selection of each of its syllables, draw alike on every arm**
+/// (`baud-render/src/word.rs`): the README's Hindi line, each word shaped
+/// whole and laid in its columns, the block on every cell of टर्मिनल and
+/// अक्षर lighting the syllable that holds the cell, and each of their
+/// syllables selected alone -- under the default count, spacing marks
+/// joined and `?2027`, in Kohinoor Devanagari behind JetBrains Mono, and,
+/// where the README's font cache holds it, in Noto Sans Devanagari's
+/// variable file with its narrower instances. The block a word's syllable
+/// takes is the records', the cell shader drawing none
+/// (`Overlay::cursor_drawn`); the premises: the words went to the records,
+/// and the block on two syllables draws two frames.
+#[test]
+fn a_devanagari_word_and_its_lights_draw_alike_on_every_arm() {
+    const SHA: &str = "9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7";
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let deva = std::fs::read("/System/Library/Fonts/Kohinoor.ttc").expect("Kohinoor Devanagari");
+    let cache = std::env::var_os("NOTO_CACHE")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("XDG_CACHE_HOME")
+                .map(|d| std::path::PathBuf::from(d).join("baud-readme"))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache/baud-readme"))
+        });
+    let noto = cache.and_then(|d| std::fs::read(d.join("NotoSansDevanagari[wdth,wght].ttf")).ok());
+    if let Some(n) = &noto {
+        assert_eq!(
+            sha256::sha256_hex(n),
+            SHA,
+            "the cache's file is not the pinned one"
+        );
+    }
+    let mut stacks: Vec<(Vec<Face<'_>>, Vec<FaceRole>)> = vec![(
+        vec![
+            Face::parse(&data).expect("parse"),
+            Face::parse_index(&deva, baud_font::FaceIndex::of(0u32)).expect("parse"),
+        ],
+        vec![FaceRole::Fallback, FaceRole::Fallback],
+    )];
+    if let Some(n) = &noto {
+        let mut faces = vec![Face::parse(&data).unwrap(), Face::parse(n).unwrap()];
+        let mut roles = vec![FaceRole::Fallback, FaceRole::Fallback];
+        for w in baud_render::narrower_widths(&faces[1], &[]) {
+            let mut f = Face::parse(n).unwrap();
+            f.set_variations(&[baud_font::var::Variation {
+                tag: baud_font::Tag::from_bytes(*b"wdth"),
+                value: baud_font::var::Fixed::from_f32(w),
+            }]);
+            faces.push(f);
+            roles.push(FaceRole::Narrower);
+        }
+        stacks.push((faces, roles));
+    }
+    let line = "टर्मिनल हर अक्षर को ग्रिड में रखता है।";
+    let mut drawn = 0usize;
+    for (faces, roles) in &stacks {
+        let renderer = Renderer::new(
+            Stack::with_roles(faces, roles).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap();
+        arms!(renderer => arms, t);
+        for (setup, marks) in [
+            ("", baud_domain::SpacingMarks::Column),
+            ("", baud_domain::SpacingMarks::Joined),
+            ("\x1b[?2027h", baud_domain::SpacingMarks::Column),
+        ] {
+            t.set_spacing_marks(marks);
+            let screen = format!(
+                "\x1bc\x1b[?25l{setup}\x1b[2;3H{line}\x1b[4;1Hthe quick brown fox 0123456789"
+            );
+            arms.highlight = None;
+            feed(&mut t, screen.as_bytes());
+            let _ = three_arms(&mut arms, &mut t, "the line");
+            assert!(
+                arms.exceptions.stats().cells.value() >= 12,
+                "{setup:?} {marks:?}: the words went to the records"
+            );
+            let words = arms.renderer.words_on(Row::from_index(1)).to_vec();
+            assert_eq!(words.len(), 8, "{setup:?} {marks:?}: {words:?}");
+            let mut frames = Vec::new();
+            for w in [&words[0], &words[2]] {
+                for c in w.at.index()..w.at.index() + w.cells.index() {
+                    feed(&mut t, format!("\x1b[2;{}H\x1b[?25h", c + 1).as_bytes());
+                    let what = format!("{setup:?} {marks:?}: the block on column {c}");
+                    frames.push(three_arms(&mut arms, &mut t, &what));
+                    assert_eq!(
+                        arms.exceptions.cursor_drawn(),
+                        baud_render::CursorDrawn::Records,
+                        "{what}: the records draw it"
+                    );
+                    drawn += 1;
+                }
+                feed(&mut t, b"\x1b[?25l");
+                for &(at, n) in &w.syllables {
+                    let row = Row::from_index(1);
+                    arms.highlight = Some(Highlight::new(
+                        (row, at),
+                        (row, Col::at_index(at.index() + n.index() - 1)),
+                        Region::Stream,
+                    ));
+                    let what = format!("{setup:?} {marks:?}: column {} selected", at.index());
+                    let _ = three_arms(&mut arms, &mut t, &what);
+                    drawn += 1;
+                }
+                arms.highlight = None;
+            }
+            assert!(
+                frames.windows(2).any(|f| differing(&f[0], &f[1]) > 0),
+                "{setup:?} {marks:?}: the block moved nothing"
+            );
+        }
+    }
+    assert!(drawn >= 60, "{drawn} frames compared");
 }

@@ -142,22 +142,35 @@ fn a_combining_mark_after_a_control_takes_a_cell_of_its_own() {
     });
 }
 
-/// **What joins a defective mark joins it**: a second mark, and a spacing
-/// mark after it, go into its cell, the cursor one past it.
+/// **What joins a defective mark joins it**: a second mark goes into its
+/// cell, and so does a spacing mark after it while `?2027` is set, the
+/// cursor one past it; reset, the spacing mark takes a cell of its own, as
+/// every spacing mark does (`tests/syllable_columns.rs`).
 #[test]
 fn what_follows_a_defective_mark_joins_it() {
-    let bytes = "ab\x1b[m\u{301}\u{308}\u{903}x";
-    for size in 1..=bytes.len() {
-        fed(bytes.as_bytes(), size, |t| {
-            let mut want = vec![
-                letter('a'),
-                letter('b'),
-                alone(&[0x301, 0x308, 0x903]),
-                letter('x'),
-            ];
-            want.resize(8, None);
-            assert_eq!(cells(t, 0), want, "read size {size}");
-        });
+    for (setup, spacing_own) in [("", true), ("\x1b[?2027h", false)] {
+        let bytes = format!("{setup}ab\x1b[m\u{301}\u{308}\u{903}x");
+        for size in 1..=bytes.len() {
+            fed(bytes.as_bytes(), size, |t| {
+                let mut want = match spacing_own {
+                    true => vec![
+                        letter('a'),
+                        letter('b'),
+                        alone(&[0x301, 0x308]),
+                        Some((Some(0x903), vec![])),
+                        letter('x'),
+                    ],
+                    false => vec![
+                        letter('a'),
+                        letter('b'),
+                        alone(&[0x301, 0x308, 0x903]),
+                        letter('x'),
+                    ],
+                };
+                want.resize(8, None);
+                assert_eq!(cells(t, 0), want, "{setup:?} read size {size}");
+            });
+        }
     }
 }
 

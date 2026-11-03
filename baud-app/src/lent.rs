@@ -267,7 +267,7 @@ mod tests {
         let faces = crate::host::parse_faces(cfg, &data, &mut held);
         let fonts = crate::fonts::Fonts::new(cfg, data, faces, held);
         let renderer = baud_render::Renderer::new(
-            crate::host::stack(cfg, faces),
+            crate::host::stack(&fonts),
             baud_render::PxSize::of(26.0).expect("a size"),
             baud_render::Theme::dark(),
             baud_render::Blend::Native,

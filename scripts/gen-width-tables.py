@@ -13,6 +13,7 @@ SRC = pathlib.Path(__file__).resolve().parent.parent / "docs/research/sources"
 EAW = SRC / "unicode-eastasianwidth.txt"
 EAW8 = SRC / "unicode-eastasianwidth-8.0.0.txt"
 DGC = SRC / "unicode-derivedgeneralcategory.txt"
+PROPLIST = SRC / "unicode-proplist.txt"
 
 
 def parse(path):
@@ -109,6 +110,15 @@ ambiguous8 = coalesce([(lo, hi) for lo, hi, v in eaw8 if v == "A"])
 zero = coalesce([(lo, hi) for lo, hi, v in dgc if v in ("Mn", "Me", "Cf")])
 # U+00AD SOFT HYPHEN is Cf but every terminal renders it in a column.
 zero = subtract(zero, 0x00AD)
+# Unicode 8's table keeps the zero set Unicode 8 had no property to narrow.
+zero8 = zero
+# Prepended_Concatenation_Mark is Cf, and UAX #44 calls it "a small class of
+# visible format controls, which precede and then span a sequence of other
+# characters, usually digits": a column each, as glibc's width table gives it.
+for lo, hi, v in parse(PROPLIST):
+    if v == "Prepended_Concatenation_Mark":
+        for cp in range(lo, hi + 1):
+            zero = subtract(zero, cp)
 
 
 BLOCK = 256  # codepoints per stage-2 block
@@ -224,7 +234,10 @@ def emit_trie(index, packed, nblocks, prefix="WIDTH", unicode8=False):
             "///",
             "/// * `1` zero — general category `Mn`, `Me` or `Cf`: combining marks and",
             "///   format characters, which occupy no column. `U+00AD` SOFT HYPHEN is",
-            "///   `Cf` and is excluded, because every terminal gives it a column.",
+            "///   `Cf` and is excluded, because every terminal gives it a column, and",
+            "///   so is `Prepended_Concatenation_Mark`, `[[source: uax44]]`'s",
+            "///   \"visible format controls\" that span the digits after them, such as",
+            "///   `U+0600` ARABIC NUMBER SIGN, a column each, as glibc gives them.",
             "/// * `2` wide — East Asian Width `W` or `F`, **or**",
             "///   `Emoji_Presentation=Yes`. Both are needed and neither subsumes the",
             "///   other: regional indicators are EAW `N`, so a flag measured from East",
@@ -287,7 +300,7 @@ parts = [header.rstrip("\n")]
 
 index, packed, nblocks = build_trie(zero, wide, ambiguous)
 parts.append(emit_trie(index, packed, nblocks))
-index8, packed8, nblocks8 = build_trie(zero, wide8, ambiguous8)
+index8, packed8, nblocks8 = build_trie(zero8, wide8, ambiguous8)
 parts.append(emit_trie(index8, packed8, nblocks8, "WIDTH8", True))
 out = "\n\n".join(parts) + "\n"
 

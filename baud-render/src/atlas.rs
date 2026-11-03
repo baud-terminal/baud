@@ -347,6 +347,13 @@ pub struct AtlasStats {
     /// `.notdef` too. A glyph the stack passed over for another face is
     /// never asked for here; `FaceTable::refused` counts it.
     pub refused: Tally,
+    /// **Glyphs drawn at a size other than the cells'**: the badge's text
+    /// ([`Atlas::slot_sized`]) and a letter of a joining script fitted to
+    /// its cell ([`Atlas::slot_fitted_at`]), each counted once, when first
+    /// drawn. Text in the cells is never scaled otherwise -- a Devanagari
+    /// word too wide for its columns is narrowed on its face's width axis
+    /// instead (`crate::word`) -- so a screen of it counts none.
+    pub scaled: Tally,
 }
 
 /// One texture and the bands carved out of it.
@@ -903,6 +910,7 @@ impl Atlas {
             .or_else(|| self.rasterise(face, id, scale, phase, stretch));
         if slot.is_some() || self.fits_nothing_anyway(face, id, scale, phase, stretch) {
             self.sized.insert(key, slot);
+            self.stats.scaled.bump();
         }
         slot
     }
@@ -1223,6 +1231,7 @@ impl Atlas {
             return *known;
         }
         let own = self.slot_at(face, ix, id, scale, phase, stretch);
+        self.stats.scaled.bump();
         let xy = (stretch.xf() * factor, stretch.yf() * factor);
         let slot = match own {
             Some(s) if s.kind == Kind::Mask => {

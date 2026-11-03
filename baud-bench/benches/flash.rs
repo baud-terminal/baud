@@ -476,6 +476,7 @@ fn main() {
                 rotation: RowRot::NONE,
                 ring: Rows::of_index(rows),
                 cursor,
+                cursor_drawn: self.exceptions.cursor_drawn(),
                 highlight: None,
                 overlay: &self.overlay,
                 records: &self.records,

@@ -1534,8 +1534,8 @@ fn fixtures() -> Vec<Fixture> {
             vec![bytes(KEPT), Step::Resize(8, 30), bytes("X")],
         ),
         // U+FE0F widens its base with ?2027 set, which ghostty needs and
-        // baud answers as permanently set: mid-row, the control, and on
-        // the character a re-cut left the wrap waiting after.
+        // baud does under either state: mid-row, the control, and on the
+        // character a re-cut left the wrap waiting after.
         Fixture {
             name: "resize: U+FE0F mid-row widens in place",
             steps: vec![bytes("\x1b[?2027h\x1b[3;1Habcd\u{2764}\u{fe0f}X")],

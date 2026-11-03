@@ -48,7 +48,8 @@ Almost every setting shows in the open window as soon as you save:
 colours, the theme and its files, the selection and cursor colours, fonts
 and their size, padding, the cursor's shape, blink and trail, the bell,
 emoji, scrolling, the screen transition, the exit-status marks, the glass's
-dim, tint and shadow, `[text] ambiguous_width`, and what programs may do
+dim, tint and shadow, `[text] ambiguous_width` and `join_spacing_marks`,
+and what programs may do
 (`[window]`, `[font]`, `[clipboard] osc52` and `copy_on_select`,
 `[launch] splash` turned off while the logo shows,
 `[screen]`'s logging, checksum, substitute mark, notifications and print
@@ -61,8 +62,9 @@ the new one: `colorspace`, `[glass] style`, `[images] pixels_mb` and
 `[clipboard] body_kb` and `[shell] integration`, which is how a shell is
 started.
 
-- **A new `ambiguous_width` measures the next character.** Text already
-  on the screen keeps the columns it was written with.
+- **A new `ambiguous_width` or `join_spacing_marks` measures the next
+  character.** Text already on the screen keeps the columns it was written
+  with.
 - **On Linux, padding, the scroll mode, the glass's tint and shadow and
   the activity lights** are not drawn, so a change to them shows nothing
   there; the Linux window has no title bar to hold the lights.
@@ -88,7 +90,7 @@ These keys go at the top of the file, before any `[section]`.
 | `padding` | number, points | `8` | The space between the text and the window's edges. `0` removes it. |
 | `theme` | `"auto"`, `"dark"`, `"light"` | `"auto"` | Which colours to use. `"auto"` follows System Settings > Appearance and switches with it; on Linux it follows the desktop's light or dark setting, and uses light where the desktop states no preference. |
 | `colorspace` | `"srgb"`, `"display-p3"` | `"srgb"` | How colours are read. Leave it at `"srgb"` unless you want a theme's colours shown in the wider Display P3 range. |
-| `vs16_width` | `"two"`, `"one"` | `"two"` | How wide an emoji such as ❤️ is when it is written with the emoji selector. Use `"one"` only if your shell or editor measures it as one column and the cursor lands in the wrong place. |
+| `vs16_width` | `"two"`, `"one"` | `"two"` | How wide an emoji such as ❤️ is when it is written with the emoji selector. Use `"one"` only if your shell or editor measures it as one column and the cursor lands in the wrong place. A program that asks for grapheme cluster mode gets two columns either way, as that mode requires. |
 | `emoji` | `"font"`, `"system"` | `"font"` | Whether symbols such as ⚡ are drawn as text from your font, or in colour as macOS draws them. |
 | `bell` | `"sound"`, `"flash"`, `"none"` | `"sound"` | What happens when a program rings the bell while baud's window is in front: the alert sound, a brief flash of the screen, or nothing. |
 | `fonts` | list of font names, or font file paths | baud's built-in fonts | The fonts to draw with, first choice first, each named by its family, such as `"Fira Code"` or `"Menlo"`, in any letter case. A later font fills in characters the earlier ones lack. A single face can be named by its PostScript name, such as `"FiraCode-Bold"`, or its full name, such as `"Fira Code Bold"`; it is then the regular text's face and its family supplies bold and italic. baud looks the names up among the fonts installed on the machine once, when it starts (on Linux, in the folders your fontconfig configuration lists, `/etc/fonts/fonts.conf` or the file `FONTCONFIG_FILE` names and your own `~/.config/fontconfig/fonts.conf`, leaving out the fonts its `<selectfont>` rules reject); a name it cannot find is skipped with a warning, and if none is found the built-in fonts are used. A value with a `/` or ending in `.ttf`, `.otf`, `.ttc` or `.otc` is a font file instead, and a `.ttc` file can take `@N` to pick a font inside it. Bold and italic text uses the bold and italic faces of the first font in the list that is found; a style it has none for is drawn from its nearest face, never faked. baud's built-in fonts can be named too, and are used ahead of an installed copy: `"Proto Hebrew Mono C"`, the built-in text font's working name, with its bold and italic faces, `"Symbols Nerd Font Mono"` and `"STIX Two Math"`. |
@@ -104,6 +106,7 @@ Menlo, emoji, symbol and Chinese, Japanese and Korean fonts behind them.
 | key | values | default | what it changes |
 |---|---|---|---|
 | `ambiguous_width` | `"narrow"`, `"wide"` | `"narrow"` | How many columns characters such as box-drawing lines, Greek and Cyrillic letters take. Set `"wide"` only to match a program set up to count them as two, such as vim with `ambiwidth=double`. |
+| `join_spacing_marks` | `"on"`, `"off"` | `"off"` | Whether a vowel sign written after its letter, such as the ि and ा of Hindi, a visarga, or Thai's and Lao's SARA AM, takes no column of its own. `"off"` gives it a column, as Linux shells and vim count, so the cursor stays where they expect; set `"on"` if you mostly use the Mac's own bash or zsh, or tmux, which count it as none. A program that asks for grapheme cluster mode, such as Neovim, gets a whole syllable in one cell either way. |
 
 ## [palette]
 

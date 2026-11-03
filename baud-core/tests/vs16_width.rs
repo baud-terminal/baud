@@ -1,12 +1,13 @@
 //! **A `U+FE0F` makes its base two cells wide.**
 //!
-//! `DECRQM ?2027` answered 3 -- permanently set -- while a text-default emoji
-//! and its `U+FE0F` stayed one cell, which is a wrong answer to a query. baud
-//! takes two cells, the width tmux 3.6+, fish, macOS bash, helix and lipgloss
-//! assume: the base widens when `[[source: emoji-variation-sequences]]` lists
-//! it with an emoji-style sequence, keycap bases excepted, in place when the
-//! row has room and moved whole to the next row at the right margin, as
-//! ghostty does. A configuration keeps one cell, and then `?2027` answers 4.
+//! baud takes two cells for a text-default emoji and its `U+FE0F`, the width
+//! tmux 3.6+, fish, macOS bash, helix and lipgloss assume: the base widens
+//! when `[[source: emoji-variation-sequences]]` lists it with an emoji-style
+//! sequence, keycap bases excepted, in place when the row has room and moved
+//! whole to the next row at the right margin, as ghostty does. A
+//! configuration keeps one cell while `?2027` is reset, at power-on and after
+//! both resets; while a program sets it the base widens under either, as the
+//! mode's VS16 rule requires, and `DECRQM ?2027` answers the mode.
 //!
 //! Every test feeds at read sizes 1, 2, 3 and whole, because the widen happens
 //! on the codepoint *after* the base, which a read boundary can separate.
@@ -140,7 +141,7 @@ fn a_base_in_the_last_column_moves_whole_to_the_next_row() {
 /// joins its base. The cursor pins *on* the last column, so the character
 /// just written is under it rather than left of it; the attach read the cell
 /// left of the cursor and put the selector on the `g`, which this test pinned
-/// as an older defect until `Paint::attach_continuing` (`tests/margin_pin.rs`).
+/// as an older defect until `Paint::continue_cluster` (`tests/margin_pin.rs`).
 /// The base keeps one cell: there is no room to widen into and no wrap to
 /// move it by.
 #[test]
@@ -193,22 +194,46 @@ fn widening_overwrites_the_cell_after_and_repairs_a_wide_neighbour() {
     );
 }
 
+/// **One cell holds while `?2027` is reset**, the state at power-on and
+/// after `?2027l`, `DECSTR` and `RIS`. While a program sets the mode a
+/// `U+FE0F` widens its base under the configuration too: the draft's VS16
+/// rule "will force the grapheme cluster's width to be 2", and its
+/// semantics "MUST be adhered to if this VT mode 2027 is enabled"
+/// (`[[source: mode2027]]`). `DECRQM ?2027` answers the mode in force.
 #[test]
-fn one_cell_is_a_configuration_and_decrqm_reports_it() {
+fn one_cell_holds_while_the_mode_is_reset() {
     each_read_size(Vs16Width::One, "\u{2764}\u{fe0f}x".as_bytes(), |t| {
         assert_eq!(t.vs16_width(), Vs16Width::One);
         assert_eq!(row(t, 0), "\u{2764}x......");
-        assert_eq!(ask(t, DECRQM_2027), b"\x1b[?2027;4$y");
+        assert_eq!(cursor(t), (0, 2));
+        assert_eq!(ask(t, DECRQM_2027), b"\x1b[?2027;2$y");
     });
-    each_read_size(Vs16Width::Two, b"", |t| {
-        assert_eq!(ask(t, DECRQM_2027), b"\x1b[?2027;3$y");
+    each_read_size(
+        Vs16Width::One,
+        "\x1b[?2027h\u{2764}\u{fe0f}x".as_bytes(),
+        |t| {
+            assert_eq!(row(t, 0), "\u{2764}>x.....");
+            assert_eq!(cursor(t), (0, 3));
+            assert_eq!(ask(t, DECRQM_2027), b"\x1b[?2027;1$y");
+        },
+    );
+    for reset in ["\x1b[?2027l", "\x1b[!p", "\x1bc"] {
+        let bytes = format!("\x1b[?2027h{reset}\u{2764}\u{fe0f}x");
+        each_read_size(Vs16Width::One, bytes.as_bytes(), |t| {
+            assert_eq!(row(t, 0), "\u{2764}x......", "{reset:?}");
+            assert_eq!(cursor(t), (0, 2), "{reset:?}");
+            assert_eq!(ask(t, DECRQM_2027), b"\x1b[?2027;2$y", "{reset:?}");
+        });
+    }
+    each_read_size(Vs16Width::Two, b"\x1b[?2027h", |t| {
+        assert_eq!(ask(t, DECRQM_2027), b"\x1b[?2027;1$y");
     });
 }
 
 #[test]
-fn no_sequence_changes_the_width() {
-    // `?2027` is permanent either way: an application's reset or set, and
-    // both resets, leave the configured width.
+fn a_reset_returns_the_configured_width() {
+    // An application's set and reset of `?2027`, and both resets, leave the
+    // configured width for the reset state they end in.
     for w in [Vs16Width::Two, Vs16Width::One] {
         each_read_size(
             w,

@@ -92,7 +92,7 @@ pub use baud_domain::png::{Color, Png, PngError, Size};
 pub use bitmap::{
     Bitmap, Mirror, Placement, Ppem, ReadStrike, Records, Strike, StrikeRefusal, StrikeState,
 };
-pub use buffer::{Attached, Buffer, Cluster, Glyph, Ignorable, Mark, Positioned};
+pub use buffer::{Attached, Buffer, Cluster, Glyph, Ignorable, Mark, Pens, Positioned};
 pub use cmap::Variation;
 pub use colr::{Layer, Layers, Palette, PaletteEntry, Rgba};
 pub use describe::{Angle, Described, Flavour, Slope, Weight, Width};

@@ -160,7 +160,7 @@ impl Stage {
             crate::palette::half_theme(crate::palette::Half::Dark, &cfg.glass, cfg.floor, &halves);
         let px = PxSize::of(cfg.font_size * SCALE).expect("a font size");
         let mut renderer = Renderer::new(
-            crate::host::stack(&cfg, faces),
+            crate::host::stack(&fonts),
             px,
             theme,
             baud_render::Blend::Native,

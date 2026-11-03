@@ -42,7 +42,7 @@ use crate::discover::{Catalogue, NamedAt};
 use baud_core::{FontChange, FontFamily, FontSize, SizeStep};
 use baud_font::var::Variation;
 use baud_font::{Face, FaceIndex};
-use baud_render::FaceRole;
+use baud_render::{FaceRole, narrower_widths};
 
 /// The smallest and largest size, in points, a step or the View menu may
 /// reach.
@@ -113,13 +113,14 @@ pub enum Refused {
 
 impl Fonts {
     /// The config's faces, `data` their bytes and `faces` them parsed, in
-    /// the config's order: the stack the app starts with, led by the first.
+    /// the config's order: the stack the app starts with, led by the first,
+    /// each face followed by its narrower instances ([`instanced`]).
     /// `held` holds the mappings under `data` and the slice `faces` is.
     pub fn new(
         cfg: &Config,
         data: Vec<&'static [u8]>,
         faces: &'static [Face<'static>],
-        held: crate::pty::Held,
+        mut held: crate::pty::Held,
     ) -> Fonts {
         let families = faces
             .iter()
@@ -143,9 +144,23 @@ impl Fonts {
         let slots = at.into_iter().map(|k| named[k]).collect();
         let mut built = vec![None; specs.len()];
         if let Some(first) = built.first_mut() {
-            *first = Some(Built {
+            // The config's faces in its order and with its roles, each
+            // followed by its narrower instances where one takes them; the
+            // faces alone past what a byte indexes.
+            let narrows = faces
+                .iter()
+                .zip(&specs)
+                .any(|(f, s)| s.1 != FaceRole::Badge && !narrower_widths(f, &s.2).is_empty());
+            let order: Vec<(usize, FaceRole)> = specs.iter().map(|s| s.1).enumerate().collect();
+            let plain = || Built {
                 faces,
                 roles: specs.iter().map(|s| s.1).collect(),
+            };
+            *first = Some(match narrows {
+                true => {
+                    instanced(&data, &specs, &order, Some(faces), &mut held).unwrap_or_else(plain)
+                }
+                false => plain(),
             });
         }
         let asked = vec![None; specs.len()];
@@ -161,6 +176,13 @@ impl Fonts {
             held,
             faces: cfg.faces.clone(),
         }
+    }
+
+    /// **The stack the config leads with**: its faces in its order, each
+    /// with its role and followed by its narrower instances -- what a
+    /// launch and a font reload draw with.
+    pub fn configured(&self) -> Option<Built> {
+        self.built.first()?.clone()
     }
 
     /// The config's faces these were made from, in its order.
@@ -292,37 +314,19 @@ impl Fonts {
             return Some(b);
         }
         let family = self.families.get(slot.0)?.clone();
-        let mut order = vec![slot.0];
+        let mut order = vec![(slot.0, FaceRole::Fallback)];
         for (i, (_, role, _)) in self.specs.iter().enumerate() {
             let same = family.is_some() && self.families[i] == family;
             match role {
                 _ if i == slot.0 => {}
                 // The alternative fonts and the Fraktur face stay what
                 // they are whatever leads the chain.
-                FaceRole::Fallback | FaceRole::Badge | FaceRole::Font(..) => order.push(i),
-                FaceRole::Style(_) if same => order.push(i),
-                FaceRole::Style(_) => {}
+                FaceRole::Fallback | FaceRole::Badge | FaceRole::Font(..) => order.push((i, *role)),
+                FaceRole::Style(_) if same => order.push((i, *role)),
+                FaceRole::Style(_) | FaceRole::Narrower => {}
             }
         }
-        let faces = order
-            .iter()
-            .map(|&i| {
-                let mut face = Face::parse_index(self.data[i], self.specs[i].0).ok()?;
-                face.set_variations(&self.specs[i].2);
-                Some(face)
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let built = Built {
-            faces: self.held.leak(faces),
-            roles: order
-                .iter()
-                .enumerate()
-                .map(|(n, &i)| match n {
-                    0 => FaceRole::Fallback,
-                    _ => self.specs[i].1,
-                })
-                .collect(),
-        };
+        let built = instanced(&self.data, &self.specs, &order, None, &mut self.held)?;
         self.built[slot.0] = Some(built.clone());
         Some(built)
     }
@@ -346,6 +350,65 @@ pub enum Zoom {
 /// macOS at the backing scale -- so the same presses reach the same
 /// `font_size` (rather than foot's half point).
 pub const ZOOM_STEP: f32 = 1.0;
+
+/// **A stack's faces, each followed by its narrower instances**: the
+/// faces `order` names -- places in the config's list, each with the role
+/// it takes -- at their specs' values, copied from `parsed` where given
+/// (the config's faces, parsed so already) and else parsed from `data`,
+/// and after each one with a `wdth` axis that draws Devanagari the
+/// instances it is read at narrower (`baud_render::narrower_widths`,
+/// [`FaceRole::Narrower`]), which a Devanagari word too wide for its
+/// columns is drawn at: each a copy of its face given that width, which is
+/// the face parsed again at it without reading its directory again. The
+/// badge's face takes none: no word is laid in it. Held by `held`; `None`
+/// if a face does not parse again, which it did once, or the stack would
+/// hold more faces than a byte indexes (`Stack::new`).
+fn instanced(
+    data: &[&'static [u8]],
+    specs: &[(FaceIndex, FaceRole, Vec<Variation>)],
+    order: &[(usize, FaceRole)],
+    parsed: Option<&[Face<'static>]>,
+    held: &mut crate::pty::Held,
+) -> Option<Built> {
+    let wdth = baud_font::Tag::from_bytes(*b"wdth");
+    let mut faces: Vec<Face<'static>> = Vec::with_capacity(order.len());
+    let mut roles = Vec::with_capacity(order.len());
+    for &(i, role) in order {
+        let (index, _, variations) = &specs[i];
+        let face = match parsed.and_then(|p| p.get(i)) {
+            Some(f) => f.clone(),
+            None => {
+                let mut f = Face::parse_index(data[i], *index).ok()?;
+                f.set_variations(variations);
+                f
+            }
+        };
+        let widths = match role {
+            FaceRole::Badge => Vec::new(),
+            _ => narrower_widths(&face, variations),
+        };
+        faces.reserve(widths.len() + 1);
+        let at = faces.len();
+        faces.push(face);
+        roles.push(role);
+        for w in widths {
+            let mut narrow = faces[at].clone();
+            narrow.set_variations(&[Variation {
+                tag: wdth,
+                value: baud_font::var::Fixed::from_f32(w),
+            }]);
+            faces.push(narrow);
+            roles.push(FaceRole::Narrower);
+        }
+    }
+    if faces.len() > usize::from(u8::MAX) {
+        return None;
+    }
+    Some(Built {
+        faces: held.leak(faces),
+        roles,
+    })
+}
 
 /// **The size a zoom step from `at` lands on**: a point up or down, within
 /// [`SIZE_MIN`] and [`SIZE_MAX`], or back to the configured `base`.
@@ -529,7 +592,9 @@ mod tests {
             .iter()
             .filter_map(|r| match r {
                 FaceRole::Style(s) => Some(*s),
-                FaceRole::Fallback | FaceRole::Badge | FaceRole::Font(..) => None,
+                FaceRole::Fallback | FaceRole::Badge | FaceRole::Font(..) | FaceRole::Narrower => {
+                    None
+                }
             })
             .collect();
         assert_eq!(styles, [Italic, BoldItalic], "no {Bold:?} beside itself");
@@ -607,8 +672,9 @@ mod tests {
     }
 
     /// **A stack led by another face keeps the rest of the chain behind it,
-    /// only its own family's styles, and the badge's face, last**; asked
-    /// again, it is the same faces, made once.
+    /// only its own family's styles, and the badge's face, last**, each
+    /// built face followed by its 15 narrower instances and the badge's by
+    /// none; asked again, it is the same faces, made once.
     #[test]
     fn a_stack_is_led_by_its_face_and_made_once() {
         let mut f = fonts("");
@@ -625,12 +691,15 @@ mod tests {
             "the badge's face, whatever the family"
         );
         assert!(
-            text.iter().all(|r| *r == FaceRole::Fallback),
+            text.iter()
+                .all(|r| matches!(r, FaceRole::Fallback | FaceRole::Narrower)),
             "JetBrains Mono's styles stay"
         );
+        let narrower = |b: &Built| b.roles.iter().filter(|r| **r == FaceRole::Narrower).count();
+        assert_eq!(narrower(&b), 15, "the embedded Regular's, in the chain");
         let chain = f.specs.iter().filter(|s| s.1 == FaceRole::Fallback).count();
         assert_eq!(
-            b.faces.len(),
+            b.faces.len() - narrower(&b),
             chain + 1,
             "the chain and the badge's face, and no styled face"
         );
@@ -640,12 +709,63 @@ mod tests {
         let jb = f.resolve(b"Proto Hebrew Mono C").unwrap();
         let back = f.stack(jb).unwrap();
         assert_eq!(
-            back.faces.len(),
+            back.faces.len() - narrower(&back),
             chain + 4,
             "the chain, the three styles and the badge's face"
         );
+        assert_eq!(
+            narrower(&back),
+            60,
+            "the four built faces'; the badge's none"
+        );
         f.set(stix);
         assert_eq!(f.family(), "STIX Two Math");
+    }
+
+    /// **A narrower instance is its face parsed again at its width**: each
+    /// of the 60 the default stack's built faces take, a copy of its face
+    /// given one `wdth`, reads at the coordinates its file reads at parsed
+    /// afresh with its face's settings and that width -- 97.5 down to
+    /// 62.5, widest first, each other than its face's.
+    #[test]
+    fn a_narrower_instance_is_its_face_parsed_at_its_width() {
+        let f = fonts("");
+        let b = f.configured().expect("the config's faces");
+        let place = crate::host::places(&f);
+        let wdth = baud_font::Tag::from_bytes(*b"wdth");
+        let (mut k, mut checked) = (0, 0);
+        while k < b.faces.len() {
+            let i = place[k];
+            let (index, role, variations) = &f.specs[i];
+            let widths = match role {
+                FaceRole::Badge => Vec::new(),
+                _ => narrower_widths(&b.faces[k], variations),
+            };
+            for (n, w) in widths.iter().enumerate() {
+                let at = k + 1 + n;
+                assert_eq!(b.roles[at], FaceRole::Narrower, "face {i} at {w}");
+                let mut fresh = Face::parse_index(f.data[i], *index).unwrap();
+                let mut settings: Vec<Variation> = variations
+                    .iter()
+                    .copied()
+                    .filter(|v| v.tag != wdth)
+                    .collect();
+                settings.push(Variation {
+                    tag: wdth,
+                    value: baud_font::var::Fixed::from_f32(*w),
+                });
+                fresh.set_variations(&settings);
+                assert_eq!(b.faces[at].coords(), fresh.coords(), "face {i} at {w}");
+                assert_ne!(
+                    b.faces[at].coords(),
+                    b.faces[k].coords(),
+                    "face {i} at {w}: the control"
+                );
+                checked += 1;
+            }
+            k += 1 + widths.len();
+        }
+        assert_eq!(checked, 60, "the four built faces' 15 each");
     }
 
     /// **A program names a loaded family by any of its family records,

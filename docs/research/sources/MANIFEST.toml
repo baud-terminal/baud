@@ -13279,7 +13279,7 @@ group  = "J"
 
 [sources.unicode18-ch3]
 key    = "unicode18-ch3"
-title  = "The Unicode Standard, Version 18.0 -- Chapter 3, Conformance (C5, C7, D50, D52, D57a-D57h)"
+title  = "The Unicode Standard, Version 18.0 -- Chapter 3, Conformance (C5, C6, C7, D50, D52, D57a-D57h)"
 author = "The Unicode Consortium"
 year   = 2026
 venue  = "The Unicode Standard, core specification"
@@ -41448,3 +41448,173 @@ sha256 = "b7751f0a40b76301fe39882293c3b9064aa3d2b26505b0623511ed2cb39da03b"
 bytes  = 194621
 status = "external"
 group  = "C"
+
+# How many columns a Devanagari syllable takes, read 2026-11-02 for note G
+# section 4.6. All `external`: read and hash-verified against a fetch of the
+# url, not committed -- a Unicode publication, or source files at a pinned
+# tag or commit. Re-fetch and compare. The terminals and programs are
+# evidence of practice, never of what is right.
+[sources.uax44]
+key    = "uax44"
+title  = "UAX #44: Unicode Character Database, revision 36 -- General_Category values: Mc 'a spacing combining mark (positive advance width)'"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Standard Annex"
+url    = "https://www.unicode.org/reports/tr44/tr44-36.html"
+file   = ""
+sha256 = "a97ed3f9dbee8e9a917106a3dc49a0fdeead42e2be06ea6f5cc31117eda3da33"
+bytes  = 313639
+status = "external"
+group  = "G"
+
+[sources.kitty-0482-screen]
+key    = "kitty-0482-screen"
+title  = "kitty v0.48.2, kitty/screen.c -- a code point the segmenter adds to the current cell joins it (draw_combining_char)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at v0.48.2 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.48.2/kitty/screen.c"
+file   = ""
+sha256 = "f800f55c4591a6a41b89edae0cc508983e70018ae48192e6abef32749b645537"
+bytes  = 274704
+status = "external"
+group  = "G"
+# Lines 1196-1199: `add_to_current_cell` sends the code point to
+# draw_combining_char, which widens only for VS16 and halves only for VS15
+# (1040-1080).
+
+[sources.kitty-0482-gen-wcwidth]
+key    = "kitty-0482-gen-wcwidth"
+title  = "kitty v0.48.2, gen/wcwidth.py -- every General_Category M code point, spacing marks included, is width 0"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at v0.48.2 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.48.2/gen/wcwidth.py"
+file   = ""
+sha256 = "6e2f652f1a7328917dbe1e797d7955aeef54128215e236ce3a04efb92074ea29"
+bytes  = 46142
+status = "external"
+group  = "G"
+# Lines 136-137: `if category.startswith('M'): marks.add(codepoint)`; 1145:
+# `aw(marks | {0}, 0)`.
+
+[sources.ghostty-d9840f3-grapheme]
+key    = "ghostty-d9840f3-grapheme"
+title  = "ghostty d9840f3, src/unicode/grapheme.zig -- graphemeWidthEffect: a joined code point with width makes the grapheme two columns"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at d9840f3 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/unicode/grapheme.zig"
+file   = ""
+sha256 = "1545376e8628924fb87544af629ce2e59c837ff240e9db39d94ca955c725a3b8"
+bytes  = 14878
+status = "external"
+group  = "G"
+# Lines 75-79: "If a code point contributes to the width of a grapheme, the
+# whole grapheme is at least width 2"; called from Terminal.zig's print only
+# while mode 2027 is set ([[source: ghostty-d9840f3-terminal]] 1220-1227).
+
+[sources.foot-grapheme-width]
+key    = "foot-grapheme-width"
+title  = "foot 1.21.0, terminal.c -- term_process_and_print_non_ascii: a cluster's width by grapheme-width-method"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/terminal.c"
+file   = "foot-terminal.c"
+sha256 = "5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501"
+bytes  = 143121
+status = "retrieved"
+group  = "G"
+# Lines 4300-4344: max, double-width (min(sum, 2), with the VS15 and VS16
+# forcing) and wcswidth (the sum).
+
+[sources.foot-csi-2027]
+key    = "foot-csi-2027"
+title  = "foot 1.21.0, csi.c -- DECSET 2027 toggles grapheme shaping; DECRQM answers 4 unless the width method is double-width"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/csi.c"
+file   = "foot-csi.c"
+sha256 = "45e1a839714c7670bd6a1a924dd8e8d8e8e55916f10f9aaf17c8a558a542d969"
+bytes  = 73284
+status = "retrieved"
+group  = "G"
+# Lines 560-561 (DECSET), 655-657 (DECRQM).
+
+[sources.foot-2705e36-grapheme]
+key    = "foot-2705e36-grapheme"
+title  = "foot 2705e36, doc/foot.ini.5.scd -- grapheme-shaping and grapheme-width-method"
+author = "Daniel Eklöf"
+year   = 2026
+venue  = "foot documentation"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/doc/foot.ini.5.scd"
+file   = "foot-2705e36-foot.ini.5.scd"
+sha256 = "4611cce41d79d747166711b611f82549952112788a0e3f74b3c8ea855708a782"
+bytes  = 76752
+status = "retrieved"
+group  = "G"
+# Lines 1990-2026: double-width "may break some applications since
+# applications typically use wcswidth(3) internally to calculate the width.
+# This results in cursor de-synchronization issues."
+
+[sources.neovim-0115-mbyte]
+key    = "neovim-0115-mbyte"
+title  = "Neovim v0.11.5, src/nvim/mbyte.c -- a screen cell is a utf8proc grapheme of its first code point's width"
+author = "The Neovim contributors"
+year   = 2025
+venue  = "neovim/neovim at v0.11.5 (Apache-2.0 and the Vim licence)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/v0.11.5/src/nvim/mbyte.c"
+file   = ""
+sha256 = "89ae2231f4c9d9cc7f691279fa0c0199e19a03f10aee9681a73a5b6cb7f351d0"
+bytes  = 93827
+status = "external"
+group  = "G"
+# Lines 494-519 (utf_ptr2cells: the first code point's width, two after an
+# emoji with VS16), 825-848 (utf_composinglike and utf_iscomposing:
+# utf8proc_grapheme_break_stateful).
+
+[sources.neovim-0115-tui]
+key    = "neovim-0115-tui"
+title  = "Neovim v0.11.5, src/nvim/tui/tui.c -- ?2027h only when DECRQM says reset, ?2027l on exit"
+author = "The Neovim contributors"
+year   = 2025
+venue  = "neovim/neovim at v0.11.5 (Apache-2.0 and the Vim licence)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/v0.11.5/src/nvim/tui/tui.c"
+file   = ""
+sha256 = "5792327b236ec76a536dd2ab5823618a57acfbaec82f6e10432055f130e70e3a"
+bytes  = 96301
+status = "external"
+group  = "G"
+# Lines 492 (the DECRQM request), 255-259 (the answer), 564-566 (exit).
+
+[sources.unicode-width-022-lib]
+key    = "unicode-width-022-lib"
+title  = "unicode-width 0.2.2, src/lib.rs -- the rules: Grapheme_Extend width 0, otherwise a string is the sum of its characters"
+author = "The Rust Project Developers"
+year   = 2025
+venue  = "unicode-rs/unicode-width at v0.2.2 (MIT or Apache-2.0)"
+url    = "https://raw.githubusercontent.com/unicode-rs/unicode-width/v0.2.2/src/lib.rs"
+file   = ""
+sha256 = "be8917e1a821806c0ce7a392564c72731a5f7d02155429a37b08571ad246a0bf"
+bytes  = 14583
+status = "external"
+group  = "G"
+# Lines 51-122, "Rules for determining width"; the file is the one the
+# workspace's Cargo.lock resolves (byte-identical to the registry copy).
+
+[sources.glibc-241-utf8-gen]
+key    = "glibc-241-utf8-gen"
+title  = "glibc 2.41, localedata/unicode-gen/utf8_gen.py -- the WIDTH table: 0 for Mn, Me, bidi NSM, conjoining jamo and Default_Ignorable_Code_Point, 2 for East Asian Wide and Fullwidth, 1 for every other character"
+author = "The GNU C Library contributors"
+year   = 2025
+venue  = "sourceware.org glibc.git at tag glibc-2.41"
+url    = "https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=localedata/unicode-gen/utf8_gen.py;hb=glibc-2.41"
+file   = ""
+sha256 = "65179106fd2400c6477441233a9c7a69133f64cd22840fd24083d8b028901cba"
+bytes  = 17167
+status = "external"
+group  = "G"
+# process_width, lines 227-290: a Prepended_Concatenation_Mark is Cf and not
+# default-ignorable, so it keeps the default width 1; an Mc keeps 1.

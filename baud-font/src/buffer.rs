@@ -169,10 +169,31 @@ impl Glyph {
     }
 }
 
+/// **Where each cluster's pen starts.** A grid gives every cluster a cell
+/// of its own, so the shaper starts each cluster's pen again at its cell's
+/// origin and an advance moves only the glyphs after it in its cluster.
+/// Text set as a run starts each cluster where the one before it ended,
+/// and an advance moves every glyph after it, as `[[source:
+/// ms-opentype-gpos-2026-10-23]]`'s "if the first glyph has an advance
+/// width of 100, then the second glyph begins at 100,0" reads for a run
+/// and as hb-shape reports positions: what a word drawn whole at its
+/// natural advances needs. Left to right only; a right-to-left run keeps
+/// its cells' pens.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Pens {
+    /// Each cluster from its own cell's origin.
+    #[default]
+    Cell,
+    /// Each cluster from the end of the one before, every offset from the
+    /// run's start.
+    Run,
+}
+
 /// The buffer: `len` live glyphs at the front of a caller's slice.
 pub struct Buffer<'b> {
     glyphs: &'b mut [Glyph],
     len: Count,
+    pens: Pens,
 }
 
 impl<'b> Buffer<'b> {
@@ -181,7 +202,19 @@ impl<'b> Buffer<'b> {
         Buffer {
             glyphs: storage,
             len: Count::ZERO,
+            pens: Pens::Cell,
         }
+    }
+
+    /// Where each cluster's pen starts ([`Pens`]).
+    pub fn pens(&self) -> Pens {
+        self.pens
+    }
+
+    /// Lays the clusters as `pens` says: set before the buffer is
+    /// positioned.
+    pub fn set_pens(&mut self, pens: Pens) {
+        self.pens = pens;
     }
 
     /// Appends a glyph; `None` when the storage is full.

@@ -478,3 +478,43 @@ fn an_ignored_ich_or_dch_keeps_the_wrap_waiting_at_the_left_edge() {
         assert_eq!(rows[1], "........X.", "{op:?}");
     }
 }
+
+/// **A carriage return ends the cluster under DECRLM too**: `CR` homes the
+/// cursor to the right margin, where no write restarts the cluster machine
+/// as column 0 does, so `~ CR LF` then a mark joined the `~`'s cluster when
+/// `CR LF` arrived in one read -- the fold that takes them together leads
+/// to the ground -- and took a cell of its own when `LF` arrived alone,
+/// which leads to the ground after a control (`[[source: uax29]]` GB4).
+/// Every read size now writes the mark at the right margin, a defective
+/// sequence in a cell of its own, and the vowel sign ि as its own cluster.
+#[test]
+fn a_mark_after_a_return_under_decrlm_does_not_depend_on_the_reads() {
+    for (text, setup) in [
+        ("~\x1b[?34h\r\n\u{301}", ""),
+        ("~\x1b[?34h\r\n\u{93f}", ""),
+        ("~\x1b[?34h\r\n\u{93f}", "\x1b[?2027h"),
+        ("~\x1b[?34h\r\u{301}", ""),
+    ] {
+        let bytes = format!("{setup}{text}");
+        let mut seen = Vec::new();
+        for chunk in [1, 2, 3, bytes.len()] {
+            support::with_term(&WS, |t| {
+                for piece in bytes.as_bytes().chunks(chunk) {
+                    support::feed(t, piece);
+                }
+                let (y, x) = t.cursor();
+                let row: Vec<_> = t.viewport().row(y).iter().map(|c| c.content).collect();
+                seen.push((row, x.index()));
+            });
+        }
+        assert!(
+            seen.windows(2).all(|w| w[0] == w[1]),
+            "{bytes:?}: the reads moved it: {:?}",
+            seen.iter().map(|s| s.1).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            seen[0].1, 8,
+            "{bytes:?}: written at the margin, the cursor left of it"
+        );
+    }
+}

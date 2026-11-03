@@ -342,10 +342,48 @@ Configured alike, ghostty's scroll-heavy recordings move and the others do not:
 
 **Grapheme segmentation is not on in every core.** libghostty-vt's mode 2027
 carries no default, so it segments only when an application asks. baud always
-segments and reports `?2027` as permanently set. The CJK rows therefore compare
-unequal work. What segmentation costs `baud-core` was measured when its cluster
+segments -- into legacy grapheme clusters since 2026-11-02, while `?2027` is
+reset, and into extended ones once a program sets it -- and these rows were
+taken when it reported `?2027` as permanently set. The CJK rows therefore
+compare unequal work. What segmentation costs `baud-core` was measured when its cluster
 machine landed: **-33%** on cat-cjk, -31% on less-cjk, -8.8% on vim and -7.5% on
 btop against the same core storing without it.
+
+**Legacy cells on the per-byte path (2026-11-02).** Whether a join takes a
+cell of its own is decided where the cluster machine joined, out of line, so a
+run of ASCII or CJK never asks. `ingest2`, the change against its parent, one
+binary each built from `git archive` at one path: the change, an A/A copy that
+`cmp` finds byte-identical to it, and the change with `?2027` set at power-on,
+which writes exactly the parent's cells. Cycles elapsed and instructions
+retired over 300 reps (`/usr/bin/time -l`), seven rotated rounds with the first
+dropped, at load 2.9-3.3; medians and ranges against the parent's median:
+
+| recording | instructions | cycles, change | cycles, A/A copy | instructions, `?2027` set | cycles, `?2027` set | cycles, parent |
+|---|---|---|---|---|---|---|
+| btop | -0.11% | +1.73% [+0.18, +2.24] | +0.47% [-0.14, +2.39] | -0.10% | +0.44% [-0.56, +2.31] | [-0.54, +0.43] |
+| cat | +0.19% | +1.82% [-1.32, +4.45] | -0.79% [-2.06, +3.10] | +0.18% | -0.36% [-1.25, +4.61] | [-2.08, +3.98] |
+| vim | +0.24% | +0.13% [+0.01, +1.33] | -0.04% [-1.30, +0.76] | +0.16% | +0.23% [-0.40, +1.21] | [-0.56, +0.90] |
+| cat-cjk | +1.69% | +1.31% [+1.12, +1.92] | +1.21% [+1.00, +1.57] | +0.50% | +0.50% [+0.12, +1.14] | [-0.46, +0.11] |
+| less-cjk | +1.43% | +1.37% [+0.16, +2.18] | +0.76% [+0.38, +2.31] | +0.39% | -0.06% [-0.59, +0.31] | [-1.08, +0.64] |
+
+btop and cat write the parent's cells (38,949,100 and 254,874,681), and vim
+0.30% more (34,240,291 against 34,138,302), the त of each नमस्ते in a cell of
+its own; their cycles ranges overlap the parent's. cat-cjk and less-cjk write
+0.53% more cells, their Devanagari vowel signs and conjunct consonants taking
+cells of their own, and retire 1.69% and 1.43% more instructions; cat-cjk's
+cycles range, +1.31% [+1.12, +1.92], lies above the parent's, and less-cjk's
+overlaps it.
+
+The arm with `?2027` set writes the parent's cells on every recording, so it
+separates the join path from the cells: it still retires 0.50% more
+instructions on cat-cjk, 0.39% on less-cjk and 0.18% on cat, the part of the
+cost that is not the cells. A ceiling arm, the `?2027`-set change with the
+join's call written as before it -- the machine before the codepoint not
+kept, no answer returned and compared -- retires the parent's instructions
+(+0.01% on cat-cjk and on less-cjk, -0.03% on cat, four rounds after the
+first): that part is the call's shape, not the cluster table. A first sweep before the change was rebased,
+at load 5.7-6.0, read the same cells on every arm and instructions within
+0.07 points of these.
 
 **No single property of a recording predicts its cost.** On the 2026-10-28
 captures btop sends an escape every 18.9 bytes and vim one every 17.2, and
@@ -1140,6 +1178,140 @@ a core at 60 frames a second, and no change to baud's ~30 us build can take
 more than a fifteenth of a frame. The 0.45 ms a whole frame costs here (270
 ms over 596) and the 0.39 ms the trail arm above reads are two sweeps' and
 are not reconciled.
+
+## A Devanagari word drawn whole (2026-11-02)
+
+**The run cache's value.** A word is shaped as one run at its face's natural
+advances, its clusters laid end to end, and cached as a grid run is, under a
+key no grid run's fold starts with. A cached run now says where its offsets
+are from -- each cell's origin, or the run's start -- and, laid as a run,
+its advance, which the word's next piece goes on from: a byte and two more.
+`size_of::<Shaped>()` goes from 770 to 774 bytes; an entry, the 8-byte key
+beside it at 8-byte alignment, stays 784, so the cache's 2,048 entries stay
+1.57 MB and its working set does not change. A word's syllables were shaped
+on every frame before, outside the cache; they are cache hits now.
+
+**Frame cost.** `frame`, whole-process instructions retired (`/usr/bin/time
+-l`), JetBrains Mono with Kohinoor Devanagari behind it, five reps a run,
+five rotated rounds with the first dropped; the change against its parent,
+with an A/A copy `cmp` finds identical to the change:
+
+| recording | change | A/A copy | parent |
+|---|---|---|---|
+| btop | +2.39% [+2.37, +2.42] | +2.38% [+2.37, +2.38] | [-0.02, +0.02] |
+| cat-cjk | +1.99% [+1.98, +2.01] | +2.00% [+1.98, +2.02] | [-0.00, +0.01] |
+| vim-unicode | +1.72% [+1.68, +1.74] | +1.73% [+1.68, +1.81] | [-0.00, +0.01] |
+
+The four rounds kept agree within 0.1 points of each arm's median. btop
+draws what its parent draws -- the same frames, rows, instances, cache
+hits and glyphs rasterised -- and holds no Devanagari: its 2.39% is paid
+by rows that hold none, and what pays it -- the core's column count, the
+syllable walk's pass over each cell, the word marks, the light kept per
+cell -- is unmeasured. cat-cjk and vim-unicode draw other work, their
+Devanagari in more columns: cat-cjk rasterises 39 glyphs where it
+rasterised 33, and the cells of runs a prefiltered path would shape a
+frame are 396.3 where they were 426.2, vim-unicode's 950.0 where they
+were 962.3.
+
+**A glyph's pen to a quarter pixel.** Two hundred words of `devanagari.txt`
+at 80 columns in Noto Sans Devanagari, headline columns left open inside
+each word's ink, and the atlas's entries for them:
+
+| pen | open, 24 px | open, 28 px | entries |
+|---|---|---|---|
+| whole pixels | 156 of 6,951 | 194 of 8,236 | 148 / 144 |
+| a quarter pixel | 135 | 182 | 279 / 279 |
+| 1/256 px | 127 | 183 | 664 / 667 |
+
+**Narrowed, and left over.** Every word of the corpus at 80 columns, 24 and
+28 px together. With Noto Sans Devanagari's variable file and its 15
+narrower instances, 24 of 830 words are narrowed under the default count
+and 2 overlap a neighbour; with spacing marks joined 248 of 818 narrowed
+and 2 over; under `?2027` 389 of 814 narrowed and 17 over. No glyph is
+scaled on any of them. With a face that has no `wdth` axis the over words
+are 5 and 18 of 830 under the default count (Noto's static file, Kohinoor
+Devanagari), 95 and 131 of 818 joined, and 228 and 273 of 814 under `?2027`.
+The built-in font, which carries Noto's `wdth` axis as a hidden axis, on
+the stack a launch makes with no config, gives the variable file's counts,
+each placement at each size the same, every word drawn from its own
+Devanagari glyphs; the same stack without its narrower instances gives the
+static file's, 5, 95 and 228 over.
+
+## The narrower instances at launch (2026-11-03)
+
+**Read from their base's tables, the 60 narrower instances cost a launch
+0.25 million instructions and 0.17 MB, no stage's time apart from the
+parent's but `Fonts::new` itself, about 0.05 ms against 0.02, which the
+table's first row counts with the faces' mapping and parsing; built per
+face, they cost it 4 ms and 7 MB.** Taken 2026-11-03, Apple M5 Max,
+macOS 27.0, on AC. A release build of the app's unit tests times a
+launch's own calls in a fresh process: the default config with no file,
+mapping and parsing the faces and `Fonts::new` over them, `Renderer::new`
+at 28 px and 80x24, a shell prompt's first frame on the CPU path, a zoom
+to 30 px, a font reload, the restack that a character no face draws
+brings (Arabic, a system face appended), each with its frame, and the
+prompt drawn 51 times more. A frame drawn again is the render alone;
+every other frame is the probe's whole frame: the terminal it builds and
+feeds, the render, and an FNV digest of every pixel. Four arms at one
+path -- the parent, the change with the instances' tables built per
+face, the change with them shared, and the shared build making no
+instance -- and a copy of the shared arm's binary, `cmp`-identical, as
+its A/A; six rounds of five processes, rotated, the first dropped.
+Milliseconds, median [range], and millions of instructions the process
+retired:
+
+| stage | parent, 12 faces | per face, 72 | shared, 72 | no instances |
+|---|---|---|---|---|
+| mapping, parsing and `Fonts::new` | 0.149 [0.134-0.169], 1.62 | 0.210 [0.193-0.233], 2.76 | 0.177 [0.162-0.193], 1.83 | 0.147, 1.62 |
+| `Renderer::new` | 0.632 [0.599-0.692], 11.17 | 3.306 [3.221-3.474], 77.36 | 0.649 [0.614-0.682], 11.49 | 0.639, 11.48 |
+| a probe's first frame, its terminal and a pixel digest included | 2.176 [2.118-2.288], 24.81 | 3.536 [3.418-3.641], 51.17 | 2.176 [2.114-2.330], 24.63 | 2.145, 24.59 |
+| zoom | 0.001 [0.001-0.002] | 0.001 [0.001-0.002] | 0.001 [0.001-0.003] | 0.001 |
+| its frame | 1.882 [1.834-1.986], 19.74 | 1.960 [1.874-2.024], 19.86 | 1.915 [1.846-2.042], 19.83 | 1.896, 19.84 |
+| font reload | 0.489 [0.465-0.536], 10.24 | 3.032 [2.945-3.153], 76.10 | 0.534 [0.500-0.620], 10.72 | 0.503, 10.53 |
+| its frame | 1.909 [1.859-2.019], 23.04 | 3.249 [3.184-3.354], 49.35 | 1.927 [1.880-2.089], 22.88 | 1.909, 22.89 |
+| fallback restack | 8.429 [8.066-8.848], 87.40 | 10.922 [10.737-11.382], 150.77 | 8.588 [8.316-11.123], 87.95 | 8.449, 87.71 |
+| its frame | 2.056 [2.038-2.199], 24.86 | 4.458 [4.385-4.547], 74.96 | 2.031 [2.010-2.231], 24.11 | 2.026, 24.06 |
+| a frame again | 0.202 [0.197-0.207], 6.64 | 0.207 [0.199-0.210], 6.74 | 0.206 [0.199-0.212], 6.73 | 0.204, 6.73 |
+| footprint after launch, MB | 9.26 [9.16-9.32] | 16.35 [16.30-16.40] | 9.41 [9.22-9.50] | 9.24 |
+
+The A/A copy is within 0.03 ms of the shared arm's median on every stage
+but the restack, 0.07, and the corpus frame, 0.05.
+
+A second run, the shared arm and the parent built again at one path with
+a `cmp`-identical A/A copy, five rounds of five processes, rotated, the
+first dropped, times `Fonts::new` alone and each of the first frame's
+three parts: `Fonts::new` takes 0.047 ms [0.041-0.061] and 0.57 million
+instructions against the parent's 0.017 [0.015-0.025] and 0.31, the A/A
+copy 0.049; the frame's terminal, render and digest take 0.137
+[0.123-0.155], 0.948 [0.899-0.975] and 1.061 [1.050-1.131] ms against
+the parent's 0.132 [0.122-0.152], 0.935 [0.887-0.971] and 1.052
+[1.050-1.090], the digest 6.05 million instructions in both.
+
+Per face, each instance's lookup digests, pair tables, extents, reaches
+and per-script selections were built again, its `cmap` proposed every
+block the face table decides, and the colour search of each character a
+block decides walked the 60 instances. Shared, an instance reads its
+base's layout tables, built from `GSUB`, `GPOS`, `GDEF` and `morx`
+alone; the face table and the fallback chain leave the instances out;
+and each instance is a copy of its face's parse given its width. What
+the 60 cost now is the shared arm less the no-instances arm:
+0.21 million instructions of mapping, parsing and `Fonts::new`, 0.19 of
+a font reload, 0.24 of the fallback restack, 0.05 or less of
+`Renderer::new` and of any frame but the narrowed corpus's (below), and
+0.17 MB. A zoom rebuilds only the per-face scales, shared or not. The
+rest of the distance from the parent, a frame drawn again among it, is
+the no-instances arm's too.
+
+**The first word narrowed.** A probe frame of the prompt and the 399
+Noto lines of `baud-font/tests/shape/devanagari.txt` after it, at 30 px,
+its terminal and a pixel digest included, the digest 1.210 ms
+[1.202-1.299] in the second run, 10 words narrowed: 7.423 ms
+[7.227-7.722] and 131.18 million instructions, where the no-instances
+arm, narrowing none, takes 6.952 and 122.09, and per face 9.517.
+Nothing is built on first need: the difference is the narrowed words'
+glyphs rasterised at their widths and each word measured at the
+instances it tried. Drawn again, 1.606 ms and 44.02 million against
+1.578 and 43.42.
 
 ## The cursor blink's cost: a battery reading, unmeasured on mains
 

@@ -467,7 +467,7 @@ fn a_step_back_ends_it() {
 /// horizontal move does. The alternate screen does not reflow: `abcdefgh`
 /// with autowrap reset, cut to six columns, leaves the cursor on the `f`,
 /// which was not written last, and a mark the machine joins goes to the `e`
-/// before it, through `attach_continuing`. After a control it is a cluster
+/// before it, through `continue_cluster`. After a control it is a cluster
 /// of its own and takes the cursor's cell, the `f`'s, as a character would
 /// (since 2026-10-23).
 ///

@@ -399,6 +399,13 @@ impl Phase {
             .then_some(Phase(q as i16))
     }
 
+    /// **An offset of `px` pixels, a fraction of one**, rounded to 1/256
+    /// px: where a glyph laid at a pen between two pixels falls in the
+    /// pixel its mask starts on.
+    pub fn of_fraction(px: f32) -> Phase {
+        Phase(round(px.clamp(0.0, 255.0 / 256.0) * 256.0) as i16)
+    }
+
     /// The offset in a span twice as wide: a glyph drawn twice as wide
     /// sits at the same place in it.
     pub fn doubled(self) -> Phase {

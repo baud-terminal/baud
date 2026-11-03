@@ -69,6 +69,26 @@ fn widens_answers_the_table() {
     }
 }
 
+/// **`Vs16Width::One` keeps one cell only while `?2027` is reset**: set
+/// ([`baud_domain::ClusterCells::Extended`]), the mode's VS16 rule widens the
+/// base under either setting (`[[source: mode2027]]`).
+#[test]
+fn one_cell_holds_only_outside_grapheme_cluster_mode() {
+    use baud_domain::{ClusterCells, Vs16Width};
+    for cells in [
+        ClusterCells::Legacy,
+        ClusterCells::LegacyMarksJoined,
+        ClusterCells::Extended,
+    ] {
+        assert!(Vs16Width::Two.widens_in(cells), "{cells:?}");
+        assert_eq!(
+            Vs16Width::One.widens_in(cells),
+            cells == ClusterCells::Extended,
+            "{cells:?}"
+        );
+    }
+}
+
 #[test]
 fn the_emoji_presentation_ranges_are_the_pinned_files() {
     let path = format!(

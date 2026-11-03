@@ -8,12 +8,16 @@
 # erased cell now keeps the background alone; the frame baud-render pins did not move.
 # ascii/pipes, utf8/btop and utf8/vim-unicode were captured on 2026-10-28
 # (tests/recordings/README.md), and their rows are these captures' renderings.
+# utf8/vim-unicode and utf8/cat-cjk moved on 2026-11-02, when ?2027 became a
+# switch reset at power-on: a cell holds a legacy grapheme cluster, so the त of
+# each नमस्ते and the ा and ी of each देवनागरी on their final screens take a
+# cell of their own, 11 and 12 cells more.
 ascii/cat-scroll digest 42b6a6104ae72a23 nonblank 1786 cursor 49 0
 ascii/git-log digest f33412141bf803db nonblank 2712 cursor 49 0
 ascii/less-pager digest 8c6560cc6c896b52 nonblank 2172 cursor 49 1
 ascii/pipes digest 4623cfc9a0ef7119 nonblank 7088 cursor 4 83
 utf8/btop digest 515d7499e320ab4f nonblank 7200 cursor 0 86
-utf8/vim-unicode digest 564d34dbec122da4 nonblank 3355 cursor 0 0
-utf8/cat-cjk digest 0f8154d88c3d25b5 nonblank 2182 cursor 49 0
+utf8/vim-unicode digest 068366b74c6f528f nonblank 3366 cursor 0 0
+utf8/cat-cjk digest d0a51f6740ce3d55 nonblank 2194 cursor 49 0
 utf8/less-cjk digest 11b7328a6fa84ae5 nonblank 0 cursor 0 0
 utf8/cava digest c08e5b286eb21051 nonblank 4159 cursor 19 0

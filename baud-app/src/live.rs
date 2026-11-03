@@ -5,11 +5,11 @@
 //!
 //! **A setting a running window cannot take waits for the next launch**:
 //! the image and clipboard areas and the printer the core was provisioned
-//! with, the colour space the surfaces were made in, `vs16_width`, which
-//! `DECRQM ?2027` reports as permanent, and the Sixel claim a program has
-//! already read from `DA1`. `[text] ambiguous_width` changes at once: the
-//! core measures the next character at it, and `DECRQM ?1021` answers set
-//! or reset, never permanently. baud has one window a process
+//! with, the colour space the surfaces were made in, `vs16_width`, and the
+//! Sixel claim a program has already read from `DA1`. `[text]
+//! ambiguous_width` and `join_spacing_marks` change at once: the core
+//! measures the next character by them, and `DECRQM ?1021` answers set or
+//! reset, never permanently. baud has one window a process
 //! and no command that opens another, so "the next launch" is the only
 //! new session there is. ghostty documents the same split ("Changing this
 //! configuration at runtime will only affect new terminals"), and kitty
@@ -96,6 +96,9 @@ pub enum Part {
     Sixel,
     /// `[text] ambiguous_width`: the next character's width.
     AmbiguousWidth,
+    /// `[text] join_spacing_marks`: whether the next spacing mark takes a
+    /// column.
+    SpacingMarks,
     /// `vs16_width`.
     Vs16Width,
     /// `[screen] printing`.
@@ -135,6 +138,7 @@ impl Part {
             | Part::Tearing
             | Part::Splash
             | Part::AmbiguousWidth
+            | Part::SpacingMarks
             | Part::Reload => Takes::Now,
             Part::ColourSpace
             | Part::GlassStyle
@@ -180,6 +184,7 @@ impl Part {
             Part::Images => "[images] pixels_mb",
             Part::Sixel => "[images] advertise_sixel",
             Part::AmbiguousWidth => "[text] ambiguous_width",
+            Part::SpacingMarks => "[text] join_spacing_marks",
             Part::Vs16Width => "vs16_width",
             Part::Printing => "[screen] printing",
             Part::ClipboardArea => "[clipboard] body_kb",
@@ -246,6 +251,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         image_animation,
         vs16_width,
         ambiguous_width,
+        join_spacing_marks,
         emoji,
         bell,
         clipboard,
@@ -347,6 +353,10 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     part(
         old.ambiguous_width != *ambiguous_width,
         Part::AmbiguousWidth,
+    );
+    part(
+        old.join_spacing_marks != *join_spacing_marks,
+        Part::SpacingMarks,
     );
     part(old.vs16_width != *vs16_width, Part::Vs16Width);
     part(old.printing != *printing, Part::Printing);
@@ -558,6 +568,7 @@ mod tests {
             ("[images]\nadvertise_sixel = true\n", Part::Sixel),
             ("vs16_width = \"one\"\n", Part::Vs16Width),
             ("[text]\nambiguous_width = \"wide\"\n", Part::AmbiguousWidth),
+            ("[text]\njoin_spacing_marks = \"on\"\n", Part::SpacingMarks),
             ("[screen]\nprinting = \"off\"\n", Part::Printing),
             ("[clipboard]\nbody_kb = 8\n", Part::ClipboardArea),
         ];

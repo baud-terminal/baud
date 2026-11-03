@@ -18,6 +18,9 @@
 
 mod support;
 
+#[path = "../../baud-font/tests/sha256/mod.rs"]
+mod sha256;
+
 use baud_core::{Owned, Term};
 use baud_domain::{AmbiguousWidth, BytePos, Codepoint, ReadLen, Vs16Width};
 use baud_font::Face;
@@ -41,11 +44,12 @@ fn frame(r: &mut Renderer<'_, '_>, bytes: &[u8], composition: Option<&str>) -> V
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, bytes);
     let (row, col) = t.cursor();
+    let measure = Measure::of(&t);
     r.set_composition(composition.map(|s| Composition {
         row,
         col,
         text: cps(s),
-        measure: Measure::default(),
+        measure,
         hints: Vec::new(),
         caret: Caret::End,
     }));
@@ -149,8 +153,9 @@ fn an_ended_composition_repaints_the_cells_under_it() {
     r.set_composition(None);
     support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
     assert_eq!(c.pixels, plain, "the cells under it were repainted");
-    // And the cell before the cursor a continuation was drawn on.
-    let base = "ab\u{915}cdef\x1b[4D";
+    // And the cell before the cursor a continuation was drawn on: a vowel
+    // sign continues its consonant while `?2027` is set.
+    let base = "\x1b[?2027hab\u{915}cdef\x1b[4D";
     let plain = frame(&mut r, base.as_bytes(), None);
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
@@ -291,7 +296,8 @@ fn a_composition_takes_the_configured_ambiguous_width() {
 /// **A composition is laid out in the clusters a write of it makes**
 /// (`[[source: uax29]]`, the core's own machine): on a term measuring by
 /// each `Measure` -- ambiguous narrow or wide, the current widths or
-/// Unicode 8's, `U+FE0F` widening or not -- the text composed after a
+/// Unicode 8's, `U+FE0F` widening or not, a cell a legacy cluster, one with
+/// spacing marks joined or an extended one -- the text composed after a
 /// letter covers the columns the same text written after that letter
 /// takes, the core's cursor after the commit is where the composition
 /// ended, and its cells are the core's cell for cell, wide tails and bases.
@@ -301,7 +307,8 @@ fn a_composition_takes_the_configured_ambiguous_width() {
 /// a mark after `U+200B`, a box line under the ambiguous width. **What
 /// continues the character before the cursor is drawn on that cell**, its
 /// cluster at the composition's head ([`Composition::at_cursor`]): a
-/// vowel sign after its consonant, a skin tone after its emoji, a
+/// vowel sign after its consonant while `?2027` is set, a skin tone after
+/// its emoji, a
 /// `U+FE0F` that widens the `☠` before it over the cursor's cell, the
 /// second half of a flag, a ZWJ, a mark on a wide character -- each
 /// composition starting on the cell before the cursor.
@@ -384,12 +391,23 @@ fn a_composition_takes_the_cells_a_write_of_it_takes() {
             Vs16Width::One,
         ),
     ];
-    for (ambiguous, widths, vs16) in measures {
+    use baud_domain::{ClusterCells, SpacingMarks};
+    let cells = [
+        (ClusterCells::Legacy, SpacingMarks::Column, &b""[..]),
+        (ClusterCells::LegacyMarksJoined, SpacingMarks::Joined, b""),
+        (ClusterCells::Extended, SpacingMarks::Column, b"\x1b[?2027h"),
+    ];
+    for ((ambiguous, widths, vs16), (want_cells, marks, setup)) in measures
+        .into_iter()
+        .flat_map(|m| cells.iter().map(move |c| (m, *c)))
+    {
         for (pre, text) in &texts {
             let mut owned = Owned::new(&WIDE_WS);
             let mut t = Term::new(owned.storage(), &WIDE_WS);
             t.set_ambiguous_width(ambiguous);
             t.set_vs16_width(vs16);
+            t.set_spacing_marks(marks);
+            feed(&mut t, setup);
             if widths == baud_domain::UnicodeWidths::Eight {
                 feed(&mut t, b"\x1b]1337;UnicodeVersion=8\x07");
             }
@@ -399,7 +417,8 @@ fn a_composition_takes_the_cells_a_write_of_it_takes() {
                 Measure {
                     ambiguous,
                     widths,
-                    vs16
+                    vs16,
+                    cells: want_cells,
                 }
             );
             let s = |t: &[Codepoint]| -> String {
@@ -410,6 +429,9 @@ fn a_composition_takes_the_cells_a_write_of_it_takes() {
             feed(&mut t, s(pre).as_bytes());
             let before = t.cursor().1.index();
             let c = Composition::at_cursor(&t, text, &[], Caret::End);
+            // A vowel sign joins its consonant's cell while `?2027` is set or
+            // spacing marks are joined; reset, it takes a cell of its own
+            // and the composition is led by the syllable's first cell.
             if heads.iter().any(|(p, h)| cps(p) == *pre && cps(h) == *text) {
                 assert!(c.col.index() < before, "{text:x?} {measure:?}: its head");
             }
@@ -445,35 +467,42 @@ fn a_composition_takes_the_cells_a_write_of_it_takes() {
 
 /// **A composition the core clusters draws as the text written**: two CJK
 /// characters over four cells, a ZWJ family, a flag, an emoji under
-/// `U+FE0F` and a spacing mark on its letter, each composed over `cdef`
-/// equal to the same text written underlined there, the cursor after it.
+/// `U+FE0F` and a spacing mark after its letter -- in the letter's cell
+/// with `?2027` set, and reset in a cell of its own, the syllable drawn
+/// across both -- each composed over `cdef` equal to the same text written
+/// underlined there, the cursor after it.
 #[test]
 fn a_clustered_composition_draws_as_its_text_written() {
     let data = jbm();
     let noto = font("NotoColorEmoji-subset.ttf");
     let faces = [Face::parse(&data).unwrap(), Face::parse(&noto).unwrap()];
     let mut r = renderer(&faces);
-    for text in [
-        "\u{4e2d}\u{6587}",
-        "\u{1f468}\u{200d}\u{1f469}",
-        "\u{1f1ef}\u{1f1f5}",
-        "\u{2764}\u{fe0f}",
-        "a\u{903}b",
-    ] {
-        let base = b"abcdefgh\x1b[6D";
-        let composed = frame(&mut r, base, Some(text));
-        let written = frame(
-            &mut r,
-            format!("abcdefgh\x1b[6D\x1b[4m{text}\x1b[24m").as_bytes(),
-            None,
-        );
-        assert!(composed == written, "{text:?}: as written");
+    for setup in ["", "\x1b[?2027h"] {
+        for text in [
+            "\u{4e2d}\u{6587}",
+            "\u{1f468}\u{200d}\u{1f469}",
+            "\u{1f1ef}\u{1f1f5}",
+            "\u{2764}\u{fe0f}",
+            "a\u{903}b",
+            "\u{915}\u{93f}\u{930}\u{94d}\u{92e}",
+        ] {
+            let base = format!("{setup}abcdefgh\x1b[6D");
+            let composed = frame(&mut r, base.as_bytes(), Some(text));
+            let written = frame(
+                &mut r,
+                format!("{base}\x1b[4m{text}\x1b[24m").as_bytes(),
+                None,
+            );
+            assert!(composed == written, "{setup:?} {text:?}: as written");
+        }
     }
 }
 
 /// **What continues the character before the cursor is drawn on that
 /// cell**, as the commit will leave it, in the marked-text look: a vowel
-/// sign composed after its consonant, a skin tone after its emoji and a
+/// sign composed after its consonant, in its cell with `?2027` set and
+/// reset in the next, the syllable drawn across both; a skin tone after
+/// its emoji and a
 /// `U+FE0F` after the `☠` it widens, each composed over `cdef` equal to
 /// the cell rewritten underlined with it, the cursor after it, and each
 /// drawn.
@@ -493,12 +522,13 @@ fn a_continuation_composed_draws_on_the_cell_before_it() {
         r.set_composition(None);
         c.pixels
     };
-    for (pre, back, text) in [
-        ("\u{915}", 1, "\u{93f}"),
-        ("\u{1f44d}", 2, "\u{1f3fd}"),
-        ("\u{2620}", 1, "\u{fe0f}x"),
+    for (setup, pre, back, text) in [
+        ("\x1b[?2027h", "\u{915}", 1, "\u{93f}"),
+        ("", "\u{915}", 1, "\u{93f}"),
+        ("", "\u{1f44d}", 2, "\u{1f3fd}"),
+        ("", "\u{2620}", 1, "\u{fe0f}x"),
     ] {
-        let base = format!("ab{pre}cdefgh\x1b[6D");
+        let base = format!("{setup}ab{pre}cdefgh\x1b[6D");
         let composed = shot(&mut r, &base, Some(text));
         let plain = shot(&mut r, &base, None);
         let written = shot(
@@ -511,8 +541,9 @@ fn a_continuation_composed_draws_on_the_cell_before_it() {
     }
 }
 
-/// **The input method's cursor and hints count past the head**: a vowel
-/// sign and `b` composed after `क` start on the `क`'s cell, the cursor
+/// **The input method's cursor and hints count past the head**: with
+/// `?2027` set, a vowel sign and `b` composed after `क` start on the `क`'s
+/// cell, the cursor
 /// before the sign on it and before the `b` on the cell after, a range
 /// over the `b` that cell alone, and the head takes the sign's hints.
 /// Past a pending wrap the cell is the cursor's own, the last column's,
@@ -521,7 +552,7 @@ fn a_continuation_composed_draws_on_the_cell_before_it() {
 fn the_input_methods_cursor_counts_past_the_head() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
-    feed(&mut t, "ab\u{915}".as_bytes());
+    feed(&mut t, "\x1b[?2027hab\u{915}".as_bytes());
     let cols = baud_domain::Cols::of_index(usize::from(WS.ws_col));
     let text = cps("\u{93f}b");
     let at = |caret| Composition::at_cursor(&t, &text, &[], caret);
@@ -1103,4 +1134,264 @@ fn digits_composed_under_value_2_draw_as_written() {
         "the premise: the face draws the digits apart"
     );
     assert!(composed == written, "as written");
+}
+
+/// **A composition against a Devanagari word draws as its text written**
+/// (`baud-render/src/word.rs`): the letters written against it that its
+/// own continue are one word with it once committed, so it draws that word
+/// whole, shaped as one run and laid in the word's columns, as the commit
+/// will be drawn, and the row's other words are laid by what its cells
+/// will hold. On Kohinoor Devanagari, which macOS ships, behind JetBrains
+/// Mono: कमल composed after a blank, its ink reaching the block cursor's
+/// cell after it drawn in the cursor's text colour; मल and म composed
+/// after a written क; क composed before a written ल, the cursor after it
+/// on ल; म between a written क and ल; क् before a written ष, the conjunct
+/// formed across them; मल after कि under `?2027`;
+/// मल after a क written red; `x` composed against a written कमल, which
+/// lays the word flush against it; and, under `?2027`, a word that fits at
+/// no width closing on the ink of the word before it, composed after a
+/// written word and written after a composed one -- each equal to the same
+/// text written underlined at the cursor, the cursor after it, and each
+/// against its premise, the frame without it.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_composition_against_a_devanagari_word_draws_as_its_text_written() {
+    let data = jbm();
+    let deva = std::fs::read("/System/Library/Fonts/Kohinoor.ttc")
+        .expect("Kohinoor Devanagari, which macOS ships");
+    let faces = [
+        Face::parse(&data).unwrap(),
+        Face::parse_index(&deva, baud_font::FaceIndex::of(0u32)).unwrap(),
+    ];
+    let mut r = renderer(&faces);
+    let mut wrong = Vec::new();
+    for (base, text) in [
+        ("ab ", "\u{915}\u{92e}\u{932}"),
+        ("ab\u{915}", "\u{92e}\u{932}"),
+        ("ab\u{915}", "\u{92e}"),
+        ("ab  \u{932}\x1b[2D", "\u{915}"),
+        ("ab \u{915} \u{932}\x1b[2D", "\u{92e}"),
+        ("ab  \u{937}\x1b[2D", "\u{915}\u{94d}"),
+        ("\x1b[?2027hab\u{915}\u{93f}", "\u{92e}\u{932}"),
+        ("ab\x1b[31m\u{915}\x1b[39m", "\u{92e}\u{932}"),
+        ("ab  \u{915}\u{92e}\u{932}\x1b[4D", "x"),
+    ] {
+        let composed = frame(&mut r, base.as_bytes(), Some(text));
+        let written = frame(
+            &mut r,
+            format!("{base}\x1b[4m{text}\x1b[24m").as_bytes(),
+            None,
+        );
+        assert_ne!(
+            composed,
+            frame(&mut r, base.as_bytes(), None),
+            "{base:?} {text:?}: the composition is drawn"
+        );
+        let d = composed
+            .iter()
+            .zip(&written)
+            .filter(|(a, b)| a != b)
+            .count();
+        if d != 0 {
+            wrong.push((base, text, d));
+        }
+    }
+    // A word that fits at no width closes on the word before it, by that
+    // word's ink: क्ति composed after a written क and a blank under `?2027`,
+    // and a written क्ति after a composed क -- each a residue as written.
+    for (base, text) in [
+        ("\x1b[?2027h\u{915} ", "\u{915}\u{94d}\u{924}\u{93f}"),
+        (
+            "\x1b[?2027h  \u{915}\u{94d}\u{924}\u{93f}\x1b[1G",
+            "\u{915}",
+        ),
+    ] {
+        let written = frame(
+            &mut r,
+            format!("{base}\x1b[4m{text}\x1b[24m").as_bytes(),
+            None,
+        );
+        let how = r
+            .words_on(baud_domain::Row::ZERO)
+            .iter()
+            .find(|l| l.at.index() == 2)
+            .map(|l| l.how);
+        assert_eq!(
+            how,
+            Some(baud_render::WordHow::Residue),
+            "{base:?} {text:?}: the premise, a residue"
+        );
+        let composed = frame(&mut r, base.as_bytes(), Some(text));
+        let d = composed
+            .iter()
+            .zip(&written)
+            .filter(|(a, b)| a != b)
+            .count();
+        if d != 0 {
+            wrong.push((base, text, d));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "not as written, pixels differing: {wrong:?}"
+    );
+}
+
+/// **Ink over the input method's block takes the cursor's text colour**:
+/// कमल composed after a blank on Kohinoor Devanagari with the input
+/// method's cursor on म, whose cell the block fills; every piece of the
+/// word's ink over that cell is drawn in another colour than the block's,
+/// as a written word's ink is over a block on a blank cell beside it.
+#[cfg(target_os = "macos")]
+#[test]
+fn ink_over_the_input_methods_block_takes_the_cursors_text_colour() {
+    let data = jbm();
+    let deva = std::fs::read("/System/Library/Fonts/Kohinoor.ttc")
+        .expect("Kohinoor Devanagari, which macOS ships");
+    let faces = [
+        Face::parse(&data).unwrap(),
+        Face::parse_index(&deva, baud_font::FaceIndex::of(0u32)).unwrap(),
+    ];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"ab ");
+    let (row, col) = t.cursor();
+    r.set_composition(Some(Composition {
+        row,
+        col,
+        text: cps("\u{915}\u{92e}\u{932}"),
+        measure: Measure::of(&t),
+        hints: Vec::new(),
+        caret: Caret::At(1),
+    }));
+    let mut c = Canvas::for_renderer(&r);
+    support::paint(&mut r, &mut t, &mut c, Damage::Full);
+    let cw = i32::try_from(r.metrics().cell_w.value()).unwrap();
+    let ch = i32::try_from(r.metrics().cell_h.value()).unwrap();
+    let block = r.background()[4];
+    assert_ne!(block, r.background()[3], "the premise: the block on म");
+    let mut pieces = 0usize;
+    for i in r
+        .instances()
+        .filter(|i| i.kind == baud_render::Kind::Mask && i32::from(i.y.0) < ch)
+    {
+        let (x0, x1) = (i32::from(i.x.0), i32::from(i.x.0) + i32::from(i.w.0));
+        if x1 > 4 * cw && x0 < 5 * cw {
+            assert_ne!(i.color, block, "ink at {x0}..{x1} in the block's colour");
+            pieces += 1;
+        }
+    }
+    assert!(pieces > 0, "the word's ink reaches the block's cell");
+}
+
+/// Noto Sans Devanagari's variable file from the README's cache, pinned by
+/// its sha256 as `devanagari_words.rs` pins it, or `None` to skip.
+fn noto_variable() -> Option<Vec<u8>> {
+    let cache = std::env::var_os("NOTO_CACHE")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("XDG_CACHE_HOME")
+                .map(|d| std::path::PathBuf::from(d).join("baud-readme"))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache/baud-readme"))
+        })?;
+    let Ok(data) = std::fs::read(cache.join("NotoSansDevanagari[wdth,wght].ttf")) else {
+        eprintln!("Noto Sans Devanagari's variable file is not in the README's cache: skipped");
+        return None;
+    };
+    assert_eq!(
+        sha256::sha256_hex(&data),
+        "9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7",
+        "the cache's file is not the pinned one"
+    );
+    Some(data)
+}
+
+/// **The same on a face with a width axis**: Noto Sans Devanagari's
+/// variable file behind JetBrains Mono, with its narrower instances as the
+/// app's stack lays them, where a word composed between two written `x`
+/// is drawn at a narrower width as the commit's is -- under `?2027`, मल
+/// composed after a written क, कम before a written ल and टर्मिनल alone,
+/// each narrowed, the premise -- and the other cases above, each equal to
+/// the same text written underlined at the cursor.
+#[test]
+fn a_composition_against_a_devanagari_word_draws_as_written_when_narrowed() {
+    use baud_font::var::{Fixed, Variation};
+    use baud_render::{FaceRole, Stack};
+    let Some(var) = noto_variable() else {
+        return;
+    };
+    let data = jbm();
+    let mut faces = vec![Face::parse(&data).unwrap(), Face::parse(&var).unwrap()];
+    let mut roles = vec![FaceRole::Fallback, FaceRole::Fallback];
+    for w in baud_render::narrower_widths(&faces[1], &[]) {
+        let mut f = Face::parse(&var).unwrap();
+        f.set_variations(&[Variation {
+            tag: baud_font::Tag::from_bytes(*b"wdth"),
+            value: Fixed::from_f32(w),
+        }]);
+        faces.push(f);
+        roles.push(FaceRole::Narrower);
+    }
+    let mut r = baud_render::Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        baud_render::PxSize::of(16.0).unwrap(),
+        baud_render::Theme::dark(),
+        baud_render::Blend::Native,
+        baud_domain::Cols::of_index(usize::from(WS.ws_col)),
+        baud_domain::Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    let mut narrowed = 0usize;
+    let mut wrong = Vec::new();
+    for (base, text) in [
+        ("\x1b[?2027hx\u{915}  x\x1b[3D", "\u{92e}\u{932}"),
+        ("\x1b[?2027hx  \u{932}x\x1b[4D", "\u{915}\u{92e}"),
+        (
+            "\x1b[?2027hx    x\x1b[5D",
+            "\u{91f}\u{930}\u{94d}\u{92e}\u{93f}\u{928}\u{932}",
+        ),
+        ("\x1b[?2027hab\u{915}\u{93f}", "\u{92e}\u{932}"),
+        ("ab ", "\u{915}\u{92e}\u{932}"),
+        ("ab\u{915}", "\u{92e}\u{932}"),
+        ("ab\u{915}", "\u{92e}"),
+        ("ab  \u{932}\x1b[2D", "\u{915}"),
+        ("ab \u{915} \u{932}\x1b[2D", "\u{92e}"),
+        ("ab  \u{937}\x1b[2D", "\u{915}\u{94d}"),
+        ("ab  \u{915}\u{92e}\u{932}\x1b[4D", "x"),
+        ("\x1b[?2027h\u{915} ", "\u{915}\u{94d}\u{924}\u{93f}"),
+        (
+            "\x1b[?2027h  \u{915}\u{94d}\u{924}\u{93f}\x1b[1G",
+            "\u{915}",
+        ),
+    ] {
+        let written = frame(
+            &mut r,
+            format!("{base}\x1b[4m{text}\x1b[24m").as_bytes(),
+            None,
+        );
+        if base.starts_with("\x1b[?2027hx") {
+            narrowed += r
+                .words_on(baud_domain::Row::ZERO)
+                .iter()
+                .filter(|l| l.instance > 0)
+                .count();
+        }
+        let composed = frame(&mut r, base.as_bytes(), Some(text));
+        let d = composed
+            .iter()
+            .zip(&written)
+            .filter(|(a, b)| a != b)
+            .count();
+        if d != 0 {
+            wrong.push((base, text, d));
+        }
+    }
+    assert_eq!(narrowed, 3, "the premise: each drawn narrower");
+    assert!(
+        wrong.is_empty(),
+        "not as written, pixels differing: {wrong:?}"
+    );
 }

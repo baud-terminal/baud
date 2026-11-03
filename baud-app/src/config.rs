@@ -5,7 +5,7 @@
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
 //! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, `bell`,
-//! `[text] ambiguous_width`, `[screen] checksum`, `logging`, `printing` and the four `print_`
+//! `[text] ambiguous_width` and `join_spacing_marks`, `[screen] checksum`, `logging`, `printing` and the four `print_`
 //! choices, `[pointer]
 //! hide_while_typing`, `[font] changes`, and the eight under
 //! `[glass]` -- and a key it does not understand is ignored, and said,
@@ -472,8 +472,8 @@ pub struct Config {
     pub image_animation: ImageAnimation,
     /// `vs16_width`: whether a `U+FE0F` makes a text-default emoji two cells,
     /// `"two"` by default, the width tmux 3.6+, fish and helix assume, or
-    /// one for a session whose programs measure with a legacy `wcwidth`.
-    /// `DECRQM ?2027` reports it.
+    /// one for a session whose programs measure with a legacy `wcwidth`; a
+    /// program that sets `?2027` gets two cells under either.
     pub vs16_width: baud_domain::Vs16Width,
     /// `[text] ambiguous_width`: whether an East Asian Ambiguous character
     /// takes one column, `"narrow"`, the default, or two, `"wide"` (note V,
@@ -482,6 +482,12 @@ pub struct Config {
     /// Private Use Area characters, the icons, stay one column under either.
     /// `DECRQM ?1021` reports it.
     pub ambiguous_width: baud_domain::AmbiguousWidth,
+    /// `[text] join_spacing_marks`: whether a spacing mark -- a vowel sign
+    /// such as Devanagari's ि or ा, a visarga, the Thai SARA AM -- takes no
+    /// column of its own while `?2027` is reset, `"on"`, as the macOS shells
+    /// and tmux count, or a column, `"off"`, the default, as glibc, vim and
+    /// the Linux shells count (`baud_domain::SpacingMarks`).
+    pub join_spacing_marks: baud_domain::SpacingMarks,
     /// `emoji`: how a character with no variation selector is drawn --
     /// `"font"`, the default, from a text face whatever its default
     /// presentation; `"system"`, an emoji-presentation character in colour
@@ -982,6 +988,7 @@ impl Config {
             image_animation: ImageAnimation::Os,
             vs16_width: baud_domain::Vs16Width::Two,
             ambiguous_width: baud_domain::AmbiguousWidth::Narrow,
+            join_spacing_marks: baud_domain::SpacingMarks::Column,
             emoji: baud_render::EmojiDefault::Font,
             bell: BellStyle::Sound,
             clipboard: Clipboard::DEFAULT,
@@ -2073,6 +2080,19 @@ impl Config {
                                 "config: [images] animation {other:?} is not os, on or off; using os"
                             ));
                             ImageAnimation::Os
+                        }
+                    };
+                }
+                ("text", "join_spacing_marks") => {
+                    self.join_spacing_marks = match value.trim().trim_matches('"') {
+                        "on" => baud_domain::SpacingMarks::Joined,
+                        "off" => baud_domain::SpacingMarks::Column,
+                        other => {
+                            said.push(format!(
+                                "config: [text] join_spacing_marks {other:?} is not on or off; \
+                                 using off"
+                            ));
+                            baud_domain::SpacingMarks::Column
                         }
                     };
                 }
@@ -3237,7 +3257,8 @@ mod named {
                 )),
                 baud_render::FaceRole::Fallback
                 | baud_render::FaceRole::Badge
-                | baud_render::FaceRole::Font(..) => None,
+                | baud_render::FaceRole::Font(..)
+                | baud_render::FaceRole::Narrower => None,
             })
             .collect()
     }
@@ -3711,7 +3732,8 @@ mod named {
                     baud_render::FaceRole::Style(s) => Some((s, full(f))),
                     baud_render::FaceRole::Fallback
                     | baud_render::FaceRole::Badge
-                    | baud_render::FaceRole::Font(..) => None,
+                    | baud_render::FaceRole::Font(..)
+                    | baud_render::FaceRole::Narrower => None,
                 })
                 .collect();
             assert_eq!(
@@ -3809,7 +3831,8 @@ mod named {
                     }
                     baud_render::FaceRole::Fallback
                     | baud_render::FaceRole::Badge
-                    | baud_render::FaceRole::Font(..) => None,
+                    | baud_render::FaceRole::Font(..)
+                    | baud_render::FaceRole::Narrower => None,
                 })
                 .collect()
         };
@@ -5648,6 +5671,40 @@ shadow     = "never"
             let mut c = Config::defaults();
             let said = c.apply(text);
             assert_eq!(c.ambiguous_width, AmbiguousWidth::Narrow, "{text:?}");
+            assert_eq!(said.len(), 1, "{text:?} is said: {said:?}");
+        }
+    }
+
+    /// `[text] join_spacing_marks` reads on or off, quoted or bare; anything
+    /// else is off and said, and the key outside `[text]` is not this one.
+    #[test]
+    fn join_spacing_marks_is_off_unless_on() {
+        use baud_domain::SpacingMarks;
+        assert_eq!(read("").join_spacing_marks, SpacingMarks::Column);
+        for (text, want) in [
+            (
+                "[text]\njoin_spacing_marks = \"on\"\n",
+                SpacingMarks::Joined,
+            ),
+            ("[text]\njoin_spacing_marks = on\n", SpacingMarks::Joined),
+            (
+                "[text]\njoin_spacing_marks = \"off\"\n",
+                SpacingMarks::Column,
+            ),
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(text);
+            assert_eq!(c.join_spacing_marks, want, "{text:?}");
+            assert!(said.is_empty(), "{text:?}: {said:?}");
+        }
+        for text in [
+            "[text]\njoin_spacing_marks = \"yes\"\n",
+            "join_spacing_marks = \"on\"\n",
+            "[glass]\njoin_spacing_marks = \"on\"\n",
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(text);
+            assert_eq!(c.join_spacing_marks, SpacingMarks::Column, "{text:?}");
             assert_eq!(said.len(), 1, "{text:?} is said: {said:?}");
         }
     }

@@ -878,11 +878,11 @@ pub(crate) enum SixelBg {
 /// column, with the cursor left **on** it, or before it, with the cursor
 /// after it. `[[source: vt510-decawm]]` keeps the cursor on the last column
 /// there, so "the character just written" is under the cursor rather than
-/// before it, and a continuation has to know which (`Paint::attach_continuing`,
+/// before it, and a continuation has to know which (`Paint::continue_cluster`,
 /// `tests/margin_pin.rs`).
 ///
 /// Written only where `DECAWM` is reset, and read only while it still is, by
-/// `Paint::attach_continuing` and `Paint::attach` through
+/// `Paint::continue_cluster` and `Paint::attach` through
 /// `Paint::after_last_write`. A zero-width codepoint after a control can
 /// follow any control, so every horizontal move ends the pin
 /// (`Paint::set_col`), as do `?7h`, `?7l` and a resize that clamps the
@@ -949,6 +949,16 @@ pub(crate) enum Strip {
 }
 
 impl Cold {
+    /// **How much of a cluster a cell holds now**: `?2027` and the
+    /// embedder's [`SpacingMarks`] together ([`ClusterCells`]).
+    pub(crate) fn cluster_cells(&self) -> ClusterCells {
+        let mode = match self.modes.is_set(ModeBit::GraphemeClusters) {
+            true => GraphemeMode::Extended,
+            false => GraphemeMode::Legacy,
+        };
+        ClusterCells::of(mode, self.spacing)
+    }
+
     /// Whether received bytes are stripped now.
     pub(crate) fn strips(&self) -> Strip {
         match (self.level, self.encoding) {
@@ -1245,6 +1255,9 @@ pub struct Cold {
     pub(crate) initial_cursor: CursorStyle,
     /// Whether a `U+FE0F` widens its base ([`Term::set_vs16_width`]).
     pub(crate) vs16: Vs16Width,
+    /// Whether a spacing mark takes a column while `?2027` is reset
+    /// ([`Term::set_spacing_marks`]).
+    pub(crate) spacing: SpacingMarks,
     /// Where the last character written under `DECAWM` reset ended.
     pub(crate) pinned: Pinned,
     /// DECKPAM/DECKPNM, `ESC =` and `ESC >`.
@@ -2081,6 +2094,7 @@ impl Cold {
             cursor_blink: ModeChange::Reset,
             initial_cursor: CursorStyle::BlinkingBlock,
             vs16: Vs16Width::Two,
+            spacing: SpacingMarks::Column,
             pinned: Pinned::Before,
             keypad: KeypadMode::Numeric,
             line_stops: LineStops::NONE,
@@ -4678,10 +4692,33 @@ impl<'b> Term<'b> {
 
     /// Whether a `U+FE0F` after a base `[[source: emoji-variation-sequences]]`
     /// lists makes it two cells wide. The embedder's power-on choice, called
-    /// once before the child writes anything; `DECRQM ?2027` answers 3 for
-    /// `Two`, the default, and 4 for `One`, and no sequence changes it.
+    /// once before the child writes anything; `Two` by default, under
+    /// `?2027` set and reset alike. `One` keeps one cell while `?2027` is
+    /// reset, and a program that sets the mode gets two, the draft's VS16
+    /// rule (`Vs16Width::widens_in`); no sequence changes the setting.
     pub fn set_vs16_width(&mut self, w: Vs16Width) {
         self.cold.vs16 = w;
+    }
+
+    /// **Whether a spacing mark takes a column** while `?2027` is reset:
+    /// [`SpacingMarks::Column`] by default, as glibc, unicode-width, vim and
+    /// the Linux shells count, or [`SpacingMarks::Joined`], as the macOS
+    /// shells and tmux count. The embedder's choice, which no sequence
+    /// changes; it measures the next character written, and text already on
+    /// the screen keeps the columns it was written with.
+    pub fn set_spacing_marks(&mut self, m: SpacingMarks) {
+        self.cold.spacing = m;
+    }
+
+    /// What [`Term::set_spacing_marks`] last set.
+    pub fn spacing_marks(&self) -> SpacingMarks {
+        self.cold.spacing
+    }
+
+    /// **How much of a cluster a cell holds now**: `?2027` and the
+    /// embedder's [`SpacingMarks`] together ([`ClusterCells`]).
+    pub fn cluster_cells(&self) -> ClusterCells {
+        self.cold.cluster_cells()
     }
 
     /// What [`Term::set_vs16_width`] last set.

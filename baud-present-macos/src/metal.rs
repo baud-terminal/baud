@@ -467,6 +467,10 @@ pub struct CellInput<'a> {
     /// The rotation's modulus: the grid buffer's rows, `Term::ring`.
     pub ring: Rows,
     pub cursor: Option<(Row, Col, CursorStyle)>,
+    /// Who draws the block cursor ([`baud_render::Overlay::cursor_drawn`]):
+    /// the shader, or the records, over the Devanagari syllable that holds
+    /// its cell, the shader then drawing no block.
+    pub cursor_drawn: baud_render::CursorDrawn,
     /// The selection on this view, or none: a selected cell's colours swap
     /// before the cursor's own swap, the rule every path applies.
     pub highlight: Option<Highlight>,
@@ -2474,7 +2478,15 @@ impl Gpu {
         let strip = renderer.strip();
         let (viewport, pad, strip_vp) = letterbox_whole(target, renderer.whole_size(), strip);
         let trail = self.trail_draw(renderer, pad);
-        let kind = CursorKind::of(input.cursor, renderer.cursor_look());
+        // A block the records draw over a Devanagari syllable's span is not
+        // the shader's to draw on its cell.
+        let kind = match (
+            input.cursor_drawn,
+            CursorKind::of(input.cursor, renderer.cursor_look()),
+        ) {
+            (baud_render::CursorDrawn::Records, CursorKind::Block) => CursorKind::None,
+            (_, k) => k,
+        };
         // The hollow box's pipeline, built the first frame one is drawn.
         let hollow = match kind {
             CursorKind::Hollow => Some(self.cell_ring_pipe.get_as(

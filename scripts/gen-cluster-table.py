@@ -14,7 +14,10 @@ raw = pathlib.Path("baud-domain/cluster.bin").read_bytes()
 (n,) = struct.unpack_from("<I", raw, 0)
 table = raw[4 : 4 + n * 256]
 ready = raw[4 + n * 256 : 4 + n * 256 + n]
-assert len(raw) == 4 + n * 257, f"cluster.bin is {len(raw)} bytes for {n} states"
+at = 4 + n * 257
+legacy = raw[at : at + n * 32]
+marks = raw[at + n * 32 : at + n * 64]
+assert len(raw) == 4 + n * 257 + n * 64, f"cluster.bin is {len(raw)} bytes for {n} states"
 assert list(ready).count(1) == 1, f"ready states: {[i for i, r in enumerate(ready) if r]}"
 rid = ready.index(1)
 
@@ -52,6 +55,17 @@ pub const CLUSTER_READY: u8 = {rid};
 /// States reachable from the initial one.
 #[allow(dead_code)]
 pub const CLUSTER_STATES: usize = {n};
+
+/// **Where a join parts under legacy clusters**: one bit per (state, input),
+/// bit `i & 7` of byte `i >> 3` for `i = state * 256 + input`, set where the
+/// extended rules join and the legacy ones -- without GB9a, GB9b and GB9c --
+/// break. Read only where the machine joined; {len(legacy)} bytes.
+pub static CLUSTER_PARTS_LEGACY: &[u8; {len(legacy)}] = b"\\
+    {bytestr(legacy)}";
+
+/// The same, with spacing marks joined: without GB9b and GB9c.
+pub static CLUSTER_PARTS_MARKS_JOINED: &[u8; {len(marks)}] = b"\\
+    {bytestr(marks)}";
 '''
 out = pathlib.Path("baud-domain/src/cluster_data.rs")
 if "--check" in sys.argv:

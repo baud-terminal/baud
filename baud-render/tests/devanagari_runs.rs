@@ -181,5 +181,5 @@ fn the_readme_line_draws_the_same_pixels_on_every_system() {
     paint(&mut r, &mut t, &mut c, baud_render::Damage::Full);
     let lit = c.pixels.iter().filter(|&&p| p != c.pixels[0]).count();
     assert!(lit > 500, "{lit} pixels drawn: the premise, ink on the row");
-    assert_eq!(c.digest(), 0x6d3c_c796_460d_8348, "the README line's frame");
+    assert_eq!(c.digest(), 0x0b88_a32f_1623_6cf6, "the README line's frame");
 }

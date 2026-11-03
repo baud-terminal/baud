@@ -80,7 +80,7 @@ impl Session {
         halves.cursor = cfg.cursor;
         let theme = theme_for(Appearance::Dark, &cfg.glass, cfg.theme, cfg.floor, &halves);
         let mut renderer = Renderer::new(
-            crate::host::stack(&cfg, faces),
+            crate::host::stack(&fonts),
             PxSize::of(cfg.font_size).expect("size"),
             theme,
             Blend::Native,

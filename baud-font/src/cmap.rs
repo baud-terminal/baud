@@ -126,6 +126,7 @@ impl FromBe for Mapping {
 
 const RECORD: Len = Len::of(8);
 
+#[derive(Clone, Copy)]
 pub struct Cmap<'a> {
     data: Bytes<'a>,
     records: Count,

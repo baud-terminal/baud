@@ -483,6 +483,272 @@ UAX #11 also disagrees with itself here: §2 disclaims terminals, while ED4 was
 amended specifically to fold UTS #51 `Emoji_Presentation` into Wide — a change
 whose only real consumer is terminal-shaped software.
 
+### 4.6 How many columns a Devanagari syllable takes (measured 2026-11-02)
+
+baud-font shapes Devanagari, and until 2026-11-02 the core gave each
+extended grapheme cluster one cell of its first character's width. A syllable
+joins its spacing vowel signs by GB9a and a consonant after a virama by GB9c
+([[source: uax29]] § 3.1.1), so र्मि (RA, VIRAMA, MA, VOWEL SIGN I) took one
+column, and its glyphs, about 1.4 cells wide in Noto Sans Devanagari, covered
+the letter after it. This section measures what programs count, and ends
+with the decision as built.
+
+**What the texts say.**
+
+- **UAX #29** has two variants: "The same rules are used for the two variants
+  of grapheme clusters, except the rules GB9a, GB9b, and GB9c ... The
+  extended rules are recommended, except where the legacy variant is
+  required for a specific environment". Legacy grapheme clusters are a
+  conforming profile (UAX29-C1-2).
+- **UAX #44** defines `Mc` as "a spacing combining mark (positive advance
+  width)" and `Mn` as "a nonspacing combining mark (zero advance width)"
+  ([[source: uax44]], General_Category values).
+- **The Unicode Standard, chapter 12**: Devanagari has "spacing dependent vowel
+  signs that may occur to the right or to the left of a consonant letter or
+  consonant cluster" ([[source: unicode-ch12]]).
+- **UAX #11** disclaims terminals (§ 4.1 above).
+- **The mode 2027 draft** is the only terminal text ([[source: mode2027]]).
+  While the mode is set, "every consecutively written character on the
+  terminal stream that is non-breakable as per UTS-29 will always end up in
+  the same terminal's grid cell". Extending a cluster "will not move the
+  cursor except for" VS16. It does not say which variant of UAX #29 it means.
+
+**What programs count.** 404 units were measured: the README's Hindi line and
+its eight words, the Devanagari examples of Microsoft's specification, and
+every word of two Premchand pages. That is the 399 distinct inputs of
+`baud-font/tests/shape/devanagari.txt`, plus the five words of the README line
+that file does not list (हर, अक्षर, ग्रिड, रखता, है।).
+
+The table gives, for each program, how many units its column count agrees
+with each of four cell models. The models:
+
+- one cell: today's cursor advance, by CPR through baud-core;
+- legacy cells: GB9a and GB9c joins made cell breaks (a prototype's CPR);
+- legacy, `Mc` 0: GB9c joins only (a prototype's CPR);
+- at most two: computed.
+
+| program | measured as | one cell | legacy cells | legacy, `Mc` 0 | at most two |
+|---|---|---|---|---|---|
+| glibc 2.36, 2.41, 2.43 | `wcswidth()`, C.UTF-8, Debian containers | 97 | 401 | 150 | 349 |
+| unicode-width 0.2.2 | `UnicodeWidthStr::width` | 97 | 401 | 150 | 349 |
+| vim 9.1, macOS | `strdisplaywidth()` | 96 | 394 | 145 | 336 |
+| bash 5.2 readline, glibc | cursor motion after Ctrl-A in a pty | 97 | 401 | 150 | 349 |
+| zsh 5.9, glibc, `combiningchars` | the same | 97 | 401 | 150 | 346 |
+| bash 3.2 and 5.3, macOS | the same | 261 | 149 | 400 | 177 |
+| zsh 5.9 and 5.9.2, macOS, `combiningchars` | the same | 255 | 141 | 389 | 166 |
+| tmux 3.6a, macOS | `#{cursor_x}` after `cat` echoes the unit | 266 | 145 | 395 | 173 |
+| Python wcwidth 0.4.0 | `wcswidth()` | 266 | 145 | 395 | 173 |
+| macOS libc | `wcswidth()`, en_US.UTF-8 | 29 | 123 | 29 | 120 |
+
+What the table shows:
+
+- The legacy model's three misses on glibc are lone marks at column 0. baud
+  gives a defective mark a cell there, so every real word agrees.
+- macOS libc gives every code point in these units 1, viramas included, and
+  -1 to the Devanagari block's later additions (U+0900, U+0904,
+  U+093A-093B, U+094E-094F, U+0955-0957, U+0971-097F). No shell measured
+  follows it.
+- Without `combiningchars`, zsh prints marks as `<094d>` placeholders, so it
+  does not depend on the terminal for them.
+- Every program counts a consonant joined after a virama as one column.
+  baud counted it as none before the decision below.
+- On spacing vowel signs the programs split into two camps. glibc,
+  unicode-width ([[source: unicode-width-022-lib]]), vim and the Linux shells
+  count one column, UAX #44's positive advance. The macOS shells, tmux on
+  macOS and Python wcwidth count none.
+
+Each unit's counts are in `docs/research/notes/g/devanagari-columns.tsv`.
+
+**What terminals and Neovim do, read at source.**
+
+- **kitty 0.48.2.** A code point the segmenter adds to the current cell joins
+  it with no change of width ([[source: kitty-0482-screen]]). Every mark,
+  spacing or not, is width 0 in its tables ([[source: kitty-0482-gen-wcwidth]]).
+  It has no mode 2027.
+- **ghostty d9840f3.** Under mode 2027, a joined code point that has a width
+  makes the cluster two columns ([[source: ghostty-d9840f3-grapheme]]).
+- **foot 1.21.0.**
+  - DECSET 2027 turns its clustering on and off ([[source: foot-csi-2027]]).
+  - Its default width method caps a cluster at two columns; `wcswidth` sums
+    the cluster's code points ([[source: foot-grapheme-width]]).
+  - Under any method but the cap, DECRQM `?2027` answers 4.
+  - Its manual says the cap "may break some applications since applications
+    typically use wcswidth(3) internally to calculate the width"
+    ([[source: foot-2705e36-grapheme]]).
+- **wezterm e2a98e1.** The sum of `wcwidth()`, capped at two
+  ([[source: wezterm-e2a98e1-cell-lib]]).
+- **Neovim 0.11.5.**
+  - A screen cell is a utf8proc grapheme of its first code point's width
+    ([[source: neovim-0115-mbyte]]), whether or not the mode is set.
+  - It sends `?2027h` only when DECRQM says the mode is reset, and `?2027l`
+    on exit ([[source: neovim-0115-tui]]).
+  - So it agrees with today's cells and disagrees with legacy cells, whatever
+    `?2027` answers.
+
+**The legacy model, and where it collided with a decision.** Legacy
+cells store each legacy grapheme cluster in its own cell: र्मि becomes three
+cells, र with its virama, म, and ि. The renderer re-forms the extended
+cluster from those cells, so the shaper is handed the clusters it was handed
+before, and draws the syllable across all three columns; the decision below
+says how.
+
+Because each spacing code point keeps a column of its own, a program that
+wraps at the right margin between code points, or rewrites one column, finds
+the screen where it expects it. A syllable kept whole in one cell with tail
+cells, the model not built, would move whole to the next row at the margin,
+and would be erased whole when one of its tails is overwritten.
+
+The collision: under any model that moves the cursor for a joined consonant
+or vowel sign, a permanent `3` for `?2027` is a wrong answer. The project
+chose that answer on 2026-10-01, with the two-cell VS16 width that made it
+true (the `?2027` row of `docs/vt-coverage.md`; `baud-core/tests/vs16_width.rs`).
+
+**The decision, as built (2026-11-02).** The project chose all three of the
+measured models: legacy cells by default, `?2027` a real mode, and a setting
+for the macOS shells.
+
+- **`?2027` is a switch**, reset at power-on and by `RIS` and `DECSTR`, as the
+  draft's "Terminal Reset" says ([[source: mode2027]]); DECRQM answers `1` or
+  `2`, and XTSAVE keeps it. Set, a cell holds an extended cluster of its first
+  character's width, as before: the one-cell column of the table, all 404
+  units. A `U+FE0F` after a listed base widens it under both states by
+  default; the embedder's `vs16_width = "one"` keeps one cell while the mode
+  is reset, and set, the base widens under it too, the draft's VS16 rule
+  "will force the grapheme cluster's width to be 2" being among the
+  semantics that "MUST be adhered to if this VT mode 2027 is enabled".
+- **Reset, a cell holds a legacy grapheme cluster.** The core runs the one
+  extended machine and parts a join made by GB9a, GB9b or GB9c: one bit per
+  state and input of a table generated from the rules, read only where the
+  machine joined, the parted character written in a cell of its own and the
+  machine started at it. That composition is each legacy variant's own
+  machine over every reachable pair of states
+  (`the_legacy_variants_are_the_extended_machine_parted`). Across the code
+  space a character parts after a letter iff it is a SpacingMark (381: the
+  `Mc` vowel signs, the visarga, the Thai and Lao SARA AM), an `Mc` classed
+  Extend (61, below) or, after a virama, an InCB consonant (911), all of
+  them narrow but four East Asian Wide `Mc`
+  (`only_spacing_marks_and_conjunct_consonants_part_after_a_letter`).
+- **An `Mc` that UAX #29 classes Extend parts too**, a tailoring of the
+  legacy rules beside GB9a: 61 code points, among them the commonest vowel
+  signs of Bengali (U+09BE), Tamil (U+0BBE), Kannada (U+0CC0-0CCB) and
+  Malayalam (U+0D3E), which GB9 joins in both variants. glibc and vim count
+  each a column and unicode-width, which helix measures with, none; the
+  default follows glibc and vim, so Tamil கா is two columns, and a
+  canonically equivalent spelling may differ, as glibc's does: Bengali কো is
+  two columns precomposed (U+09CB) and three decomposed (U+09C7 U+09BE)
+  (`a_spacing_vowel_sign_classed_extend_takes_a_column`). Four of the 61,
+  U+302E-302F and U+16FF0-16FF1, are East Asian Wide and take two columns
+  (`only_spacing_marks_and_conjunct_consonants_part_after_a_letter`).
+- **The cursor after each unit** (`baud-core/tests/syllable_columns.rs`):
+  glibc's and unicode-width's count on 401 of 404 by default; the three
+  others are a lone virama, anusvara and candra E at column 0, which glibc
+  counts 0 and baud gives a cell, the defective combining character sequence
+  `[[source: unicode18-ch3]]` D57 names and § 5.13 draws on a no-break space.
+  With `SpacingMarks::Joined` -- the app's `[text] join_spacing_marks`, the
+  legacy rules with GB9a kept -- bash's count on macOS on 400; the fourth is
+  a lone ि at column 0, which the macOS shells count 0. zsh on macOS departs
+  from bash on 15 units, the lone marks and those holding a ZWJ or a ZWNJ,
+  which it prints as placeholders such as `<200d>`.
+- **The renderer joins the cells a syllable was parted into back together**:
+  it runs the extended rules across a row's cells and joins a cell to the one
+  before where they join its first character by GB9a, GB9b or GB9c, read from
+  the same table, and draws a Devanagari word whole across its cells (§4.7)
+  and any other syllable shaped as one cluster across exactly its cells,
+  centred at its font's size, on the instance, CPU and cell paths. A
+  syllable a soft wrap parts is
+  drawn as two, the part on the next row shaped alone, a vowel sign there on
+  the shaper's dotted circle; on a line drawn in reverse (SCP) each cell is
+  drawn alone, a cell joining the one drawn left of it only where it follows
+  it in the text. An input method's composition takes the
+  columns its commit will and draws a syllable as the commit will, led by
+  the cell before the cursor where its first vowel sign parts from it.
+- **A Prepended_Concatenation_Mark takes a column**, `[[source: uax44]]`'s
+  "visible format controls, which precede and then span a sequence of other
+  characters", as glibc's width table gives every format character that is
+  not default-ignorable ([[source: glibc-241-utf8-gen]]). A space, U+0600 and U+0661 take 3 columns reset, as
+  unicode-width and Python wcwidth count, and 2 set, the digit joining the
+  sign by GB9b; they took 1, the sign and the digit both on the space.
+
+### 4.7 How a Devanagari word is drawn in its columns (2026-11-02)
+
+The columns are §4.6's; this is what is drawn in them. No glyph is drawn
+below its face's size: a word too wide for its columns borrows blank cells,
+moves, or takes a narrower width instead.
+
+- **A word is drawn whole**: each run of Devanagari cells between blanks,
+  punctuation and anything else is shaped as one run at its face's natural
+  advances, its clusters laid end to end as hb-shape lays a run (baud-font's `Pens::Run`,
+  checked glyph for glyph on every line of `devanagari.txt` on all seven
+  faces, and on Noto Sans Devanagari's variable file at `wdth` 81.25 and
+  62.5), each glyph at its pen to a quarter of a pixel, and centred in its
+  columns. ECMA-48 6.3: "The size of a character position may be fixed or
+  may depend on the graphic symbol of the character being imaged"
+  (`[[source: ecma48]]`).
+- **Where it does not fit**: its ink may reach the blank cells beside it,
+  half of those between it and the next word less half of 0.26 em -- Noto's
+  own space, one value for every count, size and instance -- and all but
+  0.26 em of those before anything else; the row's edge and a non-blank
+  cell are walls, and the line's last word may take one blank cell after
+  it. Then it is shifted inside that room, then drawn at the widest
+  narrower instance of its face that fits (`wdth` in steps of 2.5 down to
+  62.5, at full height), and never scaled. A word that fits at no width
+  closes on the word before it, by that word's ink, down to half a word
+  space, and keeps off a wall's cell; one that still does not fit stays
+  inside the row and overlaps.
+- **A cell written against a word on one side** -- a comma, a hyphen, a
+  bracket, a digit -- has the word laid flush toward it, its pen on that
+  cell's edge, rather than centred, which stood छाती 0.5 em off its comma.
+- **The cursor and the selection**: the cell is a data position, and the
+  syllable that holds it its presentation position (ECMA-48 4.2.27, 4.2.6,
+  6.1.5; § 6's premise, "In the case of a uni-directional device or a
+  bi-directional device without a data component, all references to active
+  data position [...] are to be read as referring to active presentation
+  position", read against baud's UAX #9 layout from power-on). The block and
+  the selection light the syllable's pen span, a rectangle under its glyphs,
+  the glyph pieces inside drawn in their text colour; the word's own cells
+  draw unlit, and on the cell path the shader draws no block there.
+- **No ink in its ground's colour**: every glyph piece over a ground other
+  than its syllable's takes that ground's text colour, so a search hit's
+  yellow on one cell recolours the ink over it rather than hiding it.
+  A program's grounds stay per cell.
+- **An input method's composition draws a word as its commit will**: the
+  letters written against it that its own continue are one word with it
+  once committed, so it draws that word whole, those cells drawn unlit by
+  the grid and lit over their syllables' spans by it, and the row's other
+  words are laid by what its cells will hold -- a letter, a blank or a
+  wall. A word that fits at no width closes on the ink of the word before
+  it, whether that is the composition's or the row's. A block cursor on
+  one of its own cells covers that cell, not its syllable's pen span. That
+  cell is the input method's caret, or the cursor held on the line's last
+  column when the composition reaches it.
+
+**Why these rules.** The cursor and the selection mark the active
+presentation position (ECMA-48 4.2.27, 4.2.6), and under word layout that
+is the syllable's pen span rather than the cell (6.1.5, 6.3). The word
+space is a fixed 0.26 em, Noto Sans Devanagari's own space, so the gap does
+not change with the instance a word is drawn at. Under `?2027` the line's
+last word borrows as it does under the default count. **Open, each with its
+cost:** a block on a blank cell keeps its cell rectangle, so it inverts the
+ink a word reaches into it. A program's grounds stay per cell, with the ink
+over them recoloured, because a ground over the syllable's span needs the
+cell shader to skip the cell's own ground. A word is laid flush against a
+non-blank cell written against it. Word layout covers Devanagari only, and
+other Indic syllables are centred in their own cells at full size.
+
+**Measured** (the corpus of `devanagari.txt`'s words at 80 columns, 24 and
+28 px, Noto Sans Devanagari's variable file): under the default count 24 of
+830 words are narrowed and 2 overlap; with spacing marks joined 248 of 818
+narrowed, 2 over; under `?2027` 389 of 814 narrowed, 17 over, mostly the
+specification's conjunct stacks in one cell. With a face that has no
+`wdth` axis -- Noto's static file, the Mac's Kohinoor Devanagari -- 5-18 of
+830 overlap under the default count, 95-131 of 818 joined and 228-273 of
+814 under `?2027`. The built-in font, its `wdth` axis Noto's and hidden,
+gives the variable file's counts on the stack a launch makes with no
+config. Pens to a quarter pixel leave 135 / 182 of 6,951 /
+8,236 headline columns open on 200 words at 24 / 28 px, against 127 / 183
+at 1/256 px and 156 / 194 at whole pixels, with 279 atlas entries against
+664 and 148.
+
 ---
 
 ## 5. Recommendations, ranked
@@ -536,7 +802,10 @@ and be *read* so a CJK-locale user can flip it. Flip cost: unmeasured.
 *Decision:* `?1020` → set. `?2027` → `3` (permanently set) once clustering
 exists, `0` (not recognized) until then. `DECSET`/`DECRST ?2027` accepted and
 ignored. `ESC % G` reclassified as *satisfied* (like S7C1T); `ESC % @` stays
-counted in `unsupported`.
+counted in `unsupported`. *Superseded 2026-11-02:* `?2027` is a switch,
+reset at power-on, so baud claims mode 2027's rules only while a program sets
+it. `DECSET` and `DECRST` set and reset it, and DECRQM answers `1` or `2`
+(§ 4.6).
 *Reason:* baud is UTF-8-only by construction, so `?1020` is truthful and
 permanent. `?2027` answering `2` would tell an application the mode exists and
 is off, and it would set it and believe it took effect — the exact failure

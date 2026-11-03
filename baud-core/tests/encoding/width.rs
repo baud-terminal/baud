@@ -133,24 +133,24 @@ fn width_tables_match_the_pinned_data() {
     );
 }
 
-/// DECRQM `?2027` answers `3`, permanently set.
+/// DECRQM `?2027` answers `2`, reset, at power-on.
 ///
-/// Mode 2027 is grapheme clustering. This answered `0` (not recognized) while
-/// clustering was unimplemented, which was the honest answer then: `2` would
-/// have told an application the mode existed and was merely off, whereupon it
-/// would set it and believe it took effect.
-///
-/// baud clusters now, per `[[source: uax29]]` and against Unicode's own
-/// conformance suite, and has no mode that stops it — so the answer is `3`, the
-/// shape Windows Terminal arrived at independently.
+/// Mode 2027 is grapheme cluster mode. This answered `0` (not recognized)
+/// while clustering was unimplemented, which was the honest answer then: `2`
+/// would have told an application the mode existed and was merely off,
+/// whereupon it would set it and believe it took effect. Then `3`, while
+/// baud clustered by the extended rules with no mode to stop it. It is a
+/// switch now, reset at power-on: a cell holds a legacy cluster, and set,
+/// an extended one, as the draft has the mode (`[[source: mode2027]]`;
+/// `tests/syllable_columns.rs`).
 #[test]
-fn decrqm_reports_grapheme_clustering_as_permanent() {
+fn decrqm_reports_grapheme_cluster_mode_reset_at_power_on() {
     let mut s = Owned::new(&support::CORPUS);
     let mut t = Term::new(s.storage(), &support::CORPUS);
     let bytes = b"\x1b[?2027$p";
     t.write_at(BytePos::ZERO, bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index((bytes).len()));
-    assert_eq!(t.reply(), b"\x1b[?2027;3$y", "?2027 must answer 3");
+    assert_eq!(t.reply(), b"\x1b[?2027;2$y", "?2027 must answer 2");
 }
 
 /// **`Emoji_Presentation=Yes` is two columns, even where EAW says one.**

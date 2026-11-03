@@ -577,12 +577,21 @@ fn gr_bytes_under_utf8_are_utf8_whatever_is_designated() {
 /// the cursor and the replacement count: every non-blank cell's codepoint,
 /// `0` for a blank or a wide character's tail, to the last written cell.
 fn after_cuts(bytes: &[u8], cuts: &[usize]) -> (Vec<u32>, (Row, Col), usize) {
+    after_cuts_from(b"", bytes, cuts)
+}
+
+/// [`after_cuts`] once `setup` has been fed whole.
+fn after_cuts_from(setup: &[u8], bytes: &[u8], cuts: &[usize]) -> (Vec<u32>, (Row, Col), usize) {
     let ws = WinSize {
         ws_row: 6,
         ws_col: 40,
     };
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
+    if !setup.is_empty() {
+        t.write_at(BytePos::ZERO, setup);
+        t.feed(BytePos::ZERO, ReadLen::from_index(setup.len()));
+    }
     let mut at = 0;
     for &end in cuts.iter().chain([bytes.len()].iter()) {
         let chunk = &bytes[at..end];
@@ -691,9 +700,11 @@ fn a_character_after_esc_is_written_and_the_escape_is_cancelled() {
         ("ESC ( F5 b", b"\x1b(\xf5b", &[FFFD, B], 1),
         ("ESC ( A4 83 b", b"\x1b(\xa4\x83b", &[FFFD, FFFD, B], 2),
     ];
+    // With `?2027` set, where U+0903 would join the `a` were the escape
+    // to leave the cluster open: reset, it takes a cell either way.
     for (name, bytes, want, fffd) in cases {
         for (cut, at) in every_cut(bytes.len()) {
-            let (cells, cursor, replacements) = after_cuts(bytes, &at);
+            let (cells, cursor, replacements) = after_cuts_from(b"\x1b[?2027h", bytes, &at);
             assert_eq!(cells, want, "{name}, {cut}: the row");
             assert_eq!(
                 cursor,
@@ -709,23 +720,30 @@ fn a_character_after_esc_is_written_and_the_escape_is_cancelled() {
 /// it**: after `ESC 7`, a whole sequence, the bytes take the path the
 /// decision re-uses and write U+0903 in its own cell; with no control before
 /// it the same U+0903 joins the `a` (GB9a), which is what a cancel that left
-/// the cluster open would draw.
+/// the cluster open would draw. With `?2027` set, where a spacing mark
+/// joins: reset, it takes a cell of its own either way.
 #[test]
 fn the_controls_for_a_character_after_esc() {
     const A: u32 = 0x61;
     const B: u32 = 0x62;
+    const SET: &[u8] = b"\x1b[?2027h";
     for (cut, at) in every_cut(7) {
         assert_eq!(
-            after_cuts(b"a\x1b7\xe0\xa4\x83b", &at).0,
+            after_cuts_from(SET, b"a\x1b7\xe0\xa4\x83b", &at).0,
             [A, 0x903, B],
             "control: after ESC 7, {cut}"
         );
     }
     for (cut, at) in every_cut(5) {
         assert_eq!(
-            after_cuts(b"a\xe0\xa4\x83b", &at).0,
+            after_cuts_from(SET, b"a\xe0\xa4\x83b", &at).0,
             [A, B],
             "control: with no control before it U+0903 joins the a, {cut}"
+        );
+        assert_eq!(
+            after_cuts(b"a\xe0\xa4\x83b", &at).0,
+            [A, 0x903, B],
+            "reset, U+0903 takes a cell of its own, {cut}"
         );
     }
 }

@@ -12,6 +12,8 @@
 
 use crate::graph::{Act, Node, split, waits_after};
 use crate::osc::StrKind;
+#[cfg(not(feature = "ceiling-no-classify"))]
+use crate::paint::Continued;
 use crate::paint::{Formed, Paint, Pen, Plain, Writer};
 use crate::storage::STRIDE_MAX;
 #[cfg(feature = "sgr-table")]
@@ -1932,13 +1934,14 @@ fn glyph_eight<W: Writer>(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
     let w = {
         let cl = Classified::of(cp);
         let w = cl.width(p.cold.widths);
+        let before = p.cluster;
         if !p.cluster.is_break_classified(cl.class, cl.lookback) {
             // As in `glyph_with_by`: under DECRLM the cluster's cell is
             // right of the cursor, there at column 0 too.
-            if p.cx.raw() != Col::ZERO
-                || (W::LEFTWARD && p.cold.modes.is_set(ModeBit::CursorRightToLeft))
+            if (p.cx.raw() != Col::ZERO
+                || (W::LEFTWARD && p.cold.modes.is_set(ModeBit::CursorRightToLeft)))
+                && p.continue_cluster(before, cl, cp) == Continued::Attached
             {
-                p.attach_continuing(cp);
                 return;
             }
             p.restart_cluster(cl);
@@ -2003,17 +2006,25 @@ fn glyph_with_by<W: Writer>(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
             let mut c = p.cluster;
             core::hint::black_box(c.is_break_classified(cl.class, cl.lookback));
         }
+        // **The machine before the codepoint**, which the join's cold side
+        // reads to say whether the cells in force part it: a copy of one
+        // byte.
+        let before = p.cluster;
         if !p.cluster.is_break_classified(cl.class, cl.lookback) {
             // A tagged value is never column 0; under DECRLM the cluster's
-            // cell is right of the cursor, there at column 0 too.
-            if p.cx.raw() != Col::ZERO
-                || (W::LEFTWARD && p.cold.modes.is_set(ModeBit::CursorRightToLeft))
+            // cell is right of the cursor, there at column 0 too. Attached
+            // there, unless the cells in force give it one of its own
+            // (`Paint::continue_cluster`): a spacing mark or a consonant
+            // after a virama while `?2027` is reset.
+            if (p.cx.raw() != Col::ZERO
+                || (W::LEFTWARD && p.cold.modes.is_set(ModeBit::CursorRightToLeft)))
+                && p.continue_cluster(before, cl, cp) == Continued::Attached
             {
-                p.attach_continuing(cp);
                 return;
             }
             // At column 0 a continuation takes a cell of its own, so the
-            // machine was wrong to continue: start it again there.
+            // machine was wrong to continue: start it again there. A
+            // continuation the cells part is started again the same way.
             p.restart_cluster(cl);
         }
         w

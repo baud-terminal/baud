@@ -1055,3 +1055,59 @@ pub static BREAK_BLOCKS: &[u8; 28416] = b"\
     \x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\
     \x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\
 ";
+
+/// **The spacing marks UAX #29 classes Extend**: general category `Mc`
+/// (`[[source: gc-data]]`) and
+/// Grapheme_Cluster_Break `Extend` (`[[source: gbp-data]]`), such as
+/// U+09BE BENGALI VOWEL SIGN AA and U+0BBE TAMIL VOWEL SIGN AA, which GB9
+/// joins in both of `[[source: uax29]]`'s variants and which take a
+/// column while `?2027` is reset (`ClusterBreak::parts_at`). Sorted, for
+/// a binary search on the cold side of a join.
+pub static SPACING_EXTEND: [(u32, u32); 46] = [
+    (0x09be, 0x09be),
+    (0x09d7, 0x09d7),
+    (0x0b3e, 0x0b3e),
+    (0x0b57, 0x0b57),
+    (0x0bbe, 0x0bbe),
+    (0x0bd7, 0x0bd7),
+    (0x0cc0, 0x0cc0),
+    (0x0cc2, 0x0cc2),
+    (0x0cc7, 0x0cc8),
+    (0x0cca, 0x0ccb),
+    (0x0cd5, 0x0cd6),
+    (0x0d3e, 0x0d3e),
+    (0x0d57, 0x0d57),
+    (0x0dcf, 0x0dcf),
+    (0x0ddf, 0x0ddf),
+    (0x1715, 0x1715),
+    (0x1734, 0x1734),
+    (0x1b35, 0x1b35),
+    (0x1b3b, 0x1b3b),
+    (0x1b3d, 0x1b3d),
+    (0x1b43, 0x1b44),
+    (0x1baa, 0x1baa),
+    (0x1bf2, 0x1bf3),
+    (0x302e, 0x302f),
+    (0xa953, 0xa953),
+    (0xa9c0, 0xa9c0),
+    (0x111c0, 0x111c0),
+    (0x11235, 0x11235),
+    (0x1133e, 0x1133e),
+    (0x1134d, 0x1134d),
+    (0x11357, 0x11357),
+    (0x113b8, 0x113b8),
+    (0x113c2, 0x113c2),
+    (0x113c5, 0x113c5),
+    (0x113c7, 0x113c9),
+    (0x113cf, 0x113cf),
+    (0x114b0, 0x114b0),
+    (0x114bd, 0x114bd),
+    (0x115af, 0x115af),
+    (0x116b6, 0x116b6),
+    (0x11930, 0x11930),
+    (0x1193d, 0x1193d),
+    (0x11f41, 0x11f41),
+    (0x16ff0, 0x16ff1),
+    (0x1d165, 0x1d166),
+    (0x1d16d, 0x1d172),
+];
