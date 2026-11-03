@@ -2809,22 +2809,23 @@ fn strings(value: &str) -> Vec<String> {
 /// The system mono, its colour emoji, its symbols for the braille and box
 /// drawing Menlo lacks, and the two faces that carry the CJK scripts --
 /// Hiragino Sans GB for Han and kana, Apple SD Gothic Neo for Hangul --
-/// which the first three do not: without them a CJK character is a box --
-/// and Kohinoor Devanagari, which the corpus carries too. By family name:
-/// CSS's search picks each one's regular face, which is the face the paths
-/// named before (Menlo.ttc@0 and so on; Hiragino Sans GB's W3, at 300, as
-/// 400 searches down before it searches up to the W6).
+/// which the first three do not: without them a CJK character is a box. By
+/// family name: CSS's search picks each one's regular face, which is the
+/// face the paths named before (Menlo.ttc@0 and so on; Hiragino Sans GB's
+/// W3, at 300, as 400 searches down before it searches up to the W6).
+/// Devanagari is the embedded font's, as on Linux: Kohinoor Devanagari,
+/// once here for it, maps nothing the embedded Regular and Menlo do not.
 #[cfg(target_os = "macos")]
-const DEFAULT_FACES: [&str; 6] = [
+const DEFAULT_FACES: [&str; 5] = [
     "Menlo",
     "Apple Color Emoji",
     "Apple Symbols",
     "Hiragino Sans GB",
     "Apple SD Gothic Neo",
-    "Kohinoor Devanagari",
 ];
 
-/// The embedded Regular first -- JetBrains Mono with baud's Hebrew -- the
+/// The embedded Regular first -- JetBrains Mono with baud's Hebrew and Noto
+/// Sans Devanagari, so Hindi draws from it, the same on macOS and Linux -- the
 /// embedded icon face right behind it (it carries only private-use icons,
 /// so its place changes nothing for text), then the system faces as they
 /// were: Menlo keeps the 1,593 codepoints it maps and JetBrains Mono does
@@ -2883,8 +2884,8 @@ fn font_key(font: baud_render::FontSlot) -> (&'static str, String) {
 }
 
 /// The embedded Bold, Italic and Bold Italic -- JetBrains Mono's, each
-/// with baud's Hebrew -- each the face its style is drawn from: never
-/// synthesised while a real face exists.
+/// with baud's Hebrew and Noto Sans Devanagari -- each the face its
+/// style is drawn from: never synthesised while a real face exists.
 fn styled_faces() -> [FaceSpec; 3] {
     use baud_render::FaceStyle;
     [
@@ -2894,7 +2895,8 @@ fn styled_faces() -> [FaceSpec; 3] {
     ]
 }
 
-/// The embedded Regular and icon face first; then, since Linux has no one
+/// The embedded Regular -- with its Hebrew and Devanagari -- and icon face
+/// first; then, since Linux has no one
 /// system mono, DejaVu Sans Mono where it is installed, for what JetBrains
 /// Mono does not map, Noto Color Emoji where it is, and the embedded STIX
 /// Two Math last, as on macOS. A config names anything else.
@@ -2981,6 +2983,52 @@ mod tests {
                 faces.iter().any(|f| f.glyph(c).is_some()),
                 "{name} U+{cp:04X} is in no face of the default stack"
             );
+        }
+        // Devanagari comes from the first face, the embedded Regular, and
+        // from no system face.
+        for ch in "टर्मिनल हर अक्षर को ग्रिड में रखता है।"
+            .chars()
+            .filter(|c| *c != ' ')
+        {
+            let c = Codepoint::from_char(ch);
+            let first = faces.iter().position(|f| f.glyph(c).is_some());
+            assert_eq!(first, Some(0), "{ch} is drawn from face {first:?}");
+        }
+    }
+}
+
+/// **Hindi draws from the embedded font on every system.** The default
+/// stack leads with the embedded Regular on macOS and on Linux, and the
+/// embedded Regular maps every character of the README's Hindi line and of
+/// the Devanagari block, so the stack draws them from it -- the same
+/// glyphs on both systems -- and never reaches a system face for them.
+#[cfg(test)]
+mod hindi_by_default {
+    use super::*;
+    use baud_domain::Codepoint;
+
+    #[test]
+    fn the_default_stack_draws_devanagari_from_the_embedded_regular() {
+        let c = Config::defaults();
+        // Told by its bytes, never by its address (a `const`'s
+        // `include_bytes!` may be a copy at each use).
+        let FaceFrom::Embedded(bytes) = c.faces[0].from else {
+            panic!("the first face is {}", c.faces[0].path);
+        };
+        assert!(
+            bytes == crate::embedded::REGULAR.bytes,
+            "{}",
+            c.faces[0].path
+        );
+        let face = baud_font::Face::parse(bytes).expect("a face");
+        let line = "टर्मिनल हर अक्षर को ग्रिड में रखता है।";
+        for c in line
+            .chars()
+            .filter(|c| *c != ' ')
+            .map(Codepoint::from_char)
+            .chain((0x0900..=0x097F).filter_map(Codepoint::new))
+        {
+            assert!(face.glyph(c).is_some(), "U+{:04X}", c.value());
         }
     }
 }

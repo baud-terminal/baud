@@ -18,7 +18,17 @@ Microsoft Corporation
 Aaron Bell (Cascadia's font designer)
 Liron Lavi Turkenich (Cascadia's Hebrew designer)
 
+# The Devanagari (U+0900-U+097F and the code points FONTLOG.txt lists with it) in these
+# files is Noto Sans Devanagari 2.007 (baud-app/fonts/glyphs/languages/devanagari/
+# SOURCE): Copyright 2022 The Noto Project Authors. Its AUTHORS.txt at the release names
+# no one; its designers per the font's nameID 8 and 9.
+
+The Noto Project Authors
+Monotype Imaging Inc.
+Jelle Bosma (Monotype Design Team)
+
 # Modified for baud: the Hebrew re-weighted, fitted to JetBrains Mono's cell, every
-# vowel point redrawn, and merged into JetBrains Mono (FONTLOG.txt).
+# vowel point redrawn, and merged into JetBrains Mono; the Devanagari merged in at
+# Noto's weights 400 and 700 with its width axis (FONTLOG.txt).
 
 i-am-logger (baud)

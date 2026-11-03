@@ -850,6 +850,42 @@ Found, not fixed: the scribal source asks for vav's top right to be "completely
 rounded, because if it's squared it would look like a Zayin"
 (`[[source: hasofer-alphabet]]`); baud's vav has a square corner.
 
+## 4f. Devanagari from Noto Sans Devanagari (2026-11-02)
+
+**What it is.** The four built faces carry Noto Sans Devanagari 2.007 (OFL 1.1, no
+Reserved Font Name) as an interim, as the Hebrew began from Cascadia's: baud's own
+Devanagari, designed for the grid, is the end state. `scripts/build-fonts.sh` fetches the
+variable font by the URL and sha256 `baud-app/fonts/glyphs/languages/devanagari/SOURCE`
+pins, instances it at wght 400 (Regular, Italic) and 700 (Bold, Bold Italic) with its
+width axis kept, and `baud-app/fonts/glyphs/languages/devanagari/build/merge.py` merges each instance
+after the Hebrew stage's glyphs and lookups; FONTLOG.txt, THE DEVANAGARI, lists what each
+table gains. LICENSE names the four files, so no new font file was added.
+
+**Choices, each against its alternatives.**
+
+| choice | taken | against | why |
+|---|---|---|---|
+| where the width axis lives | a variable `wdth` axis in each built face, `HIDDEN_AXIS`, Devanagari only | static narrowed glyph sets reached by private features; the wdth-100 glyphs scaled horizontally | OpenType's registered `wdth` text names this use ("select a width variant ... to fit a span of text into a target width"); the steps would snap and need unregistered features; scaling is not the design's narrowing |
+| scale | 1.000, Noto's units | 1.026, JetBrains Mono's x-height over Noto Latin's | the headline sits 15 units (2.4%) lower against the Latin than Noto designed, 0.2 px at 14 px; any other scale rounds every point, advance, anchor and delta and gives up shaping exactly as the pinned file |
+| the italics | upright Noto at the face's weight | a 9-degree plain shear | Noto draws no italic and baud synthesises no style; a plain shear distorts Noto's rounds where the Hebrew's shear was corrected for them. Open: a slanted Devanagari |
+| the dotted circle in a Devanagari run | Noto's, by one substitution under `nukt` | JetBrains Mono's with Noto's anchors, as they are or mapped onto its ring | the shaper inserts U+25CC from the cmap after `locl` and `ccmp`; Noto's mark lookups are made for its own circle; the substitution keeps shaping equal to the pinned file on every line |
+| `post.isFixedPitch` | 0 | JetBrains Mono's 1 | "Set to 0 if the font is proportionally spaced" (OpenType `post`); the Devanagari is |
+
+**What was measured.** Each style keeps every existing glyph's stored bytes and metrics,
+every cmap entry, every lookup compiled alone, every language system's features, every
+GDEF class and mark set (digests read from the files before and after). GSUB keeps stock
+JetBrains Mono's lookup block byte for byte; 772 bytes of its old LangSys and FeatureParams
+tables lie inside that block and stay there unreferenced. With hb-shape 14.5.1 on the 399
+lines of `baud-font/tests/shape/devanagari.txt`, the built Regular shapes as the pinned
+static Noto Regular glyph for glyph under one renaming (only the space keeps the face's
+own glyph and advance), and as the variable font at wdth 62.5 and 81.25; Italic the same
+at 62.5; Bold is within one unit of Noto's own static Bold on 7 lines (two glyphs, the
+rounding of an instance at wght 700) and within 2 units of the variable font at wght 700
+and wdth 62.5. The built faces grow from 304-312 KB to 585-595 KB each: Regular
+303,608 to 584,584 bytes, Bold 308,912 to 591,656, Italic 307,400 to 588,292 and Bold
+Italic 311,876 to 594,540. Startup's cost of the larger faces and of GSUB's 632 lookups (626 in the italics)
+is unmeasured.
+
 ## 5. The build
 
 A design checked against the repository and a working prototype (fontTools

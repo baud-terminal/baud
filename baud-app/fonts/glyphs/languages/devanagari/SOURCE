@@ -1,0 +1,40 @@
+Noto Sans Devanagari: the source of the Devanagari in baud's embedded font
+(baud-app/fonts/built/), which scripts/build-fonts.sh merges in from the file below.
+
+Release:   Noto's monthly release noto-monthly-release-2026.10.01 (a tag of
+           https://github.com/notofonts/notofonts.github.io), Noto Sans Devanagari 2.007
+Font:      fonts/NotoSansDevanagari/unhinted/variable-ttf/NotoSansDevanagari[wdth,wght].ttf
+           at that tag, unmodified: the variable font, wght 100-900 and wdth 62.5-100
+  url      https://raw.githubusercontent.com/notofonts/notofonts.github.io/noto-monthly-release-2026.10.01/fonts/NotoSansDevanagari/unhinted/variable-ttf/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf
+  bytes    564240
+  sha256   9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7
+           Not in the repository. scripts/build-fonts.sh fetches it once into the cache
+           outside the repository that scripts/readme-capture.sh keeps its Noto faces in,
+           and refuses any file that does not hash as above.
+Licence:   https://raw.githubusercontent.com/notofonts/devanagari/e123d230c160ebe949d731cc19017cdb354180d1/OFL.txt
+           (the commit tag NotoSansDevanagari-v2.007 names)
+  bytes    4386
+  sha256   a216f6f8d85c7228093e0ee5e258d9d377e6671f68acb4db1930b29583d0f331
+           The SIL Open Font License 1.1 under "Copyright 2022 The Noto Project Authors
+           (https://github.com/notofonts/devanagari)", with no Reserved Font Name. The
+           font's own nameID 0 is that copyright line and its nameID 13 the OFL sentence.
+Fetched:   2026-11-02.
+
+What the build takes: the font instanced at wght 400 (for Regular and Italic) and 700
+(for Bold and Bold Italic) with its width axis kept (hebrew/build/instance.py), and from
+each instance every glyph a code point the built face does not map reaches, every glyph
+Noto's lookups name, and their components; Noto's dev2 and deva scripts in GSUB and GPOS
+with their features and lookups; its mark filtering sets and glyph classes; its outline,
+advance and anchor variations along the width axis. build/merge.py says how, and
+baud-app/fonts/built/FONTLOG.txt what the built faces are.
+
+The built faces' OFL.txt carries the copyright line above, nameID 0 carries it after
+JetBrains Mono's and Cascadia's, and nameID 7 carries the font's trademark notice, "Noto
+is a trademark of Google Inc.", after theirs: "Any trademark notices must remain in any
+derivative fonts" (OFL-FAQ 1.1-update7, Q3.7).
+
+Designers, per the font's nameID 8 and 9: Monotype Imaging Inc.; Jelle Bosma, Monotype
+Design Team.
+
+These are third-party glyphs in baud's font for the interim: baud's own Devanagari,
+designed for the grid, is to replace them.

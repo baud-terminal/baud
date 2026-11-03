@@ -27,8 +27,10 @@ cd "$(dirname "$0")/.."
 # ~/.cache/baud-readme), named `noto-cache/` in the path column, which the
 # test reads from that cache; Kohinoor Devanagari, macOS's own Devanagari face, and ITF
 # Devanagari, both `dev2`; Shree Devanagari 714 and Arial Unicode MS,
-# `deva` alone, the old specification; and the built Regular, with no
-# Devanagari, the control. The specification's examples are followed by
+# `deva` alone, the old specification; the built Regular and Bold, which
+# carry Noto Sans Devanagari merged in (glyphs/languages/devanagari/), its
+# variable font at wght 400 and 700; and stock JetBrains Mono Regular, with
+# no Devanagari, the control. The specification's examples are followed by
 # lines that reach a pre-base matra moved past a halant that stays (ट्कि,
 # where Noto Sans Devanagari has no half form of TTA) and a lookup a
 # syllable boundary stops (ट्रयही on Shree Devanagari 714).
@@ -199,7 +201,9 @@ PY3
       "/System/Library/Fonts/Supplemental/ITFDevanagari.ttc|0" \
       "/System/Library/Fonts/Supplemental/Shree714.ttc|0" \
       "/System/Library/Fonts/Supplemental/Arial Unicode.ttf|0" \
-      "baud-app/fonts/built/Regular.ttf|0"; do
+      "baud-app/fonts/built/Regular.ttf|0" \
+      "baud-app/fonts/built/Bold.ttf|0" \
+      "baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf|0"; do
       IFS='|' read -r named index <<<"$spec"
       face=${named/#noto-cache/$cache}
       [ -f "$face" ] || {

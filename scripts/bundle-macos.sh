@@ -87,10 +87,12 @@ cp "$BIN" "$APP/Contents/MacOS/baud"
 # The embedded fonts' licences travel with the binary that carries them, as
 # the upstream archives ship them: JetBrains Mono's OFL and AUTHORS, and the
 # Nerd Fonts icon face's MIT licence, its icon-set licence table and the
-# icon sets' own licence texts (icon-licences/), and STIX Two Math's OFL. The built Regular and Bold -- JetBrains Mono with baud's
-# Hebrew -- carry their own OFL, FONTLOG, AUTHORS and MANIFEST, and the
-# Hebrew's source, Cascadia Mono, its OFL and SOURCE.
-for DIR in jetbrains-mono symbols-nerd-font stix-two-math built glyphs/languages/hebrew; do
+# icon sets' own licence texts (icon-licences/), and STIX Two Math's OFL.
+# The four built faces -- JetBrains Mono with baud's Hebrew and Noto Sans
+# Devanagari -- carry their own OFL, FONTLOG, AUTHORS and MANIFEST, the
+# Hebrew's source, Cascadia Mono, its OFL and SOURCE, and the
+# Devanagari's SOURCE (its licence is the built OFL, under Noto's line).
+for DIR in jetbrains-mono symbols-nerd-font stix-two-math built glyphs/languages/hebrew glyphs/languages/devanagari; do
   mkdir -p "$APP/Contents/Resources/fonts/$DIR"
 done
 cp "$ROOT/baud-app/fonts/built/OFL.txt" \
@@ -101,6 +103,8 @@ cp "$ROOT/baud-app/fonts/built/OFL.txt" \
 cp "$ROOT/baud-app/fonts/glyphs/languages/hebrew/OFL.txt" \
   "$ROOT/baud-app/fonts/glyphs/languages/hebrew/SOURCE" \
   "$APP/Contents/Resources/fonts/glyphs/languages/hebrew/"
+cp "$ROOT/baud-app/fonts/glyphs/languages/devanagari/SOURCE" \
+  "$APP/Contents/Resources/fonts/glyphs/languages/devanagari/"
 cp "$ROOT/baud-app/fonts/jetbrains-mono/OFL.txt" \
   "$ROOT/baud-app/fonts/jetbrains-mono/AUTHORS.txt" \
   "$ROOT/baud-app/fonts/jetbrains-mono/SOURCE" \

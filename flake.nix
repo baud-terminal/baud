@@ -81,11 +81,12 @@
           # licences travel with it, as the app bundle carries them.
           postInstall = ''
             fonts=$out/share/doc/baud/fonts
-            for d in built glyphs/languages/hebrew jetbrains-mono symbols-nerd-font stix-two-math; do
+            for d in built glyphs/languages/hebrew glyphs/languages/devanagari jetbrains-mono symbols-nerd-font stix-two-math; do
               mkdir -p "$fonts/$d"
             done
             cp baud-app/fonts/built/{OFL.txt,FONTLOG.txt,AUTHORS.txt,MANIFEST} "$fonts/built/"
             cp baud-app/fonts/glyphs/languages/hebrew/{OFL.txt,SOURCE} "$fonts/glyphs/languages/hebrew/"
+            cp baud-app/fonts/glyphs/languages/devanagari/SOURCE "$fonts/glyphs/languages/devanagari/"
             cp baud-app/fonts/jetbrains-mono/{OFL.txt,AUTHORS.txt,SOURCE} "$fonts/jetbrains-mono/"
             cp baud-app/fonts/symbols-nerd-font/{LICENSE,README.md,SOURCE} "$fonts/symbols-nerd-font/"
             cp -R baud-app/fonts/symbols-nerd-font/icon-licences "$fonts/symbols-nerd-font/"

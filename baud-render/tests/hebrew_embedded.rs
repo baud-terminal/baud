@@ -1,13 +1,15 @@
 //! The embedded font's Hebrew, through the renderer.
 //!
 //! `baud-app/fonts/built/Regular.ttf`, `Bold.ttf`, `Italic.ttf` and
-//! `BoldItalic.ttf` are JetBrains Mono's four styles with baud's Hebrew
-//! added (`scripts/build-fonts.sh`), and nothing else: so a frame painted with the built Regular is the frame stock
-//! JetBrains Mono paints, except in a cell that holds Hebrew and the cell to
-//! its right, which a glyph overhanging its cell can reach. Every recording is
-//! held to that, with `vim-unicode` and `cat-cjk` -- the two whose final
-//! screens carry Hebrew -- as the control that the built font reached the
-//! pixels at all.
+//! `BoldItalic.ttf` are JetBrains Mono's four styles with baud's Hebrew and
+//! Noto Sans Devanagari added (`scripts/build-fonts.sh`), and nothing else:
+//! so a frame painted with the built Regular is the frame stock JetBrains
+//! Mono paints, except in a cell that holds a character stock JetBrains Mono
+//! does not map and the built Regular does -- Hebrew, Devanagari -- and the
+//! cell to its right, which a glyph overhanging its cell can reach. Every
+//! recording is held to that, with `vim-unicode` and `cat-cjk` -- the two
+//! whose final screens carry Hebrew and Devanagari -- as the control that the
+//! built font reached the pixels at all.
 //!
 //! And through the stack the app builds: bold, italic and bold-italic Hebrew
 //! each paint what the built face of that style paints as the only text
@@ -35,31 +37,41 @@ fn app_font(path: &str) -> Vec<u8> {
     .unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
-/// Whether `c` is in the Hebrew block, U+0590-05FF.
-fn hebrew(c: Codepoint) -> bool {
-    matches!(c.value(), 0x0590..=0x05FF)
+/// Whether the built face maps `c` and the stock face does not: a
+/// character the build added, Hebrew or Devanagari.
+fn added(built: &Face<'_>, stock: &Face<'_>, c: Codepoint) -> bool {
+    built.glyph(c).is_some() && stock.glyph(c).is_none()
 }
 
 /// For each cell of the screen, row by row, whether a frame may differ
-/// there: the cell holds Hebrew, as its base or as a mark riding on it, or
-/// the cell to its left does. And how many cells hold Hebrew.
-fn may_differ(t: &Term<'_>) -> (Vec<bool>, usize) {
+/// there: the cell holds a character the build added, as its base or as a
+/// mark riding on it, or the cell to its left does, which a glyph
+/// overhanging its cell can reach; or the cell to its right holds
+/// Devanagari, whose glyphs -- proportional, and a mark with no base in its
+/// cell drawn back over the cell before, where Noto Sans Devanagari puts a
+/// mark's ink -- reach the cell before theirs too. Hebrew is held to its
+/// own cell and the one to its right. And how many cells hold one.
+fn may_differ(t: &Term<'_>, added: &dyn Fn(Codepoint) -> bool) -> (Vec<bool>, usize) {
     let (rows, cols) = (usize::from(WS.ws_row), usize::from(WS.ws_col));
     let mut mask = vec![false; rows * cols];
     let mut held = 0;
     for y in 0..rows {
         let row = t.row(Row::from_index(y)).expect("a row on the grid");
-        for x in 0..cols {
-            let base = row[x].content.as_codepoint().is_some_and(hebrew);
-            let marks = t
+        for (x, cell) in row.iter().enumerate().take(cols) {
+            let base = cell.content.as_codepoint();
+            let marks: Vec<Codepoint> = t
                 .marks(Row::from_index(y), Col::at_index(x))
                 .filter_map(Codepoint::new)
-                .any(hebrew);
-            if base || marks {
+                .filter(|&c| added(c))
+                .collect();
+            if base.is_some_and(added) || !marks.is_empty() {
                 held += 1;
-                mask[y * cols + x] = true;
-                if x + 1 < cols {
-                    mask[y * cols + x + 1] = true;
+                for k in x..(x + 2).min(cols) {
+                    mask[y * cols + k] = true;
+                }
+                let devanagari = |c: &Codepoint| matches!(c.value(), 0x0900..=0x097F);
+                if x > 0 && (base.iter().any(devanagari) || marks.iter().any(devanagari)) {
+                    mask[y * cols + x - 1] = true;
                 }
             }
         }
@@ -68,23 +80,27 @@ fn may_differ(t: &Term<'_>) -> (Vec<bool>, usize) {
 }
 
 /// **The built Regular paints every recording as stock JetBrains Mono
-/// does, but its Hebrew.** Each recording's final screen, painted at 14 px
-/// with each file as the only face, compared cell by cell: a cell that
-/// differs is a cell holding Hebrew or the one right of it, and a recording
-/// with no Hebrew paints the same frame byte for byte. The control:
-/// `vim-unicode`'s Hebrew, `.notdef` boxes in the stock file, draws -- 55
-/// cells, and `cat-cjk`'s 5, every one of them changed (measured, and
-/// pinned, so a recording or a mask that moves says so).
+/// does, but what the build added.** Each recording's final screen, painted
+/// at 14 px with each file as the only face, compared cell by cell: a cell
+/// that differs is a cell holding a character the build added (Hebrew,
+/// Devanagari) or the one right of it, and a recording with none paints the
+/// same frame byte for byte. The control: `vim-unicode`'s Hebrew and
+/// Devanagari, `.notdef` boxes in the stock file, draw, and `cat-cjk`'s --
+/// 88 and 85 cells, which change 110 and 47 (a cell beside one counted,
+/// and a cell whose only added character is a joiner, ZWJ or ZWNJ, which
+/// neither file draws, not) --
+/// measured, and pinned, so a recording or a mask that moves says so.
 #[test]
-fn the_built_regular_paints_every_recording_as_stock_does_but_its_hebrew() {
+fn the_built_regular_paints_every_recording_as_stock_does_but_what_it_adds() {
     let built = app_font("built/Regular.ttf");
     let stock = app_font("jetbrains-mono/JetBrainsMono-Regular.ttf");
     let (built, stock) = (
         [Face::parse(&built).unwrap()],
         [Face::parse(&stock).unwrap()],
     );
+    let gained = |c| added(&built[0], &stock[0], c);
     let cols = usize::from(WS.ws_col);
-    let mut hebrew = Vec::new();
+    let mut carrying = Vec::new();
     for name in RECORDINGS {
         // Every row in the order its cells hold (BDSM reset first), so a
         // cell is compared where it is stored: the subject is the face's
@@ -95,7 +111,7 @@ fn the_built_regular_paints_every_recording_as_stock_does_but_its_hebrew() {
             let mut c = Canvas::for_renderer(&r);
             let mut mask = (Vec::new(), 0);
             replay_final(&bytes, |t| {
-                mask = may_differ(t);
+                mask = may_differ(t, &gained);
                 paint(&mut r, t, &mut c, Damage::Full);
             });
             let m = r.metrics();
@@ -127,26 +143,29 @@ fn the_built_regular_paints_every_recording_as_stock_does_but_its_hebrew() {
                 }
             }
         }
-        eprintln!("{name}: {held} cells hold Hebrew, {changed} cells changed");
+        eprintln!("{name}: {held} cells hold what the build added, {changed} cells changed");
         assert!(
             outside.is_empty(),
-            "{name}: {} cells that neither hold Hebrew nor follow one changed: (row, col) {:?}",
+            "{name}: {} cells that neither hold what the build added nor follow one changed: (row, col) {:?}",
             outside.len(),
             &outside[..outside.len().min(8)]
         );
         if held == 0 {
             assert!(
                 b.pixels == s.pixels,
-                "{name}: no Hebrew, and the frame moved"
+                "{name}: nothing the build added, and the frame moved"
             );
         } else {
-            hebrew.push((name, held, changed));
+            carrying.push((name, held, changed));
         }
     }
     assert_eq!(
-        hebrew,
-        [("utf8/cat-cjk.raw", 5, 5), ("utf8/vim-unicode.raw", 55, 55)],
-        "the control: the recordings that carry Hebrew, its cells and the cells that changed"
+        carrying,
+        [
+            ("utf8/cat-cjk.raw", 85, 47),
+            ("utf8/vim-unicode.raw", 88, 110)
+        ],
+        "the control: the recordings that carry what the build added, its cells and the cells that changed"
     );
 }
 
@@ -168,7 +187,7 @@ fn a_hebrew_point_on_a_latin_letter_counts_as_hebrew() {
         let mut c = Canvas::for_renderer(&r);
         let mut mask = (Vec::new(), 0);
         replay_final(text, |t| {
-            mask = may_differ(t);
+            mask = may_differ(t, &|c| added(&built[0], &stock[0], c));
             paint(&mut r, t, &mut c, Damage::Full);
         });
         (c.pixels, mask)

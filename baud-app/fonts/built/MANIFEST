@@ -22,7 +22,11 @@ recipe Italic STYLE=Italic LEAN=R UID_TAG=prototype-bi-bold2-m METEG_FIT=1 VARIA
 recipe BoldItalic STYLE=BoldItalic LEAN=R BOLD_DOT_W=120 BOLD_DOT_H=98 BOLD_GV=40 BOLD_HATAF_BAR_MIN_DROP=3 BOLD_LOWEST_TWO=-272.0 BOLD_LOWEST_DIP=-298.0 BOLD_SEG_PITCH=133 BOLD_QUB_DX=146 BOLD_QUB_PITCH=134.4 BOLD_SEG_HOME=-43 BOLD_QUB_HOME=-42 UID_TAG=prototype-bi-bold2-m BOLD_HATAF_GAP=54 METEG_FIT=1 VARIANT=A LAMED=L2 DIP_FLOOR=1 LOWEST_DIP=-293
 step instance build/instance.py CascadiaMono.ttf 400 cas400.ttf; build/instance.py CascadiaMono.ttf 700 cas700.ttf
 step anchors casanchors.py cas400.ttf anchors-400.json; casanchors.py cas700.ttf anchors-700.json (each must equal the committed file)
-step build build/build.py <style>.ttf, once per recipe
+step build build/build.py <style>-hebrew.ttf, once per recipe
+step instance-noto build/instance.py NotoSansDevanagari[wdth,wght].ttf 400 noto400.ttf; build/instance.py NotoSansDevanagari[wdth,wght].ttf 700 noto700.ttf
+step merge devanagari/build/merge.py <style>-hebrew.ttf noto<weight>.ttf <style> <style>.ttf, once per style (Regular, Italic: noto400; Bold, Bold Italic: noto700)
+input 83a7da365f00974ec981e54c51f630b50c2647af53643b2631fb0e02b0846317 baud-app/fonts/glyphs/languages/devanagari/SOURCE
+input cfaeeeaa57e0c19bd5a13d3d36366371236082d676b789b083d2989f3f4ec482 baud-app/fonts/glyphs/languages/devanagari/build/merge.py
 input 08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2 baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf
 input 51882cd3cdba4e16f220f44ddb08a635c38c44ea6e0975db2574f4be6f958238 baud-app/fonts/glyphs/languages/hebrew/OFL.txt
 input fe5073b66fccf565f697cb28e787d3c7c3acd163722770105fb3f6534295989f baud-app/fonts/glyphs/languages/hebrew/SOURCE
@@ -43,13 +47,20 @@ input 491a752a70e9e0c1c5d750e8592354750e73df81616d3b4af2ec15a9b551b80f baud-app/
 input 1845f24f27aa4a66f0d86db7f5a5e51706d82bdc739ac75d0e00c36a0f73caf1 baud-app/fonts/glyphs/languages/hebrew/build/pin.py
 input e6730d291a412fa60d43797e4fec8edb1bb6d0e72e85e791f955ecafaf54b0f5 baud-app/fonts/glyphs/languages/hebrew/build/style.py
 input 134370f01a2193c447165de0d76cf0549e939d5a9c3097ffada7ad670c3dcab9 baud-app/fonts/glyphs/languages/hebrew/casanchors.py
+fetched 9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7 https://raw.githubusercontent.com/notofonts/notofonts.github.io/noto-monthly-release-2026.10.01/fonts/NotoSansDevanagari/unhinted/variable-ttf/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf (cached outside the repository; not committed)
 input a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf
 input 5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf
 input 9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4 baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf
 input 4039d5ce0ed225bf9c8b2c8c6436290ae2f356b7e90d70fa666227238324aa3b baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf
 intermediate 7670e8a65b21e6c06db84f03cdd5e28711f55d8458c9e0482611235249f6b9d1 cas400.ttf (the wght 400 instance; not committed)
 intermediate dcfd67fdd811153235a5b9f44efd7b14a5bd9f82990b67b810ab090cb6db33f9 cas700.ttf (the wght 700 instance; not committed)
-output cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1 baud-app/fonts/built/Regular.ttf
-output 2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20 baud-app/fonts/built/Bold.ttf
-output f38d9c23ad98f70647024b0239f920e9c1a500a832189404446057f2ec04310c baud-app/fonts/built/Italic.ttf
-output 67947476d3d36a5c35eb72cdc32fc6211fb4be46f7b48f3d91c913d15c5228de baud-app/fonts/built/BoldItalic.ttf
+intermediate 92cde87d462bf2a8a9e4cccb51c02c9aeaf6ef4e99db06af0ebc0e7c5e82f64b noto400.ttf (Noto Sans Devanagari at wght 400, its width axis kept; not committed)
+intermediate f3e9be2b943be49cc1683f30456b9dba068422a917a4918677e8cb0dc652cdc4 noto700.ttf (Noto Sans Devanagari at wght 700, its width axis kept; not committed)
+intermediate cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1 Regular-hebrew.ttf (the Hebrew stage; not committed)
+intermediate 2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20 Bold-hebrew.ttf (the Hebrew stage; not committed)
+intermediate f38d9c23ad98f70647024b0239f920e9c1a500a832189404446057f2ec04310c Italic-hebrew.ttf (the Hebrew stage; not committed)
+intermediate 67947476d3d36a5c35eb72cdc32fc6211fb4be46f7b48f3d91c913d15c5228de BoldItalic-hebrew.ttf (the Hebrew stage; not committed)
+output d8e9226d5e68c02e55b3d45232e8adffa22c10123f491de4c6be3f50433d901d baud-app/fonts/built/Regular.ttf
+output 87b66b6067bc8bb4d03b4d0cd32538cf59bccaa927d181b2cc831004093dcc0d baud-app/fonts/built/Bold.ttf
+output 0ae4e4c355152b4302aa006e52ae7cf3a23619317e8e1608eec9aac03e203a6e baud-app/fonts/built/Italic.ttf
+output 20a50bbf6c4147e3eed6cee22ff9ba2df39993238654e06ef3afb840994a441c baud-app/fonts/built/BoldItalic.ttf

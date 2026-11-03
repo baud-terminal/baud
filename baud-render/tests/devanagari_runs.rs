@@ -6,8 +6,11 @@
 //! drew VOWEL SIGN I after its consonant; the Indic engine reorders a
 //! Devanagari run (`baud_font::Engine`), so a run is cut, and shaped, by
 //! engine too. Each cell's glyphs must be the ones hb-shape gave the same
-//! line in `baud-font/tests/shape/devanagari.txt`, in their order. A macOS
-//! system face.
+//! line in `baud-font/tests/shape/devanagari.txt`, in their order: on
+//! Kohinoor, a macOS system face, and on the embedded Regular, which carries
+//! Noto Sans Devanagari, on every system. And the README's line, drawn from
+//! the embedded Regular, is pinned pixel for pixel: the same frame on every
+//! system.
 
 mod support;
 
@@ -45,9 +48,9 @@ fn cells(cps: &[Codepoint]) -> Vec<core::ops::Range<usize>> {
     out
 }
 
-/// hb-shape's glyph ids for `cps` on Kohinoor Devanagari, by the cell each
-/// falls in, from the fixture file; and the file's digest.
-fn expected(cps: &[Codepoint]) -> (Vec<Vec<u16>>, String) {
+/// hb-shape's glyph ids for `cps` on the face the fixture file names
+/// `face`, by the cell each falls in; and the file's digest.
+fn expected(face: &str, cps: &[Codepoint]) -> (Vec<Vec<u16>>, String) {
     let text = std::fs::read_to_string(format!(
         "{}/../baud-font/tests/shape/devanagari.txt",
         env!("CARGO_MANIFEST_DIR")
@@ -60,7 +63,7 @@ fn expected(cps: &[Codepoint]) -> (Vec<Vec<u16>>, String) {
         .join(" ");
     let line = text
         .lines()
-        .find(|l| l.starts_with(KOHINOOR) && l.split('\t').nth(4) == Some(want.as_str()))
+        .find(|l| l.split('\t').next() == Some(face) && l.split('\t').nth(4) == Some(want.as_str()))
         .unwrap_or_else(|| panic!("no fixture line for {want}"));
     let f: Vec<&str> = line.split('\t').collect();
     let starts: Vec<usize> = cells(cps).iter().map(|r| r.start).collect();
@@ -81,7 +84,22 @@ fn a_devanagari_row_is_shaped_in_its_script() {
         return;
     }
     let data = std::fs::read(KOHINOOR).unwrap();
-    let faces = [Face::parse_index(&data, FaceIndex::of(0u32)).unwrap()];
+    shaped_in_its_script(KOHINOOR, &data);
+}
+
+/// **A row of Devanagari is shaped as Devanagari from the embedded
+/// Regular**, on every system: its `dev2` lookups are Noto Sans
+/// Devanagari's, merged in by `scripts/build-fonts.sh`, and each cell's
+/// glyphs are the ones hb-shape gave the built Regular in the fixtures.
+#[test]
+fn a_devanagari_row_is_shaped_in_its_script_from_the_embedded_font() {
+    const BUILT: &str = "baud-app/fonts/built/Regular.ttf";
+    let data = std::fs::read(format!("{}/../{BUILT}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    shaped_in_its_script(BUILT, &data);
+}
+
+fn shaped_in_its_script(path: &str, data: &[u8]) {
+    let faces = [Face::parse_index(data, FaceIndex::of(0u32)).unwrap()];
     let mut r = Renderer::new(
         Stack::new(&faces).unwrap(),
         PxSize::of(PX).unwrap(),
@@ -95,8 +113,8 @@ fn a_devanagari_row_is_shaped_in_its_script() {
     for line in ["टर्मिनल हर अक्षर को ग्रिड में रखता है।", "कि", "क्ति", "र्कि"]
     {
         let cps: Vec<Codepoint> = line.chars().map(Codepoint::from_char).collect();
-        let (want, digest) = expected(&cps);
-        assert_eq!(fnv64(&data), digest, "{KOHINOOR} is not the fixtures' file");
+        let (want, digest) = expected(path, &cps);
+        assert_eq!(fnv64(data), digest, "{path} is not the fixtures' file");
         let row: Vec<(Vec<Codepoint>, CellSpan)> = cells(&cps)
             .into_iter()
             .map(|c| (cps[c].to_vec(), CellSpan::One))
@@ -126,4 +144,42 @@ fn a_devanagari_row_is_shaped_in_its_script() {
         }
     }
     assert!(reordered >= 4, "{reordered} cells with VOWEL SIGN I");
+}
+
+/// **The README's Hindi line draws the same pixels on every system.** The
+/// line through the core and the renderer at 14 px, the embedded Regular
+/// the only face, its frame's FNV-1a pinned: taken on macOS and required of
+/// every target, as the recordings' frames are (`golden.rs`). The Linux
+/// driver draws with this path and the default stack leads with this face,
+/// so a Mac and a Linux machine draw the line alike. A change to how the
+/// line is shaped, placed or rasterised moves the pin and has to say so.
+#[test]
+fn the_readme_line_draws_the_same_pixels_on_every_system() {
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, ReadLen};
+    let data = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(PX).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(ROW.ws_col)),
+        Rows::of_index(usize::from(ROW.ws_row)),
+    )
+    .unwrap();
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&ROW);
+    let mut t = Term::new(owned.storage(), &ROW);
+    let bytes = "\x1b[?25lटर्मिनल हर अक्षर को ग्रिड में रखता है।".as_bytes();
+    t.write_at(BytePos::ZERO, bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    paint(&mut r, &mut t, &mut c, baud_render::Damage::Full);
+    let lit = c.pixels.iter().filter(|&&p| p != c.pixels[0]).count();
+    assert!(lit > 500, "{lit} pixels drawn: the premise, ink on the row");
+    assert_eq!(c.digest(), 0x6d3c_c796_460d_8348, "the README line's frame");
 }

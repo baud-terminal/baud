@@ -12,7 +12,10 @@
 #                                     gated hash: the control that the correction is the
 #                                     only thing the italics add to the shear; writes nothing
 #
-# The inputs are the stock JetBrains Mono base (baud-app/fonts/jetbrains-mono/) and
+# The inputs are the stock JetBrains Mono base (baud-app/fonts/jetbrains-mono/),
+# baud-app/fonts/glyphs/languages/devanagari/ (its merge module and SOURCE) with the
+# Noto Sans Devanagari variable font that SOURCE pins, fetched by URL and refused unless
+# it hashes as pinned (it is not in the repository), and
 # baud-app/fonts/glyphs/languages/hebrew/: Cascadia Mono's variable font from the
 # v2407.24 release, the dagesh anchors read from its instances, and the build modules
 # (build/). The steps: instance the variable font at wght 400 and 700, regenerate the
@@ -23,9 +26,15 @@
 # handles re-balanced (build/optical.py); each merges into JetBrains Mono's own Italic
 # or Bold Italic and carries the built family's name, so the four embedded faces are
 # one family, as the OpenType name table's nameID 1 has a style-linking group share one
-# name.
+# name. Then Noto Sans Devanagari goes into each (devanagari/build/merge.py): the
+# variable font instanced at wght 400 (Regular, Italic) or 700 (Bold, Bold Italic), its
+# width axis kept, merged after every glyph, lookup and table the Hebrew build wrote,
+# which the merge proves unchanged object by object before it writes.
 #
-# **The gate is the sha256 of the gated files, by value.** These outputs are the
+# **The gate is the sha256 of the gated files, by value**, at two stages: each style as
+# the Hebrew build writes it (<style>-hebrew below, the bytes the four embedded faces
+# were before Noto Sans Devanagari went in), and each after the merge. The Hebrew stage's
+# outputs are the
 # research tree's final3 set (note AC, docs/research/notes/ac-built-font.md, section
 # 4b) with two conformance fixes (2026-10-08), one letter redrawn (2026-10-24,
 # below), Bold's zayin head ends squared (2026-10-25, below), the glyphs baud
@@ -114,6 +123,8 @@ HEB=baud-app/fonts/glyphs/languages/hebrew
 JBM=baud-app/fonts/jetbrains-mono
 OUT=baud-app/fonts/built
 
+DEVA=baud-app/fonts/glyphs/languages/devanagari
+
 NIXPKGS_REV=7dd199b0e2993e37b4775ed66b1c291699608c9f
 NIXPKGS_SHA256=08kxnni9l87i089hy7p9a7yr64w6h9x5m2cc7k2hn455hidm9mm3
 
@@ -121,17 +132,30 @@ NIXPKGS_SHA256=08kxnni9l87i089hy7p9a7yr64w6h9x5m2cc7k2hn455hidm9mm3
 # (hebrew/SOURCE). The build refuses any other file.
 VF_SHA256=08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2
 
+# Noto Sans Devanagari 2.007's variable font (devanagari/SOURCE), fetched once into the
+# cache the README capture keeps its Noto faces in (NOTO_CACHE, else
+# $XDG_CACHE_HOME/baud-readme, else ~/.cache/baud-readme). The build refuses any other
+# file. It is data: nothing in it runs.
+NOTO_URL='https://raw.githubusercontent.com/notofonts/notofonts.github.io/noto-monthly-release-2026.10.01/fonts/NotoSansDevanagari/unhinted/variable-ttf/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf'
+NOTO_SHA256=9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7
+
 # The gated hashes: the four embedded styles, and for --italics the two italics as the
 # plain 9-degree shear the earlier gated right-lean recipes built (note AC 4b), with
 # round 5's dalet since 2026-10-24, Bold's squared zayin since 2026-10-25,
 # cover.py's glyphs, meteg.py's lookups and round 6's zayin (2026-10-28), which the
 # italics' recipes reproduce byte for byte with ROUND_K=0 LEVEL=0.
+# The four after the merge are the embedded faces; the four -hebrew ones are the Hebrew
+# stage, which the merge starts from.
 gate_hash() {
   case $1 in
-  Regular) echo cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1 ;;
-  Bold) echo 2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20 ;;
-  Italic) echo f38d9c23ad98f70647024b0239f920e9c1a500a832189404446057f2ec04310c ;;
-  BoldItalic) echo 67947476d3d36a5c35eb72cdc32fc6211fb4be46f7b48f3d91c913d15c5228de ;;
+  Regular) echo d8e9226d5e68c02e55b3d45232e8adffa22c10123f491de4c6be3f50433d901d ;;
+  Bold) echo 87b66b6067bc8bb4d03b4d0cd32538cf59bccaa927d181b2cc831004093dcc0d ;;
+  Italic) echo 0ae4e4c355152b4302aa006e52ae7cf3a23619317e8e1608eec9aac03e203a6e ;;
+  BoldItalic) echo 20a50bbf6c4147e3eed6cee22ff9ba2df39993238654e06ef3afb840994a441c ;;
+  Regular-hebrew) echo cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1 ;;
+  Bold-hebrew) echo 2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20 ;;
+  Italic-hebrew) echo f38d9c23ad98f70647024b0239f920e9c1a500a832189404446057f2ec04310c ;;
+  BoldItalic-hebrew) echo 67947476d3d36a5c35eb72cdc32fc6211fb4be46f7b48f3d91c913d15c5228de ;;
   Italic-plain) echo 7e67a91f489890f49fa660eccca27ed69d3b65ad932a54f20059b1f538b690b3 ;;
   BoldItalic-plain) echo aebd45ffaa33e93c6dd0cd0cbb7d40a2367972536e4cf5ecf1a6349dac1798f3 ;;
   *) return 1 ;;
@@ -230,6 +254,20 @@ if [ "$(sha "$HEB/CascadiaMono.ttf")" != "$VF_SHA256" ]; then
   exit 1
 fi
 
+# The Noto variable font: fetched once, refused unless it is the pinned file.
+NOTO_DIR=${NOTO_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/baud-readme}
+NOTO_VF="$NOTO_DIR/NotoSansDevanagari[wdth,wght].ttf"
+if [ ! -e "$NOTO_VF" ]; then
+  echo "fetch $NOTO_URL" >&2
+  mkdir -p "$NOTO_DIR"
+  curl -sSfL -o "$NOTO_VF.part" "$NOTO_URL"
+  mv "$NOTO_VF.part" "$NOTO_VF"
+fi
+if [ "$(sha "$NOTO_VF")" != "$NOTO_SHA256" ]; then
+  echo "FAIL $NOTO_VF is not Noto Sans Devanagari 2.007's variable font (want sha256 $NOTO_SHA256)" >&2
+  exit 1
+fi
+
 for w in 400 700; do
   py -- "$HEB/build/instance.py" "$HEB/CascadiaMono.ttf" "$w" "$WORK/cas$w.ttf"
   py -- "$HEB/casanchors.py" "$WORK/cas$w.ttf" "$WORK/anchors-$w.json" >"$WORK/anchors-$w.log"
@@ -239,12 +277,32 @@ for w in 400 700; do
   fi
 done
 
+# build_one STYLE OUT: the Hebrew build of one recipe.
 build_one() {
-  local name=$1
+  local name=$1 out=$2
   recipe "$name"
-  if ! py "${RECIPE[@]}" -- "$HEB/build/build.py" "$WORK/$name.ttf" >"$WORK/$name.log" 2>&1; then
+  if ! py "${RECIPE[@]}" -- "$HEB/build/build.py" "$out" >"$WORK/$name.log" 2>&1; then
     echo "FAIL build $name; the log's tail:" >&2
     tail -n 30 "$WORK/$name.log" >&2
+    exit 1
+  fi
+}
+
+# The Noto weight each style takes.
+noto_weight() {
+  case $1 in
+  Regular | Italic) echo 400 ;;
+  Bold | BoldItalic) echo 700 ;;
+  esac
+}
+
+# merge_one STYLE: Noto Sans Devanagari into the Hebrew stage of STYLE.
+merge_one() {
+  local name=$1
+  if ! py -- "$DEVA/build/merge.py" "$WORK/$name-hebrew.ttf" "$WORK/noto$(noto_weight "$name").ttf" "$name" \
+    "$WORK/$name.ttf" "$WORK/$name.merge.json" >"$WORK/$name.merge.log" 2>&1; then
+    echo "FAIL merge $name; the log's tail:" >&2
+    tail -n 30 "$WORK/$name.merge.log" >&2
     exit 1
   fi
 }
@@ -252,7 +310,7 @@ build_one() {
 if [ "$mode" = italics ]; then
   fail=0
   for name in Italic-plain BoldItalic-plain; do
-    build_one "$name"
+    build_one "$name" "$WORK/$name.ttf"
     got=$(sha "$WORK/$name.ttf")
     want=$(gate_hash "$name")
     if [ "$got" = "$want" ]; then
@@ -268,15 +326,23 @@ fi
 STYLES=(Regular Bold Italic BoldItalic)
 fail=0
 for name in "${STYLES[@]}"; do
-  build_one "$name"
+  build_one "$name" "$WORK/$name-hebrew.ttf"
+done
+for w in 400 700; do
+  py -- "$HEB/build/instance.py" "$NOTO_VF" "$w" "$WORK/noto$w.ttf"
 done
 for name in "${STYLES[@]}"; do
-  got=$(sha "$WORK/$name.ttf")
-  want=$(gate_hash "$name")
-  if [ "$got" != "$want" ]; then
-    echo "GATE FAIL $name: built $got, the gated file is $want" >&2
-    fail=1
-  fi
+  merge_one "$name"
+done
+for name in "${STYLES[@]}"; do
+  for stage in "$name-hebrew" "$name"; do
+    got=$(sha "$WORK/$stage.ttf")
+    want=$(gate_hash "$stage")
+    if [ "$got" != "$want" ]; then
+      echo "GATE FAIL $stage: built $got, the gated file is $want" >&2
+      fail=1
+    fi
+  done
 done
 
 # MANIFEST: every line not starting with '#' is compared by --check. Machine facts
@@ -307,16 +373,25 @@ print("package uharfbuzz", uharfbuzz.__version__, "(HarfBuzz %s)" % uharfbuzz.ve
   done
   echo "step instance build/instance.py CascadiaMono.ttf 400 cas400.ttf; build/instance.py CascadiaMono.ttf 700 cas700.ttf"
   echo "step anchors casanchors.py cas400.ttf anchors-400.json; casanchors.py cas700.ttf anchors-700.json (each must equal the committed file)"
-  echo "step build build/build.py <style>.ttf, once per recipe"
+  echo "step build build/build.py <style>-hebrew.ttf, once per recipe"
+  echo "step instance-noto build/instance.py NotoSansDevanagari[wdth,wght].ttf 400 noto400.ttf; build/instance.py NotoSansDevanagari[wdth,wght].ttf 700 noto700.ttf"
+  echo "step merge devanagari/build/merge.py <style>-hebrew.ttf noto<weight>.ttf <style> <style>.ttf, once per style (Regular, Italic: noto400; Bold, Bold Italic: noto700)"
   local f
   while IFS= read -r f; do
     echo "input $(sha "$f") $f"
-  done < <(find "$HEB" -type f -not -name '*.pyc' -not -name .DS_Store -not -path '*/__pycache__/*' | LC_ALL=C sort)
+  done < <(find "$DEVA" "$HEB" -type f -not -name '*.pyc' -not -name .DS_Store -not -path '*/__pycache__/*' | LC_ALL=C sort)
+  echo "fetched $NOTO_SHA256 $NOTO_URL (cached outside the repository; not committed)"
   for name in "${STYLES[@]}"; do
     echo "input $(sha "$JBM/JetBrainsMono-$(base_of "$name").ttf") $JBM/JetBrainsMono-$(base_of "$name").ttf"
   done
   for w in 400 700; do
     echo "intermediate $(sha "$WORK/cas$w.ttf") cas$w.ttf (the wght $w instance; not committed)"
+  done
+  for w in 400 700; do
+    echo "intermediate $(sha "$WORK/noto$w.ttf") noto$w.ttf (Noto Sans Devanagari at wght $w, its width axis kept; not committed)"
+  done
+  for name in "${STYLES[@]}"; do
+    echo "intermediate $(sha "$WORK/$name-hebrew.ttf") $name-hebrew.ttf (the Hebrew stage; not committed)"
   done
   for name in "${STYLES[@]}"; do
     echo "output $(sha "$WORK/$name.ttf") $OUT/$name.ttf"

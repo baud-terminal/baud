@@ -876,9 +876,10 @@ struct Selection(u8);
 enum Varies {
     /// Every script selects the same lookups and places marks alike: a run
     /// is never cut by script, and no row's scripts need settling for this
-    /// face. The embedded text faces are this, their `DFLT`, `latn` and
-    /// `hebr` naming the same lookups; STIX Two Math is not. Such a face's
-    /// runs are shaped as Common, left to right, whatever their script.
+    /// face. STIX Two Math is not this, and since they carry Devanagari's
+    /// own tables neither are the embedded text faces, whose `DFLT`, `latn`
+    /// and `hebr` name the same lookups all the same. Such a face's runs
+    /// are shaped as Common, left to right, whatever their script.
     No,
     Yes,
 }
@@ -886,6 +887,13 @@ enum Varies {
 /// One face's [`Selection`] per script.
 struct Selections {
     by_script: PerScript<Selection>,
+    /// Whether a script selects what Common selects -- the same lookups,
+    /// mark placement and engine -- and so is shaped as Common, left to
+    /// right, even on a face that varies for another script: direction
+    /// alone does not cut a run. The embedded faces vary for Devanagari
+    /// alone, and their Latin and Hebrew rows shape as they did on a face
+    /// that varies for nothing.
+    alike: PerScript<bool>,
     varies: Varies,
 }
 
@@ -952,7 +960,21 @@ impl Selections {
             true => Varies::No,
             false => Varies::Yes,
         };
-        Selections { by_script, varies }
+        let alike = PerScript::from_fn(|s| shaping[s] == shaping[Script::COMMON]);
+        Selections {
+            by_script,
+            alike,
+            varies,
+        }
+    }
+
+    /// The script a run in `s` is shaped in on this face, and its
+    /// selection: Common's where `s` selects alike ([`Selections::alike`]).
+    fn pick(&self, s: Script) -> (Script, Selection) {
+        match self.alike[s] {
+            true => (Script::COMMON, self.by_script[Script::COMMON]),
+            false => (s, self.by_script[s]),
+        }
     }
 }
 
@@ -8058,20 +8080,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
             return Vec::new();
         };
         let mut out: Vec<Vec<ClusterGlyph>> = vec![Vec::new(); cells.len()];
-        let scripts: Vec<Script> = match self.selections.get(facex.index()) {
-            Some(sel) if sel.varies == Varies::Yes => {
-                let unresolved: Vec<Unresolved> =
-                    cells.iter().map(|(cps, _)| Unresolved::of(cps)).collect();
-                let mut settled = vec![Script::COMMON; cells.len()];
-                baud_font::resolve(&unresolved, &mut settled);
-                settled
-            }
-            _ => vec![Script::COMMON; cells.len()],
-        };
-        let picks: Vec<Selection> = match self.selections.get(facex.index()) {
-            Some(sel) => scripts.iter().map(|&s| sel.by_script[s]).collect(),
-            None => vec![Selection::default(); cells.len()],
-        };
+        let (scripts, picks): (Vec<Script>, Vec<Selection>) =
+            match self.selections.get(facex.index()) {
+                Some(sel) if sel.varies == Varies::Yes => {
+                    let unresolved: Vec<Unresolved> =
+                        cells.iter().map(|(cps, _)| Unresolved::of(cps)).collect();
+                    let mut settled = vec![Script::COMMON; cells.len()];
+                    // As a row (`settle_row`): nothing that could part
+                    // from Common is all Common.
+                    let may_part = unresolved.iter().any(|u| match *u {
+                        Unresolved::Named(s) => !sel.alike[s],
+                        Unresolved::Neutral { joins, .. } => !joins.is_empty(),
+                    });
+                    if may_part {
+                        baud_font::resolve(&unresolved, &mut settled);
+                    }
+                    settled.iter().map(|&s| sel.pick(s)).unzip()
+                }
+                Some(sel) => (
+                    vec![Script::COMMON; cells.len()],
+                    vec![sel.by_script[Script::COMMON]; cells.len()],
+                ),
+                None => (
+                    vec![Script::COMMON; cells.len()],
+                    vec![Selection::default(); cells.len()],
+                ),
+            };
         let mut lo = 0;
         while lo < cells.len() {
             let script = scripts[lo];
@@ -8472,14 +8506,41 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Settles the script of every cell of `row` in context into
-    /// [`Renderer::row_scripts`].
+    /// [`Renderer::row_scripts`]. A row with no cell that could settle to a
+    /// script some varying face shapes apart from Common ([`Selections::alike`])
+    /// is left all Common, which [`Selections::pick`] would make of it
+    /// anyway: no named script apart and no cell whose Script_Extensions
+    /// could take one, ASCII skipped outright while Latin and Common are
+    /// alike everywhere. So a Latin row on the embedded faces, which vary
+    /// for Devanagari alone, is not resolved.
     fn settle_row(&mut self, term: &Term<'_>, row: &[PackedCell]) {
+        self.row_scripts.clear();
+        self.row_scripts.resize(row.len(), Script::COMMON);
+        let apart = |s: Script| {
+            self.selections
+                .iter()
+                .any(|sel| sel.varies == Varies::Yes && !sel.alike[s])
+        };
+        let ascii_alike = !apart(Script::COMMON) && !apart(Script::of(Codepoint::from_char('a')));
+        let may_part = row.iter().any(|&cell| {
+            let Some(base) = drawn_base(term, cell) else {
+                return false;
+            };
+            if ascii_alike && base.value() < 0x80 && !cell.flags.is_marked() {
+                return false;
+            }
+            match unresolved(term, cell) {
+                Unresolved::Named(s) => apart(s),
+                Unresolved::Neutral { joins, .. } => !joins.is_empty(),
+            }
+        });
+        if !may_part {
+            return;
+        }
         self.row_unresolved.clear();
         for cell in row {
             self.row_unresolved.push(unresolved(term, *cell));
         }
-        self.row_scripts.clear();
-        self.row_scripts.resize(row.len(), Script::COMMON);
         baud_font::resolve(&self.row_unresolved, &mut self.row_scripts);
     }
 
@@ -8495,7 +8556,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     .get(col.index())
                     .copied()
                     .unwrap_or(Script::COMMON);
-                (s, sel.by_script[s])
+                sel.pick(s)
             }
             _ => (Script::COMMON, Selection::default()),
         }

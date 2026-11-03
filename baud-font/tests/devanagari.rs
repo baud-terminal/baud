@@ -7,9 +7,11 @@
 //! pages of Premchand (`[[source: premchand-saptasaroj-11]]`,
 //! `[[source: premchand-saptasaroj-12]]`), on Noto Sans Devanagari, on the
 //! macOS faces Kohinoor Devanagari, ITF Devanagari, Shree Devanagari 714 and
-//! Arial Unicode MS (the last two the old specification's `deva`), and on
-//! the built Regular, which has no Devanagari, as the control. Noto Sans
-//! Devanagari is not in the repository: it is pinned by tag and sha256 and
+//! Arial Unicode MS (the last two the old specification's `deva`), on the
+//! built Regular and Bold, which carry Noto Sans Devanagari merged in
+//! (`scripts/build-fonts.sh`), and on stock JetBrains Mono Regular, which has
+//! no Devanagari, as the control. Noto Sans Devanagari's own file is not in
+//! the repository: it is pinned by tag and sha256 and
 //! read from the cache `scripts/gen-shape-fixtures.sh` fetches it into,
 //! the one `scripts/readme-capture.sh` keeps its Noto faces in
 //! (`NOTO_CACHE`, else `$XDG_CACHE_HOME/baud-readme`, else
@@ -20,6 +22,8 @@
 //! glyph's id, cell and offset from its cell's left edge must be
 //! hb-shape's, its cluster -- a code point index -- named by the cell
 //! holding it.
+
+mod sha256;
 
 use baud_domain::{ClusterBreak, Codepoint, GlyphId};
 use baud_font::{
@@ -275,18 +279,22 @@ fn devanagari_lines() -> Reached {
 
 /// **Every line of `devanagari.txt` shapes as hb-shape shaped it.** The
 /// macOS faces' lines run on macOS only, Noto Sans Devanagari's where the
-/// cache holds it, and the control's everywhere. On macOS every face's
-/// lines run, the reordering and the dotted circles among them.
+/// cache holds it, and the built faces' and the control's everywhere, so
+/// every platform shapes Devanagari through the Indic engine end to end.
+/// On macOS every face's lines run, the reordering and the dotted circles
+/// among them.
 #[test]
 fn every_devanagari_fixture_shapes_as_harfbuzz_does() {
     let r = devanagari_lines();
     eprintln!("{r:?}");
-    let control = r
-        .lines_by_face
-        .get("baud-app/fonts/built/Regular.ttf")
-        .copied()
-        .unwrap_or(0);
-    assert!(control >= 390, "{control} control lines");
+    for face in [
+        "baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf",
+        "baud-app/fonts/built/Regular.ttf",
+        "baud-app/fonts/built/Bold.ttf",
+    ] {
+        let n = r.lines_by_face.get(face).copied().unwrap_or(0);
+        assert!(n >= 390, "{n} lines of {face}");
+    }
     if cfg!(target_os = "macos") {
         assert!(r.lines_by_face.len() >= 5, "{r:?}");
         assert!(r.counts.1 >= 300 && r.counts.2 >= 40, "{r:?}");
@@ -419,4 +427,269 @@ fn devanagari_characters_take_their_indic_classes() {
     assert_eq!(of(0x200C).category, Category::ZWNJ);
     assert_eq!(of(0x25CC).category, Category::DOTTED_CIRCLE);
     assert_eq!(of(0x0041).category, Category::X);
+}
+
+/// One fixture line's hb-shape glyphs, by face and code points.
+fn fixture_glyphs(face: &str) -> std::collections::BTreeMap<String, Vec<HbGlyph>> {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/shape/devanagari.txt"
+    ))
+    .unwrap();
+    text.lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+        .map(|l| l.split('\t').collect::<Vec<_>>())
+        .filter(|f| f[0] == face)
+        .map(|f| (f[4].to_string(), parse_positioned(f[5])))
+        .collect()
+}
+
+/// The built Regular: its bytes, and the first glyph the Devanagari merge
+/// appended -- every glyph before it is JetBrains Mono's or the Hebrew's
+/// (the merge appends after every glyph it is given, and its report names
+/// this id: 1878 in Regular and Bold, 1865 in the italics).
+fn built_regular() -> (Vec<u8>, u16) {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    (
+        std::fs::read(format!("{root}/baud-app/fonts/built/Regular.ttf")).unwrap(),
+        1878,
+    )
+}
+
+/// **The built Regular shapes Devanagari exactly as the pinned Noto Sans
+/// Devanagari does**: every line `devanagari.txt` shaped on Noto's file is
+/// there shaped on the built Regular too, by hb-shape, and the two agree
+/// glyph for glyph -- the same clusters, offsets and advances -- under one
+/// renaming of glyph ids, a function and one to one, that sends every Noto
+/// glyph to a glyph the merge appended but Noto's space, which goes to the
+/// built face's own space: the one glyph whose advance is the built face's
+/// (600) rather than Noto's, but where it stands for a joiner hb-shape
+/// hides (0 in both). Read from the fixture text alone, so it runs on every
+/// platform, Noto's file in the cache or not.
+#[test]
+fn the_built_regular_shapes_devanagari_as_noto_does() {
+    let noto = fixture_glyphs("noto-cache/NotoSansDevanagari-Regular.ttf");
+    let built = fixture_glyphs("baud-app/fonts/built/Regular.ttf");
+    let (data, first) = built_regular();
+    let face = Face::parse(&data).unwrap();
+    let space = face.glyph(Codepoint::new(0x20).unwrap()).unwrap();
+    let mut map = std::collections::BTreeMap::new();
+    let mut lines = 0;
+    for (cps, n) in &noto {
+        let b = built
+            .get(cps)
+            .unwrap_or_else(|| panic!("{cps}: no built line"));
+        assert_eq!(n.len(), b.len(), "{cps}: glyph count");
+        for (x, y) in n.iter().zip(b) {
+            let to = *map.entry(x.id.index()).or_insert(y.id.index());
+            assert_eq!(
+                to,
+                y.id.index(),
+                "{cps}: Noto glyph {:?} renamed two ways",
+                x.id
+            );
+            assert_eq!(
+                (x.cluster.0, x.dx, x.dy),
+                (y.cluster.0, y.dx, y.dy),
+                "{cps}: glyph {:?}",
+                x.id
+            );
+            if y.id == space {
+                // A space takes the built face's 600; a default ignorable
+                // hb-shape hides behind the space glyph (ZWJ, ZWNJ) takes
+                // 0 in both.
+                let hidden = x.ax == 0 && y.ax == 0;
+                assert!(
+                    y.ax == 600 || hidden,
+                    "{cps}: the built space's advance {}",
+                    y.ax
+                );
+            } else {
+                assert_eq!(x.ax, y.ax, "{cps}: glyph {:?}'s advance", x.id);
+            }
+        }
+        lines += 1;
+    }
+    assert!(lines >= 390, "{lines} lines");
+    let mut images: Vec<usize> = map.values().copied().collect();
+    images.sort();
+    images.dedup();
+    assert_eq!(
+        images.len(),
+        map.len(),
+        "two Noto glyphs share a built glyph"
+    );
+    let below: Vec<_> = map
+        .iter()
+        .filter(|(_, b)| **b < usize::from(first))
+        .collect();
+    assert_eq!(
+        below.len(),
+        1,
+        "Noto glyphs named by built glyphs: {below:?}"
+    );
+    assert_eq!(*below[0].1, space.index(), "the one is the space");
+    eprintln!("{lines} lines, {} glyphs renamed", map.len());
+}
+
+/// An outline as the commands a sink receives, in font units.
+#[derive(Default, PartialEq, Debug)]
+struct Path(Vec<(u8, [i32; 6])>);
+
+impl Path {
+    fn push(&mut self, op: u8, p: [f32; 6]) {
+        // Exact in font units at the default instance; a varied point is
+        // a sum of scaled deltas, held to a sixty-fourth of a unit.
+        self.0.push((op, p.map(|v| (v * 64.0).round() as i32)));
+    }
+}
+
+impl baud_font::Sink for Path {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.push(0, [x, y, 0.0, 0.0, 0.0, 0.0]);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.push(1, [x, y, 0.0, 0.0, 0.0, 0.0]);
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.push(2, [x1, y1, x, y, 0.0, 0.0]);
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.push(3, [x1, y1, x2, y2, x, y]);
+    }
+    fn close(&mut self) {
+        self.push(4, [0.0; 6]);
+    }
+}
+
+/// `g`'s outline at `face`'s coordinates.
+fn path(face: &Face<'_>, g: GlyphId) -> Path {
+    let mut p = Path::default();
+    let need = usize::try_from(face.outline_need(g).value()).unwrap();
+    let mut scratch = vec![baud_font::VarPoint::EMPTY; need];
+    let _ = face.outline_at(g, &mut scratch, &mut p);
+    p
+}
+
+fn at_width(face: &mut Face<'_>, wdth: f32) {
+    face.set_variations(&[baud_font::var::Variation {
+        tag: baud_font::Tag::from_bytes(*b"wdth"),
+        value: baud_font::var::Fixed::from_f32(wdth),
+    }]);
+}
+
+/// **Along the width axis only the Devanagari moves.** The built faces
+/// carry Noto's `wdth` axis, 62.5 to 100, for a program that narrows a
+/// Devanagari word to fit it: at 62.5 and at 81.25 every glyph before the
+/// first the merge appended -- all of JetBrains Mono's and the Hebrew --
+/// draws the outline and takes the advance it takes at the default
+/// instance, and the README line's Devanagari letters narrow.
+#[test]
+fn along_the_width_axis_only_the_devanagari_moves() {
+    let (data, first) = built_regular();
+    let plain = Face::parse(&data).unwrap();
+    let axis = plain.axis(baud_font::bytes::Index::ZERO).unwrap();
+    assert_eq!(axis.tag, baud_font::Tag::from_bytes(*b"wdth"));
+    assert_eq!(
+        (axis.min.to_f32(), axis.default.to_f32(), axis.max.to_f32()),
+        (62.5, 100.0, 100.0)
+    );
+    let mut narrowed = 0;
+    for wdth in [62.5, 81.25] {
+        let mut narrow = Face::parse(&data).unwrap();
+        at_width(&mut narrow, wdth);
+        for i in 0..first {
+            let g = GlyphId::from_shaper(i);
+            assert_eq!(
+                narrow.advance(g),
+                plain.advance(g),
+                "glyph {i} at wdth {wdth}"
+            );
+            assert_eq!(
+                path(&narrow, g),
+                path(&plain, g),
+                "glyph {i} at wdth {wdth}"
+            );
+        }
+        for c in "टर्मिनल हर अक्षर को ग्रिड में रखता है"
+            .chars()
+            .filter(|c| *c != ' ')
+        {
+            let g = plain.glyph(Codepoint::from_char(c)).unwrap();
+            assert!(g.index() >= usize::from(first), "{c} is an appended glyph");
+            let (a, b) = (narrow.advance(g).unwrap(), plain.advance(g).unwrap());
+            assert!(a.value() <= b.value(), "{c} at wdth {wdth}: {a:?} > {b:?}");
+            narrowed += usize::from(a.value() < b.value());
+        }
+    }
+    assert!(narrowed >= 20, "{narrowed} letters narrowed");
+}
+
+/// **The built Regular draws Noto's own outlines and shapes as Noto does at
+/// every width**, where the cache holds the variable Noto Sans Devanagari
+/// `scripts/build-fonts.sh` merges from (it fetches it there): every glyph
+/// the fixtures rename, at the default instance and at wdth 62.5 and
+/// 81.25, has Noto's outline and advance, and the README line shapes to
+/// the same glyphs at the same places through baud's shaper.
+#[test]
+fn the_built_regular_draws_noto_at_every_width() {
+    const SHA: &str = "9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7";
+    let Some(vf) = noto_cache()
+        .map(|d| d.join("NotoSansDevanagari[wdth,wght].ttf"))
+        .and_then(|p| std::fs::read(p).ok())
+    else {
+        eprintln!("the variable Noto Sans Devanagari is not in the cache: skipped");
+        return;
+    };
+    assert_eq!(
+        sha256_of(&vf),
+        SHA,
+        "the cache's file is not the pinned one"
+    );
+    let noto = fixture_glyphs("noto-cache/NotoSansDevanagari-Regular.ttf");
+    let built = fixture_glyphs("baud-app/fonts/built/Regular.ttf");
+    let mut map = std::collections::BTreeMap::new();
+    for (cps, n) in &noto {
+        for (x, y) in n.iter().zip(&built[cps]) {
+            map.insert(x.id.index(), y.id);
+        }
+    }
+    let (data, _) = built_regular();
+    let space = Face::parse(&data)
+        .unwrap()
+        .glyph(Codepoint::new(0x20).unwrap())
+        .unwrap();
+    let line: Vec<Codepoint> = "टर्मिनल हर अक्षर को ग्रिड में रखता है।"
+        .chars()
+        .map(Codepoint::from_char)
+        .collect();
+    for wdth in [None, Some(62.5), Some(81.25)] {
+        let (mut a, mut b) = (Face::parse(&vf).unwrap(), Face::parse(&data).unwrap());
+        if let Some(w) = wdth {
+            at_width(&mut a, w);
+            at_width(&mut b, w);
+        }
+        for (&n, &m) in map.iter().filter(|(_, m)| **m != space) {
+            let n = GlyphId::from_shaper(u16::try_from(n).unwrap());
+            assert_eq!(a.advance(n), b.advance(m), "{n:?} at {wdth:?}");
+            assert_eq!(path(&a, n), path(&b, m), "{n:?} at {wdth:?}");
+        }
+        let noto_space = a.glyph(Codepoint::new(0x20).unwrap()).unwrap();
+        let (sa, sb) = (shaped(&a, &line), shaped(&b, &line));
+        assert_eq!(sa.len(), sb.len(), "at {wdth:?}");
+        for (x, y) in sa.iter().zip(&sb) {
+            let want = if x.0 == noto_space {
+                space
+            } else {
+                map[&x.0.index()]
+            };
+            assert_eq!(want, y.0, "at {wdth:?}");
+            assert_eq!((x.1, x.2, x.3), (y.1, y.2, y.3), "at {wdth:?}");
+        }
+    }
+}
+
+/// The file's SHA-256, hex.
+fn sha256_of(data: &[u8]) -> String {
+    sha256::sha256_hex(data)
 }

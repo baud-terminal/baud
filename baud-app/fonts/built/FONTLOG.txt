@@ -10,29 +10,44 @@ The record of the design work is note AC, docs/research/notes/ac-built-font.md: 
 and 6 the open decisions.
 
 On macOS, scripts/bundle-macos.sh puts this directory's OFL.txt, FONTLOG.txt,
-AUTHORS.txt and MANIFEST, and glyphs/languages/hebrew/'s OFL.txt and SOURCE, in the app
-bundle beside the other embedded fonts' licences. Nothing packages baud for Linux yet; a
-Linux package must carry the same files.
+AUTHORS.txt and MANIFEST, glyphs/languages/hebrew/'s OFL.txt and SOURCE, and
+glyphs/languages/devanagari/SOURCE in the app bundle beside the other embedded fonts'
+licences; the nix package (flake.nix) carries the same files. Any other Linux package
+must carry them too.
 
 
 THE FILES
 
-Regular.ttf     JetBrains Mono 2.304 Regular plus Hebrew. The variant is A-L2.
-Bold.ttf        JetBrains Mono 2.304 Bold plus Hebrew. The variant is A-L2.
-Italic.ttf      JetBrains Mono 2.304 Italic plus Hebrew, leaning right. The variant is A-L2.
-BoldItalic.ttf  JetBrains Mono 2.304 Bold Italic plus Hebrew, leaning right. The variant
-                is A-L2.
+Regular.ttf     JetBrains Mono 2.304 Regular plus Hebrew and Noto Sans Devanagari. The
+                variant is A-L2.
+Bold.ttf        JetBrains Mono 2.304 Bold plus Hebrew and Noto Sans Devanagari Bold. The
+                variant is A-L2.
+Italic.ttf      JetBrains Mono 2.304 Italic plus Hebrew, leaning right, and Noto Sans
+                Devanagari, upright. The variant is A-L2.
+BoldItalic.ttf  JetBrains Mono 2.304 Bold Italic plus Hebrew, leaning right, and Noto Sans
+                Devanagari Bold, upright. The variant is A-L2.
 
-All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/ and
-baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there). The script refuses to
-write bytes other than these sha256s:
+All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/,
+baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there) and Noto Sans Devanagari
+2.007's variable font, fetched by the URL and sha256 in
+baud-app/fonts/glyphs/languages/devanagari/SOURCE. It builds them in two stages, the
+Hebrew and then the Devanagari (THE DEVANAGARI), and refuses to write bytes other than
+these sha256s:
 
-  Regular.ttf     cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1
-  Bold.ttf        2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20
-  Italic.ttf      f38d9c23ad98f70647024b0239f920e9c1a500a832189404446057f2ec04310c
-  BoldItalic.ttf  67947476d3d36a5c35eb72cdc32fc6211fb4be46f7b48f3d91c913d15c5228de
+  Regular.ttf     d8e9226d5e68c02e55b3d45232e8adffa22c10123f491de4c6be3f50433d901d
+  Bold.ttf        87b66b6067bc8bb4d03b4d0cd32538cf59bccaa927d181b2cc831004093dcc0d
+  Italic.ttf      0ae4e4c355152b4302aa006e52ae7cf3a23619317e8e1608eec9aac03e203a6e
+  BoldItalic.ttf  20a50bbf6c4147e3eed6cee22ff9ba2df39993238654e06ef3afb840994a441c
 
-Regular and Bold are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
+and, for the Hebrew stage the merge starts from, these, the four files as they were
+before the Devanagari went in:
+
+  Regular         cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1
+  Bold            2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20
+  Italic          f38d9c23ad98f70647024b0239f920e9c1a500a832189404446057f2ec04310c
+  BoldItalic      67947476d3d36a5c35eb72cdc32fc6211fb4be46f7b48f3d91c913d15c5228de
+
+The Hebrew stage's Regular and Bold are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
 conformance fixes in the CHANGELOG and, since 2026-10-24, one redrawn letter, dalet,
 since 2026-10-25 Bold's zayin with square head ends (CHANGELOG), since 2026-10-25
 the glyphs baud draws itself (BAUD'S OWN GLYPHS), since 2026-10-26 meteg kept in
@@ -53,7 +68,8 @@ so the correction is the only thing the italics add to the shear.
 
 
 WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
-(each file against the stock file of its own style, measured with fontTools 4.63.0)
+(each file's Hebrew stage against the stock file of its own style, measured with
+fontTools 4.63.0; THE DEVANAGARI says what the merge adds to it and changes in it)
 
 - 135 code points added, 88 of them in U+0591-U+05F4 -- every character the
   Unicode Character Database 17.0 assigns in the Hebrew block:
@@ -105,6 +121,89 @@ WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
   table; since 2026-10-20 it reads the family to answer a program that asks which
   font is in use (xterm's OSC 50), and the answer is this family. The family name
   is an open call; see below.
+
+
+THE DEVANAGARI
+
+The Devanagari is Noto Sans Devanagari 2.007 (Copyright 2022 The Noto Project
+Authors; OFL 1.1 with no Reserved Font Name), taken from its variable font, wght
+100-900 and wdth 62.5-100, which glyphs/languages/devanagari/SOURCE pins. Regular and
+Italic take it instanced at wght 400, Bold and Bold Italic at wght 700, its width
+axis kept (fontTools' instancer, hebrew/build/instance.py). These are third-party
+glyphs for the interim; baud's own Devanagari, designed for the grid, is to replace
+them. glyphs/languages/devanagari/build/merge.py merges each instance into its
+style's Hebrew stage (measured with fontTools 4.63.0, against that stage):
+
+- 783 glyphs appended after every existing glyph, so no glyph ID moves: every Noto
+  glyph a code point the face did not map reaches, every glyph a Noto lookup names,
+  and their components, in Noto's order, at Noto's units (both fonts are 1000 to the
+  em, and no scale is applied), with Noto's advances. The glyph count goes from 1878
+  to 2661 (the italics from 1865 to 2648).
+- 225 code points mapped, in every cmap subtable that can hold them: the Devanagari
+  block U+0900-U+097F, Vedic Extensions U+1CD0-U+1CF9 but U+1CF7, Common Indic Number
+  Forms U+A830-U+A839, Devanagari Extended U+A8E0-U+A8FF, U+11B00-U+11B09 of
+  Devanagari Extended-A, ZWNJ, ZWJ, U+20B9 INDIAN RUPEE SIGN and U+20F0 COMBINING
+  ASTERISK ABOVE. Noto's glyphs for code points the face already maps (the ASCII
+  punctuation and digits, the space, the dotted circle) are not mapped: the face
+  keeps its own.
+- GSUB gains Noto's dev2 and deva scripts, with their language systems (MAR, NEP,
+  SAN, SAT), Noto's 171 lookups and its features for them, and one single
+  substitution more under nukt: the face's dotted circle to Noto's. The shapers put
+  U+25CC before a mark with no base after locl and ccmp, from the face's cmap, which
+  gives JetBrains Mono's circle; Noto's mark positioning is made for its own, so in
+  a Devanagari run the circle is Noto's and the mark sits where Noto put it. U+25CC
+  outside a Devanagari run is JetBrains Mono's. GSUB goes from 460 lookups to 632
+  (the italics from 454 to 626). GPOS gains the same scripts and Noto's 28 lookups,
+  from 35 to 63; Noto's one lookup that names its space, a chained context of dist,
+  names the face's space instead.
+- GDEF classes the new glyphs as Noto does, appends Noto's six mark filtering sets
+  after the face's seven (the lookups that use them are renumbered to match), and
+  carries Noto's variation store for GPOS's anchor deltas, which makes it version
+  1.3.
+- The width axis: fvar with the one axis wdth, 62.5 to 100, default 100, flagged
+  HIDDEN_AXIS ("The axis should not be exposed directly in user interfaces"; it is
+  there for a program narrowing a Devanagari word to fit it, as the registered
+  axis's text suggests: "Applications may choose to select a width variant in a
+  variable font automatically in order to fit a span of text into a target width"),
+  and one named instance, the default, under the face's own subfamily; Noto's avar;
+  gvar and HVAR with Noto's outline and advance variations for the Devanagari and
+  none for any other glyph; and the STAT table OpenType requires of a variable font,
+  with the family's weight, width and slope. At every width JetBrains Mono's and the
+  Hebrew's glyphs keep their outlines and advances.
+- The values the new glyphs change: OS/2 sets the Devanagari range bit
+  (ulUnicodeRange1 bit 15), its xAvgCharWidth is the average of every non-zero
+  advance (600 -> 581 in Regular and Italic, 593 in Bold, 592 in Bold Italic) and its
+  usMaxContext is computed again (6); post's isFixedPitch is 0, as the Devanagari is
+  proportionally spaced (PANOSE, which classifies the Latin design, keeps
+  Monospaced); head's bounding box and hhea's advanceWidthMax and extents are what
+  the glyphs make them (yMin -530 in Regular, -547 in Bold; advanceWidthMax 1323 and
+  1447). The line metrics, the em and every existing advance are the Hebrew stage's.
+- nameID 0 gains Noto's copyright line and nameID 7 its trademark notice, "Noto is a
+  trademark of Google Inc.", after the other two (OFL-FAQ 1.1-update7, Q3.7). New
+  name records name the axis, STAT's values and Noto's stylistic set.
+
+What stays the Hebrew stage's, measured on the files before the merge writes (it
+refuses otherwise): every existing glyph's bytes as stored, its advance and side
+bearing, every cmap entry, every lookup compiled alone, the features every existing
+language system names, every glyph's GDEF class, the seven mark filtering sets, and
+every name record but 0 and 7. GSUB is written around the Hebrew stage's own bytes:
+the block of its lookups and every subtable they name is copied whole, so stock
+JetBrains Mono's lookups are its bytes, under a ScriptList, FeatureList and
+LookupList written again with the features sorted by tag, as OpenType's common table
+formats ask. Ten LangSys tables and four FeatureParams of the old lists lie inside
+that block, and stay there, named by nothing: 772 bytes in each style. GPOS is laid
+out again by fontTools, as the Hebrew build lays it out.
+
+What it shapes as, with hb-shape 14.5.1 on the 399 lines of
+baud-font/tests/shape/devanagari.txt: Regular as the pinned static Noto Sans
+Devanagari Regular, glyph for glyph under one renaming of glyph IDs, with the same
+clusters, offsets and advances but the space's (the face's own, 600); Regular as
+the variable font at wdth 62.5 and 81.25 too, and Italic at 62.5. Bold differs from
+Noto's own static Bold in 7 of the 399 lines, in two glyphs' positions or advances
+by one unit, and 7 of the 783 glyphs' boxes and 2 advances differ from that file's
+by one unit: the rounding of an instance at wght 700. At wdth 62.5 Bold is within 2
+units of the variable font read at wght 700 and wdth 62.5 (328 of the 399 lines
+differ, in 69 glyphs), for the same reason. OTS 9.3.0 passes all four.
 
 
 THE ITALICS
@@ -238,6 +337,14 @@ Nothing from Cascadia's Latin is used.
 INTERIM PICKS
 (settled where a text or a measurement decides it; interim otherwise)
 
+- Devanagari: Noto Sans Devanagari's own glyphs, interim, until baud's own grid
+  design replaces them. At Noto's scale (no scale applied): Noto's headline sits
+  2.4% lower against JetBrains Mono's x-height than against its own Latin's (0.2 px
+  at 14 px), and any other scale would round every point, advance and anchor. Its
+  width axis carried as a variable axis, hidden from user interfaces. In the
+  italics, upright: Noto draws no italic and nothing is synthesised; a slanted
+  Devanagari is an open choice. In a Devanagari run, Noto's dotted circle under a
+  mark with no base (THE DEVANAGARI).
 - Dalet: H45, interim: the roof passes the leg by 45 units, the roof keeps its
   418 (Bold 438) width, also weighed with dalet's nearness to vav. No other
   sister pair is redrawn (NONE). Note AC 4d.
@@ -563,3 +670,13 @@ CHANGELOG
   (U+FB36), their base records in GPOS and head's checksum change; the hebrew-faces
   and meteg shape fixtures change on 77 of their 112 lines with zayin, and every other
   built-face line only in its file digest. OTS passes.
+2026-11-02 (i-am-logger, baud): Noto Sans Devanagari 2.007 merged into all four
+  files (THE DEVANAGARI), so Hindi and the other languages written in Devanagari draw
+  from the embedded font, the same glyphs on macOS and on Linux, with no font
+  installed, Bold from Noto's weight 700. The Devanagari carries Noto's width axis
+  for a program to narrow a word on. Every glyph, cmap entry, lookup and language
+  system the files had is unchanged (THE DEVANAGARI); the built-face lines of the
+  shape fixtures change only in their file digest (4,180 lines in nine files), and
+  the 399 lines devanagari.txt shaped on the built Regular as a control with no
+  Devanagari are shaped on stock JetBrains Mono now, beside 399 each on the built
+  Regular and Bold. OTS passes.

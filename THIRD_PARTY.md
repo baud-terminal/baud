@@ -24,8 +24,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 319 | 48 | redistributable, and its notice is satisfied |
-| own | 269 | 7 | the work of baud's author |
-| total | 605 | 60 | |
+| own | 269 | 8 | the work of baud's author |
+| total | 605 | 61 | |
 
 ## Licence texts in LICENSES/
 
@@ -95,12 +95,12 @@ they were built from.
 
 ## In the tree outside docs/research/sources/
 
-### baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as open
+### baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as open
 
 - **Status:** open -- an open question, recorded where the file is
 - **Licence:** OFL-1.1
 - **Notice:** [baud-app/fonts/built/OFL.txt](baud-app/fonts/built/OFL.txt)
-- **From:** https://github.com/JetBrains/JetBrainsMono and https://github.com/microsoft/cascadia-code
+- **From:** https://github.com/JetBrains/JetBrainsMono, https://github.com/microsoft/cascadia-code and https://github.com/notofonts/devanagari
 - **Files:** [baud-app/fonts/built/Regular.ttf](baud-app/fonts/built/Regular.ttf), [baud-app/fonts/built/Bold.ttf](baud-app/fonts/built/Bold.ttf), [baud-app/fonts/built/Italic.ttf](baud-app/fonts/built/Italic.ttf), [baud-app/fonts/built/BoldItalic.ttf](baud-app/fonts/built/BoldItalic.ttf), [baud-app/fonts/built/FONTLOG.txt](baud-app/fonts/built/FONTLOG.txt), [baud-app/fonts/built/AUTHORS.txt](baud-app/fonts/built/AUTHORS.txt)
 
 ### Cascadia Mono from Cascadia Code v2407.24, and the dagesh anchors read out of it; the same open call as the built font
@@ -518,6 +518,14 @@ they were built from.
 - **Notice:** [LICENSES/bash-preexec-MIT.txt](LICENSES/bash-preexec-MIT.txt)
 - **From:** https://github.com/rcaloras/bash-preexec/tree/0.6.0 and https://github.com/rcaloras/bash-preexec/tree/0.7.0
 - **Files:** [baud-app/fixtures/bash-preexec/bash-preexec-0.6.0](baud-app/fixtures/bash-preexec/bash-preexec-0.6.0), [baud-app/fixtures/bash-preexec/bash-preexec-0.7.0](baud-app/fixtures/bash-preexec/bash-preexec-0.7.0)
+
+### The Devanagari merge module and the record of the Noto Sans Devanagari file it merges from: baud's own code and text under the repository's licence, as the Hebrew build modules are; the font itself is fetched by its pinned URL and sha256 at font-build time and is not in the tree, and its copyright line is in the built font's OFL.txt
+
+- **Status:** own -- the work of baud's author
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** baud's own build
+- **Files:** [baud-app/fonts/glyphs/languages/devanagari/build/merge.py](baud-app/fonts/glyphs/languages/devanagari/build/merge.py), [baud-app/fonts/glyphs/languages/devanagari/SOURCE](baud-app/fonts/glyphs/languages/devanagari/SOURCE)
 
 ### The Hebrew build modules: baud's own code under the repository's licence, decided 2026-10-28; they are tools that write the font, not Font Software (FONTLOG.txt)
 

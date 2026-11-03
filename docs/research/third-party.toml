@@ -1761,11 +1761,11 @@ public   = "Symbols Nerd Font Mono 3.5.1, an icon font embedded in the app, unmo
 holder   = "Ryan L McIntyre (Nerd Fonts), and each icon set's authors"
 
 [[tree]]
-what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as open"
+what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as open"
 paths    = ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf", "baud-app/fonts/built/Italic.ttf", "baud-app/fonts/built/BoldItalic.ttf", "baud-app/fonts/built/FONTLOG.txt", "baud-app/fonts/built/AUTHORS.txt"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/built/OFL.txt"
-upstream = "https://github.com/JetBrains/JetBrainsMono and https://github.com/microsoft/cascadia-code"
+upstream = "https://github.com/JetBrains/JetBrainsMono, https://github.com/microsoft/cascadia-code and https://github.com/notofonts/devanagari"
 status   = "open"
 
 [[tree]]
@@ -1775,6 +1775,14 @@ licence  = "OFL-1.1"
 notice   = "baud-app/fonts/glyphs/languages/hebrew/OFL.txt"
 upstream = "https://github.com/microsoft/cascadia-code/releases/tag/v2407.24"
 status   = "open"
+
+[[tree]]
+what     = "The Devanagari merge module and the record of the Noto Sans Devanagari file it merges from: baud's own code and text under the repository's licence, as the Hebrew build modules are; the font itself is fetched by its pinned URL and sha256 at font-build time and is not in the tree, and its copyright line is in the built font's OFL.txt"
+paths    = ["baud-app/fonts/glyphs/languages/devanagari/build/merge.py", "baud-app/fonts/glyphs/languages/devanagari/SOURCE"]
+licence  = "CC-BY-NC-SA-4.0"
+notice   = "LICENSE"
+upstream = "baud's own build"
+status   = "own"
 
 [[tree]]
 what     = "The Hebrew build modules: baud's own code under the repository's licence, decided 2026-10-28; they are tools that write the font, not Font Software (FONTLOG.txt)"

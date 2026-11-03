@@ -634,17 +634,17 @@ shipped = ["B1-13"]
 id = "devanagari-shaped"
 area = "text"
 name = "Hindi and Devanagari shaped"
-does = "Hindi and the other languages written in Devanagari draw as the script is written: the vowel sign ि before the consonant it follows in the text, conjuncts such as क्ष, त्र and ज्ञ as one shape, half forms, reph over the consonant after it, and the nukta letters, glyph for glyph as HarfBuzz shapes them, in Noto Sans Devanagari and in the Mac's Kohinoor Devanagari, ITF Devanagari, Shree Devanagari 714 and Arial Unicode MS."
+does = "Hindi and the other languages written in Devanagari draw from the built-in font, with nothing to install and the same glyphs on macOS and Linux, bold text in bold, as the script is written: the vowel sign ि before the consonant it follows in the text, conjuncts such as क्ष, त्र and ज्ञ as one shape, half forms, reph over the consonant after it, and the nukta letters, glyph for glyph as HarfBuzz shapes them, in the built-in font, which carries Noto Sans Devanagari, and in the Mac's Kohinoor Devanagari, ITF Devanagari, Shree Devanagari 714 and Arial Unicode MS."
 status = "partial"
-gap = "a syllable takes one cell and is drawn at its font's size, so one wider than its cell, such as ग्रि, overlaps the cell after it; Devanagari MT and Devanagari Sangam MN, which HarfBuzz shapes through their morx tables, do not draw glyph for glyph as it does; a language's own forms, such as Marathi's or Nepali's, are not chosen; the comparison with HarfBuzz runs on macOS, where those faces are; Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada and Malayalam stay together in their cells but are not shaped yet."
+gap = "a syllable takes one cell and is drawn at its font's size, so one wider than its cell, such as ग्रि, overlaps the cell after it; Devanagari MT and Devanagari Sangam MN, which HarfBuzz shapes through their morx tables, do not draw glyph for glyph as it does; a language's own forms, such as Marathi's or Nepali's, are not chosen; italic text draws Devanagari upright; the comparison with HarfBuzz runs on every system for the built-in font and on macOS for the Mac's faces; Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada and Malayalam stay together in their cells but are not shaped yet."
 platform = "both"
-tests = ["baud-font/tests/devanagari.rs::every_devanagari_fixture_shapes_as_harfbuzz_does"]
+tests = ["baud-font/tests/devanagari.rs::every_devanagari_fixture_shapes_as_harfbuzz_does", "baud-font/tests/devanagari.rs::the_built_regular_shapes_devanagari_as_noto_does", "baud-app/src/embedded.rs::every_style_maps_the_devanagari_it_ships", "baud-app/src/config.rs::the_default_stack_draws_devanagari_from_the_embedded_regular", "baud-render/tests/devanagari_runs.rs::the_readme_line_draws_the_same_pixels_on_every_system"]
 
 [[feature]]
 id = "system-fallback"
 area = "text"
 name = "Every script, from your Mac's fonts"
-does = "Chinese, Japanese, Korean, Devanagari, colour emoji and extra symbols draw out of the box from the Mac's own fonts, and Menlo fills in some 1,600 characters JetBrains Mono lacks."
+does = "Chinese, Japanese, Korean, colour emoji and extra symbols draw out of the box from the Mac's own fonts, and Menlo fills in some 1,600 characters JetBrains Mono lacks."
 status = "built"
 platform = "macos"
 tests = ["baud-app/src/config.rs::the_default_stack_carries_han_kana_hangul_devanagari_and_emoji"]

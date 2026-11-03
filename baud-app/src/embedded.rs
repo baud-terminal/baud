@@ -1,9 +1,11 @@
 //! The fonts baud carries inside its binary: baud's embedded font in four
-//! styles -- JetBrains Mono, with baud's own Hebrew in every style --
-//! Symbols Nerd Font Mono -- the Nerd Fonts icons alone, sized to one cell
-//! -- behind them, and STIX Two Math last, for the symbols no other default
-//! face has. So a machine with no font configured still draws JetBrains
-//! Mono, its ligatures, real bold and italic, Hebrew, and the icons. The
+//! styles -- JetBrains Mono, with baud's own Hebrew and Noto Sans
+//! Devanagari in every style -- Symbols Nerd Font Mono -- the Nerd Fonts
+//! icons alone, sized to one cell -- behind them, and STIX Two Math last,
+//! for the symbols no other default face has. So a machine with no font
+//! configured still draws JetBrains Mono, its ligatures, real bold and
+//! italic, Hebrew, Hindi and the other languages written in Devanagari, the
+//! same glyphs on macOS and on Linux, and the icons. The
 //! plain styles plus the icon face, rather than four patched Nerd Font
 //! files, which carry the same ~10,600 icons again in every style.
 //!
@@ -11,19 +13,24 @@
 //! JetBrains Mono v2.304's Regular and Bold with the Hebrew added -- the
 //! letters drawn from Cascadia Mono's Hebrew, the points redrawn on JetBrains
 //! Mono's dot, and the rest of the block and the new sheqel sign baud's own
-//! -- and every stock glyph, advance, mapping and GSUB byte kept
-//! (`the_built_font_keeps_jetbrains_mono`), save one script record: GSUB and
-//! GPOS each name DFLT's Script under `hebr` too, and nameID 7 carries
-//! Cascadia's trademark notice after JetBrains Mono's
-//! (`the_built_font_carries_hebr_and_both_trademark_notices`).
-//! `scripts/build-fonts.sh` builds them from `fonts/jetbrains-mono/` and
-//! `fonts/glyphs/languages/hebrew/` and refuses any bytes but these;
+//! -- and Noto Sans Devanagari 2.007 merged after them, its glyphs, its
+//! `dev2` and `deva` lookups and its width axis, Bold at Noto's weight 700
+//! -- and every stock glyph, advance, mapping and GSUB lookup byte kept
+//! (`the_built_font_keeps_jetbrains_mono`): GSUB and GPOS each name DFLT's
+//! Script under `hebr` too, and nameID 7 carries Cascadia's and Noto's
+//! trademark notices after JetBrains Mono's
+//! (`the_built_font_carries_hebr_and_each_trademark_notice`).
+//! `scripts/build-fonts.sh` builds them from `fonts/jetbrains-mono/`,
+//! `fonts/glyphs/languages/hebrew/` and, by the pinned file
+//! `fonts/glyphs/languages/devanagari/SOURCE` names, Noto Sans Devanagari's
+//! variable font, and refuses any bytes but these;
 //! `fonts/built/MANIFEST` pins how, and `fonts/built/FONTLOG.txt` says what
 //! changed, what was picked for the meantime and what is still open. The
 //! Italic and Bold Italic are `fonts/built/Italic.ttf` and `BoldItalic.ttf`:
 //! JetBrains Mono v2.304's Italic and Bold Italic with the same code points
 //! added, the upright Hebrew leaning right 9 degrees with the Latin and its
-//! rounds corrected as JetBrains Mono's own italic corrects them, in the
+//! rounds corrected as JetBrains Mono's own italic corrects them, the
+//! Devanagari upright (Noto draws no italic), in the
 //! built family's name, so the four are one family that a `fonts` name finds.
 //! Nerd Fonts v3.5.1's `SymbolsNerdFontMono-Regular.ttf` and STIX Two
 //! v2.13b171's `STIXTwoMath-Regular.otf` are unmodified. Each source
@@ -38,30 +45,32 @@ pub struct Embedded {
     pub bytes: &'static [u8],
 }
 
-/// JetBrains Mono Regular with baud's Hebrew: the first face of the default
-/// stack, and the face behind a configured one.
+/// JetBrains Mono Regular with baud's Hebrew and Noto Sans Devanagari: the
+/// first face of the default stack, and the face behind a configured one.
 pub const REGULAR: Embedded = Embedded {
-    name: "Regular.ttf, JetBrains Mono with baud's Hebrew (embedded)",
+    name: "Regular.ttf, JetBrains Mono with baud's Hebrew and Devanagari (embedded)",
     bytes: include_bytes!("../fonts/built/Regular.ttf"),
 };
 
-/// JetBrains Mono Bold with baud's Hebrew: the face bold text is drawn from.
+/// JetBrains Mono Bold with baud's Hebrew and Noto Sans Devanagari Bold:
+/// the face bold text is drawn from.
 pub const BOLD: Embedded = Embedded {
-    name: "Bold.ttf, JetBrains Mono Bold with baud's Hebrew (embedded)",
+    name: "Bold.ttf, JetBrains Mono Bold with baud's Hebrew and Devanagari (embedded)",
     bytes: include_bytes!("../fonts/built/Bold.ttf"),
 };
 
-/// JetBrains Mono Italic with baud's Hebrew, leaning right with the Latin:
-/// the face italic text is drawn from.
+/// JetBrains Mono Italic with baud's Hebrew, leaning right with the Latin,
+/// and Noto Sans Devanagari: the face italic text is drawn from.
 pub const ITALIC: Embedded = Embedded {
-    name: "Italic.ttf, JetBrains Mono Italic with baud's Hebrew (embedded)",
+    name: "Italic.ttf, JetBrains Mono Italic with baud's Hebrew and Devanagari (embedded)",
     bytes: include_bytes!("../fonts/built/Italic.ttf"),
 };
 
 /// JetBrains Mono Bold Italic with baud's Hebrew, leaning right with the
-/// Latin: the face bold italic text is drawn from.
+/// Latin, and Noto Sans Devanagari Bold: the face bold italic text is drawn
+/// from.
 pub const BOLD_ITALIC: Embedded = Embedded {
-    name: "BoldItalic.ttf, JetBrains Mono Bold Italic with baud's Hebrew (embedded)",
+    name: "BoldItalic.ttf, JetBrains Mono Bold Italic with baud's Hebrew and Devanagari (embedded)",
     bytes: include_bytes!("../fonts/built/BoldItalic.ttf"),
 };
 
@@ -115,10 +124,10 @@ mod tests {
                 .expect("a head table")
         };
         for (e, len, hash, style) in [
-            (REGULAR, 303_608, 0x22a1_3bae_4263_9cfc_u64, 0),
-            (BOLD, 308_912, 0x4beb_2117_6e26_cc15, 1),
-            (ITALIC, 307_400, 0xaab3_f65a_4b51_8fce, 2),
-            (BOLD_ITALIC, 311_876, 0x8f4b_bde8_d1d7_8a28, 3),
+            (REGULAR, 584_584, 0xd9cd_cd83_5d56_3cea_u64, 0),
+            (BOLD, 591_656, 0x6ff4_1637_a737_97b5, 1),
+            (ITALIC, 588_292, 0x5765_2368_3172_7ff0, 2),
+            (BOLD_ITALIC, 594_540, 0x32f3_fa46_0cbd_d94a, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -148,14 +157,14 @@ mod tests {
         assert!(ofl.contains("SIL OPEN FONT LICENSE Version 1.1"));
         // The built font: what MANIFEST says the build wrote, the Hebrew's
         // source and its licence, and the licence the built files carry --
-        // both projects' copyright lines and Cascadia's Reserved Font Name,
-        // which binds the built font as a modified version.
+        // the three projects' copyright lines and Cascadia's Reserved Font
+        // Name, which binds the built font as a modified version.
         let manifest = std::fs::read_to_string(format!("{dir}/built/MANIFEST")).unwrap();
         for out in [
-            "output cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1 baud-app/fonts/built/Regular.ttf",
-            "output 2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20 baud-app/fonts/built/Bold.ttf",
-            "output f38d9c23ad98f70647024b0239f920e9c1a500a832189404446057f2ec04310c baud-app/fonts/built/Italic.ttf",
-            "output 67947476d3d36a5c35eb72cdc32fc6211fb4be46f7b48f3d91c913d15c5228de baud-app/fonts/built/BoldItalic.ttf",
+            "output d8e9226d5e68c02e55b3d45232e8adffa22c10123f491de4c6be3f50433d901d baud-app/fonts/built/Regular.ttf",
+            "output 87b66b6067bc8bb4d03b4d0cd32538cf59bccaa927d181b2cc831004093dcc0d baud-app/fonts/built/Bold.ttf",
+            "output 0ae4e4c355152b4302aa006e52ae7cf3a23619317e8e1608eec9aac03e203a6e baud-app/fonts/built/Italic.ttf",
+            "output 20a50bbf6c4147e3eed6cee22ff9ba2df39993238654e06ef3afb840994a441c baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
@@ -170,6 +179,7 @@ mod tests {
         for line in [
             "Copyright 2020 The JetBrains Mono Project Authors",
             "Copyright (c) 2019 - Present, Microsoft Corporation, with Reserved Font Name Cascadia Code.",
+            "Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari)",
             "SIL OPEN FONT LICENSE Version 1.1",
         ] {
             assert!(built.contains(line), "built/OFL.txt: {line}");
@@ -178,6 +188,18 @@ mod tests {
         assert!(log.contains("WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304"));
         let authors = std::fs::read_to_string(format!("{dir}/built/AUTHORS.txt")).unwrap();
         assert!(authors.contains("Liron Lavi Turkenich"));
+        assert!(authors.contains("The Noto Project Authors"));
+        // The Devanagari's source: the variable font the build fetches,
+        // by its sha256 and length, and its licence's.
+        let deva =
+            std::fs::read_to_string(format!("{dir}/glyphs/languages/devanagari/SOURCE")).unwrap();
+        for pin in [
+            "9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7",
+            "564240",
+            "a216f6f8d85c7228093e0ee5e258d9d377e6671f68acb4db1930b29583d0f331",
+        ] {
+            assert!(deva.contains(pin), "devanagari/SOURCE: {pin}");
+        }
         let mit = std::fs::read_to_string(format!("{dir}/symbols-nerd-font/LICENSE")).unwrap();
         assert!(mit.contains("The MIT License"));
         let readme = std::fs::read_to_string(format!("{dir}/symbols-nerd-font/README.md")).unwrap();
@@ -229,6 +251,7 @@ mod tests {
             "built/MANIFEST",
             "glyphs/languages/hebrew/OFL.txt",
             "glyphs/languages/hebrew/SOURCE",
+            "glyphs/languages/devanagari/SOURCE",
         ] {
             assert!(script.contains(f), "bundle-macos.sh copies {f}");
         }
@@ -255,6 +278,28 @@ mod tests {
             .map(|v| Codepoint::new(v).unwrap())
             .collect()
     }
+
+    /// What the Devanagari merge adds to JetBrains Mono and the Hebrew, 225
+    /// code points: every code point Noto Sans Devanagari 2.007 maps that
+    /// they do not -- the Devanagari block, Vedic Extensions but U+1CF7,
+    /// Common Indic Number Forms, Devanagari Extended and U+11B00-11B09 of
+    /// Devanagari Extended-A, and ZWNJ, ZWJ, U+20B9 INDIAN RUPEE SIGN and
+    /// U+20F0 COMBINING ASTERISK ABOVE. Read from the four built styles with
+    /// fontTools 4.63.0, against the faces the Hebrew build writes.
+    fn devanagari() -> Vec<Codepoint> {
+        (0x0900..=0x097F)
+            .chain((0x1CD0..=0x1CF9).filter(|&c| c != 0x1CF7))
+            .chain([0x200C, 0x200D, 0x20B9, 0x20F0])
+            .chain(0xA830..=0xA839)
+            .chain(0xA8E0..=0xA8FF)
+            .chain(0x11B00..=0x11B09)
+            .map(|v| Codepoint::new(v).unwrap())
+            .collect()
+    }
+
+    /// The glyphs the Devanagari merge appends to each style: Noto's glyphs
+    /// its added code points and its lookups reach.
+    const DEVANAGARI_GLYPHS: u32 = 783;
 
     /// A stock JetBrains Mono file, the base the built styles are made from.
     fn stock(file: &str) -> Vec<u8> {
@@ -312,6 +357,66 @@ mod tests {
                 "the control: stock {base} maps Hebrew"
             );
         }
+    }
+
+    /// **Every style maps the Devanagari it ships, in its own weight**: each
+    /// of the four maps all of `devanagari()` and the stock file it was
+    /// built from maps none of it (the control); Bold's and Bold Italic's
+    /// Devanagari is Noto's weight 700 -- every letter of the block another
+    /// outline from the Regular's, and अ wider -- and the italics' is their
+    /// upright's, outline for outline and advance for advance: Noto draws
+    /// no italic, and nothing is synthesised. So bold Hindi is drawn bold
+    /// and italic Hindi upright, from the embedded faces on every system.
+    #[test]
+    fn every_style_maps_the_devanagari_it_ships() {
+        let path = |f: &Face<'_>, c: Codepoint| {
+            let g = f.glyph(c).expect("mapped");
+            let mut p = Path(Vec::new());
+            f.outline(g, &mut p);
+            (p.0, f.advance(g))
+        };
+        for (e, base) in [
+            (REGULAR, "JetBrainsMono-Regular.ttf"),
+            (BOLD, "JetBrainsMono-Bold.ttf"),
+            (ITALIC, "JetBrainsMono-Italic.ttf"),
+            (BOLD_ITALIC, "JetBrainsMono-BoldItalic.ttf"),
+        ] {
+            let f = face(e);
+            let data = stock(base);
+            let stock = Face::parse(&data).unwrap();
+            for c in devanagari() {
+                assert!(f.glyph(c).is_some(), "{}: U+{:04X}", e.name, c.value());
+                assert!(
+                    stock.glyph(c).is_none(),
+                    "the control: stock {base} maps U+{:04X}",
+                    c.value()
+                );
+            }
+        }
+        let letters: Vec<Codepoint> = (0x0915..=0x0939).filter_map(Codepoint::new).collect();
+        let (r, b, i, bi) = (face(REGULAR), face(BOLD), face(ITALIC), face(BOLD_ITALIC));
+        for &c in &letters {
+            assert_ne!(
+                path(&r, c).0,
+                path(&b, c).0,
+                "U+{:04X}: Bold's is bold",
+                c.value()
+            );
+            assert_eq!(
+                path(&r, c),
+                path(&i, c),
+                "U+{:04X}: Italic's is upright",
+                c.value()
+            );
+            assert_eq!(
+                path(&b, c),
+                path(&bi, c),
+                "U+{:04X}: Bold Italic's",
+                c.value()
+            );
+        }
+        let a = Codepoint::new(0x0905).unwrap();
+        assert!(path(&b, a).1 > path(&r, a).1, "अ is wider in Bold");
     }
 
     /// How far a glyph's outline leans: the least-squares slope of x on y
@@ -532,48 +637,96 @@ mod tests {
             .collect()
     }
 
-    /// A GSUB or GPOS table with its `hebr` script record taken out and the
-    /// offsets that cross it moved back 6: what the build's
-    /// `with_script_copy` adds, undone (build.py), so the rest can be held
-    /// to the stock table byte for byte. A table with no `hebr` record is
-    /// returned as it is.
-    fn without_hebr(t: &[u8]) -> Vec<u8> {
+    /// Each lookup's offset in a GSUB or GPOS table, from its start.
+    fn lookup_offsets(t: &[u8]) -> Vec<usize> {
         let be16 = |at: usize| usize::from(u16::from_be_bytes([t[at], t[at + 1]]));
-        let (list, n) = (be16(4), be16(be16(4)));
-        let Some(k) = (0..n).find(|&i| &t[list + 2 + 6 * i..list + 6 + 6 * i] == b"hebr") else {
-            return t.to_vec();
+        let list = be16(8);
+        (0..be16(list))
+            .map(|i| list + be16(list + 2 + 2 * i))
+            .collect()
+    }
+
+    /// The (feature tag, lookup indices) each language system of each
+    /// script in `only` names, by script and language-system tag, sorted.
+    #[allow(clippy::type_complexity)]
+    fn systems(t: &[u8], only: &[&[u8; 4]]) -> Vec<([u8; 4], [u8; 4], Vec<([u8; 4], Vec<u16>)>)> {
+        let be16 = |at: usize| u16::from_be_bytes([t[at], t[at + 1]]);
+        let at16 = |at: usize| usize::from(be16(at));
+        let (sl, fl) = (at16(4), at16(6));
+        let named = |ls: usize| {
+            let mut v: Vec<([u8; 4], Vec<u16>)> = (0..at16(ls + 4))
+                .map(|k| {
+                    let rec = fl + 2 + 6 * usize::from(be16(ls + 6 + 2 * k));
+                    let feature = fl + at16(rec + 4);
+                    let lookups = (0..at16(feature + 2))
+                        .map(|j| be16(feature + 4 + 2 * j))
+                        .collect();
+                    (t[rec..rec + 4].try_into().unwrap(), lookups)
+                })
+                .collect();
+            v.sort();
+            v
         };
-        // Version 1.0: the ScriptList follows the ten-byte header.
-        assert_eq!((be16(0), be16(2), list), (1, 0, 10), "header");
-        let mut out = t[..6].to_vec();
-        let put = |out: &mut Vec<u8>, v: usize| {
-            out.extend_from_slice(&u16::try_from(v).unwrap().to_be_bytes());
-        };
-        put(&mut out, be16(6) - 6);
-        put(&mut out, be16(8) - 6);
-        put(&mut out, n - 1);
-        for rec in (0..n).filter(|&i| i != k).map(|i| list + 2 + 6 * i) {
-            out.extend_from_slice(&t[rec..rec + 4]);
-            put(&mut out, be16(rec + 4) - 6);
+        let mut out = Vec::new();
+        for i in 0..at16(sl) {
+            let rec = sl + 2 + 6 * i;
+            let tag: [u8; 4] = t[rec..rec + 4].try_into().unwrap();
+            if !only.contains(&&tag) {
+                continue;
+            }
+            let script = sl + at16(rec + 4);
+            if at16(script) != 0 {
+                out.push((tag, *b"dflt", named(script + at16(script))));
+            }
+            for k in 0..at16(script + 2) {
+                let lrec = script + 4 + 6 * k;
+                out.push((
+                    tag,
+                    t[lrec..lrec + 4].try_into().unwrap(),
+                    named(script + at16(lrec + 4)),
+                ));
+            }
         }
-        out.extend_from_slice(&t[list + 2 + 6 * n..]);
         out
     }
 
-    /// Which of the six properties of "JetBrains Mono, with the Hebrew
-    /// added" `built` fails against `base`, by name; empty when it keeps
-    /// them all. GSUB is held to the stock table byte for byte once its
-    /// `hebr` script record is taken out; that the record is DFLT's is
-    /// `the_built_font_carries_hebr_and_both_trademark_notices`'s.
+    /// Whether GSUB `built` keeps every lookup of GSUB `stock` byte for
+    /// byte: the block of `stock` from its first lookup to its end -- every
+    /// lookup and every subtable they name, which lie after the lookups
+    /// that name them -- is in `built` whole, every stock lookup at its
+    /// place in it and at its index; and DFLT and latn name the same
+    /// features with the same lookups. The merge writes the lists again
+    /// (its features sorted by tag) and appends Noto's lookups after the
+    /// block, so this is what "JetBrains Mono's GSUB" can still mean.
+    fn keeps_lookups(built: &[u8], stock: &[u8]) -> bool {
+        let (b, s) = (lookup_offsets(built), lookup_offsets(stock));
+        if b.len() < s.len() {
+            return false;
+        }
+        let start = *s.iter().min().unwrap();
+        let first = s.iter().position(|&o| o == start).unwrap();
+        let base = b[first];
+        let block = &stock[start..];
+        let placed = s.iter().zip(&b).all(|(&so, &bo)| bo == base + (so - start));
+        let only = [b"DFLT", b"latn"];
+        placed
+            && built.get(base..base + block.len()) == Some(block)
+            && systems(built, &only) == systems(stock, &only)
+    }
+
+    /// Which of the six properties of "JetBrains Mono, with the Hebrew and
+    /// the Devanagari added" `built` fails against `base`, by name; empty
+    /// when it keeps them all. GSUB keeps every stock lookup byte for byte
+    /// (`keeps_lookups`); that its `hebr` record is DFLT's is
+    /// `the_built_font_carries_hebr_and_each_trademark_notice`'s.
     fn lost(built: &Face<'_>, base: &Face<'_>) -> Vec<&'static str> {
         let mut lost = Vec::new();
         let gsub = baud_font::Tag::GSUB;
-        if built.table(gsub).map(|t| without_hebr(t.as_slice()))
-            != base.table(gsub).map(|t| t.as_slice().to_vec())
-        {
-            lost.push("GSUB");
+        match (built.table(gsub), base.table(gsub)) {
+            (Some(b), Some(s)) if keeps_lookups(b.as_slice(), s.as_slice()) => {}
+            _ => lost.push("GSUB"),
         }
-        let added_glyphs = u32::try_from(shipped().len()).unwrap();
+        let added_glyphs = u32::try_from(shipped().len()).unwrap() + DEVANAGARI_GLYPHS;
         if u32::from(built.glyph_count().value())
             != u32::from(base.glyph_count().value()) + added_glyphs
         {
@@ -591,7 +744,8 @@ mod tests {
         if !same {
             lost.push("cmap");
         }
-        // What the built file maps and the stock does not is `shipped()`.
+        // What the built file maps and the stock does not is `shipped()`
+        // and `devanagari()`.
         let mut added = Vec::new();
         built.candidates(|lo, hi| {
             for c in (lo.value()..=hi.value()).filter_map(Codepoint::new) {
@@ -602,7 +756,10 @@ mod tests {
         });
         added.sort_by_key(|c| c.value());
         added.dedup();
-        if added != shipped() {
+        let mut want = shipped();
+        want.extend(devanagari());
+        want.sort_by_key(|c| c.value());
+        if added != want {
             lost.push("added");
         }
         let glyphs = (0..base.glyph_count().value()).map(GlyphId::from_shaper);
@@ -624,13 +781,14 @@ mod tests {
     }
 
     /// **The built font keeps JetBrains Mono**: each built style against
-    /// the stock file of its style keeps GSUB byte for byte (once the `hebr`
-    /// script record is taken out), maps every code
-    /// point the stock file maps to the same glyph and adds exactly
-    /// `shipped()`, carries the stock glyphs plus one for each, and keeps every stock glyph's
-    /// advance and outline -- the Latin, its ligatures and the icons'
-    /// neighbours draw as they did. Each check has its control, so none of
-    /// them is a probe that cannot fire.
+    /// the stock file of its style keeps every GSUB lookup byte for byte at
+    /// its index, and what DFLT and latn name; maps every code point the
+    /// stock file maps to the same glyph and adds exactly `shipped()` and
+    /// `devanagari()`; carries the stock glyphs, one more for each Hebrew
+    /// code point and the 783 Devanagari glyphs; and keeps every stock
+    /// glyph's advance and outline -- the Latin, its ligatures and the
+    /// icons' neighbours draw as they did. Each check has its control, so
+    /// none of them is a probe that cannot fire.
     #[test]
     fn the_built_font_keeps_jetbrains_mono() {
         let (r, b, i, bi) = (
@@ -665,8 +823,10 @@ mod tests {
             ["GSUB", "glyph count", "cmap", "advance", "outline"],
             "Regular over Italic"
         );
-        // One advance changed, and one GSUB byte: each fails its own check
-        // and only it.
+        // One advance changed, and one byte of a stock lookup: each fails
+        // its own check and only it. A byte of Noto's lookups, which the
+        // merge appends after the stock block, is not JetBrains Mono's:
+        // the GSUB check does not reach it.
         let mut wider = REGULAR.bytes.to_vec();
         let (hmtx, _) = table(&wider, b"hmtx");
         // Glyph 1's advance, the second longHorMetric.
@@ -674,8 +834,17 @@ mod tests {
         assert_eq!(lost(&Face::parse(&wider).unwrap(), &r), ["advance"]);
         let mut gsub = REGULAR.bytes.to_vec();
         let (at, len) = table(&gsub, b"GSUB");
-        gsub[at + len - 1] ^= 1;
+        // Lookup 0's LookupFlag, low byte.
+        let first = lookup_offsets(&gsub[at..at + len])[0];
+        gsub[at + first + 3] ^= 1;
         assert_eq!(lost(&Face::parse(&gsub).unwrap(), &r), ["GSUB"]);
+        let mut noto = REGULAR.bytes.to_vec();
+        noto[at + len - 1] ^= 1;
+        assert_eq!(
+            lost(&Face::parse(&noto).unwrap(), &r),
+            Vec::<&str>::new(),
+            "a byte of the appended lookups"
+        );
     }
 
     /// A font's nameID 7 records: (platform, encoding, language, text).
@@ -704,16 +873,21 @@ mod tests {
     }
 
     /// Which of the four `data` fails, by name: GSUB and GPOS each carry
-    /// exactly DFLT, `hebr` and latn, in tag order, with `hebr` saying what
-    /// DFLT says; GPOS's `hebr` names the mark and mkmk features; and
-    /// nameID 7 is `notice`, in one Windows-English record.
+    /// exactly DFLT, dev2, deva, `hebr` and latn, in tag order, with `hebr`
+    /// saying what DFLT says; GPOS's `hebr` names the mark and mkmk
+    /// features; and nameID 7 is `notice`, in one Windows-English record.
     fn not_carried(data: &[u8], notice: &str) -> Vec<&'static str> {
         let mut not = Vec::new();
         for (tag, name) in [(b"GSUB", "GSUB hebr"), (b"GPOS", "GPOS hebr")] {
             let s = scripts(table_bytes(data, tag));
             let of = |want: &[u8; 4]| s.iter().find(|(t, _)| t == want).map(|(_, v)| v);
             let tags: Vec<[u8; 4]> = s.iter().map(|(t, _)| *t).collect();
-            if tags != [*b"DFLT", *b"hebr", *b"latn"] || of(b"hebr") != of(b"DFLT") {
+            let want: &[[u8; 4]] = if tags.contains(b"dev2") {
+                &[*b"DFLT", *b"dev2", *b"deva", *b"hebr", *b"latn"]
+            } else {
+                &[*b"DFLT", *b"hebr", *b"latn"]
+            };
+            if tags != want || of(b"hebr") != of(b"DFLT") {
                 not.push(name);
             }
         }
@@ -741,24 +915,26 @@ mod tests {
         not
     }
 
-    /// **The built font carries a `hebr` script record and both trademark
-    /// notices** -- the two conformance fixes of 2026-10-08. OpenType's DFLT
+    /// **The built font carries a `hebr` script record and each trademark
+    /// notice** -- the two conformance fixes of 2026-10-08. OpenType's DFLT
     /// rule is met without a `hebr` record, but Microsoft's Hebrew script
     /// spec registers `hebr`, and HarfBuzz's Hebrew shaper applies GPOS only
     /// when the script it chose is `hebr` (note AB 7.3); with DFLT alone it
     /// places the points by combining class and the anchors go unused. So
     /// GSUB and GPOS each carry `hebr` naming what DFLT names -- in GPOS,
     /// mark and mkmk. baud selects latn first, so what baud draws does not
-    /// move. And nameID 7 is JetBrains Mono's notice followed by Cascadia's,
-    /// each as its own source file carries it: "Any trademark notices must
-    /// remain in any derivative fonts" (OFL-FAQ 1.1-update7, Q3.7). The
+    /// move. And nameID 7 is JetBrains Mono's notice followed by Cascadia's
+    /// and Noto's, each as its own source file carries it: "Any trademark
+    /// notices must remain in any derivative fonts" (OFL-FAQ 1.1-update7,
+    /// Q3.7). The
     /// controls: the stock files fail all four, and a copy of the built
     /// Regular with its record renamed, or pointed at latn's Script, fails
     /// exactly what that breaks.
     #[test]
-    fn the_built_font_carries_hebr_and_both_trademark_notices() {
+    fn the_built_font_carries_hebr_and_each_trademark_notice() {
         let jbm = "JetBrains Mono is a trademark of JetBrains s.r.o.";
         let cascadia = "Cascadia Code is a trademark of the Microsoft group of companies.";
+        let noto = "Noto is a trademark of Google Inc.";
         let source = std::fs::read(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/fonts/glyphs/languages/hebrew/CascadiaMono.ttf"
@@ -769,7 +945,7 @@ mod tests {
             [(3, 1, 0x409, cascadia.to_owned())],
             "Cascadia Mono's own notice"
         );
-        let both = format!("{jbm} {cascadia}");
+        let notices = format!("{jbm} {cascadia} {noto}");
         for (e, base) in [
             (REGULAR, "JetBrainsMono-Regular.ttf"),
             (BOLD, "JetBrainsMono-Bold.ttf"),
@@ -783,13 +959,13 @@ mod tests {
                 "stock {base}'s own notice"
             );
             assert_eq!(
-                not_carried(e.bytes, &both),
+                not_carried(e.bytes, &notices),
                 Vec::<&str>::new(),
                 "{}",
                 e.name
             );
             assert_eq!(
-                not_carried(&stock, &both),
+                not_carried(&stock, &notices),
                 ["GSUB hebr", "GPOS hebr", "GPOS hebr mark", "nameID 7"],
                 "the control: stock {base}"
             );
@@ -808,7 +984,7 @@ mod tests {
         let rec = record(&renamed, gpos, b"hebr");
         renamed[rec + 3] = b'x';
         assert_eq!(
-            not_carried(&renamed, &both),
+            not_carried(&renamed, &notices),
             ["GPOS hebr", "GPOS hebr mark"],
             "GPOS's hebr renamed hebx"
         );
@@ -818,7 +994,7 @@ mod tests {
         let to = [latin[latn + 4], latin[latn + 5]];
         latin[hebr + 4..hebr + 6].copy_from_slice(&to);
         assert_eq!(
-            not_carried(&latin, &both),
+            not_carried(&latin, &notices),
             ["GSUB hebr"],
             "GSUB's hebr pointed at latn's Script"
         );
