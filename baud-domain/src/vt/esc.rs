@@ -120,6 +120,17 @@ pub enum Esc {
     LockingShift2Right,
     /// LS3R -- Locking Shift Three Right, `ESC |`: G3 into GR.
     LockingShift3Right,
+    /// HP's memory lock, `ESC l`, done as xterm does it: the top margin
+    /// moves to the cursor's line, so the lines above it stay while later
+    /// output scrolls beneath them. `[[source: ctlseqs]]`: "Memory Lock
+    /// (per HP terminals). Locks memory above the cursor"; xterm's
+    /// `CASE_HP_MEM_LOCK` calls `set_tb_margins(screen, screen->cur_row,
+    /// screen->bot_marg)` (`[[source: xterm-reset]]` 4759-4770).
+    MemoryLock,
+    /// HP's memory unlock, `ESC m`: the top margin back to the first line,
+    /// the bottom margin kept, xterm's `set_tb_margins(screen, 0,
+    /// screen->bot_marg)`.
+    MemoryUnlock,
     /// Recognised as an `ESC Fe` and deliberately not acted on.
     Unsupported,
 }
@@ -152,6 +163,8 @@ impl Esc {
             b'~' => Esc::LockingShift1Right,
             b'}' => Esc::LockingShift2Right,
             b'|' => Esc::LockingShift3Right,
+            b'l' => Esc::MemoryLock,
+            b'm' => Esc::MemoryUnlock,
             _ => Esc::Unsupported,
         }
     }

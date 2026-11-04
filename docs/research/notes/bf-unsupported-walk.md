@@ -50,7 +50,7 @@ What remains is in sections 2 to 4.
 
 | family | the governing text | class | since AV |
 |---|---|---|---|
-| `ESC l` / `ESC m`, memory lock and unlock | `[[source: ctlseqs]]` 414-417: "Memory Lock (per HP terminals). Locks memory above the cursor." and "Memory Unlock (per HP terminals)"; xterm acts on both unconditionally (`[[source: xterm-vtprstbl-c]]` `esc_table` 6133-6134; `[[source: xterm-reset]]` 4759-4770: the top margin to the cursor's line, or to the first, the bottom kept, the cursor left where it is). `[[source: ecma48]]` assigns 06/12 and 06/13 nothing, and Table 5 (5.5) leaves them "reserved for future standardization and shall not be used"; no HP manual is pinned. The `xterm-256color` entry baud's `TERM` names carries `meml=\El` and `memu=\Em` (`[[source: terminfo-xterm-256color]]`) | (c) | **missed by AV**, which read `e`-`m` as unassigned. Counted (section 6); a row since this note (section 5). They are not gated by an xterm resource: xterm's `esc_table` maps them at `[[source: xterm-vtprstbl-c]]` 6133-6134 with no `#if`, and the handler at `[[source: xterm-reset]]` 4759-4770 tests no resource. Only `ESC F` has a gate, `hpLowerleftBugCompat`. The choice is still open, and baud keeps KEEP_COUNTED meanwhile |
+| `ESC l` / `ESC m`, memory lock and unlock | `[[source: ctlseqs]]` 414-417: "Memory Lock (per HP terminals). Locks memory above the cursor." and "Memory Unlock (per HP terminals)"; xterm acts on both unconditionally (`[[source: xterm-vtprstbl-c]]` `esc_table` 6133-6134; `[[source: xterm-reset]]` 4759-4770: the top margin to the cursor's line, or to the first, the bottom kept, the cursor left where it is). `[[source: ecma48]]` assigns 06/12 and 06/13 nothing, and Table 5 (5.5) leaves them "reserved for future standardization and shall not be used"; no HP manual is pinned. The `xterm-256color` entry baud's `TERM` names carries `meml=\El` and `memu=\Em` (`[[source: terminfo-xterm-256color]]`) | (c) | **missed by AV**, which read `e`-`m` as unassigned. Counted (section 6); a row since this note (section 5). They are not gated by an xterm resource: xterm's `esc_table` maps them at `[[source: xterm-vtprstbl-c]]` 6133-6134 with no `#if`, and the handler at `[[source: xterm-reset]]` 4759-4770 tests no resource. Only `ESC F` has a gate, `hpLowerleftBugCompat`. The choice is still open, and baud keeps KEEP_COUNTED meanwhile. **Built 2026-11-03** as xterm's top margin, the meaning the `xterm-256color` entry's `meml` and `memu` carry; the row is done (`baud-core/tests/memory_lock.rs`), and the HP 2392A's manual is pinned now, `[[source: hp-2392a-rm]]` |
 | `` ESC ` `` DMI / `ESC b` EMI | `[[source: ecma48]]` 8.3.34, "DMI causes the manual input facilities of a device to be disabled", and 8.3.43, "EMI is used to enable the manual input facilities of a device"; both Fs, `ESC 06/00` and `ESC 06/02`, with no C1 form, both allocated in Table 5. KAM, 7.2.11: "DISABLED: All or part of the manual input facilities are disabled. NOTE No control functions are affected" | (a) | One lock shared with KAM leads, and is not built: the reading is not settled. Built on KAM's shared lock, DMI and EMI would leave nothing counted; unbuilt, both stay counted. Next work |
 | `ESC T` CCH | 8.3.8: "both the preceding graphic character in the data stream ... including SPACE, and the control function CCH itself are to be ignored"; after a control, "not defined by this Standard" | (a), not small | AV: open. Undoing the last graphic character means keeping it and the cell it overwrote on the per-byte path, a change to what is written per byte that rules 1 and 2 need measured. Next work |
 | `ESC K` PLD / `ESC L` PLU | 8.3.92 and 8.3.93: a partial line down or up, sub- and superscript | (a), not small | needs a half-line position in the cell and the renderer. Next work |
@@ -143,9 +143,10 @@ Nothing a user sees changes; no file under `baud-core/src` changed.
    `every_done_sequence_reaches_a_handler` already failed under that
    perturbation, so only the profile tests were blind.
 2. **`ESC l` and `ESC m` have an `out` row** in `docs/vt-coverage.md`
-   and `hp_memory_lock_and_unlock_are_counted_and_move_no_margin` holds
-   them counted and moving no margin, red under three perturbations (xterm's
-   lock built and not counted; built and counted; only `ESC m` built).
+   and a test in `tests/vt100/scrolling.rs` holds them counted and moving
+   no margin, red under three perturbations (xterm's lock built and not
+   counted; built and counted; only `ESC m` built). Both were built on
+   2026-11-03 and that test gave way to `tests/memory_lock.rs`.
 
 DMI and EMI, the one small (a) left, are not built: the reading is not
 settled. Unbuilt, both stay counted;
@@ -159,6 +160,9 @@ and DECID already act on codes ECMA-48 reserves because a pinned text
 assigns them (the SGR 56/57 row; the `Esc::Identify` doc), and Table 5's
 "shall not be used" is the one difference. Whether to act on them stays
 open. DMI and EMI on KAM's shared lock lead, and are not built.
+**`ESC l` and `ESC m` are now acted on, xterm's way**, as a pinned
+text assigns them and the terminfo entry baud's `TERM` names sends them;
+both are built (the `ESC l` row of `docs/vt-coverage.md`).
 
 ## 7. Next work
 

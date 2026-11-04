@@ -2981,6 +2981,8 @@ fn esc_final(
         }
         Esc::StartGuardedArea => p.start_guarded_area(),
         Esc::EndGuardedArea => p.end_guarded_area(),
+        Esc::MemoryLock => p.memory_lock(),
+        Esc::MemoryUnlock => p.memory_unlock(),
 
         Esc::BackIndex => p.back_index(),
         Esc::ForwardIndex => {

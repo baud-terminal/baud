@@ -1321,6 +1321,20 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // HP's memory lock and unlock: the top margin to the cursor's line
+    // and back to the first, the cursor left where it is.
+    Atom {
+        name: "memory-lock",
+        bytes: b"\x1bl",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "memory-unlock",
+        bytes: b"\x1bm",
+        stride: 0,
+        count: 0,
+    },
     Atom {
         name: "alt1049-enter",
         bytes: b"\x1b[?1049h",
@@ -1889,6 +1903,22 @@ fn fed_after(setup: &[u8], name: &str, f: &dyn Fn(&Term<'_>)) {
     t.write_at(BytePos::ZERO, &bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     f(&t);
+}
+
+/// **The memory lock atoms move the top margin**: `memory-lock` to the
+/// cursor's line, `memory-unlock` back to the first, the bottom margin and
+/// the cursor kept by both.
+#[test]
+fn the_memory_lock_atoms_move_the_top_margin() {
+    let last = Row::from_index(ROWS - 1);
+    fed_after(b"\x1b[4;3H", "memory-lock", &|t| {
+        assert_eq!(t.scroll_region(), (Row::from_index(3), last));
+        assert_eq!(t.cursor(), (Row::from_index(3), Col::at_index(2)));
+    });
+    fed_after(b"\x1b[4;9r\x1b[6;1H", "memory-unlock", &|t| {
+        assert_eq!(t.scroll_region(), (Row::ZERO, Row::from_index(8)));
+        assert_eq!(t.cursor(), (Row::from_index(5), Col::ZERO));
+    });
 }
 
 /// **The ReGIS atoms reach ReGIS**, the control the guard atoms have:

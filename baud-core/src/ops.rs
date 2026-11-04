@@ -1611,6 +1611,34 @@ impl Paint<'_, '_> {
         self.home();
     }
 
+    /// **HP's memory lock, `ESC l`, as xterm does it: the top margin at
+    /// the cursor's line**, so the lines above it stay where they are and
+    /// later output scrolls beneath them. `[[source: ctlseqs]]`: "Memory
+    /// Lock (per HP terminals). Locks memory above the cursor". xterm's
+    /// `CASE_HP_MEM_LOCK` calls `set_tb_margins(screen, screen->cur_row,
+    /// screen->bot_marg)`, which moves the margins only `if (bottom >
+    /// top)`, and moves no cursor (`[[source: xterm-reset]]` 4759-4770,
+    /// 1335-1349). So a cursor on or below the bottom margin locks nothing,
+    /// and on the status line, one row, neither does it. The locked lines
+    /// are above the top margin, where IL and DL do nothing and a DECSTBM,
+    /// `DECSTR` or `RIS` sets the margins anew, as they do above any top
+    /// margin.
+    pub(crate) fn memory_lock(&mut self) {
+        if self.cold.bot.index() > self.cy.index() {
+            self.cold.top = self.cy;
+        }
+    }
+
+    /// **HP's memory unlock, `ESC m`: the top margin back to the first
+    /// line, the bottom margin kept**, xterm's `set_tb_margins(screen, 0,
+    /// screen->bot_marg)` (`[[source: xterm-reset]]` 4759-4770), the
+    /// cursor where it was.
+    pub(crate) fn memory_unlock(&mut self) {
+        if self.cold.bot.index() > 0 {
+            self.cold.top = Row::ZERO;
+        }
+    }
+
     /// IL. **Outside the region it does nothing**, which is the rule that
     /// keeps a pager's `IL` from disturbing its status line -- outside the
     /// side margins too: `[[source: dec-std-070]]` p. 5-24 marks `IL` and `DL`

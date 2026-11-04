@@ -131,7 +131,7 @@ fn fed<R>(bytes: &[u8], size: usize, f: impl FnOnce(&Term<'_>) -> R) -> R {
 /// Each program is held, at every read size, to the same program with the ST
 /// left out, and its counts to zero. One-byte reads walk the graph; a read
 /// that holds the whole `ESC \` takes `fast_esc`, which dispatches it without
-/// the table. Three controls: `ESC N`, which baud does not implement, is
+/// the table. Three controls: `ESC K`, PLD, which baud does not implement, is
 /// counted in the same harness, so a zero is not a dead counter; an escape
 /// whose final `\` follows an intermediate is not ST and is still counted;
 /// and an ST that closes a string still closes it, and an ignored string it
@@ -197,10 +197,10 @@ fn a_bare_st_closes_nothing_and_is_counted_nowhere() {
     }
 
     for size in 1..=4 {
-        fed(b"X\x1blY", size, |t| {
+        fed(b"X\x1bKY", size, |t| {
             assert_eq!(
                 t.unsupported, 1,
-                "control: ESC l is counted, read size {size}"
+                "control: ESC K, PLD, is counted, read size {size}"
             );
         });
         fed(b"X\x1b#\\Y", size, |t| {

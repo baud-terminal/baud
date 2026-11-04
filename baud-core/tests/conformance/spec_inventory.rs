@@ -282,6 +282,9 @@ fn spec_forms() -> BTreeSet<Form> {
 struct Snapshot {
     grid: Vec<PackedCell>,
     cursor: (usize, usize),
+    /// The scrolling region, which `ESC l` moves without moving the
+    /// cursor.
+    region: (Row, Row),
     reply: Vec<u8>,
     unsupported: usize,
     unsupported_param: usize,
@@ -422,6 +425,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
     Snapshot {
         grid: support::screen(&t),
         cursor: (r.index(), c.index()),
+        region: t.scroll_region(),
         reply: t.reply().to_vec(),
         unsupported: t.unsupported,
         unsupported_param: t.unsupported_param,
@@ -735,6 +739,11 @@ fn every_spec_esc_form_is_handled_or_counted() {
             b'J',
             "VTS sets a line tabulation stop at the cursor's line; the snapshot \
              has no tab-stop state (baud-core/tests/vt100/line_tabs.rs)",
+        ),
+        (
+            b'm',
+            "HP's memory unlock puts the top margin on the first line, where \
+             the prepared state has it (baud-core/tests/memory_lock.rs)",
         ),
     ];
 
