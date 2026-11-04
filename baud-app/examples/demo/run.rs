@@ -1,6 +1,6 @@
-//! **The session, run**: the programs, photo and faces resolved and
-//! checked, the scratch home written, baud built and launched, and every
-//! step of [`SESSION`] played into its window.
+//! **The session, run**: the programs and faces resolved and checked, the
+//! scratch home written, baud built and launched, and every step of
+//! [`SESSION`] played into its window.
 
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -25,31 +25,16 @@ use crate::session::{self, SESSION, Step};
 /// `scripts/readme-film.sh`'s.
 pub const NIXPKGS: &str = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a";
 
-/// The programs the session runs: nixpkgs attribute, binary. pipes-rs
-/// (Blue Oak Model License 1.0.0) draws its pipes from box-drawing
-/// characters and carries no art (`session::PIPES`); asciiquarium, which
-/// played here before it, draws Joan Stark's, for personal use only
-/// (`[[source: jgs-guidelines]]`). OpenSSH's client ssh's into the
-/// container (`container.rs`), its manual pages left out.
-const PROGRAMS: [(&str, &str); 6] = [
-    ("btop", "btop"),
-    ("helix", "hx"),
-    ("kitty", "kitten"),
-    ("neo", "neo"),
-    ("pipes-rs", "pipes-rs"),
-    ("openssh^out", "ssh"),
-];
+/// The programs the session runs on this Mac: nixpkgs attribute, binary.
+/// helix edits baud's config, and OpenSSH's client ssh's into the
+/// container (`container.rs`), its manual pages left out; fastfetch and
+/// btop run in the container, from its image.
+const PROGRAMS: [(&str, &str); 2] = [("helix", "hx"), ("openssh^out", "ssh")];
 
-/// **The photo**: an elementary OS wallpaper pinned by revision and
-/// SHA-256, an Unsplash photograph published before June 2017 and so CC0,
-/// as elementary's `debian/copyright` records -- "Canazei Granite Ridges"
-/// (unsplash.com/photos/yrwpJwDNSHE) -- drawn at 1400 px wide, about the
-/// size it is shown at, as `scripts/readme-film.sh` draws it.
-const PHOTO: (&str, &str, &str) = (
-    "pantheon.elementary-wallpapers.src",
-    "backgrounds/Canazei Granite Ridges.jpg",
-    "0eff9cd7fe92aabb8937644ca154436ba926310808dd99a2902cdde335b0868c",
-);
+/// **The headless film's frame period**, in milliseconds: 100 frames a
+/// second, the rate the README logo's flashes are counted at
+/// (`baud-bench/tests/readme_logo_flashes.rs`), finer than a display's 60.
+const CENSUS_PERIOD_MS: u32 = 10;
 
 /// How long a prompt may take to come, and an echo.
 const PROMPT_LIMIT: Duration = Duration::from_secs(15);
@@ -147,7 +132,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
 
 pub fn main() -> ExitCode {
     // Ctrl-C only sets a flag the session's waits stop on, so the
-    // container is removed and colima put back on the way out.
+    // container is removed and its VM deleted on the way out.
     mac::catch_interrupt();
     let args = match parse(std::env::args().skip(1)) {
         Ok(a) => a,
@@ -310,7 +295,12 @@ fn run(args: &Args) -> Result<(), String> {
 /// container. It types every step into baud's login shell through baud's
 /// core, draws through baud's CPU renderer, and fails unless every light
 /// but CS lights; the last frame of every hold goes into `stills` as a
-/// PNG. What the programs printed is then searched as a film's is.
+/// PNG. Every frame, drawn [`CENSUS_PERIOD_MS`] apart, goes into a
+/// lossless film beside them, `session.mkv`, whose trails', fireworks' and
+/// clear's shots baud-bench's flash census counts
+/// (`baud-bench/tests/session_flashes.rs`). What the programs printed is
+/// then checked for a character no face draws, and searched as a film's
+/// is.
 fn headless(
     p: &Profile,
     prep: &Prep,
@@ -319,6 +309,7 @@ fn headless(
 ) -> Result<(), String> {
     fs::create_dir_all(stills).map_err(|e| format!("{}: {e}", stills.display()))?;
     let ffmpeg = nix_out("ffmpeg-headless.bin")?.join("bin/ffmpeg");
+    let film = stills.join("session.mkv");
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let status = Command::new(cargo)
         .args(["test", "-p", "baud", "--bin", "baud", "--manifest-path"])
@@ -331,6 +322,8 @@ fn headless(
         .env("BAUD_SESSION_ROOT", &prep.at.root)
         .env("BAUD_SESSION_STILLS", stills)
         .env("BAUD_FILM_FFMPEG", &ffmpeg)
+        .env("BAUD_SESSION_FILM", &film)
+        .env("BAUD_SESSION_PERIOD_MS", CENSUS_PERIOD_MS.to_string())
         .envs(
             ["BAUD_SESSION_POINTS", "BAUD_SESSION_WITHOUT"]
                 .into_iter()
@@ -341,8 +334,36 @@ fn headless(
     if !status.success() {
         return Err("the session without a window failed".to_string());
     }
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let census = Command::new(cargo)
+        .args([
+            "test",
+            "-p",
+            "baud-bench",
+            "--test",
+            "session_flashes",
+            "--manifest-path",
+        ])
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-bench/Cargo.toml"
+        ))
+        .arg("--target-dir")
+        .arg(&p.target)
+        .args(p.flags())
+        .args(["--", "the_readme_session_is_below_the_flash_thresholds"])
+        .args(["--ignored", "--exact", "--nocapture"])
+        .env("BAUD_SESSION_FILM", &film)
+        .env("BAUD_FILM_FFMPEG", &ffmpeg)
+        .status()
+        .map_err(|e| format!("cargo: {e}"))?;
+    if !census.success() {
+        return Err("the flash census of the session failed".to_string());
+    }
+    let heard = prep.at.root.join("heard.log");
+    check_printed(&prep.faces, &heard)?;
     if let Some(f) = forbidden {
-        f.search(&[prep.at.root.join("heard.log")])?;
+        f.search(&[heard])?;
     }
     println!("stills:  {}", stills.display());
     Ok(())
@@ -390,6 +411,8 @@ struct Prep {
     image: container::Image,
     keys: container::Keys,
     port: u16,
+    /// The pinned faces, in the cache, for the check of what was printed.
+    faces: Vec<PathBuf>,
 }
 
 fn prepare() -> Result<Prep, String> {
@@ -409,10 +432,6 @@ fn prepare() -> Result<Prep, String> {
         println!("{bin:<13}{}", exe.display());
         bins.push(dir.to_string_lossy().into_owned());
     }
-    let photo = store(PHOTO.0)?.join(PHOTO.1);
-    pinned(&photo, PHOTO.2)?;
-    let magick = store("imagemagick")?.join("bin/magick");
-
     let cache = cache_dir()?;
     let mut faces = Vec::new();
     for p in &PINNED {
@@ -440,16 +459,6 @@ fn prepare() -> Result<Prep, String> {
     for (p, from) in PINNED.iter().zip(&faces) {
         fs::copy(from, at.fonts().join(p.file())).map_err(|e| format!("{}: {e}", p.file()))?;
     }
-    let canazei = at.work().join("canazei.jpg");
-    let made = Command::new(&magick)
-        .arg(&photo)
-        .args(["-resize", "1400x", "-quality", "92"])
-        .arg(&canazei)
-        .status()
-        .map_err(|e| format!("magick: {e}"))?;
-    if !made.success() || !canazei.is_file() {
-        return Err("magick did not make the photo".to_string());
-    }
     // The container: its image, built by the repository's flake and its
     // stream checked against its pin, and the session's keys, the scratch
     // home's ssh files among what is checked.
@@ -474,15 +483,13 @@ fn prepare() -> Result<Prep, String> {
     // without a window (`--headless`).
     let lines: String = env.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
     fs::write(at.root.join("env"), lines).map_err(|e| format!("env: {e}"))?;
-    let mut pins: Vec<(String, String)> = PINNED
+    let pins: Vec<(String, String)> = PINNED
         .iter()
         .map(|p| (p.file().to_string(), p.sha256.to_string()))
         .collect();
-    let photo_name = PHOTO.1.rsplit('/').next().unwrap_or(PHOTO.1);
-    pins.push((photo_name.to_string(), PHOTO.2.to_string()));
-    pins.push(("canazei.jpg".to_string(), provenance::sha256(&canazei)?));
 
-    check_fonts(&faces)?;
+    let config = scratch::config(&files);
+    check_fonts(&faces, &config)?;
     check_names(&at, &written, &env)?;
     print_plan();
     Ok(Prep {
@@ -493,6 +500,7 @@ fn prepare() -> Result<Prep, String> {
         image,
         keys,
         port,
+        faces,
     })
 }
 
@@ -610,18 +618,10 @@ fn fresh_root() -> Result<PathBuf, String> {
     Err(format!("no new directory in {}", tmp.display()))
 }
 
-/// **No character the session shows from what it controls needs a system
-/// face**: the README, `hello.txt`, the prompt, neo's half-width katakana
-/// and pipes-rs's heavy pipes, through the stack baud builds from the
-/// scratch config --
-/// its text face, its icon face, the four pinned faces, STIX Two Math --
-/// and baud-render's table. Then the control: without the CJK face, 终 is
-/// a gap, so the check can fail.
-fn check_fonts(faces: &[PathBuf]) -> Result<(), String> {
-    let bytes: Vec<Vec<u8>> = faces
-        .iter()
-        .map(|f| fs::read(f).map_err(|e| format!("{}: {e}", f.display())))
-        .collect::<Result<_, _>>()?;
+/// **The faces baud draws the session with**, in the order of the stack
+/// baud builds from the scratch config: its text face, its icon face, the
+/// four pinned faces, STIX Two Math.
+fn stack(faces: &[Vec<u8>]) -> Vec<(&'static str, &[u8])> {
     let mut stack: Vec<(&str, &[u8])> = vec![
         ("Proto Hebrew Mono C", fonts::REGULAR),
         ("Symbols Nerd Font Mono", fonts::SYMBOLS),
@@ -629,24 +629,27 @@ fn check_fonts(faces: &[PathBuf]) -> Result<(), String> {
     stack.extend(
         PINNED
             .iter()
-            .zip(&bytes)
+            .zip(faces)
             .map(|(p, b)| (p.name, b.as_slice())),
     );
     stack.push(("STIX Two Math", fonts::STIX));
-    let text = format!(
-        "{}{}{}{}{}",
-        scratch::README,
-        session::HELLO,
-        session::PROMPT_SHOWN,
-        fonts::neo_katakana(),
-        session::PIPES
-    );
-    let c = fonts::coverage(&stack, &text)?;
-    println!(
-        "fonts:   the {} characters of README.md, hello.txt, the prompt, neo's katakana and \
-         pipes-rs's pipes:",
-        c.checked
-    );
+    stack
+}
+
+/// The pinned faces' bytes.
+fn read_faces(faces: &[PathBuf]) -> Result<Vec<Vec<u8>>, String> {
+    faces
+        .iter()
+        .map(|f| fs::read(f).map_err(|e| format!("{}: {e}", f.display())))
+        .collect()
+}
+
+/// **Which characters of `text` no face of the stack draws**, each listed
+/// with the face that draws it, under `what`; an error naming them when
+/// there are any, as baud would ask the system for those.
+fn covered(stack: &[(&str, &[u8])], what: &str, text: &str) -> Result<(), String> {
+    let c = fonts::coverage(stack, text)?;
+    println!("fonts:   the {} characters of {what}:", c.checked);
     for (name, chars) in &c.drawn {
         let sample: String = chars.iter().take(24).collect();
         println!("         {:<24}{:>4}  {sample}", name, chars.len());
@@ -654,9 +657,33 @@ fn check_fonts(faces: &[PathBuf]) -> Result<(), String> {
     if !c.gaps.is_empty() {
         let g: String = c.gaps.iter().collect();
         return Err(format!(
-            "no pinned face draws {g}: the system would be asked for them"
+            "no pinned face draws {g}, in {what}: the system would be asked for them"
         ));
     }
+    Ok(())
+}
+
+/// **No character the session shows from what it controls needs a system
+/// face**: `hello.txt`, the config helix shows, both prompts and the
+/// fireworks' request, through the stack baud builds from the scratch
+/// config and baud-render's table. Then the control: without the CJK face,
+/// 终 is a gap, so the check can fail. What the programs print is checked
+/// once they have printed it ([`check_printed`]).
+fn check_fonts(faces: &[PathBuf], config: &str) -> Result<(), String> {
+    let bytes = read_faces(faces)?;
+    let stack = stack(&bytes);
+    let text = format!(
+        "{}{config}{}{}{}",
+        session::HELLO,
+        session::PROMPT_SHOWN,
+        session::REMOTE_PROMPT,
+        session::FIREWORKS
+    );
+    covered(
+        &stack,
+        "hello.txt, the config, both prompts and the fireworks' request",
+        &text,
+    )?;
     let without: Vec<(&str, &[u8])> = stack
         .iter()
         .copied()
@@ -670,6 +697,24 @@ fn check_fonts(faces: &[PathBuf]) -> Result<(), String> {
         "         none from the system; without Noto Sans CJK SC, {} are, 终 among them",
         control.gaps.len()
     );
+    Ok(())
+}
+
+/// **No character the programs printed needs a system face**: every
+/// character of `log` -- what baud read from the shell and the programs
+/// it ran, helix, fastfetch and btop among them, and what was typed --
+/// through the same stack and table. A sequence's own characters are
+/// ASCII, which baud's text face draws, so the log is read whole rather
+/// than parsed: a title, which only the title bar shows, is checked too.
+fn check_printed(faces: &[PathBuf], log: &Path) -> Result<(), String> {
+    let bytes = read_faces(faces)?;
+    let printed = fs::read(log).map_err(|e| format!("{}: {e}", log.display()))?;
+    covered(
+        &stack(&bytes),
+        "what the programs printed",
+        &String::from_utf8_lossy(&printed),
+    )?;
+    println!("         none from the system");
     Ok(())
 }
 
@@ -1081,6 +1126,7 @@ fn live(
     let said = filming.map(|f| f.finish(Duration::from_secs(60)));
     let first = played?;
     leaks(at)?;
+    check_printed(&prep.faces, &at.pty_log())?;
     if let Some(f) = forbidden {
         f.search(&[at.pty_log()])?;
     }
@@ -1196,8 +1242,6 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
         counted: 0,
     };
     let mut prompt = 0;
-    // Where in the log the last typing began: an `Await` looks past it.
-    let mut typed_from = 0;
     for &step in SESSION {
         container::interrupted(&container::INTERRUPTED)?;
         match step {
@@ -1226,7 +1270,6 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
                 let mut gaps = Gaps::new(seed, ks.len() + 1);
                 log.refresh();
                 let from = log.bytes.len();
-                typed_from = from;
                 type_keys(&ks, &mut gaps)?;
                 let what = format!("the echo of `{t}` (are the keys arriving?)");
                 log.wait(ECHO_LIMIT, &what, |l| session::echoed(&l.bytes, from, t))?;
@@ -1234,18 +1277,10 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
                 std::thread::sleep(Duration::from_secs_f64(g.max(0.0) / 1000.0));
                 type_keys(&[RETURN], &mut gaps)?;
             }
-            Step::Keys(_) | Step::Line(_) => {
+            Step::Keys(_) | Step::Line(_) | Step::Escape => {
                 ev.line(&session::event(step, prompt));
                 let ks = keys::presses(step).map_err(|c| format!("no key types {c:?}"))?;
-                log.refresh();
-                typed_from = log.bytes.len();
                 type_keys(&ks, &mut Gaps::new(seed, ks.len()))?;
-            }
-            Step::Await(t) => {
-                log.wait(PROMPT_LIMIT, &format!("`{t}`"), |l| {
-                    session::echoed(&l.bytes, typed_from, t)
-                })?;
-                ev.line(&session::event(step, prompt));
             }
             Step::Hold(ms) => {
                 ev.line(&session::event(step, prompt));

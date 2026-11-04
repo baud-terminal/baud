@@ -281,8 +281,15 @@ impl Timed {
 
     /// The trail drawn now.
     #[cfg(test)]
-    fn trail(&self) -> CursorTrail {
+    pub(crate) fn trail(&self) -> CursorTrail {
         self.trail
+    }
+
+    /// The seed the trail's next ignition takes, which moves on each one
+    /// (`Chase::next_seed`).
+    #[cfg(test)]
+    pub(crate) fn next_seed(&self) -> baud_render::effect::Seed {
+        self.chase.next_seed()
     }
 
     /// **The instant the loop must wake by**, if an effect changes on the

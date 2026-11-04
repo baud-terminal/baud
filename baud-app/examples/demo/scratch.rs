@@ -5,15 +5,17 @@
 
 use std::path::PathBuf;
 
-/// The grid the window opens at: 110 columns by 33 rows at 12 points, the
-/// largest type at which btop drew its cpu and mem boxes whole on an
-/// 18-core Mac (`scripts/readme-film.sh`), kept now that it draws the cpu
-/// box alone.
-pub const GRID: &str = "110x33";
-pub const POINTS: u32 = 12;
+/// **The grid the window opens at: 80 columns by 24 rows, the VT100's
+/// screen, at 14 points.** The README shows the GIF 776 px wide whatever
+/// the window's size, so the text's size there is set by the columns and
+/// not by the points: about 776 / (0.6 x 80), 16 px, the README's own body
+/// size, where 110 columns gave 11.5. The points set only the film's
+/// pixels.
+pub const GRID: &str = "80x24";
+pub const POINTS: u32 = 14;
 
-/// The repository's README, which the session prints and opens in helix.
-pub const README: &str = include_str!("../../../README.md");
+/// baud's config under the home, as the session's helix opens it.
+pub const CONFIG: &str = ".config/baud/config.toml";
 
 /// Where everything lives under the scratch root.
 pub struct Layout {
@@ -32,11 +34,16 @@ impl Layout {
     pub fn tmp(&self) -> PathBuf {
         self.root.join("tmp")
     }
+    /// The pinned faces, beside the config, which names them by paths
+    /// relative to itself.
     pub fn fonts(&self) -> PathBuf {
-        self.root.join("fonts")
+        self.home().join(".config/baud/fonts")
     }
+    /// baud's config, where baud looks for it in the scratch home with no
+    /// `BAUD_CONFIG` and no `XDG_CONFIG_HOME` (`config::lookup`), and the
+    /// file the session edits in helix.
     pub fn config(&self) -> PathBuf {
-        self.root.join("baud.toml")
+        self.home().join(CONFIG)
     }
     pub fn pty_log(&self) -> PathBuf {
         self.root.join("pty.log")
@@ -54,44 +61,6 @@ pub fn path(bins: &[String]) -> String {
     all.join(":")
 }
 
-/// **btop, naming nothing of the machine but its load**: its cpu box
-/// alone, each key as btop 1.4.7 describes it
-/// (`[[source: btop-config-147]]`, `[[source: btop-readme-147]]`):
-///
-/// - `shown_boxes = "cpu"`: "Manually set which boxes to show". Not
-///   `proc`, which names the user and every command line, nor `net`, which
-///   names the address, nor `mem`, whose "Total:" is the memory's size and
-///   whose disks are listed by volume name and size, nor `gpu0`.
-/// - `custom_cpu_name = "CPU"`: "Custom cpu model name, empty string to
-///   disable"; empty, btop titles the core list with the chip's name.
-/// - `show_gpu_info = "Off"`: "If gpu info should be shown in the cpu
-///   box"; at its "Auto", with no gpu box, the cpu box carries the GPU's
-///   memory, used of total.
-/// - `show_uptime = false`: "Shows the system uptime in the CPU box."
-/// - `show_cpu_freq = false`: "Show CPU frequency."
-/// - `show_disks = false`: "If mem box should be split to also show disks
-///   info", should the mem box come back.
-///
-/// btop skips a key it does not know and keeps the default for a value its
-/// `isbool` refuses, both without a word, so a misspelt line shows what it
-/// was written to hide; `tests::btop_shows_nothing_of_the_machine`
-/// holds the spelling. The load average stays: the cpu box draws it
-/// whatever the config, and no key of 1.4.7 removes it
-/// (`[[source: btop-draw-147]]`). On the terminal's background, and drawn
-/// every 100 ms so its graphs fill in the seconds it is on screen.
-const BTOP: &str = "\
-color_theme = \"Default\"
-theme_background = false
-truecolor = true
-shown_boxes = \"cpu\"
-custom_cpu_name = \"CPU\"
-show_gpu_info = \"Off\"
-show_uptime = false
-show_cpu_freq = false
-show_disks = false
-update_ms = 100
-";
-
 /// helix's own defaults: a file of its own, so the person's is not read.
 const HELIX: &str = "# helix's defaults, for the README session\n";
 
@@ -107,18 +76,29 @@ fn zshrc(path: &str) -> String {
     )
 }
 
-/// **baud's config**: 12 points, the cursor still, the window solid, and
-/// the fonts -- baud's own by family name, `Proto Hebrew Mono C` with its
-/// bold and italic and `Symbols Nerd Font Mono`, then the pinned open
-/// faces by paths beside this file, `fonts/<file>`. Solid, each by its own
-/// key (`docs/guide/configuration.md`):
+/// **baud's config**, as the session shows it in helix: 22 lines, no more
+/// than the rows helix gives a file in a 24-row window, so the session's
+/// jumps between its first line and its last cross most of the screen;
+/// `trail = "plasma"` the last line, and the word nowhere else, so `ge`
+/// lands on it and `/plasma` selects it.
 ///
-/// - `[glass] dim_dark = 1.0` and `dim_light = 1.0`: the background
-///   "opaque" under either appearance, so nothing behind the window shows
-///   through the grid -- the page `baud-app/src/film.rs` films on.
-/// - `[font] changes = "off"`: no program changes the font or its size.
-/// - `[window] operations = "off"`: no program moves, resizes or
-///   full-screens the window, so it keeps the grid it opened at.
+/// - `font_size` first, which `BAUD_SESSION_POINTS` replaces, then the
+///   fonts one a line: baud's own by family name, `Proto Hebrew Mono C`
+///   and `Symbols Nerd Font Mono`, then the pinned open faces by paths
+///   beside this file, `fonts/<file>`, so no path of the machine is on
+///   screen.
+/// - `[screen] transition = "on"`: a full-screen program slides in and
+///   out, as btop does.
+/// - The window solid, each by its own key
+///   (`docs/guide/configuration.md`): `[glass] dim_dark = 1.0` and
+///   `dim_light = 1.0`, the background "opaque" under either appearance,
+///   so nothing behind the window shows through the grid -- the page
+///   `baud-app/src/film.rs` films on; `[font] changes = "off"`, so no
+///   program changes the font or its size; `[window] operations = "off"`,
+///   so no program moves, resizes or full-screens the window, and it
+///   keeps the grid it opened at.
+/// - `[cursor]`: the cursor still, so the first and last frames match,
+///   and the plasma trail, which the session changes to fire.
 ///
 /// The title strip above the grid stays the window's material: no key
 /// makes it solid (`accessible` in `baud-app/src/app.rs`).
@@ -128,48 +108,45 @@ pub fn config(faces: &[&str]) -> String {
         "\"Symbols Nerd Font Mono\"".to_string(),
     ];
     fonts.extend(faces.iter().map(|f| format!("\"fonts/{f}\"")));
-    format!(
-        "font_size = {POINTS}\nfonts = [{}]\n\n{SOLID}[cursor]\nblink = false\n",
-        fonts.join(", ")
-    )
+    let list: String = fonts.iter().map(|f| format!("  {f},\n")).collect();
+    format!("font_size = {POINTS}\nfonts = [\n{list}]\n{TABLES}")
 }
 
-/// The window solid and its size and font fixed: [`config`]'s tables.
-const SOLID: &str = "[glass]\ndim_dark = 1.0\ndim_light = 1.0\n\n[font]\nchanges = \"off\"\n\n\
-                     [window]\noperations = \"off\"\n\n";
+/// [`config`]'s tables: the transition, the window solid and its size and
+/// font fixed, and the cursor, its trail last.
+const TABLES: &str = "[screen]\ntransition = \"on\"\n[glass]\ndim_dark = 1.0\ndim_light = 1.0\n\
+                      [font]\nchanges = \"off\"\n[window]\noperations = \"off\"\n\
+                      [cursor]\nblink = false\ntrail = \"plasma\"\n";
 
 /// **Every text file of the scratch directory**, each a path under the
-/// root and its bytes. The photo and the faces are copied in beside them;
-/// they are the pinned files, the same bytes on every machine.
+/// root and its bytes. The faces are copied in beside the config; they are
+/// the pinned files, the same bytes on every machine.
 pub fn files(path: &str, faces: &[&str]) -> Vec<(String, Vec<u8>)> {
     vec![
         ("home/.zshrc".to_string(), zshrc(path).into_bytes()),
-        (
-            "home/.config/btop/btop.conf".to_string(),
-            BTOP.as_bytes().to_vec(),
-        ),
         (
             "home/.config/helix/config.toml".to_string(),
             HELIX.as_bytes().to_vec(),
         ),
         (
-            "home/baud/README.md".to_string(),
-            README.as_bytes().to_vec(),
-        ),
-        (
             "home/baud/hello.txt".to_string(),
             crate::session::HELLO.as_bytes().to_vec(),
         ),
-        ("baud.toml".to_string(), config(faces).into_bytes()),
+        (format!("home/{CONFIG}"), config(faces).into_bytes()),
     ]
 }
 
-/// **baud's environment, and nothing else**, as `env -i` gives it: the
-/// scratch home and zsh's startup directory, zsh, the `PATH`, the locale,
+/// **baud's environment, and nothing else**, as `env -i` gives it -- no
+/// `XDG_CONFIG_HOME` or other `XDG_*` directory among it, which baud reads
+/// before `HOME` (`config::lookup`) and helix reads too, so neither reads
+/// the person's config: the scratch home and zsh's startup directory, zsh,
+/// the `PATH`, the locale,
 /// the scratch temporary directory, `NOSYSZSHRC` (which a nix-darwin
 /// `/etc/zshrc` honours), and baud's own: the grid, the window on the
-/// primary display, which the recorder films, the config, the motion and
-/// scroller, its log and the pty log the session watches.
+/// primary display, which the recorder films, the motion and scroller, its
+/// log and the pty log the session watches. No `BAUD_CONFIG`: baud finds
+/// its config where it looks with none, `~/.config/baud/config.toml`
+/// ([`CONFIG`]), the file the session edits.
 pub fn env(at: &Layout, path: &str) -> Vec<(String, String)> {
     let s = |p: PathBuf| p.to_string_lossy().into_owned();
     [
@@ -182,7 +159,6 @@ pub fn env(at: &Layout, path: &str) -> Vec<(String, String)> {
         ("NOSYSZSHRC", "1".to_string()),
         ("BAUD_GRID", GRID.to_string()),
         ("BAUD_SCREEN", "primary".to_string()),
-        ("BAUD_CONFIG", s(at.config())),
         ("BAUD_MOTION", "full".to_string()),
         ("BAUD_SCROLLER", "overlay".to_string()),
         ("BAUD_LOG", "info".to_string()),
@@ -201,8 +177,7 @@ mod tests {
 
     /// **The scratch home names nothing of the machine**: every file it
     /// writes, the zsh startup file with the programs' nix paths in its
-    /// `PATH` among them and the README with the repository's address
-    /// taken out, and baud's environment, the scratch root aside. The
+    /// `PATH` among them, and baud's environment, the scratch root aside. The
     /// control: a home whose `.zshrc` named the user's home would be
     /// caught.
     #[test]
@@ -210,7 +185,7 @@ mod tests {
         let n = qz();
         let public = public_path(env!("CARGO_PKG_REPOSITORY"));
         let path = path(&[
-            "/nix/store/lq4p-btop-1.4.7/bin".to_string(),
+            "/nix/store/px5j-openssh-10.5p1/bin".to_string(),
             "/nix/store/ayzh-helix-25.07.1/bin".to_string(),
         ]);
         let faces = ["NotoColorEmoji.ttf", "NotoSansCJKsc-Regular.otf"];
@@ -228,23 +203,42 @@ mod tests {
     }
 
     /// **The config lists baud's own faces by name and the pinned ones by
-    /// paths beside it**, at 12 points with the cursor still and the window
-    /// solid, and the zsh file sets the prompt, the `PATH` and ssh's
-    /// config.
+    /// paths beside it, one a line**, at 14 points, the transition on, the
+    /// window solid and the cursor still with its plasma trail last, in 22
+    /// lines -- the rows helix gives a file in 24 -- with "plasma" on the
+    /// last alone; the zsh file sets the prompt, the `PATH` and ssh's
+    /// config; and baud's environment is its list, no `XDG_*` among it.
+    /// Perturbation: a blank line after the fonts makes 23 lines, and a
+    /// `trail_scroll` after the trail ends the file on another line.
     #[test]
     fn the_config_and_the_shell_say_what_the_session_needs() {
-        let c = config(&["NotoColorEmoji.ttf"]);
-        assert!(c.starts_with("font_size = 12\n"), "{c}");
+        let faces = [
+            "NotoColorEmoji.ttf",
+            "NotoSansCJKsc-Regular.otf",
+            "NotoNaskhArabic-Regular.ttf",
+            "NotoSansDevanagari-Regular.ttf",
+            "NotoSansSymbols2-Regular.ttf",
+        ];
+        let c = config(&faces);
+        assert!(c.starts_with("font_size = 14\nfonts = [\n"), "{c}");
         assert!(c.contains(
-            "fonts = [\"Proto Hebrew Mono C\", \"Symbols Nerd Font Mono\", \"fonts/NotoColorEmoji.ttf\"]"
+            "  \"Proto Hebrew Mono C\",\n  \"Symbols Nerd Font Mono\",\n  \"fonts/NotoColorEmoji.ttf\",\n"
         ));
-        assert!(c.ends_with("[cursor]\nblink = false\n"), "{c}");
+        assert_eq!(c.lines().count(), 22, "{c}");
+        assert_eq!(c.lines().last(), Some("trail = \"plasma\""));
+        assert_eq!(c.matches("plasma").count(), 1, "the word once");
+        assert!(
+            c.lines().all(|l| l.chars().count() < 60),
+            "no line runs off"
+        );
         // The window solid, each key in its own table: opaque under
         // either appearance, and the font and the window no program's.
         for table in [
+            "[screen]\ntransition = \"on\"\n",
             "[glass]\ndim_dark = 1.0\ndim_light = 1.0\n",
             "[font]\nchanges = \"off\"\n",
             "[window]\noperations = \"off\"\n",
+            "[cursor]\nblink = false\ntrail = \"plasma\"\n",
         ] {
             assert!(c.contains(table), "{table}:\n{c}");
         }
@@ -254,12 +248,10 @@ mod tests {
             "export PATH=/a/bin:/usr/bin\nPS1='%F{cyan}baud%f %F{magenta}\u{276F}%f '\n\
              alias ssh='ssh -F ~/.ssh/config'\n"
         );
-        let e = env(
-            &Layout {
-                root: PathBuf::from("/t/r"),
-            },
-            "/a/bin",
-        );
+        let at = Layout {
+            root: PathBuf::from("/t/r"),
+        };
+        let e = env(&at, "/a/bin");
         let keys: Vec<&str> = e.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(
             keys,
@@ -273,15 +265,20 @@ mod tests {
                 "NOSYSZSHRC",
                 "BAUD_GRID",
                 "BAUD_SCREEN",
-                "BAUD_CONFIG",
                 "BAUD_MOTION",
                 "BAUD_SCROLLER",
                 "BAUD_LOG",
                 "BAUD_PTYLOG"
             ]
         );
+        assert!(!keys.iter().any(|k| k.starts_with("XDG_")), "{keys:?}");
         assert!(e.contains(&("HOME".to_string(), "/t/r/home".to_string())));
-        assert!(e.contains(&("BAUD_GRID".to_string(), "110x33".to_string())));
+        assert_eq!(
+            at.config(),
+            PathBuf::from("/t/r/home/.config/baud/config.toml")
+        );
+        assert_eq!(at.fonts(), PathBuf::from("/t/r/home/.config/baud/fonts"));
+        assert!(e.contains(&("BAUD_GRID".to_string(), "80x24".to_string())));
         assert!(e.contains(&("BAUD_SCREEN".to_string(), "primary".to_string())));
         let windows = include_str!("../../src/windows.rs");
         assert!(windows.contains("pub const SCREEN: &str = \"BAUD_SCREEN\";"));
@@ -299,7 +296,8 @@ mod tests {
     }
 
     /// **What a btop config would show of the machine**, by the keys
-    /// btop 1.4.7 reads (`[[source: btop-config-147]]`): each key once,
+    /// btop 1.4.7 reads (`[[source: btop-config-147]]`) and the container's
+    /// 1.4.6 reads alike (`[[source: btop-config-146]]`): each key once,
     /// since the last of two wins, and spelt as btop spells it, since it
     /// skips a key it does not know and keeps the default for a bool it
     /// cannot read.
@@ -343,7 +341,7 @@ mod tests {
     }
 
     /// **btop shows nothing of the machine but its load**, in all three
-    /// configs that run it: the demo's and the two scripts'. The load
+    /// configs that run it: the container's and the two scripts'. The load
     /// average is not among what this holds out, because btop 1.4.7 draws
     /// it in the cpu box whatever the config: `Cpu::draw` writes
     /// "Load avg:" once the core list ends, behind no key
@@ -356,7 +354,7 @@ mod tests {
         let film = include_str!("../../../scripts/readme-film.sh");
         let capture = include_str!("../../../scripts/readme-capture.sh");
         for (who, conf) in [
-            ("demo", BTOP),
+            ("container", BTOP),
             ("readme-film.sh", script_btop(film)),
             ("readme-capture.sh", script_btop(capture)),
         ] {
@@ -382,5 +380,43 @@ mod tests {
         assert_eq!(btop_shows(&unread), ["the CPU's frequency"]);
         let twice = format!("{BTOP}show_uptime = true\n");
         assert_eq!(btop_shows(&twice), ["a key given twice"]);
+    }
+
+    /// **The container's btop, naming nothing of the machine but its
+    /// load**, the file `nix/demo-container/default.nix` installs: its cpu
+    /// box alone, each key as btop describes it (`[[source:
+    /// btop-config-146]]`):
+    ///
+    /// - `shown_boxes = "cpu"`: "Manually set which boxes to show". Not
+    ///   `proc`, which names the user and every command line, nor `net`,
+    ///   which names the address, nor `mem`, whose "Total:" is the memory's
+    ///   size and whose disks are listed by volume name and size, nor `gpu0`.
+    /// - `custom_cpu_name = "CPU"`: "Custom cpu model name, empty string to
+    ///   disable"; empty, btop titles the core list with the chip's name.
+    /// - `show_gpu_info = "Off"`, `show_uptime`, `show_cpu_freq`,
+    ///   `show_disks` and `show_battery` false, and no clock.
+    ///
+    /// On the terminal's background, and drawn every 100 ms so its graphs
+    /// fill in the seconds it is on screen.
+    const BTOP: &str = include_str!("../../../nix/demo-container/btop.conf");
+
+    /// **The container's btop draws no battery and no clock**: in the
+    /// container both would be the VM's, and the clock is drawn by default
+    /// at the top of the cpu box -- `show_battery` "Show battery stats in
+    /// top right if battery is present", `clock_format` "Draw a clock at top
+    /// of screen ... empty string to disable" (`[[source: btop-config-146]]`)
+    /// -- and it is never told to save its settings over the file. The
+    /// control: the default clock.
+    #[test]
+    fn the_container_s_btop_draws_no_battery_and_no_clock() {
+        for line in [
+            "show_battery = false",
+            "clock_format = \"\"",
+            "save_config_on_exit = false",
+        ] {
+            assert!(BTOP.lines().any(|l| l == line), "{line}");
+        }
+        let clock = BTOP.replace("clock_format = \"\"", "clock_format = \"%X\"");
+        assert!(!clock.lines().any(|l| l == "clock_format = \"\""));
     }
 }

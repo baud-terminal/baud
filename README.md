@@ -9,7 +9,7 @@
 
 [Install](#install) · [Features](docs/guide/features.md) · [Configuration](docs/guide/configuration.md) · [Roadmap](docs/roadmap.md) · [Documentation](docs/README.md)
 
-<img src="assets/readme/hero.gif" width="776" alt="A real baud session: the logo carried off by the plasma as baud starts, btop, cat README.md and a scroll back through it, helix finding the tagline and jumping to the end and back with the cursor trail, a photo drawn in the terminal, neo, asciiquarium, and clear sending the cursor to the top with the trail">
+<img src="assets/readme/hero.gif" width="776" alt="A real baud session: the logo carried off by the plasma as baud starts; in helix, one word of baud's config changes its cursor trail from plasma to fire, and the cursor's trail changes with it; a greeting in Hebrew, Arabic, Chinese, Japanese, Korean, Hindi and emoji; over ssh to a server named demo, fastfetch shows baud's logo and btop its CPU, then fireworks burst at the cursor; back home, clear sends the cursor to the top in the fire trail">
 
 </div>
 

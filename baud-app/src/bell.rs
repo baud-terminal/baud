@@ -191,6 +191,32 @@ pub enum Update {
     Outlived,
 }
 
+/// **Whether a sampling of the activity lights sees a synchronised
+/// update**, for SYN: open now, or opened since the last sampling
+/// ([`Term::updates_opened`]). A program behind ssh sends its frames in
+/// reads microseconds apart, so `?2026h` and `?2026l` can both arrive
+/// between two samplings a frame apart, and the mode alone, read at each,
+/// is reset at both. The first reading is only the baseline: an update
+/// before it is not counted.
+pub(crate) struct Synced {
+    opened: Option<UpdatesOpened>,
+}
+
+impl Synced {
+    pub(crate) fn new() -> Synced {
+        Synced { opened: None }
+    }
+
+    /// **SYN at this sampling of `term`**: the update open now, or one
+    /// opened since the last reading, which this one replaces.
+    pub(crate) fn seen(&mut self, term: &Term<'_>) -> bool {
+        let opened = term.updates_opened();
+        let since = self.opened.is_some_and(|was| was != opened);
+        self.opened = Some(opened);
+        term.synchronized_output() || since
+    }
+}
+
 /// How long the frames held now have been held, timed from the opening of
 /// the update that began the hold. A close and a reopen in one read is a
 /// new update ([`Term::updates_opened`]). Found after the clock last

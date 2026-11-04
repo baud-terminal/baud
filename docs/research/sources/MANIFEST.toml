@@ -42309,3 +42309,101 @@ group  = "C"
 # field's `default_value_ptr = &entry.default` (89-108), and `reset` sets `self.saved = .{}` (28-33);
 # lines 68-77: `restore` copies the saved value back, so a mode never saved restores
 # its default.
+[sources.btop-config-146]
+key    = "btop-config-146"
+title  = "btop v1.4.6, src/btop_config.cpp -- every configuration key, its description and its default: the README container's btop"
+author = "Jakob P. Liljenberg (aristocratos) and the btop contributors"
+year   = 2026
+venue  = "btop (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/aristocratos/btop/v1.4.6/src/btop_config.cpp"
+file   = ""
+sha256 = "57dea7ed42826da41c6ebce48e36c76b007b73b18a2614afd3a9b6e849a632e3"
+bytes  = 30600
+status = "external"
+group  = "C"
+# Fetched and read, not committed; the same bytes as the btop.src of the
+# nixpkgs the repository flake pins, which the demo's container runs. Line
+# 94: shown_boxes, "Manually set which boxes to show"; 139 show_uptime; 158
+# show_cpu_freq; 162: clock_format, "Draw a clock at top of screen ...
+# empty string to disable", default "%X" (259); 167: custom_cpu_name,
+# "Custom cpu model name, empty string to disable"; 182 show_disks; 213:
+# show_battery, "Show battery stats in top right if battery is present";
+# 221: save_config_on_exit, default true (338). show_gpu_info's default is
+# "Auto" (276). The keys the demo sets are 1.4.7's too (btop-config-147).
+[sources.fastfetch-2-60-0-image-c]
+key    = "fastfetch-2-60-0-image-c"
+title  = "fastfetch 2.60.0, src/logo/image/image.c -- the iterm logo: the file sent whole in OSC 1337 File, and the screen cleared unless both a width and a height are set"
+author = "Linus Dierheimer, Carter Li and the fastfetch contributors"
+year   = 2026
+venue  = "fastfetch-cli/fastfetch, tag 2.60.0 (MIT)"
+url    = "https://raw.githubusercontent.com/fastfetch-cli/fastfetch/2.60.0/src/logo/image/image.c"
+file   = ""
+sha256 = "910ba77746d8270f788ffb41e8cd8e44e834762cec644821de95adc6263a3993"
+bytes  = 38569
+status = "external"
+group  = "C"
+# Fetched and read, not committed; the same bytes as the fastfetchMinimal
+# source of the nixpkgs the repository flake pins, which is built with
+# ENABLE_IMAGEMAGICK6, ENABLE_IMAGEMAGICK7 and ENABLE_CHAFA false. 22-140:
+# printImageIterm reads the file, base64s it and writes it in
+# `ESC ] 1337 ; File=inline=1`; with no width or no height it first writes
+# `CSI 2 J CSI 3 J` (48) and asks for the cursor (`CSI 6 n`), and with both
+# it writes `width=;height=;preserveAspectRatio=` at the cursor (110). 1076:
+# the iterm type is taken before 1096's "Image Magick support is not
+# compiled in"; 263-: kitty-direct sends the file's path (`t=f`).
+[sources.fastfetch-2-60-0-structure-txt]
+key    = "fastfetch-2-60-0-structure-txt"
+title  = "fastfetch 2.60.0, src/data/structure.txt -- the default module list"
+author = "Linus Dierheimer, Carter Li and the fastfetch contributors"
+year   = 2026
+venue  = "fastfetch-cli/fastfetch, tag 2.60.0 (MIT)"
+url    = "https://raw.githubusercontent.com/fastfetch-cli/fastfetch/2.60.0/src/data/structure.txt"
+file   = ""
+sha256 = "d3241cb8f0bba54f64739c8ebc638a1a539b068bed35b47fecb340d0c916f3bf"
+bytes  = 195
+status = "external"
+group  = "C"
+# Read, not committed; the same bytes as the fastfetchMinimal source of the
+# nixpkgs the repository flake pins. One line, the 29 modules of the
+# default card: Title, Separator, OS, Host, Kernel, Uptime, Packages,
+# Shell, Display, DE, WM, WMTheme, Theme, Icons, Font, Cursor, Terminal,
+# TerminalFont, CPU, GPU, Memory, Swap, Disk, LocalIp, Battery,
+# PowerAdapter, Locale, Break, Colors. CMakeLists.txt 351 compiles it in
+# as FASTFETCH_DATATEXT_STRUCTURE.
+[sources.fastfetch-2-60-0-jsonconfig-c]
+key    = "fastfetch-2-60-0-jsonconfig-c"
+title  = "fastfetch 2.60.0, src/common/impl/jsonconfig.c and src/fastfetch.c -- a config file's modules, and none printed when it lists none"
+author = "Linus Dierheimer, Carter Li and the fastfetch contributors"
+year   = 2026
+venue  = "fastfetch-cli/fastfetch, tag 2.60.0 (MIT)"
+url    = "https://raw.githubusercontent.com/fastfetch-cli/fastfetch/2.60.0/src/common/impl/jsonconfig.c"
+file   = ""
+sha256 = "f73564d5defe8c31607c00651a7fe3813e928e2189e1d6f0994830e34d7ae60d"
+bytes  = 12321
+status = "external"
+group  = "C"
+# Read, not committed; the same bytes as the fastfetchMinimal source of the
+# nixpkgs the repository flake pins. jsonconfig.c 242-243: the config's
+# "modules" is read and, absent, nothing is printed ("if (!modules) return
+# NULL;"). src/fastfetch.c (sha256 f36c9abfad7eb8b2a436ef4b9d6915704059072
+# 842110060ec198f85fd9a2804, 32587 bytes) 776-787, run(): with a config
+# file the JSON path is taken, and the default structure is used only
+# without one -- so a config that sets the logo must list the default
+# modules to print the default card.
+[sources.busybox-1-37-0-lineedit-c]
+key    = "busybox-1-37-0-lineedit-c"
+title  = "BusyBox 1.37.0, libbb/lineedit.c -- the fancy prompt: \\e, \\a and the \\[ \\] that keep non-printing characters out of the prompt's width"
+author = "Vladimir Oleynik, Erik Andersen and the BusyBox contributors"
+year   = 2024
+venue  = "busybox.net/downloads/busybox-1.37.0.tar.bz2 (GPL-2.0-only; sha256 3311dff32e746499f4df0d5df04d7eb396382d7e108bb9250e7b519b837043a4)"
+url    = "https://busybox.net/downloads/busybox-1.37.0.tar.bz2"
+file   = ""
+sha256 = "db9c0969787af3995f96bdde53527d5aca5c5f8b0397c3be8045b46a2631ff93"
+bytes  = 79162
+status = "external"
+group  = "C"
+# The member libbb/lineedit.c of the release tarball, the source nixpkgs
+# builds the container's busybox from; read, not committed. 1974: "\e ASCII
+# escape character (033)", by bb_process_escape_sequence, as \a; 1987: "\[
+# begin a sequence of non-printing characters"; 2096-2098 toggle the flag
+# and 2111 counts a character into the prompt's width only outside it.

@@ -1105,7 +1105,7 @@ impl Config {
 
     /// The paths in `self` made the file's at `path`: a relative font path
     /// beside it, and the file itself as the config in force.
-    fn beside(&mut self, path: &std::path::Path) {
+    pub(crate) fn beside(&mut self, path: &std::path::Path) {
         if let Some(dir) = path.parent() {
             self.faces_beside(dir, absolute_dir(std::env::var_os("HOME")).as_deref());
         }
@@ -2806,7 +2806,7 @@ fn read_first(paths: &[std::path::PathBuf]) -> Option<(std::path::PathBuf, Strin
 /// started in, which baud never changes: a relative `BAUD_CONFIG` typed
 /// in a shell names the file under that shell's directory, and the path
 /// the log says, and the `themes` beside it, are that file's.
-fn config_paths(
+pub(crate) fn config_paths(
     given: Option<std::path::PathBuf>,
     xdg: Option<std::path::PathBuf>,
     home: Option<std::path::PathBuf>,

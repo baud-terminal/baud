@@ -2608,10 +2608,11 @@ impl Driver {
     /// FAX read at most once a frame (`own_line::SAMPLE`), the clocks
     /// stepped at the motion preference's pace -- full
     /// glow, the portal having no Dim Flashing Lights -- and a frame owed
-    /// when the line shows something else. Nothing is read while the lights
-    /// are elsewhere or off.
+    /// when the line shows something else. Nothing but SYN's reading is
+    /// taken while the lights are elsewhere or off.
     fn tick_lights(&mut self) {
         if self.activity_lights.line().is_none() {
+            self.lights.away(&self.term);
             return;
         }
         let now = self.timed.clock.host(Instant::now());

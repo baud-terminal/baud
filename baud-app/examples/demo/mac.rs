@@ -52,7 +52,7 @@ extern "C" fn on_interrupt(_: i32) {
 
 /// **Ctrl-C sets [`crate::container::INTERRUPTED`]** rather than ending
 /// the process, so the session's waits return through the drops that
-/// remove the container and put colima back. A handler, not `SIG_IGN`:
+/// remove the container and delete its VM. A handler, not `SIG_IGN`:
 /// a caught signal is reset to its default in a program the demo starts
 /// (`[[source: posix-exec]]`), so zsh, ssh and baud still take Ctrl-C.
 pub fn catch_interrupt() {
@@ -278,7 +278,7 @@ impl Poster {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keys::{RETURN, RETURN_NAME, US};
+    use crate::keys::{ESCAPE, ESCAPE_NAME, RETURN, RETURN_NAME, US};
 
     /// **Ctrl-C sets the flag and the process lives**: the handler
     /// installed, a real `SIGINT` raised against this process sets
@@ -323,10 +323,11 @@ mod tests {
     /// **The key codes, and the trust call's type, are the SDK headers'
     /// own**: a C probe compiled against `Carbon.h` and
     /// `ApplicationServices.h` prints every `kVK_` name the U.S. table
-    /// gives, `kVK_Return`, and `sizeof(Boolean)`, and refuses to compile
-    /// unless `AXIsProcessTrusted` is `Boolean (void)`. A name the header
-    /// does not have fails the compile; a code that differs fails here.
-    /// The control: the probe printed one value a line it was given.
+    /// gives, `kVK_Return`, `kVK_Escape` and `sizeof(Boolean)`, and
+    /// refuses to compile unless `AXIsProcessTrusted` is `Boolean (void)`.
+    /// A name the header does not have fails the compile; a code that
+    /// differs fails here. The control: the probe printed one value a line
+    /// it was given.
     /// Perturbation: give `p` the code 0x22 and its row fails.
     #[test]
     fn the_key_codes_are_the_headers_own() {
@@ -337,7 +338,11 @@ mod tests {
              Boolean (void)), \"AXIsProcessTrusted is Boolean (void)\");\n\
              int main(void) {\n  printf(\"Boolean.size=%d\\n\", (int)sizeof(Boolean));\n",
         );
-        let names: Vec<&str> = US.iter().map(|(_, n, _)| *n).chain([RETURN_NAME]).collect();
+        let names: Vec<&str> = US
+            .iter()
+            .map(|(_, n, _)| *n)
+            .chain([RETURN_NAME, ESCAPE_NAME])
+            .collect();
         for n in &names {
             src.push_str(&format!("  printf(\"{n}=%d\\n\", (int){n});\n"));
         }
@@ -372,5 +377,6 @@ mod tests {
             assert_eq!(h[name], i64::from(code), "{ch:?} is {name}");
         }
         assert_eq!(h[RETURN_NAME], i64::from(RETURN.code));
+        assert_eq!(h[ESCAPE_NAME], i64::from(ESCAPE.code));
     }
 }

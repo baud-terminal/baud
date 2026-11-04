@@ -1001,7 +1001,7 @@ mod tests {
             "crate::line_lamps::give(&mut self.app.term, given)",
             "crate::lights::feed(&mut self.app.activity, Led::Oh, oh, now);",
             "crate::lights::feed(&mut self.app.activity, Led::Cd, cd, now);",
-            "self.app.term.synchronized_output()",
+            "let synced = self.synced.seen(&self.app.term);",
             "self.app.term.images().any_placed()",
             "crate::access::lights_pace(self.app.motion)",
             "glow: crate::lights::glow(self.app.flashing),",

@@ -2,7 +2,7 @@
 //! needed.** baud's own font draws Latin, Hebrew with its points, box
 //! drawing and the Nerd Font icons; the rest comes from open faces pinned
 //! by release tag and SHA-256, fetched once into a cache outside the
-//! repository, all four under the SIL Open Font License 1.1.
+//! repository, all five under the SIL Open Font License 1.1.
 //!
 //! baud asks the system for a face only for a character no face of its
 //! chain draws (`baud-app/src/fallback.rs`), and that tier stands behind
@@ -36,12 +36,15 @@ impl Pinned {
 /// **The pinned faces, in the order baud tries them.** Noto Color Emoji
 /// is the CBDT build baud-font reads, at tag `v2.051`; Noto Sans CJK SC at
 /// `Sans2.004`, the two `scripts/readme-capture.sh` pins; Noto Naskh
-/// Arabic 2.021 and Noto Sans Devanagari 2.007 from Noto's monthly release
-/// of 2026-10-01. A Naskh letter wider than its cell, as the medial sad
-/// is, is fitted to the cell (`baud-render/src/fit.rs`). One CJK face
-/// draws all three languages, its Han in their Chinese forms, as baud
-/// picks a face by character and not by language.
-pub const PINNED: [Pinned; 4] = [
+/// Arabic 2.021, Noto Sans Devanagari 2.007 and Noto Sans Symbols 2 2.008
+/// from Noto's monthly release `noto-monthly-release-2026.10.01`. A Naskh
+/// letter wider than its cell, as the medial sad is, is fitted to the cell
+/// (`baud-render/src/fit.rs`). One CJK face draws all three languages, its
+/// Han in their Chinese forms, as baud picks a face by character and not
+/// by language. Noto Sans Symbols 2 draws the whole Braille Patterns block,
+/// U+2800 to U+28FF, which btop draws its graphs with and baud's own font
+/// has none of: without it the film's braille came from the system.
+pub const PINNED: [Pinned; 5] = [
     Pinned {
         name: "Noto Color Emoji",
         url: "https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.051/fonts/NotoColorEmoji.ttf",
@@ -52,7 +55,7 @@ pub const PINNED: [Pinned; 4] = [
         name: "Noto Sans CJK SC",
         url: "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
         sha256: "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
-        draws: "Chinese, Japanese with neo's half-width katakana, Korean",
+        draws: "Chinese, Japanese, Korean",
     },
     Pinned {
         name: "Noto Naskh Arabic",
@@ -66,6 +69,12 @@ pub const PINNED: [Pinned; 4] = [
         sha256: "9c7d935139ea6a1e6ad9dbac4f6d27ece1e04bca8123c8888d00a0f9df4724cd",
         draws: "Hindi",
     },
+    Pinned {
+        name: "Noto Sans Symbols 2",
+        url: "https://raw.githubusercontent.com/notofonts/notofonts.github.io/noto-monthly-release-2026.10.01/fonts/NotoSansSymbols2/unhinted/ttf/NotoSansSymbols2-Regular.ttf",
+        sha256: "c4a0a80f0041ce4be81e2478faad22776d23edb98ae3f0d19bd37044820ecf9d",
+        draws: "btop's braille",
+    },
 ];
 
 /// baud's own faces, the files the binary embeds (`baud-app/src/embedded.rs`):
@@ -75,14 +84,6 @@ pub const REGULAR: &[u8] = include_bytes!("../../fonts/built/Regular.ttf");
 pub const SYMBOLS: &[u8] =
     include_bytes!("../../fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
 pub const STIX: &[u8] = include_bytes!("../../fonts/stix-two-math/STIXTwoMath-Regular.otf");
-
-/// **neo's characters**: its rain is half-width katakana by default, as
-/// its manual says ("the characters used (half-width katakana)"), the
-/// block U+FF61 to U+FF9F, which the session shows though no file of it
-/// holds them.
-pub fn neo_katakana() -> String {
-    (0xFF61..=0xFF9F).filter_map(char::from_u32).collect()
-}
 
 /// **Whether baud would ask the system for a face for `c`** when no face
 /// of its chain draws it: `fallback::asked_for`'s rule -- an assigned
@@ -157,7 +158,7 @@ pub fn coverage(faces: &[(&str, &[u8])], text: &str) -> Result<Coverage, String>
 mod tests {
     use super::*;
 
-    /// **baud's own faces draw the README, the prompt and pointed Hebrew,
+    /// **baud's own faces draw the config, the prompts and pointed Hebrew,
     /// and a CJK character is a gap without a CJK face**: the table lists
     /// 终 as no face's, which is what would send baud to the system. The
     /// control that the check can fire, on faces this repository carries.
@@ -171,9 +172,11 @@ mod tests {
             ("STIX Two Math", STIX),
         ];
         let text = format!(
-            "{}{}{}",
-            crate::scratch::README,
+            "{}{}{}{}{}",
+            crate::scratch::config(&["NotoColorEmoji.ttf"]),
             crate::session::PROMPT_SHOWN,
+            crate::session::REMOTE_PROMPT,
+            crate::session::FIREWORKS,
             crate::session::HELLO.lines().next().unwrap()
         );
         let c = coverage(&own, &text).unwrap();
@@ -201,7 +204,6 @@ mod tests {
             );
         }
         assert!(asked_for(Codepoint::from_char('终')));
-        assert_eq!(neo_katakana().chars().count(), 0x3F);
         assert_eq!(PINNED[1].file(), "NotoSansCJKsc-Regular.otf");
     }
 }

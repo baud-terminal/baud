@@ -886,6 +886,14 @@ impl<M: Moment> Chase<M> {
         };
     }
 
+    /// **The seed the next ignition takes**, which moves on each one an
+    /// effect lights past [`REIGNITE`] and on nothing else; a snap and a
+    /// restyle keep it.
+    #[cfg(test)]
+    pub(crate) fn next_seed(&self) -> Seed {
+        self.next_seed
+    }
+
     /// **The ledger** this chase weighs its passes on, which the ghost's
     /// sweeps are weighed on too, so a change of trail keeps the second's.
     pub fn ledger(&mut self) -> &mut Ledger<M> {

@@ -87,12 +87,11 @@ pub fn named_outside(bytes: &[u8], names: &[String], public: &[&str]) -> Vec<Str
 
 /// **Which of `names` an environment holds, the scratch directory aside**:
 /// every variable that must name a file -- `HOME`, `ZDOTDIR`, `TMPDIR`,
-/// `BAUD_CONFIG`, `BAUD_PTYLOG` -- names one under `root`, a fresh
-/// directory in the system's temporary one, so `root` itself is the one
-/// path of the machine the session carries. Each occurrence of it is
-/// taken out before the names are looked for, and `root`'s own last
-/// component must name nothing. Returns each variable and the names it
-/// holds.
+/// `BAUD_PTYLOG` -- names one under `root`, a fresh directory in the
+/// system's temporary one, so `root` itself is the one path of the machine
+/// the session carries. Each occurrence of it is taken out before the
+/// names are looked for, and `root`'s own last component must name
+/// nothing. Returns each variable and the names it holds.
 pub fn env_named(
     env: &[(String, String)],
     root: &str,

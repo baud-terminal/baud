@@ -18,90 +18,93 @@ pub enum Step {
     Keys(&'static str),
     /// Type keys into the program on screen, then Return.
     Line(&'static str),
+    /// Press Escape: the key, which baud encodes as the program on screen
+    /// asked (`Term::key`), not an ESC typed as text.
+    Escape,
     /// Hold the screen, in milliseconds of real time.
     Hold(u32),
     /// Turn the wheel at the centre of baud's window: `turns` events of
     /// `lines` lines each, [`WHEEL_GAP_MS`] apart. Positive shows earlier
-    /// lines, so it scrolls up into the history.
+    /// lines, so it scrolls up into the history. No shot of this take
+    /// turns it.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "no shot of the README take turns the wheel")
+    )]
     Wheel { turns: i32, lines: i32 },
-    /// Wait for `text` to come back in baud's pty log after the last
-    /// typing began: the prompt of a shell that is not baud's and marks
-    /// none, the container's ([`REMOTE_PROMPT`]).
-    Await(&'static str),
 }
 
-use Step::{Await, Hold, Keys, Line, Prompt, Run, Wheel};
+#[cfg(test)]
+use Step::Wheel;
+use Step::{Escape, Hold, Keys, Line, Prompt, Run};
 
-/// **The session the README's clip films**, about 30 seconds of it.
+/// **The session the README's clip films**, about 17 seconds of it: one
+/// visible edit of baud's own config changes the cursor's trail, then the
+/// scripts, a server over ssh, its system card and its load, fireworks
+/// sent over the wire, home, and the empty prompt the clip loops to.
 pub const SESSION: &[Step] = &[
     // The launch: the splash carried off, then the prompt.
     Prompt,
-    Hold(700),
-    // btop, its cpu box alone, drawn every 100 ms.
-    Run("btop"),
-    Hold(2500),
-    Keys("q"),
-    Prompt,
-    Hold(300),
-    // A long file, then the wheel up the history and back down, which
-    // shows the overlay scrollbar.
-    Run("cat README.md"),
-    Prompt,
     Hold(600),
-    Wheel { turns: 4, lines: 6 },
-    Hold(600),
-    Wheel {
-        turns: -4,
-        lines: 6,
-    },
+    // baud's config in helix: the plasma trail down to its last line, the
+    // word changed to fire and saved, and fire trails up and down again,
+    // by baud's live reload of the file it reads.
+    Run("hx ~/.config/baud/config.toml"),
     Hold(300),
+    Keys("ge"),
+    Hold(600),
+    Line("/plasma"),
+    Keys("cfire"),
+    Escape,
+    Line(":w"),
+    // Past the 334 ms after the cursor's return from the command line lit
+    // the last plasma, within which baud lights no other effect.
+    Hold(400),
+    Keys("gg"),
+    Hold(600),
+    Keys("ge"),
+    Hold(500),
+    Line(":q"),
+    Prompt,
+    Hold(150),
     // Six languages and a line of emoji in the grid.
     Run("cat hello.txt"),
     Prompt,
-    Hold(2000),
-    // ssh into a container on this machine, fastfetch there and back:
-    // CD is lit while ssh holds its connection (`container.rs`).
+    Hold(1100),
+    // ssh into a container on this machine, its badge and CD lit while
+    // ssh holds its connection (`container.rs`); its shell marks each
+    // prompt as baud's does.
     Run("ssh demo"),
-    Await(REMOTE_PROMPT),
-    Hold(500),
+    Prompt,
+    Hold(300),
+    // Its system card, baud's mark beside it as a picture.
     Run("fastfetch"),
-    Await(REMOTE_PROMPT),
-    Hold(2500),
+    Prompt,
+    Hold(1400),
+    // btop, its cpu box alone, drawn every 100 ms, sliding in and out.
+    Run("btop"),
+    Hold(1200),
+    Keys("q"),
+    Prompt,
+    Hold(150),
+    // iTerm2's fireworks, asked for over the wire, the request typed out.
+    Run(FIREWORKS),
+    Prompt,
+    Hold(1100),
+    // Home: the badge cleared, CD dark.
     Run("exit"),
     Prompt,
-    Hold(300),
-    // helix: find the tagline's word, jump to the end and back, quit.
-    Run("hx README.md"),
-    Hold(800),
-    Line("/character"),
-    Hold(600),
-    Keys("ge"),
-    Hold(600),
-    Keys("gg"),
-    Hold(600),
-    Line(":q"),
-    Prompt,
-    Hold(300),
-    // A photo, sent in kitty's graphics protocol.
-    Run("kitten icat --transfer-mode=stream canazei.jpg"),
-    Prompt,
-    Hold(1000),
-    Run("neo"),
-    Hold(2200),
-    Keys("q"),
-    Prompt,
-    Hold(300),
-    // Six pipes, drawn from box-drawing characters: no art in them.
-    Run("pipes-rs -p 6"),
-    Hold(2600),
-    Keys("q"),
-    Prompt,
-    Hold(300),
+    Hold(200),
     // The cursor back at the top, and the empty prompt the clip loops to.
     Run("clear"),
     Prompt,
     Hold(1000),
 ];
+
+/// **The fireworks' request**, typed at the container's shell in full:
+/// `OSC 1337 ; RequestAttention=fireworks BEL`, iTerm2's, which the
+/// container's busybox `printf` writes for its `\e` and `\a`.
+pub const FIREWORKS: &str = "printf '\\e]1337;RequestAttention=fireworks\\a'";
 
 /// The gap between two keys, in milliseconds, around which each is drawn
 /// (`keys::Gaps`): about a fast typist's.
@@ -145,26 +148,21 @@ pub const HELLO: &str = concat!(
     "端末はすべての文字を格子に並べる。\n",
     "터미널은 모든 글자를 격자에 넣는다.\n",
     "टर्मिनल हर अक्षर को ग्रिड में रखता है।\n",
-    // 💻 ➡️ 🔤 ➡️ 🔲, two spaces, 🇮🇱 🇪🇬 🇨🇳 🇯🇵 🇰🇷 🇮🇳; the arrows
-    // carry U+FE0F, so they are drawn as emoji rather than as text.
-    "\u{1F4BB} \u{27A1}\u{FE0F} \u{1F524} \u{27A1}\u{FE0F} \u{1F532}  ",
+    // 💻 ➡️ 🔤 ➡️ 🔲, two spaces, 🇮🇱 🇪🇬 🇨🇳 🇯🇵 🇰🇷 🇮🇳; the laptop and
+    // the arrows carry U+FE0F, each a sequence emoji-variation-sequences
+    // lists, so they are drawn as emoji rather than as text: baud's default
+    // presentation is the first face's to have the character, and Noto
+    // Sans Symbols 2, pinned for btop's braille, draws a laptop in outline.
+    "\u{1F4BB}\u{FE0F} \u{27A1}\u{FE0F} \u{1F524} \u{27A1}\u{FE0F} \u{1F532}  ",
     "\u{1F1EE}\u{1F1F1} \u{1F1EA}\u{1F1EC} \u{1F1E8}\u{1F1F3} ",
     "\u{1F1EF}\u{1F1F5} \u{1F1F0}\u{1F1F7} \u{1F1EE}\u{1F1F3}\n",
 );
 
-/// **The characters pipes-rs draws its pipes with**: its default kind,
-/// heavy, `['┃', '┃', '━', '━', '┏', '┓', '┗', '┛']`
-/// (`[[source: pipes-rs-1-6-4-kind-rs]]`), for the font check. On `q` it
-/// leaves the alternate screen (`[[source: pipes-rs-1-6-4-terminal-rs]]`),
-/// so the screen before it comes back for `clear` to carry the cursor
-/// from; pipes.sh ends with `tput reset` (`[[source: pipes-sh-1-3-0]]`),
-/// a full reset that clears the screen first.
-pub const PIPES: &str = "┃━┏┓┗┛";
-
-/// **The container's prompt**, busybox ash's `PS1` of `\u@\h:\w\$ ` for
-/// the container's user and host (`container::USER`, `container::HOST`)
-/// in the user's home: what [`Await`] waits for once ssh has connected
-/// and again once each command there has run.
+/// **The container's prompt as it is drawn**, busybox ash's `PS1` of
+/// `\u@\h:\w\$ ` for the container's user and host (`container::USER`,
+/// `container::HOST`) in the user's home, for the font check. Before it
+/// the prompt writes [`PROMPT_MARK`], as baud's own shell does, so a
+/// [`Prompt`] counts the container's prompts too.
 pub const REMOTE_PROMPT: &str = "baud@demo:~$ ";
 
 /// The shell's prompt, for zsh's `PS1`: nothing of the machine in it.
@@ -189,11 +187,11 @@ pub fn duration(steps: &[Step]) -> Duration {
             Run(t) => (t.chars().count() + 1) as f64 * KEY_GAP_MS,
             Keys(t) => t.chars().count() as f64 * KEY_GAP_MS,
             Line(t) => (t.chars().count() + 1) as f64 * KEY_GAP_MS,
+            Escape => KEY_GAP_MS,
             Hold(ms) => f64::from(ms),
-            Wheel { turns, .. } => {
+            Step::Wheel { turns, .. } => {
                 (WHEEL_SETTLE_MS + u64::from(turns.unsigned_abs()) * WHEEL_GAP_MS) as f64
             }
-            Await(_) => 0.0,
         })
         .sum();
     Duration::from_secs_f64(ms / 1000.0)
@@ -207,32 +205,34 @@ pub fn describe(step: Step, prompt: usize) -> String {
         Run(t) => format!("type `{t}`, wait for its echo, Return"),
         Keys(t) => format!("type `{t}`"),
         Line(t) => format!("type `{t}`, Return"),
-        Hold(ms) => format!("hold {:.1} s", f64::from(ms) / 1000.0),
-        Wheel { turns, lines } => format!(
+        Escape => "press Escape".to_string(),
+        Hold(ms) => format!("hold {:.2} s", f64::from(ms) / 1000.0),
+        Step::Wheel { turns, lines } => format!(
             "wheel {} turns of {lines} lines {} at the window's centre",
             turns.unsigned_abs(),
             if turns > 0 { "up" } else { "down" }
         ),
-        Await(t) => format!("wait for `{t}` from the program on screen"),
     }
 }
 
 /// **The events log's line for a step**, one for every step: `prompt N`
-/// once the shell's prompt has come, `keys ...` as typing begins, `hold
-/// N ms` as a hold begins, `wheel T x L` once the wheel has turned.
+/// once the shell's prompt has come, `keys ...` as typing begins, `key
+/// Escape` as it is pressed, `hold N ms` as a hold begins, `wheel T x L`
+/// once the wheel has turned.
 pub fn event(step: Step, prompt: usize) -> String {
     match step {
         Prompt => format!("prompt {prompt}"),
         Run(t) | Keys(t) | Line(t) => format!("keys {t}"),
+        Escape => "key Escape".to_string(),
         Hold(ms) => format!("hold {ms} ms"),
-        Wheel { turns, lines } => format!("wheel {turns} x {lines}"),
-        Await(t) => format!("await {t}"),
+        Step::Wheel { turns, lines } => format!("wheel {turns} x {lines}"),
     }
 }
 
 /// The mark baud's zsh integration prints before each prompt
 /// (`baud-app/src/shell/zshenv.zsh`): `ESC ] 133 ; A ;`, then the shell's
-/// pid.
+/// pid. The container's prompt writes it too, with nothing after the
+/// semicolon (`nix/demo-container/profile`).
 pub const PROMPT_MARK: &[u8] = b"\x1b]133;A;";
 
 /// How many prompt marks `bytes` holds.
@@ -245,8 +245,8 @@ pub fn marks(bytes: &[u8]) -> usize {
 
 /// Whether `text` came back in `log` at or after `from`: what the keys
 /// spelled was echoed. Only the bytes since the typing began count, so a
-/// word an earlier screen printed -- the README names btop and neo --
-/// cannot stand in for the keys arriving.
+/// word an earlier screen printed -- helix's screen holds the config's
+/// words -- cannot stand in for the keys arriving.
 pub fn echoed(log: &[u8], from: usize, text: &str) -> bool {
     let tail = log.get(from..).unwrap_or(&[]);
     let t = text.as_bytes();
@@ -257,44 +257,76 @@ pub fn echoed(log: &[u8], from: usize, text: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// **The session waits for ten prompts**: the launch and one after each
-    /// of the nine commands typed at baud's shell; the two typed in the
-    /// container, and ssh itself, wait for its prompt instead. Perturbation:
-    /// drop the `Prompt` after `cat hello.txt` and the count is nine.
+    /// **The session waits for nine prompts**: the launch and one after
+    /// each of the eight commands, the four typed in the container among
+    /// them, whose shell marks its prompts as baud's does; helix's `:q` is
+    /// the first. Perturbation: drop the `Prompt` after `cat hello.txt` and
+    /// the count is eight.
     #[test]
     fn the_session_waits_for_a_prompt_after_every_command() {
-        assert_eq!(prompts(SESSION), 10);
+        assert_eq!(prompts(SESSION), 9);
         let runs = SESSION.iter().filter(|s| matches!(s, Run(_))).count();
-        assert_eq!(
-            runs, 11,
-            "nine commands at baud's shell, two in the container"
-        );
-        let awaits = SESSION
-            .iter()
-            .filter(|s| **s == Await(REMOTE_PROMPT))
-            .count();
-        assert_eq!(
-            awaits, 2,
-            "the container's prompt, after ssh and after fastfetch"
-        );
+        assert_eq!(runs, 8, "four at baud's shell, four in the container");
         let at = SESSION.iter().position(|s| *s == Run("ssh demo")).unwrap();
         assert_eq!(
-            &SESSION[at..at + 9],
+            &SESSION[at..at + 3],
+            [Run("ssh demo"), Prompt, Hold(300)],
+            "into the container, to its own marked prompt"
+        );
+        let ran: Vec<&str> = SESSION
+            .iter()
+            .filter_map(|s| match s {
+                Run(t) => Some(*t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            ran,
             [
-                Run("ssh demo"),
-                Await(REMOTE_PROMPT),
-                Hold(500),
-                Run("fastfetch"),
-                Await(REMOTE_PROMPT),
-                Hold(2500),
-                Run("exit"),
-                Prompt,
-                Hold(300),
-            ],
-            "in, fastfetch, and out to baud's shell's prompt"
+                "hx ~/.config/baud/config.toml",
+                "cat hello.txt",
+                "ssh demo",
+                "fastfetch",
+                "btop",
+                FIREWORKS,
+                "exit",
+                "clear"
+            ]
         );
         assert_eq!(SESSION.first(), Some(&Prompt), "the launch's prompt first");
         assert_eq!(SESSION.last(), Some(&Hold(1000)), "the clear screen held");
+    }
+
+    /// **The trail is changed by one visible edit, saved before the jump
+    /// that shows it**: `ge` to the config's last line, `/plasma` selects
+    /// the word, `c` replaces it with `fire`, Escape leaves insert mode and
+    /// `:w` saves, and only then `gg`. The hold after `:w` is past baud's
+    /// reload and past the 334 ms after the cursor's return from helix's
+    /// command line lit its last plasma, within which baud lights no
+    /// other effect (`REIGNITE` in `trail.rs`), so `gg` draws the fire;
+    /// at 150 ms the headless session drew none there. The control: the
+    /// steps in that order, with the save before the jump back.
+    /// Perturbation: put `gg` before `:w` and the save's place fails.
+    #[test]
+    fn the_trail_is_changed_by_one_saved_edit() {
+        let at = |step: Step| SESSION.iter().position(|s| *s == step).unwrap();
+        let edit = at(Line("/plasma"));
+        assert_eq!(
+            &SESSION[edit - 2..edit + 6],
+            [
+                Keys("ge"),
+                Hold(600),
+                Line("/plasma"),
+                Keys("cfire"),
+                Escape,
+                Line(":w"),
+                Hold(400),
+                Keys("gg"),
+            ]
+        );
+        assert!(at(Line(":w")) < at(Keys("gg")));
+        assert!(matches!(SESSION[at(Line(":w")) + 1], Hold(ms) if ms > 334));
+        assert_eq!(FIREWORKS, "printf '\\e]1337;RequestAttention=fireworks\\a'");
     }
 
     /// **The plan's duration is its holds, its keys and its wheel**: 1.5 s
@@ -322,18 +354,22 @@ mod tests {
         assert!((d - 2.24).abs() < 1e-9, "{d}");
         let whole = duration(SESSION).as_secs_f64();
         assert!(
-            (25.0..35.0).contains(&whole),
-            "the README session is about 27 s before its waits: {whole}"
+            (15.0..20.0).contains(&whole),
+            "the README session is about 15.5 s before its waits: {whole}"
         );
+        let esc = duration(&[Escape]).as_secs_f64();
+        assert!((esc - 0.04).abs() < 1e-9, "Escape is one key: {esc}");
     }
 
-    /// **A prompt is its mark, counted exactly**, and the echo is looked
-    /// for only past the offset the typing began at. The control: the word
-    /// before the offset is not found after it.
+    /// **A prompt is its mark, counted exactly**, the container's bare
+    /// `133;A;` as baud's own, and the echo is looked for only past the
+    /// offset the typing began at. The control: the word before the offset
+    /// is not found after it.
     #[test]
     fn prompts_are_counted_and_echo_is_looked_for_after_the_typing() {
         let log = b"\x1b]133;A;aid=7\x07baud > neo\r\n\x1b]133;D;0\x07\x1b]133;A;aid=7\x07";
         assert_eq!(marks(log), 2);
+        assert_eq!(marks(b"\x1b]133;A;\x07baud@demo:~$ "), 1, "the container's");
         assert_eq!(marks(b"\x1b]133;B\x07\x1b]133;C\x07"), 0);
         let at = log.len();
         let more = [&log[..], b"neo"].concat();
@@ -367,6 +403,7 @@ mod tests {
             holds
         );
         assert_eq!(event(Hold(700), 0), "hold 700 ms");
+        assert_eq!(event(Escape, 0), "key Escape");
         assert_eq!(lines[0], "prompt 1");
         assert_eq!(lines.last().map(String::as_str), Some("hold 1000 ms"));
     }
@@ -384,6 +421,7 @@ mod tests {
             assert!(hebrew.contains(point), "U+{:04X}", u32::from(point));
         }
         assert!(HELLO.contains("终端把每一个字都放进网格里。"));
+        assert!(HELLO.contains("\u{1F4BB}\u{FE0F} "), "the laptop as emoji");
         assert!(HELLO.contains("端末はすべての文字を格子に並べる。"));
     }
 }

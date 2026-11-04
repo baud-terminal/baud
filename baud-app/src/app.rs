@@ -4502,6 +4502,9 @@ struct Driver {
     /// it makes, on the tick while the lights are on (`front.rs`).
     front: crate::front::Front,
     procs: crate::front::Live,
+    /// SYN's reading of the synchronised update at the last tick, so one
+    /// opened and closed between two ticks still lights it (`bell.rs`).
+    synced: crate::bell::Synced,
     /// The config's files watched and the config as last read, while
     /// `config_reload` is on (`reload.rs`).
     reload: Option<Reloading>,
@@ -12963,6 +12966,7 @@ impl Opening {
             line_tips: crate::lights::LineTips::new(),
             front: crate::front::Front::new(),
             procs: crate::front::Live::new(),
+            synced: crate::bell::Synced::new(),
             reload: None,
             notice,
             glass_live: std::rc::Rc::new(std::cell::Cell::new(glass_cfg)),
@@ -14845,9 +14849,12 @@ impl Driver {
         if crate::line_lamps::give(&mut self.app.term, given) == crate::line_lamps::Owes::Frame {
             self.app.pending = Pending::Dirty;
         }
-        // SYN and FAX: the core's state at the tick.
+        // SYN and FAX: the core's state at the tick, SYN's reading taken
+        // whether or not the lights show, so showing them again lights
+        // nothing opened while they were away.
+        let synced = self.synced.seen(&self.app.term);
         if setting.shown() {
-            if self.app.term.synchronized_output() {
+            if synced {
                 self.app.activity.seen(Led::Syn, now);
             }
             if self.app.term.images().any_placed() {

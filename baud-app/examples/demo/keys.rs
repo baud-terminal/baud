@@ -112,6 +112,20 @@ pub const RETURN: Key = Key {
 #[cfg(test)]
 pub const RETURN_NAME: &str = "kVK_Return";
 
+/// **Escape**, `kVK_Escape`, whose text is the ESC control: what helix
+/// leaves insert mode by. baud encodes the key itself (`Term::key`), as
+/// the program on screen has asked for, so a program that pushed kitty's
+/// keyboard flags hears it in their form, not as a bare ESC.
+pub const ESCAPE: Key = Key {
+    code: 0x35,
+    held: Held::Nothing,
+    text: '\u{1b}',
+};
+
+/// The `kVK_` name of [`ESCAPE`]'s code, for the header probe.
+#[cfg(test)]
+pub const ESCAPE_NAME: &str = "kVK_Escape";
+
 fn code_of(c: char) -> Option<u16> {
     US.iter()
         .find(|(k, _, _)| *k == c)
@@ -155,7 +169,8 @@ pub fn presses(step: Step) -> Result<Vec<Key>, char> {
             Ok(keys)
         }
         Step::Keys(t) => keys_for(t),
-        Step::Prompt | Step::Hold(_) | Step::Wheel { .. } | Step::Await(_) => Ok(Vec::new()),
+        Step::Escape => Ok(vec![ESCAPE]),
+        Step::Prompt | Step::Hold(_) | Step::Wheel { .. } => Ok(Vec::new()),
     }
 }
 
@@ -242,6 +257,20 @@ mod tests {
         assert_eq!(key_for('~'), Some(k(0x32, Held::Shift, '~')));
         assert_eq!(presses(Step::Keys("ge")).unwrap().len(), 2);
         assert_eq!(presses(Step::Hold(10)).unwrap(), []);
+    }
+
+    /// **Escape is its own key, not a character typed**: the step presses
+    /// `kVK_Escape` alone, no Return after it, and no character of the U.S.
+    /// table types ESC, so `Keys` cannot stand in for it -- the text a
+    /// program pushed kitty's flags for would be a bare ESC rather than
+    /// baud's encoding of the key. Perturbation: give the step the Return
+    /// key and the first assertion fails.
+    #[test]
+    fn escape_is_its_own_key() {
+        assert_eq!(presses(Step::Escape).unwrap(), [ESCAPE]);
+        assert_eq!(ESCAPE.code, 0x35);
+        assert_eq!(key_for('\u{1b}'), None, "no character key types ESC");
+        assert!(!US.iter().any(|(_, _, c)| *c == ESCAPE.code));
     }
 
     /// **Every character the README session types has a U.S. key**, and a

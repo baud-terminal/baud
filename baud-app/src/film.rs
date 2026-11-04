@@ -34,6 +34,19 @@
 //! the new stack before it is kept: the app shows the boxes for one display
 //! refresh, which a film at 25 frames a second would hold for 40 ms.
 //!
+//! **A config read from a file is read again when the file changes**, as
+//! baud's reload reads it (`reload.rs`): the take reads the file at every
+//! turn, logs its text a settle after the last change (`reload::SETTLE`),
+//! and the film applies the parts that changed as the Linux driver applies
+//! them (`live::between`) -- the trail and the screen transition, the only
+//! parts a film draws differently; any other part fails the film rather
+//! than going unshown. An empty file is no change, since a save can
+//! truncate the file before it writes it, where baud's reload reads it as
+//! the defaults: the film departs from it there. Its relative paths are the
+//! file's, as baud reads them (`Config::beside`). The take watches by
+//! reading, not through the kernel's watch: every turn rather than on an
+//! event, which hears the same change at most a turn later.
+//!
 //! **The demo asks for the pointer through a file**, a line a gesture, named
 //! by `BAUD_FILM_CUES` in its environment: `wheel ROW COL STEPS` (detents,
 //! negative up the history), `drag ROW COL ROW COL`, `click ROW COL`, and
@@ -98,13 +111,17 @@ pub(crate) enum Child<'a> {
 }
 
 /// **A film to make**: what runs on the pty, the variables it is given,
-/// the grid, the config lines laid over [`BASE`], the frame period, and how
-/// long the take may wait for its end.
+/// the grid, the config lines laid over [`BASE`] and the file they were
+/// read from, if any, the frame period, and how long the take may wait for
+/// its end.
 pub(crate) struct Film<'a> {
     pub(crate) child: Child<'a>,
     pub(crate) env: Vec<(OsString, OsString)>,
     pub(crate) grid: WinSize,
     pub(crate) config: &'a str,
+    /// The file `config` was read from: its relative paths are beside it,
+    /// and a change to it is read again and applied (the module's doc).
+    pub(crate) source: Option<&'a Path>,
     pub(crate) period: Duration,
     pub(crate) limit: Duration,
 }
@@ -125,6 +142,15 @@ pub(crate) struct Frame<'p> {
 
 /// What a take gave besides its frames.
 pub(crate) struct Take {
+    /// The trail the film drew, from its first frame and at each change,
+    /// with the session's step the frame was in.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) trails: Vec<(Option<usize>, crate::config::CursorTrail)>,
+    /// The frames an effect's trail lit an ignition in (`Timed::next_seed`
+    /// moved): the session's step the frame was in, the trail and the
+    /// frame's instant.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) ignitions: Vec<(Option<usize>, crate::config::CursorTrail, Duration)>,
     /// Everything the child wrote, in order.
     pub(crate) heard: Vec<u8>,
     /// Everything written to the child, which the film's terminal answered
@@ -157,6 +183,8 @@ enum Event {
     /// The session's step by its index, begun.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Step(usize),
+    /// The config file read again, its text, a settle after it changed.
+    Reload(String),
 }
 
 struct Logged {
@@ -168,6 +196,9 @@ struct Logged {
 /// film each set a terminal up from them.
 struct Stage {
     cfg: crate::config::Config,
+    /// The config as read, before its family names are resolved: what a
+    /// reload is compared with (`live::between`).
+    read: crate::config::Config,
     fonts: crate::fonts::Fonts,
     renderer: Renderer<'static, 'static>,
     px: PxSize,
@@ -175,11 +206,8 @@ struct Stage {
 
 impl Stage {
     fn new(f: &Film<'_>) -> Stage {
-        let mut cfg = crate::config::Config::defaults();
-        // Two reads, so the film's lines start outside BASE's last table.
-        let mut said = cfg.apply(BASE);
-        said.extend(cfg.apply(f.config));
-        assert!(said.is_empty(), "the film's config: {said:?}");
+        let mut cfg = configured(f.config, f.source);
+        let read = cfg.clone();
         crate::host::resolved(&mut cfg);
         let (data, mut held) = crate::host::map_faces(&cfg);
         let faces = crate::host::parse_faces(&cfg, &data, &mut held);
@@ -205,6 +233,7 @@ impl Stage {
         renderer.set_cursor_look(crate::caret::look(Focus::Gained, cfg.unfocused_cursor));
         Stage {
             cfg,
+            read,
             fonts,
             renderer,
             px,
@@ -234,6 +263,69 @@ impl Stage {
             grid: (grid.ws_col, grid.ws_row),
             scale: 1.0,
         }
+    }
+}
+
+/// **A film's config**: [`BASE`], then `text` over it, its relative paths
+/// beside `source` when it was read from a file.
+fn configured(text: &str, source: Option<&Path>) -> crate::config::Config {
+    let mut cfg = crate::config::Config::defaults();
+    // Two reads, so the film's lines start outside BASE's last table.
+    let mut said = cfg.apply(BASE);
+    said.extend(cfg.apply(text));
+    assert!(said.is_empty(), "the film's config: {said:?}");
+    if let Some(p) = source {
+        cfg.beside(p);
+    }
+    cfg
+}
+
+/// **The config file, read as baud's reload reads it**: its bytes at every
+/// turn, and its text once they have stood a settle unchanged and differ
+/// from the last text given.
+struct Watch<'a> {
+    path: &'a Path,
+    given: Vec<u8>,
+    seen: Vec<u8>,
+    since: Option<Duration>,
+}
+
+impl<'a> Watch<'a> {
+    fn new(path: &'a Path) -> Watch<'a> {
+        let now = std::fs::read(path).unwrap_or_default();
+        Watch {
+            path,
+            given: now.clone(),
+            seen: now,
+            since: None,
+        }
+    }
+
+    /// The file's text at `now`, when it has changed and settled. An empty
+    /// file is no change: a save can truncate the file before it writes
+    /// it, and one headless run of the README session failed on helix's
+    /// save as a change of the fonts first, as the file read empty for a
+    /// settle gives it -- a config of no lines. baud's reload reads that
+    /// empty file as the defaults and the write after it as a second
+    /// change (`reload.rs`); the film, which cannot draw the fonts' change
+    /// between, departs from it there.
+    fn turn(&mut self, now: Duration) -> Option<String> {
+        if let Ok(b) = std::fs::read(self.path) {
+            if b != self.seen && !b.is_empty() {
+                self.seen = b;
+                self.since = Some(now);
+            }
+        }
+        let settled = self.since? + crate::reload::SETTLE <= now;
+        if !settled {
+            return None;
+        }
+        self.since = None;
+        if self.seen == self.given {
+            return None;
+        }
+        self.given.clone_from(&self.seen);
+        Some(String::from_utf8_lossy(&self.given).into_owned())
     }
 }
 
@@ -382,7 +474,11 @@ struct Recorded {
 /// **The take**: the child in real time against a terminal of the stage's,
 /// every read, decode step and pointer input logged with its instant.
 fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
-    let scratch = Scratch::new("film");
+    // A directory of its own for each take, so takes in parallel tests do
+    // not share a cue file, whose `done` would end the other take.
+    static TAKES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = TAKES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let scratch = Scratch::new(&format!("film{n}"));
     let cues = scratch.path().join("cues");
     let mut cue_file = Cues::new(&cues);
     let cues_os = cues.into_os_string();
@@ -411,6 +507,7 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
     };
     #[cfg(target_os = "macos")]
     let mut lights = session::Lights::new(u.pid());
+    let mut watch = f.source.map(Watch::new);
     loop {
         let t = epoch.elapsed();
         assert!(
@@ -462,6 +559,12 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
                 "the demo exited before its end; the screen:\n{}",
                 crate::programs::screen(u.term).join("\n")
             ),
+        }
+        if let Some(text) = watch.as_mut().and_then(|w| w.turn(epoch.elapsed())) {
+            log.push(Logged {
+                at: epoch.elapsed(),
+                event: Event::Reload(text),
+            });
         }
         #[cfg(target_os = "macos")]
         let ended = match &mut player {
@@ -571,6 +674,10 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
     let mut damage = Damage::Full;
     let mut replies = Vec::new();
     let mut events = log.into_iter().peekable();
+    let mut read = stage.read.clone();
+    let mut trails = vec![(None, timed.trail())];
+    let mut ignitions = Vec::new();
+    let mut seed = timed.next_seed();
     let mut k = 0u32;
     loop {
         let at = f.period * k;
@@ -615,6 +722,29 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
                     replies.extend_from_slice(&b);
                 }
                 Event::Step(i) => step = Some(i),
+                Event::Reload(text) => {
+                    use crate::live::Part;
+                    let new = configured(&text, f.source);
+                    let parts = crate::live::between(&read, &new, crate::live::FaceFiles::Same);
+                    for part in parts {
+                        match part {
+                            // Always listed: a theme file may have changed.
+                            // The film's theme is BASE's, which no file
+                            // changes.
+                            Part::Palette => {}
+                            Part::Trail | Part::Transition => {
+                                timed.set_trail_scroll(new.trail_scroll);
+                                let _ =
+                                    timed.set_config(new.cursor_trail, new.screen_transition, when);
+                            }
+                            other => panic!(
+                                "the config changed its {other:?}, which a film does not \
+                                 apply; it applies the trail and the transition"
+                            ),
+                        }
+                    }
+                    read = new;
+                }
                 Event::Input(i) => {
                     if matches!(
                         i,
@@ -637,6 +767,9 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
         }
         if at > end {
             break;
+        }
+        if trails.last().map(|t| t.1) != Some(timed.trail()) {
+            trails.push((step, timed.trail()));
         }
         if timed.turn(now, &mut term) == crate::timed::Owes::Full {
             damage = Damage::Full;
@@ -683,6 +816,10 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
             cell,
             widths,
         );
+        if timed.next_seed() != seed {
+            seed = timed.next_seed();
+            ignitions.push((step, timed.trail(), at));
+        }
         r.set_scrollbar(plan.scroll);
         r.set_screen_fade(plan.fade);
         r.set_blink(plan.blink);
@@ -773,6 +910,8 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
     );
     let m = stage.renderer.metrics();
     Take {
+        trails,
+        ignitions,
         heard,
         answers: wrote,
         frames: Frames(usize::try_from(k).unwrap_or(usize::MAX)),
@@ -860,6 +999,7 @@ fn a_film_opens_on_the_splash_and_names_nothing_of_the_machine() {
             ws_row: 12,
         },
         config: "font_size = 10\n",
+        source: None,
         period,
         limit: Duration::from_secs(30),
     };
@@ -907,6 +1047,63 @@ fn a_film_opens_on_the_splash_and_names_nothing_of_the_machine() {
     }
 }
 
+/// **A config file changed during the take is read again, and its trail
+/// drawn from then on**, as baud's reload draws it: the film's config read
+/// from a file with the plasma trail, which the child rewrites to fire
+/// 0.3 s in. The film draws plasma, then fire from a frame after the
+/// rewrite and its settle, and nothing else changed; a file rewritten with
+/// the same text is no change. The rewrite truncates the file and writes
+/// it 0.1 s later, as a save under load can, and the empty file between is
+/// no change either. The control is the first film's first frame, plasma.
+/// Perturbations: drop the take's watch, or the film's `Reload` arm, and
+/// the trail never changes; read the empty file as a config and the film
+/// fails on a part it does not apply.
+#[test]
+fn a_config_file_changed_in_the_take_changes_the_trail() {
+    use crate::config::CursorTrail;
+    let dir = std::env::temp_dir().join(format!("baud-film-reload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory");
+    let conf = dir.join("config.toml");
+    let text = |trail: &str| format!("font_size = 10\n[cursor]\ntrail = \"{trail}\"\n");
+    let run = |to: &str| {
+        let initial = text("plasma");
+        std::fs::write(&conf, &initial).expect("the config");
+        let cmd = format!(
+            "sleep 0.3; : > \"$CONF\"; sleep 0.1; printf '%s' '{}' > \"$CONF\"; sleep 0.4; \
+             echo done >>\"$BAUD_FILM_CUES\"; exec sleep 30",
+            text(to)
+        );
+        let f = Film {
+            child: Child::Command(&cmd),
+            env: vec![("CONF".into(), conf.clone().into_os_string())],
+            grid: WinSize {
+                ws_col: 20,
+                ws_row: 5,
+            },
+            config: &initial,
+            source: Some(&conf),
+            period: Duration::from_millis(40),
+            limit: Duration::from_secs(30),
+        };
+        let mut at = Vec::new();
+        let take = film(&f, |fr| at.push(fr.at));
+        (take.trails, at)
+    };
+    let (trails, _) = run("fire");
+    assert_eq!(
+        trails.iter().map(|t| t.1).collect::<Vec<_>>(),
+        [CursorTrail::Plasma, CursorTrail::Fire],
+        "plasma, then fire once the file says so"
+    );
+    let (same, _) = run("plasma");
+    assert_eq!(
+        same,
+        [(None, CursorTrail::Plasma)],
+        "the same text is no change"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// **The README's clip**, made by `scripts/readme-film.sh`, which pins the
 /// programs and the photo and encodes what this writes: `BAUD_FILM_CMD` run
 /// at `BAUD_FILM_GRID` (`COLSxROWS`) with `font_size = BAUD_FILM_POINTS`
@@ -947,6 +1144,7 @@ fn film_the_readme_clip() {
         env,
         grid: grid_of(&var("BAUD_FILM_GRID")),
         config: &config,
+        source: None,
         period: Duration::from_secs(1) / fps,
         limit: Duration::from_secs(secs),
     };

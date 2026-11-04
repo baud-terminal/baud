@@ -1,10 +1,15 @@
-//! **The container the session ssh's into**: a Linux of three nixpkgs
-//! packages -- busybox, OpenSSH's sshd and fastfetch -- run by docker in
-//! colima's VM on this Mac, its host named [`HOST`] and its one user
-//! [`USER`]. fastfetch there shows the container, never this Mac: its
-//! modules are listed (`nix/demo-container/fastfetch.jsonc`), and none of
-//! them reads the chip, the memory, a disk, an address, the battery, the
-//! uptime or a user's name.
+//! **The container the session ssh's into**: a Linux of four nixpkgs
+//! packages -- busybox, OpenSSH's sshd, fastfetch and btop -- run by
+//! docker in a colima VM of its own on this Mac ([`COLIMA_PROFILE`]), its
+//! host named [`HOST`] and its one user [`USER`]. fastfetch there prints
+//! its whole default card (`nix/demo-container/fastfetch.jsonc` lists its
+//! default modules): the VM's system as Linux in it sees it, which the
+//! session's checks search for this machine's names; beside it it draws
+//! baud's mark, a picture made from the repository's own logo file. btop
+//! shows the cpu box alone (`nix/demo-container/btop.conf`), a graph for
+//! each of the VM's CPUs, as many as this Mac's. The shell marks each
+//! prompt as baud's does, shows the host as baud's badge while the session
+//! is in, and clears the badge on the way out.
 //!
 //! **Made by Nix**: the image is the repository flake's `demo-container`
 //! (`nix/demo-container/`), nixpkgs' `dockerTools.streamLayeredImage` at
@@ -28,12 +33,14 @@
 //! in the scratch directory, and the host key is known before the first
 //! connection, so ssh never asks and never writes.
 //!
-//! **colima is left as it was found**: started if it was stopped, with no
-//! flags, so its profile is not rewritten, and stopped again at the end;
-//! the docker context it switches to is switched back. The container and
-//! its image are removed on every way out ([`Running`]'s drop), Ctrl-C
-//! among them: its handler only sets [`INTERRUPTED`], and every wait the
-//! session makes stops on it and returns, so the drop runs.
+//! **colima's own profiles are left as they were found**: the session's VM
+//! is a profile of its own, [`COLIMA_PROFILE`], made with every CPU of
+//! this Mac and docker's context left where it was, and deleted with its
+//! data at the end; a profile of that name already there is refused. The
+//! container and its image are removed, and the VM deleted, on every way
+//! out ([`Running`]'s drop), Ctrl-C among them: its handler only sets
+//! [`INTERRUPTED`], and every wait the session makes stops on it and
+//! returns, so the drop runs.
 
 use std::fs;
 use std::io::{Read as _, Write as _};
@@ -56,7 +63,7 @@ pub const FLAKE_OUTPUT: &str = "demo-container";
 
 /// **The image's stream, by SHA-256**, from the flake's pinned nixpkgs for
 /// `aarch64-linux`, the system colima's VM runs on an Apple silicon Mac.
-pub const IMAGE_SHA256: &str = "889abf85eae143fa635b389106eacbcf8029948f2f27786fe9f7a58a353f87fb";
+pub const IMAGE_SHA256: &str = "2a9c3f6e5b38c49a7b4e838127c499e43df73e4bae6f1eaceb50ed7aea5ccc86";
 
 /// **Set by Ctrl-C**: the handler (`mac::catch_interrupt`) stores to it and
 /// does nothing else, and the session's waits stop on it.
@@ -241,10 +248,33 @@ pub fn keys(home: &Path, dir: &Path, keygen: &Path, port: u16) -> Result<(Keys, 
     Ok((Keys { host, user_pub }, written))
 }
 
-/// What colima and docker were before the session, and the docker it
-/// talks to.
+/// **The colima profile the session's VM is**, made for the session with
+/// this Mac's every CPU, so btop there draws each of them, and deleted
+/// with its data at the end: colima's own profiles, the default among
+/// them, are neither started nor changed.
+pub const COLIMA_PROFILE: &str = "baud-demo";
+
+/// **`colima start`'s arguments for the session's VM**: [`COLIMA_PROFILE`]
+/// with `cpus`, colima's defaults for the rest, and docker's context not
+/// switched to it, since the session talks to its socket alone.
+fn start_args(cpus: usize) -> Vec<String> {
+    ["start", "-p", COLIMA_PROFILE, "--cpus"]
+        .into_iter()
+        .map(str::to_string)
+        .chain([cpus.to_string(), "--activate=false".to_string()])
+        .collect()
+}
+
+/// Whether `colima list --json`, a profile a line, names
+/// [`COLIMA_PROFILE`].
+fn listed(list: &str) -> bool {
+    let name = format!("\"name\":\"{COLIMA_PROFILE}\"");
+    list.lines().any(|l| l.contains(&name))
+}
+
+/// What docker's context was before the session, and the docker it talks
+/// to: the session's VM's socket, empty until it is up.
 struct Colima {
-    started: bool,
     context: Option<String>,
     host: String,
 }
@@ -281,24 +311,28 @@ struct Undo {
 
 impl Undo {
     /// **Everything the session started, undone**, each command through
-    /// `run`: the container removed, then its image, then colima stopped
-    /// if it was stopped before, then docker switched back to its context
-    /// if colima moved it. Each is tried whatever the one before did.
+    /// `run`: the container removed, then its image, once the VM's docker
+    /// answers; then the session's VM deleted with its data, however far
+    /// its start got; then docker switched back to its context if anything
+    /// moved it. Each is tried whatever the one before did.
     fn run(&self, run: &mut Runner) {
-        let host = [("DOCKER_HOST", self.colima.host.as_str())];
-        let _ = run("docker", &["rm", "-f", &self.name], &host);
-        let _ = run("docker", &["image", "rm", "-f", &self.image], &host);
-        if self.colima.started {
-            let stopped = run("colima", &["stop"], &[]);
-            println!(
-                "colima:  stopped again{}",
-                if stopped.is_ok() {
-                    ""
-                } else {
-                    " -- FAILED: run `colima stop`"
-                }
-            );
+        if !self.colima.host.is_empty() {
+            let host = [("DOCKER_HOST", self.colima.host.as_str())];
+            let _ = run("docker", &["rm", "-f", &self.name], &host);
+            let _ = run("docker", &["image", "rm", "-f", &self.image], &host);
         }
+        let deleted = run(
+            "colima",
+            &["delete", "-p", COLIMA_PROFILE, "-f", "--data"],
+            &[],
+        );
+        println!(
+            "colima:  the session's VM deleted{}",
+            match deleted {
+                Ok(_) => String::new(),
+                Err(_) => format!(" -- FAILED: run `colima delete -p {COLIMA_PROFILE} -f --data`"),
+            }
+        );
         let now = run("docker", &["context", "show"], &[]).ok();
         if let (Some(was), Some(now)) = (&self.colima.context, now) {
             if *was != now {
@@ -338,47 +372,55 @@ fn socket(status: &str) -> Option<String> {
     Some(rest[..rest.find('"')?].to_string())
 }
 
-/// **The container up**, its sshd answering on `port`: colima started if
-/// it was stopped, the image loaded from its checked stream, the host key
-/// and the user's public key copied in owned by root, and the container
-/// started; then the banner read through colima's port forward. Everything
-/// it started is undone when the result drops, and on an error before
-/// that. Ctrl-C ends the wait for the banner ([`INTERRUPTED`]).
+/// **The container up**, its sshd answering on `port`: the session's VM
+/// started as [`COLIMA_PROFILE`] with every CPU of this Mac, the image
+/// loaded from its checked stream, the host key and the user's public key
+/// copied in owned by root, and the container started; then the banner
+/// read through colima's port forward. A profile of that name already
+/// there is refused, not reused: it is a session's that did not end.
+/// Everything it started is undone when the result drops, and on an error
+/// before that -- the undo exists before the VM's start, so a start
+/// Ctrl-C cut short is deleted too. Ctrl-C ends the wait for the banner
+/// ([`INTERRUPTED`]).
 pub fn up(image: &Image, keys: &Keys, port: u16) -> Result<Running, String> {
     let tar = image.gnutar.as_path();
     let context = say("docker", &["context", "show"], &[]).ok();
-    let was = Command::new("colima")
-        .arg("status")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|e| format!("colima: {e}; the session's container runs in colima"))?;
-    let started = !was.success();
-    if started {
-        println!("colima:  stopped; starting it for the session, and stopping it after");
-        let ok = Command::new("colima")
-            .arg("start")
-            .status()
-            .map_err(|e| format!("colima: {e}"))?;
-        if !ok.success() {
-            let _ = Command::new("colima").arg("stop").status();
-            return Err("colima did not start".to_string());
-        }
+    let list = say("colima", &["list", "--json"], &[])
+        .map_err(|e| format!("{e}; the session's container runs in colima"))?;
+    if listed(&list) {
+        return Err(format!(
+            "colima already has a profile {COLIMA_PROFILE}, a session's that did not end; \
+             `colima delete -p {COLIMA_PROFILE} -f --data` removes it"
+        ));
     }
-    let host = say("colima", &["status", "--json"], &[])
-        .ok()
-        .and_then(|s| socket(&s));
-    let run = Running {
+    let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let mut run = Running {
         undo: Undo {
             colima: Colima {
-                started,
                 context,
-                host: host.unwrap_or_default(),
+                host: String::new(),
             },
             name: format!("baud-demo-{}", std::process::id()),
             image: IMAGE.to_string(),
         },
     };
+    println!(
+        "colima:  starting the session's VM, profile {COLIMA_PROFILE}, with this Mac's {cpus} \
+         CPUs; it is deleted at the end"
+    );
+    let ok = Command::new("colima")
+        .args(start_args(cpus))
+        .stdin(Stdio::null())
+        .status()
+        .map_err(|e| format!("colima: {e}"))?;
+    interrupted(&INTERRUPTED)?;
+    if !ok.success() {
+        return Err("colima did not start the session's VM".to_string());
+    }
+    run.undo.colima.host = say("colima", &["status", "-p", COLIMA_PROFILE, "--json"], &[])
+        .ok()
+        .and_then(|s| socket(&s))
+        .unwrap_or_default();
     if run.undo.colima.host.is_empty() {
         return Err("colima named no docker socket".to_string());
     }
@@ -510,11 +552,8 @@ mod tests {
     // **The image's files**, the bytes `nix/demo-container/default.nix`
     // installs.
 
-    /// **fastfetch's modules, every one named**: the user and host, the
-    /// kernel the VM boots, the grid and the terminal's two colours -- which
-    /// fastfetch asks the terminal for, so baud answers a query nobody typed
-    /// -- and the palette. Tux is drawn beside them: the image has no
-    /// `os-release` naming a distribution, so no other logo is true of it.
+    /// **fastfetch's config**: baud's mark as the logo, drawn as a
+    /// picture, and fastfetch's own default modules, its whole card.
     const FASTFETCH: &str = include_str!("../../../nix/demo-container/fastfetch.jsonc");
 
     /// **sshd's config**: the user alone, by key alone, with no PAM, no
@@ -523,9 +562,9 @@ mod tests {
     const SSHD: &str = include_str!("../../../nix/demo-container/sshd_config");
 
     /// The login shell's start: the packages' tools on `PATH`, glibc's
-    /// built-in `C.UTF-8` locale, and the prompt `session::REMOTE_PROMPT`
-    /// waits for. sshd starts the session with an environment of its own, so
-    /// the image's config could not set these.
+    /// built-in `C.UTF-8` locale, the prompt and its mark, and the badge
+    /// set, and cleared on exit. sshd starts the session with an environment
+    /// of its own, so the image's config could not set these.
     const PROFILE: &str = include_str!("../../../nix/demo-container/profile");
 
     const PASSWD: &str = include_str!("../../../nix/demo-container/passwd");
@@ -543,42 +582,123 @@ mod tests {
             .collect()
     }
 
-    /// **fastfetch shows nothing of this Mac**: it reads every module it
-    /// is told to and no other, so the list is the whole of what it can
-    /// print, and none on it reads the chip, the memory, a disk, an
-    /// address, the battery, the uptime, a display, the users or the
-    /// packages -- what the VM would pass up from the Mac. The control:
-    /// the list with `cpu` added.
+    /// **fastfetch prints its whole default card**: the config lists
+    /// fastfetch's own default modules, every one in its order
+    /// (`[[source: fastfetch-2-60-0-structure-txt]]`), since a config file
+    /// that sets the logo and lists no modules prints none
+    /// (`[[source: fastfetch-2-60-0-jsonconfig-c]]`). The system's hardware
+    /// among them is the VM's, as Linux in it sees it; what fastfetch
+    /// printed is searched after the run for this machine's names and,
+    /// given `--forbidden`, the list kept outside the repository. The
+    /// control: the list with `cpu` taken out is caught.
     #[test]
-    fn fastfetch_shows_nothing_of_the_mac() {
-        let shown = [
-            "title",
-            "separator",
-            "kernel",
-            "terminalsize",
-            "terminaltheme",
-            "break",
-            "colors",
-        ];
-        assert_eq!(modules(FASTFETCH), shown);
-        let machine = [
-            "cpu", "gpu", "memory", "swap", "disk", "host", "board", "localip", "publicip",
-            "battery", "uptime", "display", "users", "packages", "wifi", "dns", "netio",
-        ];
-        let reads = |list: &[String]| -> Vec<String> {
-            list.iter()
-                .filter(|m| machine.contains(&m.as_str()))
-                .cloned()
+    fn fastfetch_prints_its_whole_default_card() {
+        const DEFAULT: &str = "Title:Separator:OS:Host:Kernel:Uptime:Packages:Shell:Display:\
+            DE:WM:WMTheme:Theme:Icons:Font:Cursor:Terminal:TerminalFont:CPU:GPU:Memory:Swap:\
+            Disk:LocalIp:Battery:PowerAdapter:Locale:Break:Colors";
+        let default: Vec<String> = DEFAULT.split(':').map(str::to_lowercase).collect();
+        assert_eq!(default.len(), 29);
+        assert_eq!(modules(FASTFETCH), default);
+        let less = FASTFETCH.replace("    \"cpu\",\n", "");
+        assert_ne!(modules(&less), default, "the control");
+    }
+
+    /// **fastfetch draws baud's mark from its file, and clears nothing**:
+    /// with its image logo `"iterm"` fastfetch reads the file and sends it
+    /// whole in iTerm2's inline protocol, `OSC 1337 ; File=inline=1`, with
+    /// no decoder of its own, which this fastfetch is built without
+    /// (`[[source: fastfetch-2-60-0-image-c]]`); and with both a width and
+    /// a height it writes the picture at the cursor, where with either
+    /// missing it first clears the screen and its history, `CSI 2 J` and
+    /// `CSI 3 J`. Not `"kitty-direct"`, which sends the file's path, a path
+    /// on the container that baud cannot read; not `"auto"` or
+    /// `"builtin"`, a distribution's mark. The control: the height taken
+    /// out is caught.
+    #[test]
+    fn fastfetch_draws_baud_s_mark_whole() {
+        let logo = |c: &str| -> Vec<String> {
+            let at = c.find("\"logo\"").expect("a logo");
+            let body = &c[at..];
+            let body = &body[body.find('{').unwrap() + 1..body.find('}').unwrap()];
+            body.lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
                 .collect()
         };
-        assert_eq!(reads(&modules(FASTFETCH)), Vec::<String>::new());
-        let more = FASTFETCH.replace("\"kernel\",", "\"kernel\",\n    \"cpu\",");
-        assert_eq!(reads(&modules(&more)), ["cpu"]);
+        let set = logo(FASTFETCH);
+        for line in [
+            "\"type\": \"iterm\",",
+            "\"source\": \"/usr/share/baud/mark.png\",",
+            "\"preserveAspectRatio\": true",
+        ] {
+            assert!(set.iter().any(|l| l == line), "{line}: {set:?}");
+        }
+        let sized = |set: &[String]| {
+            set.iter().any(|l| l.starts_with("\"width\": "))
+                && set.iter().any(|l| l.starts_with("\"height\": "))
+        };
+        assert!(sized(&set));
+        let bare = FASTFETCH.replace("\"height\"", "\"padding\"");
+        assert!(!sized(&logo(&bare)), "the control");
+        assert!(NIX.contains(
+            "--output usr/share/baud/mark.png ${../../assets/logo/baud-mark-amber-tight.svg}"
+        ));
+    }
+
+    /// **The container's prompt marks itself and its session shows the
+    /// host as the badge**: the prompt writes `OSC 133 ; D`, the last
+    /// command done, then `OSC 133 ; A ;` -- baud's own mark, the semicolon
+    /// kept, so `session::PROMPT_MARK` counts it -- and after the prompt's
+    /// text `OSC 133 ; B`, where the input begins, each inside busybox's
+    /// `\[` and `\]`, so its line editor counts none of them as columns
+    /// (`[[source: busybox-1-37-0-lineedit-c]]`). busybox runs nothing
+    /// before a command, so no `C` comes; without the `D` and the `B` baud
+    /// reads the next `A`, the command's output between, as the shell
+    /// drawing its prompt again and erases back to it (`prompt.rs`), which
+    /// took fastfetch's card. The login sets the badge to the host, iTerm2's
+    /// `SetBadgeFormat` of its base64, and the shell's exit sets it empty,
+    /// so it is gone once ssh returns. The control: a mark without its
+    /// semicolon is not counted.
+    #[test]
+    fn the_container_s_prompt_is_marked_and_badged() {
+        assert!(
+            PROFILE
+                .contains("PS1='\\[\\e]133;D\\a\\e]133;A;\\a\\]\\u@\\h:\\w\\$ \\[\\e]133;B\\a\\]'")
+        );
+        let mark = "\x1b]133;A;\x07";
+        assert_eq!(crate::session::marks(mark.as_bytes()), 1);
+        assert_eq!(crate::session::marks(b"\x1b]133;A\x07"), 0, "the control");
+        let badge = format!("printf '\\033]1337;SetBadgeFormat={}\\a'", base64(HOST));
+        assert!(PROFILE.lines().any(|l| l == badge), "{badge}");
+        assert!(
+            PROFILE
+                .lines()
+                .any(|l| l == "trap 'printf \"\\033]1337;SetBadgeFormat=\\a\"' EXIT")
+        );
+    }
+
+    /// Standard base64 with padding, for the badge.
+    fn base64(s: &str) -> String {
+        const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for c in s.as_bytes().chunks(3) {
+            let n = c
+                .iter()
+                .enumerate()
+                .fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+            for i in 0..4 {
+                out.push(match i <= c.len() {
+                    true => char::from(A[(n >> (18 - 6 * i) & 63) as usize]),
+                    false => '=',
+                });
+            }
+        }
+        out
     }
 
     /// **sshd prints nothing of the connection and lets in the user
     /// alone, by key**, no account having a password; the shell's prompt
-    /// is the one the session awaits, in glibc's `C.UTF-8`.
+    /// is the one the font check draws, in glibc's `C.UTF-8`.
     #[test]
     fn sshd_admits_the_user_by_key_and_prints_no_address() {
         for line in [
@@ -596,7 +716,7 @@ mod tests {
         assert!(GROUP.lines().any(|l| l == "baud:x:1000:"));
         // No account has a password to log in by.
         assert!(SHADOW.lines().all(|l| l.split(':').nth(1) == Some("*")));
-        assert!(PROFILE.contains("PS1='\\u@\\h:\\w\\$ '"));
+        assert!(PROFILE.contains("\\]\\u@\\h:\\w\\$ \\["));
         assert!(PROFILE.lines().any(|l| l == "export LANG=C.UTF-8"));
         assert_eq!(
             crate::session::REMOTE_PROMPT,
@@ -644,11 +764,12 @@ mod tests {
     const FLAKE: &str = include_str!("../../../flake.nix");
 
     /// **The image's files**, as `nix/demo-container/default.nix` writes
-    /// them: each file this module reads installed from the same file,
-    /// sshd's directories root's and not writable by others, the shadow
-    /// file root's alone, the temporary directory sticky, each package
-    /// linked once, sshd the entry point, and the image named [`IMAGE`]
-    /// and built for arm64 by the flake's [`FLAKE_OUTPUT`] on this Mac.
+    /// them: each file this module and btop's check read installed from the
+    /// same file, the mark's picture readable by all, sshd's directories
+    /// root's and not writable by others, the shadow file root's alone, the
+    /// temporary directory sticky, each package linked once, sshd the entry
+    /// point, and the image named [`IMAGE`] and built for arm64 by the
+    /// flake's [`FLAKE_OUTPUT`] on this Mac.
     /// The control: the expression with the shadow file's mode widened.
     #[test]
     fn the_image_holds_what_sshd_and_fastfetch_need() {
@@ -660,7 +781,7 @@ mod tests {
             "architecture = \"arm64\";".to_string(),
             "install -d -m 0700 root".to_string(),
             "install -d -m 1777 tmp".to_string(),
-            "var var/empty".to_string(),
+            "usr usr/bin usr/sbin usr/share usr/share/baud var var/empty".to_string(),
             "install -m 0644 ${./passwd} etc/passwd".to_string(),
             "install -m 0644 ${./group} etc/group".to_string(),
             "install -m 0600 ${./shadow} etc/shadow".to_string(),
@@ -668,15 +789,18 @@ mod tests {
             "install -m 0644 ${./sshd_config} etc/ssh/sshd_config".to_string(),
             "install -m 0644 ${./fastfetch.jsonc} home/baud/.config/fastfetch/config.jsonc"
                 .to_string(),
+            "install -m 0644 ${./btop.conf} home/baud/.config/btop/btop.conf".to_string(),
+            "chmod 0644 usr/share/baud/mark.png".to_string(),
             "ln -s ${busybox}/bin bin".to_string(),
             "ln -s ${fastfetchMinimal}/bin/fastfetch usr/bin/fastfetch".to_string(),
+            "ln -s ${btop}/bin/btop usr/bin/btop".to_string(),
             "ln -s ${openssh}/bin/sshd usr/sbin/sshd".to_string(),
             "\"/usr/sbin/sshd\"".to_string(),
         ] {
             assert!(has(NIX, &line), "{line}");
         }
         assert!(NIX.contains("install -d -m 0755 etc etc/ssh home home/baud"));
-        assert!(NIX.contains("inherit (linux) busybox openssh fastfetchMinimal;"));
+        assert!(NIX.contains("inherit (linux) busybox openssh fastfetchMinimal btop;"));
         let wide = NIX.replace("-m 0600 ${./shadow}", "-m 0644 ${./shadow}");
         assert!(
             !has(&wide, "install -m 0600 ${./shadow} etc/shadow"),
@@ -728,14 +852,13 @@ mod tests {
     }
 
     /// The commands [`Undo::run`] gives, each with the `DOCKER_HOST` it
-    /// names, `context show` answering `now` and the container's removal
-    /// failing.
-    fn undone(started: bool, was: &str, now: &str) -> Vec<String> {
+    /// names, the VM's docker at `host`, `context show` answering `now`
+    /// and the container's removal failing.
+    fn undone(host: &str, was: &str, now: &str) -> Vec<String> {
         let u = Undo {
             colima: Colima {
-                started,
                 context: Some(was.to_string()),
-                host: "unix:///c/docker.sock".to_string(),
+                host: host.to_string(),
             },
             name: "baud-demo-7".to_string(),
             image: IMAGE.to_string(),
@@ -755,27 +878,53 @@ mod tests {
 
     /// **Every way out undoes what the session started**, the drop and
     /// Ctrl-C's alike, since Ctrl-C returns through the drop: the container
-    /// and then its image removed from colima's docker, the image though
-    /// the container's removal failed, colima stopped only if the session
-    /// started it, and docker's context put back only if it moved.
+    /// and then its image removed from the VM's docker, the image though
+    /// the container's removal failed; the session's VM deleted with its
+    /// data, and before its docker answered only that; and docker's context
+    /// put back only if it moved. No other profile is named: none is
+    /// stopped. The VM's start names its own profile, every CPU asked
+    /// for, and leaves docker's context; a profile of its name already
+    /// listed is found, and the control, another's, is not.
     #[test]
-    fn the_undo_removes_the_container_and_puts_colima_back() {
+    fn the_undo_removes_the_container_and_deletes_the_vm() {
         let rm = "DOCKER_HOST=unix:///c/docker.sock docker rm -f baud-demo-7";
         let rmi = "DOCKER_HOST=unix:///c/docker.sock docker image rm -f baud-demo:readme";
+        let delete = "colima delete -p baud-demo -f --data";
         assert_eq!(
-            undone(true, "default", "colima"),
+            undone("unix:///c/docker.sock", "default", "colima-baud-demo"),
             [
                 rm,
                 rmi,
-                "colima stop",
+                delete,
                 "docker context show",
                 "docker context use default"
             ]
         );
         assert_eq!(
-            undone(false, "default", "default"),
-            [rm, rmi, "docker context show"]
+            undone("unix:///c/docker.sock", "default", "default"),
+            [rm, rmi, delete, "docker context show"]
         );
+        assert_eq!(
+            undone("", "default", "default"),
+            [delete, "docker context show"],
+            "a start cut short"
+        );
+        assert_eq!(
+            start_args(18),
+            [
+                "start",
+                "-p",
+                "baud-demo",
+                "--cpus",
+                "18",
+                "--activate=false"
+            ]
+        );
+        let list = "{\"name\":\"default\",\"status\":\"Stopped\"}\n";
+        assert!(!listed(list), "the control");
+        assert!(listed(&format!(
+            "{list}{{\"name\":\"baud-demo\",\"status\":\"Running\"}}\n"
+        )));
     }
 
     /// **The wait for sshd stops on Ctrl-C** at once, with nothing

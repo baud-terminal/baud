@@ -138,6 +138,7 @@ pub(crate) struct LineLights {
     activity: Activity,
     shown: Option<(Shown, Glow)>,
     sampled: Option<HostTime>,
+    synced: crate::bell::Synced,
 }
 
 impl LineLights {
@@ -146,6 +147,7 @@ impl LineLights {
             activity: Activity::new(),
             shown: None,
             sampled: None,
+            synced: crate::bell::Synced::new(),
         }
     }
 
@@ -194,13 +196,13 @@ impl LineLights {
     }
 
     /// **The states at a turn**: OH from who is in front, SYN while the
-    /// program holds synchronized output open, FAX while a picture is
-    /// placed.
+    /// program holds synchronized output open or opened it since the last
+    /// turn ([`crate::bell::Synced`]), FAX while a picture is placed.
     pub(crate) fn states(&mut self, front: InFront, term: &baud_core::Term<'_>, now: HostTime) {
         if front == InFront::Job {
             self.activity.seen(Led::Oh, now);
         }
-        if term.synchronized_output() {
+        if self.synced.seen(term) {
             self.activity.seen(Led::Syn, now);
         }
         if term.images().any_placed() {
@@ -222,6 +224,13 @@ impl LineLights {
     /// The line drawn afresh: the next step owes a frame whatever moved.
     pub(crate) fn stale(&mut self) {
         self.shown = None;
+    }
+
+    /// **A turn with the lights off their line**: SYN's reading taken all
+    /// the same, so the line shown again lights nothing opened while it was
+    /// away, as the macOS tick takes it.
+    pub(crate) fn away(&mut self, term: &baud_core::Term<'_>) {
+        let _ = self.synced.seen(term);
     }
 
     /// **How long from `now` until a light can next change** at `pace`, the
@@ -467,5 +476,75 @@ mod tests {
         l.wrote(Wrote::Nothing, at(Duration::ZERO));
         let (s, _) = l.step(at(Duration::ZERO), Pace::Full, Glow::Full).unwrap();
         assert_eq!((s.sd, s.cs), (Light::Dark, Light::Lit));
+    }
+
+    /// **An update opened and closed between two samplings lights SYN**:
+    /// `?2026h`, a frame and `?2026l` in one read leave the mode reset at
+    /// both samplings, as btop's frames through ssh do, and the opening
+    /// read since the last lights SYN all the same. The control: two
+    /// samplings with no update between them, the first a fresh
+    /// terminal's, leave it dark. Perturbations: SYN from the mode alone
+    /// (the update missed) and the first reading counted as an opening
+    /// (lit with none) each go red.
+    #[test]
+    fn an_update_between_two_samplings_lights_syn() {
+        let grid = baud_core::WinSize {
+            ws_col: 10,
+            ws_row: 2,
+        };
+        let mut owned = baud_core::Owned::new(&grid);
+        let mut term = baud_core::Term::new(owned.storage(), &grid);
+        let mut l = LineLights::new();
+        let syn = |l: &mut LineLights, t: Duration| {
+            l.stale();
+            let (shown, _) = l.step(at(t), Pace::Full, Glow::Full).expect("a frame");
+            *shown.get(Led::Syn)
+        };
+        l.states(InFront::Shell, &term, at(Duration::ZERO));
+        l.states(InFront::Shell, &term, at(SAMPLE));
+        assert_eq!(syn(&mut l, SAMPLE), Light::Dark, "no update, no SYN");
+        crate::reads::feed(
+            &mut term,
+            [&b"\x1b[?2026hframe\x1b[?2026l"[..]],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert!(!term.synchronized_output(), "closed by the sampling");
+        l.states(InFront::Shell, &term, at(SAMPLE * 2));
+        assert_eq!(syn(&mut l, SAMPLE * 2), Light::Lit, "opened since");
+        let mut fresh = crate::bell::Synced::new();
+        assert!(!fresh.seen(&term), "a first reading is the baseline");
+        assert!(!fresh.seen(&term), "and nothing opened since it");
+    }
+
+    /// **An update while the line was away lights nothing when it is back**:
+    /// the turns with the lights off their line take SYN's reading, so the
+    /// line shown again starts from it.
+    #[test]
+    fn an_update_while_the_line_was_away_lights_nothing() {
+        let grid = baud_core::WinSize {
+            ws_col: 10,
+            ws_row: 2,
+        };
+        let mut owned = baud_core::Owned::new(&grid);
+        let mut term = baud_core::Term::new(owned.storage(), &grid);
+        let mut l = LineLights::new();
+        l.states(InFront::Shell, &term, at(Duration::ZERO));
+        l.states(InFront::Shell, &term, at(SAMPLE));
+        crate::reads::feed(
+            &mut term,
+            [&b"\x1b[?2026hframe\x1b[?2026l"[..]],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        l.away(&term);
+        l.states(InFront::Shell, &term, at(SAMPLE * 2));
+        l.stale();
+        let (shown, _) = l
+            .step(at(SAMPLE * 2), Pace::Full, Glow::Full)
+            .expect("a frame");
+        assert_eq!(*shown.get(Led::Syn), Light::Dark, "opened while away");
     }
 }

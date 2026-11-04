@@ -72,7 +72,7 @@ enum Doing {
     },
     /// Waiting since `since` for the echo of what was typed, then Return.
     Echo { since: Duration },
-    /// Waiting for a prompt, or for the text of an `Await`, since `since`.
+    /// Waiting for a prompt since `since`.
     Waiting { since: Duration },
     /// Holding until `until`.
     Holding { until: Duration },
@@ -89,9 +89,10 @@ enum Then {
 
 /// **The session's steps, typed into the shell** as the demo types them
 /// into baud's window: a key every `KEY_GAP_MS`, a command's Return only
-/// once its echo has come back, a prompt counted by baud's `OSC 133 ; A`
-/// marks, the container's prompt awaited past where the typing began, and
-/// the wheel at the grid's centre.
+/// once its echo has come back, Escape encoded by the core as the
+/// program on screen asked (`Term::key`), as the window's key goes, a
+/// prompt counted by `OSC 133 ; A` marks, baud's shell's and the
+/// container's, and the wheel at the grid's centre.
 pub(crate) struct Player<'a> {
     steps: &'a [Step],
     at: StepAt,
@@ -237,14 +238,15 @@ impl<'a> Player<'a> {
                         Some(Doing::Echo { since })
                     }
                 }
-                (Step::Await(_), Doing::Start) => Some(Doing::Waiting { since: now }),
-                (Step::Await(t), Doing::Waiting { since }) => {
-                    if steps::echoed(heard, self.typed_from.index(), t) {
-                        None
-                    } else {
-                        self.limit(now, since, PROMPT_LIMIT, u, &format!("`{t}`"));
-                        Some(Doing::Waiting { since })
-                    }
+                (Step::Escape, Doing::Start) => {
+                    let key = baud_core::KeyEvent::press(
+                        baud_domain::KeyCode::Escape,
+                        baud_domain::Modifiers::NONE,
+                    );
+                    let mut out = Vec::new();
+                    crate::reads::input(u.term, |t| t.key(key), |b| out.extend_from_slice(b));
+                    self.press(u, log, epoch, &out);
+                    None
                 }
                 (Step::Hold(ms), Doing::Start) => Some(Doing::Holding {
                     until: now + Duration::from_millis(u64::from(ms)),
@@ -358,6 +360,9 @@ pub(crate) struct Lights {
     procs: crate::front::Live,
     shell: crate::sys::Pid,
     sampled: Option<Duration>,
+    /// The synchronised update at the last sampling, so one opened and
+    /// closed between two turns still lights SYN.
+    synced: crate::bell::Synced,
     /// How much had been written to the child at the last turn.
     wrote: BytePos,
     lit: Lit,
@@ -376,6 +381,7 @@ impl Lights {
             procs: crate::front::Live::new(),
             shell,
             sampled: None,
+            synced: crate::bell::Synced::new(),
             wrote: BytePos::ZERO,
             lit: Lit(ByLed::of(|_| None)),
         }
@@ -418,7 +424,7 @@ impl Lights {
             .is_none_or(|s| at >= s + crate::own_line::SAMPLE);
         if due {
             self.sampled = Some(at);
-            if term.synchronized_output() {
+            if self.synced.seen(term) {
                 self.activity.seen(Led::Syn, now);
             }
             if term.images().any_placed() {
@@ -447,6 +453,8 @@ impl Lights {
 /// **`steps` without the command typed as `run`**: its `Run`, and every
 /// step after it through the `Prompt` it comes back to and the hold after
 /// that -- a command taken out of the session whole, for a perturbation.
+/// `ssh` comes back to baud's shell only after the `exit` typed in the
+/// container, so taking it out takes out everything typed there.
 pub(crate) fn without(steps: &[Step], run: &str) -> Vec<Step> {
     let Some(from) = steps
         .iter()
@@ -454,8 +462,17 @@ pub(crate) fn without(steps: &[Step], run: &str) -> Vec<Step> {
     else {
         panic!("no step runs `{run}`");
     };
-    let prompt = from
-        + steps[from..]
+    let back = match run.starts_with("ssh ") {
+        true => {
+            from + steps[from..]
+                .iter()
+                .position(|s| *s == Step::Run("exit"))
+                .expect("an exit from the container")
+        }
+        false => from,
+    };
+    let prompt = back
+        + steps[back..]
             .iter()
             .position(|s| *s == Step::Prompt)
             .expect("a prompt after the command");
@@ -481,10 +498,11 @@ fn env_of(text: &str) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
 /// read of the tty's 1024 lights RD and HS, a shorter one RD alone, a read
 /// the core answered AA, a write SD, `?2026` held open SYN and a placed
 /// picture FAX -- each from the core's own state -- and a turn with
-/// nothing new lights nothing more. CS is never lit, which is what the
-/// session test expects of it. The controls: a read of 1023 bytes does not
-/// light HS, and a turn reads OH and CD of a shell that is not there as
-/// dark.
+/// nothing new lights nothing more; an update opened and closed between
+/// two turns lights SYN too. CS is never lit, which is what the session
+/// test expects of it. The controls: a read of 1023 bytes does not light
+/// HS, a turn reads OH and CD of a shell that is not there as dark, and
+/// two turns with no update between them leave SYN dark.
 #[test]
 fn the_lights_light_from_what_the_app_reads() {
     let grid = baud_domain::WinSize {
@@ -524,6 +542,50 @@ fn the_lights_light_from_what_the_app_reads() {
         [Led::Cd, Led::Oh, Led::Cs, Led::Fax],
         "nothing else lit"
     );
+    // An update opened and closed between two turns, as btop's through
+    // ssh, lights SYN; two turns with none between leave it dark.
+    let mut owned = baud_core::Owned::new(&grid);
+    let mut term = Term::new(owned.storage(), &grid);
+    let mut l = Lights::new(gone);
+    l.turn(ms(10), &term, BytePos::ZERO, None);
+    l.turn(ms(40), &term, BytePos::ZERO, None);
+    assert_eq!(l.lit().first(Led::Syn), None, "no update");
+    crate::reads::feed(
+        &mut term,
+        [&b"\x1b[?2026hframe\x1b[?2026l"[..]],
+        |_| {},
+        |_| {},
+        &mut crate::hostlog::NoLog,
+    );
+    assert!(!term.synchronized_output());
+    l.turn(ms(70), &term, BytePos::ZERO, None);
+    assert_eq!(l.lit().first(Led::Syn), Some((ms(70), None)));
+}
+
+/// **`without` takes a command out whole**: a command at baud's shell
+/// through the prompt it comes back to and the hold after it, and `ssh`
+/// through the `exit` typed in the container, since everything between is
+/// typed there. The control: without `fastfetch`, btop and what follows it
+/// stay.
+#[test]
+fn without_takes_a_command_out_whole() {
+    let s = SESSION;
+    let cut = without(s, "ssh demo");
+    assert!(!cut.contains(&Step::Run("ssh demo")));
+    for gone in ["fastfetch", "btop", "exit", steps::FIREWORKS] {
+        assert!(!cut.contains(&Step::Run(gone)), "{gone}");
+    }
+    assert!(
+        cut.contains(&Step::Run("clear")),
+        "baud's own after it stays"
+    );
+    let ff = without(s, "fastfetch");
+    assert_eq!(
+        ff.len(),
+        s.len() - 3,
+        "the command, its prompt and its hold"
+    );
+    assert!(ff.contains(&Step::Run("btop")));
 }
 
 /// **The README session lights every light but CS**, played without a
@@ -531,43 +593,70 @@ fn the_lights_light_from_what_the_app_reads() {
 /// scratch directory `BAUD_SESSION_ROOT` names, starts the container and
 /// runs this: the session's steps (`SESSION`) typed into baud's own login
 /// shell started as baud starts it, with that directory's `env` as baud's
-/// environment, its `baud.toml` as the config and baud's 110x33 grid. Each
-/// light's first lit moment is printed with the step it came in, and every
-/// one but CS must light (the module's doc says why CS cannot).
+/// environment, the config where baud finds it with that environment --
+/// read again when helix saves it, as baud reads it -- and its 80x24 grid.
+/// Each light's first lit moment is printed with the step it came in, and
+/// every one but CS must light (the module's doc says why CS cannot). The
+/// trail the first `ge` draws must be plasma and the one `gg` draws fire,
+/// after the edit saved between them, and `gg` or its hold must light a
+/// fire: each ignition the film's trail lit is printed with its step.
 ///
-/// `BAUD_SESSION_WITHOUT` takes a command out, through the prompt it
-/// comes back to ([`without`]), for a perturbation: without `ssh demo` CD
-/// stays dark, without `kitten icat ...` FAX, and the test fails.
-/// `BAUD_SESSION_POINTS` draws at another size, and with
-/// `BAUD_SESSION_STILLS` and `BAUD_FILM_FFMPEG` the last frame of every
-/// hold is written there as a PNG, through baud's CPU renderer on the
-/// opaque page: the stills of the session at the size it is filmed at.
+/// `BAUD_SESSION_WITHOUT` takes a command out ([`without`]), for a
+/// perturbation: without `ssh demo` CD stays dark, without `fastfetch` FAX,
+/// and the test fails. `BAUD_SESSION_POINTS` draws at another size, written
+/// into the config file first, and with `BAUD_SESSION_STILLS` and
+/// `BAUD_FILM_FFMPEG` the last frame of every hold is written there as a
+/// PNG, through baud's CPU renderer on the opaque page: the stills of the
+/// session at the size it is filmed at. With `BAUD_SESSION_FILM` every
+/// frame goes into that file, lossless, at `BAUD_SESSION_PERIOD_MS` a frame
+/// (40 without it), and beside it `<file>.shots` names the frames of the
+/// trails' shot, the fireworks' and the clear's, for the flash census
+/// (`baud-bench/tests/session_flashes.rs`), and `<file>.steps` each step's
+/// first frame.
 #[test]
 #[ignore = "a tool: `cargo run --example demo -- --headless DIR` runs it"]
 fn the_readme_session_lights_every_light() {
+    use crate::config::CursorTrail;
+    use std::io::Write as _;
     let var = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
     let root = std::path::PathBuf::from(var("BAUD_SESSION_ROOT"));
     let read = |name: &str| {
         std::fs::read_to_string(root.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"))
     };
     let env = env_of(&read("env"));
-    let grid = env
-        .iter()
-        .find(|(k, _)| k == "BAUD_GRID")
-        .and_then(|(_, v)| v.to_str())
-        .map(super::grid_of)
-        .expect("BAUD_GRID in the env");
-    // The faces by path beside the config, as baud reads them beside it.
-    let mut config = read("baud.toml").replace("\"fonts/", &format!("\"{}/fonts/", root.display()));
+    let get = |k: &str| {
+        env.iter()
+            .find(|(key, _)| key == k)
+            .and_then(|(_, v)| v.to_str())
+            .unwrap_or_else(|| panic!("{k} in the env"))
+            .to_string()
+    };
+    let grid = super::grid_of(&get("BAUD_GRID"));
+    // Where baud looks with no `BAUD_CONFIG` and no `XDG_CONFIG_HOME`,
+    // which the env holds neither of.
+    assert!(
+        env.iter()
+            .all(|(k, _)| k != "BAUD_CONFIG" && k != "XDG_CONFIG_HOME")
+    );
+    let home = std::path::PathBuf::from(get("HOME"));
+    let source = crate::config::config_paths(None, None, Some(home))
+        .pop()
+        .expect("the home's config");
+    let mut config =
+        std::fs::read_to_string(&source).unwrap_or_else(|e| panic!("{}: {e}", source.display()));
     if let Ok(p) = std::env::var("BAUD_SESSION_POINTS") {
         let line = config.lines().next().unwrap_or("").to_string();
         assert!(line.starts_with("font_size = "), "{line}");
         config = config.replacen(&line, &format!("font_size = {p}"), 1);
+        std::fs::write(&source, &config).expect("the config at the size asked for");
     }
     let steps = match std::env::var("BAUD_SESSION_WITHOUT") {
         Ok(run) => without(SESSION, &run),
         Err(_) => SESSION.to_vec(),
     };
+    let period = std::env::var("BAUD_SESSION_PERIOD_MS")
+        .map(|v| Duration::from_millis(v.parse().expect("BAUD_SESSION_PERIOD_MS")))
+        .unwrap_or(Duration::from_millis(40));
     let dir = root.join("home/baud");
     let f = super::Film {
         child: super::Child::Session {
@@ -577,11 +666,16 @@ fn the_readme_session_lights_every_light() {
         env,
         grid,
         config: &config,
-        period: Duration::from_millis(40),
+        source: Some(&source),
+        period,
         limit: Duration::from_secs(180),
     };
     let stills = std::env::var_os("BAUD_SESSION_STILLS").map(std::path::PathBuf::from);
     let ffmpeg = std::env::var_os("BAUD_FILM_FFMPEG");
+    let film_to = std::env::var_os("BAUD_SESSION_FILM").map(std::path::PathBuf::from);
+    let mut encoder: Option<std::process::Child> = None;
+    let mut frame_steps: Vec<Option<usize>> = Vec::new();
+    let mut size = (0, 0);
     let mut last: Option<Shot> = None;
     let mut written = 0;
     // The last frame of the hold `i`, named for the step it follows.
@@ -606,6 +700,20 @@ fn the_readme_session_lights_every_light() {
         written += 1;
     };
     let take = super::film(&f, |fr| {
+        let px = (fr.size.0.value(), fr.size.1.value());
+        if let Some(to) = &film_to {
+            let e = encoder.get_or_insert_with(|| {
+                size = px;
+                lossless(ffmpeg.as_ref().expect("BAUD_FILM_FFMPEG"), px, period, to)
+            });
+            let bytes: Vec<u8> = fr.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
+            e.stdin
+                .as_mut()
+                .expect("ffmpeg's input")
+                .write_all(&bytes)
+                .expect("a frame to ffmpeg");
+            frame_steps.push(fr.step);
+        }
         if stills.is_none() {
             return;
         }
@@ -614,14 +722,32 @@ fn the_readme_session_lights_every_light() {
                 still(*i, px, *size);
             }
         }
-        last = Some((
-            fr.step,
-            fr.pixels.to_vec(),
-            (fr.size.0.value(), fr.size.1.value()),
-        ));
+        last = Some((fr.step, fr.pixels.to_vec(), px));
     });
     if let Some((Some(i), px, size)) = &last {
         still(*i, px, *size);
+    }
+    if let (Some(mut e), Some(to)) = (encoder, &film_to) {
+        drop(e.stdin.take());
+        assert!(
+            e.wait().expect("ffmpeg").success(),
+            "ffmpeg failed on the film"
+        );
+        let shots = shots(&steps, &frame_steps, size, period);
+        let mut list = to.clone().into_os_string();
+        list.push(".shots");
+        std::fs::write(&list, shots).expect("the shots' list");
+        // Each step's first frame, for cutting a still from the film.
+        let mut firsts = String::new();
+        for (i, step) in steps.iter().enumerate() {
+            if let Some(f) = frame_steps.iter().position(|s| *s == Some(i)) {
+                firsts.push_str(&format!("{i} {f} {step:?}\n"));
+            }
+        }
+        let mut list = to.clone().into_os_string();
+        list.push(".steps");
+        std::fs::write(&list, firsts).expect("the steps' list");
+        println!("film:    {} frames, {}", frame_steps.len(), to.display());
     }
     for led in Led::ALL {
         match take.lit.first(led) {
@@ -633,6 +759,19 @@ fn the_readme_session_lights_every_light() {
             ),
             None => println!("lights:  {:<3} never lit", led.letters()),
         }
+    }
+    for (step, trail) in &take.trails {
+        println!(
+            "trail:   {trail:?} from step {}",
+            step.map_or("-".to_string(), |i| format!("{i} {:?}", steps[i]))
+        );
+    }
+    for (step, trail, at) in &take.ignitions {
+        println!(
+            "ignited: {trail:?} at {:>6.2} s, in step {}",
+            at.as_secs_f64(),
+            step.map_or("-".to_string(), |i| format!("{i} {:?}", steps[i]))
+        );
     }
     if stills.is_some() {
         println!("stills:  {written} written");
@@ -648,11 +787,103 @@ fn the_readme_session_lights_every_light() {
         Vec::<String>::new(),
         "the session names this machine"
     );
+    // The trail as each jump began: plasma down to the trail's line, fire
+    // back up once the edit was saved.
+    let at = |want: Step| steps.iter().position(|s| *s == want);
+    if let (Some(down), Some(up)) = (at(Step::Keys("ge")), at(Step::Keys("gg"))) {
+        assert_eq!(
+            trail_as(&take.trails, StepAt(down)),
+            CursorTrail::Plasma,
+            "at `ge`"
+        );
+        assert_eq!(
+            trail_as(&take.trails, StepAt(up)),
+            CursorTrail::Fire,
+            "at `gg`"
+        );
+        // And the jump up draws the fire: an ignition in `gg` or the hold
+        // after it, which REIGNITE refuses within 334 ms of the last.
+        let jump = |s: &Option<usize>| s.is_some_and(|s| s == up || s == up + 1);
+        assert!(
+            take.ignitions
+                .iter()
+                .any(|(s, t, _)| jump(s) && *t == CursorTrail::Fire),
+            "no fire ignition at `gg`"
+        );
+    }
     assert_eq!(
         take.lit.dark(),
         [Led::Cs],
         "every light but CS lights in the session"
     );
+}
+
+/// **The trail as step `i` began**: the last the film changed to in a step
+/// before it, a change during `i` itself coming after its start.
+fn trail_as(
+    trails: &[(Option<usize>, crate::config::CursorTrail)],
+    StepAt(i): StepAt,
+) -> crate::config::CursorTrail {
+    trails
+        .iter()
+        .take_while(|(s, _)| s.is_none_or(|s| s < i))
+        .last()
+        .map(|t| t.1)
+        .expect("the first frame's trail")
+}
+
+/// **The shots the flash census counts**, by their frames: the trails'
+/// (helix opened to the prompt after it), the fireworks' (their request
+/// typed to the `exit` after it) and the clear's (to the end), a `name
+/// first last` line each after the film's `size W H` and `rate R`.
+fn shots(steps: &[Step], frames: &[Option<usize>], (w, h): (u32, u32), period: Duration) -> String {
+    let at = |want: Step| steps.iter().position(|s| *s == want);
+    let ranges = [
+        (
+            "trails",
+            at(Step::Run("hx ~/.config/baud/config.toml")),
+            at(Step::Run("cat hello.txt")),
+        ),
+        (
+            "fireworks",
+            at(Step::Run(steps::FIREWORKS)),
+            at(Step::Run("exit")),
+        ),
+        ("clear", at(Step::Run("clear")), Some(steps.len())),
+    ];
+    let rate = Duration::from_secs(1).as_millis() / period.as_millis();
+    let mut out = format!("size {w} {h}\nrate {rate}\n");
+    for (name, from, to) in ranges {
+        let (Some(from), Some(to)) = (from, to) else {
+            continue;
+        };
+        let inside = |f: &Option<usize>| f.is_some_and(|i| (from..to).contains(&i));
+        let first = frames.iter().position(inside);
+        let last = frames.iter().rposition(inside);
+        if let (Some(a), Some(b)) = (first, last) {
+            out.push_str(&format!("{name} {a} {b}\n"));
+        }
+    }
+    out
+}
+
+/// An encoder of every frame, lossless, into `to`.
+fn lossless(
+    ffmpeg: &std::ffi::OsString,
+    (w, h): (u32, u32),
+    period: Duration,
+    to: &std::path::Path,
+) -> std::process::Child {
+    let rate = Duration::from_secs(1).as_millis() / period.as_millis();
+    std::process::Command::new(ffmpeg)
+        .args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgra"])
+        .args(["-video_size", &format!("{w}x{h}")])
+        .args(["-framerate", &rate.to_string(), "-i", "-"])
+        .args(["-c:v", "ffv1", "-pix_fmt", "bgra"])
+        .arg(to)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("ffmpeg")
 }
 
 /// A frame kept for a still: the step it was in, its pixels and its size.
