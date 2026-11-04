@@ -308,6 +308,55 @@ pub fn inherited(
 /// own, and kept from its shell's environment (`pty::OUTER`).
 pub const NEW_WINDOW: &str = "BAUD_NEW_WINDOW";
 
+/// **The variable that says which screen a window opens on**, read
+/// once per window before it is shown ([`screen`]). Unset, a window is
+/// centred by AppKit's `center`, on the screen with the key window
+/// (`mainScreen`, "Screen with key window", `[[source: sdk27-nsscreen-h]]`).
+/// `primary` centres it on the primary screen, the one with the menu bar,
+/// first in `NSScreen.screens` and with its origin at (0, 0)
+/// (`[[source: apple-nsscreen-screens]]`): the display CoreGraphics names
+/// its main display, which the README film's recorder films
+/// (`baud-app/examples/demo`). Like `BAUD_GRID`, it is for a run that
+/// must open where it is filmed or measured.
+#[cfg(any(target_os = "macos", test))]
+pub const SCREEN: &str = "BAUD_SCREEN";
+
+/// Which screen a window opens on.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Screen {
+    /// The screen with the key window, where AppKit centres it.
+    KeyWindow,
+    /// The primary screen.
+    Primary,
+}
+
+/// [`Screen`], from [`SCREEN`] in `env`; a value other than `primary` is
+/// refused in words, and the window opens where it would unset.
+#[cfg(any(target_os = "macos", test))]
+pub fn screen(env: Option<&std::ffi::OsStr>) -> Result<Screen, String> {
+    match env {
+        None => Ok(Screen::KeyWindow),
+        Some(v) if v == "primary" => Ok(Screen::Primary),
+        Some(v) => Err(format!(
+            "{SCREEN}={v:?} is not primary; the window opens on the screen with the key window"
+        )),
+    }
+}
+
+/// **The origin of a window `size` points big centred in `visible`**,
+/// both in AppKit's screen points, origin at the bottom left, on whole
+/// points: a window taller than the area keeps its top, and the titlebar
+/// with it, inside the area, and one wider keeps its left edge.
+#[cfg(any(target_os = "macos", test))]
+pub fn centred(size: (f64, f64), visible: (f64, f64, f64, f64)) -> (f64, f64) {
+    let (w, h) = size;
+    let (x, y, vw, vh) = visible;
+    let left = x + ((vw - w) / 2.0).max(0.0);
+    let bottom = y + vh - h - ((vh - h) / 2.0).max(0.0);
+    (left.round(), bottom.round())
+}
+
 /// How this process was started: by a launch, or as a new window of
 /// another baud (`spawn_window`).
 #[cfg(any(target_os = "linux", test))]
@@ -375,8 +424,8 @@ pub fn spawn_window(dir: Option<&std::path::Path>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AfterClose, Asked, Chord, Clicked, Command, LAST_WINDOW, LastWindow, Left, Started,
-        Windows, after_close, clicked, inherited, mac_chord, started,
+        AfterClose, Asked, Chord, Clicked, Command, LAST_WINDOW, LastWindow, Left, Screen, Started,
+        Windows, after_close, centred, clicked, inherited, mac_chord, screen, started,
     };
     use baud_core::{FileHost, Owned, Term, WorkingDirectory};
     use baud_domain::{BytePos, ReadLen, Row, WinSize};
@@ -532,6 +581,44 @@ mod tests {
     fn a_process_started_as_a_new_window_is_not_a_launch() {
         assert_eq!(started(Some(std::ffi::OsStr::new("1"))), Started::Window);
         assert_eq!(started(None), Started::Launch);
+    }
+
+    /// **`BAUD_SCREEN=primary` opens the window on the primary screen**,
+    /// unset on the key window's, and any other value is refused in words
+    /// that name it.
+    #[test]
+    fn the_screen_variable_names_the_primary_screen_or_nothing() {
+        let os = std::ffi::OsStr::new;
+        assert_eq!(screen(None), Ok(Screen::KeyWindow));
+        assert_eq!(screen(Some(os("primary"))), Ok(Screen::Primary));
+        let said = screen(Some(os("main"))).unwrap_err();
+        assert!(said.contains("BAUD_SCREEN=\"main\""), "{said}");
+    }
+
+    /// **A window is centred in the area, on whole points**: the README
+    /// film's 786x572 window in a 1728x1085 area above a 32-point Dock
+    /// opens at 471,289; one taller than the area keeps its top at the
+    /// area's top, and one wider its left edge at the area's left, so the
+    /// titlebar is never off the screen. A display left of the primary has
+    /// a negative x. Perturbation: centre without the floor at zero and
+    /// the tall window's top passes the area's.
+    #[test]
+    fn a_window_is_centred_in_the_area_its_top_kept_inside() {
+        assert_eq!(
+            centred((786.0, 572.0), (0.0, 32.0, 1728.0, 1085.0)),
+            (471.0, 289.0)
+        );
+        let (x, y) = centred((786.0, 1300.0), (0.0, 32.0, 1728.0, 1085.0));
+        assert_eq!((x, y + 1300.0), (471.0, 1117.0));
+        assert_eq!(centred((2000.0, 572.0), (0.0, 0.0, 1728.0, 1085.0)).0, 0.0);
+        assert_eq!(
+            centred((786.0, 572.0), (-1920.0, 0.0, 1920.0, 1055.0)),
+            (-1353.0, 242.0)
+        );
+        assert_eq!(
+            centred((785.0, 571.0), (0.0, 0.0, 1728.0, 1085.0)),
+            (472.0, 257.0)
+        );
     }
 
     /// Command-N alone opens a window; with another modifier, or another

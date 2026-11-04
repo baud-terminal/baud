@@ -23,6 +23,28 @@ macOS system font baud falls back to, as baud's own font has none; a
 recording played with the example draws them from Noto Sans CJK SC,
 which it configures.
 
+The next take differs from this GIF in what it shows and in how it is
+filmed. pipes-rs 1.6.4 plays where asciiquarium did: asciiquarium's fish
+and sea are Joan Stark's art (`[[source: asciiquarium-1-1]]`), which she
+gives "for personal use only" (`[[source: jgs-guidelines]]`), so a GIF
+of them is not hers to share. pipes-rs is under the Blue Oak Model
+License 1.0.0 (`[[source: pipes-rs-1-6-4-license]]`), from the same
+pinned nixpkgs, and draws its six pipes from the box-drawing characters
+┃━┏┓┗┛ (`[[source: pipes-rs-1-6-4-kind-rs]]`): no art in it. On `q` it
+leaves the alternate screen (`[[source: pipes-rs-1-6-4-terminal-rs]]`),
+so the screen before it comes back and `clear` carries the cursor from
+there. pipes.sh 1.3.0, which recorded
+`tests/recordings/ascii/pipes.raw`, is MIT but ends with `tput reset`
+(`[[source: pipes-sh-1-3-0]]`), a full reset that clears the screen
+first; cbonsai 1.4.2 is GPL-3.0 and draws a pot of its own
+(`[[source: cbonsai-1-4-2-c]]`). baud's mark, missing from this GIF's
+titlebar, is in the next take's: it had been placed for the window's
+default size, above the top of a window the grid had made shorter.
+baud's window opens centred on the primary display, the one the recorder
+films (`BAUD_SCREEN=primary`), where in one try it opened on a second
+display, the one with the key window; and the session plays only once
+the window has kept one frame for half a second.
+
 A recording for the README is made by one command, which plays the
 session in baud's window, films it and encodes the GIF:
 `cargo run --release --example demo -- --record assets/readme/hero.gif`

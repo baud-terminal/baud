@@ -2,7 +2,7 @@
 //! zsh and real programs at real speed, every command typed into the
 //! window key by key -- btop, `cat README.md` and the wheel back through
 //! it, six languages and a line of emoji in `cat hello.txt`, helix, a photo
-//! through kitten, neo, asciiquarium and `clear`. With `--record` the same
+//! through kitten, neo, pipes-rs and `clear`. With `--record` the same
 //! run films it and encodes the README's GIF, and writes beside the GIF
 //! where it came from, so the GIF is shown to be the session as it ran.
 //!
@@ -40,22 +40,34 @@
 //! points with the cursor still and the pinned faces beside it; and baud
 //! is started with nothing of this environment but `HOME`, `ZDOTDIR`,
 //! `SHELL`, `PATH`, `LANG`, `TMPDIR`, `NOSYSZSHRC` and its own
-//! (`BAUD_GRID`, `BAUD_CONFIG`, `BAUD_MOTION`, `BAUD_SCROLLER`, `BAUD_LOG`,
-//! `BAUD_PTYLOG`): a 110x33 grid, full motion, the overlay scrollbar and a
-//! pty log. The directory is removed after a session that ran to its end,
-//! and kept otherwise.
+//! (`BAUD_GRID`, `BAUD_SCREEN`, `BAUD_CONFIG`, `BAUD_MOTION`,
+//! `BAUD_SCROLLER`, `BAUD_LOG`, `BAUD_PTYLOG`): a 110x33 grid, the window
+//! centred on the primary display, full motion, the overlay scrollbar and
+//! a pty log. The directory is removed after a session that ran to its
+//! end, and kept otherwise.
 //!
 //! **What it checks first**, and `--dry` stops after: every program, the
 //! photo and every face is the pinned one; every character of the README,
-//! `hello.txt`, the prompt and neo's katakana is drawn by baud's own faces
-//! or a pinned one, by baud-render's own face table, so no character of
-//! those asks the system for a face -- the system tier stands behind every
-//! stack and no setting keeps it out; what btop, helix, kitten, neo and
-//! asciiquarium print themselves is not checked; and no file it wrote and
-//! no variable baud is given names this machine -- the user, the host, a
-//! home or temporary path -- but the scratch directory every path variable
-//! must name. Then it prints the plan, with its holds and how long it
-//! takes at least.
+//! `hello.txt`, the prompt, neo's katakana and pipes-rs's pipes is drawn
+//! by baud's own faces or a pinned one, by baud-render's own face table, so
+//! no character of those asks the system for a face -- the system tier
+//! stands behind every stack and no setting keeps it out; what btop,
+//! helix, kitten and neo print themselves is not checked; and no file it
+//! wrote and no variable baud is given names this machine -- the user, the
+//! host, a home or temporary path -- but the scratch directory every path
+//! variable must name. Then it prints the plan, with its holds and how
+//! long it takes at least.
+//!
+//! **Before it plays**: baud's window must keep one frame for half a
+//! second, the frame it was first seen at, or it stops: the film holds the
+//! launch where the window was first seen. Filmed, the window must also
+//! lie wholly on the display the recorder films. `BAUD_SCREEN=primary`
+//! opens it there, centred on the primary display, which is CoreGraphics'
+//! main display (`[[source: apple-nsscreen-screens]]`,
+//! `[[source: apple-cgmaindisplayid]]`), rather than on the display with
+//! the key window, where AppKit centres a new one: in one try that was a
+//! second display, and in that try the window also moved 9 points by the
+//! first prompt, for a reason not reproduced here.
 //!
 //! **While it plays**: each step waits for the shell's next prompt by
 //! counting `OSC 133 ; A` marks in the pty log, and each command is

@@ -95,6 +95,43 @@ pub fn frame(pid: i32, all: &[Window]) -> Option<Rect> {
         .map(|w| w.bounds)
 }
 
+/// **Whether baud's window has held still**, from the frames read since
+/// the session began, each with its time in seconds: `Waiting` until it
+/// has been seen and has kept one frame for `hold` seconds, then
+/// `Still` at the frame it was first seen at, or `Moved` from it. The
+/// film begins before baud's window appears, so the launch is on film
+/// where the window was first seen; a window that settles anywhere else
+/// leaves no one crop that holds both. A reading of no window after the
+/// first starts the hold again.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Settle {
+    Waiting,
+    Still(Rect),
+    Moved { first: Rect, now: Rect },
+}
+
+pub fn settle(readings: &[(f64, Option<Rect>)], hold: f64) -> Settle {
+    let Some(first) = readings.iter().find_map(|r| r.1) else {
+        return Settle::Waiting;
+    };
+    let Some(&(last, Some(now))) = readings.last() else {
+        return Settle::Waiting;
+    };
+    let since = readings
+        .iter()
+        .rev()
+        .take_while(|r| r.1 == Some(now))
+        .last()
+        .map_or(last, |r| r.0);
+    if last - since < hold {
+        Settle::Waiting
+    } else if now == first {
+        Settle::Still(now)
+    } else {
+        Settle::Moved { first, now }
+    }
+}
+
 /// **The centre of [`frame`]**, where the wheel turns.
 pub fn centre(pid: i32, all: &[Window]) -> Option<(f64, f64)> {
     frame(pid, all).map(|b| (b.x + b.w / 2.0, b.y + b.h / 2.0))
@@ -168,6 +205,53 @@ mod tests {
         ];
         assert!(wheel(BAUD, &covered, Some(BAUD), (500.0, 400.0)).is_err());
         assert!(wheel(BAUD, &list, Some(OTHER), (500.0, 400.0)).is_err());
+    }
+
+    /// **The window is taken once it has held still where it was first
+    /// seen**: readings 50 ms apart wait out the half second, a window that
+    /// came and stayed is `Still` at its frame, one that moved 9 points
+    /// after it was first seen and stayed there is `Moved` from the first
+    /// frame to the second, as the first try's window moved by prompt 1,
+    /// and one that is still moving, or gone again, is waited for.
+    /// Perturbation: take a window that has held still without comparing
+    /// its frame with the first, and the moved window is taken.
+    #[test]
+    fn the_window_is_taken_once_it_holds_still_where_it_was_first_seen() {
+        let at = |x: f64| Rect {
+            x,
+            y: 161.0,
+            w: 786.0,
+            h: 572.0,
+        };
+        let reads = |frames: &[Option<Rect>]| -> Vec<(f64, Option<Rect>)> {
+            frames
+                .iter()
+                .enumerate()
+                .map(|(i, f)| (i as f64 * 0.05, *f))
+                .collect()
+        };
+        assert_eq!(settle(&[], 0.5), Settle::Waiting);
+        assert_eq!(settle(&reads(&[None, None]), 0.5), Settle::Waiting);
+        let mut came = vec![None, None];
+        came.extend(std::iter::repeat_n(Some(at(471.0)), 10));
+        assert_eq!(settle(&reads(&came), 0.5), Settle::Waiting, "0.45 s");
+        came.push(Some(at(471.0)));
+        assert_eq!(settle(&reads(&came), 0.5), Settle::Still(at(471.0)));
+        let mut moved = vec![Some(at(471.0)); 4];
+        moved.extend(std::iter::repeat_n(Some(at(480.0)), 11));
+        assert_eq!(
+            settle(&reads(&moved), 0.5),
+            Settle::Moved {
+                first: at(471.0),
+                now: at(480.0)
+            }
+        );
+        let mut moving = vec![Some(at(471.0)); 12];
+        moving.extend([Some(at(472.0)), Some(at(473.0))]);
+        assert_eq!(settle(&reads(&moving), 0.5), Settle::Waiting);
+        let mut gone = vec![Some(at(471.0)); 12];
+        gone.push(None);
+        assert_eq!(settle(&reads(&gone), 0.5), Settle::Waiting);
     }
 
     /// **The centre is the largest of baud's windows on screen**, not its

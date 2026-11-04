@@ -76,7 +76,8 @@ pub const SESSION: &[Step] = &[
     Keys("q"),
     Prompt,
     Hold(300),
-    Run("asciiquarium"),
+    // Six pipes, drawn from box-drawing characters: no art in them.
+    Run("pipes-rs -p 6"),
     Hold(2600),
     Keys("q"),
     Prompt,
@@ -135,6 +136,15 @@ pub const HELLO: &str = concat!(
     "\u{1F1EE}\u{1F1F1} \u{1F1EA}\u{1F1EC} \u{1F1E8}\u{1F1F3} ",
     "\u{1F1EF}\u{1F1F5} \u{1F1F0}\u{1F1F7} \u{1F1EE}\u{1F1F3}\n",
 );
+
+/// **The characters pipes-rs draws its pipes with**: its default kind,
+/// heavy, `['┃', '┃', '━', '━', '┏', '┓', '┗', '┛']`
+/// (`[[source: pipes-rs-1-6-4-kind-rs]]`), for the font check. On `q` it
+/// leaves the alternate screen (`[[source: pipes-rs-1-6-4-terminal-rs]]`),
+/// so the screen before it comes back for `clear` to carry the cursor
+/// from; pipes.sh ends with `tput reset` (`[[source: pipes-sh-1-3-0]]`),
+/// a full reset that clears the screen first.
+pub const PIPES: &str = "┃━┏┓┗┛";
 
 /// The shell's prompt, for zsh's `PS1`: nothing of the machine in it.
 pub const PS1: &str = "%F{cyan}baud%f %F{magenta}\u{276F}%f ";
@@ -211,8 +221,8 @@ pub fn marks(bytes: &[u8]) -> usize {
 
 /// Whether `text` came back in `log` at or after `from`: what the keys
 /// spelled was echoed. Only the bytes since the typing began count, so a
-/// word an earlier screen printed -- the README names btop, neo and
-/// asciiquarium -- cannot stand in for the keys arriving.
+/// word an earlier screen printed -- the README names btop and neo --
+/// cannot stand in for the keys arriving.
 pub fn echoed(log: &[u8], from: usize, text: &str) -> bool {
     let tail = log.get(from..).unwrap_or(&[]);
     let t = text.as_bytes();

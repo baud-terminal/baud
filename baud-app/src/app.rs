@@ -12277,6 +12277,38 @@ pub fn run() {
 /// The size a window opens at, in points.
 const WINDOW_SIZE: NSSize = NSSize::new(960.0, 600.0);
 
+/// **Where a window opens, before it is shown** (`windows::SCREEN`):
+/// centred by AppKit on the screen with the key window, or, under
+/// `BAUD_SCREEN=primary`, centred in the primary screen's visible frame,
+/// the first of `NSScreen.screens` (`[[source: apple-nsscreen-screens]]`).
+/// A window opened from another is cascaded from it after this, in `show`.
+fn open_on_screen(window: &GlassWindow, mtm: MainThreadMarker) {
+    let on = match crate::windows::screen(std::env::var_os(crate::windows::SCREEN).as_deref()) {
+        Ok(on) => on,
+        Err(e) => {
+            crate::warn!("{e}");
+            crate::windows::Screen::KeyWindow
+        }
+    };
+    let primary = match on {
+        crate::windows::Screen::Primary => NSScreen::screens(mtm)
+            .firstObject()
+            .map(|s| s.visibleFrame()),
+        crate::windows::Screen::KeyWindow => None,
+    };
+    match primary {
+        Some(v) => {
+            let f = window.ns_window().frame();
+            let (x, y) = crate::windows::centred(
+                (f.size.width, f.size.height),
+                (v.origin.x, v.origin.y, v.size.width, v.size.height),
+            );
+            window.set_origin(NSPoint::new(x, y));
+        }
+        None => window.center(),
+    }
+}
+
 /// The titlebar's height before a window exists: the window is
 /// FullSizeContentView, so its content spans the frame behind the
 /// transparent titlebar, and the terminal leaves that strip so row 0
@@ -12560,7 +12592,7 @@ impl Opening {
         startup_mark("views");
         window.set_accepts_mouse_moved(true);
         window.set_min_size(NSSize::new(200.0, 100.0));
-        window.center();
+        open_on_screen(&window, mtm);
         startup_mark("centered");
         // The cell the observer writes and `pump` reads; cloned into both.
         let style = PendingStyle::default();

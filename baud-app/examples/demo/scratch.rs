@@ -147,8 +147,9 @@ pub fn files(path: &str, faces: &[&str]) -> Vec<(String, Vec<u8>)> {
 /// **baud's environment, and nothing else**, as `env -i` gives it: the
 /// scratch home and zsh's startup directory, zsh, the `PATH`, the locale,
 /// the scratch temporary directory, `NOSYSZSHRC` (which a nix-darwin
-/// `/etc/zshrc` honours), and baud's own: the grid, the config, the
-/// motion and scroller, its log and the pty log the session watches.
+/// `/etc/zshrc` honours), and baud's own: the grid, the window on the
+/// primary display, which the recorder films, the config, the motion and
+/// scroller, its log and the pty log the session watches.
 pub fn env(at: &Layout, path: &str) -> Vec<(String, String)> {
     let s = |p: PathBuf| p.to_string_lossy().into_owned();
     [
@@ -160,6 +161,7 @@ pub fn env(at: &Layout, path: &str) -> Vec<(String, String)> {
         ("TMPDIR", s(at.tmp())),
         ("NOSYSZSHRC", "1".to_string()),
         ("BAUD_GRID", GRID.to_string()),
+        ("BAUD_SCREEN", "primary".to_string()),
         ("BAUD_CONFIG", s(at.config())),
         ("BAUD_MOTION", "full".to_string()),
         ("BAUD_SCROLLER", "overlay".to_string()),
@@ -239,6 +241,7 @@ mod tests {
                 "TMPDIR",
                 "NOSYSZSHRC",
                 "BAUD_GRID",
+                "BAUD_SCREEN",
                 "BAUD_CONFIG",
                 "BAUD_MOTION",
                 "BAUD_SCROLLER",
@@ -248,6 +251,10 @@ mod tests {
         );
         assert!(e.contains(&("HOME".to_string(), "/t/r/home".to_string())));
         assert!(e.contains(&("BAUD_GRID".to_string(), "110x33".to_string())));
+        assert!(e.contains(&("BAUD_SCREEN".to_string(), "primary".to_string())));
+        let windows = include_str!("../../src/windows.rs");
+        assert!(windows.contains("pub const SCREEN: &str = \"BAUD_SCREEN\";"));
+        assert!(windows.contains("Some(v) if v == \"primary\" => Ok(Screen::Primary),"));
     }
 
     /// The btop configs `scripts/readme-film.sh` and

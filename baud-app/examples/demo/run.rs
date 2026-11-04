@@ -9,6 +9,7 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::film::{self, Display};
 use crate::fonts::{self, PINNED};
 use crate::guard::{self, Rect};
 use crate::keys::{self, Gaps, RETURN};
@@ -23,13 +24,17 @@ use crate::session::{self, SESSION, Step};
 /// `scripts/readme-film.sh`'s.
 pub const NIXPKGS: &str = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a";
 
-/// The programs the session runs: nixpkgs attribute, binary.
+/// The programs the session runs: nixpkgs attribute, binary. pipes-rs
+/// (Blue Oak Model License 1.0.0) draws its pipes from box-drawing
+/// characters and carries no art (`session::PIPES`); asciiquarium, which
+/// played here before it, draws Joan Stark's, for personal use only
+/// (`[[source: jgs-guidelines]]`).
 const PROGRAMS: [(&str, &str); 5] = [
     ("btop", "btop"),
     ("helix", "hx"),
     ("kitty", "kitten"),
     ("neo", "neo"),
-    ("asciiquarium", "asciiquarium"),
+    ("pipes-rs", "pipes-rs"),
 ];
 
 /// **The photo**: an elementary OS wallpaper pinned by revision and
@@ -46,6 +51,11 @@ const PHOTO: (&str, &str, &str) = (
 /// How long a prompt may take to come, and an echo.
 const PROMPT_LIMIT: Duration = Duration::from_secs(15);
 const ECHO_LIMIT: Duration = Duration::from_secs(3);
+
+/// How long baud's window must keep one frame before the session plays,
+/// and how long it may take to.
+const SETTLE: f64 = 0.5;
+const SETTLE_LIMIT: Duration = Duration::from_secs(5);
 
 /// How long the window stays after `--done` is touched, so a recorder that
 /// stops a moment after it still has baud's window in front.
@@ -407,8 +417,9 @@ fn fresh_root() -> Result<PathBuf, String> {
 }
 
 /// **No character the session shows from what it controls needs a system
-/// face**: the README, `hello.txt`, the prompt and neo's half-width
-/// katakana, through the stack baud builds from the scratch config --
+/// face**: the README, `hello.txt`, the prompt, neo's half-width katakana
+/// and pipes-rs's heavy pipes, through the stack baud builds from the
+/// scratch config --
 /// its text face, its icon face, the four pinned faces, STIX Two Math --
 /// and baud-render's table. Then the control: without the CJK face, 终 is
 /// a gap, so the check can fail.
@@ -429,15 +440,17 @@ fn check_fonts(faces: &[PathBuf]) -> Result<(), String> {
     );
     stack.push(("STIX Two Math", fonts::STIX));
     let text = format!(
-        "{}{}{}{}",
+        "{}{}{}{}{}",
         scratch::README,
         session::HELLO,
         session::PROMPT_SHOWN,
-        fonts::neo_katakana()
+        fonts::neo_katakana(),
+        session::PIPES
     );
     let c = fonts::coverage(&stack, &text)?;
     println!(
-        "fonts:   the {} characters of README.md, hello.txt, the prompt and neo's katakana:",
+        "fonts:   the {} characters of README.md, hello.txt, the prompt, neo's katakana and \
+         pipes-rs's pipes:",
         c.checked
     );
     for (name, chars) in &c.drawn {
@@ -846,10 +859,9 @@ fn live(
         pid_files.push(at.root.join("baud.pid"));
         dones.push(at.root.join("done"));
     }
-    let fixed = if filming.is_some() {
-        Fixed::Yes
-    } else {
-        Fixed::No
+    let fixed = match &filming {
+        Some(f) => Fixed::Yes(f.display),
+        None => Fixed::No,
     };
     let played = pid_files
         .iter()
@@ -906,21 +918,33 @@ fn close(child: &mut Child, pid: i32) {
     let _ = child.wait();
 }
 
-/// Whether baud's window must stay where it came frontmost: when it is
-/// filmed, as the film is cropped to it.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// Whether baud's window must stay where it was first seen: when it is
+/// filmed, on the display the recorder films, as the film is cropped to
+/// it.
+#[derive(Clone, Copy)]
 enum Fixed {
-    Yes,
+    Yes(Display),
     No,
 }
 
-/// **Every step played**; returns baud's window as it was when it came
-/// frontmost, which the film is cropped to. When it is `Fixed`, the window
-/// is looked at again at every prompt, and a window that has moved or
-/// changed size stops the session there rather than at its end.
+/// **Every step played**; returns baud's window as it was first seen,
+/// which the film is cropped to. The window must have held still there for
+/// [`SETTLE`] before the first step (`guard::settle`), and when it is
+/// `Fixed`, lie wholly on the display filmed; it is looked at again at
+/// every prompt, and a window that has moved or changed size stops the
+/// session there rather than at its end.
 fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String> {
+    let begun = Instant::now();
+    let mut seen: Vec<(f64, Option<Rect>)> = Vec::new();
+    let look = |seen: &mut Vec<(f64, Option<Rect>)>| {
+        seen.push((
+            begun.elapsed().as_secs_f64(),
+            guard::frame(pid, &mac::windows(true)),
+        ));
+    };
     let mut tries = 0;
     while mac::front_owner() != Some(pid) {
+        look(&mut seen);
         mac::raise(pid);
         std::thread::sleep(Duration::from_millis(50));
         tries += 1;
@@ -929,7 +953,30 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
         }
     }
     ev.line("frontmost");
-    let frame = guard::frame(pid, &mac::windows(true)).ok_or("baud has no window on screen")?;
+    let settling = Instant::now();
+    let frame = loop {
+        look(&mut seen);
+        match guard::settle(&seen, SETTLE) {
+            guard::Settle::Still(f) => break f,
+            guard::Settle::Moved { first, now } => {
+                return Err(format!(
+                    "baud's window moved after it was first seen ({first:?}, then {now:?}), \
+                     and the session crops to where it was first seen, so no one crop holds it"
+                ));
+            }
+            guard::Settle::Waiting if settling.elapsed() > SETTLE_LIMIT => {
+                return Err(format!(
+                    "baud's window did not hold still for {SETTLE} s within {} s",
+                    SETTLE_LIMIT.as_secs()
+                ));
+            }
+            guard::Settle::Waiting => std::thread::sleep(Duration::from_millis(50)),
+        }
+    };
+    ev.line("still");
+    if let Fixed::Yes(display) = fixed {
+        film::crop(&frame, &display)?;
+    }
     let poster = mac::Poster::new(pid)?;
     let seed = pid.unsigned_abs();
     let hold = Duration::from_secs_f64(session::key_hold_ms() / 1000.0);
@@ -961,7 +1008,7 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
                 if prompt == 1 {
                     check_config(at)?;
                 }
-                if fixed == Fixed::Yes {
+                if matches!(fixed, Fixed::Yes(_)) {
                     let now = guard::frame(pid, &mac::windows(true));
                     if now != Some(frame) {
                         return Err(format!(
