@@ -77,8 +77,8 @@ fn rd_lit() -> Shown {
 }
 
 /// The look the renderer makes for its theme: `line_colours` over the
-/// page it clears to, the letters at the floor's 4.5:1, dimmed caps over
-/// every grey.
+/// page it clears to against every grey, the letters at the floor's
+/// 4.5:1, dimmed caps over every grey.
 fn look_of(r: &Renderer<'_, '_>, glow: Glow) -> LightsLook {
     let theme = r.theme();
     let page = r.clear_color().with_alpha(Chan::from_u8(0xFF));
@@ -87,7 +87,7 @@ fn look_of(r: &Renderer<'_, '_>, glow: Glow) -> LightsLook {
         theme.fg,
         page,
         theme.bg_alpha,
-        theme.backdrop,
+        Backdrop::any(),
         4.5,
     );
     LightsLook::new(lit, lit, label, page, glow, Backdrop::any())
@@ -225,7 +225,7 @@ fn the_lines_lights_are_the_title_strips_pictures() {
     }
     assert_eq!(
         digest(&line),
-        6_895_193_952_496_135_394,
+        9_605_429_306_933_611_913,
         "the line's pixels"
     );
 }
@@ -524,8 +524,9 @@ fn each_lit_light_reads_at_three_to_one_against_the_line() {
 
 /// **The line's pixels in every state, both themes and both glows**,
 /// pinned from the line as it was drawn before the title strip's colours
-/// were lifted apart from it: the line's lamps and lit colours are one
-/// colour each, its own, on both systems. Perturbation: lift the line's
+/// were lifted apart from it, and again when coverage came to be rounded
+/// to the nearest level: the line's lamps and lit colours are one colour
+/// each, its own, on both systems. Perturbation: lift the line's
 /// lit colours to 5:1, or mix its lamps from the letters' colour, and this
 /// goes red.
 #[test]
@@ -548,43 +549,305 @@ fn the_lines_pixels_are_pinned_in_every_state() {
         }
     }
     let want = [
-        ("dark", Glow::Full, Light::Dark, 12_290_800_282_630_374_670),
-        ("dark", Glow::Full, Light::Lit, 8_737_166_698_460_667_014),
-        ("dark", Glow::Full, Light::Unread, 8_799_079_521_216_547_742),
+        ("dark", Glow::Full, Light::Dark, 6_216_219_791_535_923_001),
+        ("dark", Glow::Full, Light::Lit, 9_089_374_480_762_148_789),
         (
             "dark",
-            Glow::Dimmed,
-            Light::Dark,
-            12_290_800_282_630_374_670,
-        ),
-        ("dark", Glow::Dimmed, Light::Lit, 9_107_346_183_030_006_206),
-        (
-            "dark",
-            Glow::Dimmed,
-            Light::Unread,
-            3_226_158_810_095_266_058,
-        ),
-        ("light", Glow::Full, Light::Dark, 11_369_443_907_373_752_830),
-        ("light", Glow::Full, Light::Lit, 15_629_138_471_030_059_506),
-        (
-            "light",
             Glow::Full,
             Light::Unread,
-            2_731_559_415_951_788_942,
+            11_266_776_276_634_529_285,
         ),
+        ("dark", Glow::Dimmed, Light::Dark, 6_216_219_791_535_923_001),
+        ("dark", Glow::Dimmed, Light::Lit, 16_177_629_012_481_577_289),
+        (
+            "dark",
+            Glow::Dimmed,
+            Light::Unread,
+            2_404_356_500_493_307_921,
+        ),
+        ("light", Glow::Full, Light::Dark, 2_193_085_022_500_298_417),
+        ("light", Glow::Full, Light::Lit, 17_740_578_590_105_699_057),
+        ("light", Glow::Full, Light::Unread, 386_417_699_130_134_333),
         (
             "light",
             Glow::Dimmed,
             Light::Dark,
-            11_369_443_907_373_752_830,
+            2_193_085_022_500_298_417,
         ),
-        ("light", Glow::Dimmed, Light::Lit, 8_457_197_691_389_900_798),
+        (
+            "light",
+            Glow::Dimmed,
+            Light::Lit,
+            14_815_031_926_811_245_793,
+        ),
         (
             "light",
             Glow::Dimmed,
             Light::Unread,
-            4_516_481_990_817_300_378,
+            8_050_924_772_632_740_793,
         ),
     ];
     assert_eq!(got, want);
+}
+
+/// The app's two faces: the text face and the bold the line's letters
+/// are drawn in, the badge face.
+fn app_faces() -> (Vec<u8>, Vec<u8>) {
+    let built = |f: &str| {
+        std::fs::read(format!(
+            "{}/../baud-app/fonts/built/{f}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    };
+    (built("Regular.ttf"), built("Bold.ttf"))
+}
+
+/// The two built-in themes at the dims the app ships, `dim_dark` 0.70
+/// and `dim_light` 0.60, each with the standard material's greys under
+/// it, the backdrop macOS reads its text against, and opaque.
+fn shipped() -> [(&'static str, Theme, Chan, Backdrop); 4] {
+    let opaque = Chan::from_u8(0xFF);
+    [
+        ("dark", Theme::dark(), opaque, Backdrop::under_window_dark()),
+        (
+            "dark",
+            Theme::dark(),
+            Chan::from_unit(0.70),
+            Backdrop::under_window_dark(),
+        ),
+        (
+            "light",
+            Theme::light(),
+            opaque,
+            Backdrop::under_window_light(),
+        ),
+        (
+            "light",
+            Theme::light(),
+            Chan::from_unit(0.60),
+            Backdrop::under_window_light(),
+        ),
+    ]
+}
+
+/// The line's rows, its width, and where each light is on it.
+type AppLine = (Vec<u32>, usize, ByLed<Option<(Px, Px)>>);
+
+/// The screen's video: normal, or reversed by `?5` (DECSCNM).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Video {
+    Normal,
+    Reverse,
+}
+
+/// One frame as the app draws it at 2x, the 13 point type and the line's
+/// letters in the badge face, at `light` and `glow`, in reverse video
+/// when `video` is [`Video::Reverse`]: the line's rows, the line's width,
+/// and where each light is.
+#[allow(clippy::too_many_arguments)]
+fn app_line(
+    faces: &[Face<'_>],
+    theme: &Theme,
+    alpha: Chan,
+    backdrop: Backdrop,
+    light: Light,
+    glow: Glow,
+    video: Video,
+) -> AppLine {
+    use baud_render::{FaceRole, FaceStyle};
+    let mut theme = theme.clone();
+    theme.bg_alpha = alpha;
+    theme.backdrop = backdrop;
+    let stack = Stack::with_roles(
+        faces,
+        &[
+            FaceRole::Fallback,
+            FaceRole::Style(FaceStyle::Bold),
+            FaceRole::Badge,
+        ],
+    )
+    .unwrap();
+    let mut r = Renderer::new(
+        stack,
+        PxSize::of(13.0 * SCALE).unwrap(),
+        theme,
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    r.set_lights_line(Some(LineEdge::Bottom), SCALE);
+    r.set_lights(Shown::all(light), glow);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    if video == Video::Reverse {
+        feed(&mut t, b"\x1b[?5h");
+    }
+    let (px, w, _) = whole(&mut r, &mut t, Damage::Full);
+    let line = rows(&px, w, r.lights_top(), r.lights_height());
+    (line, w, r.lights_places())
+}
+
+/// **The line draws the same pixels on macOS and on Linux**: its colours
+/// are the theme's, lifted against anything from black to white behind
+/// the page, on both systems, though the text of the window is read
+/// against the standard material's narrower greys on macOS. The lights'
+/// line on macOS's default, the standard material, is byte for byte the
+/// line on Linux's, whose material is not modelled, in both themes at the
+/// shipped dims, both videos, both glows and every state. Perturbation:
+/// lift the line against the theme's backdrop again, and the dark theme's
+/// state lights are #3771FF on macOS where Linux draws #8DA2FF, and this
+/// goes red.
+#[test]
+fn the_line_draws_the_same_pixels_on_macos_and_on_linux() {
+    let (reg, bold) = app_faces();
+    let faces = [
+        Face::parse(&reg).unwrap(),
+        Face::parse(&bold).unwrap(),
+        Face::parse(&bold).unwrap(),
+    ];
+    let mut differ = Vec::new();
+    let mut compared = 0;
+    for (name, theme, alpha, material) in shipped() {
+        for video in [Video::Normal, Video::Reverse] {
+            for glow in [Glow::Full, Glow::Dimmed] {
+                for light in Light::ALL {
+                    let line = |b| app_line(&faces, &theme, alpha, b, light, glow, video).0;
+                    let (macos, linux) = (line(material), line(Backdrop::any()));
+                    assert!(macos.iter().any(|&p| p != macos[0]), "something is drawn");
+                    compared += 1;
+                    if macos != linux {
+                        differ.push((name, alpha.get(), video, glow, light));
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(compared, 48);
+    assert_eq!(differ, [], "lines that differ between the two systems");
+}
+
+/// WCAG 2.2's relative luminance of an opaque encoded sRGB colour
+/// (`[[source: wcag22]]`).
+fn luminance(c: [u8; 3]) -> f64 {
+    let l = |v: u8| {
+        let s = f64::from(v) / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * l(c[0]) + 0.7152 * l(c[1]) + 0.0722 * l(c[2])
+}
+
+/// WCAG 2.2's contrast ratio of two opaque colours.
+fn ratio(a: [u8; 3], b: [u8; 3]) -> f64 {
+    let (x, y) = (luminance(a), luminance(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
+/// A drawn pixel as the window shows it over grey `g`: premultiplied by
+/// its alpha, then source-over the grey, in eight bits.
+fn shown(p: u32, g: u8) -> [u8; 3] {
+    let [a, r, gr, b] = p.to_be_bytes();
+    let o = |c: u8| {
+        let pm = baud_domain::premultiply_chan(Chan::from_u8(c), Chan::from_u8(a)).get();
+        let v = f64::from(pm) + f64::from(g) * (1.0 - f64::from(a) / 255.0);
+        Chan::from_unit((v / 255.0) as f32).get()
+    };
+    [o(r), o(gr), o(b)]
+}
+
+/// **On the drawn pixels, each lit lamp reads at 3:1 against the line and
+/// the letters at 4.5:1, over every grey behind the glass**: SC 1.4.11's
+/// minimum for a component's state and SC 1.4.3's for text
+/// (`[[source: wcag22]]`), read where the window shows them -- the dot's
+/// centre and the letters' most covered pixel, coverage included, each
+/// over grey 0 to 255 against the band under it -- in both themes, opaque
+/// and at the shipped dims, in both videos, at 2x. The lift sets each
+/// colour at its target exactly, so a drawn pixel a level short of its
+/// colour reads under it: the dot's inside drawn at coverage 254 read FAX
+/// and SYN at 2.97 over white, and the letters at 4.4999. One arm cannot
+/// reach its letters' target with any colour: the light theme reversed
+/// on the glass, whose letters are white already against a band that
+/// runs from #171717 to #7D7D7D; there the letters are drawn white
+/// exactly, as far as the lift goes. Perturbation: quantise coverage by
+/// truncation, or lift the line against the standard material's greys,
+/// and this goes red.
+#[test]
+fn the_lines_drawn_lamps_read_at_three_to_one_and_letters_at_four_and_a_half() {
+    let (reg, bold) = app_faces();
+    let faces = [
+        Face::parse(&reg).unwrap(),
+        Face::parse(&bold).unwrap(),
+        Face::parse(&bold).unwrap(),
+    ];
+    let mut short = Vec::new();
+    let mut lamps = 0;
+    for (name, theme, alpha, material) in shipped() {
+        for video in [Video::Normal, Video::Reverse] {
+            let frame = |light| app_line(&faces, &theme, alpha, material, light, Glow::Full, video);
+            let (lit, w, places) = frame(Light::Lit);
+            let (dark, _, _) = frame(Light::Dark);
+            let h = lit.len() / w;
+            for led in Led::ALL {
+                let (x, _) = places.get(led).expect("every light is placed");
+                let (x0, slot) = (
+                    usize::try_from(x.value()).unwrap(),
+                    usize::try_from(places.get(led).unwrap().1.value()).unwrap(),
+                );
+                // The dot: where the lit light differs from the dark one.
+                let dot: Vec<(usize, usize)> = (0..h)
+                    .flat_map(|y| (x0..x0 + slot).map(move |x| (x, y)))
+                    .filter(|&(x, y)| lit[y * w + x] != dark[y * w + x])
+                    .collect();
+                let lit = &lit;
+                let left = dot.iter().map(|p| p.0).min().unwrap();
+                let (right, top, bottom) = (
+                    dot.iter().map(|p| p.0).max().unwrap(),
+                    dot.iter().map(|p| p.1).min().unwrap(),
+                    dot.iter().map(|p| p.1).max().unwrap(),
+                );
+                let core = lit[(top + bottom) / 2 * w + (left + right) / 2];
+                let band = lit[x0];
+                let letters: Vec<u32> = (0..h)
+                    .flat_map(|y| (x0..left - 1).map(move |x| lit[y * w + x]))
+                    .collect();
+                for g in 0..=255u8 {
+                    let under = shown(band, g);
+                    let lamp = ratio(shown(core, g), under);
+                    let text = letters
+                        .iter()
+                        .map(|&p| ratio(shown(p, g), under))
+                        .fold(0.0, f64::max);
+                    lamps += 1;
+                    if lamp < 3.0 {
+                        short.push(format!(
+                            "{name} a{} {video:?} {led:?} lamp {lamp:.4} at grey {g}",
+                            alpha.get()
+                        ));
+                    }
+                    if text < 4.5
+                        && !(name == "light" && video == Video::Reverse && alpha.get() < 0xFF)
+                    {
+                        short.push(format!(
+                            "{name} a{} {video:?} {led:?} letters {text:.4} at grey {g}",
+                            alpha.get()
+                        ));
+                    }
+                }
+                if name == "light" && video == Video::Reverse && alpha.get() < 0xFF {
+                    // The arm no colour reaches: the letters are white,
+                    // and some pixel of them is drawn white exactly.
+                    if !letters.contains(&0xFFFF_FFFF) {
+                        short.push(format!("{name} reversed {led:?}: no letter pixel white"));
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(lamps, 4 * 2 * 9 * 256);
+    assert_eq!(short, Vec::<String>::new());
 }

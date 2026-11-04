@@ -43,7 +43,10 @@
 //!
 //! **Or on a line of their own in the frame** (`[window] activity_lights
 //! = "bottom_line"` or `"top_line"`): the renderer draws the same pictures
-//! there, from the theme's colours, on both systems (`baud_render::lights`,
+//! there, from the theme's colours lifted against every grey from black to
+//! white, so both systems draw the same pixels; the title strip here
+//! reads its colours against its body's greys instead (`under`;
+//! `baud_render::lights`,
 //! `Renderer::set_lights_line`), and this module puts each light's hover
 //! text over its place on that line ([`LineTips`]). The Linux window has no
 //! title bar -- no compositor decorations are asked for and none are drawn

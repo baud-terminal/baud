@@ -1143,26 +1143,28 @@ fn a_wide_line_right_to_left_without_box_mirroring_is_drawn_as_written() {
 /// are drawn from are pinned too
 /// (`every_box_glyph_is_drawn_from_the_same_bits_on_every_os`). A change
 /// to a glyph's look changes its line, which the failure prints whole.
+/// Every line moved when coverage came to be rounded to the nearest level
+/// rather than truncated: 240,665 mask bytes of 3,156 masks, each by one.
 #[test]
 fn every_box_glyph_draws_the_same_pixels_on_every_os() {
     // Per cell: one cell, two as written, two mirrored, the ring.
     const PINNED: &[u64] = &[
-        0x9f87c41712995fb0,
-        0x8d2a82e6cdc8b846,
-        0x071c2fb21d80af7c,
-        0xa742c3cbde010f99,
-        0x92077d817ab6bbdc,
-        0x24c29428f4a0460a,
-        0x7e871c9c3772792e,
-        0x22c90037bea59ee1,
-        0x9161e6fd912c9de3,
-        0xae87472c51bfbb6f,
-        0x8892e71e98ad3fa0,
-        0x944b90de5a379381,
-        0x2364c4b7a8849987,
-        0x5563de50d273ba10,
-        0x627de2fc5f24c0d2,
-        0x374870f11ec40043,
+        0xeab6cfc39ccf497c,
+        0xc3041dae0b43b188,
+        0xd2c1999242cedc96,
+        0x28ccd412e22399bd,
+        0x9bf2eab873b20df4,
+        0x069e7f3c412ad046,
+        0x77a46eb92c3bcbf2,
+        0x8478acf150337ad1,
+        0xfd237ff690467c51,
+        0x17ce06f8b0d60531,
+        0x863df3412e055af1,
+        0x0c5679d8603ef679,
+        0xfd019ee32af0d409,
+        0xfc5f22ec486332b6,
+        0x21361bc33a4f2be0,
+        0x04bf64d49e11f841,
     ];
     let fold = |d: u64, bytes: &[u8]| {
         bytes.iter().fold(d, |d, &b| {

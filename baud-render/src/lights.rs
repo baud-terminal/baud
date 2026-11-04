@@ -66,7 +66,15 @@
 //! holds at every font size; the line is that and [`LINE_MARGIN`] above and
 //! below, and is no row. AppKit's colours exist only on macOS and the two
 //! systems draw the same pixels, so there the lights take the theme's
-//! ([`line_colours`]), each lit one at 3:1 against the line. The pictures go
+//! ([`line_colours`]), each lit one at 3:1 against the line and the letters
+//! at 4.5:1, lifted against every grey behind the page ([`Backdrop::any`])
+//! on both: the theme's own backdrop, which macOS narrows to the standard
+//! material's greys for the window's text, keys none of the line's
+//! pixels, so the line on macOS is byte for byte the line on Linux. Read
+//! on the drawn pixels at 2x, coverage included, in the built-in themes
+//! opaque and at the shipped dims, a lit lamp reads 3.009:1 at worst and
+//! the letters 4.51:1, but for the light theme reversed on the glass,
+//! whose letters stop at white, 4.12:1. The pictures go
 //! to the colour sheet once a look, and a light that changes names another.
 //! The clock and the caps below are the title strip's.
 //!
@@ -816,7 +824,9 @@ pub fn line_places(width: Px, at: &ByLed<Slot>, strip: Px, end: Px) -> ByLed<Opt
 /// of its strength over the page, as the title strip's are AppKit's
 /// secondary label colour, lifted to `text`, the floor the window's text
 /// reads at. Where no colour reaches a target against all of the
-/// backdrop, the lift goes as far as it can ([`crate::Floor`]).
+/// backdrop, the lift goes as far as it can ([`crate::Floor`]). The line
+/// passes [`Backdrop::any`] on every system, so it draws the same pixels
+/// on each.
 pub fn line_colours(
     palette: &[Argb; 256],
     fg: Argb,
@@ -1314,15 +1324,17 @@ pub(crate) struct Line {
 }
 
 /// What a look on the line is made from: the three lit colours asked, the
-/// foreground, the page, its alpha and backdrop, the letters' target, the
-/// glow, and the scale the pictures are drawn at.
+/// foreground, the page, its alpha, the letters' target, the glow, and
+/// the scale the pictures are drawn at. No backdrop: the line is lifted
+/// against every grey, [`Backdrop::any`], on every system, so the theme's
+/// backdrop, which macOS narrows to the standard material's greys for the
+/// window's text, moves none of its pixels.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) struct LookKey {
     pub(crate) asked: [Argb; 3],
     pub(crate) fg: Argb,
     pub(crate) page: Argb,
     pub(crate) alpha: Chan,
-    pub(crate) backdrop: Backdrop,
     pub(crate) text: f64,
     pub(crate) glow: Glow,
     pub(crate) scale: f32,
@@ -1354,17 +1366,24 @@ impl LineState {
 
     /// **The look for `key` and its epoch**, the number its pictures are
     /// kept under on the colour sheet: from the looks made so far, else
-    /// made now. A dimmed look scans its caps over every grey
-    /// ([`Backdrop::any`]): what is under the line is the page, at its
-    /// alpha over the window's material, and black to white bounds that
-    /// whatever it is. Kept to the last few, which a theme and its reverse
+    /// made now. Its colours are lifted, and a dimmed look scans its caps,
+    /// over every grey ([`Backdrop::any`]): what is under the line is the
+    /// page, at its alpha over the window's material, and black to white
+    /// bounds that whatever it is, on every system alike. Kept to the last
+    /// few, which a theme and its reverse
     /// video, both glows and two scales fill.
     fn look(&mut self, key: LookKey, palette: &[Argb; 256]) -> (LightsLook, Epoch) {
         if let Some((_, l, e)) = self.looks.iter().find(|(k, _, _)| *k == key) {
             return (*l, *e);
         }
-        let (lit, label) =
-            line_colours(palette, key.fg, key.page, key.alpha, key.backdrop, key.text);
+        let (lit, label) = line_colours(
+            palette,
+            key.fg,
+            key.page,
+            key.alpha,
+            Backdrop::any(),
+            key.text,
+        );
         let look = LightsLook::new(lit, lit, label, key.page, key.glow, Backdrop::any());
         let epoch = Epoch(self.looks.last().map_or(0, |(_, _, e)| e.0 + 1));
         if self.looks.len() >= LOOKS_KEPT {

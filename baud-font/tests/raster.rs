@@ -14,9 +14,10 @@
 //! splits conics on its own tolerance, so its edges differ by a few counts
 //! of 255 -- the comparison is a bounded per-pixel difference and a bounded
 //! mean, with the distribution printed so the bound is a number rather than
-//! a feeling. Measured: 115,456 masks, 62% of pixels identical, 90% within
-//! two counts, a mean difference of 1.34/255, and no pixel further apart
-//! than 54.
+//! a feeling. Measured on this Mac's corpus: 164,184 masks, 68% of pixels
+//! identical, 92% within two counts, a mean difference of 1.20/255, and no
+//! pixel further apart than 54; quantised by truncation, as font-rs does,
+//! 63% were identical and the mean was 1.27.
 //!
 //! **One normalisation, counted: a flex.** The text says a flex shallower
 //! than its threshold "must be rendered as a straight line"
@@ -245,8 +246,9 @@ fn compare_face(path: &Path, data: &[u8], i: u32, t: &mut Tally) {
             let mut theirs = vec![0u8; mine.len()];
             ab.r.for_each_pixel(|idx, alpha| {
                 // The reference leaves quantisation to its caller; this is
-                // font-rs's, which `Canvas::coverage` implements.
-                theirs[idx] = u8::try_from((255.0 * alpha.min(1.0)) as i32).unwrap();
+                // `Canvas::coverage`'s, to the nearest level, where
+                // font-rs truncates and drew a whole pixel at 254.
+                theirs[idx] = u8::try_from((255.0 * alpha.min(1.0) + 0.5) as i32).unwrap();
             });
             if mine != theirs {
                 let first = mine.iter().zip(&theirs).position(|(a, b)| a != b).unwrap();
@@ -381,6 +383,103 @@ fn a_canvas_refuses_scratch_that_is_too_small() {
     );
     let mut short_out = vec![0u8; 15];
     assert!(c.coverage(&mut short_out).is_none());
+}
+
+/// The mask of a closed polygon `pts` on a `w` by `h` canvas.
+fn polygon(w: u32, h: u32, pts: &[Point]) -> Vec<u8> {
+    let e = Extent::new(baud_font::Px::of(w), baud_font::Px::of(h));
+    let mut scratch = vec![0f32; e.scratch().unwrap()];
+    let mut c = Canvas::new(e, &mut scratch).unwrap();
+    for (i, &p) in pts.iter().enumerate() {
+        c.line(p, pts[(i + 1) % pts.len()]);
+    }
+    let mut out = vec![0u8; e.cells().unwrap()];
+    c.coverage(&mut out).unwrap();
+    out
+}
+
+/// **A pixel the outline covers wholly is 255**, and every pixel is its
+/// coverage rounded to the nearest of the 256 levels: a mask is that
+/// coverage quantised, and quantising by truncation drew the inside of a
+/// shape whose edges fall between pixels at 254, because the prefix sum
+/// of the edges' deposits lands a float step under one. Over rectangles
+/// at every quarter-pixel offset and a 48-sided disc, each pixel wholly
+/// inside reads 255, and each edge pixel is its exact area to within half
+/// a level. Perturbation: quantise by truncation again, `(255.0 * y) as
+/// i32`, and the wholly covered pixels read 254.
+#[test]
+fn a_wholly_covered_pixel_is_255_and_each_pixel_its_rounded_area() {
+    let (mut inside, mut wrong, mut first) = (0usize, [0usize; 3], None);
+    for qx in 0..4u8 {
+        for qy in 0..4u8 {
+            for (dw, dh) in [(5.3f32, 3.7f32), (7.9, 6.1), (11.45, 9.85)] {
+                let (x0, y0) = (1.0 + f32::from(qx) / 4.0, 1.0 + f32::from(qy) / 4.0);
+                let (x1, y1) = (x0 + dw, y0 + dh);
+                let out = polygon(
+                    16,
+                    16,
+                    &[
+                        Point::new(x0, y0),
+                        Point::new(x0, y1),
+                        Point::new(x1, y1),
+                        Point::new(x1, y0),
+                    ],
+                );
+                for (i, &c) in out.iter().enumerate() {
+                    let (px, py) = ((i % 16) as f32, (i / 16) as f32);
+                    let ax = (x1.min(px + 1.0) - x0.max(px)).max(0.0);
+                    let ay = (y1.min(py + 1.0) - y0.max(py)).max(0.0);
+                    let exact = 255.0 * ax * ay;
+                    let wholly = ax * ay == 1.0;
+                    inside += usize::from(wholly);
+                    if (f32::from(c) - exact).abs() > 0.5 + 1e-3 {
+                        wrong[usize::from(wholly)] += 1;
+                        first.get_or_insert(format!(
+                            "rect at ({x0}, {y0}) {dw}x{dh}, pixel ({px}, {py}): {c} for {exact:.3}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(inside > 1000, "{inside}");
+    // A disc of radius 5.6 about (8.3, 8.3): every pixel whose four
+    // corners lie inside the polygon is wholly covered.
+    let (cx, cy, r) = (8.3f32, 8.3f32, 5.6f32);
+    let n = 48;
+    let pts: Vec<Point> = (0..n)
+        .map(|k| {
+            let t = core::f32::consts::TAU * k as f32 / n as f32;
+            Point::new(cx + r * t.cos(), cy + r * t.sin())
+        })
+        .collect();
+    let out = polygon(17, 17, &pts);
+    // The polygon's inscribed radius bounds the corners that are inside.
+    let inner = r * (core::f32::consts::PI / n as f32).cos();
+    let mut wholly = 0usize;
+    for (i, &c) in out.iter().enumerate() {
+        let (px, py) = ((i % 17) as f32, (i / 17) as f32);
+        let corners = [
+            (px, py),
+            (px + 1.0, py),
+            (px, py + 1.0),
+            (px + 1.0, py + 1.0),
+        ];
+        if corners.iter().all(|&(x, y)| (x - cx).hypot(y - cy) < inner) {
+            wholly += 1;
+            if c != 255 {
+                wrong[2] += 1;
+                first.get_or_insert(format!("disc pixel ({px}, {py}): {c}"));
+            }
+        }
+    }
+    assert!(wholly > 50, "{wholly}");
+    assert_eq!(
+        wrong,
+        [0, 0, 0],
+        "rectangle edge, rectangle inside and disc inside pixels off their \
+         rounded area; first {first:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------

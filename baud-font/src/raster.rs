@@ -28,7 +28,8 @@
 // Canvas::splat, a deposit past the buffer is a None where the original
 // used a `continue` macro, the buffer is a caller's scratch slice rather
 // than an owned Vec, the recursion depth is a type, and the coverage is
-// written into a byte mask in the accumulation loop. The rest of this file
+// written into a byte mask in the accumulation loop, rounded to the
+// nearest level where the original truncates. The rest of this file
 // is baud's. The licence's text is in LICENSES/Apache-2.0.txt.
 
 //! Signed-area rasterisation of an outline into an 8-bit coverage mask
@@ -40,14 +41,24 @@
 //! the signed area it sweeps into the one or two cells its span touches,
 //! with the sign of its direction; a prefix sum along each row then turns
 //! those deltas into the winding-weighted area under the outline at every
-//! cell, and `min(|area|, 1) * 255` is the coverage. That is the font-rs
-//! form the register (D6) chose as the smallest correct exact-area
-//! rasteriser, and it is the form `ab_glyph_rasterizer` carries: this
-//! module is held **byte-identical** to it in `tests/raster.rs`, which is
-//! why the quad count, the cubic subdivision and the quantisation are
-//! spelled exactly as that reference spells them rather than as a paper
-//! would. FreeType's `ftgrays.c` (`[[source: freetype-ftgrays]]`) computes
-//! the same area by a cell sweep and is the tolerance oracle.
+//! cell, and `min(|area|, 1) * 255`, rounded to the nearest level, is the
+//! coverage. That is the font-rs form the register (D6) chose as the
+//! smallest correct exact-area rasteriser, and it is the form
+//! `ab_glyph_rasterizer` carries: this module is held **byte-identical**
+//! to it in `tests/raster.rs`, which is why the quad count and the cubic
+//! subdivision are spelled exactly as that reference spells them rather
+//! than as a paper would. The quantisation is the one step the reference
+//! leaves to its caller, and font-rs's caller truncates: the prefix sum
+//! over a shape whose edges fall between pixels lands a float step under
+//! one inside it, 0.9999999, which truncates to 254, so every wholly
+//! covered pixel of such a glyph drew a level short of its colour -- the
+//! activity lights' dots and the letters' stems among them, lifted to a
+//! contrast exactly and then drawn just under it. Rounded, a pixel is its
+//! area to within half a level and a wholly covered one is 255; against
+//! FreeType's `ftgrays.c` (`[[source: freetype-ftgrays]]`), which computes
+//! the same area by a cell sweep and is the tolerance oracle, it moved
+//! identical pixels from 63% to 68% and the mean difference from 1.27 to
+//! 1.20 of 255.
 //!
 //! **No hinting, linear coverage** (D7): the outline is scaled and placed by
 //! a [`Transform`] and nothing snaps it to the grid. Gamma is the
@@ -308,9 +319,11 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    /// The mask: a prefix sum along the buffer, `min(|acc|, 1) * 255` per
-    /// cell, into the first [`Extent::cells`] bytes of `out`. `None` when
-    /// `out` is too short.
+    /// The mask: a prefix sum along the buffer, `min(|acc|, 1) * 255`
+    /// rounded to the nearest level per cell, into the first
+    /// [`Extent::cells`] bytes of `out`, so a wholly covered cell is 255
+    /// though the sum lands a float step under one. `None` when `out` is
+    /// too short.
     pub fn coverage(&self, out: &mut [u8]) -> Option<()> {
         let n = self.extent.cells()?;
         let out = out.get_mut(..n)?;
@@ -319,7 +332,7 @@ impl<'a> Canvas<'a> {
             acc += c;
             let y = acc.abs();
             let y = if y < 1.0 { y } else { 1.0 };
-            *o = u8::try_from((255.0 * y) as i32).unwrap_or(u8::MAX);
+            *o = u8::try_from((255.0 * y + 0.5) as i32).unwrap_or(u8::MAX);
         }
         Some(())
     }

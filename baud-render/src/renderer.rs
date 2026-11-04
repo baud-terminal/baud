@@ -5722,7 +5722,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .0,
             page: page.with_alpha(Chan::from_u8(0xFF)),
             alpha: self.theme.bg_alpha,
-            backdrop: self.theme.backdrop,
             text,
             glow: self.lights.glow,
             scale: self.lights.line.map_or(0.0, |l| l.scale),

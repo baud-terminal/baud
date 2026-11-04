@@ -1766,3 +1766,50 @@ any size" ([[source: apple-hig-accessibility]]), and the WCAG text governs.
   the line's pixels pinned from the old drawing, red with the lamp mixed
   from the lifted colour, the line lifted to 5:1 or its lamps mixed from
   the letters' colour. Nothing on a byte's path changed.
+
+## 15. Built: the lights' line drawn as lifted, against one backdrop
+
+Read from the drawn pixels headless (the CPU path at 2x, the app's
+faces, each frame over every grey as the presenter composites it), the
+line missed its floors by a level: dark on Linux's glass, FAX and SYN's
+lamps 2.97 and the letters 4.4999; light reversed, FAX 2.99.
+
+- **Coverage rounds** (`Canvas::coverage`). It truncated `255 * y`, and
+  the prefix sum lands at 0.9999999 inside a shape whose edges fall
+  between pixels, so a wholly covered pixel was 254 -- 99 of the FAX
+  dot's 126 at 2x, the letters' stems -- and a colour lifted to 3:1 or
+  4.5:1 exactly drew just under it. Rounded, every inside is 255, and
+  the masks moved toward FreeType's: 63% to 68% of pixels identical.
+- **One backdrop** (`LookKey`, `place_lights`). The line was lifted
+  against `theme.backdrop`, the standard material's greys on macOS and
+  black to white on Linux, so one theme drew two lines (dark state
+  lights #3771FF and #8DA2FF, letters #959595 and #CDCDCD). The key has
+  no backdrop now: the line is lifted against `Backdrop::any` on both,
+  and macOS draws Linux's colours. The cell path's `lift_on_glass` still
+  reads the window's text against the material on macOS, as the Linux
+  driver says ("Only the backdrop differs").
+
+Drawn, at 2x, over grey 0 to 255, opaque and at the shipped dims, both
+videos: the worst lamp reads 3.009 and the worst letters 4.51, but for
+the light theme reversed on the glass, whose letters are white already
+and read 4.12; over macOS's material that arm read 4.49 before and reads
+4.61 now.
+
+- **Tests, each red first**: in `baud-font/tests/raster.rs`, a wholly
+  covered pixel is 255 (39 disc pixels read 254); in
+  `baud-render/tests/lights_line.rs`, the line is the same bytes on
+  macOS and Linux (24 of 48 lines differed), and its drawn lamps and
+  letters read 3:1 and 4.5:1, red on truncation alone at the probe's
+  2.9744, 4.4996 and 2.9912, and red on the old backdrop alone.
+- **Re-pinned**, by rounding alone: the ab_glyph oracle's quantisation;
+  the box masks, 240,665 bytes each by one; seven of `golden.rs`'s nine
+  recordings, its light git-log, `system.rs`'s cat-cjk, the Hindi line,
+  two hover-tip frames and the line's two pins. Channels moved by up to
+  3, the text-contrast curve stepping up to 4 codes a level; with it
+  held flat, every changed channel of the nine moves by one.
+- **Open**: the light theme reversed at its shipped dim on the glass,
+  whose page runs from #171717 to #7D7D7D, has no letter colour that
+  reaches 4.5:1, so the letters are drawn white and read 4.12 (SC 1.4.3);
+  at 1x no letter pixel is wholly covered; the lift keeps no margin for
+  the band's own eight bits; Dim Flashing Lights and DEC's status-line
+  words are their own questions.

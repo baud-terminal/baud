@@ -185,7 +185,7 @@ fn the_tip_is_drawn_moved_and_cleared_without_a_trace() {
     let mut full = vec![0u32; n];
     paint(&mut r, &mut t, &mut full, Damage::Full);
     assert!(full == shown, "an incremental frame is the full one");
-    const PINNED: u64 = 0xd947_c510_a08b_c358;
+    const PINNED: u64 = 0xd6c5_66e0_884e_214f;
     let got = digest(&full);
     assert_eq!(got, PINNED, "the tip's frame moved: 0x{got:016x}");
     // OH's tip in its place: nothing of CD's left.
@@ -351,7 +351,7 @@ fn a_lights_tip_is_drawn_by_its_line_and_leaves_the_line_as_it_was() {
             "{edge:?}: an incremental frame is the full one"
         );
         if edge == LineEdge::Bottom {
-            const PINNED: u64 = 0x84e4_e9ba_19f3_bad3;
+            const PINNED: u64 = 0xec7f_272b_9e7b_6fdd;
             let got = digest(&full);
             assert_eq!(got, PINNED, "the light's tip's frame moved: 0x{got:016x}");
         }

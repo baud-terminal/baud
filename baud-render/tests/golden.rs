@@ -71,17 +71,21 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// so the ा and ी of each देवनागरी and the त of each नमस्ते take a cell of
 /// their own, and each syllable they part is drawn across its cells. Both
 /// moved again when each Devanagari word came to be drawn whole, at its
-/// face's natural advances and centred in its columns (2026-11-02).
+/// face's natural advances and centred in its columns (2026-11-02). Seven
+/// moved when coverage came to be rounded to the nearest level rather
+/// than truncated, every changed mask byte by one; with the text-contrast
+/// curve held flat, every changed channel moves by one too. cava and
+/// less-cjk draw no glyph whose coverage rounds differently.
 const GOLDEN: [(&str, u64); 9] = [
-    ("ascii/pipes.raw", 0x21596d79a8e28041),
-    ("utf8/btop.raw", 0x448ea46ab364ba76),
-    ("ascii/cat-scroll.raw", 0x1a613c1d646560b1),
-    ("ascii/git-log.raw", 0x2303bd10c2107db7),
-    ("ascii/less-pager.raw", 0x41e082191ab41018),
-    ("utf8/cat-cjk.raw", 0x9f702748dce8d5a5),
+    ("ascii/pipes.raw", 0x80e26dd2d956c001),
+    ("utf8/btop.raw", 0x5da146deb01b1ee1),
+    ("ascii/cat-scroll.raw", 0xa337f3e86c09285c),
+    ("ascii/git-log.raw", 0x02361965d3fc9ed2),
+    ("ascii/less-pager.raw", 0x3b47e3f7779c846e),
+    ("utf8/cat-cjk.raw", 0x2aa9c955cb16c865),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
-    ("utf8/vim-unicode.raw", 0x8396158a5cd4494a),
+    ("utf8/vim-unicode.raw", 0x5d16e00ba33f7374),
 ];
 
 #[test]
@@ -139,7 +143,7 @@ fn every_recording_paints_to_its_pinned_frame() {
 /// that the pin is the table's.
 #[test]
 fn git_log_paints_to_its_pinned_light_frame() {
-    const LIGHT_GIT_LOG: u64 = 0x8ccf93fcb310b1da;
+    const LIGHT_GIT_LOG: u64 = 0x193f2e60d0fcb771;
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let bytes = recording("ascii/git-log.raw");
