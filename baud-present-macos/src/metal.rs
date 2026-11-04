@@ -260,6 +260,61 @@ impl LatePipe {
     }
 }
 
+/// **An effect's pipelines, to build on a thread of their own**
+/// ([`Gpu::effect_build`]): the device and the library they come from.
+pub struct EffectBuild {
+    device: Retained<ProtocolObject<dyn MTLDevice>>,
+    library: Retained<ProtocolObject<dyn MTLLibrary>>,
+    effect: Effect,
+}
+
+// SAFETY: a device and a library, which Apple documents as usable from any
+// thread; an `EffectBuild` crosses to the thread that builds from it once,
+// whole, and only `newFunctionWithName` and the pipeline's creation read
+// them there, which the device and the library allow concurrently.
+unsafe impl Send for EffectBuild {}
+
+/// **What an [`EffectBuild`] built**, for [`Gpu::adopt`]: the effect's
+/// pipeline, and for the plasma its two in front of the text, by `screen`
+/// and by `multiply`.
+pub struct EffectPipes {
+    effect: Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>>,
+    mixed: [Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>>; 2],
+    of: Effect,
+}
+
+// SAFETY: pipeline states, which Apple documents as usable from any
+// thread; they cross back once, whole, to the `Gpu` that adopts them.
+unsafe impl Send for EffectPipes {}
+
+impl EffectBuild {
+    /// **The pipelines, built now on this thread**: those a trail
+    /// would build on its first frame, from the precompiled library about
+    /// 0.05 ms each.
+    pub fn build(self) -> EffectPipes {
+        let effect = pipeline(
+            &self.device,
+            &self.library,
+            "glyph_vertex",
+            self.effect.fragment(),
+            Blend::Over,
+        );
+        let mixed = match self.effect {
+            Effect::Plasma => [
+                ("plasma_fragment", Blend::Screen),
+                ("plasma_multiply_fragment", Blend::Multiply),
+            ]
+            .map(|(f, b)| pipeline(&self.device, &self.library, "glyph_vertex", f, b)),
+            _ => [None, None],
+        };
+        EffectPipes {
+            effect,
+            mixed,
+            of: self.effect,
+        }
+    }
+}
+
 /// The uniform a trail's fragment function reads beyond the records:
 /// `quad_fragment`'s corners, hole, frame origin and shape, an effect's
 /// ignition, which its fragment function reads, or the fireworks' frame
@@ -1700,26 +1755,51 @@ impl Gpu {
         Some(())
     }
 
-    /// **Builds `effect`'s pipeline now**, if it never was: the launch
-    /// splash builds the plasma's while it waits for the window to be
-    /// shown, or holds its logo under reduced motion, so the plasma's first
-    /// frame does not pay for it. From the precompiled library this is
-    /// about 0.05 ms. Whether it built.
-    pub fn warm_effect(&mut self, effect: Effect) -> bool {
-        let Some(at) = Effect::ALL.iter().position(|&e| e == effect) else {
-            return false;
-        };
-        let built = self.effect_pipes[at]
-            .get(&self.device, &self.library, effect.fragment())
-            .is_some();
-        // The plasma's pipelines in front of the text too, which the
-        // terminal's first move draws by.
-        if effect == Effect::Plasma {
-            for mix in [Mix::Screen, Mix::Multiply] {
-                let _ = self.plasma_mixed(mix);
-            }
+    /// **What builds `effect`'s pipelines off this thread**, for the launch
+    /// splash: the device and the library, which [`EffectBuild::build`]
+    /// builds the effect's pipeline from on any thread -- and the plasma's
+    /// two in front of the text, which the terminal's first move draws by
+    /// -- and [`Gpu::adopt`] takes back. So the plasma's first frame waits
+    /// on no build and nothing before it waits on the plasma: the window's
+    /// first frame and the shell's output are drawn while it builds. None
+    /// for an effect this GPU has no slot for.
+    pub fn effect_build(&self, effect: Effect) -> Option<EffectBuild> {
+        Effect::ALL.contains(&effect).then(|| EffectBuild {
+            device: self.device.clone(),
+            library: self.library.clone(),
+            effect,
+        })
+    }
+
+    /// **The pipelines an [`EffectBuild`] built**, each taken where it is
+    /// not built already: a trail drawn meanwhile built its own.
+    pub fn adopt(&mut self, built: EffectPipes) {
+        let take =
+            |pipe: &mut LatePipe,
+             p: Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>>| {
+                if let (LatePipe::Unbuilt, Some(p)) = (&*pipe, p) {
+                    *pipe = LatePipe::Built(p);
+                }
+            };
+        let [screen, multiply] = built.mixed;
+        if let Some(pipe) = Effect::ALL
+            .iter()
+            .position(|&e| e == built.of)
+            .and_then(|at| self.effect_pipes.get_mut(at))
+        {
+            take(pipe, built.effect);
         }
-        built
+        take(&mut self.plasma_mixed[0], screen);
+        take(&mut self.plasma_mixed[1], multiply);
+    }
+
+    /// Whether `effect`'s pipeline is built: what the launch splash's
+    /// start reads.
+    pub fn effect_built(&self, effect: Effect) -> bool {
+        Effect::ALL
+            .iter()
+            .position(|&e| e == effect)
+            .is_some_and(|at| matches!(self.effect_pipes[at], LatePipe::Built(_)))
     }
 
     /// The plasma's pipeline by `mix`, built now if it never was: `screen`

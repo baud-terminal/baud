@@ -579,7 +579,8 @@ tearing = "off"
 # left to right, and as soon as it is whole a quick sweep takes it out
 # from left to right, gone half a second after it starts. Nothing waits
 # for it: your keys go to the shell the whole time, and the shell's
-# output draws under the logo. With reduced motion on -- macOS's Reduce Motion, or the Linux
+# output and prompt show the moment they arrive, in front of the logo,
+# which plays around them. With reduced motion on -- macOS's Reduce Motion, or the Linux
 # desktop's setting once the desktop has reported it -- the logo shows whole
 # and fades once your shell has drawn something (or half a second after the
 # window opens, if it draws nothing).

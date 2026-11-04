@@ -3,7 +3,8 @@
 //! which a frame has reached the layer and AppKit reports the window
 //! visible, which it showed once the app finished launching, its first
 //! frame already drawn, whole, with no animation, and the plasma's pipeline
-//! built at launch; on Linux the compositor's first frame callback -- then baud's
+//! built on a thread of its own since; on Linux the compositor's first
+//! frame callback -- then baud's
 //! colour lockup carried in by the plasma, left to right, and carried out
 //! by a second, left to right, gone [`gone`] after it starts -- on the clock alone,
 //! so a shell's output neither cuts it short nor holds it longer. Under reduced
@@ -27,12 +28,19 @@
 //! Each window's splash is its own driver's, on its own clock from its own
 //! first frame shown.
 //!
-//! **It waits on nothing.** The shell is spawned before the first frame,
-//! in every window, keys go to it throughout, its output is drawn under
-//! the logo on the frame it arrives, and the splash only owes frames while
-//! it plays or fades, and the one the window's being shown starts. Its
-//! look takes the terminal by shared reference: it cannot write the grid,
-//! the cursor a report gives or the history.
+//! **It waits on nothing, and nothing waits on it.** The shell is
+//! spawned before the first frame, in every window, and keys go to it
+//! throughout. Its output is drawn as it is with no logo on the frame it
+//! arrives: the logo and its plasma yield every cell the shell has drawn
+//! (`Renderer::splash_yields_to`, which each driver calls after handing
+//! the renderer the splash), so the prompt is whole and readable from that
+//! frame while the logo plays around it. Nothing the logo needs is on the
+//! way to the window's first frame: the plasma's pipeline is built on a
+//! thread of its own once the window is shown, and the logo starts on the
+//! first tick after it is built (`App::plasma_ready`). The splash only
+//! owes frames while it plays or fades, and the one the window's being
+//! shown starts. Its look takes the terminal by shared reference: it
+//! cannot write the grid, the cursor a report gives or the history.
 //!
 //! **"The shell drew something" is a visible cell**, not a byte: a shell's
 //! first bytes are often an `OSC 7` directory, a title or mode sets, which
@@ -875,6 +883,190 @@ mod tests {
             let frames = life(rate);
             let on = (frames.len() - 1) as f64 / rate;
             assert!(on <= 0.55 + 1.0 / rate + 1e-9, "{rate} Hz: {on} s");
+        }
+    }
+
+    /// **The shell's prompt is seen on the frame it arrives, with the
+    /// logo or without it**: a window with the splash on and one with it
+    /// off, frame by frame at 120 Hz in the drivers' order -- the read fed,
+    /// the splash's look handed to the renderer and told what the shell
+    /// drew, the frame drawn on the CPU path with incremental damage --
+    /// take the same output, eight lines and a prompt that reach the
+    /// middle of the window where the logo is, landing early, mid-way and
+    /// late in the plasma. Each frame of the window with the splash draws
+    /// every cell the shell inked as the window without it does, so the
+    /// prompt is whole and readable on the same frame in both: the frame
+    /// it arrives on. The control: the logo is drawn after the prompt
+    /// lands, and the output reaches its box.
+    #[test]
+    fn the_prompt_is_seen_on_the_frame_it_arrives_with_the_splash_or_without() {
+        use baud_domain::{Cols, Rows};
+        use baud_font::Px;
+        use baud_render::{
+            Blend, Damage, FaceRole, FaceStyle, PxSize, Renderer, Stack, Target, Theme,
+        };
+        let faces = [
+            baud_font::Face::parse(crate::embedded::REGULAR.bytes).unwrap(),
+            baud_font::Face::parse(crate::embedded::BOLD.bytes).unwrap(),
+        ];
+        let roles = [FaceRole::Fallback, FaceRole::Style(FaceStyle::Bold)];
+        let ws = WinSize {
+            ws_col: 80,
+            ws_row: 20,
+        };
+        let renderer = || {
+            Renderer::new(
+                Stack::with_roles(&faces, &roles).unwrap(),
+                PxSize::of(14.0).unwrap(),
+                Theme::dark(),
+                Blend::Native,
+                Cols::of_index(usize::from(ws.ws_col)),
+                Rows::of_index(usize::from(ws.ws_row)),
+            )
+            .unwrap()
+        };
+        let mut output: Vec<u8> = (0..8)
+            .flat_map(|i| {
+                format!("motd {i}: the first lines of the shell's start\r\n").into_bytes()
+            })
+            .collect();
+        output
+            .extend_from_slice(b"\x1b[1;34m~/code/projects/baud\x1b[0m on \x1b[35mmain\x1b[0m $ ");
+        let rate = 120.0;
+        for lands in [5_u32, 30, 60] {
+            // Each window's frames: whether every inked cell is drawn as
+            // the window with no splash draws it, and whether the logo was.
+            let window = |setting: LaunchSplash| {
+                let mut r = renderer();
+                let mut owned = Owned::new(&ws);
+                let mut t = Term::new(owned.storage(), &ws);
+                let (w, h) = r.pixel_size();
+                let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
+                let mut s = Splash::new(setting);
+                let _ = s.shown();
+                let mut frames = Vec::new();
+                for f in 0..80_u32 {
+                    if f == lands {
+                        feed(&mut t, &output);
+                    }
+                    let look = s.look(Some(f64::from(f) / rate), &t, SystemMotion::Full);
+                    r.set_splash(look);
+                    r.splash_yields_to(&t, Px::of(0));
+                    let mut target = Target::new(&mut px, w, w, h).unwrap();
+                    let damage = match f {
+                        0 => Damage::Full,
+                        _ => Damage::Incremental,
+                    };
+                    r.render(&mut t, &mut target, damage);
+                    frames.push((px.clone(), look.is_some()));
+                }
+                let m = r.metrics();
+                let n = |p: baud_font::Px| usize::try_from(p.value()).unwrap();
+                let view = t.view(t.window_back());
+                let inked: Vec<(usize, usize)> = (0..view.rows().index())
+                    .flat_map(|y| {
+                        view.row(Row::from_index(y))
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, c)| {
+                                !c.content.is_empty()
+                                    && c.content.as_codepoint().is_none_or(|p| p.value() != 0x20)
+                            })
+                            .map(move |(x, _)| (y, x))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                (frames, inked, (n(m.cell_w), n(m.cell_h), n(w)))
+            };
+            let (on, inked, (cw, ch, w)) = window(LaunchSplash::On);
+            let (off, _, _) = window(LaunchSplash::Off);
+            let cell = |px: &[u32], (y, x): (usize, usize)| -> Vec<u32> {
+                (0..ch)
+                    .flat_map(|dy| px[(y * ch + dy) * w + x * cw..][..cw].to_vec())
+                    .collect()
+            };
+            let seen = |frames: &[(Vec<u32>, bool)], end: &[u32]| {
+                frames
+                    .iter()
+                    .position(|(px, _)| inked.iter().all(|&c| cell(px, c) == cell(end, c)))
+            };
+            let end = &off.last().unwrap().0;
+            let (at_on, at_off) = (seen(&on, end), seen(&off, end));
+            assert_eq!(
+                at_off,
+                usize::try_from(lands).ok(),
+                "the control: drawn as it lands"
+            );
+            assert_eq!(at_on, at_off, "landing on frame {lands}");
+            let from = usize::try_from(lands).unwrap();
+            for (f, ((a, _), (b, _))) in on.iter().zip(&off).enumerate().skip(from) {
+                for &c in &inked {
+                    assert!(
+                        cell(a, c) == cell(b, c),
+                        "frame {f}: cell {c:?} under the logo"
+                    );
+                }
+            }
+            assert!(
+                on[from..].iter().any(|(_, logo)| *logo),
+                "the control: the logo plays after it lands"
+            );
+            let side = |v: usize| f32::from(u16::try_from(v).unwrap());
+            let (bx, by) = {
+                let frame = (side(w), side(ch * usize::from(ws.ws_row)));
+                let sc = baud_render::splash::scale(frame);
+                let o = baud_render::splash::origin(frame, sc);
+                (o.x / side(cw), o.y / side(ch))
+            };
+            assert!(
+                inked
+                    .iter()
+                    .any(|&(y, x)| side(y + 1) > by && side(x + 1) > bx),
+                "the control: the output reaches the logo's box"
+            );
+        }
+    }
+
+    /// **Every driver tells the splash what the shell drew**: on macOS, on
+    /// Linux and in the films, each hand of a splash to the renderer is
+    /// followed by `splash_yields_to` over the terminal it draws, so no
+    /// path draws the logo over the shell's cells. The drivers are bound to
+    /// AppKit and a compositor, so the source is what can fail; read here
+    /// so it is checked on every platform.
+    #[test]
+    fn every_driver_yields_the_splash_to_the_shell() {
+        for (file, src, hand, yields) in [
+            (
+                "app.rs",
+                include_str!("app.rs"),
+                "self.renderer.set_splash(splash);",
+                "self.renderer.splash_yields_to(&self.term, lift);",
+            ),
+            (
+                "linux.rs",
+                include_str!("linux.rs"),
+                "self.renderer.set_splash(plan.splash);",
+                "self.renderer.splash_yields_to(&self.term, Px::of(0));",
+            ),
+            (
+                "film.rs",
+                include_str!("film.rs"),
+                "r.set_splash(plan.splash);",
+                "r.splash_yields_to(&term, Px::of(0));",
+            ),
+        ] {
+            let hands = src.matches(hand).count();
+            assert!(hands > 0, "the control: {file} hands the splash");
+            for (_, after) in src.match_indices(hand).map(|(i, _)| src.split_at(i)) {
+                let next = after[hand.len()..]
+                    .find("set_splash(")
+                    .map_or(after.len(), |e| e + hand.len());
+                assert!(
+                    after[..next].contains(yields),
+                    "{file}: a splash handed and not yielded: {}",
+                    &after[..next.min(400)]
+                );
+            }
         }
     }
 

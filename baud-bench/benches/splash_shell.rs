@@ -30,7 +30,7 @@
 use baud_bench::flash::Rate;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, Content, ReadLen, Row, Rows, WinSize};
-use baud_font::Face;
+use baud_font::{Face, Px};
 use baud_render::{
     Blend, Damage, FaceRole, FaceStyle, PxSize, Renderer, SplashLook, SplashPhase, Stack, Target,
     Theme,
@@ -174,6 +174,8 @@ fn life(
         r.set_splash((age < baud_render::splash::GONE).then_some(SplashLook {
             phase: SplashPhase::Plasma(age),
         }));
+        // Around the shell's cells, as each driver hands it.
+        r.splash_yields_to(&t, Px::of(0));
         match path {
             Path::Cpu => {
                 let mut target = Target::new(&mut px, w, w, h).unwrap();

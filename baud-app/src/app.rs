@@ -707,9 +707,13 @@ struct App {
     launch_log: crate::splash::LaunchLog,
     /// Whether a frame has reached the layer: one of what the tick's gate
     /// reads before it shows the window to the splash (`Driver::frame`),
-    /// with the window visible. The plasma's pipeline is built at launch,
-    /// on the GPU's own thread beside the others.
+    /// with the window visible and the plasma's pipeline built.
     layer_shown: Done,
+    /// **The plasma's pipelines, building on a thread of their own** from
+    /// the window's being shown (`App::build_plasma`), and taken by the
+    /// tick once built (`App::plasma_ready`): the logo waits for them,
+    /// and nothing waits for the logo.
+    plasma: Option<std::thread::JoinHandle<baud_present_macos::EffectPipes>>,
     /// Whether an alternate-screen switch slides, from `[screen]
     /// transition`, and the switch being animated. `Some` forces a frame the
     /// way a trail does, so an idle terminal on either screen builds nothing.
@@ -1085,16 +1089,9 @@ impl Boot {
                     b.each[3].as_secs_f64() * 1e3,
                     b.each[4].as_secs_f64() * 1e3,
                 ));
-                // **The launch logo's plasma beside them**, so the tick
-                // that starts the logo waits on no pipeline and its first
-                // frame pays for none.
-                let t2 = Instant::now();
-                let built = g.warm_effect(baud_render::effect::Effect::Plasma);
-                startup_note(&format!(
-                    "gpu plasma: {:.2} ms{}",
-                    t2.elapsed().as_secs_f64() * 1e3,
-                    if built { "" } else { ", not built" }
-                ));
+                // The launch logo's plasma is not built here: this thread
+                // is joined before the window's first frame, which the
+                // logo must not hold (`App::build_plasma`).
             }
             g
         });
@@ -1543,6 +1540,7 @@ impl App {
                 None => crate::splash::Logging::Off,
             }),
             layer_shown: Done::No,
+            plasma: None,
             screen_transition,
             transition: None,
             scroll,
@@ -1974,6 +1972,43 @@ impl App {
         }
     }
 
+    /// **The plasma's pipelines started on a thread of their own**: the
+    /// launch logo's, and a plasma trail's in front of the text, from the
+    /// device and library the window's first frame was drawn with. Called
+    /// once the window is shown, so nothing on the way to its first frame
+    /// builds them; none on the CPU path, which has none to build.
+    fn build_plasma(&mut self) {
+        let build = self
+            .presenter
+            .as_ref()
+            .and_then(|p| p.effect_build(baud_render::effect::Effect::Plasma));
+        if let Some(b) = build {
+            self.plasma = Some(std::thread::spawn(move || b.build()));
+            startup_mark("plasma building");
+        }
+    }
+
+    /// **Whether the plasma is ready for the logo**: its pipelines taken
+    /// once their thread has ended, never waited for, so a tick before
+    /// then starts no logo and draws everything else; ready at once with
+    /// nothing building.
+    fn plasma_ready(&mut self) -> bool {
+        match self.plasma.take() {
+            None => true,
+            Some(h) if !h.is_finished() => {
+                self.plasma = Some(h);
+                false
+            }
+            Some(h) => {
+                if let (Ok(built), Some(p)) = (h.join(), self.presenter.as_mut()) {
+                    p.adopt(built);
+                }
+                startup_mark("plasma built");
+                true
+            }
+        }
+    }
+
     fn present(&mut self, screen: &DrawableView, show: Show) {
         // Row 11's ceiling arm: what an idle tick would cost if the
         // preamble below were free. Incorrect by construction -- the
@@ -2314,6 +2349,10 @@ impl App {
             below_grid(&self.term, &self.renderer),
         ) && pan.value() > 0;
         let lift = if sliding { pan } else { Px::of(0) };
+        // Over none of what the shell has drawn: its output is drawn as
+        // with no logo from the frame it arrives on (`splash.rs`), where
+        // the slide draws it, lowered by `lift`.
+        self.renderer.splash_yields_to(&self.term, lift);
         // No trail while the screen slides, as sfte draws none.
         self.renderer.set_trail(
             trail_look
@@ -7358,33 +7397,70 @@ mod drag_tests {
         }
     }
 
-    /// **The plasma's pipeline is built at launch, beside the others**: on
-    /// the GPU's own thread, after its five pipelines, and never on a tick,
-    /// so the gate above can pass on the display link's first tick and the
-    /// logo's first frame waits on no build. The launch is AppKit-bound, so
-    /// the source is what can fail.
+    /// **The plasma's pipeline is built off the first frame's path**: not
+    /// on the GPU's own thread, which the launch joins before the window's
+    /// first frame, nor anywhere before that frame is drawn and the window
+    /// shown, but on a thread of its own started once it is (`show`), and
+    /// taken by the tick only once that thread has ended, never waited
+    /// for -- the logo's start waits for it, and the gate reads it. Never
+    /// built on a tick, so the logo's first frame waits on no build. The
+    /// launch is AppKit-bound, so the source is what can fail.
     #[test]
-    fn the_plasmas_pipeline_is_built_at_launch() {
+    fn the_plasma_is_built_off_the_first_frames_path() {
         const SRC: &str = include_str!("app.rs");
-        let warm = concat!("warm_", "effect(baud_render::effect::Effect::Plasma)");
         let probe = SRC
             .split_once(concat!("let probe = std::thread::", "spawn(move || {"))
             .and_then(|(_, rest)| rest.split_once("\n        });\n"))
             .map(|(body, _)| body)
             .expect("the GPU's thread");
-        let pipelines = probe
-            .find("gpu pipelines:")
-            .expect("the control: the five pipelines are noted there");
-        let at = probe
-            .find(warm)
-            .expect("the plasma is built on the GPU's thread");
-        assert!(pipelines < at, "after the five");
-        let frame = SRC
-            .split_once(concat!("fn frame(&mut self, ", "target: f64) {"))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("the tick");
-        assert!(!frame.contains("warm_effect("), "built on a tick: {frame}");
+        assert!(
+            probe.contains("gpu pipelines:"),
+            "the control: the five pipelines are built there"
+        );
+        for build in ["Effect::Plasma", "warm_effect(", "effect_build("] {
+            assert!(!probe.contains(build), "{build} on the GPU's thread");
+        }
+        let launch = launch(SRC);
+        let started = concat!("driver.app.", "build_plasma();");
+        assert!(!launch.before.contains(started), "built before the window");
+        let show = launch.show;
+        let drawn = show
+            .find(concat!("driver.app.present(&v, ", "Show::Now);"))
+            .expect("the first frame is drawn there");
+        let shown = show
+            .find(concat!("window.", "show();"))
+            .expect("shown there");
+        let at = show.find(started).expect("the plasma is started in show");
+        assert!(
+            drawn < shown && shown < at,
+            "after the first frame and the window"
+        );
+        let ready = body(
+            SRC,
+            concat!("fn plasma_", "ready(&mut self) -> bool {"),
+            "    ",
+        );
+        let polled = ready.find(".is_finished()").expect("polled");
+        let joined = ready.find(".join()").expect("joined once ended");
+        assert!(polled < joined, "joined only once its thread has ended");
+        let frame = body(
+            SRC,
+            concat!("fn frame(&mut self, ", "target: f64) {"),
+            "    ",
+        );
+        let gate = frame
+            .split_once(concat!("let plasma = self.app.", "plasma_ready();"))
+            .map(|(_, after)| after)
+            .expect("the tick reads it");
+        assert!(
+            gate.trim_start().starts_with(
+                "if self.app.splash.waiting() && self.app.layer_shown == Done::Yes && plasma {"
+            ),
+            "the logo's start waits for it: {gate}"
+        );
+        for build in ["effect_build(", ".build()", "warm_effect("] {
+            assert!(!frame.contains(build), "built on a tick: {build}");
+        }
     }
 
     /// **The window is shown once the app has finished launching, its
@@ -12163,10 +12239,12 @@ impl Responder for Driver {
         // this tick's frame, which this owes. The window was ordered front
         // with no open animation and its first frame already on its layer
         // (`run`), so on screen is whole on screen (note AJ, sections 13
-        // and 15). The plasma's pipeline was built at launch, so this can
-        // pass on the first tick and the emerge's first frame never pays
-        // for it.
-        if self.app.splash.waiting() && self.app.layer_shown == Done::Yes {
+        // and 15). It waits too for the plasma's pipelines, built on a
+        // thread of their own from the window's being shown, so the
+        // emerge's first frame never pays for them and nothing before it
+        // waits on them (`App::build_plasma`).
+        let plasma = self.app.plasma_ready();
+        if self.app.splash.waiting() && self.app.layer_shown == Done::Yes && plasma {
             let visible = self.view.window().is_some_and(|w| {
                 w.isVisible() && w.occlusionState().contains(NSWindowOcclusionState::Visible)
             });
@@ -13000,6 +13078,11 @@ impl Opening {
         }
         window.show();
         startup_mark("shown");
+        // **The logo's plasma, built once the window is on screen** and on
+        // a thread of its own, so neither the first frame nor the shell's
+        // output waits on it; the logo starts on the first tick after it
+        // is built (`App::plasma_ready`).
+        driver.app.build_plasma();
         // The activity lights keep the traffic lights' gap from the strip's
         // other edge: the close button's distance from the left, once laid out.
         let lights_right = window

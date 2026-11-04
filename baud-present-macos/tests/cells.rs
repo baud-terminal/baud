@@ -399,6 +399,9 @@ impl Arms<'_, '_> {
         self.renderer.set_trail(self.trail);
         self.renderer.set_screen_fade(self.fade);
         self.renderer.set_splash(self.splash);
+        // Over none of what the shell drew, as each driver hands it.
+        self.renderer
+            .splash_yields_to(t, self.slide.unwrap_or(Px::of(0)));
         self.renderer.set_fireworks(&self.fireworks);
         self.renderer.set_composition(self.composition.clone());
         self.renderer.set_find(t, self.find.clone());
@@ -2149,6 +2152,202 @@ fn the_splash_draws_alike_on_every_arm() {
         }
     }
     arms.splash = None;
+}
+
+/// **The shell is drawn in front of the splash on every arm**
+/// (`Renderer::splash_yields_to`): with four lines of output reaching into
+/// the logo's box, at the held logo, three ages of the plasma and the
+/// fade, every cell the output inked is drawn by the instance arm and the
+/// cell arm, pixel for pixel, as each draws it with no splash -- the cut
+/// glyph records sampled where the CPU path draws them -- and the two GPU
+/// arms agree on the whole frame. The controls: the logo is drawn, the
+/// frame differing from the plain one outside the shell's cells; and the
+/// output reaches the logo's box.
+#[test]
+fn the_shell_is_drawn_in_front_of_the_splash_on_every_arm() {
+    let font = |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let regular = font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf");
+    let bold = font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf");
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let roles = [FaceRole::Fallback, FaceRole::Style(FaceStyle::Bold)];
+    let renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    for i in 0..4 {
+        feed(
+            &mut t,
+            format!(
+                "\x1b[{};1Hline {i}: the shell's output, drawn in front of the logo it meets",
+                i + 4
+            )
+            .as_bytes(),
+        );
+    }
+    feed(&mut t, b"\x1b[8;1H\x1b[1;34m~/code\x1b[0m $ ");
+    let m = arms.renderer.metrics();
+    let n = |p: Px| usize::try_from(p.value()).unwrap();
+    let (cw, ch, fw) = (n(m.cell_w), n(m.cell_h), n(arms.renderer.frame_size().0));
+    let view = t.view(Rows::ZERO);
+    let mut inked = Vec::new();
+    for y in 0..view.rows().index() {
+        for (x, c) in view.row(Row::from_index(y)).iter().enumerate() {
+            if !c.content.is_empty() && c.content.as_codepoint().is_none_or(|p| p.value() != 0x20) {
+                inked.push((y, x));
+            }
+        }
+    }
+    let cell = |px: &[u32], (y, x): (usize, usize)| -> Vec<u32> {
+        (0..ch)
+            .flat_map(|dy| px[(y * ch + dy) * fw + x * cw..][..cw].to_vec())
+            .collect()
+    };
+    let shell = |i: usize| inked.contains(&((i / fw) / ch, (i % fw) / cw));
+    arms.splash = None;
+    let (plain, _) = arms.draw(&mut t);
+    let out = baud_render::splash::OUT;
+    let mut reached = false;
+    for phase in [
+        SplashPhase::Hold,
+        SplashPhase::Plasma(0.03),
+        SplashPhase::Plasma(out),
+        SplashPhase::Plasma(out + 0.1),
+        SplashPhase::Fade(0.5),
+    ] {
+        arms.splash = Some(SplashLook { phase });
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(differing(&a, &b), 0, "{phase:?}: the GPU arms disagree");
+        for &c in &inked {
+            assert!(
+                cell(&a, c) == cell(&plain, c),
+                "{phase:?}: the instance arm draws cell {c:?} under the logo"
+            );
+            assert!(
+                cell(&b, c) == cell(&plain, c),
+                "{phase:?}: the cell arm draws cell {c:?} under the logo"
+            );
+        }
+        let logo = (0..fw * ch * usize::from(WS.ws_row))
+            .filter(|&i| !shell(i) && a[i] != plain[i])
+            .count();
+        assert!(
+            logo > 100,
+            "{phase:?}: the control, the logo drawn ({logo})"
+        );
+        reached |= arms
+            .renderer
+            .splash()
+            .iter()
+            .chain(arms.renderer.trail())
+            .any(|r| {
+                let right = usize::try_from(i32::from(r.x.0) + i32::from(r.w.0)).unwrap_or(0);
+                right > 0
+                    && inked.iter().any(|&(y, x)| {
+                        let (top, bottom) = (i32::from(r.y.0), i32::from(r.y.0) + i32::from(r.h.0));
+                        let row = i32::try_from(y * ch).unwrap();
+                        x * cw < right && row < bottom && row + i32::try_from(ch).unwrap() > top
+                    })
+            });
+    }
+    assert!(
+        reached,
+        "the control: the output reaches the logo's rows and columns"
+    );
+    arms.splash = None;
+}
+
+/// **A smooth scroll's slide keeps the shell in front of the splash on the
+/// cell arm** (`Renderer::splash_yields_to`'s `lift`): the grid and its
+/// leaving row are drawn lowered by the pan and the logo is not, so each
+/// row's hole reaches the pan further down and the leaving row's is on
+/// the window's top rows. With alternate long and short lines filling the
+/// window and the row above it, at the held logo and two ages of the
+/// plasma, a pan of half a cell and of a quarter draws every pixel the
+/// slide inks as the same slide draws it with no splash. The controls:
+/// the slide moves the frame, and the logo is drawn.
+#[test]
+fn a_slide_draws_none_of_the_shells_ink_under_the_logo() {
+    let font = |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let regular = font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf");
+    let bold = font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf");
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let roles = [FaceRole::Fallback, FaceRole::Style(FaceStyle::Bold)];
+    let renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H");
+    for i in 0..14u32 {
+        let line = match i % 2 {
+            0 => format!(
+                "{i:02} {}\r\n",
+                "abcdefghijklmnopqrstuvwxyzWgjpqy".repeat(3)
+            ),
+            _ => format!("{i:02}\r\n"),
+        };
+        feed(&mut t, line.as_bytes());
+    }
+    let cell_h = arms.renderer.metrics().cell_h;
+    // The leaving row's glyphs, walked into the map as the app walks them
+    // over the window one line up.
+    arms.renderer
+        .sync_styles(&t, arms.styles_mem, &mut arms.stamp);
+    arms.map.ensure(
+        &t,
+        t.view(Rows::of_count(1)),
+        arms.styles_mem,
+        &mut arms.renderer,
+        &mut arms.candidates,
+    );
+    arms.back = Rows::ZERO;
+    arms.slide = None;
+    arms.splash = None;
+    let (_, still) = arms.draw(&mut t);
+    for pan in [cell_h.value() / 2, cell_h.value() / 4] {
+        arms.slide = Some(Px::of(pan));
+        arms.splash = None;
+        let (_, plain) = arms.draw(&mut t);
+        let bg = plain[plain.len() - 1];
+        assert!(
+            differing(&still, &plain) > 100,
+            "the control: a pan of {pan} px moves the frame"
+        );
+        for phase in [
+            SplashPhase::Hold,
+            SplashPhase::Plasma(0.2),
+            SplashPhase::Plasma(0.3),
+        ] {
+            arms.splash = Some(SplashLook { phase });
+            let (_, b) = arms.draw(&mut t);
+            let under = plain
+                .iter()
+                .zip(&b)
+                .filter(|(p, q)| **p != bg && p != q)
+                .count();
+            assert_eq!(
+                under, 0,
+                "pan {pan} px, {phase:?}: ink pixels drawn under the logo"
+            );
+            assert!(
+                differing(&plain, &b) > 100,
+                "pan {pan} px, {phase:?}: the control, the logo drawn"
+            );
+        }
+    }
+    arms.splash = None;
+    arms.slide = None;
 }
 
 /// **iTerm2's fireworks draw alike on every arm** (`baud_render::fireworks`):

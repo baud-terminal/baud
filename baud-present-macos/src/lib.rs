@@ -50,8 +50,8 @@ pub mod settings;
 
 pub use journal::Landing;
 pub use metal::{
-    Build, CellInput, Done, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Memory,
-    OverlayBuffer, StylesBuffer, Target,
+    Build, CellInput, Done, Drawn, EffectBuild, EffectPipes, Gpu, GpuFrame, GridBuffer, InFlight,
+    MapBuffer, Memory, OverlayBuffer, StylesBuffer, Target,
 };
 
 use baud_domain::{FrameGen, HostTime, SwapEpoch};
@@ -640,12 +640,31 @@ impl Presenter {
         }
     }
 
-    /// **Builds `effect`'s pipeline now** on the GPU path
-    /// ([`Gpu::warm_effect`]); the CPU path has none to build.
-    pub fn warm_effect(&mut self, effect: baud_render::effect::Effect) -> bool {
-        match &mut self.draw {
-            Draw::Cpu => false,
-            Draw::Gpu { gpu, .. } => gpu.warm_effect(effect),
+    /// **What builds `effect`'s pipelines off this thread**, on the GPU
+    /// path ([`Gpu::effect_build`]); the CPU path has none to build.
+    pub fn effect_build(
+        &self,
+        effect: baud_render::effect::Effect,
+    ) -> Option<crate::metal::EffectBuild> {
+        match &self.draw {
+            Draw::Cpu => None,
+            Draw::Gpu { gpu, .. } => gpu.effect_build(effect),
+        }
+    }
+
+    /// The pipelines built off this thread, taken ([`Gpu::adopt`]).
+    pub fn adopt(&mut self, built: crate::metal::EffectPipes) {
+        if let Draw::Gpu { gpu, .. } = &mut self.draw {
+            gpu.adopt(built);
+        }
+    }
+
+    /// Whether `effect`'s pipeline is built ([`Gpu::effect_built`]),
+    /// always on the CPU path, which needs none.
+    pub fn effect_built(&self, effect: baud_render::effect::Effect) -> bool {
+        match &self.draw {
+            Draw::Cpu => true,
+            Draw::Gpu { gpu, .. } => gpu.effect_built(effect),
         }
     }
 

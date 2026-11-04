@@ -2456,8 +2456,9 @@ thread beside the other five; the machine's names are read on a thread of
 their own and taken at the first title the shell's output derives (`ProcessInfo` "is thread-safe
 in macOS 10.7 and later", [[source: apple-processinfo]]; the archived
 guide lists it as unsafe, [[source: apple-thread-safety-summary]]). `the_window_is_shown_once_launched_with_its_first_frame`,
-`the_plasmas_pipeline_is_built_at_launch` and
-`the_machines_names_are_read_off_the_launch` hold it; all three failed
+a test that the plasma's pipeline was built at launch (replaced in §26
+by `the_plasma_is_built_off_the_first_frames_path`) and
+`the_machines_names_are_read_off_the_launch` held it; all three failed
 before the change.
 
 **Reading it.** `BAUD_STARTUP=1` now also prints `driver`, `laid out`,
@@ -2977,3 +2978,89 @@ first frame.
 on and off. `scripts/startup-bench.py` opens a window on the screen, and
 no headless harness times a window's launch. By construction, nothing on
 the path to that frame reads the splash.
+
+## 26. The shell in front of the logo, and nothing of it before the first frame
+
+**What the user sees.** The shell's output and its prompt show on the
+frame they arrive, in front of the logo, which plays around them. No
+cell the shell has drawn is ever under the logo or its plasma. The
+window's first frame no longer waits on anything the logo needs.
+
+**The timeline before, by part.** No window was opened, so the in-app
+marks are the last `BAUD_STARTUP=1` runs (sections 16 and 20), not
+re-taken: `pty` 14.2 and 77.0 ms, first frame 157.6, first tick
+171.5-220.4, logo's first frame 227.6, the logo gone 0.55 s later.
+The shell alone, `scripts/record-shell-start.py` on this Mac: zsh's
+first byte 147-216 ms after the fork and its prompt 241-395 in 13 warm
+starts, 712 and 834 in the first, cold, start of a batch. So a warm
+prompt lands 0.03-0.25 s into the logo and a cold one after it has gone.
+With baud's zsh integration (`ZDOTDIR`) and without, interleaved, seven
+starts each, the prompt came at 251-264 ms and 251-395: the ranges
+overlap, so no cost to the shell's start was measured.
+
+**Where the logo was on the way, and is no longer.**
+
+- *The plasma's pipelines* were built on the GPU's thread, which the
+  launch joins before the first frame. Built off it on a bare device,
+  0.116-0.156 ms in eight fresh processes (`Gpu::new` 15.7-18.3 ms).
+  They now build on a thread of their own, started once the window is
+  shown (`App::build_plasma`). The tick takes them once that thread has
+  ended (`App::plasma_ready`) and never waits for it. The logo starts on
+  the first tick after. `BAUD_STARTUP=1` prints `plasma building` and
+  `plasma built` where it printed `gpu plasma`.
+- *The logo was drawn over the text* on every path: its records with
+  baud's overlays, its plasma in the effect's slot. A prompt on the
+  window's top rows is outside the logo's box, which is centred, 30% of
+  the width and at most 40% of the height. So that prompt was already
+  seen on the frame it arrived. Output reaching the middle (a message of
+  the day, a listing, a short window) was not: in headless strips,
+  seventeen lines landing at 0.17 s and at 0.40 s were whole only at
+  0.567 s, once the logo had passed. Each driver now calls
+  `Renderer::splash_yields_to`, which cuts every row's span the shell
+  has drawn and its cursor cell out of the logo's records and the
+  plasma's bands (`splash::yielded`). An ion meeting one is left out
+  whole. Those cells are drawn exactly as with no logo, so the text
+  keeps the page's own contrast. With no slide, every other pixel is the logo's. While the grid slides, the logo is also cut from the pan's pixels above each row's lowered span, because each hole reaches the pan below its row.
+  While a smooth scroll slides the grid on the cell path, the grid and
+  the row leaving the top are drawn lowered by the pan and the logo is
+  not, so each row's hole reaches the pan further down and the leaving
+  row's span is a hole on the window's top pan pixels. The app hands
+  the pan over once it is known (`App::present`'s `lift`).
+  An image the shell places under the logo is still drawn under it: its
+  placements are laid out after the splash is handed to the renderer.
+- *Not on the way*: the shell's spawn (before the window, unchanged),
+  keys, the display link. Section 16 shows the window only once the app
+  has finished launching. That was done for the logo; whether it delays
+  the window with the splash off needs a window and is unmeasured.
+
+**Held.** `no_cell_the_shell_has_drawn_is_under_the_logo`,
+`around_the_shells_cells_the_logo_is_drawn_as_it_was` and
+`no_record_of_the_splash_meets_a_cell_the_shell_has_drawn`
+(`baud-render/tests/splash_yields.rs`), and
+`the_shell_is_drawn_in_front_of_the_splash_on_every_arm` on both Metal
+arms (`baud-present-macos/tests/cells.rs`).
+`the_prompt_is_seen_on_the_frame_it_arrives_with_the_splash_or_without`
+lands the output on frames 5, 30 and 60 at 120 Hz. With the holes
+emptied, which is the base's drawing,
+`no_cell_the_shell_has_drawn_is_under_the_logo`,
+`no_record_of_the_splash_meets_a_cell_the_shell_has_drawn`, the Metal
+arms test and the frame-index test failed.
+`around_the_shells_cells_the_logo_is_drawn_as_it_was` passes then,
+since with no holes the logo is the bare one; it failed with the glyph
+cut's texel shift removed.
+`a_slide_draws_none_of_the_shells_ink_under_the_logo` (cells.rs) draws
+alternate long and short lines at a pan of half a cell and a quarter,
+the held logo and two ages of the plasma, against the same slide with
+no logo. With the holes not reaching the pan, as before the slide was
+handed over, 10 ink pixels were drawn otherwise under the held logo at
+half a cell. `no_record_of_the_splash_meets_a_slides_leaving_row`, two
+rows high so the logo reaches the top, failed with the leaving row's
+hole removed (10 records over it).
+`every_driver_yields_the_splash_to_the_shell` failed with Linux's call
+removed. `the_plasma_is_built_off_the_first_frames_path` failed with the
+build put back on the GPU's thread. Keys were held before and after by
+`a_windows_splash_waits_on_nothing_and_changes_only_the_logo`.
+
+**Unmeasured.** Every in-app time above, with this change. The logo
+keeps moving in the middle for 0.3-0.5 s after a warm prompt lands, and
+this change neither shortens nor moves it.

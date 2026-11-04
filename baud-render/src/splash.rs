@@ -477,6 +477,100 @@ pub fn at_alpha(c: Argb, alpha: f32) -> Argb {
     ))
 }
 
+/// **A part of the frame the shell has drawn**, which the splash yields:
+/// frame pixels, `left` and `top` in it, `right` and `bottom` past it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Hole {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+impl Hole {
+    /// Whether any pixel of `r` is in this hole.
+    pub fn meets(&self, r: &Instance) -> bool {
+        let (x0, y0) = (i32::from(r.x.0), i32::from(r.y.0));
+        let (x1, y1) = (x0 + i32::from(r.w.0), y0 + i32::from(r.h.0));
+        x0 < self.right && self.left < x1 && y0 < self.bottom && self.top < y1
+    }
+}
+
+/// **The splash's records with every [`Hole`] cut out of them**, so no
+/// pixel the shell has drawn is under the logo or its plasma, and every
+/// other pixel is drawn as it was: a glyph, a solid or a band of the
+/// plasma is cut into the parts outside the holes -- a glyph's parts keep
+/// their texels (`u` and `v` move with `x` and `y`, one texel a pixel), a
+/// band's light is the effect's at each pixel whichever record draws it
+/// ([`paint`] cuts them so too) -- and an ion or a quad, whose fragment
+/// reads where in its own record a pixel is, is left out where it meets
+/// one. A frame with no hole the records meet keeps them as they are.
+pub fn yielded(records: &mut Vec<Instance>, holes: &[Hole]) {
+    if !records.iter().any(|r| holes.iter().any(|h| h.meets(r))) {
+        return;
+    }
+    let mut out = Vec::with_capacity(records.len());
+    let mut parts = Vec::new();
+    let mut next = Vec::new();
+    for rec in records.drain(..) {
+        if matches!(rec.kind, Kind::Particle | Kind::Quad) {
+            if !holes.iter().any(|h| h.meets(&rec)) {
+                out.push(rec);
+            }
+            continue;
+        }
+        parts.clear();
+        parts.push(rec);
+        for h in holes {
+            next.clear();
+            for p in &parts {
+                cut(*p, h, &mut next);
+            }
+            core::mem::swap(&mut parts, &mut next);
+        }
+        out.extend_from_slice(&parts);
+    }
+    *records = out;
+}
+
+/// The parts of `rec` outside `h`, at most four: above it, below it, and
+/// left and right of it on its rows.
+fn cut(rec: Instance, h: &Hole, out: &mut Vec<Instance>) {
+    if !h.meets(&rec) {
+        out.push(rec);
+        return;
+    }
+    let (x0, y0) = (i32::from(rec.x.0), i32::from(rec.y.0));
+    let (x1, y1) = (x0 + i32::from(rec.w.0), y0 + i32::from(rec.h.0));
+    let texels = matches!(rec.kind, Kind::Mask | Kind::Color);
+    let part = |l: i32, t: i32, r: i32, b: i32| {
+        let shift = |base: Tex, by: i32| match texels {
+            true => Tex(u16::try_from(i32::from(base.0) + by).unwrap_or(base.0)),
+            false => base,
+        };
+        Instance {
+            x: Screen(i16::try_from(l).unwrap_or(rec.x.0)),
+            y: Screen(i16::try_from(t).unwrap_or(rec.y.0)),
+            w: Tex(u16::try_from(r - l).unwrap_or(0)),
+            h: Tex(u16::try_from(b - t).unwrap_or(0)),
+            u: shift(rec.u, l - x0),
+            v: shift(rec.v, t - y0),
+            ..rec
+        }
+    };
+    let (top, bottom) = (h.top.max(y0), h.bottom.min(y1));
+    for (l, t, r, b) in [
+        (x0, y0, x1, top),
+        (x0, bottom, x1, y1),
+        (x0, top, h.left.min(x1), bottom),
+        (h.right.max(x0), top, x1, bottom),
+    ] {
+        if l < r && t < b {
+            out.push(part(l, t, r, b));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

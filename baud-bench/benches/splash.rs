@@ -2,7 +2,8 @@
 //! (note AJ section 14).
 //!
 //! **Every frame is the one the Linux driver draws**: the splash set for
-//! the frame's age ([`Renderer::set_splash`]) and the frame rendered with
+//! the frame's age ([`Renderer::set_splash`]) and yielded to the shell's
+//! cells ([`Renderer::splash_yields_to`]), and the frame rendered with
 //! [`Damage::Incremental`] after one full frame, over a prompt and a few
 //! lines of output under the logo, on the dark theme -- the splash's whole
 //! life at the display link's rate, from its first frame to
@@ -28,7 +29,7 @@
 use baud_bench::flash::Rate;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows, WinSize};
-use baud_font::Face;
+use baud_font::{Face, Px};
 use baud_render::{
     Blend, Damage, FaceRole, FaceStyle, PxSize, Renderer, SplashLook, SplashPhase, Stack, Target,
     Theme,
@@ -189,6 +190,8 @@ fn life(faces: &[Face<'_>], size: &Size, damage: Damage) -> (Vec<f64>, u64) {
         r.set_splash(Some(SplashLook {
             phase: SplashPhase::Plasma(age),
         }));
+        // Around the shell's cells, as each driver hands it.
+        r.splash_yields_to(&t, Px::of(0));
         let mut target = Target::new(&mut px, w, w, h).unwrap();
         r.render(&mut t, &mut target, damage);
         ms.push(start.elapsed().as_secs_f64() * 1e3);

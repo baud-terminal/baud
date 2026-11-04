@@ -688,6 +688,7 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
         r.set_blink(plan.blink);
         r.set_trail(plan.trail);
         r.set_splash(plan.splash);
+        r.splash_yields_to(&term, Px::of(0));
         let shows: Vec<_> = plan.fireworks.iter().flatten().copied().collect();
         r.set_fireworks(&shows);
         let clear = r.clear_color_of(&term);
@@ -709,6 +710,7 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
             let r = &mut stage.renderer;
             r.set_splash(plan.splash);
             r.set_trail(plan.trail);
+            r.splash_yields_to(&term, Px::of(0));
             r.place_marks(&term, back, baud_render::Leaving::None, Px::of(0));
             let mut target =
                 Target::new(&mut frame[offset..], w, gw, gh).expect("the frame holds the grid");

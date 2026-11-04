@@ -2349,6 +2349,9 @@ pub struct Renderer<'f, 'a> {
     last_splash: Option<SplashLook>,
     splash_scale: Option<f32>,
     splash_inst: Vec<Instance>,
+    /// **What of the frame the shell has drawn**, which the splash's
+    /// records and its plasma are cut out of ([`Renderer::splash_yields_to`]).
+    splash_holes: Vec<splash::Hole>,
     /// The splash's block drawn as a blinking cursor at this phase
     /// ([`Renderer::set_splash_cursor`]): shown, its own, unless set.
     splash_cursor: CursorPhase,
@@ -2897,6 +2900,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_splash: None,
             splash_scale: None,
             splash_inst: Vec::new(),
+            splash_holes: Vec::new(),
             splash_cursor: CursorPhase::SHOWN,
             composition: None,
             last_composition: None,
@@ -3642,15 +3646,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// ([`crate::cellmap::copy_for_shader`]).
     pub fn copy_leaving(&mut self, term: &Term<'_>, back: Rows, dst: &mut [PackedCell]) {
         let above = Rows::of_index(back.index() + 1);
+        self.lay_out_leaving(term, back);
         let Beside {
             leaving,
             leaving_cells,
             ..
         } = &mut **self.beside.get_or_insert_with(Box::default);
         let leaving = leaving.get_or_insert_with(crate::bidi::Reorder::new);
-        leaving.set_reach(widest_of(self.reaches.all()));
-        leaving.set_word_wrap(self.word_wrap);
-        leaving.lay_out_top(term, above, self.joins_seen);
         let up = leaving.view(term, above);
         let src = up.row(Row::ZERO);
         let n = dst.len().min(src.len());
@@ -3660,6 +3662,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .orders()
             .permute(Row::ZERO, &src[..n], leaving_cells);
         crate::cellmap::copy_for_shader(term, leaving_cells, &mut dst[..n]);
+    }
+
+    /// The leaving row of the window `back` lines into the history laid
+    /// out in the order [`Renderer::copy_leaving`] draws it.
+    fn lay_out_leaving(&mut self, term: &Term<'_>, back: Rows) {
+        let above = Rows::of_index(back.index() + 1);
+        let reach = widest_of(self.reaches.all());
+        let (wrap, joins) = (self.word_wrap, self.joins_seen);
+        let beside = &mut **self.beside.get_or_insert_with(Box::default);
+        let leaving = beside.leaving.get_or_insert_with(crate::bidi::Reorder::new);
+        leaving.set_reach(reach);
+        leaving.set_word_wrap(wrap);
+        leaving.lay_out_top(term, above, joins);
     }
 
     /// **Where the leaving row [`Renderer::copy_leaving`] copies names its
@@ -4030,6 +4045,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.splash = look;
         if look.is_none() {
             self.splash_scale = None;
+            self.splash_holes.clear();
         }
         self.build_splash();
         self.choose_trail();
@@ -4055,6 +4071,123 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// with baud's own overlays, before the thumb and the fade.
     pub fn splash(&self) -> &[Instance] {
         &self.splash_inst
+    }
+
+    /// **The splash yields to what the shell has drawn on `term`**, from
+    /// this frame on: every cell of its screen as this frame shows it that
+    /// holds a character other than a space, a background of its own or
+    /// reverse video, and the cursor's cell while it is shown -- each
+    /// row's from the first such cell to the last, the whole row where it
+    /// is drawn in another order -- is cut out of the splash's records and
+    /// its plasma ([`splash::yielded`]). So no cell the shell has drawn is
+    /// ever under the logo: its text and its prompt are drawn as they are
+    /// with no splash, from the frame they arrive on, and the logo plays
+    /// around them. An image is not yet among them: its placements are
+    /// laid out after the splash is handed over. `lift` is the slide's pan
+    /// this frame, zero where the grid is not sliding: the grid and the
+    /// leaving row are drawn lowered by it and the splash is not, so each
+    /// row's hole reaches `lift` further down, covering the row where it
+    /// is drawn and where the logo would have been over it, and the
+    /// leaving row's span is a hole on the window's top `lift` pixels.
+    /// Each driver calls it after [`Renderer::set_splash`] on every frame,
+    /// once the slide's pan is known; nothing while no splash is set.
+    pub fn splash_yields_to(&mut self, term: &Term<'_>, lift: Px) {
+        if self.splash.is_none() {
+            self.splash_holes.clear();
+            return;
+        }
+        if lift.value() > 0 {
+            self.lay_out_leaving(term, term.window_back());
+        }
+        let holes = self.holes_of(term, lift);
+        if holes != self.splash_holes {
+            self.splash_holes = holes;
+            self.build_splash();
+            self.build_trail();
+        }
+    }
+
+    /// What of `term`'s screen, as this frame shows it, the shell has
+    /// drawn: [`Renderer::splash_yields_to`]'s holes, a row's at most one,
+    /// each reaching `lift` below its row, and the leaving row's on the
+    /// top `lift` pixels while the grid slides.
+    fn holes_of(&self, term: &Term<'_>, lift: Px) -> Vec<splash::Hole> {
+        let back = term.window_back();
+        let view = term.view(back);
+        let px = |v: usize, unit: Px| {
+            i32::try_from(v)
+                .unwrap_or(i32::MAX)
+                .saturating_mul(i32::try_from(unit.value()).unwrap_or(i32::MAX))
+        };
+        let (cw, ch) = (self.metrics.cell_w, self.metrics.cell_h);
+        let pan = px(1, lift);
+        let cols = view.cols().index();
+        let cursor = (back.index() == 0 && term.cursor_visible()).then(|| term.cursor());
+        let mut out = Vec::new();
+        // One row's columns, from its first drawn cell to its last, the
+        // whole row where `reordered`; in a double-width row, twice each.
+        let span_of = |view: &Viewport<'_>,
+                       r: Row,
+                       cursor: Option<Col>,
+                       reordered: bool|
+         -> Option<(i32, i32)> {
+            let styles = view.styles(r);
+            let mut span: Option<(usize, usize)> = None;
+            let mut take = |x: usize| span = Some(span.map_or((x, x), |(a, _)| (a, x)));
+            for (x, c) in view.row(r).iter().enumerate().take(cols) {
+                let k = c.content;
+                let ink = !k.is_empty() && k.as_codepoint().is_none_or(|p| p.value() != 0x20);
+                let word = term.style_in(styles, *c);
+                if ink || !word.bg().is_default() || word.attrs().has(Attrs::REVERSE) {
+                    take(x);
+                }
+            }
+            if let Some(cc) = cursor {
+                take(cc.index().min(cols.saturating_sub(1)));
+            }
+            let (a, b) = span?;
+            let (a, b) = match reordered {
+                true => (0, cols.saturating_sub(1)),
+                false => (a, b),
+            };
+            let k = match view.rendition(r) {
+                LineRendition::Single => 1,
+                _ => 2,
+            };
+            Some((px(a * k, cw), px((b + 1) * k, cw)))
+        };
+        for y in 0..view.rows().index().min(self.rows.index()) {
+            let r = Row::from_index(y);
+            let at = cursor.filter(|&(cr, _)| cr == r).map(|(_, c)| c);
+            let Some((left, right)) = span_of(&view, r, at, self.bidi.orders().reordered(r)) else {
+                continue;
+            };
+            out.push(splash::Hole {
+                left,
+                top: px(y, ch),
+                right,
+                bottom: px(y + 1, ch).saturating_add(pan),
+            });
+        }
+        // The leaving row, drawn above the window's first with its bottom
+        // `lift` down, in the order `Renderer::copy_leaving` draws it.
+        if pan > 0 {
+            let up = term.view(Rows::of_index(back.index() + 1));
+            let reordered = self
+                .beside
+                .as_deref()
+                .and_then(|b| b.leaving.as_ref())
+                .is_some_and(|l| l.orders().reordered(Row::ZERO));
+            if let Some((left, right)) = span_of(&up, Row::ZERO, None, reordered) {
+                out.push(splash::Hole {
+                    left,
+                    top: 0,
+                    right,
+                    bottom: pan,
+                });
+            }
+        }
+        out
     }
 
     /// The splash's plasma this frame, and how much of its light is drawn
@@ -4172,6 +4305,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // A record at no opacity draws nothing: left out, so a vanished
         // glyph costs no draw.
         out.retain(|r| r.color.a().get() > 0);
+        // And none over what the shell has drawn.
+        splash::yielded(&mut out, &self.splash_holes);
         self.splash_inst = out;
     }
 
@@ -4236,6 +4371,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if let (Some(_), Some((scale, at))) = (splash, self.splash_place()) {
             let colours = self.splash_colours();
             splash::paint(&mut self.trail_inst, at, scale, colours);
+            // The plasma over none of what the shell has drawn, as the
+            // logo it carries (`Renderer::splash_yields_to`).
+            splash::yielded(&mut self.trail_inst, &self.splash_holes);
         }
         if self.strength() == Strength::UnderThreshold {
             let k = self.flash_cap;
