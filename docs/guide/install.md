@@ -1,8 +1,9 @@
 # Installing baud
 
-There is no release of baud yet. It installs with Nix, which builds the
-`baud` binary from the repository; to have an app you can put in
-Applications and the Dock, build it from a clone of the repository.
+There is no release of baud yet, so Nix is the one way to install it for
+now. Nix builds the `baud` binary from the repository; to have an app you
+can put in Applications and the Dock, Nix and devenv build it from a clone
+of the repository.
 
 ## What you need
 

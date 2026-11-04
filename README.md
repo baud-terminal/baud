@@ -39,17 +39,9 @@ commercial. nixpkgs counts that as unfree, so if you build baud in your own
 nixpkgs through this flake's `overlays.default`, allow it there:
 `nixpkgs.config.allowUnfreePredicate = pkg: lib.getName pkg == "baud";`.
 
-**From source, for the app.** With [Nix](https://nixos.org) and
-[devenv](https://devenv.sh), which fetch the exact toolchain, in a git
-clone (a ZIP download has no `.git`, and the dev shell needs one):
-
-```sh
-git clone https://github.com/baud-terminal/baud && cd baud
-devenv shell -- scripts/bundle-macos.sh   # leaves baud.app in target/
-devenv shell -- cargo run --release       # or run it from the terminal you are in
-```
-
-[Installing](docs/guide/install.md) has the details.
+There is no release yet, so Nix is the one way to install baud for now.
+[Installing](docs/guide/install.md) has the details, and how to build
+the app for Applications and the Dock, with Nix too.
 
 baud needs no configuration. To change the font, colours, cursor or window,
 copy [config.toml.example](config.toml.example) to
