@@ -43,7 +43,14 @@
 //!   in progress is over, whatever the counts say;
 //! * `?5` reads as it did and a count the frame can show moved: a flash,
 //!   started or restarted from now;
-//! * neither: a flash in progress runs to its deadline.
+//! * neither: a flash in progress runs to its deadline;
+//! * **and every change of the whole screen a frame draws -- the mode's, a
+//!   flash's, a `BEL`'s -- shares one budget**, four in any second, so no
+//!   second shows more than three flashes however fast a program toggles
+//!   `?5` (`baud_render::bell`, WCAG 2.3.1). A change back toward the mode
+//!   past it is held, the frame drawing the other video, and drawn on a
+//!   deadline at most a second later; a flash starts only with room for its
+//!   return. The core's `?5` and `DECRQM`'s answer change at once.
 //!
 //! What the reading is compared against is the last *drawn* frame's. A frame
 //! put off -- the GPU still busy (`Drawn::Busy`), no free set -- changes
@@ -82,7 +89,9 @@ use baud_core::{BellIsUrgent, BellVolume, BellsRung, PopOnBell};
 use baud_core::{ReverseFlips, Term, UpdatesOpened};
 use baud_domain::HostTime;
 use baud_domain::terminfo::{self, Flash};
-use baud_render::{BellFlash, BellKind, BellTint, Rang, VideoFlash};
+use baud_render::{
+    BellKind, BellTint, PairFlash, Rang, ScreenFlash, Video, VideoFlash, VideoMoved,
+};
 
 /// The entry the child is told to use, spelled once for the environment and
 /// for the file its flash is read from.
@@ -128,6 +137,14 @@ impl Mode {
             Mode::Reverse
         } else {
             Mode::Normal
+        }
+    }
+
+    /// The video the mode names.
+    fn video(self) -> Video {
+        match self {
+            Mode::Normal => Video::Normal,
+            Mode::Reverse => Video::Reverse,
         }
     }
 }
@@ -287,8 +304,9 @@ impl Rung {
 }
 
 /// The bell: the reading the last drawn frame made, the deadline of a
-/// `?5` pair's flash on screen, and the flash a `BEL` rang
-/// ([`BellFlash`]), timed from the first frame planned.
+/// `?5` pair's flash on screen, and the flash a `BEL` rang with the
+/// budget every change of the whole screen shares ([`ScreenFlash`]),
+/// timed from the first frame planned.
 pub struct Bell<T> {
     seen: Seen,
     until: Option<T>,
@@ -297,10 +315,11 @@ pub struct Bell<T> {
     /// frame had shown.
     rung: Rung,
     /// A `BEL`'s flash, in the colour a program set or the other video,
-    /// held to WCAG 2.3.1's rate (`baud_render::bell`).
-    rang: BellFlash,
-    /// The moment `rang`'s clock counts from, the first frame planned, and
-    /// the last drawn frame on it.
+    /// and the video drawn, held to WCAG 2.3.1's rate together
+    /// (`baud_render::bell`).
+    screen: ScreenFlash,
+    /// The moment `screen`'s clock counts from, the first frame planned,
+    /// and the last drawn frame on it.
     origin: Option<T>,
     drawn: Duration,
 }
@@ -310,7 +329,8 @@ pub struct Bell<T> {
 /// present failed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Plan<T> {
-    /// The other video: a `?5` pair's, or a `BEL`'s with no colour set.
+    /// The other video: a `?5` pair's, a `BEL`'s with no colour set, or
+    /// the video a change the budget holds leaves on screen.
     pub flash: VideoFlash,
     /// A `BEL`'s flash in the colour a program set: the solid the frame
     /// draws over the screen ([`baud_render::Renderer::set_bell_tint`]).
@@ -319,7 +339,7 @@ pub struct Plan<T> {
     pub tint: Option<BellTint>,
     until: Option<T>,
     seen: Seen,
-    rang: BellFlash,
+    screen: ScreenFlash,
     origin: T,
     at: Duration,
 }
@@ -333,7 +353,7 @@ impl<T: Moment> Bell<T> {
             until: None,
             length,
             rung: Rung::FIRST,
-            rang: BellFlash::new(length),
+            screen: ScreenFlash::new(length, Mode::of(term).video()),
             origin: None,
             drawn: Duration::ZERO,
         }
@@ -361,29 +381,44 @@ impl<T: Moment> Bell<T> {
         // frame drawn after it, held or not; in the colour a program set,
         // else as the other video, which a change of `?5` in the same frame
         // ends or refuses, as it ends a pair's, since the mode is what a
-        // frame draws. A tint is not of the video and runs on.
+        // frame draws. A tint is not of the video and runs on. **The video
+        // and the tint share one budget**, at most four changes in a
+        // second, so whatever mix of `?5`, pairs and bells a program
+        // drives, the screen flashes no faster than WCAG 2.3.1 has it.
         let origin = self.origin.unwrap_or(now);
         let at = now.elapsed_since(origin).max(self.drawn);
-        let kind = BellKind::of(term);
-        let mut rang = self.rang;
-        if moved {
-            rang = rang.video_ended(at);
-        }
-        let ring = match (seen.rung != self.seen.rung, moved, kind) {
-            (false, _, _) | (true, true, BellKind::Video) => Rang::No,
-            (true, _, _) => Rang::Yes,
-        };
-        let (rang, shown) = rang.at(at, ring, kind);
-        let flash = match (until, shown.video()) {
-            (None, VideoFlash::Off) => VideoFlash::Off,
-            _ => VideoFlash::On,
+        let mode = seen.mode.video();
+        let (screen, shows) = self.screen.at(
+            at,
+            mode,
+            if moved {
+                VideoMoved::Yes
+            } else {
+                VideoMoved::No
+            },
+            if until.is_some() {
+                PairFlash::On
+            } else {
+                PairFlash::Off
+            },
+            if seen.rung == self.seen.rung {
+                Rang::No
+            } else {
+                Rang::Yes
+            },
+            BellKind::of(term),
+        );
+        let flash = if shows.video == mode {
+            VideoFlash::Off
+        } else {
+            VideoFlash::On
         };
         Plan {
             flash,
-            tint: shown.tint(),
+            tint: shows.tint,
             until,
             seen,
-            rang,
+            screen,
             origin,
             at,
         }
@@ -394,7 +429,7 @@ impl<T: Moment> Bell<T> {
     pub fn commit(&mut self, plan: Plan<T>) {
         self.seen = plan.seen;
         self.until = plan.until;
-        self.rang = plan.rang;
+        self.screen = plan.screen;
         self.origin = Some(plan.origin);
         self.drawn = plan.at;
     }
@@ -417,10 +452,8 @@ impl<T: Moment> Bell<T> {
         self.drawn = plan.at;
         // A `BEL`'s flash the frame would have started is lost with it, and
         // starts no quiet: nothing was shown. One on screen runs on as the
-        // frame left it.
-        if self.rang.lit().is_some() || plan.rang.lit().is_none() {
-            self.rang = plan.rang;
-        }
+        // frame left it, and the video drawn is the last shown.
+        self.screen = self.screen.refused(plan.screen);
     }
 
     /// The driver is holding frames for an open update: what the update
@@ -441,21 +474,19 @@ impl<T: Moment> Bell<T> {
     }
 
     /// When the next frame the bell owes is due, for a loop that waits on
-    /// a clock: a flash's end, or while a `BEL`'s tint fades, the last
-    /// drawn frame's moment -- one each frame interval, paced by the display
-    /// link on macOS and the compositor's frame events on Linux, until it
-    /// is gone.
+    /// a clock: a flash's end, the moment the budget allows a change it
+    /// holds, or while a `BEL`'s tint fades, the last drawn frame's moment
+    /// -- one each frame interval, paced by the display link on macOS and
+    /// the compositor's frame events on Linux, until it is gone.
     pub fn deadline(&self) -> Option<T> {
         let origin = self.origin?;
-        let rang = match self.rang.lit() {
+        let rang = match self.screen.lit() {
             Some(BellKind::Tint(_)) => Some(origin.after(self.drawn)),
-            Some(BellKind::Video) => self.rang.end().map(|e| origin.after(e)),
+            Some(BellKind::Video) => self.screen.end().map(|e| origin.after(e)),
             None => None,
         };
-        match (self.until, rang) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        let owed = self.screen.owed().map(|o| origin.after(o));
+        [self.until, rang, owed].into_iter().flatten().min()
     }
 
     /// Whether a flash on screen has reached its end at `now`, so the loop
@@ -1211,6 +1242,323 @@ mod tests {
             }
             assert!(lit.iter().all(|&l| l), "a ring a frame holds one flash");
         }
+    }
+
+    /// A sixtieth of a second, a frame.
+    const FRAME: Duration = Duration::from_micros(16_667);
+
+    /// The video a committed frame drew: the mode, or under a flash the
+    /// other one.
+    fn video(t: &Term<'_>, flash: VideoFlash) -> Mode {
+        match (Mode::of(t), flash) {
+            (m, VideoFlash::Off) => m,
+            (Mode::Normal, VideoFlash::On) => Mode::Reverse,
+            (Mode::Reverse, VideoFlash::On) => Mode::Normal,
+        }
+    }
+
+    /// The frames, of `seen` -- the video before the first frame, then one
+    /// a frame -- on which the drawn video changed.
+    fn changes(seen: &[Mode]) -> Vec<usize> {
+        (1..seen.len())
+            .filter(|&i| seen[i] != seen[i - 1])
+            .collect()
+    }
+
+    /// **No 60 frames hold more than four changes**: a second holds at
+    /// most three flashes on the chained reading, every adjacent opposing
+    /// pair a flash, and two on the disjoint one (`baud_bench::flash`).
+    fn at_most_four_a_second(at: &[usize], what: &str) {
+        eprintln!("{what}: changes at {at:?}");
+        for w in at.windows(5) {
+            assert!(w[4] - w[0] >= 60, "{what}: five changes at {w:?} of {at:?}");
+        }
+    }
+
+    /// **A program's `?5` toggled at 10 Hz is drawn at most four changes a
+    /// second**, each change in a read of its own, 50 ms apart, for two
+    /// seconds, with a frame every sixtieth: three spellings of the flip,
+    /// `DECSCNM` alone, against `RIS` and against XTRESTORE, which all
+    /// flip through the one path. The mode is set at once, so every read
+    /// leaves `?5` as written, and once the toggles stop the screen draws
+    /// the mode they left.
+    #[test]
+    fn reverse_video_toggled_at_10_hz_draws_at_most_four_changes_a_second() {
+        for (name, set, reset) in [
+            ("DECSCNM", &b"\x1b[?5h"[..], &b"\x1b[?5l"[..]),
+            ("RIS", b"\x1b[?5h", b"\x1bc"),
+            ("XTRESTORE", b"\x1b[?5h", b"\x1b[?5r"),
+        ] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            feed(&mut t, b"\x1b[?5s");
+            let mut b = Bell::new(&t, LEN);
+            let mut seen = vec![Mode::of(&t)];
+            for f in 0..240u32 {
+                if f < 120 && f.is_multiple_of(3) {
+                    let on = (f / 3).is_multiple_of(2);
+                    feed(&mut t, if on { set } else { reset });
+                    let want = if on { Mode::Reverse } else { Mode::Normal };
+                    assert_eq!(Mode::of(&t), want, "{name} {f}: the mode at once");
+                }
+                seen.push(video(&t, draw(&mut b, &t, at(FRAME * f))));
+            }
+            let at = changes(&seen);
+            assert!(at.len() >= 4, "{name}: the toggles are drawn: {at:?}");
+            at_most_four_a_second(&at, name);
+            assert_eq!(seen[240], Mode::of(&t), "{name}: the mode it ends in");
+        }
+    }
+
+    /// **A `tput flash` every 200 ms is held the same way**: each pair in
+    /// one read is the other video's flash, and the flashes are drawn at
+    /// most four changes a second, as many pairs as fit shown whole.
+    #[test]
+    fn pairs_every_200_ms_draw_at_most_four_changes_a_second() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut b = Bell::new(&t, LEN);
+        let mut seen = vec![Mode::of(&t)];
+        for f in 0..240u32 {
+            if f < 120 && f.is_multiple_of(12) {
+                feed(&mut t, b"\x1b[?5h\x1b[?5l");
+            }
+            seen.push(video(&t, draw(&mut b, &t, at(FRAME * f))));
+        }
+        let at = changes(&seen);
+        assert!(at.len() >= 4, "the first flashes are shown: {at:?}");
+        at_most_four_a_second(&at, "a pair every 200 ms");
+        assert!(at.len().is_multiple_of(2), "each flash ends: {at:?}");
+        assert_eq!(seen[240], Mode::Normal);
+    }
+
+    /// **Frames drawn through an outlived update are held the same way**:
+    /// an update left open, its hold over, and a pair in it every 200 ms,
+    /// each shown by the frame drawn through it.
+    #[test]
+    fn pairs_drawn_through_an_outlived_update_are_held_the_same_way() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut b = Bell::new(&t, LEN);
+        feed(&mut t, b"\x1b[?2026h");
+        let mut seen = vec![Mode::of(&t)];
+        for f in 0..240u32 {
+            if f < 120 && f.is_multiple_of(12) {
+                feed(&mut t, b"\x1b[?5h\x1b[?5l");
+            }
+            let flash = draw_through(&mut b, &t, at(FRAME * f), Update::Outlived);
+            seen.push(video(&t, flash));
+        }
+        assert!(t.synchronized_output(), "the control: it never closed");
+        let at = changes(&seen);
+        assert!(at.len() >= 4, "the first flashes are shown: {at:?}");
+        at_most_four_a_second(&at, "through an outlived update");
+    }
+
+    /// **A change held past the budget is owed a frame**, and the mode it
+    /// holds is the program's at once: `DECRQM` answers it set while the
+    /// screen still draws it reset. Drawn only when a frame is owed, the
+    /// screen draws the mode at the deadline, a second after the first of
+    /// the four changes before it.
+    #[test]
+    fn a_held_change_is_owed_a_frame_and_the_mode_answers_at_once() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut b = Bell::new(&t, LEN);
+        for (k, half) in [b"\x1b[?5h", b"\x1b[?5l", b"\x1b[?5h", b"\x1b[?5l"]
+            .into_iter()
+            .enumerate()
+        {
+            feed(&mut t, half);
+            let f = u32::try_from(k).unwrap() * 3;
+            let want = Mode::of(&t);
+            assert_eq!(video(&t, draw(&mut b, &t, at(FRAME * f))), want, "{k}");
+        }
+        feed(&mut t, b"\x1b[?5h\x1b[?5$p");
+        assert_eq!(t.reply(), b"\x1b[?5;1$y", "set, at once");
+        assert_eq!(
+            video(&t, draw(&mut b, &t, at(FRAME * 12))),
+            Mode::Normal,
+            "the fifth change is held"
+        );
+        let second = at(Duration::from_secs(1));
+        assert_eq!(b.deadline(), Some(second), "owed a second after the first");
+        assert!(!b.is_due(at(FRAME * 59)));
+        assert!(b.is_due(at(FRAME * 60)));
+        assert_eq!(video(&t, draw(&mut b, &t, at(FRAME * 60))), Mode::Reverse);
+        assert_eq!(b.deadline(), None, "nothing more is owed");
+    }
+
+    /// **A flash's end dropped with its frame is drawn by the next frame
+    /// drawn**: `?5` set and reset, then a pair, whose flash is the third
+    /// change and has its return counted from its start; the frame that
+    /// would end it is refused, and every frame after draws the mode. The
+    /// budget is full for most of a second after that frame, so an end
+    /// that lost its reservation with it would hold the flash until frame
+    /// 60.
+    #[test]
+    fn a_flash_end_dropped_with_its_frame_is_drawn_by_the_next() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut b = Bell::new(&t, LEN);
+        for f in 0..12u32 {
+            match f {
+                0 => feed(&mut t, b"\x1b[?5h"),
+                3 => feed(&mut t, b"\x1b[?5l"),
+                6 => feed(&mut t, b"\x1b[?5h\x1b[?5l"),
+                _ => {}
+            }
+            let flash = draw(&mut b, &t, at(FRAME * f));
+            let lit = (6..12).contains(&f);
+            assert_eq!(flash == VideoFlash::On, lit, "frame {f}: the pair's flash");
+        }
+        let end = b.plan(&t, at(FRAME * 12), Update::Closed);
+        assert_eq!(end.flash, VideoFlash::Off, "the frame would end it");
+        b.refused(end);
+        let lit: Vec<u32> = (13..80u32)
+            .filter(|&f| draw(&mut b, &t, at(FRAME * f)) == VideoFlash::On)
+            .collect();
+        assert!(lit.is_empty(), "frames still showing the flash: {lit:?}");
+        assert_eq!(Mode::of(&t), Mode::Normal);
+    }
+
+    /// **A change of the mode dropped with its frame is drawn by the next
+    /// frame drawn** too, the slot it spent its reservation: the fourth
+    /// change of a second, which fits, and a fifth, held and dropped at
+    /// its deadline. Each time the budget is full for most of a second
+    /// after the dropped frame, so a change that had to find room again
+    /// would hold the old video until frame 60 or frame 111.
+    #[test]
+    fn a_change_of_mode_dropped_with_its_frame_is_drawn_by_the_next() {
+        let mut shown = vec![];
+        for (name, halves, dropped, held) in [
+            ("the fourth", &[0u32, 3, 6, 9][..], 9u32, &[][..]),
+            ("the fifth", &[0, 51, 54, 57, 58], 60, &[58u32, 59]),
+        ] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut b = Bell::new(&t, LEN);
+            let mut before = vec![];
+            for f in 0..=dropped {
+                if let Some(k) = halves.iter().position(|&h| h == f) {
+                    let half = if k.is_multiple_of(2) { "h" } else { "l" };
+                    feed(&mut t, format!("\x1b[?5{half}").as_bytes());
+                }
+                if f < dropped && draw(&mut b, &t, at(FRAME * f)) == VideoFlash::On {
+                    before.push(f);
+                }
+            }
+            assert_eq!(before, held, "{name}: the frames the budget holds it");
+            let plan = b.plan(&t, at(FRAME * dropped), Update::Closed);
+            assert_eq!(plan.flash, VideoFlash::Off, "{name}: the frame draws it");
+            b.refused(plan);
+            let lit: Vec<u32> = (dropped + 1..dropped + 70)
+                .filter(|&f| draw(&mut b, &t, at(FRAME * f)) == VideoFlash::On)
+                .collect();
+            shown.push((name, lit));
+        }
+        assert!(
+            shown.iter().all(|(_, lit)| lit.is_empty()),
+            "frames showing the old video: {shown:?}"
+        );
+    }
+
+    /// **Frames dropped anywhere leave the screen at most four changes a
+    /// second**: `?5` toggled every 50 ms, and a pair every 200 ms, for
+    /// two seconds, with a run of one, two or three frames dropped
+    /// starting at each frame, and with every second, third or fourth
+    /// frame dropped. A dropped frame shows what the last drawn one drew,
+    /// and a change it spent a slot on is drawn later without room of its
+    /// own, so what the screen shows is counted, not what was planned.
+    #[test]
+    fn frames_dropped_anywhere_draw_at_most_four_changes_a_second() {
+        let runs = (0..240u32).flat_map(|d| (1..=3).map(move |n| (d, n, 0)));
+        let strides = (2..=4u32).flat_map(|n| (0..n).map(move |r| (r, 1, n)));
+        let drops: Vec<(u32, u32, u32)> = runs.chain(strides).collect();
+        for (name, every) in [("?5 every 50 ms", 3u32), ("a pair every 200 ms", 12)] {
+            for &(from, run, stride) in &drops {
+                let dropped = |f: u32| match stride {
+                    0 => (from..from + run).contains(&f),
+                    n => f % n == from,
+                };
+                let mut owned = Owned::new(&WS);
+                let mut t = Term::new(owned.storage(), &WS);
+                let mut b = Bell::new(&t, LEN);
+                let mut seen = vec![Mode::of(&t)];
+                let mut lost = 0;
+                for f in 0..240u32 {
+                    if f < 120 && f.is_multiple_of(every) {
+                        feed(
+                            &mut t,
+                            match (every, (f / every).is_multiple_of(2)) {
+                                (12, _) => b"\x1b[?5h\x1b[?5l",
+                                (_, true) => b"\x1b[?5h",
+                                (_, false) => b"\x1b[?5l",
+                            },
+                        );
+                    }
+                    let p = b.plan(&t, at(FRAME * f), Update::Closed);
+                    let last = seen[seen.len() - 1];
+                    if dropped(f) {
+                        lost += usize::from(video(&t, p.flash) != last);
+                        b.refused(p);
+                        seen.push(last);
+                    } else {
+                        b.commit(p);
+                        seen.push(video(&t, p.flash));
+                    }
+                }
+                let at = changes(&seen);
+                let how = format!("{name}, dropped {from} {run} {stride}");
+                for w in at.windows(5) {
+                    assert!(w[4] - w[0] >= 60, "{how}: five changes at {w:?} of {at:?}");
+                }
+                assert_eq!(seen[240], Mode::of(&t), "{how}: the mode at the end");
+                if stride == 0 && from == 9 && every == 3 {
+                    assert!(lost > 0, "{how}: the control drops a change");
+                }
+            }
+        }
+    }
+
+    /// **A `BEL` in a colour shares the budget with `?5`**: toggles every
+    /// 250 ms are four changes a second alone, and a white bell rung every
+    /// half second, two flashes of its own, may not add to them. A
+    /// change of the bell's solid is counted where it completes: its rise
+    /// on the frame it first reaches its peak, its fall on the first frame
+    /// without it.
+    #[test]
+    fn a_bell_in_a_colour_and_toggles_share_the_budget() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b]21;visual_bell=#ffffff\x07");
+        let mut b = Bell::new(&t, LEN);
+        let (mut seen, mut solid) = (vec![Mode::of(&t)], vec![0]);
+        for f in 0..240u32 {
+            if f < 120 && f.is_multiple_of(15) {
+                let on = (f / 15).is_multiple_of(2);
+                feed(&mut t, if on { b"\x1b[?5h" } else { b"\x1b[?5l" });
+            }
+            if f < 120 && f % 30 == 7 {
+                b.ring();
+            }
+            let p = b.plan(&t, at(FRAME * f), Update::Closed);
+            b.commit(p);
+            seen.push(video(&t, p.flash));
+            solid.push(p.tint.map_or(0, |k| k.alpha.get()));
+        }
+        let peak = solid.iter().copied().max().unwrap_or(0);
+        let mut at = changes(&seen);
+        for i in 1..solid.len() {
+            let rise = solid[i] == peak && solid[i - 1] < peak && peak > 0;
+            let fall = solid[i] == 0 && solid[i - 1] > 0;
+            if rise || fall {
+                at.push(i);
+            }
+        }
+        at.sort_unstable();
+        assert!(peak > 0, "the bell is shown");
+        at_most_four_a_second(&at, "toggles and a bell");
     }
 
     /// The update clock: honoured from its opening for its bound, outlived

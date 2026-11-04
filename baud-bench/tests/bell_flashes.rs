@@ -23,6 +23,15 @@
 //! 3146-3158), and baud's other-video flash as it was before the rule, a
 //! ring holding it on for the length from the ring and nothing after, both
 //! fail the verdict at 200 ms: the census sees the bell.
+//!
+//! **A program's `?5` toggled fast is counted the same way**, through
+//! [`ScreenFlash`], the budget the drivers plan the whole screen's
+//! changes by: toggled every frame, every second frame and every third
+//! frame (sixty, thirty and twenty changes a second) and every quarter
+//! second, each change in a read of its own, alone and with a white or red
+//! bell rung every half second, on both themes, it passes both readings;
+//! drawn as it comes, as before the budget, 10 Hz fails both themes' verdict
+//! at ten flashes a second.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -33,8 +42,8 @@ use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::bell::{ease_in_out, tint_alpha};
 use baud_render::{
-    Argb, BellFlash, BellKind, BellShown, BellTint, Blend, Damage, PxSize, Rang, Renderer, Stack,
-    Target, Theme,
+    Argb, BellFlash, BellKind, BellShown, BellTint, Blend, Damage, PairFlash, PxSize, Rang,
+    Renderer, ScreenFlash, Stack, Target, Theme, Video, VideoFlash, VideoMoved,
 };
 
 const WS: WinSize = WinSize {
@@ -297,5 +306,234 @@ fn without_the_rule_a_bell_rung_every_200_ms_fails() {
             );
             assert_eq!(r.outcome(), Outcome::Fails, "the control, {at}: {r:?}");
         }
+    }
+}
+
+/// What a frame draws of `?5` and the bell: the mode the screen is in,
+/// the video drawn, and the bell's solid.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Drawn {
+    mode: Video,
+    video: Video,
+    tint: Option<BellTint>,
+}
+
+/// A video, hashable for the frame cache.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+enum Shade {
+    Normal,
+    Reverse,
+}
+
+fn shade(v: Video) -> Shade {
+    match v {
+        Video::Normal => Shade::Normal,
+        Video::Reverse => Shade::Reverse,
+    }
+}
+
+/// Which rule draws the video.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Pace {
+    /// [`ScreenFlash`], as the drivers plan it.
+    Paced,
+    /// The control: every frame draws the mode, as before the budget, and
+    /// the bell by its own rule alone.
+    Unpaced,
+}
+
+/// A program's `?5` toggled every `period` frames for `frames` frames, in
+/// reads of their own, after [`STILL`] and followed by as many, with a
+/// `BEL` in `bell`'s colour rung every `ring` frames if any; each frame
+/// planned as a driver plans it: the mode, whether it moved since the
+/// last frame, and a ring.
+fn toggled(period: u32, ring: Option<(u32, u32)>, rule: Pace, frames: u32) -> Vec<Drawn> {
+    let now = |f: u32| Duration::from_secs_f64(f64::from(f) / f64::from(RATE));
+    let mut s = ScreenFlash::new(LENGTH, Video::Normal);
+    let mut b = BellFlash::new(LENGTH);
+    let (mut mode, mut last) = (Video::Normal, Video::Normal);
+    (0..frames + 2 * STILL)
+        .map(|f| {
+            let on = (STILL..STILL + frames).contains(&f);
+            if on && (f - STILL).is_multiple_of(period) {
+                mode = match mode {
+                    Video::Normal => Video::Reverse,
+                    Video::Reverse => Video::Normal,
+                };
+            }
+            let (rang, kind) = match ring {
+                Some((every, c)) if on && (f - STILL).is_multiple_of(every) => {
+                    (Rang::Yes, BellKind::Tint(Argb(c)))
+                }
+                Some((_, c)) => (Rang::No, BellKind::Tint(Argb(c))),
+                None => (Rang::No, BellKind::Video),
+            };
+            let moved = if mode == last {
+                VideoMoved::No
+            } else {
+                VideoMoved::Yes
+            };
+            last = mode;
+            match rule {
+                Pace::Paced => {
+                    let (n, shows) = s.at(now(f), mode, moved, PairFlash::Off, rang, kind);
+                    s = n;
+                    Drawn {
+                        mode,
+                        video: shows.video,
+                        tint: shows.tint,
+                    }
+                }
+                Pace::Unpaced => {
+                    let (n, shown) = b.at(now(f), rang, kind);
+                    b = n;
+                    Drawn {
+                        mode,
+                        video: mode,
+                        tint: shown.tint(),
+                    }
+                }
+            }
+        })
+        .collect()
+}
+
+/// The census of `drawn`, one a frame, over the dense screen in `theme`:
+/// the screen's `?5` set as each frame names it and the video drawn
+/// through the frame's flash, each distinct frame drawn once by the CPU
+/// path, incrementally after the last, and counted wherever it recurs.
+fn count_drawn(theme: &Theme, drawn: &[Drawn]) -> Report {
+    let mono = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        theme.clone(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, dense().as_bytes());
+    let (w, h) = r.pixel_size();
+    let n = usize::try_from(w.value() * h.value()).unwrap();
+    let mut census = Census::new(w, h, Scale(1), Rate(RATE));
+    let mut live = vec![0u32; n];
+    let mut cache: HashMap<(Shade, Shade, Key), Vec<u32>> = HashMap::new();
+    for d in drawn {
+        let reversed = d.mode == Video::Reverse;
+        let tint = d
+            .tint
+            .map_or(Key::Dark, |k| Key::Tint(k.colour.0, k.alpha.get()));
+        let px = cache
+            .entry((shade(d.mode), shade(d.video), tint))
+            .or_insert_with(|| {
+                if t.reverse_video() != reversed {
+                    feed(&mut t, if reversed { b"\x1b[?5h" } else { b"\x1b[?5l" });
+                }
+                r.set_flash(if d.video == d.mode {
+                    VideoFlash::Off
+                } else {
+                    VideoFlash::On
+                });
+                r.set_bell_tint(d.tint);
+                let mut target = Target::new(&mut live, w, w, h).unwrap();
+                r.render(&mut t, &mut target, Damage::Incremental);
+                live.clone()
+            });
+        census.frame(px);
+    }
+    census.finish()
+}
+
+/// The frames on which the drawn video changed, and the bell's solid
+/// reached its peak or went: each change where it completes.
+fn screen_changes(drawn: &[Drawn]) -> Vec<usize> {
+    let alpha = |d: &Drawn| d.tint.map_or(0, |k| k.alpha.get());
+    let peak = drawn.iter().map(alpha).max().unwrap_or(0);
+    (1..drawn.len())
+        .filter(|&i| {
+            let (a, b) = (alpha(&drawn[i - 1]), alpha(&drawn[i]));
+            drawn[i].video != drawn[i - 1].video
+                || (peak > 0 && b == peak && a < peak)
+                || (b == 0 && a > 0)
+        })
+        .collect()
+}
+
+/// **A program's `?5` toggled at any period from one frame to sixty, with
+/// and without a white or red bell rung every half second, draws at most
+/// four changes of the whole screen in any second**, counted on the plan
+/// alone; every run draws the mode it ends in, and toggles slower than
+/// four a second are drawn each on its own frame.
+#[test]
+fn no_toggle_period_draws_more_than_four_changes_a_second() {
+    for ring in [None, Some((30, WHITE)), Some((30, RED))] {
+        for period in 1..=60 {
+            let drawn = toggled(period, ring, Pace::Paced, 4 * RATE);
+            let at = screen_changes(&drawn);
+            for w in at.windows(5) {
+                assert!(
+                    w[4] - w[0] >= usize::try_from(RATE).unwrap(),
+                    "every {period} with {ring:?}: five changes at {w:?}"
+                );
+            }
+            let end = drawn.last().unwrap();
+            assert_eq!(end.video, end.mode, "every {period}: the mode at the end");
+            if ring.is_none() && period >= 15 {
+                assert!(
+                    drawn.iter().all(|d| d.video == d.mode),
+                    "every {period}: every toggle drawn as it came"
+                );
+            }
+        }
+    }
+}
+
+/// **`?5` toggled fast is below the flash thresholds**: every frame,
+/// every second frame and every third frame (sixty, thirty and twenty
+/// changes a second) and every quarter second, alone and with a white or
+/// red bell rung every half second, on the dark and the light theme over
+/// a dense screen; the census's verdict and its strict reading both pass.
+#[test]
+fn reverse_video_toggled_fast_is_below_the_flash_thresholds() {
+    for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+        for ring in [None, Some((30, WHITE)), Some((30, RED))] {
+            for period in [1, 2, 3, 15] {
+                let at = format!("{name} every {period} frames, bell {ring:?}");
+                let r = count_drawn(&theme, &toggled(period, ring, Pace::Paced, SECONDS * RATE));
+                eprintln!(
+                    "{at}: general {} red {}, area {:.1}% of the limit, strict {:.1}%",
+                    r.general.flashes.0,
+                    r.red.flashes.0,
+                    100.0 * r.area.0 / r.threshold.0,
+                    100.0 * r.strict.0 / r.threshold.0
+                );
+                assert_eq!(r.translucent.value(), 0, "{at}: an opaque ground");
+                assert_eq!(r.outcome(), Outcome::Passes, "{at}: {r:?}");
+                assert_eq!(r.strict_outcome(), Outcome::Passes, "{at}: {r:?}");
+            }
+        }
+    }
+}
+
+/// The control: `?5` toggled at 10 Hz and drawn as it comes, as before
+/// the budget, fails the verdict on both themes -- the census sees the
+/// video.
+#[test]
+fn without_the_budget_reverse_video_at_10_hz_fails() {
+    for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+        let r = count_drawn(&theme, &toggled(3, None, Pace::Unpaced, SECONDS * RATE));
+        eprintln!(
+            "{name} unpaced: general {} red {}, area {:.0}",
+            r.general.flashes.0, r.red.flashes.0, r.area.0
+        );
+        assert_eq!(r.outcome(), Outcome::Fails, "the control, {name}: {r:?}");
     }
 }

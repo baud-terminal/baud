@@ -134,7 +134,9 @@ impl BlinkPhases {
 /// Whether this frame shows the video `?5` does not say: a visual bell whose
 /// two halves no frame drew separately, which a driver sees through
 /// `Term::reverse_flips` and holds for as long as the entry it advertised
-/// asks. **It is the opposite of the mode, not reverse video**, so a flash
+/// asks, or the video a change of `?5` past WCAG 2.3.1's budget leaves on
+/// screen until the budget allows it (`bell::ScreenFlash`). **It is the
+/// opposite of the mode, not reverse video**, so a flash
 /// over a screen in reverse video shows it normal for the length, as xterm's
 /// two repaints would. Like [`Blink`], a frame property the driver sets
 /// before a convert or a resolve, and never the core's state.

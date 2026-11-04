@@ -608,6 +608,11 @@ group  = "C"
 # CURSOR and RESTORE CURSOR (pp. 5-187 to 5-190); D.6.1, "the state of the Last Column Flag
 # should be saved when a Save Cursor operation is performed" (p. D-14); 5.16.4 items 14, 21
 # and 22 (pp. 5-222, 5-223); 070-14 §14.2.3 items 9, 10, 14 to 17 and 20 (pp. 14-9, 14-10).
+# Read 2026-11-03 for the budget `?5`'s drawing shares with the bell, on a text extraction
+# [text] whose page breaks put p. 5-107 at PDF 362, as the reads above do: SET/RESET
+# SCREEN MODE, "Note: Conforming software should not depend on the speed of execution
+# when changing Screen Mode. It may take as long as the time required to repaint the
+# entire screen, depending on the hardware implementation" (p. 5-94, PDF 349).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"

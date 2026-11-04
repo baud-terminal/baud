@@ -44,10 +44,32 @@
 //! counts more than three flashes in one -- the census's verdict and its
 //! strict reading both (`baud-bench/tests/bell_flashes.rs`). The same rule
 //! holds the other-video flash a `BEL` shows with no colour set.
+//!
+//! **Every change of the whole screen a frame draws shares one budget**
+//! ([`ScreenFlash`]): the video -- `?5`'s, a `?5` pair's flash, a `BEL`'s
+//! other-video flash -- and the bell's solid. No second holds more than
+//! [`CHANGES`] of them, so a second holds at most three flashes on the
+//! chained reading and two on the disjoint one (`baud_bench::flash`),
+//! whatever mix of them a program drives. A change back toward the mode
+//! past the budget is held, and drawn by the first frame the budget
+//! allows, at most a second later, on a deadline the loop's clock reaches
+//! ([`ScreenFlash::owed`]); a flash away from the mode starts only with
+//! room for its return, and is not shown otherwise. The core's `?5`
+//! changes at once and `DECRQM` answers it at once: only what is drawn is
+//! paced. DEC STD 070 lets the drawing lag, "Conforming software should
+//! not depend on the speed of execution when changing Screen Mode. It may
+//! take as long as the time required to repaint the entire screen"
+//! (070-5 p. 5-94, `[[source: dec-std-070]]`), and a held change lags
+//! longer than a repaint, a departure; so does xterm's practice, which
+//! repaints at every change (`ReverseVideo`, `[[source: xterm-scroll]]`'s
+//! file 3269-3345). WCAG2ICT reads 2.3.1 onto software as written, and has
+//! "Content from an external source that is presented through the ICT"
+//! as "the responsibility of the source" (`[[source: wcag2ict-22]]`): the
+//! hold of a program's own changes is baud's choice, not the text's.
 
 use core::time::Duration;
 
-use crate::color::Argb;
+use crate::color::{Argb, Video};
 use crate::renderer::VideoFlash;
 use baud_core::{PaintRole, ProgramPaint, Term};
 use baud_domain::Chan;
@@ -201,6 +223,29 @@ impl BellFlash {
         self.lit.map(|l| l.kind)
     }
 
+    /// When the solid's fade under way at `now` ends: its rise, from the
+    /// frame after its start to the peak, or its fall, from the peak to
+    /// its end. The other video does not fade.
+    fn fading(&self, now: Duration) -> Option<Duration> {
+        let half = self.length / 2;
+        match self.lit {
+            Some(Lit {
+                kind: BellKind::Tint(_),
+                start,
+                held,
+            }) => {
+                if now > start && now < start + half {
+                    Some(start + half)
+                } else if now > held + half && now < held + self.length {
+                    Some(held + self.length)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// When a flash on screen ends, if nothing holds it longer.
     pub fn end(&self) -> Option<Duration> {
         self.lit.map(|l| l.held + self.length)
@@ -250,6 +295,330 @@ impl BellFlash {
             return 1.0;
         }
         1.0 - ease_in_out(down.min(1.0))
+    }
+}
+
+/// **The most changes of the whole screen one second holds**: four, so the
+/// chained reading, every adjacent opposing pair a flash, counts three and
+/// the disjoint one two -- "no more than three general flashes and / or no
+/// more than three red flashes within any one-second period", "A flash
+/// consists of two opposing transitions" (`[[source: wcag22]]`).
+pub const CHANGES: usize = 4;
+
+/// The period WCAG 2.3.1 counts flashes in.
+pub const PERIOD: Duration = Duration::from_secs(1);
+
+/// Whether the change back toward the mode has its slot counted
+/// already: a flash's return, counted when the flash began, or a change a
+/// dropped frame spent a slot on ([`ScreenFlash::refused`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Return {
+    Free,
+    Counted,
+}
+
+/// Whether the flash wanted now was refused for want of room: it stays
+/// refused, never shown late, until the mode is wanted again.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Refused {
+    No,
+    Yes,
+}
+
+/// How many changes a step makes room for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Need {
+    One,
+    Two,
+}
+
+/// Whether a step's changes fit the second that ends at its moment.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Fits {
+    Yes,
+    No,
+}
+
+/// Whether `?5` reads otherwise than the last drawn frame read it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum VideoMoved {
+    No,
+    Yes,
+}
+
+/// Whether a `?5` pair's flash is on, as the driver times it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PairFlash {
+    Off,
+    On,
+}
+
+/// What one frame draws of the whole screen: its video, and the bell's
+/// solid over it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ScreenShows {
+    pub video: Video,
+    pub tint: Option<BellTint>,
+}
+
+fn other(v: Video) -> Video {
+    match v {
+        Video::Normal => Video::Reverse,
+        Video::Reverse => Video::Normal,
+    }
+}
+
+/// **The budget**: the video the last drawn frame drew, the moments of
+/// the last [`CHANGES`] changes drawn, and the returns counted for the
+/// flashes on screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Pace {
+    drawn: Video,
+    /// Any order; a moment after the frame's is a change still to
+    /// complete, counted from now.
+    at: [Option<Duration>; CHANGES],
+    video: Return,
+    tint: Return,
+    refused: Refused,
+    /// When a change held back toward the mode may be drawn.
+    owed: Option<Duration>,
+}
+
+impl Pace {
+    fn new(video: Video) -> Pace {
+        Pace {
+            drawn: video,
+            at: [None; CHANGES],
+            video: Return::Free,
+            tint: Return::Free,
+            refused: Refused::No,
+            owed: None,
+        }
+    }
+
+    /// When `need` more changes fit: `now` if they fit already, else the
+    /// moment enough of the changes the second holds have left it, or
+    /// `None` while the returns counted ahead leave no room at all.
+    fn fits_from(&self, now: Duration, need: Need) -> Option<Duration> {
+        let mut live = self
+            .at
+            .map(|t| t.filter(|&t| now.saturating_sub(t) < PERIOD));
+        live.sort_unstable();
+        let held = live.iter().flatten().count();
+        let returns = [self.video, self.tint]
+            .iter()
+            .filter(|&&r| r == Return::Counted)
+            .count();
+        let n = match need {
+            Need::One => 1,
+            Need::Two => 2,
+        };
+        let room = CHANGES.checked_sub(returns + n)?;
+        match held.checked_sub(room) {
+            None | Some(0) => Some(now),
+            // The oldest held sort last of the empties, so the `over`-th
+            // oldest is `over` past the first held.
+            Some(over) => live
+                .get(CHANGES - held + over - 1)
+                .copied()
+                .flatten()
+                .map(|t| t + PERIOD),
+        }
+    }
+
+    fn fits(&self, now: Duration, need: Need) -> Fits {
+        match self.fits_from(now, need) {
+            Some(t) if t <= now => Fits::Yes,
+            _ => Fits::No,
+        }
+    }
+
+    /// A change drawn at `t`, in the slot of the oldest change or an empty
+    /// one. Every caller made room first, so that slot is one the second
+    /// no longer holds, or, for a change a dropped frame spent a slot on,
+    /// one no later than that spent slot, which counts in its place.
+    fn record(&mut self, t: Duration) {
+        if let Some(slot) = self.at.iter_mut().min() {
+            *slot = Some(t);
+        }
+    }
+
+    /// The video the frame at `now` draws, wanting `want` over a screen
+    /// whose mode is `mode`, and held a while if the bell's solid is
+    /// fading until `fade`: a change inside a fade would split the fade's
+    /// transition in two.
+    fn video(mut self, now: Duration, want: Video, mode: Video, fade: Option<Duration>) -> Pace {
+        self.owed = None;
+        if self.drawn == mode {
+            self.video = Return::Free;
+        }
+        if want == mode {
+            self.refused = Refused::No;
+        }
+        if want == self.drawn {
+            return self;
+        }
+        if let Some(end) = fade {
+            self.owed = Some(end);
+            return self;
+        }
+        if want == mode {
+            // Back to the mode: a flash's return, counted when it began, a
+            // change a dropped frame counted, or a change of the mode itself.
+            match (self.video, self.fits(now, Need::One)) {
+                (Return::Counted, _) | (Return::Free, Fits::Yes) => {
+                    self.record(now);
+                    self.drawn = want;
+                    self.video = Return::Free;
+                }
+                (Return::Free, Fits::No) => self.owed = self.fits_from(now, Need::One),
+            }
+        } else {
+            // Away from the mode: a flash, with room for its return.
+            match (self.refused, self.fits(now, Need::Two)) {
+                (Refused::No, Fits::Yes) => {
+                    self.record(now);
+                    self.drawn = want;
+                    self.video = Return::Counted;
+                }
+                _ => self.refused = Refused::Yes,
+            }
+        }
+        self
+    }
+}
+
+/// **The whole screen's flashes on a clock**: the bell's
+/// ([`BellFlash`]) and the video's, held to one budget of [`CHANGES`] a
+/// second. [`ScreenFlash::at`] says what a frame drawn at a moment shows
+/// and returns the state that frame leaves, which a driver keeps once the
+/// frame is drawn; moments are the time since any fixed origin the caller
+/// keeps, as [`BellFlash`]'s are.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ScreenFlash {
+    bell: BellFlash,
+    pace: Pace,
+}
+
+impl ScreenFlash {
+    /// No flash, none ever shown, a bell's to last `length`, over a screen
+    /// drawn in `video`.
+    pub fn new(length: Duration, video: Video) -> ScreenFlash {
+        ScreenFlash {
+            bell: BellFlash::new(length),
+            pace: Pace::new(video),
+        }
+    }
+
+    /// **The frame drawn at `now`**: `mode` the video `?5` names, `moved`
+    /// whether it reads otherwise than at the last drawn frame, `pair`
+    /// whether a `?5` pair's flash is on, and `rang` whether a `BEL` rang
+    /// since, its flash showing as `kind`. A change of `?5` ends the
+    /// bell's other-video flash and refuses one rung with it, since the
+    /// mode is what a frame draws; a tint is not of the video and runs on.
+    /// A tint starts only with room for its rise and its fall, which are
+    /// counted where they complete or later.
+    pub fn at(
+        self,
+        now: Duration,
+        mode: Video,
+        moved: VideoMoved,
+        pair: PairFlash,
+        rang: Rang,
+        kind: BellKind,
+    ) -> (ScreenFlash, ScreenShows) {
+        let (mut bell, mut pace) = (self.bell, self.pace);
+        let tint_start = |b: &BellFlash| match b.lit {
+            Some(Lit {
+                kind: BellKind::Tint(_),
+                start,
+                ..
+            }) => Some(start),
+            _ => None,
+        };
+        if tint_start(&bell).is_none() {
+            pace.tint = Return::Free;
+        }
+        if moved == VideoMoved::Yes {
+            bell = bell.video_ended(now);
+        }
+        let ring = match (rang, moved, kind) {
+            (Rang::No, _, _) | (Rang::Yes, VideoMoved::Yes, BellKind::Video) => Rang::No,
+            (Rang::Yes, _, _) => Rang::Yes,
+        };
+        let before = tint_start(&bell);
+        let (mut next, mut shown) = bell.at(now, ring, kind);
+        if before.is_some() && tint_start(&next) != before {
+            pace.record(now);
+            pace.tint = Return::Free;
+        }
+        if tint_start(&next).is_some_and(|s| Some(s) != before) {
+            match pace.fits(now, Need::Two) {
+                Fits::Yes => {
+                    pace.record(now + bell.length);
+                    pace.tint = Return::Counted;
+                }
+                Fits::No => (next, shown) = bell.at(now, Rang::No, kind),
+            }
+        }
+        let want = match (pair, shown.video()) {
+            (PairFlash::Off, VideoFlash::Off) => mode,
+            _ => other(mode),
+        };
+        let pace = pace.video(now, want, mode, next.fading(now));
+        let shows = ScreenShows {
+            video: pace.drawn,
+            tint: shown.tint(),
+        };
+        (ScreenFlash { bell: next, pace }, shows)
+    }
+
+    /// Whether the bell's flash is on screen, and how.
+    pub fn lit(&self) -> Option<BellKind> {
+        self.bell.lit()
+    }
+
+    /// When the bell's flash on screen ends, if nothing holds it longer.
+    pub fn end(&self) -> Option<Duration> {
+        self.bell.end()
+    }
+
+    /// When a change held back toward the mode may be drawn: the frame the
+    /// budget owes.
+    pub fn owed(&self) -> Option<Duration> {
+        self.pace.owed
+    }
+
+    /// **The frame `plan` was for was dropped**, its present failed: the
+    /// screen shows what the last drawn frame drew. A bell's flash on
+    /// screen runs on as the frame left it, and one it would have started
+    /// is lost with it; the changes it would have counted stay counted,
+    /// which only spends the budget sooner. A change back toward the mode
+    /// it would have drawn -- a flash's return, or a change of the mode
+    /// itself, held or not -- keeps its reservation, the slot it spent, so
+    /// the next frame drawn for any reason draws it, as it draws a change
+    /// the budget has room for. Nothing is owed, so no frame is forced
+    /// while presents keep failing.
+    pub fn refused(self, plan: ScreenFlash) -> ScreenFlash {
+        let bell = if self.bell.lit().is_some() || plan.bell.lit().is_none() {
+            plan.bell
+        } else {
+            self.bell
+        };
+        // A change back toward the mode the frame drew -- a flash's return,
+        // a change of the mode, held or not -- spent its slot there, and the
+        // slot is its reservation: it needs no room again.
+        let video = match (plan.pace.drawn == self.pace.drawn, plan.pace.video) {
+            (false, Return::Free) => Return::Counted,
+            _ => self.pace.video,
+        };
+        let pace = Pace {
+            drawn: self.pace.drawn,
+            video,
+            owed: None,
+            ..plan.pace
+        };
+        ScreenFlash { bell, pace }
     }
 }
 
@@ -435,5 +804,161 @@ mod tests {
     fn the_quiet_and_the_length_make_the_span() {
         assert_eq!(quiet(MS * 100), MS * 400);
         assert_eq!(quiet(MS * 100) + MS * 100, SPAN);
+    }
+
+    const N: Video = Video::Normal;
+    const R: Video = Video::Reverse;
+
+    /// A frame of `s` at `now` over a screen in `mode`, the mode moved
+    /// since the last frame or not, with no pair and no ring.
+    fn video_at(
+        s: ScreenFlash,
+        now: Duration,
+        mode: Video,
+        moved: VideoMoved,
+    ) -> (ScreenFlash, Video) {
+        let (s, shows) = s.at(now, mode, moved, PairFlash::Off, Rang::No, BellKind::Video);
+        (s, shows.video)
+    }
+
+    /// Four changes in a row are drawn as they come; the fifth inside the
+    /// second is held, owed when the first leaves it, and drawn then. A
+    /// change after a quiet second is drawn at once.
+    #[test]
+    fn a_fifth_change_in_a_second_is_held_until_the_first_leaves_it() {
+        let mut s = ScreenFlash::new(MS * 100, N);
+        for (k, mode) in [R, N, R, N].into_iter().enumerate() {
+            let ms = u32::try_from(k).unwrap() * 50;
+            let (n, v) = video_at(s, MS * ms, mode, VideoMoved::Yes);
+            assert_eq!(v, mode, "change {k}, drawn");
+            s = n;
+        }
+        let (s, v) = video_at(s, MS * 200, R, VideoMoved::Yes);
+        assert_eq!(v, N, "the fifth, held");
+        assert_eq!(s.owed(), Some(MS * 1000), "a second after the first");
+        let (s, v) = video_at(s, MS * 999, R, VideoMoved::No);
+        assert_eq!(v, N, "still held");
+        let (s, v) = video_at(s, MS * 1000, R, VideoMoved::No);
+        assert_eq!((v, s.owed()), (R, None), "drawn when owed");
+        let (s, _) = video_at(s, MS * 1050, N, VideoMoved::Yes);
+        let (s, _) = video_at(s, MS * 1100, R, VideoMoved::Yes);
+        let (s, v) = video_at(s, MS * 1150, N, VideoMoved::Yes);
+        assert_eq!(v, N, "each of the first four left the second in turn");
+        let (s, v) = video_at(s, MS * 1200, R, VideoMoved::Yes);
+        assert_eq!((v, s.owed()), (N, Some(MS * 2000)), "this second's fifth");
+        let (s, v) = video_at(s, MS * 1250, N, VideoMoved::Yes);
+        assert_eq!(
+            (v, s.owed()),
+            (N, None),
+            "a change back before it is drawn: nothing"
+        );
+        let (_, v) = video_at(s, MS * 2300, R, VideoMoved::Yes);
+        assert_eq!(v, R, "after a quiet second, at once");
+    }
+
+    /// **A flash starts only with room for its return**: with three
+    /// changes in the second, a pair's flash is not shown, and stays
+    /// unshown -- never started late -- until the mode is wanted again.
+    #[test]
+    fn a_flash_starts_only_with_room_for_its_return() {
+        let mut s = ScreenFlash::new(MS * 100, N);
+        for (k, mode) in [R, N, R].into_iter().enumerate() {
+            s = video_at(
+                s,
+                MS * (u32::try_from(k).unwrap() * 50),
+                mode,
+                VideoMoved::Yes,
+            )
+            .0;
+        }
+        let pair = |s: ScreenFlash, ms: u32, p: PairFlash| {
+            let (s, shows) = s.at(MS * ms, R, VideoMoved::No, p, Rang::No, BellKind::Video);
+            (s, shows.video)
+        };
+        let (s, v) = pair(s, 200, PairFlash::On);
+        assert_eq!(v, R, "refused: one change left");
+        let (s, v) = pair(s, 1050, PairFlash::On);
+        assert_eq!(v, R, "the room came back, and the flash stays refused");
+        let (s, v) = pair(s, 1100, PairFlash::Off);
+        assert_eq!(v, R);
+        let (s, v) = pair(s, 1116, PairFlash::On);
+        assert_eq!(v, N, "a new flash, with room");
+        let (_, v) = pair(s, 1216, PairFlash::Off);
+        assert_eq!(v, R, "and its return, counted when it began");
+    }
+
+    /// **A change inside the solid's fade waits for the fade**, so the
+    /// fade's transition is not split in two: a change while the solid
+    /// rises is owed at the peak and drawn there.
+    #[test]
+    fn a_change_inside_the_solids_fade_waits_for_it() {
+        let s = ScreenFlash::new(MS * 100, N);
+        let tint = BellKind::Tint(RED);
+        let (s, shows) = s.at(
+            Duration::ZERO,
+            N,
+            VideoMoved::No,
+            PairFlash::Off,
+            Rang::Yes,
+            tint,
+        );
+        assert!(shows.tint.is_some(), "the solid starts");
+        let (s, shows) = s.at(MS * 16, R, VideoMoved::Yes, PairFlash::Off, Rang::No, tint);
+        assert_eq!(shows.video, N, "held while it rises");
+        assert_eq!(s.owed(), Some(MS * 50), "owed at the peak");
+        let (s, shows) = s.at(MS * 50, R, VideoMoved::No, PairFlash::Off, Rang::No, tint);
+        assert_eq!((shows.video, s.owed()), (R, None), "drawn at the peak");
+    }
+
+    /// **A solid starts only with room for its rise and its fall**: after
+    /// three changes of the video in the second, a ring draws nothing.
+    #[test]
+    fn a_solid_starts_only_with_room_for_its_rise_and_fall() {
+        let mut s = ScreenFlash::new(MS * 100, N);
+        for (k, mode) in [R, N, R].into_iter().enumerate() {
+            s = video_at(
+                s,
+                MS * (u32::try_from(k).unwrap() * 50),
+                mode,
+                VideoMoved::Yes,
+            )
+            .0;
+        }
+        let tint = BellKind::Tint(RED);
+        let (s, shows) = s.at(MS * 200, R, VideoMoved::No, PairFlash::Off, Rang::Yes, tint);
+        assert_eq!((shows.tint, s.lit()), (None, None), "absorbed");
+        let (_, shows) = s.at(
+            MS * 1100,
+            R,
+            VideoMoved::No,
+            PairFlash::Off,
+            Rang::Yes,
+            tint,
+        );
+        assert!(shows.tint.is_some(), "with room again");
+    }
+
+    /// **A dropped frame keeps the video last shown and owes nothing**: a
+    /// change it would have drawn is drawn by the next frame that can.
+    #[test]
+    fn a_dropped_frame_keeps_the_video_shown_and_owes_nothing() {
+        let mut s = ScreenFlash::new(MS * 100, N);
+        for (k, mode) in [R, N, R, N].into_iter().enumerate() {
+            s = video_at(
+                s,
+                MS * (u32::try_from(k).unwrap() * 50),
+                mode,
+                VideoMoved::Yes,
+            )
+            .0;
+        }
+        let (held, v) = video_at(s, MS * 200, R, VideoMoved::Yes);
+        assert_eq!((v, held.owed()), (N, Some(MS * 1000)));
+        let (plan, v) = video_at(held, MS * 1000, R, VideoMoved::No);
+        assert_eq!(v, R);
+        let kept = held.refused(plan);
+        assert_eq!(kept.owed(), None, "no frame forced while presents fail");
+        let (_, v) = video_at(kept, MS * 1300, R, VideoMoved::No);
+        assert_eq!(v, R, "the next frame draws it");
     }
 }

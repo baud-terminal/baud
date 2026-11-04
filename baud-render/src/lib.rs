@@ -83,7 +83,9 @@ pub use atlas::{
     Slot, Stretch, Tex, TexRect, VAR_POINTS_MAX,
 };
 pub use badge::{BADGE, BOX, BadgeLook, DRAWN_AT, MARGINS, POINTS, STROKE};
-pub use bell::{BellFlash, BellKind, BellShown, BellTint, Rang};
+pub use bell::{
+    BellFlash, BellKind, BellShown, BellTint, PairFlash, Rang, ScreenFlash, ScreenShows, VideoMoved,
+};
 pub use bidi::{
     Around, CONTEXT, Changes, CursorSide, Joined, Joins, Mirrored, Orders, PairEnd, PairPart,
     Rejoin, Reorder, RowJoins, WordCell, WordIx, Work as BidiWork, Written,
