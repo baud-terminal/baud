@@ -664,18 +664,12 @@ pub fn run() {
         composing_caret: baud_render::Caret::End,
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition)
             .with_trail_scroll(cfg.trail_scroll)
-            .with_splash(
-                match crate::windows::started(
-                    std::env::var_os(crate::windows::NEW_WINDOW).as_deref(),
-                ) {
-                    // A new window's process: not a launch, so no logo.
-                    crate::windows::Started::Window => crate::config::LaunchSplash::Off,
-                    crate::windows::Started::Launch => crate::splash::splash_override(
-                        std::env::var("BAUD_SPLASH").ok().as_deref(),
-                        cfg.launch_splash,
-                    ),
-                },
-            ),
+            // Every window's, a new window's process as much as the
+            // launch's (`splash.rs`).
+            .with_splash(crate::splash::splash_override(
+                std::env::var("BAUD_SPLASH").ok().as_deref(),
+                cfg.launch_splash,
+            )),
         bus,
         theme_choice: cfg.theme,
         half,

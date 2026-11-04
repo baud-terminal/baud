@@ -371,9 +371,8 @@ const DEFAULT_SHELL: &str = "/bin/sh";
 /// to chafa without ever reading baud's own device attributes; chafa read
 /// the same variable and drew in 240 colours rather than truecolour.
 ///
-/// Four entries are baud's own: `windows::NEW_WINDOW`, which marks a
-/// process started as a new window and is not its shell's to inherit, and
-/// shell integration's [`crate::shell::HELPERS`].
+/// Three entries are baud's own: shell integration's
+/// [`crate::shell::HELPERS`].
 ///
 /// The list is every variable yazi 26.5.6's `Brand::from_env` reads
 /// (`yazi-emulator/src/brand.rs`), the rest of each named terminal's own
@@ -444,9 +443,6 @@ const OUTER: &[&str] = &[
     "ZELLIJ",
     "ZELLIJ_SESSION_NAME",
     "ZELLIJ_PANE_ID",
-    // baud's own: the process was started as a new window
-    // (`windows::spawn_window`), which its shell was not.
-    crate::windows::NEW_WINDOW,
     // baud's own: what shell integration hands a shell's startup to put
     // back, and its marker, none of them a parent's to pass on.
     crate::shell::HELPERS[0],

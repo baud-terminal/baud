@@ -207,7 +207,7 @@ impl Timed {
         }
     }
 
-    /// **The launch's splash**, from `[launch] splash` (and `BAUD_SPLASH`):
+    /// **The window's splash**, from `[launch] splash` (and `BAUD_SPLASH`):
     /// waiting for the window to be shown, as on macOS.
     pub(crate) fn with_splash(mut self, setting: crate::config::LaunchSplash) -> Timed {
         self.splash = crate::splash::Splash::new(setting);
@@ -695,6 +695,130 @@ mod tests {
         assert_eq!(held.set_splash(LaunchSplash::Off), Owes::Full);
         assert_eq!(held.plan(t0, &b, rect, CELL, widths()).splash, None);
         assert_eq!(held.deadline(t0), None);
+    }
+
+    /// **A window's splash waits on nothing and changes nothing but the
+    /// logo**, the first window's and every one opened after it: the same
+    /// keys and the same output, a prompt, more lines than the screen
+    /// holds and a cursor position report, go to a window with the splash
+    /// on and one with it off, frame by frame at 120 Hz. Each key's bytes
+    /// and the report reach the shell on the frame they were sent, every
+    /// frame plans the same but for the logo, the window with the splash
+    /// owes a frame whenever the other does, and the grid and the history
+    /// end byte for byte the same. The control: the keys and the output
+    /// land while the plasma plays.
+    #[test]
+    fn a_windows_splash_waits_on_nothing_and_changes_only_the_logo() {
+        use crate::config::LaunchSplash;
+        use baud_domain::{Back, Codepoint, Content, KeyCode, KeyEvent, Modifiers};
+        /// What a window did: the bytes sent to its shell and the frame
+        /// each was sent on, each frame's plan without the logo, its grid
+        /// and its history.
+        #[derive(Debug, PartialEq)]
+        struct Did {
+            sent: Vec<(u32, Vec<u8>)>,
+            plans: Vec<Plan>,
+            grid: Vec<Vec<Content>>,
+            history: Vec<Vec<Content>>,
+        }
+        let rank = |o: Owes| match o {
+            Owes::Nothing => 0,
+            Owes::Frame => 1,
+            Owes::Full => 2,
+        };
+        let lines: Vec<u8> = (0..15)
+            .flat_map(|i| format!("line {i}\r\n").into_bytes())
+            .collect();
+        let window = |setting: LaunchSplash| {
+            let t0 = Instant::now();
+            let mut s = Owned::new(&WS);
+            let mut t = Term::new(s.storage(), &WS);
+            let off = TrailPick::Named(CursorTrail::Off);
+            let mut fx = Timed::new(t0, off, ScreenTransition::Off).with_splash(setting);
+            let mut sent = Vec::new();
+            let mut plans = Vec::new();
+            let mut owed = Vec::new();
+            let mut logo = Vec::new();
+            for f in 0..120_u32 {
+                let now = t0 + Duration::from_secs_f64(f64::from(f) / 120.0);
+                if f == 1 {
+                    let _ = fx.shown();
+                }
+                let mut sink = |b: &[u8]| sent.push((f, b.to_vec()));
+                let landed = match f {
+                    10 | 30 | 50 => {
+                        let c = Codepoint::from_char('k');
+                        let key = KeyEvent {
+                            text: Some(c),
+                            ..KeyEvent::press(KeyCode::Char(c), Modifiers::NONE)
+                        };
+                        let _ = crate::reads::input(&mut t, |t| t.key(key), &mut sink);
+                        true
+                    }
+                    12 => {
+                        feed(&mut t, b"$ ");
+                        true
+                    }
+                    32 => {
+                        feed(&mut t, &lines);
+                        true
+                    }
+                    52 => {
+                        feed(&mut t, b"\x1b[6n");
+                        crate::reads::owed(&mut t, &mut sink);
+                        true
+                    }
+                    _ => false,
+                };
+                owed.push(rank(fx.turn(now, &mut t)));
+                let plan = fx.plan(now, &t, rect, CELL, widths());
+                if landed {
+                    logo.push(plan.splash.is_some());
+                }
+                plans.push(Plan {
+                    splash: None,
+                    ..plan
+                });
+            }
+            let view = t.view(t.window_back());
+            let grid = (0..view.rows().index())
+                .map(|r| {
+                    view.row(Row::from_index(r))
+                        .iter()
+                        .map(|c| c.content)
+                        .collect()
+                })
+                .collect();
+            let back = t.scrollback();
+            let history = (0..back.len())
+                .map(|i| {
+                    back.line(Back::of(i))
+                        .map(|(cells, _)| cells.iter().map(|c| c.content).collect())
+                        .unwrap_or_default()
+                })
+                .collect();
+            let did = Did {
+                sent,
+                plans,
+                grid,
+                history,
+            };
+            (did, owed, logo)
+        };
+        let (on, owed_on, logo) = window(LaunchSplash::On);
+        let (off, owed_off, none) = window(LaunchSplash::Off);
+        assert_eq!(logo, [true; 6], "the control: all land under the logo");
+        assert_eq!(none, [false; 6], "and none in the window without it");
+        assert!(
+            on.sent.iter().any(|(f, b)| *f == 52 && b.ends_with(b"R")),
+            "the control: the report is sent: {:?}",
+            on.sent
+        );
+        assert!(!on.history.is_empty(), "the control: lines retired");
+        assert_eq!(on, off);
+        for (f, (a, b)) in owed_on.iter().zip(&owed_off).enumerate() {
+            assert!(a >= b, "frame {f}: owed {a} with the splash, {b} without");
+        }
     }
 
     /// **iTerm2's fireworks on Linux, as on macOS**: a request read before

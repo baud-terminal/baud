@@ -16,10 +16,23 @@
 //! it is a pure function of the clock, the screen and the window's being
 //! shown, and the tests run on every platform.
 //!
+//! **Every window plays it**, the launch's and each one opened after it
+//! -- Command-N, File > New Window and a Dock click on macOS
+//! (`open_window`), Ctrl+Shift+N on Linux (`windows::spawn_window`) -- as
+//! `[launch] splash`, `BAUD_SPLASH` and Reduce Motion say for the first.
+//! The logo is baud's greeting for a window rather than a launch screen,
+//! so the HIG's launch screen, a splash at the end of launching
+//! (`[[source: apple-hig-launching]]`), is not what places it: that is
+//! guidance, not a standard, and nothing of the splash delays a window.
+//! Each window's splash is its own driver's, on its own clock from its own
+//! first frame shown.
+//!
 //! **It waits on nothing.** The shell is spawned before the first frame,
-//! keys go to it throughout, its output is drawn under the logo on the
-//! frame it arrives, and the splash only owes frames while it plays or
-//! fades, and the one the window's being shown starts.
+//! in every window, keys go to it throughout, its output is drawn under
+//! the logo on the frame it arrives, and the splash only owes frames while
+//! it plays or fades, and the one the window's being shown starts. Its
+//! look takes the terminal by shared reference: it cannot write the grid,
+//! the cursor a report gives or the history.
 //!
 //! **"The shell drew something" is a visible cell**, not a byte: a shell's
 //! first bytes are often an `OSC 7` directory, a title or mode sets, which
@@ -91,8 +104,8 @@ fn out() -> f64 {
 }
 
 impl Splash {
-    /// The splash a launch starts with: waiting for the window, or gone
-    /// when the setting is off.
+    /// The splash a window starts with, the launch's and every one opened
+    /// after it: waiting for the window, or gone when the setting is off.
     pub(crate) fn new(setting: LaunchSplash) -> Splash {
         Splash {
             state: match setting {
@@ -122,8 +135,8 @@ impl Splash {
     }
 
     /// **The setting read again**: `"off"` takes it down at once, which
-    /// owes the one frame that clears it; `"on"` after launch shows
-    /// nothing, the splash being the launch's.
+    /// owes the one frame that clears it; `"on"` in a window already open
+    /// shows nothing, a window being greeted only as it opens.
     pub(crate) fn set(&mut self, setting: LaunchSplash) -> Owes {
         match (setting, self.state) {
             (
@@ -873,6 +886,122 @@ mod tests {
         assert_eq!(splash_override(Some("on"), Off), On);
         assert_eq!(splash_override(Some("yes"), Off), Off);
         assert_eq!(splash_override(None, On), On);
+    }
+
+    /// **Every Linux window plays the logo, as the launch's does**: a new
+    /// window is a new baud (`windows::spawn_window`), and its driver
+    /// takes the splash from `[launch] splash` with `BAUD_SPLASH` over it,
+    /// with no case for a process started as a window; its shell is
+    /// spawned before the driver that draws its first frame is built, and
+    /// nothing a key or a read does names the splash. The loop is Linux's,
+    /// so the source is what can fail; read here so it is checked on every
+    /// platform.
+    #[test]
+    fn every_linux_window_plays_the_logo_as_the_launchs_does() {
+        const SRC: &str = include_str!("linux.rs");
+        let given = concat!(".with_", "splash(");
+        assert_eq!(SRC.matches(given).count(), 1, "one splash");
+        let (before, after) = SRC.split_once(given).expect("the driver's splash");
+        let arg = after
+            .split_once("\n        bus,")
+            .map(|(a, _)| a)
+            .expect("its argument");
+        assert!(
+            arg.trim_start().starts_with(concat!(
+                "crate::splash::splash_override(\n",
+                "                std::env::var(\"BAUD_SPLASH\").ok().as_deref(),\n",
+                "                cfg.launch_splash,"
+            )),
+            "the config's, BAUD_SPLASH over it: {arg}"
+        );
+        for named in ["LaunchSplash::Off", "Started", "NEW_WINDOW"] {
+            assert!(!arg.contains(named), "{named} in the splash: {arg}");
+        }
+        assert!(
+            before.contains(concat!("Pty::", "spawn_polled(")),
+            "the shell is spawned before the driver is built"
+        );
+        let windows = include_str!("windows.rs");
+        let spawn = windows
+            .split_once(concat!(
+                "pub fn spawn_",
+                "window(dir: Option<&std::path::Path>) {"
+            ))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(b, _)| b)
+            .expect("the new window's spawn");
+        assert!(
+            spawn.contains(concat!("cmd.env_", "remove(\"WAYLAND_SOCKET\");")),
+            "the control: the spawn's environment"
+        );
+        assert!(
+            !spawn.contains("NEW_WINDOW"),
+            "a window told apart: {spawn}"
+        );
+        for head in [
+            concat!("    fn feed(&mut self, ", "bytes: &[u8]) {"),
+            concat!(
+                "    fn route_key(&mut self, ",
+                "route: crate::pressed::Route) {"
+            ),
+        ] {
+            let path = SRC
+                .split_once(head)
+                .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+                .map(|(b, _)| b)
+                .unwrap_or_else(|| panic!("{head}"));
+            assert!(!path.contains("splash"), "{head} reads the splash");
+        }
+    }
+
+    /// **Each window's splash is its own**: two windows opened close
+    /// together, the second shown a quarter of a second after the first,
+    /// each play the whole plasma from their own first frame with a clock
+    /// and are gone [`gone`] after it, the first's end leaving the
+    /// second's playing. A window's splash is its own driver's
+    /// (`App::splash`, `Timed::splash`), shown by its own window's first
+    /// frame.
+    #[test]
+    fn each_window_plays_its_own_splash_on_its_own_clock() {
+        let mut owned = Owned::new(&WS);
+        let t = Term::new(owned.storage(), &WS);
+        let full = SystemMotion::Full;
+        let rate = 120.0;
+        let shown_at = [12_u32, 42];
+        let mut windows = [Splash::new(LaunchSplash::On), Splash::new(LaunchSplash::On)];
+        let mut first = [None; 2];
+        let mut ends = [None; 2];
+        for f in 0..240_u32 {
+            let now = f64::from(f) / rate;
+            for (w, s) in windows.iter_mut().enumerate() {
+                if f == shown_at[w] {
+                    assert_eq!(s.shown(), Owes::Frame, "window {w}");
+                }
+                match phase(s.look(Some(now), &t, full)) {
+                    Some(SplashPhase::Plasma(a)) => {
+                        let since = *first[w].get_or_insert(now);
+                        assert!((f64::from(a) - (now - since)).abs() < 1e-4, "{w} {a}");
+                    }
+                    None if first[w].is_some() && ends[w].is_none() => ends[w] = Some(now),
+                    None => {}
+                    other => panic!("window {w}: {other:?}"),
+                }
+            }
+        }
+        for w in 0..2 {
+            let since = first[w].expect("it plays");
+            assert!(
+                (since - f64::from(shown_at[w]) / rate).abs() < 1e-9,
+                "window {w} starts on its own first frame"
+            );
+            let end = ends[w].expect("and goes");
+            assert!((end - since - gone()).abs() <= 1.0 / rate, "{w}: {end}");
+        }
+        let (a, b) = (ends[0].expect("first"), first[1].expect("second"));
+        assert!(
+            b < a && a < ends[1].expect("second"),
+            "the second still plays"
+        );
     }
 
     /// **The Linux driver shows the window to the splash on the

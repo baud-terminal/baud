@@ -300,14 +300,6 @@ pub fn inherited(
         .filter(|p| p.is_absolute())
 }
 
-/// **The variable a new window's process is started with** on Linux, so
-/// it opens as a window rather than a launch: without the launch logo,
-/// which the HIG places at the launch ("Launching begins when someone
-/// opens your app ... and ends when the first screen is ready", and a
-/// splash screen at its end, `[[source: apple-hig-launching]]`). baud's
-/// own, and kept from its shell's environment (`pty::OUTER`).
-pub const NEW_WINDOW: &str = "BAUD_NEW_WINDOW";
-
 /// **The variable that says which screen a window opens on**, read
 /// once per window before it is shown ([`screen`]). Unset, a window is
 /// centred by AppKit's `center`, on the screen with the key window
@@ -357,32 +349,15 @@ pub fn centred(size: (f64, f64), visible: (f64, f64, f64, f64)) -> (f64, f64) {
     (left.round(), bottom.round())
 }
 
-/// How this process was started: by a launch, or as a new window of
-/// another baud (`spawn_window`).
-#[cfg(any(target_os = "linux", test))]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Started {
-    Launch,
-    Window,
-}
-
-/// [`Started`], from [`NEW_WINDOW`] in `env`.
-#[cfg(any(target_os = "linux", test))]
-pub fn started(env: Option<&std::ffi::OsStr>) -> Started {
-    match env {
-        Some(_) => Started::Window,
-        None => Started::Launch,
-    }
-}
-
 /// **A new window on Linux: a new baud**, as foot's `spawn-terminal`
 /// execs a new foot in the terminal's directory. The same executable,
 /// with the environment this one has -- so the same config -- but for
 /// `WAYLAND_SOCKET`, started in `dir` with `PWD` naming it (XBD 8's `PWD`,
 /// `[[source: posix-xbd-8]]`);
-/// its own launch rule then keeps the shell there. The child is waited
-/// for on a thread of its own, so it never stays a zombie, and its exit
-/// says nothing to this window.
+/// its own launch rule then keeps the shell there, and it plays the
+/// logo as every window does (`splash.rs`). The child is waited for on
+/// a thread of its own, so it never stays a zombie, and its exit says
+/// nothing to this window.
 #[cfg(target_os = "linux")]
 pub fn spawn_window(dir: Option<&std::path::Path>) {
     let exe = match std::env::current_exe() {
@@ -403,9 +378,6 @@ pub fn spawn_window(dir: Option<&std::path::Path>) {
     // libwayland-93c04ad-client]]` 1379), and the child connects by
     // `WAYLAND_DISPLAY`.
     cmd.env_remove("WAYLAND_SOCKET");
-    // Told it is a window rather than a launch, so it opens without the
-    // launch logo, as a macOS window opened by Command-N does.
-    cmd.env(NEW_WINDOW, "1");
     match cmd.spawn() {
         Ok(mut child) => {
             let spawned = std::thread::Builder::new()
@@ -424,8 +396,8 @@ pub fn spawn_window(dir: Option<&std::path::Path>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AfterClose, Asked, Chord, Clicked, Command, LAST_WINDOW, LastWindow, Left, Screen, Started,
-        Windows, after_close, centred, clicked, inherited, mac_chord, screen, started,
+        AfterClose, Asked, Chord, Clicked, Command, LAST_WINDOW, LastWindow, Left, Screen, Windows,
+        after_close, centred, clicked, inherited, mac_chord, screen,
     };
     use baud_core::{FileHost, Owned, Term, WorkingDirectory};
     use baud_domain::{BytePos, ReadLen, Row, WinSize};
@@ -573,14 +545,6 @@ mod tests {
                 "{other}"
             );
         }
-    }
-
-    /// A process started with the new window's variable is a window; one
-    /// started without it is a launch.
-    #[test]
-    fn a_process_started_as_a_new_window_is_not_a_launch() {
-        assert_eq!(started(Some(std::ffi::OsStr::new("1"))), Started::Window);
-        assert_eq!(started(None), Started::Launch);
     }
 
     /// **`BAUD_SCREEN=primary` opens the window on the primary screen**,

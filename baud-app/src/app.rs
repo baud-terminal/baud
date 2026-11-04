@@ -852,7 +852,7 @@ struct Boot {
     window_ops: baud_domain::WindowOps,
     activity_lights: baud_render::ActivityLights,
     status_line_lights: baud_render::StatusLineLights,
-    /// Whether a launch shows the splash, from `[launch] splash`.
+    /// Whether the window shows the splash, from `[launch] splash`.
     launch_splash: crate::config::LaunchSplash,
     /// Whether the shell's prompts are marked, from `[shell] integration`.
     shell_integration: crate::shell::Integration,
@@ -4526,8 +4526,10 @@ fn show_dock(mtm: MainThreadMarker, changed: Option<Option<crate::notify::DockBa
 /// of its own -- outside the key's callback, which holds the view's
 /// borrow that the new window's taking the keyboard re-enters -- with its
 /// shell started in `at` and the window cascaded from the key window, the
-/// one it was opened from. The Dock's icon and the launch logo are the
-/// launch's.
+/// one it was opened from. The Dock's icon is the launch's. The logo is
+/// every window's: it greets the window rather than marking the end of
+/// a launch, so this sets nothing of it and the boot carries `[launch]
+/// splash` as the launch's does (`splash.rs`).
 fn open_window(at: Option<std::path::PathBuf>) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
@@ -4537,10 +4539,7 @@ fn open_window(at: Option<std::path::PathBuf>) {
         .map(|w| w.frame());
     let scale = NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor());
     let inset = predicted_inset(mtm, WINDOW_SIZE);
-    let mut shell = Shell::start(scale, WINDOW_SIZE, inset, at.as_deref());
-    // A window, not a launch: the launch logo is the launch's
-    // (`windows::NEW_WINDOW`).
-    shell.boot.launch_splash = crate::config::LaunchSplash::Off;
+    let shell = Shell::start(scale, WINDOW_SIZE, inset, at.as_deref());
     let opening = Opening::new(mtm, WINDOW_SIZE, scale, inset, shell, icon(), None);
     opening.show(mtm, scale, after);
 }
@@ -7616,6 +7615,98 @@ mod drag_tests {
         assert!(
             !prepare.contains(concat!("thread::", "spawn")),
             "the boot starts a thread before the shell is spawned"
+        );
+    }
+
+    /// **Every window plays the logo, as the launch's does**: a window
+    /// opened after the launch -- Command-N, File > New Window, a Dock
+    /// click -- goes through `open_window`, which starts its
+    /// shell, builds it and shows it as `run` does and sets nothing of the
+    /// splash, so its boot carries `[launch] splash` and `App::new` reads
+    /// `BAUD_SPLASH` over it, as for the first window. Its shell is
+    /// spawned in `Shell::start`, before the window is built, and its
+    /// first frame is drawn in `show`. The windows are AppKit's, so the
+    /// source is what can fail.
+    #[test]
+    fn every_window_plays_the_logo_as_the_launchs_does() {
+        const SRC: &str = include_str!("app.rs");
+        let open = body(
+            SRC,
+            concat!("\nfn open_", "window(at: Option<std::path::PathBuf>) {"),
+            "",
+        );
+        for named in ["launch_splash", "LaunchSplash", "splash"] {
+            assert!(!open.contains(named), "{named} in open_window: {open}");
+        }
+        let shell = open
+            .find(concat!("Shell::", "start("))
+            .expect("the control: the window's shell is started");
+        let built = open
+            .find(concat!("Opening::", "new("))
+            .expect("the window is built");
+        let shown = open
+            .find(concat!("opening.", "show(mtm, scale, after);"))
+            .expect("and shown");
+        assert!(shell < built && built < shown, "{open}");
+        let start = body(
+            SRC,
+            concat!("fn start(scale: CGFloat, size: NSSize, ", "inset: CGFloat,"),
+            "    ",
+        );
+        assert!(start.contains(concat!("Pty::", "spawn(")), "spawned there");
+        assert!(
+            launch(SRC)
+                .show
+                .contains(concat!("driver.app.present(&v, ", "Show::Now);")),
+            "the first frame is drawn in show"
+        );
+        let prepare = body(
+            SRC,
+            concat!("    fn prepare(scale: ", "CGFloat) -> Boot {"),
+            "    ",
+        );
+        assert!(
+            prepare.contains(concat!("launch_splash: cfg.", "launch_splash,")),
+            "the boot's splash is the config's"
+        );
+        assert!(
+            SRC.contains(concat!(
+                "splash: crate::splash::Splash::new(crate::splash::",
+                "splash_override(\n                std::env::var(\"BAUD_SPLASH\")"
+            )),
+            "BAUD_SPLASH over it, for every window"
+        );
+    }
+
+    /// **Nothing a key or a read does waits on the splash**: the key's
+    /// way to the shell (`key`, `typed`, `send`) and the pump that feeds
+    /// the shell's output to the terminal and owes its frame name nothing
+    /// of it, in every window; the splash is read by the frame, which
+    /// draws it over the grid, and the tick. The windows are AppKit's, so
+    /// the source is what can fail.
+    #[test]
+    fn no_key_or_read_waits_on_the_splash() {
+        const SRC: &str = include_str!("app.rs");
+        for head in [
+            concat!("    fn key(&mut self, key: ", "&KeyPress) -> Handled {"),
+            concat!(
+                "    fn typed(&mut self, e: KeyEvent, ",
+                "key: Option<VirtualKey>) {"
+            ),
+            concat!("    fn send(&mut self, e: ", "KeyEvent) -> Sent {"),
+            concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
+        ] {
+            let path = body(SRC, head, "    ");
+            assert!(!path.contains("splash"), "{head} reads the splash");
+        }
+        let drawn = body(
+            SRC,
+            concat!("    fn frame(&mut self, ", "target: f64) {"),
+            "    ",
+        );
+        assert!(
+            drawn.contains(concat!("self.app.splash.", "owes(target)")),
+            "the control: the tick reads it"
         );
     }
 }

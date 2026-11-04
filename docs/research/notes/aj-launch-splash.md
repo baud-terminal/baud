@@ -1474,8 +1474,9 @@ How the launch path runs (**R**; commit `fb85b76` and `app.rs`):
   the display link (5182), and the run loop (5185). The order is in 1.1.
 - **The first frame's palette** comes from `window.is_dark()` under `theme =
   "auto"`. A `theme = "dark"` or `"light"` pins the half (section 4).
-- **One window per process.** There is no "new window" in the app today
-  (`Cmd+N` is a P4 item), so every launch is every window.
+- **Every window plays it.** A window opened after the launch goes
+  through the launch's own steps (`open_window` on macOS, a new process
+  on Linux) and plays its own logo (section 25).
 
 ### 3.7 Keys reach the shell, and nothing on the way waits
 
@@ -2928,3 +2929,48 @@ change's two copies, one binary, went over on 20 frames in three of their
 six runs, up to 35 ms at 6K, the unchanged plasma among them; the base on 56-84 a
 round. **Not fixed.** The fire's light at each pixel, and the lightning's
 distance to its region, about a third of its light now.
+
+## 25. Every window plays the logo
+
+**What changed.** A window opened after the launch played no logo: on
+macOS `open_window` set the boot's `launch_splash` to off, and on Linux
+`spawn_window` started the new process with `BAUD_NEW_WINDOW`, which
+turned it off there. The reason given was the HIG's launch screen, which
+places a splash at the end of launching (`[[source: apple-hig-launching]]`).
+That reading is replaced. The logo is baud's greeting for a window, not
+a launch screen, and the HIG is guidance rather than a standard; no
+standard baud follows speaks to a window's greeting. Every window now
+plays it: Command-N, File > New Window and a Dock click on macOS, which
+all reach `open_window`, and Ctrl+Shift+N on Linux.
+The override and the variable are gone, so a new window follows
+`[launch] splash`, `BAUD_SPLASH` and Reduce Motion exactly as the first
+window does.
+
+**Nothing waits on it.** A new window takes the launch's own path. Its
+shell is spawned in `Shell::start` (`Pty::spawn_polled` on Linux) before
+the window is built, and its first frame is drawn in `show`. The splash
+is read by the frame and the tick alone: no key, typed text, send or
+pump names it on macOS, nor `feed` or `route_key` on Linux. Its look
+takes the terminal by shared reference, so it cannot write the grid.
+Each window's splash is a field of its own driver (`App::splash`,
+`Timed::splash`), shown by its own window's first frame and timed from
+it.
+
+**Held.** `every_window_plays_the_logo_as_the_launchs_does` (macOS) and
+`every_linux_window_plays_the_logo_as_the_launchs_does` failed on the
+base: `open_window` named `launch_splash`, and Linux's splash had its
+`Started::Window` arm. `a_windows_splash_waits_on_nothing_and_changes_only_the_logo`
+drives one window with the splash and one without, frame by frame at
+120 Hz: three keys, a prompt, fifteen lines and a cursor position report,
+all landing while the plasma plays. The bytes sent to the shell match,
+each on the frame it was sent, and so does every frame's plan but the
+logo. The grid and the history match byte for byte, and the window with
+the splash owes a frame whenever the other does.
+`each_window_plays_its_own_splash_on_its_own_clock` shows two windows a
+quarter of a second apart, each playing the whole plasma from its own
+first frame.
+
+**Unmeasured.** The time to a new window's first content with the splash
+on and off. `scripts/startup-bench.py` opens a window on the screen, and
+no headless harness times a window's launch. By construction, nothing on
+the path to that frame reads the splash.

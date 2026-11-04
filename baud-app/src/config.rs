@@ -431,8 +431,8 @@ pub struct Config {
     /// the macOS window shows its frames through a layer's contents, which
     /// has no torn presentation.
     pub tearing: Tearing,
-    /// `[launch] splash`: whether a launch shows baud's colour logo in the
-    /// middle of the window, carried in and out by the plasma
+    /// `[launch] splash`: whether each window shows baud's colour logo in
+    /// its middle once it is on screen, carried in and out by the plasma
     /// -- `"on"` by default (note AJ) -- or `"off"`. On follows Reduce
     /// Motion, which shows it whole and fades it instead (`splash.rs`).
     pub launch_splash: LaunchSplash,
@@ -831,8 +831,8 @@ pub enum Tearing {
     Off,
 }
 
-/// `[launch] splash`: the launch splash shown, or not, `"on"` or `"off"`
-/// as every switch here is. The key has a `[launch]` section of its own,
+/// `[launch] splash`: the splash every window opens with shown, or not,
+/// `"on"` or `"off"` as every switch here is. The key has a `[launch]` section of its own,
 /// rather than a place in `[screen]` or `[window]`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LaunchSplash {

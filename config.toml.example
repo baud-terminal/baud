@@ -574,12 +574,12 @@ status_line_lights = "off"
 # the desktop still decides. Linux only: on macOS frames always wait.
 tearing = "off"
 
-# baud's colour logo in the middle of the window when it starts: it comes
-# out of a burst of plasma from left to right, and as soon as it is whole a
-# quick sweep takes it out from left to right, gone half a second after it
-# starts. Your
-# keys go to the shell the whole time, and the shell's output draws under
-# the logo. With reduced motion on -- macOS's Reduce Motion, or the Linux
+# baud's colour logo in the middle of each window as it opens, the first
+# and every one you open after it: it comes out of a burst of plasma from
+# left to right, and as soon as it is whole a quick sweep takes it out
+# from left to right, gone half a second after it starts. Nothing waits
+# for it: your keys go to the shell the whole time, and the shell's
+# output draws under the logo. With reduced motion on -- macOS's Reduce Motion, or the Linux
 # desktop's setting once the desktop has reported it -- the logo shows whole
 # and fades once your shell has drawn something (or half a second after the
 # window opens, if it draws nothing).
