@@ -96,7 +96,7 @@ crosses instead (the `screen` blend), and on a light theme it darkens it
 (`multiply`): a letter under it brightens, or deepens, with the page around
 it, and keeps more of its contrast against the page than it would under the
 plain overlay. Over the bare page it looks as it did, within 3 steps of 255,
-but where an ion crosses the tube, which it lights a little more. The launch
+but where an ion crosses the tube, which it lights by up to 25 steps more (26 of 8,755 lit page pixels at 0.1 s). The launch
 splash's plasma and every other trail are drawn as before.
 
 The braid lies along the move the quad is making, which the driver hands on,

@@ -1678,8 +1678,8 @@ rounds, the first dropped. The `frame` bench's plasma trail over
 
 | theme | base | change | A/A copy |
 |---|---|---|---|
-| dark, `screen` | 3.260 [3.255-3.265] | 3.295 [3.291-3.302] | 3.296 |
-| light, `multiply` | 3.260 [3.251-3.275] | 3.309 [3.304-3.313] | 3.310 |
+| dark (the change by `screen`) | 3.260 [3.255-3.265] | 3.295 [3.291-3.302] | 3.296 |
+| light (the change by `multiply`) | 3.260 [3.251-3.275] | 3.309 [3.304-3.313] | 3.310 |
 
 +1.1% and +1.5%, ranges separate. `frame_gpu` has no trail mode: its
 arms and the `frame` replay of `vim-unicode`, with no trail, overlap

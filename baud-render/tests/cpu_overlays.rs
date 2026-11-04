@@ -899,7 +899,10 @@ fn digest(frame: &[u32]) -> u64 {
 #[test]
 fn every_trail_draws_the_same_pixels_on_every_os() {
     // Per page, opaque then the glass: per look, the fire to the liquid and
-    // then the quad, three ages, each full and then a repeat.
+    // then the quad, three ages, each full and then a repeat. A repeat
+    // whose caps are not yet scanned draws nothing: the fire's on the glass
+    // at the first and last ages, and the plasma's at the first, scanned
+    // under its own mix.
     const PINNED: &[u64] = &[
         0xf56c8c32c26a3e36,
         0xc403d556fa165993,
