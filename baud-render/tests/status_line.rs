@@ -31,11 +31,20 @@ fn rgb(c: Argb) -> u32 {
 
 /// One full CPU frame of `bytes`, handed over with the canvas.
 fn frame(bytes: &[u8], f: impl FnOnce(&Renderer<'_, '_>, &support::Canvas, &Term<'_>)) {
+    frame_at(&WS, bytes, f);
+}
+
+/// The same frame of a terminal `ws` in size.
+fn frame_at(
+    ws: &WinSize,
+    bytes: &[u8],
+    f: impl FnOnce(&Renderer<'_, '_>, &support::Canvas, &Term<'_>),
+) {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).expect("parse")];
     let mut r = support::renderer(&faces);
-    let mut owned = Owned::new(&WS);
-    let mut t = Term::new(owned.storage(), &WS);
+    let mut owned = Owned::new(ws);
+    let mut t = Term::new(owned.storage(), ws);
     feed(&mut t, bytes);
     r.fit(&t);
     let mut canvas = support::Canvas::for_renderer(&r);
@@ -96,18 +105,34 @@ fn the_frame_grows_a_row_for_the_line_and_gives_it_back() {
 
 /// **The indicator in reverse video**: every cell of its row has the
 /// theme's foreground for its background, where the main display's blank
-/// cells have the background, and its text is drawn on its row.
+/// cells have the background, and its text is drawn on its row. 13
+/// columns, the width the cursor's field needs whole: at 12 it is left
+/// out whole, and the row is drawn reversed with no glyph on it.
 #[test]
 fn the_indicator_is_drawn_in_reverse_video_below_the_main_display() {
     let theme = Theme::dark();
-    frame(b"\x1b[1$~\x1b[?25l", |r, c, _| {
-        let cols = 12;
+    frame(b"\x1b[1$~\x1b[?25l", |r, _, _| {
+        for x in 0..12 {
+            assert_eq!(rgb(r.background()[24 + x]), rgb(theme.fg), "line {x}");
+        }
+        assert_eq!(
+            glyphs_on(r, Row::from_index(2)).len(),
+            0,
+            "1(01,001) needs 13"
+        );
+    });
+    let ws = WinSize {
+        ws_row: 2,
+        ws_col: 13,
+    };
+    frame_at(&ws, b"\x1b[1$~\x1b[?25l", |r, c, _| {
+        let cols = 13;
         for x in 0..cols {
             assert_eq!(rgb(r.background()[cols + x]), rgb(theme.bg), "main {x}");
             assert_eq!(rgb(r.background()[2 * cols + x]), rgb(theme.fg), "line {x}");
         }
-        // "(01,001)" from column 4: eight glyphs, all on the line's row.
-        assert_eq!(glyphs_on(r, Row::from_index(2)).len(), 8);
+        // "1(01,001)" from column 4: nine glyphs, all on the line's row.
+        assert_eq!(glyphs_on(r, Row::from_index(2)).len(), 9);
         assert_eq!(
             glyphs_on(r, Row::ZERO).len() + glyphs_on(r, Row::from_index(1)).len(),
             0

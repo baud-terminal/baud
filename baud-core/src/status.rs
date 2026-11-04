@@ -442,7 +442,8 @@ struct Line<'c> {
 }
 
 impl Line<'_> {
-    /// `text` from `at`, cut at the line's end; the column after it.
+    /// `text` from `at`, nothing written past the line's end; the column
+    /// after it. [`Line::whole`] measures a field by writing it to a line with no cells.
     fn put(&mut self, at: Col, text: &[u8]) -> Col {
         let mut x = at;
         for b in text {
@@ -474,9 +475,40 @@ impl Line<'_> {
         let start = k.min(digits.len().saturating_sub(width.index()));
         self.put(at, &digits[start..])
     }
+
+    /// **A field whole or not at all**: `field` written from `at` when its
+    /// last character is on the line, else nothing. Measured first on a
+    /// line of no cells, where it writes nothing and ends where it would.
+    fn whole(&mut self, at: Col, field: impl Fn(&mut Line<'_>, Col) -> Col) {
+        let mut none = Line {
+            cells: &mut [],
+            style: self.style,
+        };
+        if field(&mut none, at).index() <= self.cells.len() {
+            field(self, at);
+        }
+    }
 }
 
 /// Write the indicator into `cells`, `cols` of them, in `style`.
+///
+/// **Each field is shown whole or left out whole**, so no field on the
+/// line is a cut, wrong value: cut at the window's edge, 52 columns read
+/// `Printer: No` and 12 columns, with the cursor on row 100, column 12,
+/// read `1(100,01`, a column 1 the cursor is not on. The Active Position
+/// Indicator "Displays the current cursor position, row and column" and
+/// the Printer Status Indicator "Indicates the status of the attached
+/// printer" (070-14 p. 14-6). The fixed columns leave the printer out
+/// first, below 54 to 60 columns by its value, then the locator and
+/// Wait, and the cursor position last, below 13 or 14.
+///
+/// **This is the less wrong form, and not conformance.** The line has
+/// "the same number of columns as the main Logical Display (usually 80
+/// or 132)", where the extension "provides the ability to display at
+/// least one additional line of 80 characters" (p. 14-4), and below 80
+/// columns no layout of the line meets that: a field the window cannot
+/// hold is a required indicator not shown, as a cut one is a wrong one.
+/// What is shown is never wrong.
 pub(crate) fn compose(cells: &mut [PackedCell], cols: Cols, style: StyleId, ind: Indicators) {
     let n = cols.index().min(cells.len());
     let blank = PackedCell {
@@ -489,22 +521,28 @@ pub(crate) fn compose(cells: &mut [PackedCell], cols: Cols, style: StyleId, ind:
         cells: &mut cells[..n],
         style,
     };
-    let x = line.put(Col::at_index(AT_PAGE), b"1(");
-    let x = line.number(x, ind.at.0, Cols::of_index(2));
-    let x = line.put(x, b",");
-    let x = line.number(x, ind.at.1, Cols::of_index(3));
-    line.put(x, b")");
+    line.whole(Col::at_index(AT_PAGE), |l, x| {
+        let x = l.put(x, b"1(");
+        let x = l.number(x, ind.at.0, Cols::of_index(2));
+        let x = l.put(x, b",");
+        let x = l.number(x, ind.at.1, Cols::of_index(3));
+        l.put(x, b")")
+    });
     if ind.wait == ModeChange::Set {
-        line.put(Col::at_index(AT_WAIT), b"Wait");
+        line.whole(Col::at_index(AT_WAIT), |l, x| l.put(x, b"Wait"));
     }
     if let Some((y, x)) = ind.locator {
-        let at = line.put(Col::at_index(AT_LOCATOR), b"[");
-        let at = line.number(at, y, Cols::of_index(1));
-        let at = line.put(at, b",");
-        let at = line.number(at, x, Cols::of_index(1));
-        line.put(at, b"]");
+        line.whole(Col::at_index(AT_LOCATOR), |l, at| {
+            let at = l.put(at, b"[");
+            let at = l.number(at, y, Cols::of_index(1));
+            let at = l.put(at, b",");
+            let at = l.number(at, x, Cols::of_index(1));
+            l.put(at, b"]")
+        });
     }
-    line.put(Col::at_index(AT_PRINTER), ind.printer.text());
+    line.whole(Col::at_index(AT_PRINTER), |l, x| {
+        l.put(x, ind.printer.text())
+    });
 }
 
 impl Paint<'_, '_> {

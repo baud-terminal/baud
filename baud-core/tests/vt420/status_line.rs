@@ -512,6 +512,108 @@ fn the_indicator_shows_the_printer_and_the_print_mode() {
     );
 }
 
+/// The indicator of a terminal `cols` wide and 120 rows tall, a printer
+/// attached at `port` and `bytes` fed after the line is shown.
+fn indicator_at(cols: u16, port: Option<PrinterPort>, bytes: &[u8]) -> String {
+    let ws = WinSize {
+        ws_row: 120,
+        ws_col: cols,
+    };
+    let mut owned = Owned::new(&ws).with_printer(PrintBudget::of_bytes(4096));
+    let mut t = Term::new(owned.storage(), &ws);
+    if let Some(p) = port {
+        t.set_printer(p);
+    }
+    support::feed(&mut t, b"\x1b[1$~");
+    support::feed(&mut t, bytes);
+    indicator(&t)
+}
+
+/// **A field the line cannot hold whole is left out whole**, so no field
+/// shows a cut, wrong value: at 52 columns `Printer: None`, which needs
+/// 54, is not shown as `Printer: No`, and at 12 columns with the cursor
+/// on row 100, column 12, the position, which needs 14, is not shown as
+/// `1(100,01`, which reads as column 1. The Active Position Indicator
+/// "Displays the current cursor position, row and column" and the
+/// Printer Status Indicator "Indicates the status of the attached
+/// printer" (`[[source: dec-std-070]]` p. 14-6), and a field cut at the
+/// window's edge does neither. Each field appears at the width its last
+/// character needs, and not one column before.
+#[test]
+fn a_field_the_line_cannot_hold_whole_is_left_out_whole() {
+    let none = |cols| indicator_at(cols, None, b"");
+    assert_eq!(
+        (none(52), indicator_at(12, None, b"\x1b[100;12H")),
+        ("    1(01,001)".to_string(), String::new()),
+        "Printer: None needs 54 columns and 1(100,012) needs 14"
+    );
+    let printer = format!("    1(01,001){}Printer: None", " ".repeat(28));
+    assert_eq!(none(53), "    1(01,001)");
+    assert_eq!(none(54), printer);
+    let controller = |cols| indicator_at(cols, Some(PrinterPort::Ready), b"\x1b[5i");
+    assert_eq!(
+        controller(59),
+        "    1(01,001)",
+        "Printer: Controller needs 60"
+    );
+    assert_eq!(
+        controller(60),
+        format!("    1(01,001){}Printer: Controller", " ".repeat(28))
+    );
+    assert_eq!(none(12), "", "1(01,001) needs 13");
+    assert_eq!(none(13), "    1(01,001)");
+    assert_eq!(indicator_at(13, None, b"\x1b[100;12H"), "");
+    assert_eq!(indicator_at(14, None, b"\x1b[100;12H"), "    1(100,012)");
+}
+
+/// **Every width from 1 to 80 shows each field whole or not at all**,
+/// with all four on: a three-digit row, Wait, the locator and the
+/// longest printer value. Their fixed columns leave the printer out
+/// first, then the locator, then Wait, and the cursor position last, as
+/// each field's last column is before the next field's first.
+#[test]
+fn every_width_shows_each_field_whole_or_not_at_all() {
+    const FIELDS: [(usize, &str); 4] = [
+        (4, "1(100,001)"),
+        (16, "Wait"),
+        (23, "[1,1]"),
+        (41, "Printer: Controller"),
+    ];
+    let mut seen = [0usize; 4];
+    for cols in 1..=80u16 {
+        let ws = WinSize {
+            ws_row: 120,
+            ws_col: cols,
+        };
+        let mut owned = Owned::new(&ws).with_printer(PrintBudget::of_bytes(4096));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_locator_device(LocatorDevice::Present);
+        t.set_printer(PrinterPort::Ready);
+        support::feed(&mut t, b"\x1b[1$~\x1b[100;1H\x1b[1;2'z\x1b[1'{");
+        let moved = LocatorInput {
+            kind: LocatorKind::Moved,
+            at: Some(LocatorAt {
+                col: Col::ZERO,
+                row: Row::ZERO,
+                px: None,
+            }),
+            held: LocatorButtons::NONE,
+        };
+        assert!(!t.locator(moved), "{cols} columns: no report on a move");
+        support::feed(&mut t, b"\x1b[2h\x1b[5i");
+        let mut want = String::new();
+        for (k, (at, field)) in FIELDS.into_iter().enumerate() {
+            if at + field.len() <= usize::from(cols) {
+                want = format!("{want:<at$}{field}");
+                seen[k] += 1;
+            }
+        }
+        assert_eq!(indicator(&t), want, "{cols} columns");
+    }
+    // Each field is shown from the width its last column needs.
+    assert_eq!(seen, [80 - 13, 80 - 19, 80 - 27, 80 - 59]);
+}
+
 /// **The locator's field shows only while the locator reports**: "The
 /// Graphics Input Position Indicator is only visible when graphics input
 /// is enabled" (070-14 p. 14-7), so a one-shot DECELR's report, which
