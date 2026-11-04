@@ -24,9 +24,13 @@ pub enum Step {
     /// `lines` lines each, [`WHEEL_GAP_MS`] apart. Positive shows earlier
     /// lines, so it scrolls up into the history.
     Wheel { turns: i32, lines: i32 },
+    /// Wait for `text` to come back in baud's pty log after the last
+    /// typing began: the prompt of a shell that is not baud's and marks
+    /// none, the container's ([`REMOTE_PROMPT`]).
+    Await(&'static str),
 }
 
-use Step::{Hold, Keys, Line, Prompt, Run, Wheel};
+use Step::{Await, Hold, Keys, Line, Prompt, Run, Wheel};
 
 /// **The session the README's clip films**, about 30 seconds of it.
 pub const SESSION: &[Step] = &[
@@ -55,6 +59,17 @@ pub const SESSION: &[Step] = &[
     Run("cat hello.txt"),
     Prompt,
     Hold(2000),
+    // ssh into a container on this machine, fastfetch there and back:
+    // CD is lit while ssh holds its connection (`container.rs`).
+    Run("ssh demo"),
+    Await(REMOTE_PROMPT),
+    Hold(500),
+    Run("fastfetch"),
+    Await(REMOTE_PROMPT),
+    Hold(2500),
+    Run("exit"),
+    Prompt,
+    Hold(300),
     // helix: find the tagline's word, jump to the end and back, quit.
     Run("hx README.md"),
     Hold(800),
@@ -146,6 +161,12 @@ pub const HELLO: &str = concat!(
 /// a full reset that clears the screen first.
 pub const PIPES: &str = "┃━┏┓┗┛";
 
+/// **The container's prompt**, busybox ash's `PS1` of `\u@\h:\w\$ ` for
+/// the container's user and host (`container::USER`, `container::HOST`)
+/// in the user's home: what [`Await`] waits for once ssh has connected
+/// and again once each command there has run.
+pub const REMOTE_PROMPT: &str = "baud@demo:~$ ";
+
 /// The shell's prompt, for zsh's `PS1`: nothing of the machine in it.
 pub const PS1: &str = "%F{cyan}baud%f %F{magenta}\u{276F}%f ";
 
@@ -172,6 +193,7 @@ pub fn duration(steps: &[Step]) -> Duration {
             Wheel { turns, .. } => {
                 (WHEEL_SETTLE_MS + u64::from(turns.unsigned_abs()) * WHEEL_GAP_MS) as f64
             }
+            Await(_) => 0.0,
         })
         .sum();
     Duration::from_secs_f64(ms / 1000.0)
@@ -191,6 +213,7 @@ pub fn describe(step: Step, prompt: usize) -> String {
             turns.unsigned_abs(),
             if turns > 0 { "up" } else { "down" }
         ),
+        Await(t) => format!("wait for `{t}` from the program on screen"),
     }
 }
 
@@ -203,6 +226,7 @@ pub fn event(step: Step, prompt: usize) -> String {
         Run(t) | Keys(t) | Line(t) => format!("keys {t}"),
         Hold(ms) => format!("hold {ms} ms"),
         Wheel { turns, lines } => format!("wheel {turns} x {lines}"),
+        Await(t) => format!("await {t}"),
     }
 }
 
@@ -233,14 +257,42 @@ pub fn echoed(log: &[u8], from: usize, text: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// **The session waits for nine prompts**: the launch and one after each
-    /// of the eight commands. Perturbation: drop the `Prompt` after
-    /// `cat hello.txt` and the count is eight.
+    /// **The session waits for ten prompts**: the launch and one after each
+    /// of the nine commands typed at baud's shell; the two typed in the
+    /// container, and ssh itself, wait for its prompt instead. Perturbation:
+    /// drop the `Prompt` after `cat hello.txt` and the count is nine.
     #[test]
     fn the_session_waits_for_a_prompt_after_every_command() {
-        assert_eq!(prompts(SESSION), 9);
+        assert_eq!(prompts(SESSION), 10);
         let runs = SESSION.iter().filter(|s| matches!(s, Run(_))).count();
-        assert_eq!(runs, 8, "eight commands typed at the prompt");
+        assert_eq!(
+            runs, 11,
+            "nine commands at baud's shell, two in the container"
+        );
+        let awaits = SESSION
+            .iter()
+            .filter(|s| **s == Await(REMOTE_PROMPT))
+            .count();
+        assert_eq!(
+            awaits, 2,
+            "the container's prompt, after ssh and after fastfetch"
+        );
+        let at = SESSION.iter().position(|s| *s == Run("ssh demo")).unwrap();
+        assert_eq!(
+            &SESSION[at..at + 9],
+            [
+                Run("ssh demo"),
+                Await(REMOTE_PROMPT),
+                Hold(500),
+                Run("fastfetch"),
+                Await(REMOTE_PROMPT),
+                Hold(2500),
+                Run("exit"),
+                Prompt,
+                Hold(300),
+            ],
+            "in, fastfetch, and out to baud's shell's prompt"
+        );
         assert_eq!(SESSION.first(), Some(&Prompt), "the launch's prompt first");
         assert_eq!(SESSION.last(), Some(&Hold(1000)), "the clear screen held");
     }
@@ -270,8 +322,8 @@ mod tests {
         assert!((d - 2.24).abs() < 1e-9, "{d}");
         let whole = duration(SESSION).as_secs_f64();
         assert!(
-            (20.0..30.0).contains(&whole),
-            "the README session is about 23 s before its waits: {whole}"
+            (25.0..35.0).contains(&whole),
+            "the README session is about 27 s before its waits: {whole}"
         );
     }
 

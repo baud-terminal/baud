@@ -1,0 +1,12 @@
+{
+  "logo": { "source": "linux" },
+  "modules": [
+    "title",
+    "separator",
+    "kernel",
+    "terminalsize",
+    "terminaltheme",
+    "break",
+    "colors"
+  ]
+}

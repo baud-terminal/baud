@@ -35,6 +35,32 @@ extern "C" {
     fn AXIsProcessTrusted() -> Boolean;
 }
 
+/// `SIGINT` in `<sys/signal.h>`; the probe holds it.
+const SIGINT: i32 = 2;
+
+extern "C" {
+    /// `void (*signal(int, void (*)(int)))(int)`; the probe holds the type
+    /// to `<signal.h>`.
+    fn signal(sig: i32, handler: extern "C" fn(i32)) -> usize;
+}
+
+/// **Ctrl-C's handler**: it stores to a lock-free atomic and does nothing
+/// else, which a handler may (`[[source: posix-xsh-chap02]]`, 2.4.3).
+extern "C" fn on_interrupt(_: i32) {
+    crate::container::INTERRUPTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// **Ctrl-C sets [`crate::container::INTERRUPTED`]** rather than ending
+/// the process, so the session's waits return through the drops that
+/// remove the container and put colima back. A handler, not `SIG_IGN`:
+/// a caught signal is reset to its default in a program the demo starts
+/// (`[[source: posix-exec]]`), so zsh, ssh and baud still take Ctrl-C.
+pub fn catch_interrupt() {
+    // SAFETY: `on_interrupt` is `void (int)`, the type the probe holds
+    // `signal`'s handler to, and touches only an atomic.
+    unsafe { signal(SIGINT, on_interrupt) };
+}
+
 /// Whether this process may post events: Accessibility trust, which macOS
 /// grants the terminal application the example runs in.
 pub fn trusted() -> bool {
@@ -253,6 +279,46 @@ impl Poster {
 mod tests {
     use super::*;
     use crate::keys::{RETURN, RETURN_NAME, US};
+
+    /// **Ctrl-C sets the flag and the process lives**: the handler
+    /// installed, a real `SIGINT` raised against this process sets
+    /// [`crate::container::INTERRUPTED`]. Without the handler the signal's
+    /// default ends the test binary. `SIGINT` and `signal`'s type are
+    /// `<signal.h>`'s, by a C probe that refuses to compile otherwise.
+    #[test]
+    fn ctrl_c_sets_the_flag_and_the_process_lives() {
+        let src = format!(
+            "#include <signal.h>\n\
+             _Static_assert(SIGINT == {SIGINT}, \"SIGINT\");\n\
+             _Static_assert(__builtin_types_compatible_p(__typeof__(signal), \
+             void (*(int, void (*)(int)))(int)), \"signal's type\");\n\
+             int main(void) {{ return 0; }}\n"
+        );
+        let dir = std::env::temp_dir().join(format!("baud-demo-sig-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let (c, bin) = (dir.join("probe.c"), dir.join("probe"));
+        std::fs::write(&c, src).expect("write the probe");
+        let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+        let out = Command::new(&cc)
+            .arg("-o")
+            .arg(&bin)
+            .arg(&c)
+            .output()
+            .expect("cc");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            out.status.success(),
+            "the probe did not compile:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        extern "C" {
+            fn raise(sig: i32) -> i32;
+        }
+        catch_interrupt();
+        // SAFETY: `int raise(int)`; the handler it runs touches an atomic.
+        assert_eq!(unsafe { raise(SIGINT) }, 0);
+        assert!(crate::container::INTERRUPTED.load(std::sync::atomic::Ordering::Relaxed));
+    }
 
     /// **The key codes, and the trust call's type, are the SDK headers'
     /// own**: a C probe compiled against `Carbon.h` and

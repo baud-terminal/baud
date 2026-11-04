@@ -87,10 +87,53 @@ films (`BAUD_SCREEN=primary`), where in one try it opened on a second
 display, the one with the key window; and the session plays only once
 the window has kept one frame for half a second.
 
+The next take also ssh's into a container on the Mac it is filmed on,
+after `cat hello.txt`: `ssh demo`, `fastfetch` there, and `exit` back to
+baud's prompt. The container holds three packages, busybox, OpenSSH's
+sshd and fastfetch, in an image the repository's flake makes with
+nixpkgs' `dockerTools` at its pinned nixpkgs (`nix build
+.#demo-container`, `nix/demo-container/`). The packages come from
+cache.nixos.org, so a Mac makes it with no Linux builder, and the demo
+refuses the image unless its stream hashes to the SHA-256 it pins
+(`baud-app/examples/demo/container.rs`). docker runs it in colima, its
+host named `demo` and its user `baud`; the demo starts colima if it is
+stopped and stops it again, and removes the container and its image,
+after Ctrl-C too. ssh
+reads a config, a key and a known host made for the session in its
+scratch directory, and nothing of the person's own, so it neither asks
+nor writes. fastfetch is told its modules: the user and host, the kernel
+the VM boots, the grid's size, the terminal's two colours and the
+palette, beside Tux. None of them reads the chip, the memory, a disk, an
+address, the battery or the uptime.
+
+It lights eight of baud's nine activity lights in the title bar: RD from
+the launch, SD with the first key, OH while btop is in front, HS on
+btop's frames, which fill the tty's 1024-byte read, SYN while btop holds
+synchronized output open, CD while ssh holds its connection to the
+container, AA when fastfetch asks the terminal for its colours, and FAX
+while the photo is on screen. CS lights only when the kernel refuses a
+write: a program that stops reading its input while more than a kilobyte
+is owed it. Keys typed at a person's pace never fill that, so no step of
+the session lights CS. `cargo run --release --example demo -- --headless
+DIR` plays the session without a window, through baud's core and CPU
+renderer, and fails unless each of the eight lights. It also writes a
+still of every hold into DIR.
+
+The window is solid. `[glass] dim_dark` and `dim_light` are 1.0, so
+nothing behind the window shows through the text. `[font] changes` and
+`[window] operations` are `"off"`, so no program can change the font,
+its size, or the window's size or place. It stays at 110x33 cells and
+12 pt. The title bar
+above the text stays the window's material: no setting makes it opaque.
+
 A recording for the README is made by one command, which plays the
 session in baud's window, films it and encodes the GIF:
-`cargo run --release --example demo -- --record assets/readme/hero.gif`
-(`baud-app/examples/demo.rs`). It writes a file named
+`cargo run --release --example demo -- --record assets/readme/hero.gif
+--forbidden LIST --controls FILE` (`baud-app/examples/demo.rs`). LIST is
+what must never be filmed, kept outside the repository because it names
+what it forbids, and FILE an example of each of its patterns. The
+session's bytes are searched for LIST once every pattern has been found in
+its example, and a hit fails the recording. It writes a file named
 hero.gif.provenance.toml beside the GIF: the commit of baud that was
 built and filmed and whether its tree was clean, every step with its
 time since the launch, each tool's nixpkgs store path, the encoder's

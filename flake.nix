@@ -107,10 +107,22 @@
         };
     in
     {
-      packages = forAll (pkgs: {
-        default = baud pkgs;
-        baud = baud pkgs;
-      });
+      packages = lib.recursiveUpdate
+        (forAll (pkgs: {
+          default = baud pkgs;
+          baud = baud pkgs;
+        }))
+        {
+          # **The README session's container** (`nix/demo-container/`): `nix
+          # build .#demo-container` leaves the script that streams its
+          # image, which the demo writes to a file, checks against its pin
+          # and loads. aarch64-darwin only, the Mac the demo runs on; its
+          # packages are aarch64-linux ones cache.nixos.org holds.
+          aarch64-darwin.demo-container = import ./nix/demo-container {
+            pkgs = pkgsFor "aarch64-darwin";
+            linux = pkgsFor "aarch64-linux";
+          };
+        };
 
       # For a configuration that builds baud with its own nixpkgs.
       overlays.default = lib.composeExtensions rust-overlay.overlays.default (final: _: { baud = baud final; });

@@ -9,6 +9,7 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::container;
 use crate::film::{self, Display};
 use crate::fonts::{self, PINNED};
 use crate::guard::{self, Rect};
@@ -28,13 +29,15 @@ pub const NIXPKGS: &str = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52a
 /// (Blue Oak Model License 1.0.0) draws its pipes from box-drawing
 /// characters and carries no art (`session::PIPES`); asciiquarium, which
 /// played here before it, draws Joan Stark's, for personal use only
-/// (`[[source: jgs-guidelines]]`).
-const PROGRAMS: [(&str, &str); 5] = [
+/// (`[[source: jgs-guidelines]]`). OpenSSH's client ssh's into the
+/// container (`container.rs`), its manual pages left out.
+const PROGRAMS: [(&str, &str); 6] = [
     ("btop", "btop"),
     ("helix", "hx"),
     ("kitty", "kitten"),
     ("neo", "neo"),
     ("pipes-rs", "pipes-rs"),
+    ("openssh^out", "ssh"),
 ];
 
 /// **The photo**: an elementary OS wallpaper pinned by revision and
@@ -62,11 +65,17 @@ const SETTLE_LIMIT: Duration = Duration::from_secs(5);
 const DONE_TAIL: Duration = Duration::from_millis(1500);
 
 const USAGE: &str = "usage: cargo run --release --example demo -- [--dry] \
-                     [--record OUT.gif [--allow-dirty]] [--pid-file PATH] [--events PATH] \
-                     [--done PATH]\n       cargo run --example demo -- --verify GIF";
+                     [--record OUT.gif [--allow-dirty]] [--forbidden LIST --controls FILE] \
+                     [--pid-file PATH] [--events PATH] [--done PATH]\n       \
+                     cargo run --release --example demo -- --headless DIR \
+                     [--forbidden LIST --controls FILE]\n       \
+                     cargo run --example demo -- --verify GIF";
 
 struct Args {
     dry: bool,
+    headless: Option<PathBuf>,
+    forbidden: Option<PathBuf>,
+    controls: Option<PathBuf>,
     pid_file: Option<PathBuf>,
     events: Option<PathBuf>,
     done: Option<PathBuf>,
@@ -78,6 +87,9 @@ struct Args {
 fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut a = Args {
         dry: false,
+        headless: None,
+        forbidden: None,
+        controls: None,
         pid_file: None,
         events: None,
         done: None,
@@ -93,6 +105,9 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         };
         match arg.as_str() {
             "--dry" => a.dry = true,
+            "--headless" => a.headless = Some(path()?),
+            "--forbidden" => a.forbidden = Some(path()?),
+            "--controls" => a.controls = Some(path()?),
             "--pid-file" => a.pid_file = Some(path()?),
             "--events" => a.events = Some(path()?),
             "--done" => a.done = Some(path()?),
@@ -106,7 +121,20 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     if a.allow_dirty && a.record.is_none() {
         return Err("--allow-dirty goes with --record".to_string());
     }
+    if a.forbidden.is_some() != a.controls.is_some() {
+        return Err("--forbidden and --controls go together".to_string());
+    }
+    // A film is searched for what must never be on it, and the list of
+    // that is kept outside the repository, so a recording names it.
+    if a.record.is_some() && a.forbidden.is_none() {
+        return Err("--record needs --forbidden LIST --controls FILE".to_string());
+    }
+    if a.headless.is_some() && (a.dry || a.record.is_some()) {
+        return Err("--headless opens no window, so it neither records nor stops dry".to_string());
+    }
     let others = a.dry
+        || a.headless.is_some()
+        || a.forbidden.is_some()
         || a.record.is_some()
         || a.pid_file.is_some()
         || a.events.is_some()
@@ -118,6 +146,9 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
 }
 
 pub fn main() -> ExitCode {
+    // Ctrl-C only sets a flag the session's waits stop on, so the
+    // container is removed and colima put back on the way out.
+    mac::catch_interrupt();
     let args = match parse(std::env::args().skip(1)) {
         Ok(a) => a,
         Err(e) => {
@@ -128,11 +159,18 @@ pub fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    match run(&args) {
+    let ran = run(&args);
+    let stopped = container::interrupted(&container::INTERRUPTED);
+    // Ctrl-C named before the failure it caused.
+    match stopped.and(ran) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("demo: {e}");
-            ExitCode::FAILURE
+            // 128 + SIGINT, as a shell reports a program Ctrl-C ended.
+            match container::INTERRUPTED.load(std::sync::atomic::Ordering::Relaxed) {
+                true => ExitCode::from(130),
+                false => ExitCode::FAILURE,
+            }
         }
     }
 }
@@ -188,7 +226,7 @@ fn run(args: &Args) -> Result<(), String> {
     let prep = prepare()?;
     let names = machine_names(&prep.at.root)?;
     let profile = Profile::of_this_example()?;
-    let command = profile.command(std::env::args().skip(1));
+    let command = profile.command(kept_out(std::env::args().skip(1)));
     let kit = match &args.record {
         Some(out) => {
             let hit = names::named(command.as_bytes(), &names);
@@ -242,12 +280,103 @@ fn run(args: &Args) -> Result<(), String> {
         );
         return Ok(());
     }
-    let session = live(args, &prep, &baud, kit.as_ref())?;
-    if let (Some(k), Some(r), Some(s)) = (&kit, &run, session) {
+    let forbidden = match (&args.forbidden, &args.controls) {
+        (Some(list), Some(controls)) => Some(Forbidden {
+            python: nix_out("python3^out")?.join("bin/python3"),
+            list: list.clone(),
+            controls: controls.clone(),
+        }),
+        _ => None,
+    };
+    let up = container::up(&prep.image, &prep.keys, prep.port)?;
+    if let Some(stills) = &args.headless {
+        headless(&profile, &prep, stills, forbidden.as_ref())?;
+        drop(up);
+        let _ = fs::remove_dir_all(&prep.at.root);
+        return Ok(());
+    }
+    let session = live(args, &prep, &baud, kit.as_ref(), forbidden.as_ref());
+    drop(up);
+    if let (Some(k), Some(r), Some(s)) = (&kit, &run, session?) {
         record::finish(k, &prep.at, r, &built.target, s)?;
     }
     let _ = fs::remove_dir_all(&prep.at.root);
     Ok(())
+}
+
+/// **The README session without a window**: baud's own test of it
+/// (`film::session` in `baud-app/src/`), built by the cargo that ran this
+/// in its profile, played on the scratch directory against the running
+/// container. It types every step into baud's login shell through baud's
+/// core, draws through baud's CPU renderer, and fails unless every light
+/// but CS lights; the last frame of every hold goes into `stills` as a
+/// PNG. What the programs printed is then searched as a film's is.
+fn headless(
+    p: &Profile,
+    prep: &Prep,
+    stills: &Path,
+    forbidden: Option<&Forbidden>,
+) -> Result<(), String> {
+    fs::create_dir_all(stills).map_err(|e| format!("{}: {e}", stills.display()))?;
+    let ffmpeg = nix_out("ffmpeg-headless.bin")?.join("bin/ffmpeg");
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let status = Command::new(cargo)
+        .args(["test", "-p", "baud", "--bin", "baud", "--manifest-path"])
+        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&p.target)
+        .args(p.flags())
+        .args(["--", "film::session::the_readme_session_lights_every_light"])
+        .args(["--ignored", "--exact", "--nocapture"])
+        .env("BAUD_SESSION_ROOT", &prep.at.root)
+        .env("BAUD_SESSION_STILLS", stills)
+        .env("BAUD_FILM_FFMPEG", &ffmpeg)
+        .envs(
+            ["BAUD_SESSION_POINTS", "BAUD_SESSION_WITHOUT"]
+                .into_iter()
+                .filter_map(|k| std::env::var_os(k).map(|v| (k, v))),
+        )
+        .status()
+        .map_err(|e| format!("cargo: {e}"))?;
+    if !status.success() {
+        return Err("the session without a window failed".to_string());
+    }
+    if let Some(f) = forbidden {
+        f.search(&[prep.at.root.join("heard.log")])?;
+    }
+    println!("stills:  {}", stills.display());
+    Ok(())
+}
+
+/// **What must never be filmed**, as a list kept outside the repository:
+/// `scripts/readme-forbidden.py` searches the session's bytes for it with
+/// the pinned Python, once every pattern has been found in its control.
+struct Forbidden {
+    python: PathBuf,
+    list: PathBuf,
+    controls: PathBuf,
+}
+
+impl Forbidden {
+    fn search(&self, files: &[PathBuf]) -> Result<(), String> {
+        let script = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../scripts/readme-forbidden.py"
+        );
+        let status = Command::new(&self.python)
+            .arg("-I")
+            .arg(script)
+            .arg(&self.list)
+            .arg(&self.controls)
+            .args(files)
+            .status()
+            .map_err(|e| format!("python: {e}"))?;
+        match status.code() {
+            Some(0) => Ok(()),
+            Some(1) => Err("the session's bytes hold what must never be filmed".to_string()),
+            _ => Err("the forbidden list could not be searched with".to_string()),
+        }
+    }
 }
 
 /// What the session needs, made and checked: the scratch home, baud's
@@ -258,6 +387,9 @@ struct Prep {
     env: Vec<(String, String)>,
     tools: Vec<(String, String)>,
     pins: Vec<(String, String)>,
+    image: container::Image,
+    keys: container::Keys,
+    port: u16,
 }
 
 fn prepare() -> Result<Prep, String> {
@@ -294,7 +426,7 @@ fn prepare() -> Result<Prep, String> {
     };
     let path = scratch::path(&bins);
     let files: Vec<&str> = PINNED.iter().map(|p| p.file()).collect();
-    let written = scratch::files(&path, &files);
+    let mut written = scratch::files(&path, &files);
     for (rel, bytes) in &written {
         let to = at.root.join(rel);
         if let Some(dir) = to.parent() {
@@ -318,7 +450,30 @@ fn prepare() -> Result<Prep, String> {
     if !made.success() || !canazei.is_file() {
         return Err("magick did not make the photo".to_string());
     }
+    // The container: its image, built by the repository's flake and its
+    // stream checked against its pin, and the session's keys, the scratch
+    // home's ssh files among what is checked.
+    let ssh = bins
+        .iter()
+        .find(|b| Path::new(b).join("ssh").is_file())
+        .map(|b| Path::new(b).join("ssh-keygen"))
+        .ok_or("no ssh-keygen beside ssh")?;
+    let port = container::free_port()?;
+    let (keys, ssh_files) = container::keys(&at.home(), &at.root.join("container"), &ssh, port)?;
+    written.extend(ssh_files);
+    let image = container::image(
+        &at.root.join("container"),
+        &flake_out,
+        &nix_out,
+        &provenance::sha256,
+    )?;
+    println!("{:<13}{}", "container", image.archive.display());
+    tools.extend(image.tools.iter().cloned());
     let env = scratch::env(&at, &path);
+    // baud's environment, a `KEY=value` a line, for the session played
+    // without a window (`--headless`).
+    let lines: String = env.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
+    fs::write(at.root.join("env"), lines).map_err(|e| format!("env: {e}"))?;
     let mut pins: Vec<(String, String)> = PINNED
         .iter()
         .map(|p| (p.file().to_string(), p.sha256.to_string()))
@@ -335,20 +490,59 @@ fn prepare() -> Result<Prep, String> {
         env,
         tools,
         pins,
+        image,
+        keys,
+        port,
     })
 }
 
 /// The output path of `attr` at the pinned revision.
 pub fn nix_out(attr: &str) -> Result<PathBuf, String> {
+    nix_build(&format!("{NIXPKGS}#{attr}"))
+}
+
+/// **The repository flake's `output`**, built, and for the provenance
+/// file its store path and its packages' (`passthru.packages`).
+fn flake_out(output: &str) -> container::Built {
+    let at = format!("{}#{output}", provenance::repository().display());
+    let path = nix_build(&at)?;
     let out = Command::new("nix")
-        .args(["build", "--no-link", "--print-out-paths"])
-        .arg(format!("{NIXPKGS}#{attr}"))
+        .args(["eval", "--json"])
+        .arg(format!("{at}.packages"))
         .stderr(Stdio::inherit())
         .output()
-        .map_err(|e| format!("nix: {e}; the demo takes its programs from nixpkgs"))?;
+        .map_err(|e| format!("nix: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("nix eval {output}.packages failed"));
+    }
+    let mut tools = vec![(
+        format!("flake#{output}"),
+        path.to_string_lossy().into_owned(),
+    )];
+    let json = String::from_utf8_lossy(&out.stdout);
+    for pair in json.trim().trim_matches(['{', '}']).split(',') {
+        let (k, v) = pair
+            .split_once(':')
+            .ok_or("no package in the flake's list")?;
+        tools.push((
+            format!("flake#{output}.{}", k.trim_matches('"')),
+            v.trim_matches('"').to_string(),
+        ));
+    }
+    Ok((path, tools))
+}
+
+/// `installable`'s one output path, built.
+fn nix_build(installable: &str) -> Result<PathBuf, String> {
+    let out = Command::new("nix")
+        .args(["build", "--no-link", "--print-out-paths"])
+        .arg(installable)
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| format!("nix: {e}; the demo takes its programs from nix"))?;
     let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !out.status.success() || path.is_empty() || path.contains('\n') {
-        return Err(format!("nix build {attr} failed"));
+        return Err(format!("nix build {installable} failed"));
     }
     Ok(PathBuf::from(path))
 }
@@ -714,6 +908,7 @@ impl PtyLog {
     ) -> Result<(), String> {
         let t = Instant::now();
         loop {
+            container::interrupted(&container::INTERRUPTED)?;
             self.refresh();
             if done(self) {
                 return Ok(());
@@ -812,6 +1007,7 @@ fn live(
     prep: &Prep,
     baud: &Path,
     kit: Option<&record::Kit>,
+    forbidden: Option<&Forbidden>,
 ) -> Result<Option<record::Session>, String> {
     let at = &prep.at;
     let log = File::create(at.baud_log()).map_err(|e| format!("baud's log: {e}"))?;
@@ -885,6 +1081,9 @@ fn live(
     let said = filming.map(|f| f.finish(Duration::from_secs(60)));
     let first = played?;
     leaks(at)?;
+    if let Some(f) = forbidden {
+        f.search(&[at.pty_log()])?;
+    }
     let (Some(said), Some(display)) = (said, display) else {
         return Ok(None);
     };
@@ -997,7 +1196,10 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
         counted: 0,
     };
     let mut prompt = 0;
+    // Where in the log the last typing began: an `Await` looks past it.
+    let mut typed_from = 0;
     for &step in SESSION {
+        container::interrupted(&container::INTERRUPTED)?;
         match step {
             Step::Prompt => {
                 prompt += 1;
@@ -1024,6 +1226,7 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
                 let mut gaps = Gaps::new(seed, ks.len() + 1);
                 log.refresh();
                 let from = log.bytes.len();
+                typed_from = from;
                 type_keys(&ks, &mut gaps)?;
                 let what = format!("the echo of `{t}` (are the keys arriving?)");
                 log.wait(ECHO_LIMIT, &what, |l| session::echoed(&l.bytes, from, t))?;
@@ -1034,7 +1237,15 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
             Step::Keys(_) | Step::Line(_) => {
                 ev.line(&session::event(step, prompt));
                 let ks = keys::presses(step).map_err(|c| format!("no key types {c:?}"))?;
+                log.refresh();
+                typed_from = log.bytes.len();
                 type_keys(&ks, &mut Gaps::new(seed, ks.len()))?;
+            }
+            Step::Await(t) => {
+                log.wait(PROMPT_LIMIT, &format!("`{t}`"), |l| {
+                    session::echoed(&l.bytes, typed_from, t)
+                })?;
+                ev.line(&session::event(step, prompt));
             }
             Step::Hold(ms) => {
                 ev.line(&session::event(step, prompt));
@@ -1082,4 +1293,53 @@ fn leaks(at: &Layout) -> Result<(), String> {
     }
     println!("names:   nothing the programs printed names this machine");
     Ok(())
+}
+
+/// **The arguments as the provenance file records them**: the paths of the
+/// forbidden list and its controls are kept outside the repository and
+/// name where, so each is recorded as the word the usage gives it.
+fn kept_out(args: impl Iterator<Item = String>) -> impl Iterator<Item = String> {
+    let mut hide = None;
+    args.map(move |a| match hide.take() {
+        Some(word) => word,
+        None => {
+            hide = match a.as_str() {
+                "--forbidden" => Some("LIST".to_string()),
+                "--controls" => Some("FILE".to_string()),
+                _ => None,
+            };
+            a
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    /// **The recorded command names neither the forbidden list nor its
+    /// controls**, whose paths are this machine's, and keeps every other
+    /// argument as typed. The control: an argument after another flag is
+    /// kept.
+    #[test]
+    fn the_recorded_command_keeps_the_list_out() {
+        let args = [
+            "--record",
+            "assets/readme/hero.gif",
+            "--forbidden",
+            "lists/forbidden.txt",
+            "--controls",
+            "lists/controls.txt",
+        ];
+        let got: Vec<String> = super::kept_out(args.iter().map(|a| a.to_string())).collect();
+        assert_eq!(
+            got,
+            [
+                "--record",
+                "assets/readme/hero.gif",
+                "--forbidden",
+                "LIST",
+                "--controls",
+                "FILE"
+            ]
+        );
+    }
 }

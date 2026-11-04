@@ -97,15 +97,31 @@ const HELIX: &str = "# helix's defaults, for the README session\n";
 
 /// **The zsh startup file.** `PATH` is set here and not only in the
 /// environment: baud starts a login shell, and on macOS `/etc/zprofile`
-/// runs path_helper, which reorders `PATH`, before `.zshrc` is read.
+/// runs path_helper, which reorders `PATH`, before `.zshrc` is read. Its
+/// `ssh` reads the scratch home's ssh config (`container::ZSH_SSH`).
 fn zshrc(path: &str) -> String {
-    format!("export PATH={path}\nPS1='{}'\n", crate::session::PS1)
+    format!(
+        "export PATH={path}\nPS1='{}'\n{}",
+        crate::session::PS1,
+        crate::container::ZSH_SSH
+    )
 }
 
-/// **baud's config**: 12 points, the cursor still, and the fonts --
-/// baud's own by family name, `Proto Hebrew Mono C` with its bold and
-/// italic and `Symbols Nerd Font Mono`, then the pinned open faces by
-/// paths beside this file, `fonts/<file>`.
+/// **baud's config**: 12 points, the cursor still, the window solid, and
+/// the fonts -- baud's own by family name, `Proto Hebrew Mono C` with its
+/// bold and italic and `Symbols Nerd Font Mono`, then the pinned open
+/// faces by paths beside this file, `fonts/<file>`. Solid, each by its own
+/// key (`docs/guide/configuration.md`):
+///
+/// - `[glass] dim_dark = 1.0` and `dim_light = 1.0`: the background
+///   "opaque" under either appearance, so nothing behind the window shows
+///   through the grid -- the page `baud-app/src/film.rs` films on.
+/// - `[font] changes = "off"`: no program changes the font or its size.
+/// - `[window] operations = "off"`: no program moves, resizes or
+///   full-screens the window, so it keeps the grid it opened at.
+///
+/// The title strip above the grid stays the window's material: no key
+/// makes it solid (`accessible` in `baud-app/src/app.rs`).
 pub fn config(faces: &[&str]) -> String {
     let mut fonts = vec![
         "\"Proto Hebrew Mono C\"".to_string(),
@@ -113,10 +129,14 @@ pub fn config(faces: &[&str]) -> String {
     ];
     fonts.extend(faces.iter().map(|f| format!("\"fonts/{f}\"")));
     format!(
-        "font_size = {POINTS}\nfonts = [{}]\n\n[cursor]\nblink = false\n",
+        "font_size = {POINTS}\nfonts = [{}]\n\n{SOLID}[cursor]\nblink = false\n",
         fonts.join(", ")
     )
 }
+
+/// The window solid and its size and font fixed: [`config`]'s tables.
+const SOLID: &str = "[glass]\ndim_dark = 1.0\ndim_light = 1.0\n\n[font]\nchanges = \"off\"\n\n\
+                     [window]\noperations = \"off\"\n\n";
 
 /// **Every text file of the scratch directory**, each a path under the
 /// root and its bytes. The photo and the faces are copied in beside them;
@@ -208,8 +228,9 @@ mod tests {
     }
 
     /// **The config lists baud's own faces by name and the pinned ones by
-    /// paths beside it**, at 12 points with the cursor still, and the
-    /// zsh file sets the prompt and the `PATH`.
+    /// paths beside it**, at 12 points with the cursor still and the window
+    /// solid, and the zsh file sets the prompt, the `PATH` and ssh's
+    /// config.
     #[test]
     fn the_config_and_the_shell_say_what_the_session_needs() {
         let c = config(&["NotoColorEmoji.ttf"]);
@@ -218,10 +239,20 @@ mod tests {
             "fonts = [\"Proto Hebrew Mono C\", \"Symbols Nerd Font Mono\", \"fonts/NotoColorEmoji.ttf\"]"
         ));
         assert!(c.ends_with("[cursor]\nblink = false\n"), "{c}");
+        // The window solid, each key in its own table: opaque under
+        // either appearance, and the font and the window no program's.
+        for table in [
+            "[glass]\ndim_dark = 1.0\ndim_light = 1.0\n",
+            "[font]\nchanges = \"off\"\n",
+            "[window]\noperations = \"off\"\n",
+        ] {
+            assert!(c.contains(table), "{table}:\n{c}");
+        }
         let z = zshrc("/a/bin:/usr/bin");
         assert_eq!(
             z,
-            "export PATH=/a/bin:/usr/bin\nPS1='%F{cyan}baud%f %F{magenta}\u{276F}%f '\n"
+            "export PATH=/a/bin:/usr/bin\nPS1='%F{cyan}baud%f %F{magenta}\u{276F}%f '\n\
+             alias ssh='ssh -F ~/.ssh/config'\n"
         );
         let e = env(
             &Layout {

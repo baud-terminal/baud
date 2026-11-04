@@ -1342,6 +1342,28 @@ impl Pty {
         Pty::fork_in(ws, &exec, &env, &env, &StartIn::Inherited)
     }
 
+    /// **baud's own start of a login shell, for a test**: `parent` as baud's
+    /// environment, the shell it names started in `dir` with the shell
+    /// integration on, as [`Pty::fork`] starts a window's -- the README
+    /// session played without a window (`film::session`). The child's pid
+    /// beside the master.
+    #[cfg(all(test, target_os = "macos"))]
+    pub(crate) fn fork_shell(
+        ws: crate::sys::Winsize,
+        parent: Vec<(OsString, OsString)>,
+        dir: &std::path::Path,
+    ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
+        Pty::fork_given(
+            ws,
+            None,
+            parent,
+            || None,
+            Parent::Other,
+            Some(dir),
+            crate::shell::Integration::On,
+        )
+    }
+
     /// [`Pty::fork`] with what the child runs ([`Exec`]), the environments
     /// and the start directory given rather than read: the child's pid and
     /// the master. `home` is the environment of a child whose `chdir` to

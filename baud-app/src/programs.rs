@@ -149,6 +149,13 @@ pub(crate) struct Under<'t, 's> {
     geometry: Geometry,
 }
 
+/// Whether a read left the core an answer of its own to send.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Answered {
+    Bytes,
+    Nothing,
+}
+
 /// What one wait on the child's side of the pty found.
 pub(crate) enum Heard {
     Bytes(Vec<u8>),
@@ -194,6 +201,36 @@ impl<'t, 's> Under<'t, 's> {
         }
     }
 
+    /// **baud's login shell on a pty of `ws`**, in `dir` with the shell
+    /// integration on and `parent` as baud's environment, its points
+    /// mapped through `geometry` (`Pty::fork_shell`).
+    #[cfg(target_os = "macos")]
+    pub(crate) fn start_shell(
+        term: &'t mut Term<'s>,
+        parent: Vec<(OsString, OsString)>,
+        dir: &std::path::Path,
+        ws: crate::sys::Winsize,
+        geometry: Geometry,
+    ) -> Under<'t, 's> {
+        let (pid, master) = crate::pty::Pty::fork_shell(ws, parent, dir).expect("forkpty");
+        Under {
+            term,
+            seat: Seat::new(),
+            pid,
+            master,
+            sent: Vec::new(),
+            wrote: Vec::new(),
+            clock: Duration::from_secs(1),
+            geometry,
+        }
+    }
+
+    /// The child this harness forked: the shell, for the lights' reads.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn pid(&self) -> crate::sys::Pid {
+        self.pid
+    }
+
     /// Bytes to the child, all of them.
     fn send(&mut self, mut b: &[u8]) {
         self.wrote.extend_from_slice(b);
@@ -205,11 +242,15 @@ impl<'t, 's> Under<'t, 's> {
         }
     }
 
-    /// The answers the core owes, to the child.
-    fn answer(&mut self) {
+    /// The answers the core owes, to the child: whether there were any.
+    fn answer(&mut self) -> Answered {
         let reply = self.term.reply().to_vec();
         self.term.clear_reply();
         self.send(&reply);
+        match reply.is_empty() {
+            true => Answered::Nothing,
+            false => Answered::Bytes,
+        }
     }
 
     /// One wait on the master of up to `ms`, and what it read fed as the
@@ -254,8 +295,8 @@ impl<'t, 's> Under<'t, 's> {
 
     /// **A read fed as the module's doc says**, between the seat's
     /// `before_read` and `after_read`, and every answer it owed written to
-    /// the child.
-    pub(crate) fn take(&mut self, read: &[u8]) {
+    /// the child: whether the core queued one of its own, which AA shows.
+    pub(crate) fn take(&mut self, read: &[u8]) -> Answered {
         let mut out = Vec::new();
         let before = self.seat.before_read(self.term);
         crate::reads::feed(
@@ -267,7 +308,10 @@ impl<'t, 's> Under<'t, 's> {
         );
         self.seat.after_read(self.term, before);
         self.send(&out);
-        self.answer();
+        match (out.is_empty(), self.answer()) {
+            (true, Answered::Nothing) => Answered::Nothing,
+            _ => Answered::Bytes,
+        }
     }
 
     /// **One step of a kitty picture's decode** (`reads::decode_step`), as
@@ -275,7 +319,7 @@ impl<'t, 's> Under<'t, 's> {
     /// child: whether more is left to decode.
     pub(crate) fn decode(&mut self) -> baud_domain::DecodeProgress {
         let (progress, _) = crate::reads::decode_step(self.term);
-        self.answer();
+        let _ = self.answer();
         progress
     }
 

@@ -46,6 +46,11 @@
 //! host's, the home directory and the temporary directories ([`named`]);
 //! a take that finds one fails. The frames themselves are not searched.
 
+// The README session played on baud's login shell, and the lights it
+// lights: macOS's, where OH and CD are read.
+#[cfg(target_os = "macos")]
+pub(crate) mod session;
+
 use crate::gesture::Pressed;
 use crate::programs::{Heard, Scratch, Under};
 use crate::seat::{Geometry, Input, Seat};
@@ -76,12 +81,27 @@ const POLL: Duration = Duration::from_millis(5);
 /// it (`SYNC_MAX` in each).
 const SYNC_MAX: Duration = Duration::from_millis(33);
 
-/// **A film to make**: the command the demo runs under `/bin/sh -c`, the
-/// variables it is given beside the scratch directory's, the grid, the
-/// config lines laid over [`BASE`], the frame period, and how long the take
-/// may wait for the demo's `done`, which ends it.
+/// **What a take runs on the pty.**
+pub(crate) enum Child<'a> {
+    /// A command under `/bin/sh -c`, given the variables of a scratch
+    /// directory of its own beside the film's; its `done` cue ends it.
+    Command(&'a str),
+    /// **The README session**: baud's login shell started in `dir` as baud
+    /// starts a window's, the film's variables as baud's environment, and
+    /// the session's steps typed into it (`session::Player`); its last
+    /// step ends it.
+    #[cfg(target_os = "macos")]
+    Session {
+        steps: &'a [session::Step],
+        dir: &'a Path,
+    },
+}
+
+/// **A film to make**: what runs on the pty, the variables it is given,
+/// the grid, the config lines laid over [`BASE`], the frame period, and how
+/// long the take may wait for its end.
 pub(crate) struct Film<'a> {
-    pub(crate) cmd: &'a str,
+    pub(crate) child: Child<'a>,
     pub(crate) env: Vec<(OsString, OsString)>,
     pub(crate) grid: WinSize,
     pub(crate) config: &'a str,
@@ -97,6 +117,10 @@ pub(crate) struct Frame<'p> {
     pub(crate) size: (Px, Px),
     /// Its instant, from the launch.
     pub(crate) at: Duration,
+    /// The session's step that had begun by then, by its index; none
+    /// before the first and in a film of a command.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) step: Option<usize>,
 }
 
 /// What a take gave besides its frames.
@@ -110,6 +134,9 @@ pub(crate) struct Take {
     pub(crate) frames: Frames,
     /// The cell, in pixels.
     pub(crate) cell: (Px, Px),
+    /// What the activity lights showed through the take.
+    #[cfg(target_os = "macos")]
+    pub(crate) lit: session::Lit,
 }
 
 /// How many frames a film drew.
@@ -124,6 +151,12 @@ enum Event {
     Decode,
     /// The pointer, through the seat.
     Input(Input),
+    /// Keys typed: their bytes, written to the child.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Typed(Vec<u8>),
+    /// The session's step by its index, begun.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Step(usize),
 }
 
 struct Logged {
@@ -341,6 +374,9 @@ struct Recorded {
     /// The screen's text and the cursor then.
     screen: Vec<String>,
     cursor: (baud_domain::Row, baud_domain::Col),
+    /// What the lights showed.
+    #[cfg(target_os = "macos")]
+    lit: session::Lit,
 }
 
 /// **The take**: the child in real time against a terminal of the stage's,
@@ -359,11 +395,22 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
     let ws = crate::pty::text_area(&f.grid, m.cell_w, m.cell_h);
     let g = stage.geometry(&f.grid);
     let epoch = Instant::now();
-    let mut u = Under::start_on(&mut term, f.cmd, env, ws, g);
+    let mut u = match f.child {
+        Child::Command(cmd) => Under::start_on(&mut term, cmd, env, ws, g),
+        #[cfg(target_os = "macos")]
+        Child::Session { dir, .. } => Under::start_shell(&mut term, f.env.clone(), dir, ws, g),
+    };
     let mut log = Vec::new();
     let mut heard = Vec::new();
     let mut steps: std::collections::VecDeque<(Duration, Input)> = Default::default();
     let mut decoding = DecodeProgress::Idle;
+    #[cfg(target_os = "macos")]
+    let mut player = match f.child {
+        Child::Session { steps, .. } => Some(session::Player::new(steps, g)),
+        Child::Command(_) => None,
+    };
+    #[cfg(target_os = "macos")]
+    let mut lights = session::Lights::new(u.pid());
     loop {
         let t = epoch.elapsed();
         assert!(
@@ -398,7 +445,9 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
         };
         match u.read(wait) {
             Heard::Bytes(b) => {
-                u.take(&b);
+                let _answered = u.take(&b);
+                #[cfg(target_os = "macos")]
+                lights.read(&b, _answered, epoch.elapsed());
                 heard.extend_from_slice(&b);
                 log.push(Logged {
                     at: epoch.elapsed(),
@@ -414,21 +463,40 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
                 crate::programs::screen(u.term).join("\n")
             ),
         }
+        #[cfg(target_os = "macos")]
+        let ended = match &mut player {
+            Some(p) => p.turn(epoch.elapsed(), &heard, &mut u, &mut steps, &mut log, epoch),
+            None => session::Turn::Going,
+        };
+        #[cfg(target_os = "macos")]
+        lights.turn(
+            epoch.elapsed(),
+            u.term,
+            baud_domain::BytePos::from_index(u.wrote.len()),
+            player.as_ref(),
+        );
+        #[cfg(target_os = "macos")]
+        let mut done = ended == session::Turn::Done;
+        #[cfg(not(target_os = "macos"))]
+        let mut done = false;
         for line in cue_file.take() {
             match Cue::parse(&line, g).unwrap_or_else(|e| panic!("{e}")) {
-                Cue::Done => {
-                    let wrote = std::mem::take(&mut u.wrote);
-                    return Recorded {
-                        log,
-                        heard,
-                        wrote,
-                        end: epoch.elapsed(),
-                        screen: crate::programs::screen(u.term),
-                        cursor: u.term.cursor(),
-                    };
-                }
+                Cue::Done => done = true,
                 c => steps.extend(c.inputs(epoch.elapsed())),
             }
+        }
+        if done {
+            let wrote = std::mem::take(&mut u.wrote);
+            return Recorded {
+                log,
+                heard,
+                wrote,
+                end: epoch.elapsed(),
+                screen: crate::programs::screen(u.term),
+                cursor: u.term.cursor(),
+                #[cfg(target_os = "macos")]
+                lit: lights.lit(),
+            };
         }
     }
 }
@@ -459,7 +527,10 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
         end,
         screen,
         cursor,
+        #[cfg(target_os = "macos")]
+        lit,
     } = record(f, &stage);
+    let mut step = None;
     let g = stage.geometry(&f.grid);
     let mut owned = Owned::new(&f.grid).with_images(stage.cfg.images);
     let mut term = stage.term(Term::new(owned.storage(), &f.grid));
@@ -539,6 +610,11 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
                     let _ = crate::reads::decode_step(&mut term);
                     crate::reads::owed(&mut term, &mut |o: &[u8]| replies.extend_from_slice(o));
                 }
+                Event::Typed(b) => {
+                    caret.input(when);
+                    replies.extend_from_slice(&b);
+                }
+                Event::Step(i) => step = Some(i),
                 Event::Input(i) => {
                     if matches!(
                         i,
@@ -573,6 +649,7 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
                 pixels: &shown,
                 size: (w, h),
                 at,
+                step,
             });
             k += 1;
             continue;
@@ -671,6 +748,7 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
             pixels: &shown,
             size: (w, h),
             at,
+            step,
         });
         // The window is shown once its first frame is: the splash's clock
         // starts on the next (`Timed::shown`).
@@ -697,6 +775,8 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
         answers: wrote,
         frames: Frames(usize::try_from(k).unwrap_or(usize::MAX)),
         cell: (m.cell_w, m.cell_h),
+        #[cfg(target_os = "macos")]
+        lit,
     }
 }
 
@@ -740,7 +820,7 @@ pub(crate) fn named(bytes: &[u8], names: &[String]) -> Vec<String> {
 }
 
 /// A `COLSxROWS` grid.
-fn grid_of(s: &str) -> WinSize {
+pub(crate) fn grid_of(s: &str) -> WinSize {
     let (c, r) = s.split_once('x').expect("a grid is COLSxROWS");
     WinSize {
         ws_col: c.parse().expect("columns"),
@@ -768,8 +848,10 @@ fn grid_of(s: &str) -> WinSize {
 fn a_film_opens_on_the_splash_and_names_nothing_of_the_machine() {
     let period = Duration::from_millis(40);
     let f = Film {
-        cmd: "stty -echo; printf '\\033[c\\033[1;36mbaud\\033[0m \\033[35m\\342\\235\\257\\033[0m '; \
+        child: Child::Command(
+            "stty -echo; printf '\\033[c\\033[1;36mbaud\\033[0m \\033[35m\\342\\235\\257\\033[0m '; \
               sleep 0.9; echo done >>\"$BAUD_FILM_CUES\"; exec sleep 30",
+        ),
         env: Vec::new(),
         grid: WinSize {
             ws_col: 40,
@@ -859,7 +941,7 @@ fn film_the_readme_clip() {
         .map(str::to_string)
         .collect();
     let f = Film {
-        cmd: &cmd,
+        child: Child::Command(&cmd),
         env,
         grid: grid_of(&var("BAUD_FILM_GRID")),
         config: &config,

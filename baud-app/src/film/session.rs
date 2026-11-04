@@ -1,0 +1,690 @@
+//! **The README session without a window, and the lights it lights**: the
+//! steps the `demo` example types into baud's window
+//! (`baud-app/examples/demo/session.rs`, included here as it is), typed
+//! instead into baud's own login shell on a pty against the real core, as
+//! [`super::film`] takes a demo -- every program the session runs, the
+//! container it ssh's into among them -- while the nine activity lights
+//! are fed exactly as the macOS driver feeds them, from the same clocks
+//! (`baud_render::Activity`) and the same reads:
+//!
+//! * **RD** each read of the program's output, and **HS** each one as long
+//!   as the tty hands back (`baud_render::lights::full`, Darwin's 1024): a
+//!   read here is one `read(2)` of the master, as the app's reader's is.
+//! * **AA** each read that left the core an answer of its own to send.
+//! * **SD** each write to the child, the keys typed and the answers.
+//! * **SYN** while the program holds synchronised output open and **FAX**
+//!   while a picture is placed, sampled at most once a 60 Hz frame
+//!   (`own_line::SAMPLE`), as the display link samples them.
+//! * **OH** and **CD** from `front::Front` over the kernel's answers
+//!   (`front::Live`): a job other than the shell in front, and an ssh among
+//!   it holding an established TCP connection.
+//! * **CS** never: it lights for a write the kernel refused any of, and the
+//!   harness writes until the kernel has taken every byte. Nothing in the
+//!   session could light it honestly either: the program in front reads
+//!   its input throughout, and keys at a typist's pace never fill the
+//!   tty's input queue -- a refusal needs a program that stops reading
+//!   while more than a kilobyte is owed it -- a paste into a program that
+//!   is not reading, or a program that floods queries and stops reading
+//!   their answers.
+//!
+//! [`Lit`] is what each light showed, and when it first lit, by the step
+//! that had begun then.
+
+use super::{Event, Logged, middle};
+use crate::programs::{Answered, Under};
+use crate::seat::{Geometry, Input};
+use baud_core::Term;
+use baud_domain::{BytePos, HostTime};
+use baud_render::{Activity, ByLed, Led, Light, Pace};
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
+
+#[allow(
+    dead_code,
+    reason = "the demo's session, of which this plays the steps"
+)]
+#[path = "../../examples/demo/session.rs"]
+mod steps;
+
+pub(crate) use steps::{SESSION, Step};
+
+/// How long a prompt, an echo and the container's prompt may take.
+const PROMPT_LIMIT: Duration = Duration::from_secs(15);
+const ECHO_LIMIT: Duration = Duration::from_secs(3);
+
+/// Whether the session is still playing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Turn {
+    Going,
+    Done,
+}
+
+/// Where the step at hand is.
+#[derive(Clone, Debug)]
+enum Doing {
+    /// Not begun.
+    Start,
+    /// Keys to type, the next at `next`; `then` once they are typed.
+    Typing {
+        keys: VecDeque<u8>,
+        next: Duration,
+        then: Then,
+    },
+    /// Waiting since `since` for the echo of what was typed, then Return.
+    Echo { since: Duration },
+    /// Waiting for a prompt, or for the text of an `Await`, since `since`.
+    Waiting { since: Duration },
+    /// Holding until `until`.
+    Holding { until: Duration },
+}
+
+/// What follows a step's typing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Then {
+    /// The echo is awaited, then Return.
+    Echo,
+    /// The step is done.
+    Done,
+}
+
+/// **The session's steps, typed into the shell** as the demo types them
+/// into baud's window: a key every `KEY_GAP_MS`, a command's Return only
+/// once its echo has come back, a prompt counted by baud's `OSC 133 ; A`
+/// marks, the container's prompt awaited past where the typing began, and
+/// the wheel at the grid's centre.
+pub(crate) struct Player<'a> {
+    steps: &'a [Step],
+    at: StepAt,
+    doing: Doing,
+    /// The prompts waited for so far, and the marks seen.
+    prompts: Marks,
+    marks: Marks,
+    /// How far into what was heard the marks are counted, and where the
+    /// last typing began.
+    counted: BytePos,
+    typed_from: BytePos,
+    geometry: Geometry,
+}
+
+/// A step of the session, by its place in the list.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Debug)]
+pub(crate) struct StepAt(pub(crate) usize);
+
+/// A count of baud's prompt marks.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Debug)]
+struct Marks(usize);
+
+impl<'a> Player<'a> {
+    pub(crate) fn new(steps: &'a [Step], geometry: Geometry) -> Player<'a> {
+        Player {
+            steps,
+            at: StepAt(0),
+            doing: Doing::Start,
+            prompts: Marks(0),
+            marks: Marks(0),
+            counted: BytePos::ZERO,
+            typed_from: BytePos::ZERO,
+            geometry,
+        }
+    }
+
+    /// The step at hand, by its index.
+    pub(crate) fn step(&self) -> StepAt {
+        self.at
+    }
+
+    /// The prompt marks in `heard`, counted as it grows.
+    fn count(&mut self, heard: &[u8]) {
+        let from = self
+            .counted
+            .index()
+            .saturating_sub(steps::PROMPT_MARK.len() - 1);
+        self.marks = Marks(self.marks.0 + steps::marks(&heard[from..]));
+        self.counted = BytePos::from_index(heard.len());
+    }
+
+    /// **One turn of the take at `now`**: the keys due typed, the waits
+    /// looked at, the wheel's inputs queued for the take to send and log,
+    /// and each step's start logged.
+    pub(super) fn turn(
+        &mut self,
+        now: Duration,
+        heard: &[u8],
+        u: &mut Under<'_, '_>,
+        inputs: &mut VecDeque<(Duration, Input)>,
+        log: &mut Vec<Logged>,
+        epoch: Instant,
+    ) -> Turn {
+        self.count(heard);
+        loop {
+            let Some(&step) = self.steps.get(self.at.0) else {
+                return Turn::Done;
+            };
+            let gap = Duration::from_secs_f64(steps::KEY_GAP_MS / 1000.0);
+            if let Doing::Start = self.doing {
+                log.push(Logged {
+                    at: epoch.elapsed(),
+                    event: Event::Step(self.at.0),
+                });
+            }
+            let doing = std::mem::replace(&mut self.doing, Doing::Start);
+            let next = match (step, doing) {
+                (Step::Prompt, Doing::Start) => {
+                    self.prompts = Marks(self.prompts.0 + 1);
+                    Some(Doing::Waiting { since: now })
+                }
+                (Step::Prompt, Doing::Waiting { since }) => {
+                    if self.marks >= self.prompts {
+                        None
+                    } else {
+                        self.limit(
+                            now,
+                            since,
+                            PROMPT_LIMIT,
+                            u,
+                            &format!("prompt {}", self.prompts.0),
+                        );
+                        Some(Doing::Waiting { since })
+                    }
+                }
+                (Step::Run(t) | Step::Keys(t) | Step::Line(t), Doing::Start) => {
+                    self.typed_from = BytePos::from_index(heard.len());
+                    let mut keys: VecDeque<u8> = t.bytes().collect();
+                    if matches!(step, Step::Line(_)) {
+                        keys.push_back(b'\r');
+                    }
+                    let then = match step {
+                        Step::Run(_) => Then::Echo,
+                        _ => Then::Done,
+                    };
+                    Some(Doing::Typing {
+                        keys,
+                        next: now,
+                        then,
+                    })
+                }
+                (
+                    _,
+                    Doing::Typing {
+                        mut keys,
+                        next,
+                        then,
+                    },
+                ) => {
+                    if now < next {
+                        self.doing = Doing::Typing { keys, next, then };
+                        return Turn::Going;
+                    }
+                    if let Some(k) = keys.pop_front() {
+                        self.press(u, log, epoch, &[k]);
+                    }
+                    match (keys.is_empty(), then) {
+                        (false, _) => Some(Doing::Typing {
+                            keys,
+                            next: now + gap,
+                            then,
+                        }),
+                        (true, Then::Echo) => Some(Doing::Echo { since: now }),
+                        (true, Then::Done) => None,
+                    }
+                }
+                (Step::Run(t), Doing::Echo { since }) => {
+                    if steps::echoed(heard, self.typed_from.index(), t) && now >= since + gap {
+                        self.press(u, log, epoch, b"\r");
+                        None
+                    } else {
+                        self.limit(now, since, ECHO_LIMIT, u, &format!("the echo of `{t}`"));
+                        Some(Doing::Echo { since })
+                    }
+                }
+                (Step::Await(_), Doing::Start) => Some(Doing::Waiting { since: now }),
+                (Step::Await(t), Doing::Waiting { since }) => {
+                    if steps::echoed(heard, self.typed_from.index(), t) {
+                        None
+                    } else {
+                        self.limit(now, since, PROMPT_LIMIT, u, &format!("`{t}`"));
+                        Some(Doing::Waiting { since })
+                    }
+                }
+                (Step::Hold(ms), Doing::Start) => Some(Doing::Holding {
+                    until: now + Duration::from_millis(u64::from(ms)),
+                }),
+                (Step::Hold(_), Doing::Holding { until }) => {
+                    if now >= until {
+                        None
+                    } else {
+                        Some(Doing::Holding { until })
+                    }
+                }
+                (Step::Wheel { turns, lines }, Doing::Start) => {
+                    let g = self.geometry;
+                    let centre = middle(
+                        g,
+                        (
+                            f64::from(g.grid.1) / 2.0 - 0.5,
+                            f64::from(g.grid.0) / 2.0 - 0.5,
+                        ),
+                    );
+                    let ms = |d: u64| now + Duration::from_millis(d);
+                    inputs.push_back((now, Input::Moved(centre.0, centre.1)));
+                    let settle = steps::WHEEL_SETTLE_MS;
+                    // A turn up the history is a negative step, as the cue
+                    // file's are.
+                    let one = -f64::from(lines * turns.signum());
+                    let n = u64::from(turns.unsigned_abs());
+                    for i in 0..n {
+                        inputs.push_back((ms(settle + i * steps::WHEEL_GAP_MS), Input::Steps(one)));
+                    }
+                    let end = ms(settle + n * steps::WHEEL_GAP_MS);
+                    inputs.push_back((end, Input::Stopped));
+                    Some(Doing::Holding { until: end })
+                }
+                (Step::Wheel { .. }, Doing::Holding { until }) => {
+                    if now >= until {
+                        None
+                    } else {
+                        Some(Doing::Holding { until })
+                    }
+                }
+                (s, d) => panic!(
+                    "step {} ({s:?}) in a state it cannot be in: {d:?}",
+                    self.at.0
+                ),
+            };
+            match next {
+                Some(d) => {
+                    self.doing = d;
+                    return Turn::Going;
+                }
+                None => {
+                    self.at = StepAt(self.at.0 + 1);
+                    self.doing = Doing::Start;
+                }
+            }
+        }
+    }
+
+    /// Keys written to the child, and logged for the film's terminal.
+    fn press(&mut self, u: &mut Under<'_, '_>, log: &mut Vec<Logged>, epoch: Instant, b: &[u8]) {
+        u.typed(b);
+        log.push(Logged {
+            at: epoch.elapsed(),
+            event: Event::Typed(b.to_vec()),
+        });
+    }
+
+    /// Fails with the screen once `limit` has gone by since `since`.
+    fn limit(
+        &self,
+        now: Duration,
+        since: Duration,
+        limit: Duration,
+        u: &Under<'_, '_>,
+        what: &str,
+    ) {
+        assert!(
+            now < since + limit,
+            "step {}: {what} not within {limit:?}; the screen:\n{}",
+            self.at.0,
+            crate::programs::screen(u.term).join("\n")
+        );
+    }
+}
+
+/// **What the lights showed through a take**: for each, the first moment
+/// it showed lit and the step that had begun then, or none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Lit(ByLed<Option<(Duration, Option<StepAt>)>>);
+
+impl Lit {
+    /// When `led` first showed lit, and in which step.
+    pub(crate) fn first(&self, led: Led) -> Option<(Duration, Option<StepAt>)> {
+        *self.0.get(led)
+    }
+
+    /// The lights that never showed lit.
+    pub(crate) fn dark(&self) -> Vec<Led> {
+        Led::ALL
+            .into_iter()
+            .filter(|&l| self.first(l).is_none())
+            .collect()
+    }
+}
+
+/// **The lights' clocks and what feeds them**, as the macOS driver's.
+pub(crate) struct Lights {
+    activity: Activity,
+    front: crate::front::Front,
+    procs: crate::front::Live,
+    shell: crate::sys::Pid,
+    sampled: Option<Duration>,
+    /// How much had been written to the child at the last turn.
+    wrote: BytePos,
+    lit: Lit,
+}
+
+/// A take's instant as the host's clock, a second in so nothing is at 0.
+fn host(at: Duration) -> HostTime {
+    HostTime::of_nanos(u64::try_from((at + Duration::from_secs(1)).as_nanos()).unwrap_or(u64::MAX))
+}
+
+impl Lights {
+    pub(crate) fn new(shell: crate::sys::Pid) -> Lights {
+        Lights {
+            activity: Activity::new(),
+            front: crate::front::Front::new(),
+            procs: crate::front::Live::new(),
+            shell,
+            sampled: None,
+            wrote: BytePos::ZERO,
+            lit: Lit(ByLed::of(|_| None)),
+        }
+    }
+
+    /// One read of the program's output at `at`: RD, HS for one at the
+    /// tty's ceiling, AA when it left the core an answer of its own.
+    pub(crate) fn read(&mut self, bytes: &[u8], answered: Answered, at: Duration) {
+        if bytes.is_empty() {
+            return;
+        }
+        let now = host(at);
+        self.activity.seen(Led::Rd, now);
+        if baud_render::lights::full(bytes) {
+            self.activity.seen(Led::Hs, now);
+        }
+        if answered == Answered::Bytes {
+            self.activity.seen(Led::Aa, now);
+        }
+    }
+
+    /// **A turn at `at`**: SD for any byte written to the child since the
+    /// last, SYN, FAX, OH and CD sampled once a frame, and the clocks
+    /// stepped, each light's first lit moment kept with the step `player`
+    /// is at.
+    pub(crate) fn turn(
+        &mut self,
+        at: Duration,
+        term: &Term<'_>,
+        wrote: BytePos,
+        player: Option<&Player<'_>>,
+    ) {
+        let now = host(at);
+        if wrote > self.wrote {
+            self.wrote = wrote;
+            self.activity.seen(Led::Sd, now);
+        }
+        let due = self
+            .sampled
+            .is_none_or(|s| at >= s + crate::own_line::SAMPLE);
+        if due {
+            self.sampled = Some(at);
+            if term.synchronized_output() {
+                self.activity.seen(Led::Syn, now);
+            }
+            if term.images().any_placed() {
+                self.activity.seen(Led::Fax, now);
+            }
+            let (oh, cd) =
+                self.front
+                    .sample(&mut self.procs, self.shell, now, crate::front::RELIST);
+            crate::lights::feed(&mut self.activity, Led::Oh, oh, now);
+            crate::lights::feed(&mut self.activity, Led::Cd, cd, now);
+        }
+        let shown = self.activity.step(now, Pace::Full);
+        for led in Led::ALL {
+            let first = self.lit.0.get_mut(led);
+            if first.is_none() && *shown.get(led) == Light::Lit {
+                *first = Some((at, player.map(Player::step)));
+            }
+        }
+    }
+
+    pub(crate) fn lit(&self) -> Lit {
+        self.lit
+    }
+}
+
+/// **`steps` without the command typed as `run`**: its `Run`, and every
+/// step after it through the `Prompt` it comes back to and the hold after
+/// that -- a command taken out of the session whole, for a perturbation.
+pub(crate) fn without(steps: &[Step], run: &str) -> Vec<Step> {
+    let Some(from) = steps
+        .iter()
+        .position(|s| matches!(s, Step::Run(t) if *t == run))
+    else {
+        panic!("no step runs `{run}`");
+    };
+    let prompt = from
+        + steps[from..]
+            .iter()
+            .position(|s| *s == Step::Prompt)
+            .expect("a prompt after the command");
+    let to = match steps.get(prompt + 1) {
+        Some(Step::Hold(_)) => prompt + 2,
+        _ => prompt + 1,
+    };
+    let mut v = steps[..from].to_vec();
+    v.extend_from_slice(&steps[to..]);
+    v
+}
+
+/// The scratch directory's `env`, a `KEY=value` a line, as the demo writes
+/// it for this test.
+fn env_of(text: &str) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+    text.lines()
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.into(), v.into()))
+        .collect()
+}
+
+/// **The lights the app's feeders light, fed as the app feeds them**: a
+/// read of the tty's 1024 lights RD and HS, a shorter one RD alone, a read
+/// the core answered AA, a write SD, `?2026` held open SYN and a placed
+/// picture FAX -- each from the core's own state -- and a turn with
+/// nothing new lights nothing more. CS is never lit, which is what the
+/// session test expects of it. The controls: a read of 1023 bytes does not
+/// light HS, and a turn reads OH and CD of a shell that is not there as
+/// dark.
+#[test]
+fn the_lights_light_from_what_the_app_reads() {
+    let grid = baud_domain::WinSize {
+        ws_col: 20,
+        ws_row: 5,
+    };
+    let mut owned = baud_core::Owned::new(&grid);
+    let mut term = Term::new(owned.storage(), &grid);
+    let gone = crate::sys::Pid::MAX;
+    let mut l = Lights::new(gone);
+    let ms = Duration::from_millis;
+    l.read(&[b'a'; 1023], Answered::Nothing, ms(10));
+    l.turn(ms(10), &term, BytePos::ZERO, None);
+    assert_eq!(l.lit().first(Led::Rd), Some((ms(10), None)));
+    assert_eq!(
+        l.lit().first(Led::Hs),
+        None,
+        "1023 bytes is not the ceiling"
+    );
+    l.read(&[b'a'; 1024], Answered::Bytes, ms(40));
+    l.turn(ms(40), &term, BytePos::from_index(3), None);
+    for led in [Led::Hs, Led::Aa, Led::Sd] {
+        assert_eq!(l.lit().first(led), Some((ms(40), None)), "{led:?}");
+    }
+    crate::reads::feed(
+        &mut term,
+        [&b"\x1b[?2026h"[..]],
+        |_| {},
+        |_| {},
+        &mut crate::hostlog::NoLog,
+    );
+    assert!(term.synchronized_output());
+    l.turn(ms(70), &term, BytePos::from_index(3), None);
+    assert_eq!(l.lit().first(Led::Syn), Some((ms(70), None)));
+    assert_eq!(
+        l.lit().dark(),
+        [Led::Cd, Led::Oh, Led::Cs, Led::Fax],
+        "nothing else lit"
+    );
+}
+
+/// **The README session lights every light but CS**, played without a
+/// window by `cargo run --example demo -- --headless DIR`, which makes the
+/// scratch directory `BAUD_SESSION_ROOT` names, starts the container and
+/// runs this: the session's steps (`SESSION`) typed into baud's own login
+/// shell started as baud starts it, with that directory's `env` as baud's
+/// environment, its `baud.toml` as the config and baud's 110x33 grid. Each
+/// light's first lit moment is printed with the step it came in, and every
+/// one but CS must light (the module's doc says why CS cannot).
+///
+/// `BAUD_SESSION_WITHOUT` takes a command out, through the prompt it
+/// comes back to ([`without`]), for a perturbation: without `ssh demo` CD
+/// stays dark, without `kitten icat ...` FAX, and the test fails.
+/// `BAUD_SESSION_POINTS` draws at another size, and with
+/// `BAUD_SESSION_STILLS` and `BAUD_FILM_FFMPEG` the last frame of every
+/// hold is written there as a PNG, through baud's CPU renderer on the
+/// opaque page: the stills of the session at the size it is filmed at.
+#[test]
+#[ignore = "a tool: `cargo run --example demo -- --headless DIR` runs it"]
+fn the_readme_session_lights_every_light() {
+    let var = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
+    let root = std::path::PathBuf::from(var("BAUD_SESSION_ROOT"));
+    let read = |name: &str| {
+        std::fs::read_to_string(root.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let env = env_of(&read("env"));
+    let grid = env
+        .iter()
+        .find(|(k, _)| k == "BAUD_GRID")
+        .and_then(|(_, v)| v.to_str())
+        .map(super::grid_of)
+        .expect("BAUD_GRID in the env");
+    // The faces by path beside the config, as baud reads them beside it.
+    let mut config = read("baud.toml").replace("\"fonts/", &format!("\"{}/fonts/", root.display()));
+    if let Ok(p) = std::env::var("BAUD_SESSION_POINTS") {
+        let line = config.lines().next().unwrap_or("").to_string();
+        assert!(line.starts_with("font_size = "), "{line}");
+        config = config.replacen(&line, &format!("font_size = {p}"), 1);
+    }
+    let steps = match std::env::var("BAUD_SESSION_WITHOUT") {
+        Ok(run) => without(SESSION, &run),
+        Err(_) => SESSION.to_vec(),
+    };
+    let dir = root.join("home/baud");
+    let f = super::Film {
+        child: super::Child::Session {
+            steps: &steps,
+            dir: &dir,
+        },
+        env,
+        grid,
+        config: &config,
+        period: Duration::from_millis(40),
+        limit: Duration::from_secs(180),
+    };
+    let stills = std::env::var_os("BAUD_SESSION_STILLS").map(std::path::PathBuf::from);
+    let ffmpeg = std::env::var_os("BAUD_FILM_FFMPEG");
+    let mut last: Option<Shot> = None;
+    let mut written = 0;
+    // The last frame of the hold `i`, named for the step it follows.
+    let mut still = |i: usize, px: &[u32], size: (u32, u32)| {
+        let (Some(dir), Step::Hold(_)) = (&stills, steps[i]) else {
+            return;
+        };
+        let what = steps[..i]
+            .iter()
+            .rev()
+            .find_map(|s| match s {
+                Step::Run(t) | Step::Keys(t) | Step::Line(t) => Some(*t),
+                _ => None,
+            })
+            .unwrap_or("launch");
+        let name: String = what
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let to = dir.join(format!("{i:02}-{name}.png"));
+        png(ffmpeg.as_ref().expect("BAUD_FILM_FFMPEG"), px, size, &to);
+        written += 1;
+    };
+    let take = super::film(&f, |fr| {
+        if stills.is_none() {
+            return;
+        }
+        if let Some((Some(i), px, size)) = &last {
+            if fr.step != Some(*i) {
+                still(*i, px, *size);
+            }
+        }
+        last = Some((
+            fr.step,
+            fr.pixels.to_vec(),
+            (fr.size.0.value(), fr.size.1.value()),
+        ));
+    });
+    if let Some((Some(i), px, size)) = &last {
+        still(*i, px, *size);
+    }
+    for led in Led::ALL {
+        match take.lit.first(led) {
+            Some((at, step)) => println!(
+                "lights:  {:<3} lit at {:>6.2} s, in step {}",
+                led.letters(),
+                at.as_secs_f64(),
+                step.map_or("-".to_string(), |StepAt(i)| format!("{i} {:?}", steps[i]))
+            ),
+            None => println!("lights:  {:<3} never lit", led.letters()),
+        }
+    }
+    if stills.is_some() {
+        println!("stills:  {written} written");
+    }
+    // What the programs printed and what was sent them, for the demo's
+    // search of what must never be filmed, and searched here for the
+    // machine's names as a film's are.
+    let bytes = [&take.heard[..], &take.answers[..]].concat();
+    std::fs::write(root.join("heard.log"), &bytes).expect("heard.log");
+    let names = super::machine_names(&[]);
+    assert_eq!(
+        super::named(&bytes, &names),
+        Vec::<String>::new(),
+        "the session names this machine"
+    );
+    assert_eq!(
+        take.lit.dark(),
+        [Led::Cs],
+        "every light but CS lights in the session"
+    );
+}
+
+/// A frame kept for a still: the step it was in, its pixels and its size.
+type Shot = (Option<usize>, Vec<u32>, (u32, u32));
+
+/// One frame of premultiplied `0xAARRGGBB`, opaque, as a PNG at `to`.
+fn png(ffmpeg: &std::ffi::OsString, px: &[u32], (w, h): (u32, u32), to: &std::path::Path) {
+    use std::io::Write as _;
+    let mut e = std::process::Command::new(ffmpeg)
+        .args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgra"])
+        .args([
+            "-video_size",
+            &format!("{w}x{h}"),
+            "-i",
+            "-",
+            "-frames:v",
+            "1",
+        ])
+        .arg(to)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("ffmpeg");
+    let bytes: Vec<u8> = px.iter().flat_map(|p| p.to_le_bytes()).collect();
+    e.stdin
+        .as_mut()
+        .expect("ffmpeg's input")
+        .write_all(&bytes)
+        .expect("a frame to ffmpeg");
+    drop(e.stdin.take());
+    assert!(
+        e.wait().expect("ffmpeg").success(),
+        "ffmpeg failed on {}",
+        to.display()
+    );
+}

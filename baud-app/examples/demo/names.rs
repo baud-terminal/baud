@@ -215,4 +215,58 @@ pub mod tests {
         let named_root = "/private/qz/T/qzuser-demo";
         assert_eq!(env_named(&[], named_root, &n).len(), 1);
     }
+
+    /// **The search for what must never be filmed fires, and refuses to
+    /// search without its controls** (`scripts/readme-forbidden.py`, which
+    /// `--record` and `--headless` run over the session's bytes): a list of
+    /// the made-up machine's names, a clean file passes (0), the user's
+    /// name coloured letter by letter is found once the escapes are out
+    /// (1), and a list with a label that has no control, or a control its
+    /// pattern does not find, searches nothing (2).
+    #[test]
+    fn the_forbidden_search_fires_and_needs_its_controls() {
+        let dir = std::env::temp_dir().join(format!("demo-forbidden-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let w = |name: &str, bytes: &[u8]| {
+            let p = dir.join(name);
+            std::fs::write(&p, bytes).unwrap();
+            p
+        };
+        let list = w(
+            "list",
+            b"# made up\nuser::(?i:qzuser)\nhost::qzhost\\.local\n",
+        );
+        let controls = w("controls", b"user\tQZUSER\nhost\tat qzhost.local\n");
+        let clean = w("clean", b"baud@demo:~$ fastfetch\r\n");
+        let coloured = w("coloured", b"\x1b[1mqz\x1b[0m\x1b[33muser\x1b[0m@demo\n");
+        let script = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../scripts/readme-forbidden.py"
+        );
+        let code = |list: &std::path::Path, controls: &std::path::Path, file: &std::path::Path| {
+            std::process::Command::new("python3")
+                .arg("-I")
+                .arg(script)
+                .args([list, controls, file])
+                .output()
+                .expect("python3")
+                .status
+                .code()
+        };
+        assert_eq!(code(&list, &controls, &clean), Some(0));
+        assert_eq!(
+            code(&list, &controls, &coloured),
+            Some(1),
+            "found past its escapes"
+        );
+        let one = w("one", b"user\tQZUSER\n");
+        assert_eq!(
+            code(&list, &one, &clean),
+            Some(2),
+            "a label with no control"
+        );
+        let wrong = w("wrong", b"user\tsomeone\nhost\tqzhost.local\n");
+        assert_eq!(code(&list, &wrong, &clean), Some(2), "a control not found");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

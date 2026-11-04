@@ -155,7 +155,7 @@ pub fn presses(step: Step) -> Result<Vec<Key>, char> {
             Ok(keys)
         }
         Step::Keys(t) => keys_for(t),
-        Step::Prompt | Step::Hold(_) | Step::Wheel { .. } => Ok(Vec::new()),
+        Step::Prompt | Step::Hold(_) | Step::Wheel { .. } | Step::Await(_) => Ok(Vec::new()),
     }
 }
 

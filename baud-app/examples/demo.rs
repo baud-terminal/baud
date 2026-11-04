@@ -1,15 +1,18 @@
 //! **The README's session, played in baud's window**: a real interactive
 //! zsh and real programs at real speed, every command typed into the
 //! window key by key -- btop, `cat README.md` and the wheel back through
-//! it, six languages and a line of emoji in `cat hello.txt`, helix, a photo
-//! through kitten, neo, pipes-rs and `clear`. With `--record` the same
-//! run films it and encodes the README's GIF, and writes beside the GIF
-//! where it came from, so the GIF is shown to be the session as it ran.
+//! it, six languages and a line of emoji in `cat hello.txt`, ssh into a
+//! container on this Mac and fastfetch there, helix, a photo through
+//! kitten, neo, pipes-rs and `clear`. With `--record` the same run films
+//! it and encodes the README's GIF, and writes beside the GIF where it
+//! came from, so the GIF is shown to be the session as it ran.
 //!
 //! ```text
 //! cargo run --release --example demo              # the session
 //! cargo run --release --example demo -- --dry     # all but the window
-//! cargo run --release --example demo -- --record assets/readme/hero.gif
+//! cargo run --release --example demo -- --headless DIR   # no window
+//! cargo run --release --example demo -- --record assets/readme/hero.gif \
+//!     --forbidden LIST --controls FILE
 //! cargo run --example demo -- --verify assets/readme/hero.gif
 //! ```
 //!
@@ -19,7 +22,11 @@
 //!
 //! **What it needs**: nix, which every program, the photo and the photo's
 //! converter come from, at the nixpkgs revision `scripts/readme-film.sh`
-//! pins; network once, for the four open faces it caches; and for the
+//! pins; network once, for the four open faces it caches; colima and
+//! docker, for the container (`demo/container.rs`), whose image the
+//! repository's flake makes with nixpkgs' `dockerTools` from packages
+//! cache.nixos.org holds, so no Linux builder -- colima is started if it
+//! is stopped and stopped again at the end; and for the
 //! session itself, Accessibility for the terminal it runs in (System
 //! Settings > Privacy & Security > Accessibility), which it checks before
 //! posting anything and, missing, names and stops at. `--record` also needs
@@ -34,10 +41,15 @@
 //! not seen by that build.
 //!
 //! **What it makes**, in a fresh directory in the system's temporary one:
-//! a scratch home with a `.zshrc` whose prompt is `baud ❯`, btop's and
-//! helix's configs, and the shell's working directory under it holding a
-//! copy of the README, `hello.txt` and the photo; baud's config, at 12
-//! points with the cursor still and the pinned faces beside it; and baud
+//! a scratch home with a `.zshrc` whose prompt is `baud ❯` and whose `ssh`
+//! reads the scratch home's ssh config, btop's and helix's configs, the
+//! session's two ssh keys, and the shell's working directory under it
+//! holding a copy of the README, `hello.txt` and the photo; the
+//! container's image, streamed by the repository flake's `demo-container`
+//! and pinned by its SHA-256; baud's config, at
+//! 12 points with the cursor still, the window solid -- opaque under
+//! either appearance, its font and its size not a program's to change --
+//! and the pinned faces beside it; and baud
 //! is started with nothing of this environment but `HOME`, `ZDOTDIR`,
 //! `SHELL`, `PATH`, `LANG`, `TMPDIR`, `NOSYSZSHRC` and its own
 //! (`BAUD_GRID`, `BAUD_SCREEN`, `BAUD_CONFIG`, `BAUD_MOTION`,
@@ -70,15 +82,31 @@
 //! first prompt, for a reason not reproduced here.
 //!
 //! **While it plays**: each step waits for the shell's next prompt by
-//! counting `OSC 133 ; A` marks in the pty log, and each command is
-//! checked echoed before its Return; before every key-down, key-up and
-//! wheel event, baud must own the frontmost window and be the frontmost
-//! application, and a wheel's point must lie in baud's window, or it stops
-//! having posted nothing more and exits non-zero. At the end the window is
-//! closed, and the pty log must name nothing of this machine.
+//! counting `OSC 133 ; A` marks in the pty log, or in the container for
+//! its prompt's text, and each command is checked echoed before its
+//! Return; before every key-down, key-up and wheel event, baud must own
+//! the frontmost window and be the frontmost application, and a wheel's
+//! point must lie in baud's window, or it stops having posted nothing more
+//! and exits non-zero. At the end the window is closed, the container and
+//! its image removed, and the pty log must name nothing of this machine;
+//! with `--forbidden LIST --controls FILE` it must also hold nothing LIST
+//! forbids (`scripts/readme-forbidden.py`, a list kept outside the
+//! repository, each pattern found in its control first). Ctrl-C stops the
+//! session at its next wait, and the container, its image and colima are
+//! put back as they are at the end; it exits 130.
+//!
+//! **`--headless DIR`**: the session with no window, the container
+//! running: baud's own test of it (`film::session` in `baud-app/src/`)
+//! types every step into baud's login shell through baud's core, feeds
+//! the nine activity lights as the macOS driver does, and fails unless
+//! each but CS lights; the last frame of every hold, drawn by baud's CPU
+//! renderer on the opaque page, goes into DIR as a PNG.
+//! `BAUD_SESSION_POINTS` draws at another size and `BAUD_SESSION_WITHOUT`
+//! takes a command out, for a perturbation.
 //!
 //! **`--record OUT.gif`**: the README's GIF from one command, filmed as it
-//! is made. It refuses a repository whose tree differs from its commit,
+//! is made, `--forbidden` and `--controls` required. It refuses a
+//! repository whose tree differs from its commit,
 //! unless `--allow-dirty`, which the provenance file then records. The
 //! recorder, `scripts/trail-record.swift` compiled by Xcode's `swiftc`,
 //! films the display, every application already running left out, and baud
@@ -124,6 +152,10 @@
 // The modules are in `baud-app/examples/demo/`; a crate root looks for
 // them beside itself.
 
+#[cfg(any(target_os = "macos", test))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[path = "demo/container.rs"]
+mod container;
 #[cfg(any(target_os = "macos", test))]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[path = "demo/film.rs"]
