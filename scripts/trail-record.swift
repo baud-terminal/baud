@@ -44,7 +44,9 @@
 // the stop came after that frame arrived, the stop read once the capture
 // has stopped, and the session is ended there. Without that end the MP4
 // gives its last sample the gap before it as its duration, the whole still
-// tail again, and the film plays past the stop by as long. A frame that
+// tail again, and the film plays past the stop by as long. Frames are
+// written without reordering, so that copy is shown at the stop's time and
+// not pushed onto the film's end, where a decoder drops it. A frame that
 // came at the stop ends the film at its own time. It prints how long the
 // film runs, from its first frame to the stop; a gap past 30 s, or a frame
 // the writer would not take again, is refused (exit 6).
@@ -112,6 +114,12 @@ final class Rec: NSObject {
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: bitrate,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                // No B-frames: every frame is shown at the time it was
+                // written. With reordering, the last frame written again at
+                // the stop took a composition offset that put it at the
+                // film's edit end, where ffmpeg drops it, so the GIF lost
+                // the still tail (a 25.695 s film sampled as 25.1 s).
+                AVVideoAllowFrameReorderingKey: false,
             ],
         ]
         let inp = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
