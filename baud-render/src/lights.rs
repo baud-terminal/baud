@@ -19,10 +19,17 @@
 //! than icons, in AppKit's own colours resolved under the window's
 //! appearance (the HIG's "Prefer system-defined colors", and colour repeats
 //! what the letters and the place already say -- "Avoid relying solely on
-//! color", `[[source: apple-hig-color]]`). A dark light is its own colour
-//! mixed most of the way into the strip's grey, so the row reads as lights
-//! when nothing moves; a light baud may not read is drawn as a ring in the
-//! letters' grey ([`Light::Unread`]), neither lit nor dark (note AH, Q8). CS is inverted
+//! color", `[[source: apple-hig-color]]`). Over the standard material each
+//! lit colour is lifted, keeping its hue, to read at 3:1 against every grey
+//! the strip can be, and the letters to 4.5:1 ([`strip_colours`]): AppKit's
+//! colours are drawn as they come where they already read, and over the
+//! glass, where no colour reads at 3:1 against everything from black to
+//! white and the strip's range is unmeasured, an open question. A dark
+//! light is the system colour, unlifted, mixed most of the way into the
+//! strip's grey, so the row reads as lights when nothing moves and a lit
+//! light differs from its dark one by lightness as well as hue; a light
+//! baud may not read is drawn as a ring in the letters' grey
+//! ([`Light::Unread`]), neither lit nor dark (note AH, Q8). CS is inverted
 //! from the modem's -- lit when the program stopped taking what baud sends
 //! -- and its letters carry a bar, the mark of an active-low signal. A
 //! change is one step, as an LED's is.
@@ -449,7 +456,8 @@ pub enum Glow {
 pub struct LightsLook {
     /// Each light's lit colour.
     pub lit: ByLed<Argb>,
-    /// Each light's colour while dark.
+    /// Each light's colour while dark: its lamp's colour mixed into the
+    /// strip's grey.
     pub dark: ByLed<Argb>,
     /// The letters', with the alpha they are drawn at; an unread light's
     /// ring is drawn in it too.
@@ -471,43 +479,48 @@ fn unlit() -> Chan {
 }
 
 impl LightsLook {
-    /// The look for lit colours `lit`, letters in `label`, a dark light
-    /// mixed into `ground`, drawn at `glow` over a strip anywhere in
-    /// `backdrop`. Only a dimmed look scans the backdrop for its caps, once
-    /// a colour: lights that share one share its caps.
+    /// The look for lit colours `lit`, letters in `label`, each dark light
+    /// its `lamp` colour mixed into `ground`, drawn at `glow` over a strip
+    /// anywhere in `backdrop`. The lamp is given apart from the lit colour
+    /// because the title strip lifts a lit colour to read against the strip
+    /// ([`strip_colours`]) and keeps the dark lamp the system colour's;
+    /// the lights' own line gives one colour for both. Only a dimmed look
+    /// scans the backdrop for its caps, once a pair of colours: lights that
+    /// share one share its caps.
     pub fn new(
         lit: ByLed<Argb>,
+        lamp: ByLed<Argb>,
         label: Argb,
         ground: Argb,
         glow: Glow,
         backdrop: Backdrop,
     ) -> LightsLook {
-        let dark = ByLed::of(|l| lit.get(l).mix(ground, unlit()));
+        let dark = ByLed::of(|l| lamp.get(l).mix(ground, unlit()));
         let full = Chan::from_u8(0xFF);
         let (dim, ring) = match glow {
             Glow::Full => (ByLed::of(|_| full), ByLed::of(|_| full)),
             Glow::Dimmed => {
-                let mut caps: Vec<(Argb, Chan)> = Vec::new();
+                let mut caps: Vec<((Argb, Argb), Chan)> = Vec::new();
                 let dim = ByLed::of(|l| {
-                    let c = *lit.get(l);
+                    let c = (*lit.get(l), *dark.get(l));
                     if let Some(&(_, cap)) = caps.iter().find(|(k, _)| *k == c) {
                         return cap;
                     }
-                    let cap = dim_cap(c, *dark.get(l), backdrop);
+                    let cap = dim_cap(c.0, c.1, backdrop);
                     caps.push((c, cap));
                     cap
                 });
-                let mut rings: Vec<(Argb, Chan)> = Vec::new();
+                let mut rings: Vec<((Argb, Argb), Chan)> = Vec::new();
                 let ring = ByLed::of(|l| {
-                    let c = *lit.get(l);
+                    let c = (*lit.get(l), *dark.get(l));
                     if !l.reads_a_process() {
                         return Chan::from_u8(0);
                     }
                     if let Some(&(_, cap)) = rings.iter().find(|(k, _)| *k == c) {
                         return cap;
                     }
-                    let ink = c.with_alpha(*dim.get(l));
-                    let cap = ring_cap(label, ink, *dark.get(l), backdrop);
+                    let ink = c.0.with_alpha(*dim.get(l));
+                    let cap = ring_cap(label, ink, c.1, backdrop);
                     rings.push((c, cap));
                     cap
                 });
@@ -792,8 +805,9 @@ pub fn line_places(width: Px, at: &ByLed<Slot>, strip: Px, end: Px) -> ByLed<Opt
 /// AppKit's system colours do not exist and the two systems must draw the
 /// same pixels: what comes in (RD, HS) in the palette's green, entry 2,
 /// what goes out (SD, AA, CS) in its yellow, entry 3, and a state (CD,
-/// OH, FAX, SYN) in its blue, entry 4 -- the hues the title strip's
-/// system colours give them. Each lit colour is lifted, if it must be,
+/// OH, FAX, SYN) in its blue, entry 4 -- the title strip's green and blue,
+/// and its yellow where the strip's system orange has no palette entry.
+/// Each lit colour is lifted, if it must be,
 /// until it reads at 3:1 against the line, `page` drawn at `alpha` over
 /// whatever `backdrop` spans: WCAG 2.2's SC 1.4.11, "a contrast ratio of
 /// at least 3:1 against adjacent color(s)" for "Visual information
@@ -835,6 +849,58 @@ pub fn line_colours(
 /// The contrast a lit light reads at against its line, at least: SC
 /// 1.4.11's 3:1 for a component's state.
 pub const LIT_CONTRAST: f64 = 3.0;
+
+/// The contrast the title strip's letters read at against the strip, at
+/// least: SC 1.4.3's 4.5:1, "The visual presentation of text ... has a
+/// contrast ratio of at least 4.5:1", which drops to 3:1 only for large
+/// text, 18 point or 14 point bold (`[[source: wcag22]]`). The letters
+/// are 8 point bold ([`TEXT`]). Apple's table, which it says is "from
+/// WCAG Level AA", gives 3:1 for "bold at any size"
+/// (`[[source: apple-hig-accessibility]]`); the WCAG text it cites governs.
+pub const TEXT_CONTRAST: f64 = 4.5;
+
+/// **The title strip's colours over the standard material**: each of
+/// AppKit's lit colours `lit` lifted, if it must be, until it reads at
+/// [`LIT_CONTRAST`] against every grey the strip can be, `backdrop`, and
+/// the letters, AppKit's translucent `label` made opaque over `ground` as
+/// the line's are the foreground mixed into its page, lifted to
+/// [`TEXT_CONTRAST`] against the same greys. WCAG 2.2's SC 1.4.11 asks
+/// "a contrast ratio of at least 3:1 against adjacent color(s)" for
+/// "Visual information required to identify user interface components and
+/// states" (`[[source: wcag22]]`), and AppKit's green, orange and blue
+/// read 1.27, 1.32 and 2.02 against the light material's grey 196, and its
+/// blue 2.07 against the dark one's grey 92.
+///
+/// The lift is the line's ([`line_colours`]): toward black or white in
+/// linear light, just far enough, so the hue is kept; with the strip drawn
+/// at no alpha over its material the page drops out and `ground` only
+/// says which way. A colour that already reads is itself, and AppKit's
+/// Increase Contrast colours are lifted as its standard ones are. Where no
+/// colour reaches the target against all of the backdrop -- black to white
+/// over the glass -- the lift goes as far as it can, which is why the
+/// glass does not call this.
+pub fn strip_colours(
+    lit: ByLed<Argb>,
+    label: Argb,
+    ground: Argb,
+    backdrop: Backdrop,
+) -> (ByLed<Argb>, Argb) {
+    let opaque = Chan::from_u8(0xFF);
+    let reads = |c: Argb, target: f64| {
+        crate::color::reads_at(
+            c.with_alpha(opaque),
+            ground,
+            Chan::from_u8(0),
+            backdrop,
+            target,
+        )
+    };
+    let letters = label.with_alpha(opaque).mix(ground, label.a());
+    (
+        ByLed::of(|l| reads(*lit.get(l), LIT_CONTRAST)),
+        reads(letters, TEXT_CONTRAST),
+    )
+}
 
 /// Which way an outline winds.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1299,7 +1365,7 @@ impl LineState {
         }
         let (lit, label) =
             line_colours(palette, key.fg, key.page, key.alpha, key.backdrop, key.text);
-        let look = LightsLook::new(lit, label, key.page, key.glow, Backdrop::any());
+        let look = LightsLook::new(lit, lit, label, key.page, key.glow, Backdrop::any());
         let epoch = Epoch(self.looks.last().map_or(0, |(_, _, e)| e.0 + 1));
         if self.looks.len() >= LOOKS_KEPT {
             self.looks.remove(0);

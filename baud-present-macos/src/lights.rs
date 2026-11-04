@@ -12,7 +12,11 @@
 //! have their own accessible variants that automatically adapt when people
 //! adjust their color preferences, such as enabling Increase Contrast or
 //! toggling between the light and dark appearances"
-//! (`[[source: apple-hig-accessibility]]`).
+//! (`[[source: apple-hig-accessibility]]`). They do not all read against
+//! the title strip: under the light appearance, Increase Contrast's
+//! included, AppKit's green, orange and blue read under WCAG's 3:1 against
+//! the standard material's greys, so the strip lifts them there
+//! (`baud_render::lights::strip_colours`), keeping each hue.
 //!
 //! `unsafe` is allowed here, as in [`crate::print`], for the one bitmap
 //! constructor the bindings mark so and the buffer it hands back.
@@ -169,6 +173,94 @@ mod tests {
         assert_ne!(lit_light, lit_dark, "each appearance its own");
         assert!(label_light.a().get() < 0xFF && label_dark.a().get() < 0xFF);
         assert!(label_light.r().get() < 0x80 && label_dark.r().get() > 0x80);
+    }
+
+    /// AppKit's accessibility appearances, light and dark: the ones a
+    /// window takes while Increase Contrast is on, which no public name
+    /// gives -- `appearanceNamed` with the accessibility names gives the
+    /// standard colours headless -- so they come from AppKit's own class
+    /// methods.
+    fn accessible() -> (Retained<NSAppearance>, Retained<NSAppearance>) {
+        use macos_liquid_glass::objc2::runtime::Bool;
+        use macos_liquid_glass::objc2::{ClassType, msg_send};
+        // SAFETY: the class methods take a BOOL and return an autoreleased
+        // appearance or nil, which the Option holds.
+        let (light, dark): (Option<Retained<NSAppearance>>, Option<_>) = unsafe {
+            (
+                msg_send![NSAppearance::class(), _aquaAppearanceWithAccessibility: Bool::YES],
+                msg_send![NSAppearance::class(), _darkAquaAppearanceWithAccessibility: Bool::YES],
+            )
+        };
+        let want = "AppKit's accessibility appearance";
+        (light.expect(want), dark.expect(want))
+    }
+
+    /// **The strip's colours read on the standard material under every
+    /// appearance AppKit resolves, Increase Contrast's too**: AppKit's
+    /// colours resolved headless under Aqua and Dark Aqua and under their
+    /// accessibility forms, each lit colour lifted to 3:1 and the letters
+    /// to 4.5:1 against every grey of that half's material
+    /// (`baud_render::lights::strip_colours`). The controls: the
+    /// accessibility appearances are what they say -- named so, read as
+    /// light or dark as the window's are, and giving colours the standard
+    /// ones do not -- and AppKit's own colours read under 3:1 there, light
+    /// with Increase Contrast's at about 2.6. Perturbation: draw AppKit's
+    /// colours unlifted and this goes red.
+    #[test]
+    fn the_strips_colours_read_under_every_appearance() {
+        use baud_render::lights::strip_colours;
+        use baud_render::{Backdrop, GROUND_DARK, GROUND_LIGHT, contrast_over};
+        let (aqua, dark) = (
+            named("NSAppearanceNameAqua"),
+            named("NSAppearanceNameDarkAqua"),
+        );
+        let (aqua_ic, dark_ic) = accessible();
+        assert_eq!(
+            aqua_ic.name().to_string(),
+            "NSAppearanceNameAccessibilityAqua"
+        );
+        assert_eq!(
+            dark_ic.name().to_string(),
+            "NSAppearanceNameAccessibilityDarkAqua"
+        );
+        assert_ne!(
+            colours(&aqua_ic),
+            colours(&aqua),
+            "the control: light's own"
+        );
+        assert_ne!(colours(&dark_ic), colours(&dark), "the control: dark's own");
+        let mut short = 0;
+        for (name, appearance, is_dark) in [
+            ("light", &aqua, false),
+            ("dark", &dark, true),
+            ("light, Increase Contrast", &aqua_ic, false),
+            ("dark, Increase Contrast", &dark_ic, true),
+        ] {
+            assert_eq!(macos_liquid_glass::is_dark(appearance), is_dark, "{name}");
+            let (ground, backdrop) = if is_dark {
+                (GROUND_DARK, Backdrop::under_window_dark())
+            } else {
+                (GROUND_LIGHT, Backdrop::under_window_light())
+            };
+            let (asked, label) = colours(appearance);
+            let (lit, letters) = strip_colours(asked, label, ground, backdrop);
+            let worst = |c: Argb| {
+                backdrop
+                    .greys()
+                    .map(|g| contrast_over(c, g, Chan::from_u8(0xFF), Backdrop::any()))
+                    .fold(f64::MAX, f64::min)
+            };
+            for (led, &c) in lit.iter() {
+                assert!(worst(c) >= 3.0, "{name} {led:?} {c:?}: {:.3}", worst(c));
+                short += usize::from(worst(*asked.get(led)) < 3.0);
+            }
+            assert!(
+                worst(letters) >= 4.5,
+                "{name} letters: {:.3}",
+                worst(letters)
+            );
+        }
+        assert!(short >= 18, "the control: AppKit's own fall short, {short}");
     }
 
     /// **The picture holds the strip's pixels, premultiplied, at its size

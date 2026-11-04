@@ -90,7 +90,7 @@ fn look_of(r: &Renderer<'_, '_>, glow: Glow) -> LightsLook {
         theme.backdrop,
         4.5,
     );
-    LightsLook::new(lit, label, page, glow, Backdrop::any())
+    LightsLook::new(lit, lit, label, page, glow, Backdrop::any())
 }
 
 /// FNV-1a over the pixels, as `golden.rs` pins its frames.
@@ -520,4 +520,71 @@ fn each_lit_light_reads_at_three_to_one_against_the_line() {
         let c = contrast_over(label, page, alpha, any);
         assert!(c >= 4.5, "{name} letters: {c:.2}");
     }
+}
+
+/// **The line's pixels in every state, both themes and both glows**,
+/// pinned from the line as it was drawn before the title strip's colours
+/// were lifted apart from it: the line's lamps and lit colours are one
+/// colour each, its own, on both systems. Perturbation: lift the line's
+/// lit colours to 5:1, or mix its lamps from the letters' colour, and this
+/// goes red.
+#[test]
+fn the_lines_pixels_are_pinned_in_every_state() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut got = Vec::new();
+    for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+        for glow in [Glow::Full, Glow::Dimmed] {
+            for light in Light::ALL {
+                let mut owned = Owned::new(&WS);
+                let mut t = Term::new(owned.storage(), &WS);
+                let mut r = renderer(&faces, 26.0, theme.clone());
+                r.set_lights_line(Some(LineEdge::Bottom), SCALE);
+                r.set_lights(Shown::all(light), glow);
+                let (px, w, _) = whole(&mut r, &mut t, Damage::Full);
+                let line = rows(&px, w, r.lights_top(), r.lights_height());
+                got.push((name, glow, light, digest(&line)));
+            }
+        }
+    }
+    let want = [
+        ("dark", Glow::Full, Light::Dark, 12_290_800_282_630_374_670),
+        ("dark", Glow::Full, Light::Lit, 8_737_166_698_460_667_014),
+        ("dark", Glow::Full, Light::Unread, 8_799_079_521_216_547_742),
+        (
+            "dark",
+            Glow::Dimmed,
+            Light::Dark,
+            12_290_800_282_630_374_670,
+        ),
+        ("dark", Glow::Dimmed, Light::Lit, 9_107_346_183_030_006_206),
+        (
+            "dark",
+            Glow::Dimmed,
+            Light::Unread,
+            3_226_158_810_095_266_058,
+        ),
+        ("light", Glow::Full, Light::Dark, 11_369_443_907_373_752_830),
+        ("light", Glow::Full, Light::Lit, 15_629_138_471_030_059_506),
+        (
+            "light",
+            Glow::Full,
+            Light::Unread,
+            2_731_559_415_951_788_942,
+        ),
+        (
+            "light",
+            Glow::Dimmed,
+            Light::Dark,
+            11_369_443_907_373_752_830,
+        ),
+        ("light", Glow::Dimmed, Light::Lit, 8_457_197_691_389_900_798),
+        (
+            "light",
+            Glow::Dimmed,
+            Light::Unread,
+            4_516_481_990_817_300_378,
+        ),
+    ];
+    assert_eq!(got, want);
 }

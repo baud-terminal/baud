@@ -10,7 +10,9 @@ mod support;
 use baud_domain::{Chan, HostTime};
 use baud_domain::{Cols, Rows};
 use baud_font::Face;
-use baud_render::lights::{DOT, GAP, PAIR, TEXT, draw, draw_led, full, layout, width};
+use baud_render::lights::{
+    DOT, Direction, GAP, PAIR, TEXT, draw, draw_led, full, layout, strip_colours, width,
+};
 use baud_render::{
     Activity, Argb, Backdrop, Blend, ByLed, ByLight, GROUND_DARK, GROUND_LIGHT, Glow, Led, Light,
     LightsImage, LightsLook, Pace, PxSize, READ_CEILING, Renderer, Shown, Stack, Theme,
@@ -32,8 +34,201 @@ fn colours() -> ByLed<Argb> {
     })
 }
 
+/// AppKit's colours for the lights under one appearance, as
+/// `baud_present_macos::lights::colours` resolves them headless on this
+/// Mac -- green, orange and blue, and the secondary label colour --
+/// with the strip's ground and greys over the standard material.
+struct AppKit {
+    name: &'static str,
+    in_out_state: [Argb; 3],
+    label: Argb,
+    ground: Argb,
+    backdrop: Backdrop,
+    /// The dark lamps as the strip drew them before its lit colours were
+    /// lifted, in, out and state.
+    lamps: [Argb; 3],
+}
+
+impl AppKit {
+    fn lit(&self) -> ByLed<Argb> {
+        let [i, o, s] = self.in_out_state;
+        ByLed::of(|l| match l.direction() {
+            Direction::In => i,
+            Direction::Out => o,
+            Direction::State => s,
+        })
+    }
+}
+
+fn appkit() -> [AppKit; 4] {
+    let (dark, light) = (
+        Backdrop::under_window_dark(),
+        Backdrop::under_window_light(),
+    );
+    [
+        AppKit {
+            name: "dark",
+            in_out_state: [GREEN, ORANGE, BLUE],
+            label: LABEL,
+            ground: GROUND_DARK,
+            backdrop: dark,
+            lamps: [
+                Argb(0xFF_37_69_43),
+                Argb(0xFF_78_56_37),
+                Argb(0xFF_28_55_78),
+            ],
+        },
+        AppKit {
+            name: "light",
+            in_out_state: [
+                Argb(0xFF_34_C7_59),
+                Argb(0xFF_FF_8D_28),
+                Argb(0xFF_00_88_FF),
+            ],
+            label: Argb(0x7F_00_00_00),
+            ground: GROUND_LIGHT,
+            backdrop: light,
+            lamps: [
+                Argb(0xFF_A7_D5_B3),
+                Argb(0xFF_E7_C3_A4),
+                Argb(0xFF_97_C2_E7),
+            ],
+        },
+        AppKit {
+            name: "dark, Increase Contrast",
+            in_out_state: [
+                Argb(0xFF_4A_D9_68),
+                Argb(0xFF_FF_A0_56),
+                Argb(0xFF_5C_B8_FF),
+            ],
+            label: Argb(0xB2_FF_FF_FF),
+            ground: GROUND_DARK,
+            backdrop: dark,
+            lamps: [
+                Argb(0xFF_3F_6C_48),
+                Argb(0xFF_78_5A_43),
+                Argb(0xFF_45_62_78),
+            ],
+        },
+        AppKit {
+            name: "light, Increase Contrast",
+            in_out_state: [Argb(0xFF00_8932), Argb(0xFF_C5_53_00), Argb(0xFF_1E_6E_F4)],
+            label: Argb(0xC1_00_00_00),
+            ground: GROUND_LIGHT,
+            backdrop: light,
+            lamps: [
+                Argb(0xFF_97_C2_A7),
+                Argb(0xFF_D5_B1_97),
+                Argb(0xFF_A0_B9_E4),
+            ],
+        },
+    ]
+}
+
+/// WCAG 2.2's contrast ratio of two opaque colours.
+fn ratio(a: Argb, b: Argb) -> f64 {
+    let (x, y) = (luminance(a), luminance(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
+/// **Over the standard material every lit light reads at 3:1 against
+/// every grey the strip can be, and the letters at 4.5:1**, under all four
+/// of AppKit's appearances: WCAG 2.2's SC 1.4.11 for a component's state
+/// and SC 1.4.3 for 8 point text (`[[source: wcag22]]`). Each light keeps
+/// its hue -- green the most of its channels, orange red over green over
+/// blue, blue the most -- and a colour that already reads is AppKit's own.
+/// The control: AppKit's colours as they come read under 3:1 against some
+/// grey in three of the four appearances, and the letters under 4.5:1 in
+/// three. Perturbation: return `lit` and `label` from `strip_colours`
+/// unlifted, or lift to 2.9, and this goes red.
+#[test]
+fn every_lit_light_on_the_standard_material_reads_at_three_to_one() {
+    let (mut short_lit, mut short_text) = (0, 0);
+    for a in appkit() {
+        let (lit, letters) = strip_colours(a.lit(), a.label, a.ground, a.backdrop);
+        let worst = |c: Argb| {
+            a.backdrop
+                .greys()
+                .map(|g| ratio(c, g))
+                .fold(f64::MAX, f64::min)
+        };
+        for led in Led::ALL {
+            let (c, asked) = (*lit.get(led), *a.lit().get(led));
+            assert!(
+                worst(c) >= 3.0,
+                "{} {led:?}: {c:?} at {:.3}",
+                a.name,
+                worst(c)
+            );
+            assert_eq!(c.a().get(), 0xFF, "{} {led:?} opaque", a.name);
+            let (r, g, b) = (c.r().get(), c.g().get(), c.b().get());
+            match led.direction() {
+                Direction::In => assert!(g > r && g > b, "{} {led:?} {c:?} green", a.name),
+                Direction::Out => assert!(r > g && g > b, "{} {led:?} {c:?} orange", a.name),
+                Direction::State => assert!(b > g && g > r, "{} {led:?} {c:?} blue", a.name),
+            }
+            if worst(asked) >= 3.0 {
+                assert_eq!(c, asked, "{} {led:?}: already reads, kept", a.name);
+            }
+        }
+        short_lit += usize::from(Led::ALL.iter().any(|&l| worst(*a.lit().get(l)) < 3.0));
+        assert!(
+            worst(letters) >= 4.5,
+            "{} letters {letters:?} at {:.3}",
+            a.name,
+            worst(letters)
+        );
+        let drawn = |g: Argb| on(a.label, g);
+        let asked = a
+            .backdrop
+            .greys()
+            .map(|g| ratio(drawn(g), g))
+            .fold(f64::MAX, f64::min);
+        short_text += usize::from(asked < 4.5);
+    }
+    assert_eq!(
+        short_lit, 3,
+        "the control: AppKit's own fall short in three"
+    );
+    assert_eq!(
+        short_text, 3,
+        "the control: AppKit's letters fall short in three"
+    );
+}
+
+/// **Each dark lamp is the one the strip drew before its lit colours
+/// were lifted**, byte for byte: the system colour, unlifted, mixed into
+/// the strip's ground, under all four of AppKit's appearances, pinned from
+/// the strip as it was drawn; and the lit colour is not the lamp's own
+/// where it was lifted, the control. Perturbation: mix the dark lamp from
+/// the lifted colour and this goes red.
+#[test]
+fn each_dark_lamp_is_the_system_colours() {
+    let mut lifted = 0;
+    for a in appkit() {
+        let (lit, letters) = strip_colours(a.lit(), a.label, a.ground, a.backdrop);
+        for glow in [Glow::Full, Glow::Dimmed] {
+            let look = LightsLook::new(lit, a.lit(), letters, a.ground, glow, a.backdrop);
+            for led in Led::ALL {
+                let want = a.lamps[match led.direction() {
+                    Direction::In => 0,
+                    Direction::Out => 1,
+                    Direction::State => 2,
+                }];
+                assert_eq!(*look.dark.get(led), want, "{} {glow:?} {led:?}", a.name);
+            }
+        }
+        lifted += Led::ALL
+            .iter()
+            .filter(|&&l| lit.get(l) != a.lit().get(l))
+            .count();
+    }
+    assert!(lifted > 0, "the control: some lit colour was lifted");
+}
+
 fn look() -> LightsLook {
     LightsLook::new(
+        colours(),
         colours(),
         LABEL,
         GROUND_DARK,
@@ -264,29 +459,91 @@ fn red(c: Argb) -> bool {
     s > 0.0 && lin(c.r()) / s >= 0.8
 }
 
+/// WCAG 2.2's red flash between two opaque colours: either a saturated
+/// red, and their CIE 1976 u'v' more than 0.2 apart (`[[source: wcag22]]`'s
+/// definition), black taken at D65's white point, as `flash.rs` takes it.
+fn red_flash(a: Argb, b: Argb) -> bool {
+    let uv = |c: Argb| {
+        let lin = |v: Chan| {
+            let s = f64::from(v.get()) / 255.0;
+            if s <= 0.04045 {
+                s / 12.92
+            } else {
+                ((s + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (r, g, b) = (lin(c.r()), lin(c.g()), lin(c.b()));
+        let x = 0.4124 * r + 0.3576 * g + 0.1805 * b;
+        let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        let z = 0.0193 * r + 0.1192 * g + 0.9505 * b;
+        let d = x + 15.0 * y + 3.0 * z;
+        if d <= 0.0 {
+            (0.1978, 0.4683)
+        } else {
+            (4.0 * x / d, 9.0 * y / d)
+        }
+    };
+    let ((ua, va), (ub, vb)) = (uv(a), uv(b));
+    (red(a) || red(b)) && (ua - ub).hypot(va - vb) > 0.2
+}
+
 /// **Under Dim Flashing Lights no change of a light is a flash**: every
 /// pixel of all nine lights, each of the three changes a light can make --
 /// lit against dark, unread against dark, unread against lit -- composited
 /// over every grey of either appearance's material, and over every grey
 /// from black to white for the glass, with that appearance's letters,
 /// differs by less than WCAG's 10% of relative luminance (or both are 0.80
-/// or lighter) and is no saturated red; at full glow lit against dark and
+/// or lighter) and makes no red flash; at full glow lit against dark and
 /// unread against dark are general flashes, the controls that this probe
 /// can fire. A look with three colours scans each once, and the lights
-/// that share a colour share its caps.
+/// that share a colour share its caps. The title strip's own looks over
+/// the standard material, each lit colour lifted and each dark lamp the
+/// system colour's ([`strip_colours`]), are held to the same, under all
+/// four of AppKit's appearances: light with Increase Contrast's orange is
+/// a saturated red, lifted or not, and the caps keep it from a red flash.
 #[test]
 fn dimmed_lights_change_under_the_flash_threshold() {
     let mono = font("JetBrainsMono-Regular.ttf");
     let face = Face::parse(&mono).unwrap();
     const LABEL_LIGHT: Argb = Argb(0x7F_00_00_00);
-    for (ground, backdrop, label) in [
-        (GROUND_DARK, Backdrop::under_window_dark(), LABEL),
-        (GROUND_LIGHT, Backdrop::under_window_light(), LABEL_LIGHT),
-        (GROUND_DARK, Backdrop::any(), LABEL),
-        (GROUND_LIGHT, Backdrop::any(), LABEL_LIGHT),
-    ] {
+    let mut cases = vec![
+        (
+            GROUND_DARK,
+            Backdrop::under_window_dark(),
+            colours(),
+            colours(),
+            LABEL,
+        ),
+        (
+            GROUND_LIGHT,
+            Backdrop::under_window_light(),
+            colours(),
+            colours(),
+            LABEL_LIGHT,
+        ),
+        (GROUND_DARK, Backdrop::any(), colours(), colours(), LABEL),
+        (
+            GROUND_LIGHT,
+            Backdrop::any(),
+            colours(),
+            colours(),
+            LABEL_LIGHT,
+        ),
+    ];
+    let mut reds = 0;
+    for a in appkit() {
+        let (lit, label) = strip_colours(a.lit(), a.label, a.ground, a.backdrop);
+        reds += usize::from(Led::ALL.iter().any(|&l| red(*lit.get(l))));
+        cases.push((a.ground, a.backdrop, lit, a.lit(), label));
+    }
+    assert_eq!(
+        reds, 1,
+        "the control: light with Increase Contrast's orange is red"
+    );
+    for (ground, backdrop, lit, lamp, label) in cases {
+        let reddish = Led::ALL.iter().any(|&l| red(*lit.get(l)));
         for glow in [Glow::Dimmed, Glow::Full] {
-            let look = LightsLook::new(colours(), label, ground, glow, backdrop);
+            let look = LightsLook::new(lit, lamp, label, ground, glow, backdrop);
             assert_eq!(look.dim.rd, look.dim.hs, "one cap a colour");
             assert_eq!(look.dim.cd, look.dim.syn, "one cap a colour");
             let drawn = |light| {
@@ -308,7 +565,10 @@ fn dimmed_lights_change_under_the_flash_threshold() {
                         let general = (yl - yd).abs() >= 0.10 && yl.min(yd) < 0.80;
                         if glow == Glow::Dimmed {
                             assert!(!general, "{name} {glow:?} over {g:?}: {l:?} against {d:?}");
-                            assert!(!red(l) && !red(d), "no saturated red: {l:?} {d:?}");
+                            assert!(!red_flash(l, d), "no red flash: {l:?} {d:?}");
+                            if !reddish {
+                                assert!(!red(l) && !red(d), "no saturated red: {l:?} {d:?}");
+                            }
                         }
                         any |= general;
                     }

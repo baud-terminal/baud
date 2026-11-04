@@ -1713,3 +1713,56 @@ text (CD's and OH's now name `CD?` and `OH?` too), on macOS and Linux.
   its pointer, key and turn wiring is read off `linux.rs` by a test. No
   headless compositor ran: the docker engine was down, and starting colima
   writes `~/.config`.
+
+## 14. Built: the title strip's colours read against it
+
+WCAG 2.2's SC 1.4.11 asks "a contrast ratio of at least 3:1 against
+adjacent color(s)" for the "Visual information required to identify ...
+states" ([[source: wcag22]]). AppKit's colours, drawn as they came, did not
+meet it on the standard material: against grey 196, the light half's
+lightest, green read 1.27, orange 1.32 and blue 2.02, and Increase
+Contrast's 2.60-2.62; against the dark half's grey 92, blue read 2.07 and
+orange 2.995. The letters, 8 pt bold, read 3.26 dark and 3.48 light, under
+SC 1.4.3's 4.5:1 for text that is not large (18 pt, or 14 pt bold); the
+HIG's table, which it says is "from WCAG Level AA", gives 3:1 for "bold at
+any size" ([[source: apple-hig-accessibility]]), and the WCAG text governs.
+
+- **Lit** (`lights::strip_colours`): each of AppKit's colours lifted with
+  `reads_at`, the lights' line's own lift, to 3:1 against every grey of the
+  half, keeping its hue. Light: #1C7C34, #A45815, #006BCC. Light with
+  Increase Contrast: #007D2D, #B54B00, #1A65E1. Dark: green and Increase
+  Contrast's three kept; orange #FF9332, blue #7DAFFF. The letters are
+  AppKit's made opaque over the strip's grey and lifted to 4.5:1: #515151
+  light, #353535 light with Increase Contrast, #D4D4D4 dark.
+- **Dark lamps**: the system colour, unlifted, mixed into the grey as
+  before, byte for byte (`LightsLook::new` takes the lamp's colour apart
+  from the lit one), so a lit light now differs from its dark one by
+  lightness: 1.35, 1.40 and 1.88 light become 3.22, 3.20 and 2.81. The
+  lights' line passes one colour for both, and its pixels are pinned in
+  every state, both themes and both glows.
+- **Glass**: colours, letters and the grey all come from the window's
+  `effectiveAppearance`, the traffic lights' and the lockup's; the grey came
+  from the material's, so a Dark window over ClearLight glass mixed dark
+  colours into the light grey. Nothing is lifted over the glass: no colour
+  reads at 3:1 against black to white, and the strip's range there, the
+  page dimmed over the glass, is unmeasured. Open.
+- **Increase Contrast** draws the pictures again when the tick reads it
+  changed (`poll_display`). That a window's `effectiveAppearance` is the
+  accessibility appearance while it is on is unverified; the tests take
+  those colours from AppKit's own class methods, headless.
+- **Dim Flashing Lights**: the caps are computed from the lifted colours.
+  Light falls from 119, 107 and 69 to 40, 40 and 48, light with Increase
+  Contrast from 60, 59, 59 to 53, dark blue from 154 to 102; the rings rise
+  (light 23 to 39, dark 55 to 74).
+- **A correction**: light with Increase Contrast's orange, #C55300, is a
+  saturated red by the 0.80 test, R/(R+G+B) 0.866 on linear values, and
+  lifted, #B54B00, 0.868; the other three oranges read 0.69-0.78. The
+  drawing conforms through the clock, at most three flashes
+  a second, and the area clause, and the dimmed caps check the red rule;
+  the flash test now checks red flashes, not red pixels, for that look.
+- **Tests**: 3:1 and 4.5:1 for all four appearances (`activity_lights.rs`,
+  and AppKit's own colours headless in `baud-present-macos`), the window's
+  appearance over the glass and the redraw on a change of Increase Contrast (`baud-app`, a check of the driver's source that `poll_display` marks the pictures stale), each red on the old behaviour; the dark lamps and
+  the line's pixels pinned from the old drawing, red with the lamp mixed
+  from the lifted colour, the line lifted to 5:1 or its lamps mixed from
+  the letters' colour. Nothing on a byte's path changed.

@@ -14,6 +14,24 @@
 //! that would reach baud's lockup in a narrow window is not drawn, the
 //! leftmost first, so nothing covers the traffic lights or the lockup.
 //!
+//! **The colours are AppKit's, read in the window's appearance**
+//! (`baud_present_macos::lights::colours`): the lit colours, the letters and
+//! the grey a dark light is mixed into all come from the window's
+//! `effectiveAppearance`, the one AppKit draws the traffic lights in and
+//! the lockup's word follows (`mark.rs`), so a Dark window over a ClearLight
+//! glass mixes its dark colours into a dark grey. Over the standard
+//! material each lit colour is lifted to read at 3:1 against every grey the
+//! strip can be and the letters to 4.5:1 (`baud_render::lights::
+//! strip_colours`), and each dark light stays the system colour mixed into
+//! the strip's grey. Over the glass the colours are AppKit's as they come:
+//! the glass can show anything from black to white, against which no colour
+//! reads at 3:1, and the strip's range there -- the page dimmed over the
+//! glass -- is unmeasured, so whether and how far to lift them is open.
+//! Increase Contrast gives AppKit's accessible colours, and a change of it
+//! draws the pictures again (`poll_display` in `app.rs`); whether a running
+//! window's `effectiveAppearance` resolves them after the change is
+//! unverified (note AH §14).
+//!
 //! **The pixels are baud's renderer's** (`Renderer::activity_light`): each
 //! light's three pictures, dark, lit and unread, drawn when the scale, the
 //! appearance or Dim Flashing Lights changes; a light that changes swaps
@@ -32,6 +50,7 @@
 //! -- so the line is its default, and its lights are drawn there by the
 //! Linux driver.
 
+use baud_render::lights::strip_colours;
 use baud_render::{
     ActivityLights, Argb, Backdrop, ByLed, ByLight, GROUND_DARK, GROUND_LIGHT, Glow, Led, Light,
     LightsImage, LightsLook, Renderer, Shown,
@@ -51,9 +70,11 @@ use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NS
 pub(crate) struct Drawn {
     pub(crate) scale: CGFloat,
     pub(crate) glow: Glow,
-    /// The appearance the body under the strip draws in.
+    /// The window's appearance, which the colours are read in.
     pub(crate) appearance: Appearance,
-    /// Every grey the strip can be over that body (`under`).
+    /// The body under the strip, and every grey the strip can be over it
+    /// (`under`).
+    pub(crate) body: Body,
     pub(crate) backdrop: Backdrop,
 }
 
@@ -196,9 +217,9 @@ pub(crate) struct Strip {
     looks: Vec<(LookKey, LightsLook)>,
 }
 
-/// What a look is made from: the lit and letter colours, the strip's grey,
-/// the glow and the backdrop.
-type LookKey = (ByLed<Argb>, Argb, Argb, Glow, Backdrop);
+/// What a look is made from: AppKit's lit and letter colours, the strip's
+/// grey, the glow, the body and the backdrop.
+type LookKey = (ByLed<Argb>, Argb, Argb, Glow, Body, Backdrop);
 
 impl Strip {
     pub(crate) fn new(right: CGFloat, left: CGFloat) -> Strip {
@@ -302,20 +323,35 @@ impl Strip {
         }
     }
 
-    /// The look for `wanted` under `appearance`: AppKit's colours, a dark
-    /// light mixed into that appearance's strip, from the session's looks
-    /// when one was made from the same colours and glow.
+    /// The look for `wanted` under `appearance`, the window's: AppKit's
+    /// colours and a dark light mixed into the strip's grey, both read in
+    /// that one appearance; over the standard material the lit colours and
+    /// the letters lifted to read against its greys, each dark light mixed
+    /// from the system colour as it comes. From the session's looks when
+    /// one was made from the same colours, body and glow.
     fn look(&mut self, appearance: &NSAppearance, wanted: Drawn) -> LightsLook {
-        let (lit, label) = baud_present_macos::lights::colours(appearance);
-        let ground = match wanted.appearance {
-            Appearance::Dark => GROUND_DARK,
-            Appearance::Light => GROUND_LIGHT,
+        let (system, label) = baud_present_macos::lights::colours(appearance);
+        let ground = if macos_liquid_glass::is_dark(appearance) {
+            GROUND_DARK
+        } else {
+            GROUND_LIGHT
         };
-        let key = (lit, label, ground, wanted.glow, wanted.backdrop);
+        let key = (
+            system,
+            label,
+            ground,
+            wanted.glow,
+            wanted.body,
+            wanted.backdrop,
+        );
         if let Some((_, l)) = self.looks.iter().find(|(k, _)| *k == key) {
             return *l;
         }
-        let look = LightsLook::new(lit, label, ground, wanted.glow, wanted.backdrop);
+        let (lit, letters) = match wanted.body {
+            Body::Standard => strip_colours(system, label, ground, wanted.backdrop),
+            Body::Glass => (system, label),
+        };
+        let look = LightsLook::new(lit, system, letters, ground, wanted.glow, wanted.backdrop);
         self.looks.push((key, look));
         look
     }
@@ -489,6 +525,7 @@ mod tests {
             scale: 2.0,
             glow: Glow::Full,
             appearance: Appearance::Dark,
+            body: Body::Standard,
             backdrop: Backdrop::under_window_dark(),
         }
     }
@@ -540,6 +577,10 @@ mod tests {
             },
             Drawn {
                 backdrop: Backdrop::any(),
+                ..at
+            },
+            Drawn {
+                body: Body::Glass,
                 ..at
             },
         ] {
@@ -791,6 +832,7 @@ mod tests {
                     scale: 2.0,
                     glow,
                     appearance,
+                    body: Body::Standard,
                     backdrop: under(Body::Standard, appearance),
                 };
                 let mut strip = Strip::new(9.0, 100.0);
@@ -815,6 +857,99 @@ mod tests {
                         assert_ne!(tiff[1], tiff[2], "{name} {led:?}: unread is not lit");
                     }
                 }
+            }
+        }
+    }
+
+    /// WCAG 2.2's contrast ratio of two opaque colours.
+    fn ratio(a: Argb, b: Argb) -> f64 {
+        baud_render::contrast_over(a, b, baud_domain::Chan::from_u8(0xFF), Backdrop::any())
+    }
+
+    fn named(name: &str) -> Retained<NSAppearance> {
+        NSAppearance::appearanceNamed(&NSString::from_str(name)).unwrap()
+    }
+
+    /// **Over the standard material the strip's look is lifted and its
+    /// dark lamps are AppKit's**: under Aqua and Dark Aqua, resolved
+    /// headless, every lit light reads at 3:1 and the letters at 4.5:1
+    /// against every grey of that half's material, keeping AppKit's colour
+    /// where it already reads, and each dark light is AppKit's colour as it
+    /// comes mixed into the strip's grey. The control: AppKit's own colours
+    /// read under 3:1 somewhere. Perturbation: call the look without
+    /// `strip_colours`, or mix the dark lights from the lifted colours, and
+    /// this goes red.
+    #[test]
+    fn the_standard_strip_reads_and_its_dark_lamps_are_appkits() {
+        let mut short = 0;
+        for (name, appearance, ground) in [
+            ("NSAppearanceNameAqua", Appearance::Light, GROUND_LIGHT),
+            ("NSAppearanceNameDarkAqua", Appearance::Dark, GROUND_DARK),
+        ] {
+            let ns = named(name);
+            let backdrop = under(Body::Standard, appearance);
+            let wanted = Drawn {
+                scale: 2.0,
+                glow: Glow::Full,
+                appearance,
+                body: Body::Standard,
+                backdrop,
+            };
+            let look = Strip::new(9.0, 100.0).look(&ns, wanted);
+            let (system, _) = baud_present_macos::lights::colours(&ns);
+            let worst = |c: Argb| {
+                backdrop
+                    .greys()
+                    .map(|g| ratio(c, g))
+                    .fold(f64::MAX, f64::min)
+            };
+            for led in Led::ALL {
+                let (lit, asked) = (*look.lit.get(led), *system.get(led));
+                assert!(worst(lit) >= 3.0, "{name} {led:?}: {:.3}", worst(lit));
+                short += usize::from(worst(asked) < 3.0);
+                if worst(asked) >= 3.0 {
+                    assert_eq!(lit, asked, "{name} {led:?}: kept");
+                }
+                let lamp = asked.mix(ground, baud_domain::Chan::from_u8(80));
+                assert_eq!(*look.dark.get(led), lamp, "{name} {led:?}: AppKit's lamp");
+            }
+            assert!(worst(look.label) >= 4.5, "{name} letters");
+        }
+        assert!(short > 0, "the control: AppKit's own fall short");
+    }
+
+    /// **Over the glass one appearance gives the colours and the grey**:
+    /// the window's. A Dark window over a ClearLight glass -- the material
+    /// light, the window dark -- takes Dark Aqua's colours, unlifted, and
+    /// mixes its dark lights into the dark grey, not the light one the
+    /// material's appearance would give; the same holds the other way
+    /// round. Perturbation: take the grey from `wanted.appearance` and this
+    /// goes red.
+    #[test]
+    fn over_the_glass_the_windows_appearance_gives_colours_and_grey() {
+        for (name, material, ground) in [
+            ("NSAppearanceNameDarkAqua", Appearance::Light, GROUND_DARK),
+            ("NSAppearanceNameAqua", Appearance::Dark, GROUND_LIGHT),
+        ] {
+            let ns = named(name);
+            let wanted = Drawn {
+                scale: 2.0,
+                glow: Glow::Full,
+                appearance: material,
+                body: Body::Glass,
+                backdrop: under(Body::Glass, material),
+            };
+            let look = Strip::new(9.0, 100.0).look(&ns, wanted);
+            let (system, label) = baud_present_macos::lights::colours(&ns);
+            assert_eq!(look.lit, system, "{name}: AppKit's, unlifted");
+            assert_eq!(look.label, label, "{name}: AppKit's letters");
+            for led in Led::ALL {
+                let lamp = system.get(led).mix(ground, baud_domain::Chan::from_u8(80));
+                assert_eq!(
+                    *look.dark.get(led),
+                    lamp,
+                    "{name} {led:?}: the window's grey"
+                );
             }
         }
     }
@@ -906,6 +1041,18 @@ mod tests {
         assert!(tell.contains("self.flush_reply(Asked::Unasked);"), "{tell}");
         let style = body(concat!("    fn apply_style(&mut self) ", "{"));
         assert!(style.contains("self.lights.stale();"), "{style}");
+        assert!(
+            style.contains("self.lights_appearance = appearance_of(&self.window);"),
+            "the window's appearance, not the material's\n{style}"
+        );
+        // Increase Contrast changes AppKit's colours, so a change of it
+        // draws the pictures again.
+        let poll = body(concat!("    fn poll_display(&mut self) ", "{"));
+        assert!(poll.contains("self.lights.stale();"), "{poll}");
+        assert!(
+            show.contains("body,\n"),
+            "the pictures are drawn for the body\n{show}"
+        );
         // On their own line: the tick hands the renderer what they show and
         // puts the hover texts over them, every frame places their records,
         // and a re-lay sets the line at its scale and takes its pixels off
