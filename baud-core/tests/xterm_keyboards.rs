@@ -277,12 +277,14 @@ fn ris_returns_to_the_default_keyboard_and_decstr_keeps_it() {
 
 /// **XTSAVE keeps the family as one value**, whichever member is listed,
 /// and XTRESTORE of any member brings back the keyboard saved, the default
-/// one included; a family never saved restores nothing.
+/// one included; a family never saved restores the power-on keyboard, the
+/// default one, as `RIS` does.
 #[test]
 fn xtsave_keeps_the_keyboard_family_as_one_value() {
     support::with_corpus(|t| {
         support::feed(t, b"\x1b[?1051h\x1b[?1052r");
-        assert_eq!(family(t), only(Some(1051)), "never saved: nothing");
+        assert_eq!(family(t), only(None), "never saved: the default keyboard");
+        support::feed(t, b"\x1b[?1051h");
         support::feed(t, b"\x1b[?1060s\x1b[?1060h\x1b[?1050r");
         assert_eq!(
             family(t),

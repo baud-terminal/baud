@@ -195,7 +195,8 @@ for any reset (`[[source: xterm-scroll]]`'s file, util.c 6077-6093); DECRQM
 answers set for the one in force alone (`[[source: xterm-misc]]` 5723-5747).
 **XTSAVE and XTRESTORE keep the six as one value**, a keyboard, whichever of
 them is listed, as xterm keeps them in `DP_KEYBOARD_TYPE` (`[[source:
-xterm-reset]]` 8279-8300, 8734-8756); a family never saved restores nothing.
+xterm-reset]]` 8279-8300, 8734-8756); a family never saved restores the
+power-on keyboard, the default one (since 2026-11-03).
 `RIS` returns to the default keyboard and `DECSTR` keeps it: its table names
 no keyboard (`[[source: vt510-decstr]]`), and xterm resets it in `RIS` alone
 (14451-14455). DECTSR carries all six and DECRSTS restores them. **A key a

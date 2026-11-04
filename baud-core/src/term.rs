@@ -972,13 +972,22 @@ impl Cold {
     /// and `RIS` state ([`Term::set_up_at_launch`]); the keypad is not a
     /// saved value and is left to the reset.
     pub(crate) fn restore_set_up(&mut self) {
-        let s = self.set_up;
-        self.modes
-            .apply(ModeBit::AutoRepeat, s.auto_repeat == ModeChange::Set);
-        self.modes
-            .apply(ModeBit::CursorKeys, s.cursor_keys == ModeChange::Set);
-        self.modes
-            .apply(ModeBit::LineFeedNewLine, s.new_line == ModeChange::Set);
+        Self::set_up_into(&mut self.modes, self.set_up);
+    }
+
+    /// **The mode word at power-on and after `RIS`**: `Modes::default()`
+    /// with the Set-up's DECARM, DECCKM and LNM, the word `hard_reset`
+    /// writes and the one XTRESTORE reads a never-saved mode from.
+    pub(crate) fn power_on_modes(&self) -> Modes {
+        let mut m = Modes::default();
+        Self::set_up_into(&mut m, self.set_up);
+        m
+    }
+
+    fn set_up_into(modes: &mut Modes, s: SetUp) {
+        modes.apply(ModeBit::AutoRepeat, s.auto_repeat == ModeChange::Set);
+        modes.apply(ModeBit::CursorKeys, s.cursor_keys == ModeChange::Set);
+        modes.apply(ModeBit::LineFeedNewLine, s.new_line == ModeChange::Set);
     }
 }
 

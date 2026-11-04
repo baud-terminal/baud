@@ -12,8 +12,11 @@
 //! restore puts each listed mode back through DECSET's own path -- with every
 //! side effect setting or resetting that mode has, and only where its value
 //! differs from the saved one. A mode never saved has no "value previously
-//! saved", and restores nothing. A mode DECSET does not act on is counted, as
-//! DECSET counts it.
+//! saved", and the text says nothing of it: since 2026-11-03 it restores the
+//! value it has at power-on and after `RIS`, as kitty and ghostty start
+//! their saved modes at each mode's power-on value, so a mode never saved
+//! comes back as the terminal started it. A mode DECSET does not act on is
+//! counted, as DECSET counts it.
 //!
 //! xterm's `savemodes` and `restoremodes` (`[[source: xterm-reset]]`) depart
 //! from that text in places. Where the text speaks, baud follows it (since
@@ -23,13 +26,14 @@
 //! text is silent, xterm re-applies `?6`, and `?3` under `c132`, at a value
 //! already in force, and baud changes nothing (XT-7). Like xterm, baud keeps
 //! the four mouse encodings as one value, as it keeps the six keyboards
-//! (since 2026-11-01). The rest are open rather than followed here: xterm
-//! saves one tracking level under all four mouse modes, where baud keeps a
-//! value for each, and restores a never-saved mode from a zeroed array.
+//! (since 2026-11-01). The rest are not followed here: xterm saves one
+//! tracking level under all four mouse modes, where baud keeps a value for
+//! each, and restores a never-saved mode from a zeroed array, which turns
+//! off `?7` and `?25`, never off at power-on.
 
 use crate::support;
 use baud_core::*;
-use baud_domain::{CacheGeometry, Depth};
+use baud_domain::{CacheGeometry, Depth, ImageBudget, Logging, SLOT_WIRE, SetUp, SixelClaim};
 
 fn text_of(cells: &[PackedCell]) -> String {
     cells
@@ -281,8 +285,8 @@ fn encoding(t: &mut Term<'_>) -> Option<u16> {
 /// encoding that was not listed. ctlseqs has "two sets of mutually exclusive
 /// modes", the second of them "protocol encoding", and xterm keeps the four
 /// in one saved value, `DP_X_EXT_MOUSE`. A family never saved restores
-/// nothing, and the tracking levels are not of it: each stays a value of
-/// its own.
+/// its power-on encoding, X10, and the tracking levels are not of it: each
+/// stays a value of its own.
 #[test]
 fn xtsave_keeps_the_mouse_encodings_as_one_value() {
     for (bytes, want, what) in [
@@ -308,8 +312,8 @@ fn xtsave_keeps_the_mouse_encodings_as_one_value() {
         ),
         (
             b"\x1b[?1006h\x1b[?1015r",
-            Some(1006),
-            "never saved, nothing restored",
+            None,
+            "never saved, X10, the power-on encoding",
         ),
     ] {
         support::with_corpus(|t| {
@@ -359,16 +363,28 @@ fn a_restore_at_the_value_in_force_neither_homes_nor_clears() {
     });
 }
 
-/// **Only what was saved is restored, and only what is listed.** A mode never
-/// saved has no value "previously saved", so a restore of it changes nothing
-/// -- xterm restores it from a zeroed array, which turns `?25` off and `?7`
-/// off; an open question.
+/// **What was saved is restored, a mode never saved goes back to its
+/// power-on value, and only what is listed is touched.** A mode never saved
+/// has no value "previously saved", and the text is silent on it; baud
+/// restores the value the mode has at power-on and after `RIS`, as kitty's
+/// `saved_modes = empty_modes` and ghostty's `saved: ModePacked = .{}` start
+/// from each mode's default. xterm restores
+/// it from a zeroed array, which turns `?25` off and `?7` off, never off at
+/// power-on.
 #[test]
 fn only_what_was_saved_and_listed_is_restored() {
     support::with_corpus(|t| {
         feed(t, b"\x1b[?7s\x1b[?7l\x1b[?25l\x1b[?7;25r");
         assert_eq!(ask(t, 7), 1, "?7 was saved and is back");
-        assert!(!t.cursor_visible(), "?25 was never saved and stays hidden");
+        assert!(
+            t.cursor_visible(),
+            "?25 was never saved: shown, as at power-on"
+        );
+    });
+    support::with_corpus(|t| {
+        feed(t, b"\x1b[?7l\x1b[?2004h\x1b[?7;2004r");
+        assert_eq!(ask(t, 7), 1, "never saved: autowrap on, as at power-on");
+        assert_eq!(ask(t, 2004), 2, "never saved: paste brackets off");
     });
     support::with_corpus(|t| {
         feed(t, b"\x1b[?7;25s\x1b[?7l\x1b[?25l\x1b[?7r");
@@ -389,6 +405,131 @@ fn only_what_was_saved_and_listed_is_restored() {
             "saved ANSI, still ANSI"
         );
     });
+}
+
+/// A terminal configured away from the factory where an embedder can
+/// configure it: DECCKM on and DECARM off in the Set-up, the keypad's
+/// application Set-up (which power-up does not take), logging and Sixel
+/// allowed, a blinking bar configured.
+fn configured(t: &mut Term<'_>) {
+    t.set_up_at_launch(SetUp {
+        auto_repeat: ModeChange::Reset,
+        cursor_keys: ModeChange::Set,
+        keypad: KeypadMode::Application,
+        new_line: ModeChange::Set,
+    });
+    t.set_logging(Logging::On);
+    t.set_sixel_claim(SixelClaim::Yes);
+    t.set_initial_cursor_style(CursorStyle::BlinkingBar);
+}
+
+/// **Every mode XTSAVE keeps, never saved, restores its power-on value**,
+/// under a configured Set-up, each moved off that value first where DECSET
+/// can move it, and that value is what `RIS` leaves but for `?46`: `RIS`
+/// and `DECSTR` leave a log started, as xterm's resets do (the `?46` row),
+/// and a log is stopped at power-on. So the restore can drift from neither
+/// unseen. `?2`'s reset enters VT52, where no `CSI` follows, so it is left
+/// to `only_what_was_saved_and_listed_is_restored`.
+#[test]
+fn every_slot_restores_its_power_on_value_when_never_saved() {
+    let ws = WinSize {
+        ws_col: 20,
+        ws_row: 6,
+    };
+    let fresh = |mode: u16, then: &str| {
+        let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, Depth::NONE)
+            .with_images(ImageBudget::of(64));
+        let mut t = Term::new(owned.storage(), &ws);
+        configured(&mut t);
+        if mode == 3 {
+            feed_str(&mut t, "\x1b[?40h");
+        }
+        let power_on = ask(&mut t, mode);
+        let moved = matches!(power_on, 1 | 2) && {
+            flip(&mut t, mode);
+            ask(&mut t, mode) != power_on
+        };
+        let p = t.unsupported_param;
+        feed_str(&mut t, then);
+        (power_on, ask(&mut t, mode), moved, t.unsupported_param - p)
+    };
+    let mut moved_count = 0;
+    for mode in SLOT_WIRE {
+        if mode == 2 {
+            continue;
+        }
+        let (power_on, ris, _, _) = fresh(mode, "\x1bc");
+        let (_, restored, moved, counted) = fresh(mode, &format!("\x1b[?{mode}r"));
+        assert_eq!(
+            restored, power_on,
+            "?{mode}: never saved, its power-on value"
+        );
+        if mode != 46 {
+            assert_eq!(ris, power_on, "?{mode}: and what RIS leaves");
+        }
+        if moved {
+            moved_count += 1;
+            assert_eq!(counted, 0, "?{mode}: restored, not counted");
+        }
+    }
+    assert!(
+        moved_count > 60,
+        "the control: {moved_count} modes moved off their value first"
+    );
+}
+
+/// **A restore of a mode never saved has the side effects of setting the
+/// mode to its power-on value**, since it goes through DECSET's path: an
+/// unsaved `?1049` restored on the alternate screen leaves it, and an
+/// unsaved `?6` restored while origin mode is set resets it and homes the
+/// cursor, as `CSI ? 6 l` does.
+#[test]
+fn a_never_saved_restore_acts_as_setting_the_power_on_value() {
+    support::with_corpus(|t| {
+        feed(t, b"\x1b[?1049h\x1b[?1049r");
+        assert_eq!(t.screen(), Screen::Normal, "left the alternate screen");
+    });
+    support::with_corpus(|t| {
+        feed(t, b"\x1b[5;20r\x1b[?6h\x1b[3;4H\x1b[?6r");
+        assert_eq!(ask(t, 6), 2, "origin mode reset");
+        assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO), "and homed");
+    });
+}
+
+/// **A restore of a mode never saved does not depend on where the reads
+/// fell**: each program at every read size and every split into two reads
+/// leaves what it leaves fed whole, and that is the power-on value -- the
+/// cursor shown, the default keyboard, the X10 encoding.
+#[test]
+fn a_never_saved_restore_does_not_depend_on_where_the_reads_fell() {
+    let state = |pieces: &[&[u8]]| {
+        let mut owned = Owned::new(&support::CORPUS);
+        let mut t = Term::new(owned.storage(), &support::CORPUS);
+        for piece in pieces {
+            t.write_at(BytePos::ZERO, piece);
+            t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
+        }
+        let answers: Vec<u16> = [25, 1051, 1052, 1006, 1015]
+            .iter()
+            .map(|m| ask(&mut t, *m))
+            .collect();
+        (t.cursor_visible(), answers, t.unsupported_param)
+    };
+    for (bytes, want) in [
+        (&b"\x1b[?25l\x1b[?25r"[..], (true, vec![1, 2, 2, 2, 2], 0)),
+        (b"\x1b[?1051h\x1b[?1052r", (true, vec![1, 2, 2, 2, 2], 0)),
+        (b"\x1b[?1006h\x1b[?1015r", (true, vec![1, 2, 2, 2, 2], 0)),
+    ] {
+        assert_eq!(state(&[bytes]), want, "{bytes:?} fed whole");
+        for read in 1..=bytes.len() {
+            let pieces: Vec<&[u8]> = bytes.chunks(read).collect();
+            assert_eq!(state(&pieces), want, "{read}-byte reads of {bytes:?}");
+        }
+        for at in 1..bytes.len() {
+            let got = state(&[&bytes[..at], &bytes[at..]]);
+            assert_eq!(got, want, "{bytes:?} split at {at}");
+        }
+    }
 }
 
 /// **One level, as DECSC's is**: a second save replaces the first, and a
@@ -441,9 +582,12 @@ fn a_mode_decset_does_not_act_on_is_counted_by_both() {
 #[test]
 fn the_question_mark_keeps_them_apart_from_scosc_decstbm_and_decslrm() {
     support::with_corpus(|t| {
-        feed(t, b"\x1b[5;5H\x1b[?25s\x1b[1;1H\x1b[?25l\x1b[u\x1b[?25r");
+        feed(
+            t,
+            b"\x1b[5;5H\x1b[?25l\x1b[?25s\x1b[1;1H\x1b[?25h\x1b[u\x1b[?25r",
+        );
         assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO), "no cursor was saved");
-        assert!(t.cursor_visible(), "the mode was");
+        assert!(!t.cursor_visible(), "the mode was, hidden");
         // The control: SCOSC itself.
         feed(t, b"\x1b[5;5H\x1b[s\x1b[1;1H\x1b[u");
         assert_eq!(t.cursor(), (Row::from_index(4), Col::at_index(4)));
@@ -466,14 +610,14 @@ fn the_question_mark_keeps_them_apart_from_scosc_decstbm_and_decslrm() {
         assert_eq!(t.scroll_region(), (Row::from_index(1), Row::from_index(6)));
     });
     support::with_corpus(|t| {
-        feed(t, b"\x1b[?69h\x1b[5;5H\x1b[?1;25s");
+        feed(t, b"\x1b[?25l\x1b[?69h\x1b[5;5H\x1b[?1;25s");
         assert_eq!(
             t.cursor(),
             (Row::from_index(4), Col::at_index(4)),
             "not homed"
         );
-        feed(t, b"\x1b[?25l\x1b[?25r");
-        assert!(t.cursor_visible(), "the mode was saved");
+        feed(t, b"\x1b[?25h\x1b[?25r");
+        assert!(!t.cursor_visible(), "the mode was saved, hidden");
         // The control: DECSLRM homes.
         feed(t, b"\x1b[1;2s");
         assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO));
@@ -493,8 +637,12 @@ fn ris_empties_the_cache_and_decstr_keeps_it() {
         assert_eq!(ask(t, 7), 1, "DECSTR kept what was saved");
     });
     support::with_corpus(|t| {
-        feed(t, b"\x1b[?7s\x1bc\x1b[?7l\x1b[?7r");
-        assert_eq!(ask(t, 7), 2, "RIS left nothing to restore");
+        feed(t, b"\x1b[?7l\x1b[?7s\x1bc\x1b[?7r");
+        assert_eq!(
+            ask(t, 7),
+            1,
+            "RIS left nothing saved: the power-on value, not the reset saved"
+        );
     });
 }
 

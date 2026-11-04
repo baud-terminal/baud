@@ -42279,3 +42279,19 @@ group  = "C"
 # Fetched and read 2026-11-04, not committed; byte-identical to the source
 # nixpkgs 319e4ceb builds cbonsai 1.4.2 from, whose meta.license is
 # GPL-3.0-only. Weighed for the README film beside pipes-rs and not taken.
+[sources.ghostty-332b2ae-modes]
+key    = "ghostty-332b2ae-modes"
+title  = "ghostty src/terminal/modes.zig at v1.3.1 -- XTSAVE's saved modes start at each mode's default"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 332b2ae, v1.3.1 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/terminal/modes.zig"
+file   = ""
+sha256 = "5b3e6d20d926ddc48f373cc960f297411924225c0abe4cdbe05436b22a10b9ad"
+bytes  = 9442
+status = "external"
+group  = "C"
+# Fetched and read 2026-11-03, not committed. Line 22: `saved: ModePacked = .{}`, each
+# field's `default_value_ptr = &entry.default` (89-108), and `reset` sets `self.saved = .{}` (28-33);
+# lines 68-77: `restore` copies the saved value back, so a mode never saved restores
+# its default.

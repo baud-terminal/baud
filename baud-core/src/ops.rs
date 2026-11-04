@@ -4213,10 +4213,16 @@ impl Paint<'_, '_> {
     /// family's other members restored -- DECRST of any tracking level turns
     /// tracking off, so restoring `?1000` reset under `?1002` would drop the
     /// `?1002` restored before it -- and would clear an alternate screen that
-    /// is already up. **A mode never saved restores nothing**: there is no
-    /// value "previously saved". Where xterm's bespoke code and zeroed array
-    /// differ (`restoremodes`, `[[source: xterm-reset]]`), baud keeps `?1049`
-    /// and an equal value as here; the rest is open.
+    /// is already up. **A mode never saved restores its power-on value**
+    /// ([`Paint::power_on_state`]): the text has no value "previously saved"
+    /// and is silent on it, and kitty and ghostty start their saved modes at
+    /// each mode's power-on value (`saved_modes = empty_modes`,
+    /// `[[source: kitty-6d5d0c4-screen]]`), so a mode never saved comes
+    /// back as the terminal started it. xterm's zeroed array
+    /// (`restoremodes`, `[[source: xterm-reset]]`) turns off `?7` and
+    /// `?25`, which power-on never does;
+    /// where its bespoke code differs, baud keeps `?1049` and an equal value
+    /// as here.
     pub(crate) fn restore_private_modes(
         &mut self,
         csi: &crate::write::Csi,
@@ -4235,10 +4241,12 @@ impl Paint<'_, '_> {
             // **The keyboard family comes back whole**, whichever member is
             // listed: through DECSET of the member saved, or a DECRST of the
             // member in force for the default keyboard, and only where it
-            // differs. Never saved, nothing is restored.
+            // differs. Never saved, the power-on keyboard, the default one
+            // `RIS` returns to.
             if let PrivateMode::Keyboard(_) = m {
                 let now = self.cold.keyboard;
-                match self.cold.xtsave.saved_keyboard() {
+                let saved = self.cold.xtsave.saved_keyboard();
+                match Some(saved.unwrap_or(Keyboard::Default)) {
                     Some(k) if k != now => match k {
                         Keyboard::Default => self.set_private_mode(
                             PrivateMode::Keyboard(now),
@@ -4259,10 +4267,12 @@ impl Paint<'_, '_> {
             }
             // **The mouse encodings come back whole** in the same way:
             // through DECSET of the encoding saved, or a DECRST of the one
-            // in force for X10, which no mode selects.
+            // in force for X10, which no mode selects. Never saved, X10,
+            // the power-on encoding.
             if m.encoding().is_some() {
                 let now = self.cold.mouse_encoding;
-                match self.cold.xtsave.saved_encoding() {
+                let saved = self.cold.xtsave.saved_encoding();
+                match Some(saved.unwrap_or(MouseEncoding::X10)) {
                     Some(e) if e != now => match (e.mode(), now.mode()) {
                         (Some(saved), _) => self.set_private_mode(saved, ModeChange::Set, node, at),
                         (None, Some(in_force)) => {
@@ -4286,7 +4296,7 @@ impl Paint<'_, '_> {
                 self.unsupported_param += 1;
                 return;
             }
-            let Some(want) = self.cold.xtsave.saved(slot) else {
+            let Some(want) = self.cold.xtsave.saved(slot).or(self.power_on_state(m)) else {
                 return;
             };
             let now = match self.private_state(m) {
@@ -4297,6 +4307,93 @@ impl Paint<'_, '_> {
                 self.set_private_mode(m, want, node, at);
             }
         });
+    }
+
+    /// **What a private mode is at power-on and after `RIS`**, the value
+    /// XTRESTORE restores for a mode never saved: from the mode word
+    /// `hard_reset` writes ([`crate::term::Cold::power_on_modes`], the
+    /// Set-up's DECCKM and DECARM in it) and, for a mode kept apart from it,
+    /// the value `soft_reset` and `hard_reset` give its state. `?12` is the
+    /// bit's reset, whatever blink the configured cursor style has (rule F
+    /// or-s the two). `None` for a mode XTSAVE keeps no slot for, and for
+    /// the keyboards and encodings, restored as families. `?46` is a log
+    /// stopped, as at power-on, where `RIS` leaves a log started.
+    /// `every_slot_restores_its_power_on_value_when_never_saved` holds each
+    /// to a terminal just made and to what `RIS` leaves.
+    fn power_on_state(&self, m: PrivateMode) -> Option<ModeChange> {
+        let word = self.cold.power_on_modes();
+        let bit = |b: ModeBit| ModeChange::of(word.is_set(b));
+        Some(match m {
+            PrivateMode::Origin => bit(ModeBit::Origin),
+            PrivateMode::AutoWrap => bit(ModeBit::AutoWrap),
+            PrivateMode::CursorKeys => bit(ModeBit::CursorKeys),
+            PrivateMode::SmoothScroll => bit(ModeBit::SmoothScroll),
+            PrivateMode::ReverseVideo => bit(ModeBit::ReverseVideo),
+            PrivateMode::AutoRepeat => bit(ModeBit::AutoRepeat),
+            PrivateMode::MetaSendsEscape => bit(ModeBit::MetaSendsEscape),
+            PrivateMode::AltSendsEscape => bit(ModeBit::AltSendsEscape),
+            PrivateMode::EightBitInput => bit(ModeBit::EightBitInput),
+            PrivateMode::Column132 => bit(ModeBit::Column132),
+            PrivateMode::CursorVisible => bit(ModeBit::CursorVisible),
+            PrivateMode::ReverseWrap => bit(ModeBit::ReverseWrap),
+            PrivateMode::LeftRightMargin => bit(ModeBit::SideMargins),
+            PrivateMode::BracketedPaste => bit(ModeBit::BracketedPaste),
+            PrivateMode::FocusReporting => bit(ModeBit::FocusReporting),
+            PrivateMode::SynchronizedOutput => bit(ModeBit::SynchronizedOutput),
+            PrivateMode::InbandResize => bit(ModeBit::InbandResize),
+            PrivateMode::ColorPaletteUpdates => bit(ModeBit::ColorPaletteUpdates),
+            PrivateMode::BellIsUrgent => bit(ModeBit::BellIsUrgent),
+            PrivateMode::PopOnBell => bit(ModeBit::PopOnBell),
+            PrivateMode::AllowColumnMode => bit(ModeBit::AllowColumnMode),
+            PrivateMode::NoClearOnColumn => bit(ModeBit::NoClearOnColumn),
+            PrivateMode::EraseColor => bit(ModeBit::EraseScreenBackground),
+            PrivateMode::GraphemeClustering => bit(ModeBit::GraphemeClusters),
+            PrivateMode::SixelDisplay => bit(ModeBit::SixelDisplay),
+            PrivateMode::SixelPrivateRegisters => bit(ModeBit::SixelPrivateRegisters),
+            PrivateMode::SixelScrollsRight => bit(ModeBit::SixelScrollsRight),
+            PrivateMode::CursorRightToLeft => bit(ModeBit::CursorRightToLeft),
+            // The keypad Numeric, whatever the Set-up says; Backspace
+            // sending DEL; NumLock overriding the keypad's modifiers.
+            PrivateMode::NumericKeypad => ModeChange::Reset,
+            PrivateMode::BackarrowKey => ModeChange::Reset,
+            PrivateMode::NumLockModifiers => ModeChange::Set,
+            PrivateMode::DeleteIsDel => {
+                ModeChange::of(Keyboard::Default.delete_sends_del(DeleteKey::Unset))
+            }
+            PrivateMode::CursorBlink => ModeChange::Reset,
+            PrivateMode::AnsiMode => ModeChange::Set,
+            // No tracking and the primary screen.
+            PrivateMode::HighlightTracking
+            | PrivateMode::MouseX10Compat
+            | PrivateMode::MouseNormal
+            | PrivateMode::MouseButtonEvent
+            | PrivateMode::MouseAnyEvent
+            | PrivateMode::AltScreen
+            | PrivateMode::AltScreenLegacy
+            | PrivateMode::AltScreenClearing => ModeChange::Reset,
+            PrivateMode::AlternateScroll => ModeChange::Set,
+            PrivateMode::Scrollbar => ModeChange::Set,
+            PrivateMode::MoreFix => ModeChange::Reset,
+            // No log started, no form feed, the scrolling region, compressed.
+            PrivateMode::Logging
+            | PrivateMode::PrintFormFeed
+            | PrivateMode::PrintExtent
+            | PrivateMode::GraphicsExpandedPrint
+            | PrivateMode::MarginBell => ModeChange::Reset,
+            PrivateMode::Resource(r) => ModeChange::of(baud_domain::Resources::POWER_ON.is_set(r)),
+            PrivateMode::BoxMirroring => {
+                ModeChange::of(LineBidi::POWER_ON.box_mirror() == BoxMirror::On)
+            }
+            PrivateMode::DirectionAutodetect => {
+                ModeChange::of(LineBidi::POWER_ON.autodetect() == Autodetect::On)
+            }
+            PrivateMode::ArrowKeySwap => ModeChange::Set,
+            // Left to right; the multinational set; North American keys.
+            PrivateMode::RightToLeftCopy => ModeChange::Reset,
+            PrivateMode::HebrewEncoding => ModeChange::Set,
+            PrivateMode::HebrewKeyboard => ModeChange::Reset,
+            _ => return None,
+        })
     }
 
     /// DECSC for a set, DECRC for a reset: `?1048`'s two halves, through
@@ -5348,13 +5445,13 @@ impl Paint<'_, '_> {
                 a.last = Some(back);
             }
         }
-        self.cold.modes = Modes::default();
         // **DECARM, DECCKM and LNM to their saved Set-up values**: "RIS
         // replaces all set-up features with their saved settings"
         // (`[[source: vt510-ris]]`), the embedder's `[keyboard]`
         // (`Term::set_up_at_launch`); the keypad stays as `soft_reset` left
         // it, Numeric, which is not a saved value (`[[source: vt510-deckpam]]`).
-        self.cold.restore_set_up();
+        // The word XTRESTORE reads a never-saved mode from.
+        self.cold.modes = self.cold.power_on_modes();
         // **The input encoding back to UTF-8, and `?1007` back on**, the
         // state baud is made operational in (`Term::new`): `RIS` returns
         // the terminal "to its initial state, i.e. the state it has after

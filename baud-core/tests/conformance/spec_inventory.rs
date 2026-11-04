@@ -590,8 +590,9 @@ fn every_spec_csi_form_is_handled_or_counted() {
         ),
         (
             b"\x1b[?1r",
-            "XTRESTORE with nothing saved restores nothing by design -- \
-             only_what_was_saved_and_listed_is_restored",
+            "XTRESTORE of DECCKM never saved restores its power-on value, \
+             reset, which the prepared state has -- \
+             every_slot_restores_its_power_on_value_when_never_saved",
         ),
         (
             b"\x1b[1$v",
