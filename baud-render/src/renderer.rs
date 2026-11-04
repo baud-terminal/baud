@@ -2344,6 +2344,9 @@ pub struct Renderer<'f, 'a> {
     last_splash: Option<SplashLook>,
     splash_scale: Option<f32>,
     splash_inst: Vec<Instance>,
+    /// The splash's block drawn as a blinking cursor at this phase
+    /// ([`Renderer::set_splash_cursor`]): shown, its own, unless set.
+    splash_cursor: CursorPhase,
     /// An input method's composition on this frame and the last, and its
     /// records: the rows under either are dirty, and the cells under it are
     /// converted blank so its own glyphs replace theirs ([`Composition`]).
@@ -2887,6 +2890,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_splash: None,
             splash_scale: None,
             splash_inst: Vec::new(),
+            splash_cursor: CursorPhase::SHOWN,
             composition: None,
             last_composition: None,
             taken: crate::overlay::Taken::default(),
@@ -4024,6 +4028,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.choose_trail();
     }
 
+    /// **The splash's block drawn as a blinking cursor at `phase`**, from
+    /// the frames to come: the block at the phase's opacity of its own, and
+    /// over its cell what the phase draws over a cursor's -- the glow, the
+    /// fire, the ufo -- by the one drawing the terminal's cursor takes
+    /// (`caret::blink`), in the half's amber. Records like the rest of the
+    /// splash's, so every path draws them. [`CursorPhase::SHOWN`], where it
+    /// starts, draws the block as the splash always has; no driver sets
+    /// another. `baud-app`'s logo film hands it the phase the app's caret
+    /// plans, which is how the README's logo blinks as baud's cursor does.
+    pub fn set_splash_cursor(&mut self, phase: CursorPhase) {
+        if phase != self.splash_cursor {
+            self.splash_cursor = phase;
+            self.build_splash();
+        }
+    }
+
     /// The splash's records, for a path that draws records of its own:
     /// with baud's own overlays, before the thumb and the fade.
     pub fn splash(&self) -> &[Instance] {
@@ -4123,6 +4143,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let b = splash::placed(splash::BLOCK, at, scale);
         let (x0, y0) = (b.left.round(), b.top.round());
         let (x1, y1) = (b.right.round(), b.bottom.round());
+        let blink = self.splash_cursor;
+        let shown = f32::from(blink.opacity.get()) / 255.0;
         out.push(Instance {
             x: Screen(i16::try_from(x0 as i64).unwrap_or(i16::MAX)),
             y: Screen(i16::try_from(y0 as i64).unwrap_or(i16::MAX)),
@@ -4130,10 +4152,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
             h: Tex(u16::try_from((y1 - y0).max(0.0) as i64).unwrap_or(0)),
             u: Tex(0),
             v: Tex(0),
-            color: splash::at_alpha(colours.amber, splash::block(look, at, scale)),
+            color: splash::at_alpha(colours.amber, splash::block(look, at, scale) * shown),
             kind: Kind::Solid,
             curve: curve_row(colours.amber),
         });
+        // What the phase draws over a cursor's cell, over the block's.
+        if blink.glow.get() > 0 || blink.play != Play::Still {
+            let px = |v: f32| Px::of(u32::try_from(v.max(0.0) as i64).unwrap_or(0));
+            let cell = (px(x0), px(y0), px(x1 - x0), px(y1 - y0));
+            caret::blink(cell, cell, blink, colours.amber, &mut out);
+        }
         // A record at no opacity draws nothing: left out, so a vanished
         // glyph costs no draw.
         out.retain(|r| r.color.a().get() > 0);
@@ -4902,15 +4930,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.glow_inst.clear();
         if let Some((r, c, style, phase)) = self.glow {
             let cell = self.cursor_px(r, c, CursorStyle::SteadyBlock);
-            caret::glow(cell, phase.glow, self.cursor_fill, &mut self.glow_inst);
             let shape = self.cursor_px(r, c, style);
-            caret::play(
-                cell,
-                shape,
-                phase.play,
-                self.cursor_fill,
-                &mut self.glow_inst,
-            );
+            caret::blink(cell, shape, phase, self.cursor_fill, &mut self.glow_inst);
         }
     }
 
@@ -12725,5 +12746,91 @@ mod kept_bound {
             let asked = ask(&mut r, n, (usize::from(n % 2), small));
             assert_ne!(asked, crate::kept::Asked::Found, "row {n}, asked last");
         }
+    }
+}
+
+#[cfg(test)]
+mod splash_cursor {
+    use super::*;
+    use baud_core::Owned;
+    use baud_domain::WinSize;
+
+    /// **The splash's block blinks as the terminal's cursor does**: at each
+    /// phase -- hidden, the glow part way, the fire and the ufo part way, a
+    /// fade part way -- the splash's records are its shown ones with the
+    /// block at the phase's opacity, then what the phase draws over a
+    /// cursor's cell, by the cursor's own drawing (`caret::blink`), over
+    /// the block's. Shown, it draws the splash's own records. The controls:
+    /// the glow, the fire and the ufo add records, and hidden takes the
+    /// block away.
+    #[test]
+    fn the_splash_block_blinks_as_the_cursor_does() {
+        let data = std::fs::read(format!(
+            "{}/../baud-app/fonts/built/Bold.ttf",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap();
+        let faces = [Face::parse(&data).unwrap()];
+        let ws = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let mut owned = Owned::new(&ws);
+        let t = Term::new(owned.storage(), &ws);
+        let mut r = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(80),
+            Rows::of_index(24),
+        )
+        .unwrap();
+        r.fit(&t);
+        r.set_splash(Some(SplashLook {
+            phase: splash::SplashPhase::Hold,
+        }));
+        let shown = r.splash().to_vec();
+        r.set_splash_cursor(CursorPhase::SHOWN);
+        assert_eq!(r.splash(), &shown[..], "shown: the splash's own");
+        let (block, glyphs) = shown.split_last().unwrap();
+        let at = |v: i16| Px::of(u32::try_from(i32::from(v)).unwrap());
+        let len = |v: Tex| Px::of(u32::from(v.0));
+        let cell = (at(block.x.0), at(block.y.0), len(block.w), len(block.h));
+        let amber = splash::DARK.amber;
+        let part = Chan::from_u8(128);
+        for phase in [
+            CursorPhase::HIDDEN,
+            CursorPhase {
+                glow: part,
+                ..CursorPhase::HIDDEN
+            },
+            CursorPhase::fire(part),
+            CursorPhase::ufo(part),
+            CursorPhase {
+                opacity: part,
+                ..CursorPhase::SHOWN
+            },
+        ] {
+            r.set_splash_cursor(phase);
+            let mut want = glyphs.to_vec();
+            let opacity = f32::from(phase.opacity.get()) / 255.0;
+            want.push(Instance {
+                color: splash::at_alpha(amber, opacity),
+                ..*block
+            });
+            caret::blink(cell, cell, phase, amber, &mut want);
+            want.retain(|i| i.color.a().get() > 0);
+            assert_eq!(r.splash(), &want[..], "{phase:?}");
+            match phase.play {
+                Play::Still if phase.glow.get() == 0 && phase.opacity.get() == 0 => {
+                    assert_eq!(r.splash().len(), glyphs.len(), "hidden: no block");
+                }
+                Play::Still if phase.glow.get() == 0 => {}
+                _ => assert!(r.splash().len() > shown.len(), "{phase:?}: drawn over it"),
+            }
+        }
+        r.set_splash_cursor(CursorPhase::SHOWN);
+        assert_eq!(r.splash(), &shown[..], "shown again");
     }
 }

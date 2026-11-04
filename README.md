@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/baud-lockup-dark-blinking.svg">
-  <img alt="baud" src="assets/logo/baud-lockup-light-blinking.svg" width="300">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/logo-dark.gif">
+  <img alt="baud: the word baud, an amber prompt and an amber block cursor, the cursor blinking for a few seconds and then staying on" src="assets/readme/logo-light.gif" width="420">
 </picture>
 
 **The terminal with character: its own font, its own cursor effects, and the speed to keep up.**

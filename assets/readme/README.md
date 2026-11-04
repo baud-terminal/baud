@@ -1,5 +1,47 @@
 # The README's pictures
 
+`logo-dark.gif` and `logo-light.gif` are the README's header: the
+lockup the launch splash holds, as the logo files draw it, drawn by
+baud's CPU renderer at twice its 300 units on GitHub's own page colour,
+#0d1117 for the dark theme and #ffffff for the light, 840 by 580 and
+shown 420 wide, so the lockup is its 300. Only the block cursor moves as drawn; in the encoded file gifski's palette, picked frame by frame, also moves at most 528 glyph-edge pixels by at most 27 levels across the first three frame changes, and none after them:
+it blinks as baud's cursor blinks by default, each phase asked of the
+app's own caret and drawn by the cursor's own drawing
+(`baud-app/src/logo_film.rs`), so the logo follows the default blink.
+
+At the default, 250 ms shown and 250 hidden with nothing drawn in the
+hidden phase, each file is nineteen frames of 25 hundredths of a second:
+shown and hidden by turns nine times, 4.5 s of blinking, then a
+nineteenth frame with the cursor shown, which the file rests on. It
+plays once: it carries no loop block. The blink is the most whole
+cycles that end before five seconds, because WCAG 2.2's 2.2.2 Pause,
+Stop, Hide (Level A) covers blinking that starts automatically, lasts
+more than five seconds and is presented in parallel with other content,
+and asks for a way to pause, stop or hide it ([[source: wcag22]]); a
+README carries no control of its own, so the logo stops by itself
+instead. It does not rely on GitHub's own setting to pause animated
+images.
+
+| half | bytes | frames | blink, read off the decoded file | most flashes at a pixel in a second, general / red |
+|---|---|---|---|---|
+| dark | 10,902 | 19 | 9 x (250 ms shown, 250 hidden), then shown | 2 / 0 |
+| light | 11,372 | 19 | 9 x (250 ms shown, 250 hidden), then shown | 2 / 0 |
+
+Two tests hold the committed files, each decoding them with baud's own
+GIF decoder: `logo_film::tests::the_readme_logos_blink_the_default_and_rest_shown`
+(`baud-app`) requires that outside the cursor no frame differs from
+the first beyond the encoder's palette, reads shown and hidden off the
+block's pixels, and requires the default's phases, under five seconds of
+blinking and a last frame that is the first, the cursor shown; `baud-bench/tests/readme_logo_flashes.rs` takes
+WCAG 2.3.1's census of the frames at 100 a second and 2 pixels a point,
+the last held 3 s, and requires both verdicts to pass and no pixel to
+flash more than three times in a second. `scripts/make-readme-logo.py`
+films both halves, encodes them with gifski 1.34.0 at quality 80 from
+`readme-film.sh`'s nixpkgs, Python and Pillow from
+`make-brand-pictures.py`'s, checks gifski writes the same bytes twice,
+writes the files and runs both tests; with `--check` it compares the
+files byte for byte instead of writing them.
+
 `hero.gif` is a screen recording of a real baud session, its window filmed
 as it ran: a shell, every command typed into it at real speed, glass and
 smooth scrolling as they are, at 110x33 cells and 12 pt, in Dark. It shows

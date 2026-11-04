@@ -33,8 +33,9 @@ What it writes, each from the code below and nothing else:
       the mark on one line, 300 by 130: the word where it always was, the ❯'s
       cell from x 192 on the old cursor's rows, the whole ink then centred
       across the box
-  assets/logo/baud-lockup-{dark,light}-blinking.svg  their fixed twins' bytes:
-      the README's header names them, and an animation would make it blink
+  assets/logo/baud-lockup-{dark,light}-blinking.svg  their fixed twins' bytes,
+      under the names this sheet and THIRD_PARTY.md give them; the README's
+      header is scripts/make-readme-logo.py's
   assets/logo/baud-mark-{dark,light,amber}.svg (and -dark-, -light-blinking)
       the mark alone at 512, transparent
   assets/logo/baud-icon-512-{dark,light,amber}.svg (and -dark-, -light-blinking),

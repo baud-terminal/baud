@@ -298,6 +298,23 @@ fn solid(out: &mut Vec<Instance>, cell: Box4, edges: Box4, fill: Argb, a: f32) {
     });
 }
 
+/// **What a blink `phase` draws over the cursor's `cell`** besides the
+/// cursor itself: the plasma glow's pulse, then its animation (`play`),
+/// `shape` the cursor as its style draws it, in `fill`, appended to `out`.
+/// The one drawing of a phase: the terminal's cursor
+/// ([`crate::Renderer::set_cursor_glow_at`]) and the splash's block
+/// ([`crate::Renderer::set_splash_cursor`]) both take it.
+pub(crate) fn blink(
+    cell: (Px, Px, Px, Px),
+    shape: (Px, Px, Px, Px),
+    phase: CursorPhase,
+    fill: Argb,
+    out: &mut Vec<Instance>,
+) {
+    glow(cell, phase.glow, fill, out);
+    play(cell, shape, phase.play, fill, out);
+}
+
 /// **The animation `play` over the cursor's `cell`**, its `shape` the cursor
 /// as its style draws it, in `fill`, appended to `out`.
 pub(crate) fn play(

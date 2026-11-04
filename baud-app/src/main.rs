@@ -193,6 +193,10 @@ mod programs;
 // baud filmed without a window, for scripts/readme-film.sh: the tests only.
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod film;
+// The README's logo filmed without a window, for
+// scripts/make-readme-logo.py: the tests only.
+#[cfg(test)]
+mod logo_film;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
 // ReGIS's built-in alphabet, drawn with the embedded face: both drivers
