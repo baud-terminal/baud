@@ -585,14 +585,18 @@ fn a_refused_read_shows_a_ring_and_keeps_the_clock() {
     }
 }
 
-/// **HS's read is one as long as the tty hands back**: Darwin's 1024
-/// lights it, one byte fewer does not.
+/// **HS's read is one as long as the tty hands back**: Darwin's 1024 and
+/// Linux's 4095, each on its own system, light it, one byte fewer does not.
 #[test]
 fn a_read_at_the_ceiling_is_full() {
-    assert_eq!(READ_CEILING, 1024);
-    assert!(full(&[0; 1024]));
+    let ceiling = match cfg!(target_os = "linux") {
+        true => 4095,
+        false => 1024,
+    };
+    assert_eq!(READ_CEILING, ceiling);
+    assert!(full(&vec![0; ceiling]));
     assert!(full(&[0; 4096]));
-    assert!(!full(&[0; 1023]));
+    assert!(!full(&vec![0; ceiling - 1]));
     assert!(!full(&[]));
 }
 

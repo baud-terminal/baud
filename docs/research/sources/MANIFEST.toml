@@ -17639,7 +17639,10 @@ status = "external"
 group  = "AW"
 # Not in the repository: no grant to redistribute it was found (a DEC manual
 # as transcribed on vt100.net). It was read as vt420-uu-chapter4.html, and the
-# digest is of that copy.
+# digest is of that copy. Re-read 2026-11-03, digest unchanged, for the
+# keyboard indicator line: "The keyboard indicator line appears at the bottom
+# of the screen, below the status line" and "appears in the same video
+# background as the main display".
 # Fetched 2026-10-21 (lane b128-indicator-fixes) for the indicator line's fields
 # [text]: "The default status line has four fields that show you: The page number of the
 # page displayed / Cursor position / Printer status / Modem status"; Table 4-2 field 3,

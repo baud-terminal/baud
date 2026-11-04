@@ -29,22 +29,15 @@ use macos_liquid_glass::objc2_app_kit::{
 };
 use macos_liquid_glass::objc2_foundation::NSSize;
 
-/// Which of the three colours a light takes: in, out or a state.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Direction {
-    In,
-    Out,
-    State,
-}
+/// Which of the three colours a light takes: in, out or a state
+/// ([`Led::direction`]).
+pub use baud_render::lights::Direction;
 
 /// `led`'s direction: RD and HS bring data in, SD, AA and CS send it out
-/// or fail to, and the rest show a state.
+/// or fail to, and the rest show a state ([`Led::direction`], which the
+/// lights' own line in the frame takes its theme colours by too).
 pub fn direction(led: Led) -> Direction {
-    match led {
-        Led::Rd | Led::Hs => Direction::In,
-        Led::Sd | Led::Aa | Led::Cs => Direction::Out,
-        Led::Cd | Led::Oh | Led::Fax | Led::Syn => Direction::State,
-    }
+    led.direction()
 }
 
 /// Every light's lit colour and the letters' colour, under `appearance`.

@@ -1,4 +1,5 @@
-//! **Activity lights**: small lights at the right of the title strip, each
+//! **Activity lights**: small lights at the right of the title strip, or on
+//! a line of their own in the frame ([`ActivityLights`]), each
 //! named with a modem's letters and lit only for something baud measured,
 //! in the order the 1988 Courier manual's table lists them -- "HS AA CD OH
 //! RD SD TR MR RS CS ARQ SYN" (`[[source: usr-courier-hs-1988]]`, PDF
@@ -52,6 +53,16 @@
 //! reducing automatic and repetitive animations"
 //! (`[[source: apple-hig-accessibility]]`).
 //!
+//! **On their own line** (`LineState`, `Renderer::set_lights_line`) the
+//! pictures are the same [`draw_led`] draws for the title strip's views, at
+//! [`line_picture`]'s height in points, never the cell's, so the area clause
+//! holds at every font size; the line is that and [`LINE_MARGIN`] above and
+//! below, and is no row. AppKit's colours exist only on macOS and the two
+//! systems draw the same pixels, so there the lights take the theme's
+//! ([`line_colours`]), each lit one at 3:1 against the line. The pictures go
+//! to the colour sheet once a look, and a light that changes names another.
+//! The clock and the caps below are the title strip's.
+//!
 //! **Dim Flashing Lights** draws a lit light at the most of its colour over
 //! the dark light that makes neither a general nor a red flash over any
 //! grey of the backdrop the strip shows -- the standard material's range,
@@ -69,13 +80,62 @@ use baud_domain::{Chan, Codepoint, HostTime};
 use baud_font::{Canvas, Extent, Face, Point, Px, Rasterizer, Scale, VarPoint};
 use core::time::Duration;
 
-/// **Whether the activity lights are drawn**: `[window] activity_lights`,
-/// on unless the config says off. One switch for the strip.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+/// **Where the activity lights are drawn**: `[window] activity_lights` as
+/// the config resolves it for the system the window is on -- the title
+/// strip on macOS, a line of their own on Linux, whose window has no title
+/// bar -- or nowhere. One setting for all nine.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ActivityLights {
-    #[default]
-    On,
+    /// In the window's title strip, beside AppKit's own buttons: macOS's.
+    TitleBar,
+    /// **A line of their own under the program's last line**, and under
+    /// DEC's status line when a program shows one, in the window's own
+    /// background: the VT420's keyboard indicator line, which "appears at
+    /// the bottom of the screen, below the status line" and "in the same
+    /// video background as the main display" (`[[source: vt420-uu-ch4]]`).
+    /// It is no row of the program's: neither the rows nor the text area
+    /// a program is told hold it, and only a report of the whole window
+    /// does. Only as tall as the lights ([`LineRows`]), not a text row.
+    BottomLine,
+    /// The same line above the grid, which no DEC text governs.
+    TopLine,
+    /// Nowhere, and nothing is read for them.
     Off,
+}
+
+impl ActivityLights {
+    /// Whether the lights are drawn anywhere, and so read for.
+    pub const fn shown(self) -> bool {
+        !matches!(self, ActivityLights::Off)
+    }
+
+    /// The edge of the window the lights' own line takes, or none: in the
+    /// title strip or off, the frame keeps no line for them.
+    pub const fn line(self) -> Option<LineEdge> {
+        match self {
+            ActivityLights::BottomLine => Some(LineEdge::Bottom),
+            ActivityLights::TopLine => Some(LineEdge::Top),
+            ActivityLights::TitleBar | ActivityLights::Off => None,
+        }
+    }
+}
+
+/// Which edge of the window the lights' own line is at.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LineEdge {
+    /// Below the grid, the status line and the config's notice.
+    Bottom,
+    /// Above the grid.
+    Top,
+}
+
+/// What a light says of the line, which its colour repeats: data in, data
+/// out, or a state of the session or the screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Direction {
+    In,
+    Out,
+    State,
 }
 
 /// **One light of the strip**, in its place left to right. The meaning of
@@ -192,6 +252,16 @@ impl Led {
         matches!(self, Led::Cd | Led::Oh)
     }
 
+    /// **What the light says of the line**: RD and HS bring data in, SD,
+    /// AA and CS send it out or fail to, and the rest show a state.
+    pub const fn direction(self) -> Direction {
+        match self {
+            Led::Rd | Led::Hs => Direction::In,
+            Led::Sd | Led::Aa | Led::Cs => Direction::Out,
+            Led::Cd | Led::Oh | Led::Fax | Led::Syn => Direction::State,
+        }
+    }
+
     /// Whether the letters carry a bar: CS's, which is inverted from the
     /// modem's.
     pub const fn bar(self) -> Bar {
@@ -212,9 +282,18 @@ pub enum Bar {
 /// **The read that is full at the platform's ceiling**: Darwin's tty hands
 /// back at most `TTYCLSIZE`, "1024", a read (`[[source: xnu-tty-h]]`
 /// 104-105), measured as 49,152 reads for 48 MB (CONTRIBUTING.md's
-/// `READ_CHUNK` row). A read that long is HS's sign that more was waiting,
-/// though not proof: exactly that much may have been all there was.
-pub const READ_CEILING: usize = 1024;
+/// `READ_CHUNK` row), and Linux's at most `N_TTY_BUF_SIZE` less one, 4095
+/// (`[[source: linux-n-tty]]`, the same row). A read that long is HS's
+/// sign that more was waiting, though not proof: exactly that much may
+/// have been all there was.
+pub const READ_CEILING: usize = match cfg!(target_os = "linux") {
+    true => LINUX_CEILING,
+    false => DARWIN_CEILING,
+};
+/// Darwin's ceiling, `TTYCLSIZE`.
+pub const DARWIN_CEILING: usize = 1024;
+/// Linux's ceiling, `N_TTY_BUF_SIZE` less the byte the line discipline keeps.
+pub const LINUX_CEILING: usize = 4095;
 
 /// **Whether `read` is HS's**: as long as [`READ_CEILING`].
 pub fn full(read: &[u8]) -> bool {
@@ -637,6 +716,120 @@ pub fn width(face: &Face<'_>) -> f32 {
     lights + PAIR * (Led::ALL.len() - 1) as f32
 }
 
+/// **The space above and below the lights on their own line**, in
+/// points: the line is the picture and this, and no taller.
+pub const LINE_MARGIN: f32 = 2.0;
+/// **The space the line keeps at its right end**, in points, as the title
+/// strip keeps a gap at its own; a light that would start nearer the left
+/// end than this is left out.
+pub const LINE_END: f32 = 9.0;
+
+/// **How tall the lights' picture is on their own line, in points**: the
+/// tallest thing drawn above a light's centre is CS's bar -- the caps'
+/// half height, the bar's gap and its stroke -- and below it the light's
+/// own half, since the letters have no descender; [`draw_led`] centres
+/// both on the picture, so the picture is twice the taller half, rounded
+/// up to a whole point. In points and never from the cell, so a large
+/// font does not enlarge the lights and the area clause WCAG 2.3.1's
+/// threshold rests on holds at every size.
+pub fn line_picture() -> f32 {
+    let above = (CAP * TEXT / 2.0 + BAR_GAP + BAR).max(DOT / 2.0);
+    (2.0 * above).ceil()
+}
+
+/// **The lights' line at a scale**, in device pixels: the picture's rows
+/// and the margin above and below it, each rounded as [`draw_led`] rounds
+/// the picture, so the line is exactly the picture and its margins.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LineRows {
+    pub picture: Px,
+    pub margin: Px,
+}
+
+impl LineRows {
+    /// The rows at `scale` device pixels a point; `None` for a scale no
+    /// pixel count holds.
+    pub fn at(scale: f32) -> Option<LineRows> {
+        let px = |pt: f32| u32::try_from((pt * scale).round() as i64).ok().map(Px::of);
+        Some(LineRows {
+            picture: px(line_picture())?,
+            margin: px(LINE_MARGIN)?,
+        })
+    }
+
+    /// The line's whole height: the picture and a margin above and below.
+    pub fn height(self) -> Px {
+        Px::of(
+            self.picture
+                .value()
+                .saturating_add(self.margin.value().saturating_mul(2)),
+        )
+    }
+}
+
+/// **Where each light sits on a line `width` pixels wide**, from the line's
+/// left, as the title strip places its views: the strip of `strip` pixels,
+/// laid out by [`layout`], ends `end` pixels in from the right, and a light
+/// that would start less than `end` from the left is left out -- in a
+/// narrow window the leftmost go first and the rest keep their places.
+pub fn line_places(width: Px, at: &ByLed<Slot>, strip: Px, end: Px) -> ByLed<Option<Px>> {
+    let x0 = i64::from(width.value()) - i64::from(end.value()) - i64::from(strip.value());
+    ByLed::of(|led| {
+        let x = x0 + i64::from(at.get(led).start.value());
+        (x >= i64::from(end.value()))
+            .then(|| u32::try_from(x).ok().map(Px::of))
+            .flatten()
+    })
+}
+
+/// **The lights' colours on their own line, from the theme**, where
+/// AppKit's system colours do not exist and the two systems must draw the
+/// same pixels: what comes in (RD, HS) in the palette's green, entry 2,
+/// what goes out (SD, AA, CS) in its yellow, entry 3, and a state (CD,
+/// OH, FAX, SYN) in its blue, entry 4 -- the hues the title strip's
+/// system colours give them. Each lit colour is lifted, if it must be,
+/// until it reads at 3:1 against the line, `page` drawn at `alpha` over
+/// whatever `backdrop` spans: WCAG 2.2's SC 1.4.11, "a contrast ratio of
+/// at least 3:1 against adjacent color(s)" for "Visual information
+/// required to identify user interface components and states"
+/// (`[[source: wcag22]]`). The letters are the foreground at two thirds
+/// of its strength over the page, as the title strip's are AppKit's
+/// secondary label colour, lifted to `text`, the floor the window's text
+/// reads at. Where no colour reaches a target against all of the
+/// backdrop, the lift goes as far as it can ([`crate::Floor`]).
+pub fn line_colours(
+    palette: &[Argb; 256],
+    fg: Argb,
+    page: Argb,
+    alpha: Chan,
+    backdrop: Backdrop,
+    text: f64,
+) -> (ByLed<Argb>, Argb) {
+    let reads = |c: Argb, target: f64| {
+        crate::color::reads_at(
+            c.with_alpha(Chan::from_u8(0xFF)),
+            page,
+            alpha,
+            backdrop,
+            target,
+        )
+    };
+    let [inward, outward, state] = [2, 3, 4].map(|i| reads(palette[i], LIT_CONTRAST));
+    let lit = ByLed::of(|l| match l.direction() {
+        Direction::In => inward,
+        Direction::Out => outward,
+        Direction::State => state,
+    });
+    let soft = fg
+        .with_alpha(Chan::from_u8(0xFF))
+        .mix(page, Chan::from_u8(170));
+    (lit, reads(soft, text))
+}
+
+/// The contrast a lit light reads at against its line, at least: SC
+/// 1.4.11's 3:1 for a component's state.
+pub const LIT_CONTRAST: f64 = 3.0;
+
 /// Which way an outline winds.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Wind {
@@ -989,4 +1182,195 @@ impl Activity {
     pub fn shown(&self) -> Shown {
         ByLed::of(|l| self.lamps.get(l).light)
     }
+
+    /// **The next moment after `now` a step at `pace` could change a
+    /// light**, or none while every light is as it will stay until
+    /// something is seen: the end of a dwell, of a hold or of a refusal's
+    /// hold, the soonest of any light's still ahead. A driver with no
+    /// display link wakes for it, so a light goes dark when its hold ends
+    /// and not at the next event; a wake at a moment that changes nothing
+    /// costs one step. Stepped at `now` first, so nothing owed is behind.
+    pub fn next_change(&self, now: HostTime, pace: Pace) -> Option<HostTime> {
+        let t = pace.timing();
+        Led::ALL
+            .iter()
+            .flat_map(|&l| {
+                let lamp = self.lamps.get(l);
+                [
+                    lamp.since.map(|s| s.plus(t.dwell)),
+                    (lamp.light == Light::Lit).then(|| lamp.last.plus(t.hold)),
+                    lamp.refused.map(|r| r.plus(t.hold)),
+                ]
+            })
+            .flatten()
+            .filter(|&at| at > now)
+            .min()
+    }
+}
+
+/// **The lights' own line in the frame**, kept by the renderer: where it
+/// is and how tall, what the lights show and how a lit one is drawn, the
+/// looks made so far, and this frame's records -- one a placed light, each
+/// naming that light's picture in its state on the colour sheet, in the
+/// line's own pixels -- with what the CPU path last painted there.
+pub(crate) struct LineState {
+    pub(crate) line: Option<Line>,
+    pub(crate) shown: Shown,
+    pub(crate) glow: Glow,
+    looks: Vec<(LookKey, LightsLook, Epoch)>,
+    pub(crate) inst: Vec<crate::instance::Instance>,
+    /// Each placed light's left and width, in the line's pixels: where its
+    /// hover text is.
+    pub(crate) places: ByLed<Option<(Px, Px)>>,
+    pub(crate) painted: Option<(Argb, Vec<crate::instance::Instance>)>,
+    pub(crate) fresh: Fresh,
+}
+
+/// Whether the last CPU frame repainted the line.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Fresh {
+    No,
+    Yes,
+}
+
+/// Where the line is, its rows, and the scale its points are drawn at.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Line {
+    pub(crate) edge: LineEdge,
+    pub(crate) rows: LineRows,
+    pub(crate) scale: f32,
+}
+
+/// What a look on the line is made from: the three lit colours asked, the
+/// foreground, the page, its alpha and backdrop, the letters' target, the
+/// glow, and the scale the pictures are drawn at.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct LookKey {
+    pub(crate) asked: [Argb; 3],
+    pub(crate) fg: Argb,
+    pub(crate) page: Argb,
+    pub(crate) alpha: Chan,
+    pub(crate) backdrop: Backdrop,
+    pub(crate) text: f64,
+    pub(crate) glow: Glow,
+    pub(crate) scale: f32,
+}
+
+/// Which look a picture on the colour sheet was drawn in: one a look made,
+/// counted up from the first.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Epoch(u64);
+
+impl LineState {
+    pub(crate) fn new() -> LineState {
+        LineState {
+            line: None,
+            shown: Shown::DARK,
+            glow: Glow::Full,
+            looks: Vec::new(),
+            inst: Vec::new(),
+            places: ByLed::default(),
+            painted: None,
+            fresh: Fresh::No,
+        }
+    }
+
+    /// The line's height in pixels: none without a line.
+    pub(crate) fn height(&self) -> Px {
+        self.line.map_or(Px::of(0), |l| l.rows.height())
+    }
+
+    /// **The look for `key` and its epoch**, the number its pictures are
+    /// kept under on the colour sheet: from the looks made so far, else
+    /// made now. A dimmed look scans its caps over every grey
+    /// ([`Backdrop::any`]): what is under the line is the page, at its
+    /// alpha over the window's material, and black to white bounds that
+    /// whatever it is. Kept to the last few, which a theme and its reverse
+    /// video, both glows and two scales fill.
+    fn look(&mut self, key: LookKey, palette: &[Argb; 256]) -> (LightsLook, Epoch) {
+        if let Some((_, l, e)) = self.looks.iter().find(|(k, _, _)| *k == key) {
+            return (*l, *e);
+        }
+        let (lit, label) =
+            line_colours(palette, key.fg, key.page, key.alpha, key.backdrop, key.text);
+        let look = LightsLook::new(lit, label, key.page, key.glow, Backdrop::any());
+        let epoch = Epoch(self.looks.last().map_or(0, |(_, _, e)| e.0 + 1));
+        if self.looks.len() >= LOOKS_KEPT {
+            self.looks.remove(0);
+        }
+        self.looks.push((key, look, epoch));
+        (look, epoch)
+    }
+
+    /// **This frame's records**: each light at its state, placed by
+    /// [`line_places`] on a line `width` pixels wide, its picture the one
+    /// the colour sheet holds for this look. Every picture of a placed
+    /// light -- dark, lit and unread -- is drawn there the first frame of a
+    /// look ([`crate::atlas::Atlas::picture`]), so a light that changes
+    /// names another picture and draws and uploads nothing.
+    pub(crate) fn place(
+        &mut self,
+        face: &Face<'_>,
+        atlas: &mut crate::atlas::Atlas,
+        key: LookKey,
+        palette: &[Argb; 256],
+        width: Px,
+    ) {
+        self.inst.clear();
+        self.places = ByLed::default();
+        let Some(line) = self.line else {
+            return;
+        };
+        let (look, epoch) = self.look(key, palette);
+        let Some((at, strip)) = layout(face, line.scale) else {
+            return;
+        };
+        let end = Px::of(u32::try_from((LINE_END * line.scale).round() as i64).unwrap_or(0));
+        let xs = line_places(width, &at, strip, end);
+        let height = line_picture();
+        for (led, &light) in self.shown.iter() {
+            let Some(x) = *xs.get(led) else {
+                continue;
+            };
+            let slots = ByLight::of(|state| {
+                atlas.picture(picture_key(epoch, led, state), || {
+                    let mut img = LightsImage::new();
+                    draw_led(face, &look, led, state, line.scale, height, &mut img)?;
+                    let px = img.pixels.iter().map(|p| p.0).collect();
+                    Some((px, img.width, img.height))
+                })
+            });
+            let Some(slot) = *slots.get(light) else {
+                continue;
+            };
+            *self.places.get_mut(led) = Some((x, at.get(led).width));
+            let screen = |v: u32| crate::instance::Screen(i16::try_from(v).unwrap_or(i16::MAX));
+            self.inst.push(crate::instance::Instance {
+                x: screen(x.value()),
+                y: screen(line.rows.margin.value()),
+                w: slot.w,
+                h: slot.h,
+                u: slot.x,
+                v: slot.y,
+                color: Argb(0xFFFF_FFFF),
+                kind: slot.kind,
+                curve: baud_domain::contrast::CurveRow::default(),
+            });
+        }
+    }
+}
+
+/// How many looks the line keeps: a theme and its reverse video, under
+/// either glow, at two scales.
+const LOOKS_KEPT: usize = 8;
+
+/// The key a light's picture in one state of one look is kept under on
+/// the colour sheet: the look's epoch, the light and the state.
+fn picture_key(epoch: Epoch, led: Led, light: Light) -> crate::atlas::PictureKey {
+    let at = |i: Option<usize>| u64::try_from(i.unwrap_or(0)).unwrap_or(0);
+    let l = at(Led::ALL.iter().position(|&x| x == led));
+    let s = at(Light::ALL.iter().position(|&x| x == light));
+    // A tag in the top byte keeps the lights' keys apart from any other
+    // picture's.
+    crate::atlas::PictureKey((0x4C << 56) | (epoch.0 << 8) | (l << 2) | s)
 }

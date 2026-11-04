@@ -411,11 +411,11 @@ pub struct Config {
     /// which refuses every one. A program on the other end of the line, a
     /// remote one included, can otherwise move or hide the window.
     pub window_ops: baud_domain::WindowOps,
-    /// `[window] activity_lights`: whether the nine modem-style lights at
-    /// the right of the title strip are shown (`baud_render::lights`),
-    /// `"on"` by default, or `"off"`, which also reads nothing for them.
-    /// One switch for all nine. macOS only: the Linux window has no title
-    /// bar.
+    /// `[window] activity_lights`: where the nine modem-style lights are
+    /// drawn (`baud_render::lights`), as [`lights_at`] resolves the setting
+    /// for this system -- the title strip, a line of their own at the
+    /// window's bottom or top, or nowhere, which also reads nothing for
+    /// them. One setting for all nine.
     pub activity_lights: baud_render::ActivityLights,
     /// `[window] tearing`: whether the window may be shown torn for the
     /// least delay, `"off"` by default -- research decision D14, "an
@@ -762,6 +762,60 @@ pub enum TrailPick {
     Named(CursorTrail),
 }
 
+/// **`[window] activity_lights` as written**: `"on"`, the system's own
+/// place, which is what it meant before the lights could go anywhere
+/// else; `"title_bar"`; `"bottom_line"`; `"top_line"`; or `"off"`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LightsSetting {
+    System,
+    TitleBar,
+    BottomLine,
+    TopLine,
+    Off,
+}
+
+/// The systems the lights' places differ on: macOS's window has a title
+/// strip for them, Linux's has none -- it asks the compositor for no
+/// decorations and draws none (`linux.rs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Os {
+    MacOs,
+    Linux,
+}
+
+impl Os {
+    /// The system this build runs on; any but macOS has no title strip.
+    pub const HERE: Os = match cfg!(target_os = "macos") {
+        true => Os::MacOs,
+        false => Os::Linux,
+    };
+}
+
+/// **Where `asked` draws the lights on `os`**, and what the config notice
+/// says when it cannot be done as asked: `"on"` is the system's default,
+/// the title strip on macOS and the bottom line on Linux, as the owner
+/// chose on 2026-11-03; `"title_bar"` on Linux, which has no title bar,
+/// draws the bottom line and says so; every other value is drawn as
+/// asked on both.
+pub fn lights_at(asked: LightsSetting, os: Os) -> (baud_render::ActivityLights, Option<String>) {
+    use baud_render::ActivityLights as At;
+    match (asked, os) {
+        (LightsSetting::System | LightsSetting::TitleBar, Os::MacOs) => (At::TitleBar, None),
+        (LightsSetting::System, Os::Linux) => (At::BottomLine, None),
+        (LightsSetting::TitleBar, Os::Linux) => (
+            At::BottomLine,
+            Some(
+                "config: [window] activity_lights \"title_bar\" has no title bar to go in on \
+                 Linux; the lights are on a line of their own at the window's bottom"
+                    .to_string(),
+            ),
+        ),
+        (LightsSetting::BottomLine, _) => (At::BottomLine, None),
+        (LightsSetting::TopLine, _) => (At::TopLine, None),
+        (LightsSetting::Off, _) => (At::Off, None),
+    }
+}
+
 /// `[window] tearing`: `"on"` lets the compositor show a frame torn rather
 /// than wait for the screen's refresh, `"off"` (the default) does not.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -976,7 +1030,7 @@ impl Config {
             notifications: Notifications::On,
             graphics_print: baud_domain::GraphicsPrint::DEFAULT,
             window_ops: baud_domain::WindowOps::On,
-            activity_lights: baud_render::ActivityLights::On,
+            activity_lights: lights_at(LightsSetting::System, Os::HERE).0,
             tearing: Tearing::Off,
             launch_splash: LaunchSplash::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
@@ -1922,17 +1976,23 @@ impl Config {
                     };
                 }
                 ("window", "activity_lights") => {
-                    self.activity_lights = match value.trim().trim_matches('"') {
-                        "on" => baud_render::ActivityLights::On,
-                        "off" => baud_render::ActivityLights::Off,
+                    let asked = match value.trim().trim_matches('"') {
+                        "on" => LightsSetting::System,
+                        "title_bar" => LightsSetting::TitleBar,
+                        "bottom_line" => LightsSetting::BottomLine,
+                        "top_line" => LightsSetting::TopLine,
+                        "off" => LightsSetting::Off,
                         other => {
                             said.push(format!(
-                                "config: [window] activity_lights {other:?} is not on or off; \
-                                 using on"
+                                "config: [window] activity_lights {other:?} is not on, \
+                                 title_bar, bottom_line, top_line or off; using on"
                             ));
-                            baud_render::ActivityLights::On
+                            LightsSetting::System
                         }
                     };
+                    let (at, notice) = lights_at(asked, Os::HERE);
+                    self.activity_lights = at;
+                    said.extend(notice);
                 }
                 ("window", "tearing") => {
                     self.tearing = match value.trim().trim_matches('"') {
@@ -4695,32 +4755,87 @@ mod reader {
         assert_eq!(read("[screen]\ntearing = \"on\"\n").tearing, Tearing::Off);
     }
 
-    /// **The activity lights are on unless `[window] activity_lights =
-    /// "off"`**, quoted or bare; any other value keeps them on and says so,
-    /// and the key is the `[window]` section's.
+    /// **The activity lights go where `[window] activity_lights` says**, on
+    /// this system: `"on"` and no setting at all are the system's own place
+    /// ([`lights_at`]), `"title_bar"`, `"bottom_line"`, `"top_line"` and
+    /// `"off"` each theirs, quoted or bare; any other value is the system's
+    /// and says so, and the key is the `[window]` section's.
     #[test]
-    fn the_activity_lights_are_on_unless_turned_off() {
+    fn the_activity_lights_go_where_the_setting_says() {
         use baud_render::ActivityLights;
-        assert_eq!(Config::defaults().activity_lights, ActivityLights::On);
-        assert_eq!(read("").activity_lights, ActivityLights::On);
-        for off in ["\"off\"", "off"] {
-            let text = format!("[window]\nactivity_lights = {off}\n");
-            assert_eq!(read(&text).activity_lights, ActivityLights::Off, "{off}");
-        }
+        let here = lights_at(LightsSetting::System, Os::HERE).0;
+        assert_eq!(Config::defaults().activity_lights, here);
+        assert_eq!(read("").activity_lights, here);
         assert_eq!(
             read("[window]\nactivity_lights = \"on\"\n").activity_lights,
-            ActivityLights::On
+            here
         );
+        for (value, at) in [
+            ("off", ActivityLights::Off),
+            ("bottom_line", ActivityLights::BottomLine),
+            ("top_line", ActivityLights::TopLine),
+            ("title_bar", lights_at(LightsSetting::TitleBar, Os::HERE).0),
+        ] {
+            for text in [format!("\"{value}\""), value.to_string()] {
+                let text = format!("[window]\nactivity_lights = {text}\n");
+                assert_eq!(read(&text).activity_lights, at, "{text}");
+            }
+        }
         let mut c = Config::defaults();
         let said = c.apply("[window]\nactivity_lights = false\n");
-        assert_eq!(c.activity_lights, ActivityLights::On);
+        assert_eq!(c.activity_lights, here);
         assert_eq!(said.len(), 1, "{said:?}");
         assert!(said[0].contains("activity_lights"), "{said:?}");
         assert_eq!(
             read("activity_lights = \"off\"\n").activity_lights,
-            ActivityLights::On,
+            here,
             "not a top-level key"
         );
+    }
+
+    /// **Each system's place for the lights, and the notice when a place
+    /// cannot be had**, both systems tested on either: `"on"` is the title
+    /// strip on macOS and the bottom line on Linux, as the owner chose on
+    /// 2026-11-03; `"title_bar"` on Linux, which has no title bar, is the
+    /// bottom line, and the config notice says so; the lines and `"off"`
+    /// are as asked on both, with nothing said. Perturbation: answer
+    /// `"title_bar"` on Linux with the title strip -- the lights would go
+    /// where Linux draws nothing, silently -- and this goes red.
+    #[test]
+    fn each_system_has_its_place_for_the_lights_and_says_when_it_cannot() {
+        use baud_render::ActivityLights as At;
+        assert_eq!(
+            lights_at(LightsSetting::System, Os::MacOs),
+            (At::TitleBar, None)
+        );
+        assert_eq!(
+            lights_at(LightsSetting::System, Os::Linux),
+            (At::BottomLine, None)
+        );
+        assert_eq!(
+            lights_at(LightsSetting::TitleBar, Os::MacOs),
+            (At::TitleBar, None)
+        );
+        let (at, said) = lights_at(LightsSetting::TitleBar, Os::Linux);
+        assert_eq!(at, At::BottomLine);
+        let said = said.expect("a notice");
+        assert!(said.contains("[window] activity_lights"), "{said}");
+        assert!(
+            said.contains("title_bar") && said.contains("bottom"),
+            "{said}"
+        );
+        for os in [Os::MacOs, Os::Linux] {
+            assert_eq!(
+                lights_at(LightsSetting::BottomLine, os),
+                (At::BottomLine, None)
+            );
+            assert_eq!(lights_at(LightsSetting::TopLine, os), (At::TopLine, None));
+            assert_eq!(lights_at(LightsSetting::Off, os), (At::Off, None));
+        }
+        assert_eq!(At::BottomLine.line(), Some(baud_render::LineEdge::Bottom));
+        assert_eq!(At::TopLine.line(), Some(baud_render::LineEdge::Top));
+        assert_eq!((At::TitleBar.line(), At::Off.line()), (None, None));
+        assert!(At::TitleBar.shown() && At::BottomLine.shown() && !At::Off.shown());
     }
 
     /// **Exit-status marks are off unless `[screen] exit_status = "on"`**,
@@ -5853,7 +5968,10 @@ shadow     = "never"
             window.contains("\nactivity_lights = \"on\"\n"),
             "the [window] activity_lights"
         );
-        assert_eq!(c.activity_lights, baud_render::ActivityLights::On);
+        assert_eq!(
+            c.activity_lights,
+            lights_at(LightsSetting::System, Os::HERE).0
+        );
         assert!(
             text.contains("\n[pointer]\nhide_while_typing = \"on\"\n"),
             "the [pointer] hide_while_typing"

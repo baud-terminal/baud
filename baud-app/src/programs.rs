@@ -993,7 +993,7 @@ impl Thumbed {
             G,
             |b| out.extend_from_slice(b),
             |term, beside| {
-                let Some(e) = crate::bar::event_beside(beside, 0.0, 1.0) else {
+                let Some(e) = crate::bar::event_beside(beside, (0.0, 0.0), 1.0) else {
                     return crate::bar::Took::No;
                 };
                 took = bar.input(term, e, f, now).0;

@@ -405,6 +405,9 @@ impl Arms<'_, '_> {
         // every path; none while the setting is off.
         self.renderer
             .place_marks(t, self.back, baud_render::Leaving::None, Px::of(0));
+        // And the activity lights on their own line, as the app places them
+        // for every path; none without the line.
+        self.renderer.place_lights(t);
         // Both arms draw the same image placements: computed once here, read by
         // `draw` and `draw_cells` alike.
         self.renderer.set_images(t, self.back);
@@ -4594,6 +4597,8 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     hollow_cursor_gate(&mut arms, &mut t);
     cpu_page_gate(&mut arms, &mut t);
     status_marks_gate(&mut arms, &mut t);
+    lights_line_gate(&mut arms, &mut t);
+    lights_line_slide_gate(&mut arms, &mut t);
     substitute_mark_gate(&mut arms, &mut t);
     kitty_draw_gate(&mut arms, &mut t);
     iterm_file_gate(&mut arms, &mut t);
@@ -7600,6 +7605,147 @@ fn status_marks_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let (again, _) = arms.draw(t);
     assert_eq!(again, off_a, "off draws the frame without the strip");
     feed(t, b"\x1b[2J\x1b[H");
+    arms.margin = margin;
+}
+
+/// **The activity lights' own line on every path**: with the line below
+/// the grid and then above it, the instance arm, the cell arm and the CPU
+/// arm agree on every pixel of the whole frame, the line holds the lights
+/// (a positive control), and the grid's frame beside it is the frame drawn
+/// with no line, at the whole's top or the line's height down; off again,
+/// the frame is that one. The pictures reach the GPU on the colour sheet
+/// and no shader is added: the line's records are `Kind::Color`.
+fn lights_line_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    use baud_render::{ByLed, Glow, Led, Light, LineEdge, Shown};
+    let margin = arms.margin;
+    arms.margin = (0, 0);
+    feed(t, b"\x1b[2J\x1b[H$ ls\r\nfiles\r\n$ ");
+    let (off_a, _) = arms.draw(t);
+    let (fw, _) = arms.renderer.whole_size();
+    let fw = usize::try_from(fw.value()).unwrap();
+    let shown = ByLed {
+        rd: Light::Lit,
+        oh: Light::Lit,
+        cd: Light::Unread,
+        ..Shown::DARK
+    };
+    arms.renderer.set_lights(shown, Glow::Full);
+    for edge in [LineEdge::Bottom, LineEdge::Top] {
+        arms.renderer.set_lights_line(Some(edge), 1.0);
+        let (a, b) = arms.draw(t);
+        let c = cpu_frame(arms, t);
+        assert!(
+            arms.renderer
+                .lights_records()
+                .iter()
+                .all(|r| r.kind == Kind::Color),
+            "{edge:?}: pictures on the colour sheet"
+        );
+        assert_eq!(arms.renderer.lights_records().len(), Led::ALL.len());
+        let line = usize::try_from(arms.renderer.lights_height().value()).unwrap();
+        let (w, h) = arms.renderer.whole_size();
+        let (w, h) = (
+            usize::try_from(w.value()).unwrap(),
+            usize::try_from(h.value()).unwrap(),
+        );
+        assert_eq!((w, h), (fw, off_a.len() / fw + line), "{edge:?}");
+        assert_eq!(differing(&a, &b), 0, "{edge:?}: the GPU arms agree");
+        assert_eq!(differing(&a, &c), 0, "{edge:?}: the CPU arm agrees");
+        let (line_at, grid_at) = match edge {
+            LineEdge::Bottom => (h - line, 0),
+            LineEdge::Top => (0, line),
+        };
+        let clear = a[(line_at + line - 1) * w];
+        assert!(
+            a[line_at * w..(line_at + line) * w]
+                .iter()
+                .any(|&p| p != clear),
+            "{edge:?}: the lights on the line"
+        );
+        assert_eq!(
+            &a[grid_at * w..(grid_at * w + off_a.len())],
+            &off_a[..],
+            "{edge:?}: the grid's frame is the one with no line"
+        );
+    }
+    arms.renderer.set_lights_line(None, 1.0);
+    let (again, _) = arms.draw(t);
+    assert_eq!(again, off_a, "off draws the frame without the line");
+    feed(t, b"\x1b[2J\x1b[H");
+    arms.margin = margin;
+}
+
+/// **Smooth scrolling slides the grid and holds the lights' line still**,
+/// below the grid and above it, on the cell path that slides: a full-row
+/// slide at the live screen is the frame one line up, the line included,
+/// so the leaving row is not drawn over a line above the grid and no row
+/// pans over one below it; and half-way, the line's rows are the settled
+/// frame's while the grid's are not (the control).
+fn lights_line_slide_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    use baud_render::{ByLed, Glow, Light, LineEdge, Shown};
+    let margin = arms.margin;
+    arms.margin = (0, 0);
+    feed(t, b"\x1b[?25l\x1b[2J\x1b[H");
+    for i in 0..14u32 {
+        feed(
+            t,
+            format!("0000 1111 2222 row {i:02} 3333 4444 5555\r\n").as_bytes(),
+        );
+    }
+    let cell_h = arms.renderer.metrics().cell_h;
+    arms.renderer
+        .sync_styles(t, arms.styles_mem, &mut arms.stamp);
+    arms.map.ensure(
+        t,
+        t.view(Rows::of_count(1)),
+        arms.styles_mem,
+        &mut arms.renderer,
+        &mut arms.candidates,
+    );
+    arms.renderer.set_lights(
+        ByLed {
+            rd: Light::Lit,
+            sd: Light::Lit,
+            ..Shown::DARK
+        },
+        Glow::Full,
+    );
+    for edge in [LineEdge::Bottom, LineEdge::Top] {
+        arms.renderer.set_lights_line(Some(edge), 1.0);
+        let (w, h) = arms.renderer.whole_size();
+        let (w, h) = (
+            usize::try_from(w.value()).unwrap(),
+            usize::try_from(h.value()).unwrap(),
+        );
+        let line = usize::try_from(arms.renderer.lights_height().value()).unwrap();
+        let line_at = usize::try_from(arms.renderer.lights_top().value()).unwrap();
+        let rows_of = |p: &[u32], at: usize, n: usize| p[at * w..(at + n) * w].to_vec();
+        arms.back = Rows::ZERO;
+        arms.slide = Some(cell_h);
+        let (_, full_slid) = arms.draw(t);
+        arms.slide = None;
+        arms.back = Rows::of_count(1);
+        let (_, one_up) = arms.draw(t);
+        arms.back = Rows::ZERO;
+        assert_eq!(
+            differing(&full_slid, &one_up),
+            0,
+            "{edge:?}: a full-row slide is the screen one line up, its line still"
+        );
+        arms.slide = Some(Px::of(cell_h.value() / 2));
+        let (_, mid) = arms.draw(t);
+        arms.slide = None;
+        let (_, settled) = arms.draw(t);
+        assert_eq!(
+            rows_of(&mid, line_at, line),
+            rows_of(&settled, line_at, line),
+            "{edge:?}: the line holds still mid-slide"
+        );
+        assert!(differing(&mid, &settled) > 0, "{edge:?}: the grid slid");
+        assert_eq!(mid.len(), w * h);
+    }
+    arms.renderer.set_lights_line(None, 1.0);
+    feed(t, b"\x1b[2J\x1b[H\x1b[?25h");
     arms.margin = margin;
 }
 
@@ -10929,6 +11075,44 @@ fn a_cursor_only_instance_frame_draws_its_rows_and_the_whole_frames_pixels() {
     rows_were_few(&rot);
 }
 
+/// **A light that changes on its own line draws the frame whole, and a
+/// cursor move beside it only its rows**, on both paths, the line below
+/// the grid and above it, every frame against a whole draw: the line is
+/// outside every row's band, so a frame that kept the target's pixels
+/// there would show the light as it was. Perturbation: leave the lights'
+/// records out of the frame's key -- the light's frame is drawn by rows,
+/// over the line it left -- and this goes red.
+#[test]
+fn a_light_change_on_its_line_draws_the_frame_whole_on_both_paths() {
+    use baud_render::{ByLed, Glow, Light, LineEdge, Shown};
+    let lit = |rd: Light| -> Act {
+        Box::new(move |a, _| {
+            a.renderer
+                .set_lights(ByLed { rd, ..Shown::DARK }, Glow::Full)
+        })
+    };
+    let steps = || -> Vec<Step> {
+        let inc = Damage::Incremental;
+        let mut steps: Vec<Step> = cursor_steps()
+            .into_iter()
+            .take(1)
+            .map(|(name, damage, change)| (name, damage, change, Want::Any))
+            .collect();
+        steps.extend::<Vec<Step>>(vec![
+            ("the cursor moved", inc, at(3, 4), Want::Rows),
+            ("RD lit", inc, lit(Light::Lit), Want::Whole),
+            ("the cursor moved beside it", inc, at(5, 6), Want::Rows),
+            ("RD dark", inc, lit(Light::Dark), Want::Whole),
+            ("and the cursor again", inc, at(2, 9), Want::Rows),
+        ]);
+        steps
+    };
+    for edge in [LineEdge::Bottom, LineEdge::Top] {
+        cell_oracle_lined((Reads::Copy, Px::of(0)), Some(edge), steps(), Counting(0));
+        instance_oracle_lined(Px::of(0), Some(edge), steps(), Counting(0));
+    }
+}
+
 /// **A guide across a legacy scroller's gutter is drawn whole**, on both
 /// paths: the gutter is outside every band, so a frame that moves the
 /// guide there draws every pixel, and still agrees with a whole draw.
@@ -10999,10 +11183,26 @@ fn gutter_steps() -> Vec<Step> {
 /// whole draw, and each against its [`Want`]. The rotation, its first
 /// `counted` frames counted.
 fn cell_oracle(reads: Reads, gutter: Px, steps: Vec<Step>, counted: usize) -> Rotation {
+    cell_oracle_lined((reads, gutter), None, steps, Counting(counted))
+}
+
+/// How many of an oracle's first frames count toward the rows-drawn bound.
+#[derive(Clone, Copy)]
+struct Counting(usize);
+
+/// [`cell_oracle`] with the activity lights' own line at `line`.
+fn cell_oracle_lined(
+    (reads, gutter): (Reads, Px),
+    line: Option<baud_render::LineEdge>,
+    steps: Vec<Step>,
+    counted: Counting,
+) -> Rotation {
+    let counted = counted.0;
     let files = partial_faces();
     let faces = files.each_ref().map(|f| Face::parse(f).unwrap());
     let mut renderer = partial_renderer(&faces);
     renderer.set_gutter(gutter);
+    renderer.set_lights_line(line, 1.0);
     arms!(renderer => arms, t);
     let size = arms.renderer.whole_size();
     let n = usize::try_from(size.0.value() * size.1.value()).unwrap();
@@ -11053,10 +11253,22 @@ fn cell_oracle(reads: Reads, gutter: Px, steps: Vec<Step>, counted: usize) -> Ro
 
 /// The partial oracle on the instance path, as [`cell_oracle`].
 fn instance_oracle(gutter: Px, steps: Vec<Step>, counted: usize) -> Rotation {
+    instance_oracle_lined(gutter, None, steps, Counting(counted))
+}
+
+/// [`instance_oracle`] with the activity lights' own line at `line`.
+fn instance_oracle_lined(
+    gutter: Px,
+    line: Option<baud_render::LineEdge>,
+    steps: Vec<Step>,
+    counted: Counting,
+) -> Rotation {
+    let counted = counted.0;
     let files = partial_faces();
     let faces = files.each_ref().map(|f| Face::parse(f).unwrap());
     let mut renderer = partial_renderer(&faces);
     renderer.set_gutter(gutter);
+    renderer.set_lights_line(line, 1.0);
     arms!(renderer => arms, t);
     let size = arms.renderer.whole_size();
     let n = usize::try_from(size.0.value() * size.1.value()).unwrap();
@@ -11069,6 +11281,7 @@ fn instance_oracle(gutter: Px, steps: Vec<Step>, counted: usize) -> Rotation {
         arms.renderer.set_cursor_guide(arms.guide);
         arms.renderer.set_badge(arms.badge.clone());
         arms.renderer.set_images(&t, arms.back);
+        arms.renderer.place_lights(&t);
         arms.renderer.convert(&t, arms.back, *damage);
         let target = rot.target();
         let missing = rot.ages.missing(rot.next);

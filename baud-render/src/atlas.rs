@@ -168,6 +168,11 @@ pub struct Origin {
     pub top: i32,
 }
 
+/// **The key a picture of baud's own is kept under** ([`Atlas::picture`]):
+/// its drawer's, whole.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct PictureKey(pub u64);
+
 /// Where a glyph's image sits in the atlas and where it goes on screen:
 /// `left` pixels right of the glyph origin, `top` pixels below the
 /// baseline (negative above it).
@@ -614,6 +619,10 @@ pub struct Atlas {
     /// Colour glyphs drawn at a size of their own inside an alpha, the
     /// badge's, by face, glyph, scale and the alpha, voided with the rest.
     faded: HashMap<(FaceIx, GlyphIx, ScaleKey, u8), Option<Slot>>,
+    /// Pictures of baud's own on the colour sheet, the activity lights' on
+    /// their line ([`Atlas::picture`]), by the key their drawer gave, voided
+    /// with the rest.
+    pictures: HashMap<PictureKey, Option<Slot>>,
     /// Each glyph's ink box in font units, by face and glyph: a function of
     /// the outline alone, so of no size, and voided with the rest.
     inks: HashMap<(FaceIx, GlyphIx), Option<InkBox>>,
@@ -649,6 +658,7 @@ impl Atlas {
             sized: HashMap::new(),
             stroked: HashMap::new(),
             faded: HashMap::new(),
+            pictures: HashMap::new(),
             inks: HashMap::new(),
             scratch: Vec::new(),
             var: Vec::new(),
@@ -760,6 +770,7 @@ impl Atlas {
         self.sized.clear();
         self.stroked.clear();
         self.faded.clear();
+        self.pictures.clear();
         self.inks.clear();
         self.clear_mask(mask);
         self.clear_color(color);
@@ -1917,6 +1928,28 @@ impl Atlas {
         let slot = crate::boxes::draw_ring(ring, cell, th, &mut self.scratch, &mut self.coverage)
             .and_then(|extent| self.place_cell_mask(extent, baseline));
         self.held.procedural.insert(ring.key().0, slot);
+        slot
+    }
+
+    /// **A picture of baud's own on the colour sheet**, straight-alpha
+    /// pixels `w` by `h` that `draw` makes, placed the first time `key` is
+    /// asked and taken from the memo after, so a picture whose look has not
+    /// changed is never drawn or uploaded again; voided with the rest at a
+    /// reset, when the next ask draws it again. Its origin is its top-left.
+    pub fn picture(
+        &mut self,
+        key: PictureKey,
+        draw: impl FnOnce() -> Option<(Vec<u32>, Px, Px)>,
+    ) -> Option<Slot> {
+        if let Some(slot) = self.pictures.get(&key) {
+            return *slot;
+        }
+        let slot = draw().and_then(|(px, w, h)| {
+            (px.len() == slots(w) * slots(h))
+                .then(|| self.place_color(&px, w, h, Origin { left: 0, top: 0 }))
+                .flatten()
+        });
+        self.pictures.insert(key, slot);
         slot
     }
 

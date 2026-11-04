@@ -77,6 +77,10 @@ pub struct MacWindow {
     /// The status line's rows below the grid (`Term::status_rows`): a
     /// resize in cells gives the grid its rows and keeps the line's.
     pub status: Rows,
+    /// The activity lights' own line, in device pixels, above or below
+    /// the grid (`Renderer::lights_height`): no row, and kept as the
+    /// status line's row is.
+    pub line: f64,
     pub minimized: Minimized,
     pub full: Full,
     /// The frame a maximise saved, which a restore returns to.
@@ -248,6 +252,7 @@ fn after(mut w: MacWindow, a: MacAction) -> MacWindow {
             let max = crate::host::MAX_GRID;
             let pad = 2.0 * w.padding * w.scale;
             let line = u16::try_from(w.status.index()).unwrap_or(0);
+            let lights = w.line;
             // `grid_in`'s arithmetic, its clamp and its conversion.
             let fit = |px: f64, cell: f64, least: u16, most: u16| {
                 let n =
@@ -261,9 +266,14 @@ fn after(mut w: MacWindow, a: MacAction) -> MacWindow {
                     2,
                     max.ws_col,
                 ),
-                rows: fit(w.content.1 * w.scale - pad, w.cell.1, 1, max.ws_row)
-                    .saturating_sub(line)
-                    .max(1),
+                rows: fit(
+                    w.content.1 * w.scale - pad - lights,
+                    w.cell.1,
+                    1,
+                    max.ws_row,
+                )
+                .saturating_sub(line)
+                .max(1),
             };
             match saved {
                 Saved::Keep => {}
@@ -375,9 +385,9 @@ fn content_cells(w: &MacWindow, rows: SizeAsk, cols: SizeAsk) -> Option<MacActio
 /// The content height, in points, of `grid`'s rows and the status line's
 /// below them: the cells and the padding top and bottom, and half a pixel
 /// more so the floor lands on the rows, as `content_width` does for the
-/// columns.
+/// columns; and the activity lights' own line, whose pixels are no row.
 fn content_height(grid: Grid, w: &MacWindow) -> f64 {
-    crate::width::content_height(grid, w.status, w.cell.1, w.scale, w.padding)
+    crate::width::content_height(grid, w.status, w.cell.1, w.scale, w.padding) + w.line / w.scale
 }
 
 /// **What the status line's coming or going does to the window**:
@@ -451,6 +461,48 @@ pub fn mac_status_frame(w: MacWindow) -> (MacAction, MacWindow) {
     (a, after(w, a))
 }
 
+/// **The frame that holds the grid and the activity lights' own line**,
+/// `w.line` the line's pixels now and `was` what they were: the content
+/// that many device pixels taller or shorter, the width and the top-left
+/// kept, as the status line's frame is, so the grid keeps its rows when
+/// the setting puts the lights on a line or takes them off it.
+pub fn line_frame(w: &MacWindow, was: f64) -> MacAction {
+    content_frame(w, (w.content.0, w.content.1 + (w.line - was) / w.scale))
+}
+
+/// **[`StatusChange`] for the activity lights' own line coming, going or
+/// changing height on this macOS window**, `w.line` its pixels now and
+/// `was` before: the window grows or shrinks by the difference where it
+/// may change size and the screen's visible frame holds it, as the status
+/// line's row does ([`mac_status_change`]); in full screen, with the grid
+/// pinned or with no room, the grid gives the pixels up or takes them back.
+/// The setting is the user's, not a program's request, so `[window]
+/// operations` does not hold it.
+pub fn mac_line_change(w: &MacWindow, was: f64) -> StatusChange {
+    if mac_status(w.full, WindowOps::On, w.host) == StatusChange::Relayout {
+        return StatusChange::Relayout;
+    }
+    let wanted = w.content.1 + (w.line - was) / w.scale + decoration(w).1;
+    match w.visible {
+        Some(v) if wanted - 0.5 / w.scale > v.h => StatusChange::Relayout,
+        _ => StatusChange::Resize,
+    }
+}
+
+/// **The floating Wayland window the activity lights' line leaves**, `w`
+/// with `w.line` the line's pixels now and `was` what they were: taller
+/// or shorter by the difference, the grid keeping its own rows.
+pub fn wayland_line_window(w: WaylandWindow, was: baud_font::Px) -> WaylandWindow {
+    let now = w.scale.pixels(Points(w.size.1)).value();
+    let px = now
+        .saturating_add(w.line.value())
+        .saturating_sub(was.value());
+    WaylandWindow {
+        size: (w.size.0, w.scale.points(baud_font::Px::of(px)).0),
+        ..w
+    }
+}
+
 /// **The floating Wayland window the status line's change leaves**, `w`
 /// the window with `w.status` the rows the line has now and `was` the rows
 /// it had: taller or shorter by the line's rows, the grid keeping its own,
@@ -498,6 +550,9 @@ pub struct WaylandWindow {
     pub grid: Grid,
     /// The status line's rows below the grid, as [`MacWindow::status`].
     pub status: Rows,
+    /// The activity lights' own line, in the frame's pixels, as
+    /// [`MacWindow::line`].
+    pub line: baud_font::Px,
     /// Whether the exit-status strip, one cell wide, is beside the grid,
     /// which a resize in cells keeps.
     pub marks: baud_render::StatusMarks,
@@ -580,6 +635,16 @@ pub fn wayland(r: WindowRequest, w: &WaylandWindow) -> WaylandAction {
             SizeAsk::Screen => bound,
             SizeAsk::Exactly(n) => Some(points((u32::from(n.clamp(1, most)) + extra) * cell)),
         };
+    // The rows the same way, and the lights' own line's pixels beside
+    // them, which are no row.
+    let lit = w.line.value();
+    let tall = |ask: SizeAsk, bound: Option<u32>| match ask {
+        SizeAsk::Keep => Some(points((u32::from(w.grid.rows) + line) * w.cell.1 + lit)),
+        SizeAsk::Screen => bound,
+        SizeAsk::Exactly(n) => Some(points(
+            (u32::from(n.clamp(1, max.ws_row)) + line) * w.cell.1 + lit,
+        )),
+    };
     match r {
         WindowRequest::Iconify => Minimize,
         WindowRequest::Deiconify => Unbuilt(self::Unbuilt::Unminimize),
@@ -611,14 +676,7 @@ pub fn wayland(r: WindowRequest, w: &WaylandWindow) -> WaylandAction {
                     baud_render::StatusMarks::Off => 0,
                 },
             ),
-            cells(
-                rows,
-                w.grid.rows,
-                w.cell.1,
-                max.ws_row,
-                w.bounds.map(|b| b.1),
-                line,
-            ),
+            tall(rows, w.bounds.map(|b| b.1)),
         ),
     }
 }
@@ -681,6 +739,7 @@ pub fn wayland_abilities(bounds: BoundsEvent) -> baud_core::WindowAbilities {
             rows: 37,
         },
         status: Rows::ZERO,
+        line: baud_font::Px::of(0),
         marks: baud_render::StatusMarks::Off,
     };
     baud_core::WindowAbilities::of(|r| {
@@ -787,6 +846,7 @@ mod tests {
             gutter: 0.0,
             grid: Grid { cols: 99, rows: 34 },
             status: Rows::ZERO,
+            line: 0.0,
             minimized: Minimized::No,
             full: Full::No,
             saved: None,
@@ -1137,6 +1197,7 @@ mod tests {
             scale: crate::surface::Scale120::ONE,
             grid: Grid { cols: 80, rows: 22 },
             status: Rows::ZERO,
+            line: baud_font::Px::of(0),
             marks: baud_render::StatusMarks::Off,
         }
     }
@@ -1590,6 +1651,91 @@ mod tests {
         assert_eq!(wayland(keep, &lined), WaylandAction::Resize(1280, 23 * 32));
     }
 
+    /// **A resize in cells gives the grid the rows asked for and keeps the
+    /// activity lights' own line below or above them**: `CSI 8 ; 24 ; 80 t`
+    /// with a 30-pixel line is 30 pixels taller than without, on both
+    /// drivers, not a row; the frame it leaves holds those 24 rows and the
+    /// line; and the line coming or going grows or shrinks the window by
+    /// its pixels with the grid's rows kept. Perturbation: leave `w.line`
+    /// out of `content_height` -- the grid a program asked 24 rows for gets
+    /// 23 -- and this goes red.
+    #[test]
+    fn a_cell_resize_keeps_the_lights_line() {
+        use SizeAsk::*;
+        let w = window();
+        let lit = MacWindow { line: 30.0, ..w };
+        let ask = WindowRequest::ResizeCells {
+            rows: Exactly(24),
+            cols: Keep,
+        };
+        let (bare, with) = (frame(mac(ask, &w)), frame(mac(ask, &lit)));
+        assert_eq!(
+            with.h - bare.h,
+            30.0 / w.scale,
+            "the line's pixels, not a row"
+        );
+        assert_eq!(with.top(), bare.top(), "the top-left kept");
+        let (_, left) = mac_batch(&[ask], lit);
+        assert_eq!(left.grid.rows, 24, "the grid has the rows asked for");
+        let (_, left) = mac_batch(&[ask], w);
+        assert_eq!(left.grid.rows, 24, "the control, with no line");
+        // The line put up and taken down: the grid's rows kept each way.
+        let grown = frame(line_frame(&lit, 0.0));
+        assert_eq!(grown.h - w.frame.h, 30.0 / w.scale);
+        assert_eq!(grown.top(), w.frame.top());
+        let shrunk = frame(line_frame(&w, 30.0));
+        assert_eq!(w.frame.h - shrunk.h, 30.0 / w.scale);
+        let after = |m: MacWindow, f: Rect| after(m, MacAction::Frame(f, Saved::Keep)).grid.rows;
+        assert_eq!(after(lit, grown), after(w, w.frame), "the rows kept");
+        let ww = wayland_window();
+        let lit = WaylandWindow {
+            line: baud_font::Px::of(30),
+            ..ww
+        };
+        let keep = WindowRequest::ResizeCells {
+            rows: Keep,
+            cols: Keep,
+        };
+        assert_eq!(wayland(keep, &ww), WaylandAction::Resize(1280, 22 * 32));
+        assert_eq!(
+            wayland(keep, &lit),
+            WaylandAction::Resize(1280, 22 * 32 + 30)
+        );
+        assert_eq!(
+            wayland_line_window(lit, baud_font::Px::of(0)).size,
+            (1280, 750)
+        );
+        assert_eq!(
+            wayland_line_window(ww, baud_font::Px::of(30)).size,
+            (1280, 690)
+        );
+        // Where the window may grow it does; in full screen, pinned, or
+        // past the screen, the grid gives the pixels up.
+        let lit = MacWindow { line: 30.0, ..w };
+        assert_eq!(mac_line_change(&lit, 0.0), StatusChange::Resize);
+        assert_eq!(mac_line_change(&w, 30.0), StatusChange::Resize);
+        for held in [
+            MacWindow {
+                full: Full::Yes,
+                ..lit
+            },
+            MacWindow {
+                host: Host::Pinned,
+                ..lit
+            },
+            MacWindow {
+                frame: Rect {
+                    h: 878.0,
+                    ..lit.frame
+                },
+                content: (800.0, 850.0),
+                ..lit
+            },
+        ] {
+            assert_eq!(mac_line_change(&held, 0.0), StatusChange::Relayout);
+        }
+    }
+
     /// Each reason warns once and every refusal counts; a window already as
     /// asked is neither.
     #[test]
@@ -1643,6 +1789,7 @@ mod tests {
                         rows: 37,
                     },
                     status: Rows::ZERO,
+                    line: baud_font::Px::of(0),
                     marks: baud_render::StatusMarks::Off,
                 };
                 for m in M::ALL {
@@ -1688,6 +1835,7 @@ mod tests {
                 rows: 37,
             },
             status: Rows::ZERO,
+            line: baud_font::Px::of(0),
             marks: baud_render::StatusMarks::Off,
         };
         for m in M::ALL.iter().copied().filter(|&m| below.has(m)) {

@@ -136,6 +136,29 @@ impl<'p> Target<'p> {
         })
     }
 
+    /// **`height` rows from row `y` on, as a target of their own** over the
+    /// same columns and stride: the frame beside the line a frame keeps for
+    /// the activity lights (`Renderer::lights_height`), and that line.
+    /// `None` past the height.
+    pub fn rows(&mut self, y: Px, height: Px) -> Option<Target<'_>> {
+        let (s, y0, h) = (slots(self.stride), slots(y), slots(height));
+        if y0.checked_add(h)? > slots(self.height) {
+            return None;
+        }
+        let from = y0.checked_mul(s)?;
+        let need = match h {
+            0 => 0,
+            _ => (h - 1).checked_mul(s)?.checked_add(slots(self.width))?,
+        };
+        (from.checked_add(need)? <= self.pixels.len()).then(|| Target {
+            pixels: &mut self.pixels[from..],
+            stride: self.stride,
+            width: self.width,
+            height,
+            cols: self.cols.clone(),
+        })
+    }
+
     /// **The columns from `left` to `right` only**, as a target over the
     /// same pixels: what a row repaints when only the records over part of
     /// it changed. Each draw through it writes those columns and no other,

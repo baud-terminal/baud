@@ -241,6 +241,28 @@ impl Floor {
     }
 }
 
+/// **`text` lifted until it reads at `target` against `page`**, drawn at
+/// `alpha` over whatever `backdrop` spans -- against the part of that most
+/// like it ([`Behind::over`]) -- or as far as it can where no colour
+/// reaches the target against all of it: [`Floor`]'s arithmetic, toward
+/// black or white in linear light and just far enough, ungated. A colour
+/// that already reads at the target is itself. What baud's own marks are
+/// drawn in where no system colour is (`crate::lights::line_colours`).
+pub fn reads_at(text: Argb, page: Argb, alpha: Chan, backdrop: Backdrop, target: f64) -> Argb {
+    let behind = Behind::over(page, alpha, backdrop);
+    if behind.ratio(Lum::of(text)) >= target {
+        return text;
+    }
+    Floor::lift_to(text, Lum::of(page), behind, target)
+}
+
+/// **The contrast of `text` against `page`** drawn at `alpha` over whatever
+/// `backdrop` spans, against the part of that most like it: WCAG 2.2's
+/// ratio (`[[source: wcag22]]`), 1 where the text falls inside the range.
+pub fn contrast_over(text: Argb, page: Argb, alpha: Chan, backdrop: Backdrop) -> f64 {
+    Behind::over(page, alpha, backdrop).ratio(Lum::of(text))
+}
+
 /// What the window's material can show under a page drawn below full
 /// alpha: every channel of it lies between two greys, in encoded sRGB.
 ///

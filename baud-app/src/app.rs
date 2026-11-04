@@ -658,6 +658,9 @@ struct App {
     /// activity_lights`.
     activity: baud_render::Activity,
     activity_lights: baud_render::ActivityLights,
+    /// What the lights' own line last showed and how, when the setting
+    /// puts them there: a tick that changes either owes a frame.
+    line_shown: Option<(baud_render::Shown, baud_render::Glow)>,
     /// Whether Animated Images is on, and `[images] animation`: a kitty
     /// animation plays or holds as the two and the motion preference say
     /// (`access::image_motion`). The first is read at launch and when its
@@ -958,6 +961,9 @@ impl Boot {
         )
         .expect("cell metrics");
         crate::host::set_up_renderer(&mut renderer, &cfg, &notice);
+        // The lights' own line, when the setting asks for one, which the
+        // window's arithmetic counts as it counts the strip.
+        renderer.set_lights_line(cfg.activity_lights.line(), scale as f32);
         startup_mark("renderer");
         Boot {
             request,
@@ -1485,6 +1491,7 @@ impl App {
             flashing,
             activity: baud_render::Activity::new(),
             activity_lights,
+            line_shown: None,
             animated,
             image_animation,
             trail: None,
@@ -2132,7 +2139,12 @@ impl App {
         // the strip in from the letterbox.
         let (w, h) = self.renderer.whole_size();
         let (sw, sh) = self.view_px;
-        self.pad_px = grid_origin((sw, sh), (w, h), self.renderer.strip());
+        self.pad_px = grid_origin(
+            (sw, sh),
+            (w, h),
+            self.renderer.strip(),
+            self.renderer.grid_top(),
+        );
         let surface_stale = self.presenter.as_ref().map(Presenter::size) != Some((sw, sh));
         if (w, h) != (self.frame_w, self.frame_h) || surface_stale || self.presenter.is_none() {
             self.frame_w = w;
@@ -2273,6 +2285,9 @@ impl App {
         };
         self.renderer
             .place_marks(&self.term, self.term.window_back(), leaving, lift);
+        // The activity lights on their own line, for every path; it holds
+        // still while the grid slides.
+        self.renderer.place_lights(&self.term);
         match (
             self.presenter.as_ref().map(Presenter::mode),
             self.cell.as_mut(),
@@ -2806,13 +2821,25 @@ impl App {
                 let slid = match slide {
                     Some(s) if self.kept_frame.len() == self.frame.len() => {
                         self.composed.resize(self.frame.len(), 0);
-                        let o = baud_render::slide_offsets(s, h);
-                        match baud_render::compose_slide(
-                            &self.frame,
-                            &self.kept_frame,
-                            &mut self.composed,
+                        // The rows that slide: the frame's own, not the
+                        // activity lights' line, which holds still and is
+                        // copied from the live frame.
+                        let rows = self.renderer.frame_size().1;
+                        let core::ops::Range { start: a, end: b } = crate::width::slide_span(
+                            self.renderer.grid_top(),
+                            rows,
                             w,
-                            h,
+                            &self.frame,
+                        );
+                        self.composed[..a].copy_from_slice(&self.frame[..a]);
+                        self.composed[b..].copy_from_slice(&self.frame[b..]);
+                        let o = baud_render::slide_offsets(s, rows);
+                        match baud_render::compose_slide(
+                            &self.frame[a..b],
+                            &self.kept_frame[a..b],
+                            &mut self.composed[a..b],
+                            w,
+                            rows,
                             o,
                         ) {
                             true => Composed::Yes,
@@ -4267,6 +4294,9 @@ struct Driver {
     /// (`lights.rs`), and the appearance the body under the strip draws in.
     lights: crate::lights::Strip,
     lights_appearance: Appearance,
+    /// The hover texts over the lights' own line, when the setting puts
+    /// them there (`lights.rs`).
+    line_tips: crate::lights::LineTips,
     /// OH's and CD's sampler of the job in front, and the kernel's reads
     /// it makes, on the tick while the lights are on (`front.rs`).
     front: crate::front::Front,
@@ -12259,6 +12289,8 @@ impl Shell {
         // The exit-status strip takes its column from the start, so the child
         // is spawned at the grid it keeps.
         let strip = boot.renderer.strip();
+        // And the activity lights' own line its pixels, when it has one.
+        let line = f64::from(boot.renderer.lights_height().value()) / scale;
         let ws = grid.as_ref().map_or_else(
             || {
                 // The config's notice row, when the launch has one, is the
@@ -12268,7 +12300,7 @@ impl Shell {
                         NSSize::new(
                             (size.width - 2.0 * padding - f64::from(strip.value()) / scale)
                                 .max(0.0),
-                            (size.height - inset - 2.0 * padding).max(0.0),
+                            (size.height - inset - 2.0 * padding - line).max(0.0),
                         ),
                         scale,
                         (cw, ch),
@@ -12533,6 +12565,7 @@ impl Opening {
             icon_inset: inset,
             lights: crate::lights::Strip::new(0.0, 0.0),
             lights_appearance: glass.appearance(&window),
+            line_tips: crate::lights::LineTips::new(),
             front: crate::front::Front::new(),
             procs: crate::front::Live::new(),
             reload: None,
@@ -12977,6 +13010,7 @@ impl Driver {
             gutter: self.app.beside(bar),
             grid: crate::width::Grid::of(&self.app.term),
             status: self.app.term.status_rows(),
+            line: f64::from(self.app.renderer.lights_height().value()),
             minimized: match w.isMiniaturized() {
                 true => Minimized::Yes,
                 false => Minimized::No,
@@ -13658,8 +13692,16 @@ impl Driver {
                 Part::CopyOnSelect => {
                     self.app.clipboard.copy_on_select = c.clipboard.copy_on_select;
                 }
-                // Put up or taken down at the next tick.
-                Part::ActivityLights => self.app.activity_lights = c.activity_lights,
+                // Put up or taken down at the next tick, and a line of their
+                // own given its pixels now.
+                Part::ActivityLights => {
+                    let was = self.app.renderer.lights_height();
+                    self.app.activity_lights = c.activity_lights;
+                    self.app
+                        .renderer
+                        .set_lights_line(c.activity_lights.line(), self.app.scale as f32);
+                    self.lights_line(was);
+                }
                 // The layer's contents are shown at the display's refresh,
                 // never torn: Linux only.
                 Part::Tearing => {}
@@ -14439,7 +14481,7 @@ impl Driver {
             crate::lights::feed(&mut self.app.activity, Led::Cd, cd, now);
         }
         // SYN and FAX: the core's state at the tick.
-        if setting == baud_render::ActivityLights::On {
+        if setting.shown() {
             if self.app.term.synchronized_output() {
                 self.app.activity.seen(Led::Syn, now);
             }
@@ -14468,6 +14510,43 @@ impl Driver {
             &self.icon_super,
             self.icon_inset,
         );
+        // **On their own line, the frame's**: the renderer draws the same
+        // pictures there, and a light that changed owes a frame, which
+        // names another picture and draws none (`Renderer::place_lights`).
+        let line = setting
+            .line()
+            .map(|_| (shown, crate::lights::glow(self.app.flashing)));
+        if line != self.app.line_shown {
+            self.app.line_shown = line;
+            if let Some((shown, glow)) = line {
+                self.app.renderer.set_lights(shown, glow);
+            }
+            self.app.pending = Pending::Dirty;
+        }
+        self.place_line_tips();
+    }
+
+    /// **The hover texts over the lights' own line**, where the last frame
+    /// placed the lights: the whole frame centred in the view as
+    /// `grid_origin` centres it, and none without a line.
+    fn place_line_tips(&mut self) {
+        let r = &self.app.renderer;
+        let rects = match r.lights_edge() {
+            Some(_) => {
+                let (w, h) = r.whole_size();
+                let (sw, sh) = self.app.view_px;
+                let origin = grid_origin((sw, sh), (w, h), Px::of(0), Px::of(0));
+                crate::lights::line_tips(
+                    origin,
+                    r.lights_top(),
+                    r.lights_height(),
+                    r.lights_places(),
+                    self.app.scale,
+                )
+            }
+            None => baud_render::ByLed::default(),
+        };
+        self.line_tips.place(&self.view, rects);
     }
 
     /// The activity lights follow the window's top-right on every resize.
@@ -14612,6 +14691,41 @@ impl Driver {
         }
     }
 
+    /// **The activity lights' own line put up, taken down or resized**
+    /// (`[window] activity_lights`), its pixels `was` before: the window
+    /// grows or shrinks by the difference and the grid keeps its rows, as
+    /// it does for the status line's row; where the window keeps its size
+    /// the grid gives the pixels up or takes them back
+    /// ([`crate::winops::mac_line_change`]).
+    fn lights_line(&mut self, was: Px) {
+        use crate::winops::StatusChange;
+        let now = self.app.renderer.lights_height();
+        if now == was {
+            return;
+        }
+        self.app.next_damage = Damage::Full;
+        self.app.pending = Pending::Dirty;
+        self.app.line_shown = None;
+        let resize = match (self.view.window(), MainThreadMarker::new()) {
+            (Some(w), Some(mtm)) => {
+                let at = self.mac_window(&w, mtm);
+                match crate::winops::mac_line_change(&at, f64::from(was.value())) {
+                    StatusChange::Resize => Some((w, at)),
+                    StatusChange::Relayout => None,
+                }
+            }
+            _ => None,
+        };
+        match resize {
+            Some((w, at)) => {
+                window_later(&w, crate::winops::line_frame(&at, f64::from(was.value())))
+            }
+            None => {
+                let _ = self.relayout(self.view.frame().size, self.app.scale);
+            }
+        }
+    }
+
     /// The grid for a view of `size` points at `scale`, and the terminal,
     /// the child and the frame following it -- on a resize, and on a zoom.
     fn relayout(&mut self, size: NSSize, scale: CGFloat) -> Drew {
@@ -14669,6 +14783,12 @@ impl Driver {
         let reframed = self.app.renderer.frame_size().0.value()
             != self.app.renderer.pixel_size().0.value() + bar.value();
         self.app.renderer.set_gutter(bar);
+        // The lights' own line at this scale, its points' pixels.
+        let line = self.app.renderer.lights_height();
+        self.app
+            .renderer
+            .set_lights_line(self.app.activity_lights.line(), scale as f32);
+        let reframed = reframed || line != self.app.renderer.lights_height();
         if reframed {
             self.app.next_damage = Damage::Full;
             self.app.pending = Pending::Dirty;
@@ -14680,10 +14800,14 @@ impl Driver {
         }
         // **The status line's row is the window's, below the grid**: the
         // grid is what is left, and a program asking for the size is told
-        // it (`Term::status_rows`).
+        // it (`Term::status_rows`). So are the activity lights' line's
+        // pixels, which are no row at all.
         let ws = crate::width::less_status(
             grid_in(
-                (px_w, px_h),
+                (
+                    px_w,
+                    crate::width::less_line(px_h, self.app.renderer.lights_height()),
+                ),
                 self.app.padding * scale,
                 self.app.beside(bar),
                 (cw, ch),
@@ -15243,12 +15367,14 @@ impl Driver {
 }
 
 /// **Where the grid begins in the view**, in device pixels: the whole
-/// frame `whole` -- the exit-status strip, the grid and the gutter --
-/// centred in the view `view`, and the grid `strip` in from its left.
-fn grid_origin(view: (Px, Px), whole: (Px, Px), strip: Px) -> (Px, Px) {
+/// frame `whole` -- the exit-status strip, the grid and the gutter, and
+/// the activity lights' line -- centred in the view `view`, and the grid
+/// `strip` in from its left and `top` down from its top
+/// (`Renderer::grid_top`).
+fn grid_origin(view: (Px, Px), whole: (Px, Px), strip: Px, top: Px) -> (Px, Px) {
     (
         Px::of((view.0.value().saturating_sub(whole.0.value()) / 2).saturating_add(strip.value())),
-        Px::of(view.1.value().saturating_sub(whole.1.value()) / 2),
+        Px::of((view.1.value().saturating_sub(whole.1.value()) / 2).saturating_add(top.value())),
     )
 }
 
@@ -17995,10 +18121,10 @@ mod tests {
         let view = (Px::of(260), Px::of(220));
         let whole = (Px::of(220), Px::of(200));
         assert_eq!(
-            grid_origin(view, whole, Px::of(0)),
+            grid_origin(view, whole, Px::of(0), Px::of(0)),
             (Px::of(20), Px::of(10))
         );
-        let pad = grid_origin(view, whole, Px::of(20));
+        let pad = grid_origin(view, whole, Px::of(20), Px::of(0));
         assert_eq!(pad, (Px::of(40), Px::of(10)));
         let pad = (pad.0.value(), pad.1.value());
         // At 2x: the strip's middle, (30, 10) px, is over it.
@@ -18010,6 +18136,39 @@ mod tests {
         assert_eq!((c.index(), px.x), (0, ImagePx::ZERO));
         let (_, c, px) = pointer_under((30.5, 5.0), scale, cell, grid, pad);
         assert_eq!((c.index(), px.x), (1, ImagePx::of(21)));
+    }
+
+    /// **The grid begins below the lights' line at the top, and is centred
+    /// above one at the bottom**: the whole frame, the line included, is
+    /// centred, and with the line on top the grid's first row is the line's
+    /// height further down; a point over the line names the first row, as
+    /// one over the padding does. Perturbation: leave `top` out of
+    /// `grid_origin` -- every press under a top line lands the line's
+    /// height too high -- and this goes red.
+    #[test]
+    fn the_grid_begins_below_the_lights_line_at_the_top() {
+        let (cell, grid, scale) = ((20.0, 40.0), (10, 5), 2.0);
+        let view = (Px::of(260), Px::of(260));
+        // A 200-pixel grid and a 30-pixel line: the whole is 230 tall,
+        // 15 down in the view.
+        let whole = (Px::of(220), Px::of(230));
+        assert_eq!(
+            grid_origin(view, whole, Px::of(0), Px::of(0)),
+            (Px::of(20), Px::of(15)),
+            "the line below: the grid at the whole's top"
+        );
+        let pad = grid_origin(view, whole, Px::of(0), Px::of(30));
+        assert_eq!(pad, (Px::of(20), Px::of(45)), "the line on top");
+        let pad = (pad.0.value(), pad.1.value());
+        // (x, 45) px is the text area's first pixel, (x, 85) the second
+        // row's first, 40 pixels down it.
+        let (r, _, px) = pointer_under((15.0, 22.5), scale, cell, grid, pad);
+        assert_eq!((r.index(), px.y), (0, ImagePx::ZERO));
+        let (r, _, px) = pointer_under((15.0, 42.5), scale, cell, grid, pad);
+        assert_eq!((r.index(), px.y), (1, ImagePx::of(40)));
+        // Over the line, the first row's edge.
+        let (r, _, px) = pointer_under((15.0, 10.0), scale, cell, grid, pad);
+        assert_eq!((r.index(), px.y), (0, ImagePx::ZERO));
     }
 
     /// **The pixel `?1016` reports is in the cell the other encodings
@@ -18141,6 +18300,7 @@ mod tests {
                 gutter: 0.0,
                 grid: crate::width::Grid { cols: 80, rows: 24 },
                 status: Rows::ZERO,
+                line: 0.0,
                 minimized: Minimized::No,
                 full: Full::No,
                 saved: None,

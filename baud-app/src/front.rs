@@ -123,8 +123,8 @@ impl Front {
         shell: Option<Pid>,
         now: HostTime,
     ) -> Option<(Reading, Reading)> {
-        match (setting, shell) {
-            (baud_render::ActivityLights::On, Some(shell)) => Some(self.sample(procs, shell, now)),
+        match (setting.shown(), shell) {
+            (true, Some(shell)) => Some(self.sample(procs, shell, now)),
             _ => None,
         }
     }
@@ -545,10 +545,11 @@ mod tests {
     }
 
     /// **Off reads nothing**: with the lights off, or no shell, a tick
-    /// makes no process read at all and gives no reading; on, it reads.
+    /// makes no process read at all and gives no reading; shown anywhere,
+    /// in the title strip or on a line of their own, it reads.
     #[test]
     fn the_lights_off_read_no_process() {
-        use baud_render::ActivityLights::{Off, On};
+        use baud_render::ActivityLights::{BottomLine, Off, TitleBar as On, TopLine};
         let mut f = Fake {
             groups: front(200),
             members: vec![(200, vec![200])],
@@ -567,6 +568,9 @@ mod tests {
             Some((Reading::Lit, Reading::Lit))
         );
         assert_ne!(f.calls, Calls::default(), "the control: on reads");
+        for line in [BottomLine, TopLine] {
+            assert!(s.tick(line, &mut f, Some(SHELL), at(MS * 900)).is_some());
+        }
     }
 
     /// **The members are listed only when something moved**: a new group

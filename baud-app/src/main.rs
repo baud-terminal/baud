@@ -157,6 +157,9 @@ mod notify;
 // platform.
 #[cfg(any(target_os = "linux", test))]
 mod opener;
+// The activity lights on their own line, as the Linux driver feeds them.
+#[cfg(any(target_os = "linux", test))]
+mod own_line;
 // Where the Linux driver sends a key's release: its tests run on every
 // platform.
 #[cfg(any(target_os = "linux", test))]

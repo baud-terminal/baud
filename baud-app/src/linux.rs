@@ -179,6 +179,11 @@ struct Driver {
     /// The status line's rows as the window was last laid out for them
     /// (`Term::status_rows`, `App::status_line`).
     status_rows: Rows,
+    /// `[window] activity_lights` as this system resolves it -- a line of
+    /// their own unless the config says otherwise, the window having no
+    /// title bar -- and the lights' clocks (`own_line.rs`).
+    activity_lights: baud_render::ActivityLights,
+    lights: crate::own_line::LineLights,
     pty: Pty,
     /// What the child is owed and the kernel has not taken: every write goes
     /// through it, in order (`pty.rs`).
@@ -370,7 +375,8 @@ fn thumb(
     scale: f64,
 ) -> crate::bar::Took {
     let strip = f64::from(renderer.strip().value());
-    let Some(e) = crate::bar::event_beside(beside, strip, scale) else {
+    let top = f64::from(renderer.grid_top().value());
+    let Some(e) = crate::bar::event_beside(beside, (strip, top), scale) else {
         return crate::bar::Took::No;
     };
     let f = bar_frame(renderer, scale);
@@ -390,6 +396,13 @@ fn bar_frame(renderer: &Renderer<'_, '_>, scale: f64) -> crate::bar::Frame {
         cell_h: renderer.metrics().cell_h,
         widths: crate::reveal::widths(crate::reveal::Scale(scale)),
     }
+}
+
+/// Whether a read brought a reply the core queued.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Answered {
+    No,
+    Yes,
 }
 
 /// Whether a one-time line has been logged.
@@ -505,6 +518,9 @@ pub fn run() {
     )
     .expect("cell metrics");
     crate::host::set_up_renderer(&mut renderer, &cfg, &notice);
+    // The activity lights' own line, at the first configure's scale once
+    // that comes (`configure`).
+    renderer.set_lights_line(cfg.activity_lights.line(), 1.0);
     // The window starts without the keyboard, until `wl_keyboard.enter`.
     renderer.set_cursor_look(crate::caret::look(Focus::Lost, cfg.unfocused_cursor));
     let term = crate::host::set_up_term(term, &cfg, &renderer, &fonts);
@@ -593,6 +609,8 @@ pub fn run() {
         configured: None,
         scale: BufferScale::ONE,
         status_rows: Rows::ZERO,
+        activity_lights: cfg.activity_lights,
+        lights: crate::own_line::LineLights::new(),
         pty,
         outbox: Outbox::default(),
         hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
@@ -753,9 +771,11 @@ pub fn run() {
         // The five-second report, while the log shows it: the one bound an
         // idle window's wait has (`report::Polled::wait`).
         let report = d.report.wait(now);
+        // The soonest an activity light can change, on its own line.
+        let lights = d.lights_wait(now);
         let timeout = [
             sync, repeat, flash, caret, decode, paste, delay, effects, frames, expiry, settle,
-            report,
+            report, lights,
         ]
         .into_iter()
         .flatten()
@@ -990,6 +1010,7 @@ pub fn run() {
             d.pending = Pending::Dirty;
         }
         d.flush_reply();
+        d.tick_lights();
         d.present();
         if let Err(e) = d.conn.flush() {
             crate::warn!("wayland: {e}");
@@ -1087,12 +1108,19 @@ impl Driver {
         // eight a read (`notify.rs`).
         let icons = &mut self.notes.icons;
         let mut posted = Vec::new();
+        // A reply the core queued while it read, which nobody typed: AA.
+        let mut answered = Answered::No;
         crate::reads::paced(
             &mut self.term,
             pace,
             Instant::now(),
             [bytes],
-            |b| self.outbox.push(b),
+            |b| {
+                if !b.is_empty() {
+                    answered = Answered::Yes;
+                }
+                self.outbox.push(b);
+            },
             |t| {
                 if let Some((d, warn)) = clips.poll(t, osc52) {
                     if let Some(line) = warn {
@@ -1123,6 +1151,12 @@ impl Driver {
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
         self.pty.follow(self.term.input_encoding());
+        // RD and HS for the read, AA for a reply it brought.
+        let now = self.timed.clock.host(Instant::now());
+        self.lights.read(bytes, now);
+        if answered == Answered::Yes {
+            self.lights.answered(now);
+        }
         self.deliver(posted);
         // **The bells this read brought ring now**, drawn or not, once a
         // frame interval (`Ringer`): the compositor's, else the macOS
@@ -1445,7 +1479,10 @@ impl Driver {
         let m = self.renderer.metrics();
         let (cols, rows) = self.term.geometry();
         crate::seat::Geometry {
-            pad: (self.renderer.strip().value(), 0),
+            pad: (
+                self.renderer.strip().value(),
+                self.renderer.grid_top().value(),
+            ),
             cell: (f64::from(m.cell_w.value()), f64::from(m.cell_h.value())),
             grid: (
                 u16::try_from(cols.index()).unwrap_or(u16::MAX),
@@ -1925,8 +1962,15 @@ impl Driver {
                     self.renderer.set_word_wrap(c.wrap_words);
                     self.seat.set_word_wrap(c.wrap_words);
                 }
-                // The Linux window has no title bar to put them in.
-                Part::ActivityLights => {}
+                // On their own line, the window having no title bar: its
+                // pixels given or taken back now.
+                Part::ActivityLights => {
+                    let was = self.renderer.lights_height();
+                    self.activity_lights = c.activity_lights;
+                    self.renderer
+                        .set_lights_line(c.activity_lights.line(), self.scale.factor() as f32);
+                    self.lights_line(was);
+                }
                 // The hint goes with the next frame.
                 Part::Tearing => self
                     .window
@@ -2346,6 +2390,7 @@ impl Driver {
             scale: crate::surface::Scale120(self.scale.0),
             grid: crate::width::Grid::of(&self.term),
             status: self.term.status_rows(),
+            line: self.renderer.lights_height(),
             marks: self.renderer.status_marks(),
         };
         let toggle = |s: Set| match s {
@@ -2422,6 +2467,7 @@ impl Driver {
             scale: crate::surface::Scale120(self.scale.0),
             grid: crate::width::Grid::of(&self.term),
             status: now,
+            line: self.renderer.lights_height(),
             marks: self.renderer.status_marks(),
         };
         let resized = match crate::winops::wayland_status(shown, self.term.window_ops()) {
@@ -2444,7 +2490,89 @@ impl Driver {
         self.outbox.push(self.term.reply());
         self.term.clear_reply();
         if !self.outbox.is_empty() {
-            self.pty.write(&mut self.outbox);
+            let wrote = self.pty.write(&mut self.outbox);
+            // SD for what the kernel took, CS for what it refused.
+            let now = self.timed.clock.host(Instant::now());
+            self.lights.wrote(wrote, now);
+        }
+    }
+
+    /// **The activity lights at this turn**, on their own line: OH, SYN and
+    /// FAX read at most once a frame (`own_line::SAMPLE`), the clocks
+    /// stepped at the motion preference's pace -- full
+    /// glow, the portal having no Dim Flashing Lights -- and a frame owed
+    /// when the line shows something else. Nothing is read while the lights
+    /// are elsewhere or off.
+    fn tick_lights(&mut self) {
+        if self.activity_lights.line().is_none() {
+            return;
+        }
+        let now = self.timed.clock.host(Instant::now());
+        // OH, SYN and FAX at a frame's pace: the loop turns once a read.
+        if self.lights.due(now) == crate::own_line::Sampled::Now {
+            let group = crate::fg::group(self.pty.reads().master);
+            let front = crate::own_line::in_front(group, self.pty.child());
+            self.lights.states(front, &self.term, now);
+        }
+        let pace = crate::access::lights_pace(self.motion);
+        if let Some((shown, glow)) = self.lights.step(now, pace, baud_render::Glow::Full) {
+            self.renderer.set_lights(shown, glow);
+            self.pending = Pending::Dirty;
+        }
+    }
+
+    /// **How long the wait may last for the lights**: until the soonest a
+    /// light can change, so one goes dark when its hold ends; none while
+    /// they hold, or are not on their line.
+    fn lights_wait(&self, now: Instant) -> Option<Duration> {
+        self.activity_lights.line()?;
+        let pace = crate::access::lights_pace(self.motion);
+        self.lights.wait(self.timed.clock.host(now), pace)
+    }
+
+    /// **The activity lights' own line put up, taken down or resized**
+    /// (`[window] activity_lights`), its pixels `was` before: a floating
+    /// window grows or shrinks by the difference and its `Configured` lays
+    /// the grid out with its rows kept, as the status line's row does;
+    /// where the window cannot change size the grid gives the pixels up or
+    /// takes them back, laid out again at the size it has.
+    fn lights_line(&mut self, was: Px) {
+        use crate::winops::Shown;
+        if self.renderer.lights_height() == was {
+            return;
+        }
+        self.lights.stale();
+        self.damage = Damage::Full;
+        self.pending = Pending::Dirty;
+        let Some((w, h)) = self.configured else {
+            return;
+        };
+        let m = self.renderer.metrics();
+        let at = crate::winops::WaylandWindow {
+            size: (w.0, h.0),
+            bounds: self.window.bounds().map(|(bw, bh)| (bw.0, bh.0)),
+            shown: match self.window.shown() {
+                baud_present_wayland::Shown::Floating => Shown::Floating,
+                baud_present_wayland::Shown::Maximized => Shown::Maximized,
+                baud_present_wayland::Shown::FullScreen => Shown::FullScreen,
+            },
+            cell: (m.cell_w.value(), m.cell_h.value()),
+            scale: crate::surface::Scale120(self.scale.0),
+            grid: crate::width::Grid::of(&self.term),
+            status: self.term.status_rows(),
+            line: self.renderer.lights_height(),
+            marks: self.renderer.status_marks(),
+        };
+        let resized = match at.shown {
+            Shown::Floating => {
+                let (x, y) = crate::winops::wayland_line_window(at, was).size;
+                self.window
+                    .resize(baud_present_wayland::Px(x), baud_present_wayland::Px(y))
+            }
+            Shown::Maximized | Shown::FullScreen => baud_present_wayland::Resize::Bound,
+        };
+        if resized == baud_present_wayland::Resize::Bound {
+            self.configure(w, h);
         }
     }
 
@@ -2527,10 +2655,16 @@ impl Driver {
             }),
             ..baud_core::WindowFacts::UNKNOWN
         });
-        // The exit-status strip, when kept, takes its column first.
+        // The exit-status strip, when kept, takes its column first, and the
+        // activity lights' own line its pixels at this scale, no row.
+        self.renderer
+            .set_lights_line(self.activity_lights.line(), scale.factor() as f32);
         let text_w = width.0.saturating_sub(self.renderer.strip().value());
+        let text_h = height
+            .0
+            .saturating_sub(self.renderer.lights_height().value());
         let cols = (text_w / m.cell_w.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_col));
-        let rows = (height.0 / m.cell_h.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_row));
+        let rows = (text_h / m.cell_h.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_row));
         // The status line's row is the window's, below the grid: the grid
         // is what is left, and the child is told it (`Term::status_rows`).
         let ws = crate::width::less_status(
@@ -2688,7 +2822,7 @@ impl Driver {
         // begins past the exit-status strip, and the frame's pixels are
         // the scale's a point (`surface.rs`).
         let rect = rect.map(|r| {
-            let r = crate::marked::in_frame(r, (self.renderer.strip(), Px::of(0)));
+            let r = crate::marked::in_frame(r, (self.renderer.strip(), self.renderer.grid_top()));
             crate::surface::Scale120(self.scale.0).cover(r)
         });
         let point = |p: crate::surface::Points| baud_present_wayland::Px(p.0);
@@ -2786,15 +2920,22 @@ impl Driver {
         let slid = match plan.slide {
             Some(s) if self.kept.len() == self.frame.len() => {
                 self.composed.clone_from(&self.frame);
-                let rows = usize::try_from(h.value()).unwrap_or(0);
-                let n = (pitch * rows).min(self.frame.len());
-                let o = baud_render::slide_offsets(s, h);
-                match baud_render::compose_slide(
-                    &self.frame[..n],
-                    &self.kept[..n],
-                    &mut self.composed[..n],
+                // The frame's own rows, not the activity lights' line, which
+                // holds still as the margin does.
+                let rows = self.renderer.frame_size().1;
+                let span = crate::width::slide_span(
+                    self.renderer.grid_top(),
+                    rows,
                     self.stride,
-                    h,
+                    &self.frame,
+                );
+                let o = baud_render::slide_offsets(s, rows);
+                match baud_render::compose_slide(
+                    &self.frame[span.clone()],
+                    &self.kept[span.clone()],
+                    &mut self.composed[span],
+                    self.stride,
+                    rows,
                     o,
                 ) {
                     true => crate::effects::Composed::Yes,

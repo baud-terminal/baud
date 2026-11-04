@@ -96,8 +96,8 @@ pub use cellmap::{
     Reach, Resolved, Selected, Shapes, Swaps, Text, WalkKey, copy_for_shader, takes_stress_mark,
 };
 pub use color::{
-    AppBg, Argb, Backdrop, Floor, MODUS_OPERANDI, PictureBg, SixelBg, Theme, Video, dark_palette,
-    light_palette, xterm_palette,
+    AppBg, Argb, Backdrop, Floor, MODUS_OPERANDI, PictureBg, SixelBg, Theme, Video, contrast_over,
+    dark_palette, light_palette, xterm_palette,
 };
 pub use composite::{Blend, Blit, Page, Target, Texels};
 pub use find::{Current, FIELD_COLS, Field, Find, FindLook, Mark, Position, Query, Typing};
@@ -106,7 +106,7 @@ pub use guide::{CURSOR_GUIDE, GuideLook};
 pub use instance::{Instance, Screen};
 pub use lights::{
     Activity, ActivityLights, ByLed, ByLight, GROUND_DARK, GROUND_LIGHT, Glow, Led, Light,
-    LightsImage, LightsLook, Pace, READ_CEILING, Shown,
+    LightsImage, LightsLook, LineEdge, LineRows, Pace, READ_CEILING, Shown,
 };
 pub use linked::{LinkLook, LinkSpan};
 pub use metrics::{Metrics, PxSize};

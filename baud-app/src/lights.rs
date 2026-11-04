@@ -23,8 +23,14 @@
 //! (`front.rs`) run on that tick while the lights are on: nothing is added
 //! to a byte's path, and nothing is timed off the link.
 //!
-//! The Linux window has no title bar -- no compositor decorations are asked
-//! for and none are drawn -- so the lights are this driver's alone.
+//! **Or on a line of their own in the frame** (`[window] activity_lights
+//! = "bottom_line"` or `"top_line"`): the renderer draws the same pictures
+//! there, from the theme's colours, on both systems (`baud_render::lights`,
+//! `Renderer::set_lights_line`), and this module puts each light's hover
+//! text over its place on that line ([`LineTips`]). The Linux window has no
+//! title bar -- no compositor decorations are asked for and none are drawn
+//! -- so the line is its default, and its lights are drawn there by the
+//! Linux driver.
 
 use baud_render::{
     ActivityLights, Argb, Backdrop, ByLed, ByLight, GROUND_DARK, GROUND_LIGHT, Glow, Led, Light,
@@ -83,7 +89,8 @@ pub(crate) enum Step {
     Redraw,
 }
 
-/// **What a tick owes the lights**: nothing while they are off; the
+/// **What a tick owes the lights in the title strip**: nothing while they
+/// are off or on a line of their own in the frame; the
 /// pictures again when what they were drawn for is not what is wanted; a
 /// swap when a light's state moved from what its view shows.
 pub(crate) fn step(
@@ -94,16 +101,16 @@ pub(crate) fn step(
     on_view: ByLed<Option<Light>>,
 ) -> Step {
     match setting {
-        ActivityLights::Off => Step::Nothing,
-        ActivityLights::On if have != Some(wanted) => Step::Redraw,
-        ActivityLights::On
+        ActivityLights::Off | ActivityLights::BottomLine | ActivityLights::TopLine => Step::Nothing,
+        ActivityLights::TitleBar if have != Some(wanted) => Step::Redraw,
+        ActivityLights::TitleBar
             if Led::ALL
                 .iter()
                 .any(|&l| *on_view.get(l) != Some(*shown.get(l))) =>
         {
             Step::Swap
         }
-        ActivityLights::On => Step::Nothing,
+        ActivityLights::TitleBar => Step::Nothing,
     }
 }
 
@@ -218,7 +225,7 @@ impl Strip {
 
     /// **The lights at `shown`**, under `setting`, in `container`'s strip
     /// of `inset` points: the views put up, their pictures drawn and
-    /// swapped, or taken down.
+    /// swapped, or taken down -- off, or on their own line in the frame.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn show(
         &mut self,
@@ -230,7 +237,7 @@ impl Strip {
         container: &NSView,
         inset: CGFloat,
     ) {
-        if setting == ActivityLights::Off {
+        if setting != ActivityLights::TitleBar {
             for led in Led::ALL {
                 if let Some(v) = self.views.get_mut(led).take() {
                     v.removeFromSuperview();
@@ -333,6 +340,82 @@ impl Strip {
     }
 }
 
+/// **Each light's hover rectangle on the lights' own line**, in the
+/// terminal view's points, top-left origin as the view is flipped: the
+/// whole frame at `origin` device pixels in the view, the line `top`
+/// pixels down it and `height` tall, each placed light at its left and
+/// width on the line (`Renderer::lights_places`); a light the line left
+/// out has none.
+pub(crate) fn line_tips(
+    origin: (baud_font::Px, baud_font::Px),
+    top: baud_font::Px,
+    height: baud_font::Px,
+    places: ByLed<Option<(baud_font::Px, baud_font::Px)>>,
+    scale: CGFloat,
+) -> ByLed<Option<NSRect>> {
+    let scale = scale.max(1.0);
+    let pt = |px: u32| CGFloat::from(px) / scale;
+    let y = pt(origin.1.value().saturating_add(top.value()));
+    ByLed::of(|led| {
+        places.get(led).map(|(x, w)| {
+            NSRect::new(
+                NSPoint::new(pt(origin.0.value().saturating_add(x.value())), y),
+                NSSize::new(pt(w.value()), pt(height.value())),
+            )
+        })
+    })
+}
+
+/// **The hover texts of the lights on their own line**: a clear view a
+/// light, over its place in the terminal view, with its `toolTip`, as the
+/// title strip's image views carry theirs; it draws nothing and takes no
+/// event a superview would, since a view's unhandled mouse event goes on
+/// up the responder chain.
+pub(crate) struct LineTips {
+    views: ByLed<Option<Retained<NSView>>>,
+    at: ByLed<Option<NSRect>>,
+}
+
+impl LineTips {
+    pub(crate) fn new() -> LineTips {
+        LineTips {
+            views: ByLed::default(),
+            at: ByLed::default(),
+        }
+    }
+
+    /// Each light's view over `rects` in `view`, made the first time, and
+    /// hidden where a light has no place -- or every one, with no line.
+    pub(crate) fn place(&mut self, view: &NSView, rects: ByLed<Option<NSRect>>) {
+        // Nothing to move, or no line and no view made for one.
+        let none = |(_, v): (Led, &Option<Retained<NSView>>)| v.is_none();
+        if rects == self.at
+            && (self.views.iter().all(|(_, v)| v.is_some()) || self.views.iter().all(none))
+        {
+            return;
+        }
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        for led in Led::ALL {
+            let v = self.views.get_mut(led).get_or_insert_with(|| {
+                let v = NSView::new(mtm);
+                v.setToolTip(Some(&NSString::from_str(led.tip())));
+                view.addSubview(&v);
+                v
+            });
+            match rects.get(led) {
+                Some(r) => {
+                    v.setFrame(*r);
+                    v.setHidden(false);
+                }
+                None => v.setHidden(true),
+            }
+        }
+        self.at = rects;
+    }
+}
+
 /// Every light's place in points at `scale`, from the renderer's layout in
 /// device pixels.
 fn spans(renderer: &Renderer<'_, '_>, scale: CGFloat) -> Option<Spans> {
@@ -421,7 +504,7 @@ mod tests {
     /// or glow redraws, and off does nothing whatever moved.
     #[test]
     fn a_change_of_light_swaps_and_a_change_of_look_redraws() {
-        use ActivityLights::{Off, On};
+        use ActivityLights::{BottomLine, Off, TitleBar as On, TopLine};
         let at = at();
         let rd = rd_lit();
         assert_eq!(step(On, at, None, rd, ByLed::default()), Step::Redraw);
@@ -456,11 +539,13 @@ mod tests {
         ] {
             assert_eq!(step(On, other, Some(at), rd, showing(rd)), Step::Redraw);
         }
-        assert_eq!(step(Off, at, None, rd, ByLed::default()), Step::Nothing);
-        assert_eq!(
-            step(Off, at, Some(at), rd, showing(Shown::DARK)),
-            Step::Nothing
-        );
+        for off in [Off, BottomLine, TopLine] {
+            assert_eq!(step(off, at, None, rd, ByLed::default()), Step::Nothing);
+            assert_eq!(
+                step(off, at, Some(at), rd, showing(Shown::DARK)),
+                Step::Nothing
+            );
+        }
     }
 
     /// **The strip's greys are the body's**: the standard material's
@@ -535,6 +620,39 @@ mod tests {
         let odd = placed(NSSize::new(800.25, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
         let x = odd.hs.unwrap().0.origin.x * 2.0;
         assert_eq!(x, x.round());
+    }
+
+    /// **Each light on its own line has its hover rectangle over its place**,
+    /// in the flipped view's points: the whole frame 20 by 15 pixels into
+    /// the view at 2x, the line 400 pixels down it and 30 tall, RD 100
+    /// pixels along it and 40 wide is (60, 207.5) points and 20 by 15; a
+    /// light the line left out has none. Perturbation: leave the frame's
+    /// origin out -- every rectangle sits up and left of its light -- and
+    /// this goes red.
+    #[test]
+    fn each_light_on_its_line_has_its_hover_rectangle() {
+        use baud_font::Px;
+        let places = ByLed {
+            rd: Some((Px::of(100), Px::of(40))),
+            syn: Some((Px::of(500), Px::of(60))),
+            ..ByLed::default()
+        };
+        let r = line_tips(
+            (Px::of(20), Px::of(15)),
+            Px::of(400),
+            Px::of(30),
+            places,
+            2.0,
+        );
+        let rect = |x, y, w, h| Some(NSRect::new(NSPoint::new(x, y), NSSize::new(w, h)));
+        assert_eq!(r.rd, rect(60.0, 207.5, 20.0, 15.0));
+        assert_eq!(r.syn, rect(260.0, 207.5, 30.0, 15.0));
+        for led in Led::ALL
+            .into_iter()
+            .filter(|&l| l != Led::Rd && l != Led::Syn)
+        {
+            assert_eq!(*r.get(led), None, "{led:?}: left out");
+        }
     }
 
     /// **Each light's rectangle shows its own text, and only its own**:
@@ -734,10 +852,34 @@ mod tests {
         assert!(tell.contains("self.flush_reply(Asked::Unasked);"), "{tell}");
         let style = body(concat!("    fn apply_style(&mut self) ", "{"));
         assert!(style.contains("self.lights.stale();"), "{style}");
+        // On their own line: the tick hands the renderer what they show and
+        // puts the hover texts over them, every frame places their records,
+        // and a re-lay sets the line at its scale and takes its pixels off
+        // the grid's.
+        for want in [
+            "self.app.renderer.set_lights(shown, glow);",
+            "self.place_line_tips();",
+        ] {
+            assert!(show.contains(want), "{want}\n{show}");
+        }
+        let present = body(concat!(
+            "    fn present(&mut self, ",
+            "screen: &DrawableView, show: Show) {"
+        ));
+        assert!(
+            present.contains("self.renderer.place_lights(&self.term);"),
+            "every frame places the line's lights"
+        );
         let resized = body(concat!(
             "    fn relayout(&mut self, ",
             "size: NSSize, scale: CGFloat) -> Drew {"
         ));
         assert!(resized.contains("self.place_lights();"), "{resized}");
+        for want in [
+            ".set_lights_line(self.app.activity_lights.line(), scale as f32);",
+            "crate::width::less_line(px_h, self.app.renderer.lights_height()),",
+        ] {
+            assert!(resized.contains(want), "{want}");
+        }
     }
 }

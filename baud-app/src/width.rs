@@ -191,6 +191,34 @@ pub fn less_status(ws: WinSize, status: Rows) -> WinSize {
     }
 }
 
+/// **A height in device pixels less the activity lights' own line**,
+/// `line` pixels that are no row of the grid's (`Renderer::lights_height`):
+/// what is left for the grid's rows, the padding and the cell's remainder.
+#[cfg(any(target_os = "macos", test))]
+pub fn less_line(px: f64, line: baud_font::Px) -> f64 {
+    (px - f64::from(line.value())).max(0.0)
+}
+
+/// **The words of a whole frame `stride` pixels wide that a slide moves**:
+/// the frame's own `rows` from `top` down (`Renderer::grid_top`), held to
+/// the words `frame` has; the activity lights' line outside them holds
+/// still, as the margins do.
+pub fn slide_span(
+    top: baud_font::Px,
+    rows: baud_font::Px,
+    stride: baud_font::Px,
+    frame: &[u32],
+) -> core::ops::Range<usize> {
+    let n = |p: baud_font::Px| usize::try_from(p.value()).unwrap_or(usize::MAX);
+    let s = n(stride);
+    let a = n(top).saturating_mul(s).min(frame.len());
+    a..n(top)
+        .saturating_add(n(rows))
+        .saturating_mul(s)
+        .min(frame.len())
+        .max(a)
+}
+
 /// The content height, in points, of a window whose grid is `grid.rows`
 /// rows with the status line's `status` below them: `relayout`'s
 /// arithmetic inverted -- the cells and the padding top and bottom -- and
@@ -209,6 +237,108 @@ mod tests {
         rows: 30,
         cols: 100,
     };
+
+    /// **A program is told the grid and its text area without the lights'
+    /// line, and the whole window with it**: a window of 24 rows of 34
+    /// pixels, the padding, a 30-pixel line and 10 pixels the grid does not
+    /// fill lays out a 24-row grid, and
+    /// the terminal laid out so answers `CSI 18 t` with 24 rows, `CSI 14 t`
+    /// with 24 rows' pixels, the line left out, and `CSI 14 ; 2 t` with the
+    /// window's, the line in it -- what each driver tells the core from the
+    /// window it has. Perturbation: lay the grid out from the window's
+    /// height with the line still in it -- the grid is told 25 rows, one
+    /// the line covers -- and this goes red.
+    #[test]
+    fn the_size_reports_leave_the_line_out_of_the_text_area() {
+        use baud_core::{ImagePx, Owned, PixelSize, WindowFacts};
+        use baud_domain::{BytePos, ReadLen};
+        let (cell_w, cell_h, pad, line) = (17u32, 34u32, 16u32, 30u32);
+        let (cols, rows) = (80u32, 24u32);
+        let (win_w, win_h) = (cols * cell_w + 2 * pad, rows * cell_h + 2 * pad + line + 10);
+        let left = less_line(f64::from(win_h - 2 * pad), baud_font::Px::of(line));
+        let laid = (left / f64::from(cell_h)).floor();
+        assert_eq!(laid, f64::from(rows), "the grid's rows");
+        let ws = WinSize {
+            ws_col: u16::try_from(cols).unwrap(),
+            ws_row: u16::try_from(rows).unwrap(),
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(
+            ImagePx::of(u16::try_from(cell_w).unwrap()),
+            ImagePx::of(u16::try_from(cell_h).unwrap()),
+        );
+        t.set_window(WindowFacts {
+            window: Some(PixelSize {
+                width: ImagePx::of(u16::try_from(win_w).unwrap()),
+                height: ImagePx::of(u16::try_from(win_h).unwrap()),
+            }),
+            ..WindowFacts::UNKNOWN
+        });
+        let ask = b"\x1b[18t\x1b[14t\x1b[14;2t";
+        t.write_at(BytePos::ZERO, ask);
+        t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
+        let want = format!(
+            "\x1b[8;{rows};{cols}t\x1b[4;{};{}t\x1b[4;{win_h};{win_w}t",
+            rows * cell_h,
+            cols * cell_w
+        );
+        assert_eq!(String::from_utf8_lossy(t.reply()), want);
+        assert_eq!(
+            win_h - rows * cell_h - 2 * pad - 10,
+            line,
+            "the line is in the window"
+        );
+    }
+
+    /// **The activity lights' line is pixels, not a row**: a window
+    /// `rows` cells tall and the line's pixels more holds `rows` rows once
+    /// the line is taken off, at cell heights from 12 to 40 and lines from
+    /// 0 to 39 pixels -- shorter or taller than a cell -- and a line taller
+    /// than the window leaves nothing. With the frame's words, a slide moves
+    /// only the frame's own rows: below a line at the top, above one at the
+    /// bottom. Perturbation: return `px` from `less_line` -- the grid would
+    /// keep a row the line covers once the line reaches a cell's height --
+    /// and this goes red.
+    #[test]
+    fn the_lights_line_is_taken_off_in_pixels() {
+        use baud_font::Px;
+        for cell in 12..=40u32 {
+            for line in 0..40u32 {
+                for rows in [1u32, 24, 50] {
+                    let px = f64::from(rows * cell + line);
+                    let left = less_line(px, Px::of(line));
+                    assert_eq!(
+                        (left / f64::from(cell)).floor(),
+                        f64::from(rows),
+                        "{cell} {line}"
+                    );
+                }
+            }
+        }
+        assert_eq!(less_line(10.0, Px::of(30)), 0.0);
+        let frame = vec![0u32; 10 * 8];
+        assert_eq!(
+            slide_span(Px::of(0), Px::of(6), Px::of(10), &frame),
+            0..60,
+            "line below"
+        );
+        assert_eq!(
+            slide_span(Px::of(2), Px::of(6), Px::of(10), &frame),
+            20..80,
+            "line above"
+        );
+        assert_eq!(
+            slide_span(Px::of(0), Px::of(8), Px::of(10), &frame),
+            0..80,
+            "no line"
+        );
+        assert_eq!(
+            slide_span(Px::of(5), Px::of(9), Px::of(10), &frame),
+            50..80,
+            "held to it"
+        );
+    }
 
     /// **Every host and every width**, the two pages and a window's own
     /// that `RIS` asks back for: the window takes the columns and keeps the

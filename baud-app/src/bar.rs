@@ -355,13 +355,18 @@ pub(crate) enum Event {
 /// never takes (the wheel): at the position the seat last had for a press
 /// or a release, a move a drag while a button is down. The thumb's
 /// geometry is in frame pixels, the grid's, so a surface point comes in
-/// `scale` pixels each and less `strip`, the exit-status strip at the
-/// frame's left, as the macOS app's `frame_px` takes a view point.
+/// `scale` pixels each and less `origin`: the exit-status strip at the
+/// frame's left, and the activity lights' line when it is at the top, as
+/// the macOS app's `frame_px` takes a view point.
 #[cfg(any(target_os = "linux", test))]
-pub(crate) fn event_beside(beside: crate::seat::Beside, strip: f64, scale: f64) -> Option<Event> {
+pub(crate) fn event_beside(
+    beside: crate::seat::Beside,
+    (strip, top): (f64, f64),
+    scale: f64,
+) -> Option<Event> {
     use crate::gesture::Pressed;
     use crate::seat::Input;
-    let px = |(x, y): (f64, f64)| (x * scale - strip, y * scale);
+    let px = |(x, y): (f64, f64)| (x * scale - strip, y * scale - top);
     let at = beside.at.map(px);
     Some(match (beside.input, at) {
         (Input::Entered(x, y), _) => {
@@ -878,7 +883,7 @@ mod tests {
         use crate::gesture::Pressed;
         use crate::seat::{Beside, Input};
         let at = Some((107.0, 30.0));
-        let of = |input, held| event_beside(Beside { input, at, held }, 7.0, 1.0);
+        let of = |input, held| event_beside(Beside { input, at, held }, (7.0, 0.0), 1.0);
         let time = baud_domain::EventMillis::of_millis(5);
         assert_eq!(
             of(Input::Moved(57.0, 40.0), Held::Yes),
@@ -926,7 +931,7 @@ mod tests {
                     at,
                     held: Held::No,
                 },
-                7.0,
+                (7.0, 0.0),
                 1.5,
             )
         };
@@ -945,6 +950,26 @@ mod tests {
         assert_eq!(
             scaled(Input::Released { button, time }),
             Some(Event::Released { x: 153.5, y: 45.0 })
+        );
+        // With the activity lights' line at the top, 30 frame pixels tall,
+        // every point is that much higher on the thumb. Perturbation: drop
+        // `- top` -- the move reads 40.0.
+        let lined = event_beside(
+            Beside {
+                input: Input::Moved(57.0, 40.0),
+                at,
+                held: Held::No,
+            },
+            (7.0, 30.0),
+            1.0,
+        );
+        assert_eq!(
+            lined,
+            Some(Event::Moved {
+                x: 50.0,
+                y: 10.0,
+                held: Held::No
+            })
         );
     }
 }

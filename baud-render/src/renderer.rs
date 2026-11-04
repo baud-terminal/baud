@@ -2259,6 +2259,9 @@ pub struct Renderer<'f, 'a> {
     /// Whether the last CPU frame repainted the strip, for
     /// [`Renderer::painted`]: its whole height then.
     strip_fresh: StripFresh,
+    /// **The activity lights' own line** ([`Renderer::set_lights_line`]):
+    /// a band of the whole frame outside the grid, above or below it.
+    lights: crate::lights::LineState,
     /// The cursor trail's ghost on this frame and the last, and its one
     /// solid instance: a row the ghost is over or was over is dirty, the
     /// scrollbar's rule, so the trail's damage stays bounded to the rows it
@@ -2805,6 +2808,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             strip_inst: Vec::new(),
             strip_painted: None,
             strip_fresh: StripFresh::No,
+            lights: crate::lights::LineState::new(),
             bar_inst: Vec::new(),
             trail: None,
             last_trail: None,
@@ -5447,11 +5451,155 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **The whole frame**: the strip, then [`Renderer::frame_size`]'s grid
-    /// and gutter. What a driver allocates and a presenter centres; the
-    /// grid is drawn [`Renderer::strip`] pixels in from its left.
+    /// and gutter, and the activity lights' line above or below all of it
+    /// ([`Renderer::lights_height`]). What a driver allocates and a
+    /// presenter centres; the grid is drawn [`Renderer::strip`] pixels in
+    /// from its left and [`Renderer::grid_top`] down from its top.
     pub fn whole_size(&self) -> (Px, Px) {
         let (w, h) = self.frame_size();
-        (Px::of(w.value().saturating_add(self.strip().value())), h)
+        (
+            Px::of(w.value().saturating_add(self.strip().value())),
+            Px::of(h.value().saturating_add(self.lights.height().value())),
+        )
+    }
+
+    /// **The activity lights' own line**, at `edge` of the whole frame and
+    /// drawn at `scale` device pixels a point, or none: the line the
+    /// VT420 kept for its keyboard indicators, "at the bottom of the
+    /// screen, below the status line" (`[[source: vt420-uu-ch4]]`), or the
+    /// same line at the top. It is outside [`Renderer::frame_size`], as the
+    /// exit-status strip is: no row of the grid, the status line's or the
+    /// notice's, so nothing a program is told, nothing the scrollbar spans
+    /// and nothing a smooth scroll slides holds it, and a driver's window
+    /// arithmetic counts it as it counts the strip. Only as tall as the
+    /// lights and their margins ([`crate::LineRows`]), never a text row.
+    pub fn set_lights_line(&mut self, edge: Option<crate::LineEdge>, scale: f32) {
+        let line = edge.and_then(|edge| {
+            Some(crate::lights::Line {
+                edge,
+                rows: crate::LineRows::at(scale)?,
+                scale,
+            })
+        });
+        if line != self.lights.line {
+            self.lights.line = line;
+            self.lights.painted = None;
+            self.lights.inst.clear();
+            self.known = Prev::Unknown;
+        }
+    }
+
+    /// The edge the activity lights' line is at, or none.
+    pub fn lights_edge(&self) -> Option<crate::LineEdge> {
+        self.lights.line.map(|l| l.edge)
+    }
+
+    /// The activity lights' line's height in pixels: none without one.
+    pub fn lights_height(&self) -> Px {
+        self.lights.height()
+    }
+
+    /// **Where the grid's frame starts in the whole frame**, in pixels from
+    /// its top: below the lights' line when it is at the top, else at the
+    /// top.
+    pub fn grid_top(&self) -> Px {
+        match self.lights_edge() {
+            Some(crate::LineEdge::Top) => self.lights.height(),
+            _ => Px::of(0),
+        }
+    }
+
+    /// **Where the lights' line starts in the whole frame**, in pixels from
+    /// its top: the top, or below everything [`Renderer::frame_size`] holds
+    /// -- the grid, the status line and the notice.
+    pub fn lights_top(&self) -> Px {
+        match self.lights_edge() {
+            Some(crate::LineEdge::Top) => Px::of(0),
+            _ => self.frame_size().1,
+        }
+    }
+
+    /// **What the lights show and how a lit one is drawn**, from the
+    /// driver's clocks ([`crate::Activity`]) and its Dim Flashing Lights
+    /// setting: the next [`Renderer::place_lights`] lays them out.
+    pub fn set_lights(&mut self, shown: crate::Shown, glow: crate::Glow) {
+        self.lights.shown = shown;
+        self.lights.glow = glow;
+    }
+
+    /// **The lights' records for the next frame** ([`crate::lights::LineState`]):
+    /// their look from the theme -- the page the default background as the
+    /// next convert of `term` resolves it, in either video, as the VT420's
+    /// line was "in the same video background as the main display" -- and
+    /// each placed light naming its picture on the colour sheet, drawn there
+    /// once a look. Every path draws them: the CPU path in
+    /// [`Renderer::render_at`], which calls this itself, the GPU paths from
+    /// [`Renderer::lights_records`] in a pass over the line.
+    pub fn place_lights(&mut self, term: &Term<'_>) {
+        if self.lights.line.is_none() {
+            self.lights.inst.clear();
+            return;
+        }
+        let page = self.clear_color_of(term);
+        let text = match self.theme.floor {
+            crate::Floor::Lift { target, .. } => target.max(4.5),
+            crate::Floor::Off => 4.5,
+        };
+        let palette = self.theme.palette;
+        let key = crate::lights::LookKey {
+            asked: [palette[2], palette[3], palette[4]],
+            fg: self
+                .theme
+                .defaults(video_of(term, self.flash), |d| term.dynamic_color(d))
+                .0,
+            page: page.with_alpha(Chan::from_u8(0xFF)),
+            alpha: self.theme.bg_alpha,
+            backdrop: self.theme.backdrop,
+            text,
+            glow: self.lights.glow,
+            scale: self.lights.line.map_or(0.0, |l| l.scale),
+        };
+        let width = self.whole_size().0;
+        let face = self.stack.face(self.stack.badge());
+        self.lights
+            .place(face, &mut self.atlas, key, &palette, width);
+    }
+
+    /// The lights' records, in the line's own pixels: x from its left, y
+    /// from its top.
+    pub fn lights_records(&self) -> &[Instance] {
+        &self.lights.inst
+    }
+
+    /// **Each placed light's left and width on the line**, in its pixels:
+    /// where a driver puts the light's hover text ([`crate::Led::tip`]).
+    pub fn lights_places(&self) -> crate::ByLed<Option<(Px, Px)>> {
+        self.lights.places
+    }
+
+    /// Paints the lights' line into `target`, the line's own rows: the
+    /// clear colour, then the lights, when either changed since the last
+    /// paint or the frame is new.
+    fn paint_lights(&mut self, target: &mut Target<'_>, damage: Damage) {
+        let clear = self.clear_color();
+        let fresh = match &self.lights.painted {
+            Some((c, insts)) => damage == Damage::Full || *c != clear || *insts != self.lights.inst,
+            None => true,
+        };
+        if !fresh {
+            return;
+        }
+        self.lights.fresh = crate::lights::Fresh::Yes;
+        let all = Band {
+            top: Px::of(0),
+            bottom: self.lights.height(),
+        };
+        target.fill_band(all, &[], self.metrics.cell_w, clear);
+        let page = self.page();
+        for inst in &self.lights.inst {
+            target.over(inst, &self.atlas, self.blend, page, all);
+        }
+        self.lights.painted = Some((clear, self.lights.inst.clone()));
     }
 
     /// **The marks for the next frame**, read from the prompts on the
@@ -5702,7 +5850,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
             top: Px::of(0),
             bottom: self.frame_size().1,
         });
-        runs.chain(images).chain(strip)
+        // In the whole frame: below the lights' line when it is at the top,
+        // and the line itself when this frame repainted it.
+        let down = self.grid_top();
+        let line = (self.lights.fresh == crate::lights::Fresh::Yes).then(|| {
+            let top = self.lights_top();
+            Band {
+                top,
+                bottom: Px::of(top.value().saturating_add(self.lights.height().value())),
+            }
+        });
+        runs.chain(images)
+            .chain(strip)
+            .map(move |b| Band {
+                top: Px::of(b.top.value().saturating_add(down.value())),
+                bottom: Px::of(b.bottom.value().saturating_add(down.value())),
+            })
+            .chain(line)
     }
 
     /// Reads the terminal, converts the rows that changed and paints them
@@ -5750,13 +5914,42 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.fit(term);
         self.place_images(term, back, Snapshots::Skipped);
         let converted = self.convert_with(term, back, damage, ImageRows::Repainted);
+        self.strip_fresh = StripFresh::No;
+        self.lights.fresh = crate::lights::Fresh::No;
+        // With the activity lights' line kept, `target` is the whole frame:
+        // the rest is painted into the rows beside the line, and the line on
+        // its own.
+        let line = self.lights.height();
+        if line.value() == 0 {
+            return self.paint_beside(term, target, converted, damage);
+        }
+        self.place_lights(term);
+        let (top, h) = (self.grid_top(), self.frame_size().1);
+        let frame = match target.rows(top, h) {
+            Some(mut rest) => self.paint_beside(term, &mut rest, converted, damage),
+            None => Frame::default(),
+        };
+        if let Some(mut own) = target.rows(self.lights_top(), line) {
+            self.paint_lights(&mut own, damage);
+        }
+        frame
+    }
+
+    /// [`Renderer::render_at`]'s paint of the rows beside the lights' line:
+    /// the grid, and the exit-status strip beside it when kept.
+    fn paint_beside(
+        &mut self,
+        term: &Term<'_>,
+        target: &mut Target<'_>,
+        converted: Converted,
+        damage: Damage,
+    ) -> Frame {
         let under = self.image_places.iter().any(|p| p.layer.under_text());
         let over = Some(term.images());
         // With the exit-status strip kept, `target` is the whole frame: the
         // grid is painted into the columns past the strip, and the strip on
         // its own.
         let strip = self.strip();
-        self.strip_fresh = StripFresh::No;
         if strip.value() == 0 {
             return match under {
                 true => self.paint_rows(target, converted, UnderImages(term.images()), over),

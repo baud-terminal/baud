@@ -87,9 +87,8 @@ pub(crate) fn image_motion(
 /// reduced motion two seconds a change, so a stream of activity reads as
 /// one steady light -- "reducing automatic and repetitive animations"
 /// (`[[source: apple-hig-accessibility]]`), as blinking text is held
-/// steady rather than hidden (`effects::text_blink`). Only the macOS
-/// window has the lights.
-#[cfg(any(target_os = "macos", test))]
+/// steady rather than hidden (`effects::text_blink`). On Linux the
+/// portal's `reduced-motion` is the preference, and the lights take it.
 pub(crate) fn lights_pace(m: crate::config::SystemMotion) -> baud_render::Pace {
     match m {
         crate::config::SystemMotion::Full => baud_render::Pace::Full,
