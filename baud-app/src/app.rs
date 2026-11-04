@@ -66,8 +66,8 @@ use macos_liquid_glass::objc2::{MainThreadOnly, Message};
 use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
     NSAutoresizingMaskOptions, NSBeep, NSColor, NSCursor, NSEvent, NSEventModifierFlags, NSImage,
-    NSImageView, NSRequestUserAttentionType, NSScreen, NSScroller, NSScrollerStyle, NSView,
-    NSWindow, NSWindowAnimationBehavior, NSWindowButton, NSWindowOcclusionState, NSWindowStyleMask,
+    NSRequestUserAttentionType, NSScreen, NSScroller, NSScrollerStyle, NSView, NSWindow,
+    NSWindowAnimationBehavior, NSWindowButton, NSWindowOcclusionState, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -4304,17 +4304,15 @@ struct Driver {
     /// Whether a key hid the pointer, and what the core said when it was
     /// last asked (`hide.rs`).
     hiding: crate::hide::Hiding,
-    /// The titlebar mark, repositioned on every resize. A manual autoresizing
-    /// mask lost it after a fast drag to a tiny window -- the frame clamped
-    /// and never came back -- so the driver places it itself instead: `icon_x`
-    /// from the left, centred in the `icon_inset` strip at the top of its
+    /// The titlebar mark (`mark.rs`), re-placed on every resize. A manual
+    /// autoresizing mask lost it after a fast drag to a tiny window -- the
+    /// frame clamped and never came back -- so the driver places it itself
+    /// instead, centred in the `icon_inset` strip at the top of its
     /// superview, whose height it reads each time.
-    icon: Option<Retained<NSImageView>>,
+    icon: Option<crate::mark::Mark>,
     /// The icon's superview (the content container), whose height gives the
     /// window top; read rather than `superview()`, which is `unsafe`.
     icon_super: Retained<NSView>,
-    icon_x: CGFloat,
-    icon_size: CGFloat,
     icon_inset: CGFloat,
     /// The activity lights at the strip's right, in the same container
     /// (`lights.rs`), and the appearance the body under the strip draws in.
@@ -12429,7 +12427,6 @@ struct Opening {
     glass: Body,
     container: Retained<NSView>,
     icon: Option<Retained<NSImage>>,
-    full: NSSize,
     inset: CGFloat,
 }
 
@@ -12609,8 +12606,6 @@ impl Opening {
             // lights it is placed against.
             icon: None,
             icon_super: container.clone(),
-            icon_x: 0.0,
-            icon_size: 0.0,
             icon_inset: inset,
             lights: crate::lights::Strip::new(0.0, 0.0),
             lights_appearance: glass.appearance(&window),
@@ -12671,7 +12666,6 @@ impl Opening {
             glass,
             container,
             icon,
-            full,
             inset,
         }
     }
@@ -12689,7 +12683,6 @@ impl Opening {
             glass,
             container,
             icon,
-            full,
             inset,
         } = self;
         // The first frame, drawn now on this thread: one draw, which
@@ -12736,8 +12729,6 @@ impl Opening {
         }
         window.show();
         startup_mark("shown");
-        let mut icon_iv: Option<Retained<NSImageView>> = None;
-        let (mut icon_x, mut icon_s) = (0.0_f64, 0.0_f64);
         // The activity lights keep the traffic lights' gap from the strip's
         // other edge: the close button's distance from the left, once laid out.
         let lights_right = window
@@ -12746,71 +12737,25 @@ impl Opening {
             .map(|c| c.frame())
             .filter(|f| f.size.height >= 1.0)
             .map_or(12.0, |f| f.origin.x);
-        if let Some(img) = &icon {
-            // Placed against the real traffic lights rather than a hand-picked x.
-            // The window is FullSizeContentView, so `container` (the content view)
-            // spans the whole frame and shares the theme frame's bottom-left
-            // origin -- so a standard button's `frame` is already in container
-            // coordinates, no conversion (which would be `unsafe` here) needed.
-            let w = window.ns_window();
-            let lights = (
-                w.standardWindowButton(NSWindowButton::CloseButton),
-                w.standardWindowButton(NSWindowButton::MiniaturizeButton),
-                w.standardWindowButton(NSWindowButton::ZoomButton),
-            );
-            // Read after `show()`, so the buttons are laid out; a zero-height
-            // frame means they are not, and the fallback places it by the strip.
-            let measured = match lights {
-                (Some(close), Some(mini), Some(zoom)) => {
-                    let (c, m, z) = (close.frame(), mini.frame(), zoom.frame());
-                    (z.size.height >= 1.0).then(|| {
-                        // Horizontal comes from the buttons: x is shared with the
-                        // container (the titlebar view spans the width from x=0).
-                        // Vertical does NOT -- a button's `frame` is in the
-                        // titlebar view's own coordinates, so its y is near that
-                        // view's bottom, not the window's top. Convert would be
-                        // `unsafe`, forbidden here, so the icon is centred in the
-                        // strip from geometry we already know: it runs from
-                        // `full.height - inset` to `full.height`.
-                        let gap = (m.origin.x - (c.origin.x + c.size.width)).max(0.0);
-                        // A peer of the lights: a little larger than a button, the
-                        // snug mark reading at about a traffic light's size.
-                        let s = (z.size.height * 1.4).clamp(16.0, inset - 4.0);
-                        (s, z.origin.x + z.size.width + gap)
-                    })
-                }
-                _ => None,
-            };
-            let (s, left) = measured.unwrap_or_else(|| {
-                let s = (inset - 2.0).clamp(18.0, 28.0);
-                (s, 74.0)
-            });
-            // Centred in the titlebar strip, whose top is the window top.
-            let cy = full.height - inset / 2.0;
-            // The snug crop, not the padded dock mark, so the box is the size.
-            let iv = match icon_titlebar() {
-                Some(tight) => macos_liquid_glass::icon_view(mtm, &tight),
-                None => macos_liquid_glass::icon_view(mtm, img),
-            };
-            iv.setFrame(NSRect::new(
-                NSPoint::new(left, cy - s / 2.0),
-                NSSize::new(s, s),
-            ));
-            // No autoresizing mask: a drag to a tiny window clamps the frame and
-            // it never recovers. `Driver::place_icon` re-places it every resize.
-            container.addSubview(&iv);
-            icon_iv = Some(iv);
-            icon_x = left;
-            icon_s = s;
-        }
-        driver.icon = icon_iv;
-        driver.icon_x = icon_x;
-        driver.icon_size = icon_s;
+        // **baud's mark beside the traffic lights** (`mark.rs`), read after
+        // `show()` so the buttons are laid out, and placed against the
+        // container's height now, not the size `new` built it at: a pinned
+        // grid gave the window, and with it the container, another size
+        // before this ran. The snug crop, not the padded Dock mark, so the
+        // box is the size the mark is drawn at.
+        let mark = icon.as_ref().map(|img| {
+            let tight = icon_titlebar();
+            crate::mark::Mark::put(
+                mtm,
+                window.ns_window(),
+                &container,
+                inset,
+                tight.as_deref().unwrap_or(img),
+            )
+        });
         // And stop short of baud's mark, a light's gap clear of it.
-        let mark_end = match icon_s > 0.0 {
-            true => icon_x + icon_s,
-            false => 74.0,
-        };
+        let mark_end = mark.as_ref().map_or(74.0, crate::mark::Mark::end);
+        driver.icon = mark;
         let lights_left = mark_end + CGFloat::from(baud_render::lights::PAIR);
         driver.lights = crate::lights::Strip::new(lights_right, lights_left);
         startup_mark("titlebar");
@@ -12823,6 +12768,8 @@ impl Opening {
         // holding the view's borrow cannot survive.
         window.set_content_view(glass.view());
         glass.set_content_view(&container);
+        // The body sized the container to itself: the mark against that.
+        driver.place_icon();
         startup_mark("glass installed");
         // **Follow the system's appearance and tint, which nothing did.** The
         // titlebar changed on a light/dark flip and the body did not, because
@@ -14624,12 +14571,9 @@ impl Driver {
     /// height it reads now rather than at launch. Cheap -- one `setFrame` --
     /// and it runs on every resize so the mark cannot drift or vanish.
     fn place_icon(&self) {
-        let Some(iv) = &self.icon else { return };
-        let cy = self.icon_super.frame().size.height - self.icon_inset / 2.0;
-        iv.setFrame(NSRect::new(
-            NSPoint::new(self.icon_x, cy - self.icon_size / 2.0),
-            NSSize::new(self.icon_size, self.icon_size),
-        ));
+        if let Some(mark) = &self.icon {
+            mark.place(&self.icon_super);
+        }
     }
 
     /// A program's page width, which the grid took inside the read that
@@ -19490,5 +19434,45 @@ mod driver_rule_tests {
             0,
             "set around the rule"
         );
+    }
+}
+
+#[cfg(test)]
+mod mark_tests {
+    /// `show`'s body, from its signature to the line that closes it.
+    fn show(src: &str) -> &str {
+        let head = concat!("fn show(self, mtm: MainThreadMarker, ", "scale: CGFloat,");
+        src.split_once(head)
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("Opening::show")
+    }
+
+    /// **The titlebar mark is placed against the container as it is, and
+    /// again once the body has it**: `show` computes no position from the
+    /// size `new` built the container at, which a pinned grid's window had
+    /// already changed -- the README film's mark sat above its 572-point
+    /// window for the whole take -- and it re-places the mark after the
+    /// body takes the container, whatever size that gives it. Where the
+    /// mark goes in the strip is `mark.rs`'s, and
+    /// `baud-app/tests/titlebar_mark.rs` checks it in a real window.
+    /// Perturbation: drop the `place_icon()` after the body and the second
+    /// check fails.
+    #[test]
+    fn show_places_the_mark_against_the_container_it_is_in() {
+        let src = include_str!("app.rs");
+        let body = show(src);
+        assert!(!body.contains(concat!("full", ".height")), "{body}");
+        let put = body
+            .find(concat!("crate::mark::Mark::", "put("))
+            .expect("show puts the mark");
+        let taken = body
+            .find(concat!("glass.set_content_view(", "&container);"))
+            .expect("the body takes the container");
+        let placed = body[taken..]
+            .find(concat!("driver.place_", "icon();"))
+            .map(|at| taken + at)
+            .expect("the mark re-placed after the body takes the container");
+        assert!(put < taken && taken < placed);
     }
 }

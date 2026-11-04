@@ -28,7 +28,7 @@
 //! `host.rs`'s release of the fonts a font reload replaced, in `lent.rs`'s
 //! loans to a window's terminal and renderer, given back when it closes,
 //! and in `heap.rs`, the macOS allocator, which forbid nothing and say why
-//! at every call; `app.rs` and `link.rs` forbid it.
+//! at every call; `app.rs`, `link.rs` and `mark.rs` forbid it.
 
 // What the system's accessibility settings ask -- reduced motion, increased
 // contrast: both drivers read their own system and act through it.
@@ -137,6 +137,9 @@ mod front;
 // The activity lights in the title strip: the Linux window has none.
 #[cfg(target_os = "macos")]
 mod lights;
+// baud's mark in the title strip, beside the traffic lights.
+#[cfg(target_os = "macos")]
+mod mark;
 // The state lights as words on DEC's indicator line, both drivers.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod line_lamps;

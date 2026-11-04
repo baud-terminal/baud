@@ -98,6 +98,14 @@ path = "src/main.rs"
 name = "demo"
 test = true
 
+# **The titlebar mark in real windows** (`tests/titlebar_mark.rs`): AppKit
+# views are main-thread-only and libtest runs each test on a thread of its
+# own, so the test is its own `main` and answers nextest's `--list` itself.
+[[test]]
+name = "titlebar_mark"
+path = "tests/titlebar_mark.rs"
+harness = false
+
 # **`cargo install baud` builds the binary the repository measures.** Cargo
 # reads a profile only from the root manifest. In the workspace that is
 # the root `Cargo.toml`, and cargo warns that this copy is ignored; the
