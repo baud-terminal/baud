@@ -224,7 +224,8 @@ struct Driver {
     /// The rows the last frame painted, as the window is told them: what
     /// it copies and damages (`Window::present`).
     strips: Vec<baud_present_wayland::Strip>,
-    /// When the synchronised update open now opened, for `SYNC_MAX`.
+    /// When the frames held for a synchronised update began to be held,
+    /// for `SYNC_MAX`.
     updates: UpdateClock<Instant>,
     /// The visual bell no frame drew, ended on the `poll` timeout
     /// (`bell.rs`).
@@ -2738,7 +2739,7 @@ impl Driver {
         if self.derive.check(&self.pty.reads()) == crate::title::Changed::Yes {
             self.send_title();
         }
-        // Each update is timed from its own opening (`UpdateClock`).
+        // Each hold is timed from the opening that began it (`UpdateClock`).
         let update = self.updates.observe(&self.term, Instant::now());
         if update == Update::Honoured {
             // Honoured: what the update changes of `?5` is its to hide.

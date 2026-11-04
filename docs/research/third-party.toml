@@ -486,6 +486,7 @@ files   = [
   "contour-Terminal.cpp",
   "contour-TerminalSession.cpp",
   "contour-color-palette-update-notifications.md",
+  "contour-synchronized-output.md",
 ]
 
 [upstream.fontdue]

@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 319 | 56 | redistributable, and its notice is satisfied |
+| kept | 320 | 56 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 589 | 65 | |
+| total | 590 | 65 | |
 
 ## Licence texts in LICENSES/
 
@@ -746,13 +746,14 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Apache-2.0
 - **Notice:** [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt)
-- **Files:** 3
+- **Files:** 4
 
 | file | copied from |
 |---|---|
 | [contour-Terminal.cpp](docs/research/sources/contour-Terminal.cpp) | https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/src/vtbackend/screen/Terminal.cpp |
 | [contour-TerminalSession.cpp](docs/research/sources/contour-TerminalSession.cpp) | https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/src/contour/session/TerminalSession.cpp |
 | [contour-color-palette-update-notifications.md](docs/research/sources/contour-color-palette-update-notifications.md) | https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/docs/vt-extensions/color-palette-update-notifications.md |
+| [contour-synchronized-output.md](docs/research/sources/contour-synchronized-output.md) | https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/docs/vt-extensions/synchronized-output.md |
 
 ### CSS Color Module Level 4, editor's draft sample code (W3C); the file carries no notice, so the W3C short notice is at the head of the licence text
 

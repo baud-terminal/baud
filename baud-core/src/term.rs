@@ -844,10 +844,11 @@ impl ReverseFlips {
 }
 
 /// Which opening of a synchronised update (`?2026`) the terminal is at: it
-/// moves when the mode goes from reset to set, and on nothing else. A driver
-/// that bounds how long it honours an update times each one from its
-/// opening, and a close and a reopen in one read would otherwise leave it
-/// timing the new update from the old one's start.
+/// moves when the mode goes from reset to set, and on nothing else. A close
+/// and a reopen in one read leave the mode set, and this is how a driver
+/// that bounds how long it holds frames tells that a new update began: one
+/// it may time from its own opening, once a frame was drawn, or from the
+/// hold's start while frames are held.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct UpdatesOpened(u32);
 

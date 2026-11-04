@@ -11859,6 +11859,19 @@ bytes  = 4845
 status = "retrieved"
 group  = "Y"
 
+[sources.contour-synchronized-output]
+key    = "contour-synchronized-output"
+title  = "contour ea9b6c7, docs/vt-extensions/synchronized-output.md -- mode 2026, BSU and ESU, no consensus on a timeout"
+author = "Christian Parpart and the contour contributors"
+year   = 2026
+venue  = "contour terminal (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/docs/vt-extensions/synchronized-output.md"
+file   = "contour-synchronized-output.md"
+sha256 = "df3cfb42f9e23694aa76c804a77d053d187f7dfdcd2e1ac98849f5dbbca4bbc1"
+bytes  = 4235
+status = "retrieved"
+group  = "C"
+
 [sources.contour-terminal-cpp]
 key    = "contour-terminal-cpp"
 title  = "contour ea9b6c7, vtbackend/screen/Terminal.cpp -- resetColorPalette replaces the live palette and reports 997"

@@ -21,11 +21,12 @@
 //!
 //! **A synchronised update is honoured, and not trusted.** The core counts a
 //! change made inside `?2026` apart ([`Term::reverse_flips_held`]). The driver
-//! times each update from its opening ([`UpdateClock`], restarted by
-//! [`Term::updates_opened`] so a close and a reopen in one read is a new
-//! update), and while it holds frames for one it absorbs that count
+//! times each hold from the opening that began it ([`UpdateClock`]: a close
+//! and a reopen in one read is a new update, [`Term::updates_opened`], with
+//! its own bound after a drawn frame and the hold's while frames are held),
+//! and while it holds frames for one it absorbs that count
 //! ([`Bell::hold`]), so a pair the application hid stays hidden. A frame the
-//! driver draws because the update open at that frame outlived its bound
+//! driver draws because the hold at that frame outlived its bound
 //! ([`Update::Outlived`], which the driver says and this does not guess)
 //! compares the held count too -- so a `tput flash` after a program died
 //! mid-update still flashes. A pair made in an outlived update that closes
@@ -165,63 +166,83 @@ impl Moment for Instant {
 pub enum Update {
     /// No update is open.
     Closed,
-    /// One is open and younger than the driver's bound: its frames are held.
+    /// One is open and its hold younger than the driver's bound: its frames
+    /// are held.
     Honoured,
-    /// One is open and older than the bound: the driver draws through it, and
-    /// what it held is on screen.
+    /// One is open and its hold older than the bound: the driver draws
+    /// through it, and what it held is on screen.
     Outlived,
 }
 
-/// How long the update open now has been open, timed from its opening. A
-/// close and a reopen in one read is a new update ([`Term::updates_opened`]),
-/// and it is timed from when the clock first sees it, not from the update
-/// before it.
+/// How long the frames held now have been held, timed from the opening of
+/// the update that began the hold. A close and a reopen in one read is a
+/// new update ([`Term::updates_opened`]). Found after the clock last
+/// answered Closed or Outlived, an answer that lets the driver draw (the
+/// update before it closed, or outlived its bound), it is timed from when
+/// the clock first sees it, so it has the whole bound. Found while frames are held, it keeps the
+/// hold's start: the close in that read was owed a frame, "implicitly
+/// updating the render state" (`[[source: contour-synchronized-output]]`),
+/// and a chain of updates, each opened in the read that closed the last,
+/// is held for one bound, not for as long as it runs.
 pub struct UpdateClock<T> {
     opened: Option<(UpdatesOpened, T)>,
+    /// What the hold check was last answered.
+    last: Update,
     max: Duration,
 }
 
 impl<T: Moment> UpdateClock<T> {
-    /// A clock that honours an update for `max` from its opening.
+    /// A clock that holds frames for `max` from the opening that began the
+    /// hold.
     pub fn new(max: Duration) -> UpdateClock<T> {
-        UpdateClock { opened: None, max }
+        UpdateClock {
+            opened: None,
+            last: Update::Closed,
+            max,
+        }
     }
 
     /// What the update is at `now`, starting the clock on an opening it has
-    /// not seen and forgetting one that closed. The driver's own hold check
-    /// calls this after every read.
+    /// not seen unless frames are held, and forgetting one that closed. The
+    /// driver's own hold check calls this after every read.
     pub fn observe(&mut self, term: &Term<'_>, now: T) -> Update {
         if !term.synchronized_output() {
             self.opened = None;
+            self.last = Update::Closed;
             return Update::Closed;
         }
-        let n = term.updates_opened();
-        if self.opened.is_none_or(|(m, _)| m != n) {
-            self.opened = Some((n, now));
+        self.opened = Some(self.timed(term.updates_opened(), now));
+        self.last = self.state(term, now);
+        self.last
+    }
+
+    /// Opening `n`, with the moment its hold is timed from at `now`: the
+    /// hold's start while the clock holds frames or `n` is the opening it
+    /// times, else `now`.
+    fn timed(&self, n: UpdatesOpened, now: T) -> (UpdatesOpened, T) {
+        match self.opened {
+            Some((m, start)) if m == n || self.last == Update::Honoured => (n, start),
+            _ => (n, now),
         }
-        self.state(term, now)
     }
 
     /// The same answer without recording anything, for a frame drawn outside
     /// the loop's hold check -- a resize, a zoom. An opening the clock has not
-    /// seen is younger than anything it has, so it is honoured.
+    /// seen is timed as the hold check will time it: fresh, or from the
+    /// hold's start while frames are held.
     pub fn state(&self, term: &Term<'_>, now: T) -> Update {
         if !term.synchronized_output() {
             return Update::Closed;
         }
-        match self.opened {
-            Some((m, start)) if m == term.updates_opened() => {
-                if now.elapsed_since(start) < self.max {
-                    Update::Honoured
-                } else {
-                    Update::Outlived
-                }
-            }
-            _ => Update::Honoured,
+        let (_, start) = self.timed(term.updates_opened(), now);
+        if now.elapsed_since(start) < self.max {
+            Update::Honoured
+        } else {
+            Update::Outlived
         }
     }
 
-    /// When the update the clock is timing outlives its bound, for a loop
+    /// When the hold the clock is timing outlives its bound, for a loop
     /// that waits on a clock. The macOS driver ticks on the display link
     /// instead, so only the Linux `poll` timeout reads this.
     #[cfg(any(target_os = "linux", test))]
@@ -1194,7 +1215,8 @@ mod tests {
 
     /// The update clock: honoured from its opening for its bound, outlived
     /// after, forgotten on a close, and restarted by a close and a reopen
-    /// the driver never saw apart.
+    /// the driver never saw apart, once the update before it was drawn
+    /// through.
     #[test]
     fn the_update_clock_times_each_update_from_its_opening() {
         let mut owned = Owned::new(&WS);
@@ -1218,6 +1240,40 @@ mod tests {
         feed(&mut t, b"\x1b[?2026l");
         assert_eq!(c.observe(&t, at(MS * 60)), Update::Closed);
         assert_eq!(c.deadline(), None, "forgotten");
+    }
+
+    /// **A chain of updates is held for one bound, not for ever**: a
+    /// program that closes each update and opens the next in one read,
+    /// every 10 ms, leaves one open at every read's end, and the clock
+    /// never sees one closed. Restarted at each opening, it held every
+    /// frame for as long as the chain ran. The close is the update's end,
+    /// "implicitly updating the render state by reading out the latest
+    /// grid buffer state" (`[[source: contour-synchronized-output]]`), so
+    /// an opening found while frames are held keeps the hold's start: the
+    /// read past 33 ms draws through, and the next opening, after that
+    /// frame, has its own bound.
+    #[test]
+    fn a_chain_of_reopened_updates_is_held_for_one_bound() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut c: UpdateClock<HostTime> = UpdateClock::new(MS * 33);
+        feed(&mut t, b"\x1b[?2026h");
+        let mut answers = vec![c.observe(&t, at(Duration::ZERO))];
+        let mut deadlines = vec![c.deadline()];
+        for k in 1..=9u32 {
+            feed(&mut t, b"x\x1b[?2026l\x1b[?2026h");
+            let now = at(MS * 10 * k);
+            // A frame drawn outside the hold check reads what the check
+            // will.
+            let unseen = c.state(&t, now);
+            answers.push(c.observe(&t, now));
+            assert_eq!(Some(&unseen), answers.last(), "{k}");
+            deadlines.push(c.deadline());
+        }
+        use Update::{Honoured as H, Outlived as O};
+        assert_eq!(answers, [H, H, H, H, O, H, H, H, H, O]);
+        let (first, next) = (Some(at(MS * 33)), Some(at(MS * 83)));
+        assert_eq!(deadlines, [[first; 5], [next; 5]].concat());
     }
 
     /// The same machine on the Linux clock.

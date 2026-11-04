@@ -585,12 +585,13 @@ struct App {
     /// The core's prompt count at the last read, for [`hold_after`].
     last_prompts: PromptsOpened,
     last_tick: Option<f64>,
-    /// When the synchronised update (`?2026`) open now opened, timed from its
-    /// own opening. A frame is held while one is open, so a half-drawn screen --
+    /// When the frames held for a synchronised update (`?2026`) began to be
+    /// held. A frame is held while one is open, so a half-drawn screen --
     /// btop's menu redraws inside one -- is never presented; but only up to
     /// [`SYNC_MAX`], so a program that opens one and stalls -- or dies inside
     /// it, leaving it open until a `?2026l`, `DECSTR` or `RIS` -- cannot
-    /// freeze the window.
+    /// freeze the window, nor can one that opens each update in the read
+    /// that closes the last.
     updates: UpdateClock<Instant>,
     /// The blink phase this frame draws with, whether any cell blinks, and
     /// whether the phase just flipped -- which forces a full repaint, since a
@@ -11243,9 +11244,11 @@ impl Driver {
         // freeze the window until something closes it. The closing `?2026l`
         // feeds in and wakes us, and this call then presents the finished
         // screen.
-        // Each update is timed from its own opening: a close and a reopen in
-        // one read restart the clock (`UpdateClock`), where an instant kept
-        // across them let the new update inherit the old one's start.
+        // Each hold is timed from the opening that began it: a close and a
+        // reopen in one read restart the clock once a frame was drawn
+        // (`UpdateClock`), where an instant kept across them let the new
+        // update inherit an outlived one's start, and keep the hold's start
+        // while frames are held, so a chain of them is not held for ever.
         if self.app.updates.observe(&self.app.term, Instant::now()) == Update::Honoured {
             // Honoured: what the update changes of `?5` is its to hide.
             self.app.bell.hold(&self.app.term);
