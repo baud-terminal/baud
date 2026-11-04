@@ -6,10 +6,12 @@
 //! [`LEFT`], 0.47 s in, and what is left of the plasma at [`GONE`], 0.55 s
 //! in: one movement, with no frame where the logo stands still (note AJ).
 //! The lockup is
-//! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s geometry and
-//! colours, without the dark one's baked ground, which would be a
-//! rectangle on the glass; the half is the theme's by the rule `CSI ? 996
-//! n` answers with ([`crate::Theme::polarity`]).
+//! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s colours, and the
+//! geometry they had before they took baud's own drawing of the mark (the
+//! ❯ at 54 units, the block at x 238), without the dark one's baked
+//! ground, which would be a rectangle on the glass; the half is the
+//! theme's by the rule `CSI ? 996 n` answers with
+//! ([`crate::Theme::polarity`]).
 //!
 //! **Its plasma is the colour of the glyph it is over** ([`paint`]): the
 //! word's ink over `baud` -- near-white on the dark page, dark on the
@@ -299,7 +301,12 @@ pub fn ignition(at: Pt, scale: f32) -> Ignition {
 }
 
 fn lit(at: Pt, scale: f32, seed: Seed) -> Ignition {
-    let e = placed(EMITTER, at, scale);
+    lit_over(EMITTER, at, scale, seed)
+}
+
+/// [`lit`] from the left of `emitter`, in the lockup's units.
+fn lit_over(emitter: Rect, at: Pt, scale: f32, seed: Seed) -> Ignition {
+    let e = placed(emitter, at, scale);
     let block = placed(BLOCK, at, scale);
     Ignition::ignite(
         Pt {
@@ -328,10 +335,20 @@ fn corners(e: Rect, block: Rect, t: f32) -> crate::trail::Corners {
 /// the frame it lights, at full strength -- a cursor trail's plasma, as
 /// the trail draws one.
 fn pass(at: Pt, scale: f32, seed: Seed, t: f32) -> Vfx {
-    let e = placed(EMITTER, at, scale);
+    pass_over(EMITTER, at, scale, seed, t)
+}
+
+/// **A pass over part of the lockup**: [`vfx`]'s pass with `emitter`, in
+/// the lockup's units, in place of [`EMITTER`] -- lit from its left on its
+/// centre line towards the block, held for [`HOLD`], then collapsing into
+/// the block. The organisation picture lights its word with one, the box
+/// ending at the word, [`SEAM`]'s first column
+/// (`baud-render/examples/brand_plasma.rs`).
+pub fn pass_over(emitter: Rect, at: Pt, scale: f32, seed: Seed, t: f32) -> Vfx {
+    let e = placed(emitter, at, scale);
     let block = placed(BLOCK, at, scale);
     let t = t.max(0.0);
-    let f = lit(at, scale, seed).at(t);
+    let f = lit_over(emitter, at, scale, seed).at(t);
     Vfx {
         effect: Effect::Plasma,
         emitter: Smear {
@@ -446,33 +463,60 @@ mod tests {
 
     const FRAME: (f32, f32) = (1600.0, 1000.0);
 
-    /// **The lockup is the SVG's**: its box, the wordmark's and the
-    /// prompt's lines, the block, and the two halves' colours, as
-    /// `assets/logo/baud-lockup-dark.svg` and `-light.svg` spell them.
+    /// **The lockup's box and colours are the SVG's**: the box and the two
+    /// halves' colours, as `assets/logo/baud-lockup-dark.svg` and
+    /// `-light.svg` draw them -- the word in the one, the ❯ and the block in
+    /// the other, each glyph an outline. The geometry is the lockup the
+    /// files drew before they took baud's own drawing of the mark
+    /// (`scripts/make-brand-pictures.py`): the files' ❯ is a cell of the
+    /// font at baud's metrics, the block the next cell, the whole re-centred,
+    /// while [`PROMPT`] and [`BLOCK`] are the ❯ at 54 and the block at x 238.
     #[test]
     fn the_lockup_is_the_svgs() {
         let dark = include_str!("../../assets/logo/baud-lockup-dark.svg");
         let light = include_str!("../../assets/logo/baud-lockup-light.svg");
         for (svg, c) in [(dark, DARK), (light, LIGHT)] {
             assert!(svg.contains(r#"viewBox="0 0 300 130""#));
-            assert!(svg.contains(
-                r#"<text x="40" y="88" font-size="62" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="500" letter-spacing="-2.8""#
-            ));
-            assert!(svg.contains(r#"<text x="192" y="85" font-size="54""#));
-            assert!(svg.contains(r#"<rect x="238" y="45" width="22" height="46""#));
             let hex = |a: Argb| format!("#{:06X}", a.0 & 0xFF_FFFF);
-            assert!(svg.contains(&format!(r#"fill="{}">baud"#, hex(c.wordmark))));
-            assert!(svg.contains(&format!(r#"fill="{}">❯"#, hex(c.amber))));
-            assert!(svg.contains(&format!(
-                r#"<rect x="238" y="45" width="22" height="46" fill="{}">"#,
-                hex(c.amber)
-            )));
+            // The word's outline, then the ❯'s and the block, in the amber.
+            let word = format!(r#"" fill="{}"/>"#, hex(c.wordmark));
+            let amber = format!(r#"" fill="{}"/>"#, hex(c.amber));
+            assert_eq!(svg.matches(&word).count(), 1, "the word, once");
+            assert_eq!(svg.matches(&amber).count(), 2, "the ❯ and the block");
+            assert!(svg.contains(&format!(r#"height="46" fill="{}"/>"#, hex(c.amber))));
+            assert!(!svg.contains("<text"), "outlines, not text");
         }
         assert_eq!(BOX, (300.0, 130.0));
         assert_eq!(
             (BLOCK.right - BLOCK.left, BLOCK.bottom - BLOCK.top),
             (22.0, 46.0)
         );
+    }
+
+    /// **A pass over the whole lockup is the splash's own**: [`pass_over`]
+    /// with [`EMITTER`] is [`vfx`]'s pass in each of the two, and one over
+    /// the word alone lights from the same point with corners of its own.
+    #[test]
+    fn a_pass_over_the_emitter_is_the_splashs() {
+        let s = scale(FRAME);
+        let o = origin(FRAME, s);
+        for t in [0.0, 0.05, OUT - 1e-4] {
+            assert_eq!(pass_over(EMITTER, o, s, SEED, t), vfx(o, s, t), "{t}");
+        }
+        for t in [OUT, OUT + HOLD + 0.1] {
+            assert_eq!(
+                pass_over(EMITTER, o, s, SEED_OUT, t - OUT),
+                vfx(o, s, t),
+                "{t}"
+            );
+        }
+        let word = Rect {
+            right: SEAM.0,
+            ..EMITTER
+        };
+        let (w, whole) = (pass_over(word, o, s, SEED, 0.05), vfx(o, s, 0.05));
+        assert_eq!(w.ignition, whole.ignition);
+        assert_ne!(w.emitter.corners, whole.emitter.corners);
     }
 
     /// **It is centred, and its share of the window**: as wide as the

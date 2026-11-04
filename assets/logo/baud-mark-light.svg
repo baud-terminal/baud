@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="baud">
-  <text x="130" y="314" font-size="200" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="700" fill="#C8801F">❯</text>
-  <rect x="306" y="172" width="76" height="168" fill="#C8801F">
-  </rect>
+  <!-- Drawn by scripts/make-brand-pictures.py: edit the script, not this file. The
+       glyphs are JetBrains Mono 2.304's own outlines, under its OFL
+       (JetBrainsMono-OFL.txt beside this file). -->
+  <path d="M210.37 301.82H188.99L206.17 255.36L188.99 208.91H210.37L227.55 255.62Z" fill="#C8801F"/>
+  <rect x="246.64" y="172" width="76.37" height="168" fill="#C8801F"/>
 </svg>

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Assemble target/baud.app: a real macOS application bundle, so baud launches
 # from Finder without a Terminal window (the "two windows" bug), takes focus
-# like an app, and carries its own Dock icon. The icon is generated from
-# assets/logo/baud-icon-dock.svg; the binary is the release build.
+# like an app, and carries its own Dock icon. The icon is packed from
+# assets/logo/baud-icon-dock-<N>.png, baud-icon-dock.svg drawn at each
+# iconset size by scripts/make-brand-pictures.py; the binary is the release
+# build.
 #
 #   scripts/bundle-macos.sh [--no-build | --info-plist]
 #
@@ -11,8 +13,7 @@
 # release build and the bundle go under $CARGO_TARGET_DIR when it is set,
 # else target/.
 #
-# Needs iconutil (macOS) and rsvg-convert, which the dev shell provides:
-# run it as `devenv shell -- scripts/bundle-macos.sh`.
+# Needs iconutil (macOS).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
@@ -64,20 +65,15 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # Info.plist with the version substituted in.
 plist >"$APP/Contents/Info.plist"
 
-# The icon: render the padded dock squircle to every iconset size, then pack.
-# The sizes come in pairs (Nx and its @2x) per Apple's iconset layout.
+# The icon: the padded dock squircle at every iconset size, each drawn by
+# the brand generator's pinned resvg and committed, then packed. The sizes
+# come in pairs (Nx and its @2x) per Apple's iconset layout.
 ICONSET=$(mktemp -d)/baud.iconset
 mkdir -p "$ICONSET"
-SVG="$ROOT/assets/logo/baud-icon-dock.svg"
-command -v rsvg-convert >/dev/null || {
-  echo "bundle-macos.sh: no rsvg-convert; run it in the dev shell:" >&2
-  echo "  devenv shell -- scripts/bundle-macos.sh" >&2
-  exit 1
-}
 for pair in 16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x \
   128:icon_128x128 256:icon_128x128@2x 256:icon_256x256 \
   512:icon_256x256@2x 512:icon_512x512 1024:icon_512x512@2x; do
-  rsvg-convert -w "${pair%%:*}" -h "${pair%%:*}" "$SVG" -o "$ICONSET/${pair#*:}.png"
+  cp "$ROOT/assets/logo/baud-icon-dock-${pair%%:*}.png" "$ICONSET/${pair#*:}.png"
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/baud.icns"
 

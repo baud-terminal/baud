@@ -38,7 +38,8 @@ provenance file yet.
 
 `social.png` is a 1280x640 card for the repository's social preview,
 which GitHub takes only as an upload in the repository's settings, never
-from the tree. It is drawn, not filmed: the lockup and the README's
+from the tree. It is drawn, not filmed: the lockup (`assets/logo/`'s,
+its ❯ and cursor as baud draws them) and the README's
 tagline on the brand's dark ground, over a strip of amber paper tape
 punched with `baud`, nine times, in the five-unit code of ITU-T S.1
 ([[source: itu-t-s1]]). Its Table 1 gives each letter's five elements, and
@@ -48,8 +49,9 @@ tracks, as five-hole tape is usually drawn: no text read for it places
 that track. A feed hole is 0.046/0.072 of a code hole, the two diameters
 ANSI X3.18 gives for one-inch tape ([[source: ansi-x3-18-1967]]).
 `scripts/make-brand-pictures.py` draws it and its source, `social.svg`,
-from JetBrains Mono's outlines (`JetBrainsMono-OFL.txt` beside them), and
-reads the tape back off the PNG before it writes. Nothing in it comes from
+from JetBrains Mono's outlines (`JetBrainsMono-OFL.txt` beside them), the
+PNG the SVG drawn by its pinned resvg, and reads the tape back off the PNG
+before it writes. Nothing in it comes from
 a machine or a recording. The card before it was cut from a frame of the
 hero's btop and showed the machine's chip, memory and disks;
 `scripts/readme-capture.sh` no longer makes it.

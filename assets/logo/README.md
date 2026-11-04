@@ -2,7 +2,9 @@
 
 Lockup: `baud ❯ █` — mono wordmark, amber prompt glyph, amber block cursor.
 
-Every mark ships in **dark** and **light** mode. **Every file here is fixed.** The six `-blinking` files carry no animation: each draws the same pixels as its fixed twin and differs from it only by whitespace. They keep their names because the README's header and this sheet name them. Giving them the animation this sheet once described would make the README's header blink, so the sheet was corrected instead.
+**The mark is baud's own drawing of `❯` with the cursor in the next cell.** The ❯ is JetBrains Mono Bold's, placed in a cell as baud's renderer places a glyph, and the block cursor is the very next cell, whole, with no gap: the cell is baud's at 200 px, 120 by 264 with the baseline 204 below its top (width round(0.6 px), height round(1.32 px), baseline round(1.02 px)), scaled to each file. So the logo is the prompt and cursor exactly as a baud window shows them. In every file the cell is as tall as the cursor was before, on the same rows, and the mark's ink is centred across the icon or under the word. `every_logo_mark_is_baud_drawing_the_prompt_and_cursor` (`baud-app/tests/brand_pictures.rs`) draws the ❯ and a block cursor through baud's CPU renderer at 200 px and requires every file's ❯ (ink height, centre against the cursor, centroid in its cell) and cursor proportions within half a pixel of that drawing; the files sit within 0.19 px of it (0.183 px at most: the 32 px icons' cursor proportions).
+
+Every mark ships in **dark** and **light** mode. **Every file here is fixed.** The six `-blinking` files carry no animation: each is its fixed twin, byte for byte. They keep their names because the README's header and this sheet name them; an animation in them would make the README's header blink.
 
 ## Lockups (300 × 130)
 | file | mode | cursor |
@@ -14,21 +16,27 @@ Every mark ships in **dark** and **light** mode. **Every file here is fixed.** T
 | `baud-lockup-mono-black.svg` | single colour | fixed |
 | `baud-lockup-mono-white.svg` | single colour | fixed |
 
+The word is where it always was (x 40, baseline 88, size 62, letter-spacing -2.8); the ❯'s cell starts at x 192 on the cursor's old rows, 45 to 91; then every glyph moves 10.36 units right, so the ink, from the word's left to the cursor's right, is centred across the box. The launch splash (`baud-render/src/splash.rs`) still draws the lockup as the files drew it before: the ❯ at 54 units and the block at x 238.
+
 ## Symbol only, transparent (512)
-`baud-mark-dark[-blinking].svg` (bright amber, for dark backgrounds) · `baud-mark-light[-blinking].svg` (deeper amber, for light backgrounds)
+`baud-mark-dark[-blinking].svg` (bright amber, for dark backgrounds) · `baud-mark-light[-blinking].svg` (deeper amber, for light backgrounds) · `baud-mark-amber.svg`
 
 ## App icon / favicon
-`baud-icon-512-dark[-blinking].svg` — amber on near-black · `baud-icon-512-light[-blinking].svg` — near-black on amber · `baud-icon-32-dark.svg` / `-light.svg` — favicon. Corner radius 112 at 512 (22%).
+`baud-icon-512-dark[-blinking].svg` — amber on near-black · `baud-icon-512-light[-blinking].svg` and `-amber.svg` — near-black on amber · `baud-icon-32-dark.svg` / `-light.svg` — favicon. Corner radius 112 at 512 (22%).
 
-`baud-icon-dock.svg` is the Dock icon: the dark icon at 80% of the canvas, padded to the macOS app-icon grid. Its mark keeps the 512 icons' geometry (the ❯ at x 130), so with the font's ❯ it sits about 15 units, 12 px at 512, right of centre, as the 512 icons do when drawn in JetBrains Mono; the stand-in glyph it replaced happened to fill that space. Whether to centre it is the owner's call. `scripts/bundle-macos.sh` rasterises it into the bundle's `baud.icns`, and the app embeds it for a run outside a bundle. `baud-mark-amber-tight.svg` is the mark cropped to its strokes, for the titlebar.
+`baud-icon-dock.svg` is the Dock icon: the dark icon at 80% of the canvas, padded to the macOS app-icon grid, its mark centred. `baud-icon-dock-16.png` to `-1024.png` are it drawn at the iconset's sizes; `scripts/bundle-macos.sh` packs them into the bundle's `baud.icns`, and the app embeds the SVG for a run outside a bundle. `baud-mark-amber-tight.svg` is the mark in a 300 by 204 box tight to its height, for the titlebar.
 
 ## Pictures for GitHub
 | file | what | size |
 | --- | --- | --- |
-| `baud-github-org.png` | the organisation picture: `baud` stacked over `❯ █`, ink `#15171B` on an amber `#F4A32C` ground, the amber filling the square to its edges so GitHub's own rounded corners apply | 500 × 500 |
+| `baud-github-org.png` | the organisation picture: `baud` stacked over `❯ █`, the word `#F3F4F6` and the mark `#F4A32C` on `#15171B`, the ground filling the square to its edges so GitHub's own rounded corners apply, with baud's plasma on the word and the mark | 500 × 500 |
 | `../readme/social.png` | the repository's link picture: the lockup and the tagline on the ground, over amber telegraph tape punched `baud` (`assets/readme/README.md`) | 1280 × 640 |
 
-Both arrangements are new to this sheet. The stacked one sets the word over the lockup's own mark row, the ❯ and cursor at the lockup's proportions, both centred and three quarters of a cursor width apart, with more than a cursor width of clear space to every edge. It keeps the word legible at the 24 px a repository page shows the picture at, where the one-line lockup's is not. Both are within GitHub's limits ([[source: github-docs-profile-picture]], [[source: github-docs-social-preview]]): opaque RGB, under 1 MB, at the sizes GitHub recommends. `the_github_pictures_meet_githubs_limits` (`baud-app/tests/brand_pictures.rs`) holds them there.
+The stacked arrangement sets the word over the mark's row, both centred, three quarters of the old 22-unit cursor apart, with more than a cursor width of clear space to every edge. It keeps the word legible at the 24 px a repository page shows the picture at, where the one-line lockup's is not. `baud-github-org.svg` is the picture without the plasma.
+
+**The plasma is baud's own**, on the word and on the mark. Two lights are laid over the SVG's drawing, each drawn by baud's CPU renderer (`baud-render/examples/brand_plasma.rs`). On the word: the launch splash's first pass at 0.0999 s, 0.1 ms before the second lights, seed `BA0D276F`, its box ending where the word does, in the word's colour and under the glyphs, as the splash draws it. On the mark: the cursor's plasma trail 0.12 s into a move from the ❯'s cell into the cursor's, seed 3, drawn at 200 px and scaled to the picture's cell, in the amber. Left of the word's end less half the splash cursor's height, the plasma's unit, the word's light is the splash's own frame pixel for pixel, which the example checks before it writes; with both lights at zero the picture is its SVG's drawing to the pixel, which the generator checks. The generator prints the frame times and seeds when it runs.
+
+Both pictures are within GitHub's limits ([[source: github-docs-profile-picture]], [[source: github-docs-social-preview]]): opaque RGB, under 1 MB, at the sizes GitHub recommends. `the_github_pictures_meet_githubs_limits` (`baud-app/tests/brand_pictures.rs`) holds them there.
 
 ## Colour
 | role | hex | oklch |
@@ -44,9 +52,9 @@ Light mode uses the deeper amber deliberately — `#F4A32C` fails contrast on wh
 ## Type
 JetBrains Mono — 500 for the wordmark, 700 for the prompt glyph, letter-spacing -0.045em.
 
-**The lockups, symbols and 512 and 32 icons reference the font rather than embedding outlines**, so they render correctly wherever JetBrains Mono is installed or webfont-loaded and fall back to system mono elsewhere. Before handing off to a printer or a third party, open one in a vector editor and convert text to outlines.
+**Every file carries the font's own outlines and names no font.** Before, the lockups, symbols and icons named JetBrains Mono in text, so each viewer drew the ❯ from whatever face it had: JetBrains Mono's rode high and narrow beside the cursor, a Mac's fallback stood wider and centred, and the Dock icon fell back differently again in rsvg-convert and in AppKit. `every_logo_is_outlines_and_names_no_font` (`baud-app/tests/brand_pictures.rs`) holds every SVG here to paths and shapes.
 
-**The Dock icon, the titlebar mark and the GitHub pictures carry the font's own outlines.** `scripts/make-brand-pictures.py` traces them from JetBrains Mono 2.304 and draws the PNGs, byte for byte from the pinned font and tools (its `--check` compares). It takes 400 and 700 from `baud-app/fonts/jetbrains-mono/` and the 500 from the release archive ([[source: jbm-2304-release]]), which no committed file carries. Edit the script, not those files. With the ❯ as text, the Dock icon showed a system face's ❯ wherever JetBrains Mono was not installed: rsvg-convert, which draws the bundle's icon, and AppKit's NSImage, which draws it for a run outside a bundle, each fell back to a different face. With the outline, both draw the font's ❯. The glyphs are the font's, under its OFL: `JetBrainsMono-OFL.txt` is beside them.
+`scripts/make-brand-pictures.py` draws every file here and the link picture from that one mark, and every PNG is its SVG drawn by the pinned resvg (the organisation picture's with the plasma over it), byte for byte from the pinned font and tools; its `--check` compares, and fails on a file here it does not draw. It takes 400 and 700 from `baud-app/fonts/jetbrains-mono/` and the 500 from the release archive ([[source: jbm-2304-release]]), which no committed file carries. Edit the script, not these files. The glyphs are the font's, under its OFL: `JetBrainsMono-OFL.txt` is beside them.
 
 ## Clear space
-Minimum clear space on all sides = the cursor width (22px at the 300px lockup). Don't place the lockup on a mid-tone ground; the amber needs the dark or light ground to hold contrast.
+Minimum clear space on all sides = the cursor width (20.9 at the 300 lockup). Don't place the lockup on a mid-tone ground; the amber needs the dark or light ground to hold contrast.

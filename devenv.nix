@@ -53,16 +53,6 @@ in
     pkgs.git-cliff
   ];
 
-  # `scripts/bundle-macos.sh` renders the app icon with rsvg-convert, from
-  # the nixpkgs devenv.lock pins. A script rather than a package: librsvg in
-  # `packages` runs its inputs' setup hooks, which add cairo, glib and the X
-  # libraries to PKG_CONFIG_PATH, NIX_CFLAGS_COMPILE and NIX_LDFLAGS for
-  # every build in the shell. Bundling is macOS only, so the Linux shell,
-  # which CI builds and caches, does not carry it.
-  scripts.rsvg-convert = lib.mkIf pkgs.stdenv.isDarwin {
-    exec = ''exec ${pkgs.librsvg}/bin/rsvg-convert "$@"'';
-  };
-
   # Development scripts
   #
   # **No `--all-features`.** It turned on every ceiling and probe arm at once,

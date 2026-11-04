@@ -42,10 +42,10 @@ workspace's only binary: a login
 shell on a pty, `baud-core`, `baud-render`, and the platform's window --
 `baud-present-macos` on Metal, or `baud-present-wayland` on `wl_shm`. The
 root's `default-members` makes `cargo run` build it as the bundle does. The bundle gives it an `Info.plist`
-(`packaging/macos/`), a Dock icon rendered from the logo, and the embedded
-fonts' licences; it needs `iconutil` (macOS) and takes `rsvg-convert` from
-the dev shell, which runs it on macOS from the librsvg of the nixpkgs
-`devenv.lock` pins.
+(`packaging/macos/`), a Dock icon packed from the logo's committed
+drawings at each iconset size (`assets/logo/baud-icon-dock-<N>.png`, which
+`scripts/make-brand-pictures.py` draws), and the embedded fonts' licences;
+it needs `iconutil` (macOS).
 
 **macOS 26 and later**: the window is Liquid Glass,
 `NSGlassEffectView`, which macOS 26 introduced

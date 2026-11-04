@@ -12090,10 +12090,9 @@ enum DockIcon {
 /// makes it tiny -- so the two read from different files.
 fn icon() -> Option<Retained<NSImage>> {
     // A proper app icon for the Dock: a dark rounded square at ~80% of the
-    // canvas with the amber mark at the 512 icon's geometry (about 12 px
-    // right of centre at 512 with the font's ❯; centring it is open) and
-    // transparent padding around it,
-    // the way every other Dock icon sits. The titlebar uses the bare mark
+    // canvas with the amber mark centred on it, as the 512 icons draw it,
+    // and transparent padding around it, the way every other Dock icon
+    // sits. The titlebar uses the bare mark
     // (`icon_titlebar`); the Dock wants the box. The SVG itself, not a raster,
     // so NSImage renders it as a vector.
     const BYTES: &[u8] = include_bytes!("../assets/logo/baud-icon-dock.svg");

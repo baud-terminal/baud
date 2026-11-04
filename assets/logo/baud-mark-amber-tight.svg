@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="300" height="204" viewBox="120.7 154 300 204" role="img" aria-label="baud">
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="204" viewBox="106 154 300 204" role="img" aria-label="baud">
   <!-- Drawn by scripts/make-brand-pictures.py: edit the script, not this file. The
        glyphs are JetBrains Mono 2.304's own outlines, under its OFL
        (JetBrainsMono-OFL.txt beside this file). -->
-  <path d="M193 314H159.4L186.4 241L159.4 168H193L220 241.4Z" fill="#F4A32C"/>
-  <rect x="306" y="172" width="76" height="168" fill="#F4A32C"/>
+  <path d="M210.37 301.82H188.99L206.17 255.36L188.99 208.91H210.37L227.55 255.62Z" fill="#F4A32C"/>
+  <rect x="246.64" y="172" width="76.37" height="168" fill="#F4A32C"/>
 </svg>
