@@ -280,6 +280,14 @@ darkening that suits a dark desktop is far too much over a light one.
 | `saturation` | 0 to 1 | `0.80` | How strong that colour is. |
 | `shadow` | `"auto"`, `"always"`, `"never"` | `"auto"` | Whether the window casts a shadow. `"auto"` casts one only under the dark appearance. |
 
+A status bar drawn in reverse video, such as the ones less and vim show,
+and the whole screen while a program turns on reverse-screen mode (`?5`),
+are drawn a little more solid than the dim when that is what their text
+needs to read at the same minimum contrast: on the light appearance at its
+default dim, 0.68 instead of 0.60, on every material and on Linux alike.
+The window stays see-through behind
+them, and the dark appearance's default already reads, so it is unchanged.
+
 While Reduce Transparency is on in System Settings, Accessibility, Display,
 every background and the margin around the text are drawn solid, whatever
 the dims say, and go back to see-through when it is turned off.

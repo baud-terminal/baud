@@ -769,13 +769,14 @@ fn shown(p: u32, g: u8) -> [u8; 3] {
 /// and at the shipped dims, in both videos, at 2x. The lift sets each
 /// colour at its target exactly, so a drawn pixel a level short of its
 /// colour reads under it: the dot's inside drawn at coverage 254 read FAX
-/// and SYN at 2.97 over white, and the letters at 4.4999. One arm cannot
-/// reach its letters' target with any colour: the light theme reversed
-/// on the glass, whose letters are white already against a band that
-/// runs from #171717 to #7D7D7D; there the letters are drawn white
-/// exactly, as far as the lift goes. Perturbation: quantise coverage by
-/// truncation, or lift the line against the standard material's greys,
-/// and this goes red.
+/// and SYN at 2.97 over white, and the letters at 4.4999. Every arm
+/// reaches it, the light theme reversed on the glass included: its band,
+/// the `?5` page, is raised until the default text reads on it
+/// (`Theme::reversed_alpha`), where at the dim it ran from #171717 to
+/// #7D7D7D and no letter colour reached 4.5 against all of it.
+/// Perturbation: quantise coverage by truncation, lift the line against
+/// the standard material's greys, or leave the `?5` page at the dim, and
+/// this goes red.
 #[test]
 fn the_lines_drawn_lamps_read_at_three_to_one_and_letters_at_four_and_a_half() {
     let (reg, bold) = app_faces();
@@ -829,20 +830,11 @@ fn the_lines_drawn_lamps_read_at_three_to_one_and_letters_at_four_and_a_half() {
                             alpha.get()
                         ));
                     }
-                    if text < 4.5
-                        && !(name == "light" && video == Video::Reverse && alpha.get() < 0xFF)
-                    {
+                    if text < 4.5 {
                         short.push(format!(
                             "{name} a{} {video:?} {led:?} letters {text:.4} at grey {g}",
                             alpha.get()
                         ));
-                    }
-                }
-                if name == "light" && video == Video::Reverse && alpha.get() < 0xFF {
-                    // The arm no colour reaches: the letters are white,
-                    // and some pixel of them is drawn white exactly.
-                    if !letters.contains(&0xFFFF_FFFF) {
-                        short.push(format!("{name} reversed {led:?}: no letter pixel white"));
                     }
                 }
             }

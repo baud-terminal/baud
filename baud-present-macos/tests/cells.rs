@@ -4661,7 +4661,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     assert_eq!(alpha(1, 2), 0xFF, "?5: the block's first cell");
     assert_eq!(alpha(8, 2), 0xFF, "?5: the sixteen letters' first cell");
     assert_eq!(alpha(8, 17), 0xFF, "?5: the sixteen letters' last cell");
-    assert_eq!(alpha(4, 2), 56, "?5: the fifteen blanks draw the page");
+    // The page a reversed default background is: raised above the dim to
+    // the alpha its text reads at (`Theme::reversed_alpha`).
+    let raised = resting.reversed_alpha(resting.fg, resting.bg).get();
+    assert_eq!(alpha(4, 2), raised, "?5: the fifteen blanks draw the page");
+    assert!(raised > 56, "the premise: the page is raised");
     feed(&mut t, b"\x1b[?5l");
     arms.renderer.set_theme(resting.clone());
     for case in glass_cases(&resting) {
@@ -10604,6 +10608,78 @@ fn the_cell_path_draws_the_notice_as_the_instance_path_does() {
             let (after, _) = arms.draw(&mut t);
             assert_eq!(after.len(), bare.len(), "the notice's row is gone");
         }
+    }
+}
+
+/// **A reversed default page is raised alike on every arm**: the bar
+/// `SGR 7` draws in the default colours and the `?5` screen, on the light
+/// theme at its shipped dim, 153, over the glass, where each is drawn at
+/// the lowest alpha its text reads at 4.5:1 over black to white, 173
+/// (`Theme::reversed_alpha`; the reading itself is
+/// `baud-render/tests/reverse_raise.rs`'s). Both GPU arms read it from the
+/// one resolved table and the CPU arm, which the Linux driver draws with,
+/// from the same slot, so one theme draws one set of pixels on every
+/// system; and under `?5` the margin a presenter clears to is the page's
+/// alpha, so the gutter carries no seam. The default page beside the bar
+/// is the control: it keeps the dim.
+#[test]
+fn a_reversed_default_page_is_raised_alike_on_every_arm() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).expect("parse")];
+    let theme = Theme {
+        bg_alpha: Chan::from_u8(153),
+        ..Theme::light()
+    };
+    let raised = theme.reversed_alpha(theme.fg, theme.bg).get();
+    assert_eq!(raised, 173, "the premise: the light theme's raise");
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        theme,
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let m = arms.renderer.metrics();
+    let side = |p: Px| usize::try_from(p.value()).unwrap();
+    let (cw, ch) = (side(m.cell_w), side(m.cell_h));
+    let fw = side(arms.renderer.frame_size().0);
+    // The middle of cell `(row, col)`, a space, as the arms premultiply it.
+    let page =
+        |px: &[u32], row: usize, col: usize| px[(row * ch + ch / 2) * fw + col * cw + cw / 2];
+    // A line of text under both, so the glyph map holds the scene's.
+    let scenes: [(&str, &[u8], u32); 2] = [
+        (
+            "an SGR 7 bar",
+            b"\x1b[7m status \x1b[0m\x1b[6;1HThe quick brown fox jumps over 0123456789\x1b[10;120H",
+            153,
+        ),
+        (
+            "the ?5 page",
+            b"\x1bc\x1b[?5h page \x1b[6;1HThe quick brown fox jumps over 0123456789\x1b[10;120H",
+            u32::from(raised),
+        ),
+    ];
+    for (what, bytes, row_two) in scenes {
+        feed(&mut t, bytes);
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the GPU arms disagree");
+        let cpu = cpu_frame(&mut arms, &mut t);
+        let d = channel_diff(&cpu, &a, |_| true);
+        assert_eq!(d.0, 0, "{what}: the CPU arm differs by up to {}", d.1);
+        assert_eq!(page(&a, 0, 0) >> 24, u32::from(raised), "{what}: raised");
+        assert_eq!(page(&a, 2, 4) >> 24, row_two, "{what}: the page below");
+        // Letterboxed: the margin around the frame is the default page.
+        arms.margin = (8, 6);
+        let (boxed, _) = arms.draw(&mut t);
+        arms.margin = (0, 0);
+        assert_eq!(boxed[0] >> 24, row_two, "{what}: the margin is the page");
     }
 }
 

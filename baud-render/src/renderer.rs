@@ -2125,6 +2125,11 @@ pub struct Renderer<'f, 'a> {
     /// with for [`Shapes::DEFAULT_BG`] ([`Theme::default_bg`]). Under `?5`
     /// the default cells draw the foreground's colour, which is not it.
     page_default: Argb,
+    /// **The alpha a reversed default page is drawn at**
+    /// ([`Theme::reversed_alpha`]), with the default pair as stored that
+    /// it was found for: found again only when the theme or that pair
+    /// moves, so no frame and no cell pays for the search.
+    reversed: (Chan, (Argb, Argb)),
     blend: Blend,
     cache: RunCache,
     atlas: Atlas,
@@ -2783,6 +2788,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             faces,
         } = PerFace::of(&stack, size);
         let defaults = (theme.fg, theme.bg);
+        let reversed = (theme.reversed_alpha(defaults.0, defaults.1), defaults);
         let mut r = Renderer {
             faces_of: stack.table(),
             cluster_faces: ClusterMemo::new(Question::Face, FaceIx::PRIMARY),
@@ -2807,6 +2813,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             metrics,
             theme,
             video: Video::Normal,
+            reversed,
             defaults,
             page_default: defaults.1,
             blend,
@@ -5381,6 +5388,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.known = Prev::Unknown;
         self.defaults = self.theme.defaults(self.video, |_| None);
         self.page_default = self.theme.bg;
+        let stored = (self.theme.fg, self.theme.bg);
+        self.reversed = (self.theme.reversed_alpha(stored.0, stored.1), stored);
         self.rebuild_overlays();
     }
 
@@ -5393,10 +5402,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn refresh_screen(&mut self, term: &Term<'_>) {
         self.video = video_of(term, self.flash);
         let defaults = self.theme.defaults(self.video, |d| term.dynamic_color(d));
-        self.page_default = self
+        let stored = self
             .theme
-            .defaults(Video::Normal, |d| term.dynamic_color(d))
-            .1;
+            .defaults(Video::Normal, |d| term.dynamic_color(d));
+        self.page_default = stored.1;
+        self.reversed = (self.reversed_of(stored), stored);
         let fill = term
             .cursor_color_in(self.video)
             .map_or(defaults.0, |(r, g, b)| {
@@ -5552,7 +5562,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// at the window's alpha. It was the theme's whatever `OSC 11` said, so a
     /// program that moved the background got a frame of the old colour.
     pub fn clear_color(&self) -> Argb {
-        self.defaults.1.with_alpha(self.theme.bg_alpha)
+        self.defaults.1.with_alpha(self.page_alpha(self.video))
+    }
+
+    /// **The alpha the default page is drawn at under `video`**: the
+    /// window's dim, raised under `?5` as every reversed default page is
+    /// ([`Theme::reversed_alpha`]), so the margin is the cells' page.
+    fn page_alpha(&self, video: Video) -> Chan {
+        match video {
+            Video::Normal => self.theme.bg_alpha,
+            Video::Reverse => self.reversed.0,
+        }
+    }
+
+    /// [`Theme::reversed_alpha`] for the default pair as stored, `stored`:
+    /// the one found already while the pair is the one it was found for.
+    fn reversed_of(&self, stored: (Argb, Argb)) -> Chan {
+        match self.reversed {
+            (alpha, pair) if pair == stored => alpha,
+            _ => self.theme.reversed_alpha(stored.0, stored.1),
+        }
     }
 
     /// **The background colour, as iTerm2's colour map keeps it**: the one
@@ -5577,7 +5606,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     pub fn clear_color_of(&self, term: &Term<'_>) -> Argb {
         let video = video_of(term, self.flash);
         let (_, bg) = self.theme.defaults(video, |d| term.dynamic_color(d));
-        bg.with_alpha(self.theme.bg_alpha)
+        let alpha = match video {
+            Video::Normal => self.theme.bg_alpha,
+            Video::Reverse => self.reversed_of(
+                self.theme
+                    .defaults(Video::Normal, |d| term.dynamic_color(d)),
+            ),
+        };
+        bg.with_alpha(alpha)
     }
 
     /// The pixels past the grid's right edge the frame keeps for the
@@ -5721,7 +5757,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .defaults(video_of(term, self.flash), |d| term.dynamic_color(d))
                 .0,
             page: page.with_alpha(Chan::from_u8(0xFF)),
-            alpha: self.theme.bg_alpha,
+            alpha: page.a(),
             text,
             glow: self.lights.glow,
             scale: self.lights.line.map_or(0.0, |l| l.scale),
@@ -10203,8 +10239,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         // **Every background is translucent, not only the default one**.
         // A picture's and an opaque rendition's are made solid by
-        // `Resolved::drawn`.
-        let bg = bg.with_alpha(self.theme.bg_alpha);
+        // `Resolved::drawn`. A reversed default page -- `SGR 7`'s bar,
+        // `?5`'s screen -- is raised until the default text reads on it
+        // (`Theme::raised`); its text is the page's own, so the glass floor
+        // above leaves it, as it leaves the default page's.
+        let alpha = match Theme::raised(style, self.video) {
+            true => self.reversed.0,
+            false => self.theme.bg_alpha,
+        };
+        let bg = bg.with_alpha(alpha);
         let attrs = style.attrs();
         // The font the text is drawn in (`Stack::font_of`): the primary,
         // whose style is the one the chain has a face for, or an

@@ -798,7 +798,8 @@ pub struct Theme {
     pub bg: Argb,
     /// The alpha **every** background is painted with -- the default one
     /// and any an application sets -- so a window's translucency is not a
-    /// property only the unstyled cells have. Opaque unless a window wants
+    /// property only the unstyled cells have; a reversed default page is
+    /// raised above it until its text reads ([`Video`]'s rule). Opaque unless a window wants
     /// the glass through; `baud-render/tests/translucent.rs` is the gate,
     /// and it is the only one in the workspace that renders below `0xFF`.
     pub bg_alpha: Chan,
@@ -918,8 +919,28 @@ pub enum SixelBg {
 /// exchanged, once for `?5` and once for the cell's own `SGR 7`, so reverse
 /// inside reverse video draws a normal cell.
 ///
-/// **Every background keeps the window's alpha under it**, the reversed
-/// default one included: the same alpha for all.
+/// **Every background keeps the window's alpha under it but the reversed
+/// default one, which is raised just far enough to read**
+/// ([`Theme::raised`], [`Theme::reversed_alpha`]). A cell whose own `SGR 7`
+/// is set, and every cell under `?5`, whose drawn page is a default -- the
+/// default foreground, or under both the default background -- draws that
+/// page at the lowest alpha, never below the window's dim, at which the
+/// default background read on the default foreground as text reaches WCAG
+/// 2.2 SC 1.4.3's 4.5:1 over every grey from black to white
+/// (`[[source: wcag22]]`). DEC STD 070 § 5.6.2.5 makes the reversed
+/// background "the current value of the foreground color", and § 5.6.2
+/// asks that a rendition not affect "the ability to recognize the
+/// character pattern within the cell" (`[[source: dec-std-070]]` pages
+/// 5-101 and 5-102). At the light theme's dim, 153, the reversed bar read
+/// 3.58:1 over white and 4.01:1 over the light standard material; raised
+/// it is 173, and the dark theme, whose bar reads from 146, keeps its 179.
+/// **Black to white on every material**, the standard one's narrower greys
+/// included, which 165 would do for: the `?5` page is the margin and the
+/// lights' line's page too, which draw the same pixels on every system,
+/// so the raise does. The window stays glass, a `?5` screen included,
+/// rather than a solid slab. The byte rests on blending in encoded sRGB,
+/// which is what [`contrast_over`] models. Every other background, a set
+/// one and a reversed set one included, keeps the window's dim.
 pub use baud_domain::Video;
 
 impl Default for Theme {
@@ -1078,6 +1099,38 @@ impl Theme {
     pub fn set_bg(style: StyleWord, video: Video) -> bool {
         let (_, page) = video.drawn(style.attrs(), style.fg(), style.bg());
         !page.is_default()
+    }
+
+    /// The contrast a reversed default page is raised for: WCAG 2.2 SC
+    /// 1.4.3's minimum for text, 4.5:1 (`[[source: wcag22]]`).
+    pub const REVERSED_READS: f64 = 4.5;
+
+    /// **Whether a cell drawn under `style` takes [`Theme::reversed_alpha`]**
+    /// rather than the window's dim ([`Video`]'s rule): its own `SGR 7` is
+    /// set or the screen is under `?5`, and the page it draws is a default.
+    /// By the bits and the words, never by the colour drawn, so an explicit
+    /// colour equal to the default foreground keeps the dim, and so does
+    /// every page an application set, reversed or not.
+    pub fn raised(style: StyleWord, video: Video) -> bool {
+        let reversed = style.attrs().has(Attrs::REVERSE) || video == Video::Reverse;
+        reversed && !Self::set_bg(style, video)
+    }
+
+    /// **The alpha a reversed default page is drawn at**: the lowest byte,
+    /// from the window's dim up, at which `text` -- the default background
+    /// as stored -- reads at [`Theme::REVERSED_READS`] against `page`, the
+    /// default foreground, drawn at that byte over every grey from black to
+    /// white ([`contrast_over`], [`Backdrop::any`]) whatever
+    /// [`Theme::backdrop`] says, so one theme raises alike on every system;
+    /// opaque where no byte does.
+    /// Found when the theme or the default pair changes, never a cell at a
+    /// time. At an opaque window it is opaque.
+    pub fn reversed_alpha(&self, page: Argb, text: Argb) -> Chan {
+        let text = Lum::of(text);
+        (self.bg_alpha.get()..=0xFF)
+            .map(Chan::from_u8)
+            .find(|&a| Behind::over(page, a, Backdrop::any()).ratio(text) >= Self::REVERSED_READS)
+            .unwrap_or(Chan::from_u8(0xFF))
     }
 
     /// Whether a background drawn in `drawn` -- the colour [`Theme::resolve`]

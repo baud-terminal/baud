@@ -1,5 +1,6 @@
-//! `?5` DECSCNM, reverse video, reaches the pixels -- and every background,
-//! the reversed default one included, keeps the window's dim.
+//! `?5` DECSCNM, reverse video, reaches the pixels -- and every background
+//! keeps the window's dim but the reversed default one, raised until its
+//! text reads.
 //!
 //! The rule is DEC STD 070's (`[[source: dec-std-070]]` § 5.6.3.2, page 5-107,
 //! PDF 362): the mode "will affect which attribute bits from display memory are
@@ -9,8 +10,10 @@
 //! cell's own `SGR 7` exchanges again. What is drawn "in the foreground" or "in
 //! the background" -- the margin, the scrollbar, a cursor trail, a screen fade
 //! -- takes the default pair as a default cell shows it. On the dim: the same
-//! alpha for every background, so the reversed default background is as
-//! translucent as the normal one.
+//! alpha for every background but a reversed default page -- the `?5`
+//! screen, its margin and an `SGR 7` cell in the default colours -- which is
+//! raised to the lowest alpha at which its text reads at 4.5:1 over the
+//! glass (`Theme::reversed_alpha`; `reverse_raise.rs` measures the pixels).
 //!
 //! Every test here renders at a translucent `bg_alpha`, because at `0xFF` the
 //! alpha half of the rule is invisible.
@@ -34,6 +37,11 @@ const WS: WinSize = WinSize {
 /// The old default dim, 0.22 of 255 (alpha 56; the default is 0.70 since
 /// 2026-10-17).
 const DIM: u8 = 56;
+
+/// A reversed default page on the dark theme over the glass: the lowest
+/// alpha at which its text reads at 4.5:1 over black to white, above
+/// [`DIM`].
+const RAISED: u8 = 146;
 
 fn alpha(c: Argb) -> u8 {
     c.0.to_be_bytes()[0]
@@ -111,10 +119,11 @@ fn glyph_colours(r: &Renderer<'_, '_>) -> Vec<Argb> {
         .collect()
 }
 
-/// **The default colours swap, and the reversed background keeps the
-/// dim.** The cursor is parked on row 1 so it cannot swap either cell back.
+/// **The default colours swap, and the reversed background is raised
+/// until its text reads.** The cursor is parked on row 1 so it cannot swap
+/// either cell back.
 #[test]
-fn the_default_colours_swap_and_the_background_keeps_the_dim() {
+fn the_default_colours_swap_and_the_background_is_raised() {
     let theme = dim_theme();
     // The control: without `?5` a blank is the theme's background.
     render(b"A\x1b[2;12H", |r| {
@@ -128,7 +137,7 @@ fn the_default_colours_swap_and_the_background_keeps_the_dim() {
             rgb(theme.fg),
             "a blank under ?5 is the foreground"
         );
-        assert_eq!(alpha(blank), DIM, "and it carries the window's dim");
+        assert_eq!(alpha(blank), RAISED, "and it is raised above the dim");
         let glyphs = glyph_colours(r);
         assert_eq!(glyphs.len(), 1, "the one glyph, and no other");
         assert_eq!(rgb(glyphs[0]), rgb(theme.bg), "a letter is the background");
@@ -137,14 +146,14 @@ fn the_default_colours_swap_and_the_background_keeps_the_dim() {
 }
 
 /// `SGR 7` inside `?5` is reversed twice, which draws a normal cell -- and
-/// its background, the theme's own, still carries the dim.
+/// its background, the theme's own, is raised as the page around it is.
 #[test]
 fn reverse_inside_reverse_video_draws_a_normal_cell() {
     let theme = dim_theme();
     render(b"\x1b[?5h\x1b[7mA\x1b[0m\x1b[2;12H", |r| {
         let bg = r.background()[0];
         assert_eq!(rgb(bg), rgb(theme.bg));
-        assert_eq!(alpha(bg), DIM);
+        assert_eq!(alpha(bg), RAISED);
         assert_eq!(glyph_colours(r), vec![theme.fg]);
     });
 }
@@ -171,7 +180,7 @@ fn every_cell_exchanges_its_colours_explicit_ones_included() {
         assert_eq!(text, want, "each letter is its cell's background");
         for (i, &c) in r.background()[..8].iter().enumerate() {
             assert_eq!(rgb(c), rgb(theme.fg), "cell {i} is the default foreground");
-            assert_eq!(alpha(c), DIM, "cell {i} keeps the dim");
+            assert_eq!(alpha(c), RAISED, "cell {i} is the raised page");
         }
     });
     // Foregrounds: 30, bold 30 (brightened to 8, then exchanged), 37,
@@ -379,8 +388,9 @@ fn faint_dims_the_exchanged_text() {
 
 /// **`app_backgrounds = "opaque"` keeps the background drawn**, which under
 /// `?5` is the cell's foreground: an `SGR 31` cell's red is opaque, an `SGR
-/// 41` cell's page is the default foreground and keeps the dim, and an `SGR
-/// 7;31` cell, exchanged twice, is the default background and dims too.
+/// 41` cell's page is the default foreground, raised as the reversed page is,
+/// and an `SGR 7;31` cell, exchanged twice, is the default background and is
+/// raised with the page around it.
 #[test]
 fn an_opaque_background_is_the_one_drawn() {
     let theme = Theme {
@@ -390,7 +400,7 @@ fn an_opaque_background_is_the_one_drawn() {
     let bytes = b"\x1b[?5h\x1b[31mA\x1b[0;41mB\x1b[0mC\x1b[7;31mD\x1b[0m\x1b[2;12H";
     render_with(theme.clone(), bytes, |r| {
         let a: Vec<u8> = r.background()[..4].iter().map(|&c| alpha(c)).collect();
-        assert_eq!(a, vec![0xFF, DIM, DIM, DIM]);
+        assert_eq!(a, vec![0xFF, RAISED, RAISED, RAISED]);
     });
     // The control: on a normal screen the `SGR 41` and `SGR 7;31` cells are
     // the ones whose drawn background the application set.
@@ -441,7 +451,7 @@ fn a_picture_is_found_by_the_background_drawn() {
     assert_eq!(letters, vec![DIM; 16], "the control: the letters are not");
     let reversed = [&b"\x1b[?5h"[..], &bytes].concat();
     let (blanks, letters) = alphas(&reversed);
-    assert_eq!(blanks, vec![DIM; 16], "under ?5 the blanks are the page");
+    assert_eq!(blanks, vec![RAISED; 16], "under ?5 the blanks are the page");
     assert_eq!(letters, vec![0xFF; 16], "and the letters are the picture");
 }
 
@@ -462,7 +472,16 @@ fn the_dynamic_defaults_swap_too() {
             "the letter is the background OSC 11 set"
         );
         assert_eq!(rgb(r.clear_color()), rgb(theme.fg), "and so is the margin");
-        assert_eq!(alpha(r.clear_color()), DIM);
+        // Raised for the pair as `OSC 11` left it, not the theme's.
+        let moved = Argb::rgb(
+            Chan::from_u8(0xaa),
+            Chan::from_u8(0xbb),
+            Chan::from_u8(0xcc),
+        );
+        let raised = theme.reversed_alpha(theme.fg, moved);
+        assert_ne!(raised.get(), RAISED, "the premise: the pair moved it");
+        assert_eq!(alpha(r.clear_color()), raised.get());
+        assert_eq!(alpha(r.background()[1]), raised.get());
     });
 }
 
@@ -671,7 +690,7 @@ fn the_overlays_follow_the_flip_on_the_frame_it_happens() {
         "the fade is the reversed background"
     );
     assert_eq!(margin, rgb(theme.fg), "and so is the margin");
-    assert_eq!(alpha(r.clear_color()), DIM, "at the window's dim");
+    assert_eq!(alpha(r.clear_color()), RAISED, "raised as the page is");
 
     // And on the frame after, where nothing flipped and the overlays are set
     // again: they are built in the reversed colours, not rebuilt into them.

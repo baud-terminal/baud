@@ -1,5 +1,8 @@
 //! **Every background carries the window's dim, not only the default
-//! one**, and a cursor or selection hands back an *opaque* foreground.
+//! one**, and a cursor or selection hands back an *opaque* foreground. The
+//! one page raised above it is a reversed default one, `SGR 7` in the
+//! default colours, to the lowest alpha at which its text reads
+//! (`Theme::reversed_alpha`; `reverse_raise.rs` is its gate).
 //!
 //! Nothing else in the workspace renders at a translucent `bg_alpha`:
 //! every other gate uses `Theme::dark()`, whose alpha is `0xFF`, where
@@ -22,6 +25,11 @@ const WS: WinSize = WinSize {
 /// The old default dim, 0.22 of 255 (alpha 56; the default is 0.70 since
 /// 2026-10-17).
 const DIM: u8 = 56;
+
+/// What a reversed default page is raised to on the dark theme over the
+/// glass: the lowest alpha at which its text reads at 4.5:1 over black to
+/// white, above [`DIM`].
+const RAISED: u8 = 146;
 
 fn alpha(c: Argb) -> u8 {
     c.0.to_be_bytes()[0]
@@ -63,16 +71,18 @@ fn render_ws(theme: Theme, ws: &WinSize, bytes: &[u8], f: impl FnOnce(&Renderer<
 }
 
 /// A default background, a background the application set, and a reverse
-/// rendition -- all three at the window's alpha. Under the rule this
-/// replaced only the first was translucent, which is why btop and
+/// rendition with a colour of its own -- all three at the window's alpha --
+/// and a reversed default one, raised until its text reads. Under the rule
+/// this replaced only the first was translucent, which is why btop and
 /// asciiquarium were opaque where a shell was not.
 #[test]
 fn every_background_carries_the_windows_dim() {
-    // `A` default, `B` on red, `C` reversed, then the cursor parked off
-    // the three so it cannot opaque one of them.
-    render(b"A\x1b[41mB\x1b[0;7mC\x1b[0m\x1b[2;12H", |r| {
+    // `A` default, `B` on red, `C` reversed green, `D` reversed, then the
+    // cursor parked off them so it cannot opaque one of them.
+    render(b"A\x1b[41mB\x1b[0;7;32mC\x1b[0;7mD\x1b[0m\x1b[2;12H", |r| {
         let bg = r.background();
-        for (i, name) in ["default", "SGR 41", "SGR 7 reverse"].iter().enumerate() {
+        assert_eq!(alpha(bg[3]), RAISED, "a reversed default page is raised");
+        for (i, name) in ["default", "SGR 41", "SGR 7 on green"].iter().enumerate() {
             assert_eq!(
                 alpha(bg[i]),
                 DIM,
@@ -141,13 +151,15 @@ const RULE_NAMES: [&str; 6] = [
 ];
 
 /// **The default draws every background under the dim** -- which the
-/// key must not change unless it is asked for.
+/// key must not change unless it is asked for -- and the reversed default
+/// page raised above it.
 #[test]
 fn app_backgrounds_are_dimmed_by_default() {
     render(RULE_ROW, |r| {
         let bg = r.background();
+        let want = [DIM, DIM, DIM, DIM, DIM, RAISED];
         for (i, c) in bg[..6].iter().enumerate() {
-            assert_eq!(alpha(*c), DIM, "cell {i} ({}) left the dim", RULE_NAMES[i]);
+            assert_eq!(alpha(*c), want[i], "cell {i} ({})", RULE_NAMES[i]);
         }
     });
 }
@@ -155,7 +167,7 @@ fn app_backgrounds_are_dimmed_by_default() {
 /// `app_backgrounds = "opaque"`: every background the application set is
 /// opaque, whatever glyph is on it, and under reverse too; a cell on the
 /// default background stays glass -- including a reversed one, whose drawn
-/// background is the default foreground.
+/// background is the default foreground, raised but not opaque.
 #[test]
 fn opaque_keeps_every_set_background_and_only_those() {
     let theme = Theme {
@@ -164,7 +176,7 @@ fn opaque_keeps_every_set_background_and_only_those() {
     };
     render_with(theme, RULE_ROW, |r| {
         let bg = r.background();
-        let want = [0xFF, 0xFF, 0xFF, 0xFF, DIM, DIM];
+        let want = [0xFF, 0xFF, 0xFF, 0xFF, DIM, RAISED];
         for (i, c) in bg[..6].iter().enumerate() {
             assert_eq!(alpha(*c), want[i], "cell {i} ({})", RULE_NAMES[i]);
         }

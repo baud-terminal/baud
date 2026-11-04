@@ -1184,6 +1184,8 @@ impl Resolved {
     /// * **A picture's or an opaque rendition's background is solid.** Every
     ///   background carries the window's dim; a picture drawn in text keeps
     ///   its backgrounds solid under it, or it splits into slivers and holes.
+    ///   A reversed default page carries its raised alpha
+    ///   ([`crate::Theme::raised`]), resolved into the slot as the dim is.
     ///   **Text over a page left dimmed is [`Resolved::glass`]**, and over a
     ///   solid one [`Resolved::fg`]; a swap takes `fg`, since it draws both
     ///   sides solid. **A box-drawing line is [`Resolved::line`]** on either

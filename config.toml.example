@@ -716,8 +716,15 @@ style = "standard"
 # a colour an application sets is translucent too, so btop and anything else
 # that paints its own panels is see-through rather than a slab. The defaults keep the
 # default text at 4.5:1 or more over a white desktop and over a black one; turn them down to see more of the desktop, at the cost of text over a bright
-# window behind. While Accessibility's Reduce Transparency is on, every
-# background and the margin are drawn opaque, whatever these say.
+# window behind. One background is drawn more solid than the dim: a
+# reversed default one -- the status bar less and vim draw in reverse video,
+# DEC's status line, and the whole screen under reverse-screen mode (?5) --
+# whose text is the default background's colour. It is raised just far
+# enough for its text to read at 4.5:1 too over any desktop, on every
+# material and on Linux alike: 0.68 with the light palette at 0.60, while
+# the dark palette's 0.70 already reads. While Accessibility's
+# Reduce Transparency is on, every background and the margin are drawn
+# opaque, whatever these say.
 dim_dark = 0.70
 dim_light = 0.60
 
