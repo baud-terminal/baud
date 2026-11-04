@@ -52,12 +52,17 @@ impl Paint<'_, '_> {
     /// **The wrap under DECRLM**: the row continues onto the next, which
     /// the cursor enters at its right margin, the region scrolling at its
     /// end; autoprint and a selected character path as [`Paint::wrap`]
-    /// takes them.
+    /// takes them. **The row is marked as continuing only at the screen's
+    /// left edge**, the mirror of a wrap at its right edge
+    /// (`Paint::wrap_moded`): one at a left margin inside the screen is
+    /// the program's cut and leaves the row as it was.
     fn wrap_leftward(&mut self) {
         if self.cold.modes.is_set(ModeBit::AutoPrint) {
             self.autoprint(crate::print::LineEnd::LineFeed);
         }
-        self.view.set_wrapped(self.cy);
+        if self.left_limit(self.cx.col()) == Col::ZERO {
+            self.view.set_wrapped(self.cy);
+        }
         self.index();
         if self.cold.modes.is_set(ModeBit::PathSelected) {
             self.wrapped_into_path();

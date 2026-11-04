@@ -1012,7 +1012,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // With `DECAWM` reset the last column, where a wide character that
         // does not fit writes its lead alone ([`Paint::overflow`]).
         match self.cold.modes.is_set(ModeBit::AutoWrap) {
-            true => self.wrap_bounded(),
+            true => self.wrap_past_fence(),
             false => self.cx = CursorCol::written(Col::at_index(end - 1)),
         }
     }
@@ -2111,14 +2111,16 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.cx = CursorCol::written(self.cold.fence);
             return;
         }
-        // Autoprint, a selected character path and side margins out of
-        // line, one test.
-        if self.cold.modes.any_of_three(
+        // Autoprint, a selected character path, side margins and SLL's
+        // line limit out of line, one test. Without them the fence is the
+        // line's last column, so this wrap is at the screen's edge.
+        if self.cold.modes.any_of_four(
             ModeBit::AutoPrint,
             ModeBit::PathSelected,
             ModeBit::SideMargins,
+            ModeBit::LineBounded,
         ) {
-            return self.wrap_moded();
+            return self.wrap_moded(WrapAt::Fence);
         }
         self.cx = CursorCol::moved(self.cold.left);
         // The row being left continues onto the next: the fact a reflow
@@ -2127,26 +2129,62 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.index();
     }
 
-    /// [`Paint::wrap`] under autoprint, a selected character path or
-    /// DECLRMM. Autoprint prints the line an autowrap leaves, ended by `LF`
-    /// (070-7 § 7.3.7, "or LF if Auto Wrap"); the row the wrap brings in
-    /// takes the direction of the paragraph it joins (`crate::path`). **A
-    /// wrap at side margins narrower than the page marks the row it leaves**
-    /// ([`baud_domain::WrappedAt::Margins`]) **with the margins**
-    /// ([`baud_domain::WrapMargins`]), the left one the next line starts at
-    /// (`[[source: vt510-decslrm]]`) and the line's right one, each wrap's
-    /// written over the last and a wrap at margins as wide as the page
-    /// leaving none ([`baud_domain::View::set_wrapped`]): the display keeps the paragraph at its cut and
-    /// reads it inside them, since by baud's reading the row's cells outside
-    /// the margins are not the paragraph's.
+    /// **The wrap of a character written right of the fence**, at the
+    /// line's end: [`Paint::wrap_bounded`] where the wrap is at the
+    /// screen's edge whatever the margins, so the row is marked.
     #[cold]
     #[inline(never)]
-    fn wrap_moded(&mut self) {
+    fn wrap_past_fence(&mut self) {
+        self.wrap_moded(WrapAt::LineEnd);
+        if self.cold.modes.is_set(ModeBit::LineBounded) {
+            self.home_after_wrap();
+        }
+    }
+
+    /// [`Paint::wrap`] under autoprint, a selected character path, DECLRMM
+    /// or SLL's line limit. Autoprint prints the line an autowrap leaves,
+    /// ended by `LF` (070-7 § 7.3.7, "or LF if Auto Wrap"); the row the wrap
+    /// brings in takes the direction of the paragraph it joins
+    /// (`crate::path`).
+    ///
+    /// **Only a wrap at the screen's edge marks the row as continuing**:
+    /// one at the fence where the fence is the line's last column, and one
+    /// of a character written right of the fence, which runs to the line's
+    /// end. A wrap at a right margin or a line limit inside the screen
+    /// leaves the row as it was, so a reflow does not join text a program
+    /// cut at its own margin when the window widens, as ghostty marks only
+    /// a wrap at its last column, "We don't mark the row as wrapped if
+    /// we're in the middle due to a right margin" (`printWrap`,
+    /// `[[source: ghostty-d9840f3-terminal]]` 1758-1763). No standard
+    /// covers it: DEC STD 070 has no wrapped-line
+    /// attribute. **A row marked at side margins narrower than the page
+    /// keeps them** ([`baud_domain::WrappedAt::Margins`],
+    /// [`baud_domain::WrapMargins`]) -- a left margin inside the screen,
+    /// or text right of a narrow right margin -- the left one the next line
+    /// starts at (`[[source: vt510-decslrm]]`) and the line's right one,
+    /// each wrap's written over the last and a wrap at margins as wide as
+    /// the page leaving none ([`baud_domain::View::set_wrapped`]): the
+    /// display keeps the paragraph at its cut and reads it inside them,
+    /// since by baud's reading the row's cells outside the margins are not
+    /// the paragraph's.
+    #[cold]
+    #[inline(never)]
+    fn wrap_moded(&mut self, at: WrapAt) {
         if self.cold.modes.is_set(ModeBit::AutoPrint) {
             self.autoprint(crate::print::LineEnd::LineFeed);
         }
-        self.view.set_wrapped(self.cy);
-        if self.cold.left != Col::ZERO || self.cold.right.index() + 1 < self.cols.index() {
+        let edge = match at {
+            WrapAt::LineEnd => true,
+            WrapAt::Fence => {
+                let end = self.view.rendition(self.cy).end_of_line(self.cols);
+                self.write_fence_of_line().index() + 1 >= end.index()
+            }
+        };
+        if edge {
+            self.view.set_wrapped(self.cy);
+        }
+        if edge && (self.cold.left != Col::ZERO || self.cold.right.index() + 1 < self.cols.index())
+        {
             let m = baud_domain::WrapMargins::of(self.cold.left, self.fence_of_line());
             self.view.set_margins(self.cy, m);
         }
@@ -2778,6 +2816,16 @@ pub(crate) fn fence_of(r: LineRendition, right: Col, cols: Cols) -> Col {
         false => right,
         true => Col::at_index(r.end_of_line(cols).index() - 1).min(right),
     }
+}
+
+/// Where an autowrap takes the cursor off the line: at the fence, the
+/// right margin or line limit the write stopped at, which may be inside
+/// the screen; or at the line's end, a character written right of the
+/// fence having run to it ([`Paint::wrap_moded`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WrapAt {
+    Fence,
+    LineEnd,
 }
 
 /// [`Paint::hooks`]: whether a write of text has an image, a watch or an

@@ -730,7 +730,8 @@ impl<'a> View<'a> {
     /// Row `r` continues onto the next: its text reached the last column and
     /// wrapped. Set by the writer at the wrap, on the row being left, at the
     /// page's edge ([`RowExtent::at_edge`]): a wrap at side margins writes
-    /// them after ([`View::set_margins`]).
+    /// them after ([`View::set_margins`]). The writer calls it only for a
+    /// wrap at the screen's edge ([`WrappedAt`](crate::WrappedAt)).
     ///
     /// Out of line, and so is `set_ended`: both are once-a-line events, and
     /// inlined into the writers they grew the per-byte body by enough to

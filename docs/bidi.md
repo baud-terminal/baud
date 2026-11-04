@@ -106,7 +106,12 @@ the screen; step 3 joins Arabic letters.
   override or an embedding on one row reaches the next. **Text written
   inside DECSLRM side margins is laid out inside them**: a row that
   wrapped at side margins narrower than the page keeps the margins it
-  wrapped at, and its paragraph is its cells inside them and the next
+  wrapped at -- since 2026-11-03 only margins whose right one is the
+  screen's edge, the one wrap the core marks as continuing, as ghostty
+  marks only a wrap at its last column, so a paragraph cut at a right
+  margin inside the screen is drawn row by row
+  (`a_paragraph_cut_at_a_right_margin_inside_the_screen_is_drawn_row_by_row`)
+  -- and its paragraph is its cells inside them and the next
   row's inside the same, one paragraph across its rows, while each run of
   cells outside them -- another pane's text -- is a paragraph of its own,
   ordered in its own columns, as a table row's cells are (DECSLRM "sets

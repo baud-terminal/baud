@@ -256,6 +256,11 @@ pub enum RowWritten {
 /// them; that they are no part of a paragraph wrapped inside the margins
 /// is baud's reading. A paragraph holding a row that wrapped at margins
 /// is drawn as the terminal cut it, never re-broken across its margins.
+/// **Only a wrap at the screen's edge marks a row at all** (since
+/// 2026-11-03, as ghostty's `printWrap`): margins
+/// whose left one is inside the page and whose right one is its edge, or
+/// text written right of a narrower right margin, which runs to the edge;
+/// a wrap at a right margin inside the screen leaves the row as it was.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WrappedAt {
     Edge,

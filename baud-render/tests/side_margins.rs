@@ -9,6 +9,14 @@
 //! its own, ordered in its own columns, as a table row's cells are. That
 //! the cells outside the margins are no part of the paragraph is baud's
 //! reading, which the display's word wrap keeps too.
+//!
+//! **Only margins that end at the screen's right edge link the rows**,
+//! since 2026-11-03: the core marks a row as continuing only where it
+//! wrapped at the screen's edge, as ghostty marks only a wrap at its last
+//! column. So the scene sets margins 11 to 30 on 30
+//! columns, the cells outside them left of the left margin, and a
+//! paragraph a program wraps at a right margin inside the screen is drawn
+//! row by row (`a_paragraph_cut_at_a_right_margin_inside_the_screen_is_drawn_row_by_row`).
 
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, PackedCell, ReadLen, Row, Rows, WinSize};
@@ -24,19 +32,19 @@ fn feed(t: &mut Term<'_>, bytes: &str) {
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
 }
 
-/// Twenty Hebrew letters: the whole width of margins 1 to 20.
+/// Twenty Hebrew letters: the whole width of margins 11 to 30.
 fn twenty() -> String {
     (0..20)
         .map(|i| char::from_u32(0x5D0 + i).unwrap())
         .collect()
 }
 
-/// **The scene**: margins 1 to 20, twenty Hebrew letters and "12" from
-/// column 1, the digits wrapped to the next line's left margin; and right
-/// of the margins, columns 21 and 22, "xy" and "zw" on the two rows.
+/// **The scene**: margins 11 to 30, twenty Hebrew letters and "12" from
+/// column 11, the digits wrapped to the next line's left margin; and left
+/// of the margins, columns 1 and 2, "xy" and "zw" on the two rows.
 fn scene() -> String {
     format!(
-        "\x1b[?25l\x1b[?69h\x1b[1;20s\x1b[1;1H{}12\x1b[1;21Hxy\x1b[2;21Hzw",
+        "\x1b[?25l\x1b[?69h\x1b[11;30s\x1b[1;11H{}12\x1b[1;1Hxy\x1b[2;1Hzw",
         twenty()
     )
 }
@@ -63,14 +71,14 @@ fn drawn(t: &Term<'_>, back: Rows) -> Vec<String> {
 }
 
 /// The two rows as the margins lay them out: the Hebrew right to left
-/// inside columns 1 to 20, the digits against the margins' right edge on
+/// inside columns 11 to 30, the digits against the margins' right edge on
 /// the next line, since the paragraph its Hebrew began runs right to left,
 /// and the letters outside the margins where they were written.
 fn want() -> [String; 2] {
     let he: String = twenty().chars().rev().collect();
     [
-        format!("{he}xy{}", ".".repeat(8)),
-        format!("{}12zw{}", ".".repeat(18), ".".repeat(8)),
+        format!("xy{}{he}", ".".repeat(8)),
+        format!("zw{}12", ".".repeat(26)),
     ]
 }
 
@@ -146,12 +154,14 @@ fn the_display_keeps_the_margins_of_the_rows_it_draws_as_stored() {
 }
 
 /// **A change of width that re-cuts the rows leaves no margins to read**:
-/// the scene widened to 40 columns and narrowed back is re-cut as one
-/// line, its first row keeping the mark that it wrapped at margins but
-/// not the margins, a pair the renderer does not take for margins, so the
-/// row is read whole -- its first letter, column 1, drawn at the right
-/// edge -- where read as margins at column 1 alone it would be drawn
-/// there, every other cell a paragraph of its own.
+/// the scene's paragraph alone widened to 40 columns and narrowed back is
+/// re-cut as one line, its first row keeping the mark that it wrapped at
+/// margins but not the margins, a pair the renderer does not take for
+/// margins, so the row is read whole -- one right-to-left paragraph, its
+/// Hebrew drawn from the left edge and the blanks left of it at the right
+/// -- where read inside the margins the blanks would stay at the left, and
+/// read as margins at column 1 alone every other cell a paragraph of its
+/// own, the Hebrew in written order.
 #[test]
 fn a_change_of_width_that_re_cuts_the_rows_reads_them_whole() {
     let mut owned = Owned::new(&WinSize {
@@ -159,7 +169,10 @@ fn a_change_of_width_that_re_cuts_the_rows_reads_them_whole() {
         ws_col: 40,
     });
     let mut t = Term::new(owned.storage(), &WS);
-    feed(&mut t, &scene());
+    feed(
+        &mut t,
+        &format!("\x1b[?25l\x1b[?69h\x1b[11;30s\x1b[1;11H{}12", twenty()),
+    );
     let _ = t.resize(&WinSize {
         ws_row: 4,
         ws_col: 40,
@@ -172,8 +185,8 @@ fn a_change_of_width_that_re_cuts_the_rows_reads_them_whole() {
         "the premise: the mark kept, the margins not"
     );
     let got = drawn(&t, Rows::ZERO);
-    let first = twenty().chars().next().unwrap();
-    assert_eq!(got[0].chars().last(), Some(first), "{got:#?}");
+    let he: String = twenty().chars().rev().collect();
+    assert_eq!(got[0], format!("{he}{}", ".".repeat(10)), "{got:#?}");
 }
 
 /// The first `n` Hebrew letters, `n` at most 27.
@@ -190,15 +203,15 @@ fn drawn_after(bytes: &str) -> Vec<String> {
 }
 
 /// **Margins a row wrapped at stop applying when it wraps again at the
-/// page's edge**: a row that wrapped at margins 1 to 20 and is written
+/// page's edge**: a row that wrapped at margins 11 to 30 and is written
 /// over, after `?69l` or a DECSLRM over the whole page, by a paragraph
 /// that wraps at column 30, is drawn as the same cells written on a fresh
 /// screen are, one right-to-left paragraph across the page.
 #[test]
 fn a_row_wrapped_again_at_the_page_edge_is_read_whole() {
-    let margined = format!("\x1b[?25l\x1b[?69h\x1b[1;20s\x1b[1;1H{}", "a".repeat(25));
+    let margined = format!("\x1b[?25l\x1b[?69h\x1b[11;30s\x1b[1;11H{}", "a".repeat(25));
     let rest = format!("\x1b[1;1H{}", he(25) + &he(10));
-    let control = drawn_after(&format!("\x1b[?25l{rest}"));
+    let control = drawn_after(&format!("\x1b[?25l\x1b[2;11Haaaaa{rest}"));
     for leave in ["\x1b[?69l", "\x1b[s"] {
         let got = drawn_after(&format!("{margined}{leave}{rest}"));
         assert_eq!(got, control, "{leave:?}");
@@ -212,18 +225,18 @@ fn a_row_wrapped_again_at_the_page_edge_is_read_whole() {
 #[test]
 fn a_row_that_no_longer_wraps_is_read_whole() {
     let margined = format!(
-        "\x1b[?25l\x1b[?69h\x1b[1;20s\x1b[1;1H{}\x1b[?69l",
+        "\x1b[?25l\x1b[?69h\x1b[11;30s\x1b[1;11H{}\x1b[?69l",
         "a".repeat(25)
     );
     let ended = format!("\x1b[1;1H{}\r\n", he(25));
-    let control = drawn_after(&format!("\x1b[?25l\x1b[2;1Haaaaa{ended}"));
+    let control = drawn_after(&format!("\x1b[?25l\x1b[1;26Haaaaa\x1b[2;11Haaaaa{ended}"));
     assert_eq!(
         drawn_after(&format!("{margined}{ended}")),
         control,
         "a newline"
     );
     let erased = format!("\x1b[1;1H{}\x1b[1;2H\x1b[K", he(1));
-    let control = drawn_after(&format!("\x1b[?25l\x1b[2;1Haaaaa{erased}"));
+    let control = drawn_after(&format!("\x1b[?25l\x1b[2;11Haaaaa{erased}"));
     assert_eq!(
         drawn_after(&format!("{margined}{erased}")),
         control,
@@ -238,7 +251,7 @@ fn a_row_that_no_longer_wraps_is_read_whole() {
 #[test]
 fn a_paragraph_the_rectangle_scrolls_keeps_its_margins() {
     let got = drawn_after(&format!(
-        "\x1b[?25l\x1b[?69h\x1b[1;20s\x1b[4;1H{}12\x1b[3;21Hxy\x1b[4;21Hzw",
+        "\x1b[?25l\x1b[?69h\x1b[11;30s\x1b[4;11H{}12\x1b[3;1Hxy\x1b[4;1Hzw",
         twenty()
     ));
     assert_eq!(got[2..], want(), "{got:#?}");
@@ -249,12 +262,28 @@ fn a_paragraph_the_rectangle_scrolls_keeps_its_margins() {
 /// "zw", outside the margins, stay on rows 1 and 2.
 #[test]
 fn an_il_inside_the_rectangle_carries_the_margins() {
-    let got = drawn_after(&format!("{}\x1b[1;1H\x1b[L", scene()));
+    let got = drawn_after(&format!("{}\x1b[1;11H\x1b[L", scene()));
     let he: String = twenty().chars().rev().collect();
     let want = [
-        format!("{}xy{}", ".".repeat(20), ".".repeat(8)),
-        format!("{he}zw{}", ".".repeat(8)),
-        format!("{}12{}", ".".repeat(18), ".".repeat(10)),
+        format!("xy{}", ".".repeat(28)),
+        format!("zw{}{he}", ".".repeat(8)),
+        format!("{}12", ".".repeat(28)),
     ];
     assert_eq!(got[..3], want, "{got:#?}");
+}
+
+/// **A paragraph a program cuts at a right margin inside the screen is
+/// drawn row by row**: margins 1 to 20 of 30 columns, the Hebrew filling
+/// them and "12" wrapped to the next line, which the core leaves unmarked
+/// as ghostty does, so the digits are a
+/// paragraph of their own and run left to right from the left margin,
+/// where the margins ending at the screen's edge draw them against the
+/// right one (`want`).
+#[test]
+fn a_paragraph_cut_at_a_right_margin_inside_the_screen_is_drawn_row_by_row() {
+    let got = drawn_after(&format!(
+        "\x1b[?25l\x1b[?69h\x1b[1;20s\x1b[1;1H{}12",
+        twenty()
+    ));
+    assert_eq!(got[1], format!("12{}", ".".repeat(28)), "{got:#?}");
 }

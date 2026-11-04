@@ -15362,16 +15362,17 @@ fn arabic_decrlm_wrote_draws_joined_with_its_forms_on_every_arm() {
 }
 
 /// **A paragraph inside DECSLRM side margins draws alike on every arm**:
-/// twenty Hebrew letters and "12" written inside margins 1 to 20, the
-/// digits wrapped to the next line's left margin, with "xy" and "zw"
-/// right of the margins, are laid out inside them as one paragraph and
-/// the letters outside them where they were written (`[[source:
+/// twenty Hebrew letters and "12" written inside margins 101 to 120, the
+/// digits wrapped to the next line's left margin, with "xy" and "zw" left
+/// of the margins, are laid out inside them as one paragraph and the
+/// letters outside them where they were written (`[[source:
 /// vt510-decslrm]]`, `[[source: uax9-bidi]]`) -- the same pixels on the
 /// cell, copied and CPU arms as the same cells written in that visual
-/// order with BDSM reset. The control: the same letters written with no
-/// margins, each row read whole, draws otherwise. Written from the bottom
-/// margin, the last row, so the wrap scrolls the rectangle, the
-/// paragraph draws so on the last two rows.
+/// order with BDSM reset. The margins end at the screen's edge, the one
+/// wrap the core marks as continuing (since 2026-11-03). The control: the
+/// same letters written with no margins, each row read whole, draws
+/// otherwise. Written from the bottom margin, the last row, so the wrap
+/// scrolls the rectangle, the paragraph draws so on the last two rows.
 #[test]
 fn a_paragraph_inside_side_margins_draws_alike_on_every_arm() {
     let read =
@@ -15410,20 +15411,23 @@ fn a_paragraph_inside_side_margins_draws_alike_on_every_arm() {
     feed(
         &mut t,
         format!(
-            "\x1bc\x1b[?25l\x1b[?69h\x1b[1;20s\x1b[1;1H{he}12\x1b[1;21Hxy\x1b[2;21Hzw\x1b[4;1H"
+            "\x1bc\x1b[?25l\x1b[?69h\x1b[101;120s\x1b[1;101H{he}12\x1b[1;1Hxy\x1b[2;1Hzw\x1b[4;1H"
         )
         .as_bytes(),
     );
     let got = three(&mut arms, &mut t, "inside the margins");
     feed(
         &mut t,
-        format!("\x1bc\x1b[?25l\x1b[8l\x1b[1;1H{back}xy\x1b[2;19H12zw\x1b[4;1H").as_bytes(),
+        format!(
+            "\x1bc\x1b[?25l\x1b[8l\x1b[1;1Hxy\x1b[1;101H{back}\x1b[2;1Hzw\x1b[2;119H12\x1b[4;1H"
+        )
+        .as_bytes(),
     );
     let want = three(&mut arms, &mut t, "the visual order, BDSM reset");
     assert_eq!(differing(&got, &want), 0, "laid out inside the margins");
     feed(
         &mut t,
-        format!("\x1bc\x1b[?25l\x1b[1;1H{he}\x1b[2;1H12\x1b[1;21Hxy\x1b[2;21Hzw\x1b[4;1H")
+        format!("\x1bc\x1b[?25l\x1b[1;101H{he}\x1b[2;101H12\x1b[1;1Hxy\x1b[2;1Hzw\x1b[4;1H")
             .as_bytes(),
     );
     let whole = three(&mut arms, &mut t, "no margins");
@@ -15433,14 +15437,17 @@ fn a_paragraph_inside_side_margins_draws_alike_on_every_arm() {
     feed(
         &mut t,
         format!(
-            "\x1bc\x1b[?25l\x1b[?69h\x1b[1;20s\x1b[10;1H{he}12\x1b[9;21Hxy\x1b[10;21Hzw\x1b[1;1H"
+            "\x1bc\x1b[?25l\x1b[?69h\x1b[101;120s\x1b[10;101H{he}12\x1b[9;1Hxy\x1b[10;1Hzw\x1b[1;1H"
         )
         .as_bytes(),
     );
     let scrolled = three(&mut arms, &mut t, "scrolled inside the margins");
     feed(
         &mut t,
-        format!("\x1bc\x1b[?25l\x1b[8l\x1b[9;1H{back}xy\x1b[10;19H12zw\x1b[1;1H").as_bytes(),
+        format!(
+            "\x1bc\x1b[?25l\x1b[8l\x1b[9;1Hxy\x1b[9;101H{back}\x1b[10;1Hzw\x1b[10;119H12\x1b[1;1H"
+        )
+        .as_bytes(),
     );
     let want = three(&mut arms, &mut t, "the visual order on the last two rows");
     assert_eq!(differing(&scrolled, &want), 0, "scrolled with its margins");

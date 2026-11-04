@@ -99,6 +99,33 @@ fn a_line_that_ended_at_a_newline_is_not_joined() {
     });
 }
 
+/// **Text a program wrapped at its own right margin stays apart when the
+/// screen widens**: rows cut at columns 1 to 10 of a 100-column screen
+/// leave no wrap mark, so the widen joins nothing; the same text wrapped
+/// at margins ending at the screen's edge, 51 to 100, joins back, the
+/// control, as ghostty marks only a wrap at its last column.
+#[test]
+fn a_wrap_at_a_program_margin_inside_the_screen_is_not_joined() {
+    support::with_corpus(|t| {
+        resize(t, 100, 50);
+        support::feed(t, b"\x1b[?69h\x1b[1;10s\x1b[1;1Habcdefghijklmn\x1b[?69l");
+        assert_eq!(wrapped(t, 0), Wrap::Ended, "the margin's cut ends the row");
+        resize(t, 200, 50);
+        assert_eq!(row_text(t, 0), "abcdefghij");
+        assert_eq!(row_text(t, 1), "klmn");
+    });
+    support::with_corpus(|t| {
+        resize(t, 100, 50);
+        let run = digits(60);
+        support::feed(t, b"\x1b[?69h\x1b[51;100s\x1b[1;51H");
+        support::feed(t, run.as_bytes());
+        support::feed(t, b"\x1b[?69l");
+        assert_eq!(wrapped(t, 0), Wrap::Continues, "the screen's edge marks it");
+        resize(t, 200, 50);
+        assert_eq!(row_text(t, 1), "", "joined back onto row 0");
+    });
+}
+
 /// **The history reflows with the screen**, newest nearest, and the screen
 /// stays anchored to its bottom row so the cursor keeps its distance from
 /// the edge the shell writes at.
