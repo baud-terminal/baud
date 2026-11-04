@@ -33,7 +33,7 @@ pub const SESSION: &[Step] = &[
     // The launch: the splash carried off, then the prompt.
     Prompt,
     Hold(700),
-    // btop, without its process and network boxes, drawn every 100 ms.
+    // btop, its cpu box alone, drawn every 100 ms.
     Run("btop"),
     Hold(2500),
     Keys("q"),

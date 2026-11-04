@@ -20,7 +20,8 @@
 #
 # GRID and POINTS set the window -- default 110x33 at 12 pt: of 80x24 at
 # 16, 100x30 at 13, 110x33 at 12 and 120x36 at 11, the largest type at
-# which btop shows both its boxes whole on an 18-core Mac -- FPS the
+# which btop drew its cpu and mem boxes whole on an 18-core Mac, kept now
+# that it draws the cpu box alone -- FPS the
 # frames a second (25) and QUALITY gifski's: 80, where 90 made the clip
 # 9.0 and 9.4 MB in two takes, too near the 10 MB it must stay under. The
 # window is the macOS app's on a Retina display with the dark theme's
@@ -83,17 +84,23 @@ magick=$(nixout imagemagick)/bin/magick
 photo="$(nixout pantheon.elementary-wallpapers.src)/backgrounds/Canazei Granite Ridges.jpg"
 pinned "$photo" 0eff9cd7fe92aabb8937644ca154436ba926310808dd99a2902cdde335b0868c
 
-# btop without its process list, which names the user and every command
-# line, and without the network box, which names the address; on the
-# terminal's background rather than its own; its disks the root volume
-# alone, so the box shows them whole -- a Mac lists a dozen system
-# volumes -- and drawn each 200 ms, so its graphs fill in the seconds it
-# is on screen.
+# btop naming nothing of the machine but its load: the cpu box alone,
+# titled "CPU" rather than with the chip's name, with no GPU line (the
+# GPU's memory), no uptime and no frequency -- the keys and why are in
+# baud-app/examples/demo/scratch.rs, BTOP, and its test holds this copy
+# to them. On the terminal's background rather than its own; its disks
+# the root volume alone, should the mem box come back; drawn each 200 ms,
+# so its graphs fill in the seconds it is on screen.
 cat >"$tmp/btop.conf" <<'EOF'
 color_theme = "Default"
 theme_background = False
 truecolor = True
-shown_boxes = "cpu mem"
+shown_boxes = "cpu"
+custom_cpu_name = "CPU"
+show_gpu_info = "Off"
+show_uptime = False
+show_cpu_freq = False
+show_disks = False
 disks_filter = "/"
 update_ms = 200
 EOF

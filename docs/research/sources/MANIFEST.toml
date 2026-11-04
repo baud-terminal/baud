@@ -39854,6 +39854,44 @@ group  = "C"
 # values with whitespace."; line 1577: "-c, --config <file>     Path to a config file".
 # The btop.conf tests/recordings/README.md describes is this version's
 # --default-config with shown_boxes, disks_filter and show_battery changed.
+[sources.btop-config-147]
+key    = "btop-config-147"
+title  = "btop v1.4.7, src/btop_config.cpp -- every configuration key, its description and its default, and how the file is read"
+author = "Jakob P. Liljenberg (aristocratos) and the btop contributors"
+year   = 2026
+venue  = "btop (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/aristocratos/btop/v1.4.7/src/btop_config.cpp"
+file   = ""
+sha256 = "319938e142a7eac47213210fd0a9b1d4db689793d3c31ff0d270d5082f846918"
+bytes  = 31623
+status = "external"
+group  = "C"
+# Fetched and read 2026-11-03, not committed; the same bytes as nixpkgs
+# 319e4ceb's btop.src. Line 103: shown_boxes, "Manually set which boxes to
+# show"; 142: show_gpu_info, "If gpu info should be shown in the cpu box.
+# Available values = "Auto", "On" and "Off"."; 150: show_uptime, "Shows the
+# system uptime in the CPU box."; 169: show_cpu_freq, "Show CPU frequency.";
+# 178: custom_cpu_name, "Custom cpu model name, empty string to disable.";
+# 193: show_disks, "If mem box should be split to also show disks info.".
+# 765-768: a key not among the descriptions is skipped; 771-775: a bool it
+# cannot read is a warning and the default stays.
+[sources.btop-draw-147]
+key    = "btop-draw-147"
+title  = "btop v1.4.7, src/btop_draw.cpp -- what the cpu and mem boxes draw"
+author = "Jakob P. Liljenberg (aristocratos) and the btop contributors"
+year   = 2026
+venue  = "btop (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/aristocratos/btop/v1.4.7/src/btop_draw.cpp"
+file   = ""
+sha256 = "c5b8e02fbaae2e08eeae212d41118c0b90e30dfa167a02b9d56a83d0b70b4b9c"
+bytes  = 109720
+status = "external"
+group  = "C"
+# Fetched and read 2026-11-03, not committed; the same bytes as nixpkgs
+# 319e4ceb's btop.src. 930-942: "Load avg:" is drawn once the core list
+# ends, under no key; 821-829: the uptime, under show_uptime; 1321: the
+# mem box's "Total:", under no key; 2341-2345: the core list's title is
+# custom_cpu_name, or the CPU's own name when that is empty.
 [sources.cargo-eb94155-profiles]
 key    = "cargo-eb94155-profiles"
 title  = "The Cargo Book, reference/profiles.md at eb94155, the cargo of nightly-2026-04-11 -- \"Cargo only looks at the profile settings in the Cargo.toml manifest at the root of the workspace\""

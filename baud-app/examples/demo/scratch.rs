@@ -6,8 +6,9 @@
 use std::path::PathBuf;
 
 /// The grid the window opens at: 110 columns by 33 rows at 12 points, the
-/// largest type at which btop shows both its boxes whole on an 18-core Mac
-/// (`scripts/readme-film.sh`).
+/// largest type at which btop drew its cpu and mem boxes whole on an
+/// 18-core Mac (`scripts/readme-film.sh`), kept now that it draws the cpu
+/// box alone.
 pub const GRID: &str = "110x33";
 pub const POINTS: u32 = 12;
 
@@ -53,15 +54,41 @@ pub fn path(bins: &[String]) -> String {
     all.join(":")
 }
 
-/// btop with neither its process list, which names the user and every
-/// command line, nor its network box, which names the address; on the
-/// terminal's background, and drawn every 100 ms so its graphs fill in the
-/// seconds it is on screen.
+/// **btop, naming nothing of the machine but its load**: its cpu box
+/// alone, each key as btop 1.4.7 describes it
+/// (`[[source: btop-config-147]]`, `[[source: btop-readme-147]]`):
+///
+/// - `shown_boxes = "cpu"`: "Manually set which boxes to show". Not
+///   `proc`, which names the user and every command line, nor `net`, which
+///   names the address, nor `mem`, whose "Total:" is the memory's size and
+///   whose disks are listed by volume name and size, nor `gpu0`.
+/// - `custom_cpu_name = "CPU"`: "Custom cpu model name, empty string to
+///   disable"; empty, btop titles the core list with the chip's name.
+/// - `show_gpu_info = "Off"`: "If gpu info should be shown in the cpu
+///   box"; at its "Auto", with no gpu box, the cpu box carries the GPU's
+///   memory, used of total.
+/// - `show_uptime = false`: "Shows the system uptime in the CPU box."
+/// - `show_cpu_freq = false`: "Show CPU frequency."
+/// - `show_disks = false`: "If mem box should be split to also show disks
+///   info", should the mem box come back.
+///
+/// btop skips a key it does not know and keeps the default for a value its
+/// `isbool` refuses, both without a word, so a misspelt line shows what it
+/// was written to hide; `tests::btop_shows_nothing_of_the_machine`
+/// holds the spelling. The load average stays: the cpu box draws it
+/// whatever the config, and no key of 1.4.7 removes it
+/// (`[[source: btop-draw-147]]`). On the terminal's background, and drawn
+/// every 100 ms so its graphs fill in the seconds it is on screen.
 const BTOP: &str = "\
 color_theme = \"Default\"
 theme_background = false
 truecolor = true
-shown_boxes = \"cpu mem\"
+shown_boxes = \"cpu\"
+custom_cpu_name = \"CPU\"
+show_gpu_info = \"Off\"
+show_uptime = false
+show_cpu_freq = false
+show_disks = false
 update_ms = 100
 ";
 
@@ -221,5 +248,101 @@ mod tests {
         );
         assert!(e.contains(&("HOME".to_string(), "/t/r/home".to_string())));
         assert!(e.contains(&("BAUD_GRID".to_string(), "110x33".to_string())));
+    }
+
+    /// The btop configs `scripts/readme-film.sh` and
+    /// `scripts/readme-capture.sh` write, each the heredoc that follows
+    /// its `btop.conf"`.
+    fn script_btop(script: &str) -> &str {
+        let open = "btop.conf\" <<'EOF'\n";
+        assert_eq!(script.matches(open).count(), 1, "one btop config");
+        let body = &script[script.find(open).unwrap() + open.len()..];
+        &body[..body.find("\nEOF\n").expect("the heredoc ends") + 1]
+    }
+
+    /// **What a btop config would show of the machine**, by the keys
+    /// btop 1.4.7 reads (`[[source: btop-config-147]]`): each key once,
+    /// since the last of two wins, and spelt as btop spells it, since it
+    /// skips a key it does not know and keeps the default for a bool it
+    /// cannot read.
+    fn btop_shows(conf: &str) -> Vec<&'static str> {
+        let mut keys: Vec<(&str, &str)> = Vec::new();
+        let mut twice = false;
+        for line in conf.lines() {
+            let (k, v) = line.split_once(" = ").expect("key = value");
+            twice |= keys.iter().any(|&(seen, _)| seen == k);
+            keys.push((k, v));
+        }
+        let is =
+            |k: &str, want: &[&str]| keys.iter().any(|&(key, v)| key == k && want.contains(&v));
+        let off = ["false", "False"];
+        let mut shown = Vec::new();
+        if !is("shown_boxes", &["\"cpu\""]) {
+            shown.push("a box but the cpu box");
+        }
+        let named = keys.iter().any(|&(k, v)| {
+            k == "custom_cpu_name" && v.len() > 2 && v.starts_with('"') && v.ends_with('"')
+        });
+        if !named {
+            shown.push("the chip's name");
+        }
+        if !is("show_gpu_info", &["\"Off\""]) {
+            shown.push("the GPU's memory");
+        }
+        if !is("show_uptime", &off) {
+            shown.push("the uptime");
+        }
+        if !is("show_cpu_freq", &off) {
+            shown.push("the CPU's frequency");
+        }
+        if !is("show_disks", &off) {
+            shown.push("the disks");
+        }
+        if twice {
+            shown.push("a key given twice");
+        }
+        shown
+    }
+
+    /// **btop shows nothing of the machine but its load**, in all three
+    /// configs that run it: the demo's and the two scripts'. The load
+    /// average is not among what this holds out, because btop 1.4.7 draws
+    /// it in the cpu box whatever the config: `Cpu::draw` writes
+    /// "Load avg:" once the core list ends, behind no key
+    /// (`[[source: btop-draw-147]]`). The controls:
+    /// the config before this one, which showed the mem box and the chip;
+    /// an empty name, which btop reads as no name; a misspelt key, which
+    /// btop skips; a bool btop cannot read; and a key given twice.
+    #[test]
+    fn btop_shows_nothing_of_the_machine() {
+        let film = include_str!("../../../scripts/readme-film.sh");
+        let capture = include_str!("../../../scripts/readme-capture.sh");
+        for (who, conf) in [
+            ("demo", BTOP),
+            ("readme-film.sh", script_btop(film)),
+            ("readme-capture.sh", script_btop(capture)),
+        ] {
+            assert_eq!(btop_shows(conf), Vec::<&str>::new(), "{who}");
+        }
+        let before = "color_theme = \"Default\"\nshown_boxes = \"cpu mem\"\nupdate_ms = 100\n";
+        assert_eq!(
+            btop_shows(before),
+            [
+                "a box but the cpu box",
+                "the chip's name",
+                "the GPU's memory",
+                "the uptime",
+                "the CPU's frequency",
+                "the disks"
+            ]
+        );
+        let unnamed = BTOP.replace("custom_cpu_name = \"CPU\"", "custom_cpu_name = \"\"");
+        assert_eq!(btop_shows(&unnamed), ["the chip's name"]);
+        let misspelt = BTOP.replace("show_uptime", "show_uptim");
+        assert_eq!(btop_shows(&misspelt), ["the uptime"]);
+        let unread = BTOP.replace("show_cpu_freq = false", "show_cpu_freq = no");
+        assert_eq!(btop_shows(&unread), ["the CPU's frequency"]);
+        let twice = format!("{BTOP}show_uptime = true\n");
+        assert_eq!(btop_shows(&twice), ["a key given twice"]);
     }
 }

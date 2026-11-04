@@ -172,14 +172,21 @@ printf 'font_size = 16\n\n[cursor]\nblink = false\n' >"$tmp/baud.toml"
   case " ${TEXT_WITHOUT-} " in *" cjk "*) ;; *) printf '  "%s",\n' "$cjk" ;; esac
   printf ']\n\n[cursor]\nblink = false\n'
 } >"$tmp/text.toml"
-# btop without its process list, which names the user and every command
-# line, and without the network box, which names the address; on the
-# terminal's background rather than its own.
+# btop naming nothing of the machine but its load: the cpu box alone,
+# titled "CPU" rather than with the chip's name, with no GPU line, no
+# uptime and no frequency (baud-app/examples/demo/scratch.rs, BTOP, whose
+# test holds this copy to it); on the terminal's background rather than
+# its own.
 cat >"$tmp/btop/btop.conf" <<'EOF'
 color_theme = "Default"
 theme_background = False
 truecolor = True
-shown_boxes = "cpu mem"
+shown_boxes = "cpu"
+custom_cpu_name = "CPU"
+show_gpu_info = "Off"
+show_uptime = False
+show_cpu_freq = False
+show_disks = False
 update_ms = 500
 EOF
 # The photos at about the size they are shown at, under the names the

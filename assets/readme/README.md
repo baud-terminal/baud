@@ -8,11 +8,20 @@ its process and network boxes hidden), `cat README.md` and a scroll back
 through it, helix finding the tagline and jumping to the end and back with
 the plasma trail, a photo drawn by `kitten icat`, neo, asciiquarium, and
 `clear` sending the cursor to the top with the trail. The shell's prompt is
-a plain `baud ❯`, so nothing names the machine. Encoded with gifski at
-1164 px wide (16.9 MB), with no frame carrying traces of another, so it
-loops clean. neo's katakana are drawn by the macOS system font baud falls
-back to, as baud's own font has none; a recording played with the example
-draws them from Noto Sans CJK SC, which it configures.
+a plain `baud ❯`, naming no user or host, but btop's two boxes, about 1 to
+4 s in, name the machine: the chip over the core list, the memory's size
+and the GPU's memory in use of it, the disks with their sizes and volume names, the
+uptime and the load average, with the battery's charge, the time and each
+core's load and temperature. It is to be filmed again. The session's btop
+(`baud-app/examples/demo/scratch.rs`) now draws its cpu box alone, titled
+`CPU`, with no GPU line and no uptime; of that list a new take still shows
+the load average, which no key of btop 1.4.7 removes
+(`[[source: btop-draw-147]]`), the battery, the time and the cores.
+Encoded with gifski at 1164 px wide (16.9 MB), with no frame carrying
+traces of another, so it loops clean. neo's katakana are drawn by the
+macOS system font baud falls back to, as baud's own font has none; a
+recording played with the example draws them from Noto Sans CJK SC,
+which it configures.
 
 A recording for the README is made by one command, which plays the
 session in baud's window, films it and encodes the GIF:
