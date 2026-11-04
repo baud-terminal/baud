@@ -206,7 +206,10 @@ impl Led {
     }
 
     /// **What the pointer shows over the light**: its letters, what they
-    /// stand for, and what lights it in baud, in plain words.
+    /// stand for, and what lights it in baud, in plain words -- over the
+    /// strip's light and over its word on DEC's indicator line alike
+    /// (`tip::tip_look`), so CD's and OH's name both forms of the state
+    /// baud cannot read.
     pub const fn tip(self) -> &'static str {
         match self {
             Led::Hs => {
@@ -221,11 +224,14 @@ impl Led {
             }
             Led::Cd => {
                 "CD -- Carrier Detect: lit while the program in front is ssh with its \
-                 connection up. A ring when baud may not look at that program."
+                 connection up. A ring, or CD? on DEC's status line, when the system would not \
+                 let baud look at that program. On Linux baud has no way to look yet: the light \
+                 stays dark and DEC's status line shows CD?."
             }
             Led::Oh => {
-                "OH -- Off Hook: lit while a program other than the shell is in front. A ring \
-                 when baud may not look at the shell."
+                "OH -- Off Hook: lit while a program other than the shell is in front. A ring, \
+                 or OH? on DEC's status line, when baud cannot look at the shell: the system \
+                 would not let it."
             }
             Led::Rd => "RD -- Receive Data: flashes when baud receives data from the program.",
             Led::Sd => {

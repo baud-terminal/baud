@@ -39,7 +39,8 @@ use baud_render::{
 use macos_liquid_glass::drawable::Appearance;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
-    NSAppearance, NSAppearanceCustomization, NSImage, NSImageScaling, NSImageView, NSView, NSWindow,
+    NSAccessibility, NSAppearance, NSAppearanceCustomization, NSImage, NSImageScaling, NSImageView,
+    NSView, NSWindow,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
@@ -276,6 +277,11 @@ impl Strip {
                 let v = NSImageView::new(mtm);
                 v.setImageScaling(NSImageScaling::ScaleNone);
                 v.setToolTip(Some(&NSString::from_str(led.tip())));
+                // What VoiceOver says of the light: its letters, and its
+                // hover text set as the element's help, whatever AppKit
+                // derives from the tooltip.
+                v.setAccessibilityLabel(Some(&NSString::from_str(led.letters())));
+                v.setAccessibilityHelp(Some(&NSString::from_str(led.tip())));
                 container.addSubview(&v);
                 *self.views.get_mut(led) = Some(v);
             }

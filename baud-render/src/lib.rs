@@ -71,6 +71,7 @@ mod stack;
 pub mod status;
 mod stress_data;
 mod syllable;
+pub mod tip;
 mod word;
 pub use word::{How as WordHow, Side as WordSide, WordLaid};
 mod trail;
@@ -141,6 +142,7 @@ pub use stack::{
 };
 pub use status::{Leaving, StatusMarks};
 pub use stress_data::{STRESS_SKIP_BLOCKS, STRESS_SKIP_INDEX};
+pub use tip::{Opens, TIP_COLS, TipArea, TipLook, tip_look, tip_look_opening};
 pub use trail::{
     Corners, Pt, Rect, Segment, Shape, Smear, TAU_SLOW, Trail, TrailLook, coverage as quad_coverage,
 };

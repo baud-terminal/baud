@@ -152,6 +152,8 @@ struct Arms<'f, 'a> {
     find: Option<baud_render::FindLook>,
     /// The link preview both arms draw, or none.
     link: Option<baud_render::LinkLook>,
+    /// The hover tip both arms draw, or none.
+    tip: Option<baud_render::TipLook>,
     /// How many of the cell arm's records, at the end, are baud's own
     /// overlays, drawn over the images.
     chrome: Tally,
@@ -401,6 +403,7 @@ impl Arms<'_, '_> {
         self.renderer.set_composition(self.composition.clone());
         self.renderer.set_find(t, self.find.clone());
         self.renderer.set_link(self.link.clone());
+        self.renderer.set_tip(self.tip.clone());
         // The exit-status marks on this window, as the app places them for
         // every path; none while the setting is off.
         self.renderer
@@ -618,11 +621,19 @@ impl Arms<'_, '_> {
         // thumb, the fade.
         let chrome_from = self.records.len();
         self.records.extend_from_slice(self.renderer.bell_tint());
-        for (c, caret) in [
+        let tips = self
+            .renderer
+            .tip_bars()
+            .into_iter()
+            .map(|c| (Some(c), false));
+        let fields = [
             (self.renderer.find_field(), true),
             (self.renderer.link_bar(), false),
-            (self.renderer.notice_bar(), false),
-        ] {
+        ]
+        .into_iter()
+        .chain(tips)
+        .chain([(self.renderer.notice_bar(), false)]);
+        for (c, caret) in fields {
             let Some(c) = c else { continue };
             self.exceptions.composed(
                 &mut self.renderer,
@@ -1445,6 +1456,7 @@ macro_rules! arms {
             predictions: Vec::new(),
             find: None,
             link: None,
+            tip: None,
             chrome: Tally::default(),
             copy,
             copy_mem,
@@ -3482,6 +3494,42 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the link preview reached the pixels"
     );
     arms.link = None;
+    // **The hover tip over DEC's line**: CD's text in lines of the
+    // selection's colours over the bottom rows, right-aligned. The cell arm
+    // masks its cells as it masks the bar's; the instance arm converts
+    // them blank; the CPU arm, the Linux driver's, draws the same text.
+    let (cols, rows) = t.geometry();
+    arms.tip = baud_render::tip_look(baud_render::Led::Cd.tip(), cols, rows);
+    assert!(arms.tip.is_some(), "room for CD's tip");
+    let (tip_a, tip_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&tip_a, &tip_b),
+        0,
+        "the arms disagree over the hover tip"
+    );
+    assert!(differing(&tip_a, &plain) > 0, "the tip reached the pixels");
+    // The CPU arm, which the Linux driver draws with, against the GPU arms
+    // the macOS app draws with: the same pixels, with the tip and without.
+    arms.tip = None;
+    let (plain_a, _) = arms.draw(&mut t);
+    let plain_cpu = cpu_frame(&mut arms, &mut t);
+    assert_eq!(channel_diff(&plain_cpu, &plain_a, |_| true), (0, 0));
+    arms.tip = baud_render::tip_look(baud_render::Led::Cd.tip(), cols, rows);
+    let (tip_a, _) = arms.draw(&mut t);
+    let tip_cpu = cpu_frame(&mut arms, &mut t);
+    assert_eq!(
+        channel_diff(&tip_cpu, &tip_a, |_| true),
+        (0, 0),
+        "the CPU arm draws the tip as the GPU arms do"
+    );
+    assert_ne!(
+        differing(&tip_cpu, &plain_cpu),
+        0,
+        "the CPU arm drew the tip"
+    );
+    arms.tip = None;
+    let (gone_a, _) = arms.draw(&mut t);
+    assert_eq!(differing(&gone_a, &plain), 0, "the tip leaves no trace");
     // The cursor trail: a fading ghost mid-sweep between two cells, drawn
     // by both arms -- one translucent solid on the instance list and on the
     // cell path's records -- and a change to the pixels. `plain` has the

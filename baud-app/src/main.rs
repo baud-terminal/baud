@@ -140,6 +140,9 @@ mod lights;
 // The state lights as words on DEC's indicator line, both drivers.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod line_lamps;
+// The hover text over those words, drawn by baud on both drivers.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod line_tip;
 // An input method's composition and the cell its candidate window opens
 // at: pure, so its tests run on every platform, and both drivers draw
 // through it.

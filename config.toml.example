@@ -556,9 +556,12 @@ activity_lights = "on"
 # baud has no way to look yet. HS, AA, RD and SD never go there: the line
 # shows what is true, not what just happened. Past 37 points of the default
 # font the words are left out, so they never flash past the web
-# accessibility guidelines' limit (WCAG 2.3.1). "off" by default, the
-# lights then only where activity_lights puts them; "states" adds the
-# words. Both macOS and Linux.
+# accessibility guidelines' limit (WCAG 2.3.1). Hold the pointer over a
+# word to see what it means, the same words as the light's own hover
+# text; the box stays while the pointer is on the word or the box, and
+# any key you type hides it. "off" by default, the lights then only where
+# activity_lights puts them; "states" adds the words. Both macOS and
+# Linux.
 status_line_lights = "off"
 # Whether the desktop may show a frame the moment it is drawn, even partway
 # through the screen's refresh: the least delay, at the price of a moving

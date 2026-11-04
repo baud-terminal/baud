@@ -487,6 +487,8 @@ struct App {
     /// The link preview (`link.rs`, `Hover`): the link under the pointer
     /// while Command is held, underlined, and its address in a bar.
     hover: crate::link::Hover,
+    /// The hover text over DEC's line's words (`line_tip.rs`).
+    line_tip: crate::line_tip::LineTip,
     /// The host a `file:` link is local to, for the preview: read once
     /// when Command goes down and kept while it is held (`preview_host`).
     hover_host: Option<String>,
@@ -1434,6 +1436,7 @@ impl App {
             scrolled: Scrolled::START,
             finding: None,
             hover: crate::link::Hover::default(),
+            line_tip: crate::line_tip::LineTip::default(),
             hover_host: None,
             pointer_shown: crate::pointer::Shown::Unknown,
             find_left: None,
@@ -2032,6 +2035,12 @@ impl App {
             self.pending = Pending::Dirty;
         }
         self.renderer.set_link(self.hover.look().cloned());
+        // The hover text over DEC's line's words, read again on the line
+        // as it is now (`line_tip.rs`).
+        if self.line_tip.refresh(&self.term) == crate::line_tip::Changed::Yes {
+            self.pending = Pending::Dirty;
+        }
+        self.renderer.set_tip(self.line_tip.look().cloned());
         // The scrollbar's thumb, where the window sits in the ring, seen as
         // much as the reveal says at the display link's last target.
         let look = HostTime::of_secs(self.tick_target).map_or(Look::HIDDEN, |now| self.look(now));
@@ -2646,11 +2655,19 @@ impl App {
                 // same way; the thumb; the fade.
                 let chrome_from = cell.records.len();
                 cell.records.extend_from_slice(self.renderer.bell_tint());
-                for (c, caret) in [
+                let tips = self
+                    .renderer
+                    .tip_bars()
+                    .into_iter()
+                    .map(|c| (Some(c), false));
+                let fields = [
                     (self.renderer.find_field(), true),
                     (self.renderer.link_bar(), false),
-                    (self.renderer.notice_bar(), false),
-                ] {
+                ]
+                .into_iter()
+                .chain(tips)
+                .chain([(self.renderer.notice_bar(), false)]);
+                for (c, caret) in fields {
                     let Some(c) = c else { continue };
                     cell.exceptions.composed(
                         &mut self.renderer,
@@ -11348,6 +11365,11 @@ impl Responder for Driver {
             self.app.pending = Pending::Dirty;
             self.app.reshape_pointer();
         }
+        // A key dismisses the hover text over DEC's line, and still goes
+        // on to the program (`line_tip.rs`, WCAG 2.2's 1.4.13).
+        if self.app.line_tip.dismiss(&self.app.term) == crate::line_tip::Changed::Yes {
+            self.app.pending = Pending::Dirty;
+        }
         if key.modifiers.command {
             // Menu territory: a key equivalent the menu carries never gets
             // here, and one it does not sends nothing to the child -- but
@@ -11580,6 +11602,21 @@ impl Responder for Driver {
             ViewMouseKind::Up => crate::hide::Act::Nothing,
         };
         hide_pointer(act);
+        // The hover text over DEC's line's words: where the pointer is,
+        // the line's row included, which a press or a report clamps away.
+        let tipped = match event.kind {
+            ViewMouseKind::Exited => self.app.line_tip.leave(&self.app.term),
+            _ => {
+                let (scale, cell, grid, pad) = self.pointer_geometry();
+                let status = self.app.term.status_rows();
+                let over =
+                    crate::line_tip::over_at((event.x, event.y), scale, cell, grid, pad, status);
+                self.app.line_tip.update(&self.app.term, over)
+            }
+        };
+        if tipped == crate::line_tip::Changed::Yes {
+            self.app.pending = Pending::Dirty;
+        }
         // Any press is input to the blink's stop -- one the scrollbar, a
         // link or a tracking child takes too -- before those take it, and
         // to a GIF frame waiting for the user (`Term::pointer_pressed`).

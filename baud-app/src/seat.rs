@@ -362,6 +362,28 @@ impl Seat {
         self.at.is_some()
     }
 
+    /// **Where the pointer is for the hover text over DEC's line**
+    /// (`line_tip::over_at`): the line's `status` rows counted below the
+    /// grid, where a press or a report is clamped to its last row; off the
+    /// surface, elsewhere.
+    pub(crate) fn line_over(
+        &self,
+        g: Geometry,
+        status: baud_domain::Rows,
+    ) -> crate::line_tip::Over {
+        match self.at {
+            Some(at) => crate::line_tip::over_at(at, g.scale, g.cell, g.grid, g.pad, status),
+            None => crate::line_tip::Over::Elsewhere,
+        }
+    }
+
+    /// **The pointer in the whole frame's device pixels**, at `scale`, for
+    /// the lights' line's hover text (`line_tip::LightsLine`); none off the
+    /// surface.
+    pub(crate) fn frame_point(&self, scale: f64) -> Option<(f64, f64)> {
+        self.at.map(|(x, y)| (x * scale, y * scale))
+    }
+
     fn under(&self, g: Geometry) -> (Row, Col, PointerPx) {
         let at = self.at.unwrap_or((0.0, 0.0));
         gesture::logical(
@@ -1027,6 +1049,91 @@ mod tests {
     const NONE: Modifiers = Modifiers::NONE;
     const SIDE: Pressed = Pressed::Button8;
     const PAST: Pressed = Pressed::Other;
+
+    /// **The seat's pointer for the hover text over DEC's line**: on the
+    /// row below the grid while a line is shown, the line's column; on
+    /// the grid, its cell; off the surface, elsewhere -- where a press or a
+    /// report is clamped to the grid's last row.
+    #[test]
+    fn the_pointer_for_the_lines_tip_counts_the_lines_row() {
+        use crate::line_tip::Over;
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut seat = Seat::new();
+        let one = Rows::of_count(1);
+        assert_eq!(
+            seat.line_over(G, one),
+            Over::Elsewhere,
+            "not on the surface"
+        );
+        put(&mut seat, &mut t, Input::Entered(125.0, 65.0), NONE);
+        assert_eq!(seat.line_over(G, one), Over::Line(Col::at_index(12)));
+        put(&mut seat, &mut t, Input::Moved(125.0, 55.0), NONE);
+        assert_eq!(
+            seat.line_over(G, one),
+            Over::Main(Row::from_index(5), Col::at_index(12))
+        );
+        put(&mut seat, &mut t, Input::Moved(125.0, 65.0), NONE);
+        assert_eq!(
+            seat.line_over(G, Rows::ZERO),
+            Over::Elsewhere,
+            "no line shown"
+        );
+        put(&mut seat, &mut t, Input::Left, NONE);
+        assert_eq!(seat.line_over(G, one), Over::Elsewhere, "left the surface");
+    }
+
+    /// **The seat's pointer for the lights' own line's hover text is the
+    /// frame's device pixel**: its surface point times the scale, the
+    /// whole frame drawn from the buffer's corner, so at 2x a pointer at
+    /// (55, 64.5) is pixel (110, 129), in the middle of RD's place on a
+    /// bottom line at 120 under a 6-row grid of 20-pixel cells; between
+    /// two lights it is on none, on the grid none, and off the surface
+    /// there is no pixel. Perturbation: leave the scale out -- the pointer
+    /// lands on the grid at half its place -- and this goes red.
+    #[test]
+    fn the_pointer_for_the_lights_tips_is_the_frames_pixel() {
+        use crate::line_tip::LightsLine;
+        use baud_font::Px;
+        use baud_render::{ByLed, Led, LineEdge};
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut seat = Seat::new();
+        let line = LightsLine {
+            edge: LineEdge::Bottom,
+            top: Px::of(120),
+            height: Px::of(30),
+            places: ByLed {
+                rd: Some((Px::of(100), Px::of(20))),
+                sd: Some((Px::of(124), Px::of(20))),
+                ..ByLed::default()
+            },
+            origin: (Px::of(0), Px::of(0)),
+            cell: (Px::of(20), Px::of(20)),
+            width: Px::of(400),
+        };
+        assert_eq!(seat.frame_point(2.0), None, "not on the surface");
+        put(&mut seat, &mut t, Input::Entered(55.0, 64.5), NONE);
+        let at = seat.frame_point(2.0).expect("on the surface");
+        assert_eq!(at, (110.0, 129.0));
+        assert_eq!(line.light_at(at), Some(Led::Rd));
+        put(&mut seat, &mut t, Input::Moved(61.0, 64.5), NONE);
+        assert_eq!(
+            line.light_at(seat.frame_point(2.0).unwrap()),
+            None,
+            "between"
+        );
+        put(&mut seat, &mut t, Input::Moved(67.0, 64.5), NONE);
+        assert_eq!(line.light_at(seat.frame_point(2.0).unwrap()), Some(Led::Sd));
+        put(&mut seat, &mut t, Input::Moved(55.0, 30.0), NONE);
+        assert_eq!(
+            line.light_at(seat.frame_point(2.0).unwrap()),
+            None,
+            "the grid"
+        );
+        put(&mut seat, &mut t, Input::Left, NONE);
+        assert_eq!(seat.frame_point(2.0), None, "left the surface");
+    }
 
     /// **A press that selects moves a GIF frame waiting for the user on**,
     /// "processing will continue when user input is entered", "Mouse

@@ -1660,3 +1660,56 @@ wherever they are drawn.
   counts. No timing ran.
 
 Decision log 2468 and 2469.
+
+## 13. Built: hover text over the line's words (2026-11-03)
+
+The owner: "and can we do hover text ? so user can understand it?". The
+pointer over a word on DEC's line shows `Led::tip`, the strip's tooltip
+text (CD's and OH's now name `CD?` and `OH?` too), on macOS and Linux.
+
+- **Drawn in the frame on both systems** (`baud_render::tip`): the text
+  wrapped at 60 cells into lines of the selection's colours, right-aligned
+  and ending a row above the line. Wayland has no tooltip protocol;
+  `xdg_popup` "can be used to implement ... tooltips" (wp-xdg-shell) but
+  is a second surface `baud-present-wayland` does not make. Drawn as
+  fields, as the link preview's bar is, the pixels are the renderer's on
+  every path: the instance and cell arms agree (`cells.rs`) and the CPU
+  frame, the Linux driver's, is pinned (`hover_tip.rs`). The strip keeps
+  AppKit's tooltips. Jev leaned to drawing on both, 0.94 and 0.86, below
+  the bar.
+- **WCAG 2.2's 1.4.13** governs a tip baud draws: hoverable, its area
+  takes in the gap row so the pointer crosses from the word onto it;
+  persistent, no timer, and it goes when its word leaves the line;
+  dismissible, any key hides it and still reaches the program (Jev's lean,
+  0.58 and 0.70, below the bar), since Escape is the program's.
+- **Hit-testing** counts the line's row (`line_tip::over_at`,
+  `Seat::line_over`), where a press or a report is clamped to the grid's
+  last row; `Term::indicator_lamp_at` names the word under a column.
+- **Screen readers**: the strip's lights now carry their letters as the
+  accessibility label and the tooltip text as the help. baud exposes no
+  accessibility element for the grid, so DEC's line, its words and the tip
+  reach no screen reader, and no keyboard focus reaches them: not fixed.
+- **No flash from a word that comes and goes**: a tip its word's leaving
+  took stays down until the pointer moves, and a key's dismissal holds
+  while it stays (`LineTip::refresh`). OH in a loop of short commands, or
+  SYN at a frame's pace, had taken the box down and put it back with every
+  change under a still pointer; held over OH flipping each frame for 60
+  frames, the box now stays down after the first change, where it came
+  back 29 times.
+- **The lights' own line, on Linux**: the pointer over any of the nine
+  lights there, HS, AA, RD and SD among them, shows its `Led::tip` by the
+  same rules, drawn the same way. The light is hit where the last frame
+  placed it (`line_tip::LightsLine`, `Renderer::lights_places`), at the
+  seat's point times the scale, the frame being drawn from the buffer's
+  corner (`Seat::frame_point`). The box sits above a line at the bottom,
+  and opens down under one at the top (`tip_look_opening`). It holds from
+  the light to the box over the notice, DEC's line and the gutter, in the
+  box's columns and the light's; on the line itself only over the light,
+  as on DEC's line only over the word; and it goes when a narrow window
+  leaves the light out. Its CPU frame is pinned (`hover_tip.rs`). On macOS
+  that line keeps AppKit's tooltips. CD's text now says that on Linux
+  its light stays dark and DEC's line shows `CD?`.
+- **Linux** was type-checked and linted for `aarch64-unknown-linux-gnu`;
+  its pointer, key and turn wiring is read off `linux.rs` by a test. No
+  headless compositor ran: the docker engine was down, and starting colima
+  writes `~/.config`.

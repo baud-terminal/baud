@@ -613,6 +613,12 @@ fn field_at(f: &Option<crate::find::Field>, row: Row) -> Option<&crate::find::Fi
     f.as_ref().filter(|f| f.row == row)
 }
 
+/// The hover tip's line on `row`.
+fn tip_on(t: &Option<crate::tip::TipLook>, row: Row) -> Option<&crate::find::Field> {
+    t.as_ref()
+        .and_then(|t| t.lines.iter().find(|f| f.row == row))
+}
+
 /// The link preview's underlined runs on `row`.
 fn spans_on(l: &Option<LinkLook>, row: Row) -> impl Iterator<Item = &crate::linked::LinkSpan> {
     l.iter()
@@ -2321,6 +2327,11 @@ pub struct Renderer<'f, 'a> {
     /// under the find field.
     link: Option<LinkLook>,
     last_link: Option<LinkLook>,
+    /// The hover tip on this frame and the last ([`crate::tip`]): its
+    /// lines' rows are dirty, and the cells under them converted blank,
+    /// as under the link preview's bar.
+    tip: Option<crate::tip::TipLook>,
+    last_tip: Option<crate::tip::TipLook>,
     /// The embedder's notice, its own row below the grid and the status
     /// line ([`Renderer::set_notice`]), and the field the last frame drew
     /// it as.
@@ -2835,6 +2846,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             find_caret: Vec::new(),
             link: None,
             last_link: None,
+            tip: None,
+            last_tip: None,
             notice: None,
             last_notice: None,
             link_inst: Vec::new(),
@@ -3739,6 +3752,25 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The link preview's bar as the cell path draws it, or none.
     pub fn link_bar(&self) -> Option<Composition> {
         self.link.as_ref().map(|l| l.bar.composition())
+    }
+
+    /// **The hover tip for the next frame**, or none: a word's meaning,
+    /// its lines fields in the selection's colours over the main
+    /// display's last rows (`tip::tip_look`). The instance and CPU paths
+    /// draw it in their convert over the link preview's bar and the
+    /// images; the cell path draws [`Renderer::tip_bars`] through
+    /// [`crate::Overlay::composed`] after the images, as it draws the bar.
+    pub fn set_tip(&mut self, look: Option<crate::tip::TipLook>) {
+        self.tip = look;
+    }
+
+    /// The hover tip's lines as the cell path draws them, none while no
+    /// tip shows.
+    pub fn tip_bars(&self) -> Vec<Composition> {
+        self.tip
+            .iter()
+            .flat_map(|t| t.lines.iter().map(crate::find::Field::composition))
+            .collect()
     }
 
     /// **The embedder's notice for the next frames**, or none: `baud-app`'s
@@ -7238,6 +7270,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 };
             }
         }
+        // The hover tip's lines, the same way, over the bar's.
+        let tip_bars: Vec<Composition> = self
+            .tip
+            .iter()
+            .flat_map(|t| t.lines.iter().map(crate::find::Field::composition))
+            .filter(|c| c.row.index() < main.index())
+            .collect();
+        for c in &tip_bars {
+            let (start, end) = c.columns(cols);
+            let at = c.row.index() * ncols;
+            for cell in &mut self.cur[at + start..at + end] {
+                *cell = PackedCell {
+                    content: baud_domain::Content::EMPTY,
+                    style: cell.style,
+                    flags: baud_domain::CellFlags::NONE,
+                };
+            }
+        }
         if self.theme.finds_pictures() {
             let drawn =
                 self.bidi
@@ -7294,6 +7344,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let find_changed = self.find != self.last_find;
         let link_changed = self.link != self.last_link;
+        let tip_changed = self.tip != self.last_tip;
         let mut rows_dirty = Tally::default();
         let mut rows_partial = Tally::default();
         let mut exceptions = Exceptions::default();
@@ -7345,7 +7396,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     || field_on(&self.find, row).is_some()
                     || field_on(&self.last_find, row).is_some()
                     || bar_on(&self.link, row).is_some()
-                    || bar_on(&self.last_link, row).is_some();
+                    || bar_on(&self.last_link, row).is_some()
+                    || tip_on(&self.tip, row).is_some()
+                    || tip_on(&self.last_tip, row).is_some();
                 if how == crate::bidi::Rejoin::Every || full || changed || veiled {
                     let written = self
                         .beside
@@ -7428,6 +7481,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let linked = link_changed
                 && (spans_on(&self.link, row).ne(spans_on(&self.last_link, row))
                     || bar_on(&self.link, row) != bar_on(&self.last_link, row));
+            // A tip's line come, gone or changed on this row.
+            let tipped = tip_changed && tip_on(&self.tip, row) != tip_on(&self.last_tip, row);
             // The notice come, gone or changed on this row.
             let noticed = field_at(&notice, row) != field_at(&self.last_notice, row);
             // A joining form moved on this row.
@@ -7461,6 +7516,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // it on.
             let fields = field_on(&self.find, row).is_some()
                 || bar_on(&self.link, row).is_some()
+                || tip_on(&self.tip, row).is_some()
                 || field_at(&notice, row).is_some()
                 || self.fade.is_some()
                 || self.bell.is_some();
@@ -7486,6 +7542,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || composed
                 || found
                 || linked
+                || tipped
                 || noticed
                 || rejoined
                 || remirrored
@@ -7553,6 +7610,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let notice_bar = notice.as_ref().map(crate::find::Field::composition);
         for (c, carets) in fields
             .chain(link_bar.iter().map(|c| (c, 0)))
+            .chain(tip_bars.iter().map(|c| (c, 0)))
             .chain(notice_bar.iter().map(|c| (c, 0)))
         {
             let styles = core::mem::take(&mut self.styles);
@@ -7638,6 +7696,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_composition = composition;
         self.last_find.clone_from(&self.find);
         self.last_link.clone_from(&self.link);
+        self.last_tip.clone_from(&self.tip);
         self.last_notice = notice;
         // **The first letter that takes a form, shaped this frame with BDSM
         // reset**, was drawn unjoined, since no row was read for joins: the

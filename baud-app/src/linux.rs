@@ -329,6 +329,8 @@ struct Driver {
     /// `[window] status_line_lights`: whether DEC's indicator line also
     /// carries the state lights as words (`line_lamps.rs`).
     status_line_lights: baud_render::StatusLineLights,
+    /// The hover text over DEC's line's words (`line_tip.rs`).
+    line_tip: crate::line_tip::LineTip,
     /// What the badge's variables read of the session that the core does
     /// not keep (`effects::Session`), brought up to date with the title.
     session: crate::effects::Session,
@@ -687,6 +689,7 @@ pub fn run() {
         cursor_guide: cfg.cursor_guide,
         badge: cfg.badge,
         status_line_lights: cfg.status_line_lights,
+        line_tip: crate::line_tip::LineTip::default(),
         session: crate::effects::Session::here(),
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
@@ -1432,6 +1435,15 @@ impl Driver {
         let host = crate::link::Host(&self.host);
         let hovered = self.seat.hover(&self.term, mods, g, host);
         if hovered {
+            self.pending = Pending::Dirty;
+        }
+        // The hover text over DEC's line's words and the lights' own line's
+        // lights, where the pointer is now, the line's row included
+        // (`line_tip.rs`).
+        let over = self.seat.line_over(g, self.term.status_rows());
+        let at = self.seat.frame_point(g.scale);
+        self.line_tip.set_lights(self.lights_drawn());
+        if self.line_tip.update_at(&self.term, over, at) == crate::line_tip::Changed::Yes {
             self.pending = Pending::Dirty;
         }
         if hovered || pressed {
@@ -2213,6 +2225,11 @@ impl Driver {
             crate::pressed::Route::Nobody => return,
             crate::pressed::Route::Program(k) => k,
         };
+        // A key dismisses the hover text over DEC's line, and still goes
+        // on to the program (`line_tip.rs`, WCAG 2.2's 1.4.13).
+        if self.line_tip.dismiss(&self.term) == crate::line_tip::Changed::Yes {
+            self.pending = Pending::Dirty;
+        }
         // A key snaps the window back to the live screen, where its effect
         // is, and that reveals the thumb.
         if self.seat.key(&mut self.term) {
@@ -2526,6 +2543,30 @@ impl Driver {
         if crate::line_lamps::give(&mut self.term, given) == crate::line_lamps::Owes::Frame {
             self.pending = Pending::Dirty;
         }
+        // And the hover text over them and over the lights' own line, its
+        // word or light perhaps gone.
+        self.line_tip.set_lights(self.lights_drawn());
+        if self.line_tip.refresh(&self.term) == crate::line_tip::Changed::Yes {
+            self.pending = Pending::Dirty;
+        }
+    }
+
+    /// **The lights' own line as the last frame drew it**, for their hover
+    /// text, which baud draws on Linux: the whole frame is drawn from the
+    /// buffer's corner, so its pixels are the surface's at the scale. None
+    /// while the lights are elsewhere or off.
+    fn lights_drawn(&self) -> Option<crate::line_tip::LightsLine> {
+        let r = &self.renderer;
+        let m = r.metrics();
+        Some(crate::line_tip::LightsLine {
+            edge: r.lights_edge()?,
+            top: r.lights_top(),
+            height: r.lights_height(),
+            places: r.lights_places(),
+            origin: (r.strip(), r.grid_top()),
+            cell: (m.cell_w, m.cell_h),
+            width: r.whole_size().0,
+        })
     }
 
     /// **Who is in front at `now`**: the terminal's foreground group
@@ -2869,6 +2910,7 @@ impl Driver {
             self.show_pointer();
         }
         self.renderer.set_link(self.seat.hover_look().cloned());
+        self.renderer.set_tip(self.line_tip.look().cloned());
         // The input method's composition at the live cursor, and where
         // its candidate window opens -- at the input method's own cursor
         // in it, as drawn -- sent when it moved; while it hides its
