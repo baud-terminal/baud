@@ -574,7 +574,8 @@ impl<'p> Target<'p> {
     /// [`Vfx::shade`], which leaves out only pixels whose light is zero), a
     /// particle's at its shape where the pixel sits in its record, -1 to 1
     /// on each axis ([`Vfx::particle`]), each times the record's alpha --
-    /// which carries a particle's glow and a repeat pass's flash cap -- in
+    /// which carries a particle's glow and a repeat pass's flash cap, which
+    /// the plasma's repeat bands are clamped at instead ([`Vfx::cap`]) -- in
     /// the record's colour, in order, so a particle lands over the band
     /// under it.
     pub fn effect(
@@ -1067,11 +1068,13 @@ impl Rows<'_> {
             if r.kind == Kind::Band {
                 // The last pixel's blend, by its opacity's bits and the word
                 // under it: beside a level edge one light runs along a row
-                // over one ground.
+                // over one ground. The light meets the record's alpha by the
+                // frame's cap, scaled by it or clamped at it.
                 let pixels = &mut *self.pixels;
                 let mut kept: Option<(u32, u32, u32)> = None;
+                let cap = vfx.cap();
                 vfx.shade(xs, ys, |x, y, v| {
-                    let a = alpha * v;
+                    let a = cap.of(v, alpha);
                     if a > 0.0 {
                         let i = (y - first) * stride + x;
                         let (key, under) = (a.to_bits(), pixels[i]);

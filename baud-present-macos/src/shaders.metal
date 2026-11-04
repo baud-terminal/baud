@@ -221,10 +221,13 @@ fragment float4 quad_fragment(GOut in [[stage_in]], constant Quad& q [[buffer(0)
 // every number but a noise's own shape rides in `EffectU`, which Rust fills
 // -- the shared prefix, then the effect's own `k` -- so there is one spelling
 // of each. `origin` is where the frame sits in the target.
+// `cap` is how a band's light meets its record's alpha, `effect::Cap`: 0
+// scaled by it, 1 clamped at it, `min(light, alpha)` -- the plasma's repeat
+// pass. Three words pad the struct to 144 bytes.
 struct EffectU {
     float2 c[4]; float4 hole; float2 origin; float2 tail; float2 dir;
     float len; float unit; float age; float life; uint seed; float reach;
-    float k[8];
+    float k[8]; uint cap; uint pad[3];
 };
 
 // PCG's output permutation over one step of its LCG, the GPU hash Jarzynski
@@ -405,7 +408,8 @@ static inline float4 plasma_tube(float2 p, float4 color, constant EffectU& f) {
         fil = saturate(fil) * f.k[6] * (1.0 - smoothstep(-0.02, 0.15, d0))
             * smoothstep(0.0, 0.3, s);
     }
-    float alpha = color.a * saturate(env * (tube + (1.0 - tube) * fil));
+    float light = saturate(env * (tube + (1.0 - tube) * fil));
+    float alpha = f.cap == 1u ? min(light, color.a) : color.a * light;
     return float4(color.rgb * alpha, alpha);
 }
 

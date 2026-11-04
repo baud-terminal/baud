@@ -790,8 +790,20 @@ fn plasma_sheath(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
     [color[0] * a, color[1] * a, color[2] * a, a]
 }
 
-/// **The plasma's reference**: `plasma_tube` for the pixel centred at `p`.
+/// **The plasma's reference**: `plasma_tube` for the pixel centred at `p`,
+/// its light meeting the record's alpha by the frame's cap, `Vfx::cap`.
 fn plasma_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
+    let Some((env, tube, fil, _)) = plasma_parts(vfx, p) else {
+        return [0.0; 4];
+    };
+    let light = (env * (tube + (1.0 - tube) * fil)).clamp(0.0, 1.0);
+    let a = vfx.cap().of(light, color[3]);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
+/// The plasma's light scaled by the record's alpha whatever the frame's
+/// cap: a repeat pass as every effect drew one before the clamp.
+fn plasma_scaled(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
     let Some((env, tube, fil, _)) = plasma_parts(vfx, p) else {
         return [0.0; 4];
     };
@@ -1336,6 +1348,86 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 "{effect:?} {name}: no particle at any age"
             );
         }
+    }
+    // **The plasma's repeat pass is clamped at its cap on every path**:
+    // across the screen at two ages, drawn as a repeat, both GPU arms and
+    // the CPU arm are the reference's -- each band's light clamped at the
+    // cap its record carries, `min(light, cap)` -- and a hundred pixels or
+    // more are off the light scaled by the cap, which the clamp replaced.
+    // Red on a shader that scales.
+    let (from, to) = (cell_at(98.0, 2.0), cell_at(116.0, 3.0));
+    let ignite = Ignition::ignite(centre(from), to, Seed(7), ch);
+    let seg = Segment::new(from.corners(), to);
+    for age in [0.03f32, 0.08] {
+        let vfx = Vfx {
+            effect: Effect::Plasma,
+            emitter: Smear {
+                corners: seg.at(age),
+                hole: to,
+                shape: Shape::Quad,
+                strength: baud_render::Strength::UnderThreshold,
+                opacity: Smear::OPAQUE,
+            },
+            ignition: ignite.at(age),
+            axis: ignite.dir,
+        };
+        let at = format!("the plasma's repeat at {age}");
+        arms.trail = Some(TrailLook::Vfx(vfx));
+        // The cap is scanned over the frames after the first.
+        let _ = arms.draw(t);
+        let (a, b) = arms.draw(t);
+        assert_eq!(differing(&a, &b), 0, "the arms disagree under {at}");
+        let records = arms.renderer.trail().to_vec();
+        let cap = arms.renderer.flash_cap();
+        assert!(
+            cap.get() > 0 && cap.get() < 0xFF,
+            "{at}: the control, a cap that draws and holds back: {}",
+            cap.get()
+        );
+        assert!(
+            !records.is_empty()
+                && records
+                    .iter()
+                    .all(|r| r.kind == Kind::Band && r.color.a() == cap),
+            "{at}: bands alone, each at the cap"
+        );
+        let (want, _) = effect_frame(&vfx, &records, &plain, width, origin);
+        let cpu = cpu_frame(arms, t);
+        let fw = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+        let cpu_off = cpu
+            .iter()
+            .enumerate()
+            .filter(|&(i, &p)| p != want[(i / fw + origin.1) * tw + i % fw + origin.0])
+            .count();
+        assert_eq!(cpu_off, 0, "{at}: the CPU arm is off the reference");
+        let ch = |p: u32, k: u32| (p >> (8 * k)) & 0xff;
+        let step = |x: u32, y: u32| (0..4).map(|k| ch(x, k).abs_diff(ch(y, k))).max().unwrap();
+        for (i, (&x, &y)) in a.iter().zip(&want).enumerate() {
+            assert!(
+                step(x, y) <= 1,
+                "{at}: pixel {i} is {x:08x}, the reference {y:08x}"
+            );
+        }
+        let (scaled, _) = effect_frame_by(
+            Reference {
+                band: plasma_scaled,
+                particle: fx_particle,
+            },
+            &vfx,
+            &records,
+            &plain,
+            width,
+            origin,
+        );
+        let brighter = a
+            .iter()
+            .zip(&scaled)
+            .filter(|&(&x, &y)| step(x, y) > 1)
+            .count();
+        assert!(
+            brighter > 100,
+            "{at}: only {brighter} pixels off the scaled light, so the clamp shows nothing"
+        );
     }
     arms.trail = None;
     arms.margin = (0, 0);

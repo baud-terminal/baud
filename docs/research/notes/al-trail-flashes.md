@@ -799,6 +799,12 @@ cursor's own cells, which flash under every option (the off arm alone reads
 long move. The 24 pt frames are identical at 60 Hz, the only rate O2 ran
 there; at 120 Hz they are identical by construction.
 
+**The plasma's repeat is clamped since** (`effect::Cap`): its bands draw
+`min(light, k/255)` rather than the light scaled by k/255, which keeps the
+same bound -- no pixel past the cap -- and draws every pixel already under
+the cap whole. Its ions are still dropped. The other effects scale. Its
+census is in MEASUREMENTS.md, "The plasma at full strength".
+
 **Its pixel check failed.** The design's acceptance (its P0.7: no FAIL on
 any size or ground, and the 13 and 24 pt hashes equal) is met on its grid.
 Beside it the

@@ -556,8 +556,9 @@ fn over_premultiplied(src: [f32; 4], dst: u32) -> u32 {
 
 /// **An effect's frame by its rules**, independent of the compositor: each
 /// record over the premultiplied `bare` frame in order, a band's pixel at
-/// the effect's light at its centre and a particle's at its shape, times
-/// the record's alpha, in its colour -- the GPU's effect pipeline -- and
+/// the effect's light at its centre meeting the record's alpha by the
+/// frame's cap ([`Vfx::cap`]) and a particle's at its shape times the
+/// record's alpha, in its colour -- the GPU's effect pipeline -- and
 /// clipped to the frame as its viewport is.
 fn effect_reference(vfx: &Vfx, records: &[Instance], bare: &[u32], width: usize) -> Vec<u32> {
     let mut out: Vec<u32> = bare.iter().map(|&p| baud_domain::premultiply(p)).collect();
@@ -574,15 +575,15 @@ fn effect_reference(vfx: &Vfx, records: &[Instance], bare: &[u32], width: usize)
                     x: x as f32 + 0.5,
                     y: y as f32 + 0.5,
                 };
-                let v = if r.kind == Kind::Particle {
-                    vfx.particle(Pt {
-                        x: (centre.x - x0 as f32) / w as f32 * 2.0 - 1.0,
-                        y: (centre.y - y0 as f32) / h as f32 * 2.0 - 1.0,
-                    })
+                let a = if r.kind == Kind::Particle {
+                    color[3]
+                        * vfx.particle(Pt {
+                            x: (centre.x - x0 as f32) / w as f32 * 2.0 - 1.0,
+                            y: (centre.y - y0 as f32) / h as f32 * 2.0 - 1.0,
+                        })
                 } else {
-                    vfx.light(centre)
+                    vfx.cap().of(vfx.light(centre), color[3])
                 };
-                let a = color[3] * v;
                 let at = usize::try_from(y).unwrap() * width + usize::try_from(x).unwrap();
                 out[at] =
                     over_premultiplied([color[0] * a, color[1] * a, color[2] * a, a], out[at]);
@@ -881,11 +882,11 @@ fn every_trail_draws_the_same_pixels_on_every_os() {
         0x03a4ebaf7644f693,
         0x3f5557cec5984125,
         0x489ae9c1097f6b7a,
-        0x6213cc38583220f2,
+        0xebdd54a692c88068,
         0xcf880d1ec37f7905,
-        0xe549399b59e72e5f,
+        0xab0462a8590fd409,
         0x06cd19070d21c4eb,
-        0x63db963104c87d49,
+        0x07f0c825d75328e3,
         0x86ef489d68c1ef29,
         0xbd4c7c7ba5eeddcc,
         0x935d233c101e13bf,
@@ -929,11 +930,11 @@ fn every_trail_draws_the_same_pixels_on_every_os() {
         0x4b433baa58e7d182,
         0x48b2d42d76073f25,
         0xbd006b7e1e77fad2,
-        0xb9e5a6b900fc8556,
+        0x16c4d5d0f206a601,
         0xb4f34ca63a6c08b4,
-        0xba8c1649b9d1f4b6,
+        0xa60ae68382aac911,
         0xe40ce2c317e46fdd,
-        0x356894ef77d8907a,
+        0x0019124336d88b65,
         0xc85efbcf18a7bbbc,
         0xfa9dde9f546aff53,
         0x5f2b7b434ee24e44,

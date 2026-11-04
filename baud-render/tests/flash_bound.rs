@@ -347,6 +347,144 @@ fn a_repeat_effect_on_the_cpu_path_makes_no_transition() {
     }
 }
 
+/// `src`, premultiplied and in channels 0 to 1, over the pixel `dst`, rounded
+/// to bytes as the GPU's blend unit stores them: `over` in
+/// `baud-present-macos/tests/cells.rs`, which the CPU path draws an effect
+/// by over an opaque page.
+fn over_premultiplied(src: [f32; 4], dst: u32) -> u32 {
+    let ch = |k: u32| f32::from(u8::try_from((dst >> k) & 0xff).unwrap()) / 255.0;
+    let mix = |s: f32, d: f32| {
+        let v = ((s + d * (1.0 - src[3])) * 255.0).round().clamp(0.0, 255.0);
+        u32::try_from(v as i64).unwrap()
+    };
+    (mix(src[3], ch(24)) << 24)
+        | (mix(src[0], ch(16)) << 16)
+        | (mix(src[1], ch(8)) << 8)
+        | mix(src[2], ch(0))
+}
+
+/// **The plasma's repeat pass is clamped at its cap, not scaled by it**,
+/// on the CPU path, at three ages over the page, on the dark theme and the
+/// light: every pixel is the cursor's colour at `min(light, cap)` over the
+/// frame without the pass, the cap the one each band record carries. So no
+/// pixel is past the cap's own composite over the page, and a pixel whose
+/// light is under the cap is drawn at its whole light, where the scale drew
+/// it at the light times the cap. The controls: at every age some hundreds
+/// of pixels' light is under the cap, and over the three ages more than 50
+/// pixels' is past it (27 to 45 an age on the dark page, whose cap is 95,
+/// and 581 to 1557 on the light, whose cap is 14); and the fire's repeat,
+/// which was not censused clamped, is still scaled. Perturbations: the
+/// clamp scaled, or its `min` dropped.
+#[test]
+fn a_repeat_plasma_is_clamped_at_its_cap_not_scaled_by_it() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l");
+    for theme in [Theme::dark(), Theme::light()] {
+        let (ink, page) = (theme.fg, theme.bg);
+        let mut r = renderer(&faces);
+        r.set_theme(theme);
+        r.set_trail(None);
+        let _ = paint(&mut r, &mut t);
+        let bare = paint(&mut r, &mut t);
+        let width = px(r.pixel_size().0);
+        let cap = under_threshold(
+            ink.with_alpha(Chan::from_u8(0xFF)),
+            page.with_alpha(Chan::from_u8(0xFF)),
+        );
+        let k = f32::from(cap.get()) / 255.0;
+        let channel = |p: u32, s: u32| i32::try_from((p >> s) & 0xff).unwrap();
+        let mut past = 0usize;
+        for age in [0.04f32, 0.06, 0.1] {
+            let at = format!("{page:?} at {age}");
+            let full = vfx(&r, Effect::Plasma, age);
+            let TrailLook::Vfx(v) = repeat(TrailLook::Vfx(full)) else {
+                unreachable!()
+            };
+            r.set_trail(Some(TrailLook::Vfx(v)));
+            let _ = paint(&mut r, &mut t);
+            let drawn = paint(&mut r, &mut t);
+            assert_eq!(r.flash_cap(), cap, "{at}: the page's cap");
+            let records = r.trail().to_vec();
+            assert!(
+                !records.is_empty()
+                    && records
+                        .iter()
+                        .all(|i| i.kind == Kind::Band && i.color.a() == cap),
+                "{at}: bands alone, each at the cap"
+            );
+            let held = over_premultiplied(
+                [
+                    f32::from(ink.r().get()) / 255.0 * k,
+                    f32::from(ink.g().get()) / 255.0 * k,
+                    f32::from(ink.b().get()) / 255.0 * k,
+                    k,
+                ],
+                page.with_alpha(Chan::from_u8(0xFF)).0,
+            );
+            let mut want = bare.clone();
+            let (mut whole, mut clamped) = (0usize, 0usize);
+            for rec in &records {
+                let c = rec.color.0;
+                let unit = |v: u32| f32::from(u8::try_from(v & 0xff).unwrap()) / 255.0;
+                let (cr, cg, cb) = (unit(c >> 16), unit(c >> 8), unit(c));
+                let (x0, y0) = (i32::from(rec.x.0), i32::from(rec.y.0));
+                for y in y0.max(0)..y0 + i32::from(rec.h.0) {
+                    for x in x0.max(0)..(x0 + i32::from(rec.w.0)).min(i32::try_from(width).unwrap())
+                    {
+                        let light = v.light(Pt {
+                            x: x as f32 + 0.5,
+                            y: y as f32 + 0.5,
+                        });
+                        if light <= 0.0 {
+                            continue;
+                        }
+                        whole += usize::from(light > 0.02 && light < k);
+                        clamped += usize::from(light > k);
+                        let a = light.min(k);
+                        let i = usize::try_from(y).unwrap() * width + usize::try_from(x).unwrap();
+                        want[i] = over_premultiplied([cr * a, cg * a, cb * a, a], want[i]);
+                    }
+                }
+            }
+            assert!(
+                whole > 200,
+                "{at}: the control, {whole} pixels lit under the cap"
+            );
+            past += clamped;
+            let off = drawn.iter().zip(&want).filter(|(a, b)| a != b).count();
+            assert_eq!(off, 0, "{at}: {off} pixels are not min(light, cap)");
+            for (i, (&p, &q)) in drawn.iter().zip(&bare).enumerate() {
+                for s in [0, 8, 16] {
+                    let (rise, most) = (
+                        (channel(p, s) - channel(q, s)).abs(),
+                        (channel(held, s) - channel(q, s)).abs(),
+                    );
+                    assert!(
+                        rise <= most,
+                        "{at}: pixel {i} moved {rise} past the cap's {most}"
+                    );
+                }
+            }
+        }
+        assert!(
+            past > 50,
+            "{page:?}: the control, {past} pixels lit past the cap"
+        );
+        let fire = vfx(&r, Effect::Fire, 0.06);
+        let TrailLook::Vfx(f) = repeat(TrailLook::Vfx(fire)) else {
+            unreachable!()
+        };
+        assert_eq!(
+            f.cap(),
+            baud_render::effect::Cap::Scale,
+            "the control: the fire's repeat scales"
+        );
+    }
+}
+
 /// **The cap's work is bounded a frame, and the bound stays sound while it
 /// is**: over more than 64 distinct grounds -- a row of cells in 70
 /// background colours -- a repeat pass draws nothing, a cap of 0, rather

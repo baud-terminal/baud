@@ -82,6 +82,13 @@ A move to the left is the move to the right seen in a mirror: the braid
 crosses and the ions curl as they do on the way right, mirrored, so a cursor
 moved there and back draws the same trail both ways.
 
+Every long move lights a fresh plasma, so a cursor moved back and forth
+quickly draws each move as bright as the first. Above a 32 pt cell, a move
+back over the same stretch within a second is held under the flash
+thresholds of WCAG 2.3.1: its light is clamped at the brightest it can draw
+there without a flash, rather than dimmed as a whole, so the tube draws whole
+on a dark theme and only the brightest filaments are held down.
+
 The braid lies along the move the quad is making, which the driver hands on,
 so it follows a retarget and does not turn when the corners land. It is as
 wide as the cursor across the move, so a bar or underline cursor narrows it

@@ -32,6 +32,7 @@ use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
 use crate::det::Det;
 use crate::fire;
+use crate::flash::Strength;
 use crate::ice;
 use crate::instance::{Instance, Screen};
 use crate::lightning;
@@ -303,8 +304,48 @@ pub struct Vfx {
 pub const PARAMS: usize = 8;
 
 /// The floats in the uniform an effect's fragment function reads, `EffectU`
-/// in `shaders.metal`: a shared prefix, then [`PARAMS`].
-pub const UNIFORM_FLOATS: usize = 24 + PARAMS;
+/// in `shaders.metal`: a shared prefix, then [`PARAMS`], then the band's
+/// [`Cap`] in a word of its own and three words that pad the struct to
+/// its 16-byte alignment, 144 bytes.
+pub const UNIFORM_FLOATS: usize = 24 + PARAMS + 4;
+
+/// **How a band's light meets its record's alpha**, which on a repeat pass
+/// is the flash cap ([`crate::flash::under_threshold`]): scaled by it, as
+/// every effect's band is drawn and every full pass is, or clamped at it,
+/// `min(light, alpha)` -- the plasma's repeat pass. Each keeps every pixel
+/// at or under the cap, so each is under WCAG 2.3.1's thresholds; the
+/// clamp keeps every pixel whose light is already under the cap whole,
+/// where the scale dimmed every pixel of the pass by the cap -- 95 of 255
+/// over the dark theme's page, 14 over the light's. Only the plasma's
+/// census was taken clamped (MEASUREMENTS.md, "The plasma at full
+/// strength"), so the others scale. Over a full pass's record, alpha 1,
+/// the two are the same light. A hidden cursor's fade is in the record's
+/// alpha too, so a fading repeat is clamped at the cap times the fade.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cap {
+    Scale,
+    Clamp,
+}
+
+impl Cap {
+    /// The opacity a band draws at from its `light` and its record's
+    /// `alpha`.
+    pub fn of(self, light: f32, alpha: f32) -> f32 {
+        match self {
+            Cap::Scale => alpha * light,
+            Cap::Clamp => light.min(alpha),
+        }
+    }
+
+    /// The uniform's float whose bits are the word the shader reads it
+    /// as, `EffectU.cap`: 0 to scale, 1 to clamp.
+    fn bits(self) -> f32 {
+        f32::from_bits(match self {
+            Cap::Scale => 0,
+            Cap::Clamp => 1,
+        })
+    }
+}
 
 impl Vfx {
     /// The effect moved `dy` pixels down, rigidly: its emitter's corners and
@@ -422,10 +463,20 @@ impl Vfx {
         });
     }
 
+    /// **How this frame's bands meet their records' alpha**: clamped at it
+    /// on the plasma's repeat pass, scaled by it on any other.
+    pub fn cap(&self) -> Cap {
+        match (self.effect, self.emitter.strength) {
+            (Effect::Plasma, Strength::UnderThreshold) => Cap::Clamp,
+            _ => Cap::Scale,
+        }
+    }
+
     /// **The effect as its fragment function reads it**, `EffectU` in
     /// `shaders.metal`: the emitter's corners and hole, where the frame sits
     /// in the target, the path, the unit, the age, the life, the seed's bits
-    /// and the reach, then the effect's own numbers.
+    /// and the reach, then the effect's own numbers, then the bands'
+    /// [`Cap`].
     pub fn uniform(&self, origin: [f32; 2]) -> [f32; UNIFORM_FLOATS] {
         let c = self.region().0;
         let h = self.emitter.hole;
@@ -464,6 +515,10 @@ impl Vfx {
             k[5],
             k[6],
             k[7],
+            self.cap().bits(),
+            0.0,
+            0.0,
+            0.0,
         ]
     }
 
@@ -982,9 +1037,10 @@ pub(crate) mod tests {
         }
     }
 
-    /// **The uniform is `EffectU`'s layout**, for every effect: 32 floats,
-    /// the struct's 128 bytes, with the seed's bits, the life, the reach and
-    /// the effect's own numbers where the shader reads them. The oracle's
+    /// **The uniform is `EffectU`'s layout**, for every effect: 36 floats,
+    /// the struct's 144 bytes, with the seed's bits, the life, the reach,
+    /// the effect's own numbers and the bands' [`Cap`] where the shader
+    /// reads them -- clamped on the plasma's repeat pass alone. The oracle's
     /// reference catches a field the shader misreads; this names which.
     #[test]
     fn the_uniform_is_effect_us_layout() {
@@ -1003,7 +1059,7 @@ pub(crate) mod tests {
                 axis: Pt { x: 1.0, y: 0.0 },
             };
             let u = vfx.uniform([3.0, 5.0]);
-            assert_eq!(core::mem::size_of_val(&u), 128);
+            assert_eq!(core::mem::size_of_val(&u), 144);
             assert_eq!(&u[8..12], &[to.left, to.top, to.right, to.bottom]);
             assert_eq!(&u[12..14], &[3.0, 5.0]);
             assert_eq!(u[20], 0.1);
@@ -1011,6 +1067,17 @@ pub(crate) mod tests {
             assert_eq!(u[22].to_bits(), 0xDEAD_BEEF);
             assert_eq!(u[23], effect.reach());
             assert_eq!(&u[24..32], &vfx.params());
+            assert_eq!(u[32].to_bits(), 0, "a full pass scales");
+            assert_eq!(&u[33..36], &[0.0; 3]);
+            let repeat = Vfx {
+                emitter: Smear {
+                    strength: crate::flash::Strength::UnderThreshold,
+                    ..vfx.emitter
+                },
+                ..vfx
+            };
+            let clamped = u32::from(effect == Effect::Plasma);
+            assert_eq!(repeat.uniform([3.0, 5.0])[32].to_bits(), clamped);
         }
     }
 

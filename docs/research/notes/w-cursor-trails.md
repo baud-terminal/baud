@@ -36,7 +36,7 @@ printed when it was made. Four prototypes no longer equal what was
 recovered: their copies of the quad's rate choice were re-expressed on
 2026-10-25 (section 8.6), and nothing else in them changed. The plasma
 spec no longer equals what was recovered either: it carries a
-`departures` entry, the build's one departure from it (section 5.5), and
+`departures` entry, the build's departures from it (section 5.5), and
 nothing else in it changed.
 
 | piece | made by | committed as |
@@ -80,7 +80,7 @@ The files as committed, each with its SHA-256:
 | `quad-pins.txt` | `57d854da8f621eb86ff1f5e6afaecc953c98b93a07a897ada099340f5ba24e6b` |
 | `spec-ice.json` | `f9a5449ce2d24ffc9cb842efa4dad002556f4bbe54a67ddab0c4de244006f062` |
 | `spec-liquid.json` | `b310873714f654dc83177f993ecbacad7972137f38fcbb731fe93775eb50ff00` |
-| `spec-plasma.json` | `11b2c8f4e93352f5cff795dd49a5e77e3bb91861d543f2ccd94e496eb4c44c1f` (recovered as `255a7401b48ec6253c363a2dce3585b365bceceab917bdfb85a8993775f739da`; the `departures` entry, section 5.5, added since) |
+| `spec-plasma.json` | `8306ec56ac4f82785342bf176ad32b0a4cecc310a311a5be99ba179624c319b8` (recovered as `255a7401b48ec6253c363a2dce3585b365bceceab917bdfb85a8993775f739da`; the `departures` entry, section 5.5, added since) |
 | `spec-ufo.json` | `15e8ac48bcf5441e130c92d220059aae1076cafbe7c2c194ba54662845d93390` |
 | `ufo-proto.py` | `7e704494c909e6d0d4068e0bd62c451c1663712f8cd9a1beec519a4f48d87140` |
 | `ufo-proto2.py` | `9d101e49e3ffeb368f11521d53fdf8c3623bedc8f5c0fcb8e66adf6bff190ee3` |
@@ -336,6 +336,25 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   same whichever way the cursor moves along a line. Up and down moves keep
   the spec's sense. The departure is recorded in the spec too, as its
   `departures` entry.
+- **Departure from the spec: every long move lights.** The spec keeps the
+  driver's rule, at most three ignitions a second, a long move inside
+  `REIGNITE` retargeting the quad and keeping the ignition's age and seed.
+  The plasma now lights every long move (`Chase::ignite`), so a move soon
+  after the last draws a fresh plasma rather than the burning one at its
+  age, whose envelope `(1 - age / 0.55)^2` is 0.67 of a fresh one's 0.1 s
+  after it lit, 0.41 at 0.2 s and 0.21 at 0.3 s. Every other effect keeps
+  the rule. The reason: a quick move is drawn as bright as a slow one.
+- **A repeat is clamped at the cap, not scaled by it.** Above the size
+  gate, the flash bound's repeat pass (note AL, O2) scaled every record's
+  alpha by the cap, so every pixel of the plasma's pass dimmed by it, to
+  95 of 255 over the dark page and 14 over the light. The plasma's
+  repeat bands now draw `min(light, cap)` (`effect::Cap`, on the CPU path
+  and in `plasma_tube`): every pixel at or under the cap, as before, and
+  every pixel already under it whole. Its ions are still dropped on a
+  repeat. The other effects still scale, unmeasured clamped.
+  `baud-render/tests/flash_bound.rs` and the GPU oracle's repeat scene
+  hold it; the census is in MEASUREMENTS.md, "The plasma at full
+  strength".
 - **Measured:** MEASUREMENTS.md, "The cursor trails' costs"; note AJ section 1.3 and note AL for the flash bound, which
   the plasma's module doc argues per 341x256 window and note AL counted on
   frames.

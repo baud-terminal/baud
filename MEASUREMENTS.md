@@ -1609,6 +1609,40 @@ same file byte for byte: `cmp` finds no difference, and its `__text` is
 changes there is the trail the renderer is handed: over the helix replay
 above, a trail on 270 frames against 389.
 
+
+## The plasma at full strength (2026-11-04)
+
+**Lit on every long move, and clamped at the flash cap on a repeat
+rather than scaled by it, the plasma fails none of the flash census's
+2,688 cases on any of its four readings, and its pixel check finds no
+transition on any repeat frame.** Taken 2026-11-04, Apple M5 Max, macOS
+27.0, on AC, on this tree. `baud-bench/benches/flash.rs`, drawn by the
+Metal pipelines offscreen: the plasma at 13, 24, 26, 32, 34.5 and 72 pt
+(cells of 17, 32, 34, 42, 46 and 95 pt), 1x and 2x, 60 and 120 Hz, the
+dark and light pages, the four inks, the seven motions, bare and over
+`X`s (`FLASH_TEXT=1`): 224 cases a size and scale. The block control
+failed at 4 Hz and passed at 2 Hz on all 192 runs. Areas in pt², against
+21,824; the base is the committed O2 census's plasma on the same pages,
+bare (`b68-o2-census.tsv.gz`).
+
+| font | cell | worst area, 1x / 2x | worst strict, 1x / 2x | base worst area, 1x / 2x | repeat frames a size |
+|---:|---:|---|---|---|---:|
+| 13 | 17 | 10,208 / 10,202 | 10,208 / 10,202 | 8,274 / 8,205 | 0 |
+| 24 | 32 | 18,493 / 18,707 | 18,493 / 18,707 | 15,018 / 15,257 | 0 |
+| 26 | 34 | 1,061 / 1,066 | 1,771 / 1,719 | 1,091 / 1,080 | 37,152 |
+| 32 | 42 | 1,589 / 1,590 | 2,571 / 2,560 | 1,608 / 1,607 | 37,152 |
+| 34.5 | 46 | 1,923 / 1,858 | 3,161 / 2,984 | -- | 37,152 |
+| 72 | 95 | 8,599 / 8,598 | 12,125 / 12,076 | 8,170 / 8,170 | 37,152 |
+
+Every move lit an ignition: on the bare half, 2,032 of 2,032 a size and
+scale, where the base lit 672 of the same 2,032. Under the gate that
+raised the worst area by 23%, to 86% of the threshold at 24 pt 2x; per pixel
+the busiest flashed 19 times a second and 15 red, passing by the area
+clause as the base did. Over it the repeat's pixel check counted no
+general and no red transition and no record past its cap (`under_over`,
+`under_red` and `over_cap` 0 on every case), the busiest pixel 7 times
+a second.
+
 ## The glass's backdrop premultiplied once a run (measured, no change)
 
 **A memo of the premultiplied backdrop paints the see-through page no

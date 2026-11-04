@@ -31,7 +31,8 @@
 //! and its particles. It outlives the chase, burning out after the corners
 //! land, and two rules keep it from flashing:
 //!
-//! * **At most three ignitions a second.** A long move within [`REIGNITE`] of
+//! * **At most three ignitions a second**, for every effect but the plasma,
+//!   which lights every long move. A long move within [`REIGNITE`] of
 //!   the last ignition retargets the quad and keeps the flame that is already
 //!   burning, rather than lighting a new one -- but for the liquid, whose gel
 //!   restarts its back on the new move while it still burns
@@ -93,7 +94,8 @@ pub const DWELL: Duration = Duration::from_millis(10);
 pub const THRESHOLD: f32 = 2.0;
 
 /// The least time between two ignitions of an effect, so it lights at most
-/// three times a second.
+/// three times a second -- every effect but the plasma, which lights every
+/// long move ([`Chase::ignite`]).
 pub const REIGNITE: Duration = Duration::from_millis(334);
 
 /// **How long a hidden cursor's trail takes to fade out**, seconds, and a
@@ -661,13 +663,25 @@ impl<M: Moment> Chase<M> {
     /// ignition, unless the last was lit within [`REIGNITE`] and still burns,
     /// which the quad carries on retargeted -- the liquid's restarting its
     /// back on this move (`Chase::restart`).
+    ///
+    /// **The plasma lights every long move**, so a move soon after the last
+    /// is drawn as bright as the first rather than steering the burning
+    /// plasma at its age: its envelope, `(1 - age / 0.55)^2`, is 0.67 of a
+    /// fresh one's 0.1 s after it lit, 0.41 at 0.2 s and 0.21 at 0.3 s, and
+    /// its filaments thin and its sheath tightens with it. WCAG 2.3.1 does
+    /// not need the guard for it: lit every move, the plasma fails none of
+    /// the flash census's cases under the size gate, and over it the ledger
+    /// still holds every repeat under the thresholds (note AL;
+    /// MEASUREMENTS.md, "The plasma at full strength"). Its `last_lit`
+    /// still runs, so a switch to another effect keeps that effect's guard.
     fn ignite(&mut self, tail: Pt, rect: Rect, at: M, cell: (f32, f32)) {
         let Style::Effect(effect) = self.style else {
             return;
         };
-        if self
-            .last_lit
-            .is_some_and(|lit| at.elapsed_since(lit) < REIGNITE)
+        if effect != Effect::Plasma
+            && self
+                .last_lit
+                .is_some_and(|lit| at.elapsed_since(lit) < REIGNITE)
         {
             if effect == Effect::Liquid {
                 self.restart(tail, rect, at, cell);
@@ -1463,6 +1477,44 @@ mod tests {
         }
     }
 
+    /// **The plasma lights every long move fresh**: back and forth every
+    /// 100 ms, inside [`REIGNITE`], each move is a new ignition with the
+    /// next seed, taken no older than a first move's dwell, so the frame
+    /// that takes it draws at least 95% of a fresh plasma's envelope,
+    /// `(1 - age / LIFE)^2`, along its own path. Steered instead at the
+    /// first ignition's age, the second move drew 67% of it, and the third
+    /// and the fourth 40% and 20%. The fire keeps its guard
+    /// ([`a_fire_lights_at_most_three_times_a_second`]).
+    #[test]
+    fn the_plasma_lights_every_long_move_fresh() {
+        let t0 = Instant::now();
+        let (a, b) = (at(10.0, 5.0), at(60.0, 5.0));
+        let mut q = Chase::new(Style::Effect(Effect::Plasma));
+        q.fire(Some(a), t0);
+        for k in 0..4u32 {
+            let (to, ms) = (if k % 2 == 0 { b } else { a }, 100 * k + 8);
+            q.fire(Some(to), t0 + MS * ms);
+            let v = q
+                .fire(Some(to), t0 + MS * (ms + 12))
+                .unwrap_or_else(|| panic!("move {k}: lit"));
+            assert_eq!(v.ignition.seed, Seed(k + 1), "move {k}: a new ignition");
+            let head = Pt {
+                x: v.ignition.tail.x + v.ignition.dir.x * v.ignition.len,
+                y: v.ignition.tail.y + v.ignition.dir.y * v.ignition.len,
+            };
+            assert!(
+                (head.x - centre(to.corners()).x).abs() < 1e-3,
+                "move {k}: lit along its own path, to {head:?}"
+            );
+            let env = (1.0 - v.ignition.age / baud_render::plasma::LIFE).powi(2);
+            assert!(
+                env >= 0.95,
+                "move {k}: drawn at {env} of a fresh plasma's envelope, aged {}",
+                v.ignition.age
+            );
+        }
+    }
+
     /// **A landed flame waits where the chase rests until the next move is
     /// taken**, for every effect. A long move lights it, a step a cell on
     /// folds its quad in on the fast constant, and the quad lands while the
@@ -1639,7 +1691,9 @@ mod tests {
     #[test]
     fn an_effects_axis_turns_with_the_quad_and_holds_when_it_lands() {
         let t0 = Instant::now();
-        let mut q = Chase::new(Style::Effect(Effect::Plasma));
+        // The fire: the plasma lights every long move, so no move of its
+        // turns a quad its ignition does not.
+        let mut q = Chase::new(Style::Effect(Effect::Fire));
         q.fire(Some(at(10.0, 5.0)), t0);
         q.fire(Some(at(60.0, 5.0)), t0 + MS * 8);
         let first = q.fire(Some(at(60.0, 5.0)), t0 + MS * 20).expect("lit");
