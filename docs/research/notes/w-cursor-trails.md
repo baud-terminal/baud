@@ -34,7 +34,10 @@ where they exist the last column says they are not applied. Three files are
 committed with their edits replayed, each checked against the SHA-256
 printed when it was made. Four prototypes no longer equal what was
 recovered: their copies of the quad's rate choice were re-expressed on
-2026-10-25 (section 8.6), and nothing else in them changed.
+2026-10-25 (section 8.6), and nothing else in them changed. The plasma
+spec no longer equals what was recovered either: it carries a
+`departures` entry, the build's one departure from it (section 5.5), and
+nothing else in it changed.
 
 | piece | made by | committed as |
 |---|---|---|
@@ -77,7 +80,7 @@ The files as committed, each with its SHA-256:
 | `quad-pins.txt` | `57d854da8f621eb86ff1f5e6afaecc953c98b93a07a897ada099340f5ba24e6b` |
 | `spec-ice.json` | `f9a5449ce2d24ffc9cb842efa4dad002556f4bbe54a67ddab0c4de244006f062` |
 | `spec-liquid.json` | `b310873714f654dc83177f993ecbacad7972137f38fcbb731fe93775eb50ff00` |
-| `spec-plasma.json` | `255a7401b48ec6253c363a2dce3585b365bceceab917bdfb85a8993775f739da` |
+| `spec-plasma.json` | `11b2c8f4e93352f5cff795dd49a5e77e3bb91861d543f2ccd94e496eb4c44c1f` (recovered as `255a7401b48ec6253c363a2dce3585b365bceceab917bdfb85a8993775f739da`; the `departures` entry, section 5.5, added since) |
 | `spec-ufo.json` | `15e8ac48bcf5441e130c92d220059aae1076cafbe7c2c194ba54662845d93390` |
 | `ufo-proto.py` | `7e704494c909e6d0d4068e0bd62c451c1663712f8cd9a1beec519a4f48d87140` |
 | `ufo-proto2.py` | `9d101e49e3ffeb368f11521d53fdf8c3623bedc8f5c0fcb8e66adf6bff190ee3` |
@@ -313,6 +316,26 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   check found nothing lifted from kitty or from Shadertoy.
 - **Decisions:** the spec's open questions were built at its proposals and
   are open (section 6).
+- **Departure from the spec: the hand.** The spec takes the braid's offset
+  across the axis, `w`, and the ions' launch side `perp = (-dir.y, dir.x)`,
+  their launch turn and their spin relative to the move's axis. So a
+  leftward move is the rightward one turned a half turn, not mirrored: its
+  filaments cross the other way and its ions curl to the other side, and a
+  cursor moved left and back drew two different trails. Each ignition now
+  has a hand, `plasma::Hand`: left for one moving left, right otherwise. A
+  left hand negates `w` (`plasma::parts`, `plasma::shade`, `plasma_tube`)
+  and the ions' side, turn and spin (`plasma.rs`, `Ion::launch` and
+  `Ion::centre`), and snaps an ion's disc box from the mirror image of
+  `floor` (`Vfx::instances`). The hand is the ignition's, so a retarget in
+  flight cannot flip the braid. Negation is exact: a rightward or vertical
+  move keeps every bit, and the `trail` bench's frame hashes are equal on
+  all 60 rows. On one seed, a leftward move draws the rightward frame
+  mirrored, 0 pixels apart (`baud-render/tests/plasma_hand.rs`), and the
+  pixel oracle holds both GPU paths to it (the leftward scene in
+  `baud-present-macos/tests/cells.rs`). The reason: a trail must look the
+  same whichever way the cursor moves along a line. Up and down moves keep
+  the spec's sense. The departure is recorded in the spec too, as its
+  `departures` entry.
 - **Measured:** MEASUREMENTS.md, "The cursor trails' costs"; note AJ section 1.3 and note AL for the flash bound, which
   the plasma's module doc argues per 341x256 window and note AL counted on
   frames.

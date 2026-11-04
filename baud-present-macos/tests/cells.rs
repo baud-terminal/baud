@@ -1130,11 +1130,15 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         // ridden scene is the move across ridden two and a half rows down a
         // smooth scroll: the only scene whose ignition has ridden, so the
         // only one where a shader that ignored the ride -- the fire's noise
-        // anchored on the frame rather than on the path -- differs.
+        // anchored on the frame rather than on the path -- differs. The
+        // leftward scene is the move across taken back: the only one whose
+        // ignition moves left, so the only one where a plasma shader that
+        // ignored the ignition's hand (`plasma::Hand`) differs.
         let across = (cell_at(98.0, 2.0), cell_at(116.0, 3.0));
         let down = (cell_at(104.0, 0.0), cell_at(106.0, 8.0));
         let line = (bar(cell_at(98.0, 4.0)), bar(cell_at(116.0, 4.0)));
         let long = (cell_at(60.0, 2.0), cell_at(116.0, 3.0));
+        let back = (across.1, across.0);
         for (name, (from, to), (quad_from, hole), scale, seed) in [
             ("across", across, across, 1.0f32, Seed(7)),
             ("down", down, down, 1.0, Seed(7)),
@@ -1150,6 +1154,7 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             ("reseeded", across, across, 1.0, Seed(1)),
             ("long", long, long, 1.0, Seed(7)),
             ("ridden", across, across, 1.0, Seed(7)),
+            ("leftward", back, back, 1.0, Seed(7)),
         ] {
             // The fire's four ages, shrunk for an ignition that is out sooner
             // than the fire's shortest: the lightning's, out at 0.32 s, run

@@ -395,10 +395,21 @@ impl Vfx {
             band += unit;
             top = bottom;
         }
+        // A left-handed plasma's discs are snapped as the mirror image of a
+        // right-handed one's ([`plasma::Hand`]): `floor` of the left edge,
+        // reflected, is `ceil` of the right, so a disc's sub-pixel shift
+        // points the same way along the move both ways. Every other box is
+        // placed by its left edge.
+        let mirrored =
+            self.effect == Effect::Plasma && plasma::Hand::of(&self.ignition) == plasma::Hand::Left;
         self.particles(|s| {
             let side = (2.0 * s.radius).ceil().max(2.0);
+            let left = match mirrored {
+                true => (s.centre.x + side * 0.5).ceil() - side,
+                false => (s.centre.x - side * 0.5).floor(),
+            };
             out.push(Instance {
-                x: screen((s.centre.x - side * 0.5).floor()),
+                x: screen(left),
                 y: screen((s.centre.y - side * 0.5).floor()),
                 w: tex(side),
                 h: tex(side),

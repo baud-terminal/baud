@@ -78,6 +78,10 @@ rather than burns: everything dims together and the filaments thin, over
 0.55 s, and the last ion is gone by 0.65 s. Nothing is drawn ahead of the
 cursor. It is the cursor's colour, with intensity as opacity.
 
+A move to the left is the move to the right seen in a mirror: the braid
+crosses and the ions curl as they do on the way right, mirrored, so a cursor
+moved there and back draws the same trail both ways.
+
 The braid lies along the move the quad is making, which the driver hands on,
 so it follows a retarget and does not turn when the corners land. It is as
 wide as the cursor across the move, so a bar or underline cursor narrows it

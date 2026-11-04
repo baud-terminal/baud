@@ -20,6 +20,11 @@
 //! * **The filament gain is a constant.** WCAG 2.3.1's area clause is per
 //!   341x256 window, so a braid that stays inside the quad cannot exceed it
 //!   whatever the move's length, and the spec's length cap never engaged.
+//! * **A leftward move is the rightward one mirrored** ([`Hand`]), a
+//!   departure from the spec, which took the braid's offset and the ions'
+//!   side, turn and spin relative to the axis and so turned a leftward move
+//!   over: a trail looks the same whichever way the cursor moves along a
+//!   line (note W, section 5.5).
 //!
 //! In the cursor's colour, intensity its opacity; [`light`] is
 //! `plasma_tube` in Rust, which the CPU path draws by.
@@ -61,6 +66,41 @@ pub fn params(vfx: &Vfx) -> [f32; effect::PARAMS] {
     let unit = vfx.ignition.unit.max(1.0);
     let half = 0.5 * (a.y.abs() * (h.right - h.left) + a.x.abs() * (h.bottom - h.top)) / unit;
     [half, a.x, a.y, TUBE, SHEATH, DECAY, FILAMENT, KNOT]
+}
+
+/// **The plasma's handedness**: the side of its move the braid's offset
+/// across the axis, and the ions' launch side, launch turn and spin, are
+/// taken on. A move with a leftward part is drawn left-handed, every other
+/// -- rightward, or straight up or down -- right-handed, as the spec drew
+/// every move. So a leftward move is the rightward one mirrored, where the
+/// spec's sense, fixed to the axis, turned it over: the braid's filaments
+/// crossed the other way and the ions curled to the other side, and a
+/// cursor moved left and back drew two different trails. The hand is the
+/// ignition's, read off its direction, so it holds for the ignition's
+/// life and a retarget in flight cannot flip the braid. Negation is exact,
+/// so a right-handed move keeps every bit it had.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Hand {
+    Right,
+    Left,
+}
+
+impl Hand {
+    /// The hand of an ignition moving along `ignition.dir`.
+    pub fn of(ignition: &Ignition) -> Hand {
+        match ignition.dir.x < 0.0 {
+            true => Hand::Left,
+            false => Hand::Right,
+        }
+    }
+
+    /// `v` taken in this hand: itself for the right, negated for the left.
+    pub fn signed(self, v: f32) -> f32 {
+        match self {
+            Hand::Right => v,
+            Hand::Left => -v,
+        }
+    }
 }
 
 /// `px_wave`: sin(2 pi x) with the argument folded into [-1, 1) first, by
@@ -121,7 +161,7 @@ pub fn parts(vfx: &Vfx, p: Pt) -> Option<Parts> {
     let s = -(rx * ax + ry * ay) / c;
     let mut fil = 0.0f32;
     if d0 < 0.15 {
-        let w = (ax * ry - ay * rx) / c;
+        let w = Hand::of(&f).signed((ax * ry - ay * rx) / c);
         let amp = q[0] * 0.62 * smoothstep(0.0, 2.0, s);
         let salt = f.seed.0 ^ 0xA511_E9B3;
         let hashed = |n: u32| Hash(salt.wrapping_add(n)).next().unit();
@@ -701,6 +741,9 @@ struct Frame {
     /// 10.3 filament widths: farther than this across from a filament its
     /// term is zero ([`shade`]).
     gone: [f32; 3],
+    /// The ignition's [`Hand`], which the offset across the axis is taken
+    /// in.
+    hand: Hand,
 }
 
 /// MSL's `smoothstep` over a rising ramp, `e1 > e0`, dividing only inside
@@ -768,6 +811,7 @@ impl Frame {
             knot_age: q[7] * f.age,
             wid: core::array::from_fn(|i| (PX_W[i] * (1.0 - 0.5 * k)).max(1.1 / c)),
             gone: core::array::from_fn(|i| 10.3 * (PX_W[i] * (1.0 - 0.5 * k)).max(1.1 / c)),
+            hand: Hand::of(&f),
         })
     }
 
@@ -896,8 +940,10 @@ impl Frame {
             let (ax, ay) = (q[1], q[2]);
             let (rx, ry) = (p.x - self.centre.x, p.y - self.centre.y);
             // `s` is `-along / c` and `w` is `across / c`, each kept by its
-            // numerator's bits: the braid's by the column, `w` by the row.
-            let (along, across) = (rx * ax + ry * ay, ax * ry - ay * rx);
+            // numerator's bits: the braid's by the column, `w` by the row;
+            // `across` in the ignition's hand, as [`parts`] takes `w`, whose
+            // negation is the quotient's.
+            let (along, across) = (rx * ax + ry * ay, self.hand.signed(ax * ry - ay * rx));
             let key = Bits::of(along);
             let waves = match *braid {
                 Some(kept) if kept.key == key => kept,
@@ -1035,12 +1081,15 @@ impl Ion {
         if self.h[2].unit() < 0.5 { 1.0 } else { -1.0 }
     }
 
-    /// Where it starts and how fast, in pixels and pixels a second.
+    /// Where it starts and how fast, in pixels and pixels a second: the
+    /// side it is born on and its turn off it taken in the ignition's
+    /// [`Hand`].
     fn launch(&self, f: &Ignition) -> (Pt, Pt) {
         let u = f.unit;
+        let hand = Hand::of(f);
         let perp = Pt {
-            x: -f.dir.y,
-            y: f.dir.x,
+            x: hand.signed(-f.dir.y),
+            y: hand.signed(f.dir.x),
         };
         let [_, _, _, h3, h4, h5, _] = self.h;
         let side = (h3.unit() - 0.5) * 0.6 * u;
@@ -1050,7 +1099,7 @@ impl Ion {
         };
         let q = self.charge();
         let speed = (1.8 + 2.4 * h4.unit()) * u;
-        let turn = (h5.unit() - 0.5) * core::f32::consts::FRAC_PI_2;
+        let turn = hand.signed((h5.unit() - 0.5) * core::f32::consts::FRAC_PI_2);
         let (s, c) = turn.det_sin_cos();
         let (dx, dy) = (q * perp.x, q * perp.y);
         let carry = (f.len / SWEEP).min(40.0 * u) * 0.03;
@@ -1063,10 +1112,11 @@ impl Ion {
 
     /// **Where it is `a` seconds after its birth**: its velocity decays and
     /// turns, `v(a) = v0 e^(-D a) R(w a)`, integrated in closed form --
-    /// `p0 + v0 (e^((-D + i w) a) - 1) / (-D + i w)` as a complex number.
+    /// `p0 + v0 (e^((-D + i w) a) - 1) / (-D + i w)` as a complex number,
+    /// its spin `w` taken in the ignition's [`Hand`].
     fn centre(&self, f: &Ignition, a: f32) -> Pt {
         let (p0, v0) = self.launch(f);
-        let w = self.charge() * TURN;
+        let w = Hand::of(f).signed(self.charge() * TURN);
         let e = (-DRAG * a).det_exp();
         let (s, c) = (w * a).det_sin_cos();
         let den = DRAG * DRAG + w * w;

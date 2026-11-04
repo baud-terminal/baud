@@ -386,6 +386,9 @@ static inline float4 plasma_tube(float2 p, float4 color, constant EffectU& f) {
         float2 r = p - 0.5 * (f.hole.xy + f.hole.zw);
         float s = -dot(r, a) / c;
         float w = (a.x * r.y - a.y * r.x) / c;
+        // The ignition's hand, `plasma::Hand`: a leftward move's braid is
+        // the rightward one's mirror image, its offset across negated.
+        if (f.dir.x < 0.0) w = -w;
         float amp = f.k[0] * 0.62 * smoothstep(0.0, 2.0, s);
         uint salt = f.seed ^ 0xA511E9B3u;
         float kn = fx_unit(fx_hash(salt + 8u));
