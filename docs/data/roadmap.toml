@@ -732,9 +732,9 @@ summary = "A bracket pair inside Hebrew, Arabic or Greek text is shaped with tha
 id = "2026-10-15-the-cursor-blinks-evenly-with-a"
 area = "cursor"
 status = "done"
-date = "2026-10-15"
-title = "The cursor blinks evenly, with a plasma glow"
-summary = "333 ms on and 333 ms off, glowing like the plasma trail while it is off. [cursor] blink_animation picks fade or a plain blink, blink_interval_ms sets the speed, and Reduce Motion always uses the plain blink."
+date = "2026-11-04"
+title = "The cursor blinks plainly, twice a second"
+summary = "250 ms on and 250 ms off, switched cleanly, within the flashing-light limits. [cursor] blink_animation can add the plasma glow, a fade, the fire or the ufo; blink_interval_ms sets the speed, and Reduce Motion always uses the plain blink."
 
 [[item]]
 id = "2026-10-15-new-lines-and-cursor-moves-stay"
