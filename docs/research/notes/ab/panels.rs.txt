@@ -1,0 +1,221 @@
+//! **The panels of `ab/step2/mode.png` and `ab/b192/table-*.png`**, drawn
+//! by baud's own CPU renderer: `panels.sh.txt` beside this file builds it
+//! against the working tree and stacks what it writes. Each scene file
+//! (`step2/mode.txt`, `b192/table-*.txt`, beside its PNG) holds a sheet's text as written, in logical order,
+//! and its panels, each an order to lay that text out in:
+//!
+//! - `explicit`: as stored, ECMA-48's BDSM reset;
+//! - `ltr`: UAX #9 at paragraph level 0;
+//! - `first-strong`: UAX #9 at the level P2-P3 give the row, a row at
+//!   level 1 against the right edge -- `C`, the order of 2026-10-24
+//!   before a table row kept its columns;
+//! - `T1`: a row holding a Box Drawing character runs left to right with
+//!   every rule in place, each cell between two rules its own paragraph
+//!   at its own P2-P3 level, in its columns; a row with no rule is
+//!   `first-strong`;
+//! - `T2`: `T1` with each cell's text, its trailing spaces aside, at the
+//!   cell's left;
+//! - `P`: `T1` with every ASCII `|` a rule as well;
+//! - `A`: `T1` with a `|` a rule where the row above has a `|` or `+` in
+//!   its column.
+//!
+//! The orders are worked here with baud-domain's UAX #9 (`Bidi`, L4's
+//! `mirroring_glyph`) and the result is fed to the core under `CSI 8 l`,
+//! so each panel is the screen the option drew on 2026-10-24 whatever the
+//! renderer does today: `T1` is built, `first-strong` no longer draws a
+//! table row so, and `T2`, `P` and `A` were never built.
+//!
+//! Usage: `panels <face.ttf> <scene.txt> <out-dir>`; writes a PPM for the
+//! title, if any, and one a panel, and prints their paths in order.
+
+use baud_core::{Owned, Term};
+use baud_domain::{Bidi, BidiParagraph, BytePos, Cols, ReadLen, Rows, WinSize};
+use baud_domain::{is_table_rule, mirroring_glyph};
+use baud_font::{Face, Px};
+use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
+
+/// The label's grey on the dark page.
+const LABEL: &str = "\x1b[38;2;128;128;128m";
+
+/// `text` in the order UAX #9 draws it at `dir`, each character at an odd
+/// level drawn as its mirrored glyph (L4).
+fn uax9(text: &[char], dir: BidiParagraph) -> Vec<char> {
+    let mut bidi = Box::new(Bidi::<256>::new());
+    bidi.resolve(text, dir).expect("a row fits");
+    let mut order = vec![0u16; text.len()];
+    let levels = bidi
+        .reorder(0..text.len(), &mut order)
+        .expect("a row fits")
+        .to_vec();
+    order
+        .iter()
+        .map(|&at| {
+            let c = text[usize::from(at)];
+            if levels[usize::from(at)].number() % 2 == 1 {
+                mirroring_glyph(c).unwrap_or(c)
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// The row padded with spaces to the panel's width, so a row at level 1
+/// is drawn against the right edge.
+fn padded(row: &[char], cols: usize) -> Vec<char> {
+    assert!(row.len() <= cols, "a row wider than its panel");
+    let mut v = row.to_vec();
+    v.resize(cols, ' ');
+    v
+}
+
+/// A table row laid out by `rule`: left to right with each rule in place,
+/// each cell between two its own paragraph at its P2-P3 level, its text
+/// against the cell's left when `left`.
+fn table(row: &[char], cols: usize, rule: &dyn Fn(usize) -> bool, left: bool) -> Vec<char> {
+    if !(0..row.len()).any(rule) {
+        return uax9(&padded(row, cols), BidiParagraph::FirstStrong);
+    }
+    let mut out = row.to_vec();
+    let mut start = 0;
+    for i in 0..=row.len() {
+        if i < row.len() && !rule(i) {
+            continue;
+        }
+        let cell = &row[start..i];
+        let drawn = if left {
+            let end = cell.iter().rposition(|&c| c != ' ').map_or(0, |e| e + 1);
+            let mut v = uax9(&cell[..end], BidiParagraph::FirstStrong);
+            v.resize(cell.len(), ' ');
+            v
+        } else {
+            uax9(cell, BidiParagraph::FirstStrong)
+        };
+        out[start..i].copy_from_slice(&drawn);
+        start = i + 1;
+    }
+    padded(&out, cols)
+}
+
+/// Row `r` of `rows` as `order` draws it.
+fn drawn(order: &str, rows: &[Vec<char>], r: usize, cols: usize) -> Vec<char> {
+    let row = &rows[r];
+    let boxed = |i: usize| is_table_rule(row[i]);
+    let above = |i: usize| r > 0 && matches!(rows[r - 1].get(i), Some('|' | '+'));
+    match order {
+        "explicit" => padded(row, cols),
+        "ltr" => uax9(&padded(row, cols), BidiParagraph::Ltr),
+        "first-strong" => uax9(&padded(row, cols), BidiParagraph::FirstStrong),
+        "T1" => table(row, cols, &boxed, false),
+        "T2" => table(row, cols, &boxed, true),
+        "P" => table(row, cols, &|i| boxed(i) || row[i] == '|', false),
+        "A" => table(
+            row,
+            cols,
+            &|i| boxed(i) || (row[i] == '|' && above(i)),
+            false,
+        ),
+        _ => panic!("no order {order}"),
+    }
+}
+
+/// The screen `bytes` leave on a `cols` by `rows` terminal, painted at
+/// `px` on the dark theme, as a binary PPM.
+fn paint(face: &Face<'_>, px: f32, cols: usize, rows: usize, bytes: &[u8]) -> Vec<u8> {
+    let ws = WinSize {
+        ws_row: u16::try_from(rows).unwrap(),
+        ws_col: u16::try_from(cols).unwrap(),
+    };
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
+    t.write_at(BytePos::ZERO, bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    let faces = [face.clone()];
+    let stack = Stack::new(&faces).unwrap();
+    let size = PxSize::of(px).unwrap();
+    let mut r = Renderer::new(
+        stack,
+        size,
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(cols),
+        Rows::of_index(rows),
+    )
+    .unwrap();
+    let (w, h) = r.pixel_size();
+    let (wu, hu) = (
+        usize::try_from(w.value()).unwrap(),
+        usize::try_from(h.value()).unwrap(),
+    );
+    let mut pixels = vec![0u32; wu * hu];
+    let mut target = Target::new(
+        &mut pixels,
+        Px::of(w.value()),
+        Px::of(w.value()),
+        Px::of(h.value()),
+    )
+    .unwrap();
+    r.render(&mut t, &mut target, Damage::Full);
+    let mut out = format!("P6\n{wu} {hu}\n255\n").into_bytes();
+    for p in pixels {
+        out.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, p as u8]);
+    }
+    out
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let [font, scene, out] = args.as_slice() else {
+        panic!("usage: panels <face.ttf> <scene.txt> <out-dir>");
+    };
+    let data = std::fs::read(font).unwrap();
+    let face = Face::parse(&data).unwrap();
+    let text = std::fs::read_to_string(scene).unwrap();
+    let (mut cols, mut px, mut height) = (0usize, 0f32, 0usize);
+    let (mut title, mut panels, mut rows) = (None, Vec::new(), Vec::new());
+    for line in text.lines() {
+        let (key, rest) = line.split_once(' ').unwrap_or((line, ""));
+        match key {
+            // The frame between panels is the script's.
+            "#" | "" | "border" => {}
+            "size" => {
+                let v: Vec<&str> = rest.split(' ').collect();
+                (cols, height, px) = (
+                    v[0].parse().unwrap(),
+                    v[1].parse().unwrap(),
+                    v[2].parse().unwrap(),
+                );
+            }
+            "title" => title = Some(rest.to_string()),
+            "panel" => panels.push(rest.split_once(' ').unwrap()),
+            "line" => rows.push(rest.chars().collect::<Vec<char>>()),
+            _ => panic!("{scene}: {line}"),
+        }
+    }
+    let stem = std::path::Path::new(scene)
+        .file_stem()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let hide = "\x1b[?25l\x1b[8l";
+    if let Some(t) = title {
+        let path = format!("{out}/{stem}-0.ppm");
+        std::fs::write(
+            &path,
+            paint(&face, px, cols, 1, format!("{hide}{t}").as_bytes()),
+        )
+        .unwrap();
+        println!("{path}");
+    }
+    for (k, (order, label)) in panels.iter().enumerate() {
+        let mut bytes = format!("{hide}{LABEL}{label}\x1b[m");
+        for r in 0..rows.len() {
+            let row: String = drawn(order, &rows, r, cols).into_iter().collect();
+            bytes.push_str("\r\n");
+            bytes.push_str(row.trim_end());
+        }
+        let path = format!("{out}/{stem}-{}.ppm", k + 1);
+        std::fs::write(&path, paint(&face, px, cols, height, bytes.as_bytes())).unwrap();
+        println!("{path}");
+    }
+}

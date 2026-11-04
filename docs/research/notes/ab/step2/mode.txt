@@ -1,0 +1,13 @@
+# step2/mode.png, drawn by ../panels.sh.txt: BDSM's three ways to draw a
+# line, on the same six lines.
+size 40 7 24
+border #808080
+panel explicit A. today / explicit: logical order
+panel ltr B. implicit, paragraph LTR
+panel first-strong C. implicit, first strong (P2-P3)
+line $ cat שלום.txt
+line שלום עולם! זו שורה בעברית.
+line hello (שלום) world 123
+line מחיר: 120 ₪ (כולל מע"מ)
+line -rw-r--r-- 1 user 42 מסמך.txt
+line │ שלום עולם        │ 42 │

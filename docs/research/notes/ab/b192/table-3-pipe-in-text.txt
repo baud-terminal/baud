@@ -1,0 +1,12 @@
+# b192/table-3-pipe-in-text.png, drawn by ../panels.sh.txt: the table
+# row's five options on a Hebrew sentence with a | in it and a pipeline.
+size 40 4 26
+border #303034
+title 3. Hebrew text with |, a pipeline
+panel first-strong C  as built, no table rule
+panel T1 T1 cell its own paragraph
+panel T2 T2 cell text kept left
+panel P P  T1, and every | a rule
+panel A A  T1, and a | under a | or +
+line שלום | עולם, זו שורה.
+line $ echo שלום | rev

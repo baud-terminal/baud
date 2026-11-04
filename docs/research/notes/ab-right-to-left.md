@@ -1549,6 +1549,8 @@ All copied from the working files on 2026-10-13, except `qc/residuals.py` and `q
 
 - `ab/qc-fallback/`, added 2026-10-15 for the fallback placer's Hebrew classes: `corpus_cmp.py`, which shapes `ab/qc/clusters-all.txt` with hb-shape and the `qc` harness built from the commit before and from that commit, on Raanana, Raanana Bold, New Peninim MT, Corsiva Hebrew and Lucida Grande, and its output `corpus.txt`.
 
+- `ab/panels.rs.txt` and `ab/panels.sh.txt`, added 2026-11-03: the drawing of `ab/step2/mode.png` and `ab/b192/table-1-table.png`, `table-2-psql.png` and `table-3-pipe-in-text.png` (section 12) from the scene of the same name beside each (`mode.txt`, `table-1-table.txt`, ...), through baud's CPU renderer, each panel's order worked with baud-domain's UAX #9 so it is the screen its option drew on 2026-10-24. Drawn again then with a placeholder user and a `$` prompt in the sample text; the earlier sample's text drew the 2026-10-24 pictures again with every cell in place, the only pixels apart in ד, ז and ₪, whose glyphs baud's font has redrawn since.
+
 Harness sources carry a `.txt` suffix so the formatter leaves the bytes that ran.
 
 ## 12. Step 2: drawing the order (2026-10-24)

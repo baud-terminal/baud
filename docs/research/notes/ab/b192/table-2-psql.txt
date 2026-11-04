@@ -1,0 +1,14 @@
+# b192/table-2-psql.png, drawn by ../panels.sh.txt: the table row's five
+# options on a psql-style table drawn with ASCII.
+size 40 6 26
+border #303034
+title 2. A psql-style table, ASCII |
+panel first-strong C  as built, no table rule
+panel T1 T1 cell its own paragraph
+panel T2 T2 cell text kept left
+panel P P  T1, and every | a rule
+panel A A  T1, and a | under a | or +
+line  name      | size | owner
+line -----------+------+-------
+line  notes.txt | 42   | user
+line  מסמך.txt  | 812  | דנה
