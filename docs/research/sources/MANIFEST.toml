@@ -68,6 +68,7 @@
 #   AZ  a window in the background: the unfocused cursor, the inactive selection, theme cursor colours
 #   CR  the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (baud-app/src/reload.rs; no note)
 #   WN  more than one window: a new window, a window's close, the last window closed, the Dock's reopen (baud-app/src/windows.rs; no note)
+#   GP  the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (scripts/make-brand-pictures.py and assets/logo/README.md; no note)
 #
 # Notes K (selection), M (resize and reflow), S (Sixel) and T (images) have
 # no group of their own: what they cite is filed under C, and T's also under
@@ -41918,3 +41919,82 @@ status = "external"
 group  = "H"
 # Fetched 2026-10-30: the pairing of a release with its press that baud's
 # macOS app keeps too. Read, not copied.
+
+# The brand pictures (group GP): what scripts/make-brand-pictures.py draws to,
+# read 2026-11-03.
+
+[sources.jbm-2304-release]
+key    = "jbm-2304-release"
+title  = "JetBrains Mono v2.304, the release archive -- fonts/ttf/JetBrainsMono-Medium.ttf (273860 bytes, sha256 31c92d01a8a08528b718a43addf0ad3df0af2ca4b7b3290a452f70f358e14d3d) is the wordmark's 500, the weight no committed file carries"
+author = "JetBrains"
+year   = 2023
+venue  = "github.com/JetBrains/JetBrainsMono, release v2.304 (OFL-1.1)"
+url    = "https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip"
+file   = ""
+sha256 = "6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf"
+bytes  = 5622857
+status = "external"
+group  = "GP"
+# The archive baud-app/fonts/jetbrains-mono/SOURCE pins. Not committed: the
+# generator fetches it, refuses it unless it and the Medium inside hash as
+# here, and keeps nothing of it but the outlines it traces.
+
+[sources.github-docs-profile-picture]
+key    = "github-docs-profile-picture"
+title  = "GitHub Docs, Profile reference -- \"Profile picture requirements\": \"less than 1 MB in size and smaller than 3000 by 3000 pixels ... about 500 by 500 pixels\""
+author = "GitHub"
+year   = 2026
+venue  = "github/docs at 4a20c763, content/account-and-profile/reference/profile-reference.md (CC-BY-4.0)"
+url    = "https://raw.githubusercontent.com/github/docs/4a20c763a48bd4f5a34a84c002fd9858e9793f65/content/account-and-profile/reference/profile-reference.md"
+file   = ""
+sha256 = "b1fcecf4200de2fcae65ddd00b4303c08bc7b6887f02dab9ad1a1a7753d9b591"
+bytes  = 19123
+status = "external"
+group  = "GP"
+# The personal profile's limits. GitHub's page on an organisation's profile
+# states none, so the organisation picture is held to these by inference.
+
+[sources.github-docs-social-preview]
+key    = "github-docs-social-preview"
+title  = "GitHub Docs, Customizing your repository's social media preview -- \"under 1 MB ... at least 640 by 320 pixels (1280 by 640 pixels for best display)\"; a solid background where unsure"
+author = "GitHub"
+year   = 2026
+venue  = "github/docs at 4a20c763, content/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview.md (CC-BY-4.0)"
+url    = "https://raw.githubusercontent.com/github/docs/4a20c763a48bd4f5a34a84c002fd9858e9793f65/content/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview.md"
+file   = ""
+sha256 = "935ecaabc92f52a116a9e3d8eae58d44db5e84c5a35995fefbca85a48a7490b4"
+bytes  = 2113
+status = "external"
+group  = "GP"
+
+[sources.itu-t-s1]
+key    = "itu-t-s1"
+title  = "ITU-T Recommendation S.1 (03/93), International Telegraph Alphabet No. 2 -- Table 1, the five elements of each combination; clause 3.2, \"Condition Z corresponds to ... perforation in paper tape\""
+author = "ITU-T"
+year   = 1993
+venue  = "itu.int/rec/T-REC-S.1-199303-I (in force; a freely available item)"
+url    = "https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-S.1-199303-I!!PDF-E&type=items"
+file   = ""
+sha256 = "14132deba012dfa218eeac42ee55d22ad5ec025b06e7cb7707180267dc1e771a"
+bytes  = 71081
+status = "external"
+group  = "GP"
+# Not in the repository: a free download is not a grant to redistribute. The
+# link picture's tape spells "baud" from Table 1's combinations 2, 1, 21, 4
+# and 31 (Space); S.1 gives no tape geometry.
+
+[sources.ansi-x3-18-1967]
+key    = "ansi-x3-18-1967"
+title  = "ANSI X3.18-1967, One-Inch Perforated Paper Tape for Information Interchange (FIPS PUB 26) -- 2.5 feed holes 0.046 inch, 2.6 code holes 0.072 inch, 2.7 holes on a 0.100 inch grid"
+author = "American National Standards Institute; adopted by the National Bureau of Standards"
+year   = 1967
+venue  = "govinfo.gov, GOVPUB-C13 (the NBS copy)"
+url    = "https://www.govinfo.gov/content/pkg/GOVPUB-C13-ca9eb746e25a5f1218b695f4e8e6e367/pdf/GOVPUB-C13-ca9eb746e25a5f1218b695f4e8e6e367.pdf"
+file   = ""
+sha256 = "e6a4788cd2e3066a33a91c61c64935f200b48c5b609ff86b084ef0d22b18a257"
+bytes  = 507111
+status = "external"
+group  = "GP"
+# The one-inch, eight-track tape: its 2.4 puts the feed track 0.392 inch from
+# the reference (3-track) edge. The link picture takes only the two hole
+# diameters' ratio from it; no text read places a five-track tape's feed track.

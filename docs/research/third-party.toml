@@ -1670,6 +1670,24 @@ upstream = "https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304"
 status   = "kept"
 
 [[tree]]
+what     = "The glyphs of baud's app icon and organisation picture: the Dock icon's and the titlebar mark's prompt glyph, JetBrains Mono 2.304 Bold's own outline, and the organisation picture's word and glyph, its Medium's and Bold's, traced by scripts/make-brand-pictures.py. The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; what is around them is baud's own"
+paths    = ["assets/logo/baud-icon-dock.svg", "assets/logo/baud-mark-amber-tight.svg", "assets/logo/baud-github-org.svg", "assets/logo/baud-github-org.png", "assets/logo/JetBrainsMono-OFL.txt"]
+licence  = "OFL-1.1"
+notice   = "assets/logo/JetBrainsMono-OFL.txt"
+upstream = "https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304"
+status   = "kept"
+public   = "baud's app icon, whose prompt glyph is JetBrains Mono 2.304 Bold's own outline, under the SIL Open Font License 1.1"
+holder   = "The JetBrains Mono Project Authors"
+
+[[tree]]
+what     = "The letters of the repository's link picture, JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by scripts/make-brand-pictures.py. The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout and the tape are baud's own"
+paths    = ["assets/readme/social.svg", "assets/readme/social.png", "assets/readme/JetBrainsMono-OFL.txt"]
+licence  = "OFL-1.1"
+notice   = "assets/readme/JetBrainsMono-OFL.txt"
+upstream = "https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304"
+status   = "kept"
+
+[[tree]]
 what     = "STIX Two Math 2.13 b171, embedded in the app, unmodified"
 paths    = ["baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf"]
 licence  = "OFL-1.1"

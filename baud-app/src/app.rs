@@ -12037,12 +12037,14 @@ enum DockIcon {
 
 /// baud's icon, rasterised from `assets/logo/` and embedded, so it needs no
 /// bundle. The Dock wants a proper app icon -- a rounded square with the mark
-/// centred and padding around it, like every other app; the titlebar wants
-/// the bare mark snug against its box, or the strip makes it tiny -- so the
-/// two read from different files.
+/// at the 512 icon's geometry and padding around it, like every other app;
+/// the titlebar wants the bare mark snug against its box, or the strip
+/// makes it tiny -- so the two read from different files.
 fn icon() -> Option<Retained<NSImage>> {
     // A proper app icon for the Dock: a dark rounded square at ~80% of the
-    // canvas with the amber mark centred and transparent padding around it,
+    // canvas with the amber mark at the 512 icon's geometry (about 12 px
+    // right of centre at 512 with the font's ❯; centring it is open) and
+    // transparent padding around it,
     // the way every other Dock icon sits. The titlebar uses the bare mark
     // (`icon_titlebar`); the Dock wants the box. The SVG itself, not a raster,
     // so NSImage renders it as a vector.

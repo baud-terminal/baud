@@ -29,10 +29,21 @@ provenance file yet.
 
 `social.png` is a 1280x640 card for the repository's social preview,
 which GitHub takes only as an upload in the repository's settings, never
-from the tree: the lockup and the tagline over a darkened frame of the
-hero's btop, taken from the earlier `hero.gif`; `ONLY=social
-scripts/readme-capture.sh` remade it from that clip, so remaking it now
-needs the frame's time set for the recording.
+from the tree. It is drawn, not filmed: the lockup and the README's
+tagline on the brand's dark ground, over a strip of amber paper tape
+punched with `baud`, nine times, in the five-unit code of ITU-T S.1
+([[source: itu-t-s1]]). Its Table 1 gives each letter's five elements, and
+a hole is punched where it has Z (clause 3.2), element 1 on the top track.
+A smaller feed hole is in every column, between the second and third
+tracks, as five-hole tape is usually drawn: no text read for it places
+that track. A feed hole is 0.046/0.072 of a code hole, the two diameters
+ANSI X3.18 gives for one-inch tape ([[source: ansi-x3-18-1967]]).
+`scripts/make-brand-pictures.py` draws it and its source, `social.svg`,
+from JetBrains Mono's outlines (`JetBrainsMono-OFL.txt` beside them), and
+reads the tape back off the PNG before it writes. Nothing in it comes from
+a machine or a recording. The card before it was cut from a frame of the
+hero's btop and showed the machine's chip, memory and disks;
+`scripts/readme-capture.sh` no longer makes it.
 
 The photo is an elementary OS wallpaper, pinned by nixpkgs revision and
 sha256. It is an Unsplash photograph published before 8 June 2017 and so CC0,

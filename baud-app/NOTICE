@@ -7,6 +7,17 @@ for is. It is generated from baud's record of third-party files, in its
 repository at https://github.com/i-am-logger/baud, whose THIRD_PARTY.md
 lists every such file there.
 
+baud's app icon, whose prompt glyph is JetBrains Mono 2.304 Bold's own
+outline, under the SIL Open Font License 1.1
+  Files:   assets/logo/JetBrainsMono-OFL.txt,
+           assets/logo/baud-icon-dock.svg,
+           assets/logo/baud-mark-amber-tight.svg
+  Holder:  The JetBrains Mono Project Authors
+  Licence: OFL-1.1
+  Notice:  assets/logo/JetBrainsMono-OFL.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
+
 STIX Two Math 2.13 b171, a math font embedded in the app, unmodified
   Files:   fonts/stix-two-math/STIXTwoMath-Regular.otf
   Holder:  The STIX Fonts Project Authors

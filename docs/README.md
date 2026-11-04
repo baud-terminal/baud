@@ -184,6 +184,7 @@ their entries' titles:
 | BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (no note; `baud-app/src/link.rs` cites them) |
 | CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (no note; `baud-app/src/reload.rs` cites them) |
 | WN | more than one window: a new window, a window's close, the last window closed, and the Dock's reopen (no note; `baud-app/src/windows.rs` cites them) |
+| GP | the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (no note; `scripts/make-brand-pictures.py` and `assets/logo/README.md` cite them) |
 
 A group's letter and a note's need not match: group H's sources are key
 encoding, and note H is not in the repository. Both tables are held to

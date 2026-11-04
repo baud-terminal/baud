@@ -35,8 +35,9 @@
 #   trail.gif   the last two moves of docs/cursor/plasma.mp4, which
 #               scripts/trail-clips.sh records (at the 776x488 pt window it
 #               was taken at, not this one)
-#   social.png  1280x640: the lockup and the tagline over a darkened frame
-#               of the hero's btop
+#
+# social.png is not made here: scripts/make-brand-pictures.py draws it from
+# the font's outlines, with no frame of a recording behind it.
 #
 # Everything outside the repository is pinned: kitten, btop and the
 # converters by nixpkgs revision, the two photos by sha256 as well, and the
@@ -74,9 +75,6 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 baud=${BAUD:-$root/target/release/baud}
 dest=$root/assets/readme
 only=${ONLY:-"text"}
-# The social card's tagline, which must equal the README's. Each bar
-# starts a new line on the card.
-TAGLINE=${TAGLINE:-"The terminal with character:|its own font,|its own cursor effects,|and the speed to keep up."}
 NIXPKGS=github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a
 # The revision of this repository whose log the clips show.
 REV=e73843fa
@@ -116,7 +114,6 @@ btop=$(nixout btop)/bin/btop
 ff=$(nixout ffmpeg-headless.bin)/bin
 gifski=$(nixout gifski)/bin/gifski
 magick=$(nixout imagemagick)/bin/magick
-rsvg=$(nixout librsvg)/bin/rsvg-convert
 walls=$(nixout pantheon.elementary-wallpapers.src)/backgrounds
 photo="$walls/Canazei Granite Ridges.jpg"
 photo2="$walls/Sunset by the Pier.jpg"
@@ -363,41 +360,6 @@ drive_tools() {
   sleep 1.5
 }
 
-# social: the lockup, without its baked-in ground, and the tagline in
-# JetBrains Mono over a frame of the hero's btop, darkened toward the
-# lockup's ground (#15171B), a line for each bar-separated part, centred on
-# the card's height. rsvg-convert finds the face through a fontconfig file
-# naming the repository's fonts; the repository carries no 500 weight, so
-# the wordmark is drawn at the nearest it has.
-social() {
-  local fonts part n=0 y step=56 args=()
-  local IFS='|'
-  # shellcheck disable=SC2206 # split on the bars, nothing else
-  local lines=($TAGLINE)
-  unset IFS
-  local hero=$tmp/hero.mp4
-  [ -e "$hero" ] || hero=$dest/hero.gif
-  [ -e "$hero" ] || die "social: needs hero.mp4 in the run or the committed hero.gif"
-  fonts=$root/baud-app/fonts/jetbrains-mono
-  printf '<?xml version="1.0"?>\n<fontconfig><dir>%s</dir><cachedir>%s</cachedir></fontconfig>\n' \
-    "$fonts" "$tmp/fc" >"$tmp/fonts.conf"
-  "$ff/ffmpeg" -v error -ss 3.0 -i "$hero" -frames:v 1 "$tmp/btop.png"
-  grep -v '<rect width="300" height="130"' "$root/assets/logo/baud-lockup-dark.svg" >"$tmp/lockup.svg"
-  FONTCONFIG_FILE=$tmp/fonts.conf "$rsvg" -w 440 "$tmp/lockup.svg" -o "$tmp/lockup.png"
-  y=$((-(${#lines[@]} - 1) * step / 2))
-  for part in "${lines[@]}"; do
-    args+=(-annotate "+560$(printf '%+d' $((y + n * step)))" "$part")
-    n=$((n + 1))
-  done
-  "$magick" "$tmp/btop.png" -resize 1280x -gravity north -chop 0x96 -crop 1280x640+0+0 +repage \
-    -blur 0x2 -fill '#15171B' -colorize 84% \
-    "$tmp/lockup.png" -gravity west -geometry +60+0 -composite \
-    -font "$fonts/JetBrainsMono-Regular.ttf" -fill '#F3F4F6' -pointsize 38 -gravity west \
-    "${args[@]}" \
-    "$out/social.png"
-  "$magick" identify -format 'social.png: %wx%h\n' "$out/social.png"
-}
-
 leaks() {
   local t terms=()
   # Fixed strings, one -e each: a host name is not a pattern, and one
@@ -468,9 +430,7 @@ for what in $only; do
     check_loop trail "$tmp/trail"
     gif trail "$tmp/trail"
     ;;
-  social)
-    social
-    ;;
+  social) die "social.png is drawn by scripts/make-brand-pictures.py" ;;
   *) die "unknown asset $what" ;;
   esac
 done

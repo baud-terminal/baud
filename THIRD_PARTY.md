@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 319 | 54 | redistributable, and its notice is satisfied |
+| kept | 319 | 56 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 589 | 63 | |
+| total | 589 | 65 | |
 
 ## Licence texts in LICENSES/
 
@@ -105,6 +105,22 @@ they were built from.
 - **Notice:** [baud-app/fonts/jetbrains-mono/OFL.txt](baud-app/fonts/jetbrains-mono/OFL.txt)
 - **From:** https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
 - **Files:** [baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf), [baud-app/fonts/jetbrains-mono/AUTHORS.txt](baud-app/fonts/jetbrains-mono/AUTHORS.txt)
+
+### The glyphs of baud's app icon and organisation picture: the Dock icon's and the titlebar mark's prompt glyph, JetBrains Mono 2.304 Bold's own outline, and the organisation picture's word and glyph, its Medium's and Bold's, traced by scripts/make-brand-pictures.py. The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; what is around them is baud's own
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** [assets/logo/JetBrainsMono-OFL.txt](assets/logo/JetBrainsMono-OFL.txt)
+- **From:** https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
+- **Files:** [assets/logo/baud-icon-dock.svg](assets/logo/baud-icon-dock.svg), [assets/logo/baud-mark-amber-tight.svg](assets/logo/baud-mark-amber-tight.svg), [assets/logo/baud-github-org.svg](assets/logo/baud-github-org.svg), [assets/logo/baud-github-org.png](assets/logo/baud-github-org.png), [assets/logo/JetBrainsMono-OFL.txt](assets/logo/JetBrainsMono-OFL.txt)
+
+### The letters of the repository's link picture, JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by scripts/make-brand-pictures.py. The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout and the tape are baud's own
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** [assets/readme/JetBrainsMono-OFL.txt](assets/readme/JetBrainsMono-OFL.txt)
+- **From:** https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
+- **Files:** [assets/readme/social.svg](assets/readme/social.svg), [assets/readme/social.png](assets/readme/social.png), [assets/readme/JetBrainsMono-OFL.txt](assets/readme/JetBrainsMono-OFL.txt)
 
 ### STIX Two Math 2.13 b171, embedded in the app, unmodified
 
