@@ -249,23 +249,23 @@ floor = 1.2
 #
 # `blink_interval_ms`: how long each phase lasts, shown and hidden alike.
 # Unset, macOS's `NSTextInsertionPointBlinkPeriodOn` and `...Off` are followed
-# where you have set them, and each phase is otherwise 333 ms -- a symmetric
-# 1.5 blinks a second, on Linux too. Set here, it wins over the system's keys.
+# where you have set them, and each phase is otherwise 250 ms -- a symmetric
+# two blinks a second, on Linux too. Set here, it wins over the system's keys.
 # A phase is kept between 1/60 s and 60 s.
 #
-# `blink_animation`: what the cursor does while it is hidden. "plasma", the
-# default, is the plasma trail's glow on the cursor's cell, swelling out from
-# nothing to a faint ghost of the cursor and back across the hidden phase.
+# `blink_animation`: what the cursor does while it is hidden. "none", the
+# default, switches it hard: shown, then gone, one even beat. "plasma" is the
+# plasma trail's glow on the cursor's cell, swelling out from nothing to a
+# faint ghost of the cursor and back across the hidden phase.
 # "fade" eases the cursor out over the first 30% of the hidden phase and back
 # in over the last 30%, gone in between. "fire" burns the cursor down into
 # embers and relights it from the bottom, in the fire trail's look. "ufo" has
 # a little saucer's beam lift the cursor away and set it back down, in the ufo
-# trail's. "none" switches it hard. Each fits inside the hidden phase at any
-# interval. Under macOS's Reduce Motion, or the Linux desktop's
-# reduced-motion setting once the desktop has reported it, it is always
-# "none". An animation draws a frame a display tick while it moves: the
-# plasma, the fire and the ufo about 41 a 666 ms cycle at 120 Hz, the fade
-# about 25, "none" two. The GPU and the CPU path, which Linux draws with,
+# trail's. Each fits inside the hidden phase at any interval. Under macOS's
+# Reduce Motion, or the Linux desktop's reduced-motion setting once the
+# desktop has reported it, it is always "none". An animation draws a frame a display tick while it moves: the
+# plasma, the fire and the ufo about 31 a 500 ms cycle at 120 Hz, the fade
+# about 18, "none" two. The GPU and the CPU path, which Linux draws with,
 # draw each animation the same, pixel for pixel; "none" draws nothing while
 # the cursor is hidden. Linux draws each animation with the pixels a Mac
 # draws: its math gives the same bits on macOS and on Linux.
@@ -330,8 +330,8 @@ floor = 1.2
 [cursor]
 shape = "block"
 blink = "auto"
-blink_animation = "plasma"
-# blink_interval_ms = 333
+blink_animation = "none"
+# blink_interval_ms = 250
 stop_blinking_after = 0
 trail_scroll = "ride"
 unfocused_hollow = "off"

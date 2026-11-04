@@ -1,19 +1,27 @@
 //! The cursor's blink: when it shows, when it hides, what it does while it
 //! is hidden, and which frames that owes.
 //!
-//! **The timing is even, 333 ms shown and 333 hidden**: 1.5 blinks a
+//! **The timing is even, 250 ms shown and 250 hidden**: two blinks a
 //! second, symmetric, where AppKit's unset caret is 650/350.
 //! `[cursor] blink_interval_ms` sets each phase and wins over everything;
 //! without it the system's `NSTextInsertionPointBlinkPeriodOn` and `...Off`
 //! are followed where the user set them, each read on its own as AppKit
-//! reads it, and 333 where not ([`rate`]). Linux reads no desktop setting,
-//! so it is the config's interval or 333.
+//! reads it, and 250 where not ([`rate`]). Linux reads no desktop setting,
+//! so it is the config's interval or 250.
+//!
+//! **The default is a plain switch**: shown, then gone, with nothing drawn
+//! in between. An edge is one even beat; the plasma glow, the default
+//! before it, pulsed in the middle of the hidden phase, and that pulse
+//! read as a second blink. Two blinks a second are four flips, four
+//! luminance changes at the cursor's cells: two flashes in WCAG 2.3.1's
+//! sense, under its three (`[[source: wcag22]]`;
+//! `baud-bench/tests/blink_flashes.rs` counts them).
 //!
 //! **The hidden phase is the animation's** (`[cursor] blink_animation`):
-//! the plasma glow by default, a fade, the fire, the ufo, or none -- a hard
-//! switch. Each is a function of how far into the hidden phase it is, not
-//! of a length of its own, so it scales with any interval and ends inside
-//! the phase ([`BlinkAnimation::runs`]). Reduce Motion means none.
+//! none by default -- the hard switch -- or the plasma glow, a fade, the
+//! fire or the ufo. Each is a function of how far into the hidden phase it
+//! is, not of a length of its own, so it scales with any interval and ends
+//! inside the phase ([`BlinkAnimation::at`]). Reduce Motion means none.
 //!
 //! **It blinks where foot blinks it, and nowhere else.** foot arms its blink
 //! timer only while the window has focus (`term_cursor_blink_update`, whose
@@ -38,8 +46,9 @@
 //! `blink = false` and the stop are that.
 //!
 //! **What an idle blinking cursor costs is a frame each time what it shows
-//! changes**: two a cycle switched hard, and one a display tick while an
-//! animation moves -- counted per animation by a test below. Nothing in a
+//! changes**: two a cycle switched hard, the default's four a second, and
+//! one a display tick while an animation moves -- counted per animation by
+//! a test below. Nothing in a
 //! fade's fully hidden middle, and nothing in the shown phase.
 //!
 //! The clock is the driver's -- the display link's timestamp on macOS, the
@@ -66,11 +75,11 @@ pub const FLOOR: Duration = Duration::from_nanos(16_666_667);
 /// AppKit hides the caret for good.
 pub const CEILING: Duration = Duration::from_secs(60);
 
-/// Each phase where nothing sets it: 333 ms.
-pub const EVEN: Duration = Duration::from_millis(333);
+/// Each phase where nothing sets it: 250 ms, two blinks a second.
+pub const EVEN: Duration = Duration::from_millis(250);
 
 /// The share of the hidden phase each of the fade's two ramps takes: the
-/// amendment's "30% of the phase each", 100 ms at 333.
+/// amendment's "30% of the phase each", 75 ms at 250.
 const FADE: f64 = 0.3;
 
 /// One phase of the blink, [`FLOOR`] to [`CEILING`] by construction, so a
@@ -174,7 +183,7 @@ impl Cycle {
 
 /// **The rate, in this precedence**: the config's interval if it sets
 /// one, whatever the system says; else the system's two keys, each
-/// where the user set it; else 333 ms a phase. `on_ms` and `off_ms` are
+/// where the user set it; else [`EVEN`], 250 ms a phase. `on_ms` and `off_ms` are
 /// `NSUserDefaults`' answers, 0 for a key that is not set.
 #[cfg(any(target_os = "macos", test))]
 pub fn rate(interval: BlinkInterval, on_ms: f64, off_ms: f64) -> Cycle {
@@ -185,7 +194,7 @@ pub fn rate(interval: BlinkInterval, on_ms: f64, off_ms: f64) -> Cycle {
 }
 
 impl core::fmt::Display for Cycle {
-    /// `333/333 ms`, or `steady`, for the read's log line.
+    /// `250/250 ms`, or `steady`, for the read's log line.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Cycle::Blinks { on, off } => write!(
@@ -862,37 +871,89 @@ mod tests {
         // Both unset against the default is the default.
         assert_eq!(
             Cycle::of_defaults(0.0, 0.0, Cycle::DEFAULT),
-            cycle(MS * 333, MS * 333)
+            cycle(MS * 250, MS * 250)
         );
     }
 
-    /// **Unset, the cycle is 333 ms shown and 333 hidden**, on macOS and on
+    /// **Unset, the cycle is 250 ms shown and 250 hidden**, on macOS and on
     /// Linux alike -- not AppKit's unset 650/350 nor xterm's 600/300 -- and
-    /// a caret on it shows for 333 and hides for 333.
+    /// a caret on it shows for 250 and hides for 250: two blinks a second.
+    /// Perturbation: `EVEN` back at 333 fails every line.
     #[test]
-    fn the_unset_cycle_is_three_thirty_three_each_phase() {
-        let even = cycle(MS * 333, MS * 333);
+    fn the_unset_cycle_is_two_fifty_each_phase() {
+        let even = cycle(MS * 250, MS * 250);
+        assert_eq!(EVEN, MS * 250);
+        assert_eq!(Cycle::DEFAULT, even);
         assert_eq!(rate(BlinkInterval::Default, 0.0, 0.0), even, "macOS");
         assert_eq!(Cycle::of_config(BlinkInterval::Default), even, "Linux");
         let t0 = Instant::now();
         let at = |ms: u64| t0 + MS * u32::try_from(ms).unwrap();
-        let mut c = Caret::new(t0, even, Gate::Free, StopAfter::Never, BlinkAnimation::None);
+        let mut c = Caret::new(
+            t0,
+            Cycle::of_config(BlinkInterval::Default),
+            Gate::Free,
+            StopAfter::Never,
+            BlinkAnimation::default(),
+        );
         c.plan(t0, Blinks::Yes);
-        assert_eq!(c.plan(at(332), Blinks::Yes), SHOWN);
-        assert_eq!(c.plan(at(333), Blinks::Yes), HIDDEN);
-        assert_eq!(c.plan(at(665), Blinks::Yes), HIDDEN);
-        assert_eq!(c.plan(at(666), Blinks::Yes), SHOWN);
+        assert_eq!(c.plan(at(249), Blinks::Yes), SHOWN);
+        assert_eq!(c.plan(at(250), Blinks::Yes), HIDDEN);
+        assert_eq!(c.plan(at(375), Blinks::Yes), HIDDEN, "a hard switch");
+        assert_eq!(c.plan(at(499), Blinks::Yes), HIDDEN);
+        assert_eq!(c.plan(at(500), Blinks::Yes), SHOWN);
+    }
+
+    /// **The default blink is the hard switch**: the hidden phase is
+    /// [`HIDDEN`] from its first instant to its last, and nothing between
+    /// -- no glow, no fade. Perturbation: the plasma back as the default
+    /// fails the first line, and its glow the sweep.
+    #[test]
+    fn the_default_blink_is_a_plain_switch() {
+        assert_eq!(BlinkAnimation::default(), BlinkAnimation::None);
+        let a = BlinkAnimation::default();
+        for k in 0..2500u32 {
+            let h = Duration::from_micros(100) * k;
+            assert_eq!(a.at(h, EVEN), HIDDEN, "{h:?}");
+        }
+        assert_eq!(a.next_motion(Duration::ZERO, EVEN), EVEN, "nothing moves");
+    }
+
+    /// **The default's idle cost: two frames a cycle, four a second**, on
+    /// 120 Hz ticks over ten seconds -- the flips and nothing else
+    /// ([`FRAMES_NONE`]), where the plasma glow, the default before, drew a
+    /// frame each tick of its hidden phase at 333/333: 613 in ten seconds.
+    /// Perturbation: the plasma back as the default fails both assertions,
+    /// and draws [`FRAMES_PLASMA`].
+    #[test]
+    fn the_default_blink_draws_only_its_flips() {
+        let t0 = Instant::now();
+        let mut c = Caret::new(
+            t0,
+            Cycle::of_config(BlinkInterval::Default),
+            Gate::Free,
+            StopAfter::Never,
+            BlinkAnimation::default(),
+        );
+        let drawn = ticks(&mut c, t0, Duration::from_secs(10), Blinks::Yes, |_| {
+            Event::None
+        });
+        assert!(
+            drawn.iter().all(|d| d.1 == SHOWN || d.1 == HIDDEN),
+            "{drawn:?}"
+        );
+        assert_eq!(drawn.len(), FRAMES_NONE, "the flips alone");
     }
 
     /// **The system's keys are followed only where the user set them**, each
-    /// on its own; a key unset is that phase's 333.
+    /// on its own; a key unset is that phase's 250, and a key set wins
+    /// over it.
     #[test]
     fn the_system_keys_are_followed_only_where_set() {
         let d = BlinkInterval::Default;
         assert_eq!(rate(d, 650.0, 350.0), cycle(MS * 650, MS * 350));
-        assert_eq!(rate(d, 400.0, 0.0), cycle(MS * 400, MS * 333));
-        assert_eq!(rate(d, 0.0, 200.0), cycle(MS * 333, MS * 200));
-        assert_eq!(rate(d, f64::NAN, -1.0), cycle(MS * 333, MS * 333));
+        assert_eq!(rate(d, 400.0, 0.0), cycle(MS * 400, MS * 250));
+        assert_eq!(rate(d, 0.0, 200.0), cycle(MS * 250, MS * 200));
+        assert_eq!(rate(d, f64::NAN, -1.0), cycle(MS * 250, MS * 250));
         assert_eq!(rate(d, 1e308, 0.0), Cycle::Steady, "the system's steady");
     }
 
@@ -902,6 +963,8 @@ mod tests {
     #[test]
     fn the_config_interval_wins_over_the_system_keys() {
         let set = |ms: u64| BlinkInterval::Set(MS * u32::try_from(ms).unwrap());
+        assert_eq!(rate(set(400), 0.0, 0.0), cycle(MS * 400, MS * 400));
+        assert_eq!(rate(set(400), 650.0, 350.0), cycle(MS * 400, MS * 400));
         assert_eq!(rate(set(250), 0.0, 0.0), cycle(MS * 250, MS * 250));
         assert_eq!(rate(set(250), 1000.0, 200.0), cycle(MS * 250, MS * 250));
         assert_eq!(rate(set(250), 1e308, 0.0), cycle(MS * 250, MS * 250));
@@ -1039,8 +1102,8 @@ mod tests {
         }
     }
 
-    /// **Reduce Motion means none**: the default plasma, under it, is the
-    /// hard switch -- no glow, no fade, two frames a cycle.
+    /// **Reduce Motion means none**: the plasma, under it, is the hard
+    /// switch -- no glow, no fade, two frames a cycle.
     #[test]
     fn reduce_motion_draws_a_hard_blink() {
         use crate::config::SystemMotion;
@@ -1061,8 +1124,8 @@ mod tests {
         );
         assert_eq!(
             drawn.len(),
-            30,
-            "two frames a 666 ms cycle over ten seconds"
+            FRAMES_NONE,
+            "two frames a 500 ms cycle over ten seconds"
         );
         let mut c = Caret::new(
             t0,
@@ -1072,24 +1135,22 @@ mod tests {
             BlinkAnimation::Plasma,
         );
         c.plan(t0, Blinks::Yes);
+        let mid = t0 + EVEN + EVEN / 2;
         assert_ne!(
-            c.plan(t0 + MS * 500, Blinks::Yes),
+            c.plan(mid, Blinks::Yes),
             HIDDEN,
             "the control: plasma glows"
         );
         c.set_animation(BlinkAnimation::Plasma.effective(SystemMotion::Reduced));
-        assert_eq!(
-            c.plan(t0 + MS * 500, Blinks::Yes),
-            HIDDEN,
-            "and stops at the switch"
-        );
+        assert_eq!(c.plan(mid, Blinks::Yes), HIDDEN, "and stops at the switch");
     }
 
     /// **What an idle blinking cursor costs, per animation, on 120 Hz
-    /// ticks over ten seconds at the default 333/333**: a frame each time
+    /// ticks over ten seconds at the default 250/250**: a frame each time
     /// the drawing changes, which is only while an animation moves. The
-    /// hard switch draws two a cycle; the fade a frame a tick through its
-    /// two 100 ms ramps and nothing through its gone middle; the plasma a
+    /// hard switch, the default, draws two a cycle; the fade a frame a tick
+    /// through its two 75 ms ramps and nothing through its gone middle; the
+    /// plasma a
     /// frame a tick through the whole hidden phase. Nothing in a shown
     /// phase but the flip into it.
     #[test]
@@ -1117,28 +1178,39 @@ mod tests {
             }
             counts.push(drawn.len());
         }
-        // Ten seconds is 15 cycles of 666 ms; the counts per cycle are
-        // these over 15.
+        // Ten seconds is 20 cycles of 500 ms; the counts per cycle are
+        // these over 20.
         assert_eq!(
             counts,
-            [FRAMES_PLASMA, FRAMES_FADE, FRAMES_FIRE, FRAMES_UFO, 30],
+            [
+                FRAMES_PLASMA,
+                FRAMES_FADE,
+                FRAMES_FIRE,
+                FRAMES_UFO,
+                FRAMES_NONE
+            ],
             "{counts:?}"
         );
     }
 
-    /// About 41 a cycle: each of the hidden phase's 40 ticks, and the flip
-    /// back. The default's idle cost, twenty times the hard switch's.
-    const FRAMES_PLASMA: usize = 613;
-    /// About 24.5 a cycle: the two 100 ms ramps' 12 ticks each, give or
-    /// take the tick a ramp's first and last value round alike.
-    const FRAMES_FADE: usize = 368;
-    /// About 41 a cycle, as the plasma: the flame moves through the whole
-    /// hidden phase, and its last tick rounds to the whole cursor the flip
-    /// shows, so one fewer.
-    const FRAMES_FIRE: usize = 612;
+    /// About 31 a cycle: each of the hidden phase's 30 ticks, and the flip
+    /// back; sixteen times the hard switch's. The default at 333/333 drew
+    /// 613 in ten seconds, about 41 a 666 ms cycle.
+    const FRAMES_PLASMA: usize = 619;
+    /// About 18 a cycle: the two 75 ms ramps' 9 ticks each, give or take
+    /// the tick a ramp's first and last value round alike.
+    const FRAMES_FADE: usize = 359;
+    /// About 30 a cycle: the flame moves through the whole hidden phase,
+    /// and its last tick rounds to the whole cursor the flip shows, so one
+    /// fewer than the plasma.
+    const FRAMES_FIRE: usize = 599;
     /// The same for the ufo: its rings and rim light move while the cursor
     /// is held up.
-    const FRAMES_UFO: usize = 612;
+    const FRAMES_UFO: usize = 599;
+    /// The hard switch, the default: the flips alone, 20 hides and 19
+    /// shows. The cycle restarts at tick 1, so the twentieth show falls a
+    /// tick past the ten seconds.
+    const FRAMES_NONE: usize = 39;
 
     /// **On Linux the `poll` timeout follows the animation**: the flip in
     /// the shown phase, a frame's time while the drawing moves, and across

@@ -159,9 +159,9 @@ config file, then in `$XDG_CONFIG_HOME/baud/themes/` and
 | key | values | default | what it changes |
 |---|---|---|---|
 | `shape` | `"block"`, `"underline"`, `"bar"` | `"block"` | The cursor's shape. A program can still ask for another. |
-| `blink` | `"auto"`, `true`, `false` | `"auto"` | Whether the cursor blinks. `"auto"` blinks unless Accessibility's "prefer non-blinking cursor" is on. |
-| `blink_interval_ms` | number, milliseconds | macOS's setting, else `333` | How long the cursor stays shown, and then hidden, in each blink. |
-| `blink_animation` | `"plasma"`, `"fade"`, `"fire"`, `"ufo"`, `"none"` | `"plasma"` | What the cursor does while it is hidden. `"none"` switches it straight off. |
+| `blink` | `"auto"`, `true`, `false` | `"auto"` | Whether the cursor blinks. `"auto"` blinks unless Accessibility's "prefer non-blinking cursor" is on; `false` holds it steady. |
+| `blink_interval_ms` | number, milliseconds | macOS's setting, else `250` | How long the cursor stays shown, and then hidden, in each blink: two blinks a second by default. |
+| `blink_animation` | `"none"`, `"plasma"`, `"fade"`, `"fire"`, `"ufo"` | `"none"` | What the cursor does while it is hidden. `"none"` switches it straight off and on, a plain blink. |
 | `stop_blinking_after` | number, seconds | `0` | Stop blinking, with the cursor shown, after this long without typing, clicking or pasting. `0` means never. |
 | `trail` | `"plasma"`, `"fire"`, `"lightning"`, `"ice"`, `"ufo"`, `"orb"`, `"liquid"`, `"quad"`, `"sweep"`, `"ghost"`, `"off"` (`true` also means the default) | `"plasma"` | The effect left behind when the cursor jumps. [The cursor gallery](../cursor.md) shows each one. |
 | `trail_scroll` | `"ride"`, `"stay"` | `"ride"` | Whether a trail moves with the text when it scrolls: a trail in flight rides output's scroll, and a cursor a program scrolls with its line draws no trail. |

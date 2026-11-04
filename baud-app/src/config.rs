@@ -316,7 +316,7 @@ pub struct Config {
     /// blinking cursor stops, shown; never by default.
     pub cursor_stop: StopAfter,
     /// `[cursor] blink_animation`: what a blinking cursor does in its
-    /// hidden phase -- the plasma glow by default; see
+    /// hidden phase -- nothing, a hard switch, by default; see
     /// [`BlinkAnimation`].
     pub blink_animation: BlinkAnimation,
     /// `[cursor] blink_interval_ms`: the length of each phase, shown and
@@ -889,22 +889,24 @@ impl BlinkChoice {
 }
 
 /// `[cursor] blink_animation`: what a blinking cursor does in its hidden
-/// phase. **`Plasma` by default**: the plasma trail's glow on the cursor's
-/// cell, pulsing out and back across the hidden phase. `Fade` fades the
+/// phase. **`None` by default**, a hard switch: an edge reads as one even
+/// beat, where a glow pulsing mid-phase read as a second blink. `Plasma` is
+/// the plasma trail's glow on the cursor's cell, pulsing out and back
+/// across the hidden phase. `Fade` fades the
 /// cursor out over the first 30% of the hidden phase and in over the last
 /// 30%, eased; `Fire` burns the cursor down into embers and relights it, the
 /// fire trail's look on its cell; `Ufo` lifts it away on a saucer's beam and
-/// sets it back down, the ufo trail's; `None` is a hard switch. Each runs
+/// sets it back down, the ufo trail's. Each runs
 /// inside the hidden phase and scales with it, so any `blink_interval_ms`
 /// works with any of them. Reduce Motion always means `None`
 /// ([`BlinkAnimation::effective`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum BlinkAnimation {
-    #[default]
     Plasma,
     Fade,
     Fire,
     Ufo,
+    #[default]
     None,
 }
 
@@ -922,7 +924,7 @@ impl BlinkAnimation {
 
 /// `[cursor] blink_interval_ms`: each phase's length when the config sets
 /// it, which wins over the system's insertion-point keys; otherwise those
-/// keys where the user set them, and 333 ms each where not (`caret.rs`).
+/// keys where the user set them, and 250 ms each where not (`caret.rs`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BlinkInterval {
     Default,
@@ -1019,7 +1021,7 @@ impl Config {
             cursor_shape: CursorShape::Block,
             cursor_blink: BlinkChoice::Auto,
             cursor_stop: StopAfter::Never,
-            blink_animation: BlinkAnimation::Plasma,
+            blink_animation: BlinkAnimation::default(),
             blink_interval: BlinkInterval::Default,
             cursor_guide: baud_domain::CursorGuide::Hidden,
             unfocused_cursor: baud_render::CursorLook::Shaped,
@@ -1697,9 +1699,9 @@ impl Config {
                         other => {
                             said.push(format!(
                                 "config: [cursor] blink_animation {other:?} is not plasma, fade, \
-                                 fire, ufo or none; using the default, plasma"
+                                 fire, ufo or none; using the default, none"
                             ));
-                            BlinkAnimation::Plasma
+                            BlinkAnimation::default()
                         }
                     };
                 }
@@ -1729,8 +1731,9 @@ impl Config {
                         None => {
                             said.push(format!(
                                 "config: [cursor] blink_interval_ms {:?} is not a positive \
-                                 number of milliseconds; using the default, 333",
-                                value.trim()
+                                 number of milliseconds; using the default, {}",
+                                value.trim(),
+                                crate::caret::EVEN.as_millis()
                             ));
                             BlinkInterval::Default
                         }
@@ -4090,12 +4093,14 @@ mod reader {
         );
     }
 
-    /// `blink_animation`: plasma by default, the three names read, and
-    /// anything else said once and the default; Reduce Motion means none
-    /// whatever was named.
+    /// `blink_animation`: none, the hard switch, by default; the five names
+    /// read, and anything else said once and the default; Reduce Motion
+    /// means none whatever was named. Perturbation: the plasma back as the
+    /// default fails the first line and the refusals.
     #[test]
-    fn blink_animation_is_plasma_by_default_and_none_under_reduce_motion() {
-        assert_eq!(Config::defaults().blink_animation, BlinkAnimation::Plasma);
+    fn blink_animation_is_none_by_default_and_under_reduce_motion() {
+        assert_eq!(BlinkAnimation::default(), BlinkAnimation::None);
+        assert_eq!(Config::defaults().blink_animation, BlinkAnimation::None);
         let at = |v: &str| read(&format!("[cursor]\nblink_animation = {v}\n")).blink_animation;
         assert_eq!(at("\"plasma\""), BlinkAnimation::Plasma);
         assert_eq!(at("\"fade\""), BlinkAnimation::Fade);
@@ -4104,9 +4109,10 @@ mod reader {
         assert_eq!(at("\"ufo\""), BlinkAnimation::Ufo);
         assert_eq!(at("fade"), BlinkAnimation::Fade, "bare, as other keys read");
         for bad in ["\"saucer\"", "\"embers\"", "true", "\"\""] {
-            assert_eq!(at(bad), BlinkAnimation::Plasma, "{bad}");
+            assert_eq!(at(bad), BlinkAnimation::None, "{bad}");
             let said = Config::defaults().apply(&format!("[cursor]\nblink_animation = {bad}\n"));
             assert_eq!(said.len(), 1, "{bad} is said");
+            assert!(said[0].ends_with("using the default, none"), "{said:?}");
         }
         for a in [
             BlinkAnimation::Plasma,
@@ -4146,6 +4152,7 @@ mod reader {
             assert_eq!(at(bad), BlinkInterval::Default, "{bad}");
             let said = Config::defaults().apply(&format!("[cursor]\nblink_interval_ms = {bad}\n"));
             assert_eq!(said.len(), 1, "{bad} is said");
+            assert!(said[0].ends_with("using the default, 250"), "{said:?}");
         }
     }
 
@@ -5945,16 +5952,19 @@ shadow     = "never"
         );
         assert_eq!(
             (c.blink_animation, c.blink_interval),
-            (BlinkAnimation::Plasma, BlinkInterval::Default),
+            (BlinkAnimation::default(), BlinkInterval::Default),
             "the example's blink animation is the default and its interval unset"
         );
         assert!(
-            text.contains("\nblink_animation = \"plasma\"\n"),
+            text.contains("\nblink_animation = \"none\"\n"),
             "the animation line"
         );
         assert!(
-            text.contains("\n# blink_interval_ms = 333\n"),
-            "the interval line"
+            text.contains(&format!(
+                "\n# blink_interval_ms = {}\n",
+                crate::caret::EVEN.as_millis()
+            )),
+            "the interval line names the default"
         );
         assert_eq!(
             (

@@ -10,8 +10,8 @@ HTML file's source rather than the page.
 [cursor]
 shape = "block"   # block | underline | bar
 blink = "auto"    # auto | true | false
-blink_animation = "plasma"  # plasma | fade | fire | ufo | none
-# blink_interval_ms = 333   # each phase; unset follows the system's keys where set
+blink_animation = "none"    # none | plasma | fade | fire | ufo
+# blink_interval_ms = 250   # each phase; unset follows the system's keys where set
 trail = "plasma"  # plasma | fire | lightning | ice | ufo | orb | liquid | quad | sweep | ghost | off
 ```
 
@@ -21,14 +21,17 @@ default, `trail = "plasma"`, and `false` as `trail = "off"`, so a config written
 when the key was a switch reads as it did.
 [config.toml.example](../config.toml.example) documents every key.
 
-A blinking cursor shows for 333 ms and hides for 333 by default, and
-`blink_animation` says what it does while hidden: the plasma glow on its cell
-(the default), a fade out and back in over 30% of the hidden phase each side,
-the fire -- the cursor burning down into embers and relighting, in the fire
-trail's look -- the ufo -- a saucer's beam lifting the cursor away and
-setting it back down, in the ufo trail's -- or a hard switch. Reduce Motion,
-or the Linux desktop's reduced-motion setting once the desktop has reported
-it, always means the hard switch.
+A blinking cursor shows for 250 ms and hides for 250 by default, two blinks a
+second, and switches plainly: shown, then gone, with nothing drawn between, so
+each edge reads as one even beat. `blink_animation` can give the hidden phase
+an animation instead: the plasma glow on its cell, a fade out and back in over
+30% of the hidden phase each side, the fire -- the cursor burning down into
+embers and relighting, in the fire trail's look -- or the ufo -- a saucer's
+beam lifting the cursor away and setting it back down, in the ufo trail's.
+Reduce Motion, or the Linux desktop's reduced-motion setting once the desktop
+has reported it, always means the hard switch. `blink = false` holds the
+cursor steady, and `stop_blinking_after` stops it, shown, after a quiet
+spell.
 
 Each animation looks the same on every path: the GPU, and the CPU path --
 `BAUD_GPU=0`, a Mac with no Metal device, or Linux -- which the pixel oracle

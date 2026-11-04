@@ -595,7 +595,7 @@ The procedure is the house's:
 
 **Unit (`caret.rs`, every platform):**
 
-1. ~~A test of AppKit's unset cycle replaces `:196-208`: Shown at 0 and 649, Hidden at 650 and 999, Shown at 1000.~~ Since 2026-10-15 the unset cycle is 333 ms a phase, held by `the_unset_cycle_is_three_thirty_three_each_phase`: Shown at 332, Hidden at 333 and 665, Shown at 666.
+1. ~~A test of AppKit's unset cycle replaces `:196-208`: Shown at 0 and 649, Hidden at 650 and 999, Shown at 1000.~~ Since 2026-10-15 the unset cycle is 333 ms a phase, held by `the_unset_cycle_is_three_thirty_three_each_phase`: Shown at 332, Hidden at 333 and 665, Shown at 666. It is 250 ms a phase now, a plain switch by default, held by `the_unset_cycle_is_two_fifty_each_phase`: Shown at 249, Hidden at 250 and 499, Shown at 500.
 2. `a_blinking_cursor_costs_two_frames_a_cycle_and_a_steady_one_none` asserts **19**, from 22 (`:184-193`). Its doc says the first plan restarts the epoch at tick 1.
 3. `each_key_is_read_on_its_own_as_appkit_reads_it`:
    - `(400, 0)` gives 400/350, and `(0, 400)` gives 650/400;

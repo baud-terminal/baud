@@ -612,7 +612,7 @@ struct App {
     blink: BlinkPhases,
     blink_present: Blinking,
     /// The cursor's blink, on the display link's clock (`caret.rs`): the
-    /// config's interval, else the system caret's keys where set, else 333
+    /// config's interval, else the system caret's keys where set, else 250
     /// ms a phase, read on the first tick and at every focus gain,
     /// only while the window is key, restarted by a key sent or output read,
     /// and stopped after `[cursor] stop_blinking_after` without input. `focus`
@@ -18805,7 +18805,7 @@ enum Done {
 /// The caret's rate (`caret::rate`): `[cursor] blink_interval_ms` if the
 /// config sets it, else AppKit's own defaults,
 /// `NSTextInsertionPointBlinkPeriodOn` and `...Off`, each read on its own
-/// as AppKit reads it, with 333 ms where one is unset -- AppKit's unset
+/// as AppKit reads it, with 250 ms where one is unset -- AppKit's unset
 /// 650/350 is no longer taken. `doubleForKey` converts a number or a
 /// numeric string, and answers 0 for a key that is absent or will not
 /// convert -- which `of_defaults` reads as unset -- by its header. A set

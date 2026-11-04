@@ -64,7 +64,7 @@
 //! What the macOS app has and this does not, yet: the GPU paths, and with
 //! them the smooth-scroll slide, which only the cell path draws -- the CPU
 //! path this paints on jumps; and the system caret's rate (this keeps
-//! 333 ms a phase until the desktop's settings are read).
+//! 250 ms a phase until the desktop's settings are read).
 //!
 //! **The report every five seconds is the macOS app's** (`report.rs`), at
 //! `BAUD_LOG=info`, in the same shape: the frames committed to the
@@ -593,7 +593,7 @@ pub fn run() {
         bell,
         ringer: crate::bell::Ringer::new(&term),
         bell_style: cfg.bell,
-        // The config's interval, else 333 ms a phase, and no switch: `auto`
+        // The config's interval, else 250 ms a phase, and no switch: `auto`
         // blinks here. Nothing on Linux reads the desktop's caret yet, so
         // the choice is not kept; the animation is the config's until the
         // motion preference says otherwise (`set_motion`).

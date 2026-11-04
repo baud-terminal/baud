@@ -1446,14 +1446,51 @@ above). And on macOS the rate is the system caret's since 2026-09-27, AppKit's
 taken, because a window raised by script is frontmost and not focused, so
 nothing blinked.
 
-**Stale a third time since 2026-10-15**: the rate is 333/333 ms where nothing
-sets it, three flips a second, and the default blink animates -- the plasma
-glow draws a frame every display tick of the hidden phase, about 41 frames a
-666 ms cycle at 120 Hz, where the hard switch draws two; the fade about 24.5,
-the fire and the ufo 612 each in ten seconds, about 41 (`caret.rs`,
-`frames_a_cycle_for_each_animation`). Each such frame repaints
-the cursor's row alone on the CPU path (`frame`'s `FRAME_BLINK`). The idle
-CPU of that default is unmeasured.
+**Stale a third time**: the rate became 333/333 ms where nothing sets it, and
+the default blink animated -- the plasma glow drew a frame every display tick
+of the hidden phase, 613 frames in ten seconds at 120 Hz, about 41 a 666 ms
+cycle, where the hard switch drew two. The idle CPU of that default was not
+measured, and the default below replaced it.
+
+## The default blink is a plain switch at 250 ms
+
+**What changed.** Where nothing sets them, each phase is 250 ms (`caret.rs`,
+`EVEN`) and `blink_animation` is `"none"`, the hard switch. The order of
+precedence is unchanged: `[cursor] blink_interval_ms`, then macOS's
+`NSTextInsertionPointBlinkPeriodOn` and `...Off` where the user set them, each
+on its own, then 250; on Linux the config's value, else 250. The plasma, fade,
+fire and ufo stay as settings, and Reduce Motion and `blink = false` behave as
+before. The reason: the plasma glow's pulse in the middle of the hidden phase
+read as a second blink, a plain edge reads as one even beat, and two blinks a
+second are livelier than 1.5.
+
+**Frames an idle blinking cursor owes**, 120 Hz ticks over ten seconds, counted
+by `caret.rs`'s `frames_a_cycle_for_each_animation` and
+`the_default_blink_draws_only_its_flips` (no clock, the caret's own plan):
+
+| arm | rate | frames in 10 s | a second |
+|---|---|---|---|
+| the default before: plasma | 333/333 | 613 | 61.3 |
+| the default now: none | 250/250 | 39 | 3.9 |
+| plasma, by name | 250/250 | 619 | 61.9 |
+| fade, by name | 250/250 | 359 | 35.9 |
+| fire, ufo, by name | 250/250 | 599 | 59.9 |
+| none, as the base pinned it | 333/333 | 30 | 3.0 |
+
+The default draws a sixteenth of the frames it drew: its flips, 20 hides and
+19 shows, the twentieth show a tick past the ten seconds because the cycle
+restarts at tick 1. A frame is the cursor's row on the CPU path (`frame`'s
+`FRAME_BLINK`). This is off the per-byte path; no ingest arm was timed.
+
+**WCAG 2.3.1** (`[[source: wcag22]]`): `baud-bench/tests/blink_flashes.rs`
+counts the hard blink at 250/250 on the CPU path at 60 frames a second, at
+13, 32, 46 and 95 pt, 1x and 2x, on the dark and the light theme: in every
+case two general flashes in the worst second disjoint, three chained, no red
+flash, and no area flashing more than three times, so it passes on the count
+before the area is read. The cursor's pixels are 129-7141 pt^2 of the 21,824
+limit. The control, the same cursor at 125/125, counts four flashes. **WCAG
+2.2.2**: blinking past five seconds can be stopped by `blink = false` and
+`stop_blinking_after`, both unchanged.
 
 ## The cursor trails' costs
 
