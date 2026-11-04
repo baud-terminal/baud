@@ -36,6 +36,7 @@
 //! each other by the triangle inequality.
 
 use crate::color::Argb;
+use crate::composite::Mix;
 use crate::det::Det;
 use baud_domain::Chan;
 
@@ -205,19 +206,55 @@ fn rgb(c: Argb) -> [Chan; 3] {
     [c.r(), c.g(), c.b()]
 }
 
-/// The alphas at which some channel of `ink` over `ground`, rounded to a
-/// byte, steps: between two of them the composite does not change.
-fn cuts(ink: [Chan; 3], ground: [Chan; 3]) -> Vec<f64> {
+/// **`ink` at alpha `a` over the opaque `ground` by `mix`**, as the frame
+/// blends it (`composite::Mix`), rounded to a byte: source-over is
+/// [`over`]; `screen` is `cs + cb - cs cb` and `multiply` `cb (1 - as) + cs
+/// cb` over an opaque ground, each in the order `Blend::mix_unit` forms it.
+fn composite(ink: [Chan; 3], ground: [Chan; 3], a: f32, mix: Mix) -> [Chan; 3] {
+    if mix == Mix::Normal {
+        return over(ink, ground, a);
+    }
+    let blend = |c: Chan, d: Chan| {
+        let s = f32::from(c.get()) / 255.0 * a;
+        let d = f32::from(d.get()) / 255.0;
+        let v = match mix {
+            Mix::Screen => s + d - s * d,
+            _ => d * (1.0 - a) + s * d,
+        };
+        let v = (v * 255.0).round().clamp(0.0, 255.0);
+        Chan::from_u8(u8::try_from(v as i64).unwrap_or(u8::MAX))
+    };
+    [
+        blend(ink[0], ground[0]),
+        blend(ink[1], ground[1]),
+        blend(ink[2], ground[2]),
+    ]
+}
+
+/// The alphas at which some channel of `ink` over `ground` by `mix`,
+/// rounded to a byte, steps: between two of them the composite does not
+/// change. Every mode is linear in the alpha, from the ground at 0 to its
+/// end at 1 -- the ink source-over, `cs + cb - cs cb` by `screen`, `cs cb`
+/// by `multiply` -- so each channel crosses each half-integer between the
+/// two once.
+fn cuts(ink: [Chan; 3], ground: [Chan; 3], mix: Mix) -> Vec<f64> {
     let mut cuts: Vec<f64> = vec![0.0, 1.0];
     for (&c, &d) in ink.iter().zip(&ground) {
-        let (c, d) = (c.get(), d.get());
-        let (lo, hi) = (c.min(d), c.max(d));
-        let span = f64::from(c) - f64::from(d);
-        for n in lo..hi {
-            let a = (f64::from(n) + 0.5 - f64::from(d)) / span;
+        let (c, d) = (f64::from(c.get()), f64::from(d.get()));
+        let end = match mix {
+            Mix::Normal => c,
+            Mix::Screen => c + d - c * d / 255.0,
+            Mix::Multiply => c * d / 255.0,
+        };
+        let (lo, hi) = (end.min(d), end.max(d));
+        let span = end - d;
+        let mut n = lo.floor();
+        while n < hi {
+            let a = (n + 0.5 - d) / span;
             if a > 0.0 && a < 1.0 {
                 cuts.push(a);
             }
+            n += 1.0;
         }
     }
     cuts.sort_by(f64::total_cmp);
@@ -231,11 +268,11 @@ fn cuts(ink: [Chan; 3], ground: [Chan; 3]) -> Vec<f64> {
 /// those crossings the rounded composite does not change, so one composite
 /// an interval is every composite there is. The answer is the start of the
 /// first interval whose composite is a transition; `None` if none is.
-fn first_flash(ink: [Chan; 3], ground: [Chan; 3], rule: Rule) -> Option<f64> {
+fn first_flash(ink: [Chan; 3], ground: [Chan; 3], rule: Rule, mix: Mix) -> Option<f64> {
     let g = seen(ground);
-    cuts(ink, ground).windows(2).find_map(|w| {
+    cuts(ink, ground, mix).windows(2).find_map(|w| {
         let mid = (w[0] + w[1]) * 0.5;
-        let c = seen(over(ink, ground, mid as f32));
+        let c = seen(composite(ink, ground, mid as f32, mix));
         transition(&c, &g, rule).then_some(w[0])
     })
 }
@@ -252,14 +289,41 @@ fn first_flash(ink: [Chan; 3], ground: [Chan; 3], rule: Rule) -> Option<f64> {
 /// not only the cap. The ground's redness halves the red bound. Computed
 /// when the ink or the ground changes, never a frame.
 pub fn under_threshold(ink: Argb, ground: Argb) -> Chan {
+    under_threshold_by(ink, ground, Mix::Normal)
+}
+
+/// **[`under_threshold`] for a trail drawn by `mix`** ([`Mix`]): the same
+/// scan over the composite the frame draws, and never above source-over's
+/// cap, so a mix lowers a cap where it must and raises none. The plasma in
+/// the terminal is drawn by `screen` on a dark theme and `multiply` on a
+/// light one, which can move a ground further than source-over at one
+/// alpha -- the cursor's colour over text of that colour, which source-over
+/// leaves as it was, most -- so its repeat is held by this cap: under
+/// source-over's alone, a repeat over the dark theme's default text made
+/// general transitions, a luminance change of up to 0.118
+/// (MEASUREMENTS.md, "The plasma at full strength").
+pub fn under_threshold_by(ink: Argb, ground: Argb, mix: Mix) -> Chan {
+    let k = scan(ink, ground, Mix::Normal);
+    match mix {
+        Mix::Normal => k,
+        _ => {
+            let m = scan(ink, ground, mix);
+            if m.get() < k.get() { m } else { k }
+        }
+    }
+}
+
+/// The largest byte under the least alpha at which `ink` over `ground` by
+/// `mix` makes a general or a red transition, less one step: 255 if none.
+fn scan(ink: Argb, ground: Argb, mix: Mix) -> Chan {
     let (i, g) = (rgb(ink), rgb(ground));
     let bound = match seen(g).red {
         Redness::Red => STEP / 2.0,
         Redness::Not => STEP,
     };
     let first = [
-        first_flash(i, g, Rule::General),
-        first_flash(i, g, Rule::Red(bound)),
+        first_flash(i, g, Rule::General, mix),
+        first_flash(i, g, Rule::Red(bound), mix),
     ]
     .into_iter()
     .flatten()
@@ -281,16 +345,23 @@ pub fn under_threshold(ink: Argb, ground: Argb) -> Chan {
 /// moves. The least cap over each distinct mixture, found by the same exact
 /// intervals.
 pub fn under_threshold_over(ink: Argb, text: Argb, page: Argb) -> Chan {
+    under_threshold_over_by(ink, text, page, Mix::Normal)
+}
+
+/// **[`under_threshold_over`] for a trail drawn by `mix`**: the glyph's
+/// mixtures are its edges, source-over as every glyph is drawn, and each
+/// one's cap is [`under_threshold_by`] the trail's mix.
+pub fn under_threshold_over_by(ink: Argb, text: Argb, page: Argb, mix: Mix) -> Chan {
     let (t, p) = (rgb(text), rgb(page));
     let mut k = Chan::from_u8(0xFF);
     let mut last = None;
-    for w in cuts(t, p).windows(2) {
-        let mix = over(t, p, ((w[0] + w[1]) * 0.5) as f32);
-        if last == Some(mix) {
+    for w in cuts(t, p, Mix::Normal).windows(2) {
+        let edge = over(t, p, ((w[0] + w[1]) * 0.5) as f32);
+        if last == Some(edge) {
             continue;
         }
-        last = Some(mix);
-        let c = under_threshold(ink, Argb::rgb(mix[0], mix[1], mix[2]));
+        last = Some(edge);
+        let c = under_threshold_by(ink, Argb::rgb(edge[0], edge[1], edge[2]), mix);
         if c.get() < k.get() {
             k = c;
         }
@@ -307,6 +378,57 @@ pub fn capped(a: Chan, k: Chan) -> Chan {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A mix lowers a cap only where it must**: the plasma's caps under
+    /// its `screen` and `multiply` over the census's grounds and inks, bare
+    /// and over the theme's text, are source-over's on every pair but
+    /// three, each lower: the dark page's default ink, bare and over its
+    /// text, where `screen` lights the text in its own colour, and the red
+    /// ground's default ink over text. Black under `screen` changes nothing
+    /// and its scan alone would say 255, which the cap does not rise to.
+    #[test]
+    fn a_mix_lowers_a_cap_only_where_it_must() {
+        let c =
+            |r: u8, g: u8, b: u8| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b));
+        let (light_ink, ink) = (c(0x27, 0x27, 0x27), c(0xD8, 0xD8, 0xD8));
+        let grounds = [
+            (c(0x10, 0x10, 0x10), ink, Mix::Screen),
+            (c(0xEF, 0xEF, 0xEF), light_ink, Mix::Multiply),
+            (c(0xCD, 0, 0), ink, Mix::Screen),
+            (c(0x1A, 0, 0), ink, Mix::Screen),
+        ];
+        let mut lowered = Vec::new();
+        for (g, text, mix) in grounds {
+            for i in [text, c(255, 255, 255), c(0, 0, 0), c(255, 0, 0)] {
+                let pairs = [
+                    (under_threshold(i, g), under_threshold_by(i, g, mix)),
+                    (
+                        under_threshold_over(i, text, g),
+                        under_threshold_over_by(i, text, g, mix),
+                    ),
+                ];
+                for (n, (over, by)) in pairs.into_iter().enumerate() {
+                    assert!(by.get() <= over.get(), "{g:?} {i:?}: a mix raised a cap");
+                    if by != over {
+                        lowered.push((g, i, n, over.get(), by.get()));
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            lowered,
+            [
+                (c(0x10, 0x10, 0x10), ink, 0, 95, 94),
+                (c(0x10, 0x10, 0x10), ink, 1, 66, 55),
+                (c(0xCD, 0, 0), ink, 1, 78, 60),
+            ]
+        );
+        assert_eq!(
+            scan(c(0, 0, 0), c(0x10, 0x10, 0x10), Mix::Screen).get(),
+            0xFF,
+            "the control: black screens to nothing"
+        );
+    }
 
     /// The census's grounds and inks (`baud-bench/benches/flash.rs`): the
     /// theme's default foreground is `#272727` on the light page and
@@ -370,8 +492,8 @@ mod tests {
         for (ground, ink, general, red) in TABLE {
             let (i, g) = pair(ground, ink);
             let found = [
-                first_flash(i, g, Rule::General),
-                first_flash(i, g, Rule::Red(STEP)),
+                first_flash(i, g, Rule::General, Mix::Normal),
+                first_flash(i, g, Rule::Red(STEP), Mix::Normal),
             ];
             for ((want, got), what) in [general, red]
                 .into_iter()
@@ -445,10 +567,13 @@ mod tests {
                         k.get()
                     );
                 }
-                let first = [first_flash(i, g, Rule::General), first_flash(i, g, red)]
-                    .into_iter()
-                    .flatten()
-                    .reduce(f64::min);
+                let first = [
+                    first_flash(i, g, Rule::General, Mix::Normal),
+                    first_flash(i, g, red, Mix::Normal),
+                ]
+                .into_iter()
+                .flatten()
+                .reduce(f64::min);
                 if let Some(a) = first {
                     assert!(
                         (f64::from(k.get()) + 2.0) / 255.0 >= a,
@@ -479,7 +604,7 @@ mod tests {
             "a mixture's cap {} is under the ends' {ends}",
             k.get()
         );
-        for w in cuts(ink, page).windows(2) {
+        for w in cuts(ink, page, Mix::Normal).windows(2) {
             let mix = over(ink, page, ((w[0] + w[1]) * 0.5) as f32);
             let (gs, red) = (seen(mix), Rule::Red(bound(mix)));
             for j in 0..=(u16::from(k.get()) * 16) {

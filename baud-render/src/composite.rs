@@ -44,6 +44,25 @@ pub enum Page {
     Glass,
 }
 
+/// **How an effect's light meets what is under it**: W3C Compositing 1's
+/// separable blend modes, each composited source-over by section 6's
+/// general formula, `co = cs (1 - ab) + cb (1 - as) + as ab B(Cb, Cs)` and
+/// `ao = as + ab (1 - as)` (`[[source: w3c-compositing-1]]`). `Normal` is
+/// `B = Cs`, source-over, which every effect draws by but the plasma in
+/// the terminal. `Screen` (10.1.3), `B = Cb + Cs - Cb Cs`, lights what is
+/// under it, and `Multiply` (10.1.2), `B = Cb Cs`, shades it: on a black
+/// page `screen` is source-over exactly and on a white page `multiply` is,
+/// so a light over a page near either draws it as source-over does within
+/// a few steps, and over ink of its own colour -- the cursor's, which is
+/// the text's by default -- it moves the ink, where source-over in that
+/// colour leaves it as it was.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Mix {
+    Normal,
+    Screen,
+    Multiply,
+}
+
 /// The caller's pixel buffer: `width` by `height` pixels of `Argb`, rows
 /// `stride` pixels apart. What an `IOSurface`, a `wl_shm` map or an
 /// upload heap hands over.
@@ -597,7 +616,7 @@ impl<'p> Target<'p> {
             stride: self.stride,
             width: self.width,
         };
-        rows.effect(vfx, records, (blend, page), piece);
+        rows.effect(vfx, records, (blend, page, Mix::Normal), piece);
     }
 
     /// **[`Target::effect`] over many rows at once, on up to `threads`
@@ -607,12 +626,12 @@ impl<'p> Target<'p> {
     /// one a thread, none under [`SHARE`]: every pixel is under the same
     /// records in the same order whichever run it falls in, and its light is
     /// its own ([`Vfx::shade`]), so the pixels are the one thread's bit for
-    /// bit.
+    /// bit. Each record meets what is under it by `mix` ([`Mix`]).
     pub(crate) fn effect_over(
         &mut self,
         vfx: &Vfx,
         records: &[Instance],
-        (blend, page): (Blend, Page),
+        (blend, page, mix): (Blend, Page, Mix),
         pieces: &[(Band, Px, Px)],
         threads: core::num::NonZeroUsize,
     ) {
@@ -642,7 +661,7 @@ impl<'p> Target<'p> {
                 width,
             };
             for p in pieces {
-                all.effect(vfx, records, (blend, page), p);
+                all.effect(vfx, records, (blend, page, mix), p);
             }
             return;
         }
@@ -672,7 +691,7 @@ impl<'p> Target<'p> {
                 let rows = p.rows.start.max(start)..p.rows.end.min(end);
                 if rows.start < rows.end {
                     let cols = p.cols.clone();
-                    share.effect(vfx, records, (blend, page), Piece { rows, cols });
+                    share.effect(vfx, records, (blend, page, mix), Piece { rows, cols });
                 }
             }
         };
@@ -1037,13 +1056,38 @@ fn cuts(
 }
 
 impl Rows<'_> {
-    /// [`Target::effect`] over `piece`, its rows within this share's.
+    /// [`Target::effect`] over `piece`, its rows within this share's, each
+    /// record meeting what is under it by `mix`: chosen once a call, each
+    /// mode its own copy of the loop ([`Rows::effect_by`]), so no pixel asks
+    /// which, and the source-over loop is the one every effect drew by.
     fn effect(
         &mut self,
         vfx: &Vfx,
         records: &[Instance],
-        (blend, page): (Blend, Page),
+        (blend, page, mix): (Blend, Page, Mix),
         piece: Piece,
+    ) {
+        match mix {
+            Mix::Normal => self.effect_by(vfx, records, piece, |s, d, a| {
+                blend.over_unit(s, d, a, page)
+            }),
+            Mix::Screen => self.effect_by(vfx, records, piece, |s, d, a| {
+                blend.mix_unit(s, d, a, page, Mix::Screen)
+            }),
+            Mix::Multiply => self.effect_by(vfx, records, piece, |s, d, a| {
+                blend.mix_unit(s, d, a, page, Mix::Multiply)
+            }),
+        }
+    }
+
+    /// [`Rows::effect`]'s loop, each pixel's colour from `mix(source, under,
+    /// opacity)`.
+    fn effect_by(
+        &mut self,
+        vfx: &Vfx,
+        records: &[Instance],
+        piece: Piece,
+        mix: impl Fn(Argb, Argb, f32) -> Argb,
     ) {
         let (stride, width, first) = (slots(self.stride), slots(self.width), slots(self.first));
         let (rows, cols) = (piece.rows, piece.cols);
@@ -1081,7 +1125,7 @@ impl Rows<'_> {
                         pixels[i] = match kept {
                             Some((k, u, out)) if k == key && u == under => out,
                             _ => {
-                                let out = blend.over_unit(color, Argb(under), a, page).0;
+                                let out = mix(color, Argb(under), a).0;
                                 kept = Some((key, under, out));
                                 out
                             }
@@ -1102,7 +1146,7 @@ impl Rows<'_> {
                     });
                     let a = alpha * v;
                     if a > 0.0 {
-                        row[x] = blend.over_unit(color, Argb(row[x]), a, page).0;
+                        row[x] = mix(color, Argb(row[x]), a).0;
                     }
                 }
             }
@@ -1224,6 +1268,50 @@ impl Blend {
                 }
             }
         }
+    }
+
+    /// **`src` at opacity `a` over `dst` by `mix`** ([`Mix`]), rounded as
+    /// [`Blend::over_unit`]'s `Native` arm rounds: `co` and `ao` from the
+    /// backdrop as the presenter premultiplies it, each rounded to a byte as
+    /// the GPU's store is, and the straight byte kept the nearest to `co /
+    /// ao`, which premultiplies back to `co`. In premultiplied numbers,
+    /// section 6's formula is `co = cs + cb - cs cb` for `screen` and `co =
+    /// cs (1 - ab) + cb (1 - as) + cs cb` for `multiply`, each `ao = as + ab
+    /// - as ab`, the blend states `baud-present-macos` draws them by.
+    /// `Normal` is [`Blend::over_unit`] itself, and so is every mode under
+    /// `Linear`, which has no GPU counterpart and no app path selects.
+    #[inline(always)]
+    fn mix_unit(self, src: Argb, dst: Argb, a: f32, page: Page, mix: Mix) -> Argb {
+        if mix == Mix::Normal || self == Blend::Linear {
+            return self.over_unit(src, dst, a, page);
+        }
+        let ab = dst.a();
+        let unit = |c: Chan| UNIT[c.index()];
+        let pb = |d: Chan| unit(baud_domain::premultiply_chan(d, ab));
+        // The alpha lane's source is 1, so either mode gives it `a + ab -
+        // a ab`, source-over's `ao`.
+        let s = f32x4::from_array([unit(src.r()), unit(src.g()), unit(src.b()), 1.0]);
+        let b = f32x4::from_array([pb(dst.r()), pb(dst.g()), pb(dst.b()), unit(ab)]);
+        let cs = s * f32x4::splat(a);
+        let v = match mix {
+            Mix::Screen => cs + b - cs * b,
+            _ => cs * f32x4::splat(1.0 - unit(ab)) + b * f32x4::splat(1.0 - a) + cs * b,
+        };
+        let bytes: u32x4 = (v * f32x4::splat(255.0))
+            .round()
+            .simd_clamp(f32x4::splat(0.0), f32x4::splat(255.0))
+            .cast();
+        let [r, g, bl, ao] = bytes.to_array();
+        if ao == 0 {
+            return Argb(0);
+        }
+        let m = u64::from(RECIP[usize::try_from(ao & 0xFF).unwrap_or(0)]);
+        let mix = |co: u32| -> Chan {
+            let v = (u64::from(co.min(ao) * 255 + ao / 2) * m) >> 24;
+            Chan::from_u8(u8::try_from(v).unwrap_or(255))
+        };
+        Argb::rgb(mix(r), mix(g), mix(bl))
+            .with_alpha(Chan::from_u8(u8::try_from(ao).unwrap_or(255)))
     }
 
     /// `src` over `dst` with `cov` scaling the source alpha, where `dst`
@@ -1635,7 +1723,7 @@ mod tests {
                     t.effect_over(
                         &vfx,
                         &records,
-                        (Blend::Native, Page::Opaque),
+                        (Blend::Native, Page::Opaque, Mix::Normal),
                         &pieces,
                         core::num::NonZeroUsize::new(n).unwrap(),
                     );

@@ -64,7 +64,7 @@ use baud_font::Px;
 use baud_render::effect::{self, Effect};
 use baud_render::{
     Argb, Atlas, CursorLook, Decorations, Dirty, Generation, Ground, Highlight, ImageComposite,
-    ImageLayer, ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration,
+    ImageLayer, ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, Mix,
     Reach, Redraw, Region, Renderer, Replaced, Resolved, RowSet, Screen, Side, StyleStamp, Tally,
     Tex, TexRect,
 };
@@ -643,6 +643,10 @@ pub struct Gpu {
     /// The fireworks' pipeline: `fireworks_vertex` and `fireworks_fragment`.
     fireworks_pipe: LatePipe,
     effect_pipes: [LatePipe; Effect::COUNT],
+    /// **The plasma in front of the text** ([`Renderer::trail_mix`]):
+    /// `plasma_fragment` by `screen`, then `plasma_multiply_fragment` by
+    /// `multiply`.
+    plasma_mixed: [LatePipe; 2],
     /// `glyph_vertex` and `image_fragment`: an image placement read
     /// through its tables. Built the first time an image is drawn.
     image_pipe: LatePipe,
@@ -803,10 +807,17 @@ struct CellLast {
 
 /// Whether a pass blends over what is under it, or replaces it. The
 /// background passes replace, so a cell's background is a single composite
-/// matching the margin's clear; glyphs and shapes blend over.
+/// matching the margin's clear; glyphs and shapes blend over. The plasma in
+/// the terminal blends by `screen` or `multiply` ([`Mix`]): premultiplied
+/// `cs + cb (1 - cs)` by `One, OneMinusSourceColor`, and `cs (1 - ab) + cb
+/// (1 - as + cs)` by `OneMinusDestinationAlpha` and the second source,
+/// `plasma_multiply_fragment`'s `1 - as + cs`; the alpha `as + ab (1 - as)`
+/// under all three, which is W3C Compositing's `ao`.
 enum Blend {
     Over,
     Replace,
+    Screen,
+    Multiply,
 }
 
 fn pipeline(
@@ -828,9 +839,17 @@ fn pipeline(
     // The background passes replace: a cell's background is written once, the
     // same single composite the margin's clear is, so the two match over the
     // glass. Glyphs and shapes blend over that with premultiplied OVER.
-    att.setBlendingEnabled(matches!(blend, Blend::Over));
-    att.setSourceRGBBlendFactor(MTLBlendFactor::One);
-    att.setDestinationRGBBlendFactor(MTLBlendFactor::OneMinusSourceAlpha);
+    att.setBlendingEnabled(!matches!(blend, Blend::Replace));
+    let (source, destination) = match blend {
+        Blend::Over | Blend::Replace => (MTLBlendFactor::One, MTLBlendFactor::OneMinusSourceAlpha),
+        Blend::Screen => (MTLBlendFactor::One, MTLBlendFactor::OneMinusSourceColor),
+        Blend::Multiply => (
+            MTLBlendFactor::OneMinusDestinationAlpha,
+            MTLBlendFactor::Source1Color,
+        ),
+    };
+    att.setSourceRGBBlendFactor(source);
+    att.setDestinationRGBBlendFactor(destination);
     att.setSourceAlphaBlendFactor(MTLBlendFactor::One);
     att.setDestinationAlphaBlendFactor(MTLBlendFactor::OneMinusSourceAlpha);
     match device.newRenderPipelineStateWithDescriptor_error(&desc) {
@@ -1155,6 +1174,7 @@ impl Gpu {
             quad_pipe: LatePipe::Unbuilt,
             fireworks_pipe: LatePipe::Unbuilt,
             effect_pipes: core::array::from_fn(|_| LatePipe::Unbuilt),
+            plasma_mixed: [LatePipe::Unbuilt, LatePipe::Unbuilt],
             image_pipe: LatePipe::Unbuilt,
             image_replace_pipe: LatePipe::Unbuilt,
             cell_ring_pipe: LatePipe::Unbuilt,
@@ -1689,9 +1709,36 @@ impl Gpu {
         let Some(at) = Effect::ALL.iter().position(|&e| e == effect) else {
             return false;
         };
-        self.effect_pipes[at]
+        let built = self.effect_pipes[at]
             .get(&self.device, &self.library, effect.fragment())
-            .is_some()
+            .is_some();
+        // The plasma's pipelines in front of the text too, which the
+        // terminal's first move draws by.
+        if effect == Effect::Plasma {
+            for mix in [Mix::Screen, Mix::Multiply] {
+                let _ = self.plasma_mixed(mix);
+            }
+        }
+        built
+    }
+
+    /// The plasma's pipeline by `mix`, built now if it never was: `screen`
+    /// over `plasma_fragment`, `multiply` over `plasma_multiply_fragment`.
+    fn plasma_mixed(
+        &mut self,
+        mix: Mix,
+    ) -> Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
+        let (at, fragment, blend) = match mix {
+            Mix::Normal => return None,
+            Mix::Screen => (0, "plasma_fragment", Blend::Screen),
+            Mix::Multiply => (1, "plasma_multiply_fragment", Blend::Multiply),
+        };
+        self.plasma_mixed[at].get_as(
+            &self.device,
+            &self.library,
+            ("glyph_vertex", fragment),
+            blend,
+        )
     }
 
     /// The trail's draw for this frame, if the renderer has one and its
@@ -1725,9 +1772,16 @@ impl Gpu {
             });
         }
         let vfx = renderer.vfx()?;
-        // The effect's place in `Effect::ALL`, which the array follows.
+        // The effect's place in `Effect::ALL`, which the array follows; the
+        // plasma in front of the text by its own blend, as the CPU path
+        // composites it.
         let at = Effect::ALL.iter().position(|&e| e == vfx.effect)?;
-        let pipe = self.effect_pipes[at].get(&self.device, &self.library, vfx.effect.fragment())?;
+        let pipe = match renderer.trail_mix() {
+            Mix::Normal => {
+                self.effect_pipes[at].get(&self.device, &self.library, vfx.effect.fragment())?
+            }
+            mix => self.plasma_mixed(mix)?,
+        };
         Some(TrailDraw {
             pipe,
             uniform: TrailUniform::Effect(vfx.uniform(pad)),

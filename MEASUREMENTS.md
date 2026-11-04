@@ -1609,39 +1609,85 @@ same file byte for byte: `cmp` finds no difference, and its `__text` is
 changes there is the trail the renderer is handed: over the helix replay
 above, a trail on 270 frames against 389.
 
-
 ## The plasma at full strength (2026-11-04)
 
-**Lit on every long move, and clamped at the flash cap on a repeat
-rather than scaled by it, the plasma fails none of the flash census's
-2,688 cases on any of its four readings, and its pixel check finds no
-transition on any repeat frame.** Taken 2026-11-04, Apple M5 Max, macOS
-27.0, on AC, on this tree. `baud-bench/benches/flash.rs`, drawn by the
-Metal pipelines offscreen: the plasma at 13, 24, 26, 32, 34.5 and 72 pt
-(cells of 17, 32, 34, 42, 46 and 95 pt), 1x and 2x, 60 and 120 Hz, the
-dark and light pages, the four inks, the seven motions, bare and over
-`X`s (`FLASH_TEXT=1`): 224 cases a size and scale. The block control
-failed at 4 Hz and passed at 2 Hz on all 192 runs. Areas in pt², against
-21,824; the base is the committed O2 census's plasma on the same pages,
-bare (`b68-o2-census.tsv.gz`).
+**Lit on every long move, clamped at the flash cap on a repeat, and drawn
+in front of the text, the plasma fails none of the flash census's cases
+on any of its four readings, and its pixel check finds no transition on
+any repeat frame.** Taken 2026-11-04, Apple M5 Max, macOS 27.0, on AC.
+`baud-bench/benches/flash.rs`, drawn by the Metal pipelines offscreen:
+the plasma at 13, 24, 26, 32, 34.5 and 72 pt (cells of 17, 32, 34, 42, 46
+and 95 pt), 1x and 2x, 60 and 120 Hz, the four inks, the seven motions,
+bare and over `X`s (`FLASH_TEXT=1`), on the dark and light pages opaque
+and on the glass over a white and a black desktop (`FLASH_GLASS=1`),
+8,064 cases, and on the red and dark red grounds a program sets, opaque,
+2,688 more. The block control failed at 4 Hz and passed at 2 Hz on every
+run. Worst areas in pt² over 1x and 2x, against 21,824; the base is the
+committed O2 census's plasma, the dark and light pages bare
+(`b68-o2-census.tsv.gz`); "lit and clamped" is the tree before the blend:
 
-| font | cell | worst area, 1x / 2x | worst strict, 1x / 2x | base worst area, 1x / 2x | repeat frames a size |
-|---:|---:|---|---|---|---:|
-| 13 | 17 | 10,208 / 10,202 | 10,208 / 10,202 | 8,274 / 8,205 | 0 |
-| 24 | 32 | 18,493 / 18,707 | 18,493 / 18,707 | 15,018 / 15,257 | 0 |
-| 26 | 34 | 1,061 / 1,066 | 1,771 / 1,719 | 1,091 / 1,080 | 37,152 |
-| 32 | 42 | 1,589 / 1,590 | 2,571 / 2,560 | 1,608 / 1,607 | 37,152 |
-| 34.5 | 46 | 1,923 / 1,858 | 3,161 / 2,984 | -- | 37,152 |
-| 72 | 95 | 8,599 / 8,598 | 12,125 / 12,076 | 8,170 / 8,170 | 37,152 |
+| font | cell | base | lit and clamped | in front | glass | strict | red grounds | busiest pixel, a second |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 13 | 17 | 8,274 | 10,208 | 10,208 | 10,127 | 10,208 | 7,835 | 18 |
+| 24 | 32 | 15,257 | 18,707 | 18,707 | 18,559 | 18,707 | 14,338 | 19 |
+| 26 | 34 | 1,091 | 1,066 | 1,066 | 1,080 | 1,771 | 719 | 7 |
+| 32 | 42 | 1,608 | 1,590 | 1,590 | 1,610 | 2,571 | 846 | 8 |
+| 34.5 | 46 | -- | 1,923 | 1,923 | 1,937 | 3,161 | 1,196 | 7 |
+| 72 | 95 | 8,170 | 8,599 | 8,599 | 8,219 | 12,125 | 4,085 | 7 |
 
-Every move lit an ignition: on the bare half, 2,032 of 2,032 a size and
-scale, where the base lit 672 of the same 2,032. Under the gate that
-raised the worst area by 23%, to 86% of the threshold at 24 pt 2x; per pixel
-the busiest flashed 19 times a second and 15 red, passing by the area
-clause as the base did. Over it the repeat's pixel check counted no
-general and no red transition and no record past its cap (`under_over`,
-`under_red` and `over_cap` 0 on every case), the busiest pixel 7 times
-a second.
+Every move lit an ignition, 2,032 of 2,032 a size and scale on the bare
+pages, where the base lit 672. Under the gate that raised the worst area
+by 23%, to 86% of the threshold at 24 pt; the busiest pixel flashed 19
+times a second, passing by the area clause as the base did. Over it the
+pixel check (`under_over`, `under_red`, `over_cap`) is 0 on every case.
+
+**The blend's first run flashed: the cap the bound read was
+source-over's.** On the dark and light pages, opaque and glass, it
+failed none of 8,064 cases on the four readings, but its pixel check
+counted 11,245,366 general transitions on repeat frames, every one over
+the dark theme's default text, the luminance moving by up to 0.118
+against source-over's 0.098: source-over leaves a letter in the
+cursor's own colour as it was, and `screen` lights it. The cap is now
+scanned over the composite the plasma is drawn by and never above
+source-over's (`flash::under_threshold_by`). Of the census's pairs three
+fall, the dark page's default ink bare (95 to 94) and over its text (66
+to 55) and the red ground's over text (78 to 60). Under the gate nothing
+is a repeat and the frames are unchanged (28 of 28 frame hashes at 13
+and 24 pt); above it the census ran again, 5,376 cases, with the table's
+results, the busiest pixel back from 12 flashes a second to 7 or 8.
+
+**A letter under it keeps more of its contrast than under source-over**
+(`the_plasma_lights_a_letter_it_crosses_and_shades_it_on_a_light_theme`,
+`X`s at 2x, 0.03 to 0.1 s into a 30-column move): every solid ink pixel
+the light reaches moves, brighter on the dark theme and darker on the
+light. WCAG's contrast of a cell's mean ink to its mean ground, the
+least over the cells lit, is 5.68-6.88:1 on the dark theme against
+source-over's 5.21-6.39, and 7.93-9.14:1 on the light against 7.05-8.15
+(bare, 13.35 and 12.99). Its worst pair, a filament on the ground beside
+a letter's dimmest ink, is 1.14-1.69:1 against 1.05-1.65, and 1.15-2.11
+against 1.07-2.04: the filament is the text's colour at up to 0.9 of its
+opacity, and neither blend keeps 4.5:1 there.
+
+**What it costs**, in instructions retired (`/usr/bin/time -l`); wall
+time is unmeasured, under a load of 10 to 26. The base `192dcc9d`, the
+lane's change on it before the cap's fix, which runs only for a repeat,
+and a `cmp`-identical A/A copy: release builds at one path, six rotated
+rounds, the first dropped. The `frame` bench's plasma trail over
+`git-log`'s last screen, 600 full frames at 200x50 and 14 px, less its
+`none` run, over 600, M a frame [range]; rows and records equal:
+
+| theme | base | change | A/A copy |
+|---|---|---|---|
+| dark, `screen` | 3.260 [3.255-3.265] | 3.295 [3.291-3.302] | 3.296 |
+| light, `multiply` | 3.260 [3.251-3.275] | 3.309 [3.304-3.313] | 3.310 |
+
++1.1% and +1.5%, ranges separate. `frame_gpu` has no trail mode: its
+arms and the `frame` replay of `vim-unicode`, with no trail, overlap
+their base (2.0724 G [2.0643-2.0829] against 2.0896 [2.0753-2.0984], A/A
+2.0902; 1.7738 G against 1.7758), no result; what the two blend states
+cost the GPU is unmeasured. Over `vim-unicode` the `frame` bench's
+default move lights an ignition pointing left (`dir.x` -0.998), so the
+hand mirrors it: 4.92 rows a frame become 4.95.
 
 ## The glass's backdrop premultiplied once a run (measured, no change)
 

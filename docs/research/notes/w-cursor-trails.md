@@ -80,7 +80,7 @@ The files as committed, each with its SHA-256:
 | `quad-pins.txt` | `57d854da8f621eb86ff1f5e6afaecc953c98b93a07a897ada099340f5ba24e6b` |
 | `spec-ice.json` | `f9a5449ce2d24ffc9cb842efa4dad002556f4bbe54a67ddab0c4de244006f062` |
 | `spec-liquid.json` | `b310873714f654dc83177f993ecbacad7972137f38fcbb731fe93775eb50ff00` |
-| `spec-plasma.json` | `8306ec56ac4f82785342bf176ad32b0a4cecc310a311a5be99ba179624c319b8` (recovered as `255a7401b48ec6253c363a2dce3585b365bceceab917bdfb85a8993775f739da`; the `departures` entry, section 5.5, added since) |
+| `spec-plasma.json` | `1f87f2954a8c7be3e9450267faf5f41a372b590d7601752b9f3135d4b903ebe2` (recovered as `255a7401b48ec6253c363a2dce3585b365bceceab917bdfb85a8993775f739da`; the `departures` entry, section 5.5, added since) |
 | `spec-ufo.json` | `15e8ac48bcf5441e130c92d220059aae1076cafbe7c2c194ba54662845d93390` |
 | `ufo-proto.py` | `7e704494c909e6d0d4068e0bd62c451c1663712f8cd9a1beec519a4f48d87140` |
 | `ufo-proto2.py` | `9d101e49e3ffeb368f11521d53fdf8c3623bedc8f5c0fcb8e66adf6bff190ee3` |
@@ -355,6 +355,36 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   `baud-render/tests/flash_bound.rs` and the GPU oracle's repeat scene
   hold it; the census is in MEASUREMENTS.md, "The plasma at full
   strength".
+- **Departure from the spec: in front of the text.** The spec composites
+  the plasma source-over in the cursor's colour, which is the text's by
+  default; source-over of a letter's own colour leaves the letter as it
+  was, so the plasma read as behind the text though it was drawn after
+  it. The terminal's plasma is now drawn by W3C Compositing 1's `screen`
+  on a dark theme and `multiply` on a light one (`composite::Mix`,
+  `Renderer::trail_mix`), each composited by its section 6, in the
+  cursor's colour still: on the CPU path by one loop over the mode, on
+  both GPU paths by two more blend states, `One, OneMinusSourceColor` for
+  `screen` and `OneMinusDestinationAlpha, Source1Color` for `multiply`,
+  whose second source, `plasma_multiply_fragment`'s `1 - as + cs`, keeps
+  the glass's `cs (1 - ab)` term. Over the page it draws as source-over
+  within 3 steps of 255 but where an ion lies over the tube (26 of 8,755
+  lit page pixels at 0.1 s, by up to 25); over a letter it moves every ink pixel it lights,
+  brighter on the dark theme and deeper on the light. A letter's contrast
+  under it is measured in MEASUREMENTS.md, "The plasma at full strength".
+  The flash bound's cap is scanned over the composite the plasma is drawn
+  by, and never above source-over's (`flash::under_threshold_by`): under
+  source-over's cap alone a repeat over the dark theme's default text made
+  general transitions in the census, since `screen` lights a letter in the
+  cursor's own colour where source-over leaves it. Of the census's pairs
+  three caps fall, the dark page's default ink bare (95 to 94) and over
+  its text (66 to 55) and the red ground's over text (78 to 60), and no
+  other moves (`a_mix_lowers_a_cap_only_where_it_must`).
+  The reason: the trail is seen in front of the text it crosses. Only
+  the plasma's drawing changed. The other six effects share its
+  compositor loop and its pipeline builder but not its light, and are
+  drawn source-over; the launch splash's plasma, which shares its light,
+  and the plasma blink's glow, which shares only its constants and is
+  drawn as solids, are unchanged.
 - **Measured:** MEASUREMENTS.md, "The cursor trails' costs"; note AJ section 1.3 and note AL for the flash bound, which
   the plasma's module doc argues per 341x256 window and note AL counted on
   frames.

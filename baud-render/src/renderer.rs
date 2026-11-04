@@ -12,7 +12,7 @@ use crate::cellmap::{
     Selected, Shapes, Swaps, Text, takes_stress_mark,
 };
 use crate::color::{Argb, Theme, Video};
-use crate::composite::{Blend, Blit, Page, Target, Texels};
+use crate::composite::{Blend, Blit, Mix, Page, Target, Texels};
 use crate::effect::Vfx;
 use crate::find::{Current, FindLook};
 use crate::flash::{self, Strength};
@@ -2407,7 +2407,9 @@ pub struct Renderer<'f, 'a> {
     flash_held: flash::Held,
     /// The caps already scanned, by cursor colour, text colour and page:
     /// a screen's worth, [`FLASH_CACHED`], emptied between frames when full.
-    flash_caps: std::collections::HashMap<(Argb, Argb, Argb), Chan>,
+    /// And by the trail's mix ([`Renderer::trail_mix`]), the composite each
+    /// is scanned over.
+    flash_caps: std::collections::HashMap<(Argb, Argb, Argb, Mix), Chan>,
     /// The alternate-screen fade's veil on this frame and the last, and its
     /// one full-screen solid: while it fades every row is dirty, because the
     /// veil covers the whole screen and the whole screen is what changed.
@@ -4497,16 +4499,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
             k = Chan::from_u8(0);
         }
         let mut bound = false;
+        // Each ground scanned over the composite the trail is drawn by: the
+        // plasma's `screen` or `multiply` moves a ground further than
+        // source-over does at one alpha.
+        let mix = self.trail_mix();
         for (text, page) in triples {
             if k.get() == 0 && budget == 0 {
                 break;
             }
-            let c = match self.flash_caps.get(&(ink, text, page)) {
+            let c = match self.flash_caps.get(&(ink, text, page, mix)) {
                 Some(&c) => c,
                 None if budget > 0 => {
                     budget -= 1;
-                    let c = flash::under_threshold_over(ink, text, page);
-                    self.flash_caps.insert((ink, text, page), c);
+                    let c = flash::under_threshold_over_by(ink, text, page, mix);
+                    self.flash_caps.insert((ink, text, page, mix), c);
                     c
                 }
                 None => {
@@ -4548,6 +4554,31 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// emptied.
     pub fn flash_cached(&self) -> Tally {
         Tally::of(self.flash_caps.len())
+    }
+
+    /// **How this frame's trail meets what is under it** ([`Mix`]), the one
+    /// decision every path draws by -- the CPU's compositor and both GPU
+    /// paths' blend state. **The plasma in the terminal is drawn in front of
+    /// the text**: by `screen` on a dark theme, which lights the letters it
+    /// crosses, and by `multiply` on a light one, which shades them, still
+    /// in the cursor's colour. That colour is the text's by default, and
+    /// source-over in a letter's own colour leaves the letter as it was, so
+    /// the plasma read as behind the text though it was drawn over it. Over
+    /// the page each draws as source-over does within a few steps: `screen`
+    /// is source-over on black and `multiply` on white. The splash's plasma,
+    /// every other trail, a theme with no polarity and the `Linear` blend
+    /// draw source-over. A repeat's cap is scanned over the same mix
+    /// (`Renderer::bound_trail`, [`flash::under_threshold_by`]).
+    pub fn trail_mix(&self) -> Mix {
+        let plasma = matches!(self.trail, Some(Drawn::Vfx(v, ..)) if v.effect == crate::effect::Effect::Plasma);
+        if !plasma || self.blend != Blend::Native || self.splash_vfx().is_some() {
+            return Mix::Normal;
+        }
+        match self.theme.polarity() {
+            Some(baud_domain::ColorScheme::Dark) => Mix::Screen,
+            Some(baud_domain::ColorScheme::Light) => Mix::Multiply,
+            None => Mix::Normal,
+        }
     }
 
     /// The effect this frame draws, for a GPU path to hand its fragment
@@ -8257,7 +8288,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 target.effect_over(
                     &v,
                     &self.trail_inst,
-                    (self.blend, page),
+                    (self.blend, page, self.trail_mix()),
                     &pieces,
                     self.threads,
                 );

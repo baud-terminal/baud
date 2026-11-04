@@ -10,8 +10,8 @@ use baud_domain::{BytePos, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::{
-    Blend, Damage, Instance, Kind, Pt, PxSize, Renderer, Segment, Shape, Smear, Stack, Target,
-    Theme, Trail, TrailLook, Transition, quad_coverage,
+    Blend, Damage, Instance, Kind, Mix, Pt, PxSize, Renderer, Segment, Shape, Smear, Stack, Tally,
+    Target, Theme, Trail, TrailLook, Transition, quad_coverage,
 };
 use support::font;
 
@@ -539,28 +539,44 @@ fn a_jump_repaints_only_the_columns_its_smear_covers() {
 }
 
 /// `src`, premultiplied and in channels 0 to 1, over the premultiplied
-/// pixel `dst`, rounded to bytes as the GPU's blend unit stores them:
-/// `over` in `baud-present-macos/tests/cells.rs`, the rule the GPU arms are
-/// held to.
-fn over_premultiplied(src: [f32; 4], dst: u32) -> u32 {
+/// pixel `dst` by `mix`, rounded to bytes as the GPU's blend unit stores
+/// them: `over` in `baud-present-macos/tests/cells.rs`, the rule the GPU
+/// arms are held to, for source-over, and W3C Compositing's section 6 in
+/// premultiplied numbers for each mode: `cs + cb (1 - as)` source-over,
+/// `cs + cb - cs cb` by `screen`, `cs (1 - ab) + cb (1 - as) + cs cb` by
+/// `multiply`, the alpha `as + ab (1 - as)` under each.
+fn mixed_premultiplied(src: [f32; 4], dst: u32, mix: Mix) -> u32 {
     let ch = |k: u32| f32::from(u8::try_from((dst >> k) & 0xff).unwrap()) / 255.0;
-    let mix = |s: f32, d: f32| {
-        let v = ((s + d * (1.0 - src[3])) * 255.0).round().clamp(0.0, 255.0);
-        u32::try_from(v as i64).unwrap()
+    let (a, ab) = (src[3], ch(24));
+    let byte = |v: f32| u32::try_from((v * 255.0).round().clamp(0.0, 255.0) as i64).unwrap();
+    let colour = |s: f32, d: f32| {
+        byte(match mix {
+            Mix::Normal => s + d * (1.0 - a),
+            Mix::Screen => s + d - s * d,
+            Mix::Multiply => s * (1.0 - ab) + d * (1.0 - a) + s * d,
+        })
     };
-    (mix(src[3], ch(24)) << 24)
-        | (mix(src[0], ch(16)) << 16)
-        | (mix(src[1], ch(8)) << 8)
-        | mix(src[2], ch(0))
+    (byte(a + ab * (1.0 - a)) << 24)
+        | (colour(src[0], ch(16)) << 16)
+        | (colour(src[1], ch(8)) << 8)
+        | colour(src[2], ch(0))
 }
 
 /// **An effect's frame by its rules**, independent of the compositor: each
 /// record over the premultiplied `bare` frame in order, a band's pixel at
 /// the effect's light at its centre meeting the record's alpha by the
 /// frame's cap ([`Vfx::cap`]) and a particle's at its shape times the
-/// record's alpha, in its colour -- the GPU's effect pipeline -- and
-/// clipped to the frame as its viewport is.
-fn effect_reference(vfx: &Vfx, records: &[Instance], bare: &[u32], width: usize) -> Vec<u32> {
+/// record's alpha, in its colour, each meeting what is under it by `mix`
+/// (`Renderer::trail_mix`) -- the GPU's effect pipeline -- and clipped to
+/// the frame as its viewport is.
+fn effect_reference(
+    vfx: &Vfx,
+    records: &[Instance],
+    bare: &[u32],
+    width: Px,
+    mix: Mix,
+) -> Vec<u32> {
+    let width = px(width);
     let mut out: Vec<u32> = bare.iter().map(|&p| baud_domain::premultiply(p)).collect();
     let height = out.len() / width;
     for r in records {
@@ -585,8 +601,11 @@ fn effect_reference(vfx: &Vfx, records: &[Instance], bare: &[u32], width: usize)
                     vfx.cap().of(vfx.light(centre), color[3])
                 };
                 let at = usize::try_from(y).unwrap() * width + usize::try_from(x).unwrap();
-                out[at] =
-                    over_premultiplied([color[0] * a, color[1] * a, color[2] * a, a], out[at]);
+                out[at] = mixed_premultiplied(
+                    [color[0] * a, color[1] * a, color[2] * a, a],
+                    out[at],
+                    mix,
+                );
             }
         }
     }
@@ -594,11 +613,13 @@ fn effect_reference(vfx: &Vfx, records: &[Instance], bare: &[u32], width: usize)
 }
 
 /// **The CPU path draws every effect by its light**, as the GPU's effect
-/// pipeline does: over text, on an opaque page and on the glass at alpha
-/// 56, each effect at four ages -- the body burning, particles born, the
-/// fade -- the frame, premultiplied as the presenter premultiplies it, is
-/// the records composited by the effect's rules over the frame without it
-/// ([`effect_reference`]), every pixel, and some hundreds of pixels are
+/// pipeline does: over text, on the dark theme and the light, each on an
+/// opaque page and on the glass at alpha 56, each effect at four ages --
+/// the body burning, particles born, the fade -- the frame, premultiplied
+/// as the presenter premultiplies it, is the records composited by the
+/// effect's rules over the frame without it, by the frame's mix
+/// ([`effect_reference`]; the plasma's `screen` on the dark theme and its
+/// `multiply` on the light), every pixel, and some hundreds of pixels are
 /// lit; and an effect moving between frames repaints incrementally what a
 /// full frame paints, its damage being the reach of its records. Red
 /// against a CPU path that paints the emitter's quad, as it did before
@@ -608,12 +629,17 @@ fn the_cpu_path_draws_every_effect_by_its_light() {
     let mono = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&mono).unwrap()];
     for effect in Effect::ALL {
-        for alpha in [0xFF, 56] {
+        for (theme, alpha) in [
+            (Theme::dark(), 0xFF),
+            (Theme::dark(), 56),
+            (Theme::light(), 0xFF),
+            (Theme::light(), 56),
+        ] {
             with_text(|t| {
                 let mut r = renderer(&faces);
                 r.set_theme(Theme {
                     bg_alpha: baud_domain::Chan::from_u8(alpha),
-                    ..Theme::dark()
+                    ..theme.clone()
                 });
                 let (w, h) = r.pixel_size();
                 let (width, height) = (px(w), px(h));
@@ -641,7 +667,7 @@ fn the_cpu_path_draws_every_effect_by_its_light() {
                     r.set_trail(Some(TrailLook::Vfx(f)));
                     let mut burning = vec![0u32; width * height];
                     paint(&mut r, t, &mut burning, Damage::Full);
-                    let want = effect_reference(&f, r.trail(), &bare, width);
+                    let want = effect_reference(&f, r.trail(), &bare, w, r.trail_mix());
                     let got: Vec<u32> = burning
                         .iter()
                         .map(|&p| baud_domain::premultiply(p))
@@ -804,7 +830,7 @@ fn a_fading_trail_is_drawn_part_way_on_the_cpu_path() {
             );
             if let TrailLook::Vfx(v) = faded {
                 let got: Vec<u32> = part.iter().map(|&p| baud_domain::premultiply(p)).collect();
-                let want = effect_reference(&v, r.trail(), &bare, width);
+                let want = effect_reference(&v, r.trail(), &bare, w, r.trail_mix());
                 assert!(
                     got == want,
                     "{what}: off its rules at {:?}",
@@ -881,12 +907,12 @@ fn every_trail_draws_the_same_pixels_on_every_os() {
         0x02d3249ca1d07e9b,
         0x03a4ebaf7644f693,
         0x3f5557cec5984125,
-        0x489ae9c1097f6b7a,
-        0xebdd54a692c88068,
-        0xcf880d1ec37f7905,
-        0xab0462a8590fd409,
-        0x06cd19070d21c4eb,
-        0x07f0c825d75328e3,
+        0xc0e28798adf25f75,
+        0xd524b34c167992f5,
+        0xd50134af8b1632e1,
+        0xed071ea3ca1beb50,
+        0x37ae1ac8f18dba42,
+        0x4e3180fc11a8d9da,
         0x86ef489d68c1ef29,
         0xbd4c7c7ba5eeddcc,
         0x935d233c101e13bf,
@@ -929,12 +955,12 @@ fn every_trail_draws_the_same_pixels_on_every_os() {
         0xc23ed95cb177ad43,
         0x4b433baa58e7d182,
         0x48b2d42d76073f25,
-        0xbd006b7e1e77fad2,
-        0x16c4d5d0f206a601,
-        0xb4f34ca63a6c08b4,
-        0xa60ae68382aac911,
-        0xe40ce2c317e46fdd,
-        0x0019124336d88b65,
+        0xe9793ffd982fd779,
+        0x48b2d42d76073f25,
+        0xa49da5bd8e9475fd,
+        0x6bf0720ce734b67e,
+        0xa822f9c0e70320ea,
+        0x04080a77f3972902,
         0xc85efbcf18a7bbbc,
         0xfa9dde9f546aff53,
         0x5f2b7b434ee24e44,
@@ -1126,4 +1152,284 @@ fn every_effect_lights_the_same_bits_on_every_os() {
         got == PINNED,
         "the effects' lights moved; the table this target computes:\n{table}"
     );
+}
+
+/// A screen of `X`s in the default colour, `ws` cells, the cursor hidden.
+fn letters(ws: &WinSize, f: impl FnOnce(&mut Term<'_>)) {
+    let mut owned = Owned::new(ws);
+    let mut t = Term::new(owned.storage(), ws);
+    let mut bytes = b"\x1b[?25l".to_vec();
+    for row in 0..usize::from(ws.ws_row) {
+        bytes.extend(format!("\x1b[{};1H", row + 1).bytes());
+        bytes.extend(core::iter::repeat_n(b'X', usize::from(ws.ws_col)));
+    }
+    feed(&mut t, &bytes);
+    f(&mut t);
+}
+
+/// WCAG's relative luminance of a pixel's three bytes.
+fn luminance(p: u32) -> f64 {
+    let [_, r, g, b] = p.to_be_bytes();
+    let lin = |c: u8| {
+        let c = f64::from(c) / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
+/// WCAG's contrast ratio of two luminances.
+fn contrast(a: f64, b: f64) -> f64 {
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+/// **What a frame of the plasma over the letters did to them**: how many
+/// of the letters' solid ink pixels under its light (0.1 or more) moved
+/// more than two steps in some channel, and of those how many the wrong
+/// way -- darker on a dark theme, lighter on a light one; and the least
+/// contrast a cell under the light keeps, WCAG's ratio, two ways: its
+/// worst pair, the dimmest ink pixel against the brightest ground pixel on
+/// a dark theme (the other way about on a light one), and its means, the
+/// ink's mean luminance against the ground's.
+struct Letters {
+    moved: Tally,
+    wrong_way: Tally,
+    under: Tally,
+    worst: f64,
+    mean: f64,
+}
+
+fn letters_under(
+    r: &Renderer<'_, '_>,
+    v: &Vfx,
+    (bare, lit): (&[u32], &[u32]),
+    theme: &Theme,
+) -> Letters {
+    let width = px(r.pixel_size().0);
+    let (cw, ch) = (px(r.metrics().cell_w), px(r.metrics().cell_h));
+    let (cols, rows) = (width / cw, bare.len() / width / ch);
+    let (ink, page) = (theme.fg.0 & 0x00FF_FFFF, theme.bg.0 & 0x00FF_FFFF);
+    let dark = luminance(theme.bg.0) < luminance(theme.fg.0);
+    let mut out = Letters {
+        moved: Tally::default(),
+        wrong_way: Tally::default(),
+        under: Tally::default(),
+        worst: f64::INFINITY,
+        mean: f64::INFINITY,
+    };
+    for (row, col) in (0..rows).flat_map(|r| (0..cols).map(move |c| (r, c))) {
+        let (mut inks, mut grounds) = (Vec::new(), Vec::new());
+        for y in row * ch..(row + 1) * ch {
+            for x in col * cw..(col + 1) * cw {
+                let light = v.light(Pt {
+                    x: x as f32 + 0.5,
+                    y: y as f32 + 0.5,
+                });
+                if light < 0.1 {
+                    continue;
+                }
+                let i = y * width + x;
+                let (b, p) = (bare[i] & 0x00FF_FFFF, lit[i] & 0x00FF_FFFF);
+                if b == ink {
+                    out.under.bump();
+                    inks.push(luminance(lit[i]));
+                    let step = |s: u32| {
+                        i32::try_from((p >> s) & 0xff).unwrap()
+                            - i32::try_from((b >> s) & 0xff).unwrap()
+                    };
+                    let d = [step(0), step(8), step(16)];
+                    if d.iter().any(|v| v.abs() > 2) {
+                        out.moved.bump();
+                        if d.iter().any(|&v| v != 0 && (v < 0) == dark) {
+                            out.wrong_way.bump();
+                        }
+                    }
+                } else if b == page {
+                    grounds.push(luminance(lit[i]));
+                }
+            }
+        }
+        if inks.is_empty() || grounds.is_empty() {
+            continue;
+        }
+        let lo = |v: &[f64]| v.iter().copied().fold(f64::INFINITY, f64::min);
+        let hi = |v: &[f64]| v.iter().copied().fold(0.0, f64::max);
+        let worst = match dark {
+            true => contrast(lo(&inks), hi(&grounds)),
+            false => contrast(hi(&inks), lo(&grounds)),
+        };
+        let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+        out.worst = out.worst.min(worst);
+        out.mean = out.mean.min(contrast(mean(&inks), mean(&grounds)));
+    }
+    out
+}
+
+/// **The plasma lights a letter it crosses on a dark theme and shades it on
+/// a light one**: over a screen of `X`s in the default colour at 2x, at
+/// three ages from its brightest, every one of the letters' solid ink
+/// pixels under its light moves by more than two steps, brighter on the
+/// dark theme and darker on the light -- the renderer draws it by `screen`
+/// and `multiply`. The control is the same records composited source-over
+/// ([`effect_reference`] with [`Mix::Normal`]), which moves none, because
+/// the cursor's colour is the ink's. Red on a plasma drawn source-over.
+///
+/// And **what it leaves of a letter's contrast**, WCAG's ratio of the
+/// text's luminance to its background's (1.4.3, and 1.4.11 for a letter
+/// read as a graphic), printed beside source-over's and the bare frame's:
+/// in front keeps more of it than source-over on both themes, on both
+/// measures at every age, because it moves the ink with the ground. At its
+/// brightest, 0.03 s in, the means are 5.68:1 on the dark theme and 7.93:1
+/// on the light (source-over 5.21 and 7.05; bare 13.35 and 12.99); the
+/// worst pair, a filament on the ground beside a letter's dimmest ink, is
+/// 1.38 and 1.58 (source-over 1.33 and 1.51): the filament is the text's
+/// own colour at up to 0.9 of its opacity. Over the bare page it draws as
+/// source-over does within 3 steps of 255 on all but one pixel in a
+/// hundred: where an ion lies over the tube, whose light `screen` adds to
+/// rather than covers -- 26 of 8,755 at 0.1 s, by up to 25 steps.
+#[test]
+fn the_plasma_lights_a_letter_it_crosses_and_shades_it_on_a_light_theme() {
+    const LETTERS: WinSize = WinSize {
+        ws_col: 40,
+        ws_row: 8,
+    };
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    for (name, theme, mix) in [
+        ("dark", Theme::dark(), Mix::Screen),
+        ("light", Theme::light(), Mix::Multiply),
+    ] {
+        letters(&LETTERS, |t| {
+            let mut r = Renderer::new(
+                Stack::new(&faces).unwrap(),
+                PxSize::of(28.0).unwrap(),
+                theme.clone(),
+                Blend::Native,
+                Cols::of_index(usize::from(LETTERS.ws_col)),
+                Rows::of_index(usize::from(LETTERS.ws_row)),
+            )
+            .unwrap();
+            let (w, h) = r.pixel_size();
+            let width = px(w);
+            let mut bare = vec![0u32; width * px(h)];
+            r.set_trail(None);
+            paint(&mut r, t, &mut bare, Damage::Full);
+            let style = baud_core::CursorStyle::SteadyBlock;
+            let rect = |col: usize| r.cursor_rect(Row::from_index(3), Col::at_index(col), style);
+            let (from, to) = (rect(4), rect(34));
+            let unit = f32::from(u16::try_from(r.metrics().cell_h.value()).unwrap());
+            let lit_at = Ignition::ignite(
+                Pt {
+                    x: (from.left + from.right) * 0.5,
+                    y: (from.top + from.bottom) * 0.5,
+                },
+                to,
+                Seed(5),
+                unit,
+            );
+            let bare_letters = letters_under(
+                &r,
+                &plasma_at(lit_at, from, to, 0.03),
+                (&bare, &bare),
+                &theme,
+            );
+            for age in [0.03f32, 0.06, 0.1] {
+                let v = plasma_at(lit_at, from, to, age);
+                r.set_trail(Some(TrailLook::Vfx(v)));
+                let mut lit = vec![0u32; width * px(h)];
+                paint(&mut r, t, &mut lit, Damage::Full);
+                let got = letters_under(&r, &v, (&bare, &lit), &theme);
+                let over = effect_reference(&v, r.trail(), &bare, w, Mix::Normal);
+                let control = letters_under(&r, &v, (&bare, &over), &theme);
+                // The page under the plasma, in front against source-over.
+                let page = theme.bg.0 & 0x00FF_FFFF;
+                let steps = |p: u32, q: u32| {
+                    [0u32, 8, 16]
+                        .map(|k| ((p >> k) & 0xff).abs_diff((q >> k) & 0xff))
+                        .into_iter()
+                        .max()
+                        .unwrap()
+                };
+                let (mut ground, mut far, mut most) = (0usize, 0usize, 0u32);
+                for (i, &b) in bare.iter().enumerate() {
+                    if b & 0x00FF_FFFF != page || lit[i] == b {
+                        continue;
+                    }
+                    let d = steps(lit[i], over[i]);
+                    ground += 1;
+                    far += usize::from(d > 3);
+                    most = most.max(d);
+                }
+                eprintln!(
+                    "{name} at {age}: of {ground} page pixels lit, {far} more than 3 steps from \
+                     source-over, at most {most}"
+                );
+                assert!(
+                    ground > 1000 && far * 100 <= ground,
+                    "{name} at {age}: {far} of {ground} page pixels more than 3 steps from \
+                     source-over"
+                );
+                eprintln!(
+                    "{name} at {age}: {} of {} ink pixels moved; least contrast, worst pair \
+                     {:.2}:1 (source-over {:.2}:1), means {:.2}:1 (source-over {:.2}:1); \
+                     bare {:.2}:1",
+                    got.moved.value(),
+                    got.under.value(),
+                    got.worst,
+                    control.worst,
+                    got.mean,
+                    control.mean,
+                    bare_letters.worst
+                );
+                assert!(
+                    got.under.value() > 200,
+                    "{name} at {age}: the control, only {} ink pixels under the light",
+                    got.under.value()
+                );
+                assert_eq!(
+                    got.moved,
+                    got.under,
+                    "{name} at {age}: of {} ink pixels under the plasma, {} moved",
+                    got.under.value(),
+                    got.moved.value()
+                );
+                assert_eq!(
+                    got.wrong_way,
+                    Tally::default(),
+                    "{name} at {age}: a letter moved the wrong way"
+                );
+                assert_eq!(
+                    control.moved,
+                    Tally::default(),
+                    "{name} at {age}: the control, source-over moved {} ink pixels",
+                    control.moved.value()
+                );
+                assert!(
+                    got.worst > control.worst && got.mean > control.mean,
+                    "{name} at {age}: in front keeps no more contrast than source-over"
+                );
+                assert_eq!(r.trail_mix(), mix, "{name}: the plasma's mix");
+            }
+        });
+    }
+}
+
+/// The plasma of the ignition `lit` riding kitty's quad from `from` to
+/// `to`, `age` seconds in.
+fn plasma_at(lit: Ignition, from: baud_render::Rect, to: baud_render::Rect, age: f32) -> Vfx {
+    Vfx {
+        effect: Effect::Plasma,
+        emitter: Smear {
+            corners: Segment::new(from.corners(), to).at(age),
+            hole: to,
+            shape: Shape::Quad,
+            strength: baud_render::Strength::Full,
+            opacity: Smear::OPAQUE,
+        },
+        ignition: lit.at(age),
+        axis: lit.dir,
+    }
 }

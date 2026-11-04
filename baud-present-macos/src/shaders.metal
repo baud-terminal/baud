@@ -418,6 +418,27 @@ fragment float4 plasma_fragment(GOut in [[stage_in]], constant EffectU& f [[buff
     return plasma_tube(in.pos.xy - f.origin, in.color, f);
 }
 
+// **The plasma by `multiply`** (`composite::Mix`): `plasma_fragment`'s
+// premultiplied colour, and as the second source the factor its backdrop is
+// taken at, `1 - as + cs` a channel, so the blend state's
+// `OneMinusDestinationAlpha, Source1Color` forms W3C Compositing's
+// `cs (1 - ab) + cb (1 - as + cs)` over the glass and an opaque page alike.
+// Under `screen` the plasma is `plasma_fragment` itself, by `One,
+// OneMinusSourceColor`: `cs + cb (1 - cs)`.
+struct MixOut {
+    float4 color [[color(0), index(0)]];
+    float4 factor [[color(0), index(1)]];
+};
+
+fragment MixOut plasma_multiply_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(0)]]) {
+    float4 c = in.kind == KIND_PARTICLE ? fx_particle(in)
+                                        : plasma_tube(in.pos.xy - f.origin, in.color, f);
+    MixOut o;
+    o.color = c;
+    o.factor = float4(1.0 - c.a + c.rgb, 1.0);
+    return o;
+}
+
 // ---- The lightning, `baud-render/src/lightning.rs`: a bolt from the cell
 // the cursor left to the cell it reached, over a box along the path (the
 // uniform's corners, `lightning::region`) that does not move. Its own numbers,

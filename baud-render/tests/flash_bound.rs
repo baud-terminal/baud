@@ -11,8 +11,9 @@ use baud_domain::{BytePos, Chan, Col, Cols, ImageBudget, ImagePx, ReadLen, Row, 
 use baud_font::{Face, Px};
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::{
-    Argb, Blend, Damage, Held, Kind, Pt, PxSize, Renderer, Segment, Shape, Smear, Stack, Strength,
-    Target, Theme, TrailLook, under_threshold, under_threshold_over,
+    Argb, Blend, Damage, Held, Kind, Mix, Pt, PxSize, Renderer, Segment, Shape, Smear, Stack,
+    Strength, Target, Theme, TrailLook, under_threshold, under_threshold_by, under_threshold_over,
+    under_threshold_over_by,
 };
 use support::font;
 
@@ -157,6 +158,13 @@ fn a_repeat_pass_draws_one_record_a_pixel_under_the_cap() {
             }
             r.set_trail(Some(repeat(full)));
             let _ = paint(&mut r, &mut t);
+            // The plasma's cap is scanned over its `screen`, a step under
+            // source-over's on this page.
+            let k = under_threshold_by(
+                ink.with_alpha(Chan::from_u8(0xFF)),
+                page.with_alpha(Chan::from_u8(0xFF)),
+                r.trail_mix(),
+            );
             assert_eq!(r.flash_cap(), k, "{effect:?} at {age}: the page's cap");
             let records = r.trail();
             assert!(!records.is_empty(), "{effect:?} at {age}: a repeat draws");
@@ -347,32 +355,41 @@ fn a_repeat_effect_on_the_cpu_path_makes_no_transition() {
     }
 }
 
-/// `src`, premultiplied and in channels 0 to 1, over the pixel `dst`, rounded
-/// to bytes as the GPU's blend unit stores them: `over` in
-/// `baud-present-macos/tests/cells.rs`, which the CPU path draws an effect
-/// by over an opaque page.
-fn over_premultiplied(src: [f32; 4], dst: u32) -> u32 {
+/// `src`, premultiplied and in channels 0 to 1, over the pixel `dst` by
+/// `mix`, rounded to bytes as the GPU's blend unit stores them, W3C
+/// Compositing's section 6 in premultiplied numbers as the CPU path draws
+/// an effect by over an opaque page: `cs + cb (1 - as)` source-over, `cs +
+/// cb - cs cb` by `screen`, `cs (1 - ab) + cb (1 - as) + cs cb` by
+/// `multiply`.
+fn mixed_premultiplied(src: [f32; 4], dst: u32, mix: Mix) -> u32 {
     let ch = |k: u32| f32::from(u8::try_from((dst >> k) & 0xff).unwrap()) / 255.0;
-    let mix = |s: f32, d: f32| {
-        let v = ((s + d * (1.0 - src[3])) * 255.0).round().clamp(0.0, 255.0);
-        u32::try_from(v as i64).unwrap()
+    let (a, ab) = (src[3], ch(24));
+    let byte = |v: f32| u32::try_from((v * 255.0).round().clamp(0.0, 255.0) as i64).unwrap();
+    let colour = |s: f32, d: f32| {
+        byte(match mix {
+            Mix::Normal => s + d * (1.0 - a),
+            Mix::Screen => s + d - s * d,
+            Mix::Multiply => s * (1.0 - ab) + d * (1.0 - a) + s * d,
+        })
     };
-    (mix(src[3], ch(24)) << 24)
-        | (mix(src[0], ch(16)) << 16)
-        | (mix(src[1], ch(8)) << 8)
-        | mix(src[2], ch(0))
+    (byte(a + ab * (1.0 - a)) << 24)
+        | (colour(src[0], ch(16)) << 16)
+        | (colour(src[1], ch(8)) << 8)
+        | colour(src[2], ch(0))
 }
 
 /// **The plasma's repeat pass is clamped at its cap, not scaled by it**,
 /// on the CPU path, at three ages over the page, on the dark theme and the
 /// light: every pixel is the cursor's colour at `min(light, cap)` over the
-/// frame without the pass, the cap the one each band record carries. So no
-/// pixel is past the cap's own composite over the page, and a pixel whose
+/// frame without the pass, by the frame's mix (`Renderer::trail_mix`), the
+/// cap the one each band record carries. So no pixel is past the cap's own
+/// composite over the page, and a pixel whose
 /// light is under the cap is drawn at its whole light, where the scale drew
-/// it at the light times the cap. The controls: at every age some hundreds
-/// of pixels' light is under the cap, and over the three ages more than 50
-/// pixels' is past it (27 to 45 an age on the dark page, whose cap is 95,
-/// and 581 to 1557 on the light, whose cap is 14); and the fire's repeat,
+/// it at the light times the cap. The cap is the one the renderer scans
+/// over the plasma's mix, 94 over the dark page by `screen` and 14 over the
+/// light by `multiply`. The controls: at every age some hundreds of pixels'
+/// light is under the cap, and over the three ages more than 50 pixels' is
+/// past it; and the fire's repeat,
 /// which was not censused clamped, is still scaled. Perturbations: the
 /// clamp scaled, or its `min` dropped.
 #[test]
@@ -390,11 +407,6 @@ fn a_repeat_plasma_is_clamped_at_its_cap_not_scaled_by_it() {
         let _ = paint(&mut r, &mut t);
         let bare = paint(&mut r, &mut t);
         let width = px(r.pixel_size().0);
-        let cap = under_threshold(
-            ink.with_alpha(Chan::from_u8(0xFF)),
-            page.with_alpha(Chan::from_u8(0xFF)),
-        );
-        let k = f32::from(cap.get()) / 255.0;
         let channel = |p: u32, s: u32| i32::try_from((p >> s) & 0xff).unwrap();
         let mut past = 0usize;
         for age in [0.04f32, 0.06, 0.1] {
@@ -406,6 +418,13 @@ fn a_repeat_plasma_is_clamped_at_its_cap_not_scaled_by_it() {
             r.set_trail(Some(TrailLook::Vfx(v)));
             let _ = paint(&mut r, &mut t);
             let drawn = paint(&mut r, &mut t);
+            // Scanned over the plasma's mix, as the renderer scans it.
+            let cap = under_threshold_by(
+                ink.with_alpha(Chan::from_u8(0xFF)),
+                page.with_alpha(Chan::from_u8(0xFF)),
+                r.trail_mix(),
+            );
+            let k = f32::from(cap.get()) / 255.0;
             assert_eq!(r.flash_cap(), cap, "{at}: the page's cap");
             let records = r.trail().to_vec();
             assert!(
@@ -415,7 +434,8 @@ fn a_repeat_plasma_is_clamped_at_its_cap_not_scaled_by_it() {
                         .all(|i| i.kind == Kind::Band && i.color.a() == cap),
                 "{at}: bands alone, each at the cap"
             );
-            let held = over_premultiplied(
+            let mix = r.trail_mix();
+            let held = mixed_premultiplied(
                 [
                     f32::from(ink.r().get()) / 255.0 * k,
                     f32::from(ink.g().get()) / 255.0 * k,
@@ -423,6 +443,7 @@ fn a_repeat_plasma_is_clamped_at_its_cap_not_scaled_by_it() {
                     k,
                 ],
                 page.with_alpha(Chan::from_u8(0xFF)).0,
+                mix,
             );
             let mut want = bare.clone();
             let (mut whole, mut clamped) = (0usize, 0usize);
@@ -445,7 +466,7 @@ fn a_repeat_plasma_is_clamped_at_its_cap_not_scaled_by_it() {
                         clamped += usize::from(light > k);
                         let a = light.min(k);
                         let i = usize::try_from(y).unwrap() * width + usize::try_from(x).unwrap();
-                        want[i] = over_premultiplied([cr * a, cg * a, cb * a, a], want[i]);
+                        want[i] = mixed_premultiplied([cr * a, cg * a, cb * a, a], want[i], mix);
                     }
                 }
             }
@@ -482,6 +503,89 @@ fn a_repeat_plasma_is_clamped_at_its_cap_not_scaled_by_it() {
             baud_render::effect::Cap::Scale,
             "the control: the fire's repeat scales"
         );
+    }
+}
+
+/// **The plasma's repeat in front of the text makes no transition**: over
+/// a screen of `X`s in the default colour, the cursor's colour, at three
+/// ages, on the dark theme and the light, no pixel of the plasma's repeat
+/// pass is a general transition from the frame without it. The cap is
+/// scanned over the composite the plasma is drawn by, `screen` on the dark
+/// theme and `multiply` on the light: source-over leaves a letter in the
+/// cursor's own colour as it was, and its cap let the screened letters and
+/// their edges flash: in the census, 11,245,366 pixel-frames of repeats
+/// over the dark theme's default text, a luminance change of up to 0.118. The fire's repeat over the same cells draws first, so a
+/// cap cached under source-over cannot stand in for the plasma's. The
+/// controls: the plasma's full pass flashes, its repeat draws, and the
+/// cap under the plasma's mix over its own text is below source-over's.
+/// Perturbations: the cap scanned source-over, or cached without its mix.
+#[test]
+fn a_repeat_plasma_in_front_of_the_text_makes_no_transition() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut bytes = b"\x1b[?25l".to_vec();
+    for row in 0..usize::from(WS.ws_row) {
+        bytes.extend(format!("\x1b[{};1H", row + 1).bytes());
+        bytes.extend(core::iter::repeat_n(b'X', usize::from(WS.ws_col)));
+    }
+    feed(&mut t, &bytes);
+    for (theme, mix) in [
+        (Theme::dark(), Mix::Screen),
+        (Theme::light(), Mix::Multiply),
+    ] {
+        let (ink, page) = (
+            theme.fg.with_alpha(Chan::from_u8(0xFF)),
+            theme.bg.with_alpha(Chan::from_u8(0xFF)),
+        );
+        if mix == Mix::Screen {
+            assert!(
+                under_threshold_over_by(ink, ink, page, mix).get()
+                    < under_threshold_over(ink, ink, page).get(),
+                "{mix:?}: the control, a lower cap under the mix"
+            );
+        }
+        let mut r = renderer(&faces);
+        r.set_theme(theme);
+        r.set_trail(None);
+        let _ = paint(&mut r, &mut t);
+        let bare = paint(&mut r, &mut t);
+        let transitions = |frame: &[u32]| {
+            frame
+                .iter()
+                .zip(&bare)
+                .filter(|&(&p, &q)| {
+                    let (a, b) = (lum(p), lum(q));
+                    (a - b).abs() >= 0.10 && a.min(b) < 0.80
+                })
+                .count()
+        };
+        // The fire's repeat over the same cells, source-over, first.
+        r.set_trail(Some(repeat(TrailLook::Vfx(vfx(&r, Effect::Fire, 0.06)))));
+        let _ = paint(&mut r, &mut t);
+        let _ = paint(&mut r, &mut t);
+        for age in [0.04f32, 0.06, 0.1] {
+            let full = TrailLook::Vfx(vfx(&r, Effect::Plasma, age));
+            r.set_trail(Some(full));
+            assert!(
+                transitions(&paint(&mut r, &mut t)) > 0,
+                "{mix:?} at {age}: the control, the full pass flashes"
+            );
+            r.set_trail(Some(repeat(full)));
+            let _ = paint(&mut r, &mut t);
+            let repeated = paint(&mut r, &mut t);
+            assert_eq!(r.trail_mix(), mix, "{mix:?} at {age}: the mix");
+            assert!(
+                repeated.iter().zip(&bare).any(|(p, q)| p != q),
+                "{mix:?} at {age}: the control, the repeat draws"
+            );
+            assert_eq!(
+                transitions(&repeated),
+                0,
+                "{mix:?} at {age}: a repeat pass's pixel flashes"
+            );
+        }
     }
 }
 

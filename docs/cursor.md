@@ -86,8 +86,18 @@ Every long move lights a fresh plasma, so a cursor moved back and forth
 quickly draws each move as bright as the first. Above a 32 pt cell, a move
 back over the same stretch within a second is held under the flash
 thresholds of WCAG 2.3.1: its light is clamped at the brightest it can draw
-there without a flash, rather than dimmed as a whole, so the tube draws whole
-on a dark theme and only the brightest filaments are held down.
+there without a flash, rather than dimmed as a whole, so over a dark page the
+tube draws whole and only the brightest filaments are held down.
+
+It is drawn in front of the text. The cursor's colour is the text's by
+default, so a plasma laid over a letter in that colour cannot change it, and
+it looked as if it passed behind the text. On a dark theme it lights what it
+crosses instead (the `screen` blend), and on a light theme it darkens it
+(`multiply`): a letter under it brightens, or deepens, with the page around
+it, and keeps more of its contrast against the page than it would under the
+plain overlay. Over the bare page it looks as it did, within 3 steps of 255,
+but where an ion crosses the tube, which it lights a little more. The launch
+splash's plasma and every other trail are drawn as before.
 
 The braid lies along the move the quad is making, which the driver hands on,
 so it follows a retarget and does not turn when the corners land. It is as

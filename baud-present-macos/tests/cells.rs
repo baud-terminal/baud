@@ -39,7 +39,7 @@ use baud_render::ufo;
 use baud_render::{
     Argb, BellFlash, BellKind, BellShown, Blend, Blink, BlinkPhases, Candidate, Caret, Composition,
     Corners, CursorLook, CursorPhase, Damage, FaceRole, FaceStyle, FontSlot, GlyphMap, Highlight,
-    Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rang, Rect, Region, Renderer, Resolved,
+    Hover, Instance, Kind, Look, Mix, Overlay, Pt, PxSize, Rang, Rect, Region, Renderer, Resolved,
     Scene, ScreenSlide, Scroll, Scroller, Segment, Shape, SixelBg, Smear, SplashLook, SplashPhase,
     Stack, StatusMarks, StyleStamp, Tally, Target, Theme, Toward, Trail, TrailLook, Transition,
     VideoFlash, Widths, Window, compose_slide, quad_coverage, slide_offsets,
@@ -866,13 +866,34 @@ fn unit_color(c: Argb) -> [f32; 4] {
 /// Premultiplied `src` over the stored pixel `dst`, rounded to the target's
 /// bytes the way a blend unit stores them.
 fn over(src: [f32; 4], dst: u32) -> u32 {
+    mixed(src, dst, Mix::Normal)
+}
+
+/// A channel of premultiplied `s` over `d` by `mix`, the backdrop's alpha
+/// `ab` and the source's `a`: W3C Compositing's section 6 in premultiplied
+/// numbers, `cs + cb (1 - as)` source-over, `cs + cb - cs cb` by `screen`
+/// and `cs (1 - ab) + cb (1 - as + cs)` by `multiply`, as the blend states
+/// form them.
+fn channel(s: f32, d: f32, (a, ab): (f32, f32), mix: Mix) -> f32 {
+    match mix {
+        Mix::Normal => s + d * (1.0 - a),
+        Mix::Screen => s + d * (1.0 - s),
+        Mix::Multiply => s * (1.0 - ab) + d * (1.0 - a + s),
+    }
+}
+
+/// Premultiplied `src` over the stored pixel `dst` by `mix`, rounded to the
+/// target's bytes the way a blend unit stores them; the alpha `as + ab (1 -
+/// as)` under every mode.
+fn mixed(src: [f32; 4], dst: u32, mix: Mix) -> u32 {
     let ch = |k: u32| f32::from(u8::try_from((dst >> k) & 0xff).unwrap_or(0)) / 255.0;
     let (r, g, b, a) = (ch(16), ch(8), ch(0), ch(24));
-    let mix = |s: f32, d: f32| {
-        let v = ((s + d * (1.0 - src[3])) * 255.0).round().clamp(0.0, 255.0);
-        u32::try_from(v as i64).unwrap_or(0)
-    };
-    (mix(src[3], a) << 24) | (mix(src[0], r) << 16) | (mix(src[1], g) << 8) | mix(src[2], b)
+    let byte = |v: f32| u32::try_from((v * 255.0).round().clamp(0.0, 255.0) as i64).unwrap_or(0);
+    let c = |s: f32, d: f32| byte(channel(s, d, (src[3], a), mix));
+    (byte(src[3] + a * (1.0 - src[3])) << 24)
+        | (c(src[0], r) << 16)
+        | (c(src[1], g) << 8)
+        | c(src[2], b)
 }
 
 /// `fx_particle`: a soft disc over its record, at `uv` -1 to 1 on each axis.
@@ -1024,10 +1045,17 @@ fn effect_frame(
     vfx: &Vfx,
     records: &[Instance],
     plain: &[u32],
-    width: Px,
-    origin: (usize, usize),
+    (width, origin): (Px, (usize, usize)),
+    mix: Mix,
 ) -> (Vec<u32>, Vec<bool>) {
-    effect_frame_by(reference(vfx.effect), vfx, records, plain, width, origin)
+    effect_frame_by(
+        reference(vfx.effect),
+        vfx,
+        records,
+        plain,
+        (width, origin),
+        mix,
+    )
 }
 
 /// The same, by any rule: the plasma's sheath alone is one. Beside the
@@ -1039,8 +1067,8 @@ fn effect_frame_by(
     vfx: &Vfx,
     records: &[Instance],
     plain: &[u32],
-    width: Px,
-    origin: (usize, usize),
+    (width, origin): (Px, (usize, usize)),
+    mix: Mix,
 ) -> (Vec<u32>, Vec<bool>) {
     let tw = usize::try_from(width.value()).unwrap();
     // The frame the records are clipped to, as the GPU's viewport clips
@@ -1072,8 +1100,8 @@ fn effect_frame_by(
                 } else {
                     (rule.band)(vfx, centre, color)
                 };
-                ties[at] = on_tie(src, out[at]);
-                out[at] = over(src, out[at]);
+                ties[at] = on_tie(src, out[at], mix);
+                out[at] = mixed(src, out[at], mix);
             }
         }
     }
@@ -1084,14 +1112,15 @@ fn effect_frame_by(
 /// between two bytes in any channel: a tie the blend unit may round either
 /// way. A flat patch of one value on a tie rounds apart as a block -- the
 /// ufo's hull did, 63 pixels at once.
-fn on_tie(src: [f32; 4], dst: u32) -> bool {
+fn on_tie(src: [f32; 4], dst: u32, mix: Mix) -> bool {
     let ch = |k: u32| f32::from(u8::try_from((dst >> k) & 0xff).unwrap_or(0)) / 255.0;
     let (r, g, b, a) = (ch(16), ch(8), ch(0), ch(24));
-    let near = |s: f32, d: f32| {
-        let v = (s + d * (1.0 - src[3])) * 255.0;
+    let near = |v: f32| {
+        let v = v * 255.0;
         ((v - v.floor()) - 0.5).abs() < 0.01
     };
-    near(src[3], a) || near(src[0], r) || near(src[1], g) || near(src[2], b)
+    let c = |s: f32, d: f32| near(channel(s, d, (src[3], a), mix));
+    near(src[3] + a * (1.0 - src[3])) || c(src[0], r) || c(src[1], g) || c(src[2], b)
 }
 
 /// **Every effect, both arms against its reference**, in a target
@@ -1220,7 +1249,8 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 assert_eq!(differing(&a, &b), 0, "the arms disagree under {at}");
                 let records = arms.renderer.trail().to_vec();
                 let records = &records[..];
-                let (want, ties) = effect_frame(&vfx, records, &plain, width, origin);
+                let mix = arms.renderer.trail_mix();
+                let (want, ties) = effect_frame(&vfx, records, &plain, (width, origin), mix);
                 // The CPU arm, which the Linux driver draws with: the same
                 // records by the same models over its own frame, which is
                 // the GPU's plain frame -- so every pixel the reference's.
@@ -1280,8 +1310,8 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                         &vfx,
                         records,
                         &plain,
-                        width,
-                        origin,
+                        (width, origin),
+                        mix,
                     );
                     let mut ahead = 0usize;
                     for (i, (&x, &y)) in a.iter().zip(&sheath).enumerate() {
@@ -1391,7 +1421,8 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                     .all(|r| r.kind == Kind::Band && r.color.a() == cap),
             "{at}: bands alone, each at the cap"
         );
-        let (want, _) = effect_frame(&vfx, &records, &plain, width, origin);
+        let mix = arms.renderer.trail_mix();
+        let (want, _) = effect_frame(&vfx, &records, &plain, (width, origin), mix);
         let cpu = cpu_frame(arms, t);
         let fw = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
         let cpu_off = cpu
@@ -1416,8 +1447,8 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             &vfx,
             &records,
             &plain,
-            width,
-            origin,
+            (width, origin),
+            mix,
         );
         let brighter = a
             .iter()
@@ -1429,6 +1460,100 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             "{at}: only {brighter} pixels off the scaled light, so the clamp shows nothing"
         );
     }
+    // **The plasma in front of the text on every page, on both GPU paths**:
+    // along the scene's first row, over its text in the default colour, at
+    // two ages on the dark theme and the light, each opaque and on the glass
+    // at the default dims, both GPU arms are the
+    // reference by the renderer's mix -- `screen` on the dark theme,
+    // `multiply` on the light, the glass's `multiply` through the second
+    // source -- within a step, the CPU arm exactly, and a hundred pixels or
+    // more are off the same records drawn source-over, which the mix
+    // replaced. Red on a pipeline that draws the plasma source-over, or a
+    // `multiply` without the glass's `cs (1 - ab)`.
+    let resting = arms.renderer.theme().clone();
+    // Along the first row, over its text in the default colour.
+    let (from, to) = (cell_at(2.0, 0.0), cell_at(40.0, 0.0));
+    let ignite = Ignition::ignite(centre(from), to, Seed(7), ch);
+    let seg = Segment::new(from.corners(), to);
+    for (half, theme, mix) in [
+        ("dark", Theme::dark(), Mix::Screen),
+        (
+            "dark glass",
+            Theme {
+                bg_alpha: Chan::from_u8(179),
+                ..Theme::dark()
+            },
+            Mix::Screen,
+        ),
+        ("light", Theme::light(), Mix::Multiply),
+        (
+            "light glass",
+            Theme {
+                bg_alpha: Chan::from_u8(153),
+                ..Theme::light()
+            },
+            Mix::Multiply,
+        ),
+    ] {
+        arms.renderer.set_theme(theme);
+        arms.trail = None;
+        let (plain, _) = arms.draw(t);
+        for age in [0.03f32, 0.1] {
+            let vfx = Vfx {
+                effect: Effect::Plasma,
+                emitter: Smear {
+                    corners: seg.at(age),
+                    hole: to,
+                    shape: Shape::Quad,
+                    strength: baud_render::Strength::Full,
+                    opacity: Smear::OPAQUE,
+                },
+                ignition: ignite.at(age),
+                axis: ignite.dir,
+            };
+            let at = format!("the plasma in front, {half}, at {age}");
+            arms.trail = Some(TrailLook::Vfx(vfx));
+            let (a, b) = arms.draw(t);
+            assert_eq!(differing(&a, &b), 0, "the arms disagree under {at}");
+            assert_eq!(arms.renderer.trail_mix(), mix, "{at}: the mix");
+            let records = arms.renderer.trail().to_vec();
+            let (want, ties) = effect_frame(&vfx, &records, &plain, (width, origin), mix);
+            let cpu = cpu_frame(arms, t);
+            let fw = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+            let cpu_off = cpu
+                .iter()
+                .enumerate()
+                .filter(|&(i, &p)| p != want[(i / fw + origin.1) * tw + i % fw + origin.0])
+                .count();
+            assert_eq!(cpu_off, 0, "{at}: the CPU arm is off the reference");
+            let ch = |p: u32, k: u32| (p >> (8 * k)) & 0xff;
+            let step = |x: u32, y: u32| (0..4).map(|k| ch(x, k).abs_diff(ch(y, k))).max().unwrap();
+            let mut off = 0usize;
+            for (i, (&x, &y)) in a.iter().zip(&want).enumerate() {
+                assert!(
+                    step(x, y) <= 1,
+                    "{at}: pixel {i} is {x:08x}, the reference {y:08x}"
+                );
+                off += usize::from(step(x, y) == 1 && !ties[i]);
+                assert!(
+                    (0..3).all(|k| ch(x, k) <= ch(x, 3)),
+                    "{at}: pixel {i} {x:08x} stores colour past its alpha"
+                );
+            }
+            assert!(off <= 20, "{at}: {off} pixels a step off the reference");
+            let (over, _) = effect_frame(&vfx, &records, &plain, (width, origin), Mix::Normal);
+            let moved = a
+                .iter()
+                .zip(&over)
+                .filter(|&(&x, &y)| step(x, y) > 2)
+                .count();
+            assert!(
+                moved > 100,
+                "{at}: only {moved} pixels off source-over, so the mix shows nothing"
+            );
+        }
+    }
+    arms.renderer.set_theme(resting);
     arms.trail = None;
     arms.margin = (0, 0);
 }

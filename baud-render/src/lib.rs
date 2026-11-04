@@ -103,9 +103,12 @@ pub use color::{
     AppBg, Argb, Backdrop, Floor, MODUS_OPERANDI, PictureBg, SixelBg, Theme, Video, contrast_over,
     dark_palette, light_palette, xterm_palette,
 };
-pub use composite::{Blend, Blit, Page, Target, Texels};
+pub use composite::{Blend, Blit, Mix, Page, Target, Texels};
 pub use find::{Current, FIELD_COLS, Field, Find, FindLook, Mark, Position, Query, Typing};
-pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold_over};
+pub use flash::{
+    Held, Points, Strength, capped, under_threshold, under_threshold_by, under_threshold_over,
+    under_threshold_over_by,
+};
 pub use frozen::{Lend, Lent, RowSource, Words};
 pub use guide::{CURSOR_GUIDE, GuideLook};
 pub use instance::{Instance, Screen};
