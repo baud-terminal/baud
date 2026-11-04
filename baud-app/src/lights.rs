@@ -11,8 +11,8 @@
 //! draws. A view a light gives each its own hover text, AppKit's
 //! `toolTip`, shown only while the pointer is over that light, and its
 //! frame is the tooltip's rectangle wherever the view is placed. A light
-//! that would reach baud's mark in a narrow window is not drawn, the
-//! leftmost first, so nothing covers the traffic lights or the mark.
+//! that would reach baud's lockup in a narrow window is not drawn, the
+//! leftmost first, so nothing covers the traffic lights or the lockup.
 //!
 //! **The pixels are baud's renderer's** (`Renderer::activity_light`): each
 //! light's three pictures, dark, lit and unread, drawn when the scale, the
@@ -151,7 +151,7 @@ pub(crate) struct Spans {
 /// bottom-left origin: the strip flush with the container's top, `right`
 /// in from its right edge, the strip's `inset` tall, its left end on a
 /// whole device pixel at `scale`; a light that would start left of `left`
-/// -- baud's mark -- is not placed, so in a narrow window the leftmost go
+/// -- baud's lockup -- is not placed, so in a narrow window the leftmost go
 /// first.
 pub(crate) fn placed(
     container: NSSize,
@@ -186,7 +186,7 @@ pub(crate) struct Strip {
     /// The scale the spans are whole device pixels at.
     scale: CGFloat,
     /// The gap kept at the strip's right, the traffic lights' at its left,
-    /// and the least x a light may start at: past baud's mark.
+    /// and the least x a light may start at: past baud's lockup.
     right: CGFloat,
     left: CGFloat,
     /// The looks drawn so far this session, by what they were made from: a
@@ -587,7 +587,7 @@ mod tests {
     /// **The lights sit at the strip's right, the strip's height, its top
     /// the window's, left to right in the panel's order**, the last
     /// `right` in from the edge; and in a window too narrow for them all,
-    /// the ones that would reach the mark are not placed, the leftmost
+    /// the ones that would reach the lockup are not placed, the leftmost
     /// first, while the rest keep their places.
     #[test]
     fn the_lights_sit_at_the_strips_right_and_a_narrow_window_drops_the_leftmost() {
@@ -626,6 +626,51 @@ mod tests {
         let odd = placed(NSSize::new(800.25, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
         let x = odd.hs.unwrap().0.origin.x * 2.0;
         assert_eq!(x, x.round());
+    }
+
+    /// **In a narrow window the lights yield and the lockup stays whole**:
+    /// the lockup beside AppKit's traffic lights (14x16 at x 9, 29 and
+    /// 49, `mark.rs`), the lights a light's gap past its end, and as the
+    /// window narrows to its smallest, 200 points, the leftmost lights go
+    /// while the lockup keeps its frame inside the window. At 800 every
+    /// light is placed; at 310 the strip starts at 126, past the lockup's
+    /// end, about 120.4, and short of it plus the gap, about 129.4, so the
+    /// first light goes; at 200 the three rightmost stay. Perturbation: give
+    /// `placed` the lockup's end rather than `lights_left` and the
+    /// 310-point window keeps a light in the gap.
+    #[test]
+    fn a_narrow_window_drops_lights_and_keeps_the_lockup_whole() {
+        use crate::mark::{Lockup, Place};
+        let r = |x| NSRect::new(NSPoint::new(x, 6.0), NSSize::new(14.0, 16.0));
+        let art = Lockup::OnDark.art().expect("the lockup's size");
+        let place = Place::beside(r(9.0), r(29.0), r(49.0), 28.0, art).expect("laid out");
+        let left = place.lights_left();
+        assert!((left - place.end() - 9.0).abs() < 1e-9, "{left}");
+        let spans = spans_for_test();
+        let mut kept = Vec::new();
+        for width in [800.0, 310.0, 200.0] {
+            let lights = placed(NSSize::new(width, 500.0), 28.0, 9.0, left, 2.0, &spans);
+            for led in Led::ALL {
+                if let Some((f, _)) = lights.get(led) {
+                    assert!(
+                        f.origin.x >= left,
+                        "{width}: {led:?} at {f:?} reaches the lockup"
+                    );
+                }
+            }
+            kept.push(
+                Led::ALL
+                    .iter()
+                    .filter(|&&l| lights.get(l).is_some())
+                    .count(),
+            );
+            let frame = place.frame(500.0, 28.0);
+            assert!(
+                frame.origin.x >= 0.0 && place.end() <= width,
+                "{width}: {frame:?}"
+            );
+        }
+        assert_eq!(kept, [9, 8, 3], "the leftmost go first");
     }
 
     /// **Each light on its own line has its hover rectangle over its place**,

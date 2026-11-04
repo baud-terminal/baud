@@ -7,11 +7,12 @@ for is. It is generated from baud's record of third-party files, in its
 repository at https://github.com/baud-terminal/baud, whose THIRD_PARTY.md
 lists every such file there.
 
-baud's app icon, whose prompt glyph is JetBrains Mono 2.304 Bold's own
-outline, under the SIL Open Font License 1.1
+baud's app icon and title bar logo, whose glyphs are JetBrains Mono 2.304's
+own outlines, under the SIL Open Font License 1.1
   Files:   assets/logo/JetBrainsMono-OFL.txt,
            assets/logo/baud-icon-dock.svg,
-           assets/logo/baud-mark-amber-tight.svg
+           assets/logo/baud-lockup-dark-tight.svg,
+           assets/logo/baud-lockup-light-tight.svg
   Holder:  The JetBrains Mono Project Authors
   Licence: OFL-1.1
   Notice:  assets/logo/JetBrainsMono-OFL.txt

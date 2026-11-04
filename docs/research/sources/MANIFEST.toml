@@ -30415,6 +30415,20 @@ status = "external"
 group  = "J"
 # Read 2026-10-12 from Xcode 27.0 (27A266a), macOS SDK 27.0; hash recorded only, not committed -- a vendor header. Compare the sha256 of the file at the url.
 
+[sources.sdk27-nsappearance-h]
+key    = "sdk27-nsappearance-h"
+title  = "macOS SDK 27.2, AppKit NSAppearance.h -- 'Use a view's, window's, or the app's effectiveAppearance' (line 27); effectiveAppearance 'taking inherited appearances into account' (88-90)"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.2 (27B52), MacOSX.sdk 27.2"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSAppearance.h"
+file   = ""
+sha256 = "9c22c3d6213676f55e9bccf9abfdfce7de14bdd1bf96e4905c29f5f62949541b"
+bytes  = 4690
+status = "external"
+group  = "J"
+# Hash recorded only, not committed -- a vendor header. Compare the sha256 of the file at the url.
+
 [sources.sdk27-cadisplaylink-h]
 key    = "sdk27-cadisplaylink-h"
 title  = "macOS SDK 27.0, QuartzCore CADisplayLink.h -- 'API_AVAILABLE(macos(14.0))' on @interface CADisplayLink"

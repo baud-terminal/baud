@@ -226,7 +226,7 @@ fn elements(text: &str) -> BTreeSet<String> {
     out
 }
 
-/// The logo SVGs: every one in `assets/logo/`, the two the app embeds
+/// The logo SVGs: every one in `assets/logo/`, the three the app embeds
 /// through `baud-app/assets/logo/` (links into it), and the link
 /// picture's source.
 fn logo_svgs() -> Vec<String> {
@@ -724,4 +724,240 @@ fn the_dock_mark_is_a_prompt_in_the_tiles_upper_left() {
             "{f:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------- the title bar
+
+/// The title bar's lockups, each with the lockup it is cropped from: the
+/// light word for a dark appearance, the dark word for a light one.
+const TITLEBAR: [(&str, &str); 2] = [
+    (
+        "assets/logo/baud-lockup-dark-tight.svg",
+        "assets/logo/baud-lockup-dark.svg",
+    ),
+    (
+        "assets/logo/baud-lockup-light-tight.svg",
+        "assets/logo/baud-lockup-light.svg",
+    ),
+];
+
+/// A path's commands and numbers, in order, and which of the numbers are
+/// x (`true`) and which y: absolute `M`, `L`, `Q`, `C`, `H`, `V` and `Z`,
+/// what fontTools writes.
+fn tokens(d: &str) -> (String, Vec<f64>, Vec<bool>) {
+    let (mut cmds, mut nums, mut axes) = (String::new(), Vec::new(), Vec::new());
+    let mut cur = String::new();
+    let flush = |cur: &mut String, nums: &mut Vec<f64>| {
+        if !cur.is_empty() {
+            nums.push(cur.parse().unwrap_or(f64::NAN));
+            cur.clear();
+        }
+    };
+    // The numbers since the last command take its axes.
+    let settle = |cmd: Option<char>, nums: &[f64], axes: &mut Vec<bool>| {
+        let start = axes.len();
+        for i in 0..nums.len() - start {
+            axes.push(match cmd {
+                Some('H') => true,
+                Some('V') => false,
+                _ => i % 2 == 0,
+            });
+        }
+    };
+    for c in d.chars() {
+        if c.is_ascii_alphabetic() {
+            flush(&mut cur, &mut nums);
+            settle(cmds.chars().last(), &nums, &mut axes);
+            cmds.push(c);
+        } else if c == ' ' || c == ',' {
+            flush(&mut cur, &mut nums);
+        } else if c == '-' && !cur.is_empty() {
+            flush(&mut cur, &mut nums);
+            cur.push(c);
+        } else {
+            cur.push(c);
+        }
+    }
+    flush(&mut cur, &mut nums);
+    settle(cmds.chars().last(), &nums, &mut axes);
+    (cmds, nums, axes)
+}
+
+/// An SVG's drawn elements, comments out: each `path`'s `d` and fill, and
+/// each `rect`'s x, y, width, height and fill.
+type Drawn = (Vec<(String, String)>, Vec<([f64; 4], String)>);
+
+fn drawn(text: &str) -> Drawn {
+    let text = bare(text);
+    let fill = |el: &str| {
+        el.split(" fill=\"")
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let (mut paths, mut rects) = (Vec::new(), Vec::new());
+    for el in text.split('<').skip(1) {
+        if el.starts_with("path ") {
+            let d = el.split(" d=\"").nth(1).and_then(|s| s.split('"').next());
+            paths.push((d.unwrap_or_default().to_owned(), fill(el)));
+        } else if el.starts_with("rect ") {
+            let n = |k| attr(el, k).unwrap_or(f64::NAN);
+            rects.push(([n("x"), n("y"), n("width"), n("height")], fill(el)));
+        }
+    }
+    (paths, rects)
+}
+
+/// The root's `viewBox`, `width` and `height`.
+fn view_box(text: &str) -> Option<([f64; 4], (f64, f64))> {
+    let root = text.split("<svg").nth(1)?.split('>').next()?;
+    let vb = root.split(" viewBox=\"").nth(1)?.split('"').next()?;
+    let v: Vec<f64> = vb.split(' ').filter_map(|n| n.parse().ok()).collect();
+    let el = format!(" {root}");
+    Some((
+        <[f64; 4]>::try_from(v).ok()?,
+        (attr(&el, "width")?, attr(&el, "height")?),
+    ))
+}
+
+/// What keeps `tight` from being `source` cropped for the title bar, in
+/// `source`'s units, or nothing: the word, the ❯ and the cursor are
+/// `source`'s scaled by one factor, each number within one unit, in its
+/// colours and on no ground; the cursor `cell` units tall, the titlebar
+/// mark's; the box from the word's ink to the cursor's right, within one
+/// unit, and centred on the cursor's rows, every point inside it.
+fn tight_faults(tight: &str, source: &str, cell: f64) -> Vec<String> {
+    let mut out = Vec::new();
+    let ((tp, tr), (sp, sr)) = (drawn(tight), drawn(source));
+    // The source's cursor is its last rect; the dark one's ground is first.
+    let (Some(tc), Some(sc)) = (tr.last(), sr.last()) else {
+        return vec!["no cursor".to_owned()];
+    };
+    if tr.len() != 1 {
+        out.push(format!("{} rects, not the cursor alone", tr.len()));
+    }
+    if (tc.0[3] - cell).abs() > 0.01 {
+        out.push(format!("the cursor is {} tall, not {cell}", tc.0[3]));
+    }
+    let k = tc.0[3] / sc.0[3];
+    if tp.len() != sp.len() || tp.len() != 2 {
+        out.push(format!("{} paths against {}", tp.len(), sp.len()));
+        return out;
+    }
+    let mut xs = Vec::new();
+    let mut ys = Vec::new();
+    for ((td, tf), (sd, sf)) in tp.iter().zip(&sp) {
+        if tf != sf {
+            out.push(format!("a path in {tf}, not {sf}"));
+        }
+        let ((tcmd, tn, axes), (scmd, sn, _)) = (tokens(td), tokens(sd));
+        if tcmd != scmd || tn.len() != sn.len() {
+            out.push("a path of another shape".to_owned());
+            continue;
+        }
+        for (i, (a, b)) in tn.iter().zip(&sn).enumerate() {
+            if (a / k - b).abs() > 1.0 {
+                out.push(format!(
+                    "a path's number {a} is {b} at {k:.4} off by more than one unit"
+                ));
+                break;
+            }
+            if axes[i] { xs.push(*a) } else { ys.push(*a) }
+        }
+    }
+    if tc.1 != sc.1 {
+        out.push(format!("the cursor in {}, not {}", tc.1, sc.1));
+    }
+    for (a, b) in tc.0.iter().zip(&sc.0) {
+        if (a / k - b).abs() > 1.0 {
+            out.push(format!("the cursor's {a} is not {b} at {k:.4}"));
+        }
+    }
+    let Some(([vx, vy, vw, vh], (w, h))) = view_box(tight) else {
+        out.push("no viewBox".to_owned());
+        return out;
+    };
+    if (w, h) != (vw, vh) {
+        out.push(format!("drawn {w} by {h}, its box {vw} by {vh}"));
+    }
+    let left = xs.iter().copied().fold(f64::INFINITY, f64::min);
+    let right = tc.0[0] + tc.0[2];
+    if (vx - left).abs() / k > 1.0 || (vx + vw - right).abs() / k > 1.0 {
+        out.push(format!(
+            "the box {vx}..{} is not the ink {left}..{right}",
+            vx + vw
+        ));
+    }
+    let centre = tc.0[1] + tc.0[3] / 2.0;
+    if (vy + vh / 2.0 - centre).abs() / k > 1.0 {
+        out.push(format!(
+            "the box's centre {} is not the cursor's {centre}",
+            vy + vh / 2.0
+        ));
+    }
+    let (top, bottom) = ys.iter().fold((tc.0[1], tc.0[1] + tc.0[3]), |(a, b), &y| {
+        (a.min(y), b.max(y))
+    });
+    if top < vy - 0.01 || bottom > vy + vh + 0.01 || left < vx - 0.01 || right > vx + vw + 0.01 {
+        out.push(format!(
+            "ink {left},{top}..{right},{bottom} outside the box"
+        ));
+    }
+    out
+}
+
+/// **The title bar's lockups are the lockups, cropped**: the word and the
+/// mark of `baud-lockup-dark.svg` and `baud-lockup-light.svg`, scaled
+/// so the cursor is the titlebar mark's 168 units -- the mark keeps the
+/// size it had beside the traffic lights -- in their colours and on no
+/// ground, the box snug to the ink across and centred on the cursor's rows
+/// up and down, so a view the image's shape centres the mark in the strip.
+/// Both forms are one box, so a swap of appearance moves nothing. The
+/// app embeds the same files through `baud-app/assets/logo/`, links to
+/// them. The controls: the source lockup itself, and the tight lockup with
+/// its box a cursor's width wider, are refused.
+#[test]
+fn the_title_bars_lockups_are_the_lockups_cropped() {
+    let read = |rel: &str| fs::read_to_string(workspace().join(rel)).unwrap_or_default();
+    let mark = read("assets/logo/baud-mark-amber-tight.svg");
+    let cell = drawn(&mark).1.last().map_or(f64::NAN, |r| r.0[3]);
+    assert_eq!(cell, 168.0, "the titlebar mark's cursor");
+    let mut bad = Vec::new();
+    let mut boxes = Vec::new();
+    for (tight, source) in TITLEBAR {
+        let (t, s) = (read(tight), read(source));
+        bad.extend(
+            tight_faults(&t, &s, cell)
+                .into_iter()
+                .map(|f| format!("{tight}: {f}")),
+        );
+        boxes.push(view_box(&t));
+        let embedded = read(&tight.replace("assets/", "baud-app/assets/"));
+        if embedded != t {
+            bad.push(format!("{tight}: the app does not embed it"));
+        }
+    }
+    assert!(bad.is_empty(), "not the lockups cropped: {bad:#?}");
+    assert_eq!(boxes[0], boxes[1], "both forms are one box");
+    let (t, s) = (read(TITLEBAR[0].0), read(TITLEBAR[0].1));
+    assert!(
+        !tight_faults(&s, &s, cell).is_empty(),
+        "the control: the lockup itself"
+    );
+    let ([x, y, w, h], _) = view_box(&t).expect("a box");
+    let wide = t
+        .replace(
+            &format!("viewBox=\"{x} {y} {w} {h}\""),
+            &format!("viewBox=\"{} {y} {} {h}\"", x - 76.37, w + 76.37),
+        )
+        .replace(
+            &format!("width=\"{w}\""),
+            &format!("width=\"{}\"", w + 76.37),
+        );
+    assert_ne!(wide, t, "the control is a change");
+    assert!(
+        !tight_faults(&wide, &s, cell).is_empty(),
+        "the control: a wider box"
+    );
 }

@@ -1,32 +1,38 @@
-//! **baud's mark sits in the titlebar strip, beside the traffic lights and
-//! above the terminal, at every size the window opens at**: headless, in
+//! **baud's lockup sits in the titlebar strip, beside the traffic lights and
+//! above the terminal, at every size the window opens at, and follows the
+//! window's light or dark**: headless, in
 //! real windows built as `Opening::new` and `Opening::show` build baud's
 //! -- the window at its default size and then at the grid's, the container
 //! at the size the window was built at, the terminal's view inside it, the
-//! mark put by `baud-app/src/mark.rs` itself, then the body under it --
+//! lockup put by `baud-app/src/mark.rs` itself, then the body under it --
 //! and never shown.
 //!
 //! `harness = false` because AppKit views are main-thread-only and
 //! libtest runs every test on a thread of its own; this `main` is the
 //! process's main thread. It answers nextest's `--list` itself.
 //!
-//! Each window is checked as baud has it at each step: once the mark is
+//! Each window is checked as baud has it at each step: once the lockup is
 //! put, once the body (the standard material, and the glass) has the
 //! container, after a resize re-places it as `Driver::relayout` does, and
-//! in both appearances. The mark's frame must lie in its superview's
-//! bounds; converted to the window's coordinates, between the top of the
-//! window's content layout rect and the window's top, which is the
-//! titlebar's strip, and past the zoom button's right edge, level with the
-//! traffic lights; and after the terminal's view among the container's
-//! subviews, clear of its frame. Full screen is a resize to the screen's
-//! size, the path the resize step takes.
+//! in both appearances. The lockup's frame must lie in its superview's
+//! bounds, whole, the smallest window's included; converted to the
+//! window's coordinates, between the top of the window's content layout
+//! rect and the window's top, which is the titlebar's strip, and past the
+//! zoom button's right edge, level with the traffic lights; the shape of
+//! its picture, so the picture ends where the frame does and the activity
+//! lights start a light's gap past it; its mark's cell the size the mark
+//! alone was drawn at; and after the terminal's view among the
+//! container's subviews, clear of its frame. Under Aqua it shows the
+//! dark word and under Dark Aqua the light one, swapped on the flip with
+//! the frame unmoved. Full screen is a resize to the screen's size, the
+//! path the resize step takes.
 
 #[cfg(target_os = "macos")]
 #[allow(dead_code)]
 #[path = "../src/mark.rs"]
 mod mark;
 
-const NAME: &str = "the_mark_sits_in_the_titlebar_strip";
+const NAME: &str = "the_lockup_sits_in_the_titlebar_strip";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -50,11 +56,13 @@ fn main() {
 
 #[cfg(target_os = "macos")]
 use macos_liquid_glass::{
+    drawable::Appearance,
     glass::{GlassStyle, GlassSurface},
     material::{Material, MaterialSurface},
     objc2::MainThreadOnly,
     objc2_app_kit::{
-        NSAppearance, NSApplication, NSAutoresizingMaskOptions, NSView, NSWindow, NSWindowButton,
+        NSAppearance, NSAppearanceCustomization, NSApplication, NSAutoresizingMaskOptions, NSView,
+        NSWindow, NSWindowButton,
     },
     objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString},
     window::GlassWindow,
@@ -63,6 +71,10 @@ use macos_liquid_glass::{
 /// The size a window opens at, `app.rs`'s `WINDOW_SIZE`.
 #[cfg(target_os = "macos")]
 const WINDOW_SIZE: NSSize = NSSize::new(960.0, 600.0);
+
+/// The smallest window, `app.rs`'s `set_min_size`.
+#[cfg(target_os = "macos")]
+const SMALLEST: NSSize = NSSize::new(200.0, 100.0);
 
 /// What the container is put in.
 #[cfg(target_os = "macos")]
@@ -76,16 +88,13 @@ enum Body {
 fn run() {
     let mtm = MainThreadMarker::new().expect("harness = false runs main on the main thread");
     let _ = NSApplication::sharedApplication(mtm);
-    let image = macos_liquid_glass::image_from_bytes(include_bytes!(
-        "../assets/logo/baud-mark-amber-tight.svg"
-    ))
-    .expect("the titlebar mark's SVG decodes");
-    // The README film's window, the default one, and a pinned grid taller
-    // than the default; each then resized to the next.
+    // The README film's window, the default one, a pinned grid taller
+    // than the default, and the smallest; each then resized to the next.
     let sizes = [
         NSSize::new(786.0, 572.0),
         WINDOW_SIZE,
         NSSize::new(1200.0, 900.0),
+        SMALLEST,
     ];
     let mut checked = 0;
     for body in [Body::Standard, Body::Glass] {
@@ -118,7 +127,14 @@ fn run() {
             );
             container.addSubview(&view);
             window.set_content_view(&container);
-            let mark = mark::Mark::put(mtm, w, &container, inset, &image);
+            let mark = mark::Mark::put(mtm, w, &container, inset).expect("the lockups decode");
+            // Put in the form for the window's appearance as it is.
+            let now = if macos_liquid_glass::is_dark(&w.effectiveAppearance()) {
+                Appearance::Dark
+            } else {
+                Appearance::Light
+            };
+            assert_eq!(mark.shown(), mark::Lockup::for_appearance(now));
             let at = |step: &str| format!("{body:?} body, {content:?}, {step}");
             check(w, &container, &view, &mark, inset, &at("put"));
             // The body takes the container, and the mark is re-placed.
@@ -145,26 +161,42 @@ fn run() {
             w.setContentSize(next);
             mark.place(&container);
             check(w, &container, &view, &mark, inset, &at("resized"));
-            // A flip of appearance moves nothing.
+            // A flip of appearance swaps the picture and moves nothing.
             let placed = mark.view().frame();
-            for name in ["NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"] {
+            let mut pictures = Vec::new();
+            for (name, want) in [
+                ("NSAppearanceNameAqua", mark::Lockup::OnLight),
+                ("NSAppearanceNameDarkAqua", mark::Lockup::OnDark),
+                ("NSAppearanceNameAqua", mark::Lockup::OnLight),
+            ] {
                 let a = NSAppearance::appearanceNamed(&NSString::from_str(name))
                     .expect("a stock appearance");
                 window.set_appearance(Some(&a));
+                mark.follow_window(w);
+                assert_eq!(mark.shown(), want, "{}", at(name));
+                pictures.push(mark.view().image().expect("a picture"));
                 check(w, &container, &view, &mark, inset, &at(name));
                 assert_eq!(mark.view().frame(), placed, "{}", at(name));
             }
+            assert!(
+                pictures[0] != pictures[1],
+                "{}: the flip swapped nothing",
+                at("flip")
+            );
+            assert!(pictures[0] == pictures[2], "{}: the flip back", at("flip"));
             window.set_appearance(None);
             checked += 1;
         }
     }
-    assert_eq!(checked, 6, "two bodies at three sizes");
+    assert_eq!(checked, 8, "two bodies at four sizes");
     println!("{NAME}: ok, {checked} windows");
 }
 
-/// **The mark where baud's window has it**: in its superview's bounds, in
-/// the titlebar's strip and level with the traffic lights in the window's
-/// coordinates, past the zoom button, and above the terminal's view.
+/// **The lockup where baud's window has it**: whole in its superview's
+/// bounds, in the titlebar's strip and level with the traffic lights in
+/// the window's coordinates, past the zoom button, the shape of its
+/// picture, its mark the size the mark alone was, the lights a light's
+/// gap past its end, and above the terminal's view.
 #[cfg(target_os = "macos")]
 fn check(w: &NSWindow, container: &NSView, view: &NSView, mark: &mark::Mark, inset: f64, at: &str) {
     const EPS: f64 = 1e-6;
@@ -207,6 +239,35 @@ fn check(w: &NSWindow, container: &NSView, view: &NSView, mark: &mark::Mark, ins
     assert!(
         (mc - zc).abs() <= z.size.height / 2.0,
         "{at}: the mark's centre {mc} is not level with the traffic lights' {zc}"
+    );
+    // The picture's shape, so it is drawn to the frame's edges: the
+    // frame's right is the cursor's, and the lights start a light's gap
+    // past it.
+    let art = mark::Lockup::OnDark.art().expect("the lockup's size");
+    assert!(
+        (m.size.width / m.size.height - art.width / art.height).abs() < 1e-9,
+        "{at}: the frame {m:?} is not the picture's shape {art:?}"
+    );
+    assert!(
+        (mark.end() - (m.origin.x + m.size.width)).abs() < EPS,
+        "{at}: the lockup ends at {}, its frame at {}",
+        mark.end(),
+        m.origin.x + m.size.width
+    );
+    assert!(
+        (mark.lights_left() - mark.end() - f64::from(baud_render::lights::PAIR)).abs() < EPS,
+        "{at}: the lights start at {}, not a light's gap past {}",
+        mark.lights_left(),
+        mark.end()
+    );
+    // The mark's 168-unit cell at the points per unit the mark alone had:
+    // its 300-unit box across a square 1.4 lights tall.
+    let side = (z.size.height * 1.4).min(inset - 4.0).max(16.0);
+    let cell = m.size.height * 168.0 / art.height;
+    assert!(
+        (cell - side * 168.0 / 300.0).abs() < EPS,
+        "{at}: the mark's cell is {cell} points, not {}",
+        side * 168.0 / 300.0
     );
     let subviews = container.subviews();
     let index = |v: &NSView| (0..subviews.count()).find(|&i| &*subviews.objectAtIndex(i) == v);

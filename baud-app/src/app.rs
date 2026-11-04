@@ -4540,7 +4540,7 @@ fn open_window(at: Option<std::path::PathBuf>) {
     let scale = NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor());
     let inset = predicted_inset(mtm, WINDOW_SIZE);
     let shell = Shell::start(scale, WINDOW_SIZE, inset, at.as_deref());
-    let opening = Opening::new(mtm, WINDOW_SIZE, scale, inset, shell, icon(), None);
+    let opening = Opening::new(mtm, WINDOW_SIZE, scale, inset, shell, None);
     opening.show(mtm, scale, after);
 }
 
@@ -12335,26 +12335,17 @@ enum DockIcon {
 /// baud's icon, rasterised from `assets/logo/` and embedded, so it needs no
 /// bundle. The Dock wants a proper app icon -- a rounded square with the mark
 /// in its upper left and padding around it, like every other app;
-/// the titlebar wants the bare mark snug against its box, or the strip
-/// makes it tiny -- so the two read from different files.
+/// the titlebar wants the lockup snug against its box, or the strip
+/// makes it tiny -- so the two read from different files (`mark.rs`).
 fn icon() -> Option<Retained<NSImage>> {
     // A proper app icon for the Dock: a dark rounded square at ~80% of the
     // canvas with the amber mark in its upper left, 1.2 times the 512
     // icons' -- a prompt at the start of a terminal's first line, big
     // enough to read at the Dock's 32 pt -- and transparent padding
     // around it, the way every other Dock icon sits. The titlebar uses
-    // the bare mark (`icon_titlebar`); the Dock wants the box. The SVG
+    // the lockup (`mark.rs`); the Dock wants the box. The SVG
     // itself, not a raster, so NSImage renders it as a vector.
     const BYTES: &[u8] = include_bytes!("../assets/logo/baud-icon-dock.svg");
-    macos_liquid_glass::image_from_bytes(BYTES)
-}
-
-/// The same mark, cropped snug to its own bounds. In the padded 512 box the
-/// glyph is a third of the height, so a titlebar-sized box drew a mark half
-/// the size of a traffic light; this viewBox is tight to the strokes, so the
-/// box the icon is given is the size the mark is drawn at.
-fn icon_titlebar() -> Option<Retained<NSImage>> {
-    const BYTES: &[u8] = include_bytes!("../assets/logo/baud-mark-amber-tight.svg");
     macos_liquid_glass::image_from_bytes(BYTES)
 }
 
@@ -12491,9 +12482,9 @@ pub fn run() {
     });
     let dock_icon = match dock {
         DockIcon::Bundled => None,
-        DockIcon::Ours => icon.clone(),
+        DockIcon::Ours => icon,
     };
-    let opening = Opening::new(mtm, size, scale, inset, shell, icon, dock_icon);
+    let opening = Opening::new(mtm, size, scale, inset, shell, dock_icon);
     // The menu before the run loop: key equivalents need it from the first
     // event, and nothing on screen waits for it.
     macos_liquid_glass::menu::install_main_menu(&ns_app, mtm, "baud");
@@ -12710,7 +12701,6 @@ struct Opening {
     window: GlassWindow,
     glass: Body,
     container: Retained<NSView>,
-    icon: Option<Retained<NSImage>>,
     inset: CGFloat,
 }
 
@@ -12724,7 +12714,6 @@ impl Opening {
         scale: CGFloat,
         inset: CGFloat,
         shell: Shell,
-        icon: Option<Retained<NSImage>>,
         dock_icon: Option<Retained<NSImage>>,
     ) -> Opening {
         let Shell {
@@ -12949,7 +12938,6 @@ impl Opening {
             window,
             glass,
             container,
-            icon,
             inset,
         }
     }
@@ -12966,7 +12954,6 @@ impl Opening {
             window,
             glass,
             container,
-            icon,
             inset,
         } = self;
         // The first frame, drawn now on this thread: one draw, which
@@ -13021,26 +13008,20 @@ impl Opening {
             .map(|c| c.frame())
             .filter(|f| f.size.height >= 1.0)
             .map_or(12.0, |f| f.origin.x);
-        // **baud's mark beside the traffic lights** (`mark.rs`), read after
-        // `show()` so the buttons are laid out, and placed against the
-        // container's height now, not the size `new` built it at: a pinned
-        // grid gave the window, and with it the container, another size
-        // before this ran. The snug crop, not the padded Dock mark, so the
-        // box is the size the mark is drawn at.
-        let mark = icon.as_ref().map(|img| {
-            let tight = icon_titlebar();
-            crate::mark::Mark::put(
-                mtm,
-                window.ns_window(),
-                &container,
-                inset,
-                tight.as_deref().unwrap_or(img),
-            )
-        });
-        // And stop short of baud's mark, a light's gap clear of it.
-        let mark_end = mark.as_ref().map_or(74.0, crate::mark::Mark::end);
+        // **baud's lockup beside the traffic lights** (`mark.rs`), read
+        // after `show()` so the buttons are laid out, in the form for the
+        // window's appearance now, and placed against the container's
+        // height now, not the size `new` built it at: a pinned grid gave
+        // the window, and with it the container, another size before this
+        // ran. The snug crop, not the padded Dock mark, so the box is the
+        // size the lockup is drawn at.
+        let mark = crate::mark::Mark::put(mtm, window.ns_window(), &container, inset);
+        // And stop short of baud's lockup, a light's gap clear of it.
+        let lights_left = mark.as_ref().map_or(
+            74.0 + CGFloat::from(baud_render::lights::PAIR),
+            crate::mark::Mark::lights_left,
+        );
         driver.icon = mark;
-        let lights_left = mark_end + CGFloat::from(baud_render::lights::PAIR);
         driver.lights = crate::lights::Strip::new(lights_right, lights_left);
         startup_mark("titlebar");
         // The glass under the terminal now that the first frame is on the
@@ -14852,9 +14833,9 @@ impl Driver {
         self.lights.place(&self.icon_super, self.icon_inset);
     }
 
-    /// Re-place the titlebar mark at the top-left of its superview, whose
+    /// Re-place the titlebar lockup at the top-left of its superview, whose
     /// height it reads now rather than at launch. Cheap -- one `setFrame` --
-    /// and it runs on every resize so the mark cannot drift or vanish.
+    /// and it runs on every resize so the lockup cannot drift or vanish.
     fn place_icon(&self) {
         if let Some(mark) = &self.icon {
             mark.place(&self.icon_super);
@@ -15397,6 +15378,13 @@ impl Driver {
         // the appearance it draws in.
         self.lights_appearance = self.glass.appearance(&self.window);
         self.lights.stale();
+        // **The lockup's word follows the window's appearance**, the one
+        // AppKit draws the traffic lights in (`mark.rs`), before the early
+        // return: a pinned palette is the terminal's, the title strip the
+        // window's.
+        if let Some(mark) = &self.icon {
+            mark.follow_window(self.window.ns_window());
+        }
         // The unemphasized pair is the appearance's, so it follows a flip
         // while the window is not key.
         self.inactive_selection(self.app.focus);
@@ -16357,6 +16345,32 @@ mod tests {
         );
         assert!(body.contains("palette_switch("), "behind the switch rule");
         assert!(!body.contains("theme_for("), "the flip builds no theme");
+    }
+
+    /// **A flip of light and dark swaps the title bar's lockup**, from the
+    /// driver's appearance path: `apply_style`, which a change of the
+    /// view's effective appearance reaches through `pump`, has the lockup
+    /// follow the window before the early return a pinned palette takes,
+    /// so `theme = "dark"` under a light system still shows the dark word
+    /// on the light strip. The form is the window's, through
+    /// `Mark::follow_window`, the reading `Mark::put` makes at the launch
+    /// (`baud-app/tests/titlebar_mark.rs` holds both in real windows).
+    /// Perturbation: move the call below `palette_switch(`, or drop it,
+    /// and this goes red.
+    #[test]
+    fn a_flip_of_light_and_dark_swaps_the_title_bars_lockup() {
+        let app = include_str!("app.rs");
+        let app = app
+            .rsplit_once("#[cfg(test)]\nmod tests {")
+            .map_or(app, |(c, _)| c);
+        let at = app.find("fn apply_style(").expect("apply_style");
+        let body = &app[at..at + app[at..].find("\n    }\n").expect("its end")];
+        let follows = body
+            .find("mark.follow_window(self.window.ns_window())")
+            .expect("the lockup follows the window in apply_style");
+        let early = body.find("palette_switch(").expect("the switch rule");
+        assert!(follows < early, "before the early return");
+        assert_eq!(app.matches(".follow_window(").count(), 1, "one caller");
     }
 
     /// Every keypad key code of `[[source: macos-sdk-events-h]]` (lines

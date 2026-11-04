@@ -1274,8 +1274,11 @@ Facts found reading them:
     `baud-icon-dock.svg` to an `.icns` with `rsvg-convert` (34-44). A bare
     binary, with no bundle, sets the SVG as an `NSImage` instead
     (`baud-app/src/app.rs` 4770, 4874-4884).
-  - **The titlebar mark.** `baud-mark-amber-tight.svg`, rendered by AppKit
-    as an `NSImage` (`icon_titlebar`, `app.rs` 4779).
+  - **The titlebar lockup.** `baud-lockup-dark-tight.svg` or
+    `baud-lockup-light-tight.svg`, whichever matches the window's
+    appearance, rendered by AppKit as an `NSImage` (`Mark::put`,
+    `baud-app/src/mark.rs`). This replaces `icon_titlebar` and
+    `baud-mark-amber-tight.svg`.
   - **The lockup.** Nothing draws it.
 
 ### 3.2 The plasma is a cursor trail

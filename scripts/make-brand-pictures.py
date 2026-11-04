@@ -42,7 +42,12 @@ What it writes, each from the code below and nothing else:
   assets/logo/baud-icon-dock.svg, baud-icon-dock-<N>.png  the Dock icon and its
       drawings at the iconset's sizes, which scripts/bundle-macos.sh packs into
       baud.icns; baud-app/src/app.rs embeds the SVG
-  assets/logo/baud-mark-amber-tight.svg  the titlebar mark (app.rs embeds it)
+  assets/logo/baud-mark-amber-tight.svg  the mark alone, its box 300 by 204, as
+      the title bar showed it before the lockups
+  assets/logo/baud-lockup-{dark,light}-tight.svg  the title bar's lockups
+      (baud-app/src/mark.rs embeds them): baud-lockup-dark's and -light's word
+      and mark, their cell the 168 of the mark above, on no ground, the box
+      snug to the ink across and centred on the cell's rows
   assets/logo/baud-github-org.svg, .png  the organisation picture: "baud" over
       the mark, #F3F4F6 and #F4A32C on #15171B, 500 by 500, the ground edge to
       edge so GitHub's own rounded corners apply; the PNG adds baud's plasma
@@ -57,7 +62,9 @@ icon's mark is a prompt at the start of a terminal's first line**: in the
 tile's upper left, in a terminal's own margin, 1.2 times the 512 icons'
 cell so it reads at the Dock's 32 pt, the ❯'s cell corner one of their cell
 widths (76.36 units) in from the tile's left and top and the mark scaled
-about it. The titlebar's mark stays the 512 icons'. **Every PNG is its
+about it. The title bar's lockups keep the 512 icons' cell, 168 units, so
+the mark beside the traffic lights keeps its size with the word added
+before it. **Every PNG is its
 SVG drawn by the pinned resvg**, but the organisation picture's: that
 is its SVG drawn by resvg with two lights of baud's plasma laid over it,
 on the word and on the mark, each drawn by baud's
@@ -128,6 +135,7 @@ import glob
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import struct
@@ -179,6 +187,8 @@ DOCK_SIZES = (16, 32, 64, 128, 256, 512, 1024)
 DOCK_SCALE = 1.2
 DOCK_CORNER = CELL_W * 168.0 / CELL_H
 TIGHT = LOGO + "baud-mark-amber-tight.svg"
+# The title bar's lockups, by the appearance each is for.
+TITLEBAR = {"dark": LOGO + "baud-lockup-dark-tight.svg", "light": LOGO + "baud-lockup-light-tight.svg"}
 MB = 1_000_000
 
 # The lockup, 300 by 130: the word at x 40, baseline 88, size 62,
@@ -279,6 +289,15 @@ def num(v):
 
 def r2(v):
     return round(v, 2)
+
+
+def down2(v):
+    """v to two decimals, never above it: a box edge that cannot cut ink."""
+    return math.floor(round(v * 100, 6)) / 100
+
+
+def up2(v):
+    return math.ceil(round(v * 100, 6)) / 100
 
 
 class Type:
@@ -450,6 +469,23 @@ def logo_svgs(t):
     m, ink, cur = centred(t, *big, AMBER)
     left, right = span(ink, cur)
     out[TIGHT] = svg(300, 204, m, view=f"{num((left + right) / 2 - 150)} 154 300 204")
+
+    # The title bar's lockups: the dark and light lockups' word and mark,
+    # scaled so the cell is the mark's 168 above, which keeps the mark the
+    # size it was beside the traffic lights, and on no ground, since the
+    # strip is the ground. The box is snug to the ink across, the word's
+    # left to the cursor's right, so the image ends where the ink does; up
+    # and down it is centred on the cell's rows, so a view the image's
+    # shape centres the mark in the strip where the mark alone was.
+    s = big[2] / LOCKUP_CELL[2]
+    for name, word, amber in (("dark", TYPE_DARK, AMBER), ("light", TYPE_LIGHT, AMBER_LIGHT)):
+        body, box, _ = lockup(t, 0.0, 0.0, s, word, amber)
+        top = r2(LOCKUP_CELL[1] * s)
+        centre = top + (r2(top + big[2]) - top) / 2
+        half = max(centre - box[1], box[3] - centre)
+        x0, x1, y0, y1 = down2(box[0]), up2(box[2]), down2(centre - half), up2(centre + half)
+        w, h = num(x1 - x0), num(y1 - y0)
+        out[TITLEBAR[name]] = svg(w, h, body, view=f"{num(x0)} {num(y0)} {w} {h}")
     return out
 
 
