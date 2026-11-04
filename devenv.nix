@@ -441,9 +441,10 @@ in
     # through a release.
     "test:publish" = {
       exec = "python3 ./scripts/check-publish.py --verify";
-      # After the features gate, not after paths: `cargo package` takes the
-      # same lock over ./target that clippy, check and unit hold, so it must
-      # wait for the cargo chain to finish.
+      # After the features gate, not after paths: the verify builds the
+      # twelve crates and their dependencies from nothing, in a folder of its
+      # own under ./target (check-publish.py, package()), so it waits for the
+      # cargo chain to finish rather than share the machine with it.
       after = [ "test:features@completed" ];
     };
 

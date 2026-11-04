@@ -42011,3 +42011,121 @@ group  = "GP"
 # The one-inch, eight-track tape: its 2.4 puts the feed track 0.392 inch from
 # the reference (3-track) edge. The link picture takes only the two hole
 # diameters' ratio from it; no text read places a five-track tape's feed track.
+
+[sources.cargo-eb94155-package-mod-rs]
+key    = "cargo-eb94155-package-mod-rs"
+title  = "cargo eb94155, src/cargo/ops/cargo_package/mod.rs -- do_package and TmpRegistry: a multi-crate package puts each .crate in a local registry at build_dir/package/tmp-registry, laid over the upstream registry"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/cargo/ops/cargo_package/mod.rs"
+file   = ""
+sha256 = "5ba4d4c7030f89e6a985b3a45a74a52c6a89c87194bb70c152c5e690794bc62b"
+bytes  = 45421
+status = "external"
+group  = "AN"
+# Fetched and read 2026-11-03, not committed. Lines 283-284: reg_dir = ws.build_dir().join("package").join("tmp-registry"); lines
+# 1100-1102: the temporary local registry overlays the new packages on the upstream
+# registry; line 220: the .crate files are uplifted to target_dir/package.
+[sources.cargo-eb94155-package-verify-rs]
+key    = "cargo-eb94155-package-verify-rs"
+title  = "cargo eb94155, src/cargo/ops/cargo_package/verify.rs -- run_verify: each .crate is unpacked afresh under build_dir/package and built in an ephemeral workspace on the build folder, with the local registry laid over"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/cargo/ops/cargo_package/verify.rs"
+file   = ""
+sha256 = "e96fd91c922f509e589947100a3544f3543ce4d5d46f3f9ae105272eb9a80083"
+bytes  = 6851
+status = "external"
+group  = "AN"
+# Fetched and read 2026-11-03, not committed. Lines 48-60: build_dir/package/<name>-<version> is removed and unpacked again;
+# lines 72-77: the ephemeral workspace builds in ws.build_dir() with the overlay added.
+[sources.cargo-eb94155-workspace-rs]
+key    = "cargo-eb94155-workspace-rs"
+title  = "cargo eb94155, src/cargo/core/workspace.rs -- Workspace::ephemeral and local_overlays: an ephemeral workspace's build folder is its target folder, and an overlay is a local registry by its path"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/cargo/core/workspace.rs"
+file   = ""
+sha256 = "1d789143356bef2def5c107205041520956cab98d6867246c773ee0cc2bb055f"
+bytes  = 98850
+status = "external"
+group  = "AN"
+# Fetched and read 2026-11-03, not committed. Lines 310-315: target_dir is the one passed, and build_dir = target_dir; lines
+# 2031-2035: each overlay path becomes SourceId::for_local_registry(path).
+[sources.cargo-eb94155-source-id-rs]
+key    = "cargo-eb94155-source-id-rs"
+title  = "cargo eb94155, src/cargo/core/source_id.rs -- SourceId::for_local_registry: a local registry's id is its path as a file URL, and the id hashes its kind and URL"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/cargo/core/source_id.rs"
+file   = ""
+sha256 = "fc2c38a770e91f66c45503a3824213c2b0881ffa0a83fef41bb474a1e412d294"
+bytes  = 34459
+status = "external"
+group  = "AN"
+# Fetched and read 2026-11-03, not committed. Lines 248-251: url = path.into_url(); lines 686-690: Hash for SourceId is the kind and
+# the canonical URL.
+[sources.cargo-eb94155-registry-mod-rs]
+key    = "cargo-eb94155-registry-mod-rs"
+title  = "cargo eb94155, src/cargo/sources/registry/mod.rs -- short_name and unpack_package: a registry's crates unpack into $CARGO_HOME/registry/src/<host>-<hash of its id>, and an unpack whose .cargo-ok is written is used as it is"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/cargo/sources/registry/mod.rs"
+file   = ""
+sha256 = "2c8ab27cd91b4e951c5d13d6abdff757d29b1f75e6d746f5128b6b09d984965e"
+bytes  = 45518
+status = "external"
+group  = "AN"
+# Fetched and read 2026-11-03, not committed. Line 249: src_path is $CARGO_HOME/registry/src/$REG-HASH; lines 459-469: short_name is
+# the URL's host, empty for a file URL, a dash and the id's hash; lines 512-519 and 553: a
+# local registry's src_path is registry_source_path().join(name); lines 618-636:
+# unpack_package returns the existing directory when .cargo-ok reads {"v":1}.
+[sources.cargo-eb94155-overlay-rs]
+key    = "cargo-eb94155-overlay-rs"
+title  = "cargo eb94155, src/cargo/sources/overlay.rs -- DependencyConfusionThreatOverlaySource: the overlay reports the local registry's crates as the upstream's, and fingerprints a crate by its version alone"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/cargo/sources/overlay.rs"
+file   = ""
+sha256 = "2d7850dcdb41926dfe05417c9a3cbcec98d816b9da30b9954ee0b12a5ad3b015"
+bytes  = 4588
+status = "external"
+group  = "AN"
+# Fetched and read 2026-11-03, not committed. Lines 7-12: the overlay pretends its packages are in the other source, for verifying
+# packages before they are published; lines 117-119: fingerprint is the version.
+[sources.cargo-eb94155-fingerprint-mod-rs]
+key    = "cargo-eb94155-fingerprint-mod-rs"
+title  = "cargo eb94155, src/cargo/core/compiler/fingerprint/mod.rs -- the fingerprint module's \"Special considerations\": registry dependencies do not track the mtime of files"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/cargo/core/compiler/fingerprint/mod.rs"
+file   = ""
+sha256 = "ecb50403d0a63451005c384947e8629b7c92cb4860b77b1ef212a6739733eed7"
+bytes  = 92970
+status = "external"
+group  = "AN"
+# Fetched and read 2026-11-03, not committed. Lines 336-338: registry dependencies do not track the mtime of files, since a new
+# version changes the package id; lines 2052-2059: a unit's local fingerprint is its
+# source's fingerprint of the package.
+[sources.cargo-eb94155-config-md]
+key    = "cargo-eb94155-config-md"
+title  = "The Cargo Book, reference/config.md at eb94155 -- build.target-dir and build.build-dir, which defaults to it, and their environment variables"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/eb94155a9a60943bd7b1cb04abec42f5d0de6ddc/src/doc/src/reference/config.md"
+file   = ""
+sha256 = "e7e2a10de9b258306e612cf11261552ac1cfe8cb6f88e05c431b9c1b215caf21"
+bytes  = 56585
+status = "external"
+group  = "AN"
+# Fetched and read 2026-11-03, not committed. Lines 528-531: build.target-dir, CARGO_BUILD_TARGET_DIR or CARGO_TARGET_DIR; lines
+# 540-547: build.build-dir defaults to build.target-dir, CARGO_BUILD_BUILD_DIR, and holds
+# the intermediate artifacts.

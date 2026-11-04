@@ -73,7 +73,11 @@ has to be able to fail:
   - with --verify, every crate builds from its .crate alone, as `cargo
     publish` builds it before uploading: a file read through a path that
     leaves the crate's directory is not in the .crate, and fails here rather
-    than partway through a release, after the crates before it are up.
+    than partway through a release, after the crates before it are up;
+  - with --size or --verify, each run packages and builds in a folder of
+    its own, so no crate is built from an unpack or a compile of an
+    earlier run (package()), and a crate the build took from cargo's
+    unpack of the other .crates must have been unpacked by this run.
 
 A packaged symlink is a copy of the file it points at (cargo archives the
 target's bytes), so it counts as that file for the notices, and it must point
@@ -83,9 +87,11 @@ at a file in the repository.
 import filecmp
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import textwrap
 import tomllib
 
@@ -464,6 +470,96 @@ def root_settings(name, m, ws):
     return errs
 
 
+def package(root, names, version, verify):
+    """(errs, packed, read): `cargo package` of the crates `names` of the
+    workspace at `root`, each built from its own .crate when `verify`, as
+    `cargo publish` builds it. `packed` maps each name to its .crate's size
+    in bytes and the bytes of the Cargo.toml inside it; `read` is the set of
+    unpacks, `<name>-<version>` directories under cargo's registry/src,
+    that the build read.
+
+    Cargo puts the .crate of each crate it packages in a local registry,
+    `package/tmp-registry` under the build folder, and lays it over
+    crates.io for the crates after it ([[source: cargo-eb94155-package-mod-rs]]
+    lines 283-284 and 1100-1102). A crate of one name and version is
+    immutable to cargo in two places, and each kept a crate's code from
+    before a change that left the version alone, so that the crates built
+    on it failed, or passed, on that old code:
+
+      - its unpack: the local registry's crates unpack into
+        $CARGO_HOME/registry/src/-<hash>, the hash of the registry's path
+        as a file URL, and an unpack whose .cargo-ok is written is used as
+        it is ([[source: cargo-eb94155-workspace-rs]] lines 2031-2035;
+        [[source: cargo-eb94155-source-id-rs]] lines 248-251 and 686-690;
+        [[source: cargo-eb94155-registry-mod-rs]] lines 459-469, 553 and
+        618-636);
+      - its compile: the verify builds in the build folder
+        ([[source: cargo-eb94155-package-verify-rs]] lines 72-77), where a
+        crate from the registry is fresh for as long as its version is
+        ([[source: cargo-eb94155-overlay-rs]] lines 117-119;
+        [[source: cargo-eb94155-fingerprint-mod-rs]] lines 336-338).
+
+    So each call builds in a folder made for it, set as the target folder
+    and as the build folder, which defaults to the target folder and may be
+    configured apart ([[source: cargo-eb94155-config-md]] lines 540-547): a
+    path no build used, so a registry URL and an unpack folder no build
+    used, and no compiled crate. A crate read from an unpack folder that
+    was there before the call is a FAIL. The folder is removed after, and
+    so are the unpacks of `names` in each unpack folder the call made,
+    found from the build's dep-info and errors, and that folder once it is
+    empty; nothing else under CARGO_HOME is touched."""
+    errs, packed, read = [], {}, set()
+    home = os.environ.get("CARGO_HOME") or os.path.join(os.path.expanduser("~"), ".cargo")
+    src = os.path.join(home, "registry", "src")
+    parent = os.path.join(root, os.environ.get("CARGO_TARGET_DIR", "target"))
+    os.makedirs(parent, exist_ok=True)
+    fresh = tempfile.mkdtemp(prefix="check-publish-", dir=parent)
+    unpack = re.compile(
+        re.escape(src + os.sep) + r"([^/\s]+)/(" + "|".join(re.escape(f"{n}-{version}") for n in names) + r")/"
+    )
+    args = ["cargo", "package", "--allow-dirty", "-q"] + ([] if verify else ["--no-verify"])
+    for n in names:
+        args += ["-p", n]
+    made = set()
+    try:
+        before = set(os.listdir(src)) if os.path.isdir(src) else set()
+        env = {**os.environ, "CARGO_TARGET_DIR": fresh, "CARGO_BUILD_BUILD_DIR": fresh}
+        out = subprocess.run(args, cwd=root, env=env, capture_output=True, text=True)
+        said = [out.stderr]
+        for d, _, fs in os.walk(fresh):
+            for f in fs:
+                if f.endswith(".d"):
+                    with open(os.path.join(d, f), encoding="utf-8", errors="replace") as fh:
+                        said.append(fh.read())
+        stale = set()
+        for m in unpack.finditer("\n".join(said)):
+            read.add(os.path.join(src, m.group(1), m.group(2)))
+            (stale if m.group(1) in before else made).add(m.group(1))
+        errs += [
+            f"cargo built a crate from {os.path.join(src, d)}, which was there before this run: "
+            "what is unpacked there may be an older .crate's"
+            for d in sorted(stale)
+        ]
+        if out.returncode != 0:
+            errs.append(f"{' '.join(args[:2])} failed: {out.stderr.strip()[-2000:]}")
+        else:
+            for n in names:
+                crate = os.path.join(fresh, "package", f"{n}-{version}.crate")
+                with tarfile.open(crate) as t:
+                    manifest = t.extractfile(f"{n}-{version}/Cargo.toml").read()
+                packed[n] = (os.path.getsize(crate), manifest)
+    finally:
+        for d in made:
+            for n in names:
+                shutil.rmtree(os.path.join(src, d, f"{n}-{version}"), ignore_errors=True)
+            try:
+                os.rmdir(os.path.join(src, d))
+            except OSError:
+                pass
+        shutil.rmtree(fresh, ignore_errors=True)
+    return errs, packed, read
+
+
 def check(size, verify, write, write_lic=False):
     """(errors, awaiting): what fails the check, and the shipped files whose
     rows await the owner. With `write`, each crate's NOTICE is written
@@ -617,24 +713,17 @@ def check(size, verify, write, write_lic=False):
                 errs.append(f"{n}: ships {src[hit[0]]} ({what}) without its notice {notice_}")
 
     if (size or verify) and not errs:
-        target = os.environ.get("CARGO_TARGET_DIR", os.path.join(ROOT, "target"))
-        args = ["cargo", "package", "--allow-dirty", "-q"] + ([] if verify else ["--no-verify"])
-        for n in sorted(want):
-            args += ["-p", n]
-        out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
-        if out.returncode != 0:
-            errs.append(f"{' '.join(args[:2])} failed: {out.stderr.strip()[-2000:]}")
-        else:
-            for n in sorted(want):
-                crate = os.path.join(target, "package", f"{n}-{version}.crate")
-                b = os.path.getsize(crate)
-                print(f"  {n}: {b / 1048576:.2f} MiB compressed")
-                if b > LIMIT:
-                    errs.append(f"{n}: {b} bytes, over crates.io's {LIMIT}")
-                if n == "baud":
-                    with tarfile.open(crate) as t:
-                        packed = tomllib.load(t.extractfile(f"{n}-{version}/Cargo.toml"))
-                    errs += [f"{e} in its .crate" for e in root_settings(n, packed, ws)]
+        perrs, packed, read = package(ROOT, sorted(want), version, verify)
+        errs += perrs
+        if verify and not perrs and not read:
+            # Every crate but the leaves builds against the others' .crates.
+            errs.append("the verify build read no crate from cargo's unpack of the others: the check that it is this run's has stopped working")
+        for n, (b, manifest) in sorted(packed.items()):
+            print(f"  {n}: {b / 1048576:.2f} MiB compressed")
+            if b > LIMIT:
+                errs.append(f"{n}: {b} bytes, over crates.io's {LIMIT}")
+            if n == "baud":
+                errs += [f"{e} in its .crate" for e in root_settings(n, tomllib.loads(manifest.decode()), ws)]
     if not errs:
         print(f"checked: {len(want)} crates to publish, {len(set(mem) - want)} not")
     return errs, awaiting
