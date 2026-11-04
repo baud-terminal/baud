@@ -266,6 +266,18 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   a region of the screen, such as the text above its own status line, leaves
   the rows under the region where they were, so the trail stays too.
   `[cursor] trail_scroll = "stay"` keeps the trail where it was drawn.
+- A program's scroll is not a move. When a program scrolls its text and keeps
+  the cursor on its line -- a wheel step in helix, vim or neovim, `zz`, `zt`
+  or `Ctrl-E` in vim, the same in a tmux pane -- what the trail holds moves
+  with the text, and only what the cursor moved beyond its line trails: a
+  cursor that kept its line draws nothing, and every jump still trails. A
+  terminal is not told the scroll, so baud reads it off the screen: the
+  written lines of the cursor's pane that reappear a few rows up or down, at
+  least three of them, the cursor's own line among them. A view moved so far
+  that fewer than three of the old lines are left, such as `zb` with the
+  cursor on the top line, still trails. Neovide does the same with the
+  editor's own scroll [[source: neovide-cursor-renderer]]. Under
+  `trail_scroll = "stay"` such a move trails as any other.
 - An idle terminal pays nothing for any of them. Only a moved cursor starts a
   trail, and one that has ended asks for no more frames.
 - Every trail is drawn on every path: the GPU, and the CPU path --

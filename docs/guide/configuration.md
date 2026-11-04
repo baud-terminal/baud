@@ -164,7 +164,7 @@ config file, then in `$XDG_CONFIG_HOME/baud/themes/` and
 | `blink_animation` | `"plasma"`, `"fade"`, `"fire"`, `"ufo"`, `"none"` | `"plasma"` | What the cursor does while it is hidden. `"none"` switches it straight off. |
 | `stop_blinking_after` | number, seconds | `0` | Stop blinking, with the cursor shown, after this long without typing, clicking or pasting. `0` means never. |
 | `trail` | `"plasma"`, `"fire"`, `"lightning"`, `"ice"`, `"ufo"`, `"orb"`, `"liquid"`, `"quad"`, `"sweep"`, `"ghost"`, `"off"` (`true` also means the default) | `"plasma"` | The effect left behind when the cursor jumps. [The cursor gallery](../cursor.md) shows each one. |
-| `trail_scroll` | `"ride"`, `"stay"` | `"ride"` | Whether a trail in flight moves up with the text when output scrolls. |
+| `trail_scroll` | `"ride"`, `"stay"` | `"ride"` | Whether a trail moves with the text when it scrolls: a trail in flight rides output's scroll, and a cursor a program scrolls with its line draws no trail. |
 | `guide` | `"on"`, `"off"` | `"off"` | Whether the row the cursor is on is highlighted with a pale band the window's width, iTerm2's cursor guide. A program can turn it on or off for itself until the terminal is reset. |
 | `unfocused_hollow` | `"on"`, `"off"` | `"off"` | Whether the cursor turns into a hollow box while another window has the keyboard, so you can see which window you are typing in. Every shape, the bar and underline too, becomes the box; `"off"` leaves it as it is in front. |
 

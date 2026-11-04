@@ -1573,6 +1573,42 @@ one-minute load of 2-5, under the fire, ride against `be25132` and `stay`:
 every pair overlaps on every mover, the A/A copy spreading 1.3-2.0% of a core
 under the scrolling movers against 0.07% idle. No result.
 
+**A program's scroll taken away from the cursor's move** (note W 5.15),
+in retired instructions and cycles (`proc_pid_rusage`), not time: the
+change is off the per-byte path. A release build at `0141197f`, the base
+before the rebase onto `abb4da08`, which changes nothing on the trail path,
+plus the change, Apple M5 Max, macOS 27.0, on AC, at a one-minute load of 8
+to 22 from other work, which moves the cycles and not the instructions. The
+research's helix captures at 200x50 and 360x90, replayed at their read
+times on a 120 Hz clock, five rounds, the medians of each round, a
+counter pair's own 7,167 instructions taken off:
+
+| a frame of `Carried::frame` | 200x50 instructions | cycles | 360x90 instructions | cycles |
+|---|---|---|---|---|
+| nothing read since the last (823, 824) | 45-70 | 120-1,095 | 45-70 | 105-471 |
+| a read, the cursor in its cell (8, 7) | 27,917-27,942 | 4,642-7,473 | 83,432-83,482 | 13,266-18,174 |
+| a move: the read and the vote (8) | 112,516-113,479 | 23,801-34,366 | 314,734-319,183 | 66,883-103,922 |
+
+The vote at first hashed a word at a time, one chain of multiplies: 177,227
+to 178,029 instructions and 75,564 to 85,935 cycles a move at 200x50,
+528,474 to 529,001 and 263,409 to 299,157 at 360x90, at a load of 20 to
+32; four lanes of two
+words cut it to the above. Through `frame_trail`, the trail `present`
+draws, the plasma over the 839 frames of the 200x50 replay retired 0.77 to
+0.85 million instructions under `stay` and 1.80 to 1.83 million under
+`ride` in rounds 2 to 5 (the first, cold, 1.22 and 2.01), and was handed a
+trail on 270 frames against 389.
+
+**On the GPU path, offscreen: the same binary, so not timed.**
+`frame_gpu`, which draws through Metal into an offscreen texture, built
+release from `abb4da08` and from the change at one path (`git archive`,
+every file touched, every workspace crate it links recompiled), is the
+same file byte for byte: `cmp` finds no difference, and its `__text` is
+2,473,792 bytes in both. The change is in `baud-app` alone, which
+`frame_gpu` does not link, so it adds nothing to the GPU path; what it
+changes there is the trail the renderer is handed: over the helix replay
+above, a trail on 270 frames against 389.
+
 ## The glass's backdrop premultiplied once a run (measured, no change)
 
 **A memo of the premultiplied backdrop paints the see-through page no

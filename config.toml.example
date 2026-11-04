@@ -312,7 +312,11 @@ floor = 1.2
 # scroll of part of the screen, a region a program sets such as the text
 # above its own status line, leaves the trail where it was. "stay" draws it
 # where the screen had it, as before the ride was built, and under a smooth
-# scroll may lie over part of a sliding cursor for up to 60 ms.
+# scroll may lie over part of a sliding cursor for up to 60 ms. "ride" also
+# takes a program's own scroll away from the cursor's move: when a program
+# scrolls its text and keeps the cursor on its line, as helix and vim do on a
+# wheel step, the trail moves with the text and only the rest of the move
+# trails; under "stay" that move trails as any other.
 #
 # `guide`: "on" highlights the row the cursor is on with a pale blue band
 # the window's width, iTerm2's cursor guide, so the cursor's line is easy

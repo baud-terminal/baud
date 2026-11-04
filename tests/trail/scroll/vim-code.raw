@@ -1,0 +1,127 @@
+[?1049h[>4;2m[?1h=[?2004h[?1004h[1;24r[?12h[?12l[22;2t[22;1t[27m[23m[29m[m[H[2J[?25l[24;1H"trail.rs" 2516L, 109230B[?1006;1000h[?1002h[?1006;1000l[?1002l[?1006;1000h[?1002h[?1006;1000l[?1002l[?1006;1000h[?1002h[2;1H▽[6n[2;1H  [3;1HPzz\[0%m[6n[3;1H           [1;1H[>c[1;1H//! The quad, sweep and effect trails' driver: when a cursor move starts one,
+//! when it retargets, and which frames it owes; and the ghost's rules, when[2;77H[K[3;1H//! it sweeps and how far ([`ghost_sweep`], [`ghost_progress`]).[3;65H[K[4;1H//!
+//! **The geometry lives in `baud_render::trail`**: kitty's four corners
+//! chasing the cursor's, each with its own time constant, or sfte's tail --
+//! the cursor's rectangle, every corner on one constant -- in closed form.
+//! What lives here is which moves become a trail, the same for both, after
+//! two sources:
+//!
+//! * **A move of two cells or fewer, from rest, snaps.** kitty's
+//!   `cursor_trail_start_threshold 2`
+//!   (`[[source: kitty-cursor-trail-v0492]]` 66-70, the option at
+//!   `[[source: kitty-options-definition-v0492]]` 483-485): typing moves
+//!   the cursor a cell at a time, and a trail per keystroke is noise. A move
+//!   while a trail is in flight retargets it whatever its size, as kitty's
+//!   does.
+//! * **The cursor has to rest at its new place before the trail follows
+//!   it** -- kitty's rule: its target moves only once `cursor_trail` ms
+//!   have passed since the program last moved the cursor
+//!   (`[[source: kitty-cursor-trail-v0492]]` 174). The number is sfte's,
+//!   10 ms by its own "sensible default" (`[[source: sfte]]` 13891); sfte's ownn[23;1H rule[1;1H[?25h[?4m[?25l[24;70HG[1;1H[24;70H [23;1H[1;1H[K[2;1H        /// **At or below the gate every move is full**: the same[2;66H[K[3;1H        /// back-and-forth on a 17 pt cell, and on a 32 pt one, the gate
+        /// itself.
+        #[test][5;16H[K[6;1H        fn at_or_below_the_gate_everything_is_full() {[6;55H[K[7;1H            for pt in [PT, GATE] {[7;35H[K[8;1H                let t0 = Instant::now();[8;41H[K[9;1H                let (a, b) = (at(10.0, 5.0), at(40.0, 12.0));
+   [13Clet mut q = Chase::new(Style::Effect(Effect::Fire));
+                q.frame(Some(a), t0, CELL, pt);[11;48H[K[12;1H                for k in 0..10u32 {[12;37H[K[13;1H                    let to = if k % 2 == 0 { b } else { a };[13;61H[K[14;1H                    assert_eq!([14;32H[K[15;1H                        moved(&mut q, t0, to, MS * (8 + 100 * k), pt),[15;72H[K[16;1H                        Some(Strength::Full),[16;47H[K[17;1H           [13C"{pt:?}, move {k}"
+                    );[18;24H[K[19;1H                }[19;18H[K[20;1H            }[20;14H[K[21;1H        }[21;10H[K[22;1H    }[22;7H[K[23;1H}[23;2H[K[23;1H[?25h[?25l[24;70HH[23;1H[24;70H [1;1H[?25h[?25l[1;23r[1;1H[3L[1;24r[1;13H);[2;13Hassert_eq!(sweep(q.ledger()), Some(Strength::UnderThreshold));[3;9H}[24;1H[K[4;1H[?25h[?25l[1;23r[1;1H[3L[1;24r[1;17Hsweep(fresh.ledger()),[2;17HSome(Strength::Full),[3;17H"a fresh ledger"[7;1H[?25h[?25l[1;23r[1;1H[4L[1;24r[1;17Hghost_sweep(l, Some(b), Some(a), later, cell, (CELL, ABOVE)).mapp[2;1H(|s| s.strength)[3;13H};[4;13Hassert_eq!([11;1H[?25h[?25l[1;23r[1;1H[3L[1;24r[1;13Hlet mut fresh = Chase::<Instant>::new(Style::Smear(Shape::Quad));[2;13Hlet later = t0 + MS * 300;[3;13Hlet sweep = |l: &mut Ledger<Instant>| {[14;1H[?25h[?25l[1;23r[1;1H[3M[1;24r[21;17Hq.frame(Some(a), t0, CELL, pt);[22;17Hfor k in 0..10u32 {[23;21Hlet to = if k % 2 == 0 { b } else { a };[11;1H[?25h[?25l[1;23r[1;1H[4M[1;24r[20;21Hassert_eq!([21;25Hmoved(&mut q, t0, to, MS * (8 + 100 * k), pt),[22;25HSome(Strength::Full),[23;25H"{pt:?}, move {k}"[7;1H[?25h[?25l[1;23r[1;1H[3M[1;24r[21;21H);[22;17H}[23;13H}[4;1H[?25h[?25l[1;23r[1;1H[3M[1;24r[21;9H}
+    }
+}[1;1H[?25h[?25l[24;70Hzz[1;1H[24;70H  [12;1H[1;23r[1;1H[11L[1;24r[1;13Hlet sweep = |l: &mut Ledger<Instant>| {[2;17Hghost_sweep(l, Some(b), Some(a), later, cell, (CELL, ABOVE)).mapp[3;1H(|s| s.strength)[4;13H};[5;13Hassert_eq!([6;17Hsweep(fresh.ledger()),[7;17HSome(Strength::Full),[8;17H"a fresh ledger"[9;13H);[10;13Hassert_eq!(sweep(q.ledger()), Some(Strength::UnderThreshold));[11;9H}
+[?25h[?25l[24;70Hzt[12;1H[24;70H  [1;1H[1;23r[1;1H[11M[1;24r[13;21Hlet to = if k % 2 == 0 { b } else { a };[14;21Hassert_eq!([15;25Hmoved(&mut q, t0, to, MS * (8 + 100 * k), pt),[16;25HSome(Strength::Full),[17;25H"{pt:?}, move {k}"[18;21H);[19;17H}[20;13H}[21;9H}
+    }
+}[1;1H[?25h[?25l[24;70Hzb[1;1H[24;70H  [23;1H[1;13Hlet (a, b) = ([2;9H        (Row::from_index(5), Col::at_index(10)),[2;58H[K[3;9H        (Row::from_index(12), Col::at_index(40)),[3;58H[K[4;9H    );[4;15H[K[5;9H    let mut q = Chase::new(Style::Effect(Effect::Fire));[6;9H    q.frame(Some(cell(a)), t0, CELL, ABOVE);[6;54H[K[7;13Hlet lit = moved(&mut q, t0, cell(b), MS * 8, ABOVE);[8;13Hassert_eq!(lit, Some(Strength::Full), "the control: a full fire");[9;13Hq.restyle(Style::Smear(Shape::Quad));[9;50H[K[10;13Hlet mut fresh[10C<Instant>::new(Style::Smear(Shape::Quad));[11;13Hlet later = t0 + MS * 300;[11;39H[K[12;13Hlet sweep = |l: &mut Ledger<Instant>| {[13;17Hghost_sweep(l, Some(b), Some(a), later, cell, (CELL, ABOVE)).mapp[14;1H(|s| s.strength)[14;21H[K[15;13H};[15;25H[K[16;13Hassert_eq!([16;25H[K[17;17Hsweep(fresh.ledger()),[17;39H[K[18;17HSome(Strength::Full),[19;17H"a fresh ledger"[20;13H);[21;9H    assert_eq!(sweep(q.ledger()), Some(Strength::UnderThreshold));
+        }[23;1H[K[23;1H[?25h[?25l[24;70H5^E[23;1H[24;70H   [18;1H[1;23r[1;1H[5M[1;24r[19;9H/// **At or below the gate every move is full**: the same[20;9H/// back-and-forth on a 17 pt cell, and on a 32 pt one, the gate[21;9H/// itself.[22;9H#[test][23;9Hfn at_or_below_the_gate_everything_is_full() {[18;1H[?25h[?25l[24;70H5^Y[18;1H[24;70H   [23;1H[1;23r[1;1H[5L[1;24r[1;13Hlet (a, b) = ([2;17H(Row::from_index(5), Col::at_index(10)),[3;17H(Row::from_index(12), Col::at_index(40)),[4;13H);[5;13Hlet mut q = Chase::new(Style::Effect(Effect::Fire));[23;1H[?25h[?25l[24;70Hgg[23;1H[24;70H  [1;1H//! The quad, sweep and effect trails' driver: when a cursor move starts one,
+//! when it retargets, and which frames it owes; and the ghost's rules, when
+//! it sweeps and how far ([`ghost_sweep`], [`ghost_progress`]).
+//![4;13H[K[5;1H//! **The geometry lives in `baud_render::trail`**: kitty's four corners
+//! chasing the cursor's, each with its own time constant, or sfte's tail --
+//! the cursor's rectangle, every corner on one constant -- in closed form.
+//! What lives here is which moves become a trail, the same for both, after[8;76H[K[9;1H//! two sources:[9;17H[K[10;1H//![10;13H[K[11;1H//! * **A move of two cells or fewer, from rest, snaps.** kitty's
+//!   `cursor_trail_start_threshold 2`[12;39H[K[13;1H//!   (`[[source: kitty-cursor-trail-v0492]]` 66-70, the option at[13;67H[K[14;1H//!   `[[source: kitty-options-definition-v0492]]` 483-485): typing moves
+//!   the cursor a cell at a time, and a trail per keystroke is noise. A move
+//!   while a trail is in flight retargets it whatever its size, as kitty's
+//!   does.[17;17H[K[18;1H//! * **The cursor has to rest at its new place before the trail follows
+//!   it** -- kitty's rule: its target moves only once `cursor_trail` ms
+//!   have passed since the program last moved the cursor
+//!   (`[[source: kitty-cursor-trail-v0492]]` 174). The number is sfte's,[21;74H[K[22;1H//!   10 ms by its own "sensible default" (`[[source: sfte]]` 13891); sfte's ownn[23;1H rule[1;1H[?25h[?25l[24;70HG[1;1H[24;70H [23;1H[1;1H[K[2;1H        /// **At or below the gate every move is full**: the same[2;66H[K[3;1H        /// back-and-forth on a 17 pt cell, and on a 32 pt one, the gate
+        /// itself.
+        #[test][5;16H[K[6;1H        fn at_or_below_the_gate_everything_is_full() {[6;55H[K[7;1H            for pt in [PT, GATE] {[7;35H[K[8;1H                let t0 = Instant::now();[8;41H[K[9;1H                let (a, b) = (at(10.0, 5.0), at(40.0, 12.0));
+   [13Clet mut q = Chase::new(Style::Effect(Effect::Fire));
+                q.frame(Some(a), t0, CELL, pt);[11;48H[K[12;1H                for k in 0..10u32 {[12;37H[K[13;1H                    let to = if k % 2 == 0 { b } else { a };[13;61H[K[14;1H                    assert_eq!([14;32H[K[15;1H                        moved(&mut q, t0, to, MS * (8 + 100 * k), pt),[15;72H[K[16;1H                        Some(Strength::Full),[16;47H[K[17;1H           [13C"{pt:?}, move {k}"
+                    );[18;24H[K[19;1H                }[19;18H[K[20;1H            }[20;14H[K[21;1H        }[21;10H[K[22;1H    }[22;7H[K[23;1H}[23;2H[K[23;1H[?25h[?25l[24;70Hgg[23;1H[24;70H  [1;1H//! The quad, sweep and effect trails' driver: when a cursor move starts one,
+//! when it retargets, and which frames it owes; and the ghost's rules, when
+//! it sweeps and how far ([`ghost_sweep`], [`ghost_progress`]).[3;65H[K[4;1H//![4;9H[K[5;1H//! **The geometry lives in `baud_render::trail`**: kitty's four corners
+//! chasing the cursor's, each with its own time constant, or sfte's tail --
+//! the cursor's rectangle, every corner on one constant -- in closed form.
+//! What lives here is which moves become a trail, the same for both, after
+//! two sources:[9;17H[K[10;1H//![10;17H[K[11;1H//! * **A move of two cells or fewer, from rest, snaps.** kitty's
+//!   `cursor_trail_start_threshold 2`
+//!   (`[[source: kitty-cursor-trail-v0492]]` 66-70, the option at
+//!   `[[source: kitty-options-definition-v0492]]` 483-485): typing moves
+//!   the cursor a cell at a time, and a trail per keystroke is noise. A move
+//!   while a trail is in flight retargets it whatever its size, as kitty's
+//!   does.[17;25H[K[18;1H//! * **The cursor has to rest at its new place before the trail follows
+//!   it** -- kitty's rule: its target moves only once `cursor_trail` ms
+//!   have passed since the program last moved the cursor
+//!   (`[[source: kitty-cursor-trail-v0492]]` 174). The number is sfte's,
+//!   10 ms by its own "sensible default" (`[[source: sfte]]` 13891); sfte's ownn[23;1H rule[1;1H[?25h[?25l[24;70H10j[1;1H[24;70H   [11;1H[?25h[?25l[24;70H10k[11;1H[24;70H   [1;1H[?25h[?25l[24;70H}[1;1H[24;70H [12;1H[1;9Hclock is the driver's -- the display link's timestamp -- and a move[1;76H[K[2;6Haiting out its dwell owes the tick one frame when the dwell runs out[2;74H[K[3;5H([`Chase::owes`]), because after a lone keystroke's echo nothing else
+//! would draw one. The trail is backdated to when the cursor was first seen at
+//! its new place, so the frame that starts it is already that far along.[6;5H[K[7;5H**A program that hides the cursor fades the trail out** rather than[7;72H[K[8;5Hending it, as kitty does (`[[source: kitty-cursor-trail]]` 64, 134-139):
+//! over [`FADE`] from the last frame the cursor was shown on, the trail
+//! going on as it would, and back at that rate when it is shown again
+//! ([`Chase::frame`]). sfte's and Neovide's end at once (note W, 5.12).[12;1H[K[13;1Huse baud_render::det::Det;[13;27H[K[14;1Huse core::time::Duration;[14;26H[K[15;1H[K[16;1Huse baud_domain::{Chan, Col, Row, Rows};[16;41H[K[17;1Huse baud_render::effect::{Effect, Ignition, Seed, Vfx};
+use baud_render::{Points, Pt, Rect, Segment, Shape, Smear, Strength, TrailLook};[19;1H[K[20;1Huse crate::bell::Moment;[20;25H[K[21;1Huse crate::caret::Owes;[21;24H[K[22;1H[K[23;1H/// How long the cursor must rest at a new place before the trail follows it:[12;1H[?25h[?25l[24;70H}[12;1H[24;70H [15;1H[?25h[?25l[24;70H}[15;1H[24;70H [19;1H[?25h[?25l[24;1H/^}$[1;3H/ the cell it reached, seconds: short and snappy, and paid only while th
+/// ghost is the trail.[2;24H[K[3;1Hpub const GHOST_S: f64 = 0.1;[3;30H[K[4;1H[K[5;3H/ A ghost's sweep as it starts: the cell it left, the cell it reached, and
+/// how it is drawn.
+#[derive(Clone, Copy, PartialEq, Debug)][7;41H[K[8;1Hpub struct GhostSweep {[8;25H[K[9;1H    pub from: (Row, Col),[9;26H[K[10;1H    pub to: (Row, Col),[10;24H[K[11;1H    pub strength: Strength,[11;28H[K[12;1H}[13;1H[K[14;1H/// **The ghost's rule for a sweep**: on any move of the cursor's cell from
+/// `last` to `now`, from the cell it was last seen at -- typing included,
+/// which the quad's threshold snaps -- and a sweep in flight restarts from
+/// there; `None` while it rests, and until it is first seen. **Each sweep
+/// is weighed on `ledger`** at `at`, over the band from the rectangle of the[18;78H[K[19;1H/// cell it left to the one it reached ([`ghost_band`], `rect` giving each
+/// cell's), on cells `cell` pixels and `height` points tall, as a long move
+/// is.[21;8H[K[22;1Hpub fn ghost_sweep<M: Moment>(
+    ledger: &mut Ledger<M>,[23;28H[K[12;1H[?25h[?25l[24;70Hn[12;1H[24;70H[K[24;1H[12;1H[1;1H) -> Option<GhostSweep> {[1;26H[K[2;1H    let (from, to) = match (last, now) {
+        (Some(from), Some(to)) if from != to => (from, to),[4;9H_ => return None,
+    };[5;7H[K[6;1H    let band = ghost_band(rect(from), rect(to), cell);
+    Some(GhostSweep {[7;23H[K[8;1H        from,[8;14H[K[9;5H    to,[9;12H[K[10;5H    strength: ledger.weigh(band, at, height),
+    })[11;7H[K[14;5HHow far a ghost started at `start` has swept at `now`, both seconds on[14;75H[K[15;5Hthe display link's clock: 1.0 and past once it has landed.[15;63H[K[16;1Hpub fn ghost_progress(start: f64, now: f64) -> f32 {[16;53H[K[17;1H    ((now - start) / GHOST_S) as f32[17;37H[K[18;1H}[18;2H[K[19;1H[K[20;5H**How far a trail rides** for `n` lines the whole screen retired, on a[20;75H[K[21;5Hscreen of `rows` rows, pixels, y down: up by the lines, and never past the
+/// floor one window above the top. Nothing for no lines: a driver sees a
+/// read retire none on nearly every read, and a ride of nothing would[12;1H[?25h[?25l[24;70Hn[12;1H[24;70H[K[24;1H[18;1H[?25h[?25l[24;70H^D[18;1H[24;70H  [18;13H[1;23r[1;1H[11M[1;24r[13;1H/// rebase the move in flight on every tick for no change.
+pub fn ride_px(n: Rows, rows: Rows, cell_h: f32) -> Option<(f32, f32)> {
+    (n.index() > 0).then(|| {[16;9H([17;13H-(n.index() as f32 * cell_h),[18;13H-(rows.index() as f32 * cell_h),[19;9H)
+    })
+}
+
+/// **How far a ghost has ridden the screen's scroll**, pixels, y down: at[24;1H[K[18;13H[?25h[?25l[24;70H^U[18;13H[24;70H  [18;1H[1;23r[1;1H[11L[1;24r[1;1H) -> Option<GhostSweep> {
+    let (from, to) = match (last, now) {[3;9H(Some(from), Some(to)) if from != to => (from, to),[4;9H_ => return None,
+    };
+    let band = ghost_band(rect(from), rect(to), cell);
+    Some(GhostSweep {[8;9Hfrom,[9;9Hto,[10;9Hstrength: ledger.weigh(band, at, height),
+    })[18;1H[?25h[?25l[24;70H^F[18;1H[24;70H  [1;1H[27m[23m[29m[m[H[2J[1;1H/// floor one window above the top. Nothing for no lines: a driver sees a
+/// read retire none on nearly every read, and a ride of nothing would
+/// rebase the move in flight on every tick for no change.
+pub fn ride_px(n: Rows, rows: Rows, cell_h: f32) -> Option<(f32, f32)> {
+    (n.index() > 0).then(|| {[6;9H([7;13H-(n.index() as f32 * cell_h),[8;13H-(rows.index() as f32 * cell_h),[9;9H)
+    })
+}
+
+/// **How far a ghost has ridden the screen's scroll**, pixels, y down: at
+/// most [`THRESHOLD`] rows, then it stops riding and finishes its sweep to
+/// the cursor -- the quad's rule, where a move past the bound folds in
+/// ([`Chase::ride`]).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum GhostRide {
+    Riding(f32),
+    Folded,
+}
+
+/// **A ghost sweeping from row `from` to row `to` rides a scroll** `dy`[1;1H[?25h[?25l[24;70H^B[1;1H[24;70H  [23;1H[1;1H) -> Option<GhostSweep> {[1;26H[K[2;1H    let (from, to) = match (last, now) {[2;41H[K[3;1H        (Some(from), Some(to)) if from != to => (from, to),
+        _ => return None,[4;26H[K[5;5H};[5;7H[K[6;5Hlet band = ghost_band(rect(from), rect(to), cell);
+    Some(GhostSweep {[7;22H[K[8;9Hfrom,[8;14H[K[9;9Hto,
+        strength: ledger.weigh(band, at, height),
+    })
+}[13;1H[K[14;5HHow far a ghost started at `start` has swept at `now`, both seconds on[14;75H[K[15;9Hdisplay link's clock: 1.0 and past once it has landed.[15;64H[K[16;1Hpub fn ghost_progress(start: f64, now: f64) -> f32 {
+    ((now - start) / GHOST_S) as f32[17;37H[K[18;1H}[18;2H[K[19;5H[K[20;1H/// **How far a trail rides** for `n` lines the whole screen retired, on a
+/// screen of `rows` rows, pixels, y down: up by the lines, and never past the
+/// floor one window above the top. Nothing for no lines: a driver sees a
+/// read retire none on nearly every read, and a ride of nothing woul[23;71H[K[23;1H[?25h[18;1H[?25l[1;23r[1;1H[3M[1;24r[21;1H/// rebase the move in flight on every tick for no change.
+pub fn ride_px(n: Rows, rows: Rows, cell_h: f32) -> Option<(f32, f32)> {
+    (n.index() > 0).then(|| {[15;1H[?25h[?25l[1;23r[1;1H[3M[1;24r[21;9H([22;13H-(n.index() as f32 * cell_h),[23;13H-(rows.index() as f32 * cell_h),[12;1H[?25h[3;11H

@@ -249,6 +249,10 @@ mod timed;
 // both drivers draw a trail through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod trail;
+// A program's scroll read off the screen, which every trail takes away from
+// a cursor carried with its line: pure, and both drivers take it through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod carried;
 // What a program's title becomes on the window: pure, so its tests run on
 // every platform, and both drivers read it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

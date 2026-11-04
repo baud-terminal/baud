@@ -303,7 +303,16 @@ pub struct Chase<M> {
     /// The cursor as the last frame that followed one drew it: the hole a
     /// hidden cursor's trail keeps as it fades.
     seen: Option<Rect>,
+    /// The long moves taken, which a snap and a restyle keep: what a test
+    /// counts as a move that trailed.
+    #[cfg(test)]
+    pub(crate) longs: Count,
 }
+
+/// A count of long moves, for the tests.
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) struct Count(pub(crate) usize);
 
 /// Whether a frame has a cursor to follow: shown, or placed where a program
 /// hid it -- or hidden, with nothing placed.
@@ -355,6 +364,8 @@ impl<M: Moment> Chase<M> {
             opacity: None,
             last: None,
             seen: None,
+            #[cfg(test)]
+            longs: Count(0),
         }
     }
 
@@ -558,6 +569,10 @@ impl<M: Moment> Chase<M> {
                 let next = if near(target, rect, cell) {
                     Segment::quick(from, rect)
                 } else {
+                    #[cfg(test)]
+                    {
+                        self.longs.0 += 1;
+                    }
                     self.ignite(centre(from), rect, now, cell);
                     self.weigh(from, rect, now, (cell, height));
                     self.long(from, rect)
@@ -565,6 +580,10 @@ impl<M: Moment> Chase<M> {
                 self.moving = Some((next, now));
             }
             None => {
+                #[cfg(test)]
+                {
+                    self.longs.0 += 1;
+                }
                 let from = target.corners();
                 self.turn(centre(from), rect);
                 self.ignite(centre(from), rect, since, cell);
@@ -683,6 +702,46 @@ impl<M: Moment> Chase<M> {
         }
     }
 
+    /// **The program's scroll carried the cursor `dy` pixels, y down,
+    /// with its line** (`carried.rs`): everything the trail holds of the
+    /// text moves with it -- where the cursor was taken, a move waiting out
+    /// its dwell, the hole a hidden cursor's trail keeps, a move in flight
+    /// and a burning effect's path -- so the move the next frame sees is
+    /// only what the cursor went beyond its text, which trails if it is
+    /// long and snaps if it is not. Unlike [`Chase::ride`] the rest state
+    /// moves too: a whole-screen scroll leaves the cursor on its row, and
+    /// this one took it along. A move in flight shifts whole, its target
+    /// with its start, so the frame it draws is rigid with the text and its
+    /// constants and clock are kept; the ledger's bands stay, being
+    /// stretches of the screen and not of the text.
+    pub fn rebase(&mut self, dy: f32) {
+        let shift = |r: Rect| Rect {
+            top: r.top + dy,
+            bottom: r.bottom + dy,
+            ..r
+        };
+        self.target = self.target.map(shift);
+        self.pending = self.pending.map(|(r, since)| (shift(r), since));
+        self.seen = self.seen.map(shift);
+        if let Some((seg, t0)) = self.moving {
+            let from = baud_render::Corners(seg.from.0.map(|p| Pt {
+                x: p.x,
+                y: p.y + dy,
+            }));
+            self.moving = Some((
+                Segment {
+                    from,
+                    to: shift(seg.to),
+                    ..seg
+                },
+                t0,
+            ));
+        }
+        if let Some(b) = self.fire.as_mut() {
+            b.ignition = b.ignition.translated(dy);
+        }
+    }
+
     /// Whether the trail, if any, has folded to within [`THRESHOLD`] cells of
     /// `rect` at every corner: at rest it has nothing to fold.
     fn folded(&self, now: M, rect: Rect, cell: (f32, f32)) -> bool {
@@ -732,6 +791,8 @@ impl<M: Moment> Chase<M> {
             next_seed: self.next_seed,
             last_lit: self.last_lit,
             swept: self.swept,
+            #[cfg(test)]
+            longs: self.longs,
             ..Chase::new(self.style)
         };
     }
@@ -754,6 +815,8 @@ impl<M: Moment> Chase<M> {
             next_seed: self.next_seed,
             last_lit: self.last_lit,
             swept: self.swept,
+            #[cfg(test)]
+            longs: self.longs,
             ..Chase::new(style)
         };
     }
@@ -1463,6 +1526,71 @@ mod tests {
             assert_eq!((next.tau, next.to), (seg.tau, seg.to), "{style:?}");
             assert_eq!(q.carry, Carry::Riding(-CELL.1));
             assert_eq!(q.target, Some(at(60.0, 5.0)), "the rest state never moves");
+        }
+    }
+
+    /// **A rebase moves the trail with the text and the rest state with
+    /// it**, for every trail: a move in flight draws, at every later tick,
+    /// the frame it would have drawn moved by the carry, on its own clock
+    /// and constants, and lands on the cursor carried as far; the place it
+    /// was taken moves too, so the carried cursor is where the chase rests
+    /// and takes no move; and a burning effect's path moves whole. The
+    /// control: unrebased, the same carried cursor is a long move from the
+    /// cell it left. Perturbation: a rebase that leaves the target -- the
+    /// carried cursor is taken as a long move.
+    #[test]
+    fn a_rebase_moves_the_trail_and_its_rest_with_the_text() {
+        let corners = |l: &TrailLook| match l {
+            TrailLook::Smear(s) => s.corners,
+            TrailLook::Vfx(v) => v.emitter.corners,
+            TrailLook::Ghost(_) => panic!("a chase drew a ghost"),
+        };
+        let dy = 3.0 * CELL.1;
+        let styles = [Style::Smear(Shape::Quad), Style::Smear(Shape::Sweep)]
+            .into_iter()
+            .chain(Effect::ALL.map(Style::Effect));
+        for style in styles {
+            for rebased in [true, false] {
+                let t0 = Instant::now();
+                let (mut q, mut kept) = (in_flight(style, t0), in_flight(style, t0));
+                let tail = q.fire.map(|b| b.ignition.tail);
+                let longs = q.longs;
+                if rebased {
+                    q.rebase(dy);
+                    assert_eq!(q.target, Some(at(60.0, 8.0)), "{style:?}: where it rests");
+                    if let Some(t) = tail {
+                        let moved = q.fire.map(|b| b.ignition.tail);
+                        assert_eq!(
+                            moved,
+                            Some(Pt {
+                                x: t.x,
+                                y: t.y + dy
+                            }),
+                            "{style:?}: the path"
+                        );
+                    }
+                }
+                for ms in [40u32, 60, 90] {
+                    let at_ms = t0 + MS * ms;
+                    let a = q.frame(Some(at(60.0, 8.0)), at_ms, CELL, PT);
+                    let b = kept.frame(Some(at(60.0, 5.0)), at_ms, CELL, PT);
+                    if rebased {
+                        if let (Some(a), Some(b)) = (a, b) {
+                            assert!(
+                                moved_by(corners(&b), corners(&a), dy),
+                                "{style:?} at {ms} ms: drawn {:?} against {:?}",
+                                corners(&a),
+                                corners(&b)
+                            );
+                        }
+                        assert_eq!(a.is_some(), b.is_some(), "{style:?} at {ms} ms");
+                    }
+                }
+                match rebased {
+                    true => assert_eq!(q.longs, longs, "{style:?}: the carried cursor is no move"),
+                    false => assert_eq!(q.longs.0, longs.0 + 1, "{style:?}: the control"),
+                }
+            }
         }
     }
 

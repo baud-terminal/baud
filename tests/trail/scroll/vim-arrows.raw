@@ -1,0 +1,71 @@
+[?1049h[>4;2m[?1h=[?2004h[?1004h[1;24r[?12h[?12l[22;2t[22;1t[27m[23m[29m[m[H[2J[?25l[24;1H"trail.rs" 2516L, 109230B[2;1H▽[6n[2;1H  [3;1HPzz\[0%m[6n[3;1H           [1;1H[>c[1;1H//! The quad, sweep and effect trails' driver: when a cursor move starts one,
+//! when it retargets, and which frames it owes; and the ghost's rules, when[2;77H[K[3;1H//! it sweeps and how far ([`ghost_sweep`], [`ghost_progress`]).[3;65H[K[4;1H//!
+//! **The geometry lives in `baud_render::trail`**: kitty's four corners
+//! chasing the cursor's, each with its own time constant, or sfte's tail --
+//! the cursor's rectangle, every corner on one constant -- in closed form.
+//! What lives here is which moves become a trail, the same for both, after
+//! two sources:
+//!
+//! * **A move of two cells or fewer, from rest, snaps.** kitty's
+//!   `cursor_trail_start_threshold 2`
+//!   (`[[source: kitty-cursor-trail-v0492]]` 66-70, the option at
+//!   `[[source: kitty-options-definition-v0492]]` 483-485): typing moves
+//!   the cursor a cell at a time, and a trail per keystroke is noise. A move
+//!   while a trail is in flight retargets it whatever its size, as kitty's
+//!   does.
+//! * **The cursor has to rest at its new place before the trail follows
+//!   it** -- kitty's rule: its target moves only once `cursor_trail` ms
+//!   have passed since the program last moved the cursor
+//!   (`[[source: kitty-cursor-trail-v0492]]` 174). The number is sfte's,
+//!   10 ms by its own "sensible default" (`[[source: sfte]]` 13891); sfte's ownn[23;1H rule[1;1H[?25h[?4m[?25l[24;70H50G[1;1H[24;70H   [12;1H[1;5H  2.3.1 on a light ground; at the default 13 pt every effect passes, by[1;76H[K[2;5H  the area clause alone (note AL).[2;39H[K[3;5H* **Typing never ignites**: a move of two cells or fewer snaps, as it does[4;7Hfor the quad, and a burning flame follows the cursor it snapped to.[5;5H[K[6;5H**Above a 32 pt cell, a repeat pass is drawn under the flash thresholds**
+//! (note AL, option O2; every trail takes the bound, the ghost's sweeps[7;73H[K[8;5Hweighed as a long move is, on the one [`Ledger`] every trail shares,[8;73H[K[9;5Hso a change of trail keeps the second's passes). The
+//! first pass over a stretch of screen in any second is drawn as it is; a
+//! long move whose band meets a full pass's within [`LEDGER`] is marked
+//! [`Strength::UnderThreshold`], and the renderer caps it against the
+//! colours the cells under it draw, so no pixel's change there is a WCAG 2.2
+//! general or red transition. A pass over an image placed under the text
+//! draws nothing. A selection and the cursor are grounds by the colours[15;74H[K[16;5Hthey draw, and a dimmed page is read over a white and a black desktop.[16;75H[K[17;7H[K[18;5HA flame whose quad has landed burns where the chase rests: through a long
+//! move's dwell that is the cell the cursor left, which is where the move,
+//! once taken, starts from. Drawn at the cursor, it jumped ahead for the dwell
+//! and back when the move was taken -- on every line of a wheel scroll that
+//! carries a placed cursor three rows, as helix's does.[22;57H[K[23;1H//![23;4H[K[12;1H[?25h
+
+[?25l[24;70H~@k[14;1H[24;70H   [15;1H[?25h
+
+[?25l[24;70H~@k[17;1H[24;70H   [18;1H[?25h
+
+[?25l[24;70H~@k[20;1H[24;70H   [21;1H[?25h
+
+[?25l[24;70H~@k[23;1H[24;70H   [23;1H[1;23r[23;1H
+[1;24r[23;1H//! The clock is the driver's -- the display link's timestamp -- and a move[24;1H[K[23;1H[?25h[?25l[1;23r[23;1H
+[1;24r[23;1H//! waiting out its dwell owes the tick one frame when the dwell runs out[?25h[?25l[1;23r[23;1H
+[1;24r[23;1H//! ([`Chase::owes`]), because after a lone keystroke's echo nothing else[?25h[?25l[24;70H~@k[23;1H[24;70H   [23;1H[1;23r[23;1H
+[1;24r[23;1H//! would draw one. The trail is backdated to when the cursor was first seen at[?25h[?25l[1;23r[23;1H
+[1;24r[23;1H//! its new place, so the frame that starts it is already that far along.[?25h[?25l[1;23r[23;1H
+[1;24r[23;1H//![?25h[?25l[24;70H~@k[23;1H[24;70H   [23;1H[1;23r[23;1H
+[1;24r[23;1H//! **A program that hides the cursor fades the trail out** rather than[?25h[?25l[1;23r[23;1H
+[1;24r[23;1H//! ending it, as kitty does (`[[source: kitty-cursor-trail]]` 64, 134-139):[?25h[?25l[1;23r[23;1H
+[1;24r[23;1H//! over [`FADE`] from the last frame the cursor was shown on, the trail[?25h[?25l[24;70H~@k[23;1H[24;70H   [23;1H[1;23r[23;1H
+[1;24r[23;1H//! going on as it would, and back at that rate when it is shown again[?25h[?25l[1;23r[23;1H
+[1;24r[23;1H//! ([`Chase::frame`]). sfte's and Neovide's end at once (note W, 5.12).[?25h[?25l[1;23r[23;1H
+[1;24r[23;1H[?25h[?25l[24;70H~@k[23;1H[24;70H   [23;1H[1;23r[23;1H
+[1;24r[23;1Huse baud_render::det::Det;[?25h[22;1H[21;1H[?25l[24;70H~@k[21;1H[24;70H   [20;1H[?25h[19;1H[18;1H[?25l[24;70H~@k[18;1H[24;70H   [17;1H[?25h[16;1H[15;1H[?25l[24;70H~@k[15;1H[24;70H   [14;1H[?25h[13;1H[12;1H[?25l[24;70H~@k[12;1H[24;70H   [11;1H[?25h[10;1H[9;1H[?25l[24;70H~@k[9;1H[24;70H   [8;1H[?25h[7;1H[6;1H[?25l[24;70H~@k[6;1H[24;70H   [5;1H[?25h[4;1H[3;1H[?25l[24;70H~@k[3;1H[24;70H   [2;1H[?25h[1;1H[?25l[1;23r[1;1H[L[1;24r[1;1H//! colours the cells under it draw, so no pixel's change there is a WCAG 2.2[?25h[?25l[24;70H~@k[1;1H[24;70H   [1;1H[1;23r[1;1H[L[1;24r[1;1H//! [`Strength::UnderThreshold`], and the renderer caps it against the[?25h[?25l[1;23r[1;1H[L[1;24r[1;1H//! long move whose band meets a full pass's within [`LEDGER`] is marked[?25h[?25l[1;23r[1;1H[L[1;24r[1;1H//! first pass over a stretch of screen in any second is drawn as it is; a[?25h[?25l[24;70H~@k[1;1H[24;70H   [1;1H[1;23r[1;1H[L[1;24r[1;1H//! so a change of trail keeps the second's passes). The[?25h[?25l[1;23r[1;1H[L[1;24r[1;1H//! weighed as a long move is, on the one [`Ledger`] every trail shares,[?25h[?25l[1;23r[1;1H[L[1;24r[1;1H//! (note AL, option O2; every trail takes the bound, the ghost's sweeps[?25h[?25l[24;70H~@k[1;1H[24;70H   [1;1H[1;23r[1;1H[L[1;24r[1;1H//! **Above a 32 pt cell, a repeat pass is drawn under the flash thresholds**[?25h[?25l[24;70HG[1;1H[24;70H [23;1H[1;1H[K[2;1H        /// **At or below the gate every move is full**: the same[2;67H[K[3;1H        /// back-and-forth on a 17 pt cell, and on a 32 pt one, the gate
+        /// itself.[4;20H[K[5;1H        #[test][5;16H[K[6;1H        fn at_or_below_the_gate_everything_is_full() {[6;55H[K[7;1H            for pt in [PT, GATE] {[7;35H[K[8;1H                let t0 = Instant::now();[8;41H[K[9;1H                let (a, b) = (at(10.0, 5.0), at(40.0, 12.0));[9;62H[K[10;1H                let mut q = Chase::new(Style::Effect(Effect::Fire));[10;69H[K[11;1H                q.frame(Some(a), t0, CELL, pt);[11;49H[K[12;1H   [13Cfor k in 0..10u32 {
+                    let to = if k % 2 == 0 { b } else { a };[13;61H[K[14;1H                    assert_eq!([14;32H[K[15;1H                        moved(&mut q, t0, to, MS * (8 + 100 * k), pt),[15;71H[K[16;1H                        Some(Strength::Full),[16;46H[K[17;1H                        "{pt:?}, move {k}"[17;44H[K[18;1H   [17C);
+                }[19;18H[K[20;1H            }[20;14H[K[21;1H        }[21;10H[K[22;1H    }[22;6H[K[23;1H}[23;2H[K[23;1H[?25h[?25l[24;70Hgg[23;1H[24;70H  [1;1H//! The quad, sweep and effect trails' driver: when a cursor move starts one,
+//! when it retargets, and which frames it owes; and the ghost's rules, when
+//! it sweeps and how far ([`ghost_sweep`], [`ghost_progress`]).[3;65H[K[4;1H//![4;9H[K[5;1H//! **The geometry lives in `baud_render::trail`**: kitty's four corners
+//! chasing the cursor's, each with its own time constant, or sfte's tail --
+//! the cursor's rectangle, every corner on one constant -- in closed form.
+//! What lives here is which moves become a trail, the same for both, after
+//! two sources:[9;17H[K[10;1H//![10;17H[K[11;1H//! * **A move of two cells or fewer, from rest, snaps.** kitty's
+//!   `cursor_trail_start_threshold 2`
+//!   (`[[source: kitty-cursor-trail-v0492]]` 66-70, the option at
+//!   `[[source: kitty-options-definition-v0492]]` 483-485): typing moves
+//!   the cursor a cell at a time, and a trail per keystroke is noise. A move
+//!   while a trail is in flight retargets it whatever its size, as kitty's
+//!   does.[17;25H[K[18;1H//! * **The cursor has to rest at its new place before the trail follows
+//!   it** -- kitty's rule: its target moves only once `cursor_trail` ms
+//!   have passed since the program last moved the cursor
+//!   (`[[source: kitty-cursor-trail-v0492]]` 174). The number is sfte's,
+//!   10 ms by its own "sensible default" (`[[source: sfte]]` 13891); sfte's ownn[23;1H rule[1;1H[?25h

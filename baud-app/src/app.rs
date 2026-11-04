@@ -681,6 +681,12 @@ struct App {
     /// whichever trail drew them, so a change of trail starts no fresh one.
     chase: crate::trail::Chase<HostTime>,
     last_cursor_cell: Option<(Row, Col)>,
+    /// The screen the last frame saw, from which a program's scroll that
+    /// carried the cursor is taken away (`carried.rs`), and the lines the
+    /// whole screen's scroll rode the trail since that frame
+    /// (`ride_trail`), whose frame is the ride's.
+    carried: crate::carried::Carried,
+    ridden: Rows,
     tick_target: f64,
     /// **The launch splash's timing** (`splash.rs`): waiting for the
     /// window to be shown, emerging, then vanishing, read off
@@ -1509,6 +1515,8 @@ impl App {
             trail: None,
             chase: crate::trail::Chase::new(cursor_trail.style()),
             last_cursor_cell: None,
+            carried: crate::carried::Carried::new(),
+            ridden: Rows::ZERO,
             tick_target: 0.0,
             splash: crate::splash::Splash::new(crate::splash::splash_override(
                 std::env::var("BAUD_SPLASH").ok().as_deref(),
@@ -2069,13 +2077,15 @@ impl App {
         // The quad's rules are `trail.rs`'s; the ghost sweeps on any move.
         // The cursor it follows is `trail_cursor`'s: the one drawn, or where a
         // program placed a cursor it hid and draws its own.
+        let ridden = core::mem::replace(&mut self.ridden, Rows::ZERO);
         let trail_look = frame_trail(
-            self.cursor_trail,
+            (self.cursor_trail, self.trail_scroll),
             &self.term,
             &self.renderer,
             self.scale,
             self.tick_target,
             (&mut self.chase, &mut self.trail, &mut self.last_cursor_cell),
+            (&mut self.carried, ridden),
         );
         // The alternate-screen switch: the new screen sliding in over the
         // old one, or the veil under Reduce Motion, advanced and cleared off
@@ -4578,9 +4588,13 @@ fn scroll_history(term: &mut Term<'_>, lines: crate::wheel::Lines) -> Option<Row
 /// sweep, spawned on a move and advanced ([`ghost_frame`]), or the chase's
 /// ([`chase_frame`]), with the cell the cursor was last seen in moved on.
 /// `present` hands it to the renderer once the slide's pan is read, and a
-/// test draws what it gives through the same renderer.
+/// test draws what it gives through the same renderer. **A cursor the
+/// program's scroll took with its line** first moves what the trail holds
+/// of the text with it, under `[cursor] trail_scroll` (`key`), unless the
+/// whole screen's scroll rode the trail since the last frame (`ridden`),
+/// so only the rest of its move trails (`carried.rs`).
 fn frame_trail(
-    kind: crate::config::CursorTrail,
+    (kind, key): (crate::config::CursorTrail, crate::config::TrailScroll),
     term: &Term<'_>,
     renderer: &Renderer<'_, '_>,
     scale: CGFloat,
@@ -4590,6 +4604,7 @@ fn frame_trail(
         &mut Option<TrailState>,
         &mut Option<(Row, Col)>,
     ),
+    (carried, ridden): (&mut crate::carried::Carried, Rows),
 ) -> Option<TrailLook> {
     let followed = trail_cursor(term);
     let cursor_cell = followed.map(TrailCursor::cell);
@@ -4598,6 +4613,22 @@ fn frame_trail(
     let cell = (side(m.cell_w), side(m.cell_h));
     // The cell's height in points, the flash bound's size gate.
     let height = baud_render::Points(cell.1 / scale as f32);
+    let carry = crate::carried::carry(
+        carried,
+        term,
+        cursor_cell,
+        (kind, key),
+        ridden,
+        (chase, last_cursor_cell),
+        cell.1,
+    );
+    if let Some(c) = carry {
+        *trail = trail.map(|st| TrailState {
+            to: (c.row(st.to.0), st.to.1),
+            origin_dy: st.origin_dy + c.px(cell.1),
+            ..st
+        });
+    }
     if kind == crate::config::CursorTrail::Ghost {
         let rect =
             |(r, c): (Row, Col)| renderer.cursor_rect(r, c, baud_core::CursorStyle::SteadyBlock);
@@ -11195,6 +11226,7 @@ impl Driver {
             self.app.chase.snap();
             self.app.last_cursor_cell = None;
             self.app.trail = None;
+            self.app.carried.forget();
             // The alternate screen swapped: slide the new one in over the
             // old one, kept now with its cursor hidden, off `tick_target` the
             // way the trail is spawned -- or veil it, under Reduce Motion.
@@ -13434,6 +13466,7 @@ impl Driver {
         let Some((dy, floor)) = ride_px(n, rows, cell_h) else {
             return;
         };
+        self.app.ridden = Rows::of_count(self.app.ridden.index() + n.index());
         if let Some(now) = HostTime::of_secs(self.app.tick_target) {
             self.app.chase.ride(dy, now, floor, cell_h);
         }
@@ -14618,6 +14651,7 @@ impl Driver {
     fn program_resized(&mut self, grid: crate::width::Grid) {
         let ws = grid.ws();
         self.app.chase.snap();
+        self.app.carried.forget();
         self.app.predictions.clear();
         self.app.guess = Guess::None;
         self.app.slide.snap();
@@ -14798,6 +14832,7 @@ impl Driver {
         // A resize or a zoom moves every cell's pixels under the quad trail,
         // which names them; the next sighting starts afresh (`trail.rs`).
         self.app.chase.snap();
+        self.app.carried.forget();
         let (cw, ch) = self.app.metrics_cell();
         let px_w = size.width * scale;
         let px_h = size.height * scale;
@@ -19506,5 +19541,161 @@ mod mark_tests {
             .map(|at| taken + at)
             .expect("the mark re-placed after the body takes the container");
         assert!(put < taken && taken < placed);
+    }
+}
+
+/// **A cursor the program's scroll took with its line trails only the
+/// rest of its move**, on macOS: the captures of `tests/trail/scroll/`
+/// through `frame_trail`, the trail `present` hands the renderer, with its
+/// cursor rectangles from the renderer the app draws with, on a 120 Hz
+/// display link. The same pins the Linux driver is held to
+/// (`carried::captures`), for the default trail, the ghost and every chase.
+#[cfg(test)]
+mod carried_tests {
+    use super::{TrailState, frame_trail};
+    use crate::carried::Carried;
+    use crate::carried::captures::{ALL, check, replay};
+    use crate::config::{CursorTrail, SystemMotion, TrailScroll};
+    use crate::trail::Count;
+    use baud_domain::{Cols, Rows};
+    use baud_render::{Blend, PxSize, Renderer, Stack, Theme};
+
+    /// **Every capture's jumps trail and its scrolls snap on macOS**, at
+    /// the Retina scale: the default trail, the ghost -- a sweep across
+    /// more than two cells counted as its long move -- and every other
+    /// trail that rides the chase. Perturbations: the carry dropped from
+    /// `frame_trail`; the ghost's last cell left where it was (the ghost
+    /// sweeps helix's wheel steps).
+    #[test]
+    fn every_captures_scrolls_snap_and_jumps_trail_on_macos() {
+        let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).unwrap()];
+        let renderer = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(26.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(80),
+            Rows::of_index(24),
+        )
+        .unwrap();
+        let default = crate::config::Config::launch_at(&[])
+            .config
+            .cursor_trail
+            .effective(SystemMotion::Full);
+        for kind in [
+            default,
+            CursorTrail::Ghost,
+            CursorTrail::Quad,
+            CursorTrail::Sweep,
+            CursorTrail::Fire,
+            CursorTrail::Lightning,
+            CursorTrail::Ice,
+            CursorTrail::Ufo,
+            CursorTrail::Orb,
+            CursorTrail::Liquid,
+        ] {
+            for (name, raw, steps) in ALL {
+                let mut chase = crate::trail::Chase::new(kind.style());
+                let (mut trail, mut last): (Option<TrailState>, _) = (None, None);
+                let mut carried = Carried::new();
+                let (mut sweeps, mut swept) = (Count(0), None);
+                let moves = replay((raw, steps), |t, secs| {
+                    let _ = frame_trail(
+                        (kind, TrailScroll::Ride),
+                        t,
+                        &renderer,
+                        2.0,
+                        secs,
+                        (&mut chase, &mut trail, &mut last),
+                        (&mut carried, Rows::ZERO),
+                    );
+                    match kind {
+                        CursorTrail::Ghost => {
+                            if let Some(g) = trail.filter(|g| Some(g.start) != swept) {
+                                swept = Some(g.start);
+                                let far = |a: usize, b: usize| a.abs_diff(b) > 2;
+                                if far(g.from.0.index(), g.to.0.index())
+                                    || far(g.from.1.index(), g.to.1.index())
+                                {
+                                    sweeps.0 += 1;
+                                }
+                            }
+                            sweeps
+                        }
+                        _ => chase.longs,
+                    }
+                });
+                check(name, &moves, &format!("macOS {kind:?}"));
+            }
+        }
+    }
+
+    /// **A ghost in flight moves with a carried cursor's text on macOS**,
+    /// as on Linux (`timed.rs`): a sweep from row 4 to row 8, then the
+    /// view redrawn three lines up the file with the cursor on its line
+    /// inside the sweep -- the sweep's end moves three rows and its start
+    /// as far, and no sweep starts. Perturbation: the ghost in flight left
+    /// where it was.
+    #[test]
+    fn a_ghost_in_flight_moves_with_a_carried_cursor_on_macos() {
+        use crate::carried::tests::{Line, view};
+        use baud_core::{Owned, Term};
+        use baud_domain::{BytePos, Col, ReadLen, Row, WinSize};
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 12,
+        };
+        let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).unwrap()];
+        let renderer = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(26.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(40),
+            Rows::of_index(12),
+        )
+        .unwrap();
+        let cell_h = f32::from(u16::try_from(renderer.metrics().cell_h.value()).unwrap());
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let feed = |t: &mut Term<'_>, b: &[u8]| {
+            t.write_at(BytePos::ZERO, b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        };
+        let mut chase = crate::trail::Chase::new(CursorTrail::Ghost.style());
+        let (mut trail, mut last): (Option<TrailState>, _) = (None, None);
+        let mut carried = Carried::new();
+        let mut frame = |t: &Term<'_>, secs: f64| {
+            let _ = frame_trail(
+                (CursorTrail::Ghost, TrailScroll::Ride),
+                t,
+                &renderer,
+                2.0,
+                secs,
+                (&mut chase, &mut trail, &mut last),
+                (&mut carried, Rows::ZERO),
+            );
+            trail
+        };
+        feed(&mut t, b"\x1b[?1049h");
+        feed(&mut t, &view(Line(10), Line(13)));
+        let _ = frame(&t, 1.0);
+        feed(&mut t, &view(Line(10), Line(17)));
+        let was = frame(&t, 1.008).expect("a sweep");
+        assert_eq!(
+            was.to,
+            (Row::from_index(7), Col::at_index(0)),
+            "the control"
+        );
+        feed(&mut t, &view(Line(7), Line(17)));
+        let now = frame(&t, 1.016).expect("still sweeping");
+        assert_eq!(now.start, was.start, "no sweep starts for the carry");
+        assert_eq!(
+            now.to,
+            (Row::from_index(10), Col::at_index(0)),
+            "its end moved with the line"
+        );
+        assert_eq!(now.from, was.from);
+        assert!((now.origin_dy - was.origin_dy - 3.0 * cell_h).abs() < 1e-3);
     }
 }

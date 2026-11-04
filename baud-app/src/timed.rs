@@ -134,6 +134,9 @@ pub(crate) struct Timed {
     /// The lines the whole screen retired since the last frame, which ride
     /// the trail at the next ([`Timed::scrolled`]).
     riding: Rows,
+    /// The screen the last frame saw, from which a program's scroll that
+    /// carried the cursor is taken away (`carried.rs`).
+    carried: crate::carried::Carried,
     transition: ScreenTransition,
     /// The switch being animated: when it began, and how it is drawn.
     switch: Option<(f64, crate::effects::SwitchForm)>,
@@ -169,6 +172,7 @@ impl Timed {
             last_cell: None,
             scroll: TrailScroll::Ride,
             riding: Rows::ZERO,
+            carried: crate::carried::Carried::new(),
             transition,
             switch: None,
             bar: crate::bar::Bar::new(),
@@ -376,6 +380,7 @@ impl Timed {
         self.last_cell = None;
         self.ghost = None;
         self.riding = Rows::ZERO;
+        self.carried.forget();
     }
 
     /// **Another surface came up**, `screen`: no trail crosses the switch,
@@ -446,6 +451,26 @@ impl Timed {
         }
         let followed = crate::effects::trail_cursor(term);
         let cursor_cell = followed.map(crate::effects::TrailCursor::cell);
+        // A cursor the program's scroll took with its line: what the trail
+        // holds of the text moves with it, and only the rest of the move
+        // trails, as on macOS (`carried.rs`). A frame the whole screen's
+        // scroll rode is the ride's.
+        let carried = crate::carried::carry(
+            &mut self.carried,
+            term,
+            cursor_cell,
+            (self.trail, self.scroll),
+            riding,
+            (&mut self.chase, &mut self.last_cell),
+            cell.px.1,
+        );
+        if let Some(c) = carried {
+            self.ghost = self.ghost.map(|g| Ghost {
+                to: (c.row(g.to.0), g.to.1),
+                origin_dy: g.origin_dy + c.px(cell.px.1),
+                ..g
+            });
+        }
         if self.trail == CursorTrail::Ghost {
             let block = |(r, c): (Row, Col)| rect(r, c, CursorStyle::SteadyBlock);
             let sweep = crate::trail::ghost_sweep(
@@ -1539,5 +1564,280 @@ mod tests {
                 assert!(a != c, "the control: the ridden frame is stay's");
             }
         }
+    }
+
+    /// **On Linux every capture's jumps trail and its scrolls snap**, for
+    /// every trail that rides the chase: the thirteen sessions of
+    /// `tests/trail/scroll/` through `plan` on a 120 Hz clock, each move as
+    /// `carried::captures::PINNED` spells it -- a wheel step, `zz`, `zt`,
+    /// `Ctrl-E` and `Ctrl-Y` that carried the cursor with its line draw no
+    /// trail, every jump draws one, and the views moved too far to read
+    /// still do. Over all thirteen, the six `zb` with the cursor on the top
+    /// line are every long scroll that trails. Perturbations: the carry dropped from `plan` (every
+    /// scroll trails, as before); the pane read across the whole row
+    /// (tmux's split session trails its scrolls); a quorum of two.
+    #[test]
+    fn every_captures_scrolls_snap_and_jumps_trail_on_linux() {
+        use crate::carried::captures::{ALL, Long, Taken, check, replay};
+        let mut streaks = 0;
+        for trail in [
+            CursorTrail::Quad,
+            CursorTrail::Sweep,
+            CursorTrail::Fire,
+            CursorTrail::Plasma,
+            CursorTrail::Lightning,
+            CursorTrail::Ice,
+            CursorTrail::Ufo,
+            CursorTrail::Orb,
+            CursorTrail::Liquid,
+        ] {
+            for (name, raw, steps) in ALL {
+                let t0 = Instant::now();
+                let mut fx = Timed::new(t0, TrailPick::Named(trail), ScreenTransition::Off);
+                let moves = replay((raw, steps), |t, secs| {
+                    let now = t0 + Duration::from_secs_f64(secs);
+                    let _ = fx.plan(now, t, rect, CELL, widths());
+                    fx.chase.longs
+                });
+                check(name, &moves, &format!("{trail:?}"));
+                if trail == CursorTrail::Plasma {
+                    streaks += moves
+                        .iter()
+                        .filter(|m| m.label == 'S' && m.long == Long::Long)
+                        .filter(|m| m.trailed == Taken::Trailed)
+                        .count();
+                }
+            }
+        }
+        assert_eq!(streaks, 6, "the long scrolls that still trail");
+    }
+
+    /// **The ghost sweeps only what the cursor moved beyond its text**: on
+    /// the same captures, a sweep across more than two cells comes on
+    /// exactly the moves the chase trails -- a carried cursor's last cell
+    /// moves with its line, so the wheel's steps sweep at most the row or
+    /// two helix's margin holds the cursor back. The control: with the
+    /// carry taken away under `stay`, helix's wheel steps sweep three rows.
+    #[test]
+    fn the_ghost_sweeps_only_what_is_left_of_a_carried_move_on_linux() {
+        use crate::carried::captures::{ALL, PINNED, check, replay, spelled};
+        use crate::trail::Count;
+        for (name, raw, steps) in ALL {
+            for key in [TrailScroll::Ride, TrailScroll::Stay] {
+                let t0 = Instant::now();
+                let mut fx = Timed::new(
+                    t0,
+                    TrailPick::Named(CursorTrail::Ghost),
+                    ScreenTransition::Off,
+                )
+                .with_trail_scroll(key);
+                let (mut sweeps, mut last) = (Count(0), None);
+                let moves = replay((raw, steps), |t, secs| {
+                    let now = t0 + Duration::from_secs_f64(secs);
+                    let _ = fx.plan(now, t, rect, CELL, widths());
+                    if let Some(g) = fx.ghost.filter(|g| Some(g.start) != last) {
+                        last = Some(g.start);
+                        let far = |a: usize, b: usize| a.abs_diff(b) > 2;
+                        if far(g.from.0.index(), g.to.0.index())
+                            || far(g.from.1.index(), g.to.1.index())
+                        {
+                            sweeps.0 += 1;
+                        }
+                    }
+                    sweeps
+                });
+                match key {
+                    TrailScroll::Ride => check(name, &moves, "the ghost"),
+                    TrailScroll::Stay => {
+                        let pinned = PINNED.iter().find(|p| p.0 == name).unwrap();
+                        if name.starts_with("helix") {
+                            assert_ne!(
+                                spelled(&moves).1,
+                                pinned.2,
+                                "the control: {name} under stay"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// **The corpus trails as it did, the ride included**: fourteen
+    /// recordings the trail's earlier gates replay -- pagers, `cat`, `git
+    /// log`, btop, cava, pipes, vim and helix -- fed through
+    /// `plan` as the driver feeds it, 4096 bytes every 20 ms with the
+    /// whole screen's scroll riding the trail (`scrolled`), takes exactly
+    /// the long moves the chase took before the carry, driven beside it
+    /// the way `plan` drove it then: the ride, then the frame. Streaming
+    /// output that scrolls the whole screen while the cursor changes cell,
+    /// as `cat` does at every read, is the ride's frame, and the carry
+    /// takes nothing from it. The control: the corpus has long moves to
+    /// keep, and the helix wheel capture, which the carry changes on
+    /// purpose, differs.
+    #[test]
+    fn the_corpus_takes_the_moves_it_took_before_the_carry_on_linux() {
+        use crate::carried::captures::{drive, spelled};
+        use crate::trail::ride_px;
+        let (wide, narrow, wheel) = ((200, 50), (160, 45), (80, 24));
+        let corpus = [
+            ("recordings/ascii/cat-scroll.raw", wide),
+            ("recordings/ascii/git-log.raw", wide),
+            ("recordings/ascii/less-pager.raw", wide),
+            ("recordings/ascii/pipes.raw", narrow),
+            ("recordings/utf8/btop.raw", narrow),
+            ("recordings/utf8/vim-unicode.raw", narrow),
+            ("recordings/utf8/cat-cjk.raw", wide),
+            ("recordings/utf8/less-cjk.raw", wide),
+            ("recordings/utf8/cava.raw", wide),
+            ("cursor/helix-exit.raw", wide),
+            ("cursor/vim-exit.raw", wide),
+            ("panels/helix.raw", wide),
+            ("trail/helix-ge-gg.raw", wide),
+            ("trail/helix-wheel.raw", wheel),
+        ];
+        let mut long = 0;
+        for (name, (ws_col, ws_row)) in corpus {
+            let ws = WinSize { ws_col, ws_row };
+            let raw = std::fs::read(format!("{}/../tests/{name}", env!("CARGO_MANIFEST_DIR")))
+                .expect(name);
+            let reads: Vec<(f64, usize)> = (0..raw.len().div_ceil(4096))
+                .map(|k| (0.02 * k as f64, 4096))
+                .collect();
+            let t0 = Instant::now();
+            let feed = |t: &mut Term<'_>, b: &[u8]| {
+                t.write_at(BytePos::ZERO, b);
+                t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+            };
+            // The driver: its read, its ride, its frame.
+            let fx = core::cell::RefCell::new(Timed::new(
+                t0,
+                TrailPick::Named(CursorTrail::Plasma),
+                ScreenTransition::Off,
+            ));
+            let now = drive(
+                &raw,
+                &ws,
+                (&reads, &[]),
+                |t, b| {
+                    let before = crate::keep::Before::of(t);
+                    feed(t, b);
+                    fx.borrow_mut().scrolled(t, before);
+                },
+                |t, secs| {
+                    let mut fx = fx.borrow_mut();
+                    let _ = fx.plan(t0 + Duration::from_secs_f64(secs), t, rect, CELL, widths());
+                    fx.chase.longs
+                },
+            );
+            // The chase as `plan` drove it before the carry.
+            let chase = core::cell::RefCell::new(Chase::new(CursorTrail::Plasma.style()));
+            let riding = core::cell::Cell::new(Rows::ZERO);
+            let clock = Clock::new(t0);
+            let was = drive(
+                &raw,
+                &ws,
+                (&reads, &[]),
+                |t, b| {
+                    let before = crate::keep::Before::of(t);
+                    feed(t, b);
+                    let moved = crate::keep::live_moved(t, before);
+                    if let Some(n) =
+                        crate::effects::trail_rides(t, before, moved, TrailScroll::Ride)
+                    {
+                        riding.set(Rows::of_count(riding.get().index() + n.index()));
+                    }
+                },
+                |t, secs| {
+                    let host = clock.host(t0 + Duration::from_secs_f64(secs));
+                    let mut chase = chase.borrow_mut();
+                    let n = riding.replace(Rows::ZERO);
+                    if let Some((dy, floor)) = ride_px(n, t.geometry().1, CELL.px.1) {
+                        chase.ride(dy, host, floor, CELL.px.1);
+                    }
+                    let style = t.cursor_style();
+                    let r = crate::effects::trail_cursor(t).map(|f| {
+                        let (row, col) = f.cell();
+                        rect(row, col, f.style(style))
+                    });
+                    let _ = chase.frame(r, host, CELL.px, CELL.height);
+                    chase.longs
+                },
+            );
+            long += was
+                .iter()
+                .filter(|m| m.trailed == crate::carried::captures::Taken::Trailed)
+                .count();
+            match name {
+                "trail/helix-wheel.raw" => {
+                    assert_ne!(spelled(&now).1, spelled(&was).1, "the control: {name}")
+                }
+                _ => assert_eq!(spelled(&now), spelled(&was), "{name}"),
+            }
+        }
+        assert!(
+            long > 100,
+            "the control: the corpus has {long} long moves to keep"
+        );
+    }
+
+    /// **A ghost in flight moves with a carried cursor's text on Linux**:
+    /// a jump from row 4 to row 8 starts a sweep, and inside its 100 ms the
+    /// view is redrawn three lines up the file with the cursor kept on its
+    /// line. The sweep's end moves the three rows with it and its start as
+    /// far, so the ghost drawn is the last one moved by the carry, and no
+    /// sweep starts for the carried cursor. Perturbation: the ghost in
+    /// flight left where it was -- its end stays on row 8.
+    #[test]
+    fn a_ghost_in_flight_moves_with_a_carried_cursor_on_linux() {
+        use crate::carried::tests::{Line, view};
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 12,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let mut fx = Timed::new(
+            t0,
+            TrailPick::Named(CursorTrail::Ghost),
+            ScreenTransition::Off,
+        );
+        let ghost = |p: Plan| match p.trail {
+            Some(TrailLook::Ghost(g)) => g,
+            other => panic!("no ghost: {other:?}"),
+        };
+        feed(&mut t, b"\x1b[?1049h");
+        feed(&mut t, &view(Line(10), Line(13)));
+        let _ = fx.plan(ms(0), &t, rect, CELL, widths());
+        feed(&mut t, &view(Line(10), Line(17)));
+        let _ = fx.plan(ms(8), &t, rect, CELL, widths());
+        let started = fx.ghost.map(|g| g.start);
+        let was = ghost(fx.plan(ms(16), &t, rect, CELL, widths()));
+        assert_eq!(
+            was.to,
+            (Row::from_index(7), Col::at_index(0)),
+            "the control: a sweep to row 8"
+        );
+        feed(&mut t, &view(Line(7), Line(17)));
+        let now = ghost(fx.plan(ms(24), &t, rect, CELL, widths()));
+        assert_eq!(
+            fx.ghost.map(|g| g.start),
+            started,
+            "no sweep starts for the carry"
+        );
+        assert_eq!(
+            now.to,
+            (Row::from_index(10), Col::at_index(0)),
+            "its end moved with the line"
+        );
+        assert_eq!(now.from, was.from);
+        assert!(
+            (now.origin_dy - was.origin_dy - 3.0 * CELL.px.1).abs() < 1e-3,
+            "its start moved as far: {} against {}",
+            now.origin_dy,
+            was.origin_dy
+        );
     }
 }

@@ -454,16 +454,18 @@ fn no_frame_draws_a_trail_over_the_history_the_wheel_scrolls_to() {
         });
         let mut chase = crate::trail::Chase::new(kind.style());
         let (mut trail, mut last) = (None, None);
+        let mut carried = crate::carried::Carried::new();
         // A frame at `t` seconds: its trail drawn, and the same frame
         // drawn without one.
         let mut frame = |s: &mut Session, t: f64| {
             let look = super::frame_trail(
-                kind,
+                (kind, crate::config::TrailScroll::Ride),
                 &s.term,
                 &s.renderer,
                 1.0,
                 t,
                 (&mut chase, &mut trail, &mut last),
+                (&mut carried, Rows::ZERO),
             );
             s.renderer.set_trail(look);
             let with = s.frame();

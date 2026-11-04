@@ -596,6 +596,71 @@ jumps, rode nothing.
   control; the ghost's ridden origin left off fails the ghost's; the macOS
   ride moved back inside the slide's gate fails the source gate.
 
+### 5.15 A program's scroll is taken away from the cursor's move
+
+**When a program scrolls its text and keeps the cursor on its line, the
+trail moves with the text and only the rest of the move trails.** Until
+then a helix wheel step, which carries the cursor three rows with its line,
+streaked across them on every trail, and so did vim's and neovim's wheel
+steps, `zz`, `zt` and `Ctrl-E`, in a tmux pane as well.
+
+- No standard has the program say which it was: SU and SD leave "the
+  active presentation position" where it was ([[source: ecma48]] 8.3.147,
+  8.3.113), so a cursor that keeps its line was moved by the program after
+  its scroll, as on a jump, and helix sends no scroll at all. A trail is
+  decoration; no cell, cursor or report changes.
+- The rule is Neovide's, the amount read off the screen: Neovide moves its
+  corners by the editor's scroll and counts a jump only past it
+  ([[source: neovide-cursor-renderer]] 359-365). `carried.rs` reads it when
+  the followed cursor changes cell. In the cursor's pane -- between the
+  nearest border columns, or the whole row -- every written row no other
+  row repeats votes for each distance it reads again at, through an index
+  from a row's hash; a distance with at least three votes and more than the
+  rows that stayed is the scroll, if the cursor's old row went with it.
+  `Chase::rebase` moves where the cursor was taken, a waiting move, a move
+  in flight, a burning path and a hidden cursor's hole; both drivers move
+  the ghost's last cell and its sweep too.
+- Only under `trail_scroll = "ride"`, and not on a frame whose read
+  scrolled the whole screen: that frame is the ride's (5.14), whose rest
+  state stays.
+- The thirteen sessions of `tests/trail/scroll/` are pinned move by move
+  through both drivers, every trail and the ghost: every jump trails, and
+  of the long scrolls only `zb` with the cursor on the top line still does,
+  six times, too little of the old screen being left. A page back in vim
+  that kept its line trails for the same reason. That is the research's
+  replay, move for move: by line numbers where the screen shows them, 117
+  of 124 scrolls taken away and 142 of 142 jumps kept.
+- Changed on purpose: two arrow keys at the screen's edge in vim, which
+  pushed the text along, now trail although short -- the cursor moved
+  three lines through the file -- and a click that scrolls starts its
+  trail where the old line went.
+- Thirteen recordings through the Linux driver with the ride on -- cat,
+  git log, less, pipes, btop, cava, vim, helix -- take the long moves they
+  took before; helix's wheel capture, which changes on purpose, does not.
+- Cost, counted, not timed (MEASUREMENTS.md, "A program's scroll taken
+  away"): a frame that read nothing checks one reading, 45 to 70
+  instructions; one that read something copies the screen's words,
+  27,900 instructions at 200x50; a move adds the vote, 112,500 in all.
+  The vote first hashed a word at a time, 177,000 a move; four lanes of
+  two words cut it. On the GPU path, offscreen, it adds nothing:
+  `frame_gpu` built from `abb4da08` and with the change at one path is
+  the same binary byte for byte, as the change is in `baud-app` alone,
+  which it does not link. The carry changes only the look handed to the
+  renderer, which draws no trail on 119 of the 389 frames of a helix
+  replay that drew one.
+- Tests: `every_captures_scrolls_snap_and_jumps_trail_on_linux` and
+  `_on_macos`, `the_ghost_sweeps_only_what_is_left_of_a_carried_move_on_linux`,
+  `the_corpus_takes_the_moves_it_took_before_the_carry_on_linux`,
+  `a_ghost_in_flight_moves_with_a_carried_cursor_on_linux` and `_on_macos`,
+  `a_rebase_moves_the_trail_and_its_rest_with_the_text`, the vote's unit
+  tests in `carried.rs` and the macOS call sites' source gate,
+  `both_drivers_take_the_carry`. Perturbations, each red: the carry dropped
+  from either driver; the pane read across the whole row; a quorum of two;
+  a rebase that leaves the target or the move in flight; the ghost in
+  flight left where it was; the ride's frame compared in `Carried::frame`
+  (the drivers' hand-over of the ride's lines is pinned on macOS by the
+  source gate alone, and on Linux by no test).
+
 ## 6. Open questions, with their options; none is picked here
 
 Each of these is open, and each needs a render of its options before it is
@@ -608,6 +673,7 @@ settled. They are listed so the research behind them is in one place.
 | all | the kitty-derived quad under baud's licence | (a) a record that it takes only the idea and the constants; (b) a clean re-derivation; (d) leave it out | **re-derived (b), 2026-10-25**, section 8. One visible difference: a retarget that lands a corner on its new target leaves it out of the spread, and the corner leading least lags longer (8.4) |
 | all | a trail when the cursor hides | fade over kitty's slow constant, as kitty does; end at once, as baud did and as sfte and Neovide do | **decided: the fade, 2026-11-01**, section 5.12 |
 | all | a trail on a jump scroll | ride it too; ride only a smooth scroll, as now | **decided 2026-11-01 by the lean: ride it too**, on every whole-screen scroll, and open to reversal; section 5.14 |
+| all | a trail when a program's scroll carries the cursor with its line | as before, every long move trails; none when the cursor's row and its neighbours read the same; none for 100 ms after a wheel step; none while the program hides its cursor; take the scroll away and trail what is left | **decided: take the scroll away**, the one option that removes the streak in every program tested and keeps every jump; section 5.15 |
 | fire | "the fire looks sluggish" | shorten its life; burn out faster; put it out on a keystroke; leave it (it burns 0.83 s on the demo's moves) | **decided 2026-11-01 by the lean: burn out faster**, 1.6 times as fast, and open to reversal; section 5.13 |
 | plasma | the body fill; the flow direction; ions of one charge or both; a bar or underline narrowing the braid | four calls: three of the spec's five questions (body, flow, ions) built at its proposals, and the narrowing the critique offered. The spec's other two, whether a flash counts per pixel or by area and whether long moves dim the filaments, went into the constant gain 0.95 and note AL's bound | open |
 | lightning | strike or arc; the bolt alone or over the quad; what a retarget leaves; sparks and corona | the spec's four questions, built at its proposals | open |
