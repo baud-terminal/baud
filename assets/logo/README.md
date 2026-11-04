@@ -16,7 +16,7 @@ Every mark ships in **dark** and **light** mode. **Every file here is fixed.** T
 | `baud-lockup-mono-black.svg` | single colour | fixed |
 | `baud-lockup-mono-white.svg` | single colour | fixed |
 
-The word is where it always was (x 40, baseline 88, size 62, letter-spacing -2.8); the ❯'s cell starts at x 192 on the cursor's old rows, 45 to 91; then every glyph moves 10.36 units right, so the ink, from the word's left to the cursor's right, is centred across the box. The launch splash (`baud-render/src/splash.rs`) still draws the lockup as the files drew it before: the ❯ at 54 units and the block at x 238.
+The word is where it always was (x 40, baseline 88, size 62, letter-spacing -2.8); the ❯'s cell starts at x 192 on the cursor's old rows, 45 to 91; then every glyph moves 10.36 units right, so the ink, from the word's left to the cursor's right, is centred across the box. The launch splash (`baud-render/src/splash.rs`) draws the same lockup, moved by the same 10.362: `the_held_splash_is_the_lockup_files` (`baud-render/tests/splash.rs`) reads `baud-lockup-dark.svg` and holds the splash's held frame to it within a pixel at 1.6 pixels a unit, the block to its rect and the ❯ to its path's ink. The splash draws the word in the renderer's badge face, JetBrains Mono Bold, where the files trace it at 500, so the test holds the word's top, foot and centre, which the two weights share, and not its sides, which the Bold sets 0.68 units further out.
 
 ## Symbol only, transparent (512)
 `baud-mark-dark[-blinking].svg` (bright amber, for dark backgrounds) · `baud-mark-light[-blinking].svg` (deeper amber, for light backgrounds) · `baud-mark-amber.svg`

@@ -2101,7 +2101,7 @@ fn the_splash_draws_alike_on_every_arm() {
             let cpu = cpu_frame(&mut arms, &mut t);
             let (n, most) = channel_diff(&cpu, &a, |_| true);
             match phase {
-                SplashPhase::Plasma(age) if age > 0.0 && age < gone => {
+                SplashPhase::Plasma(age) if age < gone => {
                     assert!(
                         most <= 1 && n <= 40,
                         "{at}: the CPU arm differs on {n}, by {most}"

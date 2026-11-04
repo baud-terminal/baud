@@ -653,16 +653,26 @@ def rgb(hexa):
     return tuple(int(hexa[i : i + 2], 16) for i in (1, 3, 5))
 
 
-def plasma(tmp, pen, s):
+def plasma(t, tmp, pen, s):
     """Run the plasma example, the word's light placed so the lockup's word
-    (its pen at WORD's x and baseline) lands on the picture's (its pen at
-    `pen`, s times the size). Returns its report and the frames' folder."""
+    (its pen at WORD's x moved by lockup_dx, and its baseline, as the
+    splash draws it) lands on the picture's (its pen at `pen`, s times the
+    size). Refuses a splash whose word pen or block is not the lockup's.
+    Returns its report and the frames' folder."""
     out = os.path.join(tmp, "plasma")
     os.makedirs(out)
-    at = (pen[0] - WORD[0] * s, pen[1] - WORD[1] * s)
+    dx = lockup_dx(t)
+    x0 = WORD[0] + dx
+    at = (pen[0] - x0 * s, pen[1] - WORD[1] * s)
     cmd = ["cargo", "run", "--quiet", "--release", "--locked", "-p", "baud-render", "--example", "brand_plasma", "--"]
     subprocess.run([*cmd, out, repr(s), repr(at[0]), repr(at[1])], check=True, cwd=ROOT)
     rep = json.load(open(os.path.join(out, "plasma.json")))
+    _, _, cur = mark(t, LOCKUP_CELL[0] + dx, LOCKUP_CELL[1], LOCKUP_CELL[2], GROUND)
+    w = rep["word"]
+    if abs(w["pen"][0] - x0) > 1e-3 or w["pen"][1] != WORD[1]:
+        fail(f"the splash's word pen is {w['pen']}, not the lockup's ({x0:.3f}, {WORD[1]})")
+    if max(abs(a - b) for a, b in zip(w["hole"], cur)) > 0.01:
+        fail(f"the splash's block is {w['hole']}, not the lockup's cursor {cur}")
     m = rep["mark"]
     if (m["px"], m["cell_w"], m["cell_h"], m["baseline"]) != (FONT_PX, CELL_W, CELL_H, BASELINE):
         fail(f"baud's renderer draws a {m['cell_w']} by {m['cell_h']} cell, baseline {m['baseline']}, at {m['px']} px")
@@ -777,7 +787,7 @@ def draw(resvg, tmp):
     out[CARD[0] + ".png"] = card_png
 
     base = opaque(drawn(resvg, org, tmp, "org"), "org")
-    rep, d = plasma(tmp, pen, s)
+    rep, d = plasma(t, tmp, pen, s)
     pic, peak, lit = org_picture(base, rep, d, cells)
     # The control: with both lights at zero, every frame the bare ground,
     # the same blend draws the SVG's drawing, every pixel.

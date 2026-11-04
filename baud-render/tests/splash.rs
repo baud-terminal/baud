@@ -171,7 +171,9 @@ fn the_plasma_is_the_colour_of_the_glyph_it_is_over() {
         let frame = (side(w.value()), side(h.value()));
         let s = scale(frame);
         let o = origin(frame, s);
-        let word = o.x + (WORDMARK.x + 4.0 * (WORDMARK.size * 0.6 + WORDMARK.tracking)) * s;
+        // The first column `paint` turns the colour at: the seam's, rounded.
+        let word =
+            (o.x + (WORDMARK.x + 4.0 * (WORDMARK.size * 0.6 + WORDMARK.tracking)) * s).round();
         let mark = o.x + PROMPT.x * s;
         let between = |x: baud_render::Argb| {
             let ch = |v: baud_render::Argb| [v.r().get(), v.g().get(), v.b().get()];
@@ -191,12 +193,17 @@ fn the_plasma_is_the_colour_of_the_glyph_it_is_over() {
             assert!(!recs.is_empty(), "{name} at {age}");
             for i in recs {
                 let (l, rt) = (f32::from(i.x.0), f32::from(i.x.0) + f32::from(i.w.0));
-                let at = match i.kind {
-                    Kind::Band => (l, rt),
-                    _ => ((l + rt) * 0.5, (l + rt) * 0.5),
+                // A band by its span, an ion by the whole pixel `paint`
+                // takes as its centre.
+                let (at, before) = match i.kind {
+                    Kind::Band => ((l, rt), rt <= word),
+                    _ => {
+                        let c = l + f32::from(i.w.0 / 2);
+                        ((c, c), c < word)
+                    }
                 };
                 let colour = i.color.with_alpha(c.amber.a());
-                if at.1 <= word {
+                if before {
                     assert_eq!(colour, c.wordmark, "{name} at {age}: {i:?} over the word");
                     inked += 1;
                 } else if at.0 >= mark {
@@ -831,4 +838,240 @@ fn every_trail_frame_drawn_incrementally_is_the_whole_frame() {
             );
         }
     }
+}
+
+/// The ink box of an SVG path as `scripts/make-brand-pictures.py` writes
+/// one -- absolute `M`, `L`, `H`, `V`, `Q` and `Z`, fontTools' pen -- from
+/// its points and each quadratic's extrema, not its control points.
+fn path_ink(d: &str) -> [f64; 4] {
+    let mut toks: Vec<String> = Vec::new();
+    let mut num = String::new();
+    for c in d.chars() {
+        if c.is_ascii_alphabetic() {
+            if !num.is_empty() {
+                toks.push(core::mem::take(&mut num));
+            }
+            toks.push(c.to_string());
+        } else if c == ' ' || c == ',' {
+            if !num.is_empty() {
+                toks.push(core::mem::take(&mut num));
+            }
+        } else {
+            if c == '-' && !num.is_empty() {
+                toks.push(core::mem::take(&mut num));
+            }
+            num.push(c);
+        }
+    }
+    if !num.is_empty() {
+        toks.push(num);
+    }
+    let mut b = [
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    let mut take = |x: f64, y: f64| {
+        b = [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)];
+    };
+    let (mut i, mut cmd, mut at) = (0, 'M', (0.0f64, 0.0f64));
+    let n = |i: &mut usize| -> f64 {
+        *i += 1;
+        toks[*i - 1].parse().expect("a number")
+    };
+    while i < toks.len() {
+        if toks[i].chars().all(|c| c.is_ascii_alphabetic()) {
+            cmd = toks[i].chars().next().unwrap();
+            i += 1;
+            if cmd == 'Z' {
+                continue;
+            }
+        }
+        match cmd {
+            'M' | 'L' => at = (n(&mut i), n(&mut i)),
+            'H' => at.0 = n(&mut i),
+            'V' => at.1 = n(&mut i),
+            'Q' => {
+                let (c, p) = ((n(&mut i), n(&mut i)), (n(&mut i), n(&mut i)));
+                for (a, k, z, axis) in [(at.0, c.0, p.0, 0), (at.1, c.1, p.1, 1)] {
+                    let den = a - 2.0 * k + z;
+                    if den != 0.0 {
+                        let t = (a - k) / den;
+                        if t > 0.0 && t < 1.0 {
+                            let v = (1.0 - t) * (1.0 - t) * a + 2.0 * (1.0 - t) * t * k + t * t * z;
+                            match axis {
+                                0 => take(v, at.1),
+                                _ => take(at.0, v),
+                            }
+                        }
+                    }
+                }
+                at = p;
+            }
+            other => panic!("the path has a {other}, which the pen does not write"),
+        }
+        take(at.0, at.1);
+    }
+    b
+}
+
+/// **The held splash is `assets/logo/baud-lockup-dark.svg`'s lockup**,
+/// drawn by the CPU renderer and read back to within one pixel at the
+/// splash's scale, from the file itself: the block is its `<rect>`, the
+/// ❯'s ink is its amber path's, and the word's ink stands where the word
+/// path's does -- its top, its foot and its centre. The word is drawn in
+/// the renderer's badge face, JetBrains Mono Bold, and the file traces it
+/// at 500, Medium: the two share their ink's centre and height and the
+/// Bold is 0.68 units wider each side, so the word's edges are not held.
+/// Each box is the pixels at least half way from the page to the glyph's
+/// colour, and the splash's glyph pens are whole pixels, so one pixel
+/// covers both.
+#[test]
+fn the_held_splash_is_the_lockup_files() {
+    let svg = include_str!("../../assets/logo/baud-lockup-dark.svg");
+    let attr = |tag: &str, name: &str| -> f64 {
+        let tag = format!(" {tag}");
+        let at = tag.find(&format!(" {name}=\"")).expect(name) + name.len() + 3;
+        tag[at..at + tag[at..].find('"').unwrap()].parse().unwrap()
+    };
+    let block_tag = svg
+        .split("<rect ")
+        .skip(1)
+        .map(|t| &t[..t.find("/>").unwrap()])
+        .find(|t| t.contains("fill=\"#F4A32C\""))
+        .expect("the block's rect");
+    let (bx, by) = (attr(block_tag, "x"), attr(block_tag, "y"));
+    let block = [
+        bx,
+        by,
+        bx + attr(block_tag, "width"),
+        by + attr(block_tag, "height"),
+    ];
+    let paths: Vec<(&str, &str)> = svg
+        .split("<path d=\"")
+        .skip(1)
+        .map(|p| {
+            let end = p.find('"').unwrap();
+            (&p[..end], &p[end..])
+        })
+        .collect();
+    let word = path_ink(
+        paths
+            .iter()
+            .find(|p| p.1.contains("#F3F4F6"))
+            .expect("the word")
+            .0,
+    );
+    let prompt = path_ink(
+        paths
+            .iter()
+            .find(|p| p.1.contains("#F4A32C"))
+            .expect("the ❯")
+            .0,
+    );
+
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    // A window 1600 pixels wide, so the lockup is 1.6 pixels a unit.
+    let ws = WinSize {
+        ws_col: 200,
+        ws_row: 60,
+    };
+    let mut theme = Theme::dark();
+    theme.bg = baud_render::Argb(0xFF15_171B);
+    let mut r = Renderer::new(
+        Stack::with_roles(
+            &faces,
+            &[FaceRole::Fallback, FaceRole::Style(FaceStyle::Bold)],
+        )
+        .unwrap(),
+        PxSize::of(14.0).unwrap(),
+        theme,
+        Blend::Native,
+        Cols::of_index(usize::from(ws.ws_col)),
+        Rows::of_index(usize::from(ws.ws_row)),
+    )
+    .unwrap();
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
+    feed(&mut t, b"\x1b[?25l");
+    r.set_splash(look(SplashPhase::Hold));
+    let mut px = Vec::new();
+    let f = paint(&mut r, &mut t, &mut px, Damage::Full);
+    let (w, h) = r.pixel_size();
+    let (wu, hu) = (
+        usize::try_from(w.value()).unwrap(),
+        usize::try_from(h.value()).unwrap(),
+    );
+    let frame = (wu as f32, hu as f32);
+    let s = baud_render::splash::scale(frame);
+    let o = baud_render::splash::origin(frame, s);
+    assert!(
+        (s - 1.6).abs() < 1e-6,
+        "the lockup at 1.6 pixels a unit: {s}"
+    );
+    let (s, ox, oy) = (f64::from(s), f64::from(o.x), f64::from(o.y));
+    let ground = [0x15, 0x17, 0x1B];
+    let chans = |p: u32| {
+        let [_, r, g, b] = p.to_be_bytes();
+        [r, g, b]
+    };
+    // How far a pixel is from the page to `colour`, 0 to 1.
+    let share = |p: u32, colour: [u8; 3]| -> f64 {
+        let (c, mut dot, mut n2) = (chans(p), 0.0, 0.0);
+        for i in 0..3 {
+            let d = f64::from(colour[i]) - f64::from(ground[i]);
+            dot += (f64::from(c[i]) - f64::from(ground[i])) * d;
+            n2 += d * d;
+        }
+        dot / n2
+    };
+    // The pixel box, in lockup units, of the pixels at least half way to
+    // `colour` between the columns `x0` and `x1` (lockup units).
+    let drawn = |x0: f64, x1: f64, colour: [u8; 3]| -> [f64; 4] {
+        let mut b = [usize::MAX, usize::MAX, 0, 0];
+        let within = |x: usize| (ox + x0 * s..ox + x1 * s).contains(&(x as f64));
+        for y in 0..hu {
+            for x in (0..wu).filter(|&x| within(x)) {
+                if share(f[y * wu + x], colour) >= 0.5 {
+                    b = [b[0].min(x), b[1].min(y), b[2].max(x + 1), b[3].max(y + 1)];
+                }
+            }
+        }
+        assert!(b[0] < b[2], "something drawn in {x0}..{x1}");
+        [
+            (b[0] as f64 - ox) / s,
+            (b[1] as f64 - oy) / s,
+            (b[2] as f64 - ox) / s,
+            (b[3] as f64 - oy) / s,
+        ]
+    };
+    let (amber, ink) = ([0xF4, 0xA3, 0x2C], [0xF3, 0xF4, 0xF6]);
+    let mid = 0.5 * (prompt[2] + block[0]);
+    let near = |what: &str, have: [f64; 4], want: [f64; 4], edges: [bool; 4]| {
+        for (i, side) in ["left", "top", "right", "bottom"].iter().enumerate() {
+            let off = (have[i] - want[i]) * s;
+            assert!(
+                !edges[i] || off.abs() <= 1.0,
+                "{what}'s {side}: drawn at {:.2}, the file's at {:.2}, {off:.2} px apart",
+                have[i],
+                want[i]
+            );
+        }
+    };
+    near("the block", drawn(mid, 300.0, amber), block, [true; 4]);
+    let p = drawn(prompt[0] - 4.0, mid, amber);
+    near("the ❯", p, prompt, [true; 4]);
+    let wd = drawn(0.0, prompt[0] - 4.0, ink);
+    near("the word", wd, word, [false, true, false, true]);
+    let centre = |b: [f64; 4]| 0.5 * (b[0] + b[2]);
+    let off = (centre(wd) - centre(word)) * s;
+    assert!(
+        off.abs() <= 1.0,
+        "the word's centre is {off:.2} px from the file's"
+    );
 }

@@ -22,7 +22,8 @@
 //!
 //! Writes `word.raw`, `mark-base.raw` and `mark-trail.raw` (little-endian
 //! `0xAARRGGBB`, row-major) and `plasma.json` (each canvas's size, the
-//! cell metrics, the seeds and the times) into `<out dir>`. Before it
+//! cell metrics, the seeds and the times, and the splash's word pen and
+//! block, which the generator holds to the lockup's) into `<out dir>`. Before it
 //! writes, it holds the word's light to the splash's own: left of the seam
 //! less half the block's height (the plasma's unit), the word's frame is
 //! the frame of [`splash::vfx`] at the same moment, pixel for pixel, and it
@@ -220,13 +221,15 @@ fn main() {
 
     let json = format!(
         "{{\"word\": {{\"width\": {}, \"height\": {}, \"px\": {WORD_PX}, \"seed\": \"{:08X}\", \
-         \"t\": {WORD_T}, \"box\": [{}, {}, {}, {}], \"hole\": [{}, {}, {}, {}], \
+         \"t\": {WORD_T}, \"pen\": [{}, {}], \"box\": [{}, {}, {}, {}], \"hole\": [{}, {}, {}, {}], \
          \"scale\": {scale}, \"origin\": [{}, {}], \"gate_columns\": {cols}, \"gate_differing\": {differing}}},\n \
          \"mark\": {{\"width\": {}, \"height\": {}, \"px\": {MARK_PX}, \"cell_w\": {}, \"cell_h\": {}, \
          \"baseline\": {}, \"row\": {}, \"col\": {}, \"seed\": {}, \"age\": {MARK_AGE}}}}}\n",
         w.value(),
         h.value(),
         splash::SEED.0,
+        splash::WORDMARK.x,
+        splash::WORDMARK.baseline,
         word.left,
         word.top,
         word.right,

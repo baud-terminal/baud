@@ -6,12 +6,15 @@
 //! [`LEFT`], 0.47 s in, and what is left of the plasma at [`GONE`], 0.55 s
 //! in: one movement, with no frame where the logo stands still (note AJ).
 //! The lockup is
-//! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s colours, and the
-//! geometry they had before they took baud's own drawing of the mark (the
-//! ❯ at 54 units, the block at x 238), without the dark one's baked
-//! ground, which would be a rectangle on the glass; the half is the
-//! theme's by the rule `CSI ? 996 n` answers with
-//! ([`crate::Theme::polarity`]).
+//! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s, colours and
+//! geometry, as `scripts/make-brand-pictures.py` draws them: the word's pen
+//! at x 40, the ❯ in its cell from x 192 on rows 45 to 91, placed as baud's
+//! renderer places a glyph at 200 px and scaled to the cell, the block the
+//! very next cell, and the whole moved [`DX`] to centre its ink across the
+//! box -- without the dark one's baked ground, which would be a rectangle
+//! on the glass; the half is the theme's by the rule `CSI ? 996 n` answers
+//! with ([`crate::Theme::polarity`]). The word is drawn in the renderer's
+//! badge face, JetBrains Mono Bold, where the files trace it at 500.
 //!
 //! **Its plasma is the colour of the glyph it is over** ([`paint`]): the
 //! word's ink over `baud` -- near-white on the dark page, dark on the
@@ -91,27 +94,44 @@ pub struct Line {
     pub tracking: f32,
 }
 
-/// `baud`, at `x="40" y="88" font-size="62" letter-spacing="-2.8"`.
+/// **How far the logo files move every glyph to centre the lockup's ink
+/// across its box**, in its units: `scripts/make-brand-pictures.py`'s
+/// `lockup_dx`, from the word's ink at 500 and the mark's, 10.362. The
+/// generator holds this to its own (`brand_plasma`'s report), and
+/// `tests/splash.rs` holds the drawn lockup to the file's.
+pub const DX: f32 = 10.362;
+
+/// **Lockup units a pixel of baud's cell at 200 px**: the mark's cell is
+/// 46 units tall, the cursor's rows 45 to 91, and baud's cell at 200 px is
+/// 264 tall (the generator's `CELL_H`).
+pub const K: f32 = 46.0 / 264.0;
+
+/// `baud`: its pen at x 40 moved by [`DX`], its baseline 88, size 62 and
+/// letter-spacing -2.8 -- the files' `WORD`.
 pub const WORDMARK: Line = Line {
-    x: 40.0,
+    x: 40.0 + DX,
     baseline: 88.0,
     size: 62.0,
     tracking: -2.8,
 };
 
-/// `❯`, at `x="192" y="85" font-size="54"`.
+/// `❯`, placed in its cell as baud's renderer places a glyph: its pen at
+/// the cell's left, x 192 moved by [`DX`], its baseline 204 of baud's
+/// 200 px cell below the cell's top at 45, at 200 px, each scaled by [`K`].
 pub const PROMPT: Line = Line {
-    x: 192.0,
-    baseline: 85.0,
-    size: 54.0,
+    x: 192.0 + DX,
+    baseline: 45.0 + 204.0 * K,
+    size: 200.0 * K,
     tracking: 0.0,
 };
 
-/// The block, `<rect x="238" y="45" width="22" height="46">`.
+/// The block, the cell after the ❯'s: 120 of baud's 200 px cell wide from
+/// the ❯'s cell's right edge, on rows 45 to 91 --
+/// `<rect x="223.27" y="45" width="20.91" height="46">`.
 pub const BLOCK: Rect = Rect {
-    left: 238.0,
+    left: 192.0 + DX + 120.0 * K,
     top: 45.0,
-    right: 260.0,
+    right: 192.0 + DX + 240.0 * K,
     bottom: 91.0,
 };
 
@@ -463,14 +483,12 @@ mod tests {
 
     const FRAME: (f32, f32) = (1600.0, 1000.0);
 
-    /// **The lockup's box and colours are the SVG's**: the box and the two
-    /// halves' colours, as `assets/logo/baud-lockup-dark.svg` and
+    /// **The lockup's box, colours and block are the SVG's**: the box and
+    /// the two halves' colours, as `assets/logo/baud-lockup-dark.svg` and
     /// `-light.svg` draw them -- the word in the one, the ❯ and the block in
-    /// the other, each glyph an outline. The geometry is the lockup the
-    /// files drew before they took baud's own drawing of the mark
-    /// (`scripts/make-brand-pictures.py`): the files' ❯ is a cell of the
-    /// font at baud's metrics, the block the next cell, the whole re-centred,
-    /// while [`PROMPT`] and [`BLOCK`] are the ❯ at 54 and the block at x 238.
+    /// the other, each glyph an outline -- and the block's rect, to the
+    /// file's two decimals. `tests/splash.rs` holds the drawn lockup to the
+    /// file's ink.
     #[test]
     fn the_lockup_is_the_svgs() {
         let dark = include_str!("../../assets/logo/baud-lockup-dark.svg");
@@ -483,14 +501,23 @@ mod tests {
             let amber = format!(r#"" fill="{}"/>"#, hex(c.amber));
             assert_eq!(svg.matches(&word).count(), 1, "the word, once");
             assert_eq!(svg.matches(&amber).count(), 2, "the ❯ and the block");
-            assert!(svg.contains(&format!(r#"height="46" fill="{}"/>"#, hex(c.amber))));
+            let two = |v: f32| {
+                format!("{:.2}", v)
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
+            };
+            assert!(svg.contains(&format!(
+                r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}"/>"#,
+                two(BLOCK.left),
+                two(BLOCK.top),
+                two(BLOCK.right - BLOCK.left),
+                two(BLOCK.bottom - BLOCK.top),
+                hex(c.amber)
+            )));
             assert!(!svg.contains("<text"), "outlines, not text");
         }
         assert_eq!(BOX, (300.0, 130.0));
-        assert_eq!(
-            (BLOCK.right - BLOCK.left, BLOCK.bottom - BLOCK.top),
-            (22.0, 46.0)
-        );
     }
 
     /// **A pass over the whole lockup is the splash's own**: [`pass_over`]
@@ -632,8 +659,8 @@ mod tests {
     fn the_second_pass_takes_the_logo_and_the_glow_fades_after_it() {
         let s = scale(FRAME);
         let o = origin(FRAME, s);
-        let b = (o.x + 40.0 * s, o.x + 75.0 * s);
-        let p = (o.x + 192.0 * s, o.x + 224.0 * s);
+        let b = (o.x + WORDMARK.x * s, o.x + (WORDMARK.x + 35.0) * s);
+        let p = (o.x + PROMPT.x * s, o.x + (PROMPT.x + 120.0 * K) * s);
         let held = SplashLook {
             phase: SplashPhase::Hold,
         };
@@ -668,7 +695,7 @@ mod tests {
 
     /// The lockup's five glyphs' boxes, left to right, in frame pixels:
     /// the wordmark's four at its advance less its tracking, and the
-    /// prompt.
+    /// prompt's cell.
     fn glyphs(o: Pt, s: f32) -> [(f32, f32); 5] {
         let step = 62.0 * 0.6 + WORDMARK.tracking;
         let w = |i: f32| {
@@ -680,7 +707,7 @@ mod tests {
             w(1.0),
             w(2.0),
             w(3.0),
-            (o.x + 192.0 * s, o.x + 224.0 * s),
+            (o.x + PROMPT.x * s, o.x + (PROMPT.x + 120.0 * K) * s),
         ]
     }
 
