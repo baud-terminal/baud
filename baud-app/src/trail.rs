@@ -33,7 +33,10 @@
 //!
 //! * **At most three ignitions a second.** A long move within [`REIGNITE`] of
 //!   the last ignition retargets the quad and keeps the flame that is already
-//!   burning, rather than lighting a new one. It limits ignitions, not
+//!   burning, rather than lighting a new one -- but for the liquid, whose gel
+//!   restarts its back on the new move while it still burns
+//!   (`Chase::restart`), lighting nothing, its opacity carried on, and
+//!   drawn whole again if it was fading. It limits ignitions, not
 //!   flashes: counted on the frames the trails draw, one pixel flashed up to
 //!   23 times a second under it, and at 32 pt the fire and the orb fail WCAG
 //!   2.3.1 on a light ground; at the default 13 pt every effect passes, by
@@ -243,12 +246,26 @@ pub enum Style {
 }
 
 /// An effect's ignition while it burns: when it was lit, the ignition at age
-/// 0, and the seconds until it is out.
+/// 0, the seconds until it is out, the seconds of its life it had already
+/// lived when it was lit -- none for an ignition, and for a liquid's
+/// restarted back as far into the gel's fade-in as the gel was -- and how
+/// it was laid.
 #[derive(Clone, Copy)]
 struct Burning<M> {
     at: M,
     ignition: Ignition,
     end: f32,
+    ahead: f32,
+    laid: Laid,
+}
+
+/// How a burning ignition was laid: lit by its long move, or a liquid's
+/// back laid again on a later one inside [`REIGNITE`] (`Chase::restart`),
+/// over which the next ignition carries the gel's opacity on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Laid {
+    Lit,
+    Restarted,
 }
 
 /// Whether the move in flight still rides the screen's scroll, and how far
@@ -517,7 +534,7 @@ impl<M: Moment> Chase<M> {
                     self.moving = None;
                     return None;
                 };
-                let age = self.clock(ig.at, now);
+                let age = self.clock(ig.at, now) + ig.ahead;
                 if age >= ig.end {
                     // Out: the flame and every ember, and the quad it rode
                     // with them.
@@ -642,7 +659,8 @@ impl<M: Moment> Chase<M> {
 
     /// An effect's long move from `tail` to `rect`, starting `at`: a new
     /// ignition, unless the last was lit within [`REIGNITE`] and still burns,
-    /// which the quad carries on retargeted.
+    /// which the quad carries on retargeted -- the liquid's restarting its
+    /// back on this move (`Chase::restart`).
     fn ignite(&mut self, tail: Pt, rect: Rect, at: M, cell: (f32, f32)) {
         let Style::Effect(effect) = self.style else {
             return;
@@ -651,15 +669,72 @@ impl<M: Moment> Chase<M> {
             .last_lit
             .is_some_and(|lit| at.elapsed_since(lit) < REIGNITE)
         {
+            if effect == Effect::Liquid {
+                self.restart(tail, rect, at, cell);
+            }
             return;
         }
         self.last_lit = Some(at);
         let ignition = Ignition::ignite(tail, rect, self.next_seed, cell.1);
         self.next_seed = Seed(self.next_seed.0.wrapping_add(1));
+        // A gel lit over one a restart laid, while that one is not yet
+        // fading, carries its opacity on; over a first gel it fades in, as
+        // every ignition does.
+        let ahead = match (effect, self.fire) {
+            (Effect::Liquid, Some(b)) if b.laid == Laid::Restarted => {
+                self.unfaded(at).unwrap_or(0.0)
+            }
+            _ => 0.0,
+        };
         self.fire = Some(Burning {
             at,
             ignition,
             end: effect.end(&ignition),
+            ahead,
+            laid: Laid::Lit,
+        });
+    }
+
+    /// **How far into its fade-in an ignition lit at `at` over a gel a
+    /// restart laid starts**, while that gel is not yet fading: as far as
+    /// it was, at most the whole fade-in (`liquid::APPEAR`), so the opacity
+    /// carries on rather than going out and coming back. `None` with
+    /// nothing burning or a gel within `liquid::FADE` of its end.
+    fn unfaded(&self, at: M) -> Option<f32> {
+        let b = self.fire?;
+        let age = self.clock(b.at, at) + b.ahead;
+        (age < b.end - baud_render::liquid::FADE).then(|| age.min(baud_render::liquid::APPEAR))
+    }
+
+    /// **A liquid's back restarts on a second quick long move**, from
+    /// `tail`, where the quad's corners were as the move started, to
+    /// `rect`, at `at`: the burning gel takes this move's path as though it
+    /// were its first, so its back streams along it rather than collapsing
+    /// onto the cursor from the first move's direction. Its seed is kept and
+    /// no ignition is lit, so [`REIGNITE`]'s count is unchanged. It starts
+    /// as far into its fade-in as the gel was, at most the whole fade-in
+    /// (`liquid::APPEAR`): a gel not yet fading carries its opacity on, and
+    /// one already fading is drawn whole again on the frame the move is
+    /// taken on. A gel already out is left out, the quad retargeted with
+    /// nothing burning as for every other effect, since lighting it again
+    /// would be an ignition. The next ignition lit over a gel a restart laid, while
+    /// that gel is not yet fading, starts as far into its fade-in
+    /// ([`Chase::unfaded`]).
+    fn restart(&mut self, tail: Pt, rect: Rect, at: M, cell: (f32, f32)) {
+        let Some(b) = self.fire else {
+            return;
+        };
+        let age = self.clock(b.at, at) + b.ahead;
+        if age >= b.end {
+            return;
+        }
+        let ignition = Ignition::ignite(tail, rect, b.ignition.seed, cell.1);
+        self.fire = Some(Burning {
+            at,
+            ignition,
+            end: Effect::Liquid.end(&ignition),
+            ahead: age.min(baud_render::liquid::APPEAR),
+            laid: Laid::Restarted,
         });
     }
 
@@ -1148,6 +1223,244 @@ mod tests {
             "lit now: {}",
             relit.ignition.age
         );
+    }
+
+    /// **A second long move within [`REIGNITE`] restarts the liquid's back
+    /// on it**: the cursor jumps 30 columns right, then 112 ms later 12 rows
+    /// down and 20 columns back. The gel's ignition takes the second move's
+    /// direction from where the quad was and starts young, its seed kept,
+    /// no ignition lit and the guard's clock unchanged; and its opacity,
+    /// frame by frame from the first jump to the restarted gel's fade,
+    /// never drops. A long move after [`REIGNITE`] of the first lights a
+    /// new ignition, as before. The control: the fire, on the same moves,
+    /// keeps its first ignition, its direction and its age. Perturbations:
+    /// the restart dropped -- the gel keeps the first move's direction --
+    /// and restarted at age 0, whose opacity drops and comes back.
+    #[test]
+    fn a_second_quick_jump_restarts_the_liquids_back() {
+        use baud_render::liquid;
+        for effect in [Effect::Liquid, Effect::Fire] {
+            let t0 = Instant::now();
+            let mut q = Chase::new(Style::Effect(effect));
+            q.fire(Some(at(10.0, 5.0)), t0);
+            q.fire(Some(at(40.0, 5.0)), t0 + MS * 8);
+            let first = q.fire(Some(at(40.0, 5.0)), t0 + MS * 20).expect("lit");
+            assert_eq!((first.ignition.dir.x, first.ignition.dir.y), (1.0, 0.0));
+            let (lit, seed) = (q.last_lit, q.next_seed);
+            // Every frame, 8 ms apart: the first jump's target to 112 ms,
+            // then the second's.
+            let mut levels = Vec::new();
+            let mut restarted = None;
+            for k in 3..60u32 {
+                let cursor = match k {
+                    ..15 => at(40.0, 5.0),
+                    _ => at(20.0, 17.0),
+                };
+                let Some(v) = q.fire(Some(cursor), t0 + MS * (8 * k)) else {
+                    break;
+                };
+                if k == 17 {
+                    restarted = Some(v);
+                }
+                let fading = v.ignition.age >= liquid::end_of(&v.ignition) - liquid::FADE;
+                if effect == Effect::Liquid && !fading {
+                    levels.push(liquid::state(&v).envelope);
+                }
+            }
+            let next = restarted.expect("burning after the second jump");
+            assert_eq!(
+                next.ignition.seed, first.ignition.seed,
+                "{effect:?}: no ignition"
+            );
+            assert_eq!(
+                (q.last_lit, q.next_seed),
+                (lit, seed),
+                "{effect:?}: the guard"
+            );
+            match effect {
+                Effect::Liquid => {
+                    let d = next.ignition.dir;
+                    assert!(d.y > 0.5 && d.x < 0.0, "the second move's back: {d:?}");
+                    assert!(
+                        next.ignition.age <= liquid::APPEAR + 0.02,
+                        "restarted young: {}",
+                        next.ignition.age
+                    );
+                    assert!(levels.len() > 20, "the control: {} frames", levels.len());
+                    for w in levels.windows(2) {
+                        assert!(w[1] >= w[0] - 1e-6, "its opacity dropped: {levels:?}");
+                    }
+                }
+                _ => {
+                    assert_eq!(
+                        next.ignition.dir, first.ignition.dir,
+                        "the fire keeps its path"
+                    );
+                    assert!(
+                        (next.ignition.age - 0.128 * FIRE_RATE).abs() < 0.001,
+                        "its age runs on: {}",
+                        next.ignition.age
+                    );
+                }
+            }
+            q.fire(Some(at(60.0, 2.0)), t0 + MS * 420);
+            let relit = q.fire(Some(at(60.0, 2.0)), t0 + MS * 432).expect("relit");
+            assert_eq!(relit.ignition.seed, Seed(2), "{effect:?}: after 334 ms");
+        }
+    }
+
+    /// **A burst of jumps never drops the liquid's opacity**: the cursor
+    /// jumps 30 columns and back every 120 ms, four times. The second and
+    /// third restart the gel, inside [`REIGNITE`]; the fourth, past it,
+    /// lights a new ignition over a gel the restarts kept at full, and it
+    /// too starts as far into its fade-in as that gel was. From the first
+    /// frame to the last gel's fade the opacity never drops. The control:
+    /// the fourth move lit a second ignition. Perturbation: the ignition
+    /// starting at age 0 -- the frame after it draws the gel out.
+    #[test]
+    fn a_burst_of_jumps_never_drops_the_liquids_opacity() {
+        use baud_render::liquid;
+        let t0 = Instant::now();
+        let mut q = Chase::new(Style::Effect(Effect::Liquid));
+        q.fire(Some(at(10.0, 5.0)), t0);
+        let mut levels = Vec::new();
+        let mut seeds = Vec::new();
+        for k in 1..90u32 {
+            let cursor = match (8 * k) / 120 {
+                n if n > 3 => at(10.0, 5.0),
+                n if n % 2 == 0 => at(40.0, 5.0),
+                _ => at(10.0, 5.0),
+            };
+            let Some(v) = q.fire(Some(cursor), t0 + MS * (8 * k)) else {
+                continue;
+            };
+            seeds.push(v.ignition.seed);
+            if v.ignition.age < liquid::end_of(&v.ignition) - liquid::FADE {
+                levels.push(liquid::state(&v).envelope);
+            }
+        }
+        assert_eq!(seeds.first(), Some(&Seed(1)), "the control: lit");
+        assert_eq!(seeds.last(), Some(&Seed(2)), "the control: lit again");
+        assert!(levels.len() > 40, "the control: {} frames", levels.len());
+        for w in levels.windows(2) {
+            assert!(w[1] >= w[0] - 1e-6, "its opacity dropped: {levels:?}");
+        }
+    }
+
+    /// **A gel already fading is restarted too**: a second long move inside
+    /// [`REIGNITE`] restarts the liquid's back whether it is taken before
+    /// the first gel has begun to fade or once it has, its seed kept, and a
+    /// gel restarted in its fade is drawn whole again. The control: a move
+    /// taken once the gel is out leaves it as it was, lighting nothing.
+    /// Perturbations: the fade's guard put back in `Chase::restart` -- the
+    /// move in the fade keeps the first direction -- and the gel out
+    /// restarted.
+    #[test]
+    fn a_fading_gel_is_restarted_too() {
+        use baud_render::liquid;
+        for case in ["before the fade", "in the fade", "out"] {
+            let t0 = Instant::now();
+            let mut q = Chase::new(Style::Effect(Effect::Liquid));
+            q.fire(Some(at(10.0, 5.0)), t0);
+            q.fire(Some(at(14.0, 5.0)), t0 + MS * 8);
+            let first = q.fire(Some(at(14.0, 5.0)), t0 + MS * 20).expect("lit");
+            let end = q.fire.expect("burning").end;
+            let fade = end - liquid::FADE;
+            let lit = t0 + MS * 8;
+            if case == "out" {
+                // Taken 4 ms after the gel is out, before a frame clears it.
+                let past = lit + Duration::from_secs_f32(end + 0.004);
+                assert!(end + 0.004 < 0.334, "the window: {end}");
+                q.restart(centre(at(14.0, 5.0).corners()), at(14.0, 12.0), past, CELL);
+                let b = q.fire.expect("left as it was");
+                assert_eq!(
+                    (b.ignition.dir, b.end),
+                    (first.ignition.dir, end),
+                    "a gel out was lit again"
+                );
+                continue;
+            }
+            // The second move seen 30 ms before the fade or 10 ms into it,
+            // and taken 12 ms later.
+            let seen = match case {
+                "before the fade" => fade - 0.03,
+                _ => fade + 0.01,
+            };
+            assert!(seen + 0.012 < 0.334, "the window: {seen} {end}");
+            let was = q
+                .fire(Some(at(14.0, 12.0)), lit + Duration::from_secs_f32(seen))
+                .expect("burning when the move is seen");
+            let next = q
+                .fire(
+                    Some(at(14.0, 12.0)),
+                    lit + Duration::from_secs_f32(seen + 0.012),
+                )
+                .expect("burning");
+            assert_ne!(
+                next.ignition.dir, first.ignition.dir,
+                "{case}: the back was not restarted"
+            );
+            assert_eq!(
+                next.ignition.seed, first.ignition.seed,
+                "{case}: no ignition"
+            );
+            if case == "in the fade" {
+                let (before, after) = (liquid::state(&was).envelope, liquid::state(&next).envelope);
+                assert!(
+                    before < 1.0 && after > 0.999,
+                    "{case}: drawn whole again: {before} -> {after}"
+                );
+            }
+        }
+    }
+
+    /// **An ignition past [`REIGNITE`] over a first gel still whole fades in
+    /// as every ignition does**: a 240-column jump lights a gel not yet
+    /// fading 0.36 s on, and a long move then lights a second ignition,
+    /// which starts at age 0 and is drawn from nothing. The control: the
+    /// same ignition over a gel a restart laid starts as far into its
+    /// fade-in as that gel was, drawn whole. Perturbation: the head start
+    /// taken without a restart -- the first arm starts whole.
+    #[test]
+    fn an_ignition_over_a_first_gel_fades_in() {
+        use baud_render::liquid;
+        for restarted in [false, true] {
+            let t0 = Instant::now();
+            let mut q = Chase::new(Style::Effect(Effect::Liquid));
+            q.fire(Some(at(0.0, 5.0)), t0);
+            q.fire(Some(at(240.0, 5.0)), t0 + MS * 8);
+            q.fire(Some(at(240.0, 5.0)), t0 + MS * 20).expect("lit");
+            if restarted {
+                q.fire(Some(at(0.0, 9.0)), t0 + MS * 100);
+                q.fire(Some(at(0.0, 9.0)), t0 + MS * 112)
+                    .expect("restarted");
+            }
+            // The second ignition, seen past REIGNITE of the first, lit at
+            // 8 ms, and taken 12 ms later; the gel under it not yet fading
+            // at either.
+            let seen = t0 + MS * 345;
+            let b = q.fire.expect("burning");
+            let age = q.clock(b.at, seen) + b.ahead;
+            assert!(
+                age > liquid::APPEAR && age + 0.012 < b.end - liquid::FADE,
+                "restarted {restarted}: the gel under it whole: {age} of {}",
+                b.end
+            );
+            q.fire(Some(at(40.0, 2.0)), seen);
+            let v = q.fire(Some(at(40.0, 2.0)), seen + MS * 12).expect("relit");
+            assert_eq!(v.ignition.seed, Seed(2), "restarted {restarted}: lit");
+            let (ahead, envelope) = (q.fire.expect("burning").ahead, liquid::state(&v).envelope);
+            match restarted {
+                false => assert!(
+                    ahead == 0.0 && envelope < 0.5,
+                    "a first gel: the ignition starts at 0: {ahead} {envelope}"
+                ),
+                true => assert!(
+                    ahead == liquid::APPEAR && envelope > 0.999,
+                    "a restarted gel: carried on: {ahead} {envelope}"
+                ),
+            }
+        }
     }
 
     /// **A landed flame waits where the chase rests until the next move is

@@ -83,6 +83,12 @@ pub const REACH: f32 = TUBE + UNION + 0.15;
 /// and the fade.
 pub const LIFE: f32 = 0.60;
 
+/// **Seconds the gel takes to appear, and to fade before it is out**, its
+/// envelope's two smoothsteps -- `liquid_state` in the shader spells the
+/// same two numbers.
+pub const APPEAR: f32 = 0.035;
+pub const FADE: f32 = 0.10;
+
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
@@ -275,7 +281,7 @@ pub fn state(vfx: &Vfx) -> State {
         k: UNION * c,
         bead,
         light: Pt { x: lx, y: ly },
-        envelope: smoothstep(0.0, 0.035, f.age) * (1.0 - smoothstep(end - 0.10, end, f.age)),
+        envelope: smoothstep(0.0, APPEAR, f.age) * (1.0 - smoothstep(end - FADE, end, f.age)),
         end,
     }
 }

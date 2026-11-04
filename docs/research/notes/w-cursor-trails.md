@@ -661,6 +661,55 @@ steps, `zz`, `zt` and `Ctrl-E`, in a tmux pane as well.
   (the drivers' hand-over of the ride's lines is pinned on macOS by the
   source gate alone, and on Linux by no test).
 
+### 5.16 The liquid's back restarts on a second quick jump
+
+**A second long move within `REIGNITE` of the liquid's ignition restarts
+the gel's back on that move while the gel still burns, fading or not**, so
+it streams its own streak along the second move rather than collapsing onto
+the cursor. Every other effect keeps its burning ignition and retargets
+the quad, as before. A prototype, behind no setting, in a commit of its
+own.
+
+- Until then the second move kept the first ignition. The gel's back is
+  taken from kitty's trailing corners along the ignition's direction, and
+  its neck, beads and wobble run on the ignition's age, so on a second
+  move in another direction the back came in from the side, late in its
+  life, and the second jump drew no streak of its own.
+- `Chase::restart` lays the ignition again, from where the quad's
+  corners were as the move started to the cursor, its seed kept and
+  nothing lit, so `REIGNITE`'s count and clock are unchanged. It starts as
+  far into the gel's fade-in as the gel was, at most `liquid::APPEAR`: a
+  gel not yet fading carries its opacity on, and one within
+  `liquid::FADE` of its end is drawn whole again on the frame the move is
+  taken on, its opacity rising from wherever the fade had taken it. A gel
+  already out is left out, since lighting it again would be an ignition.
+- An ignition lit after `REIGNITE` over a gel a restart laid, while that
+  gel is not yet fading, starts the same way, so a burst of jumps never
+  draws the gel out and back. Over a first gel, which no restart laid --
+  a jump long enough that its gel is still whole at `REIGNITE` -- it fades
+  in from nothing, as every ignition did before: the burning ignition
+  carries how it was laid (`Laid`).
+- WCAG 2.3.1, by the `flash` bench, drawn by Metal into an offscreen
+  target. At 13 and 32 pt at 2x, 120 Hz, the default ink on the dark and
+  the light page, every motion, every case passes before and after, by
+  the general and the strict reading, with the cursor's cells and
+  without. The restart lights more: the largest flashing area in any
+  second grew from 5,091 to 5,816 pt^2, against a threshold of 21,824,
+  and the strict reading's from 5,754 to 5,916. Over the bursts at 13 and
+  32 pt, at 1x and 2x, 60 and 120 Hz, four inks and four grounds, all 640
+  cases pass, the largest area 6,003 and the strict 6,096, and no repeat
+  pass past the gate draws a general or a red transition.
+- Tests: `a_second_quick_jump_restarts_the_liquids_back`, whose control
+  is the fire on the same moves; `a_fading_gel_is_restarted_too`, a move
+  taken before the fade and one taken in it, whose control is a gel
+  already out; `an_ignition_over_a_first_gel_fades_in`, whose control is
+  the same ignition over a restarted gel; and
+  `a_burst_of_jumps_never_drops_the_liquids_opacity`. Perturbations, each
+  red: the restart dropped; restarted at age 0; the head start ignored by
+  the frame; the next ignition over a restarted gel lit at age 0; the
+  fade's guard put back in the restart; a gel already out restarted; the
+  head start taken over a first gel.
+
 ## 6. Open questions, with their options; none is picked here
 
 Each of these is open, and each needs a render of its options before it is
@@ -681,6 +730,7 @@ settled. They are listed so the research behind them is in one place.
 | ufo | cargo; exhaust rings or discs; below the cursor on the top rows; rim lights | as built | open |
 | orb | size 0.4 cell; the comet's length; sparks on arrival; the 50 ms linger | as built. The orb research's design (5.9) is a second option, never weighed | open |
 | liquid | refraction (b); the glint on light; glass across the cursor; beads as drops or a satellite spray; a collar; materialise or fade; the back after a long move | the spec's first five questions, plus the post-build review's collar and back-after-a-long-move. The spec's sixth, liquid or fire as the default, was overtaken by the plasma default | open |
+| liquid | the back on a second long move within `REIGNITE` | keep the first move's back, the quad retargeted, as every effect does; restart the back so the second move streams its own streak | **restart it**, built as a prototype that restarts a fading gel too and leaves one already out; section 5.16 |
 | helix | every helix launch trails to its first selection: from home until 2026-10-13, and since then, by reading and unmeasured, from the cell the shell left the cursor in | keep; do not follow a placement that comes first after a screen switch | open. It was measured while baud homed the cursor on a first `?1049h`, which ctlseqs and xterm do not; since 2026-10-13 baud leaves the cursor, which moves where the trail starts and does not remove it |
 
 ## 7. How this was recovered

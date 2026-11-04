@@ -175,7 +175,11 @@ into the head, where it merges. Round the cursor the gel swells into a drop
 that overhangs the cursor's leading edge by most of a cell; it bulges once
 along the move as the back arrives, recoils, and the gel fades. It is gone
 about 0.4 s after a 30-column move at the clips' cell. A short hop stretches
-and snaps back with no pinch and no bulge, in 0.22 s.
+and snaps back with no pinch and no bulge, in 0.22 s. A second jump within a
+third of a second of the first, while the gel is still there, restarts its
+back on that jump, so the gel streams along the second move as it did along
+the first rather than collapsing onto the cursor; it lights nothing new, its
+opacity carries on, and a gel that had begun to fade is drawn whole again.
 
 It draws the gel only; it does not bend the text underneath, which would
 need a second render pass a frame and still could not bend the wallpaper
