@@ -518,6 +518,28 @@ fn centroid(pts: &[(f64, f64)]) -> (f64, f64) {
 /// Every mark in an SVG: a straight-lined path followed by a rect of its
 /// fill, the ❯ and its cursor, measured in the cursor's cell's units.
 fn marks(text: &str) -> Vec<Mark> {
+    placed(text)
+        .into_iter()
+        .map(|(pts, (x, y, w, h))| {
+            let top = pts.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+            let bottom = pts.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+            let (cx, cy) = centroid(&pts);
+            Mark {
+                top: (top - y) / h,
+                bottom: (bottom - y) / h,
+                centroid: ((cx - (x - w)) / w, (cy - y) / h),
+                aspect: w / h,
+            }
+        })
+        .collect()
+}
+
+/// A mark where its file draws it: the ❯'s vertices, and its cursor's x,
+/// y, width and height, in the file's own units.
+type Placed = (Vec<(f64, f64)>, (f64, f64, f64, f64));
+
+/// Every mark in an SVG, as [`marks`] finds them, where each is drawn.
+fn placed(text: &str) -> Vec<Placed> {
     let text = bare(text);
     let els: Vec<&str> = text.split('<').skip(1).collect();
     els.windows(2)
@@ -540,15 +562,7 @@ fn marks(text: &str) -> Vec<Mark> {
             let pts = polygon(d)?;
             let (x, y) = (attr(rect, "x")?, attr(rect, "y")?);
             let (w, h) = (attr(rect, "width")?, attr(rect, "height")?);
-            let top = pts.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
-            let bottom = pts.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
-            let (cx, cy) = centroid(&pts);
-            Some(Mark {
-                top: (top - y) / h,
-                bottom: (bottom - y) / h,
-                centroid: ((cx - (x - w)) / w, (cy - y) / h),
-                aspect: w / h,
-            })
+            Some((pts, (x, y, w, h)))
         })
         .collect()
 }
@@ -590,4 +604,124 @@ fn every_logo_mark_is_baud_drawing_the_prompt_and_cursor() {
     let m = marks(before);
     assert_eq!(m.len(), 1, "the control is found");
     assert!(!m[0].off(&want).is_empty(), "and refused");
+}
+
+// ---------------------------------------------------------------- the Dock
+
+/// The 512 icons' cell: 168 tall, as their cursor was, so one of its
+/// cells is 168 * 120 / 264 wide, 76.36 units.
+const ICON_CELL_H: f64 = 168.0;
+
+/// How far the Dock's mark is scaled up from the 512 icons' cell.
+const DOCK_SCALE: f64 = 1.2;
+
+/// What keeps an SVG's mark from being the Dock icon's: drawn on the
+/// 512 tile in the tile's units, the ❯'s cell corner one of the 512
+/// icons' cell widths in from the tile's left and top, the cell
+/// [`DOCK_SCALE`] times their height, and the ink's centre half such a
+/// cell width or more inside the tile's upper-left quadrant. Each
+/// coordinate is written to two decimals, and so is each width, so a
+/// corner taken as x less width is good to 0.01.
+fn dock_mark_faults(text: &str) -> Vec<String> {
+    let tile = 512.0;
+    let cell_w = ICON_CELL_H * f64::from(CELL.0) / f64::from(CELL.1);
+    let mut out = Vec::new();
+    if bare(text)
+        .matches(r#"<rect width="512" height="512" rx="115""#)
+        .count()
+        != 1
+    {
+        out.push("no 512 tile".to_owned());
+    }
+    let found = placed(text);
+    let [(pts, (x, y, w, h))] = found.as_slice() else {
+        out.push(format!("{} marks, not one", found.len()));
+        return out;
+    };
+    let (cx, cy) = (x - w, *y);
+    if (cx - cell_w).abs() > 0.011 || (cy - cell_w).abs() > 0.011 {
+        out.push(format!(
+            "the ❯'s cell corner at ({cx:.2}, {cy:.2}), not ({cell_w:.2}, {cell_w:.2})"
+        ));
+    }
+    let want = ICON_CELL_H * DOCK_SCALE;
+    if (h - want).abs() > 0.011 {
+        out.push(format!(
+            "the cell {h:.2} tall, {:.3} of the icons', not {DOCK_SCALE}",
+            h / ICON_CELL_H
+        ));
+    }
+    let left = pts.iter().map(|p| p.0).fold(*x, f64::min);
+    let top = pts.iter().map(|p| p.1).fold(*y, f64::min);
+    let bottom = pts.iter().map(|p| p.1).fold(y + h, f64::max);
+    let centre = ((left + x + w) / 2.0, (top + bottom) / 2.0);
+    let inside = tile / 2.0 - cell_w / 2.0;
+    if centre.0 > inside || centre.1 > inside {
+        out.push(format!(
+            "the ink's centre at ({:.2}, {:.2}), not within ({inside:.2}, {inside:.2})",
+            centre.0, centre.1
+        ));
+    }
+    out
+}
+
+/// **The Dock icon's mark is a prompt at the start of a terminal's first
+/// line**: in the tile's upper left, in a terminal's own margin, and
+/// [`DOCK_SCALE`] times the 512 icons' mark, big enough to read at the
+/// Dock's 32 pt. Held in both the file the generator writes and the one
+/// `baud-app/src/app.rs` embeds for a run outside a bundle, which is a
+/// link to it.
+#[test]
+fn the_dock_mark_is_a_prompt_in_the_tiles_upper_left() {
+    let mut bad = Vec::new();
+    let mut texts = Vec::new();
+    for rel in [
+        "assets/logo/baud-icon-dock.svg",
+        "baud-app/assets/logo/baud-icon-dock.svg",
+    ] {
+        let text = fs::read_to_string(workspace().join(rel)).unwrap_or_default();
+        bad.extend(
+            dock_mark_faults(&text)
+                .into_iter()
+                .map(|f| format!("{rel}: {f}")),
+        );
+        texts.push(text);
+    }
+    assert!(bad.is_empty(), "not the Dock's mark: {bad:#?}");
+    assert_eq!(texts[0], texts[1], "the app embeds the generator's file");
+
+    // The controls, each the generator's own drawing: the Dock's mark
+    // centred at the 512 icons' size, as it was, is refused on all three
+    // counts; in the upper left at 1.0 and at 1.3 times, on the scale
+    // alone.
+    let tile = r##"<rect width="512" height="512" rx="115" fill="#15171B"/>"##;
+    let centred = format!(
+        "{tile}{}",
+        r##"<path d="M210.37 301.82H188.99L206.17 255.36L188.99 208.91H210.37L227.55 255.62Z" fill="#F4A32C"/>
+    <rect x="246.64" y="172" width="76.37" height="168" fill="#F4A32C"/>"##
+    );
+    assert_eq!(
+        dock_mark_faults(&centred).len(),
+        3,
+        "{:?}",
+        dock_mark_faults(&centred)
+    );
+    for (mark, scale) in [
+        (
+            r##"<path d="M116.45 206.18H95.07L112.25 159.72L95.07 113.27H116.45L133.64 159.98Z" fill="#F4A32C"/>
+    <rect x="152.73" y="76.36" width="76.36" height="168" fill="#F4A32C"/>"##,
+            "1.000",
+        ),
+        (
+            r##"<path d="M128.48 245.12H100.69L123.02 184.73L100.69 124.34H128.48L150.82 185.06Z" fill="#F4A32C"/>
+    <rect x="175.64" y="76.36" width="99.27" height="218.4" fill="#F4A32C"/>"##,
+            "1.300",
+        ),
+    ] {
+        let f = dock_mark_faults(&format!("{tile}{mark}"));
+        assert!(
+            f.len() == 1 && f[0].contains(&format!("{scale} of the icons'")),
+            "{f:?}"
+        );
+    }
 }

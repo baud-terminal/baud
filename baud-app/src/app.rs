@@ -12334,16 +12334,17 @@ enum DockIcon {
 
 /// baud's icon, rasterised from `assets/logo/` and embedded, so it needs no
 /// bundle. The Dock wants a proper app icon -- a rounded square with the mark
-/// at the 512 icon's geometry and padding around it, like every other app;
+/// in its upper left and padding around it, like every other app;
 /// the titlebar wants the bare mark snug against its box, or the strip
 /// makes it tiny -- so the two read from different files.
 fn icon() -> Option<Retained<NSImage>> {
     // A proper app icon for the Dock: a dark rounded square at ~80% of the
-    // canvas with the amber mark centred on it, as the 512 icons draw it,
-    // and transparent padding around it, the way every other Dock icon
-    // sits. The titlebar uses the bare mark
-    // (`icon_titlebar`); the Dock wants the box. The SVG itself, not a raster,
-    // so NSImage renders it as a vector.
+    // canvas with the amber mark in its upper left, 1.2 times the 512
+    // icons' -- a prompt at the start of a terminal's first line, big
+    // enough to read at the Dock's 32 pt -- and transparent padding
+    // around it, the way every other Dock icon sits. The titlebar uses
+    // the bare mark (`icon_titlebar`); the Dock wants the box. The SVG
+    // itself, not a raster, so NSImage renders it as a vector.
     const BYTES: &[u8] = include_bytes!("../assets/logo/baud-icon-dock.svg");
     macos_liquid_glass::image_from_bytes(BYTES)
 }

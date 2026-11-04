@@ -50,12 +50,17 @@ What it writes, each from the code below and nothing else:
       the lockup and the README's tagline on #15171B, over a strip of amber
       tape punched "baud" in the five-unit code of ITU-T S.1, with its feed holes
 
-In every mark the cell is as tall as the cursor the file had before (46 at
-the lockup's 300, 168 at 512, 10.5 at 32), on the same rows, and the mark's
-ink is centred across the icon or under the word. **Every PNG is its SVG
-drawn by the pinned resvg**, but the organisation picture's: that is its SVG
-drawn by resvg with two lights of baud's plasma laid over it, on the word
-and on the mark, each drawn by baud's
+In every mark but the Dock's the cell is as tall as the cursor the file had
+before (46 at the lockup's 300, 168 at 512, 10.5 at 32), on the same rows,
+and the mark's ink is centred across the icon or under the word. **The Dock
+icon's mark is a prompt at the start of a terminal's first line**: in the
+tile's upper left, in a terminal's own margin, 1.2 times the 512 icons'
+cell so it reads at the Dock's 32 pt, the ❯'s cell corner one of their cell
+widths (76.36 units) in from the tile's left and top and the mark scaled
+about it. The titlebar's mark stays the 512 icons'. **Every PNG is its
+SVG drawn by the pinned resvg**, but the organisation picture's: that
+is its SVG drawn by resvg with two lights of baud's plasma laid over it,
+on the word and on the mark, each drawn by baud's
 CPU renderer (baud-render/examples/brand_plasma.rs, run through cargo):
 
   the word's  the launch splash's first pass at 0.0999 s, its seed BA0D276F,
@@ -168,6 +173,11 @@ CARD = ("assets/readme/social", 1280, 640)
 DOCK = LOGO + "baud-icon-dock"
 # The iconset's sizes, icon_16x16 to icon_512x512@2x (bundle-macos.sh).
 DOCK_SIZES = (16, 32, 64, 128, 256, 512, 1024)
+# The Dock's mark: 1.2 times the 512 icons' cell, scaled about the ❯'s
+# cell corner, which is one of their cell widths (168 * 120 / 264, 76.36
+# units of the 512 tile) in from the tile's left and top.
+DOCK_SCALE = 1.2
+DOCK_CORNER = CELL_W * 168.0 / CELL_H
 TIGHT = LOGO + "baud-mark-amber-tight.svg"
 MB = 1_000_000
 
@@ -419,10 +429,13 @@ def logo_svgs(t):
         for name in ("dark", "light"):
             out[f"{LOGO}baud-{kind}-{name}-blinking.svg"] = out[f"{LOGO}baud-{kind}-{name}.svg"]
 
-    # The Dock icon: the dark icon at 80% of the canvas, on the macOS
-    # app-icon grid.
-    m, ink, cur = centred(t, *big, AMBER)
-    inner = "".join("  " + line + "\n" for line in m.rstrip("\n").split("\n"))
+    # The Dock icon: the dark tile at 80% of the canvas, on the macOS
+    # app-icon grid, the mark in its upper left at DOCK_SCALE times the
+    # 512 icons' cell, the ❯'s cell corner DOCK_CORNER in from its left and
+    # top: a prompt at the start of a terminal's first line, in a
+    # terminal's own margin, and big enough to read at the Dock's 32 pt.
+    d, _, _ = mark(t, DOCK_CORNER, DOCK_CORNER, big[2] * DOCK_SCALE, AMBER)
+    inner = "".join("  " + line + "\n" for line in d.rstrip("\n").split("\n"))
     dock = (
         "  <!-- macOS app-icon grid: the rounded square is ~80% of the canvas with\n"
         "       transparent padding, so it sits in the Dock like every other app.\n"
@@ -433,7 +446,8 @@ def logo_svgs(t):
     )
     out[DOCK + ".svg"] = svg(512, 512, dock)
     # The titlebar's box keeps its 300 by 204 and its y, and centres the
-    # mark's ink across it.
+    # mark's ink across it: the 512 icons' mark, centred.
+    m, ink, cur = centred(t, *big, AMBER)
     left, right = span(ink, cur)
     out[TIGHT] = svg(300, 204, m, view=f"{num((left + right) / 2 - 150)} 154 300 204")
     return out

@@ -7,7 +7,7 @@
        Dark squircle, amber mark. -->
   <g transform="translate(50,50) scale(0.8047)">
     <rect width="512" height="512" rx="115" fill="#15171B"/>
-    <path d="M210.37 301.82H188.99L206.17 255.36L188.99 208.91H210.37L227.55 255.62Z" fill="#F4A32C"/>
-    <rect x="246.64" y="172" width="76.37" height="168" fill="#F4A32C"/>
+    <path d="M124.47 232.14H98.81L119.43 176.4L98.81 120.65H124.47L145.09 176.7Z" fill="#F4A32C"/>
+    <rect x="168" y="76.36" width="91.64" height="201.6" fill="#F4A32C"/>
   </g>
 </svg>
