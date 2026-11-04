@@ -4525,6 +4525,45 @@ impl<'b> Term<'b> {
         self.redraw_indicator();
     }
 
+    /// **The embedder's state lamps on the indicator line**, or none: CD,
+    /// OH, CS, FAX and SYN as words in the columns after the printer
+    /// field, 62 to 79, each present while its condition holds, and CD
+    /// and OH with the unknown mark, `CD?`, while baud cannot read them
+    /// (`status.rs`). DEC's indicators are "a number of indicators
+    /// reflecting the state of the terminal", and "The interval between
+    /// the change in the state of a feature and the update of the
+    /// appropriate indicator shall not exceed 80 milliseconds"
+    /// (`[[source: dec-std-070]]` 070-14 pp. 14-5 and 14-6): the line is
+    /// drawn again here, at once, and each read's end draws it from these.
+    /// The embedder's facts, as the printer port is: kept until it says
+    /// otherwise, across `RIS` and every type, and shown only while the
+    /// indicator is.
+    pub fn set_indicator_lamps(&mut self, lamps: Option<IndicatorLamps>) {
+        let st = &mut self.store.strs.status;
+        if st.lamps == lamps {
+            return;
+        }
+        st.lamps = lamps;
+        self.redraw_indicator();
+    }
+
+    /// The lamps [`Term::set_indicator_lamps`] last gave.
+    pub fn indicator_lamps(&self) -> Option<IndicatorLamps> {
+        self.store.strs.status.lamps
+    }
+
+    /// **The lamp whose word the indicator line shows at column `x`**, or
+    /// none: none while the indicator is not shown, over a dark lamp's
+    /// blank columns or a space, or past a word the line cannot hold
+    /// whole. What an embedder's hover text is for.
+    pub fn indicator_lamp_at(&self, x: Col) -> Option<IndicatorLamp> {
+        let st = &self.store.strs.status;
+        match (st.kind, st.mark) {
+            (StatusType::Indicator, Some(_)) => crate::status::lamp_under(st.lamps, self.cols, x),
+            _ => None,
+        }
+    }
+
     /// **The graphics print choices the user makes under local control**
     /// (`[[source: dec-std-070]]` 070-7 § 7.8.2): colour or black and white,
     /// HLS or RGB, the background or not, upright or turned. A ReGIS hard

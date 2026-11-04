@@ -614,6 +614,232 @@ fn every_width_shows_each_field_whole_or_not_at_all() {
     assert_eq!(seen, [80 - 13, 80 - 19, 80 - 27, 80 - 59]);
 }
 
+// ---- the embedder's state lamps -----------------------------------------
+
+/// Every lamp lit, CD and OH as read.
+const LIT: IndicatorLamps = IndicatorLamps {
+    cd: ReadLamp::Read(LampState::Lit),
+    oh: ReadLamp::Read(LampState::Lit),
+    cs: LampState::Lit,
+    fax: LampState::Lit,
+    syn: LampState::Lit,
+};
+
+/// The indicator's text from column 62, one-based, where the lamps begin.
+fn lamps_text(t: &Term<'_>) -> String {
+    indicator(t).get(61..).unwrap_or("").to_string()
+}
+
+/// **The five state lamps are words in their own columns after the
+/// printer field**: CD at 62, OH at 66, CS at 70, FAX at 73 and SYN at
+/// 77, one-based, a space at least between each and the printer field's
+/// longest value, `Printer: Controller`, which ends at 60 (070-14 p.
+/// 14-5, "fixed positions ... at least one space"). A lamp is present
+/// while its condition holds and its columns are blank while it is dark,
+/// as the Edit indicator is "only visible when DECEDM is active" (p.
+/// 14-7); CD and OH carry the unknown mark while baud cannot read them.
+#[test]
+fn the_state_lamps_are_words_in_their_columns_after_the_printer() {
+    let mut owned = Owned::new(&WIDE).with_printer(PrintBudget::of_bytes(4096));
+    let mut t = Term::new(owned.storage(), &WIDE);
+    t.set_printer(PrinterPort::Ready);
+    support::feed(&mut t, b"\x1b[1$~\x1b[5i");
+    assert_eq!(t.indicator_lamps(), None);
+    assert_eq!(lamps_text(&t), "", "no lamps until the embedder gives them");
+    t.set_indicator_lamps(Some(LIT));
+    assert_eq!(t.indicator_lamps(), Some(LIT));
+    assert_eq!(
+        indicator(&t),
+        format!(
+            "    1(01,001){}Printer: Controller CD  OH  CS FAX SYN",
+            " ".repeat(28)
+        )
+    );
+    assert_eq!(lamps_text(&t), "CD  OH  CS FAX SYN");
+    let unknown = IndicatorLamps {
+        cd: ReadLamp::Unknown,
+        oh: ReadLamp::Unknown,
+        ..LIT
+    };
+    t.set_indicator_lamps(Some(unknown));
+    assert_eq!(lamps_text(&t), "CD? OH? CS FAX SYN");
+    // Each alone, in its own columns.
+    let alone = [
+        (IndicatorLamp::CarrierDetect, "CD"),
+        (IndicatorLamp::OffHook, "    OH"),
+        (IndicatorLamp::ClearToSend, "        CS"),
+        (IndicatorLamp::Fax, "           FAX"),
+        (IndicatorLamp::Synchronous, "               SYN"),
+    ];
+    for (lamp, want) in alone {
+        let lit = |l: IndicatorLamp| match l == lamp {
+            true => LampState::Lit,
+            false => LampState::Dark,
+        };
+        let one = IndicatorLamps {
+            cd: ReadLamp::Read(lit(IndicatorLamp::CarrierDetect)),
+            oh: ReadLamp::Read(lit(IndicatorLamp::OffHook)),
+            cs: lit(IndicatorLamp::ClearToSend),
+            fax: lit(IndicatorLamp::Fax),
+            syn: lit(IndicatorLamp::Synchronous),
+        };
+        t.set_indicator_lamps(Some(one));
+        assert_eq!(lamps_text(&t), want, "{lamp:?}");
+    }
+    // Every lamp dark is the line with no lamps.
+    t.set_indicator_lamps(Some(IndicatorLamps::DARK));
+    let dark = indicator(&t);
+    t.set_indicator_lamps(None);
+    assert_eq!(dark, indicator(&t));
+    assert_eq!(lamps_text(&t), "");
+}
+
+/// **The lamps are drawn the moment the embedder gives them, and every
+/// read's end draws them again**: "The interval between the change in the
+/// state of a feature and the update of the appropriate indicator shall
+/// not exceed 80 milliseconds. Indicator changes are not queued" (070-14
+/// p. 14-6). A read redraws the line from the terminal's state, so lamps
+/// held anywhere but there would be wiped by the next byte.
+#[test]
+fn the_lamps_are_drawn_at_once_and_kept_across_reads() {
+    support::with_term(&WIDE, |t| {
+        support::feed(t, b"\x1b[1$~");
+        t.set_indicator_lamps(Some(LIT));
+        assert_eq!(lamps_text(t), "CD  OH  CS FAX SYN", "drawn between reads");
+        support::feed(t, b"x");
+        assert_eq!(lamps_text(t), "CD  OH  CS FAX SYN", "a read keeps them");
+        assert_eq!(&indicator(t)[..13], "    1(01,002)", "and moves the cursor");
+        let syn_off = IndicatorLamps {
+            syn: LampState::Dark,
+            ..LIT
+        };
+        t.set_indicator_lamps(Some(syn_off));
+        assert_eq!(lamps_text(t), "CD  OH  CS FAX");
+    });
+}
+
+/// **The lamps are the embedder's facts, shown only with the indicator**:
+/// not on the host-writable line, which is the program's, nor while no
+/// line is shown; kept across `RIS` and a change of type, as the printer
+/// port is, and back the moment the indicator is.
+#[test]
+fn the_lamps_show_only_with_the_indicator_and_outlive_ris() {
+    support::with_term(&WIDE, |t| {
+        t.set_indicator_lamps(Some(LIT));
+        assert!(t.status_line().is_none());
+        support::feed(t, &[HOST, ON, b"hello", OFF].concat());
+        assert_eq!(status(t), "hello", "the program's line carries none");
+        assert_eq!(t.indicator_lamp_at(Col::at_index(61)), None);
+        support::feed(t, b"\x1b[1$~");
+        assert_eq!(lamps_text(t), "CD  OH  CS FAX SYN");
+        support::feed(t, b"\x1bc");
+        assert!(t.status_line().is_none(), "RIS exits the line");
+        assert_eq!(t.indicator_lamps(), Some(LIT), "and keeps the lamps");
+        assert_eq!(t.indicator_lamp_at(Col::at_index(61)), None);
+        support::feed(t, b"\x1b[1$~");
+        assert_eq!(lamps_text(t), "CD  OH  CS FAX SYN");
+    });
+}
+
+/// **Each word whole or not at all**, as every field is: at each width
+/// from 61 to 80 a word appears at the width its last character needs and
+/// not one column before. At 132 columns the words keep the columns they
+/// have at 80, and the 52 past them stay blank, "This will leave 52 blank
+/// spaces on the right hand side of the Indicator Status Line in 132
+/// Column Mode" (070-14 p. 14-5).
+#[test]
+fn each_lamp_is_whole_or_not_at_all_and_within_the_first_80() {
+    let unknown = IndicatorLamps {
+        cd: ReadLamp::Unknown,
+        oh: ReadLamp::Unknown,
+        ..LIT
+    };
+    const WORDS: [(usize, &str); 5] = [
+        (61, "CD?"),
+        (65, "OH?"),
+        (69, "CS"),
+        (72, "FAX"),
+        (76, "SYN"),
+    ];
+    for cols in 61..=80u16 {
+        let ws = WinSize {
+            ws_row: 6,
+            ws_col: cols,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        support::feed(&mut t, b"\x1b[1$~");
+        let mut want = indicator(&t);
+        t.set_indicator_lamps(Some(unknown));
+        for (at, word) in WORDS {
+            if at + word.len() <= usize::from(cols) {
+                want = format!("{want:<at$}{word}");
+            }
+        }
+        assert_eq!(indicator(&t), want, "{cols} columns");
+    }
+    let ws = WinSize {
+        ws_row: 6,
+        ws_col: 132,
+    };
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_indicator_lamps(Some(unknown));
+    support::feed(&mut t, b"\x1b[1$~");
+    let line = indicator(&t);
+    assert_eq!(line.get(61..), Some("CD? OH? CS FAX SYN"));
+    assert_eq!(line.len(), 79, "nothing past column 79");
+}
+
+/// **The lamp under a column is the word drawn there**, for an
+/// embedder's hover text: each word's columns name its lamp, the mark's
+/// column too, and a space, a dark lamp's blank columns, a word the line
+/// cannot hold whole and every column of a line that is not the
+/// indicator name none.
+#[test]
+fn the_lamp_at_a_column_is_the_word_drawn_there() {
+    let at = |t: &Term<'_>| -> Vec<Option<IndicatorLamp>> {
+        (0..80)
+            .map(|x| t.indicator_lamp_at(Col::at_index(x)))
+            .collect()
+    };
+    support::with_term(&WIDE, |t| {
+        t.set_indicator_lamps(Some(IndicatorLamps {
+            cd: ReadLamp::Unknown,
+            oh: ReadLamp::Read(LampState::Dark),
+            ..LIT
+        }));
+        assert_eq!(at(t), vec![None; 80], "no indicator shown");
+        support::feed(t, b"\x1b[1$~");
+        let mut want = vec![None; 80];
+        for (cols, lamp) in [
+            (61..64, IndicatorLamp::CarrierDetect),
+            (69..71, IndicatorLamp::ClearToSend),
+            (72..75, IndicatorLamp::Fax),
+            (76..79, IndicatorLamp::Synchronous),
+        ] {
+            want[cols].fill(Some(lamp));
+        }
+        assert_eq!(at(t), want);
+        assert_eq!(lamps_text(t), "CD?     CS FAX SYN");
+    });
+    // SYN needs 79 columns: at 78 it is not drawn, and names nothing.
+    let ws = WinSize {
+        ws_row: 6,
+        ws_col: 78,
+    };
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_indicator_lamps(Some(LIT));
+    support::feed(&mut t, b"\x1b[1$~");
+    assert_eq!(lamps_text(&t), "CD  OH  CS FAX");
+    assert_eq!(t.indicator_lamp_at(Col::at_index(76)), None);
+    assert_eq!(
+        t.indicator_lamp_at(Col::at_index(74)),
+        Some(IndicatorLamp::Fax)
+    );
+}
+
 /// **The locator's field shows only while the locator reports**: "The
 /// Graphics Input Position Indicator is only visible when graphics input
 /// is enabled" (070-14 p. 14-7), so a one-shot DECELR's report, which

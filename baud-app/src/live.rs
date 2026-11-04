@@ -78,6 +78,9 @@ pub enum Part {
     /// `[window] activity_lights`: the lights are put up or taken down at
     /// the next tick.
     ActivityLights,
+    /// `[window] status_line_lights`: DEC's line is given the words, or
+    /// none, at the next tick or turn.
+    StatusLineLights,
     /// `[window] tearing`: the compositor is given the hint with the next
     /// frame, on Linux.
     Tearing,
@@ -135,6 +138,7 @@ impl Part {
             | Part::Notifications
             | Part::CopyOnSelect
             | Part::ActivityLights
+            | Part::StatusLineLights
             | Part::Tearing
             | Part::Splash
             | Part::AmbiguousWidth
@@ -176,6 +180,7 @@ impl Part {
             Part::Notifications => "[screen] notifications",
             Part::CopyOnSelect => "[clipboard] copy_on_select",
             Part::ActivityLights => "[window] activity_lights",
+            Part::StatusLineLights => "[window] status_line_lights",
             Part::Tearing => "[window] tearing",
             Part::Splash => "[launch] splash",
             Part::Reload => "config_reload",
@@ -239,6 +244,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         graphics_print,
         window_ops,
         activity_lights,
+        status_line_lights,
         tearing,
         launch_splash,
         pointer_mode,
@@ -342,6 +348,10 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     part(
         old.activity_lights != *activity_lights,
         Part::ActivityLights,
+    );
+    part(
+        old.status_line_lights != *status_line_lights,
+        Part::StatusLineLights,
     );
     part(old.tearing != *tearing, Part::Tearing);
     part(old.launch_splash != *launch_splash, Part::Splash);
@@ -558,6 +568,10 @@ mod tests {
             (
                 "[window]\nactivity_lights = \"off\"\n",
                 Part::ActivityLights,
+            ),
+            (
+                "[window]\nstatus_line_lights = \"states\"\n",
+                Part::StatusLineLights,
             ),
             ("[window]\ntearing = \"on\"\n", Part::Tearing),
             ("[launch]\nsplash = \"off\"\n", Part::Splash),

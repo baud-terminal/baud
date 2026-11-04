@@ -184,6 +184,9 @@ struct Driver {
     /// title bar -- and the lights' clocks (`own_line.rs`).
     activity_lights: baud_render::ActivityLights,
     lights: crate::own_line::LineLights,
+    /// Who was last read in front, for OH on the lights' line and on DEC's
+    /// line alike: one read a frame (`own_line::FrontRead`).
+    front: crate::own_line::FrontRead,
     pty: Pty,
     /// What the child is owed and the kernel has not taken: every write goes
     /// through it, in order (`pty.rs`).
@@ -323,6 +326,9 @@ struct Driver {
     cursor_guide: baud_domain::CursorGuide,
     /// `[screen] badge`: whether a program's badge is drawn.
     badge: crate::config::BadgeShown,
+    /// `[window] status_line_lights`: whether DEC's indicator line also
+    /// carries the state lights as words (`line_lamps.rs`).
+    status_line_lights: baud_render::StatusLineLights,
     /// What the badge's variables read of the session that the core does
     /// not keep (`effects::Session`), brought up to date with the title.
     session: crate::effects::Session,
@@ -612,6 +618,7 @@ pub fn run() {
         status_rows: Rows::ZERO,
         activity_lights: cfg.activity_lights,
         lights: crate::own_line::LineLights::new(),
+        front: crate::own_line::FrontRead::new(),
         pty,
         outbox: Outbox::default(),
         hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
@@ -679,6 +686,7 @@ pub fn run() {
         blink_animation: cfg.blink_animation,
         cursor_guide: cfg.cursor_guide,
         badge: cfg.badge,
+        status_line_lights: cfg.status_line_lights,
         session: crate::effects::Session::here(),
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
@@ -774,9 +782,11 @@ pub fn run() {
         let report = d.report.wait(now);
         // The soonest an activity light can change, on its own line.
         let lights = d.lights_wait(now);
+        // OH read again in DEC's 80 ms while its line shows the words.
+        let words = d.line_lamps_wait(now);
         let timeout = [
             sync, repeat, flash, caret, decode, paste, delay, effects, frames, expiry, settle,
-            report, lights,
+            report, lights, words,
         ]
         .into_iter()
         .flatten()
@@ -1012,6 +1022,8 @@ pub fn run() {
         }
         d.flush_reply();
         d.tick_lights();
+        // DEC's line, after this turn's reads and writes (`line_lamps.rs`).
+        d.show_line_lamps();
         d.present();
         if let Err(e) = d.conn.flush() {
             crate::warn!("wayland: {e}");
@@ -1972,6 +1984,8 @@ impl Driver {
                         .set_lights_line(c.activity_lights.line(), self.scale.factor() as f32);
                     self.lights_line(was);
                 }
+                // DEC's line given the words, or none, at the turn's end.
+                Part::StatusLineLights => self.status_line_lights = c.status_line_lights,
                 // The hint goes with the next frame.
                 Part::Tearing => self
                     .window
@@ -2484,6 +2498,63 @@ impl Driver {
         }
     }
 
+    /// The words' clause at the cell drawn, the size and zoom in force.
+    fn line_clause(&self) -> baud_render::FlashClause {
+        let m = self.renderer.metrics();
+        let cell = (f64::from(m.cell_w.value()), f64::from(m.cell_h.value()));
+        crate::line_lamps::clause(cell, self.scale.factor())
+    }
+
+    /// **DEC's indicator line given the state lights as they are**, at
+    /// each turn after its reads and writes: FAX and SYN change only in a
+    /// read, CS only at a write, so the turn that changes one gives it.
+    /// OH is who is in front, the read the lights' line makes, taken only
+    /// while the line shows the words; the wait wakes the loop to take it
+    /// again in bound (`line_lamps_wait`). Linux has no reader for CD, and
+    /// shows it unknown (`line_lamps.rs`).
+    fn show_line_lamps(&mut self) {
+        let clause = self.line_clause();
+        let oh = match crate::line_lamps::shown(self.status_line_lights, &self.term, clause) {
+            crate::line_lamps::Shown::Words => {
+                crate::own_line::lamp(self.in_front(self.timed.clock.host(Instant::now())))
+            }
+            crate::line_lamps::Shown::None => baud_core::ReadLamp::default(),
+        };
+        let cd = baud_core::ReadLamp::Unknown;
+        let lamps = crate::line_lamps::read(&self.term, &self.outbox, cd, oh);
+        let given = crate::line_lamps::given(self.status_line_lights, clause, lamps);
+        if crate::line_lamps::give(&mut self.term, given) == crate::line_lamps::Owes::Frame {
+            self.pending = Pending::Dirty;
+        }
+    }
+
+    /// **Who is in front at `now`**: the terminal's foreground group
+    /// (`TIOCGPGRP`), read at most once a frame for whichever of the
+    /// lights' line and DEC's line wants it (`own_line::FrontRead`).
+    fn in_front(&mut self, now: baud_domain::HostTime) -> crate::own_line::InFront {
+        let (master, shell) = (self.pty.reads().master, self.pty.child());
+        self.front.at(now, || {
+            crate::own_line::in_front(crate::fg::group(master), shell)
+        })
+    }
+
+    /// **How long the wait may last for DEC's line**: while it shows the
+    /// words, until OH is due again in 070-14's 80 ms at the compositor's
+    /// refresh, a 60 Hz frame until one is known, so a job that prints
+    /// nothing is drawn in bound; none while it shows none.
+    fn line_lamps_wait(&self, now: Instant) -> Option<Duration> {
+        let shown =
+            crate::line_lamps::shown(self.status_line_lights, &self.term, self.line_clause());
+        if shown == crate::line_lamps::Shown::None {
+            return None;
+        }
+        let frame = self
+            .window
+            .frame_interval()
+            .unwrap_or(crate::own_line::SAMPLE);
+        self.front.line_wait(self.timed.clock.host(now), frame)
+    }
+
     /// Whatever the core answered -- a key, a query -- to the child, behind
     /// whatever the kernel has not yet taken. What it cannot take now stays
     /// owed, and the wait wakes for room to write it (`Outbox::owed`).
@@ -2511,8 +2582,7 @@ impl Driver {
         let now = self.timed.clock.host(Instant::now());
         // OH, SYN and FAX at a frame's pace: the loop turns once a read.
         if self.lights.due(now) == crate::own_line::Sampled::Now {
-            let group = crate::fg::group(self.pty.reads().master);
-            let front = crate::own_line::in_front(group, self.pty.child());
+            let front = self.in_front(now);
             self.lights.states(front, &self.term, now);
         }
         let pace = crate::access::lights_pace(self.motion);

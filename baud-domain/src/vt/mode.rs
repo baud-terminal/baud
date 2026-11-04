@@ -1365,6 +1365,107 @@ impl StatusType {
     }
 }
 
+/// **One of the five state lamps the embedder may put on the indicator
+/// line**, in the free columns after the printer field: the activity
+/// lights' five that show a lasting condition, CD, OH, CS, FAX and SYN,
+/// each in its modem's letters. DEC's list of indicators is a floor, "a
+/// number of indicators reflecting the state of the terminal" before "The
+/// following indicators are required" (`[[source: dec-std-070]]` 070-14
+/// pp. 14-5 and 14-6), so these are additions it allows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum IndicatorLamp {
+    /// Carrier Detect: the program in front is ssh with its connection up.
+    CarrierDetect,
+    /// Off Hook: a program other than the shell is in front.
+    OffHook,
+    /// Clear to Send, inverted: the program is not taking what is sent.
+    ClearToSend,
+    /// Fax: a picture is on the screen.
+    Fax,
+    /// Synchronous: the program holds synchronized output open.
+    Synchronous,
+}
+
+impl IndicatorLamp {
+    /// Every lamp, left to right.
+    pub const ALL: [IndicatorLamp; 5] = [
+        IndicatorLamp::CarrierDetect,
+        IndicatorLamp::OffHook,
+        IndicatorLamp::ClearToSend,
+        IndicatorLamp::Fax,
+        IndicatorLamp::Synchronous,
+    ];
+
+    /// The modem's letters.
+    pub const fn letters(self) -> &'static [u8] {
+        match self {
+            IndicatorLamp::CarrierDetect => b"CD",
+            IndicatorLamp::OffHook => b"OH",
+            IndicatorLamp::ClearToSend => b"CS",
+            IndicatorLamp::Fax => b"FAX",
+            IndicatorLamp::Synchronous => b"SYN",
+        }
+    }
+}
+
+/// Whether a lamp's condition holds.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LampState {
+    #[default]
+    Dark,
+    Lit,
+}
+
+/// **A lamp that rests on a read the system can refuse**, CD's and OH's
+/// of another process: what the read found, or that baud does not know.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReadLamp {
+    Read(LampState),
+    /// The read was refused, or this system has no reader for it.
+    Unknown,
+}
+
+impl Default for ReadLamp {
+    fn default() -> ReadLamp {
+        ReadLamp::Read(LampState::Dark)
+    }
+}
+
+/// **The five lamps as the embedder hands them to the indicator line**
+/// (`Term::set_indicator_lamps`). Only CD and OH can be unknown: theirs
+/// rest on a read of another process, and their columns leave room for
+/// the mark.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct IndicatorLamps {
+    pub cd: ReadLamp,
+    pub oh: ReadLamp,
+    pub cs: LampState,
+    pub fax: LampState,
+    pub syn: LampState,
+}
+
+impl IndicatorLamps {
+    /// Every lamp dark.
+    pub const DARK: IndicatorLamps = IndicatorLamps {
+        cd: ReadLamp::Read(LampState::Dark),
+        oh: ReadLamp::Read(LampState::Dark),
+        cs: LampState::Dark,
+        fax: LampState::Dark,
+        syn: LampState::Dark,
+    };
+
+    /// `lamp`'s state, one no read rests on as found.
+    pub const fn get(self, lamp: IndicatorLamp) -> ReadLamp {
+        match lamp {
+            IndicatorLamp::CarrierDetect => self.cd,
+            IndicatorLamp::OffHook => self.oh,
+            IndicatorLamp::ClearToSend => ReadLamp::Read(self.cs),
+            IndicatorLamp::Fax => ReadLamp::Read(self.fax),
+            IndicatorLamp::Synchronous => ReadLamp::Read(self.syn),
+        }
+    }
+}
+
 /// DECSASD's display, `CSI Ps $ }` (`[[source: vt420-rm]]` p. 219,
 /// `[[source: dec-std-070]]` 070-14 p. 14-11): "0 Main Display (default),
 /// 1 Host Writable Status Line".

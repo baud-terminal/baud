@@ -322,6 +322,11 @@ pub(crate) struct Status {
     /// The indicator's reverse-video rendition, interned at its first
     /// drawing in a read; its cells name it, so a sweep keeps it.
     pub(crate) mark: Option<StyleId>,
+    /// **The embedder's five state lamps**, the words it asked the
+    /// indicator to carry after the printer field, or none: its facts,
+    /// kept across reads and types, as the printer port is, and redrawn
+    /// at each read's end from here.
+    pub(crate) lamps: Option<IndicatorLamps>,
 }
 
 impl Status {
@@ -341,6 +346,7 @@ impl Status {
             swapped: Swapped::Main,
             park: Parked::fresh(cols),
             mark: None,
+            lamps: None,
         }
     }
 
@@ -378,6 +384,8 @@ pub(crate) struct Indicators {
     pub(crate) locator: Option<(OneBased, OneBased)>,
     /// The printer status indicator's value.
     pub(crate) printer: PrinterShown,
+    /// The embedder's state lamps, or none.
+    pub(crate) lamps: Option<IndicatorLamps>,
 }
 
 /// **The printer field's five values**, the VT420's Table 4-2, field 3
@@ -435,6 +443,61 @@ const AT_WAIT: usize = 16;
 const AT_LOCATOR: usize = 23;
 const AT_PRINTER: usize = 41;
 
+/// **The state lamps' columns**, after the printer field's longest value,
+/// `Printer: Controller`, which ends at column 60, and one space: CD at
+/// columns 62-64, OH 66-68, CS 70-71, FAX 73-75 and SYN 77-79, one-based,
+/// where 070-14's modem field would follow the printer's and baud shows
+/// none ("This indicator is not displayed if Modem Controls are not
+/// selected", p. 14-7). CD and OH have a column for the unknown mark.
+/// All within the first 80, as 132 columns "will leave 52 blank spaces on
+/// the right hand side" (p. 14-5).
+fn lamp_at(lamp: IndicatorLamp) -> Col {
+    Col::at_index(match lamp {
+        IndicatorLamp::CarrierDetect => 61,
+        IndicatorLamp::OffHook => 65,
+        IndicatorLamp::ClearToSend => 69,
+        IndicatorLamp::Fax => 72,
+        IndicatorLamp::Synchronous => 76,
+    })
+}
+
+/// **The mark after a lamp baud does not know**: a question mark, `CD?`.
+/// No DEC text gives an indicator an unknown value: DEC reports one in
+/// words or by a code, DECRQM's "(0) Unknown (mode is not recognized by
+/// terminal)" and DECRPSS's "UNKNOWN selection or setting, request
+/// unsuccessful" (070-5 pp. 5-194 and 5-198), and its indicators' values
+/// are words in the Set-Up language, which the lamp's three columns have
+/// no room for.
+const UNKNOWN_MARK: Codepoint = Codepoint::from_char('?');
+
+/// What `lamp` writes at `state`: nothing while dark, its letters while
+/// lit, and its letters and the unknown mark while unknown.
+fn lamp_word(lamp: IndicatorLamp, state: ReadLamp) -> Option<(&'static [u8], Option<Codepoint>)> {
+    match state {
+        ReadLamp::Read(LampState::Dark) => None,
+        ReadLamp::Read(LampState::Lit) => Some((lamp.letters(), None)),
+        ReadLamp::Unknown => Some((lamp.letters(), Some(UNKNOWN_MARK))),
+    }
+}
+
+/// **The lamp whose word the line shows at column `x`**, `cols` wide with
+/// `lamps` on it, or none: a dark lamp shows nothing, and a word the line
+/// cannot hold whole is not shown.
+pub(crate) fn lamp_under(
+    lamps: Option<IndicatorLamps>,
+    cols: Cols,
+    x: Col,
+) -> Option<IndicatorLamp> {
+    let lamps = lamps?;
+    IndicatorLamp::ALL.into_iter().find(|&lamp| {
+        lamp_word(lamp, lamps.get(lamp)).is_some_and(|(letters, mark)| {
+            let at = lamp_at(lamp).index();
+            let end = at + letters.len() + usize::from(mark.is_some());
+            end <= cols.index() && (at..end).contains(&x.index())
+        })
+    })
+}
+
 /// The line `cols` wide as the indicator, every cell in `style`.
 struct Line<'c> {
     cells: &'c mut [PackedCell],
@@ -457,6 +520,18 @@ impl Line<'_> {
             x = x.after();
         }
         x
+    }
+
+    /// `cp` at `at`, nothing written past the line's end; the column after.
+    fn put_codepoint(&mut self, at: Col, cp: Codepoint) -> Col {
+        if let Some(c) = self.cells.get_mut(at.index()) {
+            *c = PackedCell {
+                content: Content::codepoint(cp),
+                style: self.style,
+                flags: CellFlags::NONE,
+            };
+        }
+        at.after()
     }
 
     /// `n` in decimal from `at`, zero-padded to `width` digits.
@@ -543,6 +618,22 @@ pub(crate) fn compose(cells: &mut [PackedCell], cols: Cols, style: StyleId, ind:
     line.whole(Col::at_index(AT_PRINTER), |l, x| {
         l.put(x, ind.printer.text())
     });
+    // The embedder's lamps, each word whole or not at all, in its own
+    // columns, present while its condition holds as DEC's Edit indicator
+    // is "only visible when DECEDM is active" (p. 14-7).
+    if let Some(lamps) = ind.lamps {
+        for lamp in IndicatorLamp::ALL {
+            if let Some((letters, mark)) = lamp_word(lamp, lamps.get(lamp)) {
+                line.whole(lamp_at(lamp), |l, x| {
+                    let x = l.put(x, letters);
+                    match mark {
+                        Some(m) => l.put_codepoint(x, m),
+                        None => x,
+                    }
+                });
+            }
+        }
+    }
 }
 
 impl Paint<'_, '_> {
@@ -809,6 +900,7 @@ impl Paint<'_, '_> {
             )
             .or_else(|| crate::locator::shown(self.cold, self.rows, self.cols)),
             printer: PrinterShown::of(&self.strs.print),
+            lamps: self.strs.status.lamps,
         };
         compose(self.status.cells, self.cols, style, ind);
     }
@@ -887,6 +979,7 @@ impl Term<'_> {
             locator: crate::regis::indicated(self.store.strs.regis, self.regis_inside())
                 .or_else(|| crate::locator::shown(&self.cold, self.rows, self.cols)),
             printer: PrinterShown::of(&self.store.strs.print),
+            lamps: self.store.strs.status.lamps,
         };
         compose(self.store.status.cells, self.cols, style, ind);
     }

@@ -1374,3 +1374,94 @@ fn picture_key(epoch: Epoch, led: Led, light: Light) -> crate::atlas::PictureKey
     // picture's.
     crate::atlas::PictureKey((0x4C << 56) | (epoch.0 << 8) | (l << 2) | s)
 }
+
+/// **Whether DEC's indicator line also carries the state lights**:
+/// `[window] status_line_lights`, `"off"` by default, the lights then
+/// only where `activity_lights` puts them; `"states"` writes the five that show a lasting
+/// condition, CD, OH, CS, FAX and SYN, as words on the line while a
+/// program shows it (`Term::set_indicator_lamps`). The traffic lights,
+/// HS, AA, RD and SD, never go there: DEC's line holds states, and an
+/// event has no indicator on it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum StatusLineLights {
+    #[default]
+    Off,
+    States,
+}
+
+/// **Which clause of WCAG 2.3.1 the words on DEC's indicator line meet at
+/// a cell size**: the words follow DEC's timing, not the lights' pace.
+/// "The interval between the change in the state of a feature and the
+/// update of the appropriate indicator shall not exceed 80 milliseconds.
+/// Indicator changes are not queued: when an indicator is updated on the
+/// Status Display, it shall reflect the state of that feature at the time
+/// of the update" (`[[source: dec-std-070]]` 070-14 p. 14-6). A word that
+/// follows a condition that fast is a flash whenever the condition comes
+/// and goes: the line is reverse video, and a word's letters cross from
+/// its ground to its ink. WCAG 2.2 passes content when "there are no more
+/// than three general flashes and / or no more than three red flashes
+/// within any one-second period; or the combined area of flashes occurring
+/// concurrently occupies no more than a total of .006 steradians within
+/// any 10 degree visual field on the screen (25% of any 10 degree visual
+/// field on the screen)", the field estimated as "a 341 x 256 pixel
+/// rectangle anywhere on the displayed screen area when the content is
+/// viewed at 1024 x 768 pixels" on a "15-17 inch screen"
+/// (`[[source: wcag22]]`).
+///
+/// **The area is bounded by whole cells**: every cell a word can take, the
+/// letters and both unknown marks, fourteen, whatever the font draws in
+/// them, all changing at once. A point is taken at 1024 pixels across the
+/// 12 inches a 15-inch 4:3 screen is wide, 85.3 pixels an inch, at 72
+/// points an inch -- the narrower of WCAG's two screens, so the most
+/// pixels a point -- which holds on any display down to about 61 points an
+/// inch, where a point is larger than that. Within [`AREA_LIMIT`] the
+/// words pass by the area clause however often they change, and follow at
+/// DEC's timing. **Past it they are left out** ([`line_lamps`]): they are
+/// additions to DEC's floor, so leaving them out departs from neither
+/// text, where holding them to three flashes a second would make a change
+/// up to 200 ms late, past DEC's 80. Jev decided it, 0.98 and 0.94.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FlashClause {
+    /// The words' cells are under a quarter of the field: any rate.
+    Area,
+    /// They are not.
+    Count,
+}
+
+/// The cells the five words can take, letters and marks: `CD?`, `OH?`,
+/// `CS`, `FAX` and `SYN`.
+pub const WORD_CELLS: f32 = 14.0;
+
+/// A quarter of WCAG's 341 x 256 field, in its pixels.
+pub const AREA_LIMIT: f32 = 341.0 * 256.0 / 4.0;
+
+/// WCAG's pixels a point: 1024 pixels over a 15-inch 4:3 screen's 12
+/// inches, at 72 points an inch.
+pub const PIXELS_A_POINT: f32 = 1024.0 / 12.0 / 72.0;
+
+/// **The clause the words meet in cells `w` by `h` points**, the cell
+/// at the size and zoom the window draws: [`FlashClause::Area`] while
+/// every cell they can take is within a quarter of the field.
+pub fn flash_clause(w: f32, h: f32) -> FlashClause {
+    let area = WORD_CELLS * w * h * PIXELS_A_POINT * PIXELS_A_POINT;
+    match area <= AREA_LIMIT {
+        true => FlashClause::Area,
+        false => FlashClause::Count,
+    }
+}
+
+/// **What DEC's line is given of the lamps read now**: `lamps` as they
+/// are, with no hold and nothing shown later that has gone, while the
+/// setting asks for them and the words meet the area clause; none
+/// otherwise. A driver reads the lamps at each step it draws and hands
+/// this to `Term::set_indicator_lamps`, which draws a change at once.
+pub fn line_lamps(
+    setting: StatusLineLights,
+    clause: FlashClause,
+    lamps: baud_core::IndicatorLamps,
+) -> Option<baud_core::IndicatorLamps> {
+    match (setting, clause) {
+        (StatusLineLights::States, FlashClause::Area) => Some(lamps),
+        (StatusLineLights::Off, _) | (_, FlashClause::Count) => None,
+    }
+}

@@ -1575,6 +1575,16 @@ tests = ["baud-render/tests/activity_lights.rs::each_light_is_drawn_in_its_state
 shipped = ["F1-20"]
 
 [[feature]]
+id = "status-line-lights"
+area = "window"
+name = "Activity lights on DEC's status line"
+does = "When a program shows DEC's indicator status line, one setting also puts five of the activity lights on it as words after the printer: CD, OH, CS, FAX and SYN, each there while what it shows holds and following it within the 80 milliseconds DEC's standard gives the line. CD or OH reads CD? or OH? when baud cannot tell. The lights keep all nine wherever they are drawn. Past 37 points of the default font the words are left out, so they never flash past the web accessibility guidelines' limit. Off by default."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/vt420/status_line.rs::the_state_lamps_are_words_in_their_columns_after_the_printer", "baud-core/tests/vt420/status_line.rs::the_lamps_are_drawn_at_once_and_kept_across_reads", "baud-core/tests/vt420/status_line.rs::the_lamps_show_only_with_the_indicator_and_outlive_ris", "baud-core/tests/vt420/status_line.rs::each_lamp_is_whole_or_not_at_all_and_within_the_first_80", "baud-core/tests/vt420/status_line.rs::the_lamp_at_a_column_is_the_word_drawn_there", "baud-render/tests/line_words.rs::the_words_meet_the_area_clause_at_ordinary_sizes_and_the_count_above", "baud-render/tests/line_words.rs::the_line_is_given_the_lamps_as_they_are_or_none", "baud-app/src/line_lamps.rs::each_step_gives_the_line_the_lamps_as_they_are", "baud-app/src/line_lamps.rs::both_drivers_give_the_line_its_words_at_each_step", "baud-app/src/line_lamps.rs::the_clause_is_read_at_the_cell_in_points", "baud-app/src/front.rs::the_lines_words_draw_a_missed_ssh_within_80_ms", "baud-app/src/front.rs::the_lights_off_read_no_process", "baud-app/src/config.rs::the_status_line_carries_the_state_lights_only_when_asked", "baud-app/src/own_line.rs::dec_lines_oh_is_who_is_in_front_read_once_a_frame", "baud-app/src/own_line.rs::a_silent_jobs_oh_is_drawn_within_80_ms"]
+rows = ["vt:`CSI Ps $ ~`"]
+
+[[feature]]
 id = "glass-accessibility"
 area = "window"
 name = "Reduce Transparency and Increase Contrast"

@@ -90,6 +90,58 @@ enum Stale {
 /// How long a listing stands with nothing said to move it.
 pub(crate) const RELIST: Duration = Duration::from_secs(1);
 
+/// **How long a listing stands while DEC's indicator line shows the
+/// words, on a display that ticks every `tick`**: 070-14's 80 ms
+/// (`line_lamps::BOUND`) less
+/// what follows an ssh joining the group just after a listing, unheard by
+/// the process watch -- up to a tick until the tick that sees the listing
+/// due, up to a tick until the frame that draws the word, since the words
+/// are read after the tick's pump has drawn, and that frame's vsync. 30
+/// ms at 60 Hz and 55 ms at 120; below 37.5 Hz nothing is left, the group
+/// is listed every tick and the bound is not met, as the printer field's
+/// is not below 38.5 Hz (`print::indicator_every`). A listing is
+/// 7.96-8.16 us (note AH 3.3).
+pub(crate) fn line_relist(tick: Duration) -> Duration {
+    crate::line_lamps::BOUND.saturating_sub(tick * 3)
+}
+
+/// **Who the readings are for at a tick**: no one, and nothing is read;
+/// the lights, wherever they are drawn, listed every [`RELIST`]; or DEC's
+/// line, listed every [`line_relist`] of the display's tick, with the
+/// lights or without them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Reads {
+    None,
+    Lights,
+    Line(Duration),
+}
+
+impl Reads {
+    /// For the lights at `lights`, shown or off, and the line showing the
+    /// words or not, on a display that ticks every `tick`.
+    pub(crate) fn of(
+        lights: baud_render::ActivityLights,
+        line: crate::line_lamps::Shown,
+        tick: Duration,
+    ) -> Reads {
+        match (line, lights.shown()) {
+            (crate::line_lamps::Shown::Words, _) => Reads::Line(line_relist(tick)),
+            (crate::line_lamps::Shown::None, true) => Reads::Lights,
+            (crate::line_lamps::Shown::None, false) => Reads::None,
+        }
+    }
+}
+
+/// **What a reading shows on DEC's line**: lit or dark as read, and a
+/// refused read as unknown, `CD?`.
+pub(crate) fn lamp(r: Reading) -> baud_core::ReadLamp {
+    match r {
+        Reading::Dark => baud_core::ReadLamp::Read(baud_core::LampState::Dark),
+        Reading::Lit => baud_core::ReadLamp::Read(baud_core::LampState::Lit),
+        Reading::Refused => baud_core::ReadLamp::Unknown,
+    }
+}
+
 /// **The two lights' sampler**: the group listed last, its ssh members,
 /// and when it was listed.
 pub(crate) struct Front {
@@ -115,26 +167,30 @@ impl Front {
     }
 
     /// **OH's and CD's readings on a tick**, or none and no read at all
-    /// while the lights are off or there is no shell to read.
+    /// while neither the lights nor DEC's line's words are on, or there is
+    /// no shell to read.
     pub(crate) fn tick(
         &mut self,
-        setting: baud_render::ActivityLights,
+        reads: Reads,
         procs: &mut impl Procs,
         shell: Option<Pid>,
         now: HostTime,
     ) -> Option<(Reading, Reading)> {
-        match (setting.shown(), shell) {
-            (true, Some(shell)) => Some(self.sample(procs, shell, now)),
-            _ => None,
+        match (reads, shell) {
+            (Reads::Lights, Some(shell)) => Some(self.sample(procs, shell, now, RELIST)),
+            (Reads::Line(every), Some(shell)) => Some(self.sample(procs, shell, now, every)),
+            (Reads::None, _) | (_, None) => None,
         }
     }
 
-    /// **OH's and CD's readings at `now`**, `shell` the session's root.
+    /// **OH's and CD's readings at `now`**, `shell` the session's root,
+    /// the group listed again once a listing is `relist` old.
     pub(crate) fn sample(
         &mut self,
         procs: &mut impl Procs,
         shell: Pid,
         now: HostTime,
+        relist: Duration,
     ) -> (Reading, Reading) {
         let g = match procs.groups(shell) {
             Got::Read(g) => g,
@@ -152,7 +208,7 @@ impl Front {
         }
         let due = match self.listed {
             Some((group, at)) => {
-                group != g.front || self.stale == Stale::Yes || now >= at.plus(RELIST)
+                group != g.front || self.stale == Stale::Yes || now >= at.plus(relist)
             }
             None => true,
         };
@@ -441,25 +497,25 @@ mod tests {
         };
         let mut s = Front::new();
         assert_eq!(
-            s.sample(&mut f, SHELL, at(Duration::ZERO)).0,
+            s.sample(&mut f, SHELL, at(Duration::ZERO), RELIST).0,
             Reading::Dark,
             "prompt"
         );
         f.groups = front(200);
         assert_eq!(
-            s.sample(&mut f, SHELL, at(MS * 10)).0,
+            s.sample(&mut f, SHELL, at(MS * 10), RELIST).0,
             Reading::Lit,
             "a job"
         );
         f.groups = front(SHELL);
         assert_eq!(
-            s.sample(&mut f, SHELL, at(MS * 20)).0,
+            s.sample(&mut f, SHELL, at(MS * 20), RELIST).0,
             Reading::Dark,
             "back"
         );
         f.groups = front(0);
         assert_eq!(
-            s.sample(&mut f, SHELL, at(MS * 30)).0,
+            s.sample(&mut f, SHELL, at(MS * 30), RELIST).0,
             Reading::Dark,
             "none"
         );
@@ -481,27 +537,31 @@ mod tests {
         };
         let mut s = Front::new();
         assert_eq!(
-            s.sample(&mut f, SHELL, at(Duration::ZERO)).1,
+            s.sample(&mut f, SHELL, at(Duration::ZERO), RELIST).1,
             Reading::Dark,
             "not up"
         );
         f.up.push(201);
-        assert_eq!(s.sample(&mut f, SHELL, at(MS * 10)).1, Reading::Lit, "up");
+        assert_eq!(
+            s.sample(&mut f, SHELL, at(MS * 10), RELIST).1,
+            Reading::Lit,
+            "up"
+        );
         f.up.retain(|&p| p != 201);
         assert_eq!(
-            s.sample(&mut f, SHELL, at(MS * 20)).1,
+            s.sample(&mut f, SHELL, at(MS * 20), RELIST).1,
             Reading::Dark,
             "down"
         );
         f.up.push(300);
         assert_eq!(
-            s.sample(&mut f, SHELL, at(MS * 30)).1,
+            s.sample(&mut f, SHELL, at(MS * 30), RELIST).1,
             Reading::Dark,
             "not in front"
         );
         f.groups = front(300);
         assert_eq!(
-            s.sample(&mut f, SHELL, at(MS * 40)).1,
+            s.sample(&mut f, SHELL, at(MS * 40), RELIST).1,
             Reading::Lit,
             "in front"
         );
@@ -519,12 +579,12 @@ mod tests {
         };
         let mut s = Front::new();
         assert_eq!(
-            s.sample(&mut f, SHELL, at(Duration::ZERO)),
+            s.sample(&mut f, SHELL, at(Duration::ZERO), RELIST),
             (Reading::Refused, Reading::Refused)
         );
         f.groups = Some(Got::Gone);
         assert_eq!(
-            s.sample(&mut f, SHELL, at(MS * 10)),
+            s.sample(&mut f, SHELL, at(MS * 10), RELIST),
             (Reading::Dark, Reading::Dark)
         );
         f.groups = front(200);
@@ -532,24 +592,39 @@ mod tests {
         f.ssh = vec![200, 201];
         f.refused = vec![200];
         assert_eq!(
-            s.sample(&mut f, SHELL, at(MS * 20)).1,
+            s.sample(&mut f, SHELL, at(MS * 20), RELIST).1,
             Reading::Refused,
             "sudo"
         );
         f.up = vec![201];
         assert_eq!(
-            s.sample(&mut f, SHELL, at(MS * 30)).1,
+            s.sample(&mut f, SHELL, at(MS * 30), RELIST).1,
             Reading::Lit,
             "one up"
         );
     }
 
-    /// **Off reads nothing**: with the lights off, or no shell, a tick
-    /// makes no process read at all and gives no reading; shown anywhere,
-    /// in the title strip or on a line of their own, it reads.
+    /// **Off reads nothing**: with the lights off and DEC's line showing
+    /// no words, or no shell, a tick makes no process read at all and
+    /// gives no reading; shown anywhere, in the title strip or on a line
+    /// of their own, it reads. The line's words read with the lights off.
     #[test]
     fn the_lights_off_read_no_process() {
-        use baud_render::ActivityLights::{BottomLine, Off, TitleBar as On, TopLine};
+        use crate::line_lamps::Shown;
+        use baud_render::ActivityLights::{BottomLine, Off, TitleBar, TopLine};
+        let tick = Duration::from_micros(16_667);
+        let (off, on) = (
+            Reads::of(Off, Shown::None, tick),
+            Reads::of(TitleBar, Shown::None, tick),
+        );
+        assert_eq!((off, on), (Reads::None, Reads::Lights));
+        for place in [BottomLine, TopLine] {
+            assert_eq!(Reads::of(place, Shown::None, tick), Reads::Lights);
+        }
+        let line = Reads::Line(line_relist(tick));
+        for place in [Off, TitleBar, BottomLine, TopLine] {
+            assert_eq!(Reads::of(place, Shown::Words, tick), line, "{place:?}");
+        }
         let mut f = Fake {
             groups: front(200),
             members: vec![(200, vec![200])],
@@ -559,18 +634,88 @@ mod tests {
         };
         let mut s = Front::new();
         for ms in 0..50 {
-            assert_eq!(s.tick(Off, &mut f, Some(SHELL), at(MS * (ms * 8))), None);
-            assert_eq!(s.tick(On, &mut f, None, at(MS * (ms * 8))), None);
+            assert_eq!(s.tick(off, &mut f, Some(SHELL), at(MS * (ms * 8))), None);
+            assert_eq!(s.tick(on, &mut f, None, at(MS * (ms * 8))), None);
         }
         assert_eq!(f.calls, Calls::default(), "nothing read");
         assert_eq!(
-            s.tick(On, &mut f, Some(SHELL), at(MS * 400)),
+            s.tick(on, &mut f, Some(SHELL), at(MS * 400)),
             Some((Reading::Lit, Reading::Lit))
         );
         assert_ne!(f.calls, Calls::default(), "the control: on reads");
-        for line in [BottomLine, TopLine] {
-            assert!(s.tick(line, &mut f, Some(SHELL), at(MS * 900)).is_some());
+        let mut s = Front::new();
+        assert_eq!(
+            s.tick(line, &mut f, Some(SHELL), at(MS * 400)),
+            Some((Reading::Lit, Reading::Lit)),
+            "the line's words read with the lights off"
+        );
+    }
+
+    /// **While DEC's line shows the words, an ssh the watch did not hear
+    /// of is drawn within 80 ms** (070-14 p. 14-6): the group is listed
+    /// again 80 ms less three ticks after the last listing, and an ssh
+    /// that joins just after one is read at the first tick past that,
+    /// which leaves a tick for the frame that draws it and one for its
+    /// vsync. At 60 Hz the listing stands 30 ms and at 120 Hz 55; below
+    /// 37.5 Hz it stands no time, every tick lists, and the bound is not
+    /// met. The lights alone wait the second. Its socket is read each tick
+    /// either way.
+    #[test]
+    fn the_lines_words_draw_a_missed_ssh_within_80_ms() {
+        let us = Duration::from_micros;
+        assert_eq!(line_relist(us(16_667)), us(29_999));
+        assert_eq!(line_relist(us(8_333)), us(55_001));
+        assert_eq!(line_relist(us(26_667)), us(0));
+        assert_eq!(line_relist(us(33_333)), us(0));
+        for tick in [us(16_667), us(8_333), us(11_111)] {
+            for (reads, bound) in [
+                (Reads::Line(line_relist(tick)), Duration::from_millis(80)),
+                (Reads::Lights, RELIST + tick * 3),
+            ] {
+                let mut f = Fake {
+                    groups: front(200),
+                    members: vec![(200, vec![200])],
+                    ssh: vec![201],
+                    up: vec![201],
+                    ..Fake::default()
+                };
+                let mut s = Front::new();
+                assert!(
+                    s.tick(reads, &mut f, Some(SHELL), at(Duration::ZERO))
+                        .is_some()
+                );
+                // 201 joins just after the first listing, with no fork
+                // the watch saw.
+                f.members = vec![(200, vec![200, 201])];
+                let joined = Duration::from_micros(1);
+                let mut read = None;
+                for k in 1..200u32 {
+                    let now = tick * k;
+                    let r = s.tick(reads, &mut f, Some(SHELL), at(now));
+                    if r.map(|r| r.1) == Some(Reading::Lit) {
+                        read = Some(now);
+                        break;
+                    }
+                }
+                let read = read.expect("found");
+                // Drawn by the next tick's frame, shown at the vsync after.
+                let shown = read + tick * 2 - joined;
+                assert!(shown <= bound, "{tick:?} {reads:?}: {shown:?}");
+                assert!(
+                    shown > bound - tick * 2,
+                    "{tick:?} {reads:?}: listed too often, {shown:?}"
+                );
+            }
         }
+        assert_eq!(lamp(Reading::Refused), baud_core::ReadLamp::Unknown);
+        assert_eq!(
+            lamp(Reading::Lit),
+            baud_core::ReadLamp::Read(baud_core::LampState::Lit)
+        );
+        assert_eq!(
+            lamp(Reading::Dark),
+            baud_core::ReadLamp::Read(baud_core::LampState::Dark)
+        );
     }
 
     /// **The members are listed only when something moved**: a new group
@@ -588,10 +733,10 @@ mod tests {
             ..Fake::default()
         };
         let mut s = Front::new();
-        s.sample(&mut f, SHELL, at(Duration::ZERO));
+        s.sample(&mut f, SHELL, at(Duration::ZERO), RELIST);
         assert_eq!(f.calls.members, Tally::of(1), "listed at first");
         for ms in 1..100 {
-            s.sample(&mut f, SHELL, at(MS * (ms * 8)));
+            s.sample(&mut f, SHELL, at(MS * (ms * 8)), RELIST);
         }
         assert_eq!(f.calls.members, Tally::of(1), "not again inside the second");
         assert_eq!(f.calls.carrier, Tally::of(0), "no ssh, no socket read");
@@ -602,18 +747,24 @@ mod tests {
         );
         // 201 joins with no fork the watch saw: found once the second is up.
         f.members = vec![(200, vec![200, 201])];
-        assert_eq!(s.sample(&mut f, SHELL, at(MS * 990)).1, Reading::Dark);
-        assert_eq!(s.sample(&mut f, SHELL, at(MS * 1000)).1, Reading::Lit);
+        assert_eq!(
+            s.sample(&mut f, SHELL, at(MS * 990), RELIST).1,
+            Reading::Dark
+        );
+        assert_eq!(
+            s.sample(&mut f, SHELL, at(MS * 1000), RELIST).1,
+            Reading::Lit
+        );
         assert_eq!(f.calls.members, Tally::of(2));
         let before = f.calls.carrier;
-        s.sample(&mut f, SHELL, at(MS * 1008));
+        s.sample(&mut f, SHELL, at(MS * 1008), RELIST);
         assert_eq!(f.calls.carrier, before.inc(), "its socket each tick");
         assert_eq!(f.calls.members, Tally::of(2));
         s.moved();
-        s.sample(&mut f, SHELL, at(MS * 1016));
+        s.sample(&mut f, SHELL, at(MS * 1016), RELIST);
         assert_eq!(f.calls.members, Tally::of(3), "the watch moved it");
         f.groups = front(300);
-        s.sample(&mut f, SHELL, at(MS * 1024));
+        s.sample(&mut f, SHELL, at(MS * 1024), RELIST);
         assert_eq!(f.calls.members, Tally::of(4), "a new group in front");
     }
 

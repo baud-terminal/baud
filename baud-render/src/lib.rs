@@ -107,8 +107,9 @@ pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold
 pub use guide::{CURSOR_GUIDE, GuideLook};
 pub use instance::{Instance, Screen};
 pub use lights::{
-    Activity, ActivityLights, ByLed, ByLight, GROUND_DARK, GROUND_LIGHT, Glow, Led, Light,
-    LightsImage, LightsLook, LineEdge, LineRows, Pace, READ_CEILING, Shown,
+    AREA_LIMIT, Activity, ActivityLights, ByLed, ByLight, FlashClause, GROUND_DARK, GROUND_LIGHT,
+    Glow, Led, Light, LightsImage, LightsLook, LineEdge, LineRows, PIXELS_A_POINT, Pace,
+    READ_CEILING, Shown, StatusLineLights, WORD_CELLS, flash_clause, line_lamps,
 };
 pub use linked::{LinkLook, LinkSpan};
 pub use metrics::{Metrics, PxSize};

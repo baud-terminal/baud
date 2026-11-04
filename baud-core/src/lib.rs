@@ -140,8 +140,11 @@ pub use baud_domain::{
 };
 /// The status line's vocabulary: what [`Term::status_type`] and
 /// [`Term::active_display`] answer, and the row an embedder lends it
-/// ([`Storage::with_status_line`]).
-pub use baud_domain::{ActiveDisplay, StatusType};
+/// ([`Storage::with_status_line`]), and the state lamps an embedder puts
+/// on the indicator ([`Term::set_indicator_lamps`]).
+pub use baud_domain::{
+    ActiveDisplay, IndicatorLamp, IndicatorLamps, LampState, ReadLamp, StatusType,
+};
 /// Mouse reporting's vocabulary: an embedder that cannot name a
 /// `MouseEvent` cannot call [`Term::mouse_report`] -- and since `?1016` an
 /// event carries its pixel position, a `PointerPx` of two `ImagePx`. And

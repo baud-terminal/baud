@@ -417,6 +417,13 @@ pub struct Config {
     /// window's bottom or top, or nowhere, which also reads nothing for
     /// them. One setting for all nine.
     pub activity_lights: baud_render::ActivityLights,
+    /// `[window] status_line_lights`: whether DEC's indicator status line,
+    /// while a program shows it, also carries the five state lights CD,
+    /// OH, CS, FAX and SYN as words in its free columns, at DEC's timing
+    /// (`baud_render::lights::line_lamps`): `"off"` by default, the lights
+    /// then only where `activity_lights` puts them, or `"states"`. Both
+    /// drivers.
+    pub status_line_lights: baud_render::StatusLineLights,
     /// `[window] tearing`: whether the window may be shown torn for the
     /// least delay, `"off"` by default -- research decision D14, "an
     /// opt-in, never default" -- or `"on"`. Linux only, through the
@@ -1031,6 +1038,7 @@ impl Config {
             graphics_print: baud_domain::GraphicsPrint::DEFAULT,
             window_ops: baud_domain::WindowOps::On,
             activity_lights: lights_at(LightsSetting::System, Os::HERE).0,
+            status_line_lights: baud_render::StatusLineLights::Off,
             tearing: Tearing::Off,
             launch_splash: LaunchSplash::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
@@ -1993,6 +2001,19 @@ impl Config {
                     let (at, notice) = lights_at(asked, Os::HERE);
                     self.activity_lights = at;
                     said.extend(notice);
+                }
+                ("window", "status_line_lights") => {
+                    self.status_line_lights = match value.trim().trim_matches('"') {
+                        "off" => baud_render::StatusLineLights::Off,
+                        "states" => baud_render::StatusLineLights::States,
+                        other => {
+                            said.push(format!(
+                                "config: [window] status_line_lights {other:?} is not off or \
+                                 states; using off"
+                            ));
+                            baud_render::StatusLineLights::Off
+                        }
+                    };
                 }
                 ("window", "tearing") => {
                     self.tearing = match value.trim().trim_matches('"') {
@@ -4755,6 +4776,38 @@ mod reader {
         assert_eq!(read("[screen]\ntearing = \"on\"\n").tearing, Tearing::Off);
     }
 
+    /// **DEC's line carries the state lights only under `[window]
+    /// status_line_lights = "states"`**, quoted or bare; `"off"` is the
+    /// default, and any other value keeps it and says so.
+    #[test]
+    fn the_status_line_carries_the_state_lights_only_when_asked() {
+        use baud_render::StatusLineLights;
+        assert_eq!(Config::defaults().status_line_lights, StatusLineLights::Off);
+        assert_eq!(read("").status_line_lights, StatusLineLights::Off);
+        for on in ["\"states\"", "states"] {
+            let text = format!("[window]\nstatus_line_lights = {on}\n");
+            assert_eq!(
+                read(&text).status_line_lights,
+                StatusLineLights::States,
+                "{on}"
+            );
+        }
+        assert_eq!(
+            read("[window]\nstatus_line_lights = \"off\"\n").status_line_lights,
+            StatusLineLights::Off
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[window]\nstatus_line_lights = \"on\"\n");
+        assert_eq!(c.status_line_lights, StatusLineLights::Off);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("status_line_lights"), "{said:?}");
+        assert_eq!(
+            read("status_line_lights = \"states\"\n").status_line_lights,
+            StatusLineLights::Off,
+            "not a top-level key"
+        );
+    }
+
     /// **The activity lights go where `[window] activity_lights` says**, on
     /// this system: `"on"` and no setting at all are the system's own place
     /// ([`lights_at`]), `"title_bar"`, `"bottom_line"`, `"top_line"` and
@@ -5972,6 +6025,11 @@ shadow     = "never"
             c.activity_lights,
             lights_at(LightsSetting::System, Os::HERE).0
         );
+        assert!(
+            window.contains("\nstatus_line_lights = \"off\"\n"),
+            "the [window] status_line_lights"
+        );
+        assert_eq!(c.status_line_lights, baud_render::StatusLineLights::Off);
         assert!(
             text.contains("\n[pointer]\nhide_while_typing = \"on\"\n"),
             "the [pointer] hide_while_typing"

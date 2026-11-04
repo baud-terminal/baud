@@ -29,7 +29,8 @@ use crate::reveal::{Reveal, Scale, shown_gutter};
 use crate::trail::{GhostRide, ride_px};
 use crate::wheel::{Delta, Route, Travel};
 use baud_core::{
-    Depth, Erasure, Looking, Owned, PromptJump, PromptsOpened, Screen, Term, Zone, grid_stride,
+    Depth, Erasure, Looking, Owned, PromptJump, PromptsOpened, ReadLamp, Screen, Term, Zone,
+    grid_stride,
 };
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
@@ -662,6 +663,9 @@ struct App {
     /// What the lights' own line last showed and how, when the setting
     /// puts them there: a tick that changes either owes a frame.
     line_shown: Option<(baud_render::Shown, baud_render::Glow)>,
+    /// Whether DEC's indicator line also carries the state lights, from
+    /// `[window] status_line_lights` (`line_lamps.rs`).
+    status_line_lights: baud_render::StatusLineLights,
     /// Whether Animated Images is on, and `[images] animation`: a kitty
     /// animation plays or holds as the two and the motion preference say
     /// (`access::image_motion`). The first is read at launch and when its
@@ -829,6 +833,7 @@ struct Boot {
     /// operations`.
     window_ops: baud_domain::WindowOps,
     activity_lights: baud_render::ActivityLights,
+    status_line_lights: baud_render::StatusLineLights,
     /// Whether a launch shows the splash, from `[launch] splash`.
     launch_splash: crate::config::LaunchSplash,
     /// Whether the shell's prompts are marked, from `[shell] integration`.
@@ -1002,6 +1007,7 @@ impl Boot {
             prompt_at_bottom: cfg.prompt_at_bottom,
             window_ops: cfg.window_ops,
             activity_lights: cfg.activity_lights,
+            status_line_lights: cfg.status_line_lights,
             launch_splash: cfg.launch_splash,
             shell_integration: cfg.shell_integration,
             logging: cfg.logging,
@@ -1135,6 +1141,7 @@ impl App {
             prompt_at_bottom,
             window_ops,
             activity_lights,
+            status_line_lights,
             launch_splash,
             shell_integration: _,
             logging,
@@ -1493,6 +1500,7 @@ impl App {
             activity: baud_render::Activity::new(),
             activity_lights,
             line_shown: None,
+            status_line_lights,
             animated,
             image_animation,
             trail: None,
@@ -13707,6 +13715,8 @@ impl Driver {
                         .set_lights_line(c.activity_lights.line(), self.app.scale as f32);
                     self.lights_line(was);
                 }
+                // DEC's line given the words, or none, at the next tick.
+                Part::StatusLineLights => self.app.status_line_lights = c.status_line_lights,
                 // The layer's contents are shown at the display's refresh,
                 // never torn: Linux only.
                 Part::Tearing => {}
@@ -14479,11 +14489,26 @@ impl Driver {
             return;
         };
         let setting = self.app.activity_lights;
-        // OH and CD: the job in front, read only while the lights are on.
+        // DEC's line: whether it shows the words now, at the cell drawn.
+        let clause = crate::line_lamps::clause(self.app.metrics_cell(), self.app.scale);
+        let line = crate::line_lamps::shown(self.app.status_line_lights, &self.app.term, clause);
+        // OH and CD: the job in front, read only while the lights or the
+        // line's words are on, and listed often enough for the line's 80 ms.
+        let reads = crate::front::Reads::of(setting, line, self.app.interval);
         let shell = self.app.pty.child();
-        if let Some((oh, cd)) = self.front.tick(setting, &mut self.procs, shell, now) {
+        let readings = self.front.tick(reads, &mut self.procs, shell, now);
+        if let (Some((oh, cd)), true) = (readings, setting.shown()) {
             crate::lights::feed(&mut self.app.activity, Led::Oh, oh, now);
             crate::lights::feed(&mut self.app.activity, Led::Cd, cd, now);
+        }
+        // The line's words, as they are at this tick (`line_lamps.rs`).
+        let (oh, cd) = readings.map_or((ReadLamp::default(), ReadLamp::default()), |(oh, cd)| {
+            (crate::front::lamp(oh), crate::front::lamp(cd))
+        });
+        let lamps = crate::line_lamps::read(&self.app.term, &self.app.outbox, cd, oh);
+        let given = crate::line_lamps::given(self.app.status_line_lights, clause, lamps);
+        if crate::line_lamps::give(&mut self.app.term, given) == crate::line_lamps::Owes::Frame {
+            self.app.pending = Pending::Dirty;
         }
         // SYN and FAX: the core's state at the tick.
         if setting.shown() {

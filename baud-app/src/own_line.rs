@@ -32,6 +32,13 @@
 //! Motion. So with a job in front, an otherwise idle window reads the
 //! foreground group at that pace. With every light dark and holding, it
 //! makes no read.
+//!
+//! **DEC's indicator line's OH is the same read** ([`FrontRead`]), shared
+//! with the lights at one `ioctl` a frame (`line_lamps.rs`). There the
+//! wait is bounded while the line shows the words, since 070-14 gives an
+//! indicator 80 ms and a job that prints nothing makes no turn: the group
+//! is read again 80 ms less three frames after the last read
+//! ([`FrontRead::line_wait`]), every 30 ms at 60 Hz.
 
 use crate::pty::Wrote;
 use crate::sys::Pid;
@@ -64,6 +71,57 @@ pub(crate) fn in_front(group: Option<Pid>, shell: Option<Pid>) -> InFront {
 /// The least time between two samplings of OH, SYN and FAX: a 60 Hz
 /// frame.
 pub(crate) const SAMPLE: Duration = Duration::from_micros(16_667);
+
+/// **What who is in front shows as DEC's line's OH**: lit for a job, dark
+/// for the shell at its prompt and for nobody.
+pub(crate) fn lamp(front: InFront) -> baud_core::ReadLamp {
+    use baud_core::{LampState, ReadLamp};
+    match front {
+        InFront::Job => ReadLamp::Read(LampState::Lit),
+        InFront::Shell | InFront::Nobody => ReadLamp::Read(LampState::Dark),
+    }
+}
+
+/// **The last read of who is in front, and when**: one read of the
+/// terminal's foreground group for the lights on their line and DEC's
+/// line's words alike, at most once every [`SAMPLE`].
+pub(crate) struct FrontRead {
+    last: Option<(HostTime, InFront)>,
+}
+
+impl FrontRead {
+    pub(crate) fn new() -> FrontRead {
+        FrontRead { last: None }
+    }
+
+    /// **Who is in front at `now`**: `read` asked the first time and once
+    /// [`SAMPLE`] has gone by since it last was, else its last answer.
+    pub(crate) fn at(&mut self, now: HostTime, read: impl FnOnce() -> InFront) -> InFront {
+        match self.last {
+            Some((at, front)) if now < at.plus(SAMPLE) => front,
+            _ => {
+                let front = read();
+                self.last = Some((now, front));
+                front
+            }
+        }
+    }
+
+    /// **How long from `now` the wait may last while DEC's line shows the
+    /// words**, the display refreshing every `frame`: until the group is
+    /// read again 070-14's 80 ms less three frames after the last read --
+    /// a frame already in flight, the one that draws the word and the
+    /// refresh that shows it -- and never sooner than [`SAMPLE`] after it,
+    /// so the loop does not spin. Below 37.5 Hz that is every [`SAMPLE`]
+    /// and the bound is not met. None before a first read.
+    pub(crate) fn line_wait(&self, now: HostTime, frame: Duration) -> Option<Duration> {
+        let (at, _) = self.last?;
+        let every = crate::line_lamps::BOUND
+            .saturating_sub(frame * 3)
+            .max(SAMPLE);
+        Some(at.plus(every).since(now).unwrap_or(Duration::ZERO))
+    }
+}
 
 /// Whether a turn samples the states.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -204,8 +262,8 @@ mod tests {
             "self.lights.read(bytes, now);",
             "self.lights.answered(now);",
             "self.lights.wrote(wrote, now);",
-            "d.tick_lights();\n        d.present();",
-            "report, lights,\n        ]",
+            "d.flush_reply();\n        d.tick_lights();\n",
+            "report, lights, words,\n        ]",
             "let lights = d.lights_wait(now);",
             "let rows = (text_h / m.cell_h.value().max(1))",
             ".saturating_sub(self.renderer.lights_height().value());",
@@ -243,6 +301,83 @@ mod tests {
         assert_eq!(in_front(Some(311), Some(200)), InFront::Job);
         assert_eq!(in_front(None, Some(200)), InFront::Nobody);
         assert_eq!(in_front(Some(311), None), InFront::Nobody);
+    }
+
+    /// **DEC's line's OH is lit for a job and dark otherwise, from one
+    /// read a frame**: a job in front reads lit, the shell and nobody
+    /// dark, never unknown; a second ask within [`SAMPLE`] is answered
+    /// from the last read, one after reads again. Perturbation: read on
+    /// every ask -- an `ioctl` a read of output again -- and this goes red.
+    #[test]
+    fn dec_lines_oh_is_who_is_in_front_read_once_a_frame() {
+        use baud_core::{LampState, ReadLamp};
+        assert_eq!(lamp(InFront::Job), ReadLamp::Read(LampState::Lit));
+        assert_eq!(lamp(InFront::Shell), ReadLamp::Read(LampState::Dark));
+        assert_eq!(lamp(InFront::Nobody), ReadLamp::Read(LampState::Dark));
+        let mut f = FrontRead::new();
+        let mut reads = 0;
+        let mut read = |who| {
+            reads += 1;
+            who
+        };
+        assert_eq!(
+            f.at(at(Duration::ZERO), || read(InFront::Shell)),
+            InFront::Shell
+        );
+        assert_eq!(f.at(at(MS * 16), || read(InFront::Job)), InFront::Shell);
+        assert_eq!(f.at(at(SAMPLE), || read(InFront::Job)), InFront::Job);
+        assert_eq!(reads, 2, "one read a frame");
+    }
+
+    /// **While DEC's line shows the words, a job that prints nothing is
+    /// drawn within 80 ms** (070-14 p. 14-6): the wait ends 80 ms less
+    /// three frames after the last read of the group, and the job that
+    /// takes the terminal just after it is read at that wake, leaving a
+    /// frame in flight, the one that draws the word and the refresh that
+    /// shows it. At 60 Hz the wait is 30 ms and at 120 Hz 55; below 37.5
+    /// Hz it is a 60 Hz frame, so the loop never spins, and the bound is
+    /// not met. Nothing is waited for before a first read. Perturbation:
+    /// leave the three frames out -- the wake at 80 ms -- and this goes
+    /// red.
+    #[test]
+    fn a_silent_jobs_oh_is_drawn_within_80_ms() {
+        let us = Duration::from_micros;
+        assert_eq!(
+            FrontRead::new().line_wait(at(Duration::ZERO), us(16_667)),
+            None
+        );
+        for frame in [us(16_667), us(8_333), us(6_944), us(11_111)] {
+            let mut f = FrontRead::new();
+            f.at(at(Duration::ZERO), || InFront::Shell);
+            let joined = us(1);
+            let wait = f.line_wait(at(Duration::ZERO), frame).expect("a bound");
+            assert!(wait >= SAMPLE, "{frame:?}: {wait:?}");
+            assert_eq!(
+                f.at(at(wait), || InFront::Job),
+                InFront::Job,
+                "read at the wake"
+            );
+            let shown = wait + frame * 3 - joined;
+            assert!(shown <= crate::line_lamps::BOUND, "{frame:?}: {shown:?}");
+            assert!(
+                shown > crate::line_lamps::BOUND - frame,
+                "{frame:?}: read too often"
+            );
+            assert_eq!(f.line_wait(at(wait + MS), frame), Some(wait - MS));
+            assert_eq!(
+                f.line_wait(at(wait * 3), frame),
+                Some(Duration::ZERO),
+                "past due"
+            );
+        }
+        let mut f = FrontRead::new();
+        f.at(at(Duration::ZERO), || InFront::Shell);
+        assert_eq!(
+            f.line_wait(at(Duration::ZERO), us(16_667)),
+            Some(us(29_999))
+        );
+        assert_eq!(f.line_wait(at(Duration::ZERO), us(8_333)), Some(us(55_001)));
+        assert_eq!(f.line_wait(at(Duration::ZERO), us(33_333)), Some(SAMPLE));
     }
 
     /// **Each stamp lights its own light, a step owes a frame only when the

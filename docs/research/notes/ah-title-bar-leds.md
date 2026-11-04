@@ -1592,3 +1592,71 @@ FAX in ARQ's slot. What lights each is 6.1's analogue, built as follows:
   store a reply.
 
 Decision log 2410 to 2417.
+
+## 12. Built: the state lights on DEC's line, opt-in (2026-11-03)
+
+The owner, after the research on DEC's indicator line: "i would say
+default strip but config can change it". So `[window]
+status_line_lights`, `"off"` by default (D4), and `"states"` builds D1 at
+DEC's timing: while a program shows the indicator, CD, OH, CS, FAX and SYN
+are words at columns 62, 66, 70, 73 and 77 (`Term::set_indicator_lamps`),
+present while the condition holds, each whole or not at all, within the
+first 80. HS, AA, RD and SD never go there; the lights keep all nine
+wherever they are drawn.
+
+- **Timing**: no hold, no dwell, nothing shown later. Each macOS display
+  tick, after its pump, and each Linux loop turn, after its reads and
+  writes, reads the lamps and hands them on, and the core redraws the
+  line at once and at every read's end (070-14 p. 14-6). On macOS a
+  change waits up to a tick to be read, a tick for the frame and its
+  vsync: three ticks, within 80 ms at 37.5 Hz and above, not below. CS
+  is a state here, bytes still owed, not the refusal the lights flash
+  for. While the words show, OH's and CD's group is listed again 80 ms
+  less three ticks after the last listing (`front::line_relist`: 30 ms at
+  60 Hz, 55 at 120; every tick below 37.5 Hz, where the bound is not
+  met), where the lights alone wait a second, so an ssh the process
+  watch missed is drawn within the bound.
+- **WCAG 2.3.1 at every size**: the words' 14 cells counted whole, at 85.3
+  WCAG pixels an inch, are within a quarter of the 341 x 256 field to 37
+  points of JetBrains Mono, so they pass by the area clause at any rate.
+  From 38 points they are left out (`line_lamps`), which departs from
+  neither text. The departure, holding them to three flashes a second and
+  so up to 200 ms late, was put to Jev: not taken, 0.98 and 0.94
+  (`ABOVE_LEFT_OUT`).
+- **Unknown**: no DEC text gives an indicator an unknown value (searches
+  for "unknown", "undefined" and "question mark", control "milliseconds"
+  found). DEC reports one as DECRQM's "(0) Unknown" and DECRPSS's
+  "UNKNOWN", and draws the reversed question mark only for a character
+  with no graphic representation (SUB, p. 5-132). A refused read shows
+  `CD?`. Jev leaned to `?` over U+2426, 0.92 and 0.80, below the bar; the
+  render showed U+2426 as a missing-glyph box in the embedded font.
+- **Linux** reads OH from the terminal's foreground group, the read the
+  lights' own line makes (`TIOCGPGRP`, `own_line::FrontRead`), shared at
+  one a frame: lit for a job, dark for the shell or for nobody. The loop
+  turns on events, and a job that prints nothing makes none, so while
+  the words show its wait ends 80 ms less three frames after the last
+  read (30 ms at 60 Hz, 55 at 120, a 60 Hz frame below 37.5 Hz, where
+  the bound is not met), at the compositor's refresh, a 60 Hz frame
+  until one is known. CD has no reader there and shows `CD?`, as Jev
+  leaned for both before OH was read (0.82 and 0.30, below the bar).
+- **Cost**: nothing on a byte's path. The line is composed at a read's
+  end behind the feed's one compare of the status type, as before; a tick
+  adds one compare of five lamps, and while the words show a listing
+  every 30 ms at 60 Hz, 7.96-8.16 us each (section 11), about 0.27 ms a
+  second. The 37-point limit is JetBrains Mono's cell; another font's
+  moves it, since the clause is read at the cell drawn.
+
+  Instructions, counted in a release rlib without LTO, this tree against
+  its base, trailing alignment padding left out: `feed_read_outlined`
+  runs 8,563 against 8,562. The larger `Status` (320 bytes to 328, the
+  lamps) reordered `StrBuf`, which had held it first, so its active and
+  kind bytes moved from offsets 317 and 319 to 13,261 and 13,263, past
+  ldrb's 4,095 immediate: each read takes a mov first, two instructions,
+  one in the entry block and one after its loops, outside every loop. A
+  16-byte field of the link book moved from 13,176 to 6,944, a multiple
+  of 16 that ldr takes as its immediate, and a loop near the function's
+  end loses a mov. `write::eight` (469),
+  `write::esc_final` (1,210) and `Paint::str_run` (944) keep their
+  counts. No timing ran.
+
+Decision log 2468 and 2469.
