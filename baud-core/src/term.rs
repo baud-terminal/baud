@@ -2811,6 +2811,10 @@ impl<'b> Term<'b> {
             // The shell redraws at the next initial mark, wherever it is.
             self.store.strs.shell.resize = crate::prompt::SinceMark::Resized;
             self.store.strs.shell_other.resize = crate::prompt::SinceMark::Resized;
+            // **A change of geometry forgets the selected areas**, and an
+            // open SSA: their ends are lines of the old geometry, which a
+            // re-cut renumbers, as it forgets an open SPA.
+            self.store.strs.print.areas = crate::print::SelectedAreas::NONE;
         }
         // **A kitty picture kept below the alternate screen goes with a
         // change of the screen's geometry**: its row went when a reverse

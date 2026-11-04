@@ -462,6 +462,9 @@ impl Paint<'_, '_> {
         if self.cold.guard_open.is_some() {
             self.guard_band_moved(from, bot, by, BandMove::Down);
         }
+        if self.strs.print.areas.held() {
+            self.areas_rows_moved(from, bot, by, BandMove::Down);
+        }
         if self.cold.placement.is_placed() {
             self.placement_band_moved(from, bot, by, BandMove::Down);
         }
@@ -575,6 +578,11 @@ impl Paint<'_, '_> {
             }
             if self.images.any_placed() {
                 self.expire_primary_images(None);
+            }
+            // A selected area with an end on a row given up is below the
+            // screen, and the line feed that brings the row back erases it.
+            if self.strs.print.areas.held() {
+                self.areas_scrolled_down();
             }
             self.book.swept = self.book.top;
         }

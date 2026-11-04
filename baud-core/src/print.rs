@@ -39,6 +39,17 @@
 //! hidden until `CSI 4 i` as 070-7 § 7.3.6 says, where ending it there would
 //! draw the program's printer data on the screen.
 //!
+//! **What a print takes of the rows it names is ECMA-48's**: SSA and ESA
+//! mark selected areas, and SATM, MATM and TTM choose what is eligible to
+//! be "transferred to an auxiliary input/output device" (`[[source:
+//! ecma48]]` 6.5.1, 7.2.12, 7.2.14, 7.2.18 and 7.3.1), which MC is (6.6,
+//! 8.3.82); GATM then leaves the guarded positions out (7.3.1 g, h). An
+//! ineligible position prints as a space, as a guarded one does, so what
+//! is eligible keeps its columns. With no area defined, or the active
+//! position in none under SINGLE, everything is eligible: 7.3.1 leaves
+//! cases a and d "not defined" there, and baud prints as it did before any
+//! area. [`Eligible`].
+//!
 //! **Printer controller mode is a node of the graph** (`Node::Printing`),
 //! every byte `Act::Printer`, whose step takes the rest of the read here: no
 //! other byte's path tests anything. Autoprint is one bit of the mode word
@@ -78,6 +89,208 @@ pub(crate) struct Printer {
     /// Whether a DSR `?15` stops the read, and whether one is owed.
     pub(crate) hold: PrinterHold,
     pub(crate) asked: PrinterAsked,
+    /// SATM, MATM and TTM.
+    pub(crate) transfer: AreaTransfer,
+    /// The selected areas SSA and ESA marked.
+    pub(crate) areas: SelectedAreas,
+}
+
+/// One end of a selected area, kept as SPA's start is: the screen, the
+/// line in its numbering, which moves with the text, and the position
+/// along it as `CPR` reports it ([`Paint::guard_position`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct AreaEnd {
+    screen: ImageScreen,
+    line: LineIdx,
+    col: Col,
+}
+
+impl AreaEnd {
+    fn at(self) -> (LineIdx, Col) {
+        (self.line, self.col)
+    }
+}
+
+/// A selected area: its first and last positions, the first not after the
+/// last in the order of the lines and their columns.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Area {
+    screen: ImageScreen,
+    first: (LineIdx, Col),
+    last: (LineIdx, Col),
+}
+
+/// **The selected areas**: the one SSA opened, and the ones ESA ended, at
+/// most [`SELECTED_AREAS`]. Cold, read by a print, by SSA and ESA, and by
+/// the moves of lines inside the window, which test [`Self::held`] first.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct SelectedAreas {
+    open: Option<AreaEnd>,
+    kept: [Option<Area>; SELECTED_AREAS],
+    held: Held,
+}
+
+/// Whether an area is open or kept: the one test a scroll pays for them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Held {
+    Nothing,
+    Some,
+}
+
+impl SelectedAreas {
+    /// None: the state at power-on, after `RIS` and after a change of
+    /// geometry.
+    pub(crate) const NONE: SelectedAreas = SelectedAreas {
+        open: None,
+        kept: [None; SELECTED_AREAS],
+        held: Held::Nothing,
+    };
+
+    /// Whether an area is open or kept, on either screen.
+    #[inline(always)]
+    pub(crate) fn held(&self) -> bool {
+        self.held == Held::Some
+    }
+
+    fn refresh(&mut self) {
+        self.held = match self.open.is_some() || self.kept.iter().any(Option::is_some) {
+            true => Held::Some,
+            false => Held::Nothing,
+        };
+    }
+
+    /// **Every area on `screen` goes**, and an open start there: the
+    /// alternate screen's on leaving it, whose numbering starts again with
+    /// the next entry, as its images go.
+    pub(crate) fn forget_screen(&mut self, screen: ImageScreen) {
+        self.open = self.open.filter(|e| e.screen != screen);
+        for slot in &mut self.kept {
+            *slot = slot.filter(|a| a.screen != screen);
+        }
+        self.refresh();
+    }
+
+    /// **The lines `[lo, hi)` of `screen` moved `k` `way` inside the
+    /// window**, and the ends on them between the columns `within` with
+    /// them: IL and DL shift "any occurrences of the start or end of a
+    /// selected area ... in the shifted part" (`[[source: ecma48]]` 8.3.67,
+    /// 8.3.32), and a region's scroll moves them as it moves SPA's start.
+    /// An end that leaves the band was on a line removed and takes its
+    /// area, as SPA's start is forgotten there; an area whose ends a move
+    /// under side margins took past each other is ordered again.
+    fn band_moved(
+        &mut self,
+        screen: ImageScreen,
+        (lo, hi): (LineIdx, LineIdx),
+        within: (Col, Col),
+        k: Rows,
+        way: BandMove,
+    ) {
+        let moved = |(line, col): (LineIdx, Col)| {
+            if line < lo || line >= hi || col < within.0 || col > within.1 {
+                return Some((line, col));
+            }
+            match way {
+                BandMove::Up => line.minus(k).filter(|l| *l >= lo),
+                BandMove::Down => Some(line.plus(k)).filter(|l| *l < hi),
+            }
+            .map(|l| (l, col))
+        };
+        if let Some(e) = self.open.filter(|e| e.screen == screen) {
+            self.open = moved(e.at()).map(|(line, col)| AreaEnd { screen, line, col });
+        }
+        for slot in &mut self.kept {
+            let Some(a) = slot.filter(|a| a.screen == screen) else {
+                continue;
+            };
+            *slot = match (moved(a.first), moved(a.last)) {
+                (Some(f), Some(l)) => Some(Area {
+                    screen,
+                    first: f.min(l),
+                    last: f.max(l),
+                }),
+                _ => None,
+            };
+        }
+        self.refresh();
+    }
+
+    /// **Every area on `screen` with its last end at or past line `below`
+    /// goes, and an open start there**: a full-screen scroll down pushed
+    /// those lines below the screen, and the line a later scroll up brings
+    /// in at that number is erased, as a region's scroll drops an end it
+    /// pushes out of its band ([`Self::band_moved`]). An area's first end
+    /// is not after its last, so the last is the one to test.
+    fn pushed_below(&mut self, screen: ImageScreen, below: LineIdx) {
+        let on = |(line, _): (LineIdx, Col)| line < below;
+        self.open = self.open.filter(|e| e.screen != screen || on(e.at()));
+        for slot in &mut self.kept {
+            *slot = slot.filter(|a| a.screen != screen || on(a.last));
+        }
+        self.refresh();
+    }
+
+    /// **Every end on `screen` down `k` lines**: the window moved back over
+    /// a row its numbering cannot count below line zero, so the text went
+    /// down instead, as an open SPA's start does.
+    fn shift(&mut self, screen: ImageScreen, k: Rows) {
+        if let Some(e) = self.open.as_mut().filter(|e| e.screen == screen) {
+            e.line = e.line.plus(k);
+        }
+        for a in self
+            .kept
+            .iter_mut()
+            .flatten()
+            .filter(|a| a.screen == screen)
+        {
+            a.first.0 = a.first.0.plus(k);
+            a.last.0 = a.last.0.plus(k);
+        }
+    }
+}
+
+/// **A screen position as a print reads it**: its row and column, ordered
+/// by row and then column, the order of the character path along a line.
+type Pos = (usize, usize);
+
+/// **What a print may take**, 7.3.1 a to f, worked out once a print from
+/// the modes, the areas on the screen shown and the active position: the
+/// positions [`Scope`] names, before `before` where there is one (TTM
+/// CURSOR).
+#[derive(Clone, Copy)]
+struct Eligible {
+    scope: Scope,
+    /// The areas, each from its first to its last position, read under
+    /// [`Scope::Areas`].
+    areas: [Option<(Pos, Pos)>; SELECTED_AREAS],
+    before: Option<Pos>,
+}
+
+/// Where the eligible positions are: everywhere, cases c and f, and a and
+/// d with the active position in no selected area, which 7.3.1 leaves "not
+/// defined"; or in the areas listed, cases a, b, d and e.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    Everywhere,
+    Areas,
+}
+
+impl Eligible {
+    fn everywhere(before: Option<Pos>) -> Eligible {
+        Eligible {
+            scope: Scope::Everywhere,
+            areas: [None; SELECTED_AREAS],
+            before,
+        }
+    }
+
+    fn admits(&self, p: Pos) -> bool {
+        self.before.is_none_or(|c| p < c)
+            && match self.scope {
+                Scope::Everywhere => true,
+                Scope::Areas => self.areas.iter().flatten().any(|(a, b)| *a <= p && p <= *b),
+            }
+    }
 }
 
 /// Whether the port has had a printer since power-up or RIS, which tells
@@ -163,6 +376,8 @@ impl Printer {
         refusals: PrintRefusals::NONE,
         hold: PrinterHold::Off,
         asked: PrinterAsked::No,
+        transfer: AreaTransfer::RESET,
+        areas: SelectedAreas::NONE,
     };
 
     /// The embedder's printer, which a printer that is there marks seen.
@@ -444,11 +659,25 @@ impl Paint<'_, '_> {
     }
 
     /// Rows `top` to `bottom` of the screen shown, each with its line
-    /// attribute, its characters and their renditions, and `CR` and `end`.
+    /// attribute, its characters and their renditions, and `CR` and `end`;
+    /// a position not eligible prints as a space ([`Eligible`]).
     fn print_rows(&mut self, top: Row, bottom: Row, span: Span, end: LineEnd) {
         let mut now = Attrs::NONE;
+        let eligible = self.eligible();
         for y in top.index()..=bottom.index() {
             let r = Row::from_index(y);
+            // The position along the line as SSA and ESA name it: drawn,
+            // on a line holding a string with BDSM reset.
+            let map = match self.guards_drawn() {
+                true => self.line_map(r),
+                false => None,
+            };
+            let takes = |x: usize| {
+                let c = map
+                    .as_ref()
+                    .map_or(Col::at_index(x), |m| m.presentation(Col::at_index(x)));
+                eligible.admits((y, c.index()))
+            };
             let rendition = self.view.rendition(r);
             self.put(match rendition {
                 LineRendition::Single => b"\x1b#5",
@@ -465,14 +694,19 @@ impl Paint<'_, '_> {
                 ),
             };
             let mut last = right;
-            while last > left && self.trailing(r, Col::at_index(last - 1)) {
+            while last > left && (self.trailing(r, Col::at_index(last - 1)) || !takes(last - 1)) {
                 last -= 1;
             }
             for x in left..last {
                 let cell = self.view.get(r, Col::at_index(x));
                 let attrs = self.word_of(cell.style).attrs();
                 let base = self.clusters.base_of(cell.content);
-                let hidden = attrs.has(Attrs::HIDDEN) || self.excluded(cell);
+                // A wide character's tail goes with its lead.
+                let lead = match base.is_wide_tail() && x > 0 {
+                    true => x - 1,
+                    false => x,
+                };
+                let hidden = attrs.has(Attrs::HIDDEN) || self.excluded(cell) || !takes(lead);
                 if base.is_wide_tail() && !hidden {
                     continue;
                 }
@@ -530,6 +764,205 @@ impl Paint<'_, '_> {
     /// page, screen, all pages, line and autoprint.
     fn excluded(&self, cell: PackedCell) -> bool {
         cell.flags.is_guarded() && !self.cold.modes.is_set(ModeBit::TransferGuarded)
+    }
+
+    /// **What 7.3.1 makes eligible now**: SATM ALL takes every position,
+    /// before the active one under TTM CURSOR (cases f and c); SELECT the
+    /// selected areas on the screen shown, every one under MATM MULTIPLE
+    /// (b, e), the one holding the active position under SINGLE (a, d),
+    /// before the active position under CURSOR. With SINGLE and the active
+    /// position in no area every position is eligible, as with no area
+    /// defined: "If the active presentation position is not within a
+    /// selected area, the format of the data stream in the first and fourth
+    /// case above is not defined by this Standard", and baud prints as it
+    /// did before any area (a reading the text leaves open).
+    fn eligible(&self) -> Eligible {
+        let t = self.strs.print.transfer;
+        let at = (self.cy.index(), self.guard_position().index());
+        let before = match t.end {
+            TransferEnd::Cursor => Some(at),
+            TransferEnd::All => None,
+        };
+        if t.selection == AreaSelection::All {
+            return Eligible::everywhere(before);
+        }
+        let (screen, top) = self.image_top();
+        let (rows, cols) = (self.rows.index(), self.cols.index());
+        // Each area's ends as screen positions, an end above the screen its
+        // first position and one below it its last; an area wholly above
+        // or below none. Wholly above is a last end above the screen, which
+        // would otherwise read as an area of the first position alone.
+        let place = |(line, col): (LineIdx, Col)| match line.since(top) {
+            None => (0, 0),
+            Some(r) if r.index() >= rows => (rows, 0),
+            Some(r) => (r.index(), col.index().min(cols - 1)),
+        };
+        let mut on = [None; SELECTED_AREAS];
+        for (slot, area) in on.iter_mut().zip(self.strs.print.areas.kept) {
+            *slot = area
+                .filter(|a| a.screen == screen && a.last.0.since(top).is_some())
+                .map(|a| (place(a.first), place(a.last)))
+                .filter(|(a, b)| a < b || (a == b && a.0 < rows))
+                .map(|(a, b)| (a, (b.0.min(rows), b.1)));
+        }
+        if t.count == AreaCount::Single {
+            let active = on
+                .iter()
+                .flatten()
+                .rev()
+                .find(|(a, b)| *a <= at && at <= *b)
+                .copied();
+            let Some(area) = active else {
+                return Eligible::everywhere(None);
+            };
+            on = [None; SELECTED_AREAS];
+            on[0] = Some(area);
+        }
+        Eligible {
+            scope: Scope::Areas,
+            areas: on,
+            before,
+        }
+    }
+
+    /// **SSA**: the active position starts a selected area (6.5.1, "the
+    /// active presentation position after the receipt of SSA is the first
+    /// character position"), kept as SPA's start is. A second SSA before
+    /// ESA starts it again. **Written to the status line it starts none**,
+    /// nor does ESA end one there: the status line is a display of its own
+    /// (`[[source: dec-std-070]]` 070-14), not the page a print takes, and
+    /// a line of it would name the main display's (a reading the text
+    /// leaves open).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn start_selected_area(&mut self) {
+        if self.on_status() {
+            return;
+        }
+        let (screen, line) = self.image_anchor();
+        let col = self.guard_position();
+        self.strs.print.areas.open = Some(AreaEnd { screen, line, col });
+        self.strs.print.areas.held = Held::Some;
+    }
+
+    /// **The selected areas after the rows `[from, to]` of the live screen
+    /// moved `k` `way`** with the ends between the columns `within`: IL, DL,
+    /// a region's scroll by copy, a shell block's move, a rectangle's
+    /// scroll and the rows under a top-anchored region put back
+    /// ([`SelectedAreas::band_moved`]). Out of line; the callers test
+    /// [`SelectedAreas::held`].
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn areas_band_moved(
+        &mut self,
+        (from, to): (Row, Row),
+        within: (Col, Col),
+        k: Rows,
+        way: BandMove,
+    ) {
+        let (screen, top) = self.image_top();
+        let lo = top.plus(Rows::of_count(from.index()));
+        let hi = top.plus(Rows::of_count(to.index() + 1));
+        self.strs
+            .print
+            .areas
+            .band_moved(screen, (lo, hi), within, k, way);
+    }
+
+    /// The same across the full width of the screen.
+    pub(crate) fn areas_rows_moved(&mut self, from: Row, to: Row, k: Rows, way: BandMove) {
+        let within = (Col::ZERO, Col::at_index(self.cols.index()));
+        self.areas_band_moved((from, to), within, k, way);
+    }
+
+    /// **The selected areas on `screen` after the window moved back over a
+    /// row its numbering cannot count below line zero**: down a row with
+    /// their text ([`SelectedAreas::shift`]).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn areas_shift(&mut self, screen: ImageScreen) {
+        self.strs.print.areas.shift(screen, Rows::of_count(1));
+    }
+
+    /// **The selected areas after a full-screen scroll down**, on the
+    /// screen shown: one with an end the scroll pushed below the screen
+    /// goes ([`SelectedAreas::pushed_below`]). Once a scroll, after its
+    /// last line: the window only moves back and the ends only move down,
+    /// so an end below after one line is below after the last. The status
+    /// line moves none of the main display's lines. Out of line; the
+    /// callers test [`SelectedAreas::held`].
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn areas_scrolled_down(&mut self) {
+        if self.on_status() {
+            return;
+        }
+        let (screen, top) = self.image_top();
+        self.strs
+            .print
+            .areas
+            .pushed_below(screen, top.plus(self.rows));
+    }
+
+    /// **ESA**: the area SSA opened ends at the active position, "the
+    /// active presentation position before the receipt of ESA" being "the
+    /// last character position of the selected area" (6.5.1), the two in
+    /// the order of the lines whichever came first, as EPA orders a guarded
+    /// area's. With none open, or one opened on the other screen, it does
+    /// nothing. Past [`SELECTED_AREAS`] the areas wholly scrolled above
+    /// their screen go first, which no print can reach; with none of those
+    /// the area is refused and counted.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn end_selected_area(&mut self) {
+        if self.on_status() {
+            return;
+        }
+        let Some(open) = self.strs.print.areas.open.take() else {
+            return;
+        };
+        let (screen, line) = self.image_anchor();
+        if open.screen != screen {
+            self.strs.print.areas.refresh();
+            return;
+        }
+        let end = AreaEnd {
+            screen,
+            line,
+            col: self.guard_position(),
+        };
+        let (first, last) = match open.at() <= end.at() {
+            true => (open.at(), end.at()),
+            false => (end.at(), open.at()),
+        };
+        let area = Area {
+            screen,
+            first,
+            last,
+        };
+        if !self.strs.print.areas.kept.iter().any(Option::is_none) {
+            let (primary, alternate) = (self.book.top, self.book.alt_top);
+            for slot in &mut self.strs.print.areas.kept {
+                let gone = slot.is_some_and(|a| {
+                    let top = match a.screen {
+                        ImageScreen::Primary => primary,
+                        ImageScreen::Alternate => alternate,
+                    };
+                    a.last.0.since(top).is_none()
+                });
+                if gone {
+                    *slot = None;
+                }
+            }
+        }
+        match self.strs.print.areas.kept.iter_mut().find(|a| a.is_none()) {
+            Some(slot) => *slot = Some(area),
+            None => {
+                let r = &mut self.strs.print.refusals.areas_refused;
+                *r = r.saturating_add(1);
+            }
+        }
+        self.strs.print.areas.refresh();
     }
 
     /// `ESC [ 0 ; Ps ... m` for the attributes now in force, 070-7's SEND
@@ -748,6 +1181,12 @@ impl Paint<'_, '_> {
         p.matcher = Matcher::IDLE;
         p.seen = Seen::Never;
         p.set_port(p.port);
+        // SATM, MATM and TTM to their reset states and no area selected:
+        // `RIS` returns the device "to its initial state" (`[[source:
+        // ecma48]]` 8.3.105), and 7.1 recommends the reset states as the
+        // initial ones. `DECSTR` keeps them, as its table names none.
+        p.transfer = AreaTransfer::RESET;
+        p.areas = SelectedAreas::NONE;
         self.cold.modes.reset(ModeBit::AutoPrint);
     }
 }

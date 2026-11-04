@@ -279,6 +279,10 @@ pub struct PrintRefusals {
     /// ReGIS hard copies the area had no working room for, which printed
     /// nothing.
     pub hard_copies_cut: u32,
+    /// Selected areas ESA ended while the core already held
+    /// [`SELECTED_AREAS`] on the screen, none of them wholly scrolled
+    /// above it: refused, the area not kept.
+    pub areas_refused: u32,
 }
 
 impl PrintRefusals {
@@ -288,8 +292,66 @@ impl PrintRefusals {
         dropped: 0,
         merged: 0,
         hard_copies_cut: 0,
+        areas_refused: 0,
     };
 }
+
+/// **SATM, the selected area transfer mode**, `CSI 17 h` and `CSI 17 l`
+/// (`[[source: ecma48]]` 7.2.14): reset, SELECT, "Only the contents of
+/// selected areas are eligible to be transmitted or transferred"; set,
+/// ALL, "The contents of all character positions, irrespective of any
+/// explicitly defined selected areas, are eligible". SELECT at power-on
+/// and after `RIS`, Table 6's reset state, which 7.1 recommends as the
+/// initial one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AreaSelection {
+    Select,
+    All,
+}
+
+/// **MATM, the multiple area transfer mode**, `CSI 15 h` and `l` (7.2.12):
+/// reset, SINGLE, "Only the contents of the selected area which contains
+/// the active presentation position are eligible"; set, MULTIPLE, "The
+/// contents of all selected areas are eligible".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AreaCount {
+    Single,
+    Multiple,
+}
+
+/// **TTM, the transfer termination mode**, `CSI 16 h` and `l` (7.2.18):
+/// reset, CURSOR, "Only the contents of the character positions preceding
+/// the active presentation position in the presentation component are
+/// eligible"; set, ALL, "preceding, following, and at the active
+/// presentation position".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TransferEnd {
+    Cursor,
+    All,
+}
+
+/// The three modes 7.3.1 reads together to choose what a transfer takes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct AreaTransfer {
+    pub selection: AreaSelection,
+    pub count: AreaCount,
+    pub end: TransferEnd,
+}
+
+impl AreaTransfer {
+    /// Each mode's reset state, the state at power-on and after `RIS`.
+    pub const RESET: AreaTransfer = AreaTransfer {
+        selection: AreaSelection::Select,
+        count: AreaCount::Single,
+        end: TransferEnd::Cursor,
+    };
+}
+
+/// **How many selected areas the core keeps, both screens' together.** The areas
+/// are a program's, so they are bounded: one past the bound sweeps out
+/// those wholly scrolled above the screen, which no print can reach, and
+/// is refused and counted if none was ([`PrintRefusals::areas_refused`]).
+pub const SELECTED_AREAS: usize = 16;
 
 /// How many finished jobs the core keeps for the embedder to take after a
 /// read: a read that finishes more joins the rest to the last, after a form

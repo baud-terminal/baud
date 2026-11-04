@@ -763,6 +763,9 @@ impl Paint<'_, '_> {
                     None => {
                         self.images.shift(ImageScreen::Alternate, Rows::of_count(1));
                         self.guard_shift(ImageScreen::Alternate);
+                        if self.strs.print.areas.held() {
+                            self.areas_shift(ImageScreen::Alternate);
+                        }
                         self.cold
                             .placement
                             .shift(ImageScreen::Alternate, Rows::of_count(1));
@@ -785,12 +788,15 @@ impl Paint<'_, '_> {
     }
 
     /// **What the scrolls test before they move a line anchor**: an open
-    /// SPA's start or a placed cursor (`placed.rs`), each a line of its
-    /// screen's numbering. On the alternate screen the numbering is kept
-    /// only while one of them or an image is there.
+    /// SPA's start, a placed cursor (`placed.rs`) or a selected area's end
+    /// (`print.rs`), each a line of its screen's numbering. On the
+    /// alternate screen the numbering is kept only while one of them or an
+    /// image is there.
     #[inline(always)]
     pub(crate) fn anchored(&self) -> bool {
-        self.cold.guard_open.is_some() || self.cold.placement.is_placed()
+        self.cold.guard_open.is_some()
+            || self.cold.placement.is_placed()
+            || self.strs.print.areas.held()
     }
 
     /// **A placed cursor after rows `[from, to]` of the live screen moved
@@ -957,10 +963,14 @@ impl Paint<'_, '_> {
             let k = n.at_least_one().min(bot.index() + 1 - at.index());
             self.guard_band_moved(at, bot, Rows::of_count(k), way);
         }
-        // And so does a placed cursor.
+        // And so does a placed cursor, and a selected area's end.
         if self.cold.placement.is_placed() {
             let k = n.at_least_one().min(bot.index() + 1 - at.index());
             self.placement_moved_in(at, bot, (left, right), Rows::of_count(k), way);
+        }
+        if self.strs.print.areas.held() {
+            let k = n.at_least_one().min(bot.index() + 1 - at.index());
+            self.areas_band_moved((at, bot), (left, right), Rows::of_count(k), way);
         }
         self.row_changed_to(self.cy);
     }
@@ -1039,6 +1049,9 @@ impl Paint<'_, '_> {
                 }
                 if self.cold.guard_open.is_some() {
                     self.guard_shift(ImageScreen::Primary);
+                }
+                if self.strs.print.areas.held() {
+                    self.areas_shift(ImageScreen::Primary);
                 }
                 self.cold
                     .placement
@@ -1209,6 +1222,9 @@ impl Paint<'_, '_> {
         if self.cold.guard_open.is_some() {
             self.guard_band_moved(top, bot, Rows::of_count(k), BandMove::Up);
         }
+        if self.strs.print.areas.held() {
+            self.areas_rows_moved(top, bot, Rows::of_count(k), BandMove::Up);
+        }
         if self.cold.placement.is_placed() {
             self.placement_band_moved(top, bot, Rows::of_count(k), BandMove::Up);
         }
@@ -1293,6 +1309,14 @@ impl Paint<'_, '_> {
             }
             if self.cold.guard_open.is_some() {
                 self.guard_put_back(bot, Row::from_index(last));
+            }
+            if self.strs.print.areas.held() {
+                self.areas_rows_moved(
+                    bot,
+                    Row::from_index(last),
+                    Rows::of_count(1),
+                    BandMove::Down,
+                );
             }
             if self.cold.placement.is_placed() {
                 self.placement_band_moved(
@@ -1499,6 +1523,9 @@ impl Paint<'_, '_> {
                 self.clear_incoming_past_edge(Row::ZERO);
             }
         }
+        if self.strs.print.areas.held() {
+            self.areas_scrolled_down();
+        }
         // The window moved back, so the swept rows are counted from here:
         // on the primary, whose rows they are and whose window moved.
         if self.cold.screen == Screen::Normal {
@@ -1555,6 +1582,9 @@ impl Paint<'_, '_> {
                 self.watch_taken_back();
                 self.fill_row_counted(Row::ZERO);
             }
+            if self.strs.print.areas.held() {
+                self.areas_scrolled_down();
+            }
             self.path_rows(Row::ZERO, Row::from_index(k - 1));
             return;
         }
@@ -1577,6 +1607,9 @@ impl Paint<'_, '_> {
         }
         if self.cold.guard_open.is_some() {
             self.guard_band_moved(top, bot, Rows::of_count(k), BandMove::Down);
+        }
+        if self.strs.print.areas.held() {
+            self.areas_rows_moved(top, bot, Rows::of_count(k), BandMove::Down);
         }
         if self.cold.placement.is_placed() {
             self.placement_band_moved(top, bot, Rows::of_count(k), BandMove::Down);
@@ -1711,6 +1744,9 @@ impl Paint<'_, '_> {
         if self.cold.guard_open.is_some() {
             self.guard_band_moved(at, bot, Rows::of_count(k), BandMove::Down);
         }
+        if self.strs.print.areas.held() {
+            self.areas_rows_moved(at, bot, Rows::of_count(k), BandMove::Down);
+        }
         if self.cold.placement.is_placed() {
             self.placement_band_moved(at, bot, Rows::of_count(k), BandMove::Down);
         }
@@ -1778,6 +1814,9 @@ impl Paint<'_, '_> {
         }
         if self.cold.guard_open.is_some() {
             self.guard_band_moved(at, bot, Rows::of_count(k), BandMove::Up);
+        }
+        if self.strs.print.areas.held() {
+            self.areas_rows_moved(at, bot, Rows::of_count(k), BandMove::Up);
         }
         if self.cold.placement.is_placed() {
             self.placement_band_moved(at, bot, Rows::of_count(k), BandMove::Up);
@@ -1956,7 +1995,7 @@ impl Paint<'_, '_> {
     /// The cursor's position for SPA and EPA: its column as `CPR` reports
     /// it, the position it is drawn at on a line holding a string with
     /// BDSM reset.
-    fn guard_position(&self) -> Col {
+    pub(crate) fn guard_position(&self) -> Col {
         let c = self.cx.reported(self.report_fence(), self.cols);
         match self.guards_drawn() {
             true => self.line_map(self.cy).map_or(c, |m| m.presentation(c)),
@@ -1969,7 +2008,7 @@ impl Paint<'_, '_> {
     /// 8.3.46's NOTE says "the control functions for area definition ...
     /// should not be used", the drawn positions move under each character
     /// written, so the cells between the two are guarded, as before.
-    fn guards_drawn(&self) -> bool {
+    pub(crate) fn guards_drawn(&self) -> bool {
         self.cold.modes.is_set(ModeBit::CursorPresented) && self.style_raw.string().is_none()
     }
 
@@ -5151,6 +5190,12 @@ impl Paint<'_, '_> {
                 if self.images.any_placed() {
                     self.images.expire_screen(ImageScreen::Alternate);
                 }
+                // So do its selected areas: the next entry numbers its lines
+                // from the first again, and an area kept by line would name
+                // the next program's text.
+                if self.strs.print.areas.held() {
+                    self.strs.print.areas.forget_screen(ImageScreen::Alternate);
+                }
                 self.cold.screen = Screen::Normal;
                 self.cold.epoch = self.cold.epoch.next();
                 core::mem::swap(&mut self.cold.saved, &mut self.cold.saved_other);
@@ -5252,6 +5297,25 @@ impl Paint<'_, '_> {
             AnsiMode::CharacterEditing => {
                 self.cold.modes.apply(ModeBit::EditPreceding, on);
                 self.refresh_insert();
+            }
+            // MATM, TTM and SATM: what a print takes (`crate::print`).
+            AnsiMode::MultipleAreaTransfer => {
+                self.strs.print.transfer.count = match on {
+                    true => AreaCount::Multiple,
+                    false => AreaCount::Single,
+                }
+            }
+            AnsiMode::TransferTermination => {
+                self.strs.print.transfer.end = match on {
+                    true => TransferEnd::All,
+                    false => TransferEnd::Cursor,
+                }
+            }
+            AnsiMode::SelectedAreaTransfer => {
+                self.strs.print.transfer.selection = match on {
+                    true => AreaSelection::All,
+                    false => AreaSelection::Select,
+                }
             }
             _ => self.unsupported_param += 1,
         }
@@ -6082,6 +6146,18 @@ impl Paint<'_, '_> {
                 AnsiMode::GuardedAreaTransfer => {
                     bit_state(self.cold.modes, ModeBit::TransferGuarded)
                 }
+                AnsiMode::MultipleAreaTransfer => match self.strs.print.transfer.count {
+                    AreaCount::Multiple => ModeState::Set,
+                    AreaCount::Single => ModeState::Reset,
+                },
+                AnsiMode::TransferTermination => match self.strs.print.transfer.end {
+                    TransferEnd::All => ModeState::Set,
+                    TransferEnd::Cursor => ModeState::Reset,
+                },
+                AnsiMode::SelectedAreaTransfer => match self.strs.print.transfer.selection {
+                    AreaSelection::All => ModeState::Set,
+                    AreaSelection::Select => ModeState::Reset,
+                },
                 _ => ModeState::NotRecognized,
             };
         }

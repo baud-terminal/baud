@@ -127,6 +127,12 @@ pub enum AnsiMode {
     CharacterEditing,
     /// GATM, mode 1, `[[source: ecma48]]` 7.2.7 ([`ModeBit::TransferGuarded`]).
     GuardedAreaTransfer,
+    /// MATM, mode 15, `[[source: ecma48]]` 7.2.12 ([`AreaCount`]).
+    MultipleAreaTransfer,
+    /// TTM, mode 16, 7.2.18 ([`TransferEnd`]).
+    TransferTermination,
+    /// SATM, mode 17, 7.2.14 ([`AreaSelection`]).
+    SelectedAreaTransfer,
     Other(Param),
 }
 
@@ -195,6 +201,9 @@ impl AnsiMode {
             9 => AnsiMode::DeviceComponentSelect,
             10 => AnsiMode::CharacterEditing,
             1 => AnsiMode::GuardedAreaTransfer,
+            15 => AnsiMode::MultipleAreaTransfer,
+            16 => AnsiMode::TransferTermination,
+            17 => AnsiMode::SelectedAreaTransfer,
             n => AnsiMode::Other(Param(n)),
         }
     }

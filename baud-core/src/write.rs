@@ -2981,6 +2981,8 @@ fn esc_final(
         }
         Esc::StartGuardedArea => p.start_guarded_area(),
         Esc::EndGuardedArea => p.end_guarded_area(),
+        Esc::StartSelectedArea => p.start_selected_area(),
+        Esc::EndSelectedArea => p.end_selected_area(),
         Esc::MemoryLock => p.memory_lock(),
         Esc::MemoryUnlock => p.memory_unlock(),
 

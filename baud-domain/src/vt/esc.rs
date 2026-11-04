@@ -86,6 +86,25 @@ pub enum Esc {
     /// presentation position is the last of a string of character positions
     /// in the presentation component" whose beginning SPA indicates.
     EndGuardedArea,
+    /// SSA -- Start of Selected Area, `ESC F` (`86` as a C1).
+    ///
+    /// `[[source: ecma48]]` 8.3.138: "SSA is used to indicate that the
+    /// active presentation position is the first of a string of character
+    /// positions in the presentation component, the contents of which are
+    /// eligible to be transmitted in the form of a data stream or
+    /// transferred to an auxiliary input/output device. The end of this
+    /// string is indicated by END OF SELECTED AREA (ESA)." Only ECMA-48's
+    /// meaning: HP's cursor to the lower left corner, which xterm keeps
+    /// behind its `hpLowerleftBugCompat` resource (`[[source: ctlseqs]]`),
+    /// is not this. VT52 mode never reaches this table: its `ESC F` enters
+    /// graphics mode.
+    StartSelectedArea,
+    /// ESA -- End of Selected Area, `ESC G` (`87` as a C1).
+    ///
+    /// 8.3.47: "ESA is used to indicate that the active presentation
+    /// position is the last of a string of character positions" whose
+    /// beginning SSA indicates.
+    EndSelectedArea,
     /// HTJ -- Character Tabulation with Justification, `ESC I` (`89` as a
     /// C1; `[[source: ecma48]]` 8.3.61): "the contents of the active field
     /// ... shifted forward so that it ends at the character position
@@ -152,6 +171,8 @@ impl Esc {
             b'Z' => Esc::Identify,
             b'V' => Esc::StartGuardedArea,
             b'W' => Esc::EndGuardedArea,
+            b'F' => Esc::StartSelectedArea,
+            b'G' => Esc::EndSelectedArea,
             b'I' => Esc::TabJustify,
 
             b'6' => Esc::BackIndex,

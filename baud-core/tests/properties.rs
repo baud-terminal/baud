@@ -1335,6 +1335,26 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // A selected area around two letters, and the three modes that choose
+    // what a print takes of it, set and reset.
+    Atom {
+        name: "ssa-esa",
+        bytes: b"\x1bFab\x1bG",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "area-modes-set",
+        bytes: b"\x1b[15;16;17h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "area-modes-reset",
+        bytes: b"\x1b[15;16;17l",
+        stride: 0,
+        count: 0,
+    },
     Atom {
         name: "alt1049-enter",
         bytes: b"\x1b[?1049h",
@@ -1919,6 +1939,29 @@ fn the_memory_lock_atoms_move_the_top_margin() {
         assert_eq!(t.scroll_region(), (Row::ZERO, Row::from_index(8)));
         assert_eq!(t.cursor(), (Row::from_index(5), Col::ZERO));
     });
+}
+
+/// **The selected area atoms reach SSA, ESA and the three modes**: none
+/// is counted, the area's letters are written where they go, and DECRQM
+/// answers each mode set, then reset.
+#[test]
+fn the_selected_area_atoms_reach_ssa_esa_and_the_modes() {
+    fed("ssa-esa", &|t| {
+        assert_eq!(t.unsupported, 0);
+        assert_eq!(t.cursor(), (Row::ZERO, Col::at_index(2)));
+    });
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    for (atom_name, want) in [("area-modes-set", 1), ("area-modes-reset", 2)] {
+        support::feed(&mut t, &bytes_of(&[atom(atom_name)]));
+        for m in [15, 16, 17] {
+            t.clear_reply();
+            support::feed(&mut t, format!("\x1b[{m}$p").as_bytes());
+            assert_eq!(t.reply(), format!("\x1b[{m};{want}$y").as_bytes());
+        }
+    }
+    assert_eq!(t.unsupported_param, 0);
 }
 
 /// **The ReGIS atoms reach ReGIS**, the control the guard atoms have:

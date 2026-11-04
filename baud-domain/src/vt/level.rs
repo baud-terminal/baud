@@ -462,12 +462,15 @@ impl Esc {
             Esc::LockingShift1Right => Function::Ls1r,
             Esc::LockingShift2Right => Function::Ls2r,
             Esc::LockingShift3Right => Function::Ls3r,
-            // ECMA-48's VTS, SPA, EPA and HTJ; ST, which performs nothing
-            // here; HP's memory lock and unlock, which no DEC level names.
+            // ECMA-48's VTS, SPA, EPA, SSA, ESA and HTJ; ST, which performs
+            // nothing here; HP's memory lock and unlock, which no DEC level
+            // names.
             Esc::LineTabSet
             | Esc::StringTerminator
             | Esc::StartGuardedArea
             | Esc::EndGuardedArea
+            | Esc::StartSelectedArea
+            | Esc::EndSelectedArea
             | Esc::TabJustify
             | Esc::MemoryLock
             | Esc::MemoryUnlock
@@ -490,6 +493,9 @@ impl AnsiMode {
             | AnsiMode::DeviceComponentSelect
             | AnsiMode::CharacterEditing
             | AnsiMode::GuardedAreaTransfer
+            | AnsiMode::MultipleAreaTransfer
+            | AnsiMode::TransferTermination
+            | AnsiMode::SelectedAreaTransfer
             | AnsiMode::Other(_) => return None,
         })
     }

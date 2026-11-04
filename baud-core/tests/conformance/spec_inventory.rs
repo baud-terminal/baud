@@ -746,6 +746,17 @@ fn every_spec_esc_form_is_handled_or_counted() {
             "HP's memory unlock puts the top margin on the first line, where \
              the prepared state has it (baud-core/tests/memory_lock.rs)",
         ),
+        (
+            b'F',
+            "SSA records where a selected area starts; nothing is selected \
+             until ESA, and only a print reads it \
+             (baud-core/tests/selected_area.rs)",
+        ),
+        (
+            b'G',
+            "ESA with no SSA open ends no area, which is the whole of its \
+             effect from the prepared state (baud-core/tests/selected_area.rs)",
+        ),
     ];
 
     let (bare, probed) = (snapshot(b"", false), snapshot(b"", true));
