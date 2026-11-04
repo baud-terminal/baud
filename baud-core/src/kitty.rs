@@ -94,8 +94,14 @@ impl Paint<'_, '_> {
                 false => 1,
             };
             let (view, clusters, tmpl) = (&self.view, &*self.clusters, &*self.tmpl);
-            let cells = (0..self.cols.index())
-                .map(|c| placeholder_cell(clusters, tmpl, view.get(row, Col::at_index(c))));
+            let cells = (0..self.cols.index()).map(|c| {
+                placeholder_cell(
+                    clusters,
+                    tmpl,
+                    RowStyles::Live,
+                    view.get(row, Col::at_index(c)),
+                )
+            });
             let line = at.top.plus(Rows::of_count(r));
             for run in PlaceholderRuns::new(cells) {
                 let col = Col::at_index(run.at.index() * stretch);
@@ -294,6 +300,7 @@ impl Term<'_> {
 pub(crate) fn placeholder_cell(
     clusters: &ClusterStore<'_>,
     tmpl: &[Option<StyleWord>],
+    styles: RowStyles<'_>,
     c: PackedCell,
 ) -> PlaceholderCell {
     let base = clusters.base_of(c.content);
@@ -304,7 +311,7 @@ pub(crate) fn placeholder_cell(
         Some(m) => m,
         None => PlaceholderMarks::read(clusters.marks_of(c.content)),
     };
-    let style = tmpl[c.style.index()].unwrap_or(StyleWord::DEFAULT);
+    let style = styles.word(tmpl, c.style);
     PlaceholderCell::Placeholder {
         marks,
         fg: style.fg(),

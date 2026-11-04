@@ -68,6 +68,9 @@ pub struct Scrollback<'a> {
     ring: Rows,
     rot: RowRot,
     len: Rows,
+    /// The primary's generations and the window's top line, when any line
+    /// may be frozen (`crate::frozen`).
+    frozen: Option<(crate::FrozenRows<'a>, crate::LineIdx)>,
 }
 
 /// The blank `row` is uniform in from its mark to `width`, the live width
@@ -102,6 +105,33 @@ impl<'a> Scrollback<'a> {
             ring,
             rot,
             len,
+            frozen: None,
+        }
+    }
+
+    /// The same lines, read through the primary's generations: `top` is the
+    /// window's top line, so line `n` back is `top - 1 - n`.
+    pub fn with_frozen(self, rows: crate::FrozenRows<'a>, top: crate::LineIdx) -> Scrollback<'a> {
+        Scrollback {
+            frozen: rows.any().then_some((rows, top)),
+            ..self
+        }
+    }
+
+    /// **Which table a retained line's cells name rendition ids in**, `back`
+    /// lines before the newest: the live table, or the words of the
+    /// generation the line was frozen into. A reader that resolves a line's
+    /// cells asks this, never the live table alone.
+    pub fn styles(&self, back: Back) -> crate::RowStyles<'a> {
+        match self.frozen {
+            Some((f, top)) if back.0 < self.len.index() => {
+                let p = self.rot.retreat(back.0 + 1, self.ring);
+                match top.minus(Rows::of_count(back.0 + 1)) {
+                    Some(l) => f.styles(p, l),
+                    None => crate::RowStyles::Live,
+                }
+            }
+            _ => crate::RowStyles::Live,
         }
     }
 

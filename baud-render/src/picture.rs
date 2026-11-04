@@ -50,6 +50,7 @@
 use baud_core::Term;
 use baud_domain::{Col, ColorWord, Cols, PackedCell, Row, Rows, Video, Viewport};
 
+use crate::frozen::Words;
 use crate::units::Tally;
 
 /// How many distinct background colours a block of set backgrounds holds
@@ -128,9 +129,16 @@ pub struct Pictures {
 /// The background a cell draws with under `video`, when the application set
 /// it -- the foreground under exactly one of `SGR 7` and `?5`, each of which
 /// exchanges them. The same test as [`crate::Theme::set_bg`], on the colour
-/// word rather than a yes or no.
-fn drawn_bg(term: &Term<'_>, cell: PackedCell, video: Video) -> Option<ColorWord> {
-    let s = term.style_of(cell);
+/// word rather than a yes or no. Its rendition is read where its id names
+/// it (`words`, `crate::frozen`): a picture in history the core froze is
+/// found in its own colours.
+fn drawn_bg(
+    term: &Term<'_>,
+    (words, x): (Words<'_>, Col),
+    cell: PackedCell,
+    video: Video,
+) -> Option<ColorWord> {
+    let s = words.word(term, x, cell);
     let (_, w) = video.drawn(s.attrs(), s.fg(), s.bg());
     (!w.is_default()).then_some(w)
 }
@@ -161,11 +169,38 @@ impl Pictures {
     /// The frame before is kept, so [`Pictures::row_changed`] can say which
     /// rows a picture appeared on, moved across or left.
     pub fn find(&mut self, term: &Term<'_>, view: &Viewport<'_>, video: Video) -> Tally {
+        self.find_in(term, view, |y| Words::Row(view.styles(y)), video)
+    }
+
+    /// [`Pictures::find`] over a frame's copy whose frozen cells were lent
+    /// slots (`crate::Lent`): each cell read through the words its slot
+    /// was lent for.
+    pub fn find_lent(
+        &mut self,
+        term: &Term<'_>,
+        view: &Viewport<'_>,
+        lent: &crate::Lent,
+        video: Video,
+    ) -> Tally {
+        self.find_in(term, view, |_| lent.words(), video)
+    }
+
+    /// [`Pictures::find`], each row's cells read through `words`.
+    pub(crate) fn find_in<'w>(
+        &mut self,
+        term: &Term<'_>,
+        view: &Viewport<'_>,
+        words: impl Fn(Row) -> Words<'w>,
+        video: Video,
+    ) -> Tally {
         self.begin(view.cols(), view.rows());
         let (cols, rows) = (view.cols().index(), view.rows().index());
         let mut above = 0..0;
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
+            let words = words(Row::from_index(y));
+            let drawn_bg =
+                |x: usize, cell: PackedCell| drawn_bg(term, (words, Col::at_index(x)), cell, video);
             let first = self.runs.len();
             // Where the scan of the row above resumes: the first of its
             // runs that ends past the current run's start. Runs are sorted
@@ -173,7 +208,7 @@ impl Pictures {
             let mut resume = above.start;
             let mut x = 0;
             while x < cols {
-                let Some(c) = row.get(x).and_then(|&cell| drawn_bg(term, cell, video)) else {
+                let Some(c) = row.get(x).and_then(|&cell| drawn_bg(x, cell)) else {
                     x += 1;
                     continue;
                 };
@@ -183,7 +218,7 @@ impl Pictures {
                 let mut prev = c;
                 x += 1;
                 while x < cols {
-                    let Some(c) = row.get(x).and_then(|&cell| drawn_bg(term, cell, video)) else {
+                    let Some(c) = row.get(x).and_then(|&cell| drawn_bg(x, cell)) else {
                         break;
                     };
                     // A run of one colour is the common case in a panel;

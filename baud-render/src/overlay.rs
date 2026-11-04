@@ -23,6 +23,7 @@ use crate::cellmap::{
     Swaps,
 };
 use crate::color::Argb;
+use crate::frozen::Words;
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
 use crate::picture::{Pictured, Pictures};
@@ -683,7 +684,15 @@ impl Overlay {
         let view = &scene.view;
         let (cols, rows) = (view.cols(), view.rows());
         self.stats.pictured = if find == Find::Pictures && r.theme().finds_pictures() {
-            self.pictures.find(scene.term, view, r.video())
+            // The frame's copy, read through its lent slots' words where it
+            // lent any, else each row through its own table.
+            let frame = r.frame_held();
+            let lent = !frame.words().is_live();
+            let words = |y: Row| match lent {
+                true => frame.words(),
+                false => Words::Row(view.styles(y)),
+            };
+            self.pictures.find_in(scene.term, view, words, r.video())
         } else {
             self.pictures.clear(cols, rows);
             Tally::default()
@@ -743,6 +752,8 @@ impl Overlay {
         pictures: &Pictures,
     ) {
         let (term, view, styles, cursor) = (scene.term, scene.view, scene.styles, scene.cursor);
+        // The words the frame's lent slots name (`crate::frozen`).
+        let frame = r.frame_held();
         self.over.clear();
         self.emitted.clear();
         records.clear();
@@ -854,7 +865,13 @@ impl Overlay {
         // every cell masked and marked sized, so the shader draws their
         // backgrounds from half the column and nothing else of them.
         let mut sized = core::mem::take(&mut self.sized);
-        r.sized_lines(term, &view, cursor, scene.composition, &mut sized);
+        r.sized_lines(
+            term,
+            (&view, scene.styles),
+            cursor,
+            scene.composition,
+            &mut sized,
+        );
         let (cell_h, pan) = (
             i32::try_from(geom.m.cell_h.value()).unwrap_or(0),
             i32::try_from(geom.pan.value()).unwrap_or(0),
@@ -1143,7 +1160,7 @@ impl Overlay {
             };
             let logical = |v: Col| orders.logical_col(at, v);
             let find = || {
-                let (parted, letters) = crate::syllable::walk(term, row, logical);
+                let (parted, letters) = crate::syllable::walk((term, frame.words()), row, logical);
                 let words = match letters {
                     crate::word::Letters::Seen => {
                         crate::word::of_row(term, row, logical, &parted, |x| {
@@ -1540,7 +1557,7 @@ impl Overlay {
         let mut cps = vec![cp];
         let (lean, style) = slant_at(r, paint, at, crate::cellmap::face_of(styles, cell));
         let mut key = ClusterKey::start().word(style.code()).fold(cp);
-        for mk in crate::renderer::drawn_marks(term, cell) {
+        for mk in crate::renderer::drawn_marks(term, r.frame_held().words(), cell) {
             if let Some(c) = Codepoint::new(mk) {
                 cps.push(c);
                 key = key.fold(c);
@@ -1767,7 +1784,7 @@ impl Overlay {
             if c.content.is_wide_tail() {
                 continue;
             }
-            for cp in crate::renderer::cell_cps(term, *c) {
+            for cp in crate::renderer::cell_cps(term, r.frame_held().words(), *c) {
                 key = key.fold(cp);
                 cps.push(cp);
             }
@@ -1819,7 +1836,7 @@ impl Overlay {
         let (x, y) = at;
         let row = scene.view.row(Row::from_index(y));
         let cell = row[x];
-        let mut cps = crate::renderer::cell_cps(scene.term, cell);
+        let mut cps = crate::renderer::cell_cps(scene.term, r.frame_held().words(), cell);
         if let (crate::bidi::Mirrored::Under(base), Some(first)) = (m, cps.first_mut()) {
             *first = base;
         }
@@ -1894,7 +1911,8 @@ impl Overlay {
     ) {
         let (x, y) = at;
         let cell = scene.view.row(Row::from_index(y))[x];
-        let cps = crate::renderer::cell_cps(scene.term, cell);
+        let frame = r.frame_held();
+        let cps = crate::renderer::cell_cps(scene.term, frame.words(), cell);
         if cps.is_empty() {
             return;
         }
@@ -1904,7 +1922,7 @@ impl Overlay {
             key = key.fold(c);
         }
         let word = r.joined_word(
-            (scene.term, scene.styles),
+            (scene.term, scene.styles, frame.words()),
             &cps,
             style,
             (around, (Row::from_index(y), Col::at_index(x))),
@@ -2103,8 +2121,9 @@ impl Overlay {
                 return true;
             }
         };
-        let lam = crate::renderer::cell_cps(scene.term, lam_cell);
-        let alef = crate::renderer::cell_cps(scene.term, alef_cell);
+        let frame = r.frame_held();
+        let lam = crate::renderer::cell_cps(scene.term, frame.words(), lam_cell);
+        let alef = crate::renderer::cell_cps(scene.term, frame.words(), alef_cell);
         let (lean, style) = slant_at(
             r,
             paint,
@@ -2117,7 +2136,7 @@ impl Overlay {
             PairSpan::Cells(..) => Some(alef_x),
         };
         let word = r.pair_word(
-            (scene.term, scene.styles),
+            (scene.term, scene.styles, frame.words()),
             window_row,
             (lam_x, alef_at),
             face,
@@ -2363,7 +2382,8 @@ impl Overlay {
                     let style = crate::cellmap::face_of(scene.styles, *cell);
                     cps.push(cp);
                     cps.extend(
-                        crate::renderer::drawn_marks(scene.term, *cell).filter_map(Codepoint::new),
+                        crate::renderer::drawn_marks(scene.term, r.frame_held().words(), *cell)
+                            .filter_map(Codepoint::new),
                     );
                     if u32::try_from(r.face_for(&cps, style).index()).ok() != Some(face.0) {
                         entry = None;
@@ -3664,7 +3684,8 @@ impl Composition {
                 *cell = PackedCell::EMPTY;
             }
         }
-        let (parted, letters) = crate::syllable::of_row(term, &drawn, logical);
+        // The live screen's row, whose ids name the live table.
+        let (parted, letters) = crate::syllable::of_row((term, Words::LIVE), &drawn, logical);
         let words = match letters {
             crate::word::Letters::Seen => {
                 crate::word::of_row(term, &drawn, logical, &parted, |_| None)
@@ -3888,7 +3909,8 @@ pub(crate) fn composition_parts(
     };
     let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.hilite());
     let block_paint = r.block_paint();
-    let base = hinted_base(term, styles, under);
+    let frame = r.frame_held();
+    let base = hinted_base((term, frame.words()), styles, under);
     let y = c.row.index();
     let m = geom.m;
     // **Each cluster's visual cell, and the character drawn there**: laid
@@ -3963,7 +3985,12 @@ pub(crate) fn composition_parts(
                 side: Option<(usize, usize)>| {
         for v in side.into_iter().flat_map(|(at, n)| at..at + n) {
             if let Some(cell) = cell_at(v).filter(|c| !c.content.is_wide_tail()) {
-                all.push((crate::renderer::cell_cps(term, cell), v, 1, None));
+                all.push((
+                    crate::renderer::cell_cps(term, frame.words(), cell),
+                    v,
+                    1,
+                    None,
+                ));
             }
         }
     };
@@ -4103,14 +4130,16 @@ pub(crate) fn composition_parts(
     let logical_of = |v: Col| Col::at_index(shows.get(v.index()).copied().unwrap_or(v.index()));
     let grid_words = match laid {
         Laid::OnScreen => Vec::new(),
-        Laid::AsWritten => match crate::syllable::of_row(term, &grid_row, logical_of) {
-            (parted, crate::word::Letters::Seen) => {
-                crate::word::of_row(term, &grid_row, logical_of, &parted, |x| {
-                    taken.held(c.row, Col::at_index(x))
-                })
+        Laid::AsWritten => {
+            match crate::syllable::of_row((term, frame.words()), &grid_row, logical_of) {
+                (parted, crate::word::Letters::Seen) => {
+                    crate::word::of_row(term, &grid_row, logical_of, &parted, |x| {
+                        taken.held(c.row, Col::at_index(x))
+                    })
+                }
+                (_, crate::word::Letters::None) => Vec::new(),
             }
-            (_, crate::word::Letters::None) => Vec::new(),
-        },
+        }
     };
     let mut next_grid = 0usize;
     let mut last: Option<f32> = None;
@@ -4258,7 +4287,7 @@ pub(crate) fn composition_parts(
             room,
         };
         while let Some(g) = grid_words.get(next_grid).filter(|g| g.at.index() < at) {
-            let cut = crate::renderer::word_text(term, &grid_row, g);
+            let cut = crate::renderer::word_text(term, frame.words(), &grid_row, g);
             let faces = crate::word::faces_of(styles, &grid_row, g);
             last = r
                 .word_ink(
@@ -4461,7 +4490,13 @@ fn joined_pieces(
         };
         let (lam_v, lam_cps, _, style) = pieces[lam];
         let face = r.face_for(lam_cps, style);
-        let word = r.pair_word((term, styles), row, (lam_v, Some(pieces[alef].0)), face);
+        let frame = r.frame_held();
+        let word = r.pair_word(
+            (term, styles, frame.words()),
+            row,
+            (lam_v, Some(pieces[alef].0)),
+            face,
+        );
         if let Some(g) = r.lam_alef(
             (lam_cps, pieces[alef].1),
             lam_form,
@@ -4527,10 +4562,16 @@ fn joined_pieces(
             true => style.upright(),
             false => style,
         };
-        let lam_cps = crate::renderer::cell_cps(term, lam_cell);
-        let alef_cps = crate::renderer::cell_cps(term, alef_cell);
+        let frame = r.frame_held();
+        let lam_cps = crate::renderer::cell_cps(term, frame.words(), lam_cell);
+        let alef_cps = crate::renderer::cell_cps(term, frame.words(), alef_cell);
         let face = r.face_for(&lam_cps, style);
-        let word = r.pair_word((term, styles), row, (lam_v, Some(alef_v)), face);
+        let word = r.pair_word(
+            (term, styles, frame.words()),
+            row,
+            (lam_v, Some(alef_v)),
+            face,
+        );
         if r.lam_alef(
             (&lam_cps, &alef_cps),
             lam_form,
@@ -4553,8 +4594,9 @@ fn joined_pieces(
             let (b, a) = r.bidi().around(row, &j);
             (b.to_vec(), a.to_vec())
         };
+        let frame = r.frame_held();
         let word = r.joined_word(
-            (term, styles),
+            (term, styles, frame.words()),
             cps,
             style,
             ((&before, &after), (row, Col::at_index(v))),
@@ -4572,10 +4614,16 @@ struct HintedBase {
     word: StyleWord,
 }
 
-fn hinted_base(term: &Term<'_>, styles: &[Resolved], under: PackedCell) -> HintedBase {
+fn hinted_base(
+    (term, words): (&Term<'_>, Words<'_>),
+    styles: &[Resolved],
+    under: PackedCell,
+) -> HintedBase {
     HintedBase {
         resolved: styles.get(under.style.index()).copied().unwrap_or_default(),
-        word: term.style_of(under),
+        // Its word where its id names it: a cell of the frame's copy may
+        // name a slot lent a frozen row (`crate::frozen`).
+        word: words.word(term, Col::ZERO, under),
     }
 }
 
@@ -4698,7 +4746,8 @@ fn sized_composition(
     let top = box_top(size, band);
     let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.hilite());
     let block_paint = r.block_paint();
-    let base = hinted_base(term, styles, under);
+    let frame = r.frame_held();
+    let base = hinted_base((term, frame.words()), styles, under);
     let fit = |inst: Instance, out: &mut Vec<Instance>, over: &mut Vec<Instance>| match st.y() {
         1 => {
             let (a, i) = inst.cut_at(Screen(i16::try_from(row_top).unwrap_or(i16::MAX)));

@@ -115,7 +115,7 @@
 //! copy.
 
 use baud_core::{BidiSupport, StatusLine, Term};
-use baud_domain::{Attrs, DecimalMark, Mirroring, Slant, Variants, forced_form};
+use baud_domain::{Attrs, DecimalMark, Mirroring, Slant, StyleWord, Variants, forced_form};
 use baud_domain::{
     Bidi, BidiClass, BidiDirection, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror,
     CharacterPath, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm,
@@ -127,6 +127,7 @@ use baud_domain::{
 
 use std::rc::Rc;
 
+use crate::frozen::{RowSource, Words};
 use crate::rebreak::{Breaker, Display, WordWrap};
 use crate::select::{Highlight, WindowLine};
 use crate::units::Tally;
@@ -251,11 +252,24 @@ pub struct Joined {
 
 /// **One cell of a joined cell's word**, read as the context its shaping
 /// reads: the cell as the grid holds it, and the form its letter takes, if
-/// it takes one other than Xn.
+/// it takes one other than Xn. A cell of a row the core froze keeps its
+/// word, read where its row names it (`crate::frozen`): its id names
+/// another table than the frame's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct WordCell {
     pub cell: PackedCell,
     pub form: Option<JoiningForm>,
+    pub word: Option<StyleWord>,
+}
+
+impl WordCell {
+    /// Where its id names its word.
+    pub(crate) fn words(&self) -> Words<'static> {
+        match self.word {
+            Some(w) => Words::Word(w),
+            None => Words::LIVE,
+        }
+    }
 }
 
 /// A position in a row's [`WordCell`]s.
@@ -751,6 +765,67 @@ impl Orders {
         StatusLine { cells, ..line }
     }
 
+    /// **Where each cell of window row `y`, in its logical order, names its
+    /// rendition id**, the window `back` lines into the history: a stored
+    /// row through its own table (`Viewport::styles`), a display line
+    /// through each run of the stored lines it shows (`crate::rebreak`).
+    pub(crate) fn row_source_logical<'t>(
+        &self,
+        term: &'t Term<'_>,
+        back: Rows,
+        y: Row,
+    ) -> RowSource<'t> {
+        let back = term.looking_back(back);
+        match &self.display {
+            Some(d) => {
+                RowSource::Runs(d.line_sources(term, back, isize::try_from(y.index()).unwrap_or(0)))
+            }
+            None => RowSource::One(term.view(back).styles(y)),
+        }
+    }
+
+    /// **Where each cell of window row `y` names its rendition id, in the
+    /// order it is drawn**: [`Orders::row_source_logical`]'s runs at the
+    /// columns this row's order draws their cells at, so a copy of the
+    /// window in drawn order ([`Orders::window`]) is read cell for cell.
+    pub fn row_source<'t>(&self, term: &'t Term<'_>, back: Rows, y: Row) -> RowSource<'t> {
+        let src = self.row_source_logical(term, back, y);
+        let RowSource::Runs(runs) = &src else {
+            return src;
+        };
+        if !self.reordered(y) {
+            return src;
+        }
+        let mut out: Vec<(core::ops::Range<usize>, baud_domain::RowStyles<'t>)> = Vec::new();
+        for v in 0..self.cols.index() {
+            let l = self.logical_col(y, Col::at_index(v)).index();
+            let s = runs
+                .iter()
+                .find(|(r, _)| r.contains(&l))
+                .map_or(baud_domain::RowStyles::Live, |(_, s)| *s);
+            match out.last_mut() {
+                Some((r, last)) if r.end == v && last.serial() == s.serial() => r.end = v + 1,
+                _ => out.push((v..v + 1, s)),
+            }
+        }
+        RowSource::Runs(out)
+    }
+
+    /// **Whether a cell of the window `back` lines up names a row the core
+    /// froze** (`crate::frozen`), a display line's included: no row at all
+    /// while the core has frozen nothing, which one test answers.
+    pub fn window_frozen(&self, term: &Term<'_>, back: Rows) -> bool {
+        let back = term.looking_back(back);
+        let vp = term.view(back);
+        if !vp.any_frozen() {
+            return false;
+        }
+        match &self.display {
+            Some(d) => d.any_frozen(term, back),
+            None => (0..vp.rows().index()).any(|y| !vp.styles(Row::from_index(y)).is_live()),
+        }
+    }
+
     /// **The window as the cell path reads it**: the core's own view when
     /// no row is reordered, else every row copied into `cells` at the
     /// window's width, each in its drawn order, with its extent in `used`.
@@ -768,7 +843,9 @@ impl Orders {
         if self.any == Any::No {
             return vp;
         }
-        self.copied(&vp, cells, used)
+        // Each row the core's own row, permuted within it, so it names the
+        // ids that row names, in that row's table (`Viewport::styles`).
+        self.copied(&vp, cells, used).styled_from(&vp)
     }
 
     /// Every row of `vp` copied into `cells` in its drawn order, with its
@@ -828,6 +905,8 @@ struct ParaRow<'t> {
     /// The side margins the row wrapped at, where it wrapped at margins
     /// narrower than the page ([`baud_domain::WrapMargins`]).
     margins: Option<baud_domain::WrapMargins>,
+    /// Where its cells name their ids (`crate::frozen`).
+    words: Words<'t>,
 }
 
 /// **A run of a row's cells outside the side margins its paragraph is
@@ -1016,6 +1095,18 @@ pub struct Reorder {
     /// state of the layout that draws it ([`crate::rebreak`]).
     wrap: WordWrap,
     breaker: Breaker,
+    /// **Where the rows laid out name their cells' ids**: each its own
+    /// table, or, for the window's display, each display line's runs of
+    /// the stored lines it shows, `back` lines into the history.
+    sourced: Sourced,
+}
+
+/// Whether a layout's rows are stored rows, or the window's display lines.
+#[derive(Clone, Default)]
+enum Sourced {
+    #[default]
+    Rows,
+    Window(Rc<Display>, Rows),
 }
 
 /// Where a paragraph's context lies: in the rows around the window, read
@@ -1157,7 +1248,13 @@ impl Holds {
 impl Seen {
     /// What row `y`, `cells`, holds: the kept answers when the row is the
     /// one last tested, else the test, kept.
-    fn holds(&mut self, term: &Term<'_>, row: Row, cells: &[PackedCell], work: &mut Work) -> Holds {
+    fn holds(
+        &mut self,
+        term: &Term<'_>,
+        (row, words): (Row, Words<'_>),
+        cells: &[PackedCell],
+        work: &mut Work,
+    ) -> Holds {
         let (y, n) = (row.index(), cells.len());
         if self.opens.len() <= y {
             self.opens.resize(y + 1, Opens::Unknown);
@@ -1172,24 +1269,37 @@ impl Seen {
         }
         let kept = &mut self.cells[y * n..(y + 1) * n];
         work.compared.bump();
+        // A row whose ids name a generation's words is read for its strings
+        // each time, and its answer not kept: the same ids name other words
+        // in another generation, which the compare of its cells cannot see.
+        let live = words.is_live();
         if self.opens[y] != Opens::Unknown && PackedCell::same_cells(kept, cells) {
-            if self.strung[y] == Opens::Unknown {
-                self.strung[y] = self.row_strung(term, cells);
-            }
+            let strung = match (live, self.strung[y]) {
+                (true, Opens::Unknown) => {
+                    self.strung[y] = self.row_strung(term, words, cells);
+                    self.strung[y]
+                }
+                (true, kept) => kept,
+                (false, _) => self.row_strung(term, words, cells),
+            };
             return Holds {
                 opens: self.opens[y],
                 joins: self.joins[y],
-                strung: self.strung[y],
+                strung,
                 syllables: self.syllables[y],
             };
         }
         kept.copy_from_slice(cells);
         work.tested.bump();
         let h = Holds {
-            strung: self.row_strung(term, cells),
+            strung: self.row_strung(term, words, cells),
             ..row_holds(term, cells)
         };
-        (self.opens[y], self.joins[y], self.strung[y]) = (h.opens, h.joins, h.strung);
+        (self.opens[y], self.joins[y]) = (h.opens, h.joins);
+        self.strung[y] = match live {
+            true => h.strung,
+            false => Opens::Unknown,
+        };
         self.syllables[y] = h.syllables;
         h
     }
@@ -1274,8 +1384,23 @@ impl Seen {
     /// [`Seen::string_slots`]: none until one has been begun, and none
     /// while no slot names one, so a session that never sends one reads no
     /// cell for it.
-    fn row_strung(&self, term: &Term<'_>, cells: &[PackedCell]) -> Opens {
-        if !term.strings_seen() || self.string_slots_any != Opens::Yes {
+    fn row_strung(&self, term: &Term<'_>, words: Words<'_>, cells: &[PackedCell]) -> Opens {
+        if !term.strings_seen() {
+            return Opens::No;
+        }
+        // A frozen row's ids name its generation's words, which the slots'
+        // bits do not cover: its cells read one by one.
+        if !words.is_live() {
+            return match cells
+                .iter()
+                .enumerate()
+                .any(|(x, &c)| string_of(term, words, Col::at_index(x), c) != StringId::NONE)
+            {
+                true => Opens::Yes,
+                false => Opens::No,
+            };
+        }
+        if self.string_slots_any != Opens::Yes {
             return Opens::No;
         }
         let named = |c: &PackedCell| {
@@ -1321,6 +1446,7 @@ impl Reorder {
             reach: baud_font::bytes::Count::ZERO,
             wrap: WordWrap::default(),
             breaker: Breaker::default(),
+            sourced: Sourced::Rows,
         }
     }
 
@@ -1441,6 +1567,13 @@ impl Reorder {
     /// where every draw path reads the status line's row. Nothing while
     /// no status line is shown.
     fn lay_out_status(&mut self, term: &Term<'_>, joins: Joins) {
+        // Its row is the status line's own, read through the live table.
+        let sourced = core::mem::take(&mut self.sourced);
+        self.lay_out_status_row(term, joins);
+        self.sourced = sourced;
+    }
+
+    fn lay_out_status_row(&mut self, term: &Term<'_>, joins: Joins) {
         let Some(line) = term.status_view() else {
             return;
         };
@@ -1465,11 +1598,16 @@ impl Reorder {
                 if joins == Joins::Seen
                     && self
                         .seen
-                        .holds(term, Row::ZERO, line.row(Row::ZERO), &mut self.work)
+                        .holds(
+                            term,
+                            (Row::ZERO, Words::LIVE),
+                            line.row(Row::ZERO),
+                            &mut self.work,
+                        )
                         .joins
                         == Opens::Yes
                 {
-                    self.join_shown(term, Row::ZERO, line.row(Row::ZERO));
+                    self.join_shown(term, (Row::ZERO, Words::LIVE), line.row(Row::ZERO));
                 }
             }
             BidiSupport::Implicit => self.paragraph(
@@ -1504,6 +1642,20 @@ impl Reorder {
         self.orders.joins[at] = joined;
     }
 
+    /// **Where row `y` of the view laid out names its cells' ids**, `y`
+    /// counted from the window's top, negative above it: a stored row
+    /// through `vp`'s own table for it (`Viewport::styles`), a display line
+    /// of the window through each run's.
+    fn row_source<'v>(&self, term: &'v Term<'_>, vp: &Viewport<'v>, y: isize) -> RowSource<'v> {
+        match &self.sourced {
+            Sourced::Window(d, back) => RowSource::Runs(d.line_sources(term, *back, y)),
+            Sourced::Rows => match usize::try_from(y) {
+                Ok(y) => RowSource::One(vp.styles(Row::from_index(y))),
+                Err(_) => RowSource::One(vp.back(y.unsigned_abs()).styles(Row::ZERO)),
+            },
+        }
+    }
+
     // The window's rows, without the status line.
     #[inline(always)]
     fn lay_out_window(
@@ -1519,6 +1671,10 @@ impl Reorder {
         // window, where it re-breaks one: every row below is then one of its
         // lines, read with the lines around the window it holds.
         let held = crate::rebreak::lay_out(term, back, self.wrap, &mut self.breaker);
+        self.sourced = match &held {
+            Some(d) => Sourced::Window(d.clone(), back),
+            None => Sourced::Rows,
+        };
         self.lay_out_held(term, back, held, joins, written, extent);
     }
 
@@ -1527,6 +1683,7 @@ impl Reorder {
     /// out a display: each of its lines in the order it is drawn in. What a
     /// copy in drawn order reads a re-broken paragraph's lines by (`?96`).
     pub(crate) fn lay_out_display(&mut self, term: &Term<'_>, d: Rc<Display>) {
+        self.sourced = Sourced::Rows;
         self.lay_out_held(
             term,
             Rows::ZERO,
@@ -1591,10 +1748,13 @@ impl Reorder {
             };
             for y in 0..n {
                 let r = Row::from_index(y);
-                let h = self.seen.holds(term, r, row_of(r), &mut self.work);
+                let src = self.row_source(term, &vp, isize::try_from(y).unwrap_or(0));
+                let h = self
+                    .seen
+                    .holds(term, (r, src.words()), row_of(r), &mut self.work);
                 self.orders.keep_syllables(r, written, h);
                 if h.joins == Opens::Yes {
-                    self.join_shown(term, r, row_of(r));
+                    self.join_shown(term, (r, src.words()), row_of(r));
                 }
             }
             return;
@@ -1646,6 +1806,7 @@ impl Reorder {
         let vp = term.view(term.looking_back(back));
         let nrows = vp.rows().index();
         self.orders.display = None;
+        self.sourced = Sourced::Rows;
         self.orders.cols = vp.cols();
         self.orders.any = Any::No;
         self.work = Work::default();
@@ -1701,7 +1862,7 @@ impl Reorder {
         self.work.tested.bump();
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
         if row_joins(term, cells) {
-            self.join_shown(term, r, cells);
+            self.join_shown(term, (r, Words::Row(vp.styles(r))), cells);
         }
         if term.variants_seen() {
             self.vary_joins(term, vp, r, written);
@@ -1737,8 +1898,9 @@ impl Reorder {
                 continue;
             }
             let cells = written.row(r).unwrap_or_else(|| vp.row(r));
+            let words = Words::Row(vp.styles(r));
             // One bit a cell, from the slots that name a string.
-            let strung = strings && self.seen.row_strung(term, cells) == Opens::Yes;
+            let strung = strings && self.seen.row_strung(term, words, cells) == Opens::Yes;
             let base = match line.path() {
                 CharacterPath::RightToLeft => BidiDirection::Rtl,
                 _ => BidiDirection::Ltr,
@@ -1751,7 +1913,11 @@ impl Reorder {
             // and each SDS or SRS string in its own direction inside it
             // ([`baud_domain::order_strings`]).
             let ids: Vec<StringId> = match strung {
-                true => cells.iter().map(|&c| string_of(term, c)).collect(),
+                true => cells
+                    .iter()
+                    .enumerate()
+                    .map(|(x, &c)| string_of(term, words, Col::at_index(x), c))
+                    .collect(),
                 false => vec![StringId::NONE; cells.len()],
             };
             let mut from = vec![0u16; cols];
@@ -1790,7 +1956,7 @@ impl Reorder {
                     continue;
                 }
                 let span = crate::cellmap::CellSpan::at(cells, *l);
-                let m = match unmirrored(term, cell) {
+                let m = match unmirrored(term, words, *l, cell) {
                     true => Mirror::Not,
                     false => mirror(term, cell, (line.box_mirror(), span)),
                 };
@@ -1815,13 +1981,13 @@ impl Reorder {
     /// BDSM reset: as stored, or reversed on a right-to-left line, whose
     /// joins are then found over the cells as [`Reorder::reverse_paths`]
     /// lays them out, by the visual column every draw path reads.
-    fn join_shown(&mut self, term: &Term<'_>, r: Row, cells: &[PackedCell]) {
+    fn join_shown(&mut self, term: &Term<'_>, (r, words): (Row, Words<'_>), cells: &[PackedCell]) {
         if !self.orders.reordered(r) {
-            return self.join_displayed(term, r, cells);
+            return self.join_displayed(term, (r, words), cells);
         }
         let mut shown = vec![PackedCell::EMPTY; cells.len()];
         self.orders.permute(r, cells, &mut shown);
-        self.join_displayed(term, r, &shown);
+        self.join_displayed(term, (r, words), &shown);
     }
 
     /// **The rows `first..=last` of a paragraph DECRLM wrote, joined as
@@ -1841,8 +2007,14 @@ impl Reorder {
         for y in first.index()..=last.index() {
             let r = Row::from_index(y);
             let cells = written.row(r).unwrap_or_else(|| vp.row(r));
-            if self.seen.holds(term, r, cells, &mut self.work).joins == Opens::Yes {
-                self.join_shown(term, r, cells);
+            let src = self.row_source(term, vp, isize::try_from(y).unwrap_or(0));
+            if self
+                .seen
+                .holds(term, (r, src.words()), cells, &mut self.work)
+                .joins
+                == Opens::Yes
+            {
+                self.join_shown(term, (r, src.words()), cells);
             }
         }
     }
@@ -1870,11 +2042,11 @@ impl Reorder {
 
     /// One paragraph whose drawn rows are `first..=last`: resolved, and each
     /// of those rows ordered, if any of its rows can reorder.
-    fn paragraph(
+    fn paragraph<'v>(
         &mut self,
-        term: &Term<'_>,
+        term: &'v Term<'_>,
         back: Rows,
-        vp: &Viewport<'_>,
+        vp: &Viewport<'v>,
         written: &impl Over,
         (first, last): (Row, Row),
         context: Context,
@@ -1898,9 +2070,14 @@ impl Reorder {
         let mut drawn_opens = false;
         let mut drawn_joins = false;
         let mut drawn_strung = false;
+        // Where each drawn row names its cells' ids (`crate::frozen`).
+        let sources: Vec<RowSource<'v>> = (first.index()..=last.index())
+            .map(|y| self.row_source(term, vp, isize::try_from(y).unwrap_or(0)))
+            .collect();
         for y in first.index()..=last.index() {
             let r = Row::from_index(y);
-            let h = self.seen.holds(term, r, row_of(r), &mut self.work);
+            let words = sources[y - first.index()].words();
+            let h = self.seen.holds(term, (r, words), row_of(r), &mut self.work);
             self.orders.keep_syllables(r, written, h);
             drawn_opens |= h.opens == Opens::Yes;
             drawn_joins |= h.joins == Opens::Yes;
@@ -1911,7 +2088,11 @@ impl Reorder {
         // when the paragraph reaches the window's edge -- so a paragraph
         // inside the window that holds no right-to-left character costs
         // its rows' test and nothing else.
-        type ContextRows<'c> = Vec<(&'c [PackedCell], Option<baud_domain::WrapMargins>)>;
+        type ContextRows<'c> = Vec<(
+            &'c [PackedCell],
+            Option<baud_domain::WrapMargins>,
+            RowSource<'c>,
+        )>;
         let mut above: ContextRows<'_> = Vec::new();
         if let (0, Context::Display(up, _)) = (first.index(), context) {
             let mut k = 1;
@@ -1920,7 +2101,8 @@ impl Reorder {
                 if v.wrapped(Row::ZERO) != Wrap::Continues {
                     break;
                 }
-                above.push((v.row(Row::ZERO), v.margins(Row::ZERO)));
+                let src = self.row_source(term, vp, -isize::try_from(k).unwrap_or(0));
+                above.push((v.row(Row::ZERO), v.margins(Row::ZERO), src));
                 k += 1;
             }
         }
@@ -1935,7 +2117,8 @@ impl Reorder {
                 if v.wrapped(Row::ZERO) != Wrap::Continues {
                     break;
                 }
-                above.push((v.row(Row::ZERO), v.margins(Row::ZERO)));
+                let src = RowSource::One(v.styles(Row::ZERO));
+                above.push((v.row(Row::ZERO), v.margins(Row::ZERO), src));
                 k += 1;
             }
         }
@@ -1948,7 +2131,8 @@ impl Reorder {
                 && below.len() < budget
             {
                 let at = Row::from_index(nrows - 1 + k);
-                below.push((vp.row(at), vp.margins(at)));
+                let src = self.row_source(term, vp, isize::try_from(nrows - 1 + k).unwrap_or(0));
+                below.push((vp.row(at), vp.margins(at), src));
                 k += 1;
             }
         }
@@ -1961,7 +2145,7 @@ impl Reorder {
                 // `of_count`: at `k == back` the live screen, view 0.
                 let v = term.view(Rows::of_count(back.index() - k));
                 let at = Row::from_index(nrows - 1);
-                below.push((v.row(at), v.margins(at)));
+                below.push((v.row(at), v.margins(at), RowSource::One(v.styles(at))));
                 if v.wrapped(at) != Wrap::Continues {
                     break;
                 }
@@ -1996,6 +2180,7 @@ impl Reorder {
                 cells: row_of(Row::from_index(y)),
                 window: Some(Row::from_index(y)),
                 margins: vp.margins(Row::from_index(y)),
+                words: sources[y - first.index()].words(),
             })
             .collect();
         // The drawn rows in chunks that fit, each with the context that
@@ -2036,19 +2221,21 @@ impl Reorder {
                     used = Chars(used.0 + n.0);
                     take += 1;
                 }
-                rows.extend(above[..take].iter().rev().map(|&(c, m)| ParaRow {
+                rows.extend(above[..take].iter().rev().map(|(c, m, src)| ParaRow {
                     cells: c,
                     window: None,
-                    margins: m,
+                    margins: *m,
+                    words: src.words(),
                 }));
             }
             rows.extend(drawn[start..end].iter().map(|r| ParaRow {
                 cells: r.cells,
                 window: r.window,
                 margins: r.margins,
+                words: r.words,
             }));
             if end == drawn.len() {
-                for &(c, m) in &below {
+                for (c, m, src) in &below {
                     let n = chars_of(term, c);
                     if Chars(used.0 + n.0) > cap {
                         break;
@@ -2057,7 +2244,8 @@ impl Reorder {
                     rows.push(ParaRow {
                         cells: c,
                         window: None,
-                        margins: m,
+                        margins: *m,
+                        words: src.words(),
                     });
                 }
             }
@@ -2101,9 +2289,12 @@ impl Reorder {
                 .iter()
                 .map(|row| match row.window {
                     Some(r) => {
-                        self.seen.holds(term, r, row.cells, &mut self.work).strung == Opens::Yes
+                        self.seen
+                            .holds(term, (r, row.words), row.cells, &mut self.work)
+                            .strung
+                            == Opens::Yes
                     }
-                    None => self.seen.row_strung(term, row.cells) == Opens::Yes,
+                    None => self.seen.row_strung(term, row.words, row.cells) == Opens::Yes,
                 })
                 .collect(),
             false => Vec::new(),
@@ -2168,7 +2359,11 @@ impl Reorder {
                     let mut chain = [StringId::NONE; STRING_DEPTH];
                     // A row with no string's cells are in none.
                     let n = match strung.get(p).copied().unwrap_or(false) {
-                        true => string_chain(string_of(term, cell), &entry, &mut chain),
+                        true => string_chain(
+                            string_of(term, row.words, Col::at_index(c), cell),
+                            &entry,
+                            &mut chain,
+                        ),
                         false => 0,
                     };
                     let same = (0..n.min(open_n))
@@ -2260,9 +2455,10 @@ impl Reorder {
                 .and_then(|r| r.cells.get(o.col.index()))
                 .copied()
                 .unwrap_or(PackedCell::EMPTY);
+            let words = row.map_or(Words::LIVE, |r| r.words);
             match row.and_then(|r| r.window) {
-                Some(_) => (cell, Drawn::Yes),
-                None => (cell, Drawn::No),
+                Some(_) => (cell, Drawn::Yes, words),
+                None => (cell, Drawn::No, words),
             }
         };
         if resolves == Resolves::JoinOnly {
@@ -2580,13 +2776,13 @@ impl Reorder {
     /// ending the word. A letter of the reading joined that SAPV 5-8 asks
     /// a form of is stored in that form, joined or not, so it keeps its
     /// word too. A row with none stores nothing.
-    fn store_joins(
+    fn store_joins<'w>(
         &mut self,
         term: &Term<'_>,
         (y, lines): (Row, &[core::ops::Range<usize>]),
         joined: &JoinedText,
         to: impl Fn(Col) -> Col,
-        cell_of: impl Fn(Owner) -> (PackedCell, Drawn),
+        cell_of: impl Fn(Owner) -> (PackedCell, Drawn, Words<'w>),
     ) {
         let cols = self.orders.cols.index();
         let asks = term.variants_seen();
@@ -2605,7 +2801,8 @@ impl Reorder {
                         .reading
                         .is_none_or(|r| Reading::of(self.text[t]) == r) =>
                 {
-                    match asked_form(term, cell_of(own).0) {
+                    let (cell, _, words) = cell_of(own);
+                    match asked_form(term, words, own.col, cell) {
                         Some(form) => Joined {
                             form,
                             pair: None,
@@ -2653,8 +2850,8 @@ impl Reorder {
                     }
                     (true, false) => set(lam.col, PairPart::LamWrapped(cell_of(alef).0)),
                     (false, true) => match cell_of(lam) {
-                        (cell, Drawn::Yes) => set(alef.col, PairPart::AlefWrapped(cell)),
-                        (_, Drawn::No) => {}
+                        (cell, Drawn::Yes, _) => set(alef.col, PairPart::AlefWrapped(cell)),
+                        (_, Drawn::No, _) => {}
                     },
                     (false, false) => {}
                 }
@@ -2675,14 +2872,14 @@ impl Reorder {
     /// left out, a column rule cutting the run -- from `reach` before the
     /// row's first joined cell in it to `reach` past its last, and each
     /// joined cell's place among them.
-    fn store_words(
+    fn store_words<'w>(
         &self,
         term: &Term<'_>,
         row: &mut RowJoins,
         lines: &[core::ops::Range<usize>],
         joined: &JoinedText,
         to: &impl Fn(Col) -> Col,
-        cell_of: &impl Fn(Owner) -> (PackedCell, Drawn),
+        cell_of: &impl Fn(Owner) -> (PackedCell, Drawn, Words<'w>),
     ) {
         let reach = usize::try_from(self.reach.value()).unwrap_or(usize::MAX);
         let varies = term.variants_seen();
@@ -2734,9 +2931,13 @@ impl Reorder {
                         true => word_cell_drawn(term, o, cell_of),
                         false => cell_of(o).0,
                     };
+                    // A frozen row's cell keeps its word: its id names its
+                    // generation's, not the frame's table.
+                    let words = cell_of(o).2;
                     row.words.push(WordCell {
                         cell,
                         form: joined.forms[t].map(|j| j.form),
+                        word: (!words.is_live()).then(|| words.word(term, o.col, cell)),
                     });
                 }
                 for i in mine {
@@ -2764,7 +2965,12 @@ impl Reorder {
     /// 13.5, `[[source: unicode-ch14]]` 14.4): the row is read a second
     /// time in its stored order for them, and no letter joins one of the
     /// other reading ([`Reading`]).
-    fn join_displayed(&mut self, term: &Term<'_>, r: Row, cells: &[PackedCell]) {
+    fn join_displayed(
+        &mut self,
+        term: &Term<'_>,
+        (r, words): (Row, Words<'_>),
+        cells: &[PackedCell],
+    ) {
         let end = row_end(cells).index();
         self.displayed_text(term, cells, (0..end).rev(), Reading::RightToLeft);
         let ltr = self
@@ -2775,7 +2981,7 @@ impl Reorder {
         let line = 0..self.text.len();
         let cell_of = |o: Owner| {
             let cell = cells.get(o.col.index()).copied();
-            (cell.unwrap_or(PackedCell::EMPTY), Drawn::Yes)
+            (cell.unwrap_or(PackedCell::EMPTY), Drawn::Yes, words)
         };
         self.store_joins(
             term,
@@ -3028,30 +3234,29 @@ fn mirror(
     }
 }
 
-/// **The SDS or SRS string `cell` was written in** ([`StringId`]).
-pub(crate) fn string_of(term: &Term<'_>, cell: PackedCell) -> StringId {
-    term.styles()
-        .get(cell.style.index())
-        .copied()
-        .flatten()
-        .map_or(StringId::NONE, |w| w.string())
+/// **The SDS or SRS string `cell`, at column `col` of a row whose ids name
+/// `words`, was written in** ([`StringId`]).
+pub(crate) fn string_of(term: &Term<'_>, words: Words<'_>, col: Col, cell: PackedCell) -> StringId {
+    words.word(term, col, cell).string()
 }
 
-/// **The SAPV variants cell `cell` was written under**: the default
-/// presentation where its rendition names none.
-fn variants_of(term: &Term<'_>, cell: PackedCell) -> Variants {
-    term.styles()
-        .get(cell.style.index())
-        .copied()
-        .flatten()
-        .map_or(Variants::DEFAULT, |w| w.variants())
+/// **The SAPV variants cell `cell` was written under**, read as
+/// [`string_of`] reads its string: the default presentation where its
+/// rendition names none.
+fn variants_of(term: &Term<'_>, words: Words<'_>, col: Col, cell: PackedCell) -> Variants {
+    words.word(term, col, cell).variants()
 }
 
 /// **The form SAPV 5-8 asks of `cell`'s letter**, as [`forced_form`]
 /// gives it: none where its variant asks none, or under 18 and 19, which
 /// join nothing.
-fn asked_form(term: &Term<'_>, cell: PackedCell) -> Option<JoiningForm> {
-    let var = variants_of(term, cell);
+fn asked_form(
+    term: &Term<'_>,
+    words: Words<'_>,
+    col: Col,
+    cell: PackedCell,
+) -> Option<JoiningForm> {
+    let var = variants_of(term, words, col, cell);
     if var.is_default() || !var.joins() {
         return None;
     }
@@ -3068,11 +3273,11 @@ fn asked_form(term: &Term<'_>, cell: PackedCell) -> Option<JoiningForm> {
 /// vertical axis"), `[[source: ecma48]]` 8.3.108; TR/53's worked example 1
 /// pairs SAPV 3 with EXPLICIT. With BDSM set, L4 governs: "mirroring must
 /// be done according to rule L4" (`[[source: uax9-bidi]]` section 7).
-fn unmirrored(term: &Term<'_>, cell: PackedCell) -> bool {
+fn unmirrored(term: &Term<'_>, words: Words<'_>, col: Col, cell: PackedCell) -> bool {
     if !term.variants_seen() {
         return false;
     }
-    let v = variants_of(term, cell);
+    let v = variants_of(term, words, col, cell);
     if v.is_default() {
         return false;
     }
@@ -3095,15 +3300,12 @@ fn unmirrored(term: &Term<'_>, cell: PackedCell) -> bool {
 
 /// **Whether `cell` holds a character written italic under SAPV 17**: a
 /// wide character's tail holds none, its lead drawing it.
-pub(crate) fn slanted(term: &Term<'_>, cell: PackedCell) -> bool {
+pub(crate) fn slanted(term: &Term<'_>, words: Words<'_>, col: Col, cell: PackedCell) -> bool {
     if cell.content.is_empty() || cell.content.is_wide_tail() {
         return false;
     }
-    term.styles()
-        .get(cell.style.index())
-        .copied()
-        .flatten()
-        .is_some_and(|w| w.variants().slant() == Slant::ByDirection && w.attrs().has(Attrs::ITALIC))
+    let w = words.word(term, col, cell);
+    w.variants().slant() == Slant::ByDirection && w.attrs().has(Attrs::ITALIC)
 }
 
 /// An ASCII digit, for a decimal number's mark.
@@ -3119,13 +3321,14 @@ fn is_digit(cell: Option<&PackedCell>) -> bool {
 /// (value 10). A cell carrying a mark is drawn as stored.
 fn varied(
     term: &Term<'_>,
+    (words, col): (Words<'_>, Col),
     cell: PackedCell,
     (before, after): (Option<&PackedCell>, Option<&PackedCell>),
 ) -> Option<Content> {
     if cell.flags.is_marked() {
         return None;
     }
-    let v = variants_of(term, cell);
+    let v = variants_of(term, words, col, cell);
     if v.is_default() {
         return None;
     }
@@ -3150,12 +3353,12 @@ fn varied(
 /// Out of line, as [`Reorder::vary_rows`] is: a program that never sends
 /// SAPV never calls it.
 #[inline(never)]
-fn word_cell_drawn(
+fn word_cell_drawn<'w>(
     term: &Term<'_>,
     o: Owner,
-    cell_of: &impl Fn(Owner) -> (PackedCell, Drawn),
+    cell_of: &impl Fn(Owner) -> (PackedCell, Drawn, Words<'w>),
 ) -> PackedCell {
-    let cell = cell_of(o).0;
+    let (cell, _, words) = cell_of(o);
     let at = |c: usize| {
         cell_of(Owner {
             col: Col::at_index(c),
@@ -3165,7 +3368,7 @@ fn word_cell_drawn(
     };
     let before = o.col.index().checked_sub(1).map(at);
     let after = at(o.col.index() + 1);
-    match varied(term, cell, (before.as_ref(), Some(&after))) {
+    match varied(term, (words, o.col), cell, (before.as_ref(), Some(&after))) {
         Some(content) => PackedCell { content, ..cell },
         None => cell,
     }
@@ -3207,13 +3410,14 @@ impl Reorder {
     /// reads the drawn cell.
     fn vary_swaps(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
+        let src = self.row_source(term, vp, isize::try_from(r.index()).unwrap_or(0));
         let mut found: Vec<(Col, Content)> = Vec::new();
         for (x, &cell) in cells.iter().enumerate() {
             let around = (
                 x.checked_sub(1).and_then(|b| cells.get(b)),
                 cells.get(x + 1),
             );
-            if let Some(content) = varied(term, cell, around) {
+            if let Some(content) = varied(term, (src.words(), Col::at_index(x)), cell, around) {
                 found.push((Col::at_index(x), content));
             }
         }
@@ -3251,13 +3455,19 @@ impl Reorder {
     /// italic leans right, as the italic face draws it.
     fn vary_slants(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
+        let src = self.row_source(term, vp, isize::try_from(r.index()).unwrap_or(0));
+        let words = src.words();
         let Some(order) = self.orders.rows.get_mut(r.index()).and_then(Option::as_mut) else {
             return;
         };
         order.slants.clear();
         for (v, &l) in order.from.iter().enumerate() {
             let odd = order.level.get(v).is_some_and(|lv| lv.number() % 2 == 1);
-            if odd && cells.get(l.index()).is_some_and(|&c| slanted(term, c)) {
+            if odd
+                && cells
+                    .get(l.index())
+                    .is_some_and(|&c| slanted(term, words, l, c))
+            {
                 order.slants.push(Col::at_index(v));
             }
         }
@@ -3273,6 +3483,8 @@ impl Reorder {
     /// draws it in.
     fn vary_joins(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
+        let src = self.row_source(term, vp, isize::try_from(r.index()).unwrap_or(0));
+        let words = src.words();
         let cols = cells.len();
         let y = r.index();
         if self.orders.joins.len() <= y {
@@ -3284,13 +3496,13 @@ impl Reorder {
         });
         let mut changed = false;
         for w in &mut row.words {
-            let var = variants_of(term, w.cell);
+            let var = variants_of(term, w.words(), Col::ZERO, w.cell);
             if var.is_default() {
                 continue;
             }
             let form = match var.joins() {
                 false => None,
-                true => asked_form(term, w.cell).or(w.form),
+                true => asked_form(term, w.words(), Col::ZERO, w.cell).or(w.form),
             };
             if form != w.form {
                 w.form = form;
@@ -3302,7 +3514,7 @@ impl Reorder {
             let Some(&cell) = cells.get(l) else {
                 continue;
             };
-            let var = variants_of(term, cell);
+            let var = variants_of(term, words, Col::at_index(l), cell);
             if var.is_default() {
                 continue;
             }
@@ -3316,7 +3528,7 @@ impl Reorder {
                     changed = true;
                 }
             }
-            if let Some(form) = asked_form(term, cell) {
+            if let Some(form) = asked_form(term, words, Col::at_index(l), cell) {
                 let around = slot.map_or_else(Around::default, |j| j.around);
                 *slot = Some(Joined {
                     form,

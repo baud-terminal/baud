@@ -51,7 +51,9 @@
 use baud_core::{Focus, LINK_MAX, PointerShape, Term};
 
 use baud_domain::{Attrs, Codepoint, Col, Cols, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap};
-use baud_render::{AbsLine, Field, Hints, LinkLook, LinkSpan, Point, Scrolled, row_of};
+use baud_render::{
+    AbsLine, Field, Hints, LinkLook, LinkSpan, Point, Scrolled, row_of, row_styles_of,
+};
 use core::ops::Range;
 
 /// What an admitted target is for.
@@ -606,8 +608,11 @@ impl Window {
 
 /// What a cell reads as: its character, unless it carries marks, is
 /// empty, is in an `OSC 8` run or is concealed.
-fn unit(term: &Term<'_>, cell: PackedCell) -> Unit {
-    if term.link_uri(cell.flags.link()).is_some() || term.style_of(cell).attrs().has(Attrs::HIDDEN)
+fn unit(term: &Term<'_>, styles: baud_domain::RowStyles<'_>, cell: PackedCell) -> Unit {
+    // Through the row's own table: a line the core froze off the screen
+    // names its ids in a generation's words (`Term::style_in`).
+    if term.link_uri(cell.flags.link()).is_some()
+        || term.style_in(styles, cell).attrs().has(Attrs::HIDDEN)
     {
         return Unit::Gap;
     }
@@ -637,6 +642,7 @@ pub fn window(term: &Term<'_>, scrolled: Scrolled, line: AbsLine, col: Col) -> O
     let mut head = Edge::Line;
     let (mut l, mut cells, mut i) = (line, row, c);
     'left: loop {
+        let styles = row_styles_of(term, scrolled, l);
         while i > 0 {
             i -= 1;
             if cells[i].content.is_wide_tail() {
@@ -646,7 +652,10 @@ pub fn window(term: &Term<'_>, scrolled: Scrolled, line: AbsLine, col: Col) -> O
                 head = Edge::Cut;
                 break 'left;
             }
-            left.push((unit(term, cells[i]), Point::new(l, Col::at_index(i))));
+            left.push((
+                unit(term, styles, cells[i]),
+                Point::new(l, Col::at_index(i)),
+            ));
         }
         let Some(up) = l.above() else { break };
         match row_of(term, scrolled, up) {
@@ -660,13 +669,17 @@ pub fn window(term: &Term<'_>, scrolled: Scrolled, line: AbsLine, col: Col) -> O
     let mut tail = Edge::Line;
     let (mut l, mut cells, mut wraps, mut i) = (line, row, wrap, c);
     'right: loop {
+        let styles = row_styles_of(term, scrolled, l);
         while i < cells.len() {
             if !cells[i].content.is_wide_tail() {
                 if right.len() > MAX {
                     tail = Edge::Cut;
                     break 'right;
                 }
-                right.push((unit(term, cells[i]), Point::new(l, Col::at_index(i))));
+                right.push((
+                    unit(term, styles, cells[i]),
+                    Point::new(l, Col::at_index(i)),
+                ));
             }
             i += 1;
         }

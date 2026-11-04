@@ -42,6 +42,15 @@ pub fn with_term<R>(ws: &WinSize, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
     f(&mut t)
 }
 
+/// [`with_term`] on a storage lent no generations (`Owned::without_frozen`):
+/// a full table whose cells name every slot refuses the next rendition
+/// rather than freezing what lies off the screen.
+pub fn with_term_unfrozen<R>(ws: &WinSize, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    let mut owned = Owned::new(ws).without_frozen();
+    let mut t = Term::new(owned.storage(), ws);
+    f(&mut t)
+}
+
 /// Room to grow to `rows`, for a test that resizes upward.
 ///
 /// **`Owned::new` provisions exactly the geometry it is given**, and

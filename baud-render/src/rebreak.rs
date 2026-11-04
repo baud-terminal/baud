@@ -78,10 +78,11 @@ use std::rc::Rc;
 use baud_core::{BidiSupport, PromptLine, Screen, Term, Zone};
 use baud_domain::{
     Autodetect, Bidi, BidiClass, BidiDirection, BidiLevel, BidiProps, CharacterPath, Col, Cols,
-    LineBreak, LineRendition, PackedCell, PastEdge, Row, RowExtent, RowRot, RowWritten, Rows,
-    Stride, Viewport, Wrap, WrappedAt, is_table_rule, line_breaks,
+    LineBreak, LineRendition, PackedCell, PastEdge, Row, RowExtent, RowRot, RowStyles, RowWritten,
+    Rows, Stride, Viewport, Wrap, WrappedAt, is_table_rule, line_breaks,
 };
 
+use crate::frozen::Words;
 use crate::select::WindowLine;
 use crate::units::Tally;
 
@@ -384,6 +385,8 @@ struct Source<'t> {
     /// (`Viewport::text_past_edge`): its cells here are not all its text.
     past: PastEdge,
     window: Option<Row>,
+    /// The table its cells name their rendition ids in (`Viewport::styles`).
+    styles: RowStyles<'t>,
 }
 
 /// Where a codepoint of a paragraph's text came from: its source row and
@@ -466,6 +469,12 @@ pub struct Display {
     past_to: Vec<Option<(Row, Col)>>,
     /// For each window display line drawn as a stored row, that row.
     same: Vec<Option<Row>>,
+    /// **The stored lines each display line's cells come from**, by the same
+    /// index as `used`, as runs of its columns in their logical order: what
+    /// a reader of a cell's rendition reads it through, since a line that
+    /// joins two rows names each one's ids in its own table
+    /// (`Viewport::styles`).
+    sources: Vec<Vec<(core::ops::Range<usize>, WindowLine)>>,
     /// **For each stored window row, whether its paragraph is drawn at its
     /// words or as the terminal cut it**, wherever its lines are placed:
     /// in the window or pushed above it.
@@ -605,6 +614,38 @@ impl Display {
         self.runs.get(k).copied().flatten()
     }
 
+    /// **Where the cells of display line `y` of the window name their ids**,
+    /// a line above the window or below it by its place in
+    /// [`Display::window`]'s rows (negative above): runs of its columns in
+    /// their logical order, each through the table its stored line names
+    /// them in, for a display laid out at `back` over `term`.
+    pub(crate) fn line_sources<'t>(
+        &self,
+        term: &'t Term<'_>,
+        back: Rows,
+        y: isize,
+    ) -> Vec<(core::ops::Range<usize>, RowStyles<'t>)> {
+        let k = y + isize::try_from(self.above.index()).unwrap_or(0);
+        let Some(runs) = usize::try_from(k).ok().and_then(|k| self.sources.get(k)) else {
+            return Vec::new();
+        };
+        runs.iter()
+            .map(|(r, l)| (r.clone(), line_styles(term, back, self.rows, *l)))
+            .collect()
+    }
+
+    /// Whether any cell of the display's window lines, or of the lines
+    /// above and below them, comes from a row the core froze
+    /// (`Viewport::styles`).
+    pub(crate) fn any_frozen(&self, term: &Term<'_>, back: Rows) -> bool {
+        term.view(back).any_frozen()
+            && self
+                .sources
+                .iter()
+                .flatten()
+                .any(|(_, l)| !line_styles(term, back, self.rows, *l).is_live())
+    }
+
     /// The stored row display row `y` is a copy of, where it is one.
     pub fn same(&self, y: Row) -> Option<Row> {
         self.same.get(y.index()).copied().flatten()
@@ -621,6 +662,37 @@ impl Display {
     /// broken at a line's edge, in the window's layout.
     pub fn counts(&self) -> (Tally, Tally, Tally) {
         (self.rebroken, self.moved, self.emergency)
+    }
+}
+
+/// **Which table stored line `l` names its cells' rendition ids in**, a
+/// line counted from the top of the window `rows` tall `back` lines into the
+/// history: a window row's, or a line's above or below it, as `term`
+/// holds it (`Viewport::styles`). A line `term` no longer holds is live.
+pub(crate) fn line_styles<'t>(
+    term: &'t Term<'_>,
+    back: Rows,
+    rows: Rows,
+    l: WindowLine,
+) -> RowStyles<'t> {
+    if let Some(r) = l.row(rows) {
+        return term.view(back).styles(r);
+    }
+    if let Some(k) = WindowLine::of(Row::ZERO).since(l) {
+        let want = Rows::of_index(back.index() + k.index());
+        return match term.looking_back(want) == want {
+            true => term.view(want).styles(Row::ZERO),
+            false => RowStyles::Live,
+        };
+    }
+    let Some(last) = rows.index().checked_sub(1).map(Row::from_index) else {
+        return RowStyles::Live;
+    };
+    match l.since(WindowLine::of(last)) {
+        Some(k) if k.index() <= back.index() => term
+            .view(Rows::of_count(back.index() - k.index()))
+            .styles(last),
+        _ => RowStyles::Live,
     }
 }
 
@@ -881,6 +953,7 @@ pub(crate) fn paragraph_display(
                 used,
                 past,
                 window: Some(Row::from_index(p)),
+                styles: RowStyles::Live,
             })
             .collect(),
         lines: Vec::new(),
@@ -988,6 +1061,7 @@ fn place_window(
                     used: mark_of(&v, Row::ZERO),
                     past: v.text_past_edge(Row::ZERO),
                     window: None,
+                    styles: v.styles(Row::ZERO),
                 });
                 k += 1;
             }
@@ -1000,6 +1074,7 @@ fn place_window(
                 used: mark_of(vp, row),
                 past: vp.text_past_edge(row),
                 window: Some(row),
+                styles: vp.styles(row),
             });
         }
         // Its last row's live position: below the window when it runs on.
@@ -1022,6 +1097,7 @@ fn place_window(
                     used: mark_of(&v, at),
                     past: v.text_past_edge(at),
                     window: None,
+                    styles: v.styles(at),
                 });
                 end += 1;
                 if v.wrapped(at) != Wrap::Continues {
@@ -1127,7 +1203,10 @@ fn rebreak(term: &Term<'_>, g: &mut Group<'_>, cols: Cols, work: &mut Breaker) {
             if cell.content.is_wide_tail() {
                 continue;
             }
-            if strings && crate::bidi::string_of(term, cell) != baud_domain::StringId::NONE {
+            if strings
+                && crate::bidi::string_of(term, Words::Row(row.styles), Col::at_index(c), cell)
+                    != baud_domain::StringId::NONE
+            {
                 return;
             }
             if cell.content.is_empty() {
@@ -1379,6 +1458,7 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
         past: (Rows::ZERO, Rows::ZERO),
         past_to: Vec::new(),
         same: vec![None; nrows],
+        sources: vec![Vec::new(); total],
         rows_drawn: vec![Rebroken::No; nrows],
         starts: starts(groups, placed),
         rebroken: Tally::of(
@@ -1422,6 +1502,9 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
                 let m = n.min(src.cells.len());
                 row[..m].copy_from_slice(&src.cells[..m]);
                 d.used[k] = src.used;
+                if let Some(l) = lines_of[gi][*r] {
+                    d.sources[k].push((0..m, l));
+                }
                 if let (Some(y), Some(sr)) = (wy, src.window) {
                     d.same[y.index()] = Some(sr);
                 }
@@ -1446,6 +1529,12 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
                         break;
                     }
                     let src = &g.rows[a.row.0];
+                    if let Some(l) = lines_of[gi][a.row.0] {
+                        match d.sources[k].last_mut() {
+                            Some((run, at)) if *at == l && run.end == x => run.end = x + w,
+                            _ => d.sources[k].push((x..x + w, l)),
+                        }
+                    }
                     for i in 0..w {
                         let c = a.col.index() + i;
                         row[x + i] = src.cells.get(c).copied().unwrap_or(PackedCell::EMPTY);

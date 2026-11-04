@@ -16,6 +16,22 @@ pub enum Screen {
     Alternate,
 }
 
+/// Whether a resize held the generations' tags in the spare
+/// (`Term::frozen_held`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FrozenResize {
+    Untouched,
+    Held,
+}
+
+/// Whether a resize re-cut the primary, so each row's generation is read
+/// from where its line landed rather than from the row.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Recut {
+    No,
+    Yes,
+}
+
 /// The geometry a [`Term::resize`] goes from and to, after the clamps:
 /// what each of its steps reads.
 #[derive(Clone, Copy)]
@@ -2833,6 +2849,12 @@ impl<'b> Term<'b> {
                 BelowWindow::Goes,
             );
         }
+        // Each row's generation, held by its physical row while the steps
+        // below move the rows (`crate::freeze`).
+        let frozen = match changed {
+            true => self.frozen_held(),
+            false => FrozenResize::Untouched,
+        };
         // The window over the history, in lines from the window's top, as it
         // moves with the steps below; `None` is the live screen. Read through
         // the floor, so the steps start from a line the ring still holds.
@@ -2879,7 +2901,12 @@ impl<'b> Term<'b> {
         // The window's last rows a re-cut blanked to the new width only,
         // which the measure reads whole (`Reflowed::blanked`).
         let mut blanked = Rows::ZERO;
+        let mut recut = Recut::No;
         if cols.index() != old_cols.index() && self.primary_recuts() {
+            if frozen == FrozenResize::Held {
+                self.frozen_normalized(rows);
+                recut = Recut::Yes;
+            }
             (blanked, held) = self.resize_primary_width(g, held, &mut waited);
         }
         self.resize_growth(g);
@@ -2915,6 +2942,7 @@ impl<'b> Term<'b> {
             }
         }
         self.status_resized(old_cols);
+        self.frozen_resized(frozen, recut);
         let resized = match over {
             true => Resized::Truncated { cols, rows },
             false => Resized::Ok,
@@ -3244,8 +3272,35 @@ impl<'b> Term<'b> {
             )
         });
         let mut decsc_at: Option<(Rows, Col)> = None;
+        // **Each line's table goes where its rows land** (`crate::freeze`):
+        // read from the spare by its first row, every row of it being one
+        // table (`Term::frozen_normalized`), and written to the tags by the
+        // rows it lands on, whose lines `Term::frozen_resized` reads after.
+        let mut frz = self.store.style_log.frozen.as_mut().filter(|f| f.any());
+        let follows_frozen = frz.is_some();
+        let old_last_x = Col::at_index(old_cols.index().saturating_sub(1));
+        if let Some(f) = frz.as_mut() {
+            f.clear_tags();
+        }
         let mut hook = |from: Rows, n: Rows, land: &dyn Fn(Rows, Col) -> (Rows, Col)| {
             visited = true;
+            if let Some(f) = frz.as_mut() {
+                if let Some(g) = f.spare(oldest.advance(from.index(), ring)) {
+                    let d0 = land(from, Col::ZERO).0.index();
+                    let last = Rows::of_count(from.index() + n.index().saturating_sub(1));
+                    let d1 = land(last, old_last_x).0.index();
+                    for d in d0..=d1 {
+                        f.set_tag(
+                            oldest.advance(d, ring),
+                            Some(RowFrozen {
+                                line: LineIdx::FIRST,
+                                at: FrozenAt::History,
+                                generation: g,
+                            }),
+                        );
+                    }
+                }
+            }
             if staged > 0 {
                 images.follow_line(from, n, land);
             }
@@ -3271,10 +3326,11 @@ impl<'b> Term<'b> {
                 }
             }
         };
-        let follow: Option<Follow<'_>> = match (staged, marked, view, anchors, decsc) {
-            (0, 0, None, [None, None, None], None) => None,
-            _ => Some(&mut hook),
-        };
+        let follow: Option<Follow<'_>> =
+            match (staged, marked, view, anchors, decsc, follows_frozen) {
+                (0, 0, None, [None, None, None], None, false) => None,
+                _ => Some(&mut hook),
+            };
         let r = View::new(
             self.store.vp,
             self.store.used,
@@ -3734,7 +3790,18 @@ impl<'b> Term<'b> {
     /// and takes [`Viewport::parts`] otherwise.
     pub fn viewport(&self) -> Viewport<'_> {
         let (cells, used, ring, rot) = self.surface();
-        Viewport::new(cells, used, self.stride, self.cols, self.rows, ring, rot)
+        let v = Viewport::new(cells, used, self.stride, self.cols, self.rows, ring, rot);
+        // **A view of the primary reads its rows through the generations**
+        // (`crate::freeze`): a row behind the window that was frozen names
+        // ids in its generation's words, which `Viewport::styles` gives a
+        // reader. The alternate screen, up, is never frozen.
+        match (self.cold.screen, self.store.style_log.frozen.as_ref()) {
+            (Screen::Normal, Some(f)) if f.any() => {
+                let top = self.store.book.top;
+                v.with_frozen(f.rows(top, self.rows, PrimaryScreen::Up), top)
+            }
+            _ => v,
+        }
     }
 
     /// The screen scrolled `back` lines into the history: the window that
@@ -4062,7 +4129,7 @@ impl<'b> Term<'b> {
     /// them wrote nothing extra; empty on a storage built with
     /// [`Depth::NONE`], whose ring is the screen.
     pub fn scrollback(&self) -> Scrollback<'_> {
-        Scrollback::new(
+        let s = Scrollback::new(
             self.store.vp,
             self.store.used,
             self.stride.index(),
@@ -4070,7 +4137,235 @@ impl<'b> Term<'b> {
             self.store.ring_rows(),
             self.rot,
             self.store.book.hist,
-        )
+        );
+        // A retained line that was frozen names ids in its generation's
+        // words (`Scrollback::styles`), whichever screen is up.
+        match self.store.style_log.frozen.as_ref() {
+            Some(f) if f.any() => {
+                let top = self.store.book.top;
+                s.with_frozen(f.rows(top, self.rows, self.primary_screen()), top)
+            }
+            _ => s,
+        }
+    }
+
+    /// Whether the primary's screen is up or parked under the alternate
+    /// screen: what decides whether its screen rows may be frozen.
+    fn primary_screen(&self) -> PrimaryScreen {
+        match self.cold.screen {
+            Screen::Normal => PrimaryScreen::Up,
+            Screen::Alternate => PrimaryScreen::Parked,
+        }
+    }
+
+    /// **Which table the primary's absolute line `line` names rendition ids
+    /// in**: the live table, or the words of the generation it was frozen
+    /// into (`crate::freeze`). What a reader holding a line rather than a
+    /// view asks before it resolves the line's cells; a line the ring no
+    /// longer holds reads live.
+    pub fn line_styles(&self, line: LineIdx) -> RowStyles<'_> {
+        let Some(f) = self.store.style_log.frozen.as_ref().filter(|f| f.any()) else {
+            return RowStyles::Live;
+        };
+        let m = self.frozen_main(self.rows);
+        match m.line_of(m.phys(line)) == Some(line) {
+            true => f.rows(m.top, m.rows, m.screen()).styles(m.phys(line), line),
+            false => RowStyles::Live,
+        }
+    }
+
+    /// **What the generations hold and have done** (`crate::freeze`): the
+    /// words the pool holds, the generations alive, and the freezes, thaws
+    /// and cells rewritten. All zero on a storage lent none.
+    pub fn frozen(&self) -> FrozenReport {
+        self.store
+            .style_log
+            .frozen
+            .as_ref()
+            .map_or(FrozenReport::default(), |f| f.report())
+    }
+
+    /// The primary's window as a freeze reads it, `rows` tall.
+    fn frozen_main(&self, rows: Rows) -> crate::freeze::Main {
+        crate::freeze::Main {
+            up: match self.cold.screen {
+                Screen::Normal => crate::freeze::Up::Primary,
+                Screen::Alternate => crate::freeze::Up::Alternate,
+            },
+            rows,
+            top: self.store.book.top,
+            hist: self.store.book.hist,
+            hidden: self.store.book.hidden,
+            rot: self.rot,
+            ring: self.store.ring_rows(),
+        }
+    }
+
+    /// **Before a resize moves a row: each row's generation, where its tag
+    /// holds, kept in the spare by its physical row, and every tag
+    /// cleared.** The height step moves the window over the rows and the
+    /// re-cut moves the cells, so a tag's line and place are read again
+    /// after both (`Term::frozen_resized`). `Moved` when there was anything
+    /// to keep.
+    fn frozen_held(&mut self) -> FrozenResize {
+        let m = self.frozen_main(self.rows);
+        let Some(f) = self.store.style_log.frozen.as_mut().filter(|f| f.any()) else {
+            return FrozenResize::Untouched;
+        };
+        f.clear_spare();
+        for p in 0..m.ring.index() {
+            let p = RowRot::NONE.advance(p, m.ring);
+            let g = f
+                .tag(p)
+                .filter(|t| m.holds(p, *t))
+                .and_then(|t| f.valid(p, t.line, t.at));
+            f.set_spare(p, g);
+        }
+        f.clear_tags();
+        FrozenResize::Held
+    }
+
+    /// **Every line of the primary that spans two tables, made one**, before
+    /// a re-cut that joins its rows: a re-cut row takes cells from two source
+    /// rows, and one row resolves through one table. The line's rows are
+    /// rewritten into a new generation, its live rows on the screen too --
+    /// nothing writes during a resize, and what lands on the screen is
+    /// thawed after (`Term::frozen_resized`). A line naming more renditions
+    /// than one generation holds is cut where its table changes instead,
+    /// and counted (`FreezeCounts::lines_split`).
+    fn frozen_normalized(&mut self, rows: Rows) {
+        let m = self.frozen_main(rows);
+        let s = self.stride.index();
+        let ring = m.ring;
+        let n = m.hist.index() + m.rows.index() + m.hidden.index();
+        let base = m.rot.retreat(m.hist.index(), ring);
+        let slots = self.store.tmpl.len();
+        let used = &mut *self.store.used;
+        let cells = &mut *self.store.vp;
+        let live = &*self.store.tmpl;
+        let Some(f) = self.store.style_log.frozen.as_mut() else {
+            return;
+        };
+        let lin = |i| base.advance(i, ring);
+        let sized = |used: &[RowExtent], i| used[lin(i).index()].rendition().is_double();
+        let mut g: Option<GenIdx> = None;
+        let mut i = 0;
+        while i < n {
+            let start = i;
+            let mut k = 1;
+            if !sized(used, start) {
+                while start + k < n
+                    && used[lin(start + k - 1).index()].wrapped()
+                    && !sized(used, start + k)
+                {
+                    k += 1;
+                }
+            }
+            i += k;
+            let first = f.spare(lin(start));
+            if (start..start + k).all(|j| f.spare(lin(j)) == first) {
+                continue;
+            }
+            // One generation for the whole line, or the line cut.
+            let need = k * s + 1;
+            if g.is_some_and(|c| f.gen_room(c, slots) < need) {
+                f.finish();
+                g = None;
+            }
+            if g.is_none() && need <= slots {
+                if f.room() < need {
+                    f.reclaim();
+                }
+                g = (f.room() >= need).then(|| f.begin()).flatten();
+            }
+            match g.filter(|_| need <= slots) {
+                Some(cur) => {
+                    let mut from = None;
+                    for j in start..start + k {
+                        let p = lin(j);
+                        let src = f.spare(p);
+                        if j == start || src != from {
+                            f.forget_map();
+                            from = src;
+                        }
+                        let row = &mut cells[p.index() * s..(p.index() + 1) * s];
+                        let _ = f.refreeze_row(cur, row, src, live);
+                    }
+                    for j in start..start + k {
+                        f.set_spare(lin(j), Some(cur));
+                    }
+                    f.forget_map();
+                }
+                None => {
+                    for j in start..start + k - 1 {
+                        if f.spare(lin(j)) != f.spare(lin(j + 1)) {
+                            let p = lin(j).index();
+                            used[p] = used[p].ended();
+                        }
+                    }
+                    f.counted_split();
+                }
+            }
+        }
+        if g.is_some() {
+            f.finish();
+        }
+    }
+
+    /// **After a resize: every row's tag again, from the line it holds and
+    /// where it stands now**, its generation from the spare -- or, after a
+    /// re-cut, from where its line landed -- and the rows now on the
+    /// primary's screen, when it is up, thawed into the table.
+    fn frozen_resized(&mut self, held: FrozenResize, recut: Recut) {
+        if held == FrozenResize::Untouched {
+            return;
+        }
+        let m = self.frozen_main(self.rows);
+        let Some(f) = self.store.style_log.frozen.as_mut() else {
+            return;
+        };
+        for p in 0..m.ring.index() {
+            let p = RowRot::NONE.advance(p, m.ring);
+            let g = match recut {
+                Recut::Yes => f.tag(p).map(|t| t.generation),
+                Recut::No => f.spare(p),
+            };
+            let t = match (m.line_of(p), g) {
+                (Some(l), Some(g)) => Some(RowFrozen {
+                    line: l,
+                    at: m.at(l),
+                    generation: g,
+                }),
+                _ => None,
+            };
+            f.set_tag(p, t);
+        }
+        f.clear_spare();
+        f.moved();
+        if self.cold.screen == Screen::Normal {
+            let mut p = crate::paint::Paint::new(
+                &mut self.store,
+                self.cy,
+                self.cx,
+                self.rows,
+                self.cols,
+                self.cell_height,
+                self.cell_width,
+                self.rot,
+                self.style,
+                self.style_raw,
+                self.flags,
+                self.charset,
+                self.cluster,
+                self.last_cp,
+                &mut self.cold,
+                self.reply_len,
+                self.title_len,
+                self.icon_len,
+                self.link,
+            );
+            p.thaw_screen();
+        }
     }
 
     /// The live geometry, which a resize can change.
@@ -5014,13 +5309,25 @@ impl<'b> Term<'b> {
         self.stride
     }
 
-    /// The rendition a cell's [`StyleId`] stands for.
+    /// The rendition a cell's [`StyleId`] stands for **in the rendition
+    /// table**: a cell of the active screen's, or of a row a reader knows is
+    /// live. A cell of a row frozen off the screen names an id in its
+    /// generation's words instead (`crate::freeze`); read one of those with
+    /// [`Term::style_in`] and its row's table ([`Viewport::styles`],
+    /// [`Scrollback::styles`], [`Term::line_styles`]).
     ///
-    /// **Read the slot back rather than trusting the id.** A full table
-    /// evicts, so an id can outlive the rendition it was minted for; a
-    /// renderer that trusted it would paint a stale colour.
+    /// **Read the slot back rather than trusting the id.** A sweep frees a
+    /// slot no cell names, so an id kept from an earlier read can name a
+    /// slot that holds another rendition now.
     pub fn style_of(&self, cell: PackedCell) -> StyleWord {
         self.store.tmpl[cell.style.index()].unwrap_or(StyleWord::DEFAULT)
+    }
+
+    /// The rendition a cell of a row that resolves through `styles` stands
+    /// for: the rendition table's slot on a live row, its generation's word
+    /// on a frozen one.
+    pub fn style_in(&self, styles: RowStyles<'_>, cell: PackedCell) -> StyleWord {
+        styles.word(self.store.tmpl, cell.style)
     }
 
     /// The whole rendition table, indexed by [`StyleId`]: what a renderer
@@ -5684,13 +5991,16 @@ impl<'b> Term<'b> {
     /// one image, from the ids in the cells' foreground and underline
     /// colours, the diacritics after U+10EEEE and what a cell inherits from
     /// the one to its left. `row` is read in this borrow, as
-    /// [`Term::cluster_marks`] says.
+    /// [`Term::cluster_marks`] says, through `styles`, its row's table: the
+    /// ids are colours, and a row frozen off the screen names them in its
+    /// generation's words ([`Viewport::styles`]).
     pub fn placeholder_runs<'r>(
         &'r self,
         row: &'r [PackedCell],
+        styles: RowStyles<'r>,
     ) -> PlaceholderRuns<impl Iterator<Item = PlaceholderCell> + 'r> {
         PlaceholderRuns::new(row.iter().map(move |c| {
-            crate::kitty::placeholder_cell(&self.store.clusters, self.store.tmpl, *c)
+            crate::kitty::placeholder_cell(&self.store.clusters, self.store.tmpl, styles, *c)
         }))
     }
 

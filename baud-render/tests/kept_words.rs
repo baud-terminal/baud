@@ -468,8 +468,9 @@ fn a_row_drawn_in_another_order_is_laid_again() {
 /// **A word is laid again where a syllable's rendition names another face
 /// though its cells are the same**: the rendition table full of named
 /// slots, a word whose second half names the table's last free slot in
-/// red, and then a bold red rendition that evicts that slot -- so नल's
-/// cells name the same slot and their face is bold. The row is kept by its
+/// red, and then that half written again in a bold red rendition that
+/// takes the slot once a sweep frees it -- so नल's cells name the same slot
+/// and their face is bold. The row is kept by its
 /// cells, and its word, kept by its first syllable's face, was painted
 /// from the layout laid in the regular face; each word is kept by every
 /// cell's face, and the frame draws what a fresh renderer draws.
@@ -480,7 +481,7 @@ fn a_syllable_whose_rendition_names_another_face_lays_its_word_again() {
 
 /// **A word is laid again where a cell inside a syllable names another
 /// face**, its syllable's first cell's the same: र् and then मि in the
-/// table's last free slot, which a bold rendition then evicts, so म and ि
+/// table's last free slot, which a bold rendition then takes, so म and ि
 /// are bold and र् is not. Each glyph of र्मि is drawn from its own cell's
 /// face, so a word kept by its syllables' first cells' faces alone was
 /// painted with म and the reph-and-ि glyph regular.
@@ -489,10 +490,12 @@ fn a_cell_inside_a_syllable_that_names_another_face_lays_its_word_again() {
     evicted_lays_again("र्\x1b[38;2;200;10;10mमि", 3, "मि");
 }
 
-/// The rendition table full of named slots, `text` written at column 2 of
-/// row 1 with its tail in the table's last free slot, the cell at column
-/// `at` naming it; then a bold rendition that evicts that slot. The word
-/// lays again, and draws what a fresh renderer draws.
+/// The rendition table, lent no generations, full of named slots, `text`
+/// written at column 2 of row 1 with its tail in the table's last free slot,
+/// the cell at column `at` naming it; then the tail overwritten, so nothing
+/// names the slot, and written again in a bold rendition bucketing there,
+/// which the full table's sweep frees for it. The word lays again, and draws
+/// what a fresh renderer draws.
 fn evicted_lays_again(text: &str, at: usize, tail: &str) {
     let (regular, bold) = (
         read("baud-app/fonts/built/Regular.ttf"),
@@ -522,13 +525,14 @@ fn evicted_lays_again(text: &str, at: usize, tail: &str) {
     before.push_str("\x1b[0m");
     before.push_str(&"\n".repeat(10));
     before.push_str(&format!("\x1b[H\x1b[?25l\x1b[2;3H{text}\x1b[0m\x1b[6;1H"));
-    let mut owned = Owned::new(&WS);
+    let mut owned = Owned::new(&WS).without_frozen();
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, &before);
     assert!(
         t.styles().iter().all(Option::is_some),
         "the premise: the table is full"
     );
+    // Where the tail starts: the first cell naming the tail's slot.
     let row = |t: &Term<'_>| t.row(Row::from_index(1)).expect("a row").to_vec();
     let (slot, len) = (row(&t)[at].style, t.styles().len());
     let thief = plane
@@ -544,14 +548,29 @@ fn evicted_lays_again(text: &str, at: usize, tail: &str) {
     let mut cells = Cells::new(&mut backing);
     cells.frame(&mut r, &t, (None, None));
     let cells_before = row(&t);
+    let from = row(&t)
+        .iter()
+        .position(|c| c.style == slot)
+        .expect("the tail");
+    let blanks = " ".repeat(tail.chars().count());
+    // Refused until the full table's sweep is due, the refusals counting
+    // toward it, so the tail is written again until it takes the slot.
+    let again = format!(
+        "\x1b[2;{c}H\x1b[1;38;2;{};{};{}m{tail}\x1b[0m",
+        thief.0,
+        thief.1,
+        thief.2,
+        c = from + 1,
+    );
     feed(
         &mut t,
         &format!(
-            "\x1b[1;38;2;{};{};{}mX\x08\x1b[0m",
-            thief.0, thief.1, thief.2
+            "\x1b[2;{c}H\x1b[0m{blanks}{}\x1b[6;1H",
+            again.repeat(len / 16 + 2),
+            c = from + 1,
         ),
     );
-    assert_eq!(t.style_reclaims().evictions, 1, "the premise: it evicted");
+    assert!(t.style_reclaims().sweeps > 0, "the premise: it swept");
     assert!(
         PackedCell::same_cells(&row(&t), &cells_before),
         "the premise: the word's cells are the same"

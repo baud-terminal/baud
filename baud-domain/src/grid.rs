@@ -336,6 +336,14 @@ pub struct Viewport<'a> {
     rows: Rows,
     ring: Rows,
     rot: RowRot,
+    /// The primary's generations and the line row 0 holds, on a view of the
+    /// primary with any row frozen (`crate::frozen`); `None` reads every row
+    /// through the live table.
+    frozen: Option<(crate::FrozenRows<'a>, crate::LineIdx)>,
+    /// The rotation and the ring the frozen rows are looked up by, when
+    /// they are not this view's own: a copy of another view's rows, each in
+    /// its place ([`Viewport::styled_from`]).
+    looked_up: Option<(RowRot, Rows)>,
 }
 
 impl<'a> Viewport<'a> {
@@ -356,7 +364,52 @@ impl<'a> Viewport<'a> {
             rows,
             ring,
             rot,
+            frozen: None,
+            looked_up: None,
         }
+    }
+
+    /// **A copy of `src`'s rows reading each row through `src`'s table for
+    /// it**: row `y` here holds row `y` of `src`'s cells, in whatever order
+    /// within the row, so its ids name what `src`'s row `y` names.
+    pub fn styled_from(self, src: &Viewport<'a>) -> Viewport<'a> {
+        Viewport {
+            frozen: src.frozen,
+            looked_up: src.frozen.map(|_| (src.rot, src.ring)),
+            ..self
+        }
+    }
+
+    /// **The same view, reading its rows through the primary's
+    /// generations**: row 0 holds line `line0`. What `Term::view` builds on
+    /// the primary, so a row behind the window that was frozen resolves its
+    /// cells through its generation's words ([`Viewport::styles`]).
+    pub fn with_frozen(self, rows: crate::FrozenRows<'a>, line0: crate::LineIdx) -> Viewport<'a> {
+        Viewport {
+            frozen: rows.any().then_some((rows, line0)),
+            ..self
+        }
+    }
+
+    /// **Which table screen row `y`'s cells name rendition ids in**: the
+    /// live table, or the words of the generation the row was frozen into.
+    /// A reader resolving a cell of a view that may hold history asks this
+    /// once a row, never the live table alone.
+    pub fn styles(&self, y: Row) -> crate::RowStyles<'a> {
+        let p = match self.looked_up {
+            Some((rot, ring)) => rot.advance(y.index(), ring),
+            None => RowRot(self.phys(y.index())),
+        };
+        match self.frozen {
+            Some((f, line0)) => f.styles(p, line0.plus(Rows::of_count(y.index()))),
+            None => crate::RowStyles::Live,
+        }
+    }
+
+    /// Whether any row of this view may resolve through a generation:
+    /// `false` is every row live, without asking each.
+    pub fn any_frozen(&self) -> bool {
+        self.frozen.is_some()
     }
 
     fn phys(&self, y: usize) -> usize {
@@ -425,6 +478,13 @@ impl<'a> Viewport<'a> {
     pub fn back(&self, n: usize) -> Viewport<'a> {
         Viewport {
             rot: self.rot.retreat(n, self.ring),
+            looked_up: self.looked_up.map(|(r, ring)| (r.retreat(n, ring), ring)),
+            frozen: self.frozen.map(|(f, l)| {
+                (
+                    f,
+                    l.minus(Rows::of_count(n)).unwrap_or(crate::LineIdx::FIRST),
+                )
+            }),
             ..*self
         }
     }
@@ -2236,6 +2296,14 @@ impl<'a> View<'a> {
     /// sweep, which must see every cell that can name a slot.
     pub fn ring_cells(&self) -> &[PackedCell] {
         self.cells
+    }
+
+    /// The surface's whole buffer, to rewrite: a freeze moving rows off the
+    /// active screen into a generation, and a thaw bringing them back
+    /// (`baud-core`'s `freeze.rs`). Rendition ids only; the text and the
+    /// marks are not touched.
+    pub fn ring_cells_mut(&mut self) -> &mut [PackedCell] {
+        &mut *self.cells
     }
 
     /// Record that a cell carries entries in the marks table.

@@ -224,8 +224,11 @@ fn a_placeholder_with_other_marks_keeps_them_all() {
 
 /// The runs row `y` resolves to.
 fn runs(t: &Term<'_>, y: usize) -> Vec<PlaceholderRun> {
-    t.placeholder_runs(t.row(Row::from_index(y)).unwrap())
-        .collect()
+    t.placeholder_runs(
+        t.row(Row::from_index(y)).unwrap(),
+        t.viewport().styles(Row::from_index(y)),
+    )
+    .collect()
 }
 
 /// `(at, cells, image, placement, row, col)` of each run.

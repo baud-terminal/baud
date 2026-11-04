@@ -1101,6 +1101,27 @@ pub fn row_of<'t>(
     Some((view.row(Row::ZERO), view.wrapped(Row::ZERO)))
 }
 
+/// **Which table [`row_of`]'s row names its rendition ids in**: the live
+/// table, or the generation the core froze the line into
+/// (`Viewport::styles`). Read beside the row by a reader of its renditions.
+pub fn row_styles_of<'t>(
+    term: &'t Term<'_>,
+    scrolled: Scrolled,
+    line: AbsLine,
+) -> baud_domain::RowStyles<'t> {
+    if line.0 >= scrolled.0 {
+        let Ok(y) = usize::try_from(line.0 - scrolled.0) else {
+            return baud_domain::RowStyles::Live;
+        };
+        return term.viewport().styles(Row::from_index(y));
+    }
+    let back = Rows::of_count(usize::try_from(scrolled.0 - line.0).unwrap_or(0));
+    match term.looking_back(back) == back {
+        true => term.view(back).styles(Row::ZERO),
+        false => baud_domain::RowStyles::Live,
+    }
+}
+
 /// [`row_of`] with the row's mark -- its paragraph properties, rendition
 /// and wrap -- and whether it holds text past the live width, as the
 /// display's layout reads a row.

@@ -230,17 +230,23 @@ impl Paint<'_, '_> {
                 .flatten()
                 .map_or(StringId::NONE, |w| w.string())
         };
-        let mut last = StyleId::DEFAULT;
-        for c in self
-            .view
-            .ring_cells()
-            .iter()
-            .chain(self.other.cells.iter())
-            .chain(self.status.cells.iter())
-        {
-            if c.style != last {
-                last = c.style;
-                mark(of(c.style));
+        // **A frozen row names its string through its generation's words**
+        // (`crate::freeze`), so the rows the table serves are read through
+        // it and every word a generation holds is marked: a word some
+        // frozen cell no longer names keeps its string a little longer,
+        // which frees nothing a cell needs.
+        let mut slots = baud_domain::SlotSet::new();
+        self.mark_live(&mut slots);
+        for k in 0..tmpl.len() {
+            if slots.has(k) {
+                mark(of(StyleId::from_index(k)));
+            }
+        }
+        if let Some(f) = self.style_log.frozen.as_ref() {
+            for g in (0..f.gen_records()).filter_map(|i| f.gen_at(i)) {
+                for w in f.table(g).words() {
+                    mark(w.string());
+                }
             }
         }
         mark(self.style_raw.string());

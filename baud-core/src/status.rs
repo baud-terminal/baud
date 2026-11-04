@@ -365,6 +365,19 @@ impl Status {
     pub(crate) fn parked_style(&self) -> StyleId {
         self.park.style
     }
+
+    /// The parked display's screen: the main display's while the line is
+    /// written, what a freeze reads the primary's rows by
+    /// (`crate::freeze`).
+    pub(crate) fn park_screen(&self) -> Screen {
+        self.park.screen
+    }
+
+    /// The parked display's height: the main display's while the line is
+    /// written.
+    pub(crate) fn park_rows(&self) -> Rows {
+        self.park.rows
+    }
 }
 
 /// What the indicator shows, each true of baud, at fixed columns with a

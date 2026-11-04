@@ -47,7 +47,8 @@ fn word(i: usize, tag: u8) -> StyleWord {
 }
 
 /// 1,023 renditions on cells of their own, so every slot but the default's
-/// is named and no sweep frees one: the table is full and stays full. The
+/// is named and no sweep frees one: on a storage lent no generations, the
+/// table is full and stays full. The
 /// line feed is in the default rendition, so a scroll interns nothing.
 fn fill(t: &mut Term<'_>, tag: u8) -> Vec<u8> {
     let len = t.styles().len();
@@ -63,14 +64,14 @@ fn fill(t: &mut Term<'_>, tag: u8) -> Vec<u8> {
 }
 
 /// **A new rendition on a full table reads to its bucket's reach, not the
-/// whole table.** The table is filled with named renditions, then 512 more
-/// are minted on fresh cells: each is a miss with no empty slot to stop
-/// it, and each evicts. Reading the whole table, each read 1,024 slots;
+/// whole table.** The table, lent no generations, is filled with named
+/// renditions, then 512 more are minted on fresh cells: each is a miss with
+/// no empty slot to stop it, and each is refused. Reading the whole table, each read 1,024 slots;
 /// bounded by its bucket's reach, each reads the inline probe's 64 and a
 /// few more.
 #[test]
 fn a_miss_on_a_full_table_reads_to_its_buckets_reach() {
-    support::with_term(&SMALL, |t| {
+    support::with_term_unfrozen(&SMALL, |t| {
         let len = t.styles().len();
         assert_eq!(len, 1024, "the test is sized to the floor");
         fill(t, 21);
@@ -84,7 +85,7 @@ fn a_miss_on_a_full_table_reads_to_its_buckets_reach() {
         let r = t.style_reclaims();
         let read = t.style_probes().since(before.1);
         assert!(
-            r.evictions - before.0.evictions >= 480,
+            r.refusals - before.0.refusals >= 480,
             "the control: the 512 were misses on a full table: {r:?}"
         );
         assert!(
@@ -97,10 +98,10 @@ fn a_miss_on_a_full_table_reads_to_its_buckets_reach() {
 /// **A rendition far past its bucket is found, not interned again.** The
 /// renditions that filled the table last lie farthest past their buckets.
 /// Writing every one of them again after the table is full, each is a hit:
-/// no slot is written and nothing is evicted.
+/// no slot is written and nothing is refused.
 #[test]
 fn a_full_tables_renditions_are_found_however_far_they_lie() {
-    support::with_term(&SMALL, |t| {
+    support::with_term_unfrozen(&SMALL, |t| {
         let program = fill(t, 23);
         let before = (t.style_writes(), t.style_reclaims(), t.style_probes());
         feed(t, b"\x1b[H");
@@ -120,7 +121,7 @@ fn a_full_tables_renditions_are_found_however_far_they_lie() {
 /// sweep, and each is a hit.
 #[test]
 fn a_sweep_keeps_every_kept_rendition_findable() {
-    support::with_term(&SMALL, |t| {
+    support::with_term_unfrozen(&SMALL, |t| {
         let len = t.styles().len();
         fill(t, 25);
         let at_full = t.style_reclaims();

@@ -54,7 +54,9 @@ pub(crate) struct Stamp {
     pub(crate) scale: Option<baud_font::Scale>,
     pub(crate) grown: Tally,
     pub(crate) theme: crate::renderer::ThemeGen,
-    pub(crate) styles: Option<(TableSerial, StyleWrites)>,
+    /// The table's writes, and the lending its lent ids name
+    /// (`crate::frozen`), once SAPV makes a cell's marks its rendition's.
+    pub(crate) styles: Option<(TableSerial, StyleWrites, crate::frozen::Lending)>,
 }
 
 /// **A kept row**: where it is among [`KeptRows`]', and which row kept

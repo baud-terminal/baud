@@ -642,29 +642,43 @@ impl Default for SlotSet {
 }
 
 /// **What the rendition table has reclaimed**, counted for a reader that
-/// holds a frame. An eviction gives a slot some cell names another rendition;
-/// a sweep frees slots no cell names, which a later write can give another
-/// rendition at a position the reader's last frame showed in the old one --
-/// the cell's word unchanged and its colour not. Either way row damage
-/// cannot see it, so a reader whose count moved repaints everything
-/// ([`Reclaims::recolours_since`]).
+/// holds a frame. A sweep frees slots no cell names, which a later write can
+/// give another rendition at a position the reader's last frame showed in
+/// the old one -- the cell's word unchanged and its colour not; a freeze or
+/// a thaw rewrites the ids of rows moved into a generation or back. Either
+/// way row damage cannot see it, so a reader whose count moved repaints
+/// everything ([`Reclaims::recolours_since`]).
+///
+/// **No slot a cell names is ever given another rendition.** That was the
+/// full table's last resort, an eviction, and it recoloured the cells that
+/// named the slot: `[[source: dec-std-070]]`'s SGR, page 5-104, note 3,
+/// "In no way does the selection of current rendition affect the rendition
+/// of characters already entered into the display". What a table that has
+/// no slot to give does now is refuse the new rendition, which
+/// `[[source: ecma48]]` § 8.3.117 leaves to it: "The usable combinations of
+/// parameter values are determined by the implementation."
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Reclaims {
-    /// Renditions written over a slot a cell may name: the full table's
-    /// last resort, when even a sweep found no slot free.
-    pub evictions: u64,
+    /// Renditions a full table had no slot for, after its sweep and its
+    /// freeze: the text that followed took the default rendition, and no
+    /// cell already drawn changed.
+    pub refusals: u64,
     pub sweeps: u64,
     /// Slots a sweep emptied or made a [`StyleWord::TOMBSTONE`], over every
     /// sweep: a tombstone a sweep finds again is not counted twice.
     pub freed: u64,
+    /// Freezes and thaws that rewrote rows' rendition ids
+    /// (`crate::frozen`): the same cells name other ids in another table.
+    pub rewrites: u64,
 }
 
 impl Reclaims {
-    /// Whether a slot may name another rendition than it did at `since`: an
-    /// eviction, or a sweep that freed one. A sweep that freed nothing
-    /// changed no slot.
+    /// Whether a cell's id may name another rendition than it did at
+    /// `since`: a sweep that freed a slot, or a freeze or a thaw that
+    /// rewrote ids. A sweep that freed nothing changed no slot, and a
+    /// refusal changes none.
     pub fn recolours_since(self, since: Reclaims) -> bool {
-        self.evictions != since.evictions || self.freed != since.freed
+        self.freed != since.freed || self.rewrites != since.rewrites
     }
 }
 
@@ -681,6 +695,9 @@ pub struct SweepBook {
     /// there is one, so a table that never swept never looks.
     pub tombs: usize,
     pub swept_at: StyleWrites,
+    /// The refusals at the last sweep: a table refusing renditions writes
+    /// nothing, so [`SweepBook::due`] counts its refusals as writes.
+    pub refused_at: u64,
     pub reclaims: Reclaims,
     /// Slots read by every probe that went past the inline
     /// [`SweepBook::INLINE`], each counted whole, and by the walks behind a
@@ -701,7 +718,8 @@ impl SweepBook {
     /// table whose cells name nearly every slot is not swept a rendition at
     /// a time.
     pub fn due(&self, now: StyleWrites, len: usize) -> bool {
-        now.0.saturating_sub(self.swept_at.0) >= (len / 16) as u64
+        let refused = self.reclaims.refusals.saturating_sub(self.refused_at);
+        now.0.saturating_sub(self.swept_at.0) + refused >= (len / 16) as u64
     }
     /// Whether one more filled slot passes [`SweepBook::LOAD`].
     pub fn over_load(&self, len: usize) -> bool {
@@ -719,8 +737,13 @@ impl SweepBook {
     pub fn tomb_taken(&mut self) {
         self.tombs = self.tombs.saturating_sub(1);
     }
-    pub fn evicted(&mut self) {
-        self.reclaims.evictions += 1;
+    /// A full table had no slot for a rendition.
+    pub fn refused(&mut self) {
+        self.reclaims.refusals += 1;
+    }
+    /// A freeze or a thaw rewrote rows' ids.
+    pub fn rewrote(&mut self) {
+        self.reclaims.rewrites += 1;
     }
     /// A sweep ran, after its frees were logged at `now`: `freed` slots
     /// emptied or made tombstones, and `filled` left filled, `tombs` of them
@@ -729,6 +752,7 @@ impl SweepBook {
         self.filled = filled;
         self.tombs = tombs;
         self.swept_at = now;
+        self.refused_at = self.reclaims.refusals;
         self.reclaims.sweeps += 1;
         self.reclaims.freed += freed as u64;
     }

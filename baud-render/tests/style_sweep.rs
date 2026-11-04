@@ -3,8 +3,8 @@
 //! A sweep frees slots no cell names, and a later write can give a freed slot
 //! another rendition at a position the renderer's last frame showed in the
 //! old one: the cell's word is the same and its colour is not, so row damage
-//! cannot see it. The renderer flagged an eviction on a write past the
-//! table's length, which a sweeping table passes without evicting -- and
+//! cannot see it. The renderer flagged a reclaim on a write past the
+//! table's length, which a sweeping table passes without refusing -- and
 //! passes at its first sweep, which logs every slot it frees -- so the flag
 //! is the core's own count of what it reclaimed (`Term::style_reclaims`).
 
@@ -91,7 +91,7 @@ fn a_swept_slot_reused_in_place_is_repainted() {
     feed(&mut t, &churn(100, 2));
     let r = t.style_reclaims();
     assert!(r.sweeps >= 1, "positive control: the churn swept: {r:?}");
-    assert_eq!(r.evictions, 0);
+    assert_eq!(r.refusals, 0);
     assert_eq!(t.styles()[k.index()], None, "the sweep freed k");
     let (g, b2) = (0..=255u8)
         .flat_map(|g| (0..=255u8).map(move |b| (g, b)))
@@ -115,7 +115,7 @@ fn a_swept_slot_reused_in_place_is_repainted() {
 
 /// **A sweeping table past its length repaints only what changed.** Once
 /// the table has taken more writes than it has slots, a read that mints one
-/// rendition into a free slot -- no sweep, no eviction -- changes one row,
+/// rendition into a free slot -- no sweep, no refusal -- changes one row,
 /// and the frame dirties one row, where a flag from writes past the length
 /// would repaint them all.
 #[test]
@@ -137,7 +137,7 @@ fn a_mint_past_the_length_without_a_reclaim_dirties_one_row() {
     // cursor's row.
     let before = t.style_reclaims();
     feed(&mut t, b"\x1b[0;38;2;77;77;77mQ");
-    assert_eq!(t.style_reclaims(), before, "no sweep, no eviction");
+    assert_eq!(t.style_reclaims(), before, "no sweep, no refusal");
     let f = paint(&mut r, &mut t, &mut c, Damage::Incremental);
     assert_eq!(f.rows_dirty.value(), 1, "{f:?}");
 }

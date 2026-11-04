@@ -167,20 +167,21 @@ fn oldest_line(t: &Term<'_>) -> Vec<PackedCell> {
     sb.line(Back::of(n)).expect("the oldest line").0.to_vec()
 }
 
-/// **A full table evicts at the bucket, and the bucket of the default is
-/// slot 0.** Fill a 1,024-slot table with 1,023 distinct renditions -- every
-/// slot but the reserved one -- each on a cell of its own and kept in the
-/// history, so every slot stays named and the sweep before an eviction frees
-/// none; then intern one more that buckets to 0. The table is full, so it
-/// evicts; it must evict something other than the default, or every default
-/// cell takes its colour.
+/// **A full table never gives a named slot away, slot 0 least of all.** Fill
+/// a 1,024-slot table with 1,023 distinct renditions -- every slot but the
+/// reserved one -- each on a cell of its own and kept in the history, so every
+/// slot stays named, on a storage lent no generations; then intern one more
+/// that buckets to 0. The eviction this replaced wrote it over a slot some
+/// cell named, and over slot 0 every default cell took its colour. Refused,
+/// the last cell takes the default, and every cell already drawn keeps its
+/// rendition: `[[source: dec-std-070]]`'s SGR, page 5-104, note 3.
 #[test]
-fn a_full_table_never_evicts_slot_zero() {
+fn a_full_table_refuses_rather_than_give_a_named_slot_away() {
     let ws = WinSize {
         ws_row: 10,
         ws_col: 40,
     };
-    support::with_term(&ws, |t| {
+    support::with_term_unfrozen(&ws, |t| {
         let len = t.styles().len();
         assert_eq!(len, 1_024);
         let zero = fg_at_bucket_zero(len);
@@ -190,32 +191,99 @@ fn a_full_table_never_evicts_slot_zero() {
             .filter(|&c| c != zero);
         support::feed(t, &named_renditions(len - 1, plane));
         // The control: the table is full before the last rendition arrives,
-        // and nothing was evicted on the way, so the one after it has to.
+        // and nothing was refused on the way, so the one after it has to be.
         assert!(
             t.styles().iter().all(Option::is_some),
-            "the table is not full, so nothing below evicts"
+            "the table is not full, so nothing below refuses"
         );
-        assert_eq!(t.style_reclaims().evictions, 0);
+        let table = t.styles().to_vec();
+        assert_eq!(t.style_reclaims().refusals, 0);
         let mut last = b"\r\n".to_vec();
         last.extend(sgr_fg(zero));
         last.extend(b"Y");
         support::feed(t, &last);
-        assert_eq!(t.style_reclaims().evictions, 1, "the control: it evicted");
+        assert_eq!(t.style_reclaims().refusals, 1, "the control: it refused");
+        assert_eq!(t.styles(), &table[..], "a slot was written");
         let (_, rows) = t.geometry();
         let y = t
             .row(Row::from_index(rows.index() - 1))
             .expect("a row on the grid")[0];
-        assert_eq!(t.style_of(y).fg().as_rgb(), Some(zero));
+        assert_eq!(t.style_of(y), StyleWord::DEFAULT, "the refused rendition");
         let hello = oldest_line(t);
         assert_eq!(hello[0].content.as_codepoint(), Codepoint::new(0x68));
         for (i, c) in hello[..5].iter().enumerate() {
             assert_eq!(
                 t.style_of(*c),
                 StyleWord::DEFAULT,
-                "an eviction took the default's slot: `hello`'s column {i} changed colour"
+                "`hello`'s column {i} changed colour"
             );
         }
         assert_eq!(t.style_of(PackedCell::EMPTY), StyleWord::DEFAULT);
+    });
+}
+
+/// **With generations, the same stream freezes the history and places the
+/// last rendition**: the table passes its load, what lies off the screen
+/// moves into a generation, the sweep frees its slots, and the cell takes
+/// the colour it was written in. Every history line still reads its own.
+#[test]
+fn a_table_filled_by_the_history_freezes_it_and_places_the_rendition() {
+    let ws = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    support::with_term(&ws, |t| {
+        let len = t.styles().len();
+        let zero = fg_at_bucket_zero(len);
+        support::feed(t, b"hello\r\n");
+        let plane = (0u8..=255)
+            .flat_map(|g| (1u8..=255).map(move |b| (0u8, g, b)))
+            .filter(|&c| c != zero);
+        let colours: Vec<_> = plane.clone().take(len - 1).collect();
+        support::feed(t, &named_renditions(len - 1, plane));
+        let mut last = b"\r\n".to_vec();
+        last.extend(sgr_fg(zero));
+        last.extend(b"Y");
+        support::feed(t, &last);
+        let r = t.style_reclaims();
+        assert_eq!(r.refusals, 0, "{r:?}");
+        assert!(r.rewrites > 0, "the control: it froze: {r:?}");
+        let (_, rows) = t.geometry();
+        let y = t
+            .row(Row::from_index(rows.index() - 1))
+            .expect("a row on the grid")[0];
+        assert_eq!(t.style_of(y).fg().as_rgb(), Some(zero));
+        // Every cell of the history and the screen in the colour it was
+        // written in, read through its row's table.
+        let sb = t.scrollback();
+        let mut read = Vec::new();
+        for back in (0..sb.len()).rev() {
+            let (cells, _) = sb.line(Back::of(back)).expect("a retained line");
+            let table = sb.styles(Back::of(back));
+            read.extend(
+                cells
+                    .iter()
+                    .filter(|c| c.content.as_codepoint() == Codepoint::new(0x58))
+                    .map(|c| table.word(t.styles(), c.style)),
+            );
+        }
+        let view = t.viewport();
+        for y in 0..rows.index() {
+            let r = Row::from_index(y);
+            let table = view.styles(r);
+            read.extend(
+                view.row(r)
+                    .iter()
+                    .filter(|c| c.content.as_codepoint() == Codepoint::new(0x58))
+                    .map(|c| table.word(t.styles(), c.style)),
+            );
+        }
+        assert_eq!(read.len(), colours.len(), "every X read back");
+        for (i, (w, c)) in read.iter().zip(&colours).enumerate() {
+            assert_eq!(w.fg().as_rgb(), Some(*c), "cell {i} changed colour");
+        }
+        let hello = oldest_line(t);
+        assert_eq!(hello[0].content.as_codepoint(), Codepoint::new(0x68));
     });
 }
 
@@ -277,10 +345,10 @@ fn a_restored_cursor_takes_its_rendition_not_its_old_slot() {
     });
 }
 
-/// **The same through an eviction**: the table full of named renditions, a
-/// sweep frees only the saved one's slot, and the one rendition after it
-/// takes that slot, the next evicting. The restore interns the word again
-/// into a full table, which evicts, and the cell takes the saved colour.
+/// **The same through a full table**: renditions on cells of their own,
+/// kept in the history, fill the table past its load, so what lies off the
+/// screen is frozen and the saved rendition's slot freed; the restore interns
+/// its word again, refusing nothing, and the cell takes the saved colour.
 #[test]
 fn a_cursor_restored_into_a_full_table_takes_its_rendition() {
     let ws = WinSize {
@@ -294,10 +362,9 @@ fn a_cursor_restored_into_a_full_table_takes_its_rendition() {
         support::feed(t, b"\x1b[2;1H");
         let plane = (0u8..=255).flat_map(|g| (1u8..=255).map(move |b| (0u8, g, b)));
         support::feed(t, &named_renditions(len + 40, plane));
-        // The control: the table is full of named slots and evicted, and
-        // the saved rendition is gone from it.
-        assert!(t.styles().iter().all(Option::is_some));
-        assert!(t.style_reclaims().evictions > 0);
+        // The control: the table froze what was off the screen, and the
+        // saved rendition is gone from it.
+        assert!(t.style_reclaims().rewrites > 0);
         assert!(
             !t.styles()
                 .iter()
@@ -305,12 +372,7 @@ fn a_cursor_restored_into_a_full_table_takes_its_rendition() {
                 .any(|w| w.fg().as_rgb() == Some(saved)),
             "the saved rendition is still in the table"
         );
-        let before = t.style_reclaims().evictions;
         assert_eq!(restored(t).fg().as_rgb(), Some(saved));
-        assert_eq!(
-            t.style_reclaims().evictions,
-            before + 1,
-            "the restore evicted"
-        );
+        assert_eq!(t.style_reclaims().refusals, 0, "the restore was refused");
     });
 }

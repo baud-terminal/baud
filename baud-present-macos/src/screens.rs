@@ -124,6 +124,16 @@ impl Screens {
         self.now
     }
 
+    /// **`set`'s copy no longer holds a screen**: the next frame built into
+    /// it copies the window again. A frame that lent its frozen rows slots
+    /// rewrote their ids in the copy (`baud_render::Lent`), so the copy is
+    /// not the screen's cells.
+    pub fn forget(&mut self, set: SetIx) {
+        if let Some(c) = self.copied.get_mut(set.0) {
+            *c = None;
+        }
+    }
+
     /// The screen `set`'s copy holds, or none.
     pub fn holds(&self, set: SetIx) -> Option<ScreenGen> {
         self.copied.get(set.0).copied().flatten()

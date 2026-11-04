@@ -86,12 +86,16 @@ fn history_cells(t: &Term<'_>, pushed: usize) -> Vec<StyleWord> {
     let sb = t.scrollback();
     let mut v = Vec::new();
     for line in 0..8 {
+        let back = Back::of(pushed - 1 - line);
         let (cells, _) = sb
-            .line(Back::of(pushed - 1 - line))
+            .line(back)
             .unwrap_or_else(|| panic!("history line {line} missing"));
+        // Through the line's own table: a line frozen off the screen names
+        // ids in its generation's words.
+        let table = sb.styles(back);
         for cell in cells.iter().take(40) {
             if v.len() < 300 {
-                v.push(t.style_of(*cell));
+                v.push(table.word(t.styles(), cell.style));
             }
         }
     }
@@ -115,7 +119,7 @@ fn live_cells_keep_their_renditions_through_five_tables_of_churn() {
         let wrong = (0..300).filter(|&i| before[i] != after[i]).count();
         let r = t.style_reclaims();
         assert_eq!(wrong, 0, "live cells recoloured: {r:?}");
-        assert_eq!(r.evictions, 0, "{r:?}");
+        assert_eq!(r.refusals, 0, "{r:?}");
         assert!(r.sweeps >= 4, "positive control: the churn swept: {r:?}");
     });
 }
@@ -337,15 +341,16 @@ fn a_churned_table_sweeps_before_it_fills() {
     });
 }
 
-/// **A full table sweeps before it evicts.** 1,023 renditions on cells of
-/// their own fill the table with named slots; then one screen row of them is
-/// overwritten in the default, so 40 slots are named by nothing. Minting on
-/// fresh cells, the table is full, so only the full table's own sweep can
-/// free them: one runs within a sixteenth of the table's writes, frees the
-/// 40, and the renditions after it take freed slots and evict nothing.
+/// **A full table sweeps before it refuses.** 1,023 renditions on cells of
+/// their own fill a table lent no generations with named slots; then one
+/// screen row of them is overwritten in the default, so 40 slots are named
+/// by nothing. Minting on fresh cells, the table is full, so only the full
+/// table's own sweep can free them: one runs within a sixteenth of the
+/// table's writes, frees the 40, and the renditions after it take freed
+/// slots and refuse nothing.
 #[test]
-fn a_full_table_sweeps_before_it_evicts() {
-    support::with_term(&SMALL, |t| {
+fn a_full_table_sweeps_before_it_refuses() {
+    support::with_term_unfrozen(&SMALL, |t| {
         let len = t.styles().len();
         let mut out = Vec::new();
         for i in 0..len - 1 {
@@ -360,7 +365,7 @@ fn a_full_table_sweeps_before_it_evicts() {
         feed(t, &out);
         assert!(t.styles().iter().all(Option::is_some), "the control: full");
         let at_full = t.style_reclaims();
-        assert_eq!(at_full.evictions, 0);
+        assert_eq!(at_full.refusals, 0);
         // Row 5 is 40 named cells, each its own rendition: overwritten.
         feed(t, b"\x1b[0m\x1b[5;1H");
         feed(t, &[b'k'; 40]);
@@ -376,21 +381,22 @@ fn a_full_table_sweeps_before_it_evicts() {
         for j in 0..30 {
             feed(t, format!("{}M", rendition(i + j, 13)).as_bytes());
         }
-        assert_eq!(t.style_reclaims().evictions, swept.evictions, "{swept:?}");
+        assert_eq!(t.style_reclaims().refusals, swept.refusals, "{swept:?}");
     });
 }
 
-/// **Open: a full table evicts without sweeping within a sixteenth of its
-/// writes of the last sweep.** 1,023 named renditions fill the table and
-/// minting goes on until a full table's sweep has run, freeing nothing; then
-/// 40 named cells are overwritten, so 40 slots are named by nothing, and the
-/// next rendition evicts a named slot rather than sweeping again. A sweep
-/// frees at least a sixteenth of the table or leaves it within a sixteenth
-/// of full, so this happens only where the cells name more than 15/16 of the
-/// slots.
+/// **A full table whose sweep freed nothing refuses, and writes no named
+/// slot, until a sixteenth of its slots' worth of renditions have come.**
+/// 1,023 named renditions fill a table lent no generations, and minting goes
+/// on until a full table's sweep has run, freeing nothing; then 40 named
+/// cells are overwritten, so 40 slots are named by nothing. The eviction
+/// this replaced wrote the next rendition over a named slot; refused, the
+/// cell takes the default and no slot changes. The refusals count toward the
+/// next sweep as writes would, so within a sixteenth of the table one runs,
+/// frees the 40, and the next rendition is placed.
 #[test]
-fn a_full_table_evicts_without_sweeping_within_a_sixteenth_of_its_writes() {
-    support::with_term(&SMALL, |t| {
+fn a_full_table_refuses_until_its_next_sweep_is_due() {
+    support::with_term_unfrozen(&SMALL, |t| {
         let len = t.styles().len();
         let mut out = Vec::new();
         for i in 0..len - 1 {
@@ -417,10 +423,22 @@ fn a_full_table_evicts_without_sweeping_within_a_sixteenth_of_its_writes() {
         feed(t, b"\x1b[0m\x1b[5;1H");
         feed(t, &[b'k'; 40]);
         feed(t, b"\x1b[10;1H\r\n");
+        let table = t.styles().to_vec();
         feed(t, format!("{}M", rendition(i, 15)).as_bytes());
         let after = t.style_reclaims();
         assert_eq!(after.sweeps, swept.sweeps, "{after:?}");
-        assert_eq!(after.evictions, swept.evictions + 1, "{after:?}");
+        assert_eq!(after.refusals, swept.refusals + 1, "{after:?}");
+        assert_eq!(t.styles(), &table[..], "a named slot was written");
+        let mut j = i + 1;
+        while t.style_reclaims().sweeps == after.sweeps {
+            assert!(j < i + len / 16 + 2, "no sweep within a sixteenth");
+            feed(t, format!("{}M", rendition(j, 15)).as_bytes());
+            j += 1;
+        }
+        let freed = t.style_reclaims();
+        assert!(freed.freed - swept.freed >= 40, "{freed:?}");
+        feed(t, format!("{}M", rendition(j, 15)).as_bytes());
+        assert_eq!(t.style_reclaims().refusals, freed.refusals, "placed");
     });
 }
 

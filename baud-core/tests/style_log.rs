@@ -4,7 +4,7 @@
 //! The contract is exact: a reader that copies the slots
 //! `Term::styles_written` names since its count onto what it last copied
 //! holds the table as it is now, at every read boundary, through sweeps and
-//! evictions, and when it has fallen more than a log behind.
+//! freezes, and when it has fallen more than a log behind.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -13,7 +13,7 @@ use baud_core::*;
 use baud_domain::{Count, StyleId, StyleWord, StyleWrites};
 
 /// A terminal whose rendition table has the 1,024-slot floor, so a program
-/// can fill it and evict.
+/// can fill it.
 const SMALL: WinSize = WinSize {
     ws_row: 10,
     ws_col: 40,
@@ -25,8 +25,8 @@ fn sgr_fg((r, g, b): (u8, u8, u8)) -> Vec<u8> {
 
 /// Where a program's cells go: over one cell, so each rendition dies when
 /// the next replaces it and the table sweeps, or each on a cell of its own,
-/// the rows pushed into the history, so every slot stays named and a full
-/// table evicts.
+/// the rows pushed into the history, so every slot stays named and the
+/// table freezes the history to make room.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Cells {
     One,
@@ -111,7 +111,7 @@ impl Reader {
 /// holds the table exactly, and so does one that catches up only every
 /// 40,000 bytes -- about 1,500 renditions, more than the log holds -- at read
 /// sizes 1, 3 and 4096, through a program that sweeps the table and one that
-/// fills it with named slots and evicts.
+/// fills it with named slots and freezes.
 ///
 /// A sweep logs every slot it frees, up to one fewer than the table has, and
 /// then the rendition that asked for it: one write short of lapping a reader
@@ -154,8 +154,10 @@ fn every_write_to_the_rendition_table_is_logged() {
                 // close reader at the small reads never lapped.
                 let r = t.style_reclaims();
                 match cells {
-                    Cells::One => assert!(r.sweeps > 0 && r.evictions == 0, "{r:?}"),
-                    Cells::Own => assert!(r.evictions > 0, "{r:?}"),
+                    Cells::One => assert!(r.sweeps > 0 && r.rewrites == 0, "{r:?}"),
+                    // Named slots past the table: what lies off the screen
+                    // was frozen, and the table swept after it.
+                    Cells::Own => assert!(r.rewrites > 0 && r.refusals == 0, "{r:?}"),
                 }
                 assert_eq!(
                     far.lapped,
@@ -199,7 +201,9 @@ fn the_log_lists_every_live_slot_once_until_full() {
 /// log behind is still given the entries.
 #[test]
 fn a_lapped_reader_is_told_every() {
-    support::with_term(&SMALL, |t| {
+    // Lent no generations, so the table fills with named slots and no freeze
+    // or sweep after it frees one.
+    support::with_term_unfrozen(&SMALL, |t| {
         let len = t.styles().len();
         // Fill the table: slot 0 and 1,023 distinct renditions, each on a
         // cell of its own and kept in the history, so a sweep frees nothing
@@ -222,9 +226,19 @@ fn a_lapped_reader_is_told_every() {
             t.styles_written(StyleWrites::NEVER),
             Written::Slots(_)
         ));
-        let mut one = sgr_fg(plane.next().expect("room"));
-        one.extend(b"X");
-        support::feed(t, &one);
+        // A full table of named slots refuses and writes nothing, so a cell
+        // overwritten in the default leaves its slot to the next sweep,
+        // which the refusals bring due: it frees the slot and places the
+        // rendition, two writes past the log.
+        support::feed(t, b"\x1b[0m\x1b[5;1Hk");
+        let mut tries = 0;
+        while !t.style_writes().past(len) {
+            assert!(tries < len / 16 + 2, "no sweep came due");
+            let mut one = sgr_fg(plane.next().expect("room"));
+            one.extend(b"X");
+            support::feed(t, &one);
+            tries += 1;
+        }
         assert!(
             matches!(t.styles_written(StyleWrites::NEVER), Written::Every),
             "one write past a log is lapped"

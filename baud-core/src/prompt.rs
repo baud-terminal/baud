@@ -557,6 +557,11 @@ impl Paint<'_, '_> {
                 self.clear_swept();
             }
             self.view.retreat_rot(above);
+            // The rows taken back are erased below, and the rows given up
+            // show nothing: neither holds a frozen line (`crate::freeze`).
+            if self.any_frozen() {
+                self.frozen_retreated(Rows::of_count(above));
+            }
             let hist = self.book.hist.index() - above;
             self.book.hist = Rows::of_count(hist);
             self.book.hidden =

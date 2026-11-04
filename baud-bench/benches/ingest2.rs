@@ -337,6 +337,24 @@ fn main() {
     let mut kitty = Box::new(baud_domain::KittyStream::NEW);
     let mut colours = Box::new(baud_core::KittyColours::NEW);
     let mut kitty_scratch: Vec<u8> = Vec::new();
+    // **`BAUD_FROZEN=1` lends the rendition table its generations**, as the
+    // app's storage does (`Owned`): a full table then freezes what lies off
+    // the active screen rather than refusing. The arm that prices the app's
+    // per-byte path, read once at start; none of the recordings fills the
+    // table, so what it can cost is the lent pool's tests on the way, not a
+    // freeze.
+    let lend_frozen = std::env::var("BAUD_FROZEN").is_ok_and(|v| v == "1");
+    eprintln!("generations lent: {lend_frozen}");
+    let budget = baud_domain::FrozenBudget::of(ring_rows, stride, NSTYLE);
+    let mut frozen_words = match lend_frozen {
+        true => budget.zeroed_words(),
+        false => Vec::new(),
+    };
+    let mut frozen_gens = vec![baud_domain::FrozenGen::EMPTY; budget.gens];
+    let mut frozen_tags = vec![None; budget.rows];
+    let mut frozen_spare = vec![None; budget.rows];
+    let mut frozen_map = baud_domain::FrozenBudget::zeroed_map(NSTYLE);
+    let mut frozen_book = baud_domain::FrozenBook::NEW;
     let mut t = Term::new(
         Storage::new(
             &mut arena,
@@ -379,7 +397,15 @@ fn main() {
                 &mut img_places,
                 &mut img_index,
             ),
-        ),
+        )
+        .with_frozen(baud_domain::FrozenBuf {
+            words: &mut frozen_words,
+            gens: &mut frozen_gens,
+            tags: &mut frozen_tags,
+            spare: &mut frozen_spare,
+            map: &mut frozen_map,
+            book: &mut frozen_book,
+        }),
         &ws,
     );
 

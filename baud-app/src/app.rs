@@ -253,6 +253,16 @@ struct CellMemory {
     /// (`Renderer::sync_styles`): only the slots written since that set was
     /// last built.
     style_stamps: Vec<StyleStamp>,
+    /// **The slots each set's resolved table lent its last frame's frozen
+    /// rows** (`baud_render::Lent`): a window scrolled back over history the
+    /// core froze off the screen names ids in a generation's words, which
+    /// its copy draws through slots no other row of the frame names, given
+    /// back before the set is built again.
+    lent: Vec<baud_render::Lent>,
+    /// The lent frame's copy as a view, for the walk and the overlay, which
+    /// read each cell's id in the same table the shader does.
+    lent_cells: Vec<PackedCell>,
+    lent_used: Vec<baud_domain::RowExtent>,
     /// **Two, ping-ponged on a rescale, and not a set a frame.** Rotating
     /// per frame would be three caches each seeing every third frame and
     /// the miss rate would roughly triple. Per frame it needs no ring
@@ -1278,6 +1288,11 @@ impl App {
                         copies,
                         copies_mem,
                         style_stamps: vec![StyleStamp::default(); styles_mem.len()],
+                        lent: (0..styles_mem.len())
+                            .map(|_| baud_render::Lent::default())
+                            .collect(),
+                        lent_cells: Vec::new(),
+                        lent_used: Vec::new(),
                         styles,
                         styles_mem,
                         screens: Screens::new(),
@@ -2369,6 +2384,16 @@ impl App {
                     return;
                 };
                 let set = at.0;
+                // Whether this set's copy holds ids an earlier frame lent,
+                // read before they are given back.
+                let lent_before = cell.lent[set].lent().value() > 0;
+                // The slots this set lent its last frame's frozen rows, put
+                // back first: no frame in flight reads this set.
+                self.renderer.give_back(
+                    &mut cell.styles_mem[set][..],
+                    &mut cell.style_stamps[set],
+                    &mut cell.lent[set],
+                );
                 // The set's resolved table, brought up to date from the core's
                 // log: only the slots written since this set was last built,
                 // which on a steady screen is none. Before the map
@@ -2394,23 +2419,6 @@ impl App {
                     let at = vrows * self.term.stride().index();
                     let row = &mut cell.copies_mem[set][at..at + vcols];
                     self.renderer.copy_leaving(&self.term, back, row);
-                    let used = [baud_domain::RowExtent::of(vcols)];
-                    let leaving = baud_domain::Viewport::new(
-                        row,
-                        &used,
-                        baud_domain::Stride::of_cells(vcols),
-                        view.cols(),
-                        Rows::of_count(1),
-                        Rows::of_count(1),
-                        RowRot::NONE,
-                    );
-                    cell.exceptions.ensure_leaving(
-                        &mut cell.maps.live,
-                        &self.term,
-                        leaving,
-                        &cell.styles_mem[set][..],
-                        &mut self.renderer,
-                    );
                 }
                 let cursor_at =
                     live_cursor(&self.term).map(|(r, c)| (r, c, self.term.cursor_style()));
@@ -2455,6 +2463,22 @@ impl App {
                 let lined = usize::from(status.is_some());
                 let screens = &mut cell.screens;
                 screens.compare = Compare::for_rejoin(rejoin);
+                // **Whether a cell of this frame names a row the core froze**
+                // (`baud_render::Lent`): the window's, a display line's
+                // among them, or the leaving row's. No row at all while the
+                // core has frozen nothing, which one test answers.
+                let leaving_source =
+                    sliding.then(|| self.renderer.leaving_source(&self.term, back));
+                let frozen = self.renderer.bidi().window_frozen(&self.term, back)
+                    || leaving_source
+                        .as_ref()
+                        .is_some_and(|s| !s.words().is_live());
+                // A window that shows a frozen row is copied afresh, its ids
+                // the core's, and so is one whose copy an earlier frame lent
+                // slots: that copy holds ids that named them, put back now.
+                if frozen || lent_before {
+                    screens.forget(at);
+                }
                 let built = screens.take(
                     &mut cell.copies_mem,
                     at,
@@ -2463,6 +2487,110 @@ impl App {
                     self.term.stride(),
                     leaving,
                 );
+                // **A frozen row of the window drawn in its own renditions**
+                // (`baud_render::Lent`): its copied cells given slots no row
+                // of the frame names, and the walk and the overlay reading the
+                // copy, so all three resolve each id in the one table. A
+                // frame with no frozen row asks one test a row.
+                let lend = match frozen {
+                    false => baud_render::Lend::Nothing,
+                    true => {
+                        // Each window row through the table each of its cells
+                        // names, in the order the copy holds them; the row
+                        // after the window's the leaving row while sliding,
+                        // else the status line's, and the notice's after it.
+                        let sources: Vec<baud_render::RowSource<'_>> = (0..vrows)
+                            .map(|y| {
+                                self.renderer.bidi().row_source(
+                                    &self.term,
+                                    back,
+                                    Row::from_index(y),
+                                )
+                            })
+                            .collect();
+                        let mut rows: Vec<(&mut [PackedCell], baud_render::Words<'_>)> = Vec::new();
+                        for (y, chunk) in cell.copies_mem[set].chunks_mut(stride).enumerate() {
+                            let words = match (sources.get(y), &leaving_source) {
+                                (Some(s), _) => s.words(),
+                                (None, Some(s)) if y == vrows => s.words(),
+                                _ => baud_render::Words::LIVE,
+                            };
+                            if y > vrows + 1 {
+                                break;
+                            }
+                            let n = vcols.min(chunk.len());
+                            rows.push((&mut chunk[..n], words));
+                        }
+                        self.renderer.lend_frozen(
+                            &self.term,
+                            &mut rows,
+                            &mut cell.styles_mem[set][..],
+                            &mut cell.style_stamps[set],
+                            &mut cell.lent[set],
+                        )
+                    }
+                };
+                // What the walk, the overlay and a sized line read the copy
+                // through: the words its lent slots were given.
+                self.renderer.set_frame_lent(&cell.lent[set]);
+                // A lent copy names other ids than the last frame's copy
+                // did, so no compare of the two says the screen is the same.
+                let built = match lend {
+                    baud_render::Lend::Nothing => built,
+                    _ => Built::New,
+                };
+                // **The leaving row's map ensured**, over the row as copied
+                // and lent: before the screen's walk below, which clears the
+                // candidates and refills them for the view it walks.
+                if sliding {
+                    let at = vrows * stride;
+                    let row = &cell.copies_mem[set][at..at + vcols];
+                    self.renderer.leaving_lent(row);
+                    let used = [baud_domain::RowExtent::of(vcols)];
+                    let leaving = baud_domain::Viewport::new(
+                        row,
+                        &used,
+                        baud_domain::Stride::of_cells(vcols),
+                        view.cols(),
+                        Rows::of_count(1),
+                        Rows::of_count(1),
+                        RowRot::NONE,
+                    );
+                    cell.exceptions.ensure_leaving(
+                        &mut cell.maps.live,
+                        &self.term,
+                        leaving,
+                        &cell.styles_mem[set][..],
+                        &mut self.renderer,
+                    );
+                }
+                let view = match lend {
+                    baud_render::Lend::Nothing => view,
+                    _ => {
+                        cell.lent_cells.clear();
+                        cell.lent_cells
+                            .extend_from_slice(&cell.copies_mem[set][..vrows * stride]);
+                        cell.lent_used.clear();
+                        for y in 0..vrows {
+                            let r = Row::from_index(y);
+                            let mut e = baud_domain::RowExtent::of(vcols)
+                                .with_rendition(view.rendition(r), view.cols());
+                            if view.wrapped(r) == baud_domain::Wrap::Continues {
+                                e = e.wrapping(vcols);
+                            }
+                            cell.lent_used.push(e);
+                        }
+                        baud_domain::Viewport::new(
+                            &cell.lent_cells,
+                            &cell.lent_used,
+                            self.term.stride(),
+                            view.cols(),
+                            view.rows(),
+                            view.rows(),
+                            RowRot::NONE,
+                        )
+                    }
+                };
                 // The kept joins found again on the rows that compare found
                 // changed, before the walk and the records read the forms.
                 if let Some(how) = rejoin {

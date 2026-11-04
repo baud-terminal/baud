@@ -1038,6 +1038,17 @@ impl Paint<'_, '_> {
         // numbering cannot follow -- so the images move down a row instead,
         // which is the same move seen from the other side: their text went
         // down one.
+        // **The rows a frozen line could be read from again, cleared**: the
+        // one taken in at the top, blanked, and the one pushed past the
+        // bottom, which was on the screen (`crate::freeze`). One test with
+        // no generation.
+        if self.any_frozen() {
+            let renumbered = match self.book.top.minus(Rows::of_count(1)) {
+                Some(_) => crate::freeze::Renumbered::No,
+                None => crate::freeze::Renumbered::Yes,
+            };
+            self.frozen_unretired(renumbered);
+        }
         match self.book.top.minus(Rows::of_count(1)) {
             Some(t) => self.book.top = t,
             None => {
@@ -2364,6 +2375,10 @@ impl Paint<'_, '_> {
             self.strs.link_book.history_erased();
         }
         self.book.hist = Rows::ZERO;
+        // And the generations only they named, freed at once.
+        if self.any_frozen() {
+            self.frozen_history_erased();
+        }
         // The lines a window over the history showed are gone, so it is on
         // the live screen, from either screen.
         self.book.window = crate::storage::HistoryWindow::Live;
@@ -2511,16 +2526,18 @@ impl Paint<'_, '_> {
     /// Capacity is the fix while the image is shown, since nothing on it is
     /// dead.
     ///
-    /// **A table sweeps at 7/8 load, and a full one before it evicts**
+    /// **A table sweeps at 7/8 load, and a full one before it refuses**
     /// ([`Paint::sweep_styles`]): the renditions no cell names are freed,
     /// so a session that mints more over its life than the table has slots
     /// -- picture after picture -- reuses the slots of those it no longer
-    /// shows. `[[source: dec-std-070]]`'s
+    /// shows. **What the history and the screen not up still name is frozen
+    /// off the table** when a sweep leaves it past its load
+    /// (`crate::freeze`), so the table holds the active screen and no slot
+    /// a drawn cell names is ever given away: `[[source: dec-std-070]]`'s
     /// SGR, page 5-104: "In no way does the selection of current rendition
-    /// affect the rendition of characters already entered into the display",
-    /// which an eviction does. It remains for cells naming more distinct
-    /// renditions than the table has slots, where a cell naming the evicted
-    /// slot is recoloured: an open `SGR` bug.
+    /// affect the rendition of characters already entered into the
+    /// display". The eviction this replaced read 50-92% of a picture tool's
+    /// history back in other renditions.
     ///
     /// **Inlined, because `restore` is its second caller.** With one caller
     /// LLVM inlined it into `apply_sgr`; when `DECRC` began interning the
@@ -2668,6 +2685,19 @@ impl Paint<'_, '_> {
                 return id;
             }
         }
+        // **A table a sweep left past its load moves what lies off the
+        // active screen into a generation, and sweeps again**
+        // (`crate::freeze`), so it does not fill: a miss on a table with no
+        // empty slot reads to its bucket's reach, which near a full table
+        // is most of it. A freeze with nothing new off the screen since the
+        // last returns before it walks a row.
+        if self.style_log.book.sweep.over_load(len)
+            && self.freeze_off_screen() == crate::freeze::Froze::Rows
+        {
+            if let Some(id) = self.sweep_styles(raw) {
+                return id;
+            }
+        }
         // `probe-double-intern-full` writes here over a filled slot.
         if self.tmpl[k.index()].is_none() {
             self.style_log.book.sweep.filled_one();
@@ -2704,12 +2734,18 @@ impl Paint<'_, '_> {
     }
 
     /// **Every slot is filled.** The first tombstone on `raw`'s path from
-    /// `base` takes it, which evicts nothing; failing that a sweep, if one is
-    /// due; failing that an eviction at the bucket -- except slot 0, the
-    /// default every blank cell names without interning it (`Term::new`),
-    /// whose eviction would recolour them all. Its bucket's victim is the
-    /// slot after it. A rendition with SAPV's variants or a string takes its
-    /// own key's path, not the inline probe's.
+    /// `base` takes it; failing that a sweep, if one is due; failing that a
+    /// freeze of what lies off the active screen and a sweep after it
+    /// (`crate::freeze`). **A slot some cell names is never written**: that
+    /// was the eviction here, and it gave the cells naming the slot another
+    /// rendition's colours after they were drawn, which
+    /// `[[source: dec-std-070]]`'s SGR forbids (page 5-104, note 3). With
+    /// none of the three finding a slot -- no pool lent, or a screen naming
+    /// more renditions than the table holds -- the rendition is refused:
+    /// the text that follows takes the default, counted
+    /// ([`baud_domain::Reclaims::refusals`]), and the refusals count toward
+    /// the next sweep as writes would. A rendition with SAPV's variants or
+    /// a string takes its own key's path, not the inline probe's.
     #[cold]
     #[inline(never)]
     fn full_table(&mut self, base: StyleId, raw: StyleWord) -> StyleId {
@@ -2736,8 +2772,14 @@ impl Paint<'_, '_> {
                 return id;
             }
         }
-        self.style_log.book.sweep.evicted();
-        self.write_slot(StyleId::from_index(base.index().max(1)), Some(raw))
+        if self.freeze_off_screen() == crate::freeze::Froze::Rows {
+            if let Some(id) = self.sweep_styles(raw) {
+                return id;
+            }
+        }
+        let _ = base;
+        self.style_log.book.sweep.refused();
+        StyleId::DEFAULT
     }
 
     /// **The sweep.** Marks every slot a cell names -- every cell of the live
@@ -2769,15 +2811,22 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn sweep_styles(&mut self, raw: StyleWord) -> Option<StyleId> {
+        self.sweep_styles_opt(Some(raw))
+    }
+
+    /// [`Paint::sweep_styles`] with nothing to place, for a thaw making
+    /// room before it interns.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn sweep_styles_opt(&mut self, raw: Option<StyleWord>) -> Option<StyleId> {
         let len = self.tmpl.len();
         let mut live = SlotSet::new();
         live.insert(StyleId::DEFAULT);
         live.insert(self.style);
-        live.mark(self.view.ring_cells());
-        live.mark(self.other.cells);
-        // The status line's row and the parked display's rendition: the
-        // line, or the main display while the line is written.
-        live.mark(self.status.cells);
+        // Every row that resolves through the table: the active screen, the
+        // status line's row, and whatever off the screen is not frozen
+        // (`Paint::mark_live`). And the parked display's rendition.
+        self.mark_live(&mut live);
         live.insert(self.strs.status.parked_style());
         let (mut freed, mut filled, mut tombs) = (0, 0, 0);
         let mut need = 0usize;
@@ -2820,6 +2869,7 @@ impl Paint<'_, '_> {
         }
         let now = self.style_log.book.writes;
         self.style_log.book.sweep.swept(now, freed, filled, tombs);
+        let raw = raw?;
         let mut k = StyleId::bucket(raw, len);
         for _ in 0..len {
             match self.tmpl[k] {
@@ -5131,6 +5181,15 @@ impl Paint<'_, '_> {
                 // The cursor's row is the other screen's now, and under `?47`
                 // it keeps whatever that screen held.
                 self.row_changed_to(self.cy);
+                // The primary's screen is off the screen now, and a frozen
+                // alternate screen comes back: cleared below under `?1049`,
+                // interned again under `?47` (`crate::freeze`).
+                if self.any_frozen() {
+                    self.frozen_switched();
+                    if how != AltSwitch::SaveAndClear {
+                        self.thaw_screen();
+                    }
+                }
                 // `?1049` clears the alternate screen on entry, so a rotation
                 // left from the last time an application was in it describes
                 // nothing. Blanks rotate to blanks, so this is tidiness rather
@@ -5156,6 +5215,9 @@ impl Paint<'_, '_> {
                 if how == AltSwitch::SaveAndClear {
                     self.view.reset_rot();
                     self.clear_screen();
+                    if self.any_frozen() {
+                        self.frozen_alt_cleared();
+                    }
                     // The same cursor, placed or not.
                     let c = self.cx;
                     self.goto(self.cy, c.col());
@@ -5213,6 +5275,12 @@ impl Paint<'_, '_> {
                 // catch up on here.
                 self.view.swap_surface(&mut self.other);
                 self.row_changed_to(self.cy);
+                // The primary's frozen screen rows come back, interned again,
+                // and the alternate screen is off the screen now.
+                if self.any_frozen() {
+                    self.frozen_switched();
+                    self.thaw_screen();
+                }
                 // **`?47` restores nothing, and leaves the save alone.** A
                 // cursor `?1049 h` saved outlives a `?47 l` exit, as the
                 // cursor xterm saves outlives `FromAlternate`, and `ESC 8` on
@@ -5765,6 +5833,11 @@ impl Paint<'_, '_> {
         self.other.cells.fill(PackedCell::EMPTY);
         self.other.used.fill(RowExtent::ZERO);
         self.cells = self.cells.plus(n + self.other.cells.len());
+        // No cell names a generation now, so every one goes at once
+        // (`crate::freeze`).
+        if self.any_frozen() {
+            self.frozen_reset();
+        }
         // **Here and not in `clear_screen`, and the difference is the
         // alternate screen.** Entering it with `?1049` clears the grid while
         // the primary's cells wait parked, still naming their clusters, so a

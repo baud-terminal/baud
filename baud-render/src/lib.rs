@@ -46,6 +46,7 @@ pub mod fire;
 pub mod fireworks;
 mod fit;
 mod flash;
+mod frozen;
 mod guide;
 pub mod ice;
 mod instance;
@@ -105,6 +106,7 @@ pub use color::{
 pub use composite::{Blend, Blit, Page, Target, Texels};
 pub use find::{Current, FIELD_COLS, Field, Find, FindLook, Mark, Position, Query, Typing};
 pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold_over};
+pub use frozen::{Lend, Lent, RowSource, Words};
 pub use guide::{CURSOR_GUIDE, GuideLook};
 pub use instance::{Instance, Screen};
 pub use lights::{
@@ -133,7 +135,7 @@ pub use scrollbar::{
 };
 pub use select::{
     AbsLine, Beyond, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
-    WindowLine, char_col, row_of,
+    WindowLine, char_col, row_of, row_styles_of,
 };
 pub use splash::{SplashLook, SplashPhase};
 pub use stack::{

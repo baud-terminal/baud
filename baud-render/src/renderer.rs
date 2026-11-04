@@ -16,6 +16,7 @@ use crate::composite::{Blend, Blit, Page, Target, Texels};
 use crate::effect::Vfx;
 use crate::find::{Current, FindLook};
 use crate::flash::{self, Strength};
+use crate::frozen::Words;
 use crate::guide::{self, GuideLook};
 use crate::instance::{Instance, Screen};
 use crate::linked::LinkLook;
@@ -155,7 +156,7 @@ pub(crate) struct ThemeGen(u32);
 /// What a resolved slot depends on besides the slot: the theme, the video --
 /// `?5` or a flash's -- and the colours the core holds, as an epoch.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct StyleInputs {
+pub(crate) struct StyleInputs {
     theme: ThemeGen,
     video: Video,
     colors: baud_domain::ColorEpoch,
@@ -179,9 +180,39 @@ pub struct StyleStamp {
     decorated: Tally,
     /// What the core had reclaimed when this copy was stamped.
     reclaims: Option<baud_domain::Reclaims>,
+    /// **The slots the copy lends a frame's frozen cells** (`crate::frozen`):
+    /// a lent id means what it means only under this lending, so two copies
+    /// stamped alike resolve every id alike.
+    lending: crate::frozen::Lending,
 }
 
 impl StyleStamp {
+    /// A slot lent to a frozen row, or given back, stopped carrying `s`
+    /// (`crate::frozen`): the counts follow what the slots hold.
+    pub(crate) fn lent_lose(&mut self, s: Shapes) {
+        if s.blinks() {
+            self.blinking.lose();
+        }
+        if s.any(Shapes::DECORATIONS) {
+            self.decorated.lose();
+        }
+    }
+
+    /// A slot lent to a frozen row, or given back, carries `s` now.
+    pub(crate) fn lent_gain(&mut self, s: Shapes) {
+        if s.blinks() {
+            self.blinking.bump();
+        }
+        if s.any(Shapes::DECORATIONS) {
+            self.decorated.bump();
+        }
+    }
+
+    /// The copy holds `l` now.
+    pub(crate) fn set_lending(&mut self, l: crate::frozen::Lending) {
+        self.lending = l;
+    }
+
     /// Whether a slot of this copy may draw a decoration: none when the
     /// copy was synced and no slot of it carries one, so a frame can leave
     /// the decorations' pass undrawn. A copy never synced may hold any.
@@ -1252,11 +1283,11 @@ pub(crate) fn drawn_base(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint>
 }
 
 /// A cell's base and the codepoints attached to it, as the shaper takes a
-/// cluster.
-pub(crate) fn cell_cps(term: &Term<'_>, cell: PackedCell) -> Vec<Codepoint> {
+/// cluster: its marks read as [`drawn_marks`] reads them.
+pub(crate) fn cell_cps(term: &Term<'_>, words: Words<'_>, cell: PackedCell) -> Vec<Codepoint> {
     let mut cps: Vec<Codepoint> = drawn_base(term, cell).into_iter().collect();
     if cell.flags.is_marked() {
-        cps.extend(drawn_marks(term, cell).filter_map(Codepoint::new));
+        cps.extend(drawn_marks(term, words, cell).filter_map(Codepoint::new));
     }
     cps
 }
@@ -1266,6 +1297,7 @@ pub(crate) fn cell_cps(term: &Term<'_>, cell: PackedCell) -> Vec<Codepoint> {
 /// holds.
 pub(crate) fn word_text(
     term: &Term<'_>,
+    words: Words<'_>,
     row: &[PackedCell],
     w: &crate::word::Word,
 ) -> crate::word::WordText {
@@ -1280,7 +1312,7 @@ pub(crate) fn word_text(
                     continue;
                 };
                 let before = cps.len();
-                cps.extend(cell_cps(term, cell));
+                cps.extend(cell_cps(term, words, cell));
                 if let Some(h) = c.checked_sub(w.at.index()).and_then(|x| held.get_mut(x)) {
                     *h = cps.len() - before;
                 }
@@ -1294,18 +1326,17 @@ pub(crate) fn word_text(
 /// **The marks a cell draws**: its cluster's, but the vowels SAPV 16
 /// writes it without, "vowels are not presented" (`[[source: ecma48]]`
 /// 8.3.108; [`baud_domain::is_vowel`]). The cell keeps them, and a copy
-/// gives them.
+/// gives them. Its rendition is read where its id names it (`words`): a
+/// frame's lent copy names a frozen row's word in a lent slot
+/// (`crate::frozen`). A cell of a display line that joins rows is read by
+/// its own row's ([`crate::frozen::Words::Runs`]) before it reaches here.
 pub(crate) fn drawn_marks<'t>(
     term: &'t Term<'_>,
+    words: Words<'_>,
     cell: PackedCell,
 ) -> impl Iterator<Item = u32> + 't {
     let hide = term.variants_seen()
-        && term
-            .styles()
-            .get(cell.style.index())
-            .copied()
-            .flatten()
-            .is_some_and(|w| w.variants().vowels() == baud_domain::Vowels::Hidden);
+        && words.word(term, Col::ZERO, cell).variants().vowels() == baud_domain::Vowels::Hidden;
     term.cluster_marks(cell)
         .filter(move |&m| !(hide && char::from_u32(m).is_some_and(baud_domain::is_vowel)))
 }
@@ -2173,8 +2204,22 @@ pub struct Renderer<'f, 'a> {
     /// frame to frame and brought up to date by [`Renderer::sync_styles`]:
     /// only the slots the core wrote since, or every live slot when the table
     /// or an input changed. A cell's colours are one load from it.
-    styles: Vec<Resolved>,
-    styles_stamp: StyleStamp,
+    pub(crate) styles: Vec<Resolved>,
+    pub(crate) styles_stamp: StyleStamp,
+    /// **The slots of `styles` lent a frame's frozen cells** (`crate::frozen`):
+    /// a window scrolled back over history the core froze, converted
+    /// through its own copy of the window, its frozen cells given slots no
+    /// other cell of the frame names. Given back before `styles` is brought
+    /// up to date again.
+    pub(crate) cpu_lent: crate::frozen::Lent,
+    /// The lendings numbered so far, every table's (`StyleStamp`).
+    pub(crate) lendings: crate::frozen::Lendings,
+    /// The words the frame being drawn names in its table's lent slots
+    /// ([`Renderer::set_frame_lent`]).
+    pub(crate) frame_words: crate::frozen::Held,
+    /// Those slots, and the lending they were lent under.
+    pub(crate) frame_slots: Vec<baud_domain::StyleId>,
+    pub(crate) frame_lending: crate::frozen::Lending,
     /// Each screen row's records the last time [`Renderer::sized_lines`]
     /// converted it as a sized line, and what they were converted from:
     /// a frame whose row and inputs are the same reuses them.
@@ -2787,6 +2832,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             find_wash: Argb(0),
             styles: Vec::new(),
             styles_stamp: StyleStamp::default(),
+            cpu_lent: crate::frozen::Lent::default(),
+            lendings: crate::frozen::Lendings::default(),
+            frame_words: crate::frozen::Held::default(),
+            frame_slots: Vec::new(),
+            frame_lending: crate::frozen::Lending::default(),
             sized_rows: Vec::new(),
             sized_converted: Tally::default(),
             syllable_rows: Tally::default(),
@@ -3155,16 +3205,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// is a second read of a few codepoints a marked cell may pay -- onto
     /// the stack, a base and the most the cluster store holds
     /// (`ClusterSlot::CAPACITY`), so the read allocates nothing.
-    fn face_of_cell(&mut self, term: &Term<'_>, cell: PackedCell, base: Codepoint) -> FaceIx {
+    fn face_of_cell(
+        &mut self,
+        (term, words): (&Term<'_>, Words<'_>),
+        cell: PackedCell,
+        base: Codepoint,
+    ) -> FaceIx {
         let style = self.face_style(cell);
-        self.face_of_cell_in(term, cell, base, style)
+        self.face_of_cell_in((term, words), cell, base, style)
     }
 
     /// [`Renderer::face_of_cell`] in `style`: a cell SAPV 17 slants left
     /// asks in its upright style.
     fn face_of_cell_in(
         &mut self,
-        term: &Term<'_>,
+        (term, words): (&Term<'_>, Words<'_>),
         cell: PackedCell,
         base: Codepoint,
         style: TextFace,
@@ -3176,7 +3231,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut marks = 0;
         for (slot, m) in cps[1..]
             .iter_mut()
-            .zip(drawn_marks(term, cell).filter_map(Codepoint::new))
+            .zip(drawn_marks(term, words, cell).filter_map(Codepoint::new))
         {
             *slot = m;
             marks += 1;
@@ -3592,6 +3647,34 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .orders()
             .permute(Row::ZERO, &src[..n], leaving_cells);
         crate::cellmap::copy_for_shader(term, leaving_cells, &mut dst[..n]);
+    }
+
+    /// **Where the leaving row [`Renderer::copy_leaving`] copies names its
+    /// cells' ids**, in the order it is drawn: the first line of the window
+    /// one line up, `back` the window's, as its layout draws it
+    /// ([`crate::bidi::Orders::row_source`]). Live before a slide.
+    pub fn leaving_source<'t>(
+        &self,
+        term: &'t Term<'_>,
+        back: Rows,
+    ) -> crate::frozen::RowSource<'t> {
+        let above = Rows::of_index(back.index() + 1);
+        match self.beside.as_deref().and_then(|b| b.leaving.as_ref()) {
+            Some(l) => l.orders().row_source(term, above, Row::ZERO),
+            None => crate::frozen::RowSource::One(baud_domain::RowStyles::Live),
+        }
+    }
+
+    /// **The leaving row's ids as the frame's copy names them**, `row`
+    /// being that copy's leaving row after its frozen cells were lent
+    /// slots (`crate::frozen`): what the overlay's walk of the row reads
+    /// through the frame's table.
+    pub fn leaving_lent(&mut self, row: &[PackedCell]) {
+        if let Some(b) = self.beside.as_deref_mut() {
+            for (c, l) in b.leaving_cells.iter_mut().zip(row) {
+                c.style = l.style;
+            }
+        }
     }
 
     /// **The leaving row [`Renderer::copy_leaving`] last copied, in its
@@ -4222,7 +4305,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .flatten()
             .map(|(r, c)| (r, c, term.cursor_style()))
             .filter(|&(_, _, style)| self.cursor_drawn(style));
-        let mut ids: Vec<(baud_domain::StyleId, Inked, Selected, Cursored, Guided)> = Vec::new();
+        // Each cell's rendition read where its id names it: a window over
+        // history the core froze names a generation's (`crate::frozen`).
+        let back = term.looking_back(term.window_back());
+        let mut ids: Vec<(baud_domain::StyleWord, Inked, Selected, Cursored, Guided)> = Vec::new();
         // The guide's row and the block it leaves out, in cells.
         let guide_row = self
             .guide_at
@@ -4233,6 +4319,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             for row in at(y) / ch..at(y1).div_ceil(ch).min(rows) {
                 let row = Row::from_index(row);
                 let cells = view.row(row);
+                let source = self.bidi.orders().row_source_logical(term, back, row);
                 let first = (at(x) / cw).min(cols);
                 for (c, cell) in cells[first..at(x1).div_ceil(cw).min(cols)]
                     .iter()
@@ -4272,7 +4359,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         }
                         _ => Guided::No,
                     };
-                    let id = (cell.style, inked, selected, cursored, guided);
+                    let word = source.words().word(term, Col::at_index(first + c), *cell);
+                    let id = (word, inked, selected, cursored, guided);
                     if !ids.contains(&id) {
                         ids.push(id);
                         if ids.len() > FLASH_GROUNDS {
@@ -4329,13 +4417,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 None => [None, None],
             }
         };
-        for &(id, inked, selected, cursored, guided) in &ids {
-            let word = term
-                .styles()
-                .get(id.index())
-                .copied()
-                .flatten()
-                .unwrap_or(baud_domain::StyleWord::DEFAULT);
+        for &(word, inked, selected, cursored, guided) in &ids {
             let res = self.resolve_slot(term, word);
             let text = inked == Inked::Yes || word.attrs() != baud_domain::Attrs::NONE;
             let n = if text { 5 } else { 1 };
@@ -6204,15 +6286,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let leaving = leaving.then(|| {
                 let top = Row::ZERO;
                 let drawn = up.orders().reordered(top).then(|| (up.orders(), top));
-                (-1, up_vp.row(top), up_vp.rendition(top), drawn)
+                (
+                    -1,
+                    up_vp.row(top),
+                    up_vp.rendition(top),
+                    drawn,
+                    up_vp.styles(top),
+                )
             });
             let rows = (0..self.main.index()).map(|r| {
                 let y = Row::from_index(r);
                 let drawn = order.orders().reordered(y).then(|| (order.orders(), y));
-                (r as i64, vp.row(y), vp.rendition(y), drawn)
+                (r as i64, vp.row(y), vp.rendition(y), drawn, vp.styles(y))
             });
-            for (r, row, size, drawn) in leaving.into_iter().chain(rows) {
-                self.place_placeholders(term, imgs, epoch, (r, row, size), drawn, snap);
+            for (r, row, size, drawn, styles) in leaving.into_iter().chain(rows) {
+                self.place_placeholders(term, imgs, epoch, (r, row, size, styles), drawn, snap);
             }
             self.placeholder_leaving = Some(up);
             self.placeholder_bidi = Some(order);
@@ -6273,7 +6361,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         term: &Term<'_>,
         imgs: &ImageStore<'_>,
         epoch: ImageGen,
-        (r, row, size): (i64, &[PackedCell], LineRendition),
+        (r, row, size, styles): (
+            i64,
+            &[PackedCell],
+            LineRendition,
+            baud_domain::RowStyles<'_>,
+        ),
         drawn: Option<(&crate::bidi::Orders, Row)>,
         snap: Snapshots,
     ) {
@@ -6285,7 +6378,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let cell = |p: Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
         let (cell_w, cell_h) = (cell(self.metrics.cell_w), cell(self.metrics.cell_h));
         let frame_w = i64::from(self.frame_size().0.value());
-        for run in term.placeholder_runs(row) {
+        for run in term.placeholder_runs(row, styles) {
             let Some(v) = term.kitty_virtual(run.image, run.placement) else {
                 continue;
             };
@@ -6815,7 +6908,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     pub fn sized_lines(
         &mut self,
         term: &Term<'_>,
-        view: &Viewport<'_>,
+        (view, table): (&Viewport<'_>, &[Resolved]),
         cursor: Option<(Row, Col, CursorStyle)>,
         composition: Option<&Composition>,
         out: &mut Vec<(Row, Vec<Instance>)>,
@@ -6826,8 +6919,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
             return;
         }
         self.sized_ready(term);
+        // `view` is the frame's copy, whose frozen cells name the slots its
+        // table, `table`, lent them (`crate::frozen`): lent this table too.
+        self.adopt_frame(table);
         if self.theme.finds_pictures() {
-            self.pictures.find(term, view, self.video);
+            let frame = self.frame_held();
+            let lent = !frame.words().is_live();
+            let words = |y: Row| match lent {
+                true => frame.words(),
+                false => Words::Row(view.styles(y)),
+            };
+            self.pictures.find_in(term, view, words, self.video);
         } else {
             self.pictures.clear(cols, rows);
         }
@@ -6913,10 +7015,55 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// **The slots this path's table lent its last frozen cells, put back**
+    /// (`crate::frozen`), before the table is brought up to date: the sync
+    /// rewrites only the slots the core logged.
+    fn give_back_cpu(&mut self) {
+        let (mut styles, mut lent) = (
+            core::mem::take(&mut self.styles),
+            core::mem::take(&mut self.cpu_lent),
+        );
+        let mut stamp = self.styles_stamp;
+        self.give_back(&mut styles, &mut stamp, &mut lent);
+        (self.styles, self.styles_stamp, self.cpu_lent) = (styles, stamp, lent);
+    }
+
+    /// **Each frozen cell of this path's copy of the window lent a slot of
+    /// its table** ([`Renderer::lend_frozen`]): every row the copy holds,
+    /// the window's through the table each of its cells names, and the
+    /// status line's and the notice's, which are live.
+    fn lend_cpu(&mut self, term: &Term<'_>, back: Rows) {
+        let ncols = self.cols.index();
+        let main = self.main.index();
+        let sources: Vec<crate::frozen::RowSource<'_>> = (0..main)
+            .map(|r| {
+                self.bidi
+                    .orders()
+                    .row_source(term, back, Row::from_index(r))
+            })
+            .collect();
+        let (mut styles, mut lent, mut cur) = (
+            core::mem::take(&mut self.styles),
+            core::mem::take(&mut self.cpu_lent),
+            core::mem::take(&mut self.cur),
+        );
+        let mut stamp = self.styles_stamp;
+        {
+            let mut rows: Vec<(&mut [PackedCell], Words<'_>)> = cur
+                .chunks_mut(ncols.max(1))
+                .enumerate()
+                .map(|(r, c)| (c, sources.get(r).map_or(Words::LIVE, |s| s.words())))
+                .collect();
+            let _ = self.lend_frozen(term, &mut rows, &mut styles, &mut stamp, &mut lent);
+        }
+        (self.styles, self.styles_stamp, self.cpu_lent, self.cur) = (styles, stamp, lent, cur);
+    }
+
     /// The renderer fitted to `term` and its rendition table brought up to
     /// date, for a conversion outside [`Renderer::convert`].
     fn sized_ready(&mut self, term: &Term<'_>) {
         self.fit(term);
+        self.give_back_cpu();
         let mut styles = core::mem::take(&mut self.styles);
         if styles.len() != term.styles().len() {
             styles = vec![Resolved::default(); term.styles().len()];
@@ -7005,6 +7152,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.pictures.clear(self.cols, self.rows);
         self.cur[range.start..range.start + n].copy_from_slice(&cells[..n]);
         self.cur_size[0] = size;
+        // A line the core froze, drawn in its own renditions
+        // (`crate::frozen`): its cells lent slots of this path's table.
+        let source = self.leaving_source(term, back);
+        if !source.words().is_live() {
+            let (mut styles, mut lent, mut cur) = (
+                core::mem::take(&mut self.styles),
+                core::mem::take(&mut self.cpu_lent),
+                core::mem::take(&mut self.cur),
+            );
+            let mut stamp = self.styles_stamp;
+            let mut rows = [(&mut cur[range.start..range.start + n], source.words())];
+            let _ = self.lend_frozen(term, &mut rows, &mut styles, &mut stamp, &mut lent);
+            (self.styles, self.styles_stamp, self.cpu_lent, self.cur) = (styles, stamp, lent, cur);
+        }
         let mut exc = Exceptions::default();
         self.swap_leaving_layout();
         self.convert_row(term, r0, None, &mut exc);
@@ -7101,6 +7262,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     ) -> Converted {
         let t0 = Instant::now();
         self.fit(term);
+        // The lending the last frame's copy was drawn under, which this one
+        // is compared with below.
+        let lent_was = self.styles_stamp.lending;
+        self.give_back_cpu();
         let mut styles = core::mem::take(&mut self.styles);
         if styles.len() != term.styles().len() {
             styles = vec![Resolved::default(); term.styles().len()];
@@ -7191,6 +7356,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.cur[r * ncols..(r + 1) * ncols].fill(PackedCell::EMPTY);
             self.cur_size[r] = LineRendition::Single;
         }
+        // **A window over history the core froze** (`crate::frozen`): each
+        // frozen cell of this path's copy given a slot of its table no
+        // other cell of the frame names, its generation's word resolved
+        // there, so every reader below reads one table, as the cell path's
+        // do. The copy is this frame's damage record too, and a lent id
+        // means what it means only under its lending: a frame lent
+        // otherwise than the last repaints every row (`full` below).
+        if self.bidi.orders().window_frozen(term, back) {
+            self.lend_cpu(term, back);
+        }
+        self.frame_words = self.cpu_lent.held();
         // An input method's composition, on the live view: the cells under it
         // converted blank in their own renditions, so their backgrounds stay
         // and their glyphs give way to its records, built below. The cell it
@@ -7289,11 +7465,35 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
         }
         if self.theme.finds_pictures() {
-            let drawn =
-                self.bidi
-                    .orders()
-                    .window(term, back, &mut self.bidi_cells, &mut self.bidi_used);
-            self.pictures.find(term, &drawn, self.video);
+            let lent = self.cpu_lent.held();
+            match lent.words().is_live() {
+                true => {
+                    let drawn = self.bidi.orders().window(
+                        term,
+                        back,
+                        &mut self.bidi_cells,
+                        &mut self.bidi_used,
+                    );
+                    self.pictures.find(term, &drawn, self.video);
+                }
+                // The copy lent its frozen cells slots: read it, in the
+                // drawn order the window is, through their words.
+                false => {
+                    let n = main.index() * ncols;
+                    let used = vec![baud_domain::RowExtent::of(ncols); main.index()];
+                    let drawn = Viewport::new(
+                        &self.cur[..n],
+                        &used,
+                        baud_domain::Stride::of_cells(ncols),
+                        cols,
+                        main,
+                        main,
+                        baud_domain::RowRot::NONE,
+                    );
+                    self.pictures
+                        .find_in(term, &drawn, |_| lent.words(), self.video);
+                }
+            }
         } else {
             self.pictures.clear(cols, main);
         }
@@ -7338,6 +7538,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || self.known == Prev::Unknown
             || sync.pass == Pass::Full
             || sync.evicted == Evicted::Yes
+            || self.styles_stamp.lending != lent_was
             || self.fade != self.last_fade
             || self.bell != self.last_bell
             || clusters != self.last_clusters;
@@ -8874,7 +9075,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (w, styles): (&crate::word::Word, &[TextFace]),
         (cols, prev): (Cols, Option<f32>),
     ) -> Option<WordLayout> {
-        let text = word_text(term, row, w);
+        let held = self.cpu_lent.held();
+        let text = word_text(term, held.words(), row, w);
         self.word_placed((&text, styles), w, (cols, prev))
     }
 
@@ -8898,9 +9100,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             scale: self.scales.first().copied(),
             grown: self.atlas.stats().grown,
             theme: self.theme_gen,
-            styles: term
-                .variants_seen()
-                .then(|| (term.style_table(), term.style_writes())),
+            styles: term.variants_seen().then(|| {
+                (
+                    term.style_table(),
+                    term.style_writes(),
+                    self.styles_stamp.lending,
+                )
+            }),
         };
         self.kept.row(stamp, (at, rows.index()), cells, find)
     }
@@ -9101,9 +9307,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         out: &mut Vec<Instance>,
     ) {
         let mut cps = Vec::new();
+        let held = self.cpu_lent.held();
         for cell in row.iter().skip(s.at.index()).take(s.cells.index()) {
             if !cell.content.is_wide_tail() {
-                cps.extend(cell_cps(term, *cell));
+                cps.extend(cell_cps(term, held.words(), *cell));
             }
         }
         let Some(&first) = row.get(s.at.index()) else {
@@ -9247,13 +9454,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// `at` ([`Renderer::word_on`]), on the face that draws it.
     pub(crate) fn joined_word(
         &mut self,
-        (term, styles): (&Term<'_>, &[Resolved]),
+        (term, styles, frame): (&Term<'_>, &[Resolved], Words<'_>),
         cps: &[Codepoint],
         style: TextFace,
         (around, at): (WordAround<'_>, (Row, Col)),
     ) -> Word {
         let face = self.face_for(cps, style);
-        self.word_on((term, styles), face, around, at)
+        self.word_on((term, styles, frame), face, around, at)
     }
 
     /// [`Renderer::cluster`] for a cell whose letter the layout joined:
@@ -9860,9 +10067,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
             blinking: stamp.blinking,
             decorated: stamp.decorated,
             reclaims: Some(reclaims),
+            lending: stamp.lending,
         };
         self.blink_slots = stamp.blinking;
         sync
+    }
+
+    /// What a resolved rendition depends on beside its word: the theme, the
+    /// video and the core's colours.
+    pub(crate) fn style_inputs(&self, term: &Term<'_>) -> StyleInputs {
+        StyleInputs {
+            theme: self.theme_gen,
+            video: self.video,
+            colors: term.color_epoch(),
+        }
+    }
+
+    /// **One rendition resolved as a slot of the table is**: what a reader
+    /// of a row frozen off the screen draws a cell in, from its word
+    /// (`Term::style_in`).
+    pub fn resolved_word(&self, term: &Term<'_>, style: baud_domain::StyleWord) -> Resolved {
+        self.resolve_slot(term, style)
     }
 
     /// One rendition resolved through the theme and the live palette to what
@@ -10201,12 +10426,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
             && !self.taken.on(r)
             && self.composition.as_ref().is_none_or(|c| c.row != r)
             && self.bidi.orders().display().is_none();
+        // The frame's lent words (`crate::frozen`), which a cell's marks are
+        // read through.
+        let lent_words = self.cpu_lent.held();
         let (found, kept) = match (keep, held) {
             (_, false) => (None, None),
             (true, true) => {
                 let rows = self.rows;
                 let (k, found, asked) = self.kept_row(term, (r, rows), (walked, &logical), || {
-                    let (parted, letters) = crate::syllable::walk(term, walked, logical_of);
+                    let (parted, letters) =
+                        crate::syllable::walk((term, lent_words.words()), walked, logical_of);
                     let words = match letters {
                         crate::word::Letters::Seen => {
                             crate::word::of_row(term, walked, logical_of, &parted, |_| None)
@@ -10222,7 +10451,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             (false, true) => {
                 self.syllable_rows.bump();
-                let (parted, letters) = crate::syllable::walk(term, walked, logical_of);
+                let (parted, letters) =
+                    crate::syllable::walk((term, lent_words.words()), walked, logical_of);
                 // A composition's cells read as what they will hold, and the
                 // letters beside it that its words take in, which it draws,
                 // drawn unlit here as a word's own cells are
@@ -10610,6 +10840,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         instances: &mut Vec<Instance>,
         exc: &mut Exceptions,
     ) {
+        // The words of the frame's lent slots (`crate::frozen`), held so the
+        // runs may borrow the renderer mutably while they read them.
+        let held = self.cpu_lent.held();
         let seam = |v: usize| seams.get(v).copied().unwrap_or(false);
         let joined = |v: usize| match LAID {
             true => joins.get(v).copied().flatten(),
@@ -10739,8 +10972,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 false => None,
             };
             let face = match lean {
-                Some(_) => self.face_of_cell_in(term, row[c], base, style.upright()),
-                None => self.face_of_cell_in(term, row[c], base, style),
+                Some(_) => {
+                    self.face_of_cell_in((term, held.words()), row[c], base, style.upright())
+                }
+                None => self.face_of_cell_in((term, held.words()), row[c], base, style),
             };
             let varies = self.varies(face);
             if !settled && varies == Varies::Yes {
@@ -10808,7 +11043,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                                 || syl.at(Col::at_index(c)).is_some()
                                 || word_starts(c)))
                         || crate::boxes::covers(cp)
-                        || self.face_of_cell(term, cell, cp) != face
+                        || self.face_of_cell((term, held.words()), cell, cp) != face
                         || (varies == Varies::Yes
                             && self.script_at(face, Col::at_index(c)).1 != selection))
                 {
@@ -10844,7 +11079,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 key = key.fold(cp.value());
                 if cell.flags.is_marked() {
                     exc.marked.bump();
-                    for m in drawn_marks(term, cell) {
+                    for m in drawn_marks(term, held.words(), cell) {
                         if let Some(mc) = Codepoint::new(m) {
                             cps.push(mc);
                             key = key.fold(m);
@@ -10873,7 +11108,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let (before, after) = (before.to_vec(), after.to_vec());
                 let styles = core::mem::take(&mut self.styles);
                 word = self.word_on(
-                    (term, &styles),
+                    (term, &styles, held.words()),
                     face,
                     (&before, &after),
                     (r, Col::at_index(start)),
@@ -10949,7 +11184,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// table the frame draws with ([`Renderer::word_at`]).
     pub(crate) fn word_on(
         &mut self,
-        (term, styles): (&Term<'_>, &[Resolved]),
+        (term, styles, frame): (&Term<'_>, &[Resolved], Words<'_>),
         face: FaceIx,
         (before, after): WordAround<'_>,
         (r, v): (Row, Col),
@@ -10968,13 +11203,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let leans = self.bidi.orders().right_to_left(r, v) && term.variants_seen();
         let mut take = |w: &crate::bidi::WordCell| {
             let base = drawn_base(term, w.cell)?;
-            let style = crate::cellmap::face_of(styles, w.cell);
-            let style = match leans && crate::bidi::slanted(term, w.cell) {
+            // **A cell of the word its own row names**: one the core froze
+            // keeps its word, and a live one whose slot the frame lent a
+            // frozen row reads the live table (`crate::frozen`); either is
+            // resolved from its word rather than read from `styles`.
+            let lent =
+                !frame.is_live() && frame.word(term, Col::ZERO, w.cell) != term.style_of(w.cell);
+            let style = match (w.word, lent) {
+                (Some(word), _) => self.resolve_slot(term, word).shapes.text_face(),
+                (None, true) => self
+                    .resolve_slot(term, term.style_of(w.cell))
+                    .shapes
+                    .text_face(),
+                (None, false) => crate::cellmap::face_of(styles, w.cell),
+            };
+            let style = match leans && crate::bidi::slanted(term, w.words(), Col::ZERO, w.cell) {
                 true => self.lean(style).map_or(style, |_| style.upright()),
                 false => style,
             };
-            (self.face_of_cell_in(term, w.cell, base, style) == face)
-                .then(|| (cell_cps(term, w.cell), w.form))
+            (self.face_of_cell_in((term, w.words()), w.cell, base, style) == face)
+                .then(|| (cell_cps(term, w.words(), w.cell), w.form))
         };
         for w in before.iter().rev().take(reach) {
             match take(w) {
@@ -11593,13 +11841,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 if !self.wrapped_ligates(term, (lam, alef), kind, style, st) {
                     return false;
                 }
-                let lam_cps = cell_cps(term, lam);
-                let alef_cps = cell_cps(term, alef);
+                let held = self.cpu_lent.held();
+                let lam_cps = cell_cps(term, held.words(), lam);
+                // The other letter is another row's, as the layout kept it.
+                let alef_cps = cell_cps(term, Words::LIVE, alef);
                 let lean = self.slant_at(r, Col::at_index(c), style);
                 let style = lean.map_or(style, |_| style.upright());
                 let face = self.face_for(&lam_cps, style);
                 let styles = core::mem::take(&mut self.styles);
-                let word = self.pair_word((term, &styles), r, (c, None), face);
+                let word = self.pair_word((term, &styles, held.words()), r, (c, None), face);
                 self.styles = styles;
                 let Some(mut g) = self.lam_alef(
                     (&lam_cps, &alef_cps),
@@ -11646,8 +11896,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.shown_cell(r, Col::at_index(alef_c), row),
         );
         let lam_form = joined(lam_c).map_or(form, |j| j.form);
-        let lam_cps = cell_cps(term, lam_cell);
-        let alef_cps = cell_cps(term, alef_cell);
+        let held = self.cpu_lent.held();
+        let lam_cps = cell_cps(term, held.words(), lam_cell);
+        let alef_cps = cell_cps(term, held.words(), alef_cell);
         let style = self.face_style(lam_cell);
         let lean = self.slant_at(r, Col::at_index(lam_c), style);
         let style = lean.map_or(style, |_| style.upright());
@@ -11657,7 +11908,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         let face = self.face_for(&lam_cps, style);
         let styles = core::mem::take(&mut self.styles);
-        let word = self.pair_word((term, &styles), r, (lam_c, Some(alef_c)), face);
+        let word = self.pair_word(
+            (term, &styles, held.words()),
+            r,
+            (lam_c, Some(alef_c)),
+            face,
+        );
         self.styles = styles;
         let Some(mut g) = self.lam_alef(
             (&lam_cps, &alef_cps),
@@ -11720,7 +11976,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// alef.
     pub(crate) fn pair_word(
         &mut self,
-        (term, styles): (&Term<'_>, &[Resolved]),
+        (term, styles, frame): (&Term<'_>, &[Resolved], Words<'_>),
         r: Row,
         (lam, alef): (usize, Option<usize>),
         face: FaceIx,
@@ -11736,7 +11992,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         let (before, after) = (before.to_vec(), after.to_vec());
         self.word_on(
-            (term, styles),
+            (term, styles, frame),
             face,
             (&before, &after),
             (r, Col::at_index(lam)),

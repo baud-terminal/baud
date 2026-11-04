@@ -49,7 +49,8 @@ fn agrees(r: &mut Renderer<'_, '_>, t: &Term<'_>, copy: &[Resolved], what: &str)
 /// 2,500 distinct truecolour renditions in a 1,024-slot table, with hits
 /// between them: over one cell, so each dies when the next replaces it and
 /// the table sweeps (`sweeping`), or each on a cell of its own, pushed into
-/// the history, so every slot stays named and the table evicts (`evicting`).
+/// the history, so every slot stays named and the table freezes the history
+/// to make room (`freezing`).
 fn churning(own_cells: bool) -> Vec<u8> {
     let mut out = Vec::new();
     let mut n = 0usize;
@@ -94,7 +95,7 @@ fn the_cache_equals_a_full_resolve_at_every_read_boundary() {
         ws_col: small.ws_col,
     };
     streams.push(("sweeping".into(), small_too, churning(false)));
-    streams.push(("evicting".into(), small, churning(true)));
+    streams.push(("freezing".into(), small, churning(true)));
     for (name, ws, bytes) in streams {
         let mut r = renderer(&faces, &ws);
         let mut owned = Owned::new(&ws);
@@ -133,8 +134,8 @@ fn the_cache_equals_a_full_resolve_at_every_read_boundary() {
         // The controls: each churn reached the reclaim it is named for.
         let r = t.style_reclaims();
         match name.as_str() {
-            "sweeping" => assert!(r.sweeps > 0 && r.evictions == 0, "{r:?}"),
-            "evicting" => assert!(r.evictions > 0, "{r:?}"),
+            "sweeping" => assert!(r.sweeps > 0 && r.rewrites == 0, "{r:?}"),
+            "freezing" => assert!(r.rewrites > 0 && r.refusals == 0, "{r:?}"),
             _ => {}
         }
     }
@@ -232,6 +233,28 @@ fn incremental_and_full(
     (c.digest(), cf.digest())
 }
 
+/// [`incremental_and_full`] on a storage lent no generations
+/// (`Owned::without_frozen`), so a full table of named slots stays full.
+fn incremental_and_full_unfrozen(
+    faces: &[Face<'_>],
+    ws: &WinSize,
+    before: &[u8],
+    between: &[u8],
+) -> (u64, u64) {
+    let mut r = renderer(faces, ws);
+    let mut owned = Owned::new(ws).without_frozen();
+    let mut t = Term::new(owned.storage(), ws);
+    let mut c = Canvas::for_renderer(&r);
+    feed(&mut t, before);
+    paint(&mut r, &mut t, &mut c, Damage::Full);
+    feed(&mut t, between);
+    paint(&mut r, &mut t, &mut c, Damage::Incremental);
+    let mut fresh = renderer(faces, ws);
+    let mut cf = Canvas::for_renderer(&fresh);
+    paint(&mut fresh, &mut t, &mut cf, Damage::Full);
+    (c.digest(), cf.digest())
+}
+
 /// **Setting a palette entry to black repaints the cells in it**, on an
 /// incremental frame whose words did not change. The digest this replaced
 /// folded an unset entry as black, so a set-to-black never changed it.
@@ -248,14 +271,16 @@ fn a_palette_entry_set_to_black_repaints_on_an_incremental_frame() {
     assert_eq!(inc, full, "the text drawn in entry 1 kept its old colour");
 }
 
-/// **An eviction repaints the rows whose words did not change**: a slot a
-/// cell names given to another rendition changes the cell's colour and not
-/// its word. A 1,024-slot table filled with renditions each on a cell of its
-/// own, pushed into the history so every one stays named and a sweep frees
-/// nothing; then the text on row 0, in the table's last free slot; then one
-/// rendition bucketing to the text's slot, which evicts it.
+/// **A slot freed and given another rendition under the same cells
+/// repaints the rows whose words did not change.** A 1,024-slot table lent no
+/// generations filled with renditions each on a cell of its own, pushed into
+/// the history so every one stays named; the text on row 0 in the table's
+/// last free slot. Between two frames the text is overwritten, so nothing
+/// names its slot, and written again in a rendition bucketing to that slot:
+/// the full table sweeps, frees it, and the new rendition takes it, so the
+/// row's cells are the same and their colour is not.
 #[test]
-fn an_eviction_repaints_rows_whose_words_did_not_change() {
+fn a_freed_slot_retaken_under_the_same_cells_repaints() {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).expect("parse")];
     let small = WinSize {
@@ -273,20 +298,16 @@ fn an_eviction_repaints_rows_whose_words_did_not_change() {
     }
     before.extend(b"\x1b[0m");
     before.extend([b'\n'; 10]);
-    // The cursor waits on row 5, hidden, so the thief's write dirties row 5
-    // alone and row 0 is repainted only for its colour.
+    // The cursor waits on row 5, hidden, so the rewrite dirties row 0 alone.
     before.extend(b"\x1b[H\x1b[38;2;200;10;10mvictim\x1b[0m\x1b[5;1H\x1b[?25l");
-    // Where the text landed, and the controls: the table is full of named
-    // slots, so the thief has to evict.
     let (slot, len) = {
-        let mut owned = Owned::new(&small);
+        let mut owned = Owned::new(&small).without_frozen();
         let mut t = Term::new(owned.storage(), &small);
         feed(&mut t, &before);
         assert!(
             t.styles().iter().all(Option::is_some),
             "the table is not full"
         );
-        assert_eq!(t.style_reclaims().evictions, 0);
         let row = t
             .row(baud_domain::Row::from_index(0))
             .expect("a row on the grid");
@@ -302,24 +323,35 @@ fn an_eviction_repaints_rows_whose_words_did_not_change() {
             baud_domain::StyleId::bucket(w, len) == slot.index()
         })
         .unwrap();
-    let between = format!("\x1b[38;2;{};{};{}mX\x08\x1b[0m", thief.0, thief.1, thief.2);
+    // A full table refuses until its sweep is due, the refusals counting
+    // toward it (`SweepBook::due`), so the text is written again until the
+    // sweep has freed its slot and the new rendition takes it.
+    let again = format!(
+        "\x1b[H\x1b[38;2;{};{};{}mvictim\x1b[0m",
+        thief.0, thief.1, thief.2
+    );
+    let between = format!("\x1b[H\x1b[0m      {}\x1b[5;1H", again.repeat(len / 16 + 2));
     {
-        let mut owned = Owned::new(&small);
+        let mut owned = Owned::new(&small).without_frozen();
         let mut t = Term::new(owned.storage(), &small);
         feed(&mut t, &before);
+        let cells = t.row(baud_domain::Row::from_index(0)).unwrap().to_vec();
         feed(&mut t, between.as_bytes());
-        assert_eq!(t.style_reclaims().evictions, 1, "the control: it evicted");
         let row = t
             .row(baud_domain::Row::from_index(0))
             .expect("a row on the grid");
+        assert!(
+            baud_domain::PackedCell::same_cells(row, &cells),
+            "the control: the same cells"
+        );
         assert_eq!(
             t.style_of(row[0]).fg().as_rgb(),
             Some(thief),
-            "the control: the text's slot is the thief's"
+            "the control: the text's slot is the new rendition's"
         );
     }
-    let (inc, full) = incremental_and_full(&faces, &small, &before, between.as_bytes());
-    assert_eq!(inc, full, "row 0's text kept its evicted colour");
+    let (inc, full) = incremental_and_full_unfrozen(&faces, &small, &before, between.as_bytes());
+    assert_eq!(inc, full, "row 0's text kept its old colour");
 }
 
 /// **The app never resolves the whole table a frame.** It syncs each set's

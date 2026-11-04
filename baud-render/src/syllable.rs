@@ -87,12 +87,12 @@ pub(crate) struct Syllable {
 /// (`crate::word::is_letter`), read from the base each cell's walk asks for
 /// anyway, so a row of none is known to hold no word at no further cost.
 pub(crate) fn of_row(
-    term: &Term<'_>,
+    (term, words): (&Term<'_>, crate::frozen::Words<'_>),
     row: &[PackedCell],
     logical: impl Fn(Col) -> Col,
 ) -> (Vec<Syllable>, crate::word::Letters) {
     match may_hold(term, row) {
-        true => walk(term, row, logical),
+        true => walk((term, words), row, logical),
         false => (Vec::new(), crate::word::Letters::None),
     }
 }
@@ -100,7 +100,7 @@ pub(crate) fn of_row(
 /// [`of_row`]'s walk, for a caller that asked [`may_hold`] itself: every
 /// cell of `row` through the machine.
 pub(crate) fn walk(
-    term: &Term<'_>,
+    (term, words): (&Term<'_>, crate::frozen::Words<'_>),
     row: &[PackedCell],
     logical: impl Fn(Col) -> Col,
 ) -> (Vec<Syllable>, crate::word::Letters) {
@@ -156,7 +156,7 @@ pub(crate) fn walk(
             }
         }
         if cell.flags.is_marked() {
-            for c in crate::renderer::drawn_marks(term, *cell).filter_map(Codepoint::new) {
+            for c in crate::renderer::drawn_marks(term, words, *cell).filter_map(Codepoint::new) {
                 let _ = step(&mut m, c);
             }
         }

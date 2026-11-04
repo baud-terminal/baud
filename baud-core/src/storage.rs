@@ -116,10 +116,12 @@ pub struct Storage<'b> {
     /// The rendition table. A cell holds a [`StyleId`] *index* into this;
     /// **bounded by construction** and open-addressed: a table keyed on what
     /// an application sends needs a bound. It frees the slots no cell names
-    /// when it sweeps, and evicts only when a full table's sweep frees none
-    /// or is not yet due (`Paint::sweep_styles`). **Slot 0 is reserved for
-    /// the default** (`Term::new`), which every blank cell names without
-    /// interning it, and is never evicted.
+    /// when it sweeps, moves what lies off the active screen into frozen
+    /// generations when a sweep leaves it past its load (`crate::freeze`),
+    /// and **never writes a slot a cell names**: a full table with nothing
+    /// left to free refuses the next rendition, counted. **Slot 0 is
+    /// reserved for the default** (`Term::new`), which every blank cell
+    /// names without interning it.
     ///
     /// `Option` rather than a parallel validity array: absent and occupied are
     /// two states of one thing, and a `bool` beside it is the missing enum the
@@ -714,6 +716,12 @@ pub struct Owned {
     order: alloc::vec::Vec<StyleId>,
     book: StyleBook,
     reach: alloc::vec::Vec<Reach>,
+    frozen_words: alloc::vec::Vec<StyleWord>,
+    frozen_gens: alloc::vec::Vec<FrozenGen>,
+    frozen_tags: alloc::vec::Vec<Option<RowFrozen>>,
+    frozen_spare: alloc::vec::Vec<Option<GenIdx>>,
+    frozen_map: alloc::vec::Vec<Remap>,
+    frozen_book: FrozenBook,
     tabs: alloc::vec::Vec<bool>,
     reply: alloc::vec::Vec<u8>,
     alt: alloc::vec::Vec<PackedCell>,
@@ -789,7 +797,20 @@ impl Owned {
         // it (so open addressing's `& (len - 1)` wraps), between the NSTYLE
         // floor and the NSTYLE_MAX ceiling; the ceiling clamp precedes
         // `next_power_of_two()`, which panics past 2^63.
-        let styles = span.len().min(NSTYLE_MAX).next_power_of_two().max(NSTYLE);
+        //
+        // **And the status row and the three slots nothing on the screen
+        // has to name**: slot 0, the current rendition and the parked
+        // display's. Those are what the table must hold once everything off
+        // the active screen is frozen (`crate::freeze`), so a table sized to
+        // the screen alone could still fill with nothing left to freeze when
+        // the screen's cells sit just under a power of two. At the app's
+        // 400x150 at a pitch of 408 that is 61,200 + 408 + 3 = 61,611 of
+        // 65,536. Past 65,536 less the pitch less three cells (65,125 at the
+        // 408 pitch) it is the ceiling, and a screen naming more than the
+        // table holds refuses the next rendition.
+        let live = span.len() + stride.index() + RESERVED_SLOTS;
+        let styles = live.min(NSTYLE_MAX).next_power_of_two().max(NSTYLE);
+        let frozen = FrozenBudget::of(Rows::of_index(rows.index() + depth.lines()), stride, styles);
         // A placement for every cell of the largest screen this storage
         // displays, `span.len()` as the rendition table's is, so a picture
         // placed one cell at a time fits however large it is drawn.
@@ -806,6 +827,15 @@ impl Owned {
             order: vec![StyleId::DEFAULT; styles],
             book: StyleBook::new(),
             reach: vec![Reach::ZERO; styles],
+            // The pool from zeroed pages, so a terminal that never fills
+            // its table commits none of it; the tags and the map are a
+            // ring's rows and a table's slots.
+            frozen_words: frozen.zeroed_words(),
+            frozen_gens: vec![FrozenGen::EMPTY; frozen.gens],
+            frozen_tags: vec![None; frozen.rows],
+            frozen_spare: vec![None; frozen.rows],
+            frozen_map: FrozenBudget::zeroed_map(styles),
+            frozen_book: FrozenBook::NEW,
             tabs: vec![false; MAX_COLS],
             reply: vec![0u8; REPLY],
             alt: vec![PackedCell::EMPTY; span.len()],
@@ -890,6 +920,14 @@ impl Owned {
     /// log forgets its oldest prompts, counted ([`Term::prompts_forgotten`]).
     pub fn with_prompt_log(mut self, entries: PromptCapacity) -> Owned {
         self.prompts = alloc::vec![PromptEntry::EMPTY; entries.index()];
+        self
+    }
+
+    /// **No generations**: a full table whose cells name every slot refuses
+    /// the next rendition rather than freezing what is off the screen, as a
+    /// storage lent none does ([`Storage::with_frozen`]).
+    pub fn without_frozen(mut self) -> Owned {
+        self.frozen_words = alloc::vec::Vec::new();
         self
     }
 
@@ -1051,6 +1089,14 @@ impl Owned {
             &mut self.status,
             &mut self.status_used,
         ))
+        .with_frozen(FrozenBuf {
+            words: &mut self.frozen_words,
+            gens: &mut self.frozen_gens,
+            tags: &mut self.frozen_tags,
+            spare: &mut self.frozen_spare,
+            map: &mut self.frozen_map,
+            book: &mut self.frozen_book,
+        })
     }
 
     /// Lend them all to a `Storage`.
@@ -1149,6 +1195,14 @@ impl Owned {
             &mut self.status,
             &mut self.status_used,
         ))
+        .with_frozen(FrozenBuf {
+            words: &mut self.frozen_words,
+            gens: &mut self.frozen_gens,
+            tags: &mut self.frozen_tags,
+            spare: &mut self.frozen_spare,
+            map: &mut self.frozen_map,
+            book: &mut self.frozen_book,
+        })
     }
 }
 
@@ -1203,12 +1257,21 @@ pub const NSTYLE: usize = 1024;
 
 /// The **ceiling**, from the cell rather than from a sweep: a [`StyleId`] is a
 /// `u16`, so a slot index must fit sixteen bits and the table cannot exceed
-/// `2^16` slots however large the screen. A screen with more than this many
-/// distinct renditions -- 65,536 cells, a window no real terminal reaches --
-/// can still evict, which is recorded rather than paid for. At 20 bytes a
+/// `2^16` slots however large the screen. A screen whose active screen names
+/// more renditions than this refuses the renditions past it, counted, and
+/// recolours no drawn cell. That takes more than 65,536 less its pitch less
+/// three cells: 65,125 at the app's 408 pitch. At 20 bytes a
 /// `StyleWord` the ceiling is a 1.5 MB table, so only a window that large pays
 /// it; a 200x50 screen sizes to 16,384 slots, ~384 KB.
 pub const NSTYLE_MAX: usize = 1 << 16;
+
+/// **The slots a table holds that no cell of the screen has to name**: slot
+/// 0, the default every blank cell names; the current rendition; and the
+/// parked display's while the status line is written. A table sized to a
+/// screen of cells plus its status row plus these holds every rendition the
+/// active screen can name, which is what a freeze leaves it
+/// (`crate::freeze`).
+pub const RESERVED_SLOTS: usize = 3;
 
 /// How many `(lead, continuation)` prefixes a three-byte character has.
 pub const CELLS3_PREFIXES: usize = 16 * 64;
@@ -1413,7 +1476,7 @@ impl Default for StyleBook {
 /// argument so the four cannot be lent apart.
 ///
 /// The log is a ring of `slots.len()` entries, one a write, naming the slot
-/// each write filled, evicted or freed. Until the table sweeps or evicts it
+/// each write filled or freed. Until the table sweeps it
 /// fills each slot once, so until it has taken as many writes as it has
 /// slots the log holds exactly the filled slots, in the order they were
 /// filled. A sweep logs every slot it frees, so a reader that replays the
@@ -1440,6 +1503,11 @@ pub(crate) struct StyleLog<'b> {
     pub(crate) order: &'b mut [StyleId],
     pub(crate) book: &'b mut StyleBook,
     pub(crate) reach: &'b mut [Reach],
+    /// **The generations what lies off the active screen is frozen into**
+    /// when the table fills (`crate::freeze`), or `None` for a storage lent
+    /// none ([`Storage::with_frozen`]). Here because `Paint` carries this
+    /// word by reference, so the per-byte loop carries nothing more for it.
+    pub(crate) frozen: Option<FrozenStore<'b>>,
 }
 
 impl StyleLog<'_> {
@@ -1475,6 +1543,27 @@ impl<'b> Storage<'b> {
     /// scrollback.
     pub fn ring_rows(&self) -> Rows {
         Rows::of_index(self.used.len())
+    }
+
+    /// **Lend the rendition table its generations** (`crate::freeze`): the
+    /// pool a full table moves what lies off the active screen into, so it
+    /// never gives a slot a drawn cell names to another rendition. Sized by
+    /// [`FrozenBudget::of`]; a storage lent none, or an empty pool, freezes
+    /// nothing, and a full table whose cells name every slot refuses the
+    /// next rendition and counts it ([`Reclaims::refusals`]).
+    ///
+    /// # Panics
+    /// If the tags are not one a row of the ring or the map one a slot.
+    pub fn with_frozen(mut self, buf: FrozenBuf<'b>) -> Storage<'b> {
+        self.style_log.frozen = match buf.words.is_empty() {
+            true => None,
+            false => Some(FrozenStore::new(
+                buf,
+                Rows::of_index(self.used.len()),
+                self.tmpl.len(),
+            )),
+        };
+        self
     }
 
     /// **Lend the status line its row**: at least the pitch of cells and one
@@ -1621,6 +1710,7 @@ impl<'b> Storage<'b> {
                 order: styles.order,
                 book: styles.book,
                 reach: styles.reach,
+                frozen: None,
             },
             tabs,
             reply,
