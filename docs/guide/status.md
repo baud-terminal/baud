@@ -46,6 +46,5 @@ what was measured and how.
 
 ## Getting it
 
-Nix builds and runs baud from the repository in one command, and Cargo
-will once baud's first release is on crates.io; there is no download yet.
-See [Installing](install.md).
+Nix builds and runs baud from the repository in one command. There is no
+release yet, and nothing to download. See [Installing](install.md).

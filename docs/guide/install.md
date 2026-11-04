@@ -1,28 +1,27 @@
 # Installing baud
 
-baud installs with Nix today, and with Cargo once its first release is on
-crates.io. Both give you the `baud` binary; to have an app you can put in
-Applications and the Dock, build it from the repository.
+There is no release of baud yet. It installs with Nix, which builds the
+`baud` binary from the repository; to have an app you can put in
+Applications and the Dock, build it from a clone of the repository.
 
 ## What you need
 
 - **A Mac running macOS 26 or later.** On an older system baud says what
   it needs and quits.
-- **[Nix](https://nixos.org)** with flakes turned on, or
-  **[rustup](https://rustup.rs)** for Cargo. Either fetches the exact
+- **[Nix](https://nixos.org)** with flakes turned on. It fetches the exact
   compiler baud is built with, so you do not pick a Rust version yourself.
 
 ## With Nix
 
 ```sh
-nix run github:i-am-logger/baud
+nix run github:baud-terminal/baud
 ```
 
 This builds baud and opens a window running your login shell. To keep it
 on your `PATH`:
 
 ```sh
-nix profile add github:i-am-logger/baud
+nix profile add github:baud-terminal/baud
 ```
 
 The package carries the licences of the fonts baud draws with in
@@ -38,29 +37,13 @@ typed. If you build baud in your own nixpkgs, through the flake's
 nixpkgs.config.allowUnfreePredicate = pkg: lib.getName pkg == "baud";
 ```
 
-## With Cargo, once published
-
-Once baud's first release is on [crates.io](https://crates.io/crates/baud),
-Cargo installs it with the nightly Rust toolchain baud is built with, which
-[rustup](https://rustup.rs) provides, and with the dependency versions baud
-was released with (`--locked`):
-
-```sh
-cargo +nightly-2026-04-11 install --locked baud
-```
-
-This puts the `baud` binary in `~/.cargo/bin`; run `baud` to open a window.
-It is built the way the repository builds it, with whole-program link-time
-optimisation, and for macOS 26. A stable toolchain stops before it builds
-anything, with an error that says a nightly Cargo is needed.
-
 ## Build the app
 
 Clone the repository with git and build from the clone, with
 [Nix](https://nixos.org) and [devenv](https://devenv.sh):
 
 ```sh
-git clone https://github.com/i-am-logger/baud
+git clone https://github.com/baud-terminal/baud
 cd baud
 devenv shell -- scripts/bundle-macos.sh
 ```

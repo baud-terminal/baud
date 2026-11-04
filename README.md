@@ -25,15 +25,13 @@ the Linux version is in progress. [What works today, and what doesn't yet](docs/
 
 ## Install
 
-baud runs on macOS 26 and later. Nix and Cargo install the `baud`
-binary, which opens a window running your login shell, built with the
-settings baud is measured with.
-
-**With [Nix](https://nixos.org).** One command fetches the exact compiler,
-builds baud and opens it (with flakes turned on):
+baud runs on macOS 26 and later, and installs with
+[Nix](https://nixos.org) (with flakes turned on). One command fetches the
+exact compiler, builds the `baud` binary with the settings baud is
+measured with, and opens it: a window running your login shell.
 
 ```sh
-nix run github:i-am-logger/baud              # or: nix profile add github:i-am-logger/baud
+nix run github:baud-terminal/baud            # or: nix profile add github:baud-terminal/baud
 ```
 
 baud's licence, CC BY-NC-SA 4.0, lets you use it for anything that is not
@@ -41,21 +39,12 @@ commercial. nixpkgs counts that as unfree, so if you build baud in your own
 nixpkgs through this flake's `overlays.default`, allow it there:
 `nixpkgs.config.allowUnfreePredicate = pkg: lib.getName pkg == "baud";`.
 
-**With Cargo, once published.** baud's first release will be on
-[crates.io](https://crates.io/crates/baud). It builds with the nightly Rust
-toolchain baud is built with; a stable toolchain stops at once and says
-nightly is needed:
-
-```sh
-cargo +nightly-2026-04-11 install --locked baud
-```
-
 **From source, for the app.** With [Nix](https://nixos.org) and
 [devenv](https://devenv.sh), which fetch the exact toolchain, in a git
 clone (a ZIP download has no `.git`, and the dev shell needs one):
 
 ```sh
-git clone https://github.com/i-am-logger/baud && cd baud
+git clone https://github.com/baud-terminal/baud && cd baud
 devenv shell -- scripts/bundle-macos.sh   # leaves baud.app in target/
 devenv shell -- cargo run --release       # or run it from the terminal you are in
 ```

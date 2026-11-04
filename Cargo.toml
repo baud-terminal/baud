@@ -68,7 +68,7 @@ description = "A fast terminal emulator with its own built-in font and cursor ef
 keywords = ["terminal", "vt100", "ansi", "tty", "vte"]
 categories = ["parser-implementations", "no-std", "text-processing"]
 license = "CC-BY-NC-SA-4.0"
-repository = "https://github.com/i-am-logger/baud"
+repository = "https://github.com/baud-terminal/baud"
 # The toolchain the crates are built with is nightly 1.96 (`nix/rust.nix`):
 # baud-domain and baud-font use `#![feature]`s, so no stable release builds
 # them, and 1.96 is the release whose nightly does.

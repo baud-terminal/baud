@@ -12,28 +12,26 @@ scrolls, selects and rewraps when the window is resized.
 
 ## Install
 
-baud is built with the nightly Rust toolchain of 2026-04-11, and with the
-dependency versions it was released with:
+baud installs with [Nix](https://nixos.org), with flakes turned on:
 
 ```sh
-cargo +nightly-2026-04-11 install --locked baud
-baud
+nix run github:baud-terminal/baud
 ```
 
-This installs the `baud` binary, built with link-time optimisation for
-macOS 26, which opens a window running your login shell; a stable
-toolchain stops at once, with an error that says nightly is needed. With
-Nix, `nix run github:i-am-logger/baud` does the same. The app bundle for
-Applications and the Dock is built from the repository ([Installing](https://github.com/i-am-logger/baud/blob/master/docs/guide/install.md)).
+This builds the `baud` binary for macOS 26, with the settings baud is
+measured with, and opens a window running your login shell;
+`nix profile add github:baud-terminal/baud` keeps it on your `PATH`. The
+app bundle for Applications and the Dock is built from the repository
+([Installing](https://github.com/baud-terminal/baud/blob/master/docs/guide/install.md)).
 
 The Linux version builds and has run in headless sessions; it is not ready
-to use yet ([Status](https://github.com/i-am-logger/baud/blob/master/docs/guide/status.md)).
+to use yet ([Status](https://github.com/baud-terminal/baud/blob/master/docs/guide/status.md)).
 
 ## More
 
-[The README](https://github.com/i-am-logger/baud#readme) has pictures of all of it,
-[Features](https://github.com/i-am-logger/baud/blob/master/docs/guide/features.md) lists every one, and
-[Configuration](https://github.com/i-am-logger/baud/blob/master/docs/guide/configuration.md) every setting.
+[The README](https://github.com/baud-terminal/baud#readme) has pictures of all of it,
+[Features](https://github.com/baud-terminal/baud/blob/master/docs/guide/features.md) lists every one, and
+[Configuration](https://github.com/baud-terminal/baud/blob/master/docs/guide/configuration.md) every setting.
 
 baud is licensed under CC BY-NC-SA 4.0 (`LICENSE`); the third-party files
 it carries, such as its fonts, keep their own licences beside them, and

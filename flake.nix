@@ -1,5 +1,5 @@
 {
-  # `nix run github:i-am-logger/baud` opens baud; `nix build` leaves it in
+  # `nix run github:baud-terminal/baud` opens baud; `nix build` leaves it in
   # ./result/bin. The dev shell is devenv's (`devenv.nix`); this file only
   # builds the terminal.
   description = "baud, a fast terminal emulator";
@@ -48,7 +48,7 @@
           # The nightly `nix/rust.nix` takes from that rust-overlay revision:
           # rustc 1.96.0-nightly 02c7f9bec. baud-domain and baud-font use
           # `#![feature]`s, and the manifests' `cargo-features`, so no stable
-          # release builds them. The install guides name the same date.
+          # release builds them. CONTRIBUTING.md and docs/embedding.md name the same date.
           toolchain = pkgs.rust-bin.nightly."2026-04-11".minimal;
           rustPlatform = pkgs.makeRustPlatform {
             cargo = toolchain;

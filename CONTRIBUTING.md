@@ -496,10 +496,9 @@ sfte, cell for cell) before any rate; a test that only prints cannot fail.
 
 ## Releases
 
-**Once released, baud is on crates.io, and `cargo +nightly-2026-04-11
-install --locked baud` installs the terminal** (the nightly because
-`baud-domain` uses nightly features, so a stable toolchain cannot build
-it). The `baud` package (in `baud-app/`) is published with the
+**A release publishes `baud` to crates.io, built with
+`nightly-2026-04-11`** (the nightly because `baud-domain` uses nightly
+features, so a stable toolchain cannot build it). The `baud` package (in `baud-app/`) is published with the
 eleven crates it is built from, because crates.io takes a crate only when
 every crate it depends on is there too. `baud-bench`, `baud-difftest` and
 `baud-sfte-difftest` carry `publish = false`. `scripts/check-publish.py`

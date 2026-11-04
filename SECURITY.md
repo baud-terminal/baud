@@ -177,7 +177,7 @@ report them as gaps; if you think one is wrong, the reasoning is in
 ## Reporting a Vulnerability
 
 Please report security issues privately rather than opening a public issue —
-[GitHub Security Advisories](https://github.com/i-am-logger/baud/security/advisories/new)
+[GitHub Security Advisories](https://github.com/baud-terminal/baud/security/advisories/new)
 if private vulnerability reporting is enabled on the repo, otherwise contact
 the maintainer directly via GitHub ([@i-am-logger](https://github.com/i-am-logger)).
 
