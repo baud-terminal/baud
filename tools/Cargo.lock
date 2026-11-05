@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "baud-fontbuild"
+version = "0.1.0"
+dependencies = [
+ "read-fonts",
+]
+
+[[package]]
 name = "baud-oracle"
 version = "0.1.0"
 dependencies = [

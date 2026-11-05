@@ -1,7 +1,8 @@
-# The tools that link C: kept out of the repository's workspace (the root
-# manifest excludes `tools`), with their own lock file, so `cargo test
-# --workspace` and the push hook never build or link a C engine. Build them
-# in `tools/shell.nix`, which pins the engines.
+# The tools that link C, and the font build beside them: kept out of the
+# repository's workspace (the root manifest excludes `tools`), with their
+# own lock file, so `cargo test --workspace` and the push hook never build
+# or link a C engine. Build baud-oracle in `tools/shell.nix`, which pins
+# the engines; baud-fontbuild links none and builds anywhere.
 [workspace]
 resolver = "2"
-members = ["baud-oracle"]
+members = ["baud-oracle", "baud-fontbuild"]

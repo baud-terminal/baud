@@ -442,6 +442,8 @@ fn every_test_named_in_the_docs_exists() {
         // Outside the workspace; its docs name the C functions its extern
         // blocks declare, which this collects as it collects any `fn`.
         "tools/baud-oracle",
+        // Outside the workspace with it: the font comparator.
+        "tools/baud-fontbuild",
     ] {
         let dir = root().join(d);
         assert!(

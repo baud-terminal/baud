@@ -2414,3 +2414,54 @@ FreeType's own texts. freetype-py's table misquotes eight of them
 (0x8F-0x9B). All eight are table-missing or table-format errors that
 FT_New_Face raises, and there both arms stop before writing a row, so no
 row of either arm can hold one.
+
+
+## The font comparator, `tools/baud-fontbuild compare`
+
+Not timed: no byte path changed; a self-compare of the built Regular takes
+0.10 s, release. `compare A.ttf B.ttf` reads both through read-fonts
+0.46.0 and expands each table to lines (`tools/baud-fontbuild/src/`):
+glyph order and post names; every cmap record, format and mapping; each
+glyph's points, flags, instructions, components and bbox; each gvar
+tuple's region and every point's delta, unreferenced ones inferred as the
+OpenType gvar chapter, revision `810414e1`, infers them
+(`[[source: ms-opentype-gvar]]`); hmtx
+and HVAR per glyph; head, hhea, maxp, OS/2, post, name, gasp, cvt, fpgm,
+prep, fvar, avar and STAT field by field (`checkSumAdjustment` excepted); GDEF, GSUB
+and GPOS as a feature graph, feature parameters included, and per-lookup
+first-match mappings, so a subtable split is not a difference. Devices resolve at -1, 0, 1 and every
+region coordinate of either font: on the built fonts' one axis, wdth, that
+is -1, 0 and 1, between which a delta is linear. It prints the first
+difference per table and exits 0 equal, 1 different, 2 unreadable.
+
+All 57 committed fonts equal themselves; the four built ones expand every
+table with none left as bytes. The seven perturbations of the built
+Regular, byte edits with checksums recomputed (`tests/compare.rs`), each
+name one table:
+
+| edit | report |
+|---|---|
+| last x of `y` +1 | `glyf: glyph 'y' (gid 368) points: p13=272,-180,on vs p13=273,...` |
+| first mark anchor x +1 | `GPOS: glyph 'uni030C.alt' (gid 1645) lookup 0 attachments: 96=(-175,550);...` |
+| GSUB lookup 0 IgnoreMarks | `GSUB: lookup 0: flag=0x0000 vs flag=0x0008` |
+| format 4 endCode -1 | `cmap: record 0 map: U+0039>733 vs U+003A>811` |
+| a named point's x delta +1 | `gvar: glyph 'uni0918' (gid 1932) tuple 0 deltas: p8=-63.0973... vs p8=-62.6194...` |
+| fontRevision low bit | `head: fontRevision: 2.3040008544921875 vs 2.303985595703125` |
+| family name's first char +1 | `name: platform=3 encoding=1 language=0x0409 nameID=1: Proto vs Qroto` |
+
+p8 is a point no tuple names: the edit reached it only through inference.
+An eighth, ss01's UI name ID +1, reads `GSUB: script DFLT default:
+ss01[436]+ss(version=0,uiName=256) vs ...257)`. A copy with only
+`checkSumAdjustment` changed is equal, and recomputing the checksums of
+each built font leaves its bytes as they are.
+
+Red first: `compare` stubbed to "equal" turned 9 of 15 tests red, the
+eight edits and the exit codes. Three mechanism perturbations: inference
+off (unreferenced points 0) turned three red, the spec's own example (P2's
+x delta 10.5), the case test and the inferred-point test, which then names
+p9, the edited point; gvar deltas blanked turned the gvar edit red;
+feature parameters compared by presence turned the ss01 edit red.
+
+Compared as bytes, and said so: CFF, CFF2, sbix, CBDT and the other
+tables not listed, avar 2's data, the 24-bit-glyph-id formats. Shaping and
+raster differentials are not built here.
