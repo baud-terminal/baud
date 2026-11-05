@@ -145,6 +145,12 @@ pub(crate) struct Frame<'p> {
     /// What the activity lights showed then, as the take's clocks had them.
     #[cfg(target_os = "macos")]
     pub(crate) lights: baud_render::Shown,
+    /// The cursor's blink phase it was drawn in: [`CursorPhase::SHOWN`]
+    /// for a cursor that does not blink, or one in its shown phase.
+    ///
+    /// [`CursorPhase::SHOWN`]: baud_render::CursorPhase::SHOWN
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) caret: baud_render::CursorPhase,
 }
 
 /// What a take gave besides its frames.
@@ -671,6 +677,9 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
         cfg.blink_animation,
     );
     let mut updates = crate::bell::UpdateClock::new(SYNC_MAX);
+    // The phase the last drawn frame showed, for a frame a synchronised
+    // update holds.
+    let mut drawn_caret = baud_render::CursorPhase::SHOWN;
     let (guide, badge) = (cfg.cursor_guide, cfg.badge);
     let session = crate::effects::Session::here(None);
     let (gw, gh) = stage.renderer.whole_size();
@@ -803,6 +812,7 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
                 step,
                 #[cfg(target_os = "macos")]
                 lights,
+                caret: drawn_caret,
             });
             k += 1;
             continue;
@@ -877,6 +887,7 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
         seat.drawn(r.bidi());
         timed.drawn(r.blink_seen(), term.regis_blink());
         caret.commit(phase);
+        drawn_caret = phase;
         damage = Damage::Incremental;
         // A sliding frame: the grid's rows composed from the live frame and
         // the one kept at the switch.
@@ -910,6 +921,7 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
             step,
             #[cfg(target_os = "macos")]
             lights,
+            caret: phase,
         });
         // The window is shown once its first frame is: the splash's clock
         // starts on the next (`Timed::shown`).

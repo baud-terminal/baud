@@ -107,8 +107,12 @@ pub const PRESET: &str = include_str!("../../../assets/starship/baud.toml");
 ///   program changes the font or its size; `[window] operations = "off"`,
 ///   so no program moves, resizes or full-screens the window, and it
 ///   keeps the grid it opened at.
-/// - `[cursor]`: the cursor still, so the first and last frames match,
-///   and the plasma trail, which the session changes to liquid.
+/// - `[cursor]`: the cursor blinking as baud's default blinks it,
+///   `blink = "auto"`, at baud's shell's prompt and at the server's over
+///   ssh -- `false` held it still in the whole film, the server's prompt
+///   among it -- and the plasma trail, which the session changes to
+///   liquid. A program that asks for a steady cursor, as helix does, has
+///   it steady until it gives the cursor back.
 ///
 /// The title strip above the grid stays the window's material: no key
 /// makes it solid (`accessible` in `baud-app/src/app.rs`).
@@ -126,7 +130,7 @@ pub fn config(faces: &[&str]) -> String {
 /// font fixed, and the cursor, its trail last.
 const TABLES: &str = "[screen]\ntransition = \"on\"\n[glass]\ndim_dark = 1.0\ndim_light = 1.0\n\
                       [font]\nchanges = \"off\"\n[window]\noperations = \"off\"\n\
-                      [cursor]\nblink = false\ntrail = \"plasma\"\n";
+                      [cursor]\nblink = \"auto\"\ntrail = \"plasma\"\n";
 
 /// **The photo the picture shot draws**: the elementary OS wallpaper
 /// "Canazei Granite Ridges", an Unsplash photograph published before 8 June
@@ -239,7 +243,7 @@ mod tests {
 
     /// **The config lists baud's own faces by name and the pinned ones by
     /// paths beside it, one a line**, at 14 points, the transition on, the
-    /// window solid and the cursor still with its plasma trail last, in 22
+    /// window solid and the cursor blinking with its plasma trail last, in 22
     /// lines -- the rows helix gives a file in 24 -- with "plasma" on the
     /// last alone; the zsh file sets the `PATH`, starship's prompt from the
     /// preset in the scratch home, and ssh's config; and baud's
@@ -274,7 +278,7 @@ mod tests {
             "[glass]\ndim_dark = 1.0\ndim_light = 1.0\n",
             "[font]\nchanges = \"off\"\n",
             "[window]\noperations = \"off\"\n",
-            "[cursor]\nblink = false\ntrail = \"plasma\"\n",
+            "[cursor]\nblink = \"auto\"\ntrail = \"plasma\"\n",
         ] {
             assert!(c.contains(table), "{table}:\n{c}");
         }

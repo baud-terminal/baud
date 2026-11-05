@@ -786,6 +786,8 @@ fn the_readme_session_lights_every_light() {
     let film_to = std::env::var_os("BAUD_SESSION_FILM").map(std::path::PathBuf::from);
     let mut encoder: Option<std::process::Child> = None;
     let mut frame_steps: Vec<Option<usize>> = Vec::new();
+    // Each frame's step and whether its cursor was drawn short of whole.
+    let mut blinked: Vec<(Option<usize>, bool)> = Vec::new();
     let mut size = (0, 0);
     let mut last: Option<Shot> = None;
     let mut written = 0;
@@ -815,6 +817,7 @@ fn the_readme_session_lights_every_light() {
     let mut strip: Option<super::chrome::Strip> = None;
     let mut window: Vec<u32> = Vec::new();
     let take = super::film(&f, |fr| {
+        blinked.push((fr.step, fr.caret != baud_render::CursorPhase::SHOWN));
         let s = strip
             .get_or_insert_with(|| super::chrome::Strip::new(fr.size.0, f64::from(super::SCALE)));
         s.compose(fr.lights, fr.pixels, &mut window);
@@ -944,6 +947,58 @@ fn the_readme_session_lights_every_light() {
                 .any(|(s, t, _)| jump(s) && *t == CursorTrail::Liquid),
             "no liquid ignition at `gg`"
         );
+    }
+    // **The cursor blinks at every prompt the session holds at, baud's
+    // shell's and the server's over ssh, and is steady while helix asks for
+    // a steady block**: a prompt's hold draws the cursor both whole and
+    // not, and helix's holds only whole -- helix sends `CSI 2 SP q` as it
+    // draws, and its exit puts the shell's blinking cursor back
+    // (`DECSCUSR` 0, and the alternate screen's end). Each hold is the one
+    // after a step's prompt: the launch, `cat`, the photo, fastfetch's
+    // in the container, the fireworks' there, and the clear's at the end.
+    let hold_after = |want: Step| {
+        let from = at(want)?;
+        steps[from..]
+            .iter()
+            .position(|s| matches!(s, Step::Hold(_)))
+            .map(|h| from + h)
+    };
+    let drawn = |i: usize, hidden: bool| {
+        blinked
+            .iter()
+            .filter(|(s, h)| *s == Some(i) && *h == hidden)
+            .count()
+    };
+    let prompts = [
+        Some(1),
+        hold_after(Step::Run("cat hello.txt")),
+        hold_after(Step::Run(steps::ICAT)),
+        hold_after(Step::Run("fastfetch")),
+        hold_after(Step::Run(steps::FIREWORKS)),
+        hold_after(Step::Run("clear")),
+    ];
+    for i in prompts.into_iter().flatten() {
+        assert!(
+            drawn(i, true) > 0 && drawn(i, false) > 0,
+            "the cursor does not blink at the prompt held in step {i} {:?}: {} frames hidden, \
+             {} whole",
+            steps[i],
+            drawn(i, true),
+            drawn(i, false)
+        );
+    }
+    if let (Some(open), Some(quit)) = (
+        at(Step::Run("hx ~/.config/baud/config.toml")),
+        at(Step::Line(":q")),
+    ) {
+        for i in (open + 1..quit).filter(|&i| matches!(steps[i], Step::Hold(_))) {
+            assert_eq!(
+                drawn(i, true),
+                0,
+                "helix asked for a steady cursor, and step {i} {:?} drew it blinking",
+                steps[i]
+            );
+        }
     }
     // The photo lights FAX: first in its shot, kitten typed to the hold
     // after its prompt, before fastfetch's picture.
