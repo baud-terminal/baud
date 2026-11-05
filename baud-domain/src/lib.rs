@@ -194,9 +194,6 @@ mod merged_data {
     //! checks every one of the 1,114,112 codepoints against the two tries.
     include!(concat!(env!("OUT_DIR"), "/merged_data.rs"));
 }
-// Named `nrcs_data`, as it was when the tables were committed, so the
-// statics keep their symbols and the binaries their layout.
-#[path = "nrcs.rs"]
 mod nrcs_data;
 mod placeholder;
 mod placeholder_data {
@@ -214,8 +211,6 @@ mod quantity;
 mod regis;
 mod scan;
 mod search;
-#[cfg(test)]
-mod table_identity;
 mod search_data {
     //! What a search compares, compiled by `build/search.rs` from the
     //! sources pinned in `docs/research/sources/MANIFEST.toml`:

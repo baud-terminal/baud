@@ -22,15 +22,6 @@ else
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://gitlab.freedesktop.org/xorg/lib/libx11/-/tree/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms
 
-The DEC Special Graphics table: 31 codepoints generated from foot's
-vt100_0[] table (foot 1.21.0) and credited to it in the file
-  Files:   src/dec_graphics.rs
-  Holder:  Daniel Eklöf (foot)
-  Licence: MIT
-  Notice:  LICENSES/foot-MIT.txt
-  Status:  kept: redistributable, and its notice is satisfied
-  From:    https://codeberg.org/dnkl/foot/src/tag/1.21.0/terminal.c
-
 Tables generated from the Unicode Character Database and Unicode's emoji
 data files: emoji presentation. baud.metallib carries the stress mark's skip
 trie compiled in, which the build writes from baud-render's tables
@@ -134,17 +125,6 @@ sets
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://www.unicode.org/Public/MAPPINGS/
 
-The National Replacement Character Sets, generated from xterm's charsets.h
-with their keysyms resolved through X.Org's keysymdef.h
-  Files:   src/nrcs_data.rs
-  Holder:  Thomas E. Dickey (xterm); The Open Group (keysymdef.h)
-  Licence: X11
-  Notice:  LICENSES/xterm-COPYING.txt
-  Status:  kept: redistributable, and its notice is satisfied
-  From:    https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charsets.h
-           and
-           https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/6d3907b6d5dc4aa7d7ee6ee5d7d8714e7466630b/include/X11/keysymdef.h
-
 The termcap keyboard's table: each key of xterm's xtermcap.c table that
 ncurses' xterm-256color terminal description gives a string, with that
 string, in the order of xterm's table
@@ -165,37 +145,6 @@ key baud's encoder sends for it, generated from xterm's xtermcap.c
   Notice:  LICENSES/xterm-COPYING.txt
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xtermcap.c
-
-The six 96-character sets ESC - . and / designate, generated from Unicode's
-ISO 8859 mapping files
-  Files:   src/iso96_data.rs
-  Holder:  Unicode, Inc.
-  Licence: Unicode-3.0
-  Notice:  LICENSES/Unicode-3.0.txt
-  Status:  kept: redistributable, and its notice is satisfied
-  From:    https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-1.TXT and
-           https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-2.TXT and
-           https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-5.TXT and
-           https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-7.TXT and
-           https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-8.TXT and
-           https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-9.TXT
-
-DEC Supplemental, generated from xterm's charsets.h, with 5/15, the one cell
-where xterm departs from DEC's VT220 manual, as the manual has it: ß
-  Files:   src/dec_sets_data.rs
-  Holder:  Thomas E. Dickey (xterm)
-  Licence: X11
-  Notice:  LICENSES/xterm-COPYING.txt
-  Status:  kept: redistributable, and its notice is satisfied
-  From:    https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charsets.h
-
-JIS-Katakana and JIS-Roman, generated from Unicode's JIS0201.TXT
-  Files:   src/dec_sets_data.rs
-  Holder:  Unicode, Inc.
-  Licence: Unicode-3.0
-  Notice:  LICENSES/Unicode-3.0.txt
-  Status:  kept: redistributable, and its notice is satisfied
-  From:    https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0201.TXT
 
 DirectWrite's grayscale text-contrast curve as Windows Terminal ports it in
 dwrite_helpers.hlsl: its four gamma coefficients in build.rs, and its

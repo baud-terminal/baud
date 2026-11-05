@@ -1,26 +1,29 @@
 //! The DEC 94-character sets baud translates, against the DEC texts and the
 //! mapping they name, at the data level.
 //!
-//! `dec_set_tables_match_the_pinned_sources` runs the generator with
-//! `--check`, which compares the generator with its own output. The rest of
-//! this file reads the same data itself and shares no code with
-//! `scripts/gen-dec-sets.py`, so a cell the generator mis-reads cannot pass on
-//! both sides -- the shape that let Swedish 4/0 go missing while two tests of
-//! the national tables stayed green (note AF §2.3).
+//! `build/dec_sets.rs` and `build/dec_graphics.rs` compile the tables from
+//! xterm's macros and the constants typed from DEC's texts, and never read
+//! DEC's pages. This file reads DEC's tables and the mappings they name
+//! itself and shares no code with the build, so a cell the build mis-reads
+//! cannot pass on both sides -- the shape that let Swedish 4/0 go missing
+//! while two tests of the national tables stayed green (note AF §2.3).
 //!
-//! Table 2-3 is read from `vt220_tables.tsv`, the cells
-//! `scripts/extract-vt220-tables.py` reads out of the VT220 manual's chapter 2,
-//! fetched by its pinned URL and refused unless it hashes to the manifest's
-//! SHA-256. The generator reads that file too: the two share the data, not the
-//! code that reads it.
+//! Table 2-3 is read from `vt220_tables.tsv`, the cells read out of the
+//! VT220 manual's chapter 2, fetched by its pinned URL and refused unless it
+//! hashed to the manifest's SHA-256, as the manifest's comment on
+//! `[[source: dec-special-graphics]]` records.
 //!
 //! Rendering through `Term` is `baud-core/tests/vt100/charsets.rs`'s.
-use baud_domain::{AmbiguousWidth, Codepoint, DEC_ERROR_CHARACTER, DecSet, Width};
+use baud_domain::{AmbiguousWidth, Codepoint, DEC_ERROR_CHARACTER, DEC_GRAPHICS, DecSet, Width};
 use std::collections::BTreeMap;
 
 const TABLES: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/vt220_tables.tsv"
+));
+const FOOT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../docs/research/sources/foot-terminal.c"
 ));
 const JIS0201: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -190,20 +193,27 @@ fn the_sets_baud_does_not_translate_have_no_table() {
     }
 }
 
-/// The generated tables match the pinned sources.
+/// **DEC Special Graphics is xterm's 31 choices, and foot's**: the table
+/// the build compiles from `[[source: xterm-charsets]]`' macro is, codepoint
+/// for codepoint, `[[source: foot-vt100-0]]`'s `vt100_0[]`, read here from
+/// foot's source, `` ` `` through `~`. Two implementations' judgement of
+/// what DEC's named glyphs are (`[[source: vt100-ug-ch3]]` Table 3-9 gives
+/// no codepoint), and a change to either is red here.
+///
+/// Positive controls: foot's table is found and holds 31 characters, its
+/// first the black diamond and its last the middle dot.
 #[test]
-fn dec_set_tables_match_the_pinned_sources() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-dec-sets.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "dec_sets_data.rs is stale -- rerun scripts/gen-dec-sets.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
+fn dec_graphics_is_xterms_and_foots() {
+    let at = FOOT
+        .find("static const char32_t vt100_0[] = {")
+        .expect("foot's vt100_0[]");
+    let body = &FOOT[at..at + FOOT[at..].find("};").expect("its end")];
+    let foot: Vec<u32> = body
+        .split("U'")
+        .skip(1)
+        .map(|c| u32::from(c.chars().next().expect("a character")))
+        .collect();
+    assert_eq!(foot.len(), 31, "foot's vt100_0[] holds 31");
+    assert_eq!((foot[0], foot[30]), (0x25c6, 0x00b7));
+    assert_eq!(DEC_GRAPHICS.as_slice(), foot.as_slice());
 }

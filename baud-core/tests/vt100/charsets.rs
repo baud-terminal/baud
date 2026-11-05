@@ -8,16 +8,18 @@
 //! * SO — "Switch to Alternate Character Set (Ctrl-N is Shift Out or LS1)."
 //! * SI — "Switch to Standard Character Set (Ctrl-O is Shift In or LS0)."
 //!
-//! **The glyph table is implemented, from `[[source: foot-vt100-0]]`, and the
-//! cell stays marked.** DEC's own tables name every glyph and give no Unicode
-//! codepoint (`[[source: vt100-ug-ch3]]` Table 3-9), so the codepoints are
-//! foot's judgement, cited as foot's. This header said the table was
-//! "deliberately not implemented" and that the cell keeps the byte, after both
-//! stopped being true.
+//! **The glyph table is implemented, from `[[source: xterm-charsets]]`'
+//! `map_DEC_Spec_Graphic`, and the cell stays marked.** DEC's own tables name
+//! every glyph and give no Unicode codepoint (`[[source: vt100-ug-ch3]]`
+//! Table 3-9), so the codepoints are xterm's judgement, cited as xterm's, and
+//! `[[source: foot-vt100-0]]` makes the same 31 choices
+//! (`dec_graphics_is_xterms_and_foots`, in baud-domain). This header said the
+//! table was "deliberately not implemented" and that the cell keeps the byte,
+//! after both stopped being true.
 //!
 //! **It is one entry short.** DEC replaces "ASCII codes 137 through 176"
-//! (octal), `0x5F..0x7E`, `0x5F` being "Blank"; foot's table and baud's start
-//! at `0x60`. Which codepoint Blank stores is an open question, so nothing here
+//! (octal), `0x5F..0x7E`, `0x5F` being "Blank"; xterm leaves it `UNDEF`, and
+//! foot's table and baud's start at `0x60`. Which codepoint Blank stores is an open question, so nothing here
 //! asserts what `0x5F` becomes, and nothing asserts that it stays `_` either.
 
 use crate::support;
@@ -182,24 +184,6 @@ fn graphics_leaves_the_rest_of_ascii_alone() {
         "the set replaces 0x5F..0x7E, and `A` is below it"
     );
     assert!(g[0].flags.is_graphics(), "still marked, though");
-}
-
-/// The table matches the pinned source.
-#[test]
-fn dec_graphics_table_matches_the_pinned_source() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-dec-graphics.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "dec_graphics.rs is stale -- rerun scripts/gen-dec-graphics.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
 }
 
 /// ASCII text is not marked.
@@ -678,24 +662,6 @@ fn a_cell_written_under_ungated_german_keeps_its_glyph_when_g0_is_designated_aga
     );
 }
 
-/// The generated tables match the pinned source.
-#[test]
-fn nrcs_tables_match_the_pinned_source() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-nrcs-tables.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "nrcs_data.rs is stale -- rerun scripts/gen-nrcs-tables.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 // ── translation is a property of the byte, not of the route ─────────────────
 
 /// **A designated set applies however the byte reached the cell.**
@@ -737,12 +703,12 @@ fn rep_repeats_the_designated_glyph_not_the_raw_byte() {
 
 /// **Every national replacement actually reaches the screen.**
 ///
-/// `nrcs_tables_match_the_pinned_source` checks the *tables* against
+/// baud-domain's `nrcs_source.rs` checks the *tables* against
 /// `[[source: xterm-charsets]]`, and `every_listed_single_byte_final_is_named`
 /// checks the *designators*. Nothing checked the composition: the write path
 /// could ignore the tables entirely and both of those would stay green, because
-/// one reads a generated file and the other reads `Term::charset()` -- neither
-/// looks at a cell.
+/// one reads the compiled tables and the other reads `Term::charset()` --
+/// neither looks at a cell.
 ///
 /// That is the distinction this project keeps paying for. A test that counts
 /// what an operation did cannot see it being done to the wrong object, and a

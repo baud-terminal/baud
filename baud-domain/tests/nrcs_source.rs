@@ -1,13 +1,13 @@
 //! The national replacement tables, held to the source they are generated
 //! from, at the data level.
 //!
-//! `nrcs_tables_match_the_pinned_source` runs the generator with `--check`,
-//! which compares the generator with its own output: a line it skips never
-//! enters either side. That is how Swedish 4/0 went missing -- the generator
-//! read a `MAP` line's codepoint from its `/* U+ */` comment, and
-//! `MAP(0x40, XK_Eacute)` has none -- with both tests that cite the tables
-//! green (note AF §2.3, D1 and D2). This file counts the lines of the pinned
-//! `[[source: xterm-charsets]]` itself and shares no code with the generator.
+//! `build/nrcs.rs` compiles the tables, and a reader that compares its own
+//! output with itself cannot see a line it skips: that is how Swedish 4/0
+//! went missing -- the generator then read a `MAP` line's codepoint from its
+//! `/* U+ */` comment, and `MAP(0x40, XK_Eacute)` has none -- with both tests
+//! that cite the tables green (note AF §2.3, D1 and D2). This file counts the
+//! lines of the pinned `[[source: xterm-charsets]]` itself and shares no code
+//! with the build.
 //!
 //! Nothing here renders through `Term`. Whether a national set acts outside
 //! national mode was note AF's Q-DECNRCM, decided (c) on 2026-10-24, and
@@ -31,8 +31,8 @@ const CHARSETS_H: &str = include_str!(concat!(
 /// * **Turkish, +1.** 2/1, which `[[source: dec-pplv2-pm]]` Figure A-26 draws
 ///   as a dotless small i, U+0131, and xterm's macro leaves as `!` although
 ///   its comment cites the same figure. The value is typed into the
-///   generator's DEC-override table with its citation, because that manual
-///   is `external` and nothing can extract it.
+///   build's `DEC_OVERRIDES` (`build/nrcs.rs`) with its citation, because
+///   that manual is `external` and nothing can extract it.
 const SETS: [(&str, Nrcs, i32); 14] = [
     ("Dutch", Nrcs::Dutch, 0),
     ("Finnish", Nrcs::Finnish, 0),

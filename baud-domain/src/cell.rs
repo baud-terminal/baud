@@ -819,10 +819,10 @@ impl PackedCell {
     ///
     /// Each set replaces a handful of ASCII positions and leaves the rest
     /// alone, so an unlisted byte is itself.
-    /// **A linear search, and it should be an index.** `nrcs_data.rs` is
-    /// generated and its pair arrays are private, so spreading them into
-    /// direct-indexed rows needs a generator change rather than a hand edit --
-    /// `nrcs_tables_match_the_pinned_source` correctly rejected the hand edit.
+    /// **A linear search, and it should be an index.** The national tables
+    /// are compiled by `build/nrcs.rs` and their pair arrays are private, so
+    /// spreading them into direct-indexed rows is a change to the build,
+    /// not to a table.
     ///
     /// **The reason it was left alone has expired, and the new one is a
     /// prediction rather than an excuse.** That reason read "a charset is not on

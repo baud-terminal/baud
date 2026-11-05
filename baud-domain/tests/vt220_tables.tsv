@@ -3,7 +3,7 @@
 #   sha256 5ab34ac9fa4ae517a420b4ee738d329e53a274ce34a9f6d13c1d2cb8657cf6a8.
 # Chapter 4, [[source: vt220-rm-ch4]], https://vt100.net/docs/vt220-rm/chapter4.html
 #   sha256 dfa8e317c125cc489fd3a1562757dfd71449a6ca4a6df53054783a321b627599.
-# Written by scripts/extract-vt220-tables.py; do not edit.
+# Read as docs/research/sources/MANIFEST.toml's dec-special-graphics comment says; do not edit.
 # caption <figure> <text> | cell <figure> <code> <glyph> <shaded> | final <set> <finals>
 caption	T2-1	Table 2-1 7-Bit ASCII Code Table
 cell	T2-1	20	SP	0

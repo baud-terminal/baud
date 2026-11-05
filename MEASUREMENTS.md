@@ -3090,3 +3090,50 @@ move's end, `floor` for `//`, and `<=` for the coverage tie. The vectors
 hold each function but not the call sites; the tie has no test. The
 deleted generator called its second part of pi/2 33 bits: it is
 fdlibm's `pio2_1t`, all 53. The constant is kept and its comment says so.
+
+## The DEC, national and ISO 96 sets compiled at build time
+
+`build/dec_graphics.rs`, `build/dec_sets.rs`, `build/nrcs.rs` and
+`build/iso96.rs` compile DEC Special Graphics, DEC Supplemental, the
+JIS sets, the 14 national sets and the six 96-character sets from
+`data/` links to xterm's charsets.h, keysymdef.h, JIS0201.TXT and the
+six ISO 8859 mapping files. DEC Special Graphics now comes from xterm's
+`map_DEC_Spec_Graphic`, whose 31 codepoints are foot's `vt100_0[]`
+(`dec_graphics_is_xterms_and_foots`). No DEC page is read by the
+build: `vt220_tables.tsv` and `std070_levels.tsv` stay in
+`baud-domain/tests/`, out of the .crate (`cargo package --list`: 180
+files, none under `tests/`), and `named_exactly` holds the cells where
+xterm and Table 2-3 differ to `CONFORM` and `XTERM_DEPARTS` there.
+Before the delete, the identity commit printed "identical:
+DEC_GRAPHICS 31, DEC_SUPPLEMENTAL 94, JIS_KATAKANA 94, JIS_ROMAN 94,
+LATIN_1 96, LATIN_2 96, GREEK 96, HEBREW 96, LATIN_CYRILLIC 96,
+LATIN_5 96, UK 1" and the 14 national tables, 164 pairs in all.
+
+**Release binaries.** `baud` and `ingest2`, built at one path from
+fresh extractions with every file touched, baud-domain recompiled in
+each arm: base, change and A/A are byte-identical. The comparison is
+not vacuous: with the hand-written half in a module renamed `nrcs`, it
+caught the 14 national statics' new symbols in `__text` and
+`__TEXT,__const`, so the module keeps the name `nrcs_data`. No timing
+run.
+
+**Red first.** The national pairs left unsorted turn the identity test
+red at Turkish[0] with the DEC-table oracles green; `CONFORM` not
+applied, its build check dropped, turns it red at DEC_SUPPLEMENTAL[62]
+and `dec_supplemental_is_table_2_3` red at 5/15. A changed xterm
+codepoint at 7/14 of DEC Special Graphics turns the foot oracle red,
+and a changed sha256 in either transcription's header its header test.
+In `build_tables.rs` 41 perturbed inputs each fire their own
+`cargo::error`: every refusal of the two xterm readers, the
+headers, the 81, 63 and per-set counts, Figure A-2's mask and
+JIS0201.TXT's lines; `the_cells_where_xterm_and_dec_differ_are_named`
+is red with 5/15 unnamed, a named cell that agrees, and either side moved.
+
+**The build.** `cargo build -p baud-domain --timings`, both arms at one
+path, five rounds rotated, the first dropped: the build script compiles
+in [0.99-1.04] s against base's [0.84-0.91], runs in [0.75-0.76] s
+against [0.73-0.76], and the lib in [9.26-12.36] s against
+[9.51-11.33]; only the compile's ranges part, by the four modules
+added. Load average 4.8-11.6. Touching `src/lib.rs` ran no build
+script in any round; touching a `data/` file ran it once. The
+`baud-domain` .crate is 1.92 MiB compressed against base's 1.85.

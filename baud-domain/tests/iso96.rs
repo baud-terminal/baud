@@ -1,32 +1,13 @@
 //! The six 96-character sets, the designations DECCIR reports, and DECCIR's
 //! data in both directions.
 //!
-//! `iso96_tables_match_the_pinned_sources` runs `scripts/gen-iso96-sets.py`
-//! with `--check`, so a table that drifts from the pinned mapping files
-//! fails here; the rest hold the tables to cells read off the files by hand.
+//! `build/iso96.rs` compiles the tables from the pinned mapping files; the
+//! tests here hold them to cells read off the files by hand.
 
 use baud_domain::*;
 
 fn sb(b: u8) -> StreamByte {
     StreamByte::from_stream(b)
-}
-
-/// The generated tables match the pinned sources.
-#[test]
-fn iso96_tables_match_the_pinned_sources() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-iso96-sets.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "iso96_data.rs is stale -- rerun scripts/gen-iso96-sets.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
 }
 
 /// Cells read off each pinned file: 2/0 is NO-BREAK SPACE in every set, and

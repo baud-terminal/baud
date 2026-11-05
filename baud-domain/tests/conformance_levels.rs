@@ -1,7 +1,8 @@
 //! The level table, `baud_domain::LEVELS`, read against DEC STD 070.
 //!
 //! `std070_levels.tsv` is every `Levels:` field of `[[source: dec-std-070]]`,
-//! transcribed from the pinned copy by `scripts/extract-std070-levels.py`.
+//! transcribed from the pinned copy as the manifest's comment on it says,
+//! its header naming that copy's sha256.
 //! Each row of the table that cites a field must give the lowest level the
 //! field names; each field must belong to a row or to the list here of
 //! functions baud does not dispatch; and each row must be reached by the
@@ -26,6 +27,35 @@ fn fields() -> BTreeMap<String, (u16, String)> {
         );
     }
     out
+}
+
+/// **The transcription names the copy it was read from**: its `#` header
+/// carries `[[source: dec-std-070]]`'s sha256 as the manifest records it, so
+/// a pin moved to another copy leaves the transcription stale, and red here.
+#[test]
+fn the_transcription_names_the_pinned_copys_sha256() {
+    let manifest = include_str!("../../docs/research/sources/MANIFEST.toml");
+    let header: String = include_str!("std070_levels.tsv")
+        .lines()
+        .take_while(|l| l.starts_with('#'))
+        .collect();
+    let sha = pinned_sha256(manifest, "dec-std-070");
+    assert!(header.contains("[[source: dec-std-070]]"), "{header}");
+    assert!(header.contains(&format!("sha256 {sha}")), "{header}");
+}
+
+/// The `sha256` of the manifest's entry `key`, read with no TOML parser:
+/// the line after `[sources.<key>]` that starts `sha256`.
+fn pinned_sha256(manifest: &str, key: &str) -> String {
+    let head = format!("[sources.{key}]");
+    let at = manifest.find(&head).unwrap_or_else(|| panic!("no {head}"));
+    let line = manifest[at..]
+        .lines()
+        .find(|l| l.starts_with("sha256"))
+        .expect("a sha256 line");
+    let sha = line.split('"').nth(1).expect("a quoted sha256");
+    assert_eq!(sha.len(), 64, "{line}");
+    sha.to_string()
 }
 
 /// The lowest level a field names, or `None` for a documented exception.

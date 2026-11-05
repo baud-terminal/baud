@@ -5,15 +5,15 @@
 //! are inline SVG: each glyph a `<text class="chname">` placed by x and y,
 //! followed by a `<text class="chnums">` carrying its code, and each
 //! substituted cell shaded by a `<rect fill="#ddd">`.
-//! `scripts/extract-vt220-tables.py` fetches the page by its pinned URL,
-//! refuses it unless it hashes to the manifest's SHA-256, reads each glyph's
-//! cell from its geometry, fails unless that cell is the code printed after
-//! it, and writes every cell of columns 2-7 with whether it is shaded to
-//! `vt220_tables.tsv`, with Table 4-4's finals from `[[source: vt220-rm-ch4]]`.
-//! This file reads that table and shares no code with
-//! `scripts/gen-nrcs-tables.py`, which writes baud's tables from xterm's: the
-//! two tests that cited the tables before compared baud with itself, and
-//! neither could see Swedish 4/0 go missing (note AF §2.3, D2).
+//! `vt220_tables.tsv` holds every cell of columns 2-7 with whether it is
+//! shaded, with Table 4-4's finals from `[[source: vt220-rm-ch4]]`: each page
+//! fetched by its pinned URL and refused unless it hashed to the manifest's
+//! SHA-256, each glyph's cell read from its geometry and checked against the
+//! code printed after it, as the manifest's comment on
+//! `[[source: dec-special-graphics]]` records. This file reads that table and
+//! shares no code with `build/nrcs.rs`, which compiles baud's tables from
+//! xterm's: the two tests that cited the tables before compared baud with
+//! itself, and neither could see Swedish 4/0 go missing (note AF §2.3, D2).
 //!
 //! **It compares tables. It never renders through `Term`.** Whether a
 //! designated national set acts outside national mode was note AF's
@@ -257,6 +257,39 @@ fn each_vt220_national_table_is_decs() {
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// **The transcription names the pages it was read from**: its `#` header
+/// carries `[[source: dec-special-graphics]]`'s and
+/// `[[source: vt220-rm-ch4]]`'s sha256s as the manifest records them, so a
+/// pin moved to another copy leaves the transcription stale, and red here.
+#[test]
+fn the_transcription_names_the_pinned_pages_sha256s() {
+    let manifest = include_str!("../../docs/research/sources/MANIFEST.toml");
+    let header: String = TABLES
+        .lines()
+        .take_while(|l| l.starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for key in ["dec-special-graphics", "vt220-rm-ch4"] {
+        let head = format!("[sources.{key}]");
+        let at = manifest.find(&head).unwrap_or_else(|| panic!("no {head}"));
+        let line = manifest[at..]
+            .lines()
+            .find(|l| l.starts_with("sha256"))
+            .expect("a sha256 line");
+        let sha = line.split('"').nth(1).expect("a quoted sha256");
+        assert_eq!(sha.len(), 64, "{line}");
+        let named = format!("[[source: {key}]]");
+        let at = header
+            .find(&named)
+            .unwrap_or_else(|| panic!("the header names no {named}:\n{header}"));
+        let next = header[at..]
+            .lines()
+            .nth(1)
+            .unwrap_or_else(|| panic!("nothing after {named}"));
+        assert_eq!(next.trim(), format!("#   sha256 {sha}."), "{key}");
+    }
 }
 
 /// Table 4-4's national sets: DEC's name, and the finals printed beside it,

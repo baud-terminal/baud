@@ -313,9 +313,24 @@ group  = "C"
 # Not in the repository: no grant to redistribute it was found (a DEC manual
 # as transcribed on vt100.net). It was read as vt220-rm-chapter2.html, and the
 # digest is of that copy.
-# scripts/extract-vt220-tables.py fetches it, refusing it unless it hashes
-# to this, and writes the cells the tests read to
-# baud-domain/tests/vt220_tables.tsv.
+# baud-domain/tests/vt220_tables.tsv holds the cells the tests read, from this
+# page and vt220-rm-ch4's Table 4-4, each fetched by its url and refused unless
+# it hashed to its sha256, which the file's `#` header names and a test holds to
+# this manifest. No prose of either page is kept, and no crate carries the file.
+# How it was read, one cell a line, `caption <figure> <text>`, `cell <figure>
+# <code, hex> <glyph> <shaded: 1 or 0>` or `final <set> <finals>`: Tables 2-1 and
+# 2-5 to 2-15 are inline SVG, each glyph a `<text class="chname">` placed by x
+# and y and followed by a `<text class="chnums">` carrying its code as octal,
+# decimal and hex, each substituted cell shaded by a `<rect fill="#ddd">`. A
+# glyph's cell is read from its geometry, in tenths: column 0's glyphs at x
+# 137.5 and row 0's at y 127, its boxes at x 110 and y 100, columns 85 apart
+# and rows 45; the cell must equal the hex printed after the glyph, the check on
+# the geometry, and all 96 cells of columns 2-7 are kept, SP and DEL the
+# controls. Table 2-3's right half, `T2-3b`, is the 94 GR cells by their code's
+# low seven bits in document order, an empty glyph where the table draws
+# nothing, each glyph one character. Table 4-4's national sets are DEC's name
+# and the finals printed beside it, each final checked against the column/row
+# printed above it.
 # Title widened 2026-10-08 for note AF, which cites this file for Table 2-3 and the
 # NRC sets as well as Table 2-4; the title named Table 2-4 alone, and the file is the
 # whole chapter, its h1 "2 Character Encoding". The request to widen it said Tables
@@ -562,7 +577,17 @@ group  = "C"
 # [0,0]; 070-9 § 7.1-7.3, the macro parameter's grid table, background select
 # "no action" on hardcopy devices, the grid in SSU units defaulting to decipoints.
 # Read 2026-10-22 for the conformance levels (lane b153), the copy whose sha256 matches:
-# every Levels field, by scripts/extract-std070-levels.py over the text layer [text],
+# every Levels field over the text layer [text], into baud-domain/tests/std070_levels.tsv,
+# whose `#` header names this sha256: `pdftotext -layout` of this copy, a field a
+# line matching `Levels:` as the OCR spells it (l, 1 or I for the l's, e or o,
+# v or y, and `:`, `;` or `.`), the PDF page counted by form feeds, the function
+# by page from a map written against the page images (the OCR reads "lX" for
+# 1X, "DEClO" for DECID, "21<" for 2x), the field normalised (l and I before x
+# or a comma read as 1, `1.2` as `1, 2`, `a-bit` as `8-bit`, one blank after a
+# comma), and three fields read on their page images, CUU's (PDF 296, "1-4"),
+# SGR's (358, "1-4") and DECID's (232, "1, 2"), the positive control that had to
+# come out as printed; a mapped page with no field failed it. No crate carries the
+# file.
 # DECID's (PDF 232) and DECSSDT's (PDF 1048) on the page image [img]; 070-4 DA, Table 1
 # and the implicit extensions (PDF 221-224) and DECSCL's notes (PDF 226) [text]; 070-5
 # SGR and its algorithm (pp. 5-103 to 5-105) and § 5.6.3 Color Text (p. 5-106), SCS and
@@ -2131,13 +2156,15 @@ group  = "C"
 # these macros, and Turkish 2/1, U+0131, which they lack and EK-PPLV2-PM Figure
 # A-26 draws (`dec-pplv2-pm`). Greek's two `UNDEF` lines are not emitted until
 # note AF's Q-UNDEF is answered. This said 162, without the Swedish 4/0 the
-# generator dropped (note AF §2.3). Since 2026-10-12 `scripts/gen-dec-sets.py`
-# parses `map_DEC_Supp_Graphic`, `map_JIS_Roman` and `map_JIS_Katakana` too, as
-# practice to check DEC's tables against, and fails on any difference it does
-# not name.
+# generator dropped (note AF §2.3). The DEC sets are read from
+# `map_DEC_Supp_Graphic`, `map_JIS_Roman` and `map_JIS_Katakana` too, and
+# DEC Special Graphics from `map_DEC_Spec_Graphic`: baud-domain's build
+# (build/dec_sets.rs, build/dec_graphics.rs, build/nrcs.rs) reads this file
+# through a link in baud-domain/data/, and every cell where it differs from
+# DEC's text is named, or the build or a test fails.
 [sources.xterm-charsets]
 key    = "xterm-charsets"
-title  = "xterm patch #411, charsets.h -- the NRCS mapping macros, and the DEC Supplemental, JIS-Roman and JIS-Katakana macros the DEC-set generator checks as practice"
+title  = "xterm patch #411, charsets.h -- the NRCS mapping macros, and the DEC Special Graphics, DEC Supplemental, JIS-Roman and JIS-Katakana macros baud-domain's build reads"
 author = "Thomas Dickey"
 year   = 2025
 venue  = "xterm"
@@ -16759,9 +16786,9 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a DEC manual
 # as transcribed on vt100.net). It was read as vt220-rm-chapter4.html, and the
 # digest is of that copy.
-# scripts/extract-vt220-tables.py fetches it, refusing it unless it hashes
-# to this, and writes the cells the tests read to
-# baud-domain/tests/vt220_tables.tsv.
+# Its Table 4-4's national finals are in baud-domain/tests/vt220_tables.tsv,
+# read as dec-special-graphics' comment says, the file's `#` header naming this
+# sha256.
 # Read for note AD (2026-10-08), fixing a reviewer finding, and hash-verified then
 # against a fetch of the url. Committed 2026-10-08 for note AE, which cites its 4.3
 # DECSCL and 4.4 SCS, with 4.4.3 locking and 4.4.4 single shifts: a re-fetch that day
@@ -17016,7 +17043,7 @@ sha256 = "2a06a462bf74ae65a77b700f235ac05156ac20f4aaefe39f09cc20d50628bb5e"
 bytes  = 9995
 status = "retrieved"
 group  = "C"
-# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half is ISO-IR 100, the 96-set `ESC - A` designates.
+# Fetched 2026-10-19 (lane b100) and read whole by baud-domain's build (build/iso96.rs): the right half is ISO-IR 100, the 96-set `ESC - A` designates.
 
 [sources.iso8859-2]
 key    = "iso8859-2"
@@ -17030,7 +17057,7 @@ sha256 = "020946e114335b17e7d29fe8a8449786cffed714cf409b11d0b3a375197188d1"
 bytes  = 10219
 status = "retrieved"
 group  = "C"
-# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half is ISO-IR 101, `ESC - B`.
+# Fetched 2026-10-19 (lane b100) and read whole by baud-domain's build (build/iso96.rs): the right half is ISO-IR 101, `ESC - B`.
 
 [sources.iso8859-5]
 key    = "iso8859-5"
@@ -17044,7 +17071,7 @@ sha256 = "9a2efea39673f95c5daa277c46ad09a41e95f27c225270424a604d033db9bd8f"
 bytes  = 9830
 status = "retrieved"
 group  = "C"
-# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half is ISO-IR 144, `ESC - L`.
+# Fetched 2026-10-19 (lane b100) and read whole by baud-domain's build (build/iso96.rs): the right half is ISO-IR 144, `ESC - L`.
 
 [sources.iso8859-7]
 key    = "iso8859-7"
@@ -17058,7 +17085,7 @@ sha256 = "94f4a1c89ba6b2e1c1f8b30676cb5d15f232dbac36ae4ad20018a65e0f3fb9a3"
 bytes  = 10053
 status = "retrieved"
 group  = "C"
-# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half of ISO-IR 126, `ESC - F`, less 0xA4, 0xA5 and 0xAA, which its version history says 8859-7:2003 added.
+# Fetched 2026-10-19 (lane b100) and read whole by baud-domain's build (build/iso96.rs): the right half of ISO-IR 126, `ESC - F`, less 0xA4, 0xA5 and 0xAA, which its version history says 8859-7:2003 added.
 
 [sources.iso8859-8]
 key    = "iso8859-8"
@@ -17072,7 +17099,7 @@ sha256 = "cbe3205c5c6f92589d6a8673d56c51d89659ae290185457e6e2f81fee7a1ad2d"
 bytes  = 7943
 status = "retrieved"
 group  = "C"
-# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half of ISO-IR 138, `ESC - H`, less 0xFD and 0xFE (LRM, RLM), which its version history says the 1999 edition added.
+# Fetched 2026-10-19 (lane b100) and read whole by baud-domain's build (build/iso96.rs): the right half of ISO-IR 138, `ESC - H`, less 0xFD and 0xFE (LRM, RLM), which its version history says the 1999 edition added.
 
 [sources.iso8859-9]
 key    = "iso8859-9"
@@ -17086,7 +17113,7 @@ sha256 = "4397082eb5cbbc299264b3b73405cc0946ec5c79328eb9de75f8a5da1ab8e712"
 bytes  = 10030
 status = "retrieved"
 group  = "C"
-# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half is ISO-IR 148, `ESC - M`.
+# Fetched 2026-10-19 (lane b100) and read whole by baud-domain's build (build/iso96.rs): the right half is ISO-IR 148, `ESC - M`.
 
 [sources.vt510-decaupss]
 key    = "vt510-decaupss"
@@ -17921,7 +17948,7 @@ status = "retrieved"
 group  = "C"
 # Fetched 2026-10-08 for note AF. xterm's charsets.h [[source: xterm-charsets]] names its NRC
 # substitutions by keysym and defines none, so its Swedish `MAP(0x40, XK_Eacute)` --
-# the line scripts/gen-nrcs-tables.py drops for want of a `/* U+ */` comment --
+# the line a reader of the `/* U+ */` comment dropped, for want of one --
 # resolves only here, line 769 [text]: `#define XK_Eacute 0x00c9 /* U+00C9 LATIN CAPITAL
 # LETTER E WITH ACUTE */`. master resolved that day to 6d3907b6, tag xorgproto-2026.1
 # (committed 2026-10-03), and master's raw url served these bytes too.
