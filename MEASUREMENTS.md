@@ -2118,3 +2118,56 @@ Both films pass WCAG 2.3.1 by the area, of 21,824, as before
 (`make-readme-logo.py`, its census and `readme_logo_flashes`); the
 word's ink is unchanged, so its contrast is. The light half's haze is
 0.0% of the page's pixels, at most 10 levels.
+
+## The bidirectional tables compiled at build time
+
+First carried by "build(domain): drop the python bidi generator and its
+table". `build/bidi.rs` compiles BIDI, MIRROR and BOX_COUNTERPART into
+`OUT_DIR` through `baud-tablegen` from the five pinned UCD 17.0.0 files
+in `baud-domain/data/`; nothing generated is committed. Before the
+delete, a unit test held every compiled static to the committed table and
+printed "identical: BIDI_INDEX 4352, BIDI_BLOCKS 31232, MIRROR_INDEX 4352,
+MIRROR_BLOCKS 3840, MIRROR_GLYPHS 429, BOX_COUNTERPART 128 elements"; the
+Python's own check passed on that table, so the build computes what the
+generator wrote. `contrast.bin`, moved to `build/contrast.rs`, is the
+base's byte for byte.
+
+**Release binaries, at one path, are not byte-identical, and the code is.**
+A crate's first build-dependency changes its crate hash, which renames
+every symbol downstream, and LTO then orders `__text` differently: the
+same section sizes, and 627,908 of `ingest2`'s 1,225,216 text bytes differ.
+A control arm -- base's `baud-domain/src` and `build.rs` under the
+change's manifests -- gives an `ingest2` byte-identical to the change's.
+For `baud`, the control differs from the change in 24 bytes of
+`baud_render::rebreak::rebreak`, a register swap at the same size that
+`#[repr(u8)]` on `BidiClass` causes -- the control with it added matches
+-- and is not timed, and in 5 bytes of panic line numbers from
+`bidi.rs`. A/A identical. The next crate to gain its first build script
+shows the same rename; the control arm reads through it.
+
+`ingest2`, the three arms rotated over six rounds, the first dropped,
+`cells_written` equal on every arm, MB/s median [range]:
+
+| payload, reps | base | change | change A/A |
+|---|---|---|---|
+| cat, 400 | 1521.8 [1429.2-1587.0] | 1523.6 [1423.2-1584.0] | 1512.1 [1405.5-1584.0] |
+| cat-cjk, 400 | 507.3 [505.3-510.9] | 508.4 [503.7-511.4] | 507.5 [502.1-512.3] |
+| btop, 400 | 861.9 [860.4-865.2] | 864.5 [853.3-868.2] | 858.1 [855.5-864.2] |
+| vim, 1000 | 588.4 [578.1-590.7] | 583.9 [579.3-585.7] | 587.0 [580.2-593.2] |
+| less, 2000 | 1374.5 [1347.7-1385.5] | 1377.2 [1366.3-1385.5] | 1371.8 [1345.0-1385.5] |
+
+Every range overlaps: no result, which is what `-align-all-functions=6` is
+for. Load average 5.8-6.8 from other work throughout.
+
+**The build.** `cargo build -p baud-domain --timings`, rounds 2-5 of five
+rotated: the build script compiles in [0.55-1.10] s against base's
+[0.25-0.34] and runs in [0.17-0.26] s against [0.04-0.09];
+`baud-tablegen` compiles in [0.14-0.29] s; the lib's ranges overlap.
+Touching `src/lib.rs` ran no build script in any round on either arm,
+and touching a `data/` file ran it once in each. At opt-level 3,
+`baud-tablegen` (the package override reaches the build-dependency, `-v`
+shows `-C opt-level=3`) runs the script in [0.08-0.10] s dev and
+[0.19-0.22] s release but compiles in [0.27-0.41] s; compile and run
+together overlap 0's in both profiles, so the default stays. The `.crate`s:
+`baud-domain` 1,127,175 to 1,502,269 bytes with `data/`, 14.3% of
+crates.io's 10 MiB; `baud-tablegen` 15,864.

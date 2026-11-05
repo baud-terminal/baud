@@ -240,6 +240,51 @@ fn each_check_the_bidi_build_makes_fires() {
             Kind::Invariant,
             "U+2510 has no counterpart",
         ),
+        (
+            DATA,
+            "2501;BOX DRAWINGS HEAVY HORIZONTAL;",
+            "2501;BOX DRAWINGS LIGHT HORIZONTAL;",
+            Kind::Invariant,
+            "U+2500's counterpart's counterpart is not itself",
+        ),
+        (
+            DATA,
+            "2501;BOX DRAWINGS HEAVY HORIZONTAL;",
+            "2501;HEAVY HORIZONTAL;",
+            Kind::Invariant,
+            "a Box Drawing name without BOX DRAWINGS",
+        ),
+        (
+            DATA,
+            "2501;BOX DRAWINGS HEAVY HORIZONTAL;So;0;ON;;;;;N;FORMS HEAVY HORIZONTAL;;;;\n",
+            "",
+            Kind::Count,
+            "127 Box Drawing names, 128 expected",
+        ),
+        // A bracket is bc=ON and Bidi_Mirrored.
+        (
+            DATA,
+            "0028;LEFT PARENTHESIS;Ps;0;ON;;;;;Y;",
+            "0028;LEFT PARENTHESIS;Ps;0;ON;;;;;N;",
+            Kind::Invariant,
+            "bracket U+0028 is not bc=ON and Bidi_M=Y",
+        ),
+        // U+2329 without its decomposition takes a pair of its own: 64
+        // pairs, and BD16's equivalence lost.
+        (
+            DATA,
+            "2329;LEFT-POINTING ANGLE BRACKET;Ps;0;ON;3008;",
+            "2329;LEFT-POINTING ANGLE BRACKET;Ps;0;ON;;",
+            Kind::Invariant,
+            "64 bracket pairs, up to Some(64): 63 below 64 expected",
+        ),
+        (
+            DATA,
+            "2329;LEFT-POINTING ANGLE BRACKET;Ps;0;ON;3008;",
+            "2329;LEFT-POINTING ANGLE BRACKET;Ps;0;ON;;",
+            Kind::Control,
+            "U+0028/U+0029 and U+2329/U+3009 are not paired as BD16 says",
+        ),
     ];
     let mut missed = Vec::new();
     for case in cases {
@@ -252,4 +297,20 @@ fn each_check_the_bidi_build_makes_fires() {
         }
     }
     assert!(missed.is_empty(), "{}", missed.join("\n"));
+}
+
+/// **A mirroring glyph past nine bits is refused**: 83 more distinct
+/// glyphs make 512 with the 0 for none, which MIRROR's low nine bits
+/// cannot index.
+#[test]
+fn a_512th_mirroring_glyph_does_not_fit() {
+    let more: String = (0..83)
+        .map(|i| format!("{:04X}; {:04X}\n", 0xE000 + i, 0xF000 + i))
+        .collect();
+    let got = failures(MIRRORING, "0028; 0029 #", &format!("{more}0028; 0029 #"));
+    assert!(
+        got.iter()
+            .any(|(k, m)| *k == Kind::Invariant && m.contains("512 glyphs will not fit nine bits")),
+        "{got:#?}"
+    );
 }

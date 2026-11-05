@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate the cursive-joining tables from pinned Unicode data.
 
-Same contract as gen-bidi-tables.py: generated and committed, because
-neither crate has a build script, and `joining_tables_match_the_pinned_data`
+Generated and committed, because neither crate compiles this table in its
+build script yet, and `joining_tables_match_the_pinned_data`
 regenerates and compares so the committed files cannot drift. Two outputs:
 
 * **baud-domain/src/joining_data.rs**, one byte a code point as a two-stage

@@ -1725,7 +1725,8 @@ status = "retrieved"
 group  = "G"
 
 # Bidi_Mirroring_Glyph: the character whose glyph is another's mirrored
-# (UAX #9 L4). `scripts/gen-bidi-tables.py` builds it into `bidi_data.rs`.
+# (UAX #9 L4). `baud-domain/build/bidi.rs` compiles it into the build's
+# `bidi_data.rs`, through the link `baud-domain/data/unicode-bidimirroring.txt`.
 [sources.unicode-bidimirroring]
 key    = "unicode-bidimirroring"
 title  = "BidiMirroring.txt, Unicode Character Database 17.0.0"
@@ -5633,7 +5634,7 @@ group  = "J"
 # Revision 51, the revision for Unicode 17.0.0, the version of every UCD file
 # baud compiles. The url was the unversioned one, which now serves revision 52
 # (`uax9-tr9-52`); the hash was always revision 51's, so the url names it.
-# `scripts/gen-bidi-tables.py` and `baud-domain/src/bidi.rs` build from it.
+# `baud-domain/build/bidi.rs` and `baud-domain/src/bidi.rs` build from it.
 [sources.uax9-bidi]
 key    = "uax9-bidi"
 title  = "UAX #9: Unicode Bidirectional Algorithm, revision 51 (Unicode 17.0.0)"

@@ -340,25 +340,6 @@ fn every_paired_bracket_is_the_pinned_files() {
     );
 }
 
-/// **The committed table is the pinned data's**: the generator, run again,
-/// writes the same file.
-#[test]
-fn bidi_tables_match_the_pinned_data() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-bidi-tables.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "bidi_data.rs is stale -- rerun scripts/gen-bidi-tables.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 /// **Each Box Drawing character's counterpart is the name with left and
 /// right exchanged**, for `?2500`: a corner and the other side's, a tee
 /// and the other side's, the diagonals, the arcs, a half line and the

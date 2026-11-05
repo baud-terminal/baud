@@ -2,11 +2,11 @@
 //! Database 17.0.0, the ones UAX #9 revision 51 (`[[source: uax9-bidi]]`)
 //! reads: Bidi_Class, Bidi_Mirrored, Bidi_Mirroring_Glyph,
 //! Bidi_Paired_Bracket and Bidi_Paired_Bracket_Type. Each is one indexed
-//! load from a table `scripts/gen-bidi-tables.py` compiles from the pinned
-//! files (`bidi_data.rs`); `bidi_tables_match_the_pinned_data` holds the
-//! committed table to them, and
+//! load from a table the build compiles from the pinned files
+//! (`build/bidi.rs`, into `OUT_DIR/bidi_data.rs`), so nothing generated is
+//! committed to drift from them, and
 //! `every_code_point_has_the_bidi_class_the_pinned_file_gives` reads every
-//! code point back against `DerivedBidiClass.txt`.
+//! code point back against `DerivedBidiClass.txt` with a reader of its own.
 
 mod algorithm;
 mod strings;

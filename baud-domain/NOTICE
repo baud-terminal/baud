@@ -33,14 +33,13 @@ vt100_0[] table (foot 1.21.0) and credited to it in the file
 
 Tables generated from the Unicode Character Database and Unicode's emoji
 data files: grapheme clusters, widths, canonical composition,
-default-ignorable code points, bidirectional classes and brackets, cursive
-joining and the Arabic presentation forms, line breaking, emoji
-presentation, case folding and decomposition, scripts, the Indic syllabic
-and positional categories, and the named emoji sequences. The OpenType
-script tags beside the scripts are identifiers from Microsoft's registry and
-carry no licence. Where such a table sits in a file with other code, only
-its marked generated block is generated
-  Files:   src/bidi_data.rs, src/caseless_data.rs, src/grapheme_data.rs,
+default-ignorable code points, cursive joining and the Arabic presentation
+forms, line breaking, emoji presentation, case folding and decomposition,
+scripts, the Indic syllabic and positional categories, and the named emoji
+sequences. The OpenType script tags beside the scripts are identifiers from
+Microsoft's registry and carry no licence. Where such a table sits in a file
+with other code, only its marked generated block is generated
+  Files:   src/caseless_data.rs, src/grapheme_data.rs,
            src/ignorable_data.rs, src/joining_data.rs,
            src/linebreak_data.rs, src/merged_data.rs, src/search_data.rs,
            src/sequence_data.rs, src/vs16.rs, src/width_data.rs
