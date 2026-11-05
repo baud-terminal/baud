@@ -17,6 +17,13 @@
 # scripts/check-sources.sh, offline, requires text_sha256 and text_bytes on
 # every such entry, and a well-formed revision where one is recorded.
 #
+# A dictionary page quoted for one entry moves the same way, and its entry is
+# a sentence or two, not an article. Its entry keeps sha256 and bytes as the
+# record of the page the day it was read, and quote_sha256 and quote_bytes,
+# the sha256 and UTF-8 length of the entry's text exactly as its comment
+# quotes it: a later fetch checks that the page's text, its tags taken out
+# and its entities decoded, still holds a run with that hash.
+#
 # `status`:
 #   retrieved   committed here, and hashes to `sha256`
 #   external    read and hash-verified, but NOT committed (licence or size).
@@ -42512,11 +42519,15 @@ url    = "https://kotobank.jp/word/%E3%83%9C%E3%83%BC-3170481"
 file   = ""
 sha256 = "67673b124c8ca23720b0a23740435ebb174ccdc9d0794b48c41b539126bf4488"
 bytes  = 225683
+quote_sha256 = "a656b9c74df2e29582b004cc6e2b01999684a1d2f0a4d2f9a409ae83705bc1d8"
+quote_bytes  = 160
 status = "external"
 group  = "C"
 # The second ボー of the 精選版 日本国語大辞典 section: "データ通信における変調速度の
 # 単位。一秒間に伝送できる電気信号の数を表わす。", then the citation
 # 〔電気工学ポケットブック（1928）〕, which the demo leaves out.
+# quote_sha256 is of the definition and its citation as one run, from
+# データ to （1928）〕.
 
 [sources.stdict-bo-21]
 key    = "stdict-bo-21"
@@ -42528,10 +42539,13 @@ url    = "https://stdict.korean.go.kr/search/searchResult.do?pageSize=10&pageInd
 file   = ""
 sha256 = "a0c60cc32f23eb33afd93d3150fb37522dc559568f871724c3e7518c39cbf00d"
 bytes  = 46686
+quote_sha256 = "29ccf24860883fb9fe2387cd3f8955d6a31da6a021fa881bd40b49d711d38eb8"
+quote_bytes  = 119
 status = "external"
 group  = "C"
 # 보21 (baud), 의존 명사, 『정보·통신』: "데이터 전송에서 변조 속도를 나타내는 단위.
 # 1보는 1초에 1요소(要素)를 보내는 속도이다." The demo quotes the first sentence.
+# quote_sha256 is of the two sentences as one run, from 데이터 to 속도이다.
 
 [sources.hebrew-academy-baud]
 key    = "hebrew-academy-baud"
@@ -42557,11 +42571,14 @@ url    = "http://epedia.eitan.ac.il/term/9242"
 file   = ""
 sha256 = "5bcf43206b3f296c84e809b47f6e9588da67deadb95abdeda37767ca452f48cc"
 bytes  = 63159
+quote_sha256 = "cb17b0b2d9cad37bda2a1fa4aca4a118ff61bfa9d76413e7e2c9b096edcd54a0"
+quote_bytes  = 194
 status = "external"
 group  = "C"
 # "יחידת מידה אשר מציינת את מספר המעברים של אות המודם בשנייה אחת. כל מעבר
 # מסוג זה יכול לשאת מספר סיביות נתונים." The demo quotes the first sentence
 # under the Academy's word, בּוֹד, the institution spelling it באוד.
+# quote_sha256 is of the two sentences as one run, from יחידת to נתונים.
 
 [sources.cstt-glossary-computer-science]
 key    = "cstt-glossary-computer-science"

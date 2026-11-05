@@ -8,10 +8,16 @@
 //! leading accessory goes "adjacent and to the right of the
 //! close/minimize/maximize buttons", a trailing one at the other end, and
 //! AppKit flips the two for a right-to-left language
-//! ([[source: macos-sdk-nstitlebaraccessoryviewcontroller-h]] 23, 27). They
-//! sit in the same titlebar view as the traffic lights, which in full
-//! screen AppKit takes out of the window: the "fullscreen window toolbar
-//! is detached from window and hides/shows on rollover"
+//! ([[source: macos-sdk-nstitlebaraccessoryviewcontroller-h]] 23, 27).
+//! [`edges`] reads the strip left to right -- the buttons at the left, the
+//! lights' end at the right -- which holds because the bundle has no
+//! localization AppKit could lay out right to left:
+//! `packaging/macos/Info.plist` lists no `CFBundleLocalizations` and the
+//! bundle holds no `.lproj` directory. They sit in the same titlebar view
+//! as the traffic lights, which in full screen AppKit takes out of the
+//! window: the "fullscreen window toolbar is detached from window and
+//! hides/shows on rollover", the doc of
+//! `NSApplicationPresentationAutoHideToolbar`
 //! ([[source: sdk27-nsapplication-h]] 168). A subview of baud's own
 //! content stayed in the window under a title bar that had left it: the
 //! lockup indented for buttons that were gone, and a second, empty bar
@@ -43,7 +49,13 @@
 //! content layout rect: if the rect moved when the bar is revealed, the
 //! grid would reflow, and the shell be told a new size, each time the
 //! pointer touched the top. The revealed bar lies over the grid's top
-//! rows, as it does over any full-screen window's content.
+//! rows, as it does over any full-screen window's content. **With the menu
+//! bar set never to hide in full screen, the bar does not leave at rest**:
+//! it stays over the grid, so a grid top of 0 puts row 0 under it. Which
+//! case a Mac is in, and where the terminal's view and the content layout
+//! rect are then, is read live by the demo's filming run
+//! (`full_screen_check.rs`), and until a reading settles it the top here is
+//! the auto-hiding case's.
 //!
 //! An entry costs two layouts of the grid, one at the transition's own
 //! resize with the old top and one at the notification with the new; an
@@ -52,8 +64,10 @@
 //! the window crate does not let its consumer set, and the grid would stay
 //! at the wrong top.
 //!
-//! No `crate::` path, so `baud-app/tests/titlebar_mark.rs` includes this
-//! file as it includes `mark.rs`, and checks it in real windows.
+//! No `crate::` path: `baud-app/tests/titlebar_mark.rs` takes this file in
+//! by `#[path]`, as it takes `mark.rs`, and checks it in windows it builds
+//! and never shows, the grid's top in full screen by the two
+//! notifications posted by hand.
 #![forbid(unsafe_code)]
 
 use baud_present_macos::full_screen::Change;
