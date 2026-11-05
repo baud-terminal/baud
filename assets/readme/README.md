@@ -133,9 +133,11 @@ columns gave 11.5. Shot by shot:
    liquid trail, a glass gel in the cursor's colour, and `ge` down again.
    No hidden script switches the trail: the edit on screen is all of it,
    and the liquid trail stays for the rest of the take.
-3. `cat hello.txt`: pointed Hebrew and Arabic drawn right to left,
-   Chinese, Japanese, Korean and Hindi, and a line of emoji with six flags,
-   a file the demo writes.
+3. `cat hello.txt`: baud defined in Hebrew and Arabic, drawn right to
+   left, and in Chinese, Japanese, Korean and Hindi, each definition
+   quoted from a dictionary, a standard, ITU's own translation or a
+   book's glossary and named in the demo's source, then a line of emoji
+   with six flags, a file the demo writes.
 4. `kitten icat --transfer-mode=stream canazei.jpg`: a photo drawn in the
    grid below the command in kitty's graphics protocol, and the prompt
    under it. The transfer mode is typed rather than hidden: kitten's

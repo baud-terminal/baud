@@ -1,8 +1,8 @@
 //! **The README's session, played in baud's window**: a real interactive
 //! zsh and real programs at real speed, every command typed into the
 //! window key by key -- baud's own config edited in helix, its plasma
-//! trail changed to liquid by one word saved and baud's live reload; six
-//! languages and a line of emoji in `cat hello.txt`; a photo drawn by
+//! trail changed to liquid by one word saved and baud's live reload; baud
+//! defined in six languages and a line of emoji in `cat hello.txt`; a photo drawn by
 //! `kitten icat`; ssh into a container
 //! on this Mac, its system card there with baud's mark drawn as a picture,
 //! btop, and iTerm2's fireworks asked for by a `printf` typed in full;

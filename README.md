@@ -9,7 +9,7 @@
 
 [Install](#install) · [Features](docs/guide/features.md) · [Configuration](docs/guide/configuration.md) · [Roadmap](docs/roadmap.md) · [Documentation](docs/README.md)
 
-<img src="assets/readme/hero.gif" width="776" alt="A real baud session: the logo carried off by the plasma as baud starts; in helix, one word of baud's config changes its cursor trail from plasma to liquid, and the cursor's trail changes with it; a greeting in Hebrew, Arabic, Chinese, Japanese, Korean, Hindi and emoji; a photo of mountains drawn in the terminal by kitten icat in its stream transfer mode; over ssh to a server named demo, fastfetch shows baud's logo and btop its CPU, then fireworks burst at the cursor; back home, clear sends the cursor to the top in the liquid trail">
+<img src="assets/readme/hero.gif" width="776" alt="A real baud session: the logo carried off by the plasma as baud starts; in helix, one word of baud's config changes its cursor trail from plasma to liquid, and the cursor's trail changes with it; baud defined in Hebrew, Arabic, Chinese, Japanese, Korean and Hindi, and a line of emoji; a photo of mountains drawn in the terminal by kitten icat in its stream transfer mode; over ssh to a server named demo, fastfetch shows baud's logo and btop its CPU, then fireworks burst at the cursor; back home, clear sends the cursor to the top in the liquid trail">
 
 </div>
 

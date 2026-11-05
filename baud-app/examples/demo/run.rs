@@ -690,7 +690,7 @@ fn covered(stack: &[(&str, &[u8])], what: &str, text: &str) -> Result<(), String
 /// face**: `hello.txt`, the config helix shows, both prompts and the
 /// fireworks' request, through the stack baud builds from the scratch
 /// config and baud-render's table. Then the control: without the CJK face,
-/// 终 is a gap, so the check can fail. What the programs print is checked
+/// 波 is a gap, so the check can fail. What the programs print is checked
 /// once they have printed it ([`check_printed`]).
 fn check_fonts(faces: &[PathBuf], config: &str) -> Result<(), String> {
     let bytes = read_faces(faces)?;
@@ -714,11 +714,11 @@ fn check_fonts(faces: &[PathBuf], config: &str) -> Result<(), String> {
         .filter(|(n, _)| *n != "Noto Sans CJK SC")
         .collect();
     let control = fonts::coverage(&without, &text)?;
-    if !control.gaps.contains(&'终') {
-        return Err("the font check cannot fail: 终 drew without the CJK face".to_string());
+    if !control.gaps.contains(&'波') {
+        return Err("the font check cannot fail: 波 drew without the CJK face".to_string());
     }
     println!(
-        "         none from the system; without Noto Sans CJK SC, {} are, 终 among them",
+        "         none from the system; without Noto Sans CJK SC, {} are, 波 among them",
         control.gaps.len()
     );
     Ok(())

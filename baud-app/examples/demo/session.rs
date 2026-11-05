@@ -140,38 +140,60 @@ pub const WHEEL_GAP_MS: u64 = 50;
 /// first wheel event, in milliseconds.
 pub const WHEEL_SETTLE_MS: u64 = 30;
 
-/// **`hello.txt`**: one line in each of Hebrew (pointed), Arabic, Chinese,
-/// Japanese, Korean and Hindi, each saying "the terminal puts every
-/// character in the grid", then the same in emoji and the six languages'
-/// flags:
+/// **`hello.txt`, baud defined**: one line in each of Hebrew, Arabic,
+/// Chinese, Japanese, Korean and Hindi, each the word for baud in that
+/// language, a colon and its definition, quoted from the source named and
+/// cut only where a clause ends; then a line of emoji and the six
+/// languages' flags:
 ///
-/// - Hebrew, "ha-masof sam kol tav ba-reshet": the terminal puts every
-///   character in the grid.
-/// - Arabic, "at-tarafiyya tada'u kull harf fi ash-shabaka": the terminal
-///   puts every letter in the grid.
-/// - Chinese, "zhongduan ba mei yi ge zi dou fang jin wangge li": the
-///   terminal puts every single character into the grid.
-/// - Japanese, "tanmatsu wa subete no moji o koshi ni naraberu": the
-///   terminal lines every character up in the grid.
-/// - Korean, "teomineoreun modeun geuljareul gyeokjae neonneunda": the
-///   terminal puts every character into the grid.
-/// - Hindi, "terminal har akshar ko grid mein rakhta hai": the terminal
-///   keeps every character in the grid.
-/// - A laptop, an arrow, the Latin letters, an arrow, a square; then the
-///   flags of Israel, Egypt, China, Japan, South Korea and India.
+/// - Hebrew, "bod: yehidat mida asher metsayenet et mispar ha-ma'avarim
+///   shel ot ha-modem bi-shniya ahat": baud: a unit of measure giving the
+///   number of transitions of the modem's signal in one second. The word,
+///   pointed, is the Academy of the Hebrew Language's
+///   (`[[source: hebrew-academy-baud]]`), the definition the Standards
+///   Institution of Israel's term 95.06.34 (`[[source: sii-95-06-34-baud]]`),
+///   its first sentence.
+/// - Arabic, "al-bawd: wahdat mu'addal at-tashkil fi al-ibraq wa-irsal
+///   al-mu'tayat": baud: the unit of modulation rate in telegraphy and
+///   data transmission. ITU-R V.607-3, Annex 1, in ITU's Arabic
+///   (`[[source: itu-r-v607-3-ar]]`), up to its "or".
+/// - Chinese, "bote: zai dianbao he shuju tongxin zhong de tiaozhilü de
+///   danwei": baud: the unit of modulation rate in telegraphy and data
+///   communication. V.607-3 in ITU's Chinese
+///   (`[[source: itu-r-v607-3-zh]]`), up to its "or".
+/// - Japanese, "bo: deta tsushin ni okeru henchō sokudo no tan'i. ichibyōkan
+///   ni densō dekiru denki shingō no kazu o arawasu": baud: the unit of
+///   modulation rate in data communication; it gives the number of
+///   electrical signals that can be sent in a second. The Seisenban Nihon
+///   Kokugo Daijiten (`[[source: kotobank-nikkoku-bo]]`), its definition
+///   without the 1928 citation after it.
+/// - Korean, "bo: deiteo jeonsong-eseo byeonjo sokdoreul natanaeneun
+///   danwi": baud: the unit that gives the modulation rate in data
+///   transmission. The Standard Korean Language Dictionary, bo 21
+///   (`[[source: stdict-bo-21]]`), its first sentence.
+/// - Hindi, "baud: tar/durmudrak prachalan mein gati ko mapne ka ek map":
+///   baud: a measure of speed in telegraph and teleprinter working. The
+///   word is the Commission for Scientific and Technical Terminology's
+///   (`[[source: cstt-glossary-computer-science]]`), the definition the
+///   glossary of Mohan Sundar Rajan's Doorsanchar Katha, National Book
+///   Trust (`[[source: nbt-doorsanchar-katha]]`), p. 203.
+/// - A pager, an arrow, signal bars and a stopwatch, a modem's signal
+///   counted by the second; then the flags of Israel, Egypt, China, Japan,
+///   South Korea and India.
 pub const HELLO: &str = concat!(
-    "הַמָּסוֹף שָׂם כָּל תָּו בָּרֶשֶׁת.\n",
-    "الطرفية تضع كل حرف في الشبكة.\n",
-    "终端把每一个字都放进网格里。\n",
-    "端末はすべての文字を格子に並べる。\n",
-    "터미널은 모든 글자를 격자에 넣는다.\n",
-    "टर्मिनल हर अक्षर को ग्रिड में रखता है।\n",
-    // 💻 ➡️ 🔤 ➡️ 🔲, two spaces, 🇮🇱 🇪🇬 🇨🇳 🇯🇵 🇰🇷 🇮🇳; the laptop and
-    // the arrows carry U+FE0F, each a sequence emoji-variation-sequences
-    // lists, so they are drawn as emoji rather than as text: baud's default
-    // presentation is the first face's to have the character, and Noto
-    // Sans Symbols 2, pinned for btop's braille, draws a laptop in outline.
-    "\u{1F4BB}\u{FE0F} \u{27A1}\u{FE0F} \u{1F524} \u{27A1}\u{FE0F} \u{1F532}  ",
+    "בּוֹד: יחידת מידה אשר מציינת את מספר המעברים של אות המודם בשנייה אחת.\n",
+    "البود: وحدة معدل التشكيل في الإبراق وإرسال المعطيات\n",
+    "波特：在电报和数据通信中的调制率的单位\n",
+    "ボー：データ通信における変調速度の単位。一秒間に伝送できる電気信号の数を表わす。\n",
+    "보: 데이터 전송에서 변조 속도를 나타내는 단위.\n",
+    "बॉड: तार/दूरमुद्रक प्रचालन में गति को मापने का एक माप।\n",
+    // 📟️ ➡️ 📶 ⏱️, two spaces, 🇮🇱 🇪🇬 🇨🇳 🇯🇵 🇰🇷 🇮🇳; the pager, the
+    // arrow and the stopwatch carry U+FE0F, each a sequence
+    // emoji-variation-sequences lists, so they are drawn as emoji rather
+    // than as text: baud's default presentation is the first face's to
+    // have the character, and Noto Sans Symbols 2, pinned for btop's
+    // braille, draws a pager in outline. The bars have no text form.
+    "\u{1F4DF}\u{FE0F} \u{27A1}\u{FE0F} \u{1F4F6} \u{23F1}\u{FE0F}  ",
     "\u{1F1EE}\u{1F1F1} \u{1F1EA}\u{1F1EC} \u{1F1E8}\u{1F1F3} ",
     "\u{1F1EF}\u{1F1F5} \u{1F1F0}\u{1F1F7} \u{1F1EE}\u{1F1F3}\n",
 );
@@ -445,20 +467,58 @@ mod tests {
         assert_eq!(lines.last().map(String::as_str), Some("hold 1000 ms"));
     }
 
-    /// **`hello.txt` is seven lines, the six languages and the emoji**,
-    /// pointed Hebrew among them: the points and the sin and shin dots are
-    /// there, so the font check meets them.
+    /// **`hello.txt` is seven lines, baud defined in the six languages
+    /// and the emoji**: each language's line is its word, a colon and the
+    /// definition as its source words it -- the Hebrew word pointed as the
+    /// Academy points it, a dagesh and a holam, so the font check meets
+    /// them -- in the order Hebrew, Arabic, Chinese, Japanese, Korean,
+    /// Hindi; the emoji line's pager and stopwatch are emoji, each with
+    /// U+FE0F, which Noto Sans Symbols 2 would otherwise draw as text.
     #[test]
     fn hello_holds_the_seven_lines() {
-        assert_eq!(HELLO.lines().count(), 7);
-        let hebrew = HELLO.lines().next().unwrap();
-        for point in [
-            '\u{05B7}', '\u{05B8}', '\u{05BC}', '\u{05B9}', '\u{05C2}', '\u{05C1}',
-        ] {
-            assert!(hebrew.contains(point), "U+{:04X}", u32::from(point));
+        let lines: Vec<&str> = HELLO.lines().collect();
+        assert_eq!(lines.len(), 7);
+        for (line, word) in lines
+            .iter()
+            .zip(["בּוֹד", "البود", "波特", "ボー", "보", "बॉड"])
+        {
+            assert!(line.starts_with(word), "{line}");
         }
-        assert!(HELLO.contains("终端把每一个字都放进网格里。"));
-        assert!(HELLO.contains("\u{1F4BB}\u{FE0F} "), "the laptop as emoji");
-        assert!(HELLO.contains("端末はすべての文字を格子に並べる。"));
+        for point in ['\u{05BC}', '\u{05B9}'] {
+            assert!(lines[0].contains(point), "U+{:04X}", u32::from(point));
+        }
+        assert!(lines[1].ends_with("وحدة معدل التشكيل في الإبراق وإرسال المعطيات"));
+        assert_eq!(lines[2], "波特：在电报和数据通信中的调制率的单位");
+        assert!(lines[3].ends_with("一秒間に伝送できる電気信号の数を表わす。"));
+        assert_eq!(lines[4], "보: 데이터 전송에서 변조 속도를 나타내는 단위.");
+        assert!(HELLO.contains("\u{1F4DF}\u{FE0F} "), "the pager as emoji");
+        assert!(HELLO.contains("\u{23F1}\u{FE0F}"), "the stopwatch as emoji");
+    }
+
+    /// **Each line of `hello.txt` is one row of the demo's 80 columns**:
+    /// written into baud's core at 80x24, each line, the emoji's too, ends
+    /// on the row it began on, so no definition wraps. Japanese's 40 wide
+    /// characters fill the row exactly. The control: the Japanese line
+    /// with one more wide character takes a second row.
+    #[test]
+    fn each_line_of_hello_is_one_row() {
+        use baud_domain::{BytePos, ReadLen, WinSize};
+        let ws = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let rows = |line: &str| {
+            let mut owned = baud_core::Owned::new(&ws);
+            let mut t = baud_core::Term::new(owned.storage(), &ws);
+            let b = line.as_bytes();
+            t.write_at(BytePos::ZERO, b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+            t.cursor().0.index() + 1
+        };
+        for line in HELLO.lines() {
+            assert_eq!(rows(line), 1, "{line}");
+        }
+        let japanese = HELLO.lines().nth(3).unwrap();
+        assert_eq!(rows(&format!("{japanese}語")), 2, "the control");
     }
 }

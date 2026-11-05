@@ -42407,3 +42407,173 @@ group  = "C"
 # escape character (033)", by bb_process_escape_sequence, as \a; 1987: "\[
 # begin a sequence of non-printing characters"; 2096-2098 toggle the flag
 # and 2111 counts a character into the prompt's width only outside it.
+
+# The demo's hello.txt, baud defined in six languages (baud-app/examples/demo/session.rs).
+[sources.itu-r-v607-3-ar]
+key    = "itu-r-v607-3-ar"
+title  = "ITU-R Recommendation V.607-3, Terms and symbols for information quantities in telecommunications -- Arabic, PDF"
+author = "ITU-R"
+year   = 2000
+venue  = "itu.int, ITU publications (ITU's own Arabic)"
+url    = "https://www.itu.int/dms_pubrec/itu-r/rec/v/R-REC-V.607-3-200005-W!!PDF-A.pdf"
+file   = ""
+sha256 = "aa7ff4a2475d1c37a72353d9126bfc02b81735778ca3d20334870c276b51168f"
+bytes  = 93775
+status = "external"
+group  = "C"
+# Annex 1, the term البود (baud) (Bd), its definition read from the Word file
+# of the same text (itu-r-v607-3-ar-doc), in logical order: "وحدة معدل التشكيل
+# في الإبراق وإرسال المعطيات أو وحدة المعدل الرقمي على الخط في الإرسال الرقمي".
+# The demo's hello.txt quotes it to its "أو" (or).
+
+[sources.itu-r-v607-3-ar-doc]
+key    = "itu-r-v607-3-ar-doc"
+title  = "ITU-R Recommendation V.607-3 -- Arabic, Word file"
+author = "ITU-R"
+year   = 2000
+venue  = "itu.int, ITU publications"
+url    = "https://www.itu.int/dms_pubrec/itu-r/rec/v/R-REC-V.607-3-200005-W!!MSW-A.doc"
+file   = ""
+sha256 = "391969ba5ea2f9754b2ab102dc4af97e7d3cc57bc89b53031cde60c7cc76da49"
+bytes  = 79872
+status = "external"
+group  = "C"
+# The Arabic text of itu-r-v607-3-ar as typed, extracted with textutil;
+# its characters are base letters in logical order, no presentation forms.
+
+[sources.itu-r-v607-3-zh]
+key    = "itu-r-v607-3-zh"
+title  = "ITU-R Recommendation V.607-3 -- Chinese, PDF"
+author = "ITU-R"
+year   = 2000
+venue  = "itu.int, ITU publications (ITU's own Chinese)"
+url    = "https://www.itu.int/dms_pubrec/itu-r/rec/v/R-REC-V.607-3-200005-W!!PDF-C.pdf"
+file   = ""
+sha256 = "ee4caeeac423ec75eba53560025cfb0bdfe7c03263bfc2fd3b8c69a625202728"
+bytes  = 169801
+status = "external"
+group  = "C"
+# Annex 1, the term 波特: "在电报和数据通信中的调制率的单位或数字传输中的线路数位率的单位",
+# read from the Word file of the same text (itu-r-v607-3-zh-doc). The demo
+# quotes it to its 或 (or).
+
+[sources.itu-r-v607-3-zh-doc]
+key    = "itu-r-v607-3-zh-doc"
+title  = "ITU-R Recommendation V.607-3 -- Chinese, Word file"
+author = "ITU-R"
+year   = 2000
+venue  = "itu.int, ITU publications"
+url    = "https://www.itu.int/dms_pubrec/itu-r/rec/v/R-REC-V.607-3-200005-W!!MSW-C.doc"
+file   = ""
+sha256 = "9fb00afa65dafef5d29277e10b16e1bf661de124e916212f9612960c79b06085"
+bytes  = 59904
+status = "external"
+group  = "C"
+# The Chinese text of itu-r-v607-3-zh as typed, extracted with textutil.
+
+[sources.itu-r-v607-3-en]
+key    = "itu-r-v607-3-en"
+title  = "ITU-R Recommendation V.607-3 -- English, PDF"
+author = "ITU-R"
+year   = 2000
+venue  = "itu.int, ITU publications"
+url    = "https://www.itu.int/dms_pubrec/itu-r/rec/v/R-REC-V.607-3-200005-W!!PDF-E.pdf"
+file   = ""
+sha256 = "c39d53b8bf9425a0f88a47adaa5196abf626af3a3d1c0a527faaeb65a994ffc8"
+bytes  = 98761
+status = "external"
+group  = "C"
+# Annex 1, baud (Bd): "The unit of modulation rate in telegraphy and data
+# communication or the unit of line digit rate in digital transmission": the
+# meaning every line of the demo's hello.txt is held to.
+
+[sources.kotobank-nikkoku-bo]
+key    = "kotobank-nikkoku-bo"
+title  = "Seisenban Nihon Kokugo Daijiten, ボー (baud), on kotobank"
+author = "Shogakukan"
+year   = 2006
+venue  = "kotobank.jp (the page's bytes move with its chrome; the quote is the check)"
+url    = "https://kotobank.jp/word/%E3%83%9C%E3%83%BC-3170481"
+file   = ""
+sha256 = "67673b124c8ca23720b0a23740435ebb174ccdc9d0794b48c41b539126bf4488"
+bytes  = 225683
+status = "external"
+group  = "C"
+# The second ボー of the 精選版 日本国語大辞典 section: "データ通信における変調速度の
+# 単位。一秒間に伝送できる電気信号の数を表わす。", then the citation
+# 〔電気工学ポケットブック（1928）〕, which the demo leaves out.
+
+[sources.stdict-bo-21]
+key    = "stdict-bo-21"
+title  = "Standard Korean Language Dictionary (표준국어대사전), 보21 (baud)"
+author = "National Institute of Korean Language"
+year   = 2026
+venue  = "stdict.korean.go.kr, searchResult.do for 보, page 3 (the page's bytes move; the quote is the check)"
+url    = "https://stdict.korean.go.kr/search/searchResult.do?pageSize=10&pageIndex=3&searchKeyword=%EB%B3%B4"
+file   = ""
+sha256 = "a0c60cc32f23eb33afd93d3150fb37522dc559568f871724c3e7518c39cbf00d"
+bytes  = 46686
+status = "external"
+group  = "C"
+# 보21 (baud), 의존 명사, 『정보·통신』: "데이터 전송에서 변조 속도를 나타내는 단위.
+# 1보는 1초에 1요소(要素)를 보내는 속도이다." The demo quotes the first sentence.
+
+[sources.hebrew-academy-baud]
+key    = "hebrew-academy-baud"
+title  = "Academy of the Hebrew Language, Dictionary of Communication and Electronics (1970): בּוֹד, baud"
+author = "Academy of the Hebrew Language"
+year   = 1970
+venue  = "terms.hebrew-academy.org.il"
+url    = "https://terms.hebrew-academy.org.il/Ktaim/ShowKtaim?kodketa=13311"
+file   = ""
+sha256 = "893ddb146603b9c4d82bfb56fdb8cf7d76c7f577affcf01fbd5d4b711261938b"
+bytes  = 12743
+status = "external"
+group  = "C"
+# The term only, pointed בּוֹד, unpointed בוד, for English baud; no definition.
+
+[sources.sii-95-06-34-baud]
+key    = "sii-95-06-34-baud"
+title  = "Standards Institution of Israel, information technology committee terms, part 95, 95.06.34: באוד (baud), on Eitan epedia"
+author = "Standards Institution of Israel"
+year   = 2006
+venue  = "epedia.eitan.ac.il (the page's bytes move; the quote is the check)"
+url    = "http://epedia.eitan.ac.il/term/9242"
+file   = ""
+sha256 = "5bcf43206b3f296c84e809b47f6e9588da67deadb95abdeda37767ca452f48cc"
+bytes  = 63159
+status = "external"
+group  = "C"
+# "יחידת מידה אשר מציינת את מספר המעברים של אות המודם בשנייה אחת. כל מעבר
+# מסוג זה יכול לשאת מספר סיביות נתונים." The demo quotes the first sentence
+# under the Academy's word, בּוֹד, the institution spelling it באוד.
+
+[sources.cstt-glossary-computer-science]
+key    = "cstt-glossary-computer-science"
+title  = "Commission for Scientific and Technical Terminology, Glossary of Computer Science (English-Hindi), on archive.org"
+author = "CSTT, Government of India"
+year   = 2024
+venue  = "archive.org item cstt-gloassaries, its OCR text"
+url    = "https://archive.org/download/cstt-gloassaries/glossary-computer-science-eng-hin_djvu.txt"
+file   = ""
+sha256 = "253d7e7b0c18a58d0b66f937919100571680196acd80ad60c8d018c4eaf8f03e"
+bytes  = 554767
+status = "external"
+group  = "C"
+# The English column's "baud", "baudot code", "baud rate" against the Hindi
+# column's बॉड, बोदो कूट, बॉड दर: the term only, no definition.
+
+[sources.nbt-doorsanchar-katha]
+key    = "nbt-doorsanchar-katha"
+title  = "Mohan Sundar Rajan, Doorsanchar Katha (दूरसंचार कथा), National Book Trust, India -- appendix p. 203"
+author = "Mohan Sundar Rajan"
+venue  = "archive.org item doorsanchar-katha-mohan-sundar-rajan, page image n231"
+url    = "https://archive.org/download/doorsanchar-katha-mohan-sundar-rajan/page/n231.jpg"
+file   = ""
+sha256 = "f6e6d04d7875ae6494e880c84e90ba9fada949377a32ebc0fb34d1e5c8353665"
+bytes  = 929916
+status = "external"
+group  = "C"
+# The glossary entry, read on the page image and matched in the item's OCR
+# text: "बॉद (बॉड) : तार/दूरमुद्रक प्रचालन में गति को मापने का एक माप।" The
+# demo quotes the definition under CSTT's word, बॉड.
