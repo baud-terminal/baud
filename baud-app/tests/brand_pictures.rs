@@ -380,9 +380,10 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 
 /// **baud's own drawing of the mark**: "❯" in JetBrains Mono Bold (the
 /// built face the app embeds) at 200 px, a steady block cursor in the next
-/// cell, white on black through the CPU path, so a pixel's coverage is its
-/// level over 255. Measured from its pixels: the ❯'s level top and bottom
-/// edges by the coverage of their rows, its centroid by coverage.
+/// cell, white on black through the CPU path -- the block the cell's
+/// colours swapped, not baud's amber -- so a pixel's coverage is its level
+/// over 255. Measured from its pixels: the ❯'s level top and bottom edges
+/// by the coverage of their rows, its centroid by coverage.
 fn rendered() -> Mark {
     let ws = WinSize {
         ws_row: 3,
@@ -393,6 +394,9 @@ fn rendered() -> Mark {
     let mut theme = Theme::dark();
     theme.bg = Argb(0xFF00_0000);
     theme.fg = Argb(0xFFFF_FFFF);
+    theme.cursor = None;
+    theme.cursor_text = None;
+    theme.cursor_made = baud_render::CursorMade::Named;
     let mut r = Renderer::new(
         Stack::new(&faces).expect("a stack"),
         PxSize::of(PX).expect("a size"),

@@ -115,9 +115,10 @@ fn the_cpu_path_draws_the_trail() {
 }
 
 /// **The ghost is the cursor's colour**, as every other trail is: under
-/// `OSC 12` setting the cursor red, the ghost over empty cells draws red, and
-/// with no cursor colour set it draws the foreground -- the colour the cursor
-/// defaults to. The ghost was built in the foreground whatever `OSC 12` said.
+/// `OSC 12` setting the cursor red, the ghost over empty cells draws red;
+/// under a grey one it draws no red; and with no cursor colour set it draws
+/// baud's amber, the colour the cursor defaults to. The ghost was built in
+/// the foreground whatever `OSC 12` said.
 #[test]
 fn the_ghost_is_the_cursors_colour() {
     let mono = font("JetBrainsMono-Regular.ttf");
@@ -153,8 +154,12 @@ fn the_ghost_is_the_cursors_colour() {
         "under a red cursor the ghost is not red"
     );
     assert!(
-        reddest(b"") < 8,
-        "with no cursor colour the ghost is not the foreground"
+        reddest(b"\x1b]12;#d8d8d8\x07") < 8,
+        "under a grey cursor the ghost is not grey"
+    );
+    assert!(
+        reddest(b"") > 20,
+        "with no cursor colour the ghost is not baud's amber"
     );
 }
 
@@ -895,7 +900,9 @@ fn digest(frame: &[u32]) -> u64 {
 /// bits are the same on every machine; std's `exp`, `sin` and the rest are
 /// the platform's libm, which differ between macOS and glibc
 /// (`the_trails_call_no_platform_math` bars them). A change to an effect's
-/// look changes its line, which the failure prints whole.
+/// look changes its line, which the failure prints whole. 92 of the 96
+/// moved when the trails took baud's amber, the cursor's colour; the four
+/// that stayed are repeats that draw nothing.
 #[test]
 fn every_trail_draws_the_same_pixels_on_every_os() {
     // Per page, opaque then the glass: per look, the fire to the liquid and
@@ -904,102 +911,102 @@ fn every_trail_draws_the_same_pixels_on_every_os() {
     // at the first and last ages, and the plasma's at the first, scanned
     // under its own mix.
     const PINNED: &[u64] = &[
-        0xf56c8c32c26a3e36,
-        0xc403d556fa165993,
-        0x68ddddd60eb6b418,
-        0x02d3249ca1d07e9b,
-        0x03a4ebaf7644f693,
+        0x61eb0958f112c5dd,
+        0x0f07949d1ff684d7,
+        0x1b4950b039bda27f,
+        0xaceeeb013a3a34f8,
+        0x6d09156f372b486e,
         0x3f5557cec5984125,
-        0xc0e28798adf25f75,
-        0xd524b34c167992f5,
-        0xd50134af8b1632e1,
-        0xed071ea3ca1beb50,
-        0x37ae1ac8f18dba42,
-        0x4e3180fc11a8d9da,
-        0x86ef489d68c1ef29,
-        0xbd4c7c7ba5eeddcc,
-        0x935d233c101e13bf,
-        0xf224b21974cdbbc6,
-        0x1591f11bf5bded02,
-        0x09861eec3576f348,
-        0xb9fb934af3b8cd31,
-        0x05d80a583d7df93d,
-        0xe08b09ebbabd6ad3,
-        0x58857444a5c01621,
-        0x928fff2328b760f3,
-        0x3a6dd8f3dca3166f,
-        0x0660a1150fb4f9ed,
-        0x9b92d15c9945fe4b,
-        0x0e7f56b3d4c6abad,
-        0xfff51c49794ef959,
-        0x9b448c009de2e719,
-        0xe4de842b7e365414,
-        0x383f8736b19d3f0b,
-        0x6382ccdd7408c52d,
-        0xc812661c24ddf637,
-        0xa713e9aed3bd58e1,
-        0x84bdfe10e6c475c4,
-        0xb372389989e70b96,
-        0x405695f7b46f0fc2,
-        0x0120ec2aca7ae993,
-        0x65329b6b384f8277,
-        0xe26985d9d2a8cfc6,
-        0x13242428bd0226bb,
-        0xe3f7c7774879be26,
-        0x0f7d06e3d5cb348b,
-        0x5e2c445029f79d6c,
-        0x286c57d418516037,
-        0x7e42929b370c3fc2,
-        0x3bd155c1f52a073e,
-        0xd8119fc5b499e2c5,
-        0x67ad799a9379d4a9,
+        0xbc773d9649d4952e,
+        0xbd2219ab4ba565d5,
+        0x0daa3d02473e74a1,
+        0x9de0af9567df1a74,
+        0xe60ee95ac73724c5,
+        0xa142330c38fcd519,
+        0x94657c24bd1792bb,
+        0xdc667125dfbfc55d,
+        0x9c587913a9c68433,
+        0x6e6f9e5139e36d2b,
+        0x6c68321c85871b65,
+        0xbda4eaf44645b820,
+        0x59a541af93ca3f24,
+        0x245d1e9cfc657f9d,
+        0x5a9ead915fbb594f,
+        0x5e337cede4addc5a,
+        0x82af4a6e1ad119ff,
+        0xb732b34426334569,
+        0x90d23e8a45e9b623,
+        0xfa12351e59a7515f,
+        0xb6ac278db937475a,
+        0xa017796ee62122d8,
+        0x1fa4b522a05a107e,
+        0xce230afb864baad1,
+        0xfec56328b0ac634b,
+        0x33772945239a7986,
+        0x679bbdf6857a9e33,
+        0x93207db18f893424,
+        0xe191fe64a1b44b8d,
+        0xd55d5b67628f2e5b,
+        0x548ea11bd3901923,
+        0x056011a73da56274,
+        0x03838aa3017bbb82,
+        0xbb68fe3e94ab8d1b,
+        0xc4348eb3f46c30db,
+        0xc0302115f58dfde2,
+        0x444cca2a672baf2a,
+        0x02c5c1c238f162f0,
+        0x9de38ccf8ce6dfda,
+        0xa39e4e5f93542207,
+        0xac6c2bd29076c807,
+        0x6492a7f188b723ad,
+        0x871877c99159cdb3,
         0x48b2d42d76073f25,
-        0xeac547e974ca9e50,
-        0xc23ed95cb177ad43,
-        0x4b433baa58e7d182,
+        0x876303ad261fc529,
+        0x5a00bd42195686ef,
+        0x69dabf24fe7eb65c,
         0x48b2d42d76073f25,
-        0xe9793ffd982fd779,
+        0x2bd34a8e43424993,
         0x48b2d42d76073f25,
-        0xa49da5bd8e9475fd,
-        0x6bf0720ce734b67e,
-        0xa822f9c0e70320ea,
-        0x04080a77f3972902,
-        0xc85efbcf18a7bbbc,
-        0xfa9dde9f546aff53,
-        0x5f2b7b434ee24e44,
-        0xda66ec730038c7c5,
-        0xba378454948f253d,
-        0xe106f6a6561fd8c8,
-        0x7f394b4628340691,
-        0x595be2d692c43da9,
-        0x2161038c98929ac0,
-        0x5f437ad5d024a045,
-        0x099416b70b772c93,
-        0x97ce0fd89d43b648,
-        0x4d76dac7f139583d,
-        0xb30279a97d69b34f,
-        0x8bacaf059b2607f2,
-        0xaf7b8538bb332bab,
-        0x55fcfece8b9f0fba,
-        0xebdf9c1d6a77342a,
-        0x87eeaaa58ad0e157,
-        0xc6462a6c4d5c5eb1,
-        0x115c8f4682999d77,
-        0xfaf5c98421ae0845,
-        0xf6cbd84292f8e200,
-        0x535bfd7d8a144b9d,
-        0x3061ba28d724e0db,
-        0x327779c65404529b,
-        0xd7714b636fa1669a,
-        0xb64537ae009c8987,
-        0x2e3ba393de1b3184,
-        0x7da31270767a328f,
-        0x9296cf73e8f193a7,
-        0xc91032c84880644c,
-        0x57e214a50c6c79c2,
-        0x3adc60386f7ce68b,
-        0x69b01a8d27054f00,
-        0xb3478f0a7ff37d35,
+        0xd528286cd9e7bcfa,
+        0xe9ed7212ab8dcf5d,
+        0xb8028c8b6b06a549,
+        0x7d20f76e10a5324d,
+        0x23c850aa29cdcfe8,
+        0xa5440fbad67ea19a,
+        0x3cf2c9857cde86d3,
+        0x173ce8f454f725e1,
+        0x22e535c723b7221b,
+        0xc958ca007b971068,
+        0x2aa5545785c9cfbb,
+        0xd6474376ca0129ec,
+        0x05d5853ef27387d2,
+        0x946609a24a2538b4,
+        0xb273199f555466f6,
+        0xe7c61538aceb60eb,
+        0x7aacae3a8040edc2,
+        0x4a1cbe0875fed39a,
+        0xa710a9e4b69a73c8,
+        0x16163134d77c2056,
+        0xb27c22cca803695a,
+        0x018a62a036edc899,
+        0x5e2b7122196b5bf9,
+        0x00952bd4804f5f09,
+        0xd36195684d49b35b,
+        0x3db86d37eee99b78,
+        0x17bd72cf36b85a31,
+        0x065258037c621e20,
+        0x8204d91804cff83b,
+        0x5071eea6da6d2454,
+        0xc97b0614532b7928,
+        0x06e7283a0189753d,
+        0xea25b8e1367b1eea,
+        0x1bfaa59a79827052,
+        0x4885201c76c98147,
+        0x6466a55b79a208b4,
+        0x222e641a65fc4020,
+        0xa6771015cf0bfebd,
+        0x3583fbe8a2cf3238,
+        0x683a89b937c47acd,
     ];
     let mono = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&mono).unwrap()];
@@ -1301,9 +1308,10 @@ fn the_plasma_lights_a_letter_it_crosses_and_shades_it_on_a_light_theme() {
     };
     let mono = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&mono).unwrap()];
+    // The cursor of no colour, whose trail is the letters' own colour.
     for (name, theme, mix) in [
-        ("dark", Theme::dark(), Mix::Screen),
-        ("light", Theme::light(), Mix::Multiply),
+        ("dark", support::classic(Theme::dark()), Mix::Screen),
+        ("light", support::classic(Theme::light()), Mix::Multiply),
     ] {
         letters(&LETTERS, |t| {
             let mut r = Renderer::new(

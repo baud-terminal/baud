@@ -31,6 +31,15 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
 }
 
+/// The colour `theme`'s trails are drawn in: its cursor's, baud's amber on
+/// the built-in themes, else its text.
+fn ink_of(theme: &Theme) -> Argb {
+    theme
+        .cursor
+        .and_then(baud_domain::themefile::CellPaint::colour)
+        .unwrap_or(theme.fg)
+}
+
 fn renderer<'f>(faces: &'f [Face<'f>]) -> Renderer<'f, 'f> {
     Renderer::new(
         Stack::new(faces).unwrap(),
@@ -133,7 +142,7 @@ fn a_repeat_pass_draws_one_record_a_pixel_under_the_cap() {
     feed(&mut t, b"\x1b[?25l");
     let mut r = renderer(&faces);
     let _ = paint(&mut r, &mut t);
-    let (ink, page) = (Theme::dark().fg, Theme::dark().bg);
+    let (ink, page) = (ink_of(&Theme::dark()), Theme::dark().bg);
     let k = under_threshold(
         ink.with_alpha(Chan::from_u8(0xFF)),
         page.with_alpha(Chan::from_u8(0xFF)),
@@ -400,7 +409,7 @@ fn a_repeat_plasma_is_clamped_at_its_cap_not_scaled_by_it() {
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, b"\x1b[?25l");
     for theme in [Theme::dark(), Theme::light()] {
-        let (ink, page) = (theme.fg, theme.bg);
+        let (ink, page) = (ink_of(&theme), theme.bg);
         let mut r = renderer(&faces);
         r.set_theme(theme);
         r.set_trail(None);
@@ -711,7 +720,7 @@ fn a_repeat_pass_over_an_image_under_the_text_draws_nothing() {
     let mono = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&mono).unwrap()];
     let page = under_threshold(
-        Theme::dark().fg.with_alpha(Chan::from_u8(0xFF)),
+        ink_of(&Theme::dark()).with_alpha(Chan::from_u8(0xFF)),
         Theme::dark().bg.with_alpha(Chan::from_u8(0xFF)),
     );
     assert!(page.get() > 0, "the control: the page has a cap");
@@ -903,7 +912,9 @@ fn a_repeat_pass_over_a_block_cursor_is_capped_against_the_block() {
         &mut t,
         b"\x1b[2 q\x1b[5;11H\x1b[38;2;26;0;0;48;2;16;16;16m \x1b[0m\x1b[5;11H",
     );
+    // The block of no colour of its own, the cell's dark red swapped in.
     let mut r = renderer(&faces);
+    r.set_theme(support::classic(Theme::dark()));
     let bare = paint(&mut r, &mut t);
     r.set_trail(Some(over_rows(&r)));
     let _ = paint(&mut r, &mut t);
@@ -1062,7 +1073,7 @@ fn a_repeat_ghost_is_drawn_under_the_cap() {
     let mut r = renderer(&faces);
     let bare = paint(&mut r, &mut t);
     let k = under_threshold(
-        Theme::dark().fg.with_alpha(Chan::from_u8(0xFF)),
+        ink_of(&Theme::dark()).with_alpha(Chan::from_u8(0xFF)),
         Theme::dark().bg.with_alpha(Chan::from_u8(0xFF)),
     );
     let mut flashed = Vec::new();

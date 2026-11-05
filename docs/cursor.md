@@ -21,6 +21,67 @@ default, `trail = "plasma"`, and `false` as `trail = "off"`, so a config written
 when the key was a switch reads as it did.
 [config.toml.example](../config.toml.example) documents every key.
 
+## The cursor's colour
+
+The cursor is baud's amber, the logo's, and so is every trail and blink
+animation: `[palette] cursor = "baud"`, the default, over a theme file's
+cursor too. The amber is chosen against the page it is drawn on, and the code
+computes it (`BaudCursor::on`, `baud-render/src/color.rs`): the logo's
+`#F4A32C`, oklch(0.7775 0.155 70.7), where it reads at 4.5:1 against the page,
+and elsewhere that amber with its OKLCH lightness alone stepped away from the
+page by 0.0001 at a time -- its hue held, as much of its chroma as sRGB keeps,
+each step rounded to bytes -- to the first step that reads 4.5:1. That is
+WCAG 2.2's ratio for text (1.4.3) [[source: wcag22]], past the 3:1 it asks
+of a user interface component (1.4.11), because the prompt's `❯` is text in
+the same amber, and `❯` and the block beside it read as one colour, the
+logo's `❯█`. The text under a block cursor is the logo's near-black
+`#15171B` where it reads 4.5:1 on the amber, and else the page, which reads
+on the amber as the amber reads on the page.
+
+| page | cursor | against the page | text under the block | text on the cursor |
+|---|---|---|---|---|
+| `#101010`, the dark theme's | `#F4A32C`, the logo's | 9.17 | `#15171B` | 8.65 |
+| `#EFEFEF`, the light theme's | `#986100` | 4.52 | `#EFEFEF`, the page | 4.52 |
+| `#D8D8D8`, the dark theme reversed | `#855400` | 4.51 | `#D8D8D8`, the page | 4.51 |
+| `#272727`, the light theme reversed | `#F4A32C` | 7.20 | `#15171B` | 8.65 |
+
+On the light page the logo's `#F4A32C` reads 1.80:1 and its light amber
+`#C8801F` 2.78:1; `#986100` is 2,374 steps down, at L 0.540, chroma 0.116 and
+hue 71.1, and the step before it, `#996200`, reads 4.49:1. The near-black
+reads only 3.46:1 on it, so the light theme's text under the block is the
+page. **Under reverse video** -- `?5`, and the bell's flash, which draws the
+same exchange -- the amber is chosen again against the reversed page, so the
+dark theme's block reads 4.51:1 where its own amber would read 1.46:1, and
+the trail follows the block. Each ratio is against the page drawn opaque.
+**Two places are not held to it**: where the glass lets the desktop through the page, the amber's
+contrast with the page depends on the desktop; and an input method's
+composition line, drawn over a bar cursor, takes the bar's lowest pixels in
+the composition's colour.
+
+A program's cursor colour, `OSC 12`, wins until its reset, `OSC 112`, which
+returns to the amber, as xterm returns to its `cursorColor`; the text under
+the block stays as it was, as kitty keeps its `cursor_text_color`, and a
+program's colour is never chosen again against the page.
+`OSC 12 ; ?` answers the amber chosen for the theme's own page.
+`"theme"`, asked for by name, draws a theme file's cursor colour and text
+where it names them; `"none"`, or a kitty theme's `cursor none` under
+`"theme"`, is the classic cursor: the cell's text and background exchanged,
+and a trail in the text's colour. A colour set in the config is drawn as set.
+
+Every trail in the amber was counted for WCAG 2.3.1's flashes on the frames
+baud's CPU path draws, across a 64 by 20 cell window at 60 frames a second,
+one full pass and two repeats at once, on both themes
+(`baud-bench/tests/trail_flashes.rs`). Each is under the general and red
+flash thresholds on both of the census's readings: the most that flashes
+more than three times a second is 24 square points, the light theme's
+liquid, of the 21,824 allowed, and 346 on the stricter chained reading. None
+makes a red transition: the amber's share of red, R/(R+G+B) on the linear
+values, is 0.70 on the dark theme and 0.72 on the light, under the 0.8 of a
+saturated red. Fireworks keep their own colours.
+
+The gallery below and the README's film were recorded with the classic
+cursor, in the text's colour, and show it until they are recorded again.
+
 A blinking cursor shows for 250 ms and hides for 250 by default, two blinks a
 second, and switches plainly: shown, then gone, with nothing drawn between, so
 each edge reads as one even beat. `blink_animation` can give the hidden phase
@@ -92,9 +153,9 @@ thresholds of WCAG 2.3.1: its light is clamped at the brightest it can draw
 there without a flash, rather than dimmed as a whole, so over a dark page the
 tube draws whole and only the brightest filaments are held down.
 
-It is drawn in front of the text. The cursor's colour is the text's by
-default, so a plasma laid over a letter in that colour cannot change it, and
-it looked as if it passed behind the text. On a dark theme it lights what it
+It is drawn in front of the text. A plasma in the cursor's colour laid over a
+letter in that colour cannot change it -- the classic cursor's, the text's --
+and it looked as if it passed behind the text. On a dark theme it lights what it
 crosses instead (the `screen` blend), and on a light theme it darkens it
 (`multiply`): a letter under it brightens, or deepens, with the page around
 it, and keeps more of its contrast against the page than it would under the
@@ -280,8 +341,9 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   followed. That is how helix trails on `gg` and `ge`: it draws its own block
   cursor and hides the terminal's for good, but moves the terminal's cursor to
   the selection before each hide [[source: helix-tui-terminal]].
-- Every trail is the cursor's colour: the foreground, unless a program sets
-  another with `OSC 12`.
+- Every trail is the cursor's colour: baud's amber, unless the config, a
+  theme file or a program's `OSC 12` sets another, and the foreground under
+  the classic cursor.
 - A trail rides the scroll. When output scrolls the whole screen under a
   trail in flight, what the trail drew from the path moves up with the text --
   a move's corners, an effect's whole path, the ghost's start -- and what it

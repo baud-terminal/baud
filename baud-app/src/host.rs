@@ -2578,6 +2578,61 @@ mod tests {
         assert_eq!(t.reply(), b"", "a cell's own colour is no colour to answer");
     }
 
+    /// **baud's amber is what `OSC 12 ; ?` answers by default, a program's
+    /// `OSC 12` wins until its `OSC 112`, which returns to the amber**, on
+    /// both built-in themes, as xterm returns to its `cursorColor`; and
+    /// kitty's `OSC 21 ; cursor_text=?` answers the brand's ground under
+    /// any cursor colour, the amber or the program's.
+    #[test]
+    fn osc_112_returns_to_bauds_amber() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let answer = |c: baud_render::Argb| {
+            let [_, r, g, b] = c.0.to_be_bytes();
+            format!("\x1b]12;rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}\x07").into_bytes()
+        };
+        for (theme, b) in [
+            (Theme::dark(), baud_render::BaudCursor::dark()),
+            (Theme::light(), baud_render::BaudCursor::light()),
+        ] {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+            let ask = |t: &mut Term<'_>, bytes: &[u8]| {
+                feed(t, bytes);
+                let r = t.reply().to_vec();
+                t.clear_reply();
+                r
+            };
+            assert_eq!(ask(&mut t, b"\x1b]12;?\x07"), answer(b.fill), "the default");
+            let [_, r, g, bb] = b.text.0.to_be_bytes();
+            let ground = format!("\x1b]21;cursor_text=rgb:{r:02x}/{g:02x}/{bb:02x}\x1b\\");
+            assert_eq!(
+                ask(&mut t, b"\x1b]21;cursor_text=?\x1b\\"),
+                ground.as_bytes(),
+                "the ground under the amber"
+            );
+            let red = baud_render::Argb(0xFF_FF_00_00);
+            assert_eq!(
+                ask(&mut t, b"\x1b]12;#ff0000\x07\x1b]12;?\x07"),
+                answer(red),
+                "the program's"
+            );
+            assert_eq!(
+                ask(&mut t, b"\x1b]21;cursor_text=?\x1b\\"),
+                ground.as_bytes(),
+                "kept under the program's"
+            );
+            assert_eq!(
+                ask(&mut t, b"\x1b]112\x07\x1b]12;?\x07"),
+                answer(b.fill),
+                "OSC 112 returns to the amber"
+            );
+        }
+    }
+
     /// **An OS flip under `auto` drops the application's colours and reports
     /// once** -- note Y's decision 5, through the call the app makes. A
     /// program subscribed with `?2031` has set palette entry 1 and the

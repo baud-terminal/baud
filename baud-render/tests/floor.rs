@@ -1059,9 +1059,10 @@ fn a_bar_cursor_on_a_line_takes_the_floored_colour() {
             let mut r = Renderer::new(
                 Stack::new(&faces).unwrap(),
                 PxSize::of(14.0).unwrap(),
+                // A cursor of no colour of its own, which takes the text's.
                 Theme {
                     floor,
-                    ..Theme::dark()
+                    ..support::classic(Theme::dark())
                 },
                 Blend::Native,
                 Cols::of_index(usize::from(WS.ws_col)),

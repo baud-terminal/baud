@@ -3584,6 +3584,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             Theme {
                 cursor: Some(CellPaint::Colour(orange)),
                 cursor_text: Some(CellPaint::Colour(navy)),
+                cursor_made: baud_render::CursorMade::Named,
                 ..resting.clone()
             },
             "a theme's cursor fill and text",
@@ -3592,6 +3593,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             Theme {
                 cursor: Some(CellPaint::Page),
                 cursor_text: Some(CellPaint::Text),
+                cursor_made: baud_render::CursorMade::Named,
                 ..resting.clone()
             },
             "the cell's own colours as the cursor's",
@@ -7797,7 +7799,8 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, case: &GlassCase)
 
     // **A bar cursor on a line keeps the floored colour it always had**: the
     // line rule is the text's, not the cursor's. All three arms draw it, and
-    // the bar's pixels move with the floor.
+    // the bar's pixels move with the floor. A cursor of no colour of its
+    // own, which takes the text's; baud's amber is not floored.
     feed(t, b"\x1b[7;3H\x1b[6 q\x1b[?25h");
     let mut bars = Vec::new();
     for floor in [baud_render::Floor::DEFAULT, baud_render::Floor::Off] {
@@ -7805,6 +7808,9 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, case: &GlassCase)
             app_bg: baud_render::AppBg::Dimmed,
             picture_bg: baud_render::PictureBg::Opaque,
             floor,
+            cursor: None,
+            cursor_text: None,
+            cursor_made: baud_render::CursorMade::Named,
             ..resting.clone()
         });
         let (a, b) = arms.draw(t);

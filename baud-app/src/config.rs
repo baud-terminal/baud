@@ -1621,9 +1621,7 @@ impl Config {
                 ("palette", "selection") => {
                     self.selection.page = selection_pick(&value, "selection", &mut said)
                 }
-                ("palette", "cursor") => {
-                    self.cursor.fill = selection_pick(&value, "cursor", &mut said)
-                }
+                ("palette", "cursor") => self.cursor.fill = cursor_pick(&value, &mut said),
                 ("palette", "cursor_text") => {
                     self.cursor.text = selection_pick(&value, "cursor_text", &mut said)
                 }
@@ -2507,6 +2505,31 @@ fn selection_pick(value: &str, key: &str, said: &mut Vec<String>) -> SelectionPi
     }
 }
 
+/// `[palette] cursor`: `"baud"`, the default, baud's amber whatever a
+/// theme file says; `"theme"`, a theme file's cursor where one names it;
+/// or one of [`selection_pick`]'s values. Anything else is said and leaves
+/// the default.
+fn cursor_pick(value: &str, said: &mut Vec<String>) -> CursorPick {
+    let raw = value.trim().trim_matches('"');
+    match raw {
+        "baud" => return CursorPick::Baud,
+        "theme" => return CursorPick::Theme,
+        _ => {}
+    }
+    let mut heard = Vec::new();
+    let pick = match selection_pick(value, "cursor", &mut heard) {
+        SelectionPick::Theme => CursorPick::Baud,
+        SelectionPick::None => CursorPick::None,
+        SelectionPick::Colour(c) => CursorPick::Colour(c),
+    };
+    if !heard.is_empty() {
+        said.push(format!(
+            "config: palette cursor {raw:?} is not \"baud\", \"theme\", \"none\" or a colour; baud's stays"
+        ));
+    }
+    pick
+}
+
 /// **`[palette] selection` and `selection_text`, the `Theme` selection
 /// setting**: the page under selected text and the selected text, over both
 /// halves. Each wins over a theme file's colour, as a key set after the
@@ -2520,13 +2543,31 @@ pub struct Selection {
 
 /// **`[palette] cursor` and `cursor_text`**: the cursor's colour and the
 /// text under a block cursor, over both halves, each winning over a theme
-/// file's as the selection's do. A program's `OSC 12` wins over the colour
-/// while set and leaves the text colour as it is; `OSC 112` returns to the
-/// colour here.
+/// file's as the selection's do. Left out, the cursor is baud's amber
+/// ([`baud_render::BaudCursor::on`]), over a theme file's cursor too; the
+/// file's is drawn only when asked for, `"theme"`. A program's `OSC 12` wins
+/// over the colour while set and leaves the text colour as it is; `OSC
+/// 112` returns to the colour here.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct CursorColours {
-    pub fill: SelectionPick,
+    pub fill: CursorPick,
     pub text: SelectionPick,
+}
+
+/// The cursor's colour as the config names it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CursorPick {
+    /// `"baud"`, and the key left out: baud's amber and its text, chosen
+    /// against the page drawn, whatever a theme file says.
+    #[default]
+    Baud,
+    /// `"theme"`, asked for by name: a theme file's cursor where one names
+    /// it, else baud's amber, the built-in themes'.
+    Theme,
+    /// `"none"`: no colour of its own, the cell's colours swapped.
+    None,
+    /// A colour, whatever the theme file says.
+    Colour(baud_render::Argb),
 }
 
 /// One selection or cursor colour as the config names it.
@@ -5582,8 +5623,10 @@ shadow     = "never"
     }
 
     /// `[palette] cursor` and `cursor_text` read as the selection's keys:
-    /// a colour as an `OSC` names one, or `"none"`; left out, the theme's;
-    /// anything else said, the theme's kept.
+    /// a colour as an `OSC` names one, or `"none"`; anything else said.
+    /// The cursor takes `"baud"`, its default, and `"theme"` as well, which
+    /// the selection's keys and the cursor's text refuse; left out or
+    /// refused, it is baud's, and the text the theme's.
     #[test]
     fn the_cursor_keys_take_a_colour_or_none() {
         let get = |t: &str| {
@@ -5596,7 +5639,7 @@ shadow     = "never"
             get("[palette]\ncursor = \"orange\"\ncursor_text = \"none\"\n"),
             (
                 CursorColours {
-                    fill: SelectionPick::Colour(baud_render::Argb::rgb(
+                    fill: CursorPick::Colour(baud_render::Argb::rgb(
                         baud_domain::Chan::from_u8(255),
                         baud_domain::Chan::from_u8(165),
                         baud_domain::Chan::from_u8(0),
@@ -5613,6 +5656,29 @@ shadow     = "never"
             (got, said),
             (CursorColours::default(), 1),
             "the palette's key"
+        );
+        assert_eq!(
+            CursorColours::default().fill,
+            CursorPick::Baud,
+            "the default"
+        );
+        assert_eq!(get("").0.fill, CursorPick::Baud, "left out");
+        let (got, said) = get("[palette]\ncursor = \"baud\"\n");
+        assert_eq!((got.fill, said), (CursorPick::Baud, 0));
+        let (got, said) = get("[palette]\ncursor = \"theme\"\n");
+        assert_eq!((got.fill, said), (CursorPick::Theme, 0), "asked for");
+        let (got, said) = get("[palette]\ncursor = \"none\"\n");
+        assert_eq!((got.fill, said), (CursorPick::None, 0));
+        let (got, said) = get("[palette]\ncursor = \"amberish\"\n");
+        assert_eq!((got.fill, said), (CursorPick::Baud, 1), "baud's stays");
+        let (got, said) = get("[palette]\ncursor_text = \"baud\"\n");
+        assert_eq!((got.text, said), (SelectionPick::Theme, 1), "the text's");
+        let mut c = Config::defaults();
+        let said = c.apply("[palette]\nselection = \"baud\"\n");
+        assert_eq!(
+            (c.selection, said.len()),
+            (Selection::default(), 1),
+            "the selection's"
         );
     }
 

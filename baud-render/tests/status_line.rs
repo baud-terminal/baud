@@ -159,8 +159,8 @@ fn the_indicator_is_drawn_in_reverse_video_below_the_main_display() {
 
 /// **The host-writable line has the main display's background**, its
 /// text on its own row, and the cursor drawn there while DECSASD selects
-/// it: a block cursor swaps the cell after the text, and the main
-/// display's cursor cell is not swapped.
+/// it: a block cursor fills the cell after the text with baud's amber,
+/// and the main display's cursor cell is not filled.
 #[test]
 fn the_host_writable_line_draws_its_text_and_its_cursor() {
     let theme = Theme::dark();
@@ -171,7 +171,7 @@ fn the_host_writable_line_draws_its_text_and_its_cursor() {
         assert_eq!(rgb(r.background()[2 * cols + 5]), rgb(theme.bg));
         assert_eq!(
             rgb(r.background()[2 * cols + 2]),
-            rgb(theme.fg),
+            rgb(baud_render::BaudCursor::dark().fill),
             "the cursor"
         );
         assert_eq!(
@@ -189,7 +189,11 @@ fn the_host_writable_line_draws_its_text_and_its_cursor() {
     frame(b"\x1b[2$~\x1b[1$}AB\x1b[0$}", |r, _, _| {
         let cols = 12;
         assert_eq!(rgb(r.background()[2 * cols + 2]), rgb(theme.bg));
-        assert_eq!(rgb(r.background()[0]), rgb(theme.fg), "the main cursor");
+        assert_eq!(
+            rgb(r.background()[0]),
+            rgb(baud_render::BaudCursor::dark().fill),
+            "the main cursor"
+        );
     });
 }
 

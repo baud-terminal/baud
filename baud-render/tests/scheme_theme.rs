@@ -138,7 +138,10 @@ fn a_schemes_cursor_colours_are_taken_and_unset_ones_are_not_counted() {
     );
     assert_eq!(
         (Theme::dark().cursor, Theme::light().cursor_text),
-        (None, None),
-        "the built-in halves swap the cell's colours"
+        (
+            Some(CellPaint::Colour(baud_render::BaudCursor::dark().fill)),
+            Some(CellPaint::Colour(baud_render::BaudCursor::light().text))
+        ),
+        "the built-in halves draw baud's amber"
     );
 }

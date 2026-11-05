@@ -13,11 +13,12 @@
 mod support;
 
 use baud_core::{Owned, Term};
+use baud_domain::themefile::CellPaint;
 use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::{
-    Argb, Blend, Damage, Hover, Look, PxSize, Renderer, Resolved, Scroll, Scroller, Stack, Theme,
-    Trail, TrailLook, Transition, VideoFlash, Widths, Window,
+    Argb, BaudCursor, Blend, Damage, Hover, Look, PxSize, Renderer, Resolved, Scroll, Scroller,
+    Stack, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window,
 };
 use support::font;
 
@@ -34,8 +35,10 @@ fn rgb(c: Argb) -> u32 {
     c.0 & 0x00FF_FFFF
 }
 
+/// The dim dark theme with the classic cursor: these follow the text's
+/// colour through a flip, which baud's amber does not take part in.
 fn dim_theme() -> Theme {
-    let mut t = Theme::dark();
+    let mut t = support::classic(Theme::dark());
     t.bg_alpha = Chan::from_u8(DIM);
     t
 }
@@ -331,4 +334,74 @@ fn the_overlays_follow_the_flash() {
         "back after the flash"
     );
     assert!(bg.iter().all(|&c| c == rgb(theme.bg)));
+}
+
+/// **baud's own cursor follows the flash on the frame it starts**, on both
+/// themes over the dim: the trail and the block are the amber chosen
+/// against the page the flash draws ([`BaudCursor::on`]), and the theme's
+/// again when it ends. The tests above draw the classic cursor, which
+/// follows the text instead.
+#[test]
+fn bauds_cursor_follows_the_flash() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).expect("parse")];
+    let ws = WinSize {
+        ws_row: 6,
+        ws_col: 30,
+    };
+    let trail = || {
+        Some(TrailLook::Ghost(Trail {
+            from: (Row::from_index(1), Col::at_index(1)),
+            to: (Row::from_index(4), Col::at_index(20)),
+            progress: 0.5,
+            origin_dy: 0.0,
+            lift: Px::of(0),
+            strength: baud_render::Strength::Full,
+        }))
+    };
+    for base in [Theme::dark(), Theme::light()] {
+        let mut theme = base;
+        theme.bg_alpha = Chan::from_u8(DIM);
+        let mut r = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            theme.clone(),
+            Blend::Native,
+            Cols::of_index(usize::from(ws.ws_col)),
+            Rows::of_index(usize::from(ws.ws_row)),
+        )
+        .unwrap();
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        feed(&mut t, b"line\r\n");
+        let drawn = |r: &Renderer<'_, '_>| {
+            let trail: Vec<u32> = r.trail().iter().map(|i| rgb(i.color)).collect();
+            assert!(!trail.is_empty(), "the control: the trail is drawn");
+            let block = match r.block_paint().fill {
+                Some(CellPaint::Colour(c)) => rgb(c),
+                other => panic!("the block is no colour: {other:?}"),
+            };
+            (trail, block)
+        };
+        let (own, reversed) = (BaudCursor::on(theme.bg), BaudCursor::on(theme.fg));
+        let each = |c: Argb| (vec![rgb(c); 1], rgb(c));
+        let one = |(t, b): (Vec<u32>, u32)| (t[..1].to_vec(), b);
+        let same = |(t, b): (Vec<u32>, u32)| t.iter().all(|&c| c == t[0]) && t[0] == b;
+        r.set_trail(trail());
+        r.convert(&t, Rows::ZERO, Damage::Full);
+        let got = drawn(&r);
+        assert!(same(got.clone()), "one colour");
+        assert_eq!(one(got), each(own.fill), "the theme's page");
+        r.set_trail(trail());
+        r.set_flash(VideoFlash::On);
+        r.convert(&t, Rows::ZERO, Damage::Incremental);
+        let got = drawn(&r);
+        assert!(same(got.clone()), "one colour, flipped");
+        assert_eq!(one(got), each(reversed.fill), "the reversed page's");
+        assert_ne!(own.fill, reversed.fill, "the control: the two differ");
+        r.set_trail(trail());
+        r.set_flash(VideoFlash::Off);
+        r.convert(&t, Rows::ZERO, Damage::Incremental);
+        assert_eq!(one(drawn(&r)), each(own.fill), "flipped back");
+    }
 }

@@ -20,6 +20,18 @@ pub const RECORDINGS: [&str; 9] = [
 ];
 
 pub const CHUNK: usize = 4096;
+
+/// **`theme` with a cursor of no colour of its own**: the cell's colours
+/// swapped, the classic block, and a trail in the text's colour -- what a
+/// test of the swap, or of a trail in the text's colour, draws under now
+/// that the built-in themes' cursor is baud's amber.
+pub fn classic(mut theme: Theme) -> Theme {
+    theme.cursor = None;
+    theme.cursor_text = None;
+    theme.cursor_text_under = baud_domain::themefile::CursorText::UnderEveryCursor;
+    theme.cursor_made = baud_render::CursorMade::Named;
+    theme
+}
 pub const PX: f32 = 14.0;
 
 pub fn recording(name: &str) -> Vec<u8> {

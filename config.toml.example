@@ -222,18 +222,28 @@ ambiguous_width = "narrow"
 # reset (OSC 117 and 119) returns to these.
 #
 # `cursor` and `cursor_text`: the cursor's colour and the colour of the text
-# under a block cursor, the same way: a colour set here wins over the theme
-# file's, and left out with none in the theme file, or "none", a block cursor
-# is its cell's text and background exchanged. A program can set its own
-# cursor colour (OSC 12), and its reset (OSC 112) returns to this one; the
-# text colour stays.
+# under a block cursor. "baud", the default, is baud's amber, the logo's,
+# chosen against the background it is drawn on: the logo's #F4A32C on the
+# dark theme, and on the light one #986100, the same amber darkened until it
+# reads at 4.5:1, as the prompt's text in that amber must. The text under the
+# block is the logo's near-black #15171B where it reads at 4.5:1, as on the
+# dark theme, and else the background, as on the light. Under reverse video
+# the amber is chosen again against the background then drawn. "baud" keeps
+# the amber whatever a theme file says; "theme" asks for a theme file's cursor
+# colour and text where it names them. A colour set here wins over the theme
+# file's, and "none", or a theme file's none under "theme", makes a block
+# cursor its cell's text and background exchanged, the classic cursor. Every
+# trail and blink animation takes the cursor's colour. A program can set its
+# own cursor colour (OSC 12), and its reset (OSC 112) returns to this one; the
+# text under the block keeps its colour, baud's own included, under the
+# program's colour.
 [palette]
 floor = 1.2
 # light = "~/.config/baud/themes/day.yaml"
 # dark = "night"
 # selection = "#3f638b"
 # selection_text = "none"
-# cursor = "#ff8800"
+# cursor = "baud"
 # cursor_text = "#102030"
 
 # The cursor: its shape -- "block", "underline" or "bar" -- and whether it

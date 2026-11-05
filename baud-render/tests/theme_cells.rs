@@ -33,7 +33,10 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
 }
 
-/// The dark half with a theme file's scheme laid over it.
+/// The dark half with a theme file's scheme laid over it: what the app
+/// draws under `[palette] cursor = "theme"`, which asks for a file's
+/// cursor; the default, `"baud"`, lays baud's amber over it again
+/// (`baud-app/src/palette.rs`, `half_theme`).
 fn themed(scheme: Result<Scheme, impl core::fmt::Debug>) -> Theme {
     let mut t = Theme::dark();
     t.take_scheme(&scheme.expect("the file reads"));
@@ -108,7 +111,7 @@ fn a_theme_files_cursor_colours_are_drawn_and_osc_12_takes_the_fill() {
     program.extend_from_slice(b"\x1b]112\x07");
     let (block, _, _) = painted(theme(), &program, false);
     assert_eq!(block, Argb(0xFF_FF_88_00), "the reset is the theme's");
-    let dark = Theme::dark();
+    let dark = support::classic(Theme::dark());
     let (block, _, glyph) = painted(dark.clone(), on_block, false);
     assert_eq!((block, glyph), (RED, opaque(dark.bg).0), "the swap");
 }

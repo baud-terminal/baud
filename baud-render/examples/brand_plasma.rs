@@ -124,6 +124,7 @@ fn main() {
     theme.bg = GROUND;
     theme.fg = AMBER;
     theme.cursor = Some(CellPaint::Colour(AMBER));
+    theme.cursor_made = baud_render::CursorMade::Named;
     let stack = Stack::with_roles(
         &faces,
         &[FaceRole::Fallback, FaceRole::Style(FaceStyle::Bold)],

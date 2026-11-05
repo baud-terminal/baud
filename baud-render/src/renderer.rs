@@ -11,7 +11,7 @@ use crate::cellmap::{
     BlockCursor, BlockPaint, CellSpan, CursorLook, Curves, Ground, Hilite, Line, Resolved,
     Selected, Shapes, Swaps, Text, takes_stress_mark,
 };
-use crate::color::{Argb, Theme, Video};
+use crate::color::{Argb, BaudCursor, CursorMade, Theme, Video};
 use crate::composite::{Blend, Blit, Mix, Page, Target, Texels};
 use crate::effect::Vfx;
 use crate::find::{Current, FindLook};
@@ -2428,6 +2428,10 @@ pub struct Renderer<'f, 'a> {
     /// core holds -- else the theme's, which may name the cell's own, and
     /// the theme's text under the block ([`Renderer::block_paint`]).
     block_paint: BlockPaint,
+    /// baud's cursor on the last page it was chosen against
+    /// ([`BaudCursor::on`]), which a flip of the video or an `OSC 11`
+    /// chooses again, once.
+    bauds: (Argb, BaudCursor),
     /// **The most alpha a repeat pass's records carry** (note AL, option
     /// O2): the least [`flash::under_threshold`] of the cursor's colour over
     /// the backgrounds of the cells they cover, set by
@@ -2949,6 +2953,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             chrome_inst: Vec::new(),
             cursor_fill: Argb::default(),
             block_paint: BlockPaint::SWAP,
+            bauds: (Argb::default(), BaudCursor::dark()),
             flash_cap: Chan::from_u8(0),
             flash_held: flash::Held::Full,
             flash_caps: std::collections::HashMap::new(),
@@ -5600,11 +5605,38 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .defaults(Video::Normal, |d| term.dynamic_color(d));
         self.page_default = stored.1;
         self.reversed = (self.reversed_of(stored), stored);
-        let fill = term
-            .cursor_color_in(self.video)
-            .map_or(defaults.0, |(r, g, b)| {
-                Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
-            });
+        // **baud's own cursor is chosen against the page drawn**, a
+        // reversed video's or a flash's included, while no program names a
+        // cursor colour: the amber the core was told was chosen against the
+        // theme's page, where a reversed one would read it at 1.46:1.
+        let bauds = match (
+            self.theme.cursor_made,
+            term.program_paint(PaintRole::Cursor),
+        ) {
+            (CursorMade::Bauds | CursorMade::BaudsFill, ProgramPaint::Unset) => {
+                let page = defaults.1.with_alpha(Chan::from_u8(0xFF));
+                if self.bauds.0 != page {
+                    self.bauds = (page, BaudCursor::on(page));
+                }
+                Some(self.bauds.1)
+            }
+            _ => None,
+        };
+        // The trail's colour is the block's: baud's own, else the core's
+        // (a program's `OSC 12`, else the configured one it was told), else
+        // the theme's where it is a colour, else the text, which a
+        // program's automatic colour, the swap, takes too.
+        let theme_fill = match term.program_paint(PaintRole::Cursor) {
+            ProgramPaint::Automatic => None,
+            _ => self.theme.cursor.and_then(CellPaint::colour),
+        };
+        let fill = match bauds {
+            Some(b) => b.fill,
+            None => term.cursor_color_in(self.video).map_or(
+                theme_fill.map_or(defaults.0, |c| c.with_alpha(Chan::from_u8(0xFF))),
+                |(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)),
+            ),
+        };
         if defaults != self.defaults || fill != self.cursor_fill {
             self.defaults = defaults;
             self.cursor_fill = fill;
@@ -5650,18 +5682,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // every row**, as the selection's does: the cursor's cell compares
         // as unchanged when only its colours moved. Rare, so the whole
         // frame; the sized rows' key reads it too.
-        let fill = match term.program_paint(PaintRole::Cursor) {
-            ProgramPaint::Automatic => None,
-            _ => rgb(term.cursor_color_in(self.video))
+        let fill = match (bauds, term.program_paint(PaintRole::Cursor)) {
+            (Some(b), _) => Some(CellPaint::Colour(b.fill)),
+            (None, ProgramPaint::Automatic) => None,
+            (None, _) => rgb(term.cursor_color_in(self.video))
                 .map(CellPaint::Colour)
                 .or(self.theme.cursor),
         };
         // The theme's text under the fill in force, which a kitty theme's
-        // `cursor none` sets aside while the cursor has no colour.
-        let block_paint = BlockPaint::of(
-            fill,
-            paint(PaintRole::CursorText, self.theme.block_text(fill)),
-        );
+        // `cursor none` sets aside while the cursor has no colour; baud's
+        // own text with baud's own fill, unless the config names one.
+        let text = match (bauds, self.theme.cursor_made) {
+            (Some(b), CursorMade::Bauds) => Some(CellPaint::Colour(b.text)),
+            _ => self.theme.block_text(fill),
+        };
+        let block_paint = BlockPaint::of(fill, paint(PaintRole::CursorText, text));
         if block_paint != self.block_paint {
             self.block_paint = block_paint;
             self.known = Prev::Unknown;

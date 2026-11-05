@@ -100,7 +100,11 @@ fn colour_glyphs_and_rendition_shapes_reach_the_pixels() {
     let (_, cursor_col) = t.cursor();
     let cx = cursor_col.index() * cell_w;
     assert!(cursor_col.index() >= 6, "{}", cursor_col.index());
-    assert_eq!(at(cx, 2), fg, "bar cursor");
+    assert_eq!(
+        at(cx, 2),
+        baud_render::BaudCursor::dark().fill.0,
+        "bar cursor"
+    );
     assert_eq!(
         frame.instances.value() - frame.solids.value() - frame.colored.value(),
         0,

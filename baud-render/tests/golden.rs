@@ -75,17 +75,22 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// moved when coverage came to be rounded to the nearest level rather
 /// than truncated, every changed mask byte by one; with the text-contrast
 /// curve held flat, every changed channel moves by one too. cava and
-/// less-cjk draw no glyph whose coverage rounds differently.
+/// less-cjk draw no glyph whose coverage rounds differently. Six moved,
+/// and the light git-log, when the cursor became baud's amber, the
+/// brand's ground under it on the dark page and the page under it on the
+/// light: the cursor's cell alone, since pipes, btop
+/// and cava end with it hidden; with the cursor of no colour of its own
+/// (`support::classic`) every frame is its old pin again.
 const GOLDEN: [(&str, u64); 9] = [
     ("ascii/pipes.raw", 0x80e26dd2d956c001),
     ("utf8/btop.raw", 0x5da146deb01b1ee1),
-    ("ascii/cat-scroll.raw", 0xa337f3e86c09285c),
-    ("ascii/git-log.raw", 0x02361965d3fc9ed2),
-    ("ascii/less-pager.raw", 0x3b47e3f7779c846e),
-    ("utf8/cat-cjk.raw", 0x2aa9c955cb16c865),
+    ("ascii/cat-scroll.raw", 0x39a9a862fd9581dc),
+    ("ascii/git-log.raw", 0x46f79e0ef3644cd2),
+    ("ascii/less-pager.raw", 0x423f6f3a2afe3e6e),
+    ("utf8/cat-cjk.raw", 0xbdf5a31234c404e5),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
-    ("utf8/less-cjk.raw", 0x08602238a4813a25),
-    ("utf8/vim-unicode.raw", 0x5d16e00ba33f7374),
+    ("utf8/less-cjk.raw", 0xdfcbe0bbd153eea5),
+    ("utf8/vim-unicode.raw", 0xe61c6a3872ffb5f6),
 ];
 
 #[test]
@@ -143,7 +148,7 @@ fn every_recording_paints_to_its_pinned_frame() {
 /// that the pin is the table's.
 #[test]
 fn git_log_paints_to_its_pinned_light_frame() {
-    const LIGHT_GIT_LOG: u64 = 0x193f2e60d0fcb771;
+    const LIGHT_GIT_LOG: u64 = 0xafa79c97e05778b1;
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let bytes = recording("ascii/git-log.raw");

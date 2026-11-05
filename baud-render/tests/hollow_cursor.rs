@@ -108,8 +108,8 @@ const STYLES: [(&str, &[u8]); 3] = [
     ("bar", b"\x1b[6 q"),
 ];
 
-/// **Every shape is a box round its cell, in the text's colour, with the
-/// cell's own colours inside it**: the box's pixels are the text colour,
+/// **Every shape is a box round its cell, in the cursor's colour, with the
+/// cell's own colours inside it**: the box's pixels are baud's amber,
 /// and every pixel off it, the glyph's included, is the frame without a
 /// cursor.
 #[test]
@@ -122,7 +122,7 @@ fn every_shape_is_a_box_round_its_cell() {
             &[(CursorLook::Hollow, true), (CursorLook::Hollow, false)],
         );
         let (hollow, none) = (&f[0], &f[1]);
-        let fg = Theme::dark().fg.0 | 0xFF00_0000;
+        let fg = baud_render::BaudCursor::dark().fill.0;
         let (mut ring, mut off) = (0, 0);
         for y in 0..2 * s.ch.value() {
             for x in 0..s.w.value() {
@@ -143,7 +143,8 @@ fn every_shape_is_a_box_round_its_cell() {
         // The positive control: the cell's middle is the block's text,
         // which a swap would have turned to the page.
         let mid = s.at(hollow, s.cw.value() + s.cw.value() / 2, s.ch.value() / 2);
-        assert_eq!(mid, fg, "{what}: the glyph inside is drawn as it is");
+        let text = Theme::dark().fg.0 | 0xFF00_0000;
+        assert_eq!(mid, text, "{what}: the glyph inside is drawn as it is");
     }
 }
 
@@ -157,7 +158,7 @@ fn each_side_is_the_bars_line_thick() {
         b"\x1b[6 q",
         &[(CursorLook::Hollow, true), (CursorLook::Hollow, false)],
     );
-    let fg = Theme::dark().fg.0 | 0xFF00_0000;
+    let fg = baud_render::BaudCursor::dark().fill.0;
     let x = s.cw.value() + s.cw.value() / 2;
     assert_eq!(s.at(&f[0], x, s.line.value() - 1), fg, "the top's last row");
     assert_eq!(

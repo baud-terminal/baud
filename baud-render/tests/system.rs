@@ -47,8 +47,10 @@ fn fnv64(data: &[u8]) -> u64 {
 /// of each देवनागरी take a cell of their own, and the word is drawn in
 /// syllables across its cells; and again when each Devanagari word came to
 /// be drawn whole, at its face's natural advances, centred in its columns.
-/// It moved again when coverage came to be rounded to the nearest level.
-const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0xb2c1ad45bbe56370);
+/// It moved again when coverage came to be rounded to the nearest level,
+/// and its third again when the cursor became baud's amber: the cursor's
+/// cell alone, the classic cursor giving the old pin.
+const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0x70b4eb94dea52770);
 
 #[test]
 fn the_macos_stack_paints_cat_cjk_to_its_pinned_frame() {

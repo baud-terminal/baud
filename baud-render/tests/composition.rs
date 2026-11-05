@@ -907,6 +907,10 @@ fn the_input_methods_cursor_is_drawn_where_it_puts_it() {
     let data = jbm();
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
+    // A cursor in the text's colour: the composition's line is drawn over
+    // a bar cursor, where the written text's is under it, which a cursor
+    // of another colour shows on the bar's lowest pixels.
+    r.set_theme(support::classic(baud_render::Theme::dark()));
     let base = b"abcdef\x1b[4D";
     let written = |r: &mut Renderer<'_, '_>, tail: &str, sel| {
         let mut b = base.to_vec();

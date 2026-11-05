@@ -20,6 +20,10 @@ use baud_domain::themefile::detect::{self, Grammar, Kind, Mark, NotText, Shape, 
 use baud_domain::themefile::{self, Cpp, Format, Scheme, SchemeErrorKind, Skipped};
 use baud_render::Theme;
 
+use crate::config::CursorPick;
+use baud_render::CursorMade;
+use themefile::{CellPaint, CursorText};
+
 /// Which half of the palette a file is named for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Half {
@@ -601,8 +605,32 @@ pub fn half_theme(
     }
     theme.selection = halves.selection.page.over(theme.selection);
     theme.selection_text = halves.selection.text.over(theme.selection_text);
-    theme.cursor = halves.cursor.fill.over(theme.cursor);
+    // The config's cursor: baud's amber and its text, chosen against the
+    // page, whatever the file says -- the default; the file's, asked for
+    // by name; or no colour or a colour of its own, under each of which
+    // the cell's colours swapped give the text, and a file's text stays.
+    let file_text = halves.get(half).is_some_and(|s| s.cursor_text.is_some());
+    match halves.cursor.fill {
+        CursorPick::Theme => {}
+        CursorPick::Baud => theme = theme.with_bauds_cursor(),
+        CursorPick::None | CursorPick::Colour(_) => {
+            theme.cursor = match halves.cursor.fill {
+                CursorPick::Colour(c) => Some(CellPaint::Colour(c)),
+                _ => None,
+            };
+            theme.cursor_made = CursorMade::Named;
+            if !file_text {
+                theme.cursor_text = None;
+                theme.cursor_text_under = CursorText::UnderEveryCursor;
+            }
+        }
+    }
     theme.cursor_text = halves.cursor.text.over(theme.cursor_text);
+    if halves.cursor.text != crate::config::SelectionPick::Theme
+        && theme.cursor_made == CursorMade::Bauds
+    {
+        theme.cursor_made = CursorMade::BaudsFill;
+    }
     // A text the config names is its own, not a kitty file's none: drawn
     // under any cursor, and an unset selection text answers reverse
     // video's. A page or a fill it names leaves the file's none to resolve
@@ -1337,7 +1365,7 @@ mod tests {
         assert_eq!(hilite.paint(page, text), (page, text), "the page as text");
         let orange = Argb(0xFF_FF_88_00);
         let fill = CursorColours {
-            fill: SelectionPick::Colour(orange),
+            fill: crate::config::CursorPick::Colour(orange),
             text: SelectionPick::Theme,
         };
         let t = half_theme(
@@ -1357,11 +1385,12 @@ mod tests {
     }
 
     /// **The config's cursor colours win over a theme file's, and a file's
-    /// over the cell's colours swapped**, as the selection's do; `"none"`
-    /// takes a file's away. The file is iTerm2's, which names both.
+    /// over the cell's colours swapped** once `"theme"` asks for it, as the
+    /// selection's do; `"none"` takes a file's away. The file is iTerm2's,
+    /// which names both.
     #[test]
     fn the_configs_cursor_wins_over_the_files_and_none_takes_it_away() {
-        use crate::config::{CursorColours, SelectionPick};
+        use crate::config::{CursorColours, CursorPick, SelectionPick};
         let glass = crate::config::Glass::defaults();
         let floor = baud_render::Floor::DEFAULT;
         let (night, _) = dark_of("iterm-cur", "night.itermcolors");
@@ -1379,14 +1408,19 @@ mod tests {
             Some(CellPaint::Colour(baud_render::Argb(0xFF_AE_AF_AD))),
             Some(CellPaint::Colour(baud_render::Argb(0xFF_1D_1F_22))),
         );
+        let asked = CursorColours {
+            fill: CursorPick::Theme,
+            text: SelectionPick::Theme,
+        };
+        assert_eq!(drawn(&file(asked), Half::Dark), from_file);
+        let light = baud_render::BaudCursor::light();
         assert_eq!(
-            drawn(&file(CursorColours::default()), Half::Dark),
-            from_file
-        );
-        assert_eq!(
-            drawn(&file(CursorColours::default()), Half::Light),
-            (None, None),
-            "a half with no file swaps the cell's colours"
+            drawn(&file(asked), Half::Light),
+            (
+                Some(CellPaint::Colour(light.fill)),
+                Some(CellPaint::Colour(light.text))
+            ),
+            "a half with no file draws baud's amber"
         );
         let mine = baud_render::Argb::rgb(
             baud_domain::Chan::from_u8(9),
@@ -1394,13 +1428,153 @@ mod tests {
             baud_domain::Chan::from_u8(7),
         );
         let config = CursorColours {
-            fill: SelectionPick::Colour(mine),
+            fill: crate::config::CursorPick::Colour(mine),
             text: SelectionPick::None,
         };
         assert_eq!(
             drawn(&file(config), Half::Dark),
             (Some(CellPaint::Colour(mine)), None)
         );
+    }
+
+    /// **baud's amber is the cursor unless the config says otherwise**: on
+    /// each half, with no file or with one that names a cursor, the amber
+    /// chosen against the page and the text under it, set aside under a
+    /// cursor of no colour, whether the key is left out or `"baud"`;
+    /// `"none"`, the cell's colours swapped, fill and text, under a
+    /// program's colour too; a colour, that colour over the swap's text, as
+    /// before the amber; and `"theme"`, a file's cursor where it names one.
+    #[test]
+    fn the_cursor_is_bauds_amber_unless_the_config_says_otherwise() {
+        use crate::config::{CursorColours, CursorPick, SelectionPick};
+        use baud_domain::themefile::CursorText;
+        use baud_render::{BaudCursor, CursorMade};
+        let glass = crate::config::Glass::defaults();
+        let floor = baud_render::Floor::DEFAULT;
+        let theme = |file: Option<Scheme>, fill, half| {
+            let h = Halves {
+                dark: file,
+                light: file,
+                selection: crate::config::Selection::default(),
+                cursor: CursorColours {
+                    fill,
+                    text: SelectionPick::Theme,
+                },
+            };
+            half_theme(half, &glass, floor, &h)
+        };
+        let colour = |c| Some(CellPaint::Colour(c));
+        let (night, said) = dark_of("amber-cur", "night.itermcolors");
+        assert!(night.is_some(), "{said}");
+        let night_page = theme(night, CursorPick::Theme, Half::Dark).bg;
+        for (half, b) in [
+            (Half::Dark, BaudCursor::dark()),
+            (Half::Light, BaudCursor::light()),
+        ] {
+            for pick in [CursorPick::default(), CursorPick::Baud, CursorPick::Theme] {
+                let t = theme(None, pick, half);
+                assert_eq!((t.cursor, t.cursor_text), (colour(b.fill), colour(b.text)));
+                assert_eq!(t.cursor_made, CursorMade::Bauds, "{pick:?}");
+                assert_eq!(t.block_text(t.cursor), colour(b.text), "under the amber");
+                assert_eq!(t.block_text(None), None, "set aside under the swap");
+            }
+            let t = theme(None, CursorPick::None, half);
+            assert_eq!(t.cursor, None, "none");
+            assert_eq!(t.block_text(t.cursor), None, "none's text is the swap's");
+            let navy = colour(baud_render::Argb(0xFF_00_00_80));
+            assert_eq!(t.block_text(navy), None, "none's text under OSC 12");
+            let mine = baud_render::Argb(0xFF_30_60_90);
+            let t = theme(None, CursorPick::Colour(mine), half);
+            assert_eq!((t.cursor, t.cursor_text), (colour(mine), None), "a hex");
+            assert_eq!(t.cursor_text_under, CursorText::UnderEveryCursor);
+            assert_eq!(t.cursor_made, CursorMade::Named, "a hex is drawn as named");
+            let from_file = (
+                colour(baud_render::Argb(0xFF_AE_AF_AD)),
+                colour(baud_render::Argb(0xFF_1D_1F_22)),
+            );
+            let t = theme(night, CursorPick::Theme, half);
+            assert_eq!(
+                (t.cursor, t.cursor_text),
+                from_file,
+                "the file's, asked for"
+            );
+            assert_eq!(t.cursor_made, CursorMade::Named);
+            let on = BaudCursor::on(night_page);
+            for pick in [CursorPick::default(), CursorPick::Baud] {
+                let t = theme(night, pick, half);
+                assert_eq!(
+                    (t.cursor, t.cursor_text),
+                    (colour(on.fill), colour(on.text)),
+                    "{pick:?} over the file's cursor"
+                );
+                assert_eq!(t.cursor_made, CursorMade::Bauds);
+            }
+        }
+    }
+
+    /// **`"none"` is the classic cursor under a program's `OSC 12` too**:
+    /// on the light half the glyph under a navy block is the page,
+    /// `#EFEFEF`, as before baud's amber, and not the amber's text, which
+    /// would read 1.12:1 on navy; the dark half's likewise.
+    #[test]
+    fn none_draws_the_swaps_text_under_a_programs_cursor_colour() {
+        use crate::config::{CursorColours, CursorPick, SelectionPick};
+        use baud_core::{Owned, Term};
+        use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
+        let glass = crate::config::Glass::defaults();
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf"
+        );
+        let mono = std::fs::read(path).expect("a test font");
+        let faces = [baud_font::Face::parse(&mono).unwrap()];
+        let ws = WinSize {
+            ws_col: 6,
+            ws_row: 2,
+        };
+        for half in [Half::Dark, Half::Light] {
+            let h = Halves {
+                dark: None,
+                light: None,
+                selection: crate::config::Selection::default(),
+                cursor: CursorColours {
+                    fill: CursorPick::None,
+                    text: SelectionPick::Theme,
+                },
+            };
+            let theme = half_theme(half, &glass, baud_render::Floor::DEFAULT, &h);
+            let page = baud_render::Argb(theme.bg.0 | 0xFF00_0000);
+            let mut r = baud_render::Renderer::new(
+                baud_render::Stack::new(&faces).unwrap(),
+                baud_render::PxSize::of(14.0).unwrap(),
+                theme.clone(),
+                baud_render::Blend::Native,
+                Cols::of_index(6),
+                Rows::of_index(2),
+            )
+            .unwrap();
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            crate::host::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+            let bytes = "\u{2588} \x1b[2 q\x1b[1;1H\x1b]12;#000080\x07".as_bytes();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let (w, hh) = r.pixel_size();
+            let mut px = vec![0u32; usize::try_from(w.value() * hh.value()).unwrap()];
+            {
+                let mut target = baud_render::Target::new(&mut px, w, w, hh).unwrap();
+                r.render(&mut t, &mut target, baud_render::Damage::Full);
+            }
+            let m = r.metrics();
+            let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+            let middle = px[usize::try_from((ch / 2) * w.value() + cw / 2).unwrap()];
+            let fill = r.background()[0].0 | 0xFF00_0000;
+            assert_eq!(
+                (fill, middle),
+                (0xFF00_0080, page.0),
+                "{half:?}: the page on the program's navy"
+            );
+        }
     }
 
     /// **X resources are read as xrdb loads them**: a tinted file through

@@ -1492,6 +1492,53 @@ limit. The control, the same cursor at 125/125, counts four flashes. **WCAG
 2.2.2**: blinking past five seconds can be stopped by `blink = false` and
 `stop_blinking_after`, both unchanged.
 
+## baud's amber cursor: contrast, flashes and the trail hashes
+
+**What changed.** The built-in themes' cursor is baud's amber, chosen against
+the page drawn (`baud_render::BaudCursor::on`): `[palette] cursor = "baud"`,
+the default, over a theme file's cursor too, and every trail and blink takes
+it. Draw-time only: no per-byte path changed and no ingest arm was timed.
+
+**Contrast**, WCAG 2.2's ratio (`[[source: wcag22]]`), against the page drawn
+opaque, computed by `baud-render/tests/cursor_amber.rs` from the standard's
+definitions, which derives every value again with the platform's `powf`:
+
+| page | cursor | on the page | text | text on it |
+|---|---|---|---|---|
+| `#101010`, dark | `#F4A32C`, the logo's | 9.17 | `#15171B` | 8.65 |
+| `#EFEFEF`, light | `#986100` | 4.52 | `#EFEFEF` | 4.52 |
+| `#D8D8D8`, dark reversed | `#855400` | 4.51 | `#D8D8D8` | 4.51 |
+| `#272727`, light reversed | `#F4A32C` | 7.20 | `#15171B` | 8.65 |
+
+The rule: `#F4A32C`'s oklch(0.7775 0.155 70.7), lightness stepped away from the
+page by 0.0001, hue held, chroma the most sRGB holds up to the amber's own
+(bisected), rounded to bytes, to the first step that reads 4.5:1 (1.4.3, so
+the prompt's `❯` in it reads as text); the text is `#15171B` where it reads
+4.5:1, else the page. `#986100` is step 2,374, L 0.540, chroma 0.116, hue
+71.1; the step before, `#996200`, reads 4.49. On it `#15171B` reads 3.46 and
+the light text `#272727` 2.88. The previous light amber, `#C07B00` (3:1), read
+4.32 on the reversed light page; the dark amber read 1.46 on the reversed
+dark page, which the choice against the page drawn replaces with 4.51.
+
+**WCAG 2.3.1** (`baud-bench/tests/trail_flashes.rs`): each trail across a 64 by
+20 cell window at 1x and 60 frames a second, one full pass and two repeats at
+once, on both themes, counted by `Census`. Worst verdict area 24 square points
+(light liquid), worst chained 346 (light liquid), of 21,824; at most 5 general
+flashes a pixel in a second (light liquid), each over an area far under the
+threshold. Red: 0 transitions on all twenty runs, linear and encoded; the
+amber's linear R/(R+G+B) is 0.70 dark and 0.72 light, under 0.8. The control:
+a plasma under `OSC 12 ; #ff0000` makes red transitions. Fireworks keep their
+own colours; `fireworks_flashes` passes unchanged.
+
+**Frames moved, and why.** `trail 1` at 64x20 (`TRAIL_SIZE=64x20`): all 20 rows'
+hashes moved against the same tree with the old cursor, the trail and the block
+now amber. The pixel pins: six of `golden.rs`'s nine and its light git-log,
+`system.rs`'s cat-cjk, 92 of `every_trail_draws_the_same_pixels_on_every_os`'s
+96 and all 74 of `every_blink_draws_the_same_pixels_on_every_os`'s; with the
+cursor of no colour of its own every golden and system pin is its old value.
+The light amber's move to `#986100`, with the page under it, moved the light
+git-log pin alone; every dark pin is the same, its amber and text unchanged.
+
 ## The README logo's plasma, ported from the frames it was chosen in
 
 **What changed.** The README's header logo is the lockup with baud's plasma
