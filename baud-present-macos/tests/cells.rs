@@ -8152,8 +8152,10 @@ fn wrap_marks_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 
 /// **The activity lights' own line on every path**: with the line below
 /// the grid and then above it, the instance arm, the cell arm and the CPU
-/// arm agree on every pixel of the whole frame, the line holds the lights
-/// (a positive control), and the grid's frame beside it is the frame drawn
+/// arm agree on every pixel of the whole frame, the line holds the plate
+/// and the lights (a positive control) -- so every lamp pixel the CPU arm
+/// draws as its palette entry the GPU arms draw so too -- and the grid's
+/// frame beside it is the frame drawn
 /// with no line, at the whole's top or the line's height down; off again,
 /// the frame is that one. The pictures reach the GPU on the colour sheet
 /// and no shader is added: the line's records are `Kind::Color`.
@@ -8183,7 +8185,11 @@ fn lights_line_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 .all(|r| r.kind == Kind::Color),
             "{edge:?}: pictures on the colour sheet"
         );
-        assert_eq!(arms.renderer.lights_records().len(), Led::ALL.len());
+        assert_eq!(
+            arms.renderer.lights_records().len(),
+            1 + Led::ALL.len(),
+            "{edge:?}: the plate, then the lights"
+        );
         let line = usize::try_from(arms.renderer.lights_height().value()).unwrap();
         let (w, h) = arms.renderer.whole_size();
         let (w, h) = (

@@ -16,23 +16,28 @@
 //! visible (note AH, 8.1 and 11).
 //!
 //! **The look**: each light's letters to its left, modem letters rather
-//! than icons, in AppKit's own colours resolved under the window's
-//! appearance (the HIG's "Prefer system-defined colors", and colour repeats
-//! what the letters and the place already say -- "Avoid relying solely on
-//! color", `[[source: apple-hig-color]]`). Over the standard material each
-//! lit colour is lifted, keeping its hue, to read at 3:1 against every grey
-//! the strip can be, and the letters to 4.5:1 ([`strip_colours`]): AppKit's
-//! colours are drawn as they come where they already read, and over the
-//! glass, where no colour reads at 3:1 against everything from black to
-//! white and the strip's range is unmeasured, an open question. A dark
-//! light is the system colour, unlifted, mixed most of the way into the
-//! strip's grey, so the row reads as lights when nothing moves and a lit
-//! light differs from its dark one by lightness as well as hue; a light
-//! baud may not read is drawn as a ring in the letters' grey
-//! ([`Light::Unread`]), neither lit nor dark (note AH, Q8). CS is inverted
-//! from the modem's -- lit when the program stopped taking what baud sends
-//! -- and its letters carry a bar, the mark of an active-low signal. A
-//! change is one step, as an LED's is.
+//! than icons, and a dot with a soft glow while it is lit, on a small
+//! rounded plate filled with the theme's own background, in the title strip
+//! and on the lights' own line alike ([`LightsLook`], [`draw_plate`]).
+//! **Every lamp is one of the theme's sixteen colours, exactly** -- the lit
+//! dot, the unlit one and an unread light's ring each an entry of
+//! `Theme::palette[0..16]` as baud holds it, never lifted or mixed -- so
+//! the lights are drawn in the colours the terminal draws its text in. Which
+//! entry each light takes is a table compiled in, by theme half
+//! ([`LightsColours`], `[window] activity_lights_colours`): `"meaning"`,
+//! baud's own, one hue a kind with red only for CS; `"iec"`, IEC 60073's
+//! meanings for an indicator's colour; or `"modem"`, every lamp red, as the
+//! front panels' LEDs were. On the plate, which is the theme's background
+//! and opaque, a lamp reads against one colour whatever the window's
+//! material shows. Colour repeats what the letters and the place already
+//! say ("Avoid relying solely on color", `[[source: apple-hig-color]]`),
+//! and lit and unlit differ by size as well: an unlit lamp is a dot half
+//! the lit one's diameter, so the state reads without its colour (WCAG
+//! 2.2's SC 1.4.1, `[[source: wcag22]]`). A light baud may not read is
+//! drawn as a ring ([`Light::Unread`]), neither lit nor dark (note AH,
+//! Q8). CS is inverted from the modem's -- lit when the program stopped
+//! taking what baud sends -- and its letters carry a bar, the mark of an
+//! active-low signal. A change is one step, as an LED's is.
 //!
 //! **The clock** ([`Activity`]): every light, the ones that show a state as
 //! well as the ones that show an event, is lit for the hold after the last
@@ -64,32 +69,23 @@
 //! pictures are the same [`draw_led`] draws for the title strip's views, at
 //! [`line_picture`]'s height in points, never the cell's, so the area clause
 //! holds at every font size; the line is that and [`LINE_MARGIN`] above and
-//! below, and is no row. AppKit's colours exist only on macOS and the two
-//! systems draw the same pixels, so there the lights take the theme's
-//! ([`line_colours`]), each lit one at 3:1 against the line and the letters
-//! at 4.5:1, lifted against every grey behind the page ([`Backdrop::any`])
-//! on both: the theme's own backdrop, which macOS narrows to the standard
-//! material's greys for the window's text, keys none of the line's
-//! pixels, so the line on macOS is byte for byte the line on Linux. Read
-//! on the drawn pixels at 2x, coverage included, in the built-in themes
-//! opaque and at the shipped dims, a lit lamp reads 3.009:1 at worst and
-//! the letters 4.51:1, but for the light theme reversed on the glass,
-//! whose letters stop at white, 4.12:1. The pictures go
-//! to the colour sheet once a look, and a light that changes names another.
+//! below, and is no row. Its plate and its lights are the line's records,
+//! so every path draws them, and nothing in them reads the system: the
+//! line on macOS is byte for byte the line on Linux. The pictures go to
+//! the colour sheet once a look, and a light that changes names another.
 //! The clock and the caps below are the title strip's.
 //!
-//! **Dim Flashing Lights** draws a lit light at the most of its colour over
-//! the dark light that makes neither a general nor a red flash over any
-//! grey of the backdrop the strip shows -- the standard material's range,
-//! or black to white over the glass ([`dim_cap`], [`Glow::Dimmed`]), and an
-//! unread light's ring at the most of the letters' grey over the dark lamp
-//! that makes no flash from it dark or lit ([`ring_cap`]), so no change of
-//! a light between any two of its states is a flash by WCAG's definition.
+//! **The glow** is a halo of the lamp's own colour round a lit dot,
+//! starting a point off its edge so the pixel touching the dot is the plate
+//! and the dot keeps its contrast against it, its strength `[window]
+//! activity_lights_glow` ([`Halo`]). **Dim Flashing Lights** draws no glow
+//! and the dot as it is ([`Glow::Dimmed`]): a lamp stays its palette entry,
+//! and the strip meets WCAG 2.3.1 by the area clause, its changed pixels
+//! far under a quarter of the field (note AH, the exact-palette section).
 
 use crate::atlas::outline;
 use crate::color::Argb;
 use crate::color::Backdrop;
-use crate::flash::{flashes, under_threshold};
 use crate::units::slots;
 use baud_domain::{Chan, Codepoint, HostTime};
 use baud_font::{Canvas, Extent, Face, Point, Px, Rasterizer, Scale, VarPoint};
@@ -451,202 +447,356 @@ impl<T> ByLight<T> {
     }
 }
 
-/// How a lit light is drawn: at its colour, or under Dim Flashing Lights
-/// at the most of it over the dark light that makes no flash.
+/// How a lit light is drawn: with its glow, or under Dim Flashing Lights
+/// without it. The dot is its palette entry either way.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Glow {
     Full,
     Dimmed,
 }
 
-/// The lights' colours and their letters' colour, straight alpha.
+/// **One of the theme's sixteen ANSI colours**, by its place in the
+/// palette: ECMA-48's eight for SGR 30-37, "black, red, green, yellow,
+/// blue, magenta, cyan, white" (`[[source: ecma48]]` 8.3.117), and the
+/// bright eight xterm puts after them for SGR 90-97 (`[[source:
+/// ctlseqs]]`). What every lamp is drawn in, exactly.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct LightsLook {
-    /// Each light's lit colour.
-    pub lit: ByLed<Argb>,
-    /// Each light's colour while dark: its lamp's colour mixed into the
-    /// strip's grey.
-    pub dark: ByLed<Argb>,
-    /// The letters', with the alpha they are drawn at; an unread light's
-    /// ring is drawn in it too.
-    pub label: Argb,
-    /// How a lit light is drawn, and under Dim Flashing Lights each lit
-    /// colour's alpha over its dark one ([`dim_cap`]) and, for a light
-    /// that can be unread ([`Led::reads_a_process`]), the ring's over the
-    /// dark lamp ([`ring_cap`]); none for the others, which never show it.
-    pub glow: Glow,
-    pub dim: ByLed<Chan>,
-    pub ring: ByLed<Chan>,
+pub enum Ansi {
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    BrightBlack,
+    BrightRed,
+    BrightGreen,
+    BrightYellow,
+    BrightBlue,
+    BrightMagenta,
+    BrightCyan,
+    BrightWhite,
 }
 
-/// How much of a light's colour its dark state keeps over the strip's
-/// grey: 80 of 255, enough to read as an unlit lamp and far under a lit
-/// one.
-fn unlit() -> Chan {
-    Chan::from_u8(80)
-}
+impl Ansi {
+    /// The sixteen, in the palette's order.
+    pub const ALL: [Ansi; 16] = [
+        Ansi::Black,
+        Ansi::Red,
+        Ansi::Green,
+        Ansi::Yellow,
+        Ansi::Blue,
+        Ansi::Magenta,
+        Ansi::Cyan,
+        Ansi::White,
+        Ansi::BrightBlack,
+        Ansi::BrightRed,
+        Ansi::BrightGreen,
+        Ansi::BrightYellow,
+        Ansi::BrightBlue,
+        Ansi::BrightMagenta,
+        Ansi::BrightCyan,
+        Ansi::BrightWhite,
+    ];
 
-impl LightsLook {
-    /// The look for lit colours `lit`, letters in `label`, each dark light
-    /// its `lamp` colour mixed into `ground`, drawn at `glow` over a strip
-    /// anywhere in `backdrop`. The lamp is given apart from the lit colour
-    /// because the title strip lifts a lit colour to read against the strip
-    /// ([`strip_colours`]) and keeps the dark lamp the system colour's;
-    /// the lights' own line gives one colour for both. Only a dimmed look
-    /// scans the backdrop for its caps, once a pair of colours: lights that
-    /// share one share its caps.
-    pub fn new(
-        lit: ByLed<Argb>,
-        lamp: ByLed<Argb>,
-        label: Argb,
-        ground: Argb,
-        glow: Glow,
-        backdrop: Backdrop,
-    ) -> LightsLook {
-        let dark = ByLed::of(|l| lamp.get(l).mix(ground, unlit()));
-        let full = Chan::from_u8(0xFF);
-        let (dim, ring) = match glow {
-            Glow::Full => (ByLed::of(|_| full), ByLed::of(|_| full)),
-            Glow::Dimmed => {
-                let mut caps: Vec<((Argb, Argb), Chan)> = Vec::new();
-                let dim = ByLed::of(|l| {
-                    let c = (*lit.get(l), *dark.get(l));
-                    if let Some(&(_, cap)) = caps.iter().find(|(k, _)| *k == c) {
-                        return cap;
-                    }
-                    let cap = dim_cap(c.0, c.1, backdrop);
-                    caps.push((c, cap));
-                    cap
-                });
-                let mut rings: Vec<((Argb, Argb), Chan)> = Vec::new();
-                let ring = ByLed::of(|l| {
-                    let c = (*lit.get(l), *dark.get(l));
-                    if !l.reads_a_process() {
-                        return Chan::from_u8(0);
-                    }
-                    if let Some(&(_, cap)) = rings.iter().find(|(k, _)| *k == c) {
-                        return cap;
-                    }
-                    let ink = c.0.with_alpha(*dim.get(l));
-                    let cap = ring_cap(label, ink, c.1, backdrop);
-                    rings.push((c, cap));
-                    cap
-                });
-                (dim, ring)
-            }
+    /// **The entry's colour in `palette`**, as the theme holds it, opaque.
+    pub fn of(self, palette: &[Argb; 256]) -> Argb {
+        let at = match self {
+            Ansi::Black => 0,
+            Ansi::Red => 1,
+            Ansi::Green => 2,
+            Ansi::Yellow => 3,
+            Ansi::Blue => 4,
+            Ansi::Magenta => 5,
+            Ansi::Cyan => 6,
+            Ansi::White => 7,
+            Ansi::BrightBlack => 8,
+            Ansi::BrightRed => 9,
+            Ansi::BrightGreen => 10,
+            Ansi::BrightYellow => 11,
+            Ansi::BrightBlue => 12,
+            Ansi::BrightMagenta => 13,
+            Ansi::BrightCyan => 14,
+            Ansi::BrightWhite => 15,
         };
-        LightsLook {
-            lit,
-            dark,
-            label,
-            glow,
-            dim,
-            ring,
+        palette[at].with_alpha(Chan::from_u8(0xFF))
+    }
+}
+
+/// **Which half of a theme a palette is**: a dark page or a light one,
+/// from its default background against its default foreground. The
+/// meaning set gives each half its own entries, a theme's normal colours
+/// being built for its own page.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Half {
+    Dark,
+    Light,
+}
+
+impl Half {
+    /// The half whose page `bg` is, against text `fg`: dark where the page
+    /// is the darker of the two.
+    pub fn of(fg: Argb, bg: Argb) -> Half {
+        match crate::color::darker(bg, fg) {
+            true => Half::Dark,
+            false => Half::Light,
         }
     }
 }
 
-/// **The most alpha `lit` may carry over `dark` under Dim Flashing
-/// Lights**: the largest, from the interior's own cap
-/// ([`under_threshold`]) down, at which every pixel a light can be drawn
-/// with -- `dark` at any coverage, `lit` over it at that alpha and the
-/// same coverage, exactly as [`draw_led`] blends them -- shown over any
-/// grey of `backdrop` makes neither a general nor a red transition from
-/// the same pixel dark. So turning a light on or off is no flash over any
-/// grey the strip can be. Computed when the look changes, never a frame.
-pub fn dim_cap(lit: Argb, dark: Argb, backdrop: Backdrop) -> Chan {
-    let full = Chan::from_u8(0xFF);
-    // Each coverage's dark pixel, and each grey's view of it, once.
-    let pairs: Vec<(Chan, Argb, Vec<Argb>)> = (0..=0xFF)
-        .map(|c| {
-            let c = Chan::from_u8(c);
-            let d = over(Argb(0), dark, c);
-            (c, d, backdrop.greys().map(|g| over(g, d, full)).collect())
-        })
-        .collect();
-    let top = under_threshold(lit, dark).get();
-    (0..=top)
-        .rev()
-        .map(Chan::from_u8)
-        .find(|&k| {
-            let ink = lit.with_alpha(k);
-            pairs.iter().all(|(c, d, seen)| {
-                let l = over(*d, ink, *c);
-                backdrop
-                    .greys()
-                    .zip(seen)
-                    .all(|(g, &dg)| !flashes(over(g, l, full), dg))
-            })
-        })
-        .unwrap_or(Chan::from_u8(0))
-}
-
-/// A coverage, the dark lamp's pixel at it, and each grey's view of that
-/// pixel dark and lit.
-type Views = (Chan, Argb, Vec<(Argb, Argb)>);
-
-/// **The most alpha the unread ring's `label` may carry over `dark` under
-/// Dim Flashing Lights**: the largest, up to the letters' own alpha, at
-/// which no pixel of the ring -- `dark` at any coverage, `label` over it at
-/// that alpha and the same coverage -- shown over any grey of `backdrop`
-/// makes a flash from the same pixel dark, or from it lit, `ink` over the
-/// same dark lamp. With `ink` at its own cap ([`dim_cap`]), a light moving
-/// between any two of its three states makes no flash.
+/// **Which palette entry each light is lit in**: `[window]
+/// activity_lights_colours`, a table of the sixteen a light, compiled in
+/// ([`LightsColours::entries`]), so the runtime only indexes the theme.
 ///
-/// Searched from the top down, as [`dim_cap`] is, from the interior's own
-/// cap ([`under_threshold`]), each alpha's pixels from the fullest coverage
-/// down, the pixel the last alpha flashed at tried before any. Computed
-/// when the look changes, never a frame.
-pub fn ring_cap(label: Argb, ink: Argb, dark: Argb, backdrop: Backdrop) -> Chan {
-    let full = Chan::from_u8(0xFF);
-    let greys: Vec<Argb> = backdrop.greys().collect();
-    // Each coverage's dark pixel, and each grey's view of it dark and lit,
-    // once.
-    let pairs: Vec<Views> = (0..=0xFF)
-        .map(|c| {
-            let c = Chan::from_u8(c);
-            let d = over(Argb(0), dark, c);
-            let l = over(d, ink, c);
-            let seen = greys.iter().map(|&g| (over(g, d, full), over(g, l, full)));
-            (c, d, seen.collect())
-        })
-        .collect();
-    // The pixel the last alpha flashed at, tried first: the next alpha
-    // down most often flashes there too.
-    let mut witness: Option<(usize, usize)> = None;
-    let mut calm = |k: Chan| {
-        let ring = label.with_alpha(k);
-        let flashes_at = |ci: usize, gi: usize| {
-            let (c, d, seen) = &pairs[ci];
-            let v = over(greys[gi], over(*d, ring, *c), full);
-            let (dg, lg) = seen[gi];
-            flashes(v, dg) || flashes(v, lg)
-        };
-        if witness.is_some_and(|(ci, gi)| flashes_at(ci, gi)) {
-            return false;
-        }
-        for ci in (0..pairs.len()).rev() {
-            if let Some(gi) = (0..greys.len()).find(|&gi| flashes_at(ci, gi)) {
-                witness = Some((ci, gi));
-                return false;
-            }
-        }
-        true
-    };
-    let top = under_threshold(label, dark).get().min(label.a().get());
-    (0..=top)
-        .rev()
-        .map(Chan::from_u8)
-        .find(|&k| calm(k))
-        .unwrap_or(Chan::from_u8(0))
+/// * **`"meaning"`**, the default, baud's own: one hue a kind of thing,
+///   and red only for CS, the one light that says something went wrong.
+///   On a dark page HS 10, AA 11, CD 4, OH 6, RD 2, SD 3, CS 1, FAX 5,
+///   SYN 13; on a light one no yellow, whose normal entry a light theme
+///   darkens toward brown -- HS 10, AA 6, CD 4, OH 12, RD 2, SD 14, CS 1,
+///   FAX 5, SYN 13.
+/// * **`"iec"`**: the colours IEC 60073:2002 gives an indicator's meaning
+///   (Tables 7 and 8: green normal, yellow abnormal, white general
+///   information and status), taken to the palette -- HS and CD 2, CS 3,
+///   FAX and SYN 6, the rest 7. The standard is not among the sources the
+///   repository holds; note AH names the clauses.
+/// * **`"modem"`**: every lamp entry 1, red, as the Courier's and the
+///   Hayes's front-panel LEDs were.
+///
+/// On the plate, the theme's own background, every set's normal entries
+/// read at 3:1 on the built-in themes, so no set takes a bright entry for
+/// that (note AH).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LightsColours {
+    #[default]
+    Meaning,
+    Iec,
+    Modem,
 }
 
-/// The strip's grey a dark light is mixed into, by appearance: the middle
-/// of the standard material's measured range, grey 33 to 92 under the
-/// dark appearance and 196 to 235 under the light one
-/// ([`crate::Backdrop::under_window_dark`] and `under_window_light`).
-pub const GROUND_DARK: Argb = Argb(0xFF_3A_3A_3A);
-pub const GROUND_LIGHT: Argb = Argb(0xFF_DC_DC_DC);
+/// The meaning set on a dark page.
+const MEANING_DARK: ByLed<Ansi> = ByLed {
+    hs: Ansi::BrightGreen,
+    aa: Ansi::BrightYellow,
+    cd: Ansi::Blue,
+    oh: Ansi::Cyan,
+    rd: Ansi::Green,
+    sd: Ansi::Yellow,
+    cs: Ansi::Red,
+    fax: Ansi::Magenta,
+    syn: Ansi::BrightMagenta,
+};
+
+/// The meaning set on a light page: no yellow.
+const MEANING_LIGHT: ByLed<Ansi> = ByLed {
+    hs: Ansi::BrightGreen,
+    aa: Ansi::Cyan,
+    cd: Ansi::Blue,
+    oh: Ansi::BrightBlue,
+    rd: Ansi::Green,
+    sd: Ansi::BrightCyan,
+    cs: Ansi::Red,
+    fax: Ansi::Magenta,
+    syn: Ansi::BrightMagenta,
+};
+
+/// IEC 60073's set, the same on either page.
+const IEC: ByLed<Ansi> = ByLed {
+    hs: Ansi::Green,
+    aa: Ansi::White,
+    cd: Ansi::Green,
+    oh: Ansi::White,
+    rd: Ansi::White,
+    sd: Ansi::White,
+    cs: Ansi::Yellow,
+    fax: Ansi::Cyan,
+    syn: Ansi::Cyan,
+};
+
+/// The front panels' set: every lamp red.
+const MODEM: ByLed<Ansi> = ByLed {
+    hs: Ansi::Red,
+    aa: Ansi::Red,
+    cd: Ansi::Red,
+    oh: Ansi::Red,
+    rd: Ansi::Red,
+    sd: Ansi::Red,
+    cs: Ansi::Red,
+    fax: Ansi::Red,
+    syn: Ansi::Red,
+};
+
+impl LightsColours {
+    /// The three, in the order the config names them.
+    pub const ALL: [LightsColours; 3] = [
+        LightsColours::Meaning,
+        LightsColours::Iec,
+        LightsColours::Modem,
+    ];
+
+    /// The name `[window] activity_lights_colours` takes.
+    pub const fn name(self) -> &'static str {
+        match self {
+            LightsColours::Meaning => "meaning",
+            LightsColours::Iec => "iec",
+            LightsColours::Modem => "modem",
+        }
+    }
+
+    /// The set named `name`, or none.
+    pub fn named(name: &str) -> Option<LightsColours> {
+        LightsColours::ALL.into_iter().find(|s| s.name() == name)
+    }
+
+    /// **Each light's entry on a page of `half`**: the set's table.
+    pub const fn entries(self, half: Half) -> ByLed<Ansi> {
+        match (self, half) {
+            (LightsColours::Meaning, Half::Dark) => MEANING_DARK,
+            (LightsColours::Meaning, Half::Light) => MEANING_LIGHT,
+            (LightsColours::Iec, _) => IEC,
+            (LightsColours::Modem, _) => MODEM,
+        }
+    }
+}
+
+/// **How strongly a lit light glows**: `[window] activity_lights_glow`, 0
+/// to 1, held as the halo's alpha where it starts. 1 is a halo of 0.8 at
+/// its start; 0 draws none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Halo(Chan);
+
+/// The glow's strength by default: under half the strongest.
+pub const DEFAULT_GLOW: f32 = 0.4;
+
+/// The halo's alpha where it starts, at strength 1.
+const HALO_PEAK: f32 = 0.8;
+
+/// **The halo's reach past the dot, and its gap off the dot**, in points:
+/// it starts a point out, so the pixel touching the dot is the plate and
+/// the dot reads against the plate as it does with no glow, and fades as
+/// `(1 - t)^1.6` to nothing three points out, or at the picture's edge.
+pub const HALO: f32 = 3.0;
+pub const HALO_GAP: f32 = 1.0;
+
+impl Halo {
+    /// The halo of `strength`, held to 0..1.
+    pub fn of(strength: f32) -> Halo {
+        Halo(Chan::from_unit(HALO_PEAK * strength.clamp(0.0, 1.0)))
+    }
+
+    /// Its alpha where it starts.
+    pub fn alpha(self) -> Chan {
+        self.0
+    }
+}
+
+impl Default for Halo {
+    fn default() -> Halo {
+        Halo::of(DEFAULT_GLOW)
+    }
+}
+
+/// **The lights' colours**, straight alpha: every lamp exactly a palette
+/// entry, the plate the theme's background and the letters its foreground.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LightsLook {
+    /// Each light's lit colour: its set's entry.
+    pub lit: ByLed<Argb>,
+    /// Every light's colour while dark, drawn as a dot half the lit one's
+    /// diameter: entry 8 in the meaning set, and in the iec and modem sets
+    /// entry 8 or 0 by the plate ([`unlit_entry`]).
+    pub unlit: Argb,
+    /// An unread light's ring: the entry the foreground is, else 7.
+    pub ring: Argb,
+    /// The letters: the theme's foreground, lifted only where it would read
+    /// under [`TEXT_CONTRAST`] against the plate.
+    pub label: Argb,
+    /// The plate under the lights: the theme's background, opaque.
+    pub plate: Argb,
+    /// Whether a lit light glows, and how strongly.
+    pub glow: Glow,
+    pub halo: Halo,
+}
+
+impl LightsLook {
+    /// **The look of a theme**: its sixteen entries `palette`, its
+    /// foreground `fg` and background `bg`, lit in `set` by the half `bg`
+    /// is, glowing `halo` at `glow`. The theme's own colours, not the
+    /// screen's: reverse video turns the program's page, not baud's plate.
+    pub fn of(
+        palette: &[Argb; 256],
+        fg: Argb,
+        bg: Argb,
+        set: LightsColours,
+        glow: Glow,
+        halo: Halo,
+    ) -> LightsLook {
+        let opaque = Chan::from_u8(0xFF);
+        let (fg, plate) = (fg.with_alpha(opaque), bg.with_alpha(opaque));
+        let entries = set.entries(Half::of(fg, plate));
+        let lit = ByLed::of(|l| entries.get(l).of(palette));
+        let unlit = match set {
+            LightsColours::Meaning => Ansi::BrightBlack,
+            LightsColours::Iec | LightsColours::Modem => unlit_entry(palette, plate, &lit),
+        }
+        .of(palette);
+        let ring = ring_entry(palette, fg).of(palette);
+        let label = crate::color::reads_at(fg, plate, opaque, Backdrop::any(), TEXT_CONTRAST);
+        LightsLook {
+            lit,
+            unlit,
+            ring,
+            label,
+            plate,
+            glow,
+            halo,
+        }
+    }
+}
+
+/// WCAG 2.2's contrast ratio of two opaque colours.
+fn ratio(a: Argb, b: Argb) -> f64 {
+    crate::color::contrast_over(a, b, Chan::from_u8(0xFF), Backdrop::any())
+}
+
+/// **The entry an unlit lamp is drawn in on `plate`** in the iec and
+/// modem sets (the meaning set's is 8 on every theme): 8 or 0, whichever
+/// is at rest -- visible against the plate, not the plate's own colour, and
+/// no louder against it than the quietest lit lamp, `lit` -- the more
+/// visible of the two that are; where neither is at rest, the quieter one
+/// that is visible; 8 where neither is visible. A theme whose entry 0 is
+/// its background gives 8; a set whose lit lamps are quieter against the
+/// plate than 8 gives 0.
+pub fn unlit_entry(palette: &[Argb; 256], plate: Argb, lit: &ByLed<Argb>) -> Ansi {
+    let quiet = Led::ALL
+        .iter()
+        .map(|&l| ratio(*lit.get(l), plate))
+        .fold(f64::INFINITY, f64::min);
+    let seen = |a: Ansi| {
+        let c = a.of(palette);
+        (a, ratio(c, plate), c != plate)
+    };
+    let candidates = [seen(Ansi::BrightBlack), seen(Ansi::Black)];
+    let rest = candidates
+        .iter()
+        .filter(|c| c.2 && c.1 <= quiet)
+        .max_by(|a, b| a.1.total_cmp(&b.1));
+    let visible = candidates
+        .iter()
+        .filter(|c| c.2)
+        .min_by(|a, b| a.1.total_cmp(&b.1));
+    rest.or(visible).map_or(Ansi::BrightBlack, |c| c.0)
+}
+
+/// **The entry an unread light's ring is drawn in**: the one the theme's
+/// foreground `fg` is, where one is, else 7, white.
+pub fn ring_entry(palette: &[Argb; 256], fg: Argb) -> Ansi {
+    Ansi::ALL
+        .into_iter()
+        .find(|a| a.of(palette) == fg.with_alpha(Chan::from_u8(0xFF)))
+        .unwrap_or(Ansi::White)
+}
 
 /// A drawn picture of lights, straight-alpha pixels row by row.
 #[derive(Clone, PartialEq, Debug)]
@@ -703,10 +853,17 @@ pub fn cell_width(face: &Face<'_>, led: Led) -> f32 {
     advance(face, led.letters(), TEXT) + GAP + DOT
 }
 
+/// **A light's picture's width, in points**: the light and the halo's
+/// reach past its right edge, [`HALO`]; the gap to the next light,
+/// [`PAIR`], is wider, so no two pictures overlap.
+pub fn picture_width(face: &Face<'_>, led: Led) -> f32 {
+    cell_width(face, led) + HALO
+}
+
 /// **Where a light sits in a strip drawn at a scale**, in device pixels
 /// from the strip's left: its start, rounded to a whole pixel so a light
 /// drawn on its own lands on the same pixels as in the strip, and its
-/// width, rounded up.
+/// picture's width ([`picture_width`]), rounded up.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Slot {
     pub start: Px,
@@ -723,24 +880,23 @@ pub fn layout(face: &Face<'_>, scale: f32) -> Option<(ByLed<Slot>, Px)> {
         width: Px::of(0),
     });
     for led in Led::ALL {
-        let w = cell_width(face, led);
         let start = u32::try_from((x * scale).round() as i64).ok()?;
-        let width = u32::try_from((w * scale).ceil() as i64).ok()?;
+        let width = u32::try_from((picture_width(face, led) * scale).ceil() as i64).ok()?;
         *out.get_mut(led) = Slot {
             start: Px::of(start),
             width: Px::of(width),
         };
         end = Px::of(start.checked_add(width)?);
-        x += w + PAIR;
+        x += cell_width(face, led) + PAIR;
     }
     Some((out, end))
 }
 
-/// **The width the strip takes, in points**, in `face`: every light and
-/// the gaps between them.
+/// **The width the strip takes, in points**, in `face`: every light, the
+/// gaps between them and the last one's halo.
 pub fn width(face: &Face<'_>) -> f32 {
     let lights: f32 = Led::ALL.iter().map(|&l| cell_width(face, l)).sum();
-    lights + PAIR * (Led::ALL.len() - 1) as f32
+    lights + PAIR * (Led::ALL.len() - 1) as f32 + HALO
 }
 
 /// **The space above and below the lights on their own line**, in
@@ -809,107 +965,101 @@ pub fn line_places(width: Px, at: &ByLed<Slot>, strip: Px, end: Px) -> ByLed<Opt
     })
 }
 
-/// **The lights' colours on their own line, from the theme**, where
-/// AppKit's system colours do not exist and the two systems must draw the
-/// same pixels: what comes in (RD, HS) in the palette's green, entry 2,
-/// what goes out (SD, AA, CS) in its yellow, entry 3, and a state (CD,
-/// OH, FAX, SYN) in its blue, entry 4 -- the title strip's green and blue,
-/// and its yellow where the strip's system orange has no palette entry.
-/// Each lit colour is lifted, if it must be,
-/// until it reads at 3:1 against the line, `page` drawn at `alpha` over
-/// whatever `backdrop` spans: WCAG 2.2's SC 1.4.11, "a contrast ratio of
-/// at least 3:1 against adjacent color(s)" for "Visual information
-/// required to identify user interface components and states"
-/// (`[[source: wcag22]]`). The letters are the foreground at two thirds
-/// of its strength over the page, as the title strip's are AppKit's
-/// secondary label colour, lifted to `text`, the floor the window's text
-/// reads at. Where no colour reaches a target against all of the
-/// backdrop, the lift goes as far as it can ([`crate::Floor`]). The line
-/// passes [`Backdrop::any`] on every system, so it draws the same pixels
-/// on each.
-pub fn line_colours(
-    palette: &[Argb; 256],
-    fg: Argb,
-    page: Argb,
-    alpha: Chan,
-    backdrop: Backdrop,
-    text: f64,
-) -> (ByLed<Argb>, Argb) {
-    let reads = |c: Argb, target: f64| {
-        crate::color::reads_at(
-            c.with_alpha(Chan::from_u8(0xFF)),
-            page,
-            alpha,
-            backdrop,
-            target,
-        )
-    };
-    let [inward, outward, state] = [2, 3, 4].map(|i| reads(palette[i], LIT_CONTRAST));
-    let lit = ByLed::of(|l| match l.direction() {
-        Direction::In => inward,
-        Direction::Out => outward,
-        Direction::State => state,
-    });
-    let soft = fg
-        .with_alpha(Chan::from_u8(0xFF))
-        .mix(page, Chan::from_u8(170));
-    (lit, reads(soft, text))
-}
-
-/// The contrast a lit light reads at against its line, at least: SC
-/// 1.4.11's 3:1 for a component's state.
+/// The contrast a lit light reads at against its plate, at least: SC
+/// 1.4.11's 3:1 for "Visual information required to identify user
+/// interface components and states" (`[[source: wcag22]]`). Every set's
+/// lamps on the built-in themes' plates reach it; a theme of the user's is
+/// measured, not lifted (note AH).
 pub const LIT_CONTRAST: f64 = 3.0;
 
-/// The contrast the title strip's letters read at against the strip, at
-/// least: SC 1.4.3's 4.5:1, "The visual presentation of text ... has a
-/// contrast ratio of at least 4.5:1", which drops to 3:1 only for large
-/// text, 18 point or 14 point bold (`[[source: wcag22]]`). The letters
-/// are 8 point bold ([`TEXT`]). Apple's table, which it says is "from
-/// WCAG Level AA", gives 3:1 for "bold at any size"
-/// (`[[source: apple-hig-accessibility]]`); the WCAG text it cites governs.
+/// The contrast the letters read at against the plate, at least: SC
+/// 1.4.3's 4.5:1, "The visual presentation of text ... has a contrast
+/// ratio of at least 4.5:1", which drops to 3:1 only for large text, 18
+/// point or 14 point bold (`[[source: wcag22]]`). The letters are 8 point
+/// bold ([`TEXT`]). Apple's table, which it says is "from WCAG Level AA",
+/// gives 3:1 for "bold at any size" (`[[source: apple-hig-accessibility]]`);
+/// the WCAG text it cites governs.
 pub const TEXT_CONTRAST: f64 = 4.5;
 
-/// **The title strip's colours over the standard material**: each of
-/// AppKit's lit colours `lit` lifted, if it must be, until it reads at
-/// [`LIT_CONTRAST`] against every grey the strip can be, `backdrop`, and
-/// the letters, AppKit's translucent `label` made opaque over `ground` as
-/// the line's are the foreground mixed into its page, lifted to
-/// [`TEXT_CONTRAST`] against the same greys. WCAG 2.2's SC 1.4.11 asks
-/// "a contrast ratio of at least 3:1 against adjacent color(s)" for
-/// "Visual information required to identify user interface components and
-/// states" (`[[source: wcag22]]`), and AppKit's green, orange and blue
-/// read 1.27, 1.32 and 2.02 against the light material's grey 196, and its
-/// blue 2.07 against the dark one's grey 92.
-///
-/// The lift is the line's ([`line_colours`]): toward black or white in
-/// linear light, just far enough, so the hue is kept; with the strip drawn
-/// at no alpha over its material the page drops out and `ground` only
-/// says which way. A colour that already reads is itself, and AppKit's
-/// Increase Contrast colours are lifted as its standard ones are. Where no
-/// colour reaches the target against all of the backdrop -- black to white
-/// over the glass -- the lift goes as far as it can, which is why the
-/// glass does not call this.
-pub fn strip_colours(
-    lit: ByLed<Argb>,
-    label: Argb,
-    ground: Argb,
-    backdrop: Backdrop,
-) -> (ByLed<Argb>, Argb) {
-    let opaque = Chan::from_u8(0xFF);
-    let reads = |c: Argb, target: f64| {
-        crate::color::reads_at(
-            c.with_alpha(opaque),
-            ground,
-            Chan::from_u8(0),
-            backdrop,
-            target,
-        )
+/// **The plate**, in points: how far it reaches past the first and last
+/// light, its height in the title strip, how far it is inset from the top
+/// and bottom of the lights' own line, and its corners' radii there and on
+/// the line.
+pub const PLATE_PAD: f32 = 4.0;
+pub const PLATE_TITLE: f32 = 20.0;
+pub const PLATE_INSET: f32 = 1.0;
+pub const PLATE_RADIUS_TITLE: f32 = 5.0;
+pub const PLATE_RADIUS_LINE: f32 = 4.0;
+
+/// **Where the plate is under the lights placed at `xs`**, in the same
+/// pixels as `xs`, each light `at`'s width: from [`PLATE_PAD`] before the
+/// first placed light to [`PLATE_PAD`] past the last, its left and width;
+/// `None` with no light placed.
+pub fn plate_span(at: &ByLed<Slot>, xs: &ByLed<Option<Px>>, scale: f32) -> Option<(Px, Px)> {
+    let pad = u32::try_from((PLATE_PAD * scale).round() as i64).ok()?;
+    let shown = || {
+        Led::ALL
+            .into_iter()
+            .filter_map(|l| xs.get(l).map(|x| (l, x)))
     };
-    let letters = label.with_alpha(opaque).mix(ground, label.a());
-    (
-        ByLed::of(|l| reads(*lit.get(l), LIT_CONTRAST)),
-        reads(letters, TEXT_CONTRAST),
-    )
+    let (_, first) = shown().next()?;
+    let (last, x) = shown().next_back()?;
+    let left = first.value().saturating_sub(pad);
+    let right = x
+        .value()
+        .checked_add(at.get(last).width.value())?
+        .checked_add(pad)?;
+    Some((Px::of(left), Px::of(right.checked_sub(left)?)))
+}
+
+/// **The plate, drawn**: a rectangle `width` by `height` pixels with
+/// corners of `radius` pixels, filled with the look's plate colour, into
+/// `out`. `None` for a size no canvas holds.
+pub fn draw_plate(
+    look: &LightsLook,
+    width: Px,
+    height: Px,
+    radius: f32,
+    out: &mut LightsImage,
+) -> Option<()> {
+    const KAPPA: f32 = 0.552_284_8;
+    let extent = Extent::new(width, height);
+    let (x1, y1) = (slots(width) as f32, slots(height) as f32);
+    let rr = radius.min(x1 / 2.0).min(y1 / 2.0);
+    let k = KAPPA * rr;
+    let cover = coverage(extent, |mut c| {
+        let p = Point::new;
+        c.line(p(rr, 0.0), p(x1 - rr, 0.0));
+        c.cubic(
+            p(x1 - rr, 0.0),
+            p(x1 - rr + k, 0.0),
+            p(x1, rr - k),
+            p(x1, rr),
+        );
+        c.line(p(x1, rr), p(x1, y1 - rr));
+        c.cubic(
+            p(x1, y1 - rr),
+            p(x1, y1 - rr + k),
+            p(x1 - rr + k, y1),
+            p(x1 - rr, y1),
+        );
+        c.line(p(x1 - rr, y1), p(rr, y1));
+        c.cubic(
+            p(rr, y1),
+            p(rr - k, y1),
+            p(0.0, y1 - rr + k),
+            p(0.0, y1 - rr),
+        );
+        c.line(p(0.0, y1 - rr), p(0.0, rr));
+        c.cubic(p(0.0, rr), p(0.0, rr - k), p(rr - k, 0.0), p(rr, 0.0));
+        c
+    })?;
+    out.width = width;
+    out.height = height;
+    out.pixels.clear();
+    out.pixels
+        .extend(cover.iter().map(|&c| over(Argb(0), look.plate, c)));
+    Some(())
 }
 
 /// Which way an outline winds.
@@ -1000,9 +1150,13 @@ fn over(dst: Argb, src: Argb, cover: Chan) -> Argb {
 }
 
 /// **One light, drawn** in `face` at `scale` device pixels a point,
-/// `height` points tall, into `out`: its letters, then the light centred
-/// on the strip and the letters' caps centred on it, in a picture its
-/// [`Slot`]'s width. `None` for a size no canvas holds.
+/// `height` points tall, into `out`: its letters, then, while lit and not
+/// under Dim Flashing Lights, the halo, then the light centred on the
+/// strip and the letters' caps centred on it, in a picture its [`Slot`]'s
+/// width. Every lamp pixel the dot or ring covers fully is its palette
+/// entry exactly: a lit light the full dot in its lit colour, a dark one a
+/// dot half that diameter in the unlit entry, an unread one a ring in the
+/// ring's entry. `None` for a size no canvas holds.
 pub fn draw_led(
     face: &Face<'_>,
     look: &LightsLook,
@@ -1012,7 +1166,7 @@ pub fn draw_led(
     height: f32,
     out: &mut LightsImage,
 ) -> Option<()> {
-    let w = Px::of(u32::try_from((cell_width(face, led) * scale).ceil() as i64).ok()?);
+    let w = Px::of(u32::try_from((picture_width(face, led) * scale).ceil() as i64).ok()?);
     let h = Px::of(u32::try_from((height * scale).round() as i64).ok()?);
     let extent = Extent::new(w, h);
     let r = DOT * scale / 2.0;
@@ -1039,45 +1193,73 @@ pub fn draw_led(
     for (p, &c) in out.pixels.iter_mut().zip(&text) {
         *p = over(*p, look.label, c);
     }
-    let dot = coverage(extent, |mut c| {
-        disc(&mut c, centre, r, Wind::Forward);
-        c
-    })?;
-    let ring = match light {
-        Light::Unread => Some(coverage(extent, |mut c| {
-            disc(&mut c, centre, r, Wind::Forward);
-            disc(&mut c, centre, r - RING * scale, Wind::Back);
-            c
-        })?),
-        Light::Dark | Light::Lit => None,
+    let lit = *look.lit.get(led);
+    if light == Light::Lit && look.glow == Glow::Full && look.halo.alpha().get() > 0 {
+        halo(out, lit, look.halo, centre, r, height, scale);
+    }
+    let (ink, cover) = match light {
+        Light::Lit => (lit, disc_coverage(extent, centre, r, None)?),
+        Light::Dark => (look.unlit, disc_coverage(extent, centre, r / 2.0, None)?),
+        Light::Unread => (
+            look.ring,
+            disc_coverage(extent, centre, r, Some(r - RING * scale))?,
+        ),
     };
-    // At full glow one disc in one colour, so a lit light's inside is its
-    // colour exactly; dimmed, the dark disc and the lit colour at its cap
-    // over it, the shape `dim_cap` holds under the threshold. An unread
-    // light is a ring in the letters' colour, neither lit nor dark: hollow
-    // at full glow, and dimmed a ring at its cap on the dark lamp, the
-    // shape `ring_cap` holds under the threshold.
-    let (lit, dark) = (*look.lit.get(led), *look.dark.get(led));
-    let (under, top) = match (light, look.glow) {
-        (Light::Dark, _) | (Light::Unread, Glow::Dimmed) => (Some(dark), None),
-        (Light::Unread, Glow::Full) => (None, Some(look.label)),
-        (Light::Lit, Glow::Full) => (Some(lit), None),
-        (Light::Lit, Glow::Dimmed) => (Some(dark), Some(lit.with_alpha(*look.dim.get(led)))),
-    };
-    let top = match (light, look.glow) {
-        (Light::Unread, Glow::Dimmed) => Some(look.label.with_alpha(*look.ring.get(led))),
-        _ => top,
-    };
-    for (i, (p, &c)) in out.pixels.iter_mut().zip(&dot).enumerate() {
-        if let Some(under) = under {
-            *p = over(*p, under, c);
-        }
-        let cover = ring.as_ref().map_or(c, |ring| ring[i]);
-        if let Some(top) = top {
-            *p = over(*p, top, cover);
-        }
+    for (p, &c) in out.pixels.iter_mut().zip(&cover) {
+        *p = over(*p, ink, c);
     }
     Some(())
+}
+
+/// A disc of radius `r` about `c` over `extent`, less the disc of `hole`
+/// inside it where one is given.
+fn disc_coverage(extent: Extent, c: Point, r: f32, hole: Option<f32>) -> Option<Vec<Chan>> {
+    coverage(extent, |mut canvas| {
+        disc(&mut canvas, c, r, Wind::Forward);
+        if let Some(h) = hole {
+            disc(&mut canvas, c, h, Wind::Back);
+        }
+        canvas
+    })
+}
+
+/// **The halo round a lit dot**, into `out`: `colour` at the halo's alpha
+/// from [`HALO_GAP`] off the dot's edge, fading as `(1 - t)^1.6` to
+/// nothing [`HALO`] past it, or at the picture's edge if that is nearer.
+/// Never at full coverage, so no halo pixel is a lamp pixel; computed with
+/// [`crate::det`]'s power, so the pixels are the same on every system.
+fn halo(
+    out: &mut LightsImage,
+    colour: Argb,
+    halo: Halo,
+    centre: Point,
+    r: f32,
+    height: f32,
+    scale: f32,
+) {
+    use crate::det::Det;
+    let reach = HALO.min(height / 2.0 - DOT / 2.0) * scale;
+    let gap = HALO_GAP * scale;
+    if reach <= gap {
+        return;
+    }
+    let a0 = f32::from(halo.alpha().get()) / 255.0;
+    let w = slots(out.width).max(1);
+    for (i, p) in out.pixels.iter_mut().enumerate() {
+        let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+        let (dx, dy) = (x - centre.x, y - centre.y);
+        let d = (dx * dx + dy * dy).sqrt() - r;
+        if d < gap || d > reach {
+            continue;
+        }
+        let t = ((d - gap) / (reach - gap)).clamp(0.0, 1.0);
+        if t >= 1.0 {
+            continue;
+        }
+        let a = a0 * (1.0 - t).det_powf(1.6);
+        let cover = Chan::from_u8(Chan::from_unit(a).get().min(0xFE));
+        *p = over(*p, colour, cover);
+    }
 }
 
 /// **The strip, drawn**: every light at `shown`, each in its [`Slot`] of
@@ -1292,14 +1474,17 @@ impl Activity {
 
 /// **The lights' own line in the frame**, kept by the renderer: where it
 /// is and how tall, what the lights show and how a lit one is drawn, the
-/// looks made so far, and this frame's records -- one a placed light, each
-/// naming that light's picture in its state on the colour sheet, in the
-/// line's own pixels -- with what the CPU path last painted there.
+/// set they are lit in and how strongly they glow -- the title strip's
+/// too -- the looks made so far, and this frame's records -- the plate,
+/// then one a placed light, each naming its picture on the colour sheet,
+/// in the line's own pixels -- with what the CPU path last painted there.
 pub(crate) struct LineState {
     pub(crate) line: Option<Line>,
     pub(crate) shown: Shown,
     pub(crate) glow: Glow,
-    looks: Vec<(LookKey, LightsLook, Epoch)>,
+    pub(crate) colours: LightsColours,
+    pub(crate) halo: Halo,
+    looks: Vec<(LookKey, Epoch)>,
     pub(crate) inst: Vec<crate::instance::Instance>,
     /// Each placed light's left and width, in the line's pixels: where its
     /// hover text is.
@@ -1323,20 +1508,13 @@ pub(crate) struct Line {
     pub(crate) scale: f32,
 }
 
-/// What a look on the line is made from: the three lit colours asked, the
-/// foreground, the page, its alpha, the letters' target, the glow, and
-/// the scale the pictures are drawn at. No backdrop: the line is lifted
-/// against every grey, [`Backdrop::any`], on every system, so the theme's
-/// backdrop, which macOS narrows to the standard material's greys for the
-/// window's text, moves none of its pixels.
+/// What a look on the line is drawn from: the look, every colour of it
+/// the theme's, and the scale the pictures are drawn at. Nothing of the
+/// window's material: the plate is opaque, so no pixel of the line depends
+/// on what is behind it, on any system.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) struct LookKey {
-    pub(crate) asked: [Argb; 3],
-    pub(crate) fg: Argb,
-    pub(crate) page: Argb,
-    pub(crate) alpha: Chan,
-    pub(crate) text: f64,
-    pub(crate) glow: Glow,
+    pub(crate) look: LightsLook,
     pub(crate) scale: f32,
 }
 
@@ -1351,6 +1529,8 @@ impl LineState {
             line: None,
             shown: Shown::DARK,
             glow: Glow::Full,
+            colours: LightsColours::default(),
+            halo: Halo::default(),
             looks: Vec::new(),
             inst: Vec::new(),
             places: ByLed::default(),
@@ -1366,45 +1546,33 @@ impl LineState {
 
     /// **The look for `key` and its epoch**, the number its pictures are
     /// kept under on the colour sheet: from the looks made so far, else
-    /// made now. Its colours are lifted, and a dimmed look scans its caps,
-    /// over every grey ([`Backdrop::any`]): what is under the line is the
-    /// page, at its alpha over the window's material, and black to white
-    /// bounds that whatever it is, on every system alike. Kept to the last
-    /// few, which a theme and its reverse
-    /// video, both glows and two scales fill.
-    fn look(&mut self, key: LookKey, palette: &[Argb; 256]) -> (LightsLook, Epoch) {
-        if let Some((_, l, e)) = self.looks.iter().find(|(k, _, _)| *k == key) {
-            return (*l, *e);
+    /// kept now. Kept to the last few, which a theme and its reverse,
+    /// both glows and two scales fill.
+    fn look(&mut self, key: LookKey) -> (LightsLook, Epoch) {
+        if let Some((k, e)) = self.looks.iter().find(|(k, _)| *k == key) {
+            return (k.look, *e);
         }
-        let (lit, label) = line_colours(
-            palette,
-            key.fg,
-            key.page,
-            key.alpha,
-            Backdrop::any(),
-            key.text,
-        );
-        let look = LightsLook::new(lit, lit, label, key.page, key.glow, Backdrop::any());
-        let epoch = Epoch(self.looks.last().map_or(0, |(_, _, e)| e.0 + 1));
+        let epoch = Epoch(self.looks.last().map_or(0, |(_, e)| e.0 + 1));
         if self.looks.len() >= LOOKS_KEPT {
             self.looks.remove(0);
         }
-        self.looks.push((key, look, epoch));
-        (look, epoch)
+        self.looks.push((key, epoch));
+        (key.look, epoch)
     }
 
-    /// **This frame's records**: each light at its state, placed by
-    /// [`line_places`] on a line `width` pixels wide, its picture the one
-    /// the colour sheet holds for this look. Every picture of a placed
-    /// light -- dark, lit and unread -- is drawn there the first frame of a
-    /// look ([`crate::atlas::Atlas::picture`]), so a light that changes
-    /// names another picture and draws and uploads nothing.
+    /// **This frame's records**: the plate under the lights placed by
+    /// [`line_places`] on a line `width` pixels wide, then each light at
+    /// its state, its picture the one the colour sheet holds for this
+    /// look. Every picture of a placed light -- dark, lit and unread -- is
+    /// drawn there the first frame of a look
+    /// ([`crate::atlas::Atlas::picture`]), so a light that changes names
+    /// another picture and draws and uploads nothing; the plate once a
+    /// look and width, which only a light dropped from a narrow line moves.
     pub(crate) fn place(
         &mut self,
         face: &Face<'_>,
         atlas: &mut crate::atlas::Atlas,
         key: LookKey,
-        palette: &[Argb; 256],
         width: Px,
     ) {
         self.inst.clear();
@@ -1412,13 +1580,43 @@ impl LineState {
         let Some(line) = self.line else {
             return;
         };
-        let (look, epoch) = self.look(key, palette);
+        let (look, epoch) = self.look(key);
         let Some((at, strip)) = layout(face, line.scale) else {
             return;
         };
         let end = Px::of(u32::try_from((LINE_END * line.scale).round() as i64).unwrap_or(0));
         let xs = line_places(width, &at, strip, end);
         let height = line_picture();
+        let screen = |v: u32| crate::instance::Screen(i16::try_from(v).unwrap_or(i16::MAX));
+        let inset = u32::try_from((PLATE_INSET * line.scale).round() as i64).unwrap_or(0);
+        let plate_h = Px::of(
+            line.rows
+                .height()
+                .value()
+                .saturating_sub(inset.saturating_mul(2)),
+        );
+        if let Some((x, w)) = plate_span(&at, &xs, line.scale) {
+            let radius = PLATE_RADIUS_LINE * line.scale;
+            let slot = atlas.picture(plate_key(epoch, w), || {
+                let mut img = LightsImage::new();
+                draw_plate(&look, w, plate_h, radius, &mut img)?;
+                let px = img.pixels.iter().map(|p| p.0).collect();
+                Some((px, img.width, img.height))
+            });
+            if let Some(slot) = slot {
+                self.inst.push(crate::instance::Instance {
+                    x: screen(x.value()),
+                    y: screen(inset),
+                    w: slot.w,
+                    h: slot.h,
+                    u: slot.x,
+                    v: slot.y,
+                    color: Argb(0xFFFF_FFFF),
+                    kind: slot.kind,
+                    curve: baud_domain::contrast::CurveRow::default(),
+                });
+            }
+        }
         for (led, &light) in self.shown.iter() {
             let Some(x) = *xs.get(led) else {
                 continue;
@@ -1435,7 +1633,6 @@ impl LineState {
                 continue;
             };
             *self.places.get_mut(led) = Some((x, at.get(led).width));
-            let screen = |v: u32| crate::instance::Screen(i16::try_from(v).unwrap_or(i16::MAX));
             self.inst.push(crate::instance::Instance {
                 x: screen(x.value()),
                 y: screen(line.rows.margin.value()),
@@ -1451,8 +1648,8 @@ impl LineState {
     }
 }
 
-/// How many looks the line keeps: a theme and its reverse video, under
-/// either glow, at two scales.
+/// How many looks the line keeps: two themes, under either glow, at two
+/// scales.
 const LOOKS_KEPT: usize = 8;
 
 /// The key a light's picture in one state of one look is kept under on
@@ -1464,6 +1661,13 @@ fn picture_key(epoch: Epoch, led: Led, light: Light) -> crate::atlas::PictureKey
     // A tag in the top byte keeps the lights' keys apart from any other
     // picture's.
     crate::atlas::PictureKey((0x4C << 56) | (epoch.0 << 8) | (l << 2) | s)
+}
+
+/// The key the line's plate `width` pixels wide is kept under for a look:
+/// a tag of its own, the look's epoch and the width.
+fn plate_key(epoch: Epoch, width: Px) -> crate::atlas::PictureKey {
+    let w = u64::from(width.value()) & 0xFF_FFFF;
+    crate::atlas::PictureKey((0x50 << 56) | ((epoch.0 & 0xFF_FFFF_FFFF) << 24) | w)
 }
 
 /// **Whether DEC's indicator line also carries the state lights**:

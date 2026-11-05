@@ -114,9 +114,10 @@ pub use frozen::{Lend, Lent, RowSource, Words};
 pub use guide::{CURSOR_GUIDE, GuideLook};
 pub use instance::{Instance, Screen};
 pub use lights::{
-    AREA_LIMIT, Activity, ActivityLights, ByLed, ByLight, FlashClause, GROUND_DARK, GROUND_LIGHT,
-    Glow, Led, Light, LightsImage, LightsLook, LineEdge, LineRows, PIXELS_A_POINT, Pace,
-    READ_CEILING, Shown, StatusLineLights, WORD_CELLS, flash_clause, line_lamps,
+    AREA_LIMIT, Activity, ActivityLights, Ansi, ByLed, ByLight, DEFAULT_GLOW, FlashClause, Glow,
+    Half, Halo, Led, Light, LightsColours, LightsImage, LightsLook, LineEdge, LineRows,
+    PIXELS_A_POINT, Pace, READ_CEILING, Shown, StatusLineLights, WORD_CELLS, flash_clause,
+    line_lamps,
 };
 pub use linked::{LinkLook, LinkSpan};
 pub use metrics::{Metrics, PxSize};

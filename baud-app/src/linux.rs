@@ -1988,6 +1988,11 @@ impl Driver {
                 Part::ActivityLights => {
                     let was = self.renderer.lights_height();
                     self.activity_lights = c.activity_lights;
+                    self.renderer.set_lights_colours(
+                        c.activity_lights_colours,
+                        baud_render::Halo::of(c.activity_lights_glow),
+                    );
+                    self.pending = Pending::Dirty;
                     self.renderer
                         .set_lights_line(c.activity_lights.line(), self.scale.factor() as f32);
                     self.lights_line(was);

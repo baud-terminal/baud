@@ -206,6 +206,10 @@ pub fn set_up_renderer(
     renderer.set_word_wrap(cfg.wrap_words);
     renderer.set_wrap_marker(cfg.wrap_marker);
     renderer.set_notice(notice.codepoints());
+    renderer.set_lights_colours(
+        cfg.activity_lights_colours,
+        baud_render::Halo::of(cfg.activity_lights_glow),
+    );
 }
 
 /// **What the Linux driver tells a new terminal from the config**, before

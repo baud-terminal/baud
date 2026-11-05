@@ -247,7 +247,9 @@ impl Floor {
 /// reaches the target against all of it: [`Floor`]'s arithmetic, toward
 /// black or white in linear light and just far enough, ungated. A colour
 /// that already reads at the target is itself. What baud's own marks are
-/// drawn in where no system colour is (`crate::lights::line_colours`).
+/// drawn in where no system colour is (`crate::wrapmark`), and the activity
+/// lights' letters where the foreground would not read on their plate
+/// (`crate::LightsLook::of`).
 pub fn reads_at(text: Argb, page: Argb, alpha: Chan, backdrop: Backdrop, target: f64) -> Argb {
     let behind = Behind::over(page, alpha, backdrop);
     if behind.ratio(Lum::of(text)) >= target {
@@ -764,6 +766,11 @@ impl Lum {
     fn ratio(self, other: Lum) -> f64 {
         (self.0.max(other.0) + 0.05) / (self.0.min(other.0) + 0.05)
     }
+}
+
+/// Whether `a` is darker than `b` by WCAG 2.2's relative luminance.
+pub(crate) fn darker(a: Argb, b: Argb) -> bool {
+    Lum::of(a).0 < Lum::of(b).0
 }
 
 /// One channel in linear light, 0 to 1.

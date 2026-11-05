@@ -4499,9 +4499,8 @@ struct Driver {
     icon_super: Retained<NSView>,
     icon_inset: CGFloat,
     /// The activity lights at the strip's right, in the same container
-    /// (`lights.rs`), and the window's appearance they are drawn in.
+    /// (`lights.rs`).
     lights: crate::lights::Strip,
-    lights_appearance: Appearance,
     /// The hover texts over the lights' own line, when the setting puts
     /// them there (`lights.rs`).
     line_tips: crate::lights::LineTips,
@@ -12969,7 +12968,6 @@ impl Opening {
             icon_super: container.clone(),
             icon_inset: inset,
             lights: crate::lights::Strip::new(0.0, 0.0),
-            lights_appearance: appearance_of(&window),
             line_tips: crate::lights::LineTips::new(),
             front: crate::front::Front::new(),
             procs: crate::front::Live::new(),
@@ -13827,9 +13825,6 @@ impl Driver {
         }
         self.display = display;
         crate::info!("display: {display:?}");
-        // Increase Contrast gives AppKit's accessible colours: the lights'
-        // pictures are drawn again in whatever the window resolves now.
-        self.lights.stale();
         self.show_theme(in_force(self.theme_choice, self.palette_for));
         self.app.next_damage = Damage::Full;
         self.app.pending = Pending::Dirty;
@@ -14056,6 +14051,11 @@ impl Driver {
                 Part::ActivityLights => {
                     let was = self.app.renderer.lights_height();
                     self.app.activity_lights = c.activity_lights;
+                    self.app.renderer.set_lights_colours(
+                        c.activity_lights_colours,
+                        baud_render::Halo::of(c.activity_lights_glow),
+                    );
+                    self.app.pending = Pending::Dirty;
                     self.app
                         .renderer
                         .set_lights_line(c.activity_lights.line(), self.app.scale as f32);
@@ -14871,23 +14871,16 @@ impl Driver {
         }
         let pace = crate::access::lights_pace(self.app.motion);
         let shown = self.app.activity.step(now, pace);
-        let body = match self.glass.kind() {
-            BodyKind::Standard => crate::lights::Body::Standard,
-            BodyKind::Glass => crate::lights::Body::Glass,
-        };
+        let glow = crate::lights::glow(self.app.flashing);
         let wanted = crate::lights::Drawn {
             scale: self.app.scale,
-            glow: crate::lights::glow(self.app.flashing),
-            appearance: self.lights_appearance,
-            body,
-            backdrop: crate::lights::under(body, self.lights_appearance),
+            look: self.app.renderer.lights_look(glow),
         };
         self.lights.show(
             setting,
             wanted,
             shown,
             &self.app.renderer,
-            self.window.ns_window(),
             &self.icon_super,
             self.icon_inset,
         );
@@ -15476,10 +15469,8 @@ impl Driver {
         let Some(appearance) = self.style.0.take() else {
             return;
         };
-        // The activity lights are drawn in the window's appearance, the
-        // traffic lights' and the lockup's, over whichever body the strip
-        // shows: over the standard material it is the material's too.
-        self.lights_appearance = appearance_of(&self.window);
+        // The activity lights are drawn again in the theme the appearance
+        // brings (`lights.rs`).
         self.lights.stale();
         // **The lockup's word follows the window's appearance**, the one
         // AppKit draws the traffic lights in (`mark.rs`), before the early

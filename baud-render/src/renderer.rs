@@ -5933,35 +5933,48 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.lights.glow = glow;
     }
 
+    /// **Which palette entries the lights are lit in and how strongly they
+    /// glow**, `[window] activity_lights_colours` and `activity_lights_glow`:
+    /// the set and the halo every look is made with, on the lights' own
+    /// line and in the title strip ([`Renderer::lights_look`]).
+    pub fn set_lights_colours(&mut self, set: crate::LightsColours, halo: crate::Halo) {
+        self.lights.colours = set;
+        self.lights.halo = halo;
+    }
+
+    /// **The lights' look in this theme**, glowing at `glow`: every lamp
+    /// one of the theme's sixteen entries in the configured set, on a
+    /// plate of its background, its letters its foreground
+    /// ([`crate::LightsLook::of`]). The theme's own colours, not the
+    /// screen's: reverse video and a program's `OSC 4` move the program's
+    /// colours, not baud's plate and lamps.
+    pub fn lights_look(&self, glow: crate::Glow) -> crate::LightsLook {
+        crate::LightsLook::of(
+            &self.theme.palette,
+            self.theme.fg,
+            self.theme.bg,
+            self.lights.colours,
+            glow,
+            self.lights.halo,
+        )
+    }
+
     /// **The lights' records for the next frame** ([`crate::lights::LineState`]):
-    /// their look from the theme -- the page the default background as the
-    /// next convert of `term` resolves it, in either video, as the VT420's
-    /// line was "in the same video background as the main display" -- and
+    /// their look from the theme ([`Renderer::lights_look`]) -- the plate
+    /// the theme's background on the line's band, which is the page as the
+    /// next convert resolves it, in either video, as the VT420's line was
+    /// "in the same video background as the main display" -- the plate and
     /// each placed light naming its picture on the colour sheet, drawn there
     /// once a look. Every path draws them: the CPU path in
     /// [`Renderer::render_at`], which calls this itself, the GPU paths from
     /// [`Renderer::lights_records`] in a pass over the line.
-    pub fn place_lights(&mut self, term: &Term<'_>) {
+    pub fn place_lights(&mut self, _term: &Term<'_>) {
         if self.lights.line.is_none() {
             self.lights.inst.clear();
             return;
         }
-        let page = self.clear_color_of(term);
-        let text = match self.theme.floor {
-            crate::Floor::Lift { target, .. } => target.max(4.5),
-            crate::Floor::Off => 4.5,
-        };
-        let palette = self.theme.palette;
         let key = crate::lights::LookKey {
-            asked: [palette[2], palette[3], palette[4]],
-            fg: self
-                .theme
-                .defaults(video_of(term, self.flash), |d| term.dynamic_color(d))
-                .0,
-            page: page.with_alpha(Chan::from_u8(0xFF)),
-            alpha: page.a(),
-            text,
-            glow: self.lights.glow,
+            look: self.lights_look(self.lights.glow),
             scale: self.lights.line.map_or(0.0, |l| l.scale),
         };
         // The line's width less the right margin, so the lights keep their
@@ -5973,8 +5986,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .saturating_sub(self.margins().value()),
         );
         let face = self.stack.face(self.stack.badge());
-        self.lights
-            .place(face, &mut self.atlas, key, &palette, width);
+        self.lights.place(face, &mut self.atlas, key, width);
     }
 
     /// The lights' records, in the line's own pixels: x from its left, y

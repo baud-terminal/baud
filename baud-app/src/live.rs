@@ -77,8 +77,9 @@ pub enum Part {
     Notifications,
     /// `[clipboard] copy_on_select`.
     CopyOnSelect,
-    /// `[window] activity_lights`: the lights are put up or taken down at
-    /// the next tick.
+    /// `[window] activity_lights`, `activity_lights_colours` and
+    /// `activity_lights_glow`: the lights are put up or taken down, and
+    /// drawn in the set and glow, at the next tick.
     ActivityLights,
     /// `[window] status_line_lights`: DEC's line is given the words, or
     /// none, at the next tick or turn.
@@ -249,6 +250,8 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         window_ops,
         activity_lights,
         status_line_lights,
+        activity_lights_colours,
+        activity_lights_glow,
         tearing,
         launch_splash,
         pointer_mode,
@@ -352,7 +355,9 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         Part::CopyOnSelect,
     );
     part(
-        old.activity_lights != *activity_lights,
+        old.activity_lights != *activity_lights
+            || old.activity_lights_colours != *activity_lights_colours
+            || old.activity_lights_glow != *activity_lights_glow,
         Part::ActivityLights,
     );
     part(
@@ -576,6 +581,11 @@ mod tests {
                 "[window]\nactivity_lights = \"off\"\n",
                 Part::ActivityLights,
             ),
+            (
+                "[window]\nactivity_lights_colours = \"modem\"\n",
+                Part::ActivityLights,
+            ),
+            ("[window]\nactivity_lights_glow = 1\n", Part::ActivityLights),
             (
                 "[window]\nstatus_line_lights = \"states\"\n",
                 Part::StatusLineLights,

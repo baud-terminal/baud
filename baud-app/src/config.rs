@@ -429,6 +429,16 @@ pub struct Config {
     /// then only where `activity_lights` puts them, or `"states"`. Both
     /// drivers.
     pub status_line_lights: baud_render::StatusLineLights,
+    /// `[window] activity_lights_colours`: which of the theme's sixteen
+    /// palette entries each light is lit in (`baud_render::LightsColours`),
+    /// `"meaning"` by default, `"iec"` or `"modem"`; every lamp is one of
+    /// the sixteen exactly, in the title strip and on the lights' line.
+    pub activity_lights_colours: baud_render::LightsColours,
+    /// `[window] activity_lights_glow`: how strongly a lit light glows, 0
+    /// to 1, 0.4 by default (`baud_render::Halo`); held to the range with
+    /// a notice, as the `[glass]` fractions are. Dim Flashing Lights draws
+    /// no glow whatever it says.
+    pub activity_lights_glow: f32,
     /// `[window] tearing`: whether the window may be shown torn for the
     /// least delay, `"off"` by default -- research decision D14, "an
     /// opt-in, never default" -- or `"on"`. Linux only, through the
@@ -1047,6 +1057,8 @@ impl Config {
             window_ops: baud_domain::WindowOps::On,
             activity_lights: lights_at(LightsSetting::System, Os::HERE).0,
             status_line_lights: baud_render::StatusLineLights::Off,
+            activity_lights_colours: baud_render::LightsColours::Meaning,
+            activity_lights_glow: baud_render::DEFAULT_GLOW,
             tearing: Tearing::Off,
             launch_splash: LaunchSplash::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
@@ -2036,6 +2048,20 @@ impl Config {
                         }
                     };
                 }
+                ("window", "activity_lights_colours") => {
+                    let name = value.trim().trim_matches('"');
+                    self.activity_lights_colours = baud_render::LightsColours::named(name)
+                        .unwrap_or_else(|| {
+                            said.push(format!(
+                                "config: [window] activity_lights_colours {name:?} is not \
+                                 meaning, iec or modem; using meaning"
+                            ));
+                            baud_render::LightsColours::Meaning
+                        });
+                }
+                ("window", "activity_lights_glow") => {
+                    self.activity_lights_glow = glow(&value, &mut said);
+                }
                 ("window", "tearing") => {
                     self.tearing = match value.trim().trim_matches('"') {
                         "on" => Tearing::On,
@@ -2549,6 +2575,28 @@ fn unit(value: &str, name: &str, said: &mut Vec<String>) -> f32 {
         let c = v.clamp(0.0, 1.0);
         said.push(format!(
             "config: glass {name} {v} is outside 0..1; using {c}"
+        ));
+        return c;
+    }
+    v
+}
+
+/// **`[window] activity_lights_glow` as written**: a fraction 0 to 1,
+/// clamped with a notice outside it, and the default with one where it is
+/// not a number -- `unit`'s rule for the `[glass]` fractions.
+fn glow(value: &str, said: &mut Vec<String>) -> f32 {
+    let raw = value.trim();
+    let d = baud_render::DEFAULT_GLOW;
+    let Ok(v) = raw.parse::<f32>() else {
+        said.push(format!(
+            "config: [window] activity_lights_glow {raw:?} is not a number; using {d}"
+        ));
+        return d;
+    };
+    if !(0.0..=1.0).contains(&v) {
+        let c = v.clamp(0.0, 1.0);
+        said.push(format!(
+            "config: [window] activity_lights_glow {v} is outside 0..1; using {c}"
         ));
         return c;
     }
@@ -4820,6 +4868,65 @@ mod reader {
         assert!(said[0].contains("[window] tearing"), "{said:?}");
         assert_eq!(read("tearing = \"on\"\n").tearing, Tearing::Off);
         assert_eq!(read("[screen]\ntearing = \"on\"\n").tearing, Tearing::Off);
+    }
+
+    /// **The lights' colours are the meaning set unless `[window]
+    /// activity_lights_colours` names another**: `"meaning"`, `"iec"` and
+    /// `"modem"`, quoted or bare, each its set; any other value keeps the
+    /// meaning set and says so, naming the three; and the key is the
+    /// `[window]` section's. Perturbation: default to `"iec"` and this goes
+    /// red.
+    #[test]
+    fn the_lights_colours_are_meaning_unless_another_set_is_named() {
+        use baud_render::LightsColours;
+        assert_eq!(
+            Config::defaults().activity_lights_colours,
+            LightsColours::Meaning
+        );
+        assert_eq!(read("").activity_lights_colours, LightsColours::Meaning);
+        for (text, want) in [
+            ("\"meaning\"", LightsColours::Meaning),
+            ("iec", LightsColours::Iec),
+            ("\"iec\"", LightsColours::Iec),
+            ("\"modem\"", LightsColours::Modem),
+        ] {
+            let cfg = format!("[window]\nactivity_lights_colours = {text}\n");
+            assert_eq!(read(&cfg).activity_lights_colours, want, "{text}");
+        }
+        let mut c = Config::defaults();
+        c.activity_lights_colours = LightsColours::Modem;
+        let said = c.apply("[window]\nactivity_lights_colours = \"orange\"\n");
+        assert_eq!(c.activity_lights_colours, LightsColours::Meaning);
+        assert_eq!(said.len(), 1, "{said:?}");
+        for word in ["activity_lights_colours", "meaning", "iec", "modem"] {
+            assert!(said[0].contains(word), "{said:?}");
+        }
+        assert_eq!(
+            read("activity_lights_colours = \"modem\"\n").activity_lights_colours,
+            LightsColours::Meaning,
+            "a key of [window] alone"
+        );
+    }
+
+    /// **The lights glow at `[window] activity_lights_glow`, 0.4 by
+    /// default, held to 0..1**: a fraction in the range is taken as it is,
+    /// one outside it is clamped and said, and one that is no number keeps
+    /// the default and is said -- the `[glass]` fractions' rule.
+    #[test]
+    fn the_lights_glow_is_held_to_zero_to_one() {
+        assert_eq!(Config::defaults().activity_lights_glow, 0.4);
+        assert_eq!(read("").activity_lights_glow, 0.4);
+        for (text, want) in [("0", 0.0), ("0.25", 0.25), ("1", 1.0), ("1.0", 1.0)] {
+            let cfg = format!("[window]\nactivity_lights_glow = {text}\n");
+            assert_eq!(read(&cfg).activity_lights_glow, want, "{text}");
+        }
+        for (text, want) in [("1.5", 1.0), ("-0.2", 0.0), ("\"bright\"", 0.4)] {
+            let mut c = Config::defaults();
+            let said = c.apply(&format!("[window]\nactivity_lights_glow = {text}\n"));
+            assert_eq!(c.activity_lights_glow, want, "{text}");
+            assert_eq!(said.len(), 1, "{said:?}");
+            assert!(said[0].contains("activity_lights_glow"), "{said:?}");
+        }
     }
 
     /// **DEC's line carries the state lights only under `[window]

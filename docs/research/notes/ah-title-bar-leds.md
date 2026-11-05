@@ -1813,3 +1813,47 @@ and read 4.12; over macOS's material that arm read 4.49 before and reads
   at 1x no letter pixel is wholly covered; the lift keeps no margin for
   the band's own eight bits; Dim Flashing Lights and DEC's status-line
   words are their own questions.
+
+## 16. Built: every lamp a palette entry, on a plate, in three sets
+
+Sections 14 and 15 lifted each lit colour until it read; this replaces
+both. **Every lamp, lit and unlit and an unread light's ring, is one of
+`Theme::palette[0..16]` exactly**, never lifted or mixed, in the title
+strip and on the line alike (`LightsLook::of`).
+
+- **The sets**, `[window] activity_lights_colours`, tables compiled in
+  (`LightsColours::entries`), by the half the background is against the
+  foreground: `"meaning"`, the default, dark HS 10, AA 11, CD 4, OH 6,
+  RD 2, SD 3, CS 1, FAX 5, SYN 13, light the same but AA 6, OH 12, SD 14;
+  `"iec"`, IEC 60073:2002's Tables 7 and 8 (not in `sources/`), HS and CD
+  2, CS 3, FAX and SYN 6, the rest 7; `"modem"`, every lamp 1.
+- **The plate**: a rounded rectangle of the theme's background, opaque,
+  4 pt past the end lights, 20 pt tall in the strip (radius 5), the line
+  less a point top and bottom (radius 4). Letters are the foreground,
+  lifted only under 4.5:1.
+- **Unlit**: a dot half the lit one's diameter (SC 1.4.1). In the meaning
+  set entry 8; in iec and modem 8 or 0, whichever is visible on the plate
+  and no louder than the quietest lit lamp, the more visible; else the
+  quieter visible one.
+- **The glow**: a halo of the lamp's colour from 1 pt off the dot to 3 pt,
+  `(1 - t)^1.6`, alpha 0.8 x `activity_lights_glow` (0..1, 0.4 default).
+  Dim Flashing Lights draws none and leaves the dot its entry.
+
+**Measured** (2x, the built code; `activity_lights.rs`, `lights_line.rs`):
+
+| theme | set | unlit | worst lit vs plate | worst lit vs letters |
+|---|---|---|---|---|
+| dark | meaning | 8, 4.75:1 | CD 4.50 | HS 1.04 |
+| dark | iec | 8, 4.75:1 | HS 8.82 | AA 1.13 |
+| dark | modem | 0, 1.10:1 | 4.50 | 2.97 |
+| light | meaning | 8, 6.09:1 | OH 6.13 | FAX 1.33 |
+| light | iec | 8, 6.09:1 | AA 4.57 | HS 2.12 |
+| light | modem | 8, 6.09:1 | 6.97 | 1.86 |
+
+Letters 13.35:1 dark, 12.99:1 light. Every full-coverage lamp pixel of
+the strip and the line's CPU frame is its entry, with moved-mask and
+mixed-colour controls; all nine changing at once flash 1,422 WCAG pixels
+at most, 6.5% of 21,824. On 234 base16 schemes (data, not a gate) the
+meaning set has all nine at 3:1 in 130 of 168 dark and 31 of 66 light.
+**Open**: the dark modem set's unlit lamp is entry 0, 1.10:1 on #101010,
+which the rule gives because entry 8 is louder than its red.

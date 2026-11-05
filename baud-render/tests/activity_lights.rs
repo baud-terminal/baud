@@ -1,424 +1,605 @@
-//! The activity lights: the pixels the title strip shows (`lights::draw`
-//! and `lights::draw_led`, the pixel oracle for a strip no GPU path draws
-//! -- each light is an image in a view of its own, not part of the grid's
-//! frame), and the clock that lights them (`Activity`), held to WCAG 2.2's
-//! three flashes a second, to showing everything it is told, and under
-//! Reduce Motion to one steady light while the activity lasts.
+//! The activity lights: the pixels the title strip shows (`lights::draw`,
+//! `lights::draw_led` and `lights::draw_plate`, the pixel oracle for a
+//! strip no GPU path draws -- each light is an image in a view of its own
+//! over the plate's view, not part of the grid's frame), every lamp one of
+//! the theme's sixteen palette entries exactly, and the clock that lights
+//! them (`Activity`), held to WCAG 2.2's three flashes a second, to showing
+//! everything it is told, and under Reduce Motion to one steady light
+//! while the activity lasts.
 
 mod support;
 
 use baud_domain::{Chan, HostTime};
 use baud_domain::{Cols, Rows};
-use baud_font::Face;
+use baud_font::{Face, Px};
 use baud_render::lights::{
-    DOT, Direction, GAP, PAIR, TEXT, draw, draw_led, full, layout, strip_colours, width,
+    DOT, GAP, HALO, HALO_GAP, LIT_CONTRAST, PAIR, PLATE_PAD, PLATE_RADIUS_TITLE, PLATE_TITLE, TEXT,
+    TEXT_CONTRAST, draw, draw_led, draw_plate, full, layout, ring_entry, unlit_entry, width,
 };
 use baud_render::{
-    Activity, Argb, Backdrop, Blend, ByLed, ByLight, GROUND_DARK, GROUND_LIGHT, Glow, Led, Light,
-    LightsImage, LightsLook, Pace, PxSize, READ_CEILING, Renderer, Shown, Stack, Theme,
+    AREA_LIMIT, Activity, Ansi, Argb, Backdrop, Blend, ByLed, ByLight, DEFAULT_GLOW, Glow, Half,
+    Halo, Led, Light, LightsColours, LightsImage, LightsLook, PIXELS_A_POINT, Pace, PxSize,
+    READ_CEILING, Renderer, Shown, Stack, Theme, contrast_over,
 };
 use core::time::Duration;
 use support::font;
 
-const GREEN: Argb = Argb(0xFF_30_D1_58);
-const ORANGE: Argb = Argb(0xFF_FF_92_30);
-const BLUE: Argb = Argb(0xFF_00_91_FF);
-const LABEL: Argb = Argb(0x8C_FF_FF_FF);
+/// The title strip's height in points, as the window's is.
+const STRIP: f32 = 28.0;
 
-/// The three colours by direction, as the macOS window resolves them.
-fn colours() -> ByLed<Argb> {
-    ByLed::of(|l| match l {
-        Led::Rd | Led::Hs => GREEN,
-        Led::Sd | Led::Aa | Led::Cs => ORANGE,
-        Led::Cd | Led::Oh | Led::Fax | Led::Syn => BLUE,
-    })
-}
-
-/// AppKit's colours for the lights under one appearance, as
-/// `baud_present_macos::lights::colours` resolves them headless on this
-/// Mac -- green, orange and blue, and the secondary label colour --
-/// with the strip's ground and greys over the standard material.
-struct AppKit {
-    name: &'static str,
-    in_out_state: [Argb; 3],
-    label: Argb,
-    ground: Argb,
-    backdrop: Backdrop,
-    /// The dark lamps as the strip drew them before its lit colours were
-    /// lifted, in, out and state.
-    lamps: [Argb; 3],
-}
-
-impl AppKit {
-    fn lit(&self) -> ByLed<Argb> {
-        let [i, o, s] = self.in_out_state;
-        ByLed::of(|l| match l.direction() {
-            Direction::In => i,
-            Direction::Out => o,
-            Direction::State => s,
-        })
-    }
-}
-
-fn appkit() -> [AppKit; 4] {
-    let (dark, light) = (
-        Backdrop::under_window_dark(),
-        Backdrop::under_window_light(),
-    );
-    [
-        AppKit {
-            name: "dark",
-            in_out_state: [GREEN, ORANGE, BLUE],
-            label: LABEL,
-            ground: GROUND_DARK,
-            backdrop: dark,
-            lamps: [
-                Argb(0xFF_37_69_43),
-                Argb(0xFF_78_56_37),
-                Argb(0xFF_28_55_78),
-            ],
-        },
-        AppKit {
-            name: "light",
-            in_out_state: [
-                Argb(0xFF_34_C7_59),
-                Argb(0xFF_FF_8D_28),
-                Argb(0xFF_00_88_FF),
-            ],
-            label: Argb(0x7F_00_00_00),
-            ground: GROUND_LIGHT,
-            backdrop: light,
-            lamps: [
-                Argb(0xFF_A7_D5_B3),
-                Argb(0xFF_E7_C3_A4),
-                Argb(0xFF_97_C2_E7),
-            ],
-        },
-        AppKit {
-            name: "dark, Increase Contrast",
-            in_out_state: [
-                Argb(0xFF_4A_D9_68),
-                Argb(0xFF_FF_A0_56),
-                Argb(0xFF_5C_B8_FF),
-            ],
-            label: Argb(0xB2_FF_FF_FF),
-            ground: GROUND_DARK,
-            backdrop: dark,
-            lamps: [
-                Argb(0xFF_3F_6C_48),
-                Argb(0xFF_78_5A_43),
-                Argb(0xFF_45_62_78),
-            ],
-        },
-        AppKit {
-            name: "light, Increase Contrast",
-            in_out_state: [Argb(0xFF00_8932), Argb(0xFF_C5_53_00), Argb(0xFF_1E_6E_F4)],
-            label: Argb(0xC1_00_00_00),
-            ground: GROUND_LIGHT,
-            backdrop: light,
-            lamps: [
-                Argb(0xFF_97_C2_A7),
-                Argb(0xFF_D5_B1_97),
-                Argb(0xFF_A0_B9_E4),
-            ],
-        },
+/// The built-in themes, and xterm's sixteen on a black and on a white
+/// page, the theme a palette file that names only them gives.
+fn themes() -> Vec<(&'static str, Theme)> {
+    let xterm = |fg: u32, bg: u32| {
+        let mut t = Theme::dark();
+        t.palette = baud_render::xterm_palette();
+        (t.fg, t.bg) = (Argb(fg), Argb(bg));
+        t
+    };
+    vec![
+        ("dark", Theme::dark()),
+        ("light", Theme::light()),
+        ("xterm on black", xterm(0xFF_FF_FF_FF, 0xFF_00_00_00)),
+        ("xterm on white", xterm(0xFF_00_00_00, 0xFF_FF_FF_FF)),
     ]
+}
+
+fn look_of(theme: &Theme, set: LightsColours, glow: Glow, halo: Halo) -> LightsLook {
+    LightsLook::of(&theme.palette, theme.fg, theme.bg, set, glow, halo)
+}
+
+/// The default look: the dark theme in the meaning set, glowing.
+fn look() -> LightsLook {
+    look_of(
+        &Theme::dark(),
+        LightsColours::Meaning,
+        Glow::Full,
+        Halo::default(),
+    )
+}
+
+/// Where `a` sits in the palette's sixteen.
+fn index(a: Ansi) -> usize {
+    Ansi::ALL.iter().position(|&x| x == a).unwrap()
+}
+
+/// The sixteen entries of `theme`, opaque.
+fn sixteen(theme: &Theme) -> Vec<Argb> {
+    Ansi::ALL.iter().map(|a| a.of(&theme.palette)).collect()
 }
 
 /// WCAG 2.2's contrast ratio of two opaque colours.
 fn ratio(a: Argb, b: Argb) -> f64 {
-    let (x, y) = (luminance(a), luminance(b));
-    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    contrast_over(a, b, Chan::from_u8(0xFF), Backdrop::any())
 }
 
-/// **Over the standard material every lit light reads at 3:1 against
-/// every grey the strip can be, and the letters at 4.5:1**, under all four
-/// of AppKit's appearances: WCAG 2.2's SC 1.4.11 for a component's state
-/// and SC 1.4.3 for 8 point text (`[[source: wcag22]]`). Each light keeps
-/// its hue -- green the most of its channels, orange red over green over
-/// blue, blue the most -- and a colour that already reads is AppKit's own.
-/// The control: AppKit's colours as they come read under 3:1 against some
-/// grey in three of the four appearances, and the letters under 4.5:1 in
-/// three. Perturbation: return `lit` and `label` from `strip_colours`
-/// unlifted, or lift to 2.9, and this goes red.
-#[test]
-fn every_lit_light_on_the_standard_material_reads_at_three_to_one() {
-    let (mut short_lit, mut short_text) = (0, 0);
-    for a in appkit() {
-        let (lit, letters) = strip_colours(a.lit(), a.label, a.ground, a.backdrop);
-        let worst = |c: Argb| {
-            a.backdrop
-                .greys()
-                .map(|g| ratio(c, g))
-                .fold(f64::MAX, f64::min)
-        };
-        for led in Led::ALL {
-            let (c, asked) = (*lit.get(led), *a.lit().get(led));
-            assert!(
-                worst(c) >= 3.0,
-                "{} {led:?}: {c:?} at {:.3}",
-                a.name,
-                worst(c)
-            );
-            assert_eq!(c.a().get(), 0xFF, "{} {led:?} opaque", a.name);
-            let (r, g, b) = (c.r().get(), c.g().get(), c.b().get());
-            match led.direction() {
-                Direction::In => assert!(g > r && g > b, "{} {led:?} {c:?} green", a.name),
-                Direction::Out => assert!(r > g && g > b, "{} {led:?} {c:?} orange", a.name),
-                Direction::State => assert!(b > g && g > r, "{} {led:?} {c:?} blue", a.name),
-            }
-            if worst(asked) >= 3.0 {
-                assert_eq!(c, asked, "{} {led:?}: already reads, kept", a.name);
-            }
-        }
-        short_lit += usize::from(Led::ALL.iter().any(|&l| worst(*a.lit().get(l)) < 3.0));
-        assert!(
-            worst(letters) >= 4.5,
-            "{} letters {letters:?} at {:.3}",
-            a.name,
-            worst(letters)
-        );
-        let drawn = |g: Argb| on(a.label, g);
-        let asked = a
-            .backdrop
-            .greys()
-            .map(|g| ratio(drawn(g), g))
-            .fold(f64::MAX, f64::min);
-        short_text += usize::from(asked < 4.5);
+/// A straight-alpha `src` over `dst`, as a view composites its picture
+/// over what is under it.
+fn over(dst: Argb, src: Argb) -> Argb {
+    let sa = f64::from(src.a().get()) / 255.0;
+    let da = f64::from(dst.a().get()) / 255.0;
+    let oa = sa + da * (1.0 - sa);
+    if oa <= 0.0 {
+        return Argb(0);
     }
-    assert_eq!(
-        short_lit, 3,
-        "the control: AppKit's own fall short in three"
-    );
-    assert_eq!(
-        short_text, 3,
-        "the control: AppKit's letters fall short in three"
-    );
-}
-
-/// **Each dark lamp is the one the strip drew before its lit colours
-/// were lifted**, byte for byte: the system colour, unlifted, mixed into
-/// the strip's ground, under all four of AppKit's appearances, pinned from
-/// the strip as it was drawn; and the lit colour is not the lamp's own
-/// where it was lifted, the control. Perturbation: mix the dark lamp from
-/// the lifted colour and this goes red.
-#[test]
-fn each_dark_lamp_is_the_system_colours() {
-    let mut lifted = 0;
-    for a in appkit() {
-        let (lit, letters) = strip_colours(a.lit(), a.label, a.ground, a.backdrop);
-        for glow in [Glow::Full, Glow::Dimmed] {
-            let look = LightsLook::new(lit, a.lit(), letters, a.ground, glow, a.backdrop);
-            for led in Led::ALL {
-                let want = a.lamps[match led.direction() {
-                    Direction::In => 0,
-                    Direction::Out => 1,
-                    Direction::State => 2,
-                }];
-                assert_eq!(*look.dark.get(led), want, "{} {glow:?} {led:?}", a.name);
-            }
-        }
-        lifted += Led::ALL
-            .iter()
-            .filter(|&&l| lit.get(l) != a.lit().get(l))
-            .count();
-    }
-    assert!(lifted > 0, "the control: some lit colour was lifted");
-}
-
-fn look() -> LightsLook {
-    LightsLook::new(
-        colours(),
-        colours(),
-        LABEL,
-        GROUND_DARK,
-        Glow::Full,
-        Backdrop::under_window_dark(),
+    let ch = |s: Chan, d: Chan| {
+        let v = (f64::from(s.get()) * sa + f64::from(d.get()) * da * (1.0 - sa)) / oa;
+        Chan::from_unit((v / 255.0) as f32)
+    };
+    Argb::rgb(
+        ch(src.r(), dst.r()),
+        ch(src.g(), dst.g()),
+        ch(src.b(), dst.b()),
     )
+    .with_alpha(Chan::from_unit(oa as f32))
 }
 
-/// A whole pixel count from a length in pixels, truncated.
-fn px(v: f32) -> u32 {
-    u32::try_from(v as i64).unwrap()
+/// A picture as rows of its pixels' slice.
+fn at_xy(img: &LightsImage, x: u32, y: u32) -> Argb {
+    img.pixels[usize::try_from(y * img.width.value() + x).unwrap()]
 }
 
-fn at(img: &LightsImage, x: f32, y: f32) -> Argb {
-    img.pixels[usize::try_from(px(y) * img.width.value() + px(x)).unwrap()]
+/// **The title strip as the window shows it**: the plate's picture, the
+/// strip's width and its pad at each end and [`PLATE_TITLE`] tall, centred
+/// in the strip, and each light's picture at its slot over it; the canvas
+/// is the plate's width and the strip's height, the lights `pad` in.
+fn title(face: &Face<'_>, look: &LightsLook, shown: Shown, scale: f32) -> (LightsImage, u32) {
+    let (at, w) = layout(face, scale).unwrap();
+    let px = |pt: f32| u32::try_from((pt * scale).round() as i64).unwrap();
+    let (pad, h) = (px(PLATE_PAD), px(STRIP));
+    let cw = w.value() + 2 * pad;
+    let mut canvas = vec![Argb(0); usize::try_from(cw * h).unwrap()];
+    let mut plate = LightsImage::new();
+    let ph = px(PLATE_TITLE);
+    draw_plate(
+        look,
+        Px::of(cw),
+        Px::of(ph),
+        PLATE_RADIUS_TITLE * scale,
+        &mut plate,
+    )
+    .unwrap();
+    let top = (h - ph) / 2;
+    for y in 0..ph {
+        for x in 0..cw {
+            let i = usize::try_from((top + y) * cw + x).unwrap();
+            canvas[i] = over(canvas[i], at_xy(&plate, x, y));
+        }
+    }
+    for (led, &light) in shown.iter() {
+        let mut one = LightsImage::new();
+        draw_led(face, look, led, light, scale, STRIP, &mut one).unwrap();
+        let x0 = pad + at.get(led).start.value();
+        for y in 0..one.height.value() {
+            for x in 0..one.width.value() {
+                let i = usize::try_from(y * cw + x0 + x).unwrap();
+                canvas[i] = over(canvas[i], at_xy(&one, x, y));
+            }
+        }
+    }
+    let img = LightsImage {
+        width: Px::of(cw),
+        height: Px::of(h),
+        pixels: canvas,
+    };
+    (img, pad)
 }
 
-/// A light's centre in its own picture, in device pixels, laid out by
-/// hand: JetBrains Mono's advance is 600 of 1000 units, so two letters at 8
-/// pt are 9.6 pt and three 14.4, then the 3 pt gap and half the light.
-fn centre(led: Led, img: &LightsImage, scale: f32) -> (f32, f32) {
-    let letters = 0.6 * TEXT * led.letters().len() as f32;
-    let h = img.height.value() as f32 / 2.0;
-    ((letters + GAP + DOT / 2.0) * scale, h)
-}
-
-/// The colour, and the alpha a disc's inside reaches: the rasteriser's sum
-/// can leave it a step short of 255.
-fn same(p: Argb, c: Argb) -> bool {
-    (p.r(), p.g(), p.b()) == (c.r(), c.g(), c.b()) && p.a().get() >= 0xFE
-}
-
-/// Whether any pixel in columns `from..to` and rows `rows` is the label's
-/// colour.
-fn ink(img: &LightsImage, from: f32, to: f32, rows: core::ops::Range<u32>) -> bool {
-    (px(from)..px(to)).any(|x| {
-        rows.clone().any(|y| {
-            let p = img.pixels[usize::try_from(y * img.width.value() + x).unwrap()];
-            p.a().get() > 0 && (p.r(), p.g(), p.b()) == (LABEL.r(), LABEL.g(), LABEL.b())
+/// **A light's lamp pixels at full coverage**, in its own picture: where
+/// its dot, its half-size dot or its ring covers the pixel wholly, found
+/// by drawing it with no letters and no glow, and the colour each must be.
+fn lamp_mask(
+    face: &Face<'_>,
+    look: &LightsLook,
+    led: Led,
+    light: Light,
+    scale: f32,
+    height: f32,
+) -> (Vec<(u32, u32)>, Argb) {
+    let bare = LightsLook {
+        label: Argb(0),
+        glow: Glow::Dimmed,
+        ..*look
+    };
+    let mut img = LightsImage::new();
+    draw_led(face, &bare, led, light, scale, height, &mut img).unwrap();
+    let want = match light {
+        Light::Lit => *look.lit.get(led),
+        Light::Dark => look.unlit,
+        Light::Unread => look.ring,
+    };
+    let w = img.width.value();
+    let pts = (0..img.pixels.len())
+        .filter(|&i| img.pixels[i].a().get() == 0xFF)
+        .map(|i| {
+            let i = u32::try_from(i).unwrap();
+            (i % w, i / w)
         })
-    })
+        .collect();
+    (pts, want)
 }
 
-/// **Each light shows its state in its own colour, and its letters sit to
-/// its left**: at 1x and 2x, for each of the nine and each state, a lit
-/// light's centre is its lit colour and a dark one's its dark colour; an
-/// unread one is a ring, its centre clear and its edge the letters'
-/// colour; the letters put ink left of the light and none right of it;
-/// only CS has ink above its letters' caps, its bar; the picture is its
-/// slot's width and the strip's height.
+/// What a scan of the full-coverage lamp pixels found: every pixel it
+/// read, those that were not the colour they must be, and those that were
+/// none of the theme's sixteen.
+#[derive(Default, Debug)]
+struct Scan {
+    read: Vec<Argb>,
+    wrong: Vec<Argb>,
+    foreign: Vec<Argb>,
+}
+
+/// **Scan the title strip's lamps**: every full-coverage lamp pixel of
+/// every light at `shown`, `shift` pixels right of where it is, against the
+/// colour it must be and against the theme's sixteen.
+fn scan_title(
+    face: &Face<'_>,
+    theme: &Theme,
+    look: &LightsLook,
+    shown: Shown,
+    scale: f32,
+    shift: Px,
+) -> Scan {
+    let (img, pad) = title(face, look, shown, scale);
+    let (at, _) = layout(face, scale).unwrap();
+    let ours = sixteen(theme);
+    let mut s = Scan::default();
+    for (led, &light) in shown.iter() {
+        let (pts, want) = lamp_mask(face, look, led, light, scale, STRIP);
+        let x0 = pad + at.get(led).start.value() + shift.value();
+        for (x, y) in pts {
+            let p = at_xy(&img, x0 + x, y);
+            s.read.push(p);
+            if p != want {
+                s.wrong.push(p);
+            }
+            if !ours.contains(&p) {
+                s.foreign.push(p);
+            }
+        }
+    }
+    s
+}
+
+/// **Every full-coverage lamp pixel of the title strip is exactly the
+/// palette entry its set gives it, and one of the theme's sixteen**: for
+/// every set, the built-in themes and xterm's sixteen on black and on
+/// white, every state, both glows and the default and strongest halo, at
+/// 1x and 2x, on the plate as the window shows it. The controls: the same
+/// scan with its mask moved 40 pixels finds pixels that are not the lamp's
+/// colour, and a look whose lit colours are lifted off the palette -- the
+/// lift this replaced -- finds pixels that are none of the sixteen, so the
+/// scan can fire. Perturbation: draw a lamp at 254 of 255 coverage, or mix
+/// the unlit lamp into the plate, and this goes red.
 #[test]
-fn each_light_is_drawn_in_its_state_with_its_letters_to_the_left() {
-    let mono = font("JetBrainsMono-Regular.ttf");
-    let face = Face::parse(&mono).unwrap();
-    for scale in [1.0_f32, 2.0] {
-        let (slots, _) = layout(&face, scale).unwrap();
-        for led in Led::ALL {
-            for light in Light::ALL {
-                let mut img = LightsImage::new();
-                draw_led(&face, &look(), led, light, scale, 28.0, &mut img).unwrap();
-                assert_eq!(img.height.value(), px(28.0 * scale));
-                assert_eq!(img.width, slots.get(led).width, "{led:?}");
-                let (cx, cy) = centre(led, &img, scale);
-                let p = at(&img, cx, cy);
-                match light {
-                    Light::Lit => assert!(same(p, *look().lit.get(led)), "{led:?} {p:?}"),
-                    Light::Dark => assert!(same(p, *look().dark.get(led)), "{led:?} {p:?}"),
-                    Light::Unread => {
-                        assert_eq!(p.a().get(), 0, "{led:?} at {scale}x: a ring's centre");
-                        let edge = at(&img, cx + (DOT / 2.0 - 0.6) * scale, cy);
-                        assert!(
-                            (edge.r(), edge.g(), edge.b()) == (LABEL.r(), LABEL.g(), LABEL.b())
-                                && edge.a().get() > 0,
-                            "{led:?} at {scale}x: the ring {edge:?}"
-                        );
+fn every_lamp_pixel_on_the_title_strip_is_its_palette_entry() {
+    let bold = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Bold.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let face = Face::parse(&bold).unwrap();
+    let mut read = 0;
+    for (name, theme) in themes() {
+        for set in LightsColours::ALL {
+            for glow in [Glow::Full, Glow::Dimmed] {
+                for halo in [Halo::default(), Halo::of(1.0)] {
+                    let look = look_of(&theme, set, glow, halo);
+                    for light in Light::ALL {
+                        for scale in [1.0_f32, 2.0] {
+                            let s = scan_title(
+                                &face,
+                                &theme,
+                                &look,
+                                Shown::all(light),
+                                scale,
+                                Px::of(0),
+                            );
+                            assert_eq!(
+                                (&s.wrong[..], &s.foreign[..]),
+                                (&[][..], &[][..]),
+                                "{name} {set:?} {glow:?} {light:?} {scale}x"
+                            );
+                            read += s.read.len();
+                        }
                     }
                 }
-                let left = cx - DOT * scale / 2.0;
-                let all = 0..img.height.value();
-                assert!(ink(&img, 0.0, left, all.clone()), "{led:?}'s letters");
-                assert!(
-                    !ink(
-                        &img,
-                        cx + DOT * scale / 2.0 + 1.0,
-                        img.width.value() as f32,
-                        all
-                    ),
-                    "{led:?}: nothing right of the light"
-                );
-                // Above the caps: the letters' caps are centred on the
-                // light, 0.73 of 8 pt tall.
-                let caps_top = cy - 0.73 * TEXT * scale / 2.0;
-                let bar = ink(&img, 0.0, left, 0..px(caps_top - 0.2 * scale));
-                assert_eq!(bar, led == Led::Cs, "{led:?} at {scale}x: the bar");
-                assert_eq!(at(&img, 0.0, 0.0).a().get(), 0, "the strip shows through");
             }
+            // The controls, at 2x lit.
+            let look = look_of(&theme, set, Glow::Full, Halo::default());
+            let moved = scan_title(
+                &face,
+                &theme,
+                &look,
+                Shown::all(Light::Lit),
+                2.0,
+                Px::of(40),
+            );
+            assert!(
+                !moved.wrong.is_empty(),
+                "{name} {set:?}: the moved mask fires"
+            );
         }
+        let lifted = LightsLook {
+            lit: ByLed::of(|_| theme.palette[2].mix(Argb(0xFF_FF_FF_FF), Chan::from_u8(200))),
+            ..look_of(&theme, LightsColours::Meaning, Glow::Full, Halo::default())
+        };
+        let s = scan_title(
+            &face,
+            &theme,
+            &lifted,
+            Shown::all(Light::Lit),
+            2.0,
+            Px::of(0),
+        );
+        assert!(!s.foreign.is_empty(), "{name}: the lifted control fires");
     }
+    assert!(read > 50_000, "the scan read the lamps, {read}");
 }
 
-/// **The strip is its lights side by side**: the slots run left to right
-/// in the 1988 Courier manual's order, a light's gap apart and never
-/// overlapping, the last ending at the strip's width, which `width` gives
-/// in points; and every pixel of the strip drawn at a state is the pixel
-/// of that light's own picture at its slot, so the views placed by the
-/// layout show the strip this file tests. Nine lights at 2x are 516 pixels
-/// wide.
+/// **The three sets are the tables they say, and the default is
+/// meaning**: each light's entry in each set on each half, pinned to the
+/// numbers the sets are defined by; the config's names; and a renderer
+/// that was told nothing draws the meaning set, on the dark theme its
+/// dark half and on the light theme its light one. Perturbation: default
+/// to `Iec`, or give the light half the dark half's yellow, and this goes
+/// red.
 #[test]
-fn the_strip_is_its_lights_side_by_side() {
-    let mono = font("JetBrainsMono-Regular.ttf");
-    let face = Face::parse(&mono).unwrap();
+fn the_sets_are_their_tables_and_meaning_is_the_default() {
+    let nums = |set: LightsColours, half| Led::ALL.map(|l| index(*set.entries(half).get(l)));
+    use LightsColours::{Iec, Meaning, Modem};
+    assert_eq!(nums(Meaning, Half::Dark), [10, 11, 4, 6, 2, 3, 1, 5, 13]);
+    assert_eq!(nums(Meaning, Half::Light), [10, 6, 4, 12, 2, 14, 1, 5, 13]);
+    for half in [Half::Dark, Half::Light] {
+        assert_eq!(nums(Iec, half), [2, 7, 2, 7, 7, 7, 3, 6, 6]);
+        assert_eq!(nums(Modem, half), [1; 9]);
+    }
+    assert_eq!(LightsColours::default(), Meaning);
     assert_eq!(
-        Led::ALL.map(Led::letters),
-        ["HS", "AA", "CD", "OH", "RD", "SD", "CS", "FAX", "SYN"]
+        LightsColours::ALL.map(LightsColours::name),
+        ["meaning", "iec", "modem"]
     );
-    for scale in [1.0_f32, 2.0] {
-        let (slots, w) = layout(&face, scale).unwrap();
-        let mut end = 0;
-        for led in Led::ALL {
-            let s = slots.get(led);
-            assert!(s.start.value() >= end, "{led:?} after the last");
-            if led != Led::Hs {
-                assert!(s.start.value() - end >= px((PAIR - 1.0) * scale), "{led:?}");
-            }
-            end = s.start.value() + s.width.value();
-        }
-        assert_eq!(end, w.value());
-        assert!((w.value() as f32 - width(&face) * scale).abs() <= 1.0);
-        let shown = ByLed::of(|l| match l {
-            Led::Hs | Led::Oh | Led::Sd | Led::Fax => Light::Lit,
-            Led::Cd => Light::Unread,
-            _ => Light::Dark,
-        });
-        let mut strip = LightsImage::new();
-        draw(&face, &look(), shown, scale, 28.0, &mut strip).unwrap();
-        assert_eq!(strip.width, w);
-        for led in Led::ALL {
-            let mut one = LightsImage::new();
-            draw_led(&face, &look(), led, *shown.get(led), scale, 28.0, &mut one).unwrap();
-            let x0 = slots.get(led).start.value();
-            for y in 0..one.height.value() {
-                for x in 0..one.width.value() {
-                    let a = one.pixels[usize::try_from(y * one.width.value() + x).unwrap()];
-                    let b = strip.pixels[usize::try_from(y * w.value() + x0 + x).unwrap()];
-                    assert_eq!(a, b, "{led:?} at ({x}, {y}), {scale}x");
-                }
-            }
-        }
+    for set in LightsColours::ALL {
+        assert_eq!(LightsColours::named(set.name()), Some(set));
     }
-    let (_, w) = layout(&face, 2.0).unwrap();
-    assert_eq!(w.value(), 516);
-}
-
-/// **The renderer draws the strip in the badge's face**: the same pixels as
-/// `draw` and `draw_led` over that face, and the same layout, so the window
-/// shows what this file tests.
-#[test]
-fn the_renderer_draws_the_strip_the_oracle_holds() {
+    assert_eq!(LightsColours::named("orange"), None);
     let mono = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&mono).unwrap()];
-    let r = Renderer::new(
-        Stack::new(&faces).unwrap(),
+    for (theme, half) in [(Theme::dark(), Half::Dark), (Theme::light(), Half::Light)] {
+        assert_eq!(Half::of(theme.fg, theme.bg), half);
+        let r = renderer(&faces, theme.clone());
+        let lit = r.lights_look(Glow::Full).lit;
+        let want = ByLed::of(|l| Meaning.entries(half).get(l).of(&theme.palette));
+        assert_eq!(lit, want, "{half:?}");
+    }
+}
+
+fn renderer<'f, 'a>(faces: &'f [Face<'a>], theme: Theme) -> Renderer<'f, 'a> {
+    Renderer::new(
+        Stack::new(faces).unwrap(),
         PxSize::of(28.0).unwrap(),
-        Theme::dark(),
+        theme,
         Blend::Native,
         Cols::of_index(6),
         Rows::of_index(2),
     )
-    .unwrap();
-    let shown = ByLed {
-        rd: Light::Lit,
-        cd: Light::Unread,
-        ..Shown::DARK
-    };
-    let (mut a, mut b) = (LightsImage::new(), LightsImage::new());
-    r.activity_lights(&look(), shown, 2.0, 28.0, &mut a)
-        .unwrap();
-    draw(&faces[0], &look(), shown, 2.0, 28.0, &mut b).unwrap();
-    assert_eq!(a, b);
-    for led in Led::ALL {
-        r.activity_light(&look(), led, Light::Lit, 2.0, 28.0, &mut a)
-            .unwrap();
-        draw_led(&faces[0], &look(), led, Light::Lit, 2.0, 28.0, &mut b).unwrap();
-        assert_eq!(a, b, "{led:?}");
-    }
-    assert_eq!(r.activity_lights_width(), width(&faces[0]));
-    assert_eq!(r.activity_lights_layout(2.0), layout(&faces[0], 2.0));
+    .unwrap()
 }
 
-/// WCAG's relative luminance of an opaque colour.
+/// **The unlit lamp is 8 in the meaning set, and 8 or 0 by the plate in
+/// the other two**: whichever of the two is at rest -- visible against
+/// the plate and no louder than the quietest lit lamp -- the more
+/// visible; else the quieter visible one. On the dark theme the IEC set's
+/// quietest lamp, green 2 at 8.8:1, leaves 8 at rest, and the modem set's
+/// red at 4.5:1 does not, so the unlit lamp is 0; a theme whose entry 0
+/// is its background gives 8. The meaning set's is 8 there although its
+/// blue CD is quieter than 8. The ring is the entry the foreground is,
+/// else 7. Perturbations: always take 8, and the modem set's unlit lamp
+/// is louder than its lit ones; take the meaning set's by the plate, and
+/// the default look's is 0.
+#[test]
+fn the_unlit_lamp_is_eight_or_zero_by_the_plate() {
+    let dark = Theme::dark();
+    let plate = dark.bg;
+    let lit = |set: LightsColours| ByLed::of(|l| set.entries(Half::Dark).get(l).of(&dark.palette));
+    assert_eq!(
+        unlit_entry(&dark.palette, plate, &lit(LightsColours::Iec)),
+        Ansi::BrightBlack
+    );
+    assert_eq!(
+        unlit_entry(&dark.palette, plate, &lit(LightsColours::Modem)),
+        Ansi::Black
+    );
+    assert_eq!(
+        look_of(&dark, LightsColours::Meaning, Glow::Full, Halo::default()).unlit,
+        dark.palette[8],
+        "the default look's unlit lamp is 8 whatever its lit ones"
+    );
+    assert_eq!(
+        look_of(&dark, LightsColours::Modem, Glow::Full, Halo::default()).unlit,
+        dark.palette[0],
+        "the modem set's look takes its entry by the plate"
+    );
+    let mut same = Theme::dark();
+    same.palette[0] = same.bg;
+    assert_eq!(
+        unlit_entry(&same.palette, same.bg, &lit(LightsColours::Modem)),
+        Ansi::BrightBlack,
+        "an entry 0 that is the plate is not visible"
+    );
+    for (name, theme) in themes() {
+        for set in LightsColours::ALL {
+            let look = look_of(&theme, set, Glow::Full, Halo::default());
+            assert!(
+                [Ansi::Black, Ansi::BrightBlack]
+                    .iter()
+                    .any(|a| a.of(&theme.palette) == look.unlit),
+                "{name} {set:?}"
+            );
+        }
+    }
+    assert_eq!(
+        ring_entry(&dark.palette, dark.fg),
+        Ansi::White,
+        "#D8D8D8 is no entry"
+    );
+    let mut fg = Theme::dark();
+    fg.fg = fg.palette[15];
+    assert_eq!(ring_entry(&fg.palette, fg.fg), Ansi::BrightWhite);
+}
+
+/// The widest run of pixels at least half covered, in the row through a
+/// light's centre, from its picture drawn with no letters and no glow.
+fn dot_width(face: &Face<'_>, light: Light, scale: f32) -> u32 {
+    let bare = LightsLook {
+        label: Argb(0),
+        glow: Glow::Dimmed,
+        ..look()
+    };
+    let mut img = LightsImage::new();
+    draw_led(face, &bare, Led::Rd, light, scale, STRIP, &mut img).unwrap();
+    let y = img.height.value() / 2;
+    (0..img.width.value())
+        .filter(|&x| at_xy(&img, x, y).a().get() >= 0x80)
+        .count()
+        .try_into()
+        .unwrap()
+}
+
+/// **An unlit lamp is a dot half the lit one's diameter**, so lit and
+/// unlit differ by size as well as colour and the state reads without
+/// it: WCAG 2.2's SC 1.4.1, "Color is not used as the only visual means
+/// of conveying information ... indicating an action, prompting a
+/// response, or distinguishing a visual element" (`[[source: wcag22]]`).
+/// At 1x, 2x and 3x the lit dot is the 7-point light across and the unlit
+/// one half of it, to a pixel; both centred on the same point.
+/// Perturbation: draw the unlit lamp at the lit one's radius and this goes
+/// red.
+#[test]
+fn the_unlit_lamp_is_half_the_lit_ones_diameter() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let face = Face::parse(&mono).unwrap();
+    for scale in [1.0_f32, 2.0, 3.0] {
+        let (lit, dark) = (
+            dot_width(&face, Light::Lit, scale),
+            dot_width(&face, Light::Dark, scale),
+        );
+        let d = DOT * scale;
+        assert!((lit as f32 - d).abs() <= 1.0, "{scale}x lit {lit} of {d}");
+        assert!(
+            (dark as f32 - d / 2.0).abs() <= 1.0,
+            "{scale}x unlit {dark} of {}",
+            d / 2.0
+        );
+        assert!((2 * dark).abs_diff(lit) <= 2, "{scale}x: {dark} of {lit}");
+    }
+}
+
+/// **The plate is the theme's background, exactly, and the lamps read on
+/// it**: every pixel of the title strip's plate that no light's picture
+/// touches is the theme's background, opaque, in every set; every lit
+/// lamp reads at 3:1 against it ([`LIT_CONTRAST`], SC 1.4.11) and the
+/// letters at 4.5:1 ([`TEXT_CONTRAST`], SC 1.4.3) on the built-in themes.
+/// The letters are the theme's foreground, which reads there as it is.
+/// Perturbation: fill the plate with the page at its alpha, or lift it,
+/// and this goes red.
+#[test]
+fn the_plate_is_the_background_and_the_lamps_read_on_it() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let face = Face::parse(&mono).unwrap();
+    for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+        for set in LightsColours::ALL {
+            let look = look_of(&theme, set, Glow::Full, Halo::default());
+            assert_eq!(look.plate, theme.bg.with_alpha(Chan::from_u8(0xFF)));
+            assert_eq!(look.label, theme.fg, "{name}: the foreground as it is");
+            let (img, pad) = title(&face, &look, Shown::all(Light::Lit), 2.0);
+            let mut bare = img.clone();
+            bare.pixels.fill(Argb(0));
+            let (blank, _) = title(
+                &face,
+                &LightsLook {
+                    lit: ByLed::of(|_| Argb(0)),
+                    unlit: Argb(0),
+                    ring: Argb(0),
+                    label: Argb(0),
+                    ..look
+                },
+                Shown::all(Light::Lit),
+                2.0,
+            );
+            let mut plate = 0;
+            for (i, (&p, &b)) in img.pixels.iter().zip(&blank.pixels).enumerate() {
+                if b.a().get() == 0xFF && p == b {
+                    plate += 1;
+                    assert_eq!(p, look.plate, "{name} {set:?}: pixel {i}");
+                }
+            }
+            assert!(plate > 2000, "{name} {set:?}: the plate's inside, {plate}");
+            let _ = pad;
+            for led in Led::ALL {
+                let c = ratio(*look.lit.get(led), look.plate);
+                assert!(c >= LIT_CONTRAST, "{name} {set:?} {led:?}: {c:.2}");
+            }
+            let c = ratio(look.label, look.plate);
+            assert!(c >= TEXT_CONTRAST, "{name}: letters {c:.2}");
+        }
+    }
+}
+
+/// **The glow's strength is 0 to 1, 0.4 by default, starting a point off
+/// the dot**: `Halo::of` holds its strength to the range, 1 is a halo of
+/// 0.8 where it starts and 0 none; at the strongest no pixel nearer the
+/// dot's edge than [`HALO_GAP`] is touched, so the dot reads against the
+/// plate as with no glow, and pixels past it are; at 0 the lit picture is
+/// the picture under Dim Flashing Lights. Perturbation: start the halo at
+/// the dot's edge and this goes red.
+#[test]
+fn the_glow_is_held_to_its_range_and_starts_off_the_dot() {
+    assert_eq!(DEFAULT_GLOW, 0.4);
+    assert_eq!(Halo::default(), Halo::of(0.4));
+    assert_eq!(Halo::of(-1.0), Halo::of(0.0));
+    assert_eq!(Halo::of(7.0), Halo::of(1.0));
+    assert_eq!(Halo::of(1.0).alpha(), Chan::from_unit(0.8));
+    assert_eq!(Halo::of(0.0).alpha().get(), 0);
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let face = Face::parse(&mono).unwrap();
+    let scale = 2.0;
+    let draw_at = |halo: Halo, glow: Glow| {
+        let l = LightsLook {
+            label: Argb(0),
+            glow,
+            halo,
+            ..look()
+        };
+        let mut img = LightsImage::new();
+        draw_led(&face, &l, Led::Hs, Light::Lit, scale, STRIP, &mut img).unwrap();
+        img
+    };
+    let strong = draw_at(Halo::of(1.0), Glow::Full);
+    let none = draw_at(Halo::of(0.0), Glow::Full);
+    assert_eq!(none, draw_at(Halo::of(1.0), Glow::Dimmed), "0 draws none");
+    // The dot's centre: the letters' advance, the gap and half the light.
+    let r = DOT * scale / 2.0;
+    let cx = (0.6 * TEXT * 2.0 + GAP) * scale + r;
+    let cy = STRIP * scale / 2.0;
+    let (mut near, mut far) = (0, 0);
+    for y in 0..strong.height.value() {
+        for x in 0..strong.width.value() {
+            let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt() - r;
+            let (s, n) = (at_xy(&strong, x, y), at_xy(&none, x, y));
+            if d > 1.0 && d < HALO_GAP * scale - 0.5 {
+                assert_eq!(s, n, "({x}, {y}), {d:.2} off the dot: in the gap");
+                near += 1;
+            }
+            if d > HALO_GAP * scale + 1.0 && d < HALO * scale - 1.0 && s != n {
+                far += 1;
+            }
+        }
+    }
+    assert!(
+        near > 10 && far > 100,
+        "the probes reached both, {near} {far}"
+    );
+}
+
+/// **Dim Flashing Lights draws no glow, and the dot as it is**: under
+/// [`Glow::Dimmed`] a lit light's picture is the one drawn with no halo,
+/// whatever the strength, and its lamp pixels are the lit entry, as at
+/// full glow; at full glow the default halo draws pixels the dimmed one
+/// does not, the control. Perturbation: draw the halo whatever the glow
+/// and this goes red.
+#[test]
+fn dim_flashing_lights_draws_no_glow_and_the_dot_unchanged() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let face = Face::parse(&mono).unwrap();
+    for (name, theme) in themes() {
+        for set in LightsColours::ALL {
+            for led in Led::ALL {
+                let pic = |glow, halo| {
+                    let mut img = LightsImage::new();
+                    let l = look_of(&theme, set, glow, halo);
+                    draw_led(&face, &l, led, Light::Lit, 2.0, STRIP, &mut img).unwrap();
+                    img
+                };
+                let dimmed = pic(Glow::Dimmed, Halo::of(1.0));
+                assert_eq!(
+                    dimmed,
+                    pic(Glow::Full, Halo::of(0.0)),
+                    "{name} {set:?} {led:?}"
+                );
+                assert_ne!(dimmed, pic(Glow::Full, Halo::default()), "the control");
+                let l = look_of(&theme, set, Glow::Dimmed, Halo::default());
+                let (pts, want) = lamp_mask(&face, &l, led, Light::Lit, 2.0, STRIP);
+                assert!(!pts.is_empty());
+                for (x, y) in pts {
+                    assert_eq!(at_xy(&dimmed, x, y), want, "{name} {set:?} {led:?}");
+                }
+            }
+        }
+    }
+}
+
+/// WCAG 2.2's relative luminance of an opaque colour.
 fn luminance(c: Argb) -> f64 {
     let lin = |v: Chan| {
         let s = f64::from(v.get()) / 255.0;
@@ -429,19 +610,6 @@ fn luminance(c: Argb) -> f64 {
         }
     };
     0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
-}
-
-/// A straight-alpha pixel over an opaque ground.
-fn on(p: Argb, ground: Argb) -> Argb {
-    let a = f64::from(p.a().get()) / 255.0;
-    let ch = |s: Chan, d: Chan| {
-        Chan::from_unit(((f64::from(s.get()) * a + f64::from(d.get()) * (1.0 - a)) / 255.0) as f32)
-    };
-    Argb::rgb(
-        ch(p.r(), ground.r()),
-        ch(p.g(), ground.g()),
-        ch(p.b(), ground.b()),
-    )
 }
 
 /// WCAG's saturated red: R / (R + G + B) of 0.8 or more on the linear
@@ -487,98 +655,276 @@ fn red_flash(a: Argb, b: Argb) -> bool {
     (red(a) || red(b)) && (ua - ub).hypot(va - vb) > 0.2
 }
 
-/// **Under Dim Flashing Lights no change of a light is a flash**: every
-/// pixel of all nine lights, each of the three changes a light can make --
-/// lit against dark, unread against dark, unread against lit -- composited
-/// over every grey of either appearance's material, and over every grey
-/// from black to white for the glass, with that appearance's letters,
-/// differs by less than WCAG's 10% of relative luminance (or both are 0.80
-/// or lighter) and makes no red flash; at full glow lit against dark and
-/// unread against dark are general flashes, the controls that this probe
-/// can fire. A look with three colours scans each once, and the lights
-/// that share a colour share its caps. The title strip's own looks over
-/// the standard material, each lit colour lifted and each dark lamp the
-/// system colour's ([`strip_colours`]), are held to the same, under all
-/// four of AppKit's appearances: light with Increase Contrast's orange is
-/// a saturated red, lifted or not, and the caps keep it from a red flash.
+/// **The pixels that flash when every light changes at once**, in WCAG's
+/// pixels: each pixel of the two pictures, as shown over the strip's
+/// material (a pixel's alpha over black and over white), that is a
+/// general flash -- 10% of relative luminance apart with the darker under
+/// 0.80 -- or a red one, counted once, at `scale` device pixels a point
+/// and [`PIXELS_A_POINT`] WCAG pixels a point.
+fn flash_area(a: &LightsImage, b: &LightsImage, scale: f32) -> f32 {
+    let black = Argb(0xFF_00_00_00);
+    let white = Argb(0xFF_FF_FF_FF);
+    let n = a
+        .pixels
+        .iter()
+        .zip(&b.pixels)
+        .filter(|&(&p, &q)| {
+            [black, white].iter().any(|&g| {
+                let (p, q) = (over(g, p), over(g, q));
+                let (yp, yq) = (luminance(p), luminance(q));
+                ((yp - yq).abs() >= 0.10 && yp.min(yq) < 0.80) || red_flash(p, q)
+            })
+        })
+        .count();
+    n as f32 / (scale * scale) * PIXELS_A_POINT * PIXELS_A_POINT
+}
+
+/// **Every light changing at once flashes under a quarter of WCAG's field,
+/// so the lights meet 2.3.1 by the area clause, Dim Flashing Lights or
+/// not**: "the combined area of flashes occurring concurrently occupies no
+/// more than a total of .006 steradians within any 10 degree visual field
+/// ... (25% of any 10 degree visual field on the screen)", the field
+/// "a 341 x 256 pixel rectangle anywhere on the displayed screen area
+/// when the content is viewed at 1024 x 768 pixels" (`[[source:
+/// wcag22]]`), [`AREA_LIMIT`]. All nine lit against all nine dark on the
+/// title strip as the window shows it, and each light's picture at the
+/// line's height on the plate, at the strongest glow and the
+/// default, in every set on the built-in themes and xterm's, and under Dim
+/// Flashing Lights. A light is drawn in points, so the area does not grow
+/// with the font. The control: the flash area is more than nothing, so the
+/// probe fires. Perturbation: draw the plate in the lit colour and this
+/// goes red.
 #[test]
-fn dimmed_lights_change_under_the_flash_threshold() {
-    let mono = font("JetBrainsMono-Regular.ttf");
-    let face = Face::parse(&mono).unwrap();
-    const LABEL_LIGHT: Argb = Argb(0x7F_00_00_00);
-    let mut cases = vec![
-        (
-            GROUND_DARK,
-            Backdrop::under_window_dark(),
-            colours(),
-            colours(),
-            LABEL,
-        ),
-        (
-            GROUND_LIGHT,
-            Backdrop::under_window_light(),
-            colours(),
-            colours(),
-            LABEL_LIGHT,
-        ),
-        (GROUND_DARK, Backdrop::any(), colours(), colours(), LABEL),
-        (
-            GROUND_LIGHT,
-            Backdrop::any(),
-            colours(),
-            colours(),
-            LABEL_LIGHT,
-        ),
-    ];
-    let mut reds = 0;
-    for a in appkit() {
-        let (lit, label) = strip_colours(a.lit(), a.label, a.ground, a.backdrop);
-        reds += usize::from(Led::ALL.iter().any(|&l| red(*lit.get(l))));
-        cases.push((a.ground, a.backdrop, lit, a.lit(), label));
-    }
-    assert_eq!(
-        reds, 1,
-        "the control: light with Increase Contrast's orange is red"
-    );
-    for (ground, backdrop, lit, lamp, label) in cases {
-        let reddish = Led::ALL.iter().any(|&l| red(*lit.get(l)));
-        for glow in [Glow::Dimmed, Glow::Full] {
-            let look = LightsLook::new(lit, lamp, label, ground, glow, backdrop);
-            assert_eq!(look.dim.rd, look.dim.hs, "one cap a colour");
-            assert_eq!(look.dim.cd, look.dim.syn, "one cap a colour");
-            let drawn = |light| {
-                let mut img = LightsImage::new();
-                draw(&face, &look, Shown::all(light), 2.0, 28.0, &mut img).unwrap();
-                img
-            };
-            let (lit, dark, unread) = (drawn(Light::Lit), drawn(Light::Dark), drawn(Light::Unread));
-            for (name, a, b, control) in [
-                ("lit/dark", &lit, &dark, true),
-                ("unread/dark", &unread, &dark, true),
-                ("unread/lit", &unread, &lit, false),
+fn every_light_changing_at_once_flashes_under_the_area_clause() {
+    let bold = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Bold.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let face = Face::parse(&bold).unwrap();
+    let mut most: f32 = 0.0;
+    for (name, theme) in themes() {
+        for set in LightsColours::ALL {
+            for (glow, halo) in [
+                (Glow::Full, Halo::of(1.0)),
+                (Glow::Full, Halo::default()),
+                (Glow::Dimmed, Halo::of(1.0)),
             ] {
-                let mut any = false;
-                for g in backdrop.greys() {
-                    for (l, d) in a.pixels.iter().zip(&b.pixels) {
-                        let (l, d) = (on(*l, g), on(*d, g));
-                        let (yl, yd) = (luminance(l), luminance(d));
-                        let general = (yl - yd).abs() >= 0.10 && yl.min(yd) < 0.80;
-                        if glow == Glow::Dimmed {
-                            assert!(!general, "{name} {glow:?} over {g:?}: {l:?} against {d:?}");
-                            assert!(!red_flash(l, d), "no red flash: {l:?} {d:?}");
-                            if !reddish {
-                                assert!(!red(l) && !red(d), "no saturated red: {l:?} {d:?}");
-                            }
-                        }
-                        any |= general;
+                let look = look_of(&theme, set, glow, halo);
+                let (lit, _) = title(&face, &look, Shown::all(Light::Lit), 2.0);
+                let (dark, _) = title(&face, &look, Shown::all(Light::Dark), 2.0);
+                let area = flash_area(&lit, &dark, 2.0);
+                // The line's: each light's picture at the line's height,
+                // on the plate.
+                let on_plate = |light| {
+                    let mut all = LightsImage::new();
+                    for led in Led::ALL {
+                        let mut one = LightsImage::new();
+                        let h = baud_render::lights::line_picture();
+                        draw_led(&face, &look, led, light, 2.0, h, &mut one).unwrap();
+                        all.pixels
+                            .extend(one.pixels.iter().map(|&p| over(look.plate, p)));
                     }
-                }
-                if glow == Glow::Full && control {
-                    assert!(any, "the control: {name} at full glow over {ground:?}");
+                    all
+                };
+                let line = flash_area(&on_plate(Light::Lit), &on_plate(Light::Dark), 2.0);
+                for (place, area) in [("title", area), ("line", line)] {
+                    assert!(area > 0.0, "{name} {set:?} {place}: the control");
+                    assert!(
+                        area <= AREA_LIMIT,
+                        "{name} {set:?} {glow:?} {place}: {area} of {AREA_LIMIT}"
+                    );
+                    most = most.max(area);
                 }
             }
         }
     }
+    assert!(most < AREA_LIMIT / 10.0, "the most, {most} WCAG pixels");
+}
+
+/// A whole pixel count from a length in pixels, truncated.
+fn px(v: f32) -> u32 {
+    u32::try_from(v as i64).unwrap()
+}
+
+fn at(img: &LightsImage, x: f32, y: f32) -> Argb {
+    img.pixels[usize::try_from(px(y) * img.width.value() + px(x)).unwrap()]
+}
+
+/// A light's centre in its own picture, in device pixels, laid out by
+/// hand: JetBrains Mono's advance is 600 of 1000 units, so two letters at 8
+/// pt are 9.6 pt and three 14.4, then the 3 pt gap and half the light.
+fn centre(led: Led, img: &LightsImage, scale: f32) -> (f32, f32) {
+    let letters = 0.6 * TEXT * led.letters().len() as f32;
+    let h = img.height.value() as f32 / 2.0;
+    ((letters + GAP + DOT / 2.0) * scale, h)
+}
+
+/// Whether any pixel in columns `from..to` and rows `rows` carries the
+/// letters' colour.
+fn ink(img: &LightsImage, label: Argb, from: f32, to: f32, rows: core::ops::Range<u32>) -> bool {
+    (px(from)..px(to)).any(|x| {
+        rows.clone().any(|y| {
+            let p = img.pixels[usize::try_from(y * img.width.value() + x).unwrap()];
+            p.a().get() > 0 && (p.r(), p.g(), p.b()) == (label.r(), label.g(), label.b())
+        })
+    })
+}
+
+/// **Each light shows its state in its own colour, and its letters sit to
+/// its left**: at 1x and 2x, for each of the nine and each state, a lit
+/// light's centre is its lit entry and a dark one's the unlit entry; an
+/// unread one is a ring, its centre clear and its edge the ring's entry;
+/// the letters put ink left of the light and none right of it; only CS
+/// has ink above its letters' caps, its bar; the picture is its slot's
+/// width and the strip's height, clear in its corner.
+#[test]
+fn each_light_is_drawn_in_its_state_with_its_letters_to_the_left() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let face = Face::parse(&mono).unwrap();
+    let look = look();
+    for scale in [1.0_f32, 2.0] {
+        let (slots, _) = layout(&face, scale).unwrap();
+        for led in Led::ALL {
+            for light in Light::ALL {
+                let mut img = LightsImage::new();
+                draw_led(&face, &look, led, light, scale, STRIP, &mut img).unwrap();
+                assert_eq!(img.height.value(), px(STRIP * scale));
+                assert_eq!(img.width, slots.get(led).width, "{led:?}");
+                let (cx, cy) = centre(led, &img, scale);
+                let p = at(&img, cx, cy);
+                match light {
+                    Light::Lit => assert_eq!(p, *look.lit.get(led), "{led:?}"),
+                    Light::Dark => assert_eq!(p, look.unlit, "{led:?}"),
+                    Light::Unread => {
+                        assert_eq!(p.a().get(), 0, "{led:?} at {scale}x: a ring's centre");
+                        let edge = at(&img, cx + (DOT / 2.0 - 0.6) * scale, cy);
+                        assert!(
+                            (edge.r(), edge.g(), edge.b())
+                                == (look.ring.r(), look.ring.g(), look.ring.b())
+                                && edge.a().get() > 0,
+                            "{led:?} at {scale}x: the ring {edge:?}"
+                        );
+                    }
+                }
+                let left = cx - DOT * scale / 2.0;
+                let all = 0..img.height.value();
+                assert!(
+                    ink(&img, look.label, 0.0, left, all.clone()),
+                    "{led:?}'s letters"
+                );
+                assert!(
+                    !ink(
+                        &img,
+                        look.label,
+                        cx + DOT * scale / 2.0 + 1.0,
+                        img.width.value() as f32,
+                        all
+                    ),
+                    "{led:?}: no letters right of the light"
+                );
+                let caps_top = cy - 0.73 * TEXT * scale / 2.0;
+                let bar = ink(&img, look.label, 0.0, left, 0..px(caps_top - 0.2 * scale));
+                assert_eq!(bar, led == Led::Cs, "{led:?} at {scale}x: the bar");
+                assert_eq!(at(&img, 0.0, 0.0).a().get(), 0, "the plate shows through");
+            }
+        }
+    }
+}
+
+/// **The strip is its lights side by side**: the slots run left to right
+/// in the 1988 Courier manual's order, a light's gap apart less the halo's
+/// room and never overlapping, the last ending at the strip's width, which
+/// `width` gives in points; and every pixel of the strip drawn at a state
+/// is the pixel of that light's own picture at its slot, so the views
+/// placed by the layout show the strip this file tests. Nine lights at 2x
+/// are 522 pixels wide.
+#[test]
+fn the_strip_is_its_lights_side_by_side() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let face = Face::parse(&mono).unwrap();
+    assert_eq!(
+        Led::ALL.map(Led::letters),
+        ["HS", "AA", "CD", "OH", "RD", "SD", "CS", "FAX", "SYN"]
+    );
+    for scale in [1.0_f32, 2.0] {
+        let (slots, w) = layout(&face, scale).unwrap();
+        let mut end = 0;
+        for led in Led::ALL {
+            let s = slots.get(led);
+            assert!(s.start.value() >= end, "{led:?} after the last");
+            if led != Led::Hs {
+                assert!(
+                    s.start.value() - end >= px((PAIR - HALO - 1.0) * scale),
+                    "{led:?}"
+                );
+            }
+            end = s.start.value() + s.width.value();
+        }
+        assert_eq!(end, w.value());
+        assert!((w.value() as f32 - width(&face) * scale).abs() <= 1.0);
+        let shown = ByLed::of(|l| match l {
+            Led::Hs | Led::Oh | Led::Sd | Led::Fax => Light::Lit,
+            Led::Cd => Light::Unread,
+            _ => Light::Dark,
+        });
+        let mut strip = LightsImage::new();
+        draw(&face, &look(), shown, scale, STRIP, &mut strip).unwrap();
+        assert_eq!(strip.width, w);
+        for led in Led::ALL {
+            let mut one = LightsImage::new();
+            draw_led(&face, &look(), led, *shown.get(led), scale, STRIP, &mut one).unwrap();
+            let x0 = slots.get(led).start.value();
+            for y in 0..one.height.value() {
+                for x in 0..one.width.value() {
+                    let a = one.pixels[usize::try_from(y * one.width.value() + x).unwrap()];
+                    let b = strip.pixels[usize::try_from(y * w.value() + x0 + x).unwrap()];
+                    assert_eq!(a, b, "{led:?} at ({x}, {y}), {scale}x");
+                }
+            }
+        }
+    }
+    let (_, w) = layout(&face, 2.0).unwrap();
+    assert_eq!(w.value(), 522);
+}
+
+/// **The renderer draws the strip in the badge's face, in its own look**:
+/// the same pixels as `draw` and `draw_led` over that face, the same
+/// layout, and the look the theme and the set it was told give, so the
+/// window shows what this file tests.
+#[test]
+fn the_renderer_draws_the_strip_the_oracle_holds() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut r = renderer(&faces, Theme::dark());
+    r.set_lights_colours(LightsColours::Modem, Halo::of(1.0));
+    let look = r.lights_look(Glow::Full);
+    assert_eq!(
+        look,
+        look_of(
+            &Theme::dark(),
+            LightsColours::Modem,
+            Glow::Full,
+            Halo::of(1.0)
+        )
+    );
+    let shown = ByLed {
+        rd: Light::Lit,
+        cd: Light::Unread,
+        ..Shown::DARK
+    };
+    let (mut a, mut b) = (LightsImage::new(), LightsImage::new());
+    r.activity_lights(&look, shown, 2.0, STRIP, &mut a).unwrap();
+    draw(&faces[0], &look, shown, 2.0, STRIP, &mut b).unwrap();
+    assert_eq!(a, b);
+    for led in Led::ALL {
+        r.activity_light(&look, led, Light::Lit, 2.0, STRIP, &mut a)
+            .unwrap();
+        draw_led(&faces[0], &look, led, Light::Lit, 2.0, STRIP, &mut b).unwrap();
+        assert_eq!(a, b, "{led:?}");
+    }
+    assert_eq!(r.activity_lights_width(), width(&faces[0]));
+    assert_eq!(r.activity_lights_layout(2.0), layout(&faces[0], 2.0));
 }
 
 const TICK: Duration = Duration::from_nanos(8_333_333);

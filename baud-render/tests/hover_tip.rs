@@ -351,7 +351,7 @@ fn a_lights_tip_is_drawn_by_its_line_and_leaves_the_line_as_it_was() {
             "{edge:?}: an incremental frame is the full one"
         );
         if edge == LineEdge::Bottom {
-            const PINNED: u64 = 0xec7f_272b_9e7b_6fdd;
+            const PINNED: u64 = 0xf22a_951a_2e3f_72f3;
             let got = digest(&full);
             assert_eq!(got, PINNED, "the light's tip's frame moved: 0x{got:016x}");
         }

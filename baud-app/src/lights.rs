@@ -14,27 +14,20 @@
 //! that would reach baud's lockup in a narrow window is not drawn, the
 //! leftmost first, so nothing covers the traffic lights or the lockup.
 //!
-//! **The colours are AppKit's, read in the window's appearance**
-//! (`baud_present_macos::lights::colours`): the lit colours, the letters and
-//! the grey a dark light is mixed into all come from the window's
-//! `effectiveAppearance`, the one AppKit draws the traffic lights in and
-//! the lockup's word follows (`mark.rs`), so a Dark window over a ClearLight
-//! glass mixes its dark colours into a dark grey. Over the standard
-//! material each lit colour is lifted to read at 3:1 against every grey the
-//! strip can be and the letters to 4.5:1 (`baud_render::lights::
-//! strip_colours`), and each dark light stays the system colour mixed into
-//! the strip's grey. Over the glass the colours are AppKit's as they come:
-//! the glass can show anything from black to white, against which no colour
-//! reads at 3:1, and the strip's range there -- the page dimmed over the
-//! glass -- is unmeasured, so whether and how far to lift them is open.
-//! Increase Contrast gives AppKit's accessible colours, and a change of it
-//! draws the pictures again (`poll_display` in `app.rs`); whether a running
-//! window's `effectiveAppearance` resolves them after the change is
-//! unverified (note AH §14).
+//! **The colours are the theme's** (`Renderer::lights_look`): every lamp
+//! one of the theme's sixteen palette entries in the set `[window]
+//! activity_lights_colours` names, on a plate of the theme's background, a
+//! tenth view under the lights, the letters its foreground -- the colours
+//! the lights' own line draws on Linux. The plate is opaque, so a lamp
+//! reads against the theme's background whatever the window's material
+//! shows through the strip, glass or standard, light or dark; no AppKit
+//! colour is read for them, and a change of theme, set or glow draws the
+//! pictures again because the look they were drawn for moved.
 //!
 //! **The pixels are baud's renderer's** (`Renderer::activity_light`): each
-//! light's three pictures, dark, lit and unread, drawn when the scale, the
-//! appearance or Dim Flashing Lights changes; a light that changes swaps
+//! light's three pictures, dark, lit and unread, and the plate's, drawn
+//! when the scale or the look -- the theme, the set, the glow or Dim
+//! Flashing Lights -- changes; a light that changes swaps
 //! its view's picture and builds no frame of the grid. The clocks step on
 //! the display link's tick, which already runs, from the stamps the pump
 //! and the writes already take, and the process reads of OH and CD
@@ -43,63 +36,31 @@
 //!
 //! **Or on a line of their own in the frame** (`[window] activity_lights
 //! = "bottom_line"` or `"top_line"`): the renderer draws the same pictures
-//! there, from the theme's colours lifted against every grey from black to
-//! white, so both systems draw the same pixels; the title strip here
-//! reads its colours against its body's greys instead (`under`;
-//! `baud_render::lights`,
+//! there on the same plate (`baud_render::lights`,
 //! `Renderer::set_lights_line`), and this module puts each light's hover
 //! text over its place on that line ([`LineTips`]). The Linux window has no
 //! title bar -- no compositor decorations are asked for and none are drawn
 //! -- so the line is its default, and its lights are drawn there by the
 //! Linux driver.
 
-use baud_render::lights::strip_colours;
+use baud_render::lights::{PLATE_PAD, PLATE_RADIUS_TITLE, PLATE_TITLE, draw_plate};
 use baud_render::{
-    ActivityLights, Argb, Backdrop, ByLed, ByLight, GROUND_DARK, GROUND_LIGHT, Glow, Led, Light,
-    LightsImage, LightsLook, Renderer, Shown,
+    ActivityLights, ByLed, ByLight, Glow, Led, Light, LightsImage, LightsLook, Renderer, Shown,
 };
-use macos_liquid_glass::drawable::Appearance;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
-    NSAccessibility, NSAppearance, NSAppearanceCustomization, NSImage, NSImageScaling, NSImageView,
-    NSView, NSWindow,
+    NSAccessibility, NSImage, NSImageScaling, NSImageView, NSView,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 
-/// What the pictures were drawn for: a change of any of them draws them
-/// again.
+/// What the pictures were drawn for: a change of either draws them again.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) struct Drawn {
     pub(crate) scale: CGFloat,
-    pub(crate) glow: Glow,
-    /// The window's appearance, which the colours are read in.
-    pub(crate) appearance: Appearance,
-    /// The body under the strip, and every grey the strip can be over it
-    /// (`under`).
-    pub(crate) body: Body,
-    pub(crate) backdrop: Backdrop,
-}
-
-/// The window's body, which the transparent title strip shows.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Body {
-    /// The standard material, `[glass] style = "standard"`.
-    Standard,
-    /// Liquid Glass, regular or clear.
-    Glass,
-}
-
-/// **The greys the strip can be over `body` drawn in `appearance`**: the
-/// standard material's measured range for its half, and anything from
-/// black to white over the glass -- the backdrops the text floor reads
-/// against (`backdrop` in `app.rs`, note AS and note AT).
-pub(crate) fn under(body: Body, appearance: Appearance) -> Backdrop {
-    match (body, appearance) {
-        (Body::Standard, Appearance::Dark) => Backdrop::under_window_dark(),
-        (Body::Standard, Appearance::Light) => Backdrop::under_window_light(),
-        (Body::Glass, _) => Backdrop::any(),
-    }
+    /// The theme's look in the configured set and glow, at Dim Flashing
+    /// Lights' (`Renderer::lights_look`).
+    pub(crate) look: LightsLook,
 }
 
 /// What a tick does to the lights.
@@ -109,8 +70,8 @@ pub(crate) enum Step {
     Nothing,
     /// A light changed: its view takes another of the pictures it has.
     Swap,
-    /// The pictures are for another scale, appearance or glow, or there are
-    /// none: draw them, then show the state.
+    /// The pictures are for another scale or look, or there are none: draw
+    /// them, then show the state.
     Redraw,
 }
 
@@ -139,7 +100,8 @@ pub(crate) fn step(
     }
 }
 
-/// How a lit light is drawn under the Dim Flashing Lights setting.
+/// How a lit light is drawn under the Dim Flashing Lights setting: with
+/// its glow, or with none.
 pub(crate) fn glow(flashing: baud_present_macos::settings::Flashing) -> Glow {
     match flashing {
         baud_present_macos::settings::Flashing::Full => Glow::Full,
@@ -200,10 +162,43 @@ pub(crate) fn placed(
     })
 }
 
+/// **The plate's frame under the lights `frames` placed**, in the same
+/// points: from [`PLATE_PAD`] before the first placed light to as far past
+/// the last, [`PLATE_TITLE`] tall -- or the strip's `inset` if that is
+/// less -- centred on the strip, its top on a whole device pixel at
+/// `scale`; none with no light placed. The light the plate starts at
+/// with it, whose plate picture it shows.
+pub(crate) fn plate_frame(
+    frames: &ByLed<Option<(NSRect, &'static str)>>,
+    inset: CGFloat,
+    scale: CGFloat,
+) -> Option<(Led, NSRect)> {
+    let scale = scale.max(1.0);
+    let shown = || {
+        Led::ALL
+            .into_iter()
+            .filter_map(|l| frames.get(l).map(|f| (l, f.0)))
+    };
+    let (led, first) = shown().next()?;
+    let (_, last) = shown().next_back()?;
+    let pad = CGFloat::from(PLATE_PAD);
+    let h = CGFloat::from(PLATE_TITLE).min(inset);
+    let y = first.origin.y + ((inset - h) / 2.0 * scale).round() / scale;
+    let w = last.origin.x + last.size.width - first.origin.x + 2.0 * pad;
+    Some((
+        led,
+        NSRect::new(NSPoint::new(first.origin.x - pad, y), NSSize::new(w, h)),
+    ))
+}
+
 /// The views, their pictures, and what each shows.
 pub(crate) struct Strip {
     views: ByLed<Option<Retained<NSImageView>>>,
+    /// The plate under them, a view of its own added before them so they
+    /// sit above it, and its picture for each light it can start at.
+    plate: Option<Retained<NSImageView>>,
     pictures: Option<(Drawn, ByLed<ByLight<Retained<NSImage>>>)>,
+    plates: Option<ByLed<Retained<NSImage>>>,
     on_view: ByLed<Option<Light>>,
     /// Each light's place, from the renderer's layout.
     spans: Spans,
@@ -213,22 +208,15 @@ pub(crate) struct Strip {
     /// and the least x a light may start at: past baud's lockup.
     right: CGFloat,
     left: CGFloat,
-    /// The looks drawn so far this session, by what they were made from: a
-    /// dimmed look scans each of its three colours over the backdrop, so a
-    /// flip back to an appearance, or a move to a display of another
-    /// scale, does not make it again.
-    looks: Vec<(LookKey, LightsLook)>,
 }
-
-/// What a look is made from: AppKit's lit and letter colours, the strip's
-/// grey, the glow, the body and the backdrop.
-pub(crate) type LookKey = (ByLed<Argb>, Argb, Argb, Glow, Body, Backdrop);
 
 impl Strip {
     pub(crate) fn new(right: CGFloat, left: CGFloat) -> Strip {
         Strip {
             views: ByLed::default(),
+            plate: None,
             pictures: None,
+            plates: None,
             on_view: ByLed::default(),
             spans: Spans {
                 at: ByLed::default(),
@@ -237,14 +225,14 @@ impl Strip {
             scale: 1.0,
             right,
             left,
-            looks: Vec::new(),
         }
     }
 
-    /// The appearance or the face changed under the pictures: the next
-    /// tick draws them again.
+    /// The face or the window changed under the pictures: the next tick
+    /// draws them again.
     pub(crate) fn stale(&mut self) {
         self.pictures = None;
+        self.plates = None;
         self.on_view = ByLed::default();
     }
 
@@ -258,7 +246,6 @@ impl Strip {
         wanted: Drawn,
         shown: Shown,
         renderer: &Renderer<'_, '_>,
-        window: &NSWindow,
         container: &NSView,
         inset: CGFloat,
     ) {
@@ -268,6 +255,9 @@ impl Strip {
                     v.removeFromSuperview();
                 }
             }
+            if let Some(v) = self.plate.take() {
+                v.removeFromSuperview();
+            }
             self.on_view = ByLed::default();
             return;
         }
@@ -275,25 +265,34 @@ impl Strip {
         match step(setting, wanted, have, shown, self.on_view) {
             Step::Nothing => return,
             Step::Redraw => {
-                let appearance = window.effectiveAppearance();
-                let look = self.look(&appearance, wanted);
-                let Some(drawn) = pictures(renderer, &look, wanted, inset) else {
+                let Some(spans) = spans(renderer, wanted.scale) else {
                     return;
                 };
-                let Some(spans) = spans(renderer, wanted.scale) else {
+                let Some(drawn) = pictures(renderer, &wanted.look, wanted, inset) else {
+                    return;
+                };
+                let Some(plates) = plates(&wanted.look, &spans, wanted.scale, inset) else {
                     return;
                 };
                 self.spans = spans;
                 self.scale = wanted.scale;
                 self.pictures = Some((wanted, drawn));
+                self.plates = Some(plates);
                 self.on_view = ByLed::default();
             }
             Step::Swap => {}
         }
-        if self.views.iter().any(|(_, v)| v.is_none()) {
+        if self.views.iter().any(|(_, v)| v.is_none()) || self.plate.is_none() {
             let Some(mtm) = MainThreadMarker::new() else {
                 return;
             };
+            // The plate first, so every light's view is added above it.
+            if self.plate.is_none() {
+                let v = NSImageView::new(mtm);
+                v.setImageScaling(NSImageScaling::ScaleNone);
+                container.addSubview(&v);
+                self.plate = Some(v);
+            }
             for led in Led::ALL {
                 if self.views.get(led).is_some() {
                     continue;
@@ -326,35 +325,6 @@ impl Strip {
         }
     }
 
-    /// The look for `wanted` under `appearance`, the window's: AppKit's
-    /// colours and a dark light mixed into the strip's grey, both read in
-    /// that one appearance; over the standard material the lit colours and
-    /// the letters lifted to read against its greys, each dark light mixed
-    /// from the system colour as it comes. From the session's looks when
-    /// one was made from the same colours, body and glow.
-    fn look(&mut self, appearance: &NSAppearance, wanted: Drawn) -> LightsLook {
-        let (system, label) = baud_present_macos::lights::colours(appearance);
-        let ground = if macos_liquid_glass::is_dark(appearance) {
-            GROUND_DARK
-        } else {
-            GROUND_LIGHT
-        };
-        let key = (
-            system,
-            label,
-            ground,
-            wanted.glow,
-            wanted.body,
-            wanted.backdrop,
-        );
-        if let Some((_, l)) = self.looks.iter().find(|(k, _)| *k == key) {
-            return *l;
-        }
-        let look = look_of(key);
-        self.looks.push((key, look));
-        look
-    }
-
     /// Re-place every view at the strip's right, and hide the ones a
     /// narrow window has no room for: on every resize.
     pub(crate) fn place(&self, container: &NSView, inset: CGFloat) {
@@ -366,6 +336,17 @@ impl Strip {
             self.scale,
             &self.spans,
         );
+        if let Some(v) = &self.plate {
+            let at = plate_frame(&frames, inset, self.scale);
+            match (at, &self.plates) {
+                (Some((led, rect)), Some(p)) => {
+                    v.setImage(Some(p.get(led)));
+                    v.setFrame(rect);
+                    v.setHidden(false);
+                }
+                _ => v.setHidden(true),
+            }
+        }
         for led in Led::ALL {
             let Some(v) = self.views.get(led) else {
                 continue;
@@ -457,20 +438,6 @@ impl LineTips {
     }
 }
 
-/// **The look the strip draws its lights in**, from AppKit's lit and
-/// letter colours, the strip's grey, the glow, the body and the backdrop:
-/// over the standard material the lit colours and the letters lifted to
-/// read against its greys, each dark light mixed from the system colour as
-/// it comes; over the glass AppKit's colours as they come. What the
-/// headless film's title strip draws with too (`film/chrome.rs`).
-pub(crate) fn look_of((system, label, ground, glow, body, backdrop): LookKey) -> LightsLook {
-    let (lit, letters) = match body {
-        Body::Standard => strip_colours(system, label, ground, backdrop),
-        Body::Glass => (system, label),
-    };
-    LightsLook::new(lit, system, letters, ground, glow, backdrop)
-}
-
 /// Every light's place in points at `scale`, from the renderer's layout in
 /// device pixels.
 pub(crate) fn spans(renderer: &Renderer<'_, '_>, scale: CGFloat) -> Option<Spans> {
@@ -482,6 +449,50 @@ pub(crate) fn spans(renderer: &Renderer<'_, '_>, scale: CGFloat) -> Option<Spans
             (pt(s.start), pt(s.width))
         }),
         width: pt(width),
+    })
+}
+
+/// **The plate's picture for each light it can start at**, `look`'s plate
+/// colour at `scale`: from [`PLATE_PAD`] before that light to as far past
+/// the last, as [`plate_frame`] places it, so a narrow window that drops
+/// the leftmost lights shows the plate under the rest.
+fn plates(
+    look: &LightsLook,
+    spans: &Spans,
+    scale: CGFloat,
+    inset: CGFloat,
+) -> Option<ByLed<Retained<NSImage>>> {
+    let (end, w) = *spans.at.get(Led::Syn);
+    let pad = CGFloat::from(PLATE_PAD);
+    let h = CGFloat::from(PLATE_TITLE).min(inset);
+    let px = |pt: CGFloat| {
+        u32::try_from((pt * scale).round() as i64)
+            .ok()
+            .map(baud_font::Px::of)
+    };
+    let one = |led: Led| {
+        let (start, _) = *spans.at.get(led);
+        let mut img = LightsImage::new();
+        let width = end + w - start + 2.0 * pad;
+        draw_plate(
+            look,
+            px(width)?,
+            px(h)?,
+            PLATE_RADIUS_TITLE * scale as f32,
+            &mut img,
+        )?;
+        baud_present_macos::lights::picture(&img, scale)
+    };
+    Some(ByLed {
+        hs: one(Led::Hs)?,
+        aa: one(Led::Aa)?,
+        cd: one(Led::Cd)?,
+        oh: one(Led::Oh)?,
+        rd: one(Led::Rd)?,
+        sd: one(Led::Sd)?,
+        cs: one(Led::Cs)?,
+        fax: one(Led::Fax)?,
+        syn: one(Led::Syn)?,
     })
 }
 
@@ -533,13 +544,22 @@ fn pictures(
 mod tests {
     use super::*;
 
+    use baud_render::{Halo, LightsColours, Theme};
+
+    /// The look of `theme` in `set` at `glow` and `halo`.
+    fn look_of(theme: &Theme, set: LightsColours, glow: Glow, halo: Halo) -> LightsLook {
+        LightsLook::of(&theme.palette, theme.fg, theme.bg, set, glow, halo)
+    }
+
     fn at() -> Drawn {
         Drawn {
             scale: 2.0,
-            glow: Glow::Full,
-            appearance: Appearance::Dark,
-            body: Body::Standard,
-            backdrop: Backdrop::under_window_dark(),
+            look: look_of(
+                &Theme::dark(),
+                LightsColours::Meaning,
+                Glow::Full,
+                Halo::default(),
+            ),
         }
     }
 
@@ -556,8 +576,9 @@ mod tests {
 
     /// **A light that changes swaps a picture, and only a change of what
     /// they were drawn for draws them again**: a new state of any one
-    /// light swaps, the same state does nothing, a new scale, appearance
-    /// or glow redraws, and off does nothing whatever moved.
+    /// light swaps, the same state does nothing, a new scale, theme, set,
+    /// glow strength or Dim Flashing Lights redraws, and off does nothing
+    /// whatever moved.
     #[test]
     fn a_change_of_light_swaps_and_a_change_of_look_redraws() {
         use ActivityLights::{BottomLine, Off, TitleBar as On, TopLine};
@@ -578,22 +599,24 @@ mod tests {
                 "{led:?}"
             );
         }
+        let dark = Theme::dark();
+        let m = LightsColours::Meaning;
         for other in [
             Drawn { scale: 1.0, ..at },
             Drawn {
-                glow: Glow::Dimmed,
+                look: look_of(&dark, m, Glow::Dimmed, Halo::default()),
                 ..at
             },
             Drawn {
-                appearance: Appearance::Light,
+                look: look_of(&Theme::light(), m, Glow::Full, Halo::default()),
                 ..at
             },
             Drawn {
-                backdrop: Backdrop::any(),
+                look: look_of(&dark, LightsColours::Iec, Glow::Full, Halo::default()),
                 ..at
             },
             Drawn {
-                body: Body::Glass,
+                look: look_of(&dark, m, Glow::Full, Halo::of(1.0)),
                 ..at
             },
         ] {
@@ -605,23 +628,6 @@ mod tests {
                 step(off, at, Some(at), rd, showing(Shown::DARK)),
                 Step::Nothing
             );
-        }
-    }
-
-    /// **The strip's greys are the body's**: the standard material's
-    /// range for the half it draws in, anything over the glass.
-    #[test]
-    fn the_strip_is_read_over_the_bodys_greys() {
-        assert_eq!(
-            under(Body::Standard, Appearance::Dark),
-            Backdrop::under_window_dark()
-        );
-        assert_eq!(
-            under(Body::Standard, Appearance::Light),
-            Backdrop::under_window_light()
-        );
-        for a in [Appearance::Dark, Appearance::Light] {
-            assert_eq!(under(Body::Glass, a), Backdrop::any());
         }
     }
 
@@ -816,47 +822,39 @@ mod tests {
         assert_eq!((s.oh, s.cd, s.rd), (Light::Lit, Light::Unread, Light::Dark));
     }
 
-    /// **Each light's three pictures, headless, under either appearance and
-    /// glow**: drawn by the renderer in baud's embedded JetBrains Mono Bold
-    /// with AppKit's colours, each its light's width and the strip's height
-    /// in points at the scale asked, its lit and dark pictures different,
-    /// and for OH and CD, which can be unread, the unread one a third.
+    /// **Each light's three pictures and the plate's, headless, in either
+    /// theme and glow**: drawn by the renderer in baud's embedded
+    /// JetBrains Mono Bold in the theme's look, each light's its width and
+    /// the strip's height in points at the scale asked, its lit and dark
+    /// pictures different, and for OH and CD, which can be unread, the
+    /// unread one a third; the plate's for each light it can start at
+    /// [`PLATE_TITLE`] tall and wide from that light to past SYN, by the
+    /// pad at each end.
     #[test]
     fn each_lights_pictures_are_drawn_at_its_size() {
         use baud_domain::{Cols, Rows};
-        use baud_render::{Blend, PxSize, Stack, Theme};
+        use baud_render::{Blend, PxSize, Stack};
         let faces = [baud_font::Face::parse(crate::embedded::BOLD.bytes).unwrap()];
-        let r = Renderer::new(
-            Stack::new(&faces).unwrap(),
-            PxSize::of(28.0).unwrap(),
-            Theme::dark(),
-            Blend::Native,
-            Cols::of_index(6),
-            Rows::of_index(2),
-        )
-        .unwrap();
-        for (name, appearance) in [
-            ("NSAppearanceNameAqua", Appearance::Light),
-            ("NSAppearanceNameDarkAqua", Appearance::Dark),
-        ] {
-            let ns = NSAppearance::appearanceNamed(&NSString::from_str(name)).unwrap();
+        for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+            let r = Renderer::new(
+                Stack::new(&faces).unwrap(),
+                PxSize::of(28.0).unwrap(),
+                theme,
+                Blend::Native,
+                Cols::of_index(6),
+                Rows::of_index(2),
+            )
+            .unwrap();
             for glow in [Glow::Full, Glow::Dimmed] {
-                let wanted = Drawn {
-                    scale: 2.0,
-                    glow,
-                    appearance,
-                    body: Body::Standard,
-                    backdrop: under(Body::Standard, appearance),
-                };
-                let mut strip = Strip::new(9.0, 100.0);
-                let look = strip.look(&ns, wanted);
-                assert_eq!(strip.look(&ns, wanted), look, "made once");
-                assert_eq!(strip.looks.len(), 1, "and kept");
+                let look = r.lights_look(glow);
+                let wanted = Drawn { scale: 2.0, look };
                 let p = pictures(&r, &look, wanted, 28.0).expect("every picture");
                 let s = spans(&r, 2.0).expect("the layout");
+                let plate = plates(&look, &s, 2.0, 28.0).expect("every plate");
                 assert!((s.width - CGFloat::from(r.activity_lights_width())).abs() <= 0.5);
+                let (syn, syn_w) = *s.at.get(Led::Syn);
                 for led in Led::ALL {
-                    let (_, width) = *s.at.get(led);
+                    let (start, width) = *s.at.get(led);
                     let pics = p.get(led);
                     for light in Light::ALL {
                         let size = pics.get(light).size();
@@ -869,111 +867,51 @@ mod tests {
                         assert_ne!(tiff[0], tiff[2], "{name} {led:?}: unread is not dark");
                         assert_ne!(tiff[1], tiff[2], "{name} {led:?}: unread is not lit");
                     }
+                    let size = plate.get(led).size();
+                    let want = syn + syn_w - start + 2.0 * CGFloat::from(PLATE_PAD);
+                    assert_eq!(size.height, CGFloat::from(PLATE_TITLE), "{name} {led:?}");
+                    assert!((size.width - want).abs() <= 0.5, "{name} {led:?}: {size:?}");
                 }
             }
         }
     }
 
-    /// WCAG 2.2's contrast ratio of two opaque colours.
-    fn ratio(a: Argb, b: Argb) -> f64 {
-        baud_render::contrast_over(a, b, baud_domain::Chan::from_u8(0xFF), Backdrop::any())
-    }
-
-    fn named(name: &str) -> Retained<NSAppearance> {
-        NSAppearance::appearanceNamed(&NSString::from_str(name)).unwrap()
-    }
-
-    /// **Over the standard material the strip's look is lifted and its
-    /// dark lamps are AppKit's**: under Aqua and Dark Aqua, resolved
-    /// headless, every lit light reads at 3:1 and the letters at 4.5:1
-    /// against every grey of that half's material, keeping AppKit's colour
-    /// where it already reads, and each dark light is AppKit's colour as it
-    /// comes mixed into the strip's grey. The control: AppKit's own colours
-    /// read under 3:1 somewhere. Perturbation: call the look without
-    /// `strip_colours`, or mix the dark lights from the lifted colours, and
-    /// this goes red.
+    /// **The plate sits under the lights placed, by its pad past each end,
+    /// centred on the strip**: in a wide window from HS's left less the pad
+    /// to SYN's right and the pad, [`PLATE_TITLE`] tall and centred in the
+    /// 28-point strip, starting at HS; in a narrow one from the first light
+    /// kept; and none with none kept. Perturbation: start the plate at HS
+    /// whatever is kept, and the narrow window's plate reaches the lockup.
     #[test]
-    fn the_standard_strip_reads_and_its_dark_lamps_are_appkits() {
-        let mut short = 0;
-        for (name, appearance, ground) in [
-            ("NSAppearanceNameAqua", Appearance::Light, GROUND_LIGHT),
-            ("NSAppearanceNameDarkAqua", Appearance::Dark, GROUND_DARK),
-        ] {
-            let ns = named(name);
-            let backdrop = under(Body::Standard, appearance);
-            let wanted = Drawn {
-                scale: 2.0,
-                glow: Glow::Full,
-                appearance,
-                body: Body::Standard,
-                backdrop,
-            };
-            let look = Strip::new(9.0, 100.0).look(&ns, wanted);
-            let (system, _) = baud_present_macos::lights::colours(&ns);
-            let worst = |c: Argb| {
-                backdrop
-                    .greys()
-                    .map(|g| ratio(c, g))
-                    .fold(f64::MAX, f64::min)
-            };
-            for led in Led::ALL {
-                let (lit, asked) = (*look.lit.get(led), *system.get(led));
-                assert!(worst(lit) >= 3.0, "{name} {led:?}: {:.3}", worst(lit));
-                short += usize::from(worst(asked) < 3.0);
-                if worst(asked) >= 3.0 {
-                    assert_eq!(lit, asked, "{name} {led:?}: kept");
-                }
-                let lamp = asked.mix(ground, baud_domain::Chan::from_u8(80));
-                assert_eq!(*look.dark.get(led), lamp, "{name} {led:?}: AppKit's lamp");
-            }
-            assert!(worst(look.label) >= 4.5, "{name} letters");
-        }
-        assert!(short > 0, "the control: AppKit's own fall short");
+    fn the_plate_sits_under_the_lights_placed() {
+        let spans = spans_for_test();
+        let wide = placed(NSSize::new(800.0, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
+        let (led, rect) = plate_frame(&wide, 28.0, 2.0).expect("a plate");
+        let pad = CGFloat::from(PLATE_PAD);
+        let (hs, syn) = (wide.hs.unwrap().0, wide.syn.unwrap().0);
+        assert_eq!(led, Led::Hs);
+        assert_eq!(rect.origin.x, hs.origin.x - pad);
+        assert_eq!(
+            rect.origin.x + rect.size.width,
+            syn.origin.x + syn.size.width + pad
+        );
+        assert_eq!((rect.origin.y, rect.size.height), (476.0, 20.0));
+        let narrow = placed(NSSize::new(250.0, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
+        let (led, rect) = plate_frame(&narrow, 28.0, 2.0).expect("a plate");
+        assert_eq!(led, Led::Cd, "from the first light kept");
+        assert_eq!(rect.origin.x, narrow.cd.unwrap().0.origin.x - pad);
+        assert!(rect.origin.x >= 100.0 - pad, "clear of the lockup");
+        let none = placed(NSSize::new(50.0, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
+        assert_eq!(plate_frame(&none, 28.0, 2.0), None);
     }
 
-    /// **Over the glass one appearance gives the colours and the grey**:
-    /// the window's. A Dark window over a ClearLight glass -- the material
-    /// light, the window dark -- takes Dark Aqua's colours, unlifted, and
-    /// mixes its dark lights into the dark grey, not the light one the
-    /// material's appearance would give; the same holds the other way
-    /// round. Perturbation: take the grey from `wanted.appearance` and this
-    /// goes red.
+    /// **Dim Flashing Lights draws the lights without their glow**: macOS's
+    /// setting, read into the same value the text blink's dimmed phases
+    /// read, maps to the look with no halo when on and to the glowing one
+    /// when off. Perturbation: map `Flashing::Dimmed` to `Glow::Full` --
+    /// the setting stops taking the glow away -- and this goes red.
     #[test]
-    fn over_the_glass_the_windows_appearance_gives_colours_and_grey() {
-        for (name, material, ground) in [
-            ("NSAppearanceNameDarkAqua", Appearance::Light, GROUND_DARK),
-            ("NSAppearanceNameAqua", Appearance::Dark, GROUND_LIGHT),
-        ] {
-            let ns = named(name);
-            let wanted = Drawn {
-                scale: 2.0,
-                glow: Glow::Full,
-                appearance: material,
-                body: Body::Glass,
-                backdrop: under(Body::Glass, material),
-            };
-            let look = Strip::new(9.0, 100.0).look(&ns, wanted);
-            let (system, label) = baud_present_macos::lights::colours(&ns);
-            assert_eq!(look.lit, system, "{name}: AppKit's, unlifted");
-            assert_eq!(look.label, label, "{name}: AppKit's letters");
-            for led in Led::ALL {
-                let lamp = system.get(led).mix(ground, baud_domain::Chan::from_u8(80));
-                assert_eq!(
-                    *look.dark.get(led),
-                    lamp,
-                    "{name} {led:?}: the window's grey"
-                );
-            }
-        }
-    }
-
-    /// **Dim Flashing Lights draws every lit light faint**: macOS's setting,
-    /// read into the same value the text blink's dimmed phases read, maps to
-    /// the faint look when on and to the full one when off. Perturbation: map
-    /// `Flashing::Dimmed` to `Glow::Full` -- the setting stops dimming the
-    /// lights and this goes red.
-    #[test]
-    fn dim_flashing_lights_draws_the_lights_faint() {
+    fn dim_flashing_lights_draws_the_lights_without_their_glow() {
         use baud_present_macos::settings::Flashing;
         assert_eq!(glow(Flashing::Full), Glow::Full);
         assert_eq!(glow(Flashing::Dimmed), Glow::Dimmed);
@@ -1014,7 +952,8 @@ mod tests {
             "let synced = self.synced.seen(&self.app.term);",
             "self.app.term.images().any_placed()",
             "crate::access::lights_pace(self.app.motion)",
-            "glow: crate::lights::glow(self.app.flashing),",
+            "let glow = crate::lights::glow(self.app.flashing);",
+            "look: self.app.renderer.lights_look(glow),",
             "self.lights.show(",
         ] {
             assert!(show.contains(want), "{want}\n{show}");
@@ -1054,18 +993,6 @@ mod tests {
         assert!(tell.contains("self.flush_reply(Asked::Unasked);"), "{tell}");
         let style = body(concat!("    fn apply_style(&mut self) ", "{"));
         assert!(style.contains("self.lights.stale();"), "{style}");
-        assert!(
-            style.contains("self.lights_appearance = appearance_of(&self.window);"),
-            "the window's appearance, not the material's\n{style}"
-        );
-        // Increase Contrast changes AppKit's colours, so a change of it
-        // draws the pictures again.
-        let poll = body(concat!("    fn poll_display(&mut self) ", "{"));
-        assert!(poll.contains("self.lights.stale();"), "{poll}");
-        assert!(
-            show.contains("body,\n"),
-            "the pictures are drawn for the body\n{show}"
-        );
         // On their own line: the tick hands the renderer what they show and
         // puts the hover texts over them, every frame places their records,
         // and a re-lay sets the line at its scale and takes its pixels off

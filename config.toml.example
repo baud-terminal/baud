@@ -550,7 +550,9 @@ operations = "on"
 # inverted, with a bar) when the program stops taking what baud sends,
 # FAX while a picture is shown, and SYN while the program holds the screen
 # to draw it at once. Hold the pointer over one to see what it means. They
-# follow Reduce Motion (steady) and, on macOS, Dim Flashing Lights (faint).
+# follow Reduce Motion (steady) and, on macOS, Dim Flashing Lights (no
+# glow). They sit on a small plate of your theme's background, and every
+# lamp is one of your theme's sixteen colours exactly.
 #   "title_bar"    at the right of the title bar (macOS)
 #   "bottom_line"  on a thin line of their own under the program's last
 #                  line, only as tall as the lights; the program is never
@@ -560,6 +562,24 @@ operations = "on"
 #                  bottom line on Linux
 #   "off"          nowhere, and nothing is read for them
 activity_lights = "on"
+# Which of your theme's sixteen colours each light is lit in:
+#   "meaning"  baud's own: one colour for each kind of thing, red only for
+#              CS; on a dark theme HS 10, AA 11, CD 4, OH 6, RD 2, SD 3,
+#              CS 1, FAX 5, SYN 13, and on a light one no yellow: AA 6,
+#              OH 12, SD 14
+#   "iec"      the IEC 60073 standard's colours for an indicator's
+#              meaning: HS and CD green 2, CS yellow 3, FAX and SYN cyan
+#              6, the rest white 7
+#   "modem"    every light red 1, as the modems' front-panel lamps were
+# An unlit light is a dot half the size: in the meaning set, colour 8;
+# in the iec and modem sets, colour 8 or colour 0: of the two, the ones
+# no louder on the plate than the quietest lit light, the more visible;
+# if neither is, the quieter.
+activity_lights_colours = "meaning"
+# How strongly a lit light glows, 0 (none) to 1 (the strongest): a soft
+# halo of its own colour a point off the dot. A value outside 0..1 is held
+# to it. Dim Flashing Lights (macOS) always draws none.
+activity_lights_glow = 0.4
 # Whether DEC's indicator status line, when a program shows it, also
 # carries five of the lights as words in its free columns, after the
 # printer: CD, OH, CS, FAX and SYN, each there while what it shows holds,

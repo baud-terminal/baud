@@ -12,26 +12,30 @@
 //!   window ([`BUTTONS`]), which the app reads off its window instead.
 //! * **The lights**: each light's picture as the app draws it
 //!   (`Renderer::activity_light` in baud's embedded JetBrains Mono Bold,
-//!   the badge's face), in the look the app makes over the standard
-//!   material in the dark appearance (`lights::look_of` from AppKit's
-//!   colours), at the state the take's clocks showed at the frame
+//!   the badge's face), in the look the app makes from the dark theme
+//!   (`Renderer::lights_look`), on its plate where `lights::plate_frame`
+//!   puts it, at the state the take's clocks showed at the frame
 //!   (`session::shown_at`).
 //! * **The lockup**: `assets/logo/baud-lockup-dark-tight.svg`, the form a
 //!   dark window shows (`mark::Lockup`), its paths filled by baud-font's
 //!   rasterizer.
 //! * **The rest is a stand-in**: the strip is one grey, the middle of the
 //!   standard material's range under the dark appearance
-//!   (`baud_render::GROUND_DARK`), where the window's shows the desktop
+//!   ([`GROUND_DARK`]), where the window's shows the desktop
 //!   through it; the traffic lights are circles [`DOT`] points across in
 //!   [`COLOURS`], measured off the filmed take.
 
-use crate::lights::{Body, Spans};
+use crate::lights::Spans;
 use crate::mark::{Lockup, Place};
 use baud_domain::Chan;
 use baud_font::Px;
-use baud_render::{
-    Argb, Backdrop, ByLed, ByLight, GROUND_DARK, Glow, Led, Light, LightsImage, Renderer, Shown,
-};
+use baud_render::lights::{PLATE_RADIUS_TITLE, draw_plate};
+use baud_render::{Argb, ByLed, ByLight, Glow, Led, Light, LightsImage, Renderer, Shown};
+
+/// **The strip's grey**, the middle of the standard material's measured
+/// range under the dark appearance, grey 33 to 92 (`Backdrop::
+/// under_window_dark`): where the window shows the desktop through it.
+pub(crate) const GROUND_DARK: Argb = Argb(0xFF_3A_3A_3A);
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{NSPoint, NSRect, NSSize};
 
@@ -77,6 +81,9 @@ pub(crate) struct Layout {
     /// Each activity light's left and width; the strip's height tall, from
     /// its top. None for a light a narrow window has no room for.
     pub(crate) lights: ByLed<Option<(Px, Px)>>,
+    /// The lights' plate: its left, top, width and height, and the light
+    /// it starts at; none with no light placed.
+    pub(crate) plate: Option<(Px, Px, Px, Px)>,
 }
 
 /// The traffic lights' frames, as AppKit gives them.
@@ -116,8 +123,17 @@ pub(crate) fn layout(width: Px, scale: CGFloat, spans: &Spans) -> Layout {
         scale,
         spans,
     );
+    let plate = crate::lights::plate_frame(&placed, INSET, scale).map(|(_, r)| {
+        (
+            whole(r.origin.x * scale),
+            whole((INSET - r.origin.y - r.size.height) * scale),
+            whole(r.size.width * scale),
+            whole(r.size.height * scale),
+        )
+    });
     Layout {
         size: (width, whole(INSET * scale)),
+        plate,
         buttons: [close, mini, zoom].map(|b| {
             (
                 (b.origin.x + b.size.width / 2.0) * scale,
@@ -167,19 +183,7 @@ impl Strip {
         .expect("cell metrics");
         let spans = crate::lights::spans(&r, scale).expect("the lights' layout");
         let layout = layout(width, scale, &spans);
-        let dark = macos_liquid_glass::objc2_app_kit::NSAppearance::appearanceNamed(
-            &macos_liquid_glass::objc2_foundation::NSString::from_str("NSAppearanceNameDarkAqua"),
-        )
-        .expect("the dark appearance");
-        let (system, label) = baud_present_macos::lights::colours(&dark);
-        let look = crate::lights::look_of((
-            system,
-            label,
-            GROUND_DARK,
-            Glow::Full,
-            Body::Standard,
-            Backdrop::under_window_dark(),
-        ));
+        let look = r.lights_look(Glow::Full);
         let pictures = ByLed::of(|led| {
             ByLight::of(|light| {
                 let mut img = LightsImage::new();
@@ -194,6 +198,21 @@ impl Strip {
             disc(&mut base, w, (*cx, *cy, *radius), colour);
         }
         lockup(&mut base, w, layout.lockup, Lockup::OnDark.svg());
+        if let Some((x, y, pw, ph)) = layout.plate {
+            let mut plate = LightsImage::new();
+            let radius = PLATE_RADIUS_TITLE * scale as f32;
+            draw_plate(&look, pw, ph, radius, &mut plate).expect("the plate");
+            for row in 0..slots!(ph) {
+                for col in 0..slots!(pw) {
+                    let at = (slots!(y) + row) * slots!(w) + slots!(x) + col;
+                    if let (Some(d), Some(s)) =
+                        (base.get_mut(at), plate.pixels.get(row * slots!(pw) + col))
+                    {
+                        *d = over(Argb(*d), *s).0;
+                    }
+                }
+            }
+        }
         let mut strip = Strip {
             layout,
             ground: base.clone(),
@@ -552,7 +571,7 @@ mod tests {
 
     /// **The lights drawn in the strip follow the states given**: RD lit
     /// changes pixels inside RD's place and nowhere else, its lit picture
-    /// over the strip's grey there, and all dark is the strip as built.
+    /// over the plate there, and all dark is the strip as built.
     /// The frame below the strip is the frame given. The control: two
     /// states that differ only in RD differ only in RD's columns.
     /// Perturbation: compose every frame at `Shown::DARK` and RD lit
@@ -586,12 +605,18 @@ mod tests {
             }
         }
         assert!(changed > 20, "RD lit drew {changed} pixels");
-        // RD's lit picture over the strip's grey, along its middle row.
+        // RD's lit picture over the plate, along its middle row; the plate
+        // is the dark theme's background, opaque.
         let img = s.pictures.rd.get(Light::Lit);
         let iw = slots!(img.width);
+        let row = 28 * slots!(WIDE) + slots!(x);
+        let bg = baud_render::Theme::dark()
+            .bg
+            .with_alpha(Chan::from_u8(0xFF));
+        assert_eq!(s.ground[row - 2], bg.0, "the plate left of RD");
         for i in 0..iw {
-            let want = over(GROUND_DARK, img.pixels[28 * iw + i]).0;
-            assert_eq!(rd[28 * slots!(WIDE) + slots!(x) + i], want, "column {i}");
+            let want = over(Argb(s.ground[row + i]), img.pixels[28 * iw + i]).0;
+            assert_eq!(rd[row + i], want, "column {i}");
         }
     }
 
