@@ -858,8 +858,9 @@ struct Boot {
     status_line_lights: baud_render::StatusLineLights,
     /// Whether the window shows the splash, from `[launch] splash`.
     launch_splash: crate::config::LaunchSplash,
-    /// Whether the shell's prompts are marked, from `[shell] integration`.
-    shell_integration: crate::shell::Integration,
+    /// The shell a window starts and whether its prompts are marked, from
+    /// `[shell]`.
+    shell: crate::pty::ShellStart,
     /// Whether a program may log what it sends, from `[screen] logging`.
     logging: baud_domain::Logging,
     /// Whether a program's print opens the print panel, from `[screen]
@@ -1031,7 +1032,7 @@ impl Boot {
             activity_lights: cfg.activity_lights,
             status_line_lights: cfg.status_line_lights,
             launch_splash: cfg.launch_splash,
-            shell_integration: cfg.shell_integration,
+            shell: crate::pty::ShellStart::of(&cfg),
             logging: cfg.logging,
             printing: cfg.printing,
             notifications: cfg.notifications,
@@ -1158,7 +1159,7 @@ impl App {
             activity_lights,
             status_line_lights,
             launch_splash,
-            shell_integration: _,
+            shell,
             logging,
             printing,
             notifications,
@@ -1507,7 +1508,7 @@ impl App {
             blink_interval,
             cursor_guide,
             badge,
-            session: crate::effects::Session::here(),
+            session: crate::effects::Session::here(shell.program.as_deref()),
             focus: baud_core::Focus::Lost,
             blink_choice,
             warned_blink: Done::No,
@@ -12725,18 +12726,11 @@ impl Shell {
         let late: Arc<OnceLock<Waker>> = Arc::new(OnceLock::new());
         let wake_late = Arc::clone(&late);
         let cell = boot.renderer.metrics();
-        let pty = Pty::spawn(
-            &ws,
-            cell.cell_w,
-            cell.cell_h,
-            at,
-            boot.shell_integration,
-            move || {
-                if let Some(w) = wake_late.get() {
-                    w.wake();
-                }
-            },
-        )
+        let pty = Pty::spawn(&ws, cell.cell_w, cell.cell_h, at, &boot.shell, move || {
+            if let Some(w) = wake_late.get() {
+                w.wake();
+            }
+        })
         .expect("pty");
         startup_mark("pty");
         // **The launch's threads after the shell** (note AJ section 20):
@@ -14144,7 +14138,8 @@ impl Driver {
                 | Part::Vs16Width
                 | Part::Printing
                 | Part::ClipboardArea
-                | Part::ShellIntegration => {}
+                | Part::ShellIntegration
+                | Part::ShellProgram => {}
             }
         }
         // **A size the user zoomed to stays**, as alacritty keeps one

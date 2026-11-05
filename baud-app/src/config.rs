@@ -363,6 +363,12 @@ pub struct Config {
     /// too -- `"on"` by default, or `"off"`, which starts every shell as
     /// it would start anywhere else ([`crate::shell::Integration`]).
     pub shell_integration: crate::shell::Integration,
+    /// `[shell] program`: the shell a window starts, by its path, in place
+    /// of `$SHELL` -- unset by default, which starts `$SHELL`, else the
+    /// system's. Run as `$SHELL` is, as a login shell with the integration
+    /// its name picks, and handed to it as its `SHELL`
+    /// ([`shell_program`]).
+    pub shell_program: Option<String>,
     /// `[keyboard]`: the four modes DEC STD 070 makes Set-up features
     /// (070-6 §6.2.1 d), each `"on"` or `"off"`: `auto_repeat` (DECARM),
     /// `application_cursor_keys` (DECCKM), `application_keypad` (DECKPAM
@@ -1046,6 +1052,7 @@ impl Config {
             wrap_words: baud_render::WordWrap::On,
             wrap_marker: baud_render::WrapMarker::On,
             shell_integration: crate::shell::Integration::On,
+            shell_program: None,
             set_up: baud_domain::SetUp::FACTORY,
             checksum: baud_domain::ChecksumReport::On,
             substitute: Substitute::DEFAULT,
@@ -2002,6 +2009,13 @@ impl Config {
                         }
                     };
                 }
+                ("shell", "program") => {
+                    self.shell_program = shell_program(
+                        value.trim().trim_matches('"'),
+                        absolute_dir(std::env::var_os("HOME")).as_deref(),
+                        &mut said,
+                    );
+                }
                 ("launch", "splash") => {
                     self.launch_splash = match value.trim().trim_matches('"') {
                         "on" => LaunchSplash::On,
@@ -2935,6 +2949,48 @@ pub(crate) fn config_paths(
 /// longer makes. Both the config's lookup and the themes' read through it.
 pub(crate) fn absolute_dir(v: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
     v.map(std::path::PathBuf::from).filter(|p| p.is_absolute())
+}
+
+/// **`[shell] program` as written, made the shell a window starts**: an
+/// absolute path, or one under the home folder after `~/` as a font path
+/// is ([`Config::faces_beside`]), that names an executable file. Empty is
+/// unset. Anything else is said and unset, so the window starts the shell
+/// it would without the line -- `$SHELL`, else the system's -- and never
+/// fails to open: a relative name, because a Dock launch's `PATH` is
+/// launchd's and not the one a terminal's shell has, so the name would
+/// find another program there or none; and a path that is not a file or
+/// that no one may run, as `execve` would refuse it.
+pub(crate) fn shell_program(
+    written: &str,
+    home: Option<&std::path::Path>,
+    said: &mut Vec<String>,
+) -> Option<String> {
+    use std::os::unix::fs::PermissionsExt;
+    if written.is_empty() {
+        return None;
+    }
+    let path = match written.strip_prefix("~/") {
+        Some(rest) => home.map(|h| h.join(rest)),
+        None => Some(std::path::PathBuf::from(written)),
+    };
+    let unset = "the shell starts as without it, $SHELL, else the system's";
+    let Some(path) = path.filter(|p| p.is_absolute()) else {
+        said.push(format!(
+            "config: [shell] program {written:?} is not an absolute path; {unset}"
+        ));
+        return None;
+    };
+    let runs =
+        std::fs::metadata(&path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    match (runs, path.to_str()) {
+        (true, Some(p)) => Some(p.to_string()),
+        _ => {
+            said.push(format!(
+                "config: [shell] program {written:?} is not a program that can run; {unset}"
+            ));
+            None
+        }
+    }
 }
 
 /// `(section, key, value)` triples. A value runs to the end of the line, or,
@@ -6728,6 +6784,147 @@ mod guide {
             missing.is_empty() && invented.is_empty(),
             "docs/guide/configuration.md is out of step with Config::apply:\n  \
              read but not documented: {missing:?}\n  documented but never read: {invented:?}"
+        );
+    }
+}
+
+/// **`[shell] program`**: an executable file by its absolute path, or
+/// under the home folder after `~/`, is the shell a window starts; unset,
+/// empty, relative, missing or not runnable, the window starts the shell
+/// it starts without the line, and every refused value is said, for the
+/// window's notice, at launch and on a reload alike.
+#[cfg(test)]
+mod shell_program_setting {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+
+    /// A fresh directory of this test's own, holding `runs`, mode 755, and
+    /// `stays`, mode 644.
+    fn scratch(tag: &str) -> PathBuf {
+        let d =
+            std::env::temp_dir().join(format!("baud-shell-program-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("home/bin")).expect("a scratch directory");
+        for (name, mode) in [("runs", 0o755), ("stays", 0o644), ("home/bin/fish", 0o755)] {
+            let p = d.join(name);
+            std::fs::write(&p, "#!/bin/sh\n").expect("the file");
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).expect("its mode");
+        }
+        d
+    }
+
+    /// What `text` sets the program to, and what it said.
+    fn applied(text: &str) -> (Option<String>, Vec<String>) {
+        let mut c = Config::defaults();
+        let said = c.apply(text);
+        (c.shell_program, said)
+    }
+
+    #[test]
+    fn unset_by_default_and_by_an_empty_value() {
+        assert_eq!(Config::defaults().shell_program, None);
+        assert_eq!(applied("[shell]\nprogram = \"\"\n"), (None, Vec::new()));
+    }
+
+    #[test]
+    fn an_executable_file_by_its_path_is_the_program() {
+        let d = scratch("set");
+        let runs = d.join("runs");
+        let text = format!("[shell]\nprogram = \"{}\"\n", runs.display());
+        assert_eq!(
+            applied(&text),
+            (Some(runs.to_str().expect("UTF-8").to_string()), Vec::new())
+        );
+        // Under the home folder, after `~/`.
+        let mut said = Vec::new();
+        assert_eq!(
+            shell_program("~/bin/fish", Some(&d.join("home")), &mut said).as_deref(),
+            d.join("home/bin/fish").to_str()
+        );
+        assert!(said.is_empty(), "{said:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Each refusal is said and leaves the program unset: a file no one
+    /// may run, a path that names nothing, a directory, a relative name,
+    /// and `~/` with no home folder.
+    #[test]
+    fn a_path_that_cannot_run_is_said_and_unset() {
+        let d = scratch("bad");
+        let bad = [
+            (
+                d.join("stays").display().to_string(),
+                "not a program that can run",
+            ),
+            (
+                d.join("gone").display().to_string(),
+                "not a program that can run",
+            ),
+            (d.display().to_string(), "not a program that can run"),
+            ("zsh".to_string(), "not an absolute path"),
+        ];
+        for (written, why) in &bad {
+            let (program, said) = applied(&format!("[shell]\nprogram = \"{written}\"\n"));
+            assert_eq!(program, None, "{written}");
+            assert_eq!(said.len(), 1, "{written}: {said:?}");
+            assert!(
+                said[0].starts_with("config: [shell] program") && said[0].contains(why),
+                "{written}: {said:?}"
+            );
+        }
+        let mut said = Vec::new();
+        assert_eq!(shell_program("~/bin/fish", None, &mut said), None);
+        assert_eq!(said.len(), 1, "{said:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The window shows the sentence: what the launch says reaches the
+    /// notice (`live::Notice::of`), a reload's too, through
+    /// [`Config::reread_at`].
+    #[test]
+    fn a_refused_program_reaches_the_launch_and_the_reload() {
+        let d = scratch("notice");
+        let file = d.join("config.toml");
+        std::fs::write(
+            &file,
+            format!("[shell]\nprogram = \"{}\"\n", d.join("stays").display()),
+        )
+        .expect("the config");
+        let (c, said) = Config::read_saying(std::slice::from_ref(&file));
+        assert_eq!(c.shell_program, None);
+        assert!(
+            said.iter().any(|s| s.contains("[shell] program")),
+            "{said:?}"
+        );
+        match Config::reread_at(std::slice::from_ref(&file), Some(&file)) {
+            Reread::Read(r) => {
+                assert!(
+                    r.said.iter().any(|s| s.contains("[shell] program")),
+                    "{:?}",
+                    r.said
+                );
+            }
+            _ => panic!("the reload read the file"),
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A change of program is a part the window's shell already was, and
+    /// waits for the next window, as `[shell] integration` does.
+    #[test]
+    fn a_change_of_program_takes_the_next_window() {
+        let old = Config::defaults();
+        let mut new = Config::defaults();
+        new.shell_program = Some("/bin/sh".into());
+        let parts = crate::live::between(&old, &new, crate::live::FaceFiles::Same);
+        assert!(
+            parts.contains(&crate::live::Part::ShellProgram),
+            "{parts:?}"
+        );
+        assert_eq!(
+            crate::live::Part::ShellProgram.takes(),
+            crate::live::Takes::NextLaunch
         );
     }
 }

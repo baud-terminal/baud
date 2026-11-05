@@ -672,7 +672,7 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
     );
     let mut updates = crate::bell::UpdateClock::new(SYNC_MAX);
     let (guide, badge) = (cfg.cursor_guide, cfg.badge);
-    let session = crate::effects::Session::here();
+    let session = crate::effects::Session::here(None);
     let (gw, gh) = stage.renderer.whole_size();
     let (w, h) = (
         Px::of(gw.value() + 2 * PAD.value()),

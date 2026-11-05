@@ -114,6 +114,9 @@ pub enum Part {
     /// `[shell] integration`: what a shell is started with, which the
     /// window's shell already was.
     ShellIntegration,
+    /// `[shell] program`: which shell a window starts, which the window's
+    /// shell already was.
+    ShellProgram,
 }
 
 impl Part {
@@ -155,7 +158,8 @@ impl Part {
             | Part::Vs16Width
             | Part::Printing
             | Part::ClipboardArea
-            | Part::ShellIntegration => Takes::NextLaunch,
+            | Part::ShellIntegration
+            | Part::ShellProgram => Takes::NextLaunch,
         }
     }
 
@@ -199,6 +203,7 @@ impl Part {
             Part::Printing => "[screen] printing",
             Part::ClipboardArea => "[clipboard] body_kb",
             Part::ShellIntegration => "[shell] integration",
+            Part::ShellProgram => "[shell] program",
         }
     }
 }
@@ -274,6 +279,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         wrap_words,
         wrap_marker,
         shell_integration,
+        shell_program,
         cursor_guide,
         set_up,
     } = new;
@@ -389,6 +395,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         old.shell_integration != *shell_integration,
         Part::ShellIntegration,
     );
+    part(old.shell_program != *shell_program, Part::ShellProgram);
     out
 }
 

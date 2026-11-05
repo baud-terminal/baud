@@ -663,8 +663,20 @@ splash = "on"
 # bash-preexec's does, or when the line begins with a subshell ( ... ) or
 # coproc. "on" by default; "off" starts every shell as any other terminal
 # does. A change shows in the next window.
+#
+# program: the shell each new window starts, by its full path (or under
+# your home folder after ~/), in place of $SHELL. Unset by default, which
+# starts $SHELL, else the system's shell. baud starts it as it starts
+# $SHELL: as a login shell, its prompts marked when its name is zsh, bash
+# or fish, and the shell and what it runs see it as their $SHELL. Opened
+# from the Dock or Finder, baud is given the shell your account names,
+# which can be another shell than the one your other terminals run. A
+# path that is not absolute, or names no file you may run, shows a notice
+# and the window starts the default shell. A change shows in the next
+# window.
 [shell]
 integration = "on"
+# program = "/run/current-system/sw/bin/zsh"
 
 # How keys behave before a program asks otherwise, the four keyboard modes a
 # DEC terminal lets you set in its Set-Up screen. A program can still change

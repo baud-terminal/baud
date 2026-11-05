@@ -728,6 +728,36 @@ fn shell_locale() -> Option<String> {
     None
 }
 
+/// **What `[shell]` says about the shell a window starts**: whether its
+/// prompts are marked (`integration`) and which program it is (`program`,
+/// [`crate::config::shell_program`]; `None` starts `$SHELL`, else the
+/// system's).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShellStart {
+    pub integration: crate::shell::Integration,
+    pub program: Option<String>,
+}
+
+impl ShellStart {
+    /// The shell the config names, marked as it says.
+    pub fn of(cfg: &crate::config::Config) -> ShellStart {
+        ShellStart {
+            integration: cfg.shell_integration,
+            program: cfg.shell_program.clone(),
+        }
+    }
+}
+
+impl From<crate::shell::Integration> for ShellStart {
+    /// `$SHELL`, else the system's, marked as `integration` says.
+    fn from(integration: crate::shell::Integration) -> ShellStart {
+        ShellStart {
+            integration,
+            program: None,
+        }
+    }
+}
+
 /// **What the child runs**: the path `execve` is given and the argument
 /// list, decided in the parent before the fork, with what shell
 /// integration changes in the environment.
@@ -735,19 +765,32 @@ struct Exec {
     path: CString,
     argv: Vec<CString>,
     injection: Option<crate::shell::Injection>,
+    /// `SHELL=` the configured program, when `[shell] program` names one:
+    /// the child's `SHELL`, in place of the parent's. POSIX has `SHELL`
+    /// "represent a pathname of the user's preferred command language
+    /// interpreter" (`[[source: posix-xbd-8]]`), and `login` sets it to the
+    /// shell it starts; left at the parent's, which from the Dock is the
+    /// account's, a multiplexer's or an editor's shell would start that
+    /// one instead. Terminals differ: WezTerm sets `SHELL` from `$SHELL`
+    /// or the account's entry and not from `default_prog`, and alacritty
+    /// leaves the parent's; kitty's and Ghostty's handling was not read
+    /// at source.
+    shell_var: Option<CString>,
 }
 
 impl Exec {
     /// `/bin/sh -c cmd` for a command, as `BAUD_CMD` runs one; otherwise
-    /// a login shell, `$SHELL` as `parent` has it (else the system's) with
-    /// argv[0] its name after a `-`, as `login` starts one, and with
-    /// whatever `integration` adds to its start
-    /// ([`crate::shell::inject`]). `None` when an argument cannot be a C
-    /// string.
+    /// a login shell, `program` when `[shell] program` names one, else
+    /// `$SHELL` as `parent` has it (else the system's) ([`login_shell`]),
+    /// with argv[0] its name after a `-`, as `login` starts one, and with
+    /// whatever `integration` adds to its start, which its name picks
+    /// ([`crate::shell::inject`]). A configured program is also the
+    /// child's `SHELL`. `None` when an argument cannot be a C string.
     fn of(
         cmd: Option<String>,
         parent: &[(OsString, OsString)],
         integration: crate::shell::Integration,
+        program: Option<&str>,
     ) -> Option<Exec> {
         if let Some(c) = cmd {
             return Some(Exec {
@@ -758,42 +801,65 @@ impl Exec {
                     CString::new(c).ok()?,
                 ],
                 injection: None,
+                shell_var: None,
             });
         }
-        let shell = login_shell(parent);
+        let shell = login_shell(program, parent);
         let path = resolve(&shell).unwrap_or_else(|| DEFAULT_SHELL.to_string());
         let argv0 = CString::new(format!("-{}", shell.rsplit('/').next().unwrap_or("sh"))).ok()?;
         let injection = crate::shell::inject(integration, &shell, &path, parent);
         let argv = core::iter::once(argv0)
             .chain(injection.iter().flat_map(|i| i.args.iter().cloned()))
             .collect();
+        let shell_var = match program {
+            Some(p) => Some(CString::new(format!("SHELL={p}")).ok()?),
+            None => None,
+        };
         Some(Exec {
             path: CString::new(path).ok()?,
             argv,
             injection,
+            shell_var,
         })
     }
 }
 
-/// **The shell a session starts**, `$SHELL` as `parent` has it, else the
-/// system's: what [`Exec::of`] runs when no command is given.
-fn login_shell(parent: &[(OsString, OsString)]) -> String {
-    parent
-        .iter()
-        .find(|(k, _)| k.as_bytes() == b"SHELL")
-        .and_then(|(_, v)| v.to_str())
+/// **The shell a session starts**: `program`, `[shell] program` when the
+/// config names one ([`crate::config::shell_program`]), else `$SHELL` as
+/// `parent` has it, else the system's: what [`Exec::of`] runs when no
+/// command is given.
+fn login_shell(program: Option<&str>, parent: &[(OsString, OsString)]) -> String {
+    program
+        .or_else(|| {
+            parent
+                .iter()
+                .find(|(k, _)| k.as_bytes() == b"SHELL")
+                .and_then(|(_, v)| v.to_str())
+        })
         .unwrap_or(DEFAULT_SHELL)
         .to_string()
 }
 
 /// **The name of the shell a session starts**, [`login_shell`]'s last
-/// path component from this process's environment: the badge's `shell`,
-/// as iTerm2 names the user's shell by its last path component
+/// path component, `program` or this process's environment: the badge's
+/// `shell`, as iTerm2 names the user's shell by its last path component
 /// (`bestGuessAtUserShellWithPath:NO`, `[[source:
 /// iterm2-964a75d-ptysession]]`).
-pub(crate) fn shell_name() -> String {
-    let shell = login_shell(&std::env::vars_os().collect::<Vec<_>>());
+pub(crate) fn shell_name(program: Option<&str>) -> String {
+    let shell = login_shell(program, &std::env::vars_os().collect::<Vec<_>>());
     shell.rsplit('/').next().unwrap_or(&shell).to_string()
+}
+
+/// `env` with `var`, a `NAME=value` entry, in place of every entry of its
+/// name, as [`crate::shell::Injection::apply`] replaces its own.
+fn set_var(env: &mut Vec<CString>, var: &CString) {
+    let name = var.as_bytes().split(|b| *b == b'=').next().unwrap_or(&[]);
+    env.retain(|e| {
+        e.as_bytes()
+            .strip_prefix(name)
+            .is_none_or(|rest| rest.first() != Some(&b'='))
+    });
+    env.push(var.clone());
 }
 
 /// `prog` as a path `execve` can take: itself when it names a path, else
@@ -1230,7 +1296,8 @@ fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) 
 }
 
 impl Pty {
-    /// Forks a login shell -- `$SHELL`, else the system's -- on a fresh
+    /// Forks a login shell -- `[shell] program`, else `$SHELL`, else the
+    /// system's -- on a fresh
     /// pty of `size`, and returns the master. With `BAUD_CMD` set, forks
     /// `/bin/sh -c "$BAUD_CMD"` instead, which is how a benchmark drives
     /// the terminal: the window closes when the command ends.
@@ -1242,13 +1309,13 @@ impl Pty {
     /// so it had nothing to send and the zero stood until the window changed.
     ///
     /// `at` is the directory a new window inherits, which wins over the
-    /// launch rule ([`start_in`]) when it is absolute. `integration` is
-    /// `[shell] integration`, which marks the shell's prompts
-    /// (`shell.rs`).
+    /// launch rule ([`start_in`]) when it is absolute. `shell` is
+    /// `[shell]`: its `integration`, which marks the shell's prompts
+    /// (`shell.rs`), and its `program`.
     fn fork(
         ws: crate::sys::Winsize,
         at: Option<&std::path::Path>,
-        integration: crate::shell::Integration,
+        shell: &ShellStart,
     ) -> Option<(crate::sys::Pid, crate::sys::Fd)> {
         let cmd = std::env::var("BAUD_CMD").ok();
         Pty::fork_given(
@@ -1258,7 +1325,7 @@ impl Pty {
             shell_locale,
             Parent::of_this_process(),
             at,
-            integration,
+            shell,
         )
     }
 
@@ -1282,12 +1349,12 @@ impl Pty {
             locale,
             started_by,
             at,
-            crate::shell::Integration::Off,
+            &crate::shell::Integration::Off.into(),
         )
         .map(|(_, master)| master)
     }
 
-    /// [`Pty::fork`] with every input given, the integration too.
+    /// [`Pty::fork`] with every input given, `[shell]` too.
     fn fork_given(
         ws: crate::sys::Winsize,
         cmd: Option<String>,
@@ -1295,7 +1362,7 @@ impl Pty {
         locale: impl FnOnce() -> Option<String>,
         started_by: Parent,
         at: Option<&std::path::Path>,
-        integration: crate::shell::Integration,
+        shell: &ShellStart,
     ) -> Option<(crate::sys::Pid, crate::sys::Fd)> {
         let start = match at
             .filter(|d| d.is_absolute())
@@ -1304,8 +1371,11 @@ impl Pty {
             Some(dir) => StartIn::Dir(dir),
             None => start_in(started_by, &parent),
         };
-        let exec = Exec::of(cmd, &parent, integration)?;
+        let exec = Exec::of(cmd, &parent, shell.integration, shell.program.as_deref())?;
         let mut stay = spawn_env(parent, locale);
+        if let Some(v) = &exec.shell_var {
+            set_var(&mut stay, v);
+        }
         if let Some(i) = &exec.injection {
             i.apply(&mut stay);
         }
@@ -1338,7 +1408,7 @@ impl Pty {
         env: Vec<CString>,
     ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
         let parent: Vec<(OsString, OsString)> = std::env::vars_os().collect();
-        let exec = Exec::of(cmd, &parent, crate::shell::Integration::Off)?;
+        let exec = Exec::of(cmd, &parent, crate::shell::Integration::Off, None)?;
         Pty::fork_in(ws, &exec, &env, &env, &StartIn::Inherited)
     }
 
@@ -1360,7 +1430,7 @@ impl Pty {
             || None,
             Parent::Other,
             Some(dir),
-            crate::shell::Integration::On,
+            &crate::shell::Integration::On.into(),
         )
     }
 
@@ -1453,11 +1523,11 @@ impl Pty {
         cell_w: Px,
         cell_h: Px,
         at: Option<&std::path::Path>,
-        integration: crate::shell::Integration,
+        shell: &ShellStart,
         wake: impl Fn() + Send + 'static,
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let (child, master) = Pty::fork(told, at, integration)?;
+        let (child, master) = Pty::fork(told, at, shell)?;
         Some(Pty::reading(master, Some(child), told, wake))
     }
 
@@ -1520,14 +1590,9 @@ impl Pty {
     /// the Linux loop's shape -- one wait over the compositor's socket and
     /// the master, and nothing crossing a channel.
     #[cfg(target_os = "linux")]
-    pub fn spawn_polled(
-        size: &WinSize,
-        cell_w: Px,
-        cell_h: Px,
-        integration: crate::shell::Integration,
-    ) -> Option<Pty> {
+    pub fn spawn_polled(size: &WinSize, cell_w: Px, cell_h: Px, shell: &ShellStart) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let (child, master) = Pty::fork(told, None, integration)?;
+        let (child, master) = Pty::fork(told, None, shell)?;
         make_nonblocking(master);
         Some(Pty {
             master,
@@ -3518,7 +3583,7 @@ mod tests {
         let (_, master) = Pty::fork(
             text_area(&size, Px::of(8), Px::of(16)),
             None,
-            crate::shell::Integration::Off,
+            &crate::shell::Integration::Off.into(),
         )
         .expect("forkpty");
         for line in String::from_utf8_lossy(&read_all(master)).lines() {
@@ -3945,6 +4010,159 @@ mod tests {
             "|2",
             "the control: with no locale the letter is two bytes"
         );
+    }
+
+    /// The parent a `[shell] program` test's baud has: `SHELL` naming
+    /// zsh, a scratch `HOME` and `TMPDIR` under `dir` (where integration
+    /// writes its scripts), `HISTFILE` at `/dev/null`, and this `PATH`.
+    fn program_parent(dir: &std::path::Path) -> Vec<(OsString, OsString)> {
+        let os = |s: &str| OsString::from(s);
+        for sub in ["home", "tmp"] {
+            std::fs::create_dir_all(dir.join(sub)).expect("a scratch directory");
+        }
+        vec![
+            (os("HOME"), dir.join("home").into_os_string()),
+            (os("TMPDIR"), dir.join("tmp").into_os_string()),
+            (os("HISTFILE"), os("/dev/null")),
+            (os("PATH"), std::env::var_os("PATH").unwrap_or_default()),
+            (os("LANG"), os("en_US.UTF-8")),
+            (os("SHELL"), os("/bin/zsh")),
+        ]
+    }
+
+    fn argv(e: &Exec) -> Vec<String> {
+        e.argv
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// **A configured program is run as `$SHELL` is, in its place**: its
+    /// path is what `execve` takes, argv[0] is its name after a `-`, the
+    /// integration its name picks is added -- bash's `--posix`, fish's
+    /// `-C`, zsh's `ZDOTDIR`, nothing for a shell baud does not mark --
+    /// and it is the child's `SHELL`, while the parent's `SHELL` names zsh.
+    #[test]
+    fn a_configured_program_runs_in_place_of_shell() {
+        let dir = std::env::temp_dir().join(format!("baud-program-exec-{}", std::process::id()));
+        let parent = program_parent(&dir);
+        let on = crate::shell::Integration::On;
+        let bash = Exec::of(None, &parent, on, Some("/opt/shells/bin/bash")).expect("an exec");
+        assert_eq!(bash.path.to_str(), Ok("/opt/shells/bin/bash"));
+        assert_eq!(argv(&bash), ["-bash", "--posix"]);
+        assert_eq!(
+            bash.shell_var.as_deref().map(core::ffi::CStr::to_bytes),
+            Some(&b"SHELL=/opt/shells/bin/bash"[..])
+        );
+        let fish = Exec::of(None, &parent, on, Some("/opt/shells/bin/fish")).expect("an exec");
+        assert_eq!(argv(&fish)[..2], ["-fish", "-C"]);
+        let zsh = Exec::of(None, &parent, on, Some("/opt/shells/bin/zsh")).expect("an exec");
+        assert_eq!(argv(&zsh), ["-zsh"]);
+        assert!(
+            zsh.injection
+                .as_ref()
+                .is_some_and(|i| i.env.iter().any(|(k, _)| k == "ZDOTDIR")),
+            "zsh's integration"
+        );
+        let nu = Exec::of(None, &parent, on, Some("/opt/shells/bin/nu")).expect("an exec");
+        assert_eq!(argv(&nu), ["-nu"]);
+        assert!(nu.injection.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **Unset, the shell is `$SHELL`, else the system's**, as before the
+    /// setting, and the child's `SHELL` is the parent's, untouched. A
+    /// command (`BAUD_CMD`) runs as it is, the program or not.
+    #[test]
+    fn unset_the_shell_is_shell_then_the_systems() {
+        let dir = std::env::temp_dir().join(format!("baud-program-unset-{}", std::process::id()));
+        let parent = program_parent(&dir);
+        let off = crate::shell::Integration::Off;
+        let e = Exec::of(None, &parent, off, None).expect("an exec");
+        assert_eq!(
+            (e.path.to_str(), argv(&e)),
+            (Ok("/bin/zsh"), vec!["-zsh".to_string()])
+        );
+        assert!(e.shell_var.is_none());
+        let bare: Vec<_> = parent
+            .iter()
+            .filter(|(k, _)| k != "SHELL")
+            .cloned()
+            .collect();
+        let e = Exec::of(None, &bare, off, None).expect("an exec");
+        assert_eq!(e.path.to_str(), Ok(DEFAULT_SHELL));
+        let c = Exec::of(
+            Some("true".into()),
+            &parent,
+            off,
+            Some("/opt/shells/bin/bash"),
+        )
+        .expect("an exec");
+        assert_eq!(argv(&c), ["sh", "-c", "true"]);
+        assert!(c.shell_var.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **The configured program runs on a real pty and is its own
+    /// `SHELL`**: a script at the configured path prints `$0` and
+    /// `$SHELL`, while the parent's `SHELL` names another script that
+    /// prints the same. Unset (the control), the parent's runs and its
+    /// `SHELL` is the parent's, so the probe reads the variable it means.
+    /// No shell's startup files run: both are `/bin/sh` scripts.
+    #[test]
+    fn the_configured_program_is_the_childs_shell() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("baud-program-pty-{}", std::process::id()));
+        let mut parent = program_parent(&dir);
+        let script = |name: &str| {
+            let p = dir.join(name);
+            std::fs::write(
+                &p,
+                "#!/bin/sh\nprintf 'ran=%s shell=%s\\n' \"$0\" \"$SHELL\"\n",
+            )
+            .expect("the script");
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+            p.to_str().expect("UTF-8").to_string()
+        };
+        let (path, theirs) = (script("myshell"), script("theirs"));
+        for (k, v) in &mut parent {
+            if k == "SHELL" {
+                *v = OsString::from(&theirs);
+            }
+        }
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let run = |parent: Vec<(OsString, OsString)>, program: Option<String>| {
+            let start = ShellStart {
+                integration: crate::shell::Integration::Off,
+                program,
+            };
+            let (_, master) = Pty::fork_given(
+                text_area(&size, Px::of(8), Px::of(16)),
+                None,
+                parent,
+                || None,
+                Parent::Other,
+                None,
+                &start,
+            )
+            .expect("forkpty");
+            String::from_utf8_lossy(&read_all(master))
+                .trim()
+                .to_string()
+        };
+        assert_eq!(
+            run(parent.clone(), Some(path.clone())),
+            format!("ran={path} shell={path}")
+        );
+        assert_eq!(
+            run(parent, None),
+            format!("ran={theirs} shell={theirs}"),
+            "the control"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(target_os = "macos")]

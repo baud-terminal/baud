@@ -219,7 +219,7 @@ impl Session {
             || None,
             Parent::Other,
             None,
-            integration,
+            &integration.into(),
         )
         .expect("forkpty");
         make_nonblocking(master);
@@ -1096,7 +1096,8 @@ fn the_helpers_never_pass_from_a_parent() {
 fn a_command_gets_nothing() {
     let dir = scratch("command");
     let parent = parent(&dir, Path::new("/bin/zsh"), &[]);
-    let exec = super::Exec::of(Some("true".into()), &parent, Integration::On).expect("an exec");
+    let exec =
+        super::Exec::of(Some("true".into()), &parent, Integration::On, None).expect("an exec");
     assert!(exec.injection.is_none());
     let argv: Vec<String> = exec
         .argv
@@ -1105,7 +1106,7 @@ fn a_command_gets_nothing() {
         .collect();
     assert_eq!(argv, ["sh", "-c", "true"]);
     // The control: the same parent's login shell is given its start.
-    let shell = super::Exec::of(None, &parent, Integration::On).expect("an exec");
+    let shell = super::Exec::of(None, &parent, Integration::On, None).expect("an exec");
     assert!(shell.injection.is_some());
 }
 

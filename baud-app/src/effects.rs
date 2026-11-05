@@ -146,11 +146,12 @@ impl Session {
     /// fullyQualifiedDomainName]` (`didFinishInitialization`), which can
     /// differ -- `name.local` against a name the DNS gives; the home
     /// folder, `$HOME`, where iTerm2 takes `NSHomeDirectory()`; the name
-    /// of the shell a session starts (`pty::shell_name`); the system's
+    /// of the shell a session starts, `program` when `[shell] program`
+    /// names one (`pty::shell_name`); the system's
     /// name as `uname` gives it, as iTerm2's `bestGuessAtUName` does
     /// without ssh integration; and the time, as [`creation_time`] writes
     /// it.
-    pub(crate) fn here() -> Session {
+    pub(crate) fn here(program: Option<&str>) -> Session {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
@@ -161,7 +162,7 @@ impl Session {
                 .filter(|u| !u.is_empty()),
             host: crate::hostlog::machine_name(),
             home: std::env::var("HOME").ok().filter(|h| !h.is_empty()),
-            shell: Some(crate::pty::shell_name()),
+            shell: Some(crate::pty::shell_name(program)),
             uname: crate::hostlog::system_name(),
             created: Some(creation_time(&crate::hostlog::local(now))),
             ..Session::default()
@@ -1080,10 +1081,15 @@ mod tests {
     /// **A session starts with this machine's facts**: the home folder
     /// `$HOME` names, the name of the shell `$SHELL` names, else the
     /// system's, the system's own name, and when it started, as iTerm2
-    /// writes the time -- eight digits, `_` and six.
+    /// writes the time -- eight digits, `_` and six. A configured program
+    /// names the shell in its place.
     #[test]
     fn a_session_starts_with_this_machines_facts() {
-        let s = Session::here();
+        assert_eq!(
+            Session::here(Some("/opt/shells/bin/fish")).shell.as_deref(),
+            Some("fish")
+        );
+        let s = Session::here(None);
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         assert_eq!(s.home, env("HOME"));
         let shell = std::env::var("SHELL").unwrap_or_else(|_| match cfg!(target_os = "macos") {

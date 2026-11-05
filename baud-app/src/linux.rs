@@ -538,7 +538,7 @@ pub fn run() {
         &FIRST,
         renderer.metrics().cell_w,
         renderer.metrics().cell_h,
-        cfg.shell_integration,
+        &crate::pty::ShellStart::of(&cfg),
     )
     .expect("pty");
     startup_mark("pty");
@@ -684,7 +684,7 @@ pub fn run() {
         badge: cfg.badge,
         status_line_lights: cfg.status_line_lights,
         line_tip: crate::line_tip::LineTip::default(),
-        session: crate::effects::Session::here(),
+        session: crate::effects::Session::here(cfg.shell_program.as_deref()),
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
         notes,
@@ -2023,7 +2023,8 @@ impl Driver {
                 | Part::Vs16Width
                 | Part::Printing
                 | Part::ClipboardArea
-                | Part::ShellIntegration => {}
+                | Part::ShellIntegration
+                | Part::ShellProgram => {}
             }
         }
         // A size the user zoomed to stays.
