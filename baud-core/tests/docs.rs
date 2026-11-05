@@ -283,6 +283,8 @@ fn every_repository_path_named_in_the_docs_exists() {
         "baud-isa/",
         "baud-isa-aarch64/",
         "baud-isa-x86-64/",
+        // The table compiler the build scripts share, added with the crate.
+        "baud-tablegen/",
         "baud-difftest/",
         // The second external oracle, added with the crate: a path under it
         // named in a document is checked, which the root's absence would not.
@@ -428,6 +430,7 @@ fn every_test_named_in_the_docs_exists() {
         "baud-wayland",
         "baud-xkb",
         "baud-present-wayland",
+        "baud-tablegen",
     ] {
         let dir = root().join(d);
         assert!(

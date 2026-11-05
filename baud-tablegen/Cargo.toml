@@ -1,0 +1,19 @@
+[package]
+name = "baud-tablegen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license = "CC-BY-NC-SA-4.0"
+repository.workspace = true
+description = "Compiles the Unicode Character Database and other pinned data files into typed tables at build time, refusing a malformed row, an unknown value, a duplicate or an overlap."
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["unicode", "ucd", "tables", "codegen", "build"]
+categories = ["parser-implementations", "text-processing"]
+# What crates.io gets: the source, the licence and the notice. The tests
+# stay in the repository.
+include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
+
+# **No dependencies, by rule.** A build-dependency runs in every build of
+# every crate that has it, so it is `std` alone.
+[dependencies]

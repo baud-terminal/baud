@@ -1,34 +1,31 @@
-//! Builds the text-contrast curve table (`src/contrast.rs`) into `OUT_DIR`:
-//! 128 x 64 rows of 256 coverages, DirectWrite's grayscale curve. Native code
-//! does in milliseconds what const evaluation took half a minute over, and
-//! `tests/contrast.rs` holds every entry to `contrast::exact`, so this
-//! spelling of the formula cannot drift from that one unnoticed.
+//! The crate's build: one module a table under `build/`, each a function of
+//! its inputs, and this `main` the one place that reads `data/` and writes
+//! `OUT_DIR`. A failure in a table's data is printed as `cargo::error=` at
+//! its file, line and column, every one of them, and fails the build.
 
-use std::io::Write;
+#[path = "build/bidi.rs"]
+mod bidi;
+#[path = "build/contrast.rs"]
+mod contrast;
 
-const K_STEPS: usize = 128;
-const F_STEPS: usize = 64;
-const G: [f64; 4] = [0.148054421, -0.894594550, 1.47590804, -0.324668258];
-
-fn exact(a: f64, k: f64, f: f64) -> f64 {
-    let a1 = a * (k + 1.0) / (a * k + 1.0);
-    let a2 = a1 + a1 * (1.0 - a1) * ((G[0] * f + G[1]) * a1 + (G[2] * f + G[3]));
-    a2.clamp(0.0, 1.0)
-}
+use std::path::PathBuf;
 
 fn main() {
-    println!("cargo:rerun-if-changed=build.rs");
-    let mut out = Vec::with_capacity(K_STEPS * F_STEPS * 256);
-    for kq in 0..K_STEPS {
-        for fq in 0..F_STEPS {
-            let k = kq as f64 / (K_STEPS - 1) as f64;
-            let f = fq as f64 / (F_STEPS - 1) as f64;
-            for a in 0..256 {
-                out.push((exact(a as f64 / 255.0, k, f) * 255.0 + 0.5) as u8);
-            }
-        }
+    println!("cargo::rerun-if-changed=build.rs");
+    println!("cargo::rerun-if-changed=build");
+    let crate_dir =
+        PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
+    let data = crate_dir.join("data");
+    for input in &bidi::INPUTS {
+        println!("cargo::rerun-if-changed=data/{}", input.file);
     }
-    let dir = std::env::var("OUT_DIR").expect("OUT_DIR");
-    let mut file = std::fs::File::create(format!("{dir}/contrast.bin")).expect("create");
-    file.write_all(&out).expect("write");
+    std::fs::write(out.join("contrast.bin"), contrast::build()).expect("write contrast.bin");
+    let read = |file: &str| std::fs::read_to_string(data.join(file));
+    match bidi::build(&read) {
+        Ok(emit) => emit.write(&out).expect("write the bidi tables"),
+        // Cargo fails the build on any `cargo::error=` line, after the
+        // script has printed them all.
+        Err(errs) => print!("{}", errs.directives()),
+    }
 }

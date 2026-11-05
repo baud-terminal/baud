@@ -66,7 +66,7 @@ changelog_path = "CHANGELOG.md"
 changelog_include = [
   "baud-core", "baud-domain", "baud-font", "baud-render",
   "baud-present-macos", "baud-present-wayland", "baud-wayland", "baud-xkb",
-  "baud-isa", "baud-isa-aarch64", "baud-isa-x86-64",
+  "baud-isa", "baud-isa-aarch64", "baud-isa-x86-64", "baud-tablegen",
 ]
 
 # The rest are published because cargo requires it, not because anyone
@@ -118,3 +118,7 @@ git_tag_name = "baud-isa-aarch64-v{{ version }}"
 [[package]]
 name = "baud-isa-x86-64"
 git_tag_name = "baud-isa-x86-64-v{{ version }}"
+
+[[package]]
+name = "baud-tablegen"
+git_tag_name = "baud-tablegen-v{{ version }}"

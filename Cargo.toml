@@ -33,6 +33,9 @@ members = ["baud-domain", "baud-core", "baud-bench",
   "baud-render",
   "baud-present-macos",
   "baud-app",
+  # The table compiler the crates' build scripts share: std alone, no
+  # dependencies, so a build-dependency adds nothing to a build's graph.
+  "baud-tablegen",
     "baud-wayland",
     "baud-xkb",
     "baud-present-wayland",
@@ -89,6 +92,7 @@ rust-version = "1.96"
 # keeps the scan as its own default.
 [workspace.dependencies]
 baud-domain = { path = "baud-domain", version = "1.0.0-beta.1" }
+baud-tablegen = { path = "baud-tablegen", version = "1.0.0-beta.1" }
 baud-isa = { path = "baud-isa", version = "1.0.0-beta.1" }
 baud-isa-aarch64 = { path = "baud-isa-aarch64", version = "1.0.0-beta.1" }
 baud-isa-x86-64 = { path = "baud-isa-x86-64", version = "1.0.0-beta.1" }

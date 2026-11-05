@@ -249,6 +249,17 @@ crate_audit "baud-present-wayland" 5 10 baud-present-wayland/src
 # the platform's widths, which a newtype would misrepresent rather than
 # document. Set at the count, and it does not move to fit a change.
 crate_audit "baud" 1 4 baud-app/src
+# baud-tablegen: 9 raw sites and 25 signature primitives, and they are the
+# text it reads: a code point as the `u32` the UCD's hex is
+# (`CpRange::lo`/`hi`, `get`, `code_point`), a line and a field index as
+# `usize` (`Row::field`, `get`, `error`, `expect`, `Source::line`, the
+# value sets' `check`), the FNV-1a hash's `u32` seed and value and the
+# `u16` seeds it finds, a trie's `shift`, the counts `Errors::count`
+# compares and `Emit::array`'s `per_line`, plus `From<bool> for Check`, the
+# one bridge into the two-state enum, and the `as usize` the generated const
+# pin carries as text. It is a build-dependency with no dependencies, so
+# `baud-domain`'s types are not there to take; set at the count.
+crate_audit "baud-tablegen" 9 25 baud-tablegen/src
 
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP
 # split its 12 permitted sites live across main.rs, harness.rs and drive.rs, and
@@ -321,6 +332,7 @@ audit_tree "baud-isa-aarch64/tests" baud-isa-aarch64/tests 0
 audit_tree "baud-isa-x86-64/tests" baud-isa-x86-64/tests 0
 audit_tree "baud-wayland/tests" baud-wayland/tests 0
 audit_tree "baud-present-wayland/tests" baud-present-wayland/tests 0
+audit_tree "baud-tablegen/tests" baud-tablegen/tests 0
 
 # **The glob is flat, and most of the test tree is behind it.**
 # `baud-core/tests/*.rs` matches the loose files and **none** of the suites in

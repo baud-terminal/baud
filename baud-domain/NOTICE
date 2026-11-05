@@ -50,6 +50,18 @@ its marked generated block is generated
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://www.unicode.org/Public/
 
+Unicode Character Database 17.0.0 files, carried unmodified, which the build
+compiles into the bidirectional tables
+  Files:   data/unicode-bidibrackets.txt, data/unicode-bidimirroring.txt,
+           data/unicode-derivedbidiclass.txt,
+           data/unicode-propertyvaluealiases.txt,
+           data/unicode-unicodedata.txt
+  Holder:  Unicode, Inc.
+  Licence: Unicode-3.0
+  Notice:  LICENSES/Unicode-3.0.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://www.unicode.org/Public/17.0.0/ucd/
+
 kitty's colour names, generated from X.Org's rgb.txt and the one name kitty
 adds to it, DebianRed (215, 7, 81), from Debian's rgb.txt. A colour name and
 its value are facts

@@ -39,7 +39,24 @@ extern crate alloc;
 
 mod base64;
 mod bidi;
-mod bidi_data;
+mod bidi_data {
+    //! Bidirectional data, compiled by `build/bidi.rs` from the sources
+    //! pinned in `docs/research/sources/MANIFEST.toml`
+    //! (`[[source: unicode-derivedbidiclass]]`, `[[source: unicode-data]]`,
+    //! `[[source: unicode-bidimirroring]]`,
+    //! `[[source: unicode-bidibrackets]]`,
+    //! `[[source: unicode-propertyvaluealiases]]`). BIDI is one byte a code
+    //! point: the low five bits `BidiClass`, bit 5 Bidi_Mirrored, bits 6-7
+    //! the bracket type; MIRROR is two, the mirroring glyph's index and the
+    //! bracket pair; BOX_COUNTERPART is a Box Drawing character's left-right
+    //! counterpart.
+    include!(concat!(env!("OUT_DIR"), "/bidi_data.rs"));
+}
+// The table `scripts/gen-bidi-tables.py` committed, kept beside the
+// compiled one until `the_compiled_bidi_tables_are_the_committed_ones`
+// has held them equal.
+#[cfg(test)]
+mod bidi_identity;
 mod brand;
 mod cache;
 mod caseless;
@@ -47,6 +64,9 @@ mod caseless_data;
 mod cell;
 mod cluster_data;
 mod colour_name;
+#[cfg(test)]
+#[path = "bidi_data.rs"]
+mod committed_bidi_data;
 pub mod contrast;
 mod link_table;
 

@@ -18,10 +18,13 @@ use crate::bidi_data::{
     BIDI_BLOCKS, BIDI_INDEX, BOX_COUNTERPART, MIRROR_BLOCKS, MIRROR_GLYPHS, MIRROR_INDEX,
 };
 
-/// A Bidi_Class value, in UAX #9 Table 4's order, which is the table's,
-/// pinned by `the_bidi_trie_agrees_with_the_class_enum`.
+/// A Bidi_Class value, in UAX #9 Table 4's order, which is the table's:
+/// the trie stores the discriminant, so the layout is stated, and
+/// `build/bidi.rs` emits a const pin that fails the build if the order
+/// or the set of classes moves from the data's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[allow(clippy::upper_case_acronyms)]
+#[repr(u8)]
 pub enum BidiClass {
     /// Left-to-right.
     L,
