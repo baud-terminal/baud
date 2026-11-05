@@ -5,8 +5,8 @@
 //! key the keysym, the UTF-8 and the level. `tools/baud-oracle`'s
 //! `baud-oracle xkb` is the harness that writes them, through libxkbcommon
 //! 1.13.2 (`tools/shell.nix`), and `baud-oracle xkb --check` regenerates
-//! every fixture and compares it byte for byte. A disagreement is a bug here unless the fixture
-//! says why.
+//! every fixture and compares it byte for byte. A disagreement is a bug
+//! here unless the fixture says why.
 
 use baud_xkb::*;
 use std::fs;

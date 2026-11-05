@@ -16,6 +16,10 @@
 #   nix-shell tools/hb-shape.nix --argstr harfbuzz 14.5.1 --run \
 #     'BAUD_ORACLE=<bin> scripts/gen-shape-fixtures.sh'
 #
+# Run it under a UTF-8 locale (LANG=en_US.UTF-8): under the C locale
+# hb-shape refuses every non-ASCII --text with "Invalid byte sequence in
+# conversion input".
+#
 # and keep each file from the run whose version its header names. What the
 # script computes between the hb-shape calls -- the digests, the code
 # points, the renamed tables, the `morx` defaults and the word lists -- is

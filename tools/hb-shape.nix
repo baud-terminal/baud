@@ -15,6 +15,10 @@
 #   nix-shell tools/hb-shape.nix --argstr harfbuzz 14.5.1 --run \
 #     'BAUD_ORACLE=<bin> scripts/gen-shape-fixtures.sh devanagari'
 #
+# Run it under a UTF-8 locale (LANG=en_US.UTF-8): under the C locale
+# hb-shape refuses every non-ASCII --text with "Invalid byte sequence in
+# conversion input".
+#
 # BAUD_ORACLE is tools/baud-oracle's baud-oracle bin, built in
 # tools/shell.nix.
 { harfbuzz ? "14.5.1"

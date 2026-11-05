@@ -2588,7 +2588,7 @@ whose tarball, patch and meson flags equal the build that made the
 |---|---|---|
 | `xkb` | 16 fixtures byte-equal (4 keymaps, 12 Compose tables) | `a` made `b` in the US keymap; `g1` made `g2` in edge.Compose; a missing file: equal output and exit |
 | `raster` | 21 faces, 47,228,225 bytes equal to freetype-py on FreeType 2.14.3 | sizes 13.5, 7.25, 100, 0.5 and `1e1`; a bitmap-only face; a bad path, index and integer: equal, exit 0 or 1 |
-| `shape-helpers` | all 17 hb-shape fixtures byte-equal, fnv64 column included, each under its header's version, a `python3` that exits 99 first on PATH and never called | morx defaults on 748 system faces (17 non-trivial, 509 with no `morx`) and two synthetic fonts, one refused: equal text and exit |
+| `shape-helpers` | all 17 hb-shape fixtures byte-equal, fnv64 column included, each under its header's version, a `python3` that exits 99 first on PATH and never called | morx defaults on every face a recursive walk of /System/Library/Fonts finds on this Mac, 786 (17 non-trivial, 547 with no `morx`) and two synthetic fonts, one refused: equal text and exit |
 
 Before the port, the Python script reproduced every fixture too under
 the same two pins, so the base arm is measured, not assumed. The

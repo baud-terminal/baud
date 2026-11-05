@@ -458,7 +458,9 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
                 format!("{:016x}", fnv64(&d)),
                 digest,
                 "{path} is not the file the fixtures were shaped with; rerun \
-                 scripts/gen-shape-fixtures.sh under nix-shell -p harfbuzz"
+                 scripts/gen-shape-fixtures.sh under nix-shell tools/hb-shape.nix \
+                 --argstr harfbuzz <the header's version>, with BAUD_ORACLE set to \
+                 tools/baud-oracle's baud-oracle bin"
             );
             d
         });
@@ -1085,7 +1087,9 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
                 format!("{:016x}", fnv64(&d)),
                 digest,
                 "{path} is not the file the fixtures were shaped with; rerun \
-                 scripts/gen-shape-fixtures.sh under nix-shell -p harfbuzz"
+                 scripts/gen-shape-fixtures.sh under nix-shell tools/hb-shape.nix \
+                 --argstr harfbuzz <the header's version>, with BAUD_ORACLE set to \
+                 tools/baud-oracle's baud-oracle bin"
             );
             if gpos == GposTable::Stripped && !system {
                 assert_eq!(strip_gpos(&mut d), 1, "{path}: no GPOS to strip");
