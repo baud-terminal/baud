@@ -10,10 +10,11 @@
 //! width needs two more. A two-byte leaf grows the table to 67,328 -- 53%
 //! *worse* -- because the block count rises as well.
 //!
-//! What works is a palette. Only **28** distinct `(class, lookback, width)`
-//! combinations occur across all 1,114,112 codepoints, out of a possible 672,
-//! so the leaf is a one-byte index into a table of 28 entries. Two loads,
-//! 37,204 bytes, and the palette itself is 84 bytes and always hot.
+//! What works is a palette. Only **33** distinct `(class, lookback, width
+//! codes)` combinations occur across all 1,114,112 codepoints, so the leaf
+//! is a one-byte index into a table of 33 entries: two loads, a 4,352-byte
+//! index over 65,536 bytes of blocks, and a palette of 99 bytes that is
+//! always hot.
 //!
 //! The width stored is the *code*, not a resolved `Width`: East Asian
 //! Ambiguous depends on a policy the embedder owns, so a table cannot bake it
