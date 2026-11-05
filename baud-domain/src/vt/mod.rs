@@ -32,7 +32,13 @@ mod tcap_data;
 mod tsr;
 mod vt52;
 mod window;
-mod x_colour_names;
+mod x_colour_names {
+    //! The X server's colour names, compiled by `build/colour_names.rs` from
+    //! X.Org's rgb.txt at 0d2caec (`[[source: xorg-rgb-0d2caec]]`),
+    //! lower-cased: the table the X.Org server answers XParseColor's
+    //! LookupColor from (`[[source: xserver-oscolor-98aed9d]]`).
+    include!(concat!(env!("OUT_DIR"), "/x_colour_names.rs"));
+}
 mod xcms;
 mod xres;
 

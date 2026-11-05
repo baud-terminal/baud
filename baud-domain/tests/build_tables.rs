@@ -17,8 +17,14 @@
 //! positive control the Python generators asserted, each count made exact,
 //! a status, type or group outside its set, a duplicate, a Hangul
 //! syllable given a decomposition, the derived joining file disagreeing,
-//! and the perfect hash's seeds tried from 0 as the table was found. The
-//! modules only compute: they read
+//! and the perfect hash's seeds tried from 0 as the table was found.
+//! `build/colour_names.rs` and `build/placeholder.rs`: a channel past 255,
+//! a name that is not ASCII or is missing, a spelling given twice, two
+//! spellings in two cases with two colours, `debianred` already in
+//! rgb.txt, a name past a slot's length, a pool past its offset, the 753
+//! and 782 counts, the two
+//! rgb.txt pins swapped, and the diacritics' count, first three, header,
+//! duplicates and blocks. The modules only compute: they read
 //! through the function they are given and write nothing, so running them
 //! here touches no `OUT_DIR`.
 
@@ -26,6 +32,8 @@
 mod bidi;
 #[path = "../build/caseless.rs"]
 mod caseless;
+#[path = "../build/colour_names.rs"]
+mod colour_names;
 #[path = "../build/grapheme.rs"]
 mod grapheme;
 #[path = "../build/ignorable.rs"]
@@ -34,6 +42,8 @@ mod ignorable;
 mod joining;
 #[path = "../build/linebreak.rs"]
 mod linebreak;
+#[path = "../build/placeholder.rs"]
+mod placeholder;
 #[path = "../build/search.rs"]
 mod search;
 #[path = "../build/sequence.rs"]
@@ -1223,4 +1233,272 @@ fn the_sequence_seeds_are_tried_from_zero() {
         }
     }
     assert_ne!(one, zero, "seeds from 1 are another table");
+}
+
+const RGB_2008: &str = "xorg-rgb-749182c.txt";
+const RGB_2023: &str = "xorg-rgb-0d2caec.txt";
+const DIACRITICS: &str = "kitty-placeholder-diacritics.txt";
+
+#[test]
+fn the_pinned_files_build_the_name_tables() {
+    let names: Vec<Vec<String>> = [
+        colour_names::kitty as Build,
+        colour_names::x,
+        placeholder::build,
+    ]
+    .iter()
+    .map(|b| {
+        b(&pinned)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .files()
+            .into_iter()
+            .map(|(f, _)| f)
+            .collect()
+    })
+    .collect();
+    assert_eq!(
+        names,
+        [
+            vec!["kitty_colour_names.rs"],
+            vec!["x_colour_names.rs"],
+            vec!["placeholder_data.rs"],
+        ]
+    );
+    let inputs: Vec<Vec<&str>> = [&colour_names::INPUTS[..], &placeholder::INPUTS]
+        .iter()
+        .map(|i| i.iter().map(|i| i.file).collect())
+        .collect();
+    assert_eq!(inputs, [vec![RGB_2008, RGB_2023], vec![DIACRITICS]]);
+}
+
+#[test]
+fn each_check_the_name_builds_make_fires() {
+    let (k, x, p): (Build, Build, Build) =
+        (colour_names::kitty, colour_names::x, placeholder::build);
+    let long = format!("248 248 255\t\tGhostWhite\n1 2 3\t\t{}", "a".repeat(256));
+    let wide: String = (0..260u32)
+        .map(|n| format!("1 2 3\t\t{n:03}{}\n", "a".repeat(252)))
+        .collect();
+    let wide = format!("248 248 255\t\tGhostWhite\n{wide}");
+    let many: String = (0..260u32)
+        .map(|n| format!("{:05X}\n", 0x2_0000 + n * 64))
+        .collect();
+    let many = format!("0305\n{many}");
+    each_fires(&[
+        // rgb.txt: another first line, a channel, ASCII, a missing name.
+        (
+            k,
+            RGB_2008,
+            "255 250 250\t\tsnow",
+            "255 250 251\t\tsnow",
+            Kind::Header,
+            "is this the pinned file [xorg-rgb-749182c]?",
+        ),
+        (
+            x,
+            RGB_2023,
+            "255 250 250\t\tsnow",
+            "255 250 251\t\tsnow",
+            Kind::Header,
+            "is this the pinned file [xorg-rgb-0d2caec]?",
+        ),
+        (
+            k,
+            RGB_2008,
+            "248 248 255\t\tghost white",
+            "248 248 256\t\tghost white",
+            Kind::Malformed,
+            "data/xorg-rgb-749182c.txt:2:9: \"256\" is not a channel, 0 to 255",
+        ),
+        (
+            x,
+            RGB_2023,
+            "248 248 255\t\tghost white",
+            "248 248 255\t\tghost whit\u{e9}",
+            Kind::Malformed,
+            "data/xorg-rgb-0d2caec.txt:2:24: not ASCII",
+        ),
+        (
+            k,
+            RGB_2008,
+            "248 248 255\t\tghost white",
+            "248 248 255\t\t",
+            Kind::FieldCount,
+            "data/xorg-rgb-749182c.txt:2:14: a colour is three channels and a name",
+        ),
+        (
+            x,
+            RGB_2023,
+            "248 248 255\t\tghost white",
+            "248 248",
+            Kind::FieldCount,
+            "data/xorg-rgb-0d2caec.txt:2:8: a colour is three channels and a name",
+        ),
+        // The duplicate rule: a spelling given twice, and two spellings
+        // that differ only in case and carry two colours.
+        (
+            k,
+            RGB_2008,
+            "248 248 255\t\tGhostWhite",
+            "248 248 255\t\tghost white",
+            Kind::Duplicate,
+            "data/xorg-rgb-749182c.txt:3:14: \"ghost white\" is given already on line 2",
+        ),
+        (
+            x,
+            RGB_2023,
+            "248 248 255\t\tGhostWhite",
+            "248 248 254\t\tGhost White",
+            Kind::Duplicate,
+            "data/xorg-rgb-0d2caec.txt:3:14: \"Ghost White\" is \"ghost white\" on line 2 \
+             in another case, with another colour",
+        ),
+        (
+            k,
+            RGB_2008,
+            "248 248 255\t\tGhostWhite",
+            "248 248 255\t\tGhostWhite\n215 7 81\t\tDebianRed",
+            Kind::Duplicate,
+            "debianred is in rgb.txt already, and kitty's table adds it",
+        ),
+        // A name past a slot's u8 length.
+        (
+            x,
+            RGB_2023,
+            "248 248 255\t\tGhostWhite",
+            &long,
+            Kind::Invariant,
+            "is longer than a slot's u8 length",
+        ),
+        // A pool past a slot's u16 offset: 260 more names of 255 bytes.
+        (
+            k,
+            RGB_2008,
+            "248 248 255\t\tGhostWhite\n",
+            &wide,
+            Kind::Invariant,
+            "past a slot's u16 offset",
+        ),
+        // The counts: a line dropped from each.
+        (
+            k,
+            RGB_2008,
+            "248 248 255\t\tGhostWhite\n",
+            "",
+            Kind::Count,
+            "data/xorg-rgb-749182c.txt: 752 colour names and debianred, 753 expected",
+        ),
+        (
+            x,
+            RGB_2023,
+            "248 248 255\t\tGhostWhite\n",
+            "",
+            Kind::Count,
+            "data/xorg-rgb-0d2caec.txt: 781 colour names, 782 expected",
+        ),
+        // The diacritics: the parent's hash, a row, the count, the first
+        // three, a duplicate, and more blocks than a u8 names.
+        (
+            p,
+            DIACRITICS,
+            "sha256 a80368b3",
+            "sha256 a80368b4",
+            Kind::Header,
+            "is this the pinned file [kitty-placeholder-diacritics]?",
+        ),
+        (
+            p,
+            DIACRITICS,
+            "0310\n",
+            "031G\n",
+            Kind::Malformed,
+            "data/kitty-placeholder-diacritics.txt:9:1: \"031G\" is not a code point",
+        ),
+        (
+            p,
+            DIACRITICS,
+            "0310\n",
+            "0310; 1\n",
+            Kind::FieldCount,
+            "data/kitty-placeholder-diacritics.txt:9:7: 2 fields, 1 expected",
+        ),
+        (
+            p,
+            DIACRITICS,
+            "0305\n",
+            "",
+            Kind::Count,
+            "296 diacritics, 297 expected",
+        ),
+        (
+            p,
+            DIACRITICS,
+            "0305\n030D\n",
+            "030D\n0305\n",
+            Kind::Control,
+            "diacritic 0 is Some(30D), U+0305 expected",
+        ),
+        (
+            p,
+            DIACRITICS,
+            "030E\n",
+            "030D\n",
+            Kind::Duplicate,
+            "data/kitty-placeholder-diacritics.txt:8:1: U+030D is listed already on line 7",
+        ),
+        (
+            p,
+            DIACRITICS,
+            "0305\n",
+            &many,
+            Kind::Invariant,
+            "blocks, more than a u8 names",
+        ),
+    ]);
+}
+
+/// **A case-only second spelling with the line's colour is one name**: no
+/// failure but the count, which the name it no longer adds misses.
+#[test]
+fn a_spelling_in_another_case_with_one_colour_is_one_name() {
+    for (build, file, want) in [
+        (
+            colour_names::kitty as Build,
+            RGB_2008,
+            "752 colour names and debianred, 753 expected",
+        ),
+        (colour_names::x, RGB_2023, "781 colour names, 782 expected"),
+    ] {
+        let got = failures_of(
+            build,
+            file,
+            "248 248 255\t\tGhostWhite",
+            "248 248 255\t\tGhost White",
+        );
+        assert_eq!(got.len(), 1, "{got:#?}");
+        assert_eq!(got[0].0, Kind::Count);
+        assert!(got[0].1.contains(want), "{got:#?}");
+    }
+}
+
+/// **The two rgb.txt pins open with one line**, so the header cannot tell
+/// them apart: the counts do. Each build given the other's file fails.
+#[test]
+fn the_two_rgb_pins_swapped_fail_their_counts() {
+    let swapped = |f: &str| match f {
+        RGB_2008 => pinned(RGB_2023),
+        RGB_2023 => pinned(RGB_2008),
+        _ => pinned(f),
+    };
+    for (build, want) in [
+        (
+            colour_names::kitty as Build,
+            "783 colour names and debianred, 753 expected",
+        ),
+        (colour_names::x, "752 colour names, 782 expected"),
+    ] {
+        let errs = build(&swapped).expect_err("the other pin");
+        assert_eq!(errs.kinds(), [Kind::Count], "{errs}");
+        assert!(errs.to_string().contains(want), "{errs}");
+    }
 }

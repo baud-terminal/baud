@@ -88,7 +88,7 @@ unmodified, which the build compiles into the Unicode 8 width table
 kitty's colour names, generated from X.Org's rgb.txt and the one name kitty
 adds to it, DebianRed (215, 7, 81), from Debian's rgb.txt. A colour name and
 its value are facts
-  Files:   src/themefile/colour_names.rs
+  Files:   data/xorg-rgb-749182c.txt, src/themefile/colour_names.rs
   Holder:  The Open Group (rgb.txt); DebianRed from Debian's X.Org packaging
   Licence: MIT-open-group (rgb.txt); DebianRed from Debian xorg
            debian/local/rgb.txt, a name and a value
@@ -98,7 +98,7 @@ its value are facts
 
 The X server's colour names that OSC 4, 10, 11 and 12 resolve, generated
 from X.Org's rgb.txt, each a name and a value
-  Files:   src/vt/x_colour_names.rs
+  Files:   data/xorg-rgb-0d2caec.txt, src/vt/x_colour_names.rs
   Holder:  The Open Group
   Licence: MIT-open-group
   Notice:  LICENSES/xorg-rgb-COPYING.txt
@@ -214,7 +214,7 @@ interface data. No text of kitty's documentation is kept
 The Unicode placeholder diacritics in placeholder_data.rs: the 297
 codepoints of kitty's rowcolumn-diacritics.txt that every client of the
 kitty graphics protocol must send, kept as the protocol's interface data
-  Files:   src/placeholder_data.rs
+  Files:   data/kitty-placeholder-diacritics.txt, src/placeholder_data.rs
   Holder:  Kovid Goyal (kitty v0.49.2)
   Licence: protocol interface data, attributed to kitty v0.49.2 (Kovid
            Goyal)

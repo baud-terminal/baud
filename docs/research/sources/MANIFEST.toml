@@ -10769,6 +10769,28 @@ group  = "C"
 # diacritic for the number n. `scripts/gen-placeholder-table.py` builds
 # `baud-domain/src/placeholder_data.rs` from it.
 
+[sources.kitty-placeholder-diacritics]
+key          = "kitty-placeholder-diacritics"
+title        = "The Unicode placeholder diacritics, transcribed: the first field of each data line of kitty v0.49.2's gen/rowcolumn-diacritics.txt, in order"
+author       = "baud (transcription of Kovid Goyal, kitty v0.49.2)"
+year         = 2026
+venue        = "baud, from the pinned kitty-rowcolumn-diacritics"
+url          = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/gen/rowcolumn-diacritics.txt"
+file         = "kitty-placeholder-diacritics.txt"
+sha256       = "12702f1a69351430959fcbea48eb648a0558792c2aa1afd8c44c6a64c0ec21fb"
+bytes        = 1939
+derived_from = "kitty-rowcolumn-diacritics"
+status       = "retrieved"
+group        = "C"
+# How it was read: kitty-rowcolumn-diacritics fetched from its URL and
+# refused unless it hashed to that entry's sha256; of each line that is
+# neither empty nor a `#` comment, the field before the first `;`, a code
+# point in hex, kept in order, one a line, and nothing else of the file.
+# 297 lines, U+0305 first, then U+030D and U+030E, none twice. Line 1
+# names the parent's sha256, and baud-domain's build (build/placeholder.rs)
+# refuses a file whose line 1 is another, so a list read from another copy
+# of kitty's file is not taken for this one.
+
 [sources.kitty-screen-c]
 key    = "kitty-screen-c"
 title  = "kitty v0.49.2, kitty/screen.c -- screen_render_line_graphics, how a line's Unicode placeholders become cell images"

@@ -28,7 +28,14 @@
 use crate::{Chan, Color, ColorScheme, ColorWord};
 
 mod alacritty;
-mod colour_names;
+mod colour_names {
+    //! kitty's colour names, compiled by `build/colour_names.rs` from X.Org's
+    //! rgb.txt at 749182c (`[[source: xorg-rgb-749182c]]`), lower-cased, and
+    //! `debianred`, Debian's addition to its rgb.txt
+    //! (`[[source: debian-xorg-rgb-7-7-26]]` 478), which kitty's table
+    //! carries (`[[source: kitty-color-names-1e1486e]]` 161).
+    include!(concat!(env!("OUT_DIR"), "/kitty_colour_names.rs"));
+}
 pub mod detect;
 pub mod gamut;
 mod iterm;

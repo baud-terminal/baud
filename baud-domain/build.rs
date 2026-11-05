@@ -7,6 +7,8 @@
 mod bidi;
 #[path = "build/caseless.rs"]
 mod caseless;
+#[path = "build/colour_names.rs"]
+mod colour_names;
 #[path = "build/contrast.rs"]
 mod contrast;
 #[path = "build/grapheme.rs"]
@@ -17,6 +19,8 @@ mod ignorable;
 mod joining;
 #[path = "build/linebreak.rs"]
 mod linebreak;
+#[path = "build/placeholder.rs"]
+mod placeholder;
 #[path = "build/search.rs"]
 mod search;
 #[path = "build/sequence.rs"]
@@ -49,6 +53,8 @@ fn main() {
         &sequence::INPUTS,
         &joining::INPUTS,
         &ignorable::INPUTS,
+        &colour_names::INPUTS,
+        &placeholder::INPUTS,
     ]
     .iter()
     .flat_map(|inputs| inputs.iter().map(|i| i.file))
@@ -60,7 +66,7 @@ fn main() {
     }
     std::fs::write(out.join("contrast.bin"), contrast::build()).expect("write contrast.bin");
     let read = |file: &str| std::fs::read_to_string(data.join(file));
-    let tables: [(&str, Table); 9] = [
+    let tables: [(&str, Table); 12] = [
         ("bidi", bidi::build),
         ("grapheme", grapheme::build),
         ("width", width::build),
@@ -70,6 +76,9 @@ fn main() {
         ("sequence", sequence::build),
         ("joining", joining::build),
         ("ignorable", ignorable::build),
+        ("kitty colour names", colour_names::kitty),
+        ("x colour names", colour_names::x),
+        ("placeholder", placeholder::build),
     ];
     for (name, build) in tables {
         match build(&read) {

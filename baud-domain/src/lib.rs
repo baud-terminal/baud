@@ -140,7 +140,13 @@ mod merged;
 mod merged_data;
 mod nrcs_data;
 mod placeholder;
-mod placeholder_data;
+mod placeholder_data {
+    //! The Unicode placeholder diacritics, compiled by `build/placeholder.rs`
+    //! from the codepoints of kitty's list
+    //! (`[[source: kitty-placeholder-diacritics]]`, read from
+    //! `[[source: kitty-rowcolumn-diacritics]]`).
+    include!(concat!(env!("OUT_DIR"), "/placeholder_data.rs"));
+}
 pub mod png;
 mod pos;
 mod premultiply;
@@ -149,6 +155,8 @@ mod quantity;
 mod regis;
 mod scan;
 mod search;
+#[cfg(test)]
+mod table_identity;
 mod search_data {
     //! What a search compares, compiled by `build/search.rs` from the
     //! sources pinned in `docs/research/sources/MANIFEST.toml`:
