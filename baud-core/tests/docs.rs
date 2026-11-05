@@ -119,8 +119,23 @@ fn every_relative_link_resolves() {
             continue;
         };
         let dir = f.parent().unwrap().to_path_buf();
+        // A fenced code block holds code, not links: a starship format's
+        // `[text]($style)` is not one.
+        let mut fenced = false;
+        let prose: String = src
+            .lines()
+            .filter(|l| {
+                // Three backticks, spelt so this file's own backticks pair.
+                if l.trim_start().starts_with("\x60\x60\x60") {
+                    fenced = !fenced;
+                    return false;
+                }
+                !fenced
+            })
+            .map(|l| format!("{l}\n"))
+            .collect();
         // `](target)` — markdown inline links.
-        let mut rest = src.as_str();
+        let mut rest = prose.as_str();
         while let Some(i) = rest.find("](") {
             rest = &rest[i + 2..];
             let Some(end) = rest.find(')') else { break };

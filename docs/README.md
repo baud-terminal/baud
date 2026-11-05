@@ -12,6 +12,7 @@ them.
 | [roadmap.md](roadmap.md) | what is being built, what is planned, and what has shipped |
 | [guide/install.md](guide/install.md) | building baud and getting it running |
 | [guide/configuration.md](guide/configuration.md) | the config file: where it goes, every key, its default and what it changes |
+| [guide/starship.md](guide/starship.md) | baud's prompt for starship: the folder and an amber ❯, a light palette, and what to add |
 | [guide/status.md](guide/status.md) | what works today and what is not built yet |
 | [guide/performance.md](guide/performance.md) | how fast baud is, what was measured, and what was not |
 | [cursor.md](cursor.md) | the cursor trails, a still of each; [cursor.html](cursor.html) plays them side by side from a checkout |
@@ -188,6 +189,7 @@ their entries' titles:
 | CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (no note; `baud-app/src/reload.rs` cites them) |
 | WN | more than one window: a new window, a window's close, the last window closed, and the Dock's reopen (no note; `baud-app/src/windows.rs` cites them) |
 | GP | the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (no note; `scripts/make-brand-pictures.py` and `assets/logo/README.md` cite them) |
+| SP | the shell prompt baud ships: starship 1.27.0's configuration schema, which `assets/starship/baud.toml` is checked against (no note; `baud-app/tests/starship_preset.rs` cites it) |
 
 A group's letter and a note's need not match: group H's sources are key
 encoding, and note H is not in the repository. Both tables are held to

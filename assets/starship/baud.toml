@@ -1,0 +1,295 @@
+# baud's starship preset.
+#
+# One input line. In a plain folder it is the folder and an amber ❯:
+#
+#     ~ ❯
+#
+# In a git repository the branch and a compact count of what changed join
+# the same line, and anything else appears only while it is true:
+#
+#     ~/code/app main merge =1 +1 !1 ?1 ⇡1⇣1 7s 1& ✗1 ❯
+#
+# Over ssh, as root or as another user, one line above names who and where:
+#
+#     jordan@devbox
+#     ~/code/app main ❯
+#
+# The ❯ is baud's amber, and baud's cursor is amber too, so the end of the
+# line reads as baud's mark, ❯█. Everything else takes a colour from the
+# terminal's own sixteen, so it follows whatever theme the terminal draws.
+#
+# This file sets only what differs from starship's defaults, plus three
+# defaults stated on purpose: the two timeouts and the empty right prompt.
+# Use starship 1.27.0 or later: 1.26.0 and earlier are affected by advisories
+# GHSA-679r-jwc5-r5m3 and GHSA-x486-6jjc-phfp. Every key here is also valid
+# in 1.26.0.
+#
+# No Nerd Font is needed. The characters outside ASCII are ❯ ❮ ✗ ⇡ ⇣ » ⋯ ∙.
+# Each is one column under any East Asian Width setting (class N), so the
+# shell and the terminal agree on where the cursor is even under baud's
+# ambiguous_width = "wide"; ↑ ↓ … would not. baud draws ⇡ ⇣ from the STIX
+# Two Math face it ships and the rest from JetBrains Mono.
+#
+# Light theme: starship cannot detect the terminal's theme. This file selects
+# the dark palette. For baud's light theme, change the palette line below to
+# "baud-light", or run `starship config palette baud-light` (that command
+# rewrites the file, and replaces a symlinked config with a plain copy).
+
+# Lets an editor validate and complete this file against starship's schema.
+"$schema" = "https://starship.rs/config-schema.json"
+
+# The palette in use: baud-dark for baud's dark page, baud-light for its light one.
+palette = "baud-dark"
+
+# No blank line before each prompt. baud's prompt mark sits where starship's
+# output starts, so with a blank line first, baud's exit-status marks and
+# Cmd-Up would land on the empty row instead of on the prompt's text.
+add_newline = false
+
+# The prompt, left to right: the folder, the environment, git, the last
+# command's facts, a battery about to run out, then ❯. Each module prints nothing when it has nothing
+# true to say, so at home the whole prompt is "~ ❯". No $fill and no
+# $line_break, so nothing pads a line and no row is ever printed empty.
+#
+# Line 1 of the format: user@host on a line of its own. username shows only
+# as root, over ssh, or as a user other than the one logged in; hostname only
+# over ssh. The ( ) group drops the line, newline included, when neither
+# shows. On the input line it would cost width where width is short: ssh into
+# a dirty repository took 48 of 50 columns before anything was typed.
+#
+# Line 5: the git modules share one ( ) group with one space after it. Each
+# writes its own leading space, and outside a repository the whole group,
+# space included, vanishes.
+format = """\
+($username$hostname\n)\
+$container\
+$directory\
+$nix_shell\
+($git_branch$git_commit$git_state$git_status )\
+$cmd_duration\
+$jobs\
+$battery\
+$status\
+$character"""
+
+# No right prompt (starship's default, stated as a decision): baud hides it when the window narrows, and zsh keeps it on
+# every finished line unless transient_rprompt is set.
+right_format = ""
+
+# The prompt for a line that continues the last one, in grey. zsh and bash
+# render it once, when the shell starts, so it shows nothing that changes.
+continuation_prompt = "[∙](quiet) "
+
+# Starship's own default, stated: stop reading the folder's file list after
+# 30 ms. Nothing in this format reads that list, so no prompt here waits on
+# it; the bound is for a language module added later.
+scan_timeout = 30
+
+# Starship's own default, stated: stop a command, and git's status walk,
+# after 500 ms. Lower would be quicker in a huge repository but would hide
+# changes there: an interrupted status shows fewer counts, and no count reads
+# as clean.
+command_timeout = 500
+
+# The dark page, #101010. Each colour's contrast on it is given beside it.
+[palettes.baud-dark]
+# baud's brand amber, 9.17:1.
+amber = "#f4a32c"
+# A failure: palette entry 9, #ff0000 in baud, 4.76:1.
+fail = "bright-red"
+# Context that matters less than the folder: entry 8, #7f7f7f, 4.75:1.
+quiet = "bright-black"
+# What changed in git: entry 6, #00cdcd, 9.62:1.
+change = "cyan"
+# What wants attention: entry 3, #cdcd00, 11.17:1.
+note = "yellow"
+
+# The light page, #efefef. The same names, so the format never changes.
+[palettes.baud-light]
+# The brand amber made dark enough to read: 4.52:1, where #f4a32c is 1.80:1.
+# OKLCH lightness 0.778 -> 0.540 with the hue kept (70.7 -> 71.1 degrees).
+# sRGB holds no colour that dark at the brand's chroma, so chroma also falls,
+# 0.155 -> 0.116. baud's light cursor must use this value, or ❯█ splits.
+amber = "#986100"
+# A failure: entry 1, #a60000 in baud, 6.97:1. Entry 9 (#972500, 7.08:1)
+# also passes, but beside the light amber a red ❯ and an amber one looked
+# alike in the renders of two designs; entry 1 is the redder of the two.
+# On the dark page entry 1 reads only 4.50:1, so there it stays entry 9.
+fail = "red"
+# Context: entry 8, #595959, 6.09:1.
+quiet = "bright-black"
+# What changed in git: entry 6, #005e8b, 6.14:1.
+change = "cyan"
+# What wants attention: entry 13, #531ab6, 8.34:1. Not yellow on this page:
+# Modus yellow #6f5500 sits 17 degrees of hue from the light amber, so "merge"
+# or "7s" read as the ❯'s colour. On the dark page the two are 39 degrees apart.
+note = "bright-purple"
+
+# Who: shown by starship only as root, over ssh, or as another user.
+[username]
+# The name alone, no " in"; hostname adds "@host" over ssh.
+format = "[$user]($style)"
+# Grey, like the rest of the context.
+style_user = "quiet"
+# Red as root, the one user worth colour: a mistake there costs the most.
+style_root = "fail"
+
+# Where: shown by starship only over ssh.
+[hostname]
+# No symbol: "user@host" on its own line already says remote, and the default is an emoji.
+ssh_symbol = ""
+# "@host" right after the user, so the pair reads as one address.
+format = "[@$hostname]($style)"
+# Grey, the same as the user.
+style = "quiet"
+
+# Inside a container, its name. It stays on the input line: no scenario here
+# runs in a container, so its width on that line is unmeasured.
+[container]
+# The container's name in grey; the default ⬢ is not in JetBrains Mono.
+format = "[$name]($style) "
+# Grey, the same as user@host: the same kind of fact.
+style = "quiet"
+
+# Where you are: the one thing the input line always shows.
+[directory]
+# The terminal's default foreground: an empty style sends no colour at all.
+style = ""
+# " ro" after a folder that cannot be written; the default is a lock emoji.
+read_only = " ro"
+# Red, because a write there will fail.
+read_only_style = "fail"
+# "~/code/app" in a repository too, so you see where the repository is.
+# (Truncating to the repository printed "⋯/app" at its root.)
+truncate_to_repo = false
+# Mark a cut path, so "⋯/auth/tokens" is not read as a folder at the top.
+# ⋯ rather than …: … is East Asian Ambiguous, two columns under baud's
+# ambiguous_width = "wide" while the shell counts one.
+truncation_symbol = "⋯/"
+
+# Inside a nix shell: its tools, not the system's, are on PATH.
+[nix_shell]
+# "nix" inside a nix shell: its tools are on PATH. No state, no emoji.
+format = "[nix]($style) "
+# Grey context, not a warning: an impure shell is the normal case.
+style = "quiet"
+
+# The branch, the first git fact on the line.
+[git_branch]
+# The branch name alone: no "on", no icon, no space (the group adds it).
+format = "[$branch]($style)"
+# Grey, below the folder, as Pure draws it.
+style = "quiet"
+# Show nothing when detached; git_commit shows the hash instead of "HEAD".
+only_attached = true
+
+# The commit, shown only when detached, where there is no branch to name.
+[git_commit]
+# The hash, then the tag HEAD sits exactly at, if any; no brackets, no space.
+format = "[$hash$tag]($style)"
+# The same grey as a branch, because it stands where the branch would.
+style = "quiet"
+# Show the tag: at a release, the tag is the useful name.
+tag_disabled = false
+# A space before the tag, not the default emoji.
+tag_symbol = " "
+
+# A merge, rebase or other operation left in progress.
+[git_state]
+# An operation in progress, after the branch: "main merge", "main rebase 2/5".
+format = " [$state( $progress_current/$progress_total)]($style)"
+# The attention colour: it needs finishing before anything else.
+style = "note"
+rebase = "rebase"        # Each state as one lower-case word, not shouted.
+merge = "merge"          # A merge stopped on conflicts.
+revert = "revert"        # A revert in progress.
+cherry_pick = "pick"     # A cherry-pick in progress, as git's sequencer names it.
+bisect = "bisect"        # A bisect in progress.
+am = "am"                # git am applying a mailbox.
+am_or_rebase = "am/rebase"  # When git cannot tell which of the two it is.
+
+# What changed, as counts: what the next git command acts on.
+[git_status]
+# File counts, then ahead/behind, each group shown only when non-empty.
+# Written out instead of $all_status so the order is the order of work:
+# conflicts, staged, changed, renamed, deleted, new type, untracked. $stashed
+# is left out: a stash does not bear on the next command, and starship looks
+# for one only when the format names it.
+format = "([$conflicted$staged$modified$renamed$deleted$typechanged$untracked]($style))([ $ahead_behind]($style))"
+# Cyan for every count: one colour, and the symbol says which count it is.
+style = "change"
+# Each count writes its own leading space: "main =1 +1 !1".
+# Conflicts in red, the one count that blocks a commit.
+conflicted = "[ =${count}](fail)"
+staged = " +${count}"      # Staged, the symbol from starship's default.
+modified = " !${count}"    # Changed but not staged.
+renamed = " »${count}"     # Renamed in the index.
+deleted = " x${count}"     # Deleted in the index; the default ✘ is not in JetBrains Mono.
+typechanged = " T${count}" # A file that became a symlink or back: T, as git status --short writes it.
+untracked = " ?${count}"   # New files git does not track.
+# Commits to push and to pull. ⇡ ⇣ (Pure's, and starship's default ⇡) are
+# one column under every width setting; ↑ ↓ are East Asian Ambiguous and
+# take two under ambiguous_width = "wide", which puts the shell's cursor out
+# of step with the terminal's. baud draws them from STIX Two Math.
+ahead = "⇡${count}"
+behind = "⇣${count}"
+# Both counts when diverged, which decide between rebase and merge.
+diverged = "⇡${ahead_count}⇣${behind_count}"
+
+# How long the last command took, when that is worth knowing.
+[cmd_duration]
+# Only past 5 seconds, as Pure: shorter runs are what you expect.
+min_time = 5_000
+# The duration alone, "12s", with no "took".
+format = "[$duration]($style) "
+# The attention colour, as Pure colours it.
+style = "note"
+
+# Background jobs, so one left running is not forgotten.
+[jobs]
+# "&", the shell's own sign for a job in the background; the default ✦ is not
+# in JetBrains Mono.
+symbol = "&"
+# Number then symbol: "1&", "2&".
+format = "[$number$symbol]($style) "
+# Show the count from the first job, so one job does not read as a bare "&".
+number_threshold = 1
+# The attention colour: a job left running is easy to forget.
+style = "note"
+
+# The battery, only when it is about to run out (starship's own threshold).
+[battery]
+# "battery 9%", and "battery 9% charging" on power: words, no Nerd Font.
+format = "[battery $percentage( $symbol)]($style) "
+charging_symbol = "charging"  # On power: said in words.
+discharging_symbol = ""       # Draining: the low number says it.
+full_symbol = ""              # Never shown at 10%; empty so no Nerd glyph is drawn.
+unknown_symbol = ""           # As above.
+empty_symbol = ""             # As above.
+
+# The one band in which the battery is shown: 10% and below, in red.
+[[battery.display]]
+threshold = 10
+style = "fail"
+
+# The last command's exit code, only when it failed.
+[status]
+# On here: a failed command shows its code as text, so the signal does not
+# rest on telling a red ❯ from an amber one (1.93:1 apart on dark, 1.54:1 on light).
+disabled = false
+# "✗1", "✗127", "✗130", in place of the default emoji.
+symbol = "✗"
+# Red, the same as the ❯ beside it.
+style = "fail"
+
+# The ❯ itself: amber, the brand mark, beside baud's amber cursor.
+[character]
+# The ❯ in amber after a command that succeeded.
+success_symbol = "[❯](amber)"
+# The ❯ in red after a command that failed; ✗ and the code stand before it.
+error_symbol = "[❯](fail)"
+# Vi command mode turns it round, ❮, as Pure does, still amber.
+vimcmd_symbol = "[❮](amber)"
+vimcmd_replace_one_symbol = "[❮](amber)"  # fish only: the same ❮ in every command mode.
+vimcmd_replace_symbol = "[❮](amber)"      # fish only: replace mode.
+vimcmd_visual_symbol = "[❮](amber)"       # fish only: visual mode.

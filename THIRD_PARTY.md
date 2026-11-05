@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 320 | 56 | redistributable, and its notice is satisfied |
+| kept | 321 | 56 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 590 | 65 | |
+| total | 591 | 65 | |
 
 ## Licence texts in LICENSES/
 
@@ -68,6 +68,7 @@ they were built from.
 | [rust-rfcs-MIT.txt](LICENSES/rust-rfcs-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/rust-lang/rfcs/d2705ad64ba47e812a2b6b19d6f613fb4c14c5e0/LICENSE-MIT | 23f18e03dc49df91 |
 | [sfte-Zlib.txt](LICENSES/sfte-Zlib.txt) | Zlib | built: docs/research/sources/sfte.h lines 149-170 | f3b1a6d6613ad220 |
 | [slug-MIT.txt](LICENSES/slug-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/EricLengyel/Slug/be3c13eb7d63f9e8aa5c583e42d92c374cb91d98/LICENSE-MIT | 8b284b866415649e |
+| [starship-ISC.txt](LICENSES/starship-ISC.txt) | ISC | fetched: https://raw.githubusercontent.com/starship/starship/v1.27.0/LICENSE | 2587580d0ec4ddc4 |
 | [tinted-base24-MIT.txt](LICENSES/tinted-base24-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/base24/fb96d3c6396eb27f94efadfa3c416abd9d54b488/LICENSE.md | 80a4a39d52cf4764 |
 | [tinted-home-MIT.txt](LICENSES/tinted-home-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417ea86f1e354c628fc2d2aeb5d96/LICENSE | 4e287e2ce0ff0679 |
 | [tinted-shell-MIT.txt](LICENSES/tinted-shell-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/tinted-shell/d1a0085b06670b770b818b00592b1f1e37d65bc5/LICENSE | f17613282ac66e6b |
@@ -1257,6 +1258,17 @@ notice is, and the URL each file was copied from.
 |---|---|
 | [slug-LICENSE](docs/research/sources/slug-LICENSE) | https://raw.githubusercontent.com/EricLengyel/Slug/main/LICENSE |
 | [slug-README.md](docs/research/sources/slug-README.md) | https://raw.githubusercontent.com/EricLengyel/Slug/main/README.md |
+
+### starship 1.27.0
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** ISC
+- **Notice:** [LICENSES/starship-ISC.txt](LICENSES/starship-ISC.txt)
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [starship-1.27.0-config-schema.json](docs/research/sources/starship-1.27.0-config-schema.json) | https://raw.githubusercontent.com/starship/starship/v1.27.0/.github/config-schema.json |
 
 ### stb_truetype.h (Sean Barrett)
 

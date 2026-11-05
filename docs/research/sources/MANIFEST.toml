@@ -69,6 +69,7 @@
 #   CR  the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (baud-app/src/reload.rs; no note)
 #   WN  more than one window: a new window, a window's close, the last window closed, the Dock's reopen (baud-app/src/windows.rs; no note)
 #   GP  the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (scripts/make-brand-pictures.py and assets/logo/README.md; no note)
+#   SP  the shell prompt baud ships: starship's configuration schema, which assets/starship/baud.toml is checked against (baud-app/tests/starship_preset.rs; no note)
 #
 # Notes K (selection), M (resize and reflow), S (Sixel) and T (images) have
 # no group of their own: what they cite is filed under C, and T's also under
@@ -42591,3 +42592,18 @@ group  = "C"
 # The glossary entry, read on the page image and matched in the item's OCR
 # text: "बॉद (बॉड) : तार/दूरमुद्रक प्रचालन में गति को मापने का एक माप।" The
 # demo quotes the definition under CSTT's word, बॉड.
+
+[sources.starship-1270-config-schema]
+key    = "starship-1270-config-schema"
+title  = "starship 1.27.0, .github/config-schema.json -- every key of starship.toml and its type"
+author = "Starship Contributors"
+year   = 2026
+venue  = "starship/starship at tag v1.27.0, commit f8e4e2155542cc84f49b342122d371f74e0ad253 (ISC)"
+url    = "https://raw.githubusercontent.com/starship/starship/v1.27.0/.github/config-schema.json"
+file   = "starship-1.27.0-config-schema.json"
+sha256 = "e50ce5f3e41e5c089b1074b174447650364797a4212d3e4ba8de628a8fae5ce2"
+bytes  = 180522
+status = "retrieved"
+group  = "SP"
+# The schema starship generates from its own config structs; the same bytes
+# as docs/public/config-schema.json in the release's tarball.
