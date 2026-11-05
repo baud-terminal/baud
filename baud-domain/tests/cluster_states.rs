@@ -262,3 +262,75 @@ fn the_cluster_table_agrees_with_the_rules() {
     }
     assert!(checked > 20_000, "only checked {checked}");
 }
+
+/// **The two parts tables and the ready state agree with the rules**, at
+/// every state the table reaches: the table's machine and the rules' walked
+/// side by side from the start of text, each (state, input) parts under a
+/// variant exactly where the extended rules join and the variant's own
+/// rules ([`ClusterRules::is_break_in`]) break, and the table's ready state
+/// is the rules' `prev = Other` with nothing live, the one state
+/// `ordinary_run_ready` accepts.
+#[test]
+fn the_parts_tables_agree_with_the_rules() {
+    use baud_domain::ClusterBreak;
+    use std::collections::HashMap;
+    let start = (ClusterBreak::new(), ClusterRules::new());
+    let mut rules_of: HashMap<ClusterBreak, u16> = HashMap::from([(start.0, start.1.to_bits())]);
+    let mut queue = vec![start];
+    let mut checked = 0usize;
+    while let Some((e, r)) = queue.pop() {
+        for b in 0u8..=255 {
+            if (b & 0xf) >= 14 {
+                continue;
+            }
+            let (cl, lb) = (
+                GraphemeClass::FROM_INDEX[usize::from(b & 0xf)],
+                Lookback::from_bits(b >> 4),
+            );
+            let joins = !{
+                let mut t = r;
+                t.is_break_by_rules(cl, lb)
+            };
+            for cells in [ClusterCells::Legacy, ClusterCells::LegacyMarksJoined] {
+                let parts = joins && {
+                    let mut t = r;
+                    t.is_break_in(cells, cl, lb)
+                };
+                assert_eq!(
+                    e.parts(cells, cl, lb),
+                    parts,
+                    "{cells:?} parts at {:?} input {b:#04x}",
+                    ClusterRules::from_bits(r.to_bits())
+                );
+                checked += 1;
+            }
+            let (mut e2, mut r2) = (e, r);
+            assert_eq!(e2.is_break_classified(cl, lb), r2.is_break_by_rules(cl, lb));
+            match rules_of.get(&e2) {
+                Some(&bits) => assert_eq!(bits, r2.to_bits(), "one table state, two rule states"),
+                None => {
+                    rules_of.insert(e2, r2.to_bits());
+                    queue.push((e2, r2));
+                }
+            }
+        }
+    }
+    assert_eq!(rules_of.len(), 94, "the reachable state count moved");
+    assert!(checked > 40_000, "only checked {checked}");
+    let ready: Vec<&ClusterBreak> = rules_of
+        .iter()
+        .filter(|(_, bits)| {
+            matches!(
+                ClusterRules::from_bits(**bits).ordinary_run_blocker(),
+                RunBlocker::Ready
+            )
+        })
+        .map(|(e, _)| e)
+        .collect();
+    assert_eq!(ready, [&ClusterBreak::after_ascii_run()], "the ready state");
+    assert!(ClusterBreak::after_ascii_run().ordinary_run_ready());
+    assert_eq!(
+        rules_of[&ClusterBreak::after_ascii_run()],
+        ClusterRules::after_ascii_run().to_bits()
+    );
+}

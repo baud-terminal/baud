@@ -55,7 +55,7 @@ const GCB: [&str; 18] = [
 
 /// `GraphemeClass`'s variants in declaration order, which the low nibble
 /// stores, each with the `GCB` value it stands for.
-const CLASSES: [(&str, &str); 14] = [
+pub const CLASSES: [(&str, &str); 14] = [
     ("Other", "XX"),
     ("Cr", "CR"),
     ("Lf", "LF"),
@@ -76,10 +76,10 @@ const CLASSES: [(&str, &str); 14] = [
 const INCB: [&str; 4] = ["Consonant", "Extend", "Linker", "None"];
 
 /// `Lookback`'s bits, the high nibble.
-const PICTOGRAPHIC: u8 = 1;
-const LINKER: u8 = 2;
-const CONSONANT: u8 = 4;
-const INCB_EXTEND: u8 = 8;
+pub const PICTOGRAPHIC: u8 = 1;
+pub const LINKER: u8 = 2;
+pub const CONSONANT: u8 = 4;
+pub const INCB_EXTEND: u8 = 8;
 
 /// Spacing marks classed Extend, as ranges, in 17.0.0.
 const SPACING_EXTEND: usize = 46;

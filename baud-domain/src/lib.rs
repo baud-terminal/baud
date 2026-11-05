@@ -64,8 +64,34 @@ mod caseless_data {
     include!(concat!(env!("OUT_DIR"), "/caseless_data.rs"));
 }
 mod cell;
-mod cluster_data;
+mod cluster_data {
+    //! **UAX #29 as a transition table**, compiled by `build/cluster.rs`
+    //! from the grapheme cluster boundary rules (`[[source: uax29]]`
+    //! section 3.1.1). `ClusterRules::is_break_by_rules` walks the GB rules
+    //! in order and writes back four fields; both are branchy, and on
+    //! emoji-heavy text the branches are exactly the unpredictable ones.
+    //! The machine's whole state is `prev`, `ri`, `pict` and `incb` -- 270
+    //! combinations nominally and **94 reachable** -- and its input is the
+    //! byte the flat property table already returns, four bits of class
+    //! and four of lookback. So the transition fits one byte, 94 x 256 =
+    //! 24,064 bytes, and the whole machine is a `u8` and one indexed load.
+    //! `the_cluster_table_agrees_with_the_rules` replays every reachable
+    //! state against every input through the crate's rules.
+    include!(concat!(env!("OUT_DIR"), "/cluster_data.rs"));
+}
+// The tables `scripts/gen-cluster-table.py` and `gen-merged-table.py`
+// committed, kept beside the compiled ones until
+// `the_compiled_cluster_and_merged_tables_are_the_committed_ones` has held
+// them equal.
+#[cfg(test)]
+mod cluster_identity;
 mod colour_name;
+#[cfg(test)]
+#[path = "cluster_data.rs"]
+mod committed_cluster_data;
+#[cfg(test)]
+#[path = "merged_data.rs"]
+mod committed_merged_data;
 pub mod contrast;
 mod link_table;
 
@@ -137,7 +163,20 @@ mod linebreak_data {
     include!(concat!(env!("OUT_DIR"), "/linebreak_data.rs"));
 }
 mod merged;
-mod merged_data;
+mod merged_data {
+    //! **One table for both questions the per-character path asks**,
+    //! compiled by `build/merged.rs` from the grapheme and width tables.
+    //! `Width::of` and `GraphemeClass::of_with_lookback` are two two-stage
+    //! tries over the same `cp >> 8` shape: four loads to answer what is
+    //! one question about one codepoint. Packing the fields does not work
+    //! -- the grapheme leaf spends all eight bits on four of class and four
+    //! of lookback, and width needs more -- but only 33 distinct `(class,
+    //! lookback, width)` triples occur in the whole of Unicode, so the leaf
+    //! indexes a palette: one byte and two loads, and the Basic
+    //! Multilingual Plane flat, one load. `the_merged_table_agrees_with_both_tries`
+    //! checks every one of the 1,114,112 codepoints against the two tries.
+    include!(concat!(env!("OUT_DIR"), "/merged_data.rs"));
+}
 mod nrcs_data;
 mod placeholder;
 mod placeholder_data {

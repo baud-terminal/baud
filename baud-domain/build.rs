@@ -7,6 +7,8 @@
 mod bidi;
 #[path = "build/caseless.rs"]
 mod caseless;
+#[path = "build/cluster.rs"]
+mod cluster;
 #[path = "build/colour_names.rs"]
 mod colour_names;
 #[path = "build/contrast.rs"]
@@ -19,6 +21,8 @@ mod ignorable;
 mod joining;
 #[path = "build/linebreak.rs"]
 mod linebreak;
+#[path = "build/merged.rs"]
+mod merged;
 #[path = "build/placeholder.rs"]
 mod placeholder;
 #[path = "build/search.rs"]
@@ -80,8 +84,25 @@ fn main() {
         ("x colour names", colour_names::x),
         ("placeholder", placeholder::build),
     ];
-    for (name, build) in tables {
-        match build(&read) {
+    let mut built: Vec<(&str, Result<Emit, Errors>)> = tables
+        .into_iter()
+        .map(|(name, build)| (name, build(&read)))
+        .collect();
+    // The merged table is compiled from the grapheme and width tables as
+    // they were just built, and the cluster machine from the rules alone.
+    let emit = |name: &str| {
+        built
+            .iter()
+            .find(|(n, _)| *n == name)
+            .and_then(|(_, r)| r.as_ref().ok())
+    };
+    if let (Some(g), Some(w)) = (emit("grapheme"), emit("width")) {
+        let m = merged::build(g, w);
+        built.push(("merged", m));
+    }
+    built.push(("cluster", cluster::build()));
+    for (name, built) in built {
+        match built {
             Ok(emit) => emit
                 .write(&out)
                 .unwrap_or_else(|e| panic!("write the {name} tables: {e}")),
