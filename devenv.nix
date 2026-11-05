@@ -38,8 +38,8 @@ in
   packages = [
     pkgs.git
     pkgs.pkg-config
-    # audit_all.sh shells out to impl_audit.py; the gate must not depend on
-    # whatever python happens to be on the host.
+    # The gates still written in Python run under this one, not whatever
+    # python happens to be on the host.
     pkgs.python3
     # `test:unit` runs the tests through nextest (since 2026-10-07):
     # `cargo test` runs the ~120 test binaries one after another, so a binary
@@ -363,7 +363,7 @@ in
 
     # The type-system gate: raw integers outside the newtype internals are a
     # bug waiting for two quantities to be confused. Per-file limits and the
-    # reason for each live in audit_all.sh.
+    # reason for each live in `xtask/src/audit.rs`.
     "test:audit" = {
       exec = "sh ./audit_all.sh";
       after = [ "test:linux@completed" ];

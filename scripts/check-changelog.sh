@@ -6,13 +6,14 @@
 # would not notice, so a subject that is not a Conventional Commit of a
 # listed type would be skipped as one of those. So this reads the whole
 # history, from the root to HEAD, and fails on any commit that would be
-# lost:
+# lost (`cargo xtask changelog`, `xtask/src/changelog.rs`):
 #
 #   1. its subject is a Conventional Commit of a listed type, `type: text`
 #      or `type(scope): text`;
 #   2. `release-plz.toml`'s parsers are read from the file and the commit is
-#      run through them; while the last parser is a catch-all that skips,
-#      this leg cannot fail and only proves the file parses;
+#      run through them, compiled with the `regex` crate as release-plz and
+#      git-cliff compile them; while the last parser is a catch-all that
+#      skips, this leg cannot fail and only proves the file parses;
 #   3. git-cliff, under `scripts/changelog/cliff.toml`, reads it as
 #      conventional and puts it in no UNPARSED group.
 #
@@ -34,32 +35,4 @@ if ! git-cliff --config scripts/changelog/cliff.toml --context >"$ctx" 2>/dev/nu
   exit 1
 fi
 
-git log --no-merges --format='%H%x00%s' HEAD | python3 -c '
-import json, re, sys, tomllib
-
-TYPES = "feat|fix|perf|docs|refactor|test|build|ci|style|revert|chore"
-SUBJECT = re.compile(rf"^(?:{TYPES})(?:\([a-z0-9][a-z0-9-]*\))?: \S")
-with open("release-plz.toml", "rb") as f:
-    parsers = [re.compile(p["message"])
-               for p in tomllib.load(f)["changelog"]["commit_parsers"]]
-with open(sys.argv[1]) as f:
-    cliff = {c["id"]: c for r in json.load(f) for c in r["commits"]}
-
-bad, n = [], 0
-for line in sys.stdin.read().splitlines():
-    sha, subj = line.split("\0", 1)
-    n += 1
-    if not SUBJECT.match(subj):
-        bad.append((sha, "not a Conventional Commit", subj))
-    if not any(p.search(subj) for p in parsers):
-        bad.append((sha, "no release-plz parser matches", subj))
-    c = cliff.get(sha)
-    if c is None:
-        bad.append((sha, "missing from git-cliff", subj))
-    elif not c["conventional"] or "UNPARSED" in (c["group"] or ""):
-        bad.append((sha, "unparsed by git-cliff", subj))
-for sha, why, subj in bad:
-    print(f"{sha[:12]} {why}: {subj}")
-print(f"check-changelog: {n} commits, {len(bad)} failures")
-sys.exit(1 if bad or n == 0 else 0)
-' "$ctx"
+git log --no-merges --format='%H%x00%s' HEAD | cargo xtask changelog "$ctx"

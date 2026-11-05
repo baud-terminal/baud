@@ -36,6 +36,10 @@ members = ["baud-domain", "baud-core", "baud-bench",
   # The table compiler the crates' build scripts share: std alone, no
   # dependencies, so a build-dependency adds nothing to a build's graph.
   "baud-tablegen",
+  # The repository's gates, run as `cargo xtask <command>` through the alias
+  # in `.cargo/config.toml`. Unpublished, and not a default member, so a
+  # bare `cargo run` still builds the terminal.
+  "xtask",
     "baud-wayland",
     "baud-xkb",
     "baud-present-wayland",

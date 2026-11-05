@@ -2171,3 +2171,42 @@ shows `-C opt-level=3`) runs the script in [0.08-0.10] s dev and
 together overlap 0's in both profiles, so the default stays. The `.crate`s:
 `baud-domain` 1,127,175 to 1,502,269 bytes with `data/`, 14.3% of
 crates.io's 10 MiB; `baud-tablegen` 15,864.
+
+## The audit and three gates in `cargo xtask`
+
+Not timed: no byte path changed. `xtask` is a new unpublished member
+reached through `.cargo/config.toml`'s alias. `baud`'s resolved graph
+(`cargo tree -p baud --target all -e normal,build`) is the same 58
+lines before and after, and `Cargo.lock` only gains packages.
+`audit_all.sh` is `exec cargo xtask audit`, `check-changelog.sh` pipes
+into `cargo xtask changelog`, and `build-metallib.sh` calls `cargo xtask
+fnv1a`; the two Python audits and the two inline scripts are gone. Each Rust arm was run beside the Python it replaces,
+stdout and exit code compared:
+
+| gate | inputs | equal |
+|---|---|---|
+| `impl-audit <file>` | 978 tracked `.rs` files and xtask's 11 | all |
+| `audit` | the tree, and 62 perturbations: one per budget row and sum, per empty root, per control | all |
+| `scan-audit` | the tree, limits 5, 4 and none, and 7 perturbations | all |
+| `changelog` | the history, 1,713 commits; 30 commits; bad subjects, no catch-all, a commit after the context, none | all |
+| `fnv1a` | `shaders.metal`, `baud.metallib` | byte-equal, and equal to the committed `.fnv` |
+
+The Python arm of `audit` was the shell with the two xtask rows added,
+so the new rows were compared too. `impl_audit.py` had nine categories,
+not ten: its `prim` pattern was never used. The `\w`, `\s` and `\b`
+classes differ between the two engines (marks, connectors and the
+other numerics), and no file of the tree reaches the difference.
+
+The budgets are `xtask/src/audit.rs`'s const tables, with the reasons
+that were the shell's comments; `xtask` itself is held at 5 and 0, all
+five the cast and index category names matching themselves, and
+`xtask/tests` at 0. Its tests drive one perturbation per row from the
+tables; each of eight mutations of a check (the signature sum, the
+bool pattern, leg 2, the `u8` cast, the scan matcher, `mindepth`, the
+address count, the cross control) turned its test red.
+
+Two behaviours changed, neither in a count. The file lists sort in byte
+order, which `sort` gave here and glibc's locale collation does not, so
+on Linux the per-file lines may come in another order than before. The
+changelog's parsers are compiled with `regex`, the engine release-plz
+and git-cliff run them with, where Python's `re` read them before.

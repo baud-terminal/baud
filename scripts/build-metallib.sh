@@ -91,23 +91,6 @@ metal="$search/Metal.xctoolchain/usr/bin/metal"
 # it relates the shaders to themselves -- and a library swapped for one
 # built from different text with the same entry points would pass every
 # other gate here.
-python3 - "$src" "$out" "$digest" "$libdigest" <<'PY'
-import sys
-
-src, lib, sdig, ldig = sys.argv[1:5]
-
-
-def fnv(path):
-    h = 0xCBF29CE484222325
-    for b in open(path, "rb").read():
-        h = ((h ^ b) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
-    return h
-
-
-s, l = fnv(src), fnv(lib)
-open(sdig, "w").write("%016x\n" % s)
-open(ldig, "w").write("%016x\n" % l)
-print("shaders.metal fnv-1a %016x, baud.metallib %016x" % (s, l))
-PY
+(cd "$here" && cargo xtask fnv1a "$src" "$out" "$digest" "$libdigest")
 
 echo "$(basename "$out"): $(wc -c <"$out" | tr -d ' ') bytes, from $("$metal" --version 2>&1 | head -1)"

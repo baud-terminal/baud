@@ -131,7 +131,7 @@ fi
 # **Comments are stripped before the search, and that is load-bearing.**
 # `write.rs` names `ceiling-no-run-gate` in a comment recording what the
 # arm once priced, so a search for the bare name calls a dead arm live --
-# the same flaw `impl_audit.py` carries, and the one that published "six
+# the same flaw `cargo xtask audit`'s patterns carry, and the one that published "six
 # crates forbid unsafe" from a doc comment. What counts as a reader is
 # `feature = "name"` on a line with `//` removed.
 #

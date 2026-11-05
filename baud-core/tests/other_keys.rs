@@ -53,7 +53,7 @@ fn worked_examples(doc: &str) -> Vec<(String, Vec<u8>)> {
         // refuses. Everything matched here is ASCII by construction.
         //
         // Do not name the cast operator in a comment in this file:
-        // `impl_audit.py` matches the token in prose as well as in code, so
+        // `cargo xtask audit` matches the token in prose as well as in code, so
         // describing one spends an audit site. It cost one here, twice in one
         // session, which is why the sentence above is worded around it.
         let mut params: Vec<u8> = Vec::new();

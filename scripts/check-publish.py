@@ -136,7 +136,7 @@ SPDX_IDS = frozenset({
 })
 # A LicenseRef- term as the SPDX 2.3 grammar spells its idstring.
 LICENCE_REF = re.compile(r"^LicenseRef-[A-Za-z0-9.-]+$")
-UNPUBLISHED = {"baud-bench", "baud-difftest", "baud-sfte-difftest"}
+UNPUBLISHED = {"baud-bench", "baud-difftest", "baud-sfte-difftest", "xtask"}
 # Statuses that say the licence of a file is not settled. A file under one
 # of these may sit in the repository, and must not go out in a published
 # crate: a crates.io version cannot be taken back. `copyleft` is one,

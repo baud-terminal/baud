@@ -182,9 +182,11 @@ fn every_relative_link_resolves() {
 /// `default-members = ["baud-app"]` -- without which a bare `cargo run`
 /// unifies features across every member and builds a different `baud` from
 /// the bundle's. The two differentials were binaries until 2026-10-12 and are
-/// test targets now. The member list is read from the root manifest, and the
-/// positive controls are its first and last members and `baud-app`'s own
-/// `[[bin]]`, which the scan must find.
+/// test targets now. The one other binary is `xtask`'s, the repository's
+/// gates: unpublished, run only through the `cargo xtask` alias, and outside
+/// `default-members`, so `cargo run` never reaches it. The member list is
+/// read from the root manifest, and the positive controls are its first and
+/// last members and `baud-app`'s own `[[bin]]`, which the scan must find.
 #[test]
 fn baud_is_the_only_binary_and_the_default() {
     let manifest = fs::read_to_string(root().join("Cargo.toml")).expect("Cargo.toml");
@@ -228,8 +230,9 @@ fn baud_is_the_only_binary_and_the_default() {
     }
     assert_eq!(
         bins,
-        ["baud-app: [[bin]]"],
-        "baud is to be the only binary; the rest are tests, benches or examples"
+        ["baud-app: [[bin]]", "xtask: src/main.rs"],
+        "baud is to be the only binary but the gates' xtask; the rest are \
+         tests, benches or examples"
     );
     let app = fs::read_to_string(root().join("baud-app/Cargo.toml")).expect("baud-app");
     assert!(
@@ -289,6 +292,7 @@ fn every_repository_path_named_in_the_docs_exists() {
         // The second external oracle, added with the crate: a path under it
         // named in a document is checked, which the root's absence would not.
         "baud-sfte-difftest/",
+        "xtask/",
         "bench-others/",
         "docs/",
         "scripts/",
@@ -431,6 +435,7 @@ fn every_test_named_in_the_docs_exists() {
         "baud-xkb",
         "baud-present-wayland",
         "baud-tablegen",
+        "xtask",
     ] {
         let dir = root().join(d);
         assert!(

@@ -42,7 +42,7 @@ use baud_core::*;
 /// all** -- which nothing noticed, because the manifest pinned alacritty by a
 /// path that does not exist on this machine.
 ///
-/// Do not spell the cast operator in a comment in this file: `impl_audit.py`
+/// Do not spell the cast operator in a comment in this file: `cargo xtask audit`
 /// matches the token in prose as well as in code, so describing one spends an
 /// audit site. That is a detector flaw this repo already records, and it cost a
 /// site here before this sentence replaced the one that named it.

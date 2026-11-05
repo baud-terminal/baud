@@ -68,7 +68,7 @@ fn permutations() -> Vec<[u8; 3]> {
 /// and the audit counts casts, which is right -- a cast is where a width can be
 /// lost, and this one cannot, so it should not look like one.
 ///
-/// (`impl_audit.py` matches the cast token in comments as well as in code, so
+/// (`cargo xtask audit` matches the cast token in comments as well as in code, so
 /// naming the spelling it objects to inside this paragraph spent a site. Worth
 /// knowing before writing a comment about one.)
 fn index_of(seq: [u8; 3]) -> Slot {
