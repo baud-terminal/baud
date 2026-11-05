@@ -219,12 +219,16 @@ pub const DARK: Colours = Colours {
     amber: Argb(0xFFF4_A32C),
 };
 
-/// The light lockup's, `#1E2128` and `#C8801F`: "Light mode uses the deeper
-/// amber deliberately" (`assets/logo/README.md`).
-pub const LIGHT: Colours = Colours {
-    wordmark: Argb(0xFF1E_2128),
-    amber: Argb(0xFFC8_801F),
-};
+/// **The light lockup's**: `#1E2128`, and the light cursor's amber,
+/// [`crate::BaudCursor::light`]'s fill, `#986100`: one amber on light, the
+/// brand's darkened in OKLCH lightness alone until it reads 4.5:1 on the
+/// light page, which the brand's `#F4A32C`, 1.80:1 there, does not.
+pub fn light() -> Colours {
+    Colours {
+        wordmark: Argb(0xFF1E_2128),
+        amber: crate::BaudCursor::light().fill,
+    }
+}
 
 /// **Where the word's letters end and the mark's begin**, in the lockup's
 /// units: the wordmark's pen plus four advances, each with its tracking,
@@ -772,7 +776,7 @@ mod tests {
     fn the_lockup_is_the_svgs() {
         let dark = include_str!("../../assets/logo/baud-lockup-dark.svg");
         let light = include_str!("../../assets/logo/baud-lockup-light.svg");
-        for (svg, c) in [(dark, DARK), (light, LIGHT)] {
+        for (svg, c) in [(dark, DARK), (light, super::light())] {
             assert!(svg.contains(r#"viewBox="0 0 300 130""#));
             let hex = |a: Argb| format!("#{:06X}", a.0 & 0xFF_FFFF);
             // The word's outline, then the ❯'s and the block, in the amber.

@@ -36,9 +36,9 @@ of those the least light under the fades.
 | file | bytes | frames | motion | most flashes at a pixel in a second, general / red | area, strict, of 21,824 | the word's worst contrast |
 |---|---|---|---|---|---|---|
 | `logo-dark.gif` | 2,671,015 | 217 | 4.5 s, then shown | 9 / 0 | 630.5, 1,495 | 6.79 : 1 |
-| `logo-light.gif` | 2,646,691 | 217 | 4.5 s, then shown | 9 / 0 | 761.25, 2,304.5 | 12.61 : 1 |
+| `logo-light.gif` | 2,646,127 | 217 | 4.5 s, then shown | 9 / 0 | 761.25, 2,304.5 | 12.61 : 1 |
 | `logo-dark.svg` | 1,178,009 | 215 images over the logo | 4.5 s, then shown | 9 / 0 | 604, 1,500.5 | |
-| `logo-light.svg` | 1,102,717 | 215 images over the logo | 4.5 s, then shown | 9 / 0 | 763.2, 2,336.8 | |
+| `logo-light.svg` | 1,100,085 | 215 images over the logo | 4.5 s, then shown | 9 / 0 | 762, 2,337.8 | |
 
 Both pass WCAG 2.3.1 ([[source: wcag22]]) by its second half: a few
 pixels flash more than three times in a second where strands cross them,

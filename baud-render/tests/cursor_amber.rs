@@ -214,7 +214,6 @@ fn the_light_cursor_is_the_amber_darkened_to_four_and_a_half_to_one() {
     let (_, _, h) = oklch(got.fill);
     assert!((h - h0).abs() < 1.0, "the hue moved to {h:.2} from {h0:.2}");
     assert!(ratio(brand("AMBER"), light.bg) < 3.0, "the brand's own");
-    assert!(ratio(brand("AMBER_LIGHT"), light.bg) < 3.0, "the lockup's");
     assert!(ratio(brand("GROUND"), got.fill) < 4.5, "the ground on it");
     assert_eq!(got.text, Argb(light.bg.0 | 0xFF00_0000), "the page");
     assert_eq!(light.cursor, Some(CellPaint::Colour(got.fill)));
@@ -222,6 +221,38 @@ fn the_light_cursor_is_the_amber_darkened_to_four_and_a_half_to_one() {
     let text = ratio(got.text, got.fill);
     assert!(text >= 4.5, "the page on the amber: {text:.2}");
     assert!(ratio(light.fg, got.fill) < 4.5, "the light text");
+}
+
+/// **One amber on light**: the launch logo's light amber and every light
+/// logo file's -- the lockup, its title-bar form and the mark, each with
+/// its `-blinking` twin -- is the light cursor's, [`BaudCursor::light`],
+/// and the dark ones are the brand's, [`BaudCursor::dark`]. Each light
+/// file fills its ❯ and its block with it and nothing else with an amber.
+#[test]
+fn the_light_logo_is_the_light_cursors_amber() {
+    use baud_render::splash;
+    assert_eq!(splash::DARK.amber, BaudCursor::dark().fill);
+    assert_eq!(splash::light().amber, BaudCursor::light().fill);
+    let hex = |c: Argb| format!("fill=\"#{:06X}\"", c.0 & 0xFF_FFFF);
+    let (amber, word) = (hex(BaudCursor::light().fill), hex(splash::light().wordmark));
+    for name in [
+        "baud-lockup-light",
+        "baud-lockup-light-blinking",
+        "baud-lockup-light-tight",
+        "baud-mark-light",
+        "baud-mark-light-blinking",
+    ] {
+        let path = format!("{}/../assets/logo/{name}.svg", env!("CARGO_MANIFEST_DIR"));
+        let svg = std::fs::read_to_string(&path).expect("a logo file");
+        let fills = svg.matches("fill=\"").count();
+        let words = svg.matches(&word).count();
+        assert_eq!(
+            svg.matches(&amber).count(),
+            2,
+            "{name}: the ❯ and the block"
+        );
+        assert_eq!(fills, 2 + words, "{name}: no other fill");
+    }
 }
 
 /// **Every page gets the reference's colour**: the two themes' pages and

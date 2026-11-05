@@ -32,7 +32,10 @@ What it writes, each from the code below and nothing else:
   assets/logo/baud-lockup-{dark,light,mono-black,mono-white}.svg  "baud" and
       the mark on one line, 300 by 130: the word where it always was, the ❯'s
       cell from x 192 on the old cursor's rows, the whole ink then centred
-      across the box
+      across the box; the light forms' amber, here and in the marks and the
+      title bar's lockup below, is baud's cursor on the light theme's page
+      (BaudCursor::light, which the plasma example reports), so it is the
+      amber the light theme's cursor and launch logo draw
   assets/logo/baud-lockup-{dark,light}-blinking.svg  their fixed twins' bytes,
       under the names this sheet and THIRD_PARTY.md give them; the README's
       header is scripts/make-readme-logo.py's
@@ -170,7 +173,9 @@ GROUND = "#15171B"
 TYPE_DARK = "#F3F4F6"
 TYPE_LIGHT = "#1E2128"
 AMBER = "#F4A32C"
-AMBER_LIGHT = "#C8801F"
+# The light forms' amber is no literal: it is baud's cursor on the light
+# theme's page, BaudCursor::light() (baud-render/src/color.rs), which the
+# plasma example reports (plasma()), so one amber is drawn on light.
 
 # The README's tagline (line 8, between its **), a card line for each part.
 LINES = ["The terminal with character:", "its own font,", "its own cursor effects,", "and the speed to keep up."]
@@ -420,13 +425,14 @@ def lockup(t, ox, oy, s, word_fill, mark_fill):
 # ---------------------------------------------------------------- the files
 
 
-def logo_svgs(t):
-    """Every SVG in assets/logo but the organisation picture's."""
+def logo_svgs(t, amber_light):
+    """Every SVG in assets/logo but the organisation picture's, the light
+    forms in `amber_light`."""
     out = {}
     w, h = LOCKUP
     for name, word, amber, ground in (
         ("dark", TYPE_DARK, AMBER, GROUND),
-        ("light", TYPE_LIGHT, AMBER_LIGHT, None),
+        ("light", TYPE_LIGHT, amber_light, None),
         ("mono-black", "#000000", "#000000", None),
         ("mono-white", "#FFFFFF", "#FFFFFF", None),
     ):
@@ -436,7 +442,7 @@ def logo_svgs(t):
     # At 512 the cell is 168 tall from 172, as the cursor was; at 32, 10.5
     # from 10.75. Light is the dark one reversed, and amber is light's.
     big, small = (256.0, 172.0, 168.0), (16.0, 10.75, 10.5)
-    for name, fill in (("dark", AMBER), ("light", AMBER_LIGHT), ("amber", AMBER)):
+    for name, fill in (("dark", AMBER), ("light", amber_light), ("amber", AMBER)):
         m, _, _ = centred(t, *big, fill)
         out[f"{LOGO}baud-mark-{name}.svg"] = svg(512, 512, m)
     for name, sq, fill in (("dark", GROUND, AMBER), ("light", AMBER, GROUND), ("amber", AMBER, GROUND)):
@@ -479,7 +485,7 @@ def logo_svgs(t):
     # and down it is centred on the cell's rows, so a view the image's
     # shape centres the mark in the strip where the mark alone was.
     s = big[2] / LOCKUP_CELL[2]
-    for name, word, amber in (("dark", TYPE_DARK, AMBER), ("light", TYPE_LIGHT, AMBER_LIGHT)):
+    for name, word, amber in (("dark", TYPE_DARK, AMBER), ("light", TYPE_LIGHT, amber_light)):
         body, box, _ = lockup(t, 0.0, 0.0, s, word, amber)
         top = r2(LOCKUP_CELL[1] * s)
         centre = top + (r2(top + big[2]) - top) / 2
@@ -677,6 +683,11 @@ def plasma(t, tmp, pen, s):
     m = rep["mark"]
     if (m["px"], m["cell_w"], m["cell_h"], m["baseline"]) != (FONT_PX, CELL_W, CELL_H, BASELINE):
         fail(f"baud's renderer draws a {m['cell_w']} by {m['cell_h']} cell, baseline {m['baseline']}, at {m['px']} px")
+    a = rep["amber"]
+    if a["dark"] != AMBER:
+        fail(f"baud's cursor on the dark page is {a['dark']}, not the brand's {AMBER}")
+    if not re.fullmatch(r"#[0-9A-F]{6}", a["light"]):
+        fail(f"baud's cursor on the light page reads {a['light']!r}, not a colour")
     return rep, out
 
 
@@ -768,8 +779,9 @@ def draw(resvg, tmp):
     if readme[7] != f"**{TAGLINE}**":
         fail(f"README.md line 8 is not the card's tagline: {readme[7]!r}")
     t = Type(fonts(tmp))
-    text = logo_svgs(t)
     org, pen, s, cells = organisation(t)
+    rep, d = plasma(t, tmp, pen, s)
+    text = logo_svgs(t, rep["amber"]["light"])
     text[ORG[0] + ".svg"] = org
     text[CARD[0] + ".svg"] = card(t)
     for name, body in text.items():
@@ -788,7 +800,6 @@ def draw(resvg, tmp):
     out[CARD[0] + ".png"] = card_png
 
     base = opaque(drawn(resvg, org, tmp, "org"), "org")
-    rep, d = plasma(t, tmp, pen, s)
     pic, peak, lit = org_picture(base, rep, d, cells)
     # The control: with both lights at zero, every frame the bare ground,
     # the same blend draws the SVG's drawing, every pixel.
@@ -808,7 +819,8 @@ def draw(resvg, tmp):
         f"plasma: the word's light is the splash's first pass at {w['t']} s, seed {w['seed']}, its box {w['box']}"
         f" and hole {w['hole']} at scale {w['scale']} from {w['origin']}, the splash's own over"
         f" {w['gate_columns']} columns; the mark's is the cursor's trail at {m['age']} s, seed {m['seed']}, at"
-        f" {m['px']} px; {lit} pixels lit, peak {peak:.3f}; with no light, the SVG's drawing to the pixel"
+        f" {m['px']} px; {lit} pixels lit, peak {peak:.3f}; with no light, the SVG's drawing to the pixel;"
+        f" the light forms' amber is baud's cursor on the light page, {rep['amber']['light']}"
     )
     return out
 

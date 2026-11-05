@@ -45,9 +45,11 @@ on the amber as the amber reads on the page.
 | `#D8D8D8`, the dark theme reversed | `#855400` | 4.51 | `#D8D8D8`, the page | 4.51 |
 | `#272727`, the light theme reversed | `#F4A32C` | 7.20 | `#15171B` | 8.65 |
 
-On the light page the logo's `#F4A32C` reads 1.80:1 and its light amber
-`#C8801F` 2.78:1; `#986100` is 2,374 steps down, at L 0.540, chroma 0.116 and
-hue 71.1, and the step before it, `#996200`, reads 4.49:1. The near-black
+On the light page the logo's `#F4A32C` reads 1.80:1, and the light logo's
+earlier `#C8801F` 2.78:1; `#986100` is 2,374 steps down, at L 0.540, chroma
+0.116 and hue 71.1, and the step before it, `#996200`, reads 4.49:1. The
+light logo files and the launch logo on a light window take `#986100` too,
+from the same rule, so light has one amber. The near-black
 reads only 3.46:1 on it, so the light theme's text under the block is the
 page. **Under reverse video** -- `?5`, and the bell's flash, which draws the
 same exchange -- the amber is chosen again against the reversed page, so the

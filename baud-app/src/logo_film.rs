@@ -441,7 +441,7 @@ fn half() -> (String, Theme, Argb, Argb, Argb) {
     let half = std::env::var("BAUD_LOGO_HALF").expect("BAUD_LOGO_HALF is not set");
     let (mut theme, page, c) = match half.as_str() {
         "dark" => (Theme::dark(), PAGE_DARK, splash::DARK),
-        "light" => (Theme::light(), PAGE_LIGHT, splash::LIGHT),
+        "light" => (Theme::light(), PAGE_LIGHT, splash::light()),
         other => panic!("BAUD_LOGO_HALF is {other}, not dark or light"),
     };
     theme.bg = page;
@@ -753,7 +753,7 @@ mod tests {
             let colours = if page == PAGE_DARK {
                 splash::DARK
             } else {
-                splash::LIGHT
+                splash::light()
             };
             let data = std::fs::read(format!("{}/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
             let gif = Gif::parse(&data).unwrap();
@@ -862,7 +862,7 @@ mod tests {
             let colours = if page == PAGE_DARK {
                 splash::DARK
             } else {
-                splash::LIGHT
+                splash::light()
             };
             let dir = env!("CARGO_MANIFEST_DIR");
             let text = std::fs::read_to_string(format!("{dir}/{svg_path}")).unwrap();

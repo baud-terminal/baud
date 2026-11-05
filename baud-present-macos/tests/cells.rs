@@ -2075,7 +2075,7 @@ fn the_splash_draws_alike_on_every_arm() {
     let swept = baud_render::splash::LEFT;
     for (half, theme, amber) in [
         ("dark", Theme::dark(), baud_render::splash::DARK.amber),
-        ("light", Theme::light(), baud_render::splash::LIGHT.amber),
+        ("light", Theme::light(), baud_render::splash::light().amber),
     ] {
         arms.renderer.set_theme(theme);
         arms.splash = None;

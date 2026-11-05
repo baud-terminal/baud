@@ -2098,3 +2098,24 @@ satisfying their designated requirement. The Linux arm, a desktop entry
 and the icon under `share`, evaluates (`nix flake check --no-build
 --all-systems`) and its entry passes `desktop-file-validate` 0.28; no
 Linux build was run.
+
+## The light logo in the light cursor's amber
+
+Not timed: no byte path changed. The light lockups and marks, the title
+bar's light lockup, the launch logo on a light window and the README's
+light header take `#986100`, `BaudCursor::light`'s fill, in place of
+`#C8801F`; every dark file is byte for byte as before.
+
+| | `#C8801F` | `#986100` |
+|---|---|---|
+| against the light page `#EFEFEF` | 2.78:1 | 4.52:1 |
+| `logo-light.gif`, bytes | 2,646,691 | 2,646,127 |
+| `logo-light.svg`, bytes | 1,102,717 | 1,100,085 |
+| GIF census: flashes general / red, area, strict | 9 / 0, 761.25, 2,304.5 | 9 / 0, 761.25, 2,304.5 |
+| SVG census: area, strict | 763.2, 2,336.8 | 762.0, 2,337.8 |
+| the word's worst contrast, light | 12.61:1 | 12.61:1 |
+
+Both films pass WCAG 2.3.1 by the area, of 21,824, as before
+(`make-readme-logo.py`, its census and `readme_logo_flashes`); the
+word's ink is unchanged, so its contrast is. The light half's haze is
+0.0% of the page's pixels, at most 10 levels.

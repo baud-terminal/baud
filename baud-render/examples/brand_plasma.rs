@@ -21,9 +21,12 @@
 //! <out dir> <scale> <x> <y>`
 //!
 //! Writes `word.raw`, `mark-base.raw` and `mark-trail.raw` (little-endian
-//! `0xAARRGGBB`, row-major) and `plasma.json` (each canvas's size, the
-//! cell metrics, the seeds and the times, and the splash's word pen and
-//! block, which the generator holds to the lockup's) into `<out dir>`. Before it
+//! `0xAARRGGBB`, row-major) and `plasma.json` (the cursor's amber on the
+//! dark and the light theme's page, [`BaudCursor::dark`] and
+//! [`BaudCursor::light`], which the light logo files take; each canvas's
+//! size, the cell metrics, the seeds and the times, and the splash's word
+//! pen and block, which the generator holds to the lockup's) into
+//! `<out dir>`. Before it
 //! writes, it holds the word's light to the splash's own: left of the seam
 //! less half the block's height (the plasma's unit), the word's frame is
 //! the frame of [`splash::vfx`] at the same moment, pixel for pixel, and it
@@ -35,8 +38,8 @@ use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::{
-    Argb, Blend, Blink, Damage, FaceRole, FaceStyle, Pt, PxSize, Rect, Renderer, Segment, Shape,
-    Smear, Stack, Strength, Target, Theme, TrailLook, splash,
+    Argb, BaudCursor, Blend, Blink, Damage, FaceRole, FaceStyle, Pt, PxSize, Rect, Renderer,
+    Segment, Shape, Smear, Stack, Strength, Target, Theme, TrailLook, splash,
 };
 
 const GROUND: Argb = Argb(0xFF15_171B);
@@ -220,8 +223,13 @@ fn main() {
     write_raw(&format!("{out}/mark-trail.raw"), &trail);
     let (mw, mh) = r.pixel_size();
 
+    // The ambers the logo files take: the cursor's on each theme's page,
+    // so the light files follow the light cursor's rule, not a literal.
+    let hex = |c: Argb| format!("#{:06X}", c.0 & 0xFF_FFFF);
+    let (on_dark, on_light) = (hex(BaudCursor::dark().fill), hex(BaudCursor::light().fill));
     let json = format!(
-        "{{\"word\": {{\"width\": {}, \"height\": {}, \"px\": {WORD_PX}, \"seed\": \"{:08X}\", \
+        "{{\"amber\": {{\"dark\": \"{on_dark}\", \"light\": \"{on_light}\"}},\n \
+         \"word\": {{\"width\": {}, \"height\": {}, \"px\": {WORD_PX}, \"seed\": \"{:08X}\", \
          \"t\": {WORD_T}, \"pen\": [{}, {}], \"box\": [{}, {}, {}, {}], \"hole\": [{}, {}, {}, {}], \
          \"scale\": {scale}, \"origin\": [{}, {}], \"gate_columns\": {cols}, \"gate_differing\": {differing}}},\n \
          \"mark\": {{\"width\": {}, \"height\": {}, \"px\": {MARK_PX}, \"cell_w\": {}, \"cell_h\": {}, \

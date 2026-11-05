@@ -7,7 +7,7 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
-use baud_render::splash::{DARK, GONE, LEFT, LIGHT, OUT, glow};
+use baud_render::splash::{DARK, GONE, LEFT, OUT, glow, light};
 use baud_render::{
     Blend, Damage, FaceRole, FaceStyle, Instance, Kind, PxSize, Rect, Renderer, Segment, Shape,
     Smear, SplashLook, SplashPhase, Stack, Strength, Target, Theme, TrailLook,
@@ -162,8 +162,8 @@ fn the_plasma_is_the_colour_of_the_glyph_it_is_over() {
     for (name, theme, c) in [
         ("dark", Theme::dark(), DARK),
         ("glass", glass, DARK),
-        ("light", Theme::light(), LIGHT),
-        ("light glass", light_glass, LIGHT),
+        ("light", Theme::light(), light()),
+        ("light glass", light_glass, light()),
     ] {
         let mut r = renderer(&faces, theme);
         let (w, h) = r.pixel_size();

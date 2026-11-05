@@ -4274,7 +4274,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The lockup's two colours on the theme's half.
     fn splash_colours(&self) -> splash::Colours {
         match self.theme.polarity() {
-            Some(baud_domain::ColorScheme::Light) => splash::LIGHT,
+            Some(baud_domain::ColorScheme::Light) => splash::light(),
             _ => splash::DARK,
         }
     }
