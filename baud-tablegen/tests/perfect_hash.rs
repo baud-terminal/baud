@@ -2,9 +2,9 @@
 //! on X.Org's rgb.txt at 749182c (`[[source: xorg-rgb-749182c]]`) and
 //! `debianred`, the 256 seeds are [`SEEDS`], the ones the table was
 //! committed with before `baud-domain`'s build compiled it, and every key
-//! lands in a slot of its own. `place`, which it is built on, tries the seeds it is
-//! given in order, so a hash whose seeds start at 0 is another table, and
-//! refuses a bucket or a slot past the last.
+//! lands in a slot of its own. `place`, which it is built on, tries the
+//! seeds it is given in order, so a hash whose seeds start at 0 is
+//! another table, and refuses a bucket or a slot past the last.
 
 use baud_tablegen::{Buckets, Kind, Slot, Slots, fnv1a, perfect_hash, place};
 

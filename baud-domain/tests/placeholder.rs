@@ -1,9 +1,9 @@
 //! The Unicode placeholder diacritic table and the placeholder word
 //! (`[[source: kitty-graphics]]`, "Unicode placeholders";
 //! `[[source: kitty-rowcolumn-diacritics]]`): the compiled table is the
-//! pinned list (`[[source: kitty-placeholder-diacritics]]`), every diacritic maps to its line and back and nothing else
-//! maps at all, and a cell's placeholder word holds exactly the diacritics
-//! written into it.
+//! pinned list (`[[source: kitty-placeholder-diacritics]]`), every
+//! diacritic maps to its line and back and nothing else maps at all, and
+//! a cell's placeholder word holds exactly the diacritics written into it.
 
 use baud_domain::{
     ClusterId, ClusterSlot, ClusterStore, Codepoint, Content, Diacritic, PlaceholderMarks,

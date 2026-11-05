@@ -32,9 +32,9 @@ vt100_0[] table (foot 1.21.0) and credited to it in the file
   From:    https://codeberg.org/dnkl/foot/src/tag/1.21.0/terminal.c
 
 Tables generated from the Unicode Character Database and Unicode's emoji
-data files: grapheme clusters and widths, and emoji presentation. Where such
-a table sits in a file with other code, only its marked generated block is
-generated
+data files: grapheme clusters and widths, and emoji presentation.
+baud.metallib carries the stress mark's skip trie compiled in, which the
+build writes from baud-render's tables
   Files:   src/merged_data.rs, src/vs16.rs
   Holder:  Unicode, Inc.
   Licence: Unicode-3.0

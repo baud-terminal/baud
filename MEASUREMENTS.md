@@ -2615,14 +2615,15 @@ in `baud-font/tests/bake.rs`.
 into `baud-domain`'s `OUT_DIR` from `data/` links to the two pinned
 rgb.txt files, through `baud_tablegen::perfect_hash`, and
 `build/placeholder.rs` the placeholder diacritics, pinned as
-`kitty-placeholder-diacritics` (`derived_from` kitty's external file),
-as kitty's key tables are, read only by tests. A slot is `ColourSlot`,
-`repr(C)`, held to six bytes, an alignment of two and the tuple's
-offsets. Before the delete, the identity commit printed "identical: kitty SEEDS 256, kitty SLOTS 1024, kitty POOL
-6601, x SEEDS 256, x SLOTS 1024, x POOL 6832, DIACRITICS 297,
-DIACRITIC_INDEX 1866, DIACRITIC_BLOCKS 2240 elements". Two spellings
-differing only in case with one colour are one name; one spelling
-twice, or two colours, is a build error. Neither pin has such a pair.
+`kitty-placeholder-diacritics` (`derived_from` kitty's external file).
+kitty's two key tables are pinned the same way and only tests read them.
+A slot is `ColourSlot`, `repr(C)`, held to six bytes, an alignment of two
+and the tuple's offsets. Before the delete, the identity commit printed
+"identical: kitty SEEDS 256, kitty SLOTS 1024, kitty POOL 6601, x SEEDS
+256, x SLOTS 1024, x POOL 6832, DIACRITICS 297, DIACRITIC_INDEX 1866,
+DIACRITIC_BLOCKS 2240 elements". Two spellings differing only in case
+with one colour are one name; one spelling twice, or two colours, is a
+build error. Neither pin has such a pair.
 
 **Release binaries.** Built at one path from fresh extractions, every
 file touched: `ingest2` is byte-identical across base, change and A/A,
@@ -2641,13 +2642,9 @@ green; the duplicate rule, the pool's bound and the 753 and 782 counts,
 each turned off, turn `build_tables.rs` red; `debianred` at
 215, 7, 80 turns `kitty_names_are_rgb_txt_and_debianred` and the
 ignored `kitty_names_are_its_own_file` red; ESCAPE 28 and another
-sha256 on line 1 of the key tables turn five key tests red. A build
-whose 0d2caec copy spells GhostWhite `Ghost White` at 248 248 254 stops
-at "data/xorg-rgb-0d2caec.txt:3:14" and "781 colour names, 782
-expected". On kitty's file at its pin the ignored test passes, as the
-Python's `--kitty` printed "OK: kitty's 753 names are rgb.txt's and
-debianred"; a copy with `debianred` changed fails both, the Python on
-its value and the test on its sha256.
+sha256 on line 1 of the key tables turn five key tests red. On kitty's
+file at its pin the ignored test passes where the Python's `--kitty`
+printed OK, and a copy with `debianred` changed fails both.
 
 **The build.** `cargo build -p baud-domain --timings`, both arms at one
 path, five rounds rotated, the first dropped: the build script compiles
@@ -2747,3 +2744,5 @@ exceptions dropped, or bits packed high first, is a `cargo::error`; a
 short shader block turns the table pin and the digest gate red; the
 unspliced source fails at run time, "'stress_skips.metal' file not
 found". Every case in `build_tables.rs` and `build_stress.rs` fires.
+With the source digest now of the spliced text, `xtask/tests/fnv.rs`
+holds only the library's digest, and `metallib.rs` holds the source's.

@@ -22,9 +22,9 @@
 //! a name that is not ASCII or is missing, a spelling given twice, two
 //! spellings in two cases with two colours, `debianred` already in
 //! rgb.txt, a name past a slot's length, a pool past its offset, the 753
-//! and 782 counts, the two
-//! rgb.txt pins swapped, and the diacritics' count, first three, header,
-//! duplicates and blocks. The modules only compute: they read
+//! and 782 counts, the two rgb.txt pins swapped, and the diacritics'
+//! count, first three, header, duplicates and blocks. The modules only
+//! compute: they read
 //! through the function they are given and write nothing, so running them
 //! here touches no `OUT_DIR`.
 

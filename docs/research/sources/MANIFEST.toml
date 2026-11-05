@@ -4103,8 +4103,9 @@ group  = "J"
 # The grant for the technical notes the repository publishes, 5176 and
 # 5177 among them: the PDFs' own text says only "All rights reserved". Its
 # section 3(a)(1) is what the header of
-# adobe-5176-cff-standard-encoding.txt carries. Read and hash-verified on 2026-10-28; not committed, since the
-# licence's URI is all a copy needs. Re-fetch at the pinned commit.
+# adobe-5176-cff-standard-encoding.txt carries. Read and hash-verified
+# on 2026-10-28; not committed, since the licence's URI is all a copy
+# needs. Re-fetch at the pinned commit.
 
 [sources.adobe-5177-type2]
 key    = "adobe-5177-type2"

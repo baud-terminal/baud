@@ -1914,7 +1914,7 @@ licence  = "Unicode-3.0"
 notice   = "LICENSES/Unicode-3.0.txt"
 upstream = "https://www.unicode.org/Public/"
 status   = "kept"
-public   = "Tables generated from the Unicode Character Database and Unicode's emoji data files: grapheme clusters and widths, and emoji presentation. Where such a table sits in a file with other code, only its marked generated block is generated"
+public   = "Tables generated from the Unicode Character Database and Unicode's emoji data files: grapheme clusters and widths, and emoji presentation. baud.metallib carries the stress mark's skip trie compiled in, which the build writes from baud-render's tables"
 holder   = "Unicode, Inc."
 
 [[tree]]
