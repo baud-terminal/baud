@@ -1,7 +1,7 @@
 //! **baud's logo in the titlebar strip**: the lockup, the word baud and
-//! the mark ❯█, a light's gap right of the traffic lights and centred in
-//! the titlebar's strip, which the terminal's view leaves clear at the top
-//! of the container.
+//! the mark ❯█, in a leading titlebar accessory, which AppKit puts a
+//! button's gap right of the traffic lights (`strip.rs`), centred in the
+//! title bar's height.
 //!
 //! **The mark keeps the size it had alone.** The lockups are
 //! `assets/logo/baud-lockup-{dark,light}-tight.svg`, drawn by
@@ -44,17 +44,15 @@
 //! picture in the strip's otherwise unused left end, outside the content,
 //! and the window's title text stays hidden.
 //!
-//! The window is `FullSizeContentView`, so the container the terminal's
-//! view sits in spans the whole frame, the titlebar's strip included, and
-//! the strip is the container's top `inset` points. The lockup is placed
-//! against the container's height **as it is when placed**, never the
-//! size the container was built at. A launch with `BAUD_GRID` sizes the
-//! window to the grid before the container exists, and the window then
-//! gives the container its own size: the README film's window was 786x572
-//! points, the container was built at 960x600, and the mark, centred in
-//! a 600-point container's strip, sat at 574.8-597.2, above the window's
-//! top edge and out of sight for the whole take. Nothing re-placed it,
-//! because a pinned grid's window is never resized.
+//! **The title bar places it, in the traffic lights' own view.** In full
+//! screen AppKit detaches that view from the window, so the lockup goes
+//! with the buttons rather than staying behind in the content
+//! (`strip.rs`). Its x is AppKit's, read from its frame in the window
+//! once laid out ([`Mark::end`]); its size is the mark alone's
+//! ([`Place::beside`]); its centre is the title bar's, re-placed against
+//! the accessory's height as AppKit sets it. [`Place::frame`], centred in
+//! a container's top strip, is the README film's composed strip
+//! (`film/chrome.rs`), where there is no window.
 #![forbid(unsafe_code)]
 
 use std::cell::Cell;
@@ -62,10 +60,13 @@ use std::cell::Cell;
 use macos_liquid_glass::drawable::Appearance;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
-    NSAppearanceCustomization, NSImage, NSImageView, NSView, NSWindow, NSWindowButton,
+    NSAppearanceCustomization, NSImage, NSImageView, NSWindow, NSWindowButton,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
+use macos_liquid_glass::window::{GlassWindow, TitlebarSide};
+
+use crate::strip::Accessory;
 
 /// Where the lockup starts, in points from the left, when the traffic
 /// lights are not laid out: past where AppKit puts the zoom button.
@@ -183,7 +184,8 @@ impl Place {
 
     /// **The lockup's frame in a container `height` points tall**,
     /// bottom-left origin: centred in the container's top `inset` points,
-    /// the strip.
+    /// the strip: the README film's composed strip (`film/chrome.rs`).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn frame(self, height: CGFloat, inset: CGFloat) -> NSRect {
         let centre = height - inset / 2.0;
         NSRect::new(
@@ -198,35 +200,32 @@ impl Place {
     }
 
     /// **Where the activity lights may start**: a light's gap past the
-    /// lockup's end, the gap between two of them.
+    /// lockup's end, the gap between two of them. The README film's
+    /// composed strip (`film/chrome.rs`).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn lights_left(self) -> CGFloat {
         self.end() + CGFloat::from(baud_render::lights::PAIR)
     }
 }
 
-/// **The lockup on screen**: its view, in the container, its place, both
-/// forms, and the one shown.
+/// **The lockup on screen**: its view, in its titlebar accessory, its
+/// size, both forms, and the one shown.
 pub(crate) struct Mark {
     view: Retained<NSImageView>,
+    accessory: Accessory,
     place: Place,
-    inset: CGFloat,
     on_dark: Retained<NSImage>,
     on_light: Retained<NSImage>,
     shown: Cell<Lockup>,
 }
 
 impl Mark {
-    /// **The lockup put in `container`'s strip** of `inset` points, beside
-    /// `window`'s traffic lights, in the form for the window's appearance
-    /// now, and placed at once against the container's height now. Added
-    /// after the terminal's view, so it is drawn above it. `None` when an
-    /// SVG does not decode.
-    pub(crate) fn put(
-        mtm: MainThreadMarker,
-        window: &NSWindow,
-        container: &NSView,
-        inset: CGFloat,
-    ) -> Option<Mark> {
+    /// **The lockup put in `glass`'s title bar**, a leading accessory
+    /// beside its traffic lights, sized for a title bar `inset` points tall,
+    /// in the form for the window's appearance now, and centred at once in
+    /// the height AppKit gave it. `None` when an SVG does not decode.
+    pub(crate) fn put(mtm: MainThreadMarker, glass: &GlassWindow, inset: CGFloat) -> Option<Mark> {
+        let window = glass.ns_window();
         let on_dark = macos_liquid_glass::image_from_bytes(Lockup::OnDark.svg())?;
         let on_light = macos_liquid_glass::image_from_bytes(Lockup::OnLight.svg())?;
         let art = Lockup::OnDark.art()?;
@@ -250,26 +249,37 @@ impl Mark {
                 Lockup::OnLight => &on_light,
             },
         );
+        // The accessory is the lockup's width; AppKit sets its height.
+        let accessory = Accessory::put(
+            mtm,
+            glass,
+            TitlebarSide::Leading,
+            NSSize::new(place.width, inset),
+        );
         // No autoresizing mask: a drag to a tiny window clamped the frame
         // and it never recovered, so the lockup is placed on every resize.
-        container.addSubview(&view);
+        accessory.view.addSubview(&view);
         let mark = Mark {
             view,
+            accessory,
             place,
-            inset,
             on_dark,
             on_light,
             shown: Cell::new(shown),
         };
-        mark.place(container);
+        mark.place();
         Some(mark)
     }
 
-    /// **Re-placed against `container`'s height now**: at the launch, once
-    /// the body has the container, and on every resize.
-    pub(crate) fn place(&self, container: &NSView) {
-        self.view
-            .setFrame(self.place.frame(container.frame().size.height, self.inset));
+    /// **Centred in its accessory's height now**: at the launch, once the
+    /// body has the container, and on every resize, since AppKit sets the
+    /// height when it lays the title bar out.
+    pub(crate) fn place(&self) {
+        let h = self.accessory.view.frame().size.height;
+        self.view.setFrame(NSRect::new(
+            NSPoint::new(0.0, (h - self.place.height) / 2.0),
+            NSSize::new(self.place.width, self.place.height),
+        ));
     }
 
     /// **The form for `appearance`**, the window's: its picture swapped
@@ -299,15 +309,29 @@ impl Mark {
         self.shown.get()
     }
 
-    /// The lockup's right edge.
-    #[allow(dead_code)]
+    /// **The lockup's right edge in the window**, where AppKit put its
+    /// accessory; [`Place::end`] while the title bar is not laid out yet,
+    /// which an accessory at the window's left edge says.
     pub(crate) fn end(&self) -> CGFloat {
-        self.place.end()
+        let at = self.accessory.in_window();
+        if at.origin.x < 1.0 {
+            return self.place.end();
+        }
+        at.origin.x + self.place.width
     }
 
-    /// Where the activity lights may start.
+    /// Where the activity lights may start: a light's gap past
+    /// [`Mark::end`].
+    #[allow(dead_code)]
     pub(crate) fn lights_left(&self) -> CGFloat {
-        self.place.lights_left()
+        self.end() + CGFloat::from(baud_render::lights::PAIR)
+    }
+
+    /// The lockup's accessory view, which `baud-app/tests/titlebar_mark.rs`
+    /// looks at.
+    #[allow(dead_code)]
+    pub(crate) fn accessory(&self) -> &Accessory {
+        &self.accessory
     }
 
     /// The lockup's view, which `baud-app/tests/titlebar_mark.rs` looks at.

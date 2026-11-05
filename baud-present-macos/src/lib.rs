@@ -23,18 +23,20 @@
 //! again on the wake.
 //!
 //! The crate compiles to nothing off macOS, the `baud-isa-aarch64` pattern
-//! for a target-bound crate. `unsafe` is denied here and allowed in eight
+//! for a target-bound crate. `unsafe` is denied here and allowed in nine
 //! modules: [`metal`], where every Metal call that takes a pointer needs it;
 //! [`print`], for the three print-panel calls the bindings mark so;
 //! [`lights`], for the one bitmap the activity lights are shown in;
 //! [`notify`], for the messages it sends by name; [`settings`],
-//! [`launch`] and [`closing`], each for a notification's observer; and
-//! [`keyup`], for the key-up monitor's registration and handler.
+//! [`launch`], [`closing`] and [`full_screen`], each for a notification's
+//! observer; and [`keyup`], for the key-up monitor's registration and
+//! handler.
 #![cfg(target_os = "macos")]
 #![deny(unsafe_code)]
 
 pub mod clipboard;
 pub mod closing;
+pub mod full_screen;
 pub mod journal;
 pub mod keyup;
 pub mod launch;

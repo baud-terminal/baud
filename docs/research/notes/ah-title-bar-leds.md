@@ -116,7 +116,8 @@ the same files by rendered line.
     full height of 28 pt.
   - That was measured in a window shaped like glassnote's, built by two probes
     linked against SDK 14.4, the same SDK baud links (**M**, [[source: ah-obs-titlebar-probe-sdk14-out]]).
-  - The window crate has no accessory API (5.1).
+  - The window crate has had an accessory API since 1.0.0-beta.8, and the
+    lights are a trailing accessory (5.1).
 
 ## 1. What was asked (2026-10-08)
 
@@ -955,27 +956,39 @@ on a timer.**
   read". `set_title` (475-478) is documented only as "Change the window's
   title."
 
-**The crate has no titlebar-accessory API.**
+**The crate has a titlebar-accessory API since 1.0.0-beta.8.**
 
-- There is no `NSTitlebarAccessoryViewController`, no `NSToolbar` and no
-  `layoutAttribute` anywhere in it.
-- Its escape hatch is `ns_window(&self) -> &NSWindow` (543-546): "for
-  anything this wrapper does not cover".
-- baud uses the crates.io release `macos-liquid-glass` 1.0.0-beta.5. That
-  release was published from `15ea241` ("chore: release v1.0.0-beta.5", on
-  master). The local checkout is `5fa641f` on `feat/drawable-view`, and the
-  two `src/` trees are identical.
-- A new crate API reaches baud only through a release, or a `[patch]` or path
-  override.
+- `GlassWindow::add_titlebar_accessory(&self, view, TitlebarSide)` puts a
+  view in the title bar as an `NSTitlebarAccessoryViewController`, leading
+  or trailing, and returns the controller, which the window also keeps.
+- Releases before beta.8 had no `NSTitlebarAccessoryViewController`, no
+  `NSToolbar` and no `layoutAttribute`; baud's strip was views of its own
+  in its content, placed by hand.
+- baud uses the crates.io release `macos-liquid-glass` 1.0.0-beta.8.
 
-**baud draws nothing of its own in the strip except the icon.**
+**What baud has in the strip now.**
 
-- The Metal view is framed `full.height - inset` tall inside a transparent
-  container (`app.rs` 4962-4979): "the glass still fills the strip the
-  traffic lights float over while row 0 clears them".
-- The icon is an `NSImageView` placed by hand, right of the traffic lights,
-  and re-placed on every resize (`place_icon`, `app.rs:5649`).
-- The inset is measured from `contentLayoutRect` (`app.rs` 4891-4905).
+- The lockup is a leading accessory and the lights, on their plate, a
+  trailing one (`baud-app/src/strip.rs`, `mark.rs`, `lights.rs`). The
+  lights' accessory is sized at every layout: AppKit lets a narrow title
+  bar's two ends overlap.
+- In full screen the title bar leaves the window ("Fullscreen window
+  toolbar is detached from window and hides/shows on rollover",
+  [[source: sdk27-nsapplication-h]] 168). Views in baud's content stayed
+  behind: the lockup indented for buttons that were gone, and an empty
+  bar slid over it on reveal. As accessories they are in the buttons' own
+  view, which the window test checks headless; that AppKit shows them with
+  the buttons in full screen is not measured, since a window enters full
+  screen only when it is shown.
+- The terminal's view stops the title bar's height short of the top while
+  windowed, measured from `contentLayoutRect`, and takes the whole window
+  in full screen. The switch is made on `NSWindowDidEnterFullScreenNotification`
+  and `NSWindowDidExitFullScreenNotification` ([[source: sdk27-nswindow-h]]
+  976, 978), read by name (`baud-present-macos/src/full_screen.rs`).
+- Measured in baud's own test windows (`baud-app/tests/titlebar_mark.rs`,
+  never shown): title bar 28 pt, buttons 14 pt wide at x 9, 29 and 49, the
+  leading accessory at x 69, the trailing one flush right. That is where
+  the hand-placed views were.
 
 **AppKit's trailing accessory, by the SDK header**
 ([[source: macos-sdk-nstitlebaraccessoryviewcontroller-h]]):
@@ -1016,8 +1029,9 @@ Both gave the same result ([[source: ah-obs-titlebar-probe-sdk14-out]], [[source
   28 pt strip.
 - The traffic lights sit at x 9, 29 and 49, each 14 pt wide.
 
-Placement for a binary linked against SDK 27.0 was not measured. Neither was
-placement inside baud's own window.
+Placement for a binary linked against SDK 27.0 was not measured. Placement
+inside baud's own window was measured later, by the window test above:
+the same 28 pt and x 69.
 
 The width on the right is ours to choose, whether the LEDs are an accessory
 or hand-placed views. The real constraint is the title text, if the title work puts it back in the strip.
@@ -1503,6 +1517,8 @@ Q6's Reduce Motion half and Q8, and part of Q1, Q2 and Q9.
   right, re-placed on every resize. The pixels
   are baud's renderer's. The window crate needs nothing for it; P1,
   a trailing accessory API in the crate, remains the alternative.
+  P1 replaced it once the crate had the API (5.1): in full screen, views in
+  baud's container stay in the window while the title bar leaves it.
 - **Look (Q7, Q9).** RD and SD letters to the left of each light. RD is AppKit's `systemGreenColor`, SD its
   `systemOrangeColor`, resolved under the window's appearance.
 - **Timing (Q6).** A light is lit for 200 ms after the last byte. Once it

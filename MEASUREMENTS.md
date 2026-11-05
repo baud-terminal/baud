@@ -1964,3 +1964,49 @@ base, 2,135.62-2,137.14 M change; `btop` 5,150.39-5,150.63 M base,
 **Write amplification and working set.** Per ingested byte, nothing
 changed. Per resize at a prompt, the re-cut writes every retained cell once,
 as a re-cut in the output zone always did.
+
+## The title strip in the title bar, and the grid's top in full screen
+
+**What changed.** baud's lockup and activity lights were views in its own
+content, placed by hand, so in full screen they stayed in the window
+while the title bar left it: the lockup sat indented for traffic lights
+that were gone, the terminal kept a title bar's height clear above the
+grid, and on reveal the system's bar slid down over that strip with only
+the buttons in it. Now the lockup is a leading titlebar accessory and the
+lights a trailing one (`macos-liquid-glass` 1.0.0-beta.8's
+`add_titlebar_accessory`; `baud-app/src/strip.rs`), in the traffic
+lights' own view, which AppKit detaches from the window in full screen;
+and the terminal's view takes the window's whole height once `NSWindowDidEnterFullScreenNotification` is posted and the
+title bar's height off it again at `NSWindowDidExitFullScreenNotification`
+(`baud-present-macos/src/full_screen.rs`).
+
+**Where things are, windowed**, in `baud-app/tests/titlebar_mark.rs`'s
+never-shown windows, base (master) against the change, at 786x572,
+960x600, 1200x900 and 200x100 points, both bodies:
+
+| | base | change |
+|---|---|---|
+| title bar | 28 pt | 28 pt |
+| traffic lights | 14x16 at x 9, 29, 49 | the same |
+| lockup | x 69, 51.37x13.78, centred 14 pt below the top | the same, x now AppKit's |
+| lights may start at | x 129.37 | x 129.37 |
+| lights end | 9 pt in from the right | 9 pt in from the right |
+| lights' accessory at 960 / 200 pt | (none) | x 766.5, 193.5 wide / x 125, 75 wide |
+
+The lights' positions equal the hand-placed ones at 960, 786, 800.25 and
+200 points and scales 1 and 2 (`the_lights_accessory_keeps_the_lights_where_the_strip_had_them`).
+Full screen itself is not measured: AppKit refuses the full-screen state
+outside a real transition, which takes the display. The harness posts the
+two notifications by hand to baud's observer instead.
+
+**The per-byte path.** No write or parse function changed; `ingest2`'s
+`__TEXT,__text` is the same size on both arms, but differs in branch
+offsets because the window crate's version changed. `ingest2 <payload>
+300` under `/usr/bin/time -l`, instructions retired, four rotated rounds,
+the first dropped: `cat` 2,136.01-2,136.17 M base, 2,136.06-2,136.13 M
+change; `btop` 5,149.36-5,149.60 M base, 5,149.42-5,149.61 M change. The
+ranges overlap: no result, as expected.
+
+**Write amplification and working set.** Per ingested byte, nothing
+changed. A full-screen transition lays the grid out twice, once at the
+transition's resize and once at the notification.

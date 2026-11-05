@@ -4,15 +4,18 @@
 //! lists them (`baud_render::lights`) -- and each lit only for something
 //! baud measured.
 //!
-//! **Where**: one image view a light in baud's own container, as the app
-//! icon is, re-placed on every resize -- the title strip is AppKit's, drawn
-//! over the glass, and the `macos-liquid-glass` window crate has no
-//! titlebar-accessory API (note AH, 5.1), so baud draws where it already
-//! draws. A view a light gives each its own hover text, AppKit's
-//! `toolTip`, shown only while the pointer is over that light, and its
-//! frame is the tooltip's rectangle wherever the view is placed. A light
-//! that would reach baud's lockup in a narrow window is not drawn, the
-//! leftmost first, so nothing covers the traffic lights or the lockup.
+//! **Where**: one image view a light, on a plate, in a trailing titlebar
+//! accessory -- the title bar's own place for content at its right end,
+//! in the traffic lights' view, which AppKit detaches from the window in
+//! full screen (`strip.rs`) -- re-placed on every resize. The accessory
+//! is sized at every layout to the lights and to the room right of the
+//! lockup ([`crate::strip::lights_width`]), since AppKit lets the two
+//! ends of a narrow title bar overlap. A view a light gives each its own
+//! hover text, AppKit's `toolTip`, shown only while the pointer is over
+//! that light, and its frame is the tooltip's rectangle wherever the view
+//! is placed. A light that would reach baud's lockup in a narrow window is
+//! not drawn, the leftmost first, so nothing covers the traffic lights or
+//! the lockup.
 //!
 //! **The colours are the theme's** (`Renderer::lights_look`): every lamp
 //! one of the theme's sixteen palette entries in the set `[window]
@@ -193,6 +196,9 @@ pub(crate) fn plate_frame(
 
 /// The views, their pictures, and what each shows.
 pub(crate) struct Strip {
+    /// The trailing titlebar accessory they are in, none until the window
+    /// is shown.
+    holder: Option<crate::strip::Accessory>,
     views: ByLed<Option<Retained<NSImageView>>>,
     /// The plate under them, a view of its own added before them so they
     /// sit above it, and its picture for each light it can start at.
@@ -204,15 +210,12 @@ pub(crate) struct Strip {
     spans: Spans,
     /// The scale the spans are whole device pixels at.
     scale: CGFloat,
-    /// The gap kept at the strip's right, the traffic lights' at its left,
-    /// and the least x a light may start at: past baud's lockup.
-    right: CGFloat,
-    left: CGFloat,
 }
 
 impl Strip {
-    pub(crate) fn new(right: CGFloat, left: CGFloat) -> Strip {
+    pub(crate) fn new(holder: Option<crate::strip::Accessory>) -> Strip {
         Strip {
+            holder,
             views: ByLed::default(),
             plate: None,
             pictures: None,
@@ -223,8 +226,6 @@ impl Strip {
                 width: 0.0,
             },
             scale: 1.0,
-            right,
-            left,
         }
     }
 
@@ -236,9 +237,10 @@ impl Strip {
         self.on_view = ByLed::default();
     }
 
-    /// **The lights at `shown`**, under `setting`, in `container`'s strip
-    /// of `inset` points: the views put up, their pictures drawn and
-    /// swapped, or taken down -- off, or on their own line in the frame.
+    /// **The lights at `shown`**, under `setting`, drawn for a strip of
+    /// `inset` points and placed between the strip's `edges`: the views
+    /// put up, their pictures drawn and swapped, or taken down -- off, or
+    /// on their own line in the frame.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn show(
         &mut self,
@@ -246,9 +248,12 @@ impl Strip {
         wanted: Drawn,
         shown: Shown,
         renderer: &Renderer<'_, '_>,
-        container: &NSView,
+        edges: crate::strip::Edges,
         inset: CGFloat,
     ) {
+        let Some(container) = self.holder.as_ref().map(|h| h.view.clone()) else {
+            return;
+        };
         if setting != ActivityLights::TitleBar {
             for led in Led::ALL {
                 if let Some(v) = self.views.get_mut(led).take() {
@@ -259,6 +264,7 @@ impl Strip {
                 v.removeFromSuperview();
             }
             self.on_view = ByLed::default();
+            self.place(edges);
             return;
         }
         let have = self.pictures.as_ref().map(|(d, _)| *d);
@@ -309,7 +315,7 @@ impl Strip {
                 *self.views.get_mut(led) = Some(v);
             }
         }
-        self.place(container, inset);
+        self.place(edges);
         let Some((_, p)) = &self.pictures else {
             return;
         };
@@ -326,16 +332,21 @@ impl Strip {
     }
 
     /// Re-place every view at the strip's right, and hide the ones a
-    /// narrow window has no room for: on every resize.
-    pub(crate) fn place(&self, container: &NSView, inset: CGFloat) {
-        let frames = placed(
-            container.frame().size,
-            inset,
-            self.right,
-            self.left,
-            self.scale,
-            &self.spans,
-        );
+    /// narrow window has no room for: on every resize. The accessory first,
+    /// to the lights' width and the room `edges` leave, none with no
+    /// lights shown; then each light in it, in its own points, at the
+    /// height AppKit gave it.
+    pub(crate) fn place(&self, edges: crate::strip::Edges) {
+        let Some(holder) = &self.holder else {
+            return;
+        };
+        let across = match self.plate {
+            Some(_) => self.spans.width,
+            None => 0.0,
+        };
+        let (room, left) = holder.fit_lights(edges, across, CGFloat::from(PLATE_PAD), self.scale);
+        let inset = room.height;
+        let frames = placed(room, inset, edges.right, left, self.scale, &self.spans);
         if let Some(v) = &self.plate {
             let at = plate_frame(&frames, inset, self.scale);
             match (at, &self.plates) {
@@ -686,6 +697,68 @@ mod tests {
         let odd = placed(NSSize::new(800.25, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
         let x = odd.hs.unwrap().0.origin.x * 2.0;
         assert_eq!(x, x.round());
+    }
+
+    /// **In the titlebar accessory the lights are where the window's own
+    /// strip had them**: fitted between the strip's edges
+    /// (`strip::lights_width`, `strip::lights_room`) and placed in the
+    /// accessory's own points, each light and the plate, moved by where
+    /// AppKit puts a trailing accessory -- flush with the window's right
+    /// edge -- land on the frames `placed` gives across the whole window,
+    /// at 960, 786, 800.25 and 200 points and scales 1 and 2, the narrow
+    /// window dropping the same leftmost lights. Perturbation: put the
+    /// accessory's width, rather than its left edge, on a whole device
+    /// pixel and the 800.25-point window's lights move by half of one.
+    #[test]
+    fn the_lights_accessory_keeps_the_lights_where_the_strip_had_them() {
+        use crate::strip::{Edges, lights_room, lights_width};
+        let spans = spans_for_test();
+        let pad = CGFloat::from(PLATE_PAD);
+        for scale in [1.0, 2.0] {
+            for width in [960.0, 786.0, 800.25, 200.0] {
+                let edges = Edges {
+                    width,
+                    left: 129.366,
+                    right: 9.0,
+                };
+                let window = NSSize::new(width, 600.0);
+                let strip = placed(window, 28.0, edges.right, edges.left, scale, &spans);
+                let h = lights_width(edges, spans.width, pad, scale);
+                let (room, left) = lights_room(edges, NSSize::new(h, 28.0));
+                let inside = placed(room, 28.0, edges.right, left, scale, &spans);
+                let shift = width - h;
+                let moved = |r: NSRect| {
+                    NSRect::new(NSPoint::new(r.origin.x + shift, r.origin.y + 572.0), r.size)
+                };
+                for led in Led::ALL {
+                    assert_eq!(
+                        inside.get(led).map(|(r, t)| (moved(r), t)),
+                        *strip.get(led),
+                        "{led:?} at {width} points, scale {scale}"
+                    );
+                }
+                assert_eq!(
+                    plate_frame(&inside, 28.0, scale).map(|(l, r)| (l, moved(r))),
+                    plate_frame(&strip, 28.0, scale),
+                    "the plate at {width} points, scale {scale}"
+                );
+                if let Some((_, r)) = plate_frame(&inside, 28.0, scale) {
+                    assert!(r.origin.x >= 0.0, "the plate is whole at {width}: {r:?}");
+                }
+            }
+        }
+        let narrow = Edges {
+            width: 200.0,
+            left: 129.366,
+            right: 9.0,
+        };
+        let h = lights_width(narrow, spans.width, pad, 2.0);
+        let (room, left) = lights_room(narrow, NSSize::new(h, 28.0));
+        let inside = placed(room, 28.0, 9.0, left, 2.0, &spans);
+        assert!(
+            inside.hs.is_none() && inside.syn.is_some(),
+            "the leftmost go"
+        );
     }
 
     /// **In a narrow window the lights yield and the lockup stays whole**:

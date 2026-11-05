@@ -67,14 +67,14 @@ use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
     NSAutoresizingMaskOptions, NSBeep, NSColor, NSCursor, NSEvent, NSEventModifierFlags, NSImage,
     NSRequestUserAttentionType, NSScreen, NSScroller, NSScrollerStyle, NSView, NSWindow,
-    NSWindowAnimationBehavior, NSWindowButton, NSWindowOcclusionState, NSWindowStyleMask,
+    NSWindowAnimationBehavior, NSWindowOcclusionState, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
     MainThreadMarker, NSBundle, NSOperatingSystemVersion, NSPoint, NSProcessInfo, NSRect, NSSize,
     NSString, NSUserDefaults,
 };
-use macos_liquid_glass::window::GlassWindow;
+use macos_liquid_glass::window::{GlassWindow, TitlebarSide};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -4489,18 +4489,17 @@ struct Driver {
     /// Whether a key hid the pointer, and what the core said when it was
     /// last asked (`hide.rs`).
     hiding: crate::hide::Hiding,
-    /// The titlebar mark (`mark.rs`), re-placed on every resize. A manual
-    /// autoresizing mask lost it after a fast drag to a tiny window -- the
-    /// frame clamped and never came back -- so the driver places it itself
-    /// instead, centred in the `icon_inset` strip at the top of its
-    /// superview, whose height it reads each time.
+    /// The titlebar mark (`mark.rs`), in its leading titlebar accessory,
+    /// re-centred on every resize. A manual autoresizing mask lost it after
+    /// a fast drag to a tiny window -- the frame clamped and never came
+    /// back -- so the driver places it itself instead, in the height
+    /// AppKit gave the accessory.
     icon: Option<crate::mark::Mark>,
-    /// The icon's superview (the content container), whose height gives the
-    /// window top; read rather than `superview()`, which is `unsafe`.
-    icon_super: Retained<NSView>,
+    /// The title bar's height when the window opened, which the lights'
+    /// pictures are drawn for.
     icon_inset: CGFloat,
-    /// The activity lights at the strip's right, in the same container
-    /// (`lights.rs`).
+    /// The activity lights at the strip's right, in a trailing titlebar
+    /// accessory (`lights.rs`, `strip.rs`).
     lights: crate::lights::Strip,
     /// The hover texts over the lights' own line, when the setting puts
     /// them there (`lights.rs`).
@@ -4544,6 +4543,9 @@ struct Open {
     view: Retained<DrawableView>,
     _style: macos_liquid_glass::icon_style::StyleObserver,
     _closing: Option<baud_present_macos::closing::Closing>,
+    /// The observer of the window's full screen, which moves the grid's
+    /// top (`strip.rs`), removed with the window.
+    _full_screen: Option<baud_present_macos::full_screen::FullScreen>,
     /// The monitor that hands the view the key-ups AppKit keeps while
     /// Command is held (`baud_present_macos::keyup`), removed with the
     /// window.
@@ -12828,13 +12830,7 @@ impl Opening {
         startup_mark("glass window");
         // The inset predicted above, checked against the window that exists
         // now; the window's own value is what the layout uses.
-        let measured = {
-            let w = window.ns_window();
-            let content_h = w
-                .contentView()
-                .map_or(size.height, |v| v.frame().size.height);
-            (content_h - w.contentLayoutRect().size.height).max(0.0)
-        };
+        let measured = crate::strip::inset_of(window.ns_window());
         if (measured - inset).abs() > 0.5 {
             startup_note(&format!(
                 "titlebar inset: predicted {inset:.1}, measured {measured:.1}"
@@ -12901,10 +12897,7 @@ impl Opening {
             NSRect::new(NSPoint::new(0.0, 0.0), full),
         );
         container.setAutoresizesSubviews(true);
-        view.setFrame(NSRect::new(
-            NSPoint::new(0.0, 0.0),
-            NSSize::new(full.width, (full.height - inset).max(0.0)),
-        ));
+        crate::strip::apply(&view, &container, inset);
         view.setAutoresizingMask(
             NSAutoresizingMaskOptions::ViewWidthSizable
                 | NSAutoresizingMaskOptions::ViewHeightSizable,
@@ -12966,9 +12959,8 @@ impl Opening {
             // Placed once the window is shown, which lays out the traffic
             // lights it is placed against.
             icon: None,
-            icon_super: container.clone(),
             icon_inset: inset,
-            lights: crate::lights::Strip::new(0.0, 0.0),
+            lights: crate::lights::Strip::new(None),
             line_tips: crate::lights::LineTips::new(),
             front: crate::front::Front::new(),
             procs: crate::front::Live::new(),
@@ -13093,29 +13085,21 @@ impl Opening {
         // output waits on it; the logo starts on the first tick after it
         // is built (`App::plasma_ready`).
         driver.app.build_plasma();
-        // The activity lights keep the traffic lights' gap from the strip's
-        // other edge: the close button's distance from the left, once laid out.
-        let lights_right = window
-            .ns_window()
-            .standardWindowButton(NSWindowButton::CloseButton)
-            .map(|c| c.frame())
-            .filter(|f| f.size.height >= 1.0)
-            .map_or(12.0, |f| f.origin.x);
-        // **baud's lockup beside the traffic lights** (`mark.rs`), read
-        // after `show()` so the buttons are laid out, in the form for the
-        // window's appearance now, and placed against the container's
-        // height now, not the size `new` built it at: a pinned grid gave
-        // the window, and with it the container, another size before this
-        // ran. The snug crop, not the padded Dock mark, so the box is the
-        // size the lockup is drawn at.
-        let mark = crate::mark::Mark::put(mtm, window.ns_window(), &container, inset);
-        // And stop short of baud's lockup, a light's gap clear of it.
-        let lights_left = mark.as_ref().map_or(
-            74.0 + CGFloat::from(baud_render::lights::PAIR),
-            crate::mark::Mark::lights_left,
-        );
-        driver.icon = mark;
-        driver.lights = crate::lights::Strip::new(lights_right, lights_left);
+        // **baud's lockup beside the traffic lights** (`mark.rs`), a leading
+        // titlebar accessory, sized after `show()` so the buttons are laid
+        // out, in the form for the window's appearance now. The snug crop,
+        // not the padded Dock mark, so the box is the size the lockup is
+        // drawn at. **The activity lights** in a trailing one, which the
+        // lights size to themselves at every layout (`strip.rs`). Both are
+        // in the traffic lights' own view, which AppKit detaches from the
+        // window in full screen, so neither stays behind in the content.
+        driver.icon = crate::mark::Mark::put(mtm, &window, inset);
+        driver.lights = crate::lights::Strip::new(Some(crate::strip::Accessory::put(
+            mtm,
+            &window,
+            TitlebarSide::Trailing,
+            NSSize::new(0.0, inset),
+        )));
         startup_mark("titlebar");
         // The glass under the terminal now that the first frame is on the
         // layer: ordering a window whose content is a glass effect view costs
@@ -13199,15 +13183,31 @@ impl Opening {
                 view: view.clone(),
                 _style: style,
                 _closing: None,
+                _full_screen: None,
                 _keyups: None,
             })
         });
         let closing = baud_present_macos::closing::when_closing(window.ns_window(), move || {
             dispatch2::DispatchQueue::main().exec_async(move || closed(id));
         });
+        // **Full screen moves the grid's top** (`strip.rs`): the whole
+        // window once entered, the title bar's height down once a window
+        // again, read then. The terminal's view takes the new frame here,
+        // and its resize callback lays the grid out. In place, not on a
+        // later turn: AppKit posts both at the end of a transition, from
+        // the run loop, and baud asks for a transition only from a later
+        // turn (`window_later`), so no responder callback holds the
+        // view's borrow.
+        let full_screen = {
+            let (w, v, c) = (window.clone(), view.clone(), container.clone());
+            baud_present_macos::full_screen::when_full_screen(window.ns_window(), move |change| {
+                crate::strip::follow(change, w.ns_window(), &v, &c);
+            })
+        };
         OPEN.with_borrow_mut(|o| {
             if let Some(open) = o.get_mut(id) {
                 open._closing = Some(closing);
+                open._full_screen = Some(full_screen);
             }
         });
         driver.window_id = Some(id);
@@ -14886,7 +14886,7 @@ impl Driver {
             wanted,
             shown,
             &self.app.renderer,
-            &self.icon_super,
+            self.strip_edges(),
             self.icon_inset,
         );
         // **On their own line, the frame's**: the renderer draws the same
@@ -14928,17 +14928,27 @@ impl Driver {
         self.line_tips.place(&self.view, rects);
     }
 
-    /// The activity lights follow the window's top-right on every resize.
-    fn place_lights(&self) {
-        self.lights.place(&self.icon_super, self.icon_inset);
+    /// **The title strip's ends now** (`strip.rs`): the window's width,
+    /// a light's gap past the lockup, and the close button's gap at the
+    /// right, read from the window as AppKit has laid it out.
+    fn strip_edges(&self) -> crate::strip::Edges {
+        crate::strip::edges(
+            self.window.ns_window(),
+            self.icon.as_ref().map(crate::mark::Mark::end),
+        )
     }
 
-    /// Re-place the titlebar lockup at the top-left of its superview, whose
-    /// height it reads now rather than at launch. Cheap -- one `setFrame` --
-    /// and it runs on every resize so the lockup cannot drift or vanish.
+    /// The activity lights follow the window's top-right on every resize.
+    fn place_lights(&self) {
+        self.lights.place(self.strip_edges());
+    }
+
+    /// Re-centre the titlebar lockup in its accessory, whose height AppKit
+    /// sets. Cheap -- one `setFrame` -- and it runs on every resize so the
+    /// lockup cannot drift or vanish.
     fn place_icon(&self) {
         if let Some(mark) = &self.icon {
-            mark.place(&self.icon_super);
+            mark.place();
         }
     }
 
@@ -19908,24 +19918,28 @@ mod mark_tests {
             .expect("Opening::show")
     }
 
-    /// **The titlebar mark is placed against the container as it is, and
-    /// again once the body has it**: `show` computes no position from the
-    /// size `new` built the container at, which a pinned grid's window had
-    /// already changed -- the README film's mark sat above its 572-point
-    /// window for the whole take -- and it re-places the mark after the
-    /// body takes the container, whatever size that gives it. Where the
-    /// mark goes in the strip is `mark.rs`'s, and
-    /// `baud-app/tests/titlebar_mark.rs` checks it in a real window.
-    /// Perturbation: drop the `place_icon()` after the body and the second
-    /// check fails.
+    /// **The strip is in the title bar and the grid's top follows full
+    /// screen**: `show` puts the lockup in a leading titlebar accessory
+    /// and the lights in a trailing one, computing no position from the
+    /// size `new` built the container at -- a pinned grid's window had
+    /// already changed it -- and re-centres the lockup once the body has
+    /// the container. It hears the window's full screen, and the
+    /// observer's block calls `strip::follow`, which takes the grid's top
+    /// from `strip::grid_top` and gives it to the terminal's view with
+    /// `strip::apply`; the observer is kept with the window. Where things
+    /// go is `strip.rs`'s and `mark.rs`'s, and
+    /// `baud-app/tests/titlebar_mark.rs` checks them in real windows,
+    /// posting the full-screen notifications by hand. Perturbation: drop
+    /// the observer and the third check fails; drop the `place_icon()`
+    /// after the body and the second does.
     #[test]
-    fn show_places_the_mark_against_the_container_it_is_in() {
+    fn show_puts_the_strip_in_the_title_bar_and_follows_full_screen() {
         let src = include_str!("app.rs");
         let body = show(src);
         assert!(!body.contains(concat!("full", ".height")), "{body}");
         let put = body
-            .find(concat!("crate::mark::Mark::", "put("))
-            .expect("show puts the mark");
+            .find(concat!("crate::mark::Mark::", "put(mtm, &window, inset)"))
+            .expect("show puts the mark in the title bar");
         let taken = body
             .find(concat!("glass.set_content_view(", "&container);"))
             .expect("the body takes the container");
@@ -19934,6 +19948,38 @@ mod mark_tests {
             .map(|at| taken + at)
             .expect("the mark re-placed after the body takes the container");
         assert!(put < taken && taken < placed);
+        let lights = body
+            .find(concat!("crate::strip::Accessory::", "put("))
+            .expect("show puts the lights' accessory");
+        assert!(body[lights..].starts_with(concat!(
+            "crate::strip::Accessory::put(\n            mtm,\n            &window,\n            ",
+            "TitlebarSide::Trailing,"
+        )));
+        let observed = body
+            .find(concat!(
+                "baud_present_macos::full_screen::",
+                "when_full_screen("
+            ))
+            .expect("show hears the window's full screen");
+        assert!(body[observed..].contains(concat!(
+            "crate::strip::follow(change, ",
+            "w.ns_window(), &v, &c)"
+        )));
+        assert!(body.contains(concat!("open._full_screen = ", "Some(full_screen);")));
+        let strip = include_str!("strip.rs");
+        let follow = strip
+            .split_once(concat!("pub(crate) fn follow(", "change: Change"))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(b, _)| b)
+            .expect("strip::follow");
+        assert!(follow.contains(concat!("grid_top(", "change,")), "{follow}");
+        assert!(
+            follow.contains(concat!("apply(view, ", "container, top)")),
+            "{follow}"
+        );
+        let mark = include_str!("mark.rs");
+        assert!(mark.contains(concat!("TitlebarSide::", "Leading,")));
+        assert!(!mark.contains(concat!("container.", "addSubview")));
     }
 }
 
