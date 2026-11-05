@@ -2468,3 +2468,48 @@ tables not listed, avar 2's data, and the 24-bit-glyph-id formats. Also
 not modelled: a cmap mapping to glyph 0 counts as unmapped, a cursive
 lookup is compared glyph by glyph, and with more than one axis only the
 samples are compared. Shaping and raster differentials are not built here.
+
+## The publish gate in `cargo xtask`
+
+Not timed: no byte path changed. `cargo xtask publish [--size|--verify|
+--release|--write-notices|--write-licences]` replaces `check-publish.py`
+with its thirteen checks, and `test-publish-fresh.py` becomes
+`each_verify_reads_its_own_unpack_and_leaves_none`; both scripts are
+deleted. The `.crate` is read by a ustar reader over `baud-domain`'s
+inflater, fed a zlib header in place of the gzip one and the Adler-32 of
+what it wrote as the trailer, with the gzip CRC-32 and length checked
+here. The status meanings and licence URIs are `third_party`'s own, so
+the copy and the test that held it equal are gone.
+
+| arm | inputs | result |
+|---|---|---|
+| the tree | plain, `--release`, `--size`, `--verify` | stdout and exit equal to the Python's; every unpack removed |
+| NOTICE | all 13 emptied, then `--write-notices` | each byte-equal to the committed file |
+| `license` | all 13 set to `MIT`, then `--write-licences` | each manifest byte-equal |
+| the tree, perturbed | 7: a keyword, a licence, a NOTICE date, an unversioned path dependency, a link to /etc/hosts, a NOTICE edit, an unpublished member published | stdout and exit equal |
+| a ten-crate fixture | 44 trees, each under no flag, `--release`, `--write-notices` and `--write-licences` | 176 of 176 equal in stdout, exit and the files left |
+| `textwrap.fill` | 86 cases against Python 3.13 | all equal |
+
+Two departures are accepted, both in text and neither in an exit code:
+the three hints read `run cargo xtask publish --write-...` where they
+named the script, and a TOML error is the `toml` crate's line on stderr,
+where tomllib's traceback stood, exit 1 on both. The published set is 13 crates, `baud-tablegen` among them,
+reached as a build-dependency.
+
+What the port keeps, each pinned by a test: Python's `$` matches before
+a final newline, so a keyword `"terminal\n"` passes; `\s` holds for
+`\x1c`-`\x1f`; a link is resolved as `realpath` does, without failing
+on a dangling one; sizes round half to even (131,072 bytes is "0.12");
+`[profile.release]` compares without order, with `True == 1` and an
+int equal to a float only when exactly so; the
+wrap drops leading space on every line but the first, strips U+2003 as
+space, keeps a no-break space inside its word and expands tabs to
+eight columns. `\b` is the `regex` crate's Unicode boundary, which can
+differ from Python's on marks and other numerals; no NOTICE reaches it. The root is the
+directory the command runs in, as for every xtask command, where the
+script took its own folder's parent.
+
+Each check is a `#[test]` on a perturbation, and 27 mutations, one per
+check and per kept rule, each turned a named test red. The stale unpack
+runs `package` twice in one build folder with the unpack folder made
+between; the oversize crate holds 10.5 MiB of xorshift bytes.

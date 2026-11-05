@@ -42,13 +42,13 @@
 #   public   what a published crate's NOTICE says the files are, for a reader
 #            who has only the crate: no research note, ISO date, decision,
 #            hyphenated source key of the manifest, key written as
-#            [[source: key]], or repository path (scripts/check-publish.py
+#            [[source: key]], or repository path (`cargo xtask publish`
 #            refuses one); `what`
 #            is the row as THIRD_PARTY.md shows it in the repository
 #   holder   whose the material is, as the NOTICE names it
 #   spdx     what the entry adds to the `license` field of a crate that
 #            carries its files, where `licence` is not an SPDX expression
-#            crates.io takes (scripts/check-publish.py, SPDX_IDS): "" for
+#            crates.io takes (xtask/src/publish.rs, SPDX_IDS): "" for
 #            facts and protocol interface data, which carry no licence; the
 #            licence taken, where the entry is offered under a choice
 #   from     the URLs the NOTICE gives, where `upstream` is not one URL; an

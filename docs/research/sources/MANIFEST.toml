@@ -26022,7 +26022,7 @@ sha256 = "47d1cc681abe31166b342b6cc4aab13a6ba8ea5c48794697fe3bf8b1dbaf509a"
 bytes  = 339359
 status = "external"
 group  = "AN"
-# What scripts/check-publish.py's SPDX_IDS were each checked against,
+# What xtask/src/publish.rs's SPDX_IDS were each checked against,
 # 2026-11-03: all fifteen are on it and none is deprecated. It lists TekHVC,
 # which the sidecar's LicenseRef-Tektronix-TekHVC predates.
 

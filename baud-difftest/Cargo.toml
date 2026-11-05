@@ -3,7 +3,7 @@ name = "baud-difftest"
 version.workspace = true
 edition.workspace = true
 # Not published: `publish = false`, so `cargo publish` refuses it and
-# release-plz leaves it out (`scripts/check-publish.py`). It is an
+# release-plz leaves it out (`cargo xtask publish`). It is an
 # oracle against an external implementation, not a library anyone
 # depends on, and it carries no `license` or `description`.
 publish = false

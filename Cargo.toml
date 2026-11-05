@@ -86,7 +86,7 @@ rust-version = "1.96"
 # what the workspace builds against; the version is what a published crate
 # asks crates.io for, because `cargo package` drops the path and refuses a
 # dependency that has no version. Both move with the workspace version.
-# `scripts/check-publish.py` holds every published crate to them.
+# `cargo xtask publish` holds every published crate to them.
 #
 # **The three crates that carry the NEON scan as a default come without
 # it**, `baud-core`, `baud-render` and `baud-present-macos`, so a binary

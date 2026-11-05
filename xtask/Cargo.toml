@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 description = "The repository's gates and generators, run as `cargo xtask <command>`."
 # Not published: `publish = false`, so `cargo publish` refuses it and
-# release-plz leaves it out (`scripts/check-publish.py`). It is reached
+# release-plz leaves it out (`cargo xtask publish`). It is reached
 # through the `xtask` alias in `.cargo/config.toml`, and `default-members`
 # stays `baud-app`, so a bare `cargo run` still builds the terminal.
 publish = false

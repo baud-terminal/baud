@@ -18,7 +18,7 @@ readme = "README.md"
 keywords = ["terminal", "terminal-emulator", "vt100", "xterm", "macos"]
 categories = ["command-line-utilities"]
 # What crates.io gets: the source, what the build reads, the licence and
-# the notices its third-party files need (`scripts/check-publish.py`).
+# the notices its third-party files need (`cargo xtask publish`).
 # The tests and their fixtures stay in the repository.
 include = ["/src/", "/build.rs", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES/", "/terminfo/", "/assets/", "/fonts/built/", "/fonts/stix-two-math/", "/fonts/symbols-nerd-font/"]
 # `cargo run` at the workspace root runs `baud`, the one binary; the rest is
@@ -111,7 +111,7 @@ harness = false
 # the root `Cargo.toml`, and cargo warns that this copy is ignored; the
 # published crate is built as its own root, and there this copy is the
 # profile: whole-program LTO, one codegen unit and the 64-byte function
-# alignment, which a crate built without it lacks. `scripts/check-publish.py`
+# alignment, which a crate built without it lacks. `cargo xtask publish`
 # holds it equal to the workspace's, and `build.rs` sets the macOS floor.
 [profile.release]
 opt-level = 3

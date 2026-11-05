@@ -11,7 +11,7 @@ readme = "README.md"
 keywords = ["font", "opentype", "truetype", "shaping", "rasterizer"]
 categories = ["no-std", "rendering", "parser-implementations", "text-processing"]
 # What crates.io gets: the source, what the build reads, the licence and
-# the notices its third-party files need (`scripts/check-publish.py`).
+# the notices its third-party files need (`cargo xtask publish`).
 # The tests and their fixtures stay in the repository.
 include = ["/src/", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES/"]
 

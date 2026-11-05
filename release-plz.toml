@@ -4,7 +4,7 @@
 # is public (`.github/workflows/ci.yml`); this file decides what gets
 # released once there. `baud` and the crates it is built from are published
 # to crates.io, so `cargo install baud` installs the terminal;
-# `scripts/check-publish.py` says which crates those are.
+# `cargo xtask publish` says which crates those are.
 
 [workspace]
 # Defaults for every member; the per-package blocks at the end override what

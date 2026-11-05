@@ -11,6 +11,7 @@ use std::process::ExitCode;
 use xtask::audit::{self, Audit, Failed};
 use xtask::impl_audit::Counts;
 use xtask::page_text::{self, Options};
+use xtask::publish::{self, Flags};
 use xtask::scan_audit::{self, Limit};
 use xtask::sources;
 use xtask::third_party::{self, Mode, Outcome};
@@ -109,6 +110,20 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
             let o = third_party::run(root, mode, &mut stdout).map_err(|e| e.to_string())?;
             Ok(outcome(o))
         }
+        // Every argument but the five flags is ignored, as the script
+        // ignored it, and what stopped the run is printed as the script's
+        // `SystemExit` printed it: the message alone.
+        ["publish", rest @ ..] => {
+            let root = fs::canonicalize(root).map_err(|e| format!("the repository: {e}"))?;
+            let cargo = publish::Cargo::from_env(&root);
+            match publish::run(&root, Flags::parse(rest), &cargo, &mut stdout) {
+                Ok(exit) => Ok(exit.code()),
+                Err(e) => {
+                    eprintln!("{e}");
+                    Ok(ExitCode::FAILURE)
+                }
+            }
+        }
         ["page-text", rest @ ..] => {
             let o = Options::parse(rest)?;
             let worst = page_text::run(root, &o, &mut stdout)?;
@@ -118,7 +133,8 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
             eprintln!(
                 "usage: cargo xtask audit | impl-audit <file> | scan-audit [limit] \
                  | changelog <context> | fnv1a <src> <lib> <sdig> <ldig> | sources \
-                 | third-party [--check] | page-text [--key K] [--from DIR] [--save DIR] \
+                 | third-party [--check] | publish [--size|--verify|--release\
+                 |--write-notices|--write-licences] | page-text [--key K] [--from DIR] [--save DIR] \
                  [--print] [--self-test]"
             );
             Ok(ExitCode::from(2))

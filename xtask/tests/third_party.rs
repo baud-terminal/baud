@@ -3,10 +3,8 @@
 
 mod common;
 
-use std::fs;
-
 use common::{base, run, third_party_cases};
-use xtask::third_party::{self, Outcome, STATUS};
+use xtask::third_party::{self, Outcome};
 
 #[test]
 fn the_base_tree_passes() {
@@ -52,34 +50,4 @@ fn the_written_file_names_its_generator() {
         "{md}"
     );
     assert!(md.contains(third_party::GENERATOR), "{md}");
-}
-
-/// `scripts/check-publish.py` writes each crate's NOTICE with the status
-/// meanings and licence URIs THIRD_PARTY.md uses, from its own copy of
-/// both until it is ported; this holds the copy to the tables here.
-#[test]
-fn check_publish_carries_the_same_meanings_and_uris() {
-    let py = fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../scripts/check-publish.py"
-    ))
-    .expect("scripts/check-publish.py");
-    for (status, meaning) in STATUS {
-        let row = format!("\"{status}\": \"{meaning}\",");
-        assert!(py.contains(&row), "check-publish.py lacks {row}");
-    }
-    for spdx in [
-        "CC-BY-4.0",
-        "CC-BY-SA-4.0",
-        "CC-BY-ND-4.0",
-        "CC-BY-NC-SA-3.0",
-        "CC0-1.0",
-        "LicenseRef-W3C-Document",
-        "LicenseRef-IETF-RFC",
-        "LicenseRef-Ecma-Copyright",
-    ] {
-        let uri = third_party::licence_uri(spdx).expect("a URI");
-        let row = format!("\"{spdx}\": \"{uri}\",");
-        assert!(py.contains(&row), "check-publish.py lacks {row}");
-    }
 }

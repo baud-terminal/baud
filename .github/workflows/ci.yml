@@ -316,7 +316,7 @@ jobs:
       # taken back. It runs here as well as in Lint/UT, which skips the
       # release commit.
       - name: Every shipped file's licence row is settled
-        run: python3 scripts/check-publish.py --release
+        run: cargo xtask publish --release
       - uses: release-plz/action@v0.5.131
         id: release-plz
         with:
@@ -340,7 +340,7 @@ jobs:
     timeout-minutes: 20
     # Requires Release to have SUCCEEDED: a failed publish leaves no new tag,
     # which would re-trigger the same redundant-PR loop. On an ordinary feature
-    # merge Release succeeds as a no-op, unless check-publish.py --release
+    # merge Release succeeds as a no-op, unless `cargo xtask publish --release`
     # refuses a shipped file whose licence row is open, unverified, no-grant
     # or copyleft: then Release fails and no Release PR opens until each row
     # is settled.

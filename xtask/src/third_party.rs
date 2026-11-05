@@ -638,7 +638,7 @@ pub fn render(side: &Side, url: &BTreeMap<String, String>) -> Result<String, Str
          [LICENSES/](LICENSES/). LICENSE names the fonts and code copies that its own licence does not\n\
          cover. Each crate published to crates.io carries LICENSE, in its own LICENSES/ the texts its\n\
          files need, as links to these, and a NOTICE generated from the same rows that names its\n\
-         third-party files by their paths in the crate, which scripts/check-publish.py checks. Nothing here is legal\n\
+         third-party files by their paths in the crate, which `cargo xtask publish` checks. Nothing here is legal\n\
          advice; where a file's status is a choice still open, this file says so and decides nothing.\n\n",
     );
     o.push_str("## Summary\n\n");

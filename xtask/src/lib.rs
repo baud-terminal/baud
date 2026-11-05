@@ -13,6 +13,8 @@
 //! - `sources`: the source-provenance gate (`scripts/check-sources.sh`),
 //!   which runs `third-party --check` and the offline half of `page-text`.
 //! - `third-party [--check]`: THIRD_PARTY.md, written or checked.
+//! - `publish [--size|--verify|--release|--write-notices|--write-licences]`:
+//!   what crates.io would receive, checked before anything is sent.
 //! - `page-text [--key K] [--from DIR] [--save DIR] [--print] [--self-test]`:
 //!   the learn.microsoft.com pages' article texts against their pins, on
 //!   demand and over the network.
@@ -25,11 +27,14 @@ pub mod fnv;
 pub mod html;
 pub mod impl_audit;
 pub mod page_text;
+pub mod publish;
 pub mod py;
 pub mod scan_audit;
 pub mod sha256;
 pub mod sources;
+pub mod tarball;
 pub mod text;
+pub mod textwrap;
 pub mod third_party;
 pub mod toml10;
 pub mod walk;

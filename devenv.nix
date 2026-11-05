@@ -429,10 +429,10 @@ in
     # tarball that does not build fails on the pull request, not partway
     # through a release.
     "test:publish" = {
-      exec = "python3 ./scripts/check-publish.py --verify";
+      exec = "cargo xtask publish --verify";
       # After the features gate, not after paths: the verify builds the
       # twelve crates and their dependencies from nothing, in a folder of its
-      # own under ./target (check-publish.py, package()), so it waits for the
+      # own under ./target (xtask/src/publish.rs, package()), so it waits for the
       # cargo chain to finish rather than share the machine with it.
       after = [ "test:features@completed" ];
     };
