@@ -96,11 +96,23 @@ from    = "https://raw.githubusercontent.com/sharkdp/bat/4987f76709aae3a1c4db723
 how     = "fetched"
 sha256  = "dccda9eb9533f5c65624a1106536c6cfde46008d58e60b3faf154e8b9fd5b46e"
 
+[text."cpython-Python-2.0.txt"]
+licence = "Python-2.0"
+from    = "https://raw.githubusercontent.com/python/cpython/v3.14.7/LICENSE"
+how     = "fetched"
+sha256  = "b0e25a78cffb43f4d92de8b61ccfa1f1f98ecbc22330b54b5251e7b6ba010231"
+
 [text."ecma-copyright-notice.txt"]
 licence = "LicenseRef-Ecma-Copyright"
 from    = "https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/, the default notice and two FAQ answers (the page as read 2026-10-28, sha256 65a0efe7612cbb306c994a6a5362abc354786de020158052c6abd05f4df113ab)"
 how     = "built"
 sha256  = "f50315ecd161bcaf579f1c446b119623e476df834f38e312a4b1de9dc8b0c0a3"
+
+[text."fdlibm-SunPro.txt"]
+licence = "SunPro"
+from    = "the notice at the head of https://www.netlib.org/fdlibm/k_sin.c (sha256 75d391f3c124806ce14893cd038ae5dd10663e40430ffa174d5fddcb33012167), lines 3-12, unmodified, with a paragraph saying what it covers"
+how     = "built"
+sha256  = "646db16bbbf3037061e3f4c5056045c7af1970b592f3b75d1a6a9dcf912e8752"
 
 [text."fontdue-MIT.txt"]
 licence = "MIT"
@@ -204,6 +216,12 @@ licence = "Apache-2.0 AND Vim"
 from    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/LICENSE.txt"
 how     = "fetched"
 sha256  = "de23202ef9a51f5e654034190539739a4abece5505f2ce75e780791106707011"
+
+[text."numpy-BSD-3-Clause.txt"]
+licence = "BSD-3-Clause"
+from    = "https://raw.githubusercontent.com/numpy/numpy/v2.5.2/LICENSE.txt"
+how     = "fetched"
+sha256  = "1be1df33863f97a7bc1c4d67980bd6c69c9a6fef0a5ee76e6ad6cb91e56e8491"
 
 [text."ots-BSD-3-Clause.txt"]
 licence = "BSD-3-Clause"
@@ -2259,6 +2277,34 @@ notice   = "LICENSES/pillow-MIT-CMU.txt"
 upstream = "https://github.com/python-pillow/Pillow/tree/12.3.0"
 status   = "kept"
 holder   = "Secret Labs AB, Fredrik Lundh, and Jeffrey A. Clark and the Pillow contributors"
+
+[[tree]]
+what     = "Code transcribed from fdlibm in tools/baud-pictures, the build tool that draws the README logo's plasma: det.rs's sine and cosine kernels, k_sin.c's and k_cos.c's coefficients and the grouping of their polynomials, and three of e_rem_pio2.c's parts of pi/2, so the plasma's strands are the bits its generator wrote. Not published"
+paths    = ["tools/baud-pictures/src/det.rs"]
+licence  = "SunPro"
+notice   = "LICENSES/fdlibm-SunPro.txt"
+upstream = "https://www.netlib.org/fdlibm/"
+status   = "kept"
+holder   = "Sun Microsystems, Inc."
+
+[[tree]]
+what     = "Code transcribed from NumPy 2.5.2 in tools/baud-pictures, the build tool that draws the README logo's geometry and plasma: numpy.rs's pairwise sum (loops_utils.h.src's DOUBLE_pairwise_sum), arange's fill (arraytypes.c.src), round's powers of ten (calculation.c), clip's and maximum's comparisons, and gradient's central and one-sided differences (_function_base_impl.py), so the geometry and the strands are the bits NumPy computed. Not published"
+paths    = ["tools/baud-pictures/src/numpy.rs"]
+licence  = "BSD-3-Clause"
+notice   = "LICENSES/numpy-BSD-3-Clause.txt"
+upstream = "https://github.com/numpy/numpy/tree/v2.5.2"
+status   = "kept"
+holder   = "NumPy Developers"
+
+[[tree]]
+what     = "Code transcribed from CPython 3.14.7 in tools/baud-pictures, the build tool that draws the README logo's plasma: py.rs's math.fsum (mathmodule.c's math_fsum), the builtin sum's compensated float loop (bltinmodule.c's builtin_sum_impl), and float % and // (floatobject.c's float_rem and _float_div_mod), so the strands are the bits Python computed. Not published"
+paths    = ["tools/baud-pictures/src/py.rs"]
+licence  = "Python-2.0"
+notice   = "LICENSES/cpython-Python-2.0.txt"
+upstream = "https://github.com/python/cpython/tree/v3.14.7"
+status   = "kept"
+holder   = "Python Software Foundation"
+
 
 [[tree]]
 what     = "CFF Standard Encoding: the code and SID columns of the 256-code table in Appendix B of Adobe's technical note 5176, which Adobe licenses under CC BY-ND 4.0 (manifest adobe-font-tech-notes-license), pinned as text (manifest adobe-5176-cff-standard-encoding) that baud-font's build compiles to a 256-byte table. The columns are reproduced in part and unmodified, the name column left out, written as decimal lines, a format change the licence's 2(a)(4) says never produces Adapted Material; the file's header carries the creator, TN 5176's copyright line, the licence and its URI, the disclaimer and the source's URL, as 3(a)(1) asks"

@@ -9,9 +9,9 @@
 # built from the same source and configuration either way. libxkbcommon
 # there is 1.13.1; 1.13.2 comes from nixpkgs 13e53762, the revision
 # flake.lock pins.
-# zlib 1.3.2, which tools/baud-pictures deflates the brand PNGs with, is
-# the one Pillow 12.3.0 carried in nixpkgs 7dd199b0, the revision the
-# pictures were first drawn from.
+# zlib 1.3.2, which tools/baud-pictures deflates the brand PNGs and
+# inflates the README logo's walls with, is the one Pillow 12.3.0 carried
+# in nixpkgs 7dd199b0, the revision the pictures were first drawn from.
 #
 #   nix-shell tools/shell.nix --run \
 #     'cargo run --release --manifest-path tools/Cargo.toml --bin advance'

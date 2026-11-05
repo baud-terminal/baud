@@ -22,7 +22,7 @@ asked for each frame. It moves for the most whole blink cycles that end
 before five seconds, nine at the default 250 ms shown and 250 hidden,
 4.5 s, fading in from the bare logo and out to it, then rests on the
 logo with the block shown. baud-app/src/logo_film.rs draws each frame;
-scripts/readme-logo/plasma.py decides what the plasma does.
+tools/baud-pictures' `plasma` decides what the plasma does.
 
 **Why it plays once and stops**: WCAG 2.2's 2.2.2 Pause, Stop, Hide
 (Level A) asks that moving or blinking content which starts by itself,
@@ -39,11 +39,11 @@ the dark theme and #ffffff for the light:
      the drawing the plasma's path was chosen against, which `WALLS_SHA256`
      pins: today's renderer must draw it within `WALLS_OFF`, or the lockup
      has moved and the path must be chosen again against it;
-  3. scripts/readme-logo/geometry.py reads the walls' signed distance
-     field, normals and counters off it, and scripts/readme-logo/plasma.py
-     writes each frame's plasma strands against them, each run with the
-     platform's sin, exp and the rest taken away (nolibm.py), so a run
-     that finishes is the same on every platform;
+  3. tools/baud-pictures' `geometry` reads the walls' signed distance
+     field, normals and counters off it, and its `plasma` writes each
+     frame's plasma strands against them, in arithmetic that calls none
+     of the platform's sin, exp and the rest, so a run is the same on
+     every platform;
   4. the film draws each frame through the renderer's splash layers and
      slabs, the block at the caret's phase, in release's optimisation
      without LTO (a test, not an example: the blink is the app's, and the
@@ -83,7 +83,7 @@ fetched by hash, and gifski from readme-film.sh's; the script runs
 itself again under that Python with -I and refuses other versions. The
 frames come from the repository's renderer, built by the cargo on PATH.
 The generator's arithmetic is the same on every platform
-(scripts/readme-logo/det.py);
+(tools/baud-pictures' det);
 the files were made on aarch64-darwin, and --check runs by hand, not in CI.
 """
 
@@ -93,13 +93,13 @@ import io
 import json
 import os
 import re
+import shlex
 import struct
 import subprocess
 import sys
 import tempfile
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-HERE = os.path.join(ROOT, "scripts", "readme-logo")
 
 NIXPKGS_REV = "7dd199b0e2993e37b4775ed66b1c291699608c9f"
 NIXPKGS_SHA256 = "08kxnni9l87i089hy7p9a7yr64w6h9x5m2cc7k2hn455hidm9mm3"
@@ -169,10 +169,12 @@ def fail(msg):
     raise SystemExit(f"make-readme-logo: {msg}")
 
 
-# The generator's scripts run with the platform's transcendentals taken
-# away (scripts/readme-logo/nolibm.py), so a run that finishes is the
-# same on every platform.
-NOLIBM = [sys.executable, "-I", os.path.join(HERE, "nolibm.py")]
+# The generator: tools/baud-pictures, run in the shell that pins the
+# zlib it links. Its arithmetic calls none of the platform's libm, so a
+# run is the same on every platform.
+def pictures(*args):
+    cmd = "cargo run --quiet --locked --release --manifest-path tools/Cargo.toml --bin baud-pictures -- "
+    return ["nix-shell", os.path.join(ROOT, "tools", "shell.nix"), "--run", cmd + shlex.join(args)]
 
 
 # ---------------------------------------------------------------- the pinned run
@@ -253,7 +255,7 @@ def walls_hold(today, tmp):
         p = os.path.join(tmp, f"{name}.png")
         Image.fromarray(img).save(p)
         g[name] = os.path.join(tmp, f"geom-{name}")
-        subprocess.run([*NOLIBM, os.path.join(HERE, "geometry.py"), p, g[name]], check=True)
+        subprocess.run(pictures("geometry", p, g[name]), check=True, cwd=ROOT)
     sd = {k: numpy.fromfile(os.path.join(v, "sdf.f32"), "<f4") for k, v in g.items()}
     off["mask"] = int(((sd["walls"] < 0) != (sd["today"] < 0)).sum())
     off["sdf"] = round(float(numpy.abs(sd["walls"] - sd["today"]).max()), 3)
@@ -266,8 +268,8 @@ def walls_hold(today, tmp):
 def strands(geom, half, m, d):
     """The generator's strands for each frame, and its report."""
     out = os.path.join(d, "strands.txt")
-    cmd = [*NOLIBM, os.path.join(HERE, "plasma.py"), geom, half, str(m["on_ms"]), str(m["off_ms"]), out]
-    report = json.loads(subprocess.run(cmd, check=True, stdout=subprocess.PIPE, text=True).stdout)
+    cmd = pictures("plasma", geom, half, str(m["on_ms"]), str(m["off_ms"]), out)
+    report = json.loads(subprocess.run(cmd, check=True, cwd=ROOT, stdout=subprocess.PIPE, text=True).stdout)
     return out, report
 
 

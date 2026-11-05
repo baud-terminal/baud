@@ -1,0 +1,16 @@
+fdlibm's notice, as the head of https://www.netlib.org/fdlibm/k_sin.c carries
+it (k_cos.c carries the same), unmodified. tools/baud-pictures/src/det.rs
+transcribes the two kernels' coefficients and the grouping of their
+polynomials, and three of e_rem_pio2.c's parts of pi/2 (pio2_1, pio2_1t and
+pio2_2t), and keeps this notice with them, as the notice asks.
+
+/*
+ * ====================================================
+ * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+ *
+ * Developed at SunSoft, a Sun Microsystems, Inc. business.
+ * Permission to use, copy, modify, and distribute this
+ * software is freely granted, provided that this notice 
+ * is preserved.
+ * ====================================================
+ */

@@ -1,21 +1,37 @@
-//! `baud-pictures brand [--check] [--root DIR]`: see the crate's docs.
+//! `baud-pictures brand [--check] [--root DIR]`,
+//! `baud-pictures geometry <walls.png> <out dir>` and
+//! `baud-pictures plasma <geometry dir> <dark|light> <on_ms> <off_ms> <out>`:
+//! see the crate's docs.
 
-use baud_pictures::{brand, zlib};
-use std::path::PathBuf;
+use baud_pictures::{brand, geometry, plasma, zlib};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 fn usage() -> ExitCode {
-    eprintln!("baud-pictures: usage: baud-pictures brand [--check] [--root DIR]");
+    eprintln!(
+        "baud-pictures: usage: baud-pictures brand [--check] [--root DIR]\n\
+         \x20      baud-pictures geometry <walls.png> <out dir>\n\
+         \x20      baud-pictures plasma <geometry dir> <dark|light> <on_ms> <off_ms> <out>"
+    );
     ExitCode::FAILURE
 }
 
-fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+/// The zlib linked is the pinned one.
+fn zlib_pinned(cmd: &str) -> bool {
+    let have = zlib::version();
+    if have != zlib::ZLIB {
+        eprintln!(
+            "baud-pictures {cmd}: the zlib linked is {have}, not the pinned {}",
+            zlib::ZLIB
+        );
+        return false;
+    }
+    true
+}
+
+fn brand(args: &[String]) -> ExitCode {
     let mut root = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
     let (mut check, mut it) = (false, args.iter());
-    if it.next().map(String::as_str) != Some("brand") {
-        return usage();
-    }
     while let Some(a) = it.next() {
         match a.as_str() {
             "--check" => check = true,
@@ -26,12 +42,7 @@ fn main() -> ExitCode {
             _ => return usage(),
         }
     }
-    let have = zlib::version();
-    if have != zlib::ZLIB {
-        eprintln!(
-            "baud-pictures brand: the zlib linked is {have}, not the pinned {}",
-            zlib::ZLIB
-        );
+    if !zlib_pinned("brand") {
         return ExitCode::FAILURE;
     }
     let bad = match brand::run(&root, check) {
@@ -53,4 +64,41 @@ fn main() -> ExitCode {
         println!("ok");
     }
     ExitCode::SUCCESS
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("brand") => brand(&args[1..]),
+        Some("geometry") => {
+            if args.len() != 3 {
+                return usage();
+            }
+            if !zlib_pinned("geometry") {
+                return ExitCode::FAILURE;
+            }
+            match geometry::run(Path::new(&args[1]), Path::new(&args[2])) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(msg) => {
+                    eprintln!("{msg}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Some("plasma") => match plasma::run(&args[1..]) {
+            Ok(report) => {
+                print!("{report}");
+                ExitCode::SUCCESS
+            }
+            Err(plasma::Stop::Exit(msg)) => {
+                eprintln!("{msg}");
+                ExitCode::FAILURE
+            }
+            Err(plasma::Stop::Assert(msg)) => {
+                eprintln!("AssertionError: {msg}");
+                ExitCode::FAILURE
+            }
+        },
+        _ => usage(),
+    }
 }

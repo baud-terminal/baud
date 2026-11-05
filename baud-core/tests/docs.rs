@@ -444,6 +444,9 @@ fn every_test_named_in_the_docs_exists() {
         "tools/baud-oracle",
         // Outside the workspace with it: the font comparator.
         "tools/baud-fontbuild",
+        // And the pictures, whose no-platform-math test the README logo's
+        // assets document cites.
+        "tools/baud-pictures",
     ] {
         let dir = root().join(d);
         assert!(

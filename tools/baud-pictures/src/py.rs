@@ -104,6 +104,121 @@ pub fn repr_list(v: &[String]) -> String {
     )
 }
 
+/// `x % y` on floats, CPython 3.14.7's `float_rem` (`floatobject.c`,
+/// `LICENSES/cpython-Python-2.0.txt`): C's `fmod`, which is exact on every
+/// platform, its sign moved to the divisor's.
+#[must_use]
+pub fn rem(x: f64, y: f64) -> f64 {
+    let m = x % y;
+    if m != 0.0 {
+        if (y < 0.0) != (m < 0.0) { m + y } else { m }
+    } else {
+        0.0f64.copysign(y)
+    }
+}
+
+/// `x // y` on floats, CPython's floor division (`floatobject.c`): the
+/// quotient of `x` less its remainder, snapped to the nearest integer.
+#[must_use]
+pub fn floordiv(x: f64, y: f64) -> f64 {
+    let m = x % y;
+    let mut div = (x - m) / y;
+    if m != 0.0 && (y < 0.0) != (m < 0.0) {
+        div -= 1.0;
+    }
+    if div != 0.0 {
+        let f = div.floor();
+        if div - f > 0.5 { f + 1.0 } else { f }
+    } else {
+        0.0f64.copysign(x / y)
+    }
+}
+
+/// `math.fsum`: CPython 3.14.7's `math_fsum` (`mathmodule.c`), Shewchuk's
+/// partials and the half-even fix-up across them, so the sum is the
+/// correctly rounded one. Finite input only, as the generator's is.
+#[must_use]
+pub fn fsum(values: impl IntoIterator<Item = f64>) -> f64 {
+    let mut p: Vec<f64> = Vec::new();
+    let mut lo = 0.0;
+    for v in values {
+        let mut x = v;
+        let mut i = 0;
+        for j in 0..p.len() {
+            let mut y = p[j];
+            if x.abs() < y.abs() {
+                std::mem::swap(&mut x, &mut y);
+            }
+            let hi = x + y;
+            let yr = hi - x;
+            lo = y - yr;
+            if lo != 0.0 {
+                p[i] = lo;
+                i += 1;
+            }
+            x = hi;
+        }
+        p.truncate(i);
+        assert!(x.is_finite(), "fsum: the generator sums finite values");
+        if x != 0.0 {
+            p.push(x);
+        }
+    }
+    let mut hi = 0.0;
+    let mut n = p.len();
+    if n > 0 {
+        n -= 1;
+        hi = p[n];
+        while n > 0 {
+            let x = hi;
+            n -= 1;
+            let y = p[n];
+            hi = x + y;
+            let yr = hi - x;
+            lo = y - yr;
+            if lo != 0.0 {
+                break;
+            }
+        }
+        if n > 0 && ((lo < 0.0 && p[n - 1] < 0.0) || (lo > 0.0 && p[n - 1] > 0.0)) {
+            let y = lo * 2.0;
+            let x = hi + y;
+            let yr = x - hi;
+            if y == yr {
+                hi = x;
+            }
+        }
+    }
+    hi
+}
+
+/// The builtin `sum()` of Python floats from its default start, `0`:
+/// CPython 3.14.7's `builtin_sum_impl` (`bltinmodule.c`), where the first
+/// float is `0 + x` and the rest are added with Neumaier's compensation.
+/// Its float loop takes exact `float`s only; every sum the generator makes
+/// this way is of Python floats, never NumPy's. `None` for no values,
+/// which sum to the integer `0`.
+#[must_use]
+pub fn sum(values: impl IntoIterator<Item = f64>) -> Option<f64> {
+    let mut it = values.into_iter();
+    let first = it.next()?;
+    let (mut hi, mut lo) = (0.0 + first, 0.0);
+    for x in it {
+        let t = hi + x;
+        if hi.abs() >= x.abs() {
+            lo += (hi - t) + x;
+        } else {
+            lo += (x - t) + hi;
+        }
+        hi = t;
+    }
+    Some(if lo != 0.0 && lo.is_finite() {
+        hi + lo
+    } else {
+        hi
+    })
+}
+
 /// Python's `min(a, b)`: `a` unless `b` is less.
 #[must_use]
 pub fn min(a: f64, b: f64) -> f64 {

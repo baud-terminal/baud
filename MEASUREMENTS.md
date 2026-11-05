@@ -1545,9 +1545,10 @@ moving round and through it as if the glyphs were walls
 (`assets/readme/README.md`). The renderer gained splash layers drawn behind or
 in front of the lockup, through its glyphs as slabs (`splash::Slabs`: the
 keyline, the knot cut, the rim), and a plasma detail clock (`effect::Live`);
-the generator is `scripts/readme-logo/`. Draw-time only, in a tool the script
-runs: no per-byte path changed and no ingest arm was timed. The trail bench's
-frame hashes (`trail 1`) equal master's on all 60 rows.
+the generator is now `tools/baud-pictures geometry` and `plasma`. Draw-time
+only, in a tool the script runs: no per-byte path changed and no ingest arm
+was timed. The trail bench's frame hashes (`trail 1`) equal master's on all 60
+rows.
 
 **How close it is to the frames it was chosen from**, the window's interior
 (frames 18 to 194, clear of the fades), pixels of 487,200 a frame more than 8
@@ -1564,7 +1565,7 @@ GIF's encoder (quality 90, its palette snapped) and what the renderer changed
 since: a leftward strand's braid mirrored (e7253f69) and glyph coverage
 rounding (e30fd9c4). The generator's strands differ from the chosen ones only
 in the current's tail: libm's `sin` and `exp`, which the chosen frames used,
-round differently from the generator's own (`det.py`) in the last bit, and the
+round differently from the generator's own (`det`) in the last bit, and the
 advected parcels are chaotic, so 87 of the window's 11,048 tail links move
 more than half a unit; the head, the residual and the tongues are the same to
 the printed digit. Over the whole ten-second chain 2,138 of 28,550 tail links
@@ -3041,3 +3042,51 @@ long-metric run not collapsed reads `hhea: numberOfHMetrics: 1848 vs
 a lookup flag, a code point, a name, an OS/2 range, a class, an
 advance, a feature list, a mark set) each name their table, and five
 malformed sources are refused (`tests/stage.rs`).
+
+## The README logo's geometry and plasma in `tools/baud-pictures`
+
+Not timed: no byte path changed, and nothing in the workspace links the
+crate. `baud-pictures geometry` and `plasma` replace the deleted NumPy
+generator and its no-libm launcher; `make-readme-logo.py` runs them in
+`tools/shell.nix`. Every expression keeps its grouping, and the Python
+and NumPy the bytes rest on are ported: CPython 3.14.7's compensated
+builtin `sum`, `math.fsum`, float `%` and `//`, and both `round`s;
+NumPy 2.5.2's pairwise sum, `arange`'s fill, `gradient`'s one-sided
+edges, and `round` on a `float64`, which rounds `x * 10^n` and divides:
+146.95 to one place is 147.0 there and 146.9 in Python, and the plasma
+takes NumPy's where a waypoint came off a contour walk. Their licences
+and fdlibm's are beside the files and credited.
+
+Identity, on master `28878986` and again rebased on `18a091cf`: from
+`logo-walls.png` the four geometry files and, for each half, the
+strands (22,471 and 22,358 lines) and the report are byte-equal. So
+are both arms on two perturbed walls: a 5 by 5 dot of ink at (300,
+100), which moves the geometry and not the strands, and the walls a
+pixel right, where the seed search falls through to 2493. The
+driver's own `walls_hold` and `strands`, repointed, give the same
+digests. Each perturbation is a test pinned by the Python's SHA-256;
+the frame grid's and a short field's refusals are its words and exit,
+run against it, and the usage line names the tool.
+Three error paths depart: a failed assertion prints `AssertionError:`
+and a missing field file a message, each exit 1, where Python printed a
+traceback; and the walls must be an 8-bit RGB PNG without interlace,
+where Pillow opens more, which the driver never passes.
+
+The spike, the parcels' 9-value hug `mean`: its values are 0 and 1, so
+every order sums exactly. The pairwise port is held instead on 1 to 300
+values over 61 binades, beside the other operations, against the pinned
+Python's digests.
+
+| mutation | red |
+|---|---|
+| naive mean of `FLOW_K`, half away in `nrm_field` or the parcel index, `det`'s kernel regrouped, the fields not narrowed to `f32`, `lexsort`'s second key descending | strands, both walls |
+| `gradient`'s edge halved | the same, and the dot |
+| naive or 64-block pairwise, `fsum`'s half-even fix-up or `sum`'s compensation dropped | the vectors |
+| libm's `exp` in the parcels' settling | no-platform-math only |
+
+Six move no strand: a plain sum in `Rng.pick` or the gate's low-pass,
+Rust's `%` in the gate's distance, Python's `round` for NumPy's on a
+move's end, `floor` for `//`, and `<=` for the coverage tie. The vectors
+hold each function but not the call sites; the tie has no test. The
+deleted generator called its second part of pi/2 33 bits: it is
+fdlibm's `pio2_1t`, all 53. The constant is kept and its comment says so.

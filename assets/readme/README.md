@@ -64,7 +64,7 @@ also the look the plasma was chosen in.
 
 **The plasma's path was chosen against `logo-walls.png`**: the bare
 lockup on the dark half, block shown, as the renderer drew it then,
-from which `scripts/readme-logo/geometry.py` reads the glyphs' signed
+from which `tools/baud-pictures geometry` reads the glyphs' signed
 distance field, normals and counters. Today's renderer draws it 3,930
 pixels apart by at most 2 levels, 3 pixels of its half-coverage mask; the
 path is a random search that takes every pixel of the walls as given,
@@ -95,10 +95,11 @@ haze the page (0.0004% of the dark GIF's page pixels are off it, by at
 most 13 levels), checks both
 encoders write the same bytes twice, takes the SVGs' census, writes the
 files and runs the tests; with `--check` it compares the files byte for
-byte instead of writing them. The generator's arithmetic is IEEE's own
-and `scripts/readme-logo/det.py`'s, and it runs with the platform's
-`sin`, `exp` and the like taken away (`scripts/readme-logo/nolibm.py`),
-so its frames do not depend on a platform's libm.
+byte instead of writing them. The generator, `tools/baud-pictures
+geometry` and `plasma`, does IEEE's own arithmetic and its own `sin`,
+`cos` and `exp` (`det`), calling none of the platform's, which a test
+holds it to (`the_logo_generator_calls_no_platform_math`), so its frames
+do not depend on a platform's libm.
 
 `hero.gif` is a screen recording of a real baud session, its window filmed
 as it ran: a shell, every command typed into it at real speed, glass and

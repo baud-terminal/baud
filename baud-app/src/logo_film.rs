@@ -21,7 +21,7 @@
 //! by the trail's own records, in the word's ink, behind the glyphs or in
 //! front of them, through the glyphs as slabs ([`slabs`]). What the plasma
 //! does -- its path, its depth, the walls, the current and its tail -- is
-//! `scripts/readme-logo/plasma.py`'s, which writes each frame's strands;
+//! `tools/baud-pictures plasma`'s, which writes each frame's strands;
 //! the film draws them.
 //!
 //! **Why it stops before five seconds.** WCAG 2.2's 2.2.2 Pause, Stop,
@@ -217,7 +217,7 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
 /// block, whose amber parts it from the plasma already and which the cut
 /// would take away; and the [`RIM`] on the glyphs' inner edge. `sdf` is
 /// the canvas's signed distance to the outline in pixels
-/// (`scripts/readme-logo/geometry.py`).
+/// (`tools/baud-pictures geometry`).
 fn slabs(bare: &[u8], at: Pt, (page, ink, amber): (Argb, Argb, Argb), sdf: &[f32]) -> Slabs {
     let (cw, _) = canvas_size();
     let (ox, oy) = canvas_at(at);
@@ -681,9 +681,9 @@ mod tests {
     }
 
     /// **The default blink is the grid the generator builds its frames
-    /// on**: 250 ms shown and 250 hidden, which `plasma.py` refuses to film
-    /// otherwise; a frame inside a phase takes it, and one across a blink
-    /// edge is refused.
+    /// on**: 250 ms shown and 250 hidden, which `baud-pictures plasma`
+    /// refuses to film otherwise; a frame inside a phase takes it, and one
+    /// across a blink edge is refused.
     #[test]
     fn the_default_blink_is_the_generators_grid() {
         let epoch = Instant::now();

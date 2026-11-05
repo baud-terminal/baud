@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 326 | 64 | redistributable, and its notice is satisfied |
+| kept | 326 | 67 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 596 | 73 | |
+| total | 596 | 76 | |
 
 ## Licence texts in LICENSES/
 
@@ -38,7 +38,9 @@ they were built from.
 | [APSL-2.0.txt](LICENSES/APSL-2.0.txt) | APSL-2.0 | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/APSL-2.0.txt | 2d0c12edaaf8d31f |
 | [bash-preexec-MIT.txt](LICENSES/bash-preexec-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/rcaloras/bash-preexec/b73ed5f7f953207b958f15b1773721dded697ac3/LICENSE.md | 5ef6b4c99c25dffa |
 | [bat-MIT.txt](LICENSES/bat-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/sharkdp/bat/4987f76709aae3a1c4db723c53874c9ddcb0c4fd/LICENSE-MIT | dccda9eb9533f5c6 |
+| [cpython-Python-2.0.txt](LICENSES/cpython-Python-2.0.txt) | Python-2.0 | fetched: https://raw.githubusercontent.com/python/cpython/v3.14.7/LICENSE | b0e25a78cffb43f4 |
 | [ecma-copyright-notice.txt](LICENSES/ecma-copyright-notice.txt) | LicenseRef-Ecma-Copyright | built: https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/, the default notice and two FAQ answers (the page as read 2026-10-28, sha256 65a0efe7612cbb306c994a6a5362abc354786de020158052c6abd05f4df113ab) | f50315ecd161bcaf |
+| [fdlibm-SunPro.txt](LICENSES/fdlibm-SunPro.txt) | SunPro | built: the notice at the head of https://www.netlib.org/fdlibm/k_sin.c (sha256 75d391f3c124806ce14893cd038ae5dd10663e40430ffa174d5fddcb33012167), lines 3-12, unmodified, with a paragraph saying what it covers | 646db16bbbf30370 |
 | [fontdue-MIT.txt](LICENSES/fontdue-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/mooman219/fontdue/2924772fb4439b8aca40b1bffca70088acba5a1b/LICENSE-MIT | a72354dd6206c20d |
 | [fonttools-MIT.txt](LICENSES/fonttools-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/LICENSE | 6787208f83f659cc |
 | [foot-MIT.txt](LICENSES/foot-MIT.txt) | MIT | fetched: https://codeberg.org/dnkl/foot/raw/tag/1.21.0/LICENSE | d534a23a31500a0a |
@@ -60,6 +62,7 @@ they were built from.
 | [ncurses-COPYING.txt](LICENSES/ncurses-COPYING.txt) | X11 | fetched: https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/6c26c1f46499e2fbedfb2c69c9463eceeab62ca5/COPYING | a85ca5bef8ce71f0 |
 | [neovide-MIT.txt](LICENSES/neovide-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/neovide/neovide/105fd640f83616501d7c6bfedb0b4c15ab9515e1/LICENSE | 60c7b5e1d0b3daee |
 | [neovim-LICENSE.txt](LICENSES/neovim-LICENSE.txt) | Apache-2.0 AND Vim | fetched: https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/LICENSE.txt | de23202ef9a51f5e |
+| [numpy-BSD-3-Clause.txt](LICENSES/numpy-BSD-3-Clause.txt) | BSD-3-Clause | fetched: https://raw.githubusercontent.com/numpy/numpy/v2.5.2/LICENSE.txt | 1be1df33863f97a7 |
 | [ots-BSD-3-Clause.txt](LICENSES/ots-BSD-3-Clause.txt) | BSD-3-Clause | fetched: https://raw.githubusercontent.com/khaledhosny/ots/6263433/LICENSE | 0d74de3c3cd3196a |
 | [ottosson-MIT.txt](LICENSES/ottosson-MIT.txt) | MIT | built: https://bottosson.github.io/posts/gamutclipping/#source-code, the block under "Source code" (the page as read 2026-10-17, sha256 94dfab2f7eabd1f11e7c01fe7b3951772b21811f95907415f75158b1f0dcd707) | e1f3008c91f40e2d |
 | [pillow-MIT-CMU.txt](LICENSES/pillow-MIT-CMU.txt) | MIT-CMU | fetched: https://raw.githubusercontent.com/python-pillow/Pillow/12.3.0/LICENSE | 15181e7363dca9ae |
@@ -507,6 +510,30 @@ they were built from.
 - **Notice:** [LICENSES/pillow-MIT-CMU.txt](LICENSES/pillow-MIT-CMU.txt)
 - **From:** https://github.com/python-pillow/Pillow/tree/12.3.0
 - **Files:** [tools/baud-pictures/src/png.rs](tools/baud-pictures/src/png.rs), [tools/baud-pictures/src/resample.rs](tools/baud-pictures/src/resample.rs)
+
+### Code transcribed from fdlibm in tools/baud-pictures, the build tool that draws the README logo's plasma: det.rs's sine and cosine kernels, k_sin.c's and k_cos.c's coefficients and the grouping of their polynomials, and three of e_rem_pio2.c's parts of pi/2, so the plasma's strands are the bits its generator wrote. Not published
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** SunPro
+- **Notice:** [LICENSES/fdlibm-SunPro.txt](LICENSES/fdlibm-SunPro.txt)
+- **From:** https://www.netlib.org/fdlibm/
+- **Files:** [tools/baud-pictures/src/det.rs](tools/baud-pictures/src/det.rs)
+
+### Code transcribed from NumPy 2.5.2 in tools/baud-pictures, the build tool that draws the README logo's geometry and plasma: numpy.rs's pairwise sum (loops_utils.h.src's DOUBLE_pairwise_sum), arange's fill (arraytypes.c.src), round's powers of ten (calculation.c), clip's and maximum's comparisons, and gradient's central and one-sided differences (_function_base_impl.py), so the geometry and the strands are the bits NumPy computed. Not published
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** BSD-3-Clause
+- **Notice:** [LICENSES/numpy-BSD-3-Clause.txt](LICENSES/numpy-BSD-3-Clause.txt)
+- **From:** https://github.com/numpy/numpy/tree/v2.5.2
+- **Files:** [tools/baud-pictures/src/numpy.rs](tools/baud-pictures/src/numpy.rs)
+
+### Code transcribed from CPython 3.14.7 in tools/baud-pictures, the build tool that draws the README logo's plasma: py.rs's math.fsum (mathmodule.c's math_fsum), the builtin sum's compensated float loop (bltinmodule.c's builtin_sum_impl), and float % and // (floatobject.c's float_rem and _float_div_mod), so the strands are the bits Python computed. Not published
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** Python-2.0
+- **Notice:** [LICENSES/cpython-Python-2.0.txt](LICENSES/cpython-Python-2.0.txt)
+- **From:** https://github.com/python/cpython/tree/v3.14.7
+- **Files:** [tools/baud-pictures/src/py.rs](tools/baud-pictures/src/py.rs)
 
 ### CFF Standard Encoding: the code and SID columns of the 256-code table in Appendix B of Adobe's technical note 5176, which Adobe licenses under CC BY-ND 4.0 (manifest adobe-font-tech-notes-license), pinned as text (manifest adobe-5176-cff-standard-encoding) that baud-font's build compiles to a 256-byte table. The columns are reproduced in part and unmodified, the name column left out, written as decimal lines, a format change the licence's 2(a)(4) says never produces Adapted Material; the file's header carries the creator, TN 5176's copyright line, the licence and its URI, the disclaimer and the source's URL, as 3(a)(1) asks
 
