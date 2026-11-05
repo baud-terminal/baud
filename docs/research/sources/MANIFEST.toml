@@ -4056,6 +4056,38 @@ group  = "J"
 # RC4-encrypted with an empty user password: a plain inflater sees zero streams.
 # `scripts/extract-adobe-cff.py` decrypts it and carries the positive control.
 
+[sources.adobe-5176-cff-standard-encoding]
+key          = "adobe-5176-cff-standard-encoding"
+title        = "The Compact Font Format Specification, Appendix B: the Standard Encoding's code and SID columns, as read"
+author       = "baud (from Adobe Systems' Technical Note #5176)"
+year         = 2003
+venue        = "baud, from the pinned adobe-5176-cff"
+url          = "https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf"
+file         = "adobe-5176-cff-standard-encoding.txt"
+sha256       = "f49d4f86b87d57224f4fa86210726a87b633ec7cfe874bb795bc909e036d54fc"
+bytes        = 3527
+derived_from = "adobe-5176-cff"
+status       = "retrieved"
+group        = "J"
+# The 256 codes of Appendix B's "Standard Encoding (code / SID / name)"
+# table and the SID of each, one `code; SID` line a code in decimal, the
+# name column left out; line 1 names the parent's sha256, which the build
+# (baud-font/build/standard_encoding.rs) checks as its header. Read once
+# from the PDF's text layer: the standard security handler (PDF 1.4,
+# Algorithms 3.1 and 3.2, RC4 with an empty user password) decrypts each
+# stream, each is inflated, and the strings of its TJ and Tj operators are
+# joined; the text from the last "Standard Encoding  (code / SID / name)"
+# on runs each row's code, SID and name together with no separator, so
+# each row is anchored on the next code in sequence, 0 to 255, its SID the
+# digits after that code's, and page furniture such as "38Appendix B
+# Predefined Encodings(4 Dec 03)" is passed over by that anchor. The
+# controls: 256 rows, and space (32, SID 1), A (65, 34), a (97, 66),
+# .notdef (0, 0) and germandbls (251, 149) as the appendix names them.
+# Produced once by scripts/extract-adobe-cff.py (git blob afe31349), its
+# raw_text and file_key, and the row parse of the generator the build
+# replaced (git blob 6b57afec), under Python 3.13.12; the table the build
+# compiles from it is byte for byte the one that generator committed.
+
 [sources.adobe-font-tech-notes-license]
 key    = "adobe-font-tech-notes-license"
 title  = "adobe-type-tools/font-tech-notes LICENSE.md: Creative Commons Attribution-NoDerivatives 4.0 International"
@@ -4070,8 +4102,8 @@ status = "external"
 group  = "J"
 # The grant for the technical notes the repository publishes, 5176 and
 # 5177 among them: the PDFs' own text says only "All rights reserved". Its
-# section 3(a)(1) is what the header of baud-font/src/standard_encoding.rs
-# carries. Read and hash-verified on 2026-10-28; not committed, since the
+# section 3(a)(1) is what the header of
+# adobe-5176-cff-standard-encoding.txt carries. Read and hash-verified on 2026-10-28; not committed, since the
 # licence's URI is all a copy needs. Re-fetch at the pinned commit.
 
 [sources.adobe-5177-type2]

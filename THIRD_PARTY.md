@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 325 | 60 | redistributable, and its notice is satisfied |
+| kept | 326 | 60 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 595 | 69 | |
+| total | 596 | 69 | |
 
 ## Licence texts in LICENSES/
 
@@ -291,13 +291,13 @@ they were built from.
 - **From:** https://www.unicode.org/Public/17.0.0/emoji/
 - **Files:** [baud-domain/data/emoji17-sequences.txt](baud-domain/data/emoji17-sequences.txt), [baud-domain/data/emoji17-zwj-sequences.txt](baud-domain/data/emoji17-zwj-sequences.txt)
 
-### baud-font's build reads the Unicode Character Database files it compiles its Arabic presentation forms and its default-ignorable code points from, through links in baud-font/data/ to the copies in docs/research/sources/, which the published crate carries as the files
+### baud-font's build reads the Unicode Character Database files it compiles its Arabic presentation forms, its default-ignorable code points, its canonical composition, its Indic syllabic and positional categories and its Script, Script_Extensions, script directions and paired brackets from, through links in baud-font/data/ to the copies in docs/research/sources/, which the published crate carries as the files
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Unicode-3.0
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
 - **From:** https://www.unicode.org/Public/17.0.0/ucd/
-- **Files:** [baud-font/data/unicode-arabicshaping.txt](baud-font/data/unicode-arabicshaping.txt), [baud-font/data/unicode-derivedcoreproperties.txt](baud-font/data/unicode-derivedcoreproperties.txt), [baud-font/data/unicode-unicodedata.txt](baud-font/data/unicode-unicodedata.txt)
+- **Files:** [baud-font/data/unicode-arabicshaping.txt](baud-font/data/unicode-arabicshaping.txt), [baud-font/data/unicode-bidibrackets.txt](baud-font/data/unicode-bidibrackets.txt), [baud-font/data/unicode-blocks.txt](baud-font/data/unicode-blocks.txt), [baud-font/data/unicode-derivedbidiclass.txt](baud-font/data/unicode-derivedbidiclass.txt), [baud-font/data/unicode-derivedcoreproperties.txt](baud-font/data/unicode-derivedcoreproperties.txt), [baud-font/data/unicode-derivedgeneralcategory.txt](baud-font/data/unicode-derivedgeneralcategory.txt), [baud-font/data/unicode-derivednormalizationprops.txt](baud-font/data/unicode-derivednormalizationprops.txt), [baud-font/data/unicode-indicpositionalcategory.txt](baud-font/data/unicode-indicpositionalcategory.txt), [baud-font/data/unicode-indicsyllabiccategory.txt](baud-font/data/unicode-indicsyllabiccategory.txt), [baud-font/data/unicode-propertyvaluealiases.txt](baud-font/data/unicode-propertyvaluealiases.txt), [baud-font/data/unicode-scriptextensions.txt](baud-font/data/unicode-scriptextensions.txt), [baud-font/data/unicode-scripts.txt](baud-font/data/unicode-scripts.txt), [baud-font/data/unicode-unicodedata.txt](baud-font/data/unicode-unicodedata.txt)
 
 ### baud-domain's build reads EastAsianWidth.txt of the Unicode Character Database 8.0.0, for the widths iTerm2's UnicodeVersion=8 selects, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file
 
@@ -449,7 +449,7 @@ they were built from.
 - **Licence:** MIT-Modern-Variant
 - **Notice:** [LICENSES/harfbuzz-COPYING.txt](LICENSES/harfbuzz-COPYING.txt)
 - **From:** https://github.com/harfbuzz/harfbuzz/tree/12.3.0
-- **Files:** [baud-font/src/morx.rs](baud-font/src/morx.rs), [baud-font/src/gvar.rs](baud-font/src/gvar.rs), [baud-font/src/ivs.rs](baud-font/src/ivs.rs), [baud-font/src/shape.rs](baud-font/src/shape.rs), [baud-font/src/glyf.rs](baud-font/src/glyf.rs), [baud-font/src/layout.rs](baud-font/src/layout.rs), [baud-font/src/indic.rs](baud-font/src/indic.rs), [baud-font/src/syllabic.rs](baud-font/src/syllabic.rs), [baud-font/src/indic_data.rs](baud-font/src/indic_data.rs), [scripts/gen-indic-tables.py](scripts/gen-indic-tables.py), [baud-font/src/buffer.rs](baud-font/src/buffer.rs)
+- **Files:** [baud-font/src/morx.rs](baud-font/src/morx.rs), [baud-font/src/gvar.rs](baud-font/src/gvar.rs), [baud-font/src/ivs.rs](baud-font/src/ivs.rs), [baud-font/src/shape.rs](baud-font/src/shape.rs), [baud-font/src/glyf.rs](baud-font/src/glyf.rs), [baud-font/src/layout.rs](baud-font/src/layout.rs), [baud-font/src/indic.rs](baud-font/src/indic.rs), [baud-font/src/syllabic.rs](baud-font/src/syllabic.rs), [baud-font/src/indic_data.rs](baud-font/src/indic_data.rs), [scripts/gen-indic-tables.py](scripts/gen-indic-tables.py), [baud-font/build/indic.rs](baud-font/build/indic.rs), [baud-font/src/buffer.rs](baud-font/src/buffer.rs)
 
 ### Code transcribed from ab_glyph_rasterizer 0.1.10, which forks font-rs: raster.rs's Canvas, whose line(), quad(), cubic() and coverage() are draw_line_scalar(), draw_quad() and tessellate_cubic() (raster.rs, manifest ab-glyph-raster) and font-rs's scalar accumulate() (accumulate.rs) line for line, with their constants: the quadratic's 0.333 cut and count of 1 + floor((3 devsq)^1/4), the cubic's 0.35 flatness and depth 16, which ab_glyph adapted from stb_truetype (public domain or MIT, at the user's choice). raster.rs's header carries the copyright lines of ab_glyph_rasterizer's file and says what was changed, as Apache-2.0 4(b) and 4(c) ask; neither project ships a NOTICE file. Read in note BG
 
@@ -481,7 +481,7 @@ they were built from.
 - **Licence:** CC-BY-ND-4.0
 - **Notice:** in the file
 - **From:** https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf
-- **Files:** [baud-font/src/standard_encoding.rs](baud-font/src/standard_encoding.rs)
+- **Files:** [baud-font/src/standard_encoding.rs](baud-font/src/standard_encoding.rs), [baud-font/data/adobe-5176-cff-standard-encoding.txt](baud-font/data/adobe-5176-cff-standard-encoding.txt)
 
 ### The kitty keyboard protocol's functional-key numbers in input.rs (kitty_number), with the X keysym of each key as kitty's keyboard layer maps them, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, kitty-functional-keys.tsv and kitty-legacy-c0.tsv in docs/research/sources/, read from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied. The numbers are what an application and a terminal exchange in kitty's protocol, so they are kept as the protocol's interface data, as the placeholder diacritics are, attributed to kitty v0.49.2; kitty's documentation is GPL-3.0, none of its text is kept, and no GPL text ships with the crate
 
@@ -676,10 +676,11 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** CC-BY-ND-4.0 (https://creativecommons.org/licenses/by-nd/4.0/)
 - **Notice:** the licence's URI, below
-- **Files:** 2
+- **Files:** 3
 
 | file | copied from |
 |---|---|
+| [adobe-5176-cff-standard-encoding.txt](docs/research/sources/adobe-5176-cff-standard-encoding.txt) | https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf |
 | [adobe-5176-cff.pdf](docs/research/sources/adobe-5176-cff.pdf) | https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf |
 | [adobe-5177-type2.pdf](docs/research/sources/adobe-5177-type2.pdf) | https://adobe-type-tools.github.io/font-tech-notes/pdfs/5177.Type2.pdf |
 

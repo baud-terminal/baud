@@ -57,7 +57,15 @@ mod cff;
 mod cff2;
 mod cmap;
 mod colr;
-mod compose;
+mod compose {
+    //! Canonical composition and decomposition and the canonical combining
+    //! classes, compiled by `build/compose.rs` from `[[source: unicode-data]]`
+    //! and `[[source: unicode-dnp]]`.
+    include!(concat!(env!("OUT_DIR"), "/compose.rs"));
+}
+#[cfg(test)]
+#[path = "compose.rs"]
+mod committed_compose;
 mod context;
 mod describe;
 mod face;
@@ -73,7 +81,18 @@ mod ignorable {
     include!(concat!(env!("OUT_DIR"), "/ignorable.rs"));
 }
 mod indic;
-mod indic_data;
+mod indic_data {
+    //! Each character's class in an Indic syllable and its position, which
+    //! the Indic shaper reads (`crate::indic`), compiled by `build/indic.rs`
+    //! from `[[source: unicode-indicsyllabiccategory]]`,
+    //! `[[source: unicode-indicpositionalcategory]]` and
+    //! `[[source: unicode-blocks]]` through HarfBuzz 14.5.1's mapping
+    //! (`[[source: harfbuzz-14-5-1-gen-indic-table]]`).
+    include!(concat!(env!("OUT_DIR"), "/indic_data.rs"));
+}
+#[cfg(test)]
+#[path = "indic_data.rs"]
+mod committed_indic_data;
 pub mod ivs;
 mod layout;
 mod morx;
@@ -88,11 +107,35 @@ mod presentation {
 }
 mod raster;
 mod script;
-mod script_data;
+mod script_data {
+    //! The Script property and Script_Extensions, the OpenType script tags
+    //! each script selects, each script's direction and the paired
+    //! brackets, compiled by `build/script.rs` from the sources pinned in
+    //! `docs/research/sources/MANIFEST.toml`.
+    include!(concat!(env!("OUT_DIR"), "/script_data.rs"));
+}
+#[cfg(test)]
+#[path = "script_data.rs"]
+mod committed_script_data;
 mod shape;
-mod standard_encoding;
+mod standard_encoding {
+    //! The CFF Standard Encoding, code to SID, compiled by
+    //! `build/standard_encoding.rs` from Appendix B of
+    //! `[[source: adobe-5176-cff]]`, whose columns
+    //! `data/adobe-5176-cff-standard-encoding.txt` holds with the
+    //! attribution Adobe's licence asks for. Indexed by the code `seac`
+    //! supplies; the value is the standard string id the face's charset
+    //! then maps to a glyph. Every SID in Standard Encoding is below 150,
+    //! so a byte holds it.
+    include!(concat!(env!("OUT_DIR"), "/standard_encoding.rs"));
+}
+#[cfg(test)]
+#[path = "standard_encoding.rs"]
+mod committed_standard_encoding;
 mod stroke;
 mod syllabic;
+#[cfg(test)]
+mod table_identity;
 pub mod var;
 
 pub use bake::{BakePoint, Refused, bake};
