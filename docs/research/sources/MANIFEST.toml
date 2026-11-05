@@ -7829,9 +7829,9 @@ sha256 = "39afa01e680e27d0fd10b67a9b27be13fbaa3d0efecfb5be45991de9a0d267d0"
 bytes  = 41441
 status = "retrieved"
 group  = "J"
-# The normative cursive-joining data: scripts/gen-joining-tables.py turns
+# The normative cursive-joining data: baud-domain's build/joining.rs turns
 # its Joining_Type, its header's T and U defaults and the LAM and ALEF
-# joining groups into baud-domain/src/joining_data.rs.
+# joining groups into the joining table.
 
 [sources.unicode-derivedjoiningtype]
 key    = "unicode-derivedjoiningtype"
@@ -34715,7 +34715,7 @@ group  = "J"
 # when a paste is converted to ISO 8859-1. Read, not copied.
 
 # Search in the scrollback (lane b135, 2026-10-21): what a match of the
-# user's text is. `scripts/gen-search-tables.py` reads CaseFolding.txt beside
+# user's text is. `baud-domain/build/search.rs` reads CaseFolding.txt beside
 # `unicode-data`; the comparison is `unicode17-ch3`'s D145.
 [sources.unicode-casefolding]
 key    = "unicode-casefolding"

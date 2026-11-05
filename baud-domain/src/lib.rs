@@ -66,9 +66,6 @@ mod caseless_data {
 mod cell;
 mod cluster_data;
 mod colour_name;
-#[cfg(test)]
-#[path = "caseless_data.rs"]
-mod committed_caseless_data;
 pub mod contrast;
 mod link_table;
 
@@ -110,9 +107,6 @@ mod ignorable_data {
     //! `[[source: dcp-data]]`.
     include!(concat!(env!("OUT_DIR"), "/ignorable_data.rs"));
 }
-#[cfg(test)]
-#[path = "ignorable_data.rs"]
-mod committed_ignorable_data;
 mod image;
 mod input;
 mod interpolate;
@@ -126,9 +120,6 @@ mod joining_data {
     //! `[[source: unicode-propertyvaluealiases]]`).
     include!(concat!(env!("OUT_DIR"), "/joining_data.rs"));
 }
-#[cfg(test)]
-#[path = "joining_data.rs"]
-mod committed_joining_data;
 pub mod jpeg;
 mod kitty;
 mod layout;
@@ -167,9 +158,6 @@ mod search_data {
     //! `[[source: unicode17-ch3]]` D145.
     include!(concat!(env!("OUT_DIR"), "/search_data.rs"));
 }
-#[cfg(test)]
-#[path = "search_data.rs"]
-mod committed_search_data;
 mod sequence;
 mod sequence_data {
     //! The sequences the Unicode Standard names, as a trie, compiled by
@@ -179,21 +167,12 @@ mod sequence_data {
     //! (`[[source: emoji-variation-sequences]]`).
     include!(concat!(env!("OUT_DIR"), "/sequence_data.rs"));
 }
-#[cfg(test)]
-#[path = "sequence_data.rs"]
-mod committed_sequence_data;
-// The tables `scripts/gen-caseless-tables.py`, `gen-search-tables.py`,
-// `gen-sequence-table.py`, `gen-joining-tables.py` and
-// `gen-default-ignorable.py` committed, kept beside the compiled ones until
-// `the_compiled_tables_are_the_committed_ones` has held them equal.
 mod sixel;
 mod sixel_dump;
 mod source;
 mod store;
 mod style;
 mod substitute;
-#[cfg(test)]
-mod table_identity;
 pub mod terminfo;
 pub mod themefile;
 mod time;

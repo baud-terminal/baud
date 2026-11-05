@@ -2,8 +2,8 @@
 //! is drawn through them: a joining letter's form found as the character
 //! UnicodeData.txt decomposes to that letter in that form
 //! (`[[source: unicode-data]]`), and a lam-alef ligature as one of U+FEF5..
-//! U+FEFC. The tables are generated (`presentation.rs`,
-//! `scripts/gen-joining-tables.py`); this is their lookup.
+//! U+FEFC. The tables are compiled at build time (`presentation`,
+//! `build/presentation.rs`); this is their lookup.
 //!
 //! The characters are compatibility forms that "should not be used in
 //! general interchange" (`[[source: unicode-ch9]]` 9.2.12): baud never

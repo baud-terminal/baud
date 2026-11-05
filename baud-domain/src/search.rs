@@ -20,8 +20,8 @@
 //! one: `e` does not match the `e` of `e` + U+0301, and `ss` matches the
 //! whole of `ß` but `s` matches none of it.
 //!
-//! Everything a key needs is one index-only table, `search_data.rs`,
-//! generated from the pinned data; nothing here searches a table. The
+//! Everything a key needs is one index-only table, `search_data`,
+//! compiled from the pinned data; nothing here searches a table. The
 //! matcher is Knuth-Morris-Pratt over the keys, linear in the text, with a
 //! ring of the last [`NEEDLE_MAX`] keyed code points so a match's start can
 //! be checked against a cluster's start without keeping the line.

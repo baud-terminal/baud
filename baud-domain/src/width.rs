@@ -71,11 +71,11 @@ impl WidthTable {
 /// supported -- drawn as nothing. The core asks it of a zero-width
 /// character that starts a cluster after a control: one that draws nothing
 /// has no cell to take (`Paint::glyph_as`). A binary search over the
-/// generated ranges, on that cold path alone. The ranges,
-/// `baud-domain/src/ignorable_data.rs`, are the same generated table byte
-/// for byte as `baud-font/src/ignorable.rs`: `scripts/gen-default-ignorable.py`
-/// writes each from the pinned `DerivedCoreProperties.txt`, and both
-/// regenerate to what is committed.
+/// compiled ranges, on that cold path alone. The ranges, `ignorable_data`,
+/// are the same table as baud-font's `ignorable`: each crate's build
+/// compiles them from the pinned `DerivedCoreProperties.txt` through
+/// `baud_tablegen::binary_ranges`, and nothing generated is committed to
+/// drift.
 pub fn is_default_ignorable(c: Codepoint) -> bool {
     let v = c.value();
     let ranges = crate::ignorable_data::DEFAULT_IGNORABLE;

@@ -7,7 +7,7 @@
 //! and the standardized emoji variation sequences
 //! (`[[source: emoji-variation-sequences]]`). Every prefix of one, up to a
 //! base and [`ClusterSlot::CAPACITY`] continuations, is a node of a trie
-//! built from those files (`scripts/gen-sequence-table.py`), and a cell
+//! built from those files (`build/sequence.rs`), and a cell
 //! whose cluster is a node names the node: [`ClusterId::SEQUENCES`] plus
 //! its number, above the store's slots. Each node's slot is built at
 //! compile time, so [`ClusterStore::get`] answers for a node as for a slot.

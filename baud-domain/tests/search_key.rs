@@ -1,5 +1,5 @@
-//! **A search key is the standard's, at every code point**: the generated
-//! trie in `search_data.rs` and the code that reads it, held to D145's
+//! **A search key is the standard's, at every code point**: the compiled
+//! trie of `build/search.rs` and the code that reads it, held to D145's
 //! NFD(toCasefold(NFD(X))) (`[[source: unicode17-ch3]]`) computed here
 //! straight from the pinned `[[source: unicode-data]]` and
 //! `[[source: unicode-casefolding]]`, with no table between.
@@ -128,21 +128,4 @@ fn a_clusters_key_reorders_its_marks_across_the_folding() {
         let q: Vec<Codepoint> = cps.iter().map(|&c| Codepoint::new(c).unwrap()).collect();
         assert_eq!(Needle::new(&q).unwrap().key(), &u.key(cps)[..], "{cps:X?}");
     }
-}
-
-#[test]
-fn search_tables_match_the_pinned_data() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-search-tables.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "search_data.rs is stale -- rerun scripts/gen-search-tables.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
 }

@@ -72,9 +72,6 @@ mod ignorable {
     //! `[[source: dcp-data]]`.
     include!(concat!(env!("OUT_DIR"), "/ignorable.rs"));
 }
-#[cfg(test)]
-#[path = "ignorable.rs"]
-mod committed_ignorable;
 mod indic;
 mod indic_data;
 pub mod ivs;
@@ -89,13 +86,6 @@ mod presentation {
     //! `[[source: unicode-arabicshaping]]`).
     include!(concat!(env!("OUT_DIR"), "/presentation.rs"));
 }
-#[cfg(test)]
-#[path = "presentation.rs"]
-mod committed_presentation;
-// The tables `scripts/gen-joining-tables.py` and
-// `scripts/gen-default-ignorable.py` committed, kept beside the compiled
-// ones until `the_compiled_tables_are_the_committed_ones` has held them
-// equal.
 mod raster;
 mod script;
 mod script_data;
@@ -103,8 +93,6 @@ mod shape;
 mod standard_encoding;
 mod stroke;
 mod syllabic;
-#[cfg(test)]
-mod table_identity;
 pub mod var;
 
 pub use bake::{BakePoint, Refused, bake};

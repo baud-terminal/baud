@@ -14,7 +14,7 @@
 //!
 //! Not the search's comparison ([`crate::Needle`]), which folds and then
 //! decomposes (D145) and so would match that pair. One index-only table,
-//! `caseless_data.rs`, generated from the pinned file; nothing searches it.
+//! `caseless_data`, compiled from the pinned file; nothing searches it.
 
 use crate::caseless_data::{CASELESS_BLOCKS, CASELESS_INDEX, CASELESS_POOL, CASELESS_SHIFT};
 

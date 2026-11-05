@@ -6,7 +6,7 @@
 //! **The data is compiled, the rules are a walk.** Joining_Type and the four
 //! joining groups the ligature and alaph rules name come from ArabicShaping.txt
 //! (`[[source: unicode-arabicshaping]]`) through a two-stage trie generated
-//! at build time (`joining_data.rs`); a code point it does not list is T if
+//! at build time (`build/joining.rs`); a code point it does not list is T if
 //! its General Category is Mn, Me or Cf and U otherwise, as the file's
 //! header says. [`join`] walks one run and gives each joining character its
 //! form.

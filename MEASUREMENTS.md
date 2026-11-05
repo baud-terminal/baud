@@ -2513,3 +2513,62 @@ Each check is a `#[test]` on a perturbation, and 27 mutations, one per
 check and per kept rule, each turned a named test red. The stale unpack
 runs `package` twice in one build folder with the unpack folder made
 between; the oversize crate holds 10.5 MiB of xorshift bytes.
+
+
+## The caseless, search, sequence, joining and ignorable tables compiled at build time
+
+First carried by "build(unicode): drop five python generators and their
+tables". `build/caseless.rs`, `search.rs`, `sequence.rs`, `joining.rs`
+and `ignorable.rs` compile their tables into `baud-domain`'s `OUT_DIR`
+from six more pinned files in `baud-domain/data/`; `baud-font` gains its
+first build script, whose `build/presentation.rs` and
+`build/ignorable.rs` read three files in `baud-font/data/`. The sequence
+edges are placed by `baud_tablegen::place`, seeds from 0 up as the
+generator tried them. The four generators with `--check` printed OK on
+the base, and `gen-default-ignorable.py`, which had none, wrote both
+crates' committed file byte for byte. Before the delete,
+"build(unicode): compile five more unicode tables at build time" held
+every compiled static and const to the committed table and printed
+"identical: CASELESS_INDEX 4352, CASELESS_BLOCKS 6912, CASELESS_POOL
+3136, SEARCH_INDEX 8704, SEARCH_BLOCKS 18560, SEARCH_PROPS 3136,
+SEARCH_POOL 7687, NODE_SPAN 4688, SPANS 10495, SEEDS 2048, EDGES 8192,
+CONTINUES 544, JOINING_INDEX 4352, JOINING_BLOCKS 20224,
+DEFAULT_IGNORABLE 17 elements" and, in `baud-font`, "identical:
+DEFAULT_IGNORABLE 17, FORMS 242, LAM_ALEF 4 elements".
+
+**Release binaries, at one path, differ from base by the crate-hash
+rename, and the code is the base's.** `baud-font`'s first
+build-dependency renames its symbols, so `baud` and `ingest2` (whose
+`baud-bench` links `baud-font`) differ from base in every section's size
+but the compact unwind table's, which follows the function order the
+rename moves (36,540 to 36,556 bytes in `baud`, 13,176 to 13,168 in
+`ingest2`); `__text` is 4,033,984 and 1,225,216 bytes in both. A control
+arm -- base's sources under the change's `baud-font` manifest,
+`build.rs`, `build/`, `data/` and `baud-tablegen` -- gives a `baud` and
+an `ingest2` byte-identical to the change's (sha256 cb9cba2c... and
+f35983a9...), and so does a clean A/A rebuild of the change. No timing
+run.
+
+**The build.** `cargo build -p baud-font --timings`, both arms extracted
+at one path, five rounds rotated, the first dropped: `baud-domain`'s
+build script runs in [0.68-0.86] s against base's [0.37-0.39] and
+compiles in [0.74-0.99] s against [0.57-0.90]; `baud-font`'s, new, runs
+in [0.14-0.19] s and compiles in [0.34-0.46] s; the libs' ranges
+overlap. Touching `src/lib.rs` ran no build script in any round on
+either arm, and touching a `data/` file ran its crate's script once in
+each. Load average 7-23 from other work throughout. The `.crate`s:
+`baud-domain` 1,978,083 to 1,968,107 bytes; `baud-font` 282,227 to
+812,097 with `data/`, 7.7% of crates.io's 10 MiB; `baud-tablegen` 15,864
+to 17,087.
+
+**Red first.** Built and run: the sequence seeds tried from 1, as
+`perfect_hash` tries them, place every edge and turn the identity test
+(SEEDS[0]) and `the_sequence_seeds_are_tried_from_zero` red while
+`named_sequences.rs`'s oracles stay green; one
+Default_Ignorable_Code_Point row left unread passes the count and the
+controls and turns both crates' identity tests and new default-ignorable
+oracles red (3600 code points from U+E01F0); merged ranges ending a
+point short is a `cargo::error` on `baud-font` (22 ranges, 17 expected);
+FORMS sorted by form first turns `presentation.rs`'s oracle and the
+identity test red. Every check `build_tables.rs` names in both crates is
+seen to fire.

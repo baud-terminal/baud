@@ -29,10 +29,8 @@ which his page puts under MIT
            https://bottosson.github.io/posts/oklab/
 
 Tables generated from the Unicode Character Database and Unicode's emoji
-data files: grapheme clusters and widths, canonical composition,
-default-ignorable code points, cursive joining and the Arabic presentation
-forms, emoji presentation, case folding and decomposition, scripts, the
-Indic syllabic and positional categories, and the named emoji sequences. The
+data files: grapheme clusters and widths, canonical composition, emoji
+presentation, scripts, and the Indic syllabic and positional categories. The
 OpenType script tags beside the scripts are identifiers from Microsoft's
 registry and carry no licence. Where such a table sits in a file with other
 code, only its marked generated block is generated

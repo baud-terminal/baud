@@ -49,28 +49,6 @@ fn syriac(cps: &[u32]) -> Vec<Option<JoiningForm>> {
     out
 }
 
-/// The generator regenerates both tables from the pinned files and
-/// compares: `joining_data.rs` and baud-font's `presentation.rs` cannot
-/// drift from ArabicShaping.txt, DerivedGeneralCategory.txt and
-/// UnicodeData.txt, and its Joining_Type is held to DerivedJoiningType.txt
-/// at every code point.
-#[test]
-fn joining_tables_match_the_pinned_data() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-joining-tables.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "the joining tables are stale -- rerun scripts/gen-joining-tables.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 /// Table 9-3's examples, each type from the trie: and the header's
 /// defaults, T for an unlisted mark or format control (fatha, ALM) and U
 /// for an unlisted letter of another script; the isolates U, as UAX #9 3.5

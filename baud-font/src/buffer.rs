@@ -37,7 +37,7 @@ pub enum Ignorable {
 
 impl Ignorable {
     /// Whether `c` is `Default_Ignorable_Code_Point`, by binary search over
-    /// the generated ranges.
+    /// the compiled ranges.
     pub fn of(c: Codepoint) -> Ignorable {
         let v = c.value();
         let i = DEFAULT_IGNORABLE.partition_point(|&(_, end)| end < v);

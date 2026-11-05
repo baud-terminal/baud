@@ -2,7 +2,7 @@
 //! every prefix of every listed sequence is one step from the prefix before
 //! it, and nothing else is a step at all (`sequence.rs`).
 //!
-//! The files are parsed here, independently of the generator: UTS #51's
+//! The files are parsed here, independently of the build: UTS #51's
 //! RGI lists (`[[source: emoji17-sequences]]`,
 //! `[[source: emoji17-zwj-sequences]]`) and the standardized variation
 //! sequences (`[[source: emoji-variation-sequences]]`).
@@ -128,22 +128,4 @@ fn nothing_but_a_listed_prefix_is_a_step() {
     }
     assert_eq!(yes, listed.len(), "each listed prefix, once");
     assert!(no > 500_000, "{no} refusals");
-}
-
-/// The committed table is what the pinned files generate.
-#[test]
-fn the_sequence_table_matches_the_pinned_data() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-sequence-table.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "sequence_data.rs is stale -- rerun scripts/gen-sequence-table.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
 }
