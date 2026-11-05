@@ -12,16 +12,32 @@
 //! group or leaves a code point out, a header default the header does not
 //! give, and the rules the tables are written by -- width's zero over wide
 //! over ambiguous, and its two exclusions, U+00AD and
-//! Prepended_Concatenation_Mark. The modules only compute: they read
+//! Prepended_Concatenation_Mark. `build/caseless.rs`, `build/search.rs`,
+//! `build/sequence.rs`, `build/joining.rs` and `build/ignorable.rs`: each
+//! positive control the Python generators asserted, each count made exact,
+//! a status, type or group outside its set, a duplicate, a Hangul
+//! syllable given a decomposition, the derived joining file disagreeing,
+//! and the perfect hash's seeds tried from 0 as the table was found. The
+//! modules only compute: they read
 //! through the function they are given and write nothing, so running them
 //! here touches no `OUT_DIR`.
 
 #[path = "../build/bidi.rs"]
 mod bidi;
+#[path = "../build/caseless.rs"]
+mod caseless;
 #[path = "../build/grapheme.rs"]
 mod grapheme;
+#[path = "../build/ignorable.rs"]
+mod ignorable;
+#[path = "../build/joining.rs"]
+mod joining;
 #[path = "../build/linebreak.rs"]
 mod linebreak;
+#[path = "../build/search.rs"]
+mod search;
+#[path = "../build/sequence.rs"]
+mod sequence;
 #[path = "../build/ucd.rs"]
 mod ucd;
 #[path = "../build/width.rs"]
@@ -777,4 +793,434 @@ fn each_check_the_unicode_builds_make_fires() {
         let errs = build(&read).expect_err("refused");
         assert!(errs.list().iter().any(|e| e.kind == Kind::Header), "{errs}");
     }
+}
+
+const CASEFOLDING: &str = "unicode-casefolding.txt";
+const SHAPING: &str = "unicode-arabicshaping.txt";
+const DJT: &str = "unicode-derivedjoiningtype.txt";
+const SEQUENCES: &str = "emoji17-sequences.txt";
+const ZWJ: &str = "emoji17-zwj-sequences.txt";
+const VARIATION: &str = "unicode-emoji-variation-sequences.txt";
+
+#[test]
+fn the_pinned_files_build_the_five_tables() {
+    let names: Vec<Vec<String>> = [
+        caseless::build as Build,
+        search::build,
+        sequence::build,
+        joining::build,
+        ignorable::build,
+    ]
+    .iter()
+    .map(|b| {
+        b(&pinned)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .files()
+            .into_iter()
+            .map(|(f, _)| f)
+            .collect()
+    })
+    .collect();
+    assert_eq!(
+        names,
+        [
+            vec!["caseless_data.rs"],
+            vec!["search_data.rs"],
+            vec!["sequence_data.rs"],
+            vec!["joining_data.rs", "joining_index.bin", "joining_blocks.bin"],
+            vec!["ignorable_data.rs"],
+        ]
+    );
+    let inputs: Vec<Vec<&str>> = [
+        &caseless::INPUTS[..],
+        &search::INPUTS,
+        &sequence::INPUTS,
+        &joining::INPUTS,
+        &ignorable::INPUTS,
+    ]
+    .iter()
+    .map(|i| i.iter().map(|i| i.file).collect())
+    .collect();
+    assert_eq!(
+        inputs,
+        [
+            vec![CASEFOLDING],
+            vec![DATA, CASEFOLDING],
+            vec![SEQUENCES, ZWJ, VARIATION],
+            vec![ALIASES, GC, SHAPING, DJT],
+            vec![DCP],
+        ]
+    );
+}
+
+#[test]
+fn each_check_the_five_builds_make_fires() {
+    let (c, s, q, j, i): (Build, Build, Build, Build, Build) = (
+        caseless::build,
+        search::build,
+        sequence::build,
+        joining::build,
+        ignorable::build,
+    );
+    each_fires(&[
+        // CaseFolding.txt: the version, a status outside the four, a second
+        // full folding, a mapping that is not code points, and each
+        // control.
+        (
+            c,
+            CASEFOLDING,
+            "# CaseFolding-17.0.0.txt",
+            "# CaseFolding-16.0.0.txt",
+            Kind::Header,
+            "is this the pinned file [unicode-casefolding]?",
+        ),
+        (
+            c,
+            CASEFOLDING,
+            "0041; C; 0061;",
+            "0041; X; 0061;",
+            Kind::UnknownValue,
+            "data/unicode-casefolding.txt:63:7: CaseFolding.txt status `X`",
+        ),
+        (
+            s,
+            CASEFOLDING,
+            "0041; C; 0061;",
+            "0041; C; 0061; #\n0041; F; 0061;",
+            Kind::Duplicate,
+            "U+0041 already has a full folding on line 63",
+        ),
+        (
+            c,
+            CASEFOLDING,
+            "00DF; F; 0073 0073;",
+            "00DF; F; 0073 73;",
+            Kind::Malformed,
+            "data/unicode-casefolding.txt:121:10: \"73\" is not a code point",
+        ),
+        (
+            c,
+            CASEFOLDING,
+            "00DF; F; 0073 0073;",
+            "00DF; F; 0073;",
+            Kind::Control,
+            "U+00DF folds to Some([73]), [73, 73] expected",
+        ),
+        (
+            c,
+            CASEFOLDING,
+            "0130; F; 0069 0307;",
+            "0130; S; 0069 0307;",
+            Kind::Control,
+            "U+0130 folds to None",
+        ),
+        (
+            c,
+            CASEFOLDING,
+            "212A; C; 006B;",
+            "212A; C; 004B;",
+            Kind::Control,
+            "U+212A folds to Some([4B])",
+        ),
+        (
+            c,
+            CASEFOLDING,
+            "00C5; C; 00E5;",
+            "00C5; F; 0061 030A;",
+            Kind::Control,
+            "U+00C5 folds to Some([61, 30A])",
+        ),
+        (
+            c,
+            CASEFOLDING,
+            "0049; T; 0131;",
+            "0049; F; 0131;",
+            Kind::Duplicate,
+            "U+0049 already has a full folding",
+        ),
+        (
+            s,
+            CASEFOLDING,
+            "1E9E; F; 0073 0073;",
+            "1E9E; F; 0073;",
+            Kind::Control,
+            "U+1E9E folds to [73], [73, 73] expected",
+        ),
+        (
+            s,
+            CASEFOLDING,
+            "0041; C; 0061;",
+            "0041; C; AC00;",
+            Kind::Invariant,
+            "U+0041 folds to a Hangul syllable",
+        ),
+        // UnicodeData.txt for the search keys: a decomposition moved, a
+        // combining class that is not one, a Hangul syllable listed.
+        (
+            s,
+            DATA,
+            "212B;ANGSTROM SIGN;Lu;0;L;00C5;",
+            "212B;ANGSTROM SIGN;Lu;0;L;0041;",
+            Kind::Control,
+            "U+212B decomposes to [41], [41, 30A] expected",
+        ),
+        (
+            s,
+            DATA,
+            "0300;COMBINING GRAVE ACCENT;Mn;230;",
+            "0300;COMBINING GRAVE ACCENT;Mn;X;",
+            Kind::Malformed,
+            "a combining class is a number 0 to 254",
+        ),
+        (
+            s,
+            DATA,
+            "D7A3;<Hangul Syllable, Last>;Lo;0;L;;",
+            "D7A3;<Hangul Syllable, Last>;Lo;0;L;1100 1161;",
+            Kind::Invariant,
+            "U+AC00..U+D7A3 is a Hangul syllable with a listed decomposition",
+        ),
+        // The sequence files: each version line, a type outside the file's
+        // set, a field missing, a sequence listed twice, each count.
+        (
+            q,
+            SEQUENCES,
+            "# Version: 17.0",
+            "# Version: 16.0",
+            Kind::Header,
+            "no \"# Version: 17.0\" header line",
+        ),
+        (
+            q,
+            ZWJ,
+            "; RGI_Emoji_ZWJ_Sequence  ; family: man, woman, girl ",
+            "; RGI_Emoji_ZWJ_Sequenc  ; family: man, woman, girl ",
+            Kind::UnknownValue,
+            "data/emoji17-zwj-sequences.txt type_field `RGI_Emoji_ZWJ_Sequenc`",
+        ),
+        (
+            q,
+            VARIATION,
+            "0023 FE0E  ; text style;",
+            "0023 FE0E  ; text style",
+            Kind::FieldCount,
+            "data/unicode-emoji-variation-sequences.txt:12:",
+        ),
+        (
+            q,
+            SEQUENCES,
+            "1F1E6 1F1E8   ; RGI_Emoji_Flag_Sequence      ; flag: Ascension Island",
+            "0023 FE0F 20E3; RGI_Emoji_Flag_Sequence      ; flag: Ascension Island",
+            Kind::Duplicate,
+            "listed already on line 550",
+        ),
+        (
+            q,
+            SEQUENCES,
+            "1F1E6 1F1E8   ; RGI_Emoji_Flag_Sequence      ; flag: Ascension Island",
+            "1F1E6         ; Basic_Emoji                  ; flag: Ascension Island",
+            Kind::Count,
+            "1145 sequences of two codepoints or more, 1146 expected",
+        ),
+        (
+            q,
+            VARIATION,
+            "0023 FE0E  ; text style;",
+            "0023 FE0D  ; text style; #\n0023 FE0E  ; text style;",
+            Kind::Count,
+            "3296 distinct sequences in the three files, 3295 expected",
+        ),
+        (
+            q,
+            SEQUENCES,
+            "231A..231B    ; Basic_Emoji",
+            "231B..231A    ; Basic_Emoji",
+            Kind::Malformed,
+            "U+231B..U+231A runs backwards",
+        ),
+        // ArabicShaping.txt and DerivedJoiningType.txt: the version, a type
+        // or group outside its set, a row given twice, a row dropped, each
+        // control, and the derived file disagreeing.
+        (
+            j,
+            SHAPING,
+            "0628; BEH; D; BEH",
+            "0628; BEH; X; BEH",
+            Kind::UnknownValue,
+            "jt `X` is not one of the 6 values",
+        ),
+        (
+            j,
+            SHAPING,
+            "0628; BEH; D; BEH",
+            "0628; BEH; D; BAH",
+            Kind::UnknownValue,
+            "data/unicode-arabicshaping.txt:139:15: jg `BAH`",
+        ),
+        (
+            j,
+            SHAPING,
+            "0628; BEH; D; BEH",
+            "0627; BEH; D; BEH",
+            Kind::Duplicate,
+            "U+0627 is already set by line 138",
+        ),
+        (
+            j,
+            SHAPING,
+            "0628; BEH; D; BEH",
+            "#",
+            Kind::Count,
+            "833 rows, 834 expected",
+        ),
+        (
+            j,
+            SHAPING,
+            "0627; ALEF; R; ALEF",
+            "0627; ALEF; D; ALEF",
+            Kind::Control,
+            "U+0627 is jt D, R expected",
+        ),
+        (
+            j,
+            SHAPING,
+            "0644; LAM; D; LAM",
+            "0644; LAM; D; BEH",
+            Kind::Control,
+            "U+0644 is in group 0, 1 expected",
+        ),
+        (
+            j,
+            SHAPING,
+            "0710; ALAPH; R; ALAPH",
+            "0710; ALAPH; R; BETH",
+            Kind::Control,
+            "group 3 is [], [710] expected",
+        ),
+        (
+            j,
+            SHAPING,
+            "0715; DALATH; R; DALATH RISH",
+            "0715; DALATH; R; DAL",
+            Kind::Control,
+            "group 4 is [716, 72A, 72F]",
+        ),
+        (
+            j,
+            DJT,
+            "0640          ; C",
+            "0640          ; D",
+            Kind::Control,
+            "U+0640 is jt D in this file and C from ArabicShaping.txt",
+        ),
+        (
+            j,
+            DJT,
+            "# @missing: 0000..10FFFF; Non_Joining",
+            "# @missing: 0000..10FFFF; Transparent",
+            Kind::Control,
+            "the default is not 0000..10FFFF Non_Joining",
+        ),
+        (
+            j,
+            DJT,
+            "# @missing: 0000..10FFFF; Non_Joining",
+            "#",
+            Kind::Count,
+            "0 @missing lines, 1 expected",
+        ),
+        // DerivedCoreProperties.txt for the ignorables: a row dropped, two
+        // rows over one code point, a field too many, each control.
+        (
+            i,
+            DCP,
+            "3164          ; Default_Ignorable_Code_Point",
+            "#",
+            Kind::Count,
+            "16 Default_Ignorable_Code_Point ranges, 17 expected",
+        ),
+        (
+            i,
+            DCP,
+            "061C          ; Default_Ignorable_Code_Point",
+            "034F          ; Default_Ignorable_Code_Point",
+            Kind::Overlap,
+            "U+034F is already given Default_Ignorable_Code_Point",
+        ),
+        (
+            i,
+            DCP,
+            "061C          ; Default_Ignorable_Code_Point",
+            "061C          ; Default_Ignorable_Code_Point ; Y",
+            Kind::FieldCount,
+            "3 fields, 2 expected",
+        ),
+        (
+            i,
+            DCP,
+            "200B..200F    ; Default_Ignorable_Code_Point",
+            "200B..200C    ; Default_Ignorable_Code_Point",
+            Kind::Control,
+            "U+200D is default-ignorable: false, true expected",
+        ),
+        (
+            i,
+            DCP,
+            "3164          ; Default_Ignorable_Code_Point",
+            "3164          ; Default_Ignorable_Code_Point\n1F600 ; Default_Ignorable_Code_Point",
+            Kind::Control,
+            "U+1F600 is default-ignorable: true, false expected",
+        ),
+    ]);
+}
+
+/// The sequence table's hash is the one found from seed 0 up: from 1 up,
+/// as `perfect_hash` tries for the colour names, every edge is still
+/// placed, and the seeds are not the table's.
+#[test]
+fn the_sequence_seeds_are_tried_from_zero() {
+    let emit = sequence::build(&pinned).unwrap_or_else(|e| panic!("{e}"));
+    let rs = emit.rust();
+    let seeds: Vec<u16> = rs
+        .split_once("pub static SEEDS: [u16; 2048] = [")
+        .and_then(|(_, r)| r.split_once("];"))
+        .expect("SEEDS")
+        .0
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.parse().expect("a seed"))
+        .collect();
+    assert!(seeds.contains(&0), "a bucket placed at seed 0");
+    // The keys as the build makes them, read back from EDGES.
+    let edges: Vec<u64> = rs
+        .split_once("pub static EDGES: [u64; 8192] = [")
+        .and_then(|(_, r)| r.split_once("];"))
+        .expect("EDGES")
+        .0
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).expect("an edge"))
+        .filter(|&e| e != 0)
+        .collect();
+    assert_eq!(edges.len(), 4688);
+    let keys: Vec<u64> = edges.iter().map(|e| e >> 16).collect();
+    let buckets: Vec<usize> = keys.iter().map(|&k| sequence::bucket(k)).collect();
+    let from = |first: u16| {
+        let (b, s) = (baud_tablegen::Buckets(2048), baud_tablegen::Slots(8192));
+        baud_tablegen::place("edges", &buckets, b, s, first..=u16::MAX, |k, s| {
+            sequence::slot(keys[k], s)
+        })
+        .expect("placed")
+        .seeds
+    };
+    let zero = from(0);
+    let one = from(1);
+    for (b, (&z, &s)) in zero.iter().zip(&seeds).enumerate() {
+        if buckets.contains(&b) {
+            assert_eq!(z, s, "bucket {b}");
+        }
+    }
+    assert_ne!(one, zero, "seeds from 1 are another table");
 }

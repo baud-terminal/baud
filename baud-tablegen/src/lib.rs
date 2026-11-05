@@ -23,14 +23,16 @@ mod emit;
 mod error;
 mod hash;
 mod map;
+mod ranges;
 mod source;
 mod trie;
 mod values;
 
 pub use emit::Emit;
 pub use error::{Check, Error, Errors, Kind, Pos};
-pub use hash::{PerfectHash, fnv1a, perfect_hash};
+pub use hash::{Buckets, PerfectHash, Slot, Slots, fnv1a, perfect_hash, place};
 pub use map::CodepointMap;
+pub use ranges::binary_ranges;
 pub use source::{CpRange, Entry, Field, Input, Row, Source};
 pub use trie::Trie;
 pub use values::ValueSet;

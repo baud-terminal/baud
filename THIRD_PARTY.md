@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 322 | 58 | redistributable, and its notice is satisfied |
+| kept | 322 | 60 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 592 | 67 | |
+| total | 592 | 69 | |
 
 ## Licence texts in LICENSES/
 
@@ -275,13 +275,29 @@ they were built from.
 - **From:** https://www.unicode.org/Public/
 - **Files:** [baud-domain/src/merged_data.rs](baud-domain/src/merged_data.rs), [baud-domain/src/search_data.rs](baud-domain/src/search_data.rs), [baud-domain/src/sequence_data.rs](baud-domain/src/sequence_data.rs), [baud-domain/src/caseless_data.rs](baud-domain/src/caseless_data.rs), [baud-domain/src/ignorable_data.rs](baud-domain/src/ignorable_data.rs), [baud-domain/src/joining_data.rs](baud-domain/src/joining_data.rs), [baud-domain/src/vs16.rs](baud-domain/src/vs16.rs), [baud-font/src/compose.rs](baud-font/src/compose.rs), [baud-font/src/ignorable.rs](baud-font/src/ignorable.rs), [baud-font/src/script_data.rs](baud-font/src/script_data.rs), [baud-font/src/presentation.rs](baud-font/src/presentation.rs), [baud-font/src/indic_data.rs](baud-font/src/indic_data.rs), [baud-render/src/stress_data.rs](baud-render/src/stress_data.rs), [baud-present-macos/src/shaders.metal](baud-present-macos/src/shaders.metal), [baud-present-macos/src/baud.metallib](baud-present-macos/src/baud.metallib)
 
-### baud-domain's build reads the Unicode Character Database files it compiles its bidirectional, grapheme-cluster, width and line-breaking tables from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files
+### baud-domain's build reads the Unicode Character Database files it compiles its bidirectional, grapheme-cluster, width, line-breaking, case-folding, search-key, cursive-joining and default-ignorable tables and its named emoji variation sequences from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Unicode-3.0
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
 - **From:** https://www.unicode.org/Public/17.0.0/ucd/
-- **Files:** [baud-domain/data/unicode-bidibrackets.txt](baud-domain/data/unicode-bidibrackets.txt), [baud-domain/data/unicode-bidimirroring.txt](baud-domain/data/unicode-bidimirroring.txt), [baud-domain/data/unicode-derivedbidiclass.txt](baud-domain/data/unicode-derivedbidiclass.txt), [baud-domain/data/unicode-derivedcoreproperties.txt](baud-domain/data/unicode-derivedcoreproperties.txt), [baud-domain/data/unicode-derivedgeneralcategory.txt](baud-domain/data/unicode-derivedgeneralcategory.txt), [baud-domain/data/unicode-eastasianwidth.txt](baud-domain/data/unicode-eastasianwidth.txt), [baud-domain/data/unicode-emoji-data.txt](baud-domain/data/unicode-emoji-data.txt), [baud-domain/data/unicode-graphemebreakproperty.txt](baud-domain/data/unicode-graphemebreakproperty.txt), [baud-domain/data/unicode-linebreak.txt](baud-domain/data/unicode-linebreak.txt), [baud-domain/data/unicode-propertyvaluealiases.txt](baud-domain/data/unicode-propertyvaluealiases.txt), [baud-domain/data/unicode-proplist.txt](baud-domain/data/unicode-proplist.txt), [baud-domain/data/unicode-unicodedata.txt](baud-domain/data/unicode-unicodedata.txt)
+- **Files:** [baud-domain/data/unicode-arabicshaping.txt](baud-domain/data/unicode-arabicshaping.txt), [baud-domain/data/unicode-bidibrackets.txt](baud-domain/data/unicode-bidibrackets.txt), [baud-domain/data/unicode-bidimirroring.txt](baud-domain/data/unicode-bidimirroring.txt), [baud-domain/data/unicode-casefolding.txt](baud-domain/data/unicode-casefolding.txt), [baud-domain/data/unicode-derivedbidiclass.txt](baud-domain/data/unicode-derivedbidiclass.txt), [baud-domain/data/unicode-derivedcoreproperties.txt](baud-domain/data/unicode-derivedcoreproperties.txt), [baud-domain/data/unicode-derivedgeneralcategory.txt](baud-domain/data/unicode-derivedgeneralcategory.txt), [baud-domain/data/unicode-derivedjoiningtype.txt](baud-domain/data/unicode-derivedjoiningtype.txt), [baud-domain/data/unicode-eastasianwidth.txt](baud-domain/data/unicode-eastasianwidth.txt), [baud-domain/data/unicode-emoji-data.txt](baud-domain/data/unicode-emoji-data.txt), [baud-domain/data/unicode-emoji-variation-sequences.txt](baud-domain/data/unicode-emoji-variation-sequences.txt), [baud-domain/data/unicode-graphemebreakproperty.txt](baud-domain/data/unicode-graphemebreakproperty.txt), [baud-domain/data/unicode-linebreak.txt](baud-domain/data/unicode-linebreak.txt), [baud-domain/data/unicode-propertyvaluealiases.txt](baud-domain/data/unicode-propertyvaluealiases.txt), [baud-domain/data/unicode-proplist.txt](baud-domain/data/unicode-proplist.txt), [baud-domain/data/unicode-unicodedata.txt](baud-domain/data/unicode-unicodedata.txt)
+
+### baud-domain's build reads Unicode Emoji 17.0's emoji-sequences.txt and emoji-zwj-sequences.txt, the RGI emoji sequences it compiles its named-sequence trie from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** Unicode-3.0
+- **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
+- **From:** https://www.unicode.org/Public/17.0.0/emoji/
+- **Files:** [baud-domain/data/emoji17-sequences.txt](baud-domain/data/emoji17-sequences.txt), [baud-domain/data/emoji17-zwj-sequences.txt](baud-domain/data/emoji17-zwj-sequences.txt)
+
+### baud-font's build reads the Unicode Character Database files it compiles its Arabic presentation forms and its default-ignorable code points from, through links in baud-font/data/ to the copies in docs/research/sources/, which the published crate carries as the files
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** Unicode-3.0
+- **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
+- **From:** https://www.unicode.org/Public/17.0.0/ucd/
+- **Files:** [baud-font/data/unicode-arabicshaping.txt](baud-font/data/unicode-arabicshaping.txt), [baud-font/data/unicode-derivedcoreproperties.txt](baud-font/data/unicode-derivedcoreproperties.txt), [baud-font/data/unicode-unicodedata.txt](baud-font/data/unicode-unicodedata.txt)
 
 ### baud-domain's build reads EastAsianWidth.txt of the Unicode Character Database 8.0.0, for the widths iTerm2's UnicodeVersion=8 selects, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file
 

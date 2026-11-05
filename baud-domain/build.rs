@@ -5,12 +5,22 @@
 
 #[path = "build/bidi.rs"]
 mod bidi;
+#[path = "build/caseless.rs"]
+mod caseless;
 #[path = "build/contrast.rs"]
 mod contrast;
 #[path = "build/grapheme.rs"]
 mod grapheme;
+#[path = "build/ignorable.rs"]
+mod ignorable;
+#[path = "build/joining.rs"]
+mod joining;
 #[path = "build/linebreak.rs"]
 mod linebreak;
+#[path = "build/search.rs"]
+mod search;
+#[path = "build/sequence.rs"]
+mod sequence;
 #[path = "build/ucd.rs"]
 mod ucd;
 #[path = "build/width.rs"]
@@ -34,6 +44,11 @@ fn main() {
         &grapheme::INPUTS,
         &width::INPUTS,
         &linebreak::INPUTS,
+        &caseless::INPUTS,
+        &search::INPUTS,
+        &sequence::INPUTS,
+        &joining::INPUTS,
+        &ignorable::INPUTS,
     ]
     .iter()
     .flat_map(|inputs| inputs.iter().map(|i| i.file))
@@ -45,11 +60,16 @@ fn main() {
     }
     std::fs::write(out.join("contrast.bin"), contrast::build()).expect("write contrast.bin");
     let read = |file: &str| std::fs::read_to_string(data.join(file));
-    let tables: [(&str, Table); 4] = [
+    let tables: [(&str, Table); 9] = [
         ("bidi", bidi::build),
         ("grapheme", grapheme::build),
         ("width", width::build),
         ("linebreak", linebreak::build),
+        ("caseless", caseless::build),
+        ("search", search::build),
+        ("sequence", sequence::build),
+        ("joining", joining::build),
+        ("ignorable", ignorable::build),
     ];
     for (name, build) in tables {
         match build(&read) {

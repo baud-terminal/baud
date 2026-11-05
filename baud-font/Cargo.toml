@@ -13,12 +13,20 @@ categories = ["no-std", "rendering", "parser-implementations", "text-processing"
 # What crates.io gets: the source, what the build reads, the licence and
 # the notices its third-party files need (`cargo xtask publish`).
 # The tests and their fixtures stay in the repository.
-include = ["/src/", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES/"]
+include = ["/src/", "/build.rs", "/build/", "/data/", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES/"]
 
 [dependencies]
 baud-domain = { workspace = true }
 
+# The table compiler `build.rs` and `build/*.rs` read the pinned files in
+# `data/` with: std alone, no dependencies, at build time only.
+[build-dependencies]
+baud-tablegen = { workspace = true }
+
 [dev-dependencies]
+# `tests/build_tables.rs` runs the build modules on perturbed copies of the
+# pinned files, so each check they make is seen to fire.
+baud-tablegen = { workspace = true }
 # **The oracle, not a dependency.** `ttf-parser` never appears in a build of
 # the crate; it is what `tests/oracle.rs` disagrees with. The two implement the
 # same specification over the same bytes, so every face on this machine is a

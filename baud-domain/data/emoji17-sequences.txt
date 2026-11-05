@@ -1,0 +1,1 @@
+../../docs/research/sources/emoji17-sequences.txt

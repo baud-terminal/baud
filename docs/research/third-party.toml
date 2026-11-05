@@ -1901,15 +1901,19 @@ public   = "Tables generated from the Unicode Character Database and Unicode's e
 holder   = "Unicode, Inc."
 
 [[tree]]
-what     = "baud-domain's build reads the Unicode Character Database files it compiles its bidirectional, grapheme-cluster, width and line-breaking tables from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
+what     = "baud-domain's build reads the Unicode Character Database files it compiles its bidirectional, grapheme-cluster, width, line-breaking, case-folding, search-key, cursive-joining and default-ignorable tables and its named emoji variation sequences from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
 paths    = [
+  "baud-domain/data/unicode-arabicshaping.txt",
   "baud-domain/data/unicode-bidibrackets.txt",
   "baud-domain/data/unicode-bidimirroring.txt",
+  "baud-domain/data/unicode-casefolding.txt",
   "baud-domain/data/unicode-derivedbidiclass.txt",
   "baud-domain/data/unicode-derivedcoreproperties.txt",
   "baud-domain/data/unicode-derivedgeneralcategory.txt",
+  "baud-domain/data/unicode-derivedjoiningtype.txt",
   "baud-domain/data/unicode-eastasianwidth.txt",
   "baud-domain/data/unicode-emoji-data.txt",
+  "baud-domain/data/unicode-emoji-variation-sequences.txt",
   "baud-domain/data/unicode-graphemebreakproperty.txt",
   "baud-domain/data/unicode-linebreak.txt",
   "baud-domain/data/unicode-propertyvaluealiases.txt",
@@ -1920,7 +1924,31 @@ licence  = "Unicode-3.0"
 notice   = "LICENSES/Unicode-3.0.txt"
 upstream = "https://www.unicode.org/Public/17.0.0/ucd/"
 status   = "kept"
-public   = "Unicode Character Database 17.0.0 files, carried unmodified, which the build compiles into the bidirectional, grapheme-cluster, width and line-breaking tables"
+public   = "Unicode Character Database 17.0.0 files, carried unmodified, which the build compiles into the bidirectional, grapheme-cluster, width, line-breaking, case-folding, search, cursive-joining, default-ignorable and named-sequence tables"
+holder   = "Unicode, Inc."
+
+[[tree]]
+what     = "baud-domain's build reads Unicode Emoji 17.0's emoji-sequences.txt and emoji-zwj-sequences.txt, the RGI emoji sequences it compiles its named-sequence trie from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
+paths    = ["baud-domain/data/emoji17-sequences.txt", "baud-domain/data/emoji17-zwj-sequences.txt"]
+licence  = "Unicode-3.0"
+notice   = "LICENSES/Unicode-3.0.txt"
+upstream = "https://www.unicode.org/Public/17.0.0/emoji/"
+status   = "kept"
+public   = "Unicode Emoji 17.0's emoji-sequences.txt and emoji-zwj-sequences.txt, carried unmodified, which the build compiles into the named emoji sequences' trie"
+holder   = "Unicode, Inc."
+
+[[tree]]
+what     = "baud-font's build reads the Unicode Character Database files it compiles its Arabic presentation forms and its default-ignorable code points from, through links in baud-font/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
+paths    = [
+  "baud-font/data/unicode-arabicshaping.txt",
+  "baud-font/data/unicode-derivedcoreproperties.txt",
+  "baud-font/data/unicode-unicodedata.txt",
+]
+licence  = "Unicode-3.0"
+notice   = "LICENSES/Unicode-3.0.txt"
+upstream = "https://www.unicode.org/Public/17.0.0/ucd/"
+status   = "kept"
+public   = "Unicode Character Database 17.0.0 files, carried unmodified, which the build compiles into the Arabic presentation forms and the default-ignorable code points"
 holder   = "Unicode, Inc."
 
 [[tree]]

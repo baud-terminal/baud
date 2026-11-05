@@ -67,7 +67,14 @@ mod gpos;
 mod gsub;
 pub mod gvar;
 mod hvar;
-mod ignorable;
+mod ignorable {
+    //! `Default_Ignorable_Code_Point`, compiled by `build/ignorable.rs` from
+    //! `[[source: dcp-data]]`.
+    include!(concat!(env!("OUT_DIR"), "/ignorable.rs"));
+}
+#[cfg(test)]
+#[path = "ignorable.rs"]
+mod committed_ignorable;
 mod indic;
 mod indic_data;
 pub mod ivs;
@@ -75,7 +82,20 @@ mod layout;
 mod morx;
 mod name;
 pub mod outline;
-mod presentation;
+mod presentation {
+    //! The Arabic presentation forms a face with no `GSUB` forms is drawn
+    //! through, compiled by `build/presentation.rs` from the sources pinned
+    //! in `docs/research/sources/MANIFEST.toml` (`[[source: unicode-data]]`,
+    //! `[[source: unicode-arabicshaping]]`).
+    include!(concat!(env!("OUT_DIR"), "/presentation.rs"));
+}
+#[cfg(test)]
+#[path = "presentation.rs"]
+mod committed_presentation;
+// The tables `scripts/gen-joining-tables.py` and
+// `scripts/gen-default-ignorable.py` committed, kept beside the compiled
+// ones until `the_compiled_tables_are_the_committed_ones` has held them
+// equal.
 mod raster;
 mod script;
 mod script_data;
@@ -83,6 +103,8 @@ mod shape;
 mod standard_encoding;
 mod stroke;
 mod syllabic;
+#[cfg(test)]
+mod table_identity;
 pub mod var;
 
 pub use bake::{BakePoint, Refused, bake};

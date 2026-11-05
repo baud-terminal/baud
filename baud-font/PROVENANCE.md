@@ -52,6 +52,7 @@ and when a file classed **a** is under no `[[tree]]` entry of
 | `baud-font/src/standard_encoding.rs` | c | -- |
 | `baud-font/src/stroke.rs` | c | -- |
 | `baud-font/src/syllabic.rs` | a | `LICENSES/harfbuzz-COPYING.txt` |
+| `baud-font/src/table_identity.rs` | c | -- |
 | `baud-font/src/var.rs` | b | -- |
 | `baud-render/src/atlas.rs` | b | -- |
 | `baud-render/src/boxes.rs` | c | -- |

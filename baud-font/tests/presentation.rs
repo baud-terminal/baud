@@ -53,3 +53,64 @@ fn the_lam_alef_ligatures_are_fef5_to_fefc() {
     );
     assert_eq!(lam_alef_form(cp(0x0671), LamAlef::Nominal), None);
 }
+
+/// Every presentation form UnicodeData.txt gives, read here with a reader
+/// of its own rather than the build's, is the one drawn for its letter and
+/// form, and every lam-alef ligature for its alef; and no other pair of a
+/// letter and a form has one.
+#[test]
+fn every_presentation_form_is_the_pinned_files() {
+    use JoiningForm::*;
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/research/sources/unicode-unicodedata.txt"
+    );
+    let text = std::fs::read_to_string(path).expect("the pinned UnicodeData.txt");
+    let forms = [
+        ("<isolated> ", Isolated),
+        ("<final> ", Final),
+        ("<initial> ", Initial),
+        ("<medial> ", Medial),
+    ];
+    let mut single = std::collections::HashMap::new();
+    let mut ligatures = 0;
+    for line in text.lines() {
+        let f: Vec<&str> = line.split(';').collect();
+        let Some((tag, form)) = forms.iter().find(|(t, _)| f[5].starts_with(t)) else {
+            continue;
+        };
+        let at = u32::from_str_radix(f[0], 16).unwrap();
+        let of: Vec<u32> = f[5][tag.len()..]
+            .split(' ')
+            .map(|s| u32::from_str_radix(s, 16).unwrap())
+            .collect();
+        match of[..] {
+            [letter] => {
+                assert_eq!(presentation_form(cp(letter), *form), Some(cp(at)), "{line}");
+                single.insert((letter, tag.len()), at);
+            }
+            [0x0644, alef] if (0xFEF5..=0xFEFC).contains(&at) => {
+                let kind = if *form == Isolated {
+                    LamAlef::Nominal
+                } else {
+                    LamAlef::Joined
+                };
+                assert_eq!(lam_alef_form(cp(alef), kind), Some(cp(at)), "{line}");
+                ligatures += 1;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(single.len(), 242);
+    assert_eq!(ligatures, 8);
+    let mut drawn = 0;
+    for letter in (0..=0x10FFFF).filter_map(Codepoint::new) {
+        for (tag, form) in &forms {
+            if let Some(p) = presentation_form(letter, *form) {
+                assert_eq!(single.get(&(letter.value(), tag.len())), Some(&p.value()));
+                drawn += 1;
+            }
+        }
+    }
+    assert_eq!(drawn, 242);
+}

@@ -2,11 +2,15 @@
 //! small input written for it, with its position: a header that is not the
 //! pinned file's, a code point that is not one, a range past U+10FFFF, the
 //! wrong number of fields, a `First` without its `Last`, a value outside
-//! the set, a duplicate, an overlap and a count missed -- and, beside each,
+//! the set, a duplicate, an overlap and a count missed, a sequence of code
+//! points that is not one, two rows of a binary property over one code
+//! point -- and, beside each,
 //! the input that passes, so a check that cannot fail does not pass for one
 //! that works.
 
-use baud_tablegen::{CodepointMap, CpRange, Errors, Input, Kind, Pos, Source, Trie, ValueSet};
+use baud_tablegen::{
+    CodepointMap, CpRange, Errors, Input, Kind, Pos, Source, Trie, ValueSet, binary_ranges,
+};
 
 const UCD: Input = Input {
     file: "x.txt",
@@ -345,5 +349,47 @@ fn a_trie_reads_back_its_values_and_refuses_a_stage_one_past_a_byte() {
             .map(|_| ())
             .map_err(|e| e.kind),
         Err(Kind::Invariant)
+    );
+}
+
+#[test]
+fn a_sequence_of_code_points_is_each_four_to_six_hex_digits() {
+    let s = src("# X-17.0.0.txt\n00C5;<final> 0041 030A\n00C6;0041 30A\n00C7;<final>\n");
+    let rows: Vec<_> = s.rows().collect();
+    assert_eq!(
+        rows[0].code_points(1, "<final>".len()).expect("two"),
+        [0x41, 0x30A]
+    );
+    let e = rows[1].code_points(1, 0).expect_err("30A");
+    assert_eq!(e.kind, Kind::Malformed);
+    assert_eq!(e.pos, Some(Pos { line: 3, col: 6 }));
+    assert!(e.to_string().contains("\"30A\" is not a code point"), "{e}");
+    let e = rows[2].code_points(1, "<final>".len()).expect_err("none");
+    assert_eq!(
+        e.to_string(),
+        "data/x.txt:4:6: no code points: \"00C7;<final>\""
+    );
+}
+
+#[test]
+fn a_binary_property_is_its_rows_merged_and_an_overlap_is_refused() {
+    let s = src("# X-17.0.0.txt\n0041..0042 ; P\n0030 ; Q\n0043 ; P\n0045 ; P\n0020 ; P\n");
+    let r = binary_ranges(&s, "P").expect("no overlap");
+    assert_eq!(
+        r,
+        [
+            CpRange { lo: 0x20, hi: 0x20 },
+            CpRange { lo: 0x41, hi: 0x43 },
+            CpRange { lo: 0x45, hi: 0x45 },
+        ]
+    );
+    let s = src("# X-17.0.0.txt\n0041..0043 ; P\n0042 ; P\n0050 ; P ; extra\n");
+    let e = binary_ranges(&s, "P").expect_err("an overlap and a field too many");
+    assert_eq!(e.kinds(), [Kind::FieldCount, Kind::Overlap]);
+    assert!(
+        e.list()[1]
+            .to_string()
+            .starts_with("data/x.txt:3:1: U+0042 is already given P by the rows up to line 2"),
+        "{e}"
     );
 }

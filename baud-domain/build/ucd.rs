@@ -219,3 +219,51 @@ pub fn binary(
         .collect();
     (has, rows)
 }
+
+pub const CASE_FOLDING: Input = Input {
+    file: "unicode-casefolding.txt",
+    key: "unicode-casefolding",
+    header: "# CaseFolding-17.0.0.txt",
+};
+
+/// CaseFolding.txt's status values (`[[source: unicode-casefolding]]`):
+/// common, full, simple and Turkic.
+const FOLD_STATUS: [&str; 4] = ["C", "F", "S", "T"];
+
+/// Each code point's full case folding, the rows of status C and F --
+/// toCasefold of `[[source: unicode17-ch3]]` R4 -- by code point. A row of
+/// another status is read and left out, so the Turkic T rows fold nothing;
+/// a status outside the four, and a second C or F row for one code point,
+/// are refused.
+pub fn case_folding(src: &Source, errs: &mut Errors) -> std::collections::BTreeMap<u32, Vec<u32>> {
+    let status = ValueSet::closed(
+        "CaseFolding.txt status",
+        "UAX #44, CaseFolding.txt",
+        &FOLD_STATUS,
+    );
+    let mut fold: std::collections::BTreeMap<u32, (Vec<u32>, usize)> = Default::default();
+    for row in src.rows() {
+        let cp = errs.take(row.expect(4).and_then(|()| row.code_point(0)));
+        let s = errs.take(status.check(&row, 1));
+        let to = errs.take(row.code_points(2, 0));
+        let (Some(cp), Some(s), Some(to)) = (cp, s, to) else {
+            continue;
+        };
+        if !matches!(FOLD_STATUS[s], "C" | "F") {
+            continue;
+        }
+        if let Some((_, line)) = fold.get(&cp) {
+            errs.push(row.error(
+                Kind::Duplicate,
+                0,
+                format!(
+                    "U+{cp:04X} already has a full folding on line {line} ({:?})",
+                    src.line(*line)
+                ),
+            ));
+            continue;
+        }
+        fold.insert(cp, (to, row.line()));
+    }
+    fold.into_iter().map(|(cp, (to, _))| (cp, to)).collect()
+}

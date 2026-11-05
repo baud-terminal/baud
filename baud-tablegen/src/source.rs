@@ -321,6 +321,21 @@ impl<'a> Row<'a> {
     pub fn code_point(&self, i: usize) -> Result<u32, Error> {
         hex(self.field(i)).map_err(|(k, m)| self.error(k, i, m))
     }
+
+    /// Field `i` as code points separated by spaces -- a UnicodeData.txt
+    /// decomposition, a named sequence -- from byte `from` of the field,
+    /// after a tag such as `<final>`; refused when it holds none.
+    pub fn code_points(&self, i: usize, from: usize) -> Result<Vec<u32>, Error> {
+        let text = self.field(i).get(from..).unwrap_or("");
+        let out = text
+            .split_whitespace()
+            .map(|s| hex(s).map_err(|(k, m)| self.error(k, i, m)))
+            .collect::<Result<Vec<u32>, Error>>()?;
+        if out.is_empty() {
+            return Err(self.error(Kind::Malformed, i, "no code points"));
+        }
+        Ok(out)
+    }
 }
 
 /// A range of code points, `lo <= hi <= U+10FFFF`.

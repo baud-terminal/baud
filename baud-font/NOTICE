@@ -23,6 +23,18 @@ code, only its marked generated block is generated
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://www.unicode.org/Public/
 
+Unicode Character Database 17.0.0 files, carried unmodified, which the build
+compiles into the Arabic presentation forms and the default-ignorable code
+points
+  Files:   data/unicode-arabicshaping.txt,
+           data/unicode-derivedcoreproperties.txt,
+           data/unicode-unicodedata.txt
+  Holder:  Unicode, Inc.
+  Licence: Unicode-3.0
+  Notice:  LICENSES/Unicode-3.0.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://www.unicode.org/Public/17.0.0/ucd/
+
 Code transcribed from HarfBuzz (12.3.0, commit 64e2b53 for morx.rs and
 shape.rs, 10.2.0 for layout.rs, and 14.5.1 for indic.rs, syllabic.rs,
 indic_data.rs and buffer.rs): morx.rs's extended state machine and its

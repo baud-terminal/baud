@@ -55,10 +55,20 @@ mod bidi_data {
 mod brand;
 mod cache;
 mod caseless;
-mod caseless_data;
+mod caseless_data {
+    //! What a font family name compares, compiled by `build/caseless.rs`
+    //! from `[[source: unicode-casefolding]]`'s full case folding (status C
+    //! and F) pinned in `docs/research/sources/MANIFEST.toml`, for the
+    //! default caseless match of `[[source: unicode17-ch3]]` D144 that
+    //! `[[source: css-fonts-3]]` section 5.1 names.
+    include!(concat!(env!("OUT_DIR"), "/caseless_data.rs"));
+}
 mod cell;
 mod cluster_data;
 mod colour_name;
+#[cfg(test)]
+#[path = "caseless_data.rs"]
+mod committed_caseless_data;
 pub mod contrast;
 mod link_table;
 
@@ -95,13 +105,30 @@ mod grapheme_data {
 }
 mod grid;
 mod history;
-mod ignorable_data;
+mod ignorable_data {
+    //! `Default_Ignorable_Code_Point`, compiled by `build/ignorable.rs` from
+    //! `[[source: dcp-data]]`.
+    include!(concat!(env!("OUT_DIR"), "/ignorable_data.rs"));
+}
+#[cfg(test)]
+#[path = "ignorable_data.rs"]
+mod committed_ignorable_data;
 mod image;
 mod input;
 mod interpolate;
 mod iso96_data;
 mod joining;
-mod joining_data;
+mod joining_data {
+    //! Cursive-joining data, compiled by `build/joining.rs` from the
+    //! sources pinned in `docs/research/sources/MANIFEST.toml`
+    //! (`[[source: unicode-arabicshaping]]`, `[[source: gc-data]]`,
+    //! `[[source: unicode-derivedjoiningtype]]`,
+    //! `[[source: unicode-propertyvaluealiases]]`).
+    include!(concat!(env!("OUT_DIR"), "/joining_data.rs"));
+}
+#[cfg(test)]
+#[path = "joining_data.rs"]
+mod committed_joining_data;
 pub mod jpeg;
 mod kitty;
 mod layout;
@@ -131,15 +158,42 @@ mod quantity;
 mod regis;
 mod scan;
 mod search;
-mod search_data;
+mod search_data {
+    //! What a search compares, compiled by `build/search.rs` from the
+    //! sources pinned in `docs/research/sources/MANIFEST.toml`:
+    //! `[[source: unicode-data]]`'s canonical decompositions and combining
+    //! classes and `[[source: unicode-casefolding]]`'s full case folding
+    //! (status C and F), for the canonical caseless match of
+    //! `[[source: unicode17-ch3]]` D145.
+    include!(concat!(env!("OUT_DIR"), "/search_data.rs"));
+}
+#[cfg(test)]
+#[path = "search_data.rs"]
+mod committed_search_data;
 mod sequence;
-mod sequence_data;
+mod sequence_data {
+    //! The sequences the Unicode Standard names, as a trie, compiled by
+    //! `build/sequence.rs` from UTS #51's RGI emoji sequences
+    //! (`[[source: emoji17-sequences]]`, `[[source: emoji17-zwj-sequences]]`)
+    //! and the standardized emoji variation sequences
+    //! (`[[source: emoji-variation-sequences]]`).
+    include!(concat!(env!("OUT_DIR"), "/sequence_data.rs"));
+}
+#[cfg(test)]
+#[path = "sequence_data.rs"]
+mod committed_sequence_data;
+// The tables `scripts/gen-caseless-tables.py`, `gen-search-tables.py`,
+// `gen-sequence-table.py`, `gen-joining-tables.py` and
+// `gen-default-ignorable.py` committed, kept beside the compiled ones until
+// `the_compiled_tables_are_the_committed_ones` has held them equal.
 mod sixel;
 mod sixel_dump;
 mod source;
 mod store;
 mod style;
 mod substitute;
+#[cfg(test)]
+mod table_identity;
 pub mod terminfo;
 pub mod themefile;
 mod time;
