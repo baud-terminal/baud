@@ -7,7 +7,7 @@
 //! in: one movement, with no frame where the logo stands still (note AJ).
 //! The lockup is
 //! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s, colours and
-//! geometry, as `scripts/make-brand-pictures.py` draws them: the word's pen
+//! geometry, as `tools/baud-pictures` draws them: the word's pen
 //! at x 40, the ❯ in its cell from x 192 on rows 45 to 91, placed as baud's
 //! renderer places a glyph at 200 px and scaled to the cell, the block the
 //! very next cell, and the whole moved [`DX`] to centre its ink across the
@@ -98,7 +98,7 @@ pub struct Line {
 }
 
 /// **How far the logo files move every glyph to centre the lockup's ink
-/// across its box**, in its units: `scripts/make-brand-pictures.py`'s
+/// across its box**, in its units: `tools/baud-pictures`'s
 /// `lockup_dx`, from the word's ink at 500 and the mark's, 10.362. The
 /// generator holds this to its own (`brand_plasma`'s report), and
 /// `tests/splash.rs` holds the drawn lockup to the file's.

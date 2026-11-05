@@ -5,7 +5,7 @@
 //!
 //! **The mark keeps the size it had alone.** The lockups are
 //! `assets/logo/baud-lockup-{dark,light}-tight.svg`, drawn by
-//! `scripts/make-brand-pictures.py` with the mark's cell 168 units tall,
+//! `tools/baud-pictures` with the mark's cell 168 units tall,
 //! as in `baud-mark-amber-tight.svg`, the mark that stood here before.
 //! That mark's 300-unit box was fitted across a square a little larger
 //! than a traffic light, so the lockup is drawn at the same points per

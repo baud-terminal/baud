@@ -796,7 +796,7 @@ fn hex_in(said: &str) -> u32 {
 }
 
 /// **Each palette is baud's colours, at the contrast its comments state.**
-/// `amber` is the brand's amber on the dark page -- the brand script's
+/// `amber` is the brand's amber on the dark page -- the brand generator's
 /// `AMBER` and the lockup's -- and [`LIGHT_AMBER`] on the light page;
 /// every other name is one of the terminal's sixteen, the entry its
 /// comment names, which is the value baud's theme draws for that entry,
@@ -806,12 +806,15 @@ fn hex_in(said: &str) -> u32 {
 #[test]
 fn the_palettes_are_baud_s_colours() {
     let text = read(PRESET);
-    let brand = read("scripts/make-brand-pictures.py");
+    let brand = read("tools/baud-pictures/src/brand.rs");
     let line = brand
         .lines()
-        .find(|l| l.starts_with("AMBER = \""))
-        .expect("the brand script's AMBER");
-    let amber = argb(line.trim_start_matches("AMBER = \"").trim_end_matches('"'));
+        .find(|l| l.starts_with("pub const AMBER: &str = \""))
+        .expect("the brand generator's AMBER");
+    let amber = argb(
+        line.trim_start_matches("pub const AMBER: &str = \"")
+            .trim_end_matches("\";"),
+    );
     assert_eq!(
         amber,
         rgb(baud_render::splash::DARK.amber),

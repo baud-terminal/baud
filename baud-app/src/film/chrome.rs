@@ -315,7 +315,7 @@ pub(crate) enum Segment {
 }
 
 /// **The lockup SVG's shapes and its view box**, as
-/// `scripts/make-brand-pictures.py` writes them: `<path>`s of absolute
+/// `tools/baud-pictures` writes them: `<path>`s of absolute
 /// `M`, `L`, `H`, `V`, `Q` and `Z` and `<rect>`s, each with a `#RRGGBB`
 /// fill. Anything else is refused, so a picture the generator draws
 /// otherwise fails here rather than drawing wrong.

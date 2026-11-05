@@ -30,15 +30,16 @@ const WS: WinSize = WinSize {
     ws_row: 2,
 };
 
-/// The brand sheet's colour named `name` in `scripts/make-brand-pictures.py`
-/// (`AMBER = "#F4A32C"`), as an opaque pixel.
+/// The brand sheet's colour named `name` in the brand generator,
+/// `tools/baud-pictures/src/brand.rs` (`pub const AMBER: &str =
+/// "#F4A32C";`), as an opaque pixel.
 fn brand(name: &str) -> Argb {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../scripts/make-brand-pictures.py"
+        "/../tools/baud-pictures/src/brand.rs"
     );
     let text = std::fs::read_to_string(path).expect("the brand generator");
-    let at = format!("\n{name} = \"#");
+    let at = format!("\npub const {name}: &str = \"#");
     let start = text.find(&at).unwrap_or_else(|| panic!("no {name} in it")) + at.len();
     let hex = &text[start..start + 6];
     Argb(0xFF00_0000 | u32::from_str_radix(hex, 16).expect("six hex digits"))

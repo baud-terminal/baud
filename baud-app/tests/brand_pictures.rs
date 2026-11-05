@@ -1,10 +1,11 @@
 //! **The logo files: GitHub's limits, outlines in place of text, and the
 //! mark as baud draws it.**
 //!
-//! `scripts/make-brand-pictures.py` draws every file in `assets/logo/` and
-//! the repository's link picture from one mark, baud's own drawing of "❯"
-//! with the cursor in the next cell, in JetBrains Mono's own outlines, and
-//! its `--check` holds the committed files to its output byte for byte.
+//! `baud-pictures brand` (`tools/baud-pictures`) draws every file in
+//! `assets/logo/` and the repository's link picture from one mark, baud's
+//! own drawing of "❯" with the cursor in the next cell, in JetBrains
+//! Mono's own outlines, and its `--check` holds the committed files to its
+//! output byte for byte.
 //! That check needs the network (the 500 weight is read out of the font's
 //! release archive) and the pinned nixpkgs, so it runs by hand. This file
 //! needs neither and runs with the suite: each GitHub picture within
@@ -315,7 +316,7 @@ fn every_logo_is_outlines_and_names_no_font() {
 
 // ---------------------------------------------------------------- the mark
 
-/// baud's cell at 200 px, as `scripts/make-brand-pictures.py` takes it:
+/// baud's cell at 200 px, as `tools/baud-pictures` takes it:
 /// width, height and baseline.
 const CELL: (u32, u32, u32) = (120, 264, 204);
 const PX: f32 = 200.0;

@@ -8,6 +8,9 @@
 # against this host's CoreText, so the check is skipped; the library is built from the same
 # source and configuration either way. libxkbcommon there is 1.13.1;
 # 1.13.2 comes from nixpkgs 13e53762, the revision flake.lock pins.
+# zlib 1.3.2, which tools/baud-pictures deflates the brand PNGs with, is
+# the one Pillow 12.3.0 carried in nixpkgs 7dd199b0, the revision the
+# pictures were first drawn from, taken from that revision.
 #
 #   nix-shell tools/shell.nix --run \
 #     'cargo run --release --manifest-path tools/Cargo.toml --bin advance'
@@ -29,11 +32,22 @@ let
         sha256 = "0dihr83y60hkvizqlz53sqbvfqgv1hxyicqdn3vdgiddxw4by0d6";
       })
       { };
+  pictures =
+    import
+      (fetchTarball {
+        url = "https://github.com/NixOS/nixpkgs/archive/7dd199b0e2993e37b4775ed66b1c291699608c9f.tar.gz";
+        sha256 = "08kxnni9l87i089hy7p9a7yr64w6h9x5m2cc7k2hn455hidm9mm3";
+      })
+      { };
 in
 assert xkb.libxkbcommon.version == "1.13.2";
+assert pictures.zlib.version == "1.3.2";
 pkgs.mkShell {
   packages = [ pkgs.pkg-config ];
+  # pictures.zlib first, so pkg-config names it before the zlib FreeType
+  # propagates from the first revision.
   buildInputs = [
+    pictures.zlib
     harfbuzz
     pkgs.freetype
     xkb.libxkbcommon

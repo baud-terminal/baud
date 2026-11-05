@@ -36,7 +36,7 @@
 #               scripts/trail-clips.sh records (at the 776x488 pt window it
 #               was taken at, not this one)
 #
-# social.png is not made here: scripts/make-brand-pictures.py draws it from
+# social.png is not made here: tools/baud-pictures draws it from
 # the font's outlines, with no frame of a recording behind it.
 #
 # Everything outside the repository is pinned: kitten, btop and the
@@ -437,7 +437,7 @@ for what in $only; do
     check_loop trail "$tmp/trail"
     gif trail "$tmp/trail"
     ;;
-  social) die "social.png is drawn by scripts/make-brand-pictures.py" ;;
+  social) die "social.png is drawn by tools/baud-pictures (brand)" ;;
   *) die "unknown asset $what" ;;
   esac
 done

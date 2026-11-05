@@ -2850,3 +2850,52 @@ and GB12/13 dropped one at a time each fire their own control -- GB1 and
 GB5 did not until an Extend at the start of text and Prepend LF were
 added -- and the state count, the seven-bit id and the palette and block
 bounds are red; GB999 dropped is the same table by construction.
+
+## The brand pictures in `tools/baud-pictures brand`
+
+Not timed: no byte path changed, and nothing in the workspace links the
+new crate. `baud-pictures brand [--check]` replaces the deleted
+`make-brand-pictures.py`: resvg 0.48.1 as a library with its command
+line's options, Pillow 12.3.0's PNG writer (`ZipEncode.c`'s filter
+choice and row-at-a-time deflate, one IDAT per `max(65536, 4w)` buffer)
+on zlib 1.3.2 through `extern "C"`, Pillow's LANCZOS on mode `F`, and
+fontTools 4.63.0's glyf drawing, `SVGPathPen` and `BoundsPen` in `f64`.
+Pillow's `_imaging` carries zlib 1.3.2 itself; `tools/shell.nix` adds
+that nixpkgs revision's (`7dd199b0`) first on pkg-config's path, and
+the run refuses another.
+
+Identity: on the base `f4bbbaed` each arm wrote all 33 files (23 logo
+SVGs, 8 logo PNGs, the card's two) into its own archived tree, every
+file byte-equal, the organisation picture included, and `--check` on
+the committed tree printed the same 35 lines and exit 1 in both, the
+Python's launcher line on stderr aside. Then each SVG's note names the
+tool: the 24 SVGs differ in that one comment line and no PNG moves. On
+the rebased master the nine PNGs are byte-equal again and the SVGs are
+equal once the note is substituted. Five perturbations ran through both
+arms: README line 8, a byte of the Bold, a wrong archive, an extra SVG
+and an edited one; stdout and exit are equal in each, and stderr but
+for the refusal's prefix, now `baud-pictures brand:`. `baud-github-org.png` stays
+as committed: both arms draw `e5a514ef...`, 48 pixels from it in rows
+305-352, the mark's light, by at most 15 levels.
+
+Lanczos: in the pinned build the horizontal pass adds groups of four
+unfused products and fuses the rest (`fmadd`); the vertical pass fuses
+every tap. On six noise resizes no variant moved one of 71,307 pixels;
+three inputs whose taps cancel do: the same 20 pixels give -2008.89 down
+a column and -1336.97 along a row, and only the compiled split matches.
+
+| check | perturbation, each a test |
+|---|---|
+| README line 8, the font pins, a missing glyph | a word changed, a byte flipped, U+10FFFD |
+| clear space, card crowding, the crop | each box moved past its bound |
+| tape, opacity, light control | a hole taped over, alpha 254, a moved pixel, nothing lit |
+| GitHub limits | a tEXt chunk, the wrong size, RGBA, 1.2 MB, 3000 wide |
+| outlines, fonts named | `<text>`, no path, `font-family=`, `FONT :`, `font\x1c=` |
+| plasma report | the pen, the block, the cell width, either amber |
+
+Code mutations, each turned a test red: the IDAT buffer, Average
+dropped, the default strategy, control-point bounds, every tap fused,
+none fused, round half away, the alpha kept premultiplied, an
+off-curve point nudged 1e-9. One did not: a component's offset added before
+the pen's scale, `k*(x+615)+cx` for `k*x+(k*615+cx)`, writes the same
+two decimals for every point the card draws.

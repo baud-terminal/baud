@@ -975,7 +975,7 @@ const GROUND: Argb = Argb(0xFF15_171B);
 
 impl BaudCursor {
     /// **On the dark theme's page, the brand's amber, `#F4A32C`**, the
-    /// lockup's ([`crate::splash::DARK`], `scripts/make-brand-pictures.py`'s
+    /// lockup's ([`crate::splash::DARK`], `tools/baud-pictures`'s
     /// `AMBER`), at 9.17:1, with the brand's ground under it at 8.65:1.
     pub fn dark() -> BaudCursor {
         BaudCursor::on(grey(0x10))

@@ -3,7 +3,7 @@
 # from Finder without a Terminal window (the "two windows" bug), takes focus
 # like an app, and carries its own Dock icon. The icon is packed from
 # assets/logo/baud-icon-dock-<N>.png, baud-icon-dock.svg drawn at each
-# iconset size by scripts/make-brand-pictures.py and packed by iconutil into
+# iconset size by tools/baud-pictures and packed by iconutil into
 # packaging/macos/baud.icns, which is committed; the binary is the release
 # build.
 #

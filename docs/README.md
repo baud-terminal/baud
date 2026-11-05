@@ -105,7 +105,7 @@ their entries' titles:
 | BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (`baud-app/src/link.rs` cites them) |
 | CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (`baud-app/src/reload.rs` cites them) |
 | WN | more than one window: a new window, a window's close, the last window closed, and the Dock's reopen (`baud-app/src/windows.rs` cites them) |
-| GP | the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (`scripts/make-brand-pictures.py` and `assets/logo/README.md` cite them) |
+| GP | the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (`tools/baud-pictures` and `assets/logo/README.md` cite them) |
 | SP | the shell prompt baud ships: starship 1.27.0's configuration schema, which `assets/starship/baud.toml` is checked against (`baud-app/tests/starship_preset.rs` cites it) |
 
 The table is held to the manifest by `every_source_group_is_in_the_index`

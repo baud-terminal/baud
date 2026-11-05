@@ -78,7 +78,7 @@ ones -- it runs the tests that hold them, and prints what they read:
   - baud-bench's readme_logo_flashes: the census of the GIFs.
 
 **The environment is pinned whole.** Python with Pillow and NumPy comes
-from make-brand-pictures.py's nixpkgs revision, fetched by hash, and
+from nixpkgs 7dd199b0 (tools/shell.nix's pin for the pictures), fetched by hash, and
 gifski from readme-film.sh's; the script runs itself again under that
 Python with -I and refuses other versions. The frames come from the
 repository's renderer, built by the cargo on PATH. The generator's

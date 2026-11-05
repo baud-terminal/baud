@@ -88,9 +88,9 @@ census of each GIF at 100 samples a second and 2 pixels a point, the
 last frame held 3 s, and requires both verdicts to pass, no red flash,
 and no more flashes at a pixel or strict area than the files measured.
 `scripts/make-readme-logo.py` films both halves, encodes them with
-gifski 1.34.0 from `readme-film.sh`'s nixpkgs and Pillow from
-`make-brand-pictures.py`'s, every pixel within 3 levels of the page set
-to it first so the encoder cannot haze the page (0.0004% of the dark
+gifski 1.34.0 from `readme-film.sh`'s nixpkgs and Pillow from nixpkgs
+`7dd199b0`, the revision `tools/shell.nix` pins for the pictures, every
+pixel within 3 levels of the page set to it first so the encoder cannot haze the page (0.0004% of the dark
 GIF's page pixels are off it, by at most 13 levels), checks both
 encoders write the same bytes twice, takes the SVGs' census, writes the
 files and runs the tests; with `--check` it compares the files byte for
@@ -263,7 +263,7 @@ A smaller feed hole is in every column, between the second and third
 tracks, as five-hole tape is usually drawn: no text read for it places
 that track. A feed hole is 0.046/0.072 of a code hole, the two diameters
 ANSI X3.18 gives for one-inch tape ([[source: ansi-x3-18-1967]]).
-`scripts/make-brand-pictures.py` draws it and its source, `social.svg`,
+`baud-pictures brand` (`tools/baud-pictures`) draws it and its source, `social.svg`,
 from JetBrains Mono's outlines (`JetBrainsMono-OFL.txt` beside them), the
 PNG the SVG drawn by its pinned resvg, and reads the tape back off the PNG
 before it writes. Nothing in it comes from

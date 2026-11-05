@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 500 500" role="img" aria-label="baud">
-  <!-- Drawn by scripts/make-brand-pictures.py: edit the script, not this file. The
+  <!-- Drawn by tools/baud-pictures (brand): edit the tool, not this file. The
        glyphs are JetBrains Mono 2.304's own outlines, under its OFL
        (JetBrainsMono-OFL.txt beside this file). -->
   <rect x="0" y="0" width="500" height="500" fill="#15171B"/>

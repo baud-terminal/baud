@@ -840,7 +840,7 @@ fn every_trail_frame_drawn_incrementally_is_the_whole_frame() {
     }
 }
 
-/// The ink box of an SVG path as `scripts/make-brand-pictures.py` writes
+/// The ink box of an SVG path as `tools/baud-pictures` writes
 /// one -- absolute `M`, `L`, `H`, `V`, `Q` and `Z`, fontTools' pen -- from
 /// its points and each quadratic's extrema, not its control points.
 fn path_ink(d: &str) -> [f64; 4] {

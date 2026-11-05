@@ -1,6 +1,6 @@
 //! **The organisation picture's two lights, drawn by baud's CPU renderer.**
 //!
-//! `scripts/make-brand-pictures.py` lays two of baud's own plasma lights
+//! `baud-pictures brand` (`tools/baud-pictures`) lays two of baud's own plasma lights
 //! over the organisation picture's drawing (`assets/logo/baud-github-org.svg`)
 //! and takes them from here, each drawn alone on the brand ground in the
 //! amber, so its light is the pixel's share of the way to the amber:

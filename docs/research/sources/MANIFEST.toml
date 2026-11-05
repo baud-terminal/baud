@@ -81,7 +81,7 @@
 #   AZ  a window in the background: the unfocused cursor, the inactive selection, theme cursor colours
 #   CR  the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (baud-app/src/reload.rs)
 #   WN  more than one window: a new window, a window's close, the last window closed, the Dock's reopen (baud-app/src/windows.rs)
-#   GP  the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (scripts/make-brand-pictures.py and assets/logo/README.md)
+#   GP  the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (tools/baud-pictures and assets/logo/README.md)
 #   SP  the shell prompt baud ships: starship's configuration schema, which assets/starship/baud.toml is checked against (baud-app/tests/starship_preset.rs)
 #
 # Selection, resize and reflow, Sixel and images have no group of their own:
@@ -42115,7 +42115,7 @@ group  = "H"
 # Fetched 2026-10-30: the pairing of a release with its press that baud's
 # macOS app keeps too. Read, not copied.
 
-# The brand pictures (group GP): what scripts/make-brand-pictures.py draws to,
+# The brand pictures (group GP): what tools/baud-pictures draws to,
 # read 2026-11-03.
 
 [sources.jbm-2304-release]

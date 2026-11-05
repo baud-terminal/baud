@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 326 | 61 | redistributable, and its notice is satisfied |
+| kept | 326 | 63 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 596 | 70 | |
+| total | 596 | 72 | |
 
 ## Licence texts in LICENSES/
 
@@ -62,6 +62,7 @@ they were built from.
 | [neovim-LICENSE.txt](LICENSES/neovim-LICENSE.txt) | Apache-2.0 AND Vim | fetched: https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/LICENSE.txt | de23202ef9a51f5e |
 | [ots-BSD-3-Clause.txt](LICENSES/ots-BSD-3-Clause.txt) | BSD-3-Clause | fetched: https://raw.githubusercontent.com/khaledhosny/ots/6263433/LICENSE | 0d74de3c3cd3196a |
 | [ottosson-MIT.txt](LICENSES/ottosson-MIT.txt) | MIT | built: https://bottosson.github.io/posts/gamutclipping/#source-code, the block under "Source code" (the page as read 2026-10-17, sha256 94dfab2f7eabd1f11e7c01fe7b3951772b21811f95907415f75158b1f0dcd707) | e1f3008c91f40e2d |
+| [pillow-MIT-CMU.txt](LICENSES/pillow-MIT-CMU.txt) | MIT-CMU | fetched: https://raw.githubusercontent.com/python-pillow/Pillow/12.3.0/LICENSE | 15181e7363dca9ae |
 | [regex-MIT.txt](LICENSES/regex-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/rust-lang/regex/72d650cb0a880a01ab6dc2137c0888e8f89740f7/LICENSE-MIT | 6485b8ed310d3f03 |
 | [rust-MIT.txt](LICENSES/rust-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/LICENSE-MIT | b71bd43a069ca064 |
 | [rust-reference-MIT.txt](LICENSES/rust-reference-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/rust-lang/reference/9fa1d6fba4ca87ca2d4e1b2c3807488bd8b4a85c/LICENSE-MIT | 0621878e61f0d0fd |
@@ -107,7 +108,7 @@ they were built from.
 - **From:** https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
 - **Files:** [baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf), [baud-app/fonts/jetbrains-mono/AUTHORS.txt](baud-app/fonts/jetbrains-mono/AUTHORS.txt)
 
-### The glyphs of baud's logo files: every lockup's, symbol's and icon's prompt glyph, the Dock icon's, the titlebar mark's and the title bar lockups' among them, JetBrains Mono 2.304 Bold's own outline, and the word of the lockups and of the organisation picture, its Medium's, traced by scripts/make-brand-pictures.py, with the PNGs drawn from them. The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; what is around them, and the organisation picture's plasma, are baud's own
+### The glyphs of baud's logo files: every lockup's, symbol's and icon's prompt glyph, the Dock icon's, the titlebar mark's and the title bar lockups' among them, JetBrains Mono 2.304 Bold's own outline, and the word of the lockups and of the organisation picture, its Medium's, traced by tools/baud-pictures, with the PNGs drawn from them. The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; what is around them, and the organisation picture's plasma, are baud's own
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1
@@ -115,7 +116,7 @@ they were built from.
 - **From:** https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
 - **Files:** [assets/logo/baud-github-org.png](assets/logo/baud-github-org.png), [assets/logo/baud-github-org.svg](assets/logo/baud-github-org.svg), [assets/logo/baud-icon-32-dark.svg](assets/logo/baud-icon-32-dark.svg), [assets/logo/baud-icon-32-light.svg](assets/logo/baud-icon-32-light.svg), [assets/logo/baud-icon-512-amber.svg](assets/logo/baud-icon-512-amber.svg), [assets/logo/baud-icon-512-dark-blinking.svg](assets/logo/baud-icon-512-dark-blinking.svg), [assets/logo/baud-icon-512-dark.svg](assets/logo/baud-icon-512-dark.svg), [assets/logo/baud-icon-512-light-blinking.svg](assets/logo/baud-icon-512-light-blinking.svg), [assets/logo/baud-icon-512-light.svg](assets/logo/baud-icon-512-light.svg), [assets/logo/baud-icon-dock-1024.png](assets/logo/baud-icon-dock-1024.png), [assets/logo/baud-icon-dock-128.png](assets/logo/baud-icon-dock-128.png), [assets/logo/baud-icon-dock-16.png](assets/logo/baud-icon-dock-16.png), [assets/logo/baud-icon-dock-256.png](assets/logo/baud-icon-dock-256.png), [assets/logo/baud-icon-dock-32.png](assets/logo/baud-icon-dock-32.png), [assets/logo/baud-icon-dock-512.png](assets/logo/baud-icon-dock-512.png), [assets/logo/baud-icon-dock-64.png](assets/logo/baud-icon-dock-64.png), [assets/logo/baud-icon-dock.svg](assets/logo/baud-icon-dock.svg), [assets/logo/baud-lockup-dark-blinking.svg](assets/logo/baud-lockup-dark-blinking.svg), [assets/logo/baud-lockup-dark-tight.svg](assets/logo/baud-lockup-dark-tight.svg), [assets/logo/baud-lockup-dark.svg](assets/logo/baud-lockup-dark.svg), [assets/logo/baud-lockup-light-blinking.svg](assets/logo/baud-lockup-light-blinking.svg), [assets/logo/baud-lockup-light-tight.svg](assets/logo/baud-lockup-light-tight.svg), [assets/logo/baud-lockup-light.svg](assets/logo/baud-lockup-light.svg), [assets/logo/baud-lockup-mono-black.svg](assets/logo/baud-lockup-mono-black.svg), [assets/logo/baud-lockup-mono-white.svg](assets/logo/baud-lockup-mono-white.svg), [assets/logo/baud-mark-amber-tight.svg](assets/logo/baud-mark-amber-tight.svg), [assets/logo/baud-mark-amber.svg](assets/logo/baud-mark-amber.svg), [assets/logo/baud-mark-dark-blinking.svg](assets/logo/baud-mark-dark-blinking.svg), [assets/logo/baud-mark-dark.svg](assets/logo/baud-mark-dark.svg), [assets/logo/baud-mark-light-blinking.svg](assets/logo/baud-mark-light-blinking.svg), [assets/logo/baud-mark-light.svg](assets/logo/baud-mark-light.svg), [assets/logo/JetBrainsMono-OFL.txt](assets/logo/JetBrainsMono-OFL.txt)
 
-### The letters of the repository's link picture and of the README's logo: JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by scripts/make-brand-pictures.py for the picture, and the app's built Bold, drawn by baud's renderer for the logo and the walls its plasma's path was chosen against (scripts/make-readme-logo.py). The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout, the tape and the plasma are baud's own
+### The letters of the repository's link picture and of the README's logo: JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by tools/baud-pictures for the picture, and the app's built Bold, drawn by baud's renderer for the logo and the walls its plasma's path was chosen against (scripts/make-readme-logo.py). The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout, the tape and the plasma are baud's own
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1
@@ -482,6 +483,22 @@ they were built from.
 - **Notice:** [LICENSES/fonttools-MIT.txt](LICENSES/fonttools-MIT.txt)
 - **From:** https://github.com/fonttools/fonttools/tree/4.63.0
 - **Files:** [baud-font/src/bake.rs](baud-font/src/bake.rs)
+
+### Code transcribed from fontTools 4.63.0 in tools/baud-pictures, the build tool that draws the logo files: outline.rs's glyph drawing, path pen and bounds pen, which are Glyph.draw() (ttLib/tables/_g_l_y_f.py), _TTGlyphGlyf.draw() (ttLib/ttGlyphSet.py), Transform.transform() and transformPoint() (misc/transform.py), TransformPen, BasePen.qCurveTo() and decomposeQuadraticSegment() (pens/basePen.py), SVGPathPen, BoundsPen and calcQuadraticBounds() (misc/bezierTools.py), operation for operation, so every coordinate the SVGs carry is the one fontTools wrote. Not published
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/fonttools-MIT.txt](LICENSES/fonttools-MIT.txt)
+- **From:** https://github.com/fonttools/fonttools/tree/4.63.0
+- **Files:** [tools/baud-pictures/src/outline.rs](tools/baud-pictures/src/outline.rs)
+
+### Code transcribed from Pillow 12.3.0 in tools/baud-pictures, the build tool that draws the logo files: png.rs's PNG writer, which is PngImagePlugin._save(), ImageFile._save() and ZipEncode.c's filter choice and deflate loop, and resample.rs's LANCZOS resize of a mode F image, which is Resample.c's precompute_coeffs() and its 32-bit float passes, so the PNGs are the bytes Pillow wrote. Not published
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT-CMU
+- **Notice:** [LICENSES/pillow-MIT-CMU.txt](LICENSES/pillow-MIT-CMU.txt)
+- **From:** https://github.com/python-pillow/Pillow/tree/12.3.0
+- **Files:** [tools/baud-pictures/src/png.rs](tools/baud-pictures/src/png.rs), [tools/baud-pictures/src/resample.rs](tools/baud-pictures/src/resample.rs)
 
 ### CFF Standard Encoding: the code and SID columns of the 256-code table in Appendix B of Adobe's technical note 5176, which Adobe licenses under CC BY-ND 4.0 (manifest adobe-font-tech-notes-license), pinned as text (manifest adobe-5176-cff-standard-encoding) that baud-font's build compiles to a 256-byte table. The columns are reproduced in part and unmodified, the name column left out, written as decimal lines, a format change the licence's 2(a)(4) says never produces Adapted Material; the file's header carries the creator, TN 5176's copyright line, the licence and its URI, the disclaimer and the source's URL, as 3(a)(1) asks
 
