@@ -383,26 +383,6 @@ fn a_nukta_letter_comes_apart_for_nukt() {
     assert_eq!(norm(&[0x0931]), [0x0931]);
 }
 
-/// **`indic_data.rs` is what its generator makes of the pinned files**:
-/// IndicSyllabicCategory.txt, IndicPositionalCategory.txt and Blocks.txt,
-/// through HarfBuzz's mapping (`scripts/gen-indic-tables.py`).
-#[test]
-fn indic_tables_match_the_pinned_data() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-indic-tables.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "indic_data.rs is stale -- rerun scripts/gen-indic-tables.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 /// **Each Devanagari character takes the class and position the pinned
 /// files give it**, read here from the files themselves for the block
 /// U+0900..U+097F, so a table that indexed wrongly could not agree with

@@ -63,9 +63,6 @@ mod compose {
     //! and `[[source: unicode-dnp]]`.
     include!(concat!(env!("OUT_DIR"), "/compose.rs"));
 }
-#[cfg(test)]
-#[path = "compose.rs"]
-mod committed_compose;
 mod context;
 mod describe;
 mod face;
@@ -90,9 +87,6 @@ mod indic_data {
     //! (`[[source: harfbuzz-14-5-1-gen-indic-table]]`).
     include!(concat!(env!("OUT_DIR"), "/indic_data.rs"));
 }
-#[cfg(test)]
-#[path = "indic_data.rs"]
-mod committed_indic_data;
 pub mod ivs;
 mod layout;
 mod morx;
@@ -114,9 +108,6 @@ mod script_data {
     //! `docs/research/sources/MANIFEST.toml`.
     include!(concat!(env!("OUT_DIR"), "/script_data.rs"));
 }
-#[cfg(test)]
-#[path = "script_data.rs"]
-mod committed_script_data;
 mod shape;
 mod standard_encoding {
     //! The CFF Standard Encoding, code to SID, compiled by
@@ -129,13 +120,8 @@ mod standard_encoding {
     //! so a byte holds it.
     include!(concat!(env!("OUT_DIR"), "/standard_encoding.rs"));
 }
-#[cfg(test)]
-#[path = "standard_encoding.rs"]
-mod committed_standard_encoding;
 mod stroke;
 mod syllabic;
-#[cfg(test)]
-mod table_identity;
 pub mod var;
 
 pub use bake::{BakePoint, Refused, bake};

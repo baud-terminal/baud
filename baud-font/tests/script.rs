@@ -14,24 +14,6 @@ fn code(s: Script) -> String {
     String::from_utf8(s.code().to_vec()).unwrap()
 }
 
-/// The committed tables match the pinned Unicode data.
-#[test]
-fn script_tables_match_the_pinned_data() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-script-tables.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "script_data.rs is stale -- rerun scripts/gen-script-tables.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 /// **Every code point's Script is the pinned file's**, read here from the
 /// file itself rather than from the generator, so a trie that indexes
 /// wrongly cannot agree with the generator that built it.

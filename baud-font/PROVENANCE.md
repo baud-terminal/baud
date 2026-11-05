@@ -25,7 +25,6 @@ and when a file classed **a** is under no `[[tree]]` entry of
 | `baud-font/src/cff2.rs` | b | -- |
 | `baud-font/src/cmap.rs` | b | -- |
 | `baud-font/src/colr.rs` | c | -- |
-| `baud-font/src/compose.rs` | c | -- |
 | `baud-font/src/context.rs` | b | -- |
 | `baud-font/src/describe.rs` | c | -- |
 | `baud-font/src/face.rs` | b | -- |
@@ -36,7 +35,6 @@ and when a file classed **a** is under no `[[tree]]` entry of
 | `baud-font/src/gvar.rs` | a | `LICENSES/harfbuzz-COPYING.txt` |
 | `baud-font/src/hvar.rs` | b | -- |
 | `baud-font/src/indic.rs` | a | `LICENSES/harfbuzz-COPYING.txt` |
-| `baud-font/src/indic_data.rs` | a | `LICENSES/harfbuzz-COPYING.txt` |
 | `baud-font/src/ivs.rs` | a | `LICENSES/harfbuzz-COPYING.txt` |
 | `baud-font/src/layout.rs` | a | `LICENSES/harfbuzz-COPYING.txt` |
 | `baud-font/src/lib.rs` | c | -- |
@@ -45,12 +43,9 @@ and when a file classed **a** is under no `[[tree]]` entry of
 | `baud-font/src/outline.rs` | a | `LICENSES/ttf-parser-MIT.txt` |
 | `baud-font/src/raster.rs` | a | `LICENSES/Apache-2.0.txt` |
 | `baud-font/src/script.rs` | b | -- |
-| `baud-font/src/script_data.rs` | c | -- |
 | `baud-font/src/shape.rs` | a | `LICENSES/harfbuzz-COPYING.txt` |
-| `baud-font/src/standard_encoding.rs` | c | -- |
 | `baud-font/src/stroke.rs` | c | -- |
 | `baud-font/src/syllabic.rs` | a | `LICENSES/harfbuzz-COPYING.txt` |
-| `baud-font/src/table_identity.rs` | c | -- |
 | `baud-font/src/var.rs` | b | -- |
 | `baud-render/src/atlas.rs` | b | -- |
 | `baud-render/src/boxes.rs` | c | -- |

@@ -19,7 +19,7 @@ use baud_domain::Codepoint;
 /// A character's class in an Indic syllable: the specification's C, V, N,
 /// H, ZWNJ, ZWJ, M, SM, VD and A, and the finer ones a shaper needs beside
 /// them (`[[source: harfbuzz-14-5-1-shaper-indic-machine]]`). The numbers
-/// are the generated table's (`scripts/gen-indic-tables.py`).
+/// are the compiled table's (`build/indic.rs`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Category(u8);
 
@@ -288,7 +288,7 @@ impl Syllabic {
     };
 
     /// The class and position the generated table gives `c`
-    /// (`indic_data.rs`), X at the end for a character it does not class.
+    /// (`build/indic.rs`), X at the end for a character it does not class.
     pub fn of(c: Codepoint) -> Syllabic {
         let v = c.value();
         // Two bytes a character in the dense tables.

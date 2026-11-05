@@ -4,7 +4,7 @@
 //! **The property is Unicode's, resolved the way UAX #24 says.** Each code
 //! point has one Script value and a set of Script_Extensions
 //! (`[[source: unicode-scripts]]`, `[[source: unicode-scriptextensions]]`),
-//! generated into `script_data.rs`. Two values are not scripts at all:
+//! compiled by `build/script.rs`. Two values are not scripts at all:
 //! Common, "for other characters that may be used with multiple scripts",
 //! and Inherited, a mark that takes its base's (`[[source: uax24]]` 2.1).
 //! UAX #24 says how a renderer settles them, and both rules are here:

@@ -2657,3 +2657,51 @@ against [0.69-0.87], and the lib in [9.59-18.99] s against
 average 8.8-22 from other work. Touching `src/lib.rs` ran no build
 script on either arm; touching a `data/` file, a new one included, ran
 it once. The `.crate`: 1,968,038 bytes on base, 1,952,398 on the change.
+
+## The compose, Indic, script and CFF Standard Encoding tables compiled at build time
+
+`baud-font`'s build compiles four more tables from pinned `data/`:
+canonical composition, the Indic classes, the script tables and the CFF
+Standard Encoding. The last is read from
+`adobe-5176-cff-standard-encoding.txt`, Appendix B's code and SID
+columns pinned as text derived from `adobe-5176-cff`, which was read
+once with `extract-adobe-cff.py`; MANIFEST.toml records how. Before the
+delete, the identity commit printed "identical: COMPOSE 961,
+DECOMPOSE 2081, CCC 403, DENSE 2304, LATIN1 512, SPARSE_BLOCKS 5, SPARSE
+455, CODES 700, TAGS 1400, EXTENSION_SETS 2856, SCRIPT_INDEX 4352,
+SCRIPT_BLOCKS 42240, EXTENSION_INDEX 4352, EXTENSION_BLOCKS 9984,
+DIRECTIONS 175, RUN_INDEX 4352, RUN_BLOCKS 9216, BRACKET_INDEX 4352,
+BRACKET_BLOCKS 3072, STANDARD_ENCODING 256 elements". Compose and the
+Standard Encoding had no test before it.
+
+**Release binaries are byte-identical.** `baud` and `ingest2` were built
+from base and change at one path, with a clean A/A rebuild of the change;
+all three `cmp` equal. `__text` is 4,033,984 and 1,225,216 bytes. No
+crate-hash rename: `baud-font` already had its build-dependency. No
+timing run.
+
+**The build.** `cargo build -p baud-font --timings`, both arms extracted
+at one path, five rounds rotated, the first dropped. `baud-font`'s build
+script runs in [0.40-0.58] s against base's [0.14-0.22] and compiles in
+[0.91-1.46] s against [0.35-0.47]. The lib compiles in [1.87-3.95] s
+against [1.80-3.73], which overlap. Touching `src/lib.rs` ran no build
+script on either arm, and touching `data/unicode-unicodedata.txt` ran it
+once on each. Load average was 18-23 from other work. The `baud-font`
+`.crate` went from 811,968 to 1,166,650 bytes, 11.1% of crates.io's
+10 MiB. The largest file it gained is DerivedNormalizationProps.txt,
+1,377,582 bytes before compression.
+
+**Red first.** Each was built and run:
+- HarfBuzz's override of U+0953 to A instead of SM passes every build
+  check and turns the identity test red (DENSE[166]).
+- Composites with their exclusion test removed are a `cargo::error`
+  (1046 primary composites, 961 expected) and fail the U+0958 control.
+- With the Standard Encoding's code count dropped, the test's
+  dropped-row case goes red.
+
+`build_tables.rs` holds 44 perturbed inputs across the four modules,
+and each fires. They cover a header per module, every row-level assert,
+KeyError and SystemExit of the generators, and at least one control and
+one count in each module. Three checks have no case, because no one-row
+edit reaches them: 256 or more scripts, more than 256 extension sets,
+and the 37 right-to-left scripts.

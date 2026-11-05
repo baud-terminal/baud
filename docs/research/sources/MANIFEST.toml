@@ -1608,8 +1608,8 @@ status = "retrieved"
 group  = "G"
 
 # The Script property and its extensions, and the aliases that give each
-# value its ISO 15924 code: what `scripts/gen-script-tables.py` builds
-# `baud-font/src/script_data.rs` from, and what baud-font's renderer splits
+# value its ISO 15924 code: what `baud-font/build/script.rs` compiles
+# baud-font's script tables from, and what baud-font's renderer splits
 # runs by. Pinned at 17.0.0, the version of every other UCD file here.
 [sources.unicode-scripts]
 key    = "unicode-scripts"
@@ -1625,7 +1625,7 @@ status = "retrieved"
 group  = "G"
 
 # The Indic syllabic and positional categories, and the blocks they are read
-# within: what `scripts/gen-indic-tables.py` builds `baud-font/src/indic_data.rs`
+# within: what `baud-font/build/indic.rs` compiles baud-font's Indic tables
 # from -- each character's class in a syllable and where its glyph goes.
 [sources.unicode-indicsyllabiccategory]
 key    = "unicode-indicsyllabiccategory"
@@ -1700,8 +1700,8 @@ status = "retrieved"
 group  = "G"
 
 # Bidi_Paired_Bracket and its type: which characters are paired brackets
-# and which closes which (UAX #9 BD14-BD16). `scripts/gen-script-tables.py`
-# builds the pairs into `script_data.rs`, for UAX #24 5.1's "paired
+# and which closes which (UAX #9 BD14-BD16). `baud-font/build/script.rs`
+# compiles the pairs into baud-font's script tables, for UAX #24 5.1's "paired
 # punctuation ... should therefore match the script of the enclosing text".
 # Pinned at 17.0.0, the version of Scripts.txt beside it.
 [sources.unicode-bidibrackets]
@@ -3433,7 +3433,7 @@ group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
 # 187 registered tags. Every Unicode 17.0 script's tag that
-# `scripts/gen-script-tables.py` derives is among them (Yi's is printed with
+# `baud-font/build/script.rs` derives is among them (Yi's is printed with
 # no-break spaces and is `yi  `); the registered tags it does not derive are
 # byzm, math and musc (not Unicode scripts), jamo ("not recommended"), and
 # jurc, pcun and seal (not encoded in 17.0). Checked 2026-10-13.
@@ -7890,7 +7890,7 @@ bytes  = 2198209
 status = "retrieved"
 group  = "J"
 # Field 5 (canonical decompositions, the untagged ones) is what
-# scripts/gen-compose.py turns into baud-font/src/compose.rs: the shaper
+# baud-font/build/compose.rs compiles into baud-font's compose tables: the shaper
 # composes a base and its marks the way HarfBuzz's normaliser does before
 # it looks glyphs up.
 
@@ -7938,7 +7938,7 @@ bytes  = 1377582
 status = "retrieved"
 group  = "J"
 # The exclusions: a precomposed character that decomposes but is never the
-# result of composition (Full_Composition_Exclusion), so gen-compose.py
+# result of composition (Full_Composition_Exclusion), so build/compose.rs
 # leaves its pair out of the compose table and keeps it in the decompose one.
 
 # ---- F: where a retired line lives, in the shipping terminals -----------
