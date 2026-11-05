@@ -41,18 +41,18 @@ memory is exactly the "guessed table that would be unrecoverable and would
 look like it worked" this project refused for DEC line drawing, so it is
 generated and re-runnable rather than pasted.
 
-`scripts/extract-kitty-keys.py` does the same for
 `[[source: kitty-keyboard]]`'s "Functional key definitions" table -- **111
 rows** mapping a key name to the number and final byte its `CSI` form uses,
-from `ESCAPE = 27 u` through `ISO_LEVEL5_SHIFT = 57454 u` -- and for its 35
-legacy C0 cells. It reads the page's source at kitty v0.49.2
-(`[[source: kitty-keyboard-rst]]`), fetched by URL and refused unless it
-hashes to the manifest's SHA-256, and writes the two tables as baud's own data,
-`baud-core/tests/kitty_functional_keys.tsv` and
-`baud-core/tests/kitty_legacy_c0.tsv`, which the tests read without fetching.
-It and the tests carry positive controls (`ESCAPE`, `CAPS_LOCK` and
-`ISO_LEVEL5_SHIFT` at known values, and the exact row count) so a broken
-extraction fails loudly rather than reporting a plausible subset. It is the
+from `ESCAPE = 27 u` through `ISO_LEVEL5_SHIFT = 57454 u` -- and its 35
+legacy C0 cells are extracted the same way, from the page's source at kitty
+v0.49.2 (`[[source: kitty-keyboard-rst]]`), fetched by URL and refused unless
+it hashed to the manifest's SHA-256. The two tables are pinned as baud's own
+data, `[[source: kitty-functional-keys]]` and `[[source: kitty-legacy-c0]]`,
+each with its own SHA-256 and the parent's on its first line, and the tests
+read them without fetching. The tests carry positive controls (`ESCAPE`,
+`CAPS_LOCK` and `ISO_LEVEL5_SHIFT` at known values, Alt-Backspace, and the
+exact row and cell counts) so a broken extraction fails loudly rather than
+reporting a plausible subset. `[[source: kitty-functional-keys]]` is the
 source of truth the kitty encoder's
 functional-key table is gated against, the way the base rows above are gated
 against `key_tables`. ~~The encoder that consumes it is not built yet.~~

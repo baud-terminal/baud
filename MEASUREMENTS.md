@@ -2608,3 +2608,52 @@ Rust's whitespace for Python's, the off selectors not requested, and
 `bitmap_left` and `bitmap_top` swapped in the struct. `bake-oracle.py`
 is retired: its TTFs stay as fontTools 4.63.0 observations, the recipe
 in `baud-font/tests/bake.rs`.
+
+## The colour-name and placeholder tables compiled at build time
+
+`build/colour_names.rs` compiles kitty's and the X server's colour names
+into `baud-domain`'s `OUT_DIR` from `data/` links to the two pinned
+rgb.txt files, through `baud_tablegen::perfect_hash`, and
+`build/placeholder.rs` the placeholder diacritics, pinned as
+`kitty-placeholder-diacritics` (`derived_from` kitty's external file),
+as kitty's key tables are, read only by tests. A slot is `ColourSlot`,
+`repr(C)`, held to six bytes, an alignment of two and the tuple's
+offsets. Before the delete, the identity commit printed "identical: kitty SEEDS 256, kitty SLOTS 1024, kitty POOL
+6601, x SEEDS 256, x SLOTS 1024, x POOL 6832, DIACRITICS 297,
+DIACRITIC_INDEX 1866, DIACRITIC_BLOCKS 2240 elements". Two spellings
+differing only in case with one colour are one name; one spelling
+twice, or two colours, is a build error. Neither pin has such a pair.
+
+**Release binaries.** Built at one path from fresh extractions, every
+file touched: `ingest2` is byte-identical across base, change and A/A,
+and is not vacuous, since `baud` from the same builds shows baud-domain
+rebuilt. `baud`'s `__TEXT,__text`
+(4,033,984 bytes) and `__TEXT,__const`, which holds the tables, are
+base's byte for byte; the binary differs in 9 bytes of
+`__DATA_CONST,__const`, each a panic location's line in `themefile.rs`
+moved down 7 by its `mod colour_names` block, and in the UUID and code
+signature over them. A/A matches the change. No timing run.
+
+**Red first.** Seeds tried from 0, the pool in file order and the trie's
+blocks renumbered by content each turn the identity test red (kitty
+SEEDS[0], kitty SLOTS[0], DIACRITIC_INDEX[12]) while the oracles stay
+green; the duplicate rule, the pool's bound and the 753 and 782 counts,
+each turned off, turn `build_tables.rs` red; `debianred` at
+215, 7, 80 turns `kitty_names_are_rgb_txt_and_debianred` and the
+ignored `kitty_names_are_its_own_file` red; ESCAPE 28 and another
+sha256 on line 1 of the key tables turn five key tests red. A build
+whose 0d2caec copy spells GhostWhite `Ghost White` at 248 248 254 stops
+at "data/xorg-rgb-0d2caec.txt:3:14" and "781 colour names, 782
+expected". On kitty's file at its pin the ignored test passes, as the
+Python's `--kitty` printed "OK: kitty's 753 names are rgb.txt's and
+debianred"; a copy with `debianred` changed fails both, the Python on
+its value and the test on its sha256.
+
+**The build.** `cargo build -p baud-domain --timings`, both arms at one
+path, five rounds rotated, the first dropped: the build script compiles
+in [0.78-3.69] s against base's [0.74-1.80], runs in [0.71-2.78] s
+against [0.69-0.87], and the lib in [9.59-18.99] s against
+[9.56-20.09]; every range overlaps, round 3 high on both arms, load
+average 8.8-22 from other work. Touching `src/lib.rs` ran no build
+script on either arm; touching a `data/` file, a new one included, ran
+it once. The `.crate`: 1,968,038 bytes on base, 1,952,398 on the change.

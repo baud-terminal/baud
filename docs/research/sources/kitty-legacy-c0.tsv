@@ -1,6 +1,6 @@
-# kitty's legacy C0 table: key, modifier column, bytes as the table
-# spells them. Written by scripts/extract-kitty-keys.py; do not edit.
-# From [[source: kitty-keyboard-rst]], sha256 1feb3aea4a1c7e4cca524524d65a71e1a7b87b4fa2a13194df923817d08fe8bd.
+# kitty's legacy C0 table, from [[source: kitty-keyboard-rst]] at sha256 1feb3aea4a1c7e4cca524524d65a71e1a7b87b4fa2a13194df923817d08fe8bd:
+# key, modifier column, bytes as the table spells them. Pinned in
+# docs/research/sources/MANIFEST.toml as kitty-legacy-c0.
 Enter	No mods	0xd
 Enter	Ctrl	0xd
 Enter	Alt	0x1b 0xd

@@ -1,8 +1,8 @@
-//! **`perfect_hash` is the hash `scripts/gen-colour-names.py` finds**: on
-//! X.Org's rgb.txt at 749182c (`[[source: xorg-rgb-749182c]]`) and
-//! `debianred`, the 256 seeds are the ones committed in
-//! `baud-domain/src/themefile/colour_names.rs`, and every key lands in a
-//! slot of its own. `place`, which it is built on, tries the seeds it is
+//! **`perfect_hash` is the hash kitty's colour-name table was found with**:
+//! on X.Org's rgb.txt at 749182c (`[[source: xorg-rgb-749182c]]`) and
+//! `debianred`, the 256 seeds are [`SEEDS`], the ones the table was
+//! committed with before `baud-domain`'s build compiled it, and every key
+//! lands in a slot of its own. `place`, which it is built on, tries the seeds it is
 //! given in order, so a hash whose seeds start at 0 is another table, and
 //! refuses a bucket or a slot past the last.
 
@@ -35,19 +35,27 @@ fn names() -> Vec<String> {
     out
 }
 
-fn committed_seeds() -> Vec<u16> {
-    let text = repo("baud-domain/src/themefile/colour_names.rs");
-    let body = text
-        .split_once("SEEDS: [u16; 256] = [")
-        .and_then(|(_, rest)| rest.split_once("];"))
-        .map(|(body, _)| body)
-        .expect("the SEEDS array");
-    body.split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.parse().expect("a seed"))
-        .collect()
-}
+/// The 256 seeds of kitty's colour-name table as it was committed, and as
+/// `baud-domain`'s build compiles it.
+#[rustfmt::skip]
+const SEEDS: [u16; 256] = [
+    1, 5, 4, 1, 3, 4, 1, 4, 3, 11, 1, 5, 1, 2, 3, 1,
+    7, 3, 5, 3, 5, 8, 0, 2, 2, 5, 2, 1, 4, 1, 8, 2,
+    15, 1, 1, 4, 1, 16, 1, 0, 3, 4, 3, 2, 1, 7, 5, 15,
+    1, 1, 3, 13, 9, 3, 4, 6, 2, 1, 4, 2, 1, 2, 6, 3,
+    1, 2, 2, 3, 13, 1, 23, 14, 0, 13, 11, 4, 6, 4, 4, 7,
+    3, 22, 3, 1, 4, 2, 0, 1, 2, 8, 4, 1, 3, 2, 11, 1,
+    1, 14, 0, 10, 15, 0, 1, 5, 42, 2, 6, 1, 3, 1, 0, 1,
+    5, 2, 9, 1, 4, 0, 5, 1, 17, 8, 4, 4, 0, 15, 4, 3,
+    11, 38, 1, 1, 4, 1, 3, 1, 1, 1, 2, 4, 11, 1, 3, 7,
+    6, 5, 1, 7, 2, 1, 1, 5, 1, 2, 8, 1, 11, 6, 22, 4,
+    2, 1, 13, 0, 3, 3, 1, 14, 3, 0, 1, 3, 6, 10, 1, 15,
+    4, 8, 1, 2, 1, 4, 1, 5, 16, 2, 3, 7, 2, 1, 2, 6,
+    3, 1, 12, 6, 2, 1, 41, 1, 1, 4, 6, 3, 1, 11, 33, 1,
+    1, 8, 1, 3, 22, 2, 7, 0, 20, 11, 1, 2, 18, 5, 28, 20,
+    2, 4, 4, 11, 2, 9, 1, 1, 1, 0, 2, 5, 42, 13, 1, 2,
+    5, 0, 2, 0, 7, 1, 6, 2, 0, 3, 10, 3, 2, 6, 3, 1,
+];
 
 #[test]
 fn fnv1a_is_the_reference_function() {
@@ -63,7 +71,7 @@ fn the_colour_names_perfect_hash_is_the_committed_one() {
     assert_eq!(names.len(), 753);
     let keys: Vec<&[u8]> = names.iter().map(|n| n.as_bytes()).collect();
     let h = perfect_hash("colour names", &keys, Buckets(256), Slots(1024)).expect("a perfect hash");
-    assert_eq!(h.seeds, committed_seeds());
+    assert_eq!(h.seeds, SEEDS);
     let mut placed = vec![0usize; keys.len()];
     for k in h.slots.iter().flatten() {
         placed[*k] += 1;

@@ -5,6 +5,9 @@
 use baud_domain::Color;
 use baud_domain::themefile::*;
 
+#[path = "../../baud-font/tests/sha256/mod.rs"]
+mod sha256;
+
 fn c(h: &str) -> Color {
     hex(h.as_bytes()).unwrap()
 }
@@ -314,6 +317,51 @@ fn kitty_names_are_rgb_txt_and_debianred() {
     let (s, skipped) = kitty_of("color1 lime\ncolor2 abcdef\n");
     assert_eq!(s.unwrap().ansi[1..3], [None, None]);
     assert_eq!(skipped.len(), 2, "{skipped:?}");
+}
+
+/// **kitty's own table is the one built here**, run by hand with
+/// `KITTY_COLOR_NAMES` naming kitty's gen/color_names.py at 1e1486e
+/// (`[[source: kitty-color-names-1e1486e]]`), which is not in the tree
+/// because kitty is GPL-3.0:
+///
+/// ```text
+/// KITTY_COLOR_NAMES=<file> cargo test -p baud-domain --test themeterminals \
+///     -- --ignored kitty_names_are_its_own_file
+/// ```
+///
+/// The file is refused unless it hashes to the manifest's sha256. Every
+/// `'<name>': Color(r, g, b)` it lists is a colour here with that value,
+/// and it lists 753, as many as the build compiles, so the two tables hold
+/// the same names.
+#[test]
+#[ignore = "reads kitty's file, which is not in the tree: set KITTY_COLOR_NAMES"]
+fn kitty_names_are_its_own_file() {
+    let path = std::env::var("KITTY_COLOR_NAMES")
+        .expect("KITTY_COLOR_NAMES, the path of kitty's gen/color_names.py at 1e1486e");
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    assert_eq!(
+        sha256::sha256_hex(&bytes),
+        "255914422a50db71c07b7de905c919ff44db90f7ee0faffd0d2fd60d26b794fe",
+        "{path} is not kitty-color-names-1e1486e"
+    );
+    let text = String::from_utf8(bytes).expect("UTF-8");
+    let mut names = std::collections::HashSet::new();
+    for (at, _) in text.match_indices("': Color(") {
+        let name = &text[text[..at].rfind('\'').expect("an opening quote") + 1..at];
+        let rest = &text[at + "': Color(".len()..];
+        let v: Vec<u8> = rest[..rest.find(')').expect("a closing parenthesis")]
+            .split(", ")
+            .map(|x| x.parse().expect("a channel"))
+            .collect();
+        let (s, _) = kitty_of(&format!("color1 {name}\n"));
+        assert_eq!(
+            s.unwrap().ansi[1],
+            Some(c(&format!("#{:02x}{:02x}{:02x}", v[0], v[1], v[2]))),
+            "{name}"
+        );
+        assert!(names.insert(name), "{name} twice");
+    }
+    assert_eq!(names.len(), 753);
 }
 
 /// **kitty and foot read bytes**: a byte that is not UTF-8 in a comment

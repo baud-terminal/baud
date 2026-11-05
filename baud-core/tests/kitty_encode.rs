@@ -3,8 +3,8 @@
 //! all five flags: disambiguate, event types, alternate keys, all-keys and
 //! associated text.
 //!
-//! The table of key numbers is gated against `kitty_functional_keys.tsv`,
-//! which `scripts/extract-kitty-keys.py` writes from the pinned source
+//! The table of key numbers is gated against
+//! `[[source: kitty-functional-keys]]`, read from the pinned source
 //! (`[[source: kitty-keyboard-rst]]`, fetched and hash-checked), through the
 //! encoded output rather than by inspecting a private function: for
 //! each functional key the test looks up the spec's number and final byte and
@@ -40,10 +40,19 @@ fn pressed(setup: &[u8], e: KeyEvent) -> Vec<u8> {
 }
 
 /// name -> (number, final byte), the pinned source's table as
-/// `scripts/extract-kitty-keys.py` wrote it into `kitty_functional_keys.tsv`.
+/// `[[source: kitty-functional-keys]]` transcribes it; its line 1 names the
+/// sha256 of the source it was read from.
 fn functional_table() -> HashMap<String, (u32, u8)> {
+    let text = include_str!("../../docs/research/sources/kitty-functional-keys.tsv");
+    assert!(
+        text.starts_with(
+            "# kitty's functional keys, from [[source: kitty-keyboard-rst]] at sha256 \
+             1feb3aea4a1c7e4cca524524d65a71e1a7b87b4fa2a13194df923817d08fe8bd:"
+        ),
+        "the transcription of the pinned kitty-keyboard-rst"
+    );
     let mut map = HashMap::new();
-    for line in include_str!("kitty_functional_keys.tsv").lines() {
+    for line in text.lines() {
         if line.starts_with('#') {
             continue;
         }

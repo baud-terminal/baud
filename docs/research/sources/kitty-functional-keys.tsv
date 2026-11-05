@@ -1,6 +1,6 @@
-# kitty's functional keys: name, CSI number, final byte (the first
-# alternative). Written by scripts/extract-kitty-keys.py; do not edit.
-# From [[source: kitty-keyboard-rst]], sha256 1feb3aea4a1c7e4cca524524d65a71e1a7b87b4fa2a13194df923817d08fe8bd.
+# kitty's functional keys, from [[source: kitty-keyboard-rst]] at sha256 1feb3aea4a1c7e4cca524524d65a71e1a7b87b4fa2a13194df923817d08fe8bd:
+# name, CSI number, final byte (the first alternative). Pinned in
+# docs/research/sources/MANIFEST.toml as kitty-functional-keys.
 ESCAPE	27	u
 ENTER	13	u
 TAB	9	u

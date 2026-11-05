@@ -1,7 +1,7 @@
 //! The Unicode placeholder diacritic table and the placeholder word
 //! (`[[source: kitty-graphics]]`, "Unicode placeholders";
-//! `[[source: kitty-rowcolumn-diacritics]]`): the generated table is the
-//! pinned list, every diacritic maps to its line and back and nothing else
+//! `[[source: kitty-rowcolumn-diacritics]]`): the compiled table is the
+//! pinned list (`[[source: kitty-placeholder-diacritics]]`), every diacritic maps to its line and back and nothing else
 //! maps at all, and a cell's placeholder word holds exactly the diacritics
 //! written into it.
 
@@ -13,7 +13,7 @@ use baud_domain::{
 fn pinned() -> Vec<u32> {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../docs/data/placeholder-diacritics.txt"
+        "/../docs/research/sources/kitty-placeholder-diacritics.txt"
     );
     std::fs::read_to_string(path)
         .unwrap()
@@ -21,24 +21,6 @@ fn pinned() -> Vec<u32> {
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(|l| u32::from_str_radix(l.split(';').next().unwrap(), 16).unwrap())
         .collect()
-}
-
-/// The generated table matches the pinned list.
-#[test]
-fn placeholder_table_matches_the_pinned_list() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-placeholder-table.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "placeholder_data.rs is stale -- rerun scripts/gen-placeholder-table.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
 }
 
 /// **Every listed diacritic is its line's number, and back; no other

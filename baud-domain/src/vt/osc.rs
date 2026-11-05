@@ -1096,8 +1096,8 @@ impl Video {
 /// length (`[[source: xserver-oscolor-98aed9d]]` 852-884): **case is ignored
 /// and nothing else**, so `lime green` and `LimeGreen` are colours, each
 /// spelled in the table, and `lime  green` is not. The table is X.Org's
-/// rgb.txt (`[[source: xorg-rgb-0d2caec]]`), 782 names, generated into
-/// `baud-domain/src/vt/x_colour_names.rs` and found by two hashes and one
+/// rgb.txt (`[[source: xorg-rgb-0d2caec]]`), 782 names, compiled by
+/// `baud-domain/build/colour_names.rs` and found by two hashes and one
 /// comparison. `rgbi:` and the CIE and TekHVC forms are Xcms's, converted to
 /// sRGB (`baud-domain/src/vt/xcms.rs`). What none of these reads -- a name
 /// the server lacks, a malformed spec -- parses to [`XColor::Unresolved`].

@@ -85,10 +85,10 @@ unmodified, which the build compiles into the Unicode 8 width table
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://www.unicode.org/Public/8.0.0/ucd/
 
-kitty's colour names, generated from X.Org's rgb.txt and the one name kitty
-adds to it, DebianRed (215, 7, 81), from Debian's rgb.txt. A colour name and
-its value are facts
-  Files:   data/xorg-rgb-749182c.txt, src/themefile/colour_names.rs
+X.Org's rgb.txt, carried unmodified, which the build compiles into kitty's
+colour names with the one name kitty adds to it, DebianRed (215, 7, 81),
+from Debian's rgb.txt. A colour name and its value are facts
+  Files:   data/xorg-rgb-749182c.txt
   Holder:  The Open Group (rgb.txt); DebianRed from Debian's X.Org packaging
   Licence: MIT-open-group (rgb.txt); DebianRed from Debian xorg
            debian/local/rgb.txt, a name and a value
@@ -96,9 +96,10 @@ its value are facts
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://gitlab.freedesktop.org/xorg/app/rgb/-/raw/749182c37cb455939ba327e9420dd652c0ff58a1/rgb.txt
 
-The X server's colour names that OSC 4, 10, 11 and 12 resolve, generated
-from X.Org's rgb.txt, each a name and a value
-  Files:   data/xorg-rgb-0d2caec.txt, src/vt/x_colour_names.rs
+X.Org's rgb.txt, carried unmodified, each a name and a value, which the
+build compiles into the X server's colour names that OSC 4, 10, 11 and 12
+resolve
+  Files:   data/xorg-rgb-0d2caec.txt
   Holder:  The Open Group
   Licence: MIT-open-group
   Notice:  LICENSES/xorg-rgb-COPYING.txt
@@ -211,10 +212,10 @@ interface data. No text of kitty's documentation is kept
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://github.com/kovidgoyal/kitty/blob/v0.49.2/docs/keyboard-protocol.rst
 
-The Unicode placeholder diacritics in placeholder_data.rs: the 297
-codepoints of kitty's rowcolumn-diacritics.txt that every client of the
-kitty graphics protocol must send, kept as the protocol's interface data
-  Files:   data/kitty-placeholder-diacritics.txt, src/placeholder_data.rs
+The Unicode placeholder diacritics the build compiles: the 297 codepoints of
+kitty's rowcolumn-diacritics.txt that every client of the kitty graphics
+protocol must send, kept as the protocol's interface data
+  Files:   data/kitty-placeholder-diacritics.txt
   Holder:  Kovid Goyal (kitty v0.49.2)
   Licence: protocol interface data, attributed to kitty v0.49.2 (Kovid
            Goyal)

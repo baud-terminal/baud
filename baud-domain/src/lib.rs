@@ -155,8 +155,6 @@ mod quantity;
 mod regis;
 mod scan;
 mod search;
-#[cfg(test)]
-mod table_identity;
 mod search_data {
     //! What a search compares, compiled by `build/search.rs` from the
     //! sources pinned in `docs/research/sources/MANIFEST.toml`:

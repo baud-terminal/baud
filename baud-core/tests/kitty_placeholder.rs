@@ -6,9 +6,9 @@
 //! reach a virtual placement.
 //!
 //! The diacritics are read from the pinned list's codepoints
-//! (`docs/data/placeholder-diacritics.txt`, from `[[source:
-//! kitty-rowcolumn-diacritics]]`), never from the table generated from
-//! them, so a generator that drifted is caught here too.
+//! (`[[source: kitty-placeholder-diacritics]]`, from `[[source:
+//! kitty-rowcolumn-diacritics]]`), never from the table compiled from
+//! them, so a build that drifted is caught here too.
 
 use baud_core::*;
 use baud_domain::{
@@ -25,7 +25,7 @@ const WS: WinSize = WinSize {
 fn diacritics() -> Vec<char> {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../docs/data/placeholder-diacritics.txt"
+        "/../docs/research/sources/kitty-placeholder-diacritics.txt"
     );
     std::fs::read_to_string(path)
         .unwrap()

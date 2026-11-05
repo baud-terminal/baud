@@ -461,9 +461,9 @@ fn the_remaining_text_keys() {
 type C0Row = (String, Vec<(String, Vec<u8>)>);
 
 /// `[[source: kitty-keyboard]]`'s legacy table of the C0 keys and Space:
-/// `(key, [(column, bytes)])`, every cell as `scripts/extract-kitty-keys.py`
-/// read it from the pinned source (`[[source: kitty-keyboard-rst]]`) into
-/// `kitty_legacy_c0.tsv`.
+/// `(key, [(column, bytes)])`, every cell as `[[source: kitty-legacy-c0]]`
+/// transcribes it from the pinned source (`[[source: kitty-keyboard-rst]]`),
+/// whose sha256 its line 1 names.
 ///
 /// The table's cells spell bytes as `0x1b` and `CSI`, separated by spaces;
 /// a letter stands for itself.
@@ -490,7 +490,15 @@ fn kitty_c0_table() -> Vec<C0Row> {
         }
         v
     };
-    let cells: Vec<(&str, &str, &str)> = include_str!("kitty_legacy_c0.tsv")
+    let text = include_str!("../../docs/research/sources/kitty-legacy-c0.tsv");
+    assert!(
+        text.starts_with(
+            "# kitty's legacy C0 table, from [[source: kitty-keyboard-rst]] at sha256 \
+             1feb3aea4a1c7e4cca524524d65a71e1a7b87b4fa2a13194df923817d08fe8bd:"
+        ),
+        "the transcription of the pinned kitty-keyboard-rst"
+    );
+    let cells: Vec<(&str, &str, &str)> = text
         .lines()
         .filter(|l| !l.starts_with('#'))
         .map(|l| {

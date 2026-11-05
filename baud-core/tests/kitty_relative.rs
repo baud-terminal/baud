@@ -460,7 +460,7 @@ fn a_virtual_parent_holds_its_children_until_it_goes() {
 fn d(n: usize) -> char {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../docs/data/placeholder-diacritics.txt"
+        "/../docs/research/sources/kitty-placeholder-diacritics.txt"
     );
     let src = std::fs::read_to_string(path).unwrap();
     let line = src

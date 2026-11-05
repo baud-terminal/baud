@@ -2581,10 +2581,55 @@ sha256 = "1feb3aea4a1c7e4cca524524d65a71e1a7b87b4fa2a13194df923817d08fe8bd"
 bytes  = 36771
 status = "external"
 group  = "H"
-# What scripts/extract-kitty-keys.py fetches, refusing it unless it hashes to
-# this, since the page's own URL no longer serves the pinned copy. Its two
-# csv-tables gave the same 111 functional keys as the copy of the page did,
-# and the 35 C0 cells key_encode.rs had read from it. Fetched 2026-10-25.
+# What kitty-functional-keys and kitty-legacy-c0 were read from, fetched by
+# this URL and refused unless it hashed to this, since the page's own URL no
+# longer serves the pinned copy. Its two csv-tables gave the same 111
+# functional keys as the copy of the page did, and the 35 C0 cells
+# key_encode.rs had read from it. Fetched 2026-10-25.
+
+[sources.kitty-functional-keys]
+key          = "kitty-functional-keys"
+title        = "kitty's functional key codes, transcribed: name, CSI number and final byte of the 111 rows of kitty v0.49.2's keyboard-protocol.rst"
+author       = "baud (transcription of Kovid Goyal, kitty v0.49.2)"
+year         = 2026
+venue        = "baud, from the pinned kitty-keyboard-rst"
+url          = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/keyboard-protocol.rst"
+file         = "kitty-functional-keys.tsv"
+sha256       = "091133d0098c47b26786614720ac08d7c0ca0a797333fb44e0152706e4bb3548"
+bytes        = 1923
+derived_from = "kitty-keyboard-rst"
+status       = "retrieved"
+group        = "H"
+# How it was read: the rows of the `.. csv-table:: Functional key codes`
+# directive, its `:header:` Name, CSI, Name, CSI, so each row is two keys.
+# A name is `[A-Z][A-Z0-9_]*`; a CSI cell, its backquotes dropped, is a
+# number, blanks and a final byte (`1 H or 7 ~`), and the row keeps the
+# first alternative, the canonical form baud sends; the second is the
+# legacy `~` form kitty also accepts. Tab-separated, one key a line, in the
+# table's order. The controls held: 111 keys, none twice, ESCAPE 27 u,
+# CAPS_LOCK 57358 u, ISO_LEVEL5_SHIFT 57454 u. Line 1 names the parent's
+# sha256; baud-core/tests/kitty_encode.rs reads it.
+
+[sources.kitty-legacy-c0]
+key          = "kitty-legacy-c0"
+title        = "kitty's legacy C0 controls table, transcribed: the 35 cells of kitty v0.49.2's keyboard-protocol.rst, key, modifier column and bytes"
+author       = "baud (transcription of Kovid Goyal, kitty v0.49.2)"
+year         = 2026
+venue        = "baud, from the pinned kitty-keyboard-rst"
+url          = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/keyboard-protocol.rst"
+file         = "kitty-legacy-c0.tsv"
+sha256       = "bc85acfe51d379a5f0ac3beacd6439e49087dbd1d0c5359fb0a6ff0018e57c7e"
+bytes        = 1025
+derived_from = "kitty-keyboard-rst"
+status       = "retrieved"
+group        = "H"
+# How it was read: the rows of the `.. csv-table:: C0 controls` directive,
+# its `:header:` Key and seven modifier columns (No mods, Ctrl, Alt, Shift,
+# Ctrl + Shift, Alt + Shift, Ctrl + Alt), its rows Enter, Escape,
+# Backspace, Tab and Space in that order; each cell as the table spells
+# its bytes (`0x1b 0x7f`, `CSI`), tab-separated, one cell a line, row by
+# row. The controls held: 35 cells, Alt-Backspace `0x1b 0x7f`. Line 1
+# names the parent's sha256; baud-core/tests/key_encode.rs reads it.
 
 # Group F was declared when the corpus was set up and stood empty for the life
 # of the project, while a per-row
@@ -10766,8 +10811,8 @@ group  = "C"
 # rowcolumn-diacritics.txt; the copy the documentation serves
 # (https://sw.kovidgoyal.net/kitty/_downloads/f0a0de9ec8d9ff4456206db8e0814937/rowcolumn-diacritics.txt)
 # is byte-identical to this one. Line n of its data, from zero, is the
-# diacritic for the number n. `scripts/gen-placeholder-table.py` builds
-# `baud-domain/src/placeholder_data.rs` from it.
+# diacritic for the number n. Its codepoints are pinned as
+# kitty-placeholder-diacritics, which baud-domain's build compiles.
 
 [sources.kitty-placeholder-diacritics]
 key          = "kitty-placeholder-diacritics"
@@ -31029,8 +31074,9 @@ status = "external"
 group  = "Y"
 # Read 2026-10-17 for the kitty reader's names (note AR): rgb.txt at
 # 749182c lower-cased plus debianred (line 161), Debian's 2004 addition to
-# its rgb.txt (debian-bug-243288), which scripts/gen-colour-names.py
-# --kitty checks. Not committed: kitty is GPL.
+# its rgb.txt (debian-bug-243288), which baud-domain's ignored test
+# kitty_names_are_its_own_file checks against this file, given its path.
+# Not committed: kitty is GPL.
 
 [sources.kitty-color-names-h-1e1486e]
 key    = "kitty-color-names-h-1e1486e"
@@ -31076,7 +31122,7 @@ status = "retrieved"
 group  = "Y"
 # The last rgb.txt before the 2014 CSS names; kitty's table is it,
 # lower-cased, plus Debian's debianred (debian-xorg-rgb-7-7-26, note AR).
-# baud-domain's colour_names.rs is generated from it.
+# baud-domain's build compiles kitty's colour-name table from it.
 
 [sources.xorg-rgb-0d2caec]
 key    = "xorg-rgb-0d2caec"
@@ -31097,8 +31143,8 @@ group  = "C"
 # teal, RebeccaPurple and the Web/X11 aliases), every value of a shared
 # name unchanged. Name for name and value for value it is the table the
 # X.Org server answers from (xserver-oscolor-98aed9d), checked the same
-# day. baud-domain's x_colour_names.rs, the names OSC 4/10/11/12 resolve,
-# is generated from it; COPYING at this commit begins with the Open Group
+# day. baud-domain's build compiles the names OSC 4/10/11/12 resolve from
+# it; COPYING at this commit begins with the Open Group
 # notice in LICENSES/xorg-rgb-COPYING.txt, and its Oracle block covers
 # the package's code.
 

@@ -88,7 +88,7 @@ fn transmit(t: &mut Term, id: u32, px: impl Fn(u32, u32) -> u32) {
 fn d(n: usize) -> char {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../docs/data/placeholder-diacritics.txt"
+        "/../docs/research/sources/kitty-placeholder-diacritics.txt"
     );
     let src = std::fs::read_to_string(path).unwrap();
     let line = src
