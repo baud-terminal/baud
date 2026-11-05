@@ -1,7 +1,7 @@
 # baud -- the licence of every third-party file in the tree.
 #
-# scripts/gen-third-party.py reads this file with docs/research/sources/
-# MANIFEST.toml and writes THIRD_PARTY.md; scripts/check-sources.sh runs it
+# `cargo xtask third-party` reads this file with docs/research/sources/
+# MANIFEST.toml and writes THIRD_PARTY.md; `cargo xtask sources` runs it
 # with --check, which fails if:
 #
 #   - a `retrieved` file in MANIFEST.toml is in no group here, or in two, or a
@@ -1331,6 +1331,15 @@ files   = [
   "rfc4648-base64.txt",
   "rfc8089-file-uri.txt",
   "rfc8259-json.txt",
+]
+
+[upstream.whatwg-html]
+name    = "WHATWG HTML Living Standard, its named character references"
+licence = "CC-BY-4.0"
+notice  = "uri"
+status  = "kept"
+files   = [
+  "whatwg-html-entities.json",
 ]
 
 [upstream.uapi]

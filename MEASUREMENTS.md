@@ -2297,3 +2297,59 @@ InCB Linker and Consonant swapped passes the build's controls, which
 read the same constants, and turns the identity test, `build_tables.rs`
 and the grapheme oracle red. Each oracle was seen red on a
 perturbation of its own reader.
+
+## The source gate and THIRD_PARTY.md in `cargo xtask`
+
+Not timed: no byte path changed. `cargo xtask sources` replaces
+`check-sources.sh`'s awk and two inline scripts, with `check-page-text.py`
+as `xtask::page_text` and `gen-third-party.py` as `cargo xtask
+third-party [--check]`; the shell now execs it. xtask builds at opt-level
+1 in `dev`: at 0 its SHA-256 held the gate at 2.93-2.94 s, at 1 it took
+0.25-0.26 s, against the base shell's 0.50-0.51 s (four rounds, the
+first dropped).
+
+| arm | inputs | result |
+|---|---|---|
+| article text | the 57 pages saved on 2026-11-01 | 57 of 57 hash as pinned; `--from`, `--print` and `--self-test` output equal to the Python's |
+| tokeniser | 80,000 generated documents, seeds 1-3, events against `html.parser` | all equal; 16 fixed cases committed |
+| `sources` | the tree, and 27 perturbations plus 29 licence ones through it | 71 of 85 equal in output and exit; 14 below |
+| `third-party` | the tree, and 29 perturbations | THIRD_PARTY.md byte-equal; every NOTICE unchanged |
+
+The named references are the HTML Standard's list, now pinned as
+`whatwg-html-entities.json`: its 2,231 names and characters are exactly
+Python 3.13's `html.entities.html5`. The manifest gains `derived_from`,
+refused when it names an absent, gated or own key; a TOML 1.0 scan
+refuses what `toml` 1.1.8 reads and `tomllib` refused (an inline table
+across lines, a comment or trailing comma in one, `\e`, `\x`, a time
+with no seconds, a leading byte order mark), each probed on both
+parsers.
+
+The 14 departures, in two classes, are accepted: every exit code is
+equal, and the seven Python crashes become failure lines.
+
+- **Invalid TOML (7).** The line gives the `toml` crate's reason, or the
+  scan's refusal, where tomllib's stood, at the line and column tomllib
+  named where the `toml` crate refuses (772, 16 for the fixture's
+  unescaped quote, 42631, 19 for one in the manifest); the 1.0 scan
+  names the column where the TOML 1.1 form starts, up to two columns
+  from tomllib's.
+- **Render's KeyError (7).** For a group naming a file the manifest does
+  not hold, or a status the sidecar does not define, the Python stopped
+  rendering on a KeyError and printed nothing; the Rust prints the line.
+
+Three cases came after the 85 were compared: a byte order mark on the
+manifest, and on the sidecar through both gates. tomllib refuses a
+leading mark with "Invalid statement (at line 1, column 1)"; the scan
+refuses at the same place and names the mark.
+
+Keys and citations sort in byte order, where `sort -u` used the locale,
+which is accepted: only failure lines can come in another order.
+`page-text` fetches through `curl`, whose error text replaces urllib's.
+
+Each perturbation is a `#[test]` asserting its line; eight mutations
+(the length and empty-hash checks, a duplicate group, `\x`, the citation
+floor, self-derivation, the in-file URI, the quote backtrack) each
+turned a test red. A 32-to-31 reference window did not: no name on the
+pinned list is longer than 31 characters without its semicolon.
+`check-publish.py` keeps its own copy of the status meanings and licence
+URIs, which a test holds equal to xtask's until it is ported.

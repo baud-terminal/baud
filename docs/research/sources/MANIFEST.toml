@@ -1,7 +1,7 @@
 # baud — primary-source retrieval manifest.
 #
 # One entry per fetched source. url/sha256/bytes/status are FACTS about the
-# retrieval: scripts/check-sources.sh re-hashes every retrieved file against
+# retrieval: `cargo xtask sources` re-hashes every retrieved file against
 # them, so a source that changed upstream, or was edited locally, fails the
 # check suite rather than silently backing a citation it no longer supports.
 #
@@ -13,8 +13,8 @@
 # (a label: only the three win32-pr pages' revisions are commits of a public
 # repository they name, MicrosoftDocs/win32), and text_sha256 and text_bytes,
 # the sha256 and UTF-8 length of its article text (the check).
-# scripts/check-page-text.py fetches the pages and compares the text on demand;
-# scripts/check-sources.sh, offline, requires text_sha256 and text_bytes on
+# `cargo xtask page-text` fetches the pages and compares the text on demand;
+# `cargo xtask sources`, offline, requires text_sha256 and text_bytes on
 # every such entry, and a well-formed revision where one is recorded.
 #
 # A dictionary page quoted for one entry moves the same way, and its entry is
@@ -33,8 +33,14 @@
 #
 # Committing a file is distributing it: a `retrieved` file needs its row in
 # docs/research/third-party.toml (its licence and where its notice is) in the
-# same commit, and THIRD_PARTY.md regenerated (scripts/gen-third-party.py).
-# scripts/check-sources.sh fails until both are done.
+# same commit, and THIRD_PARTY.md regenerated (`cargo xtask third-party`).
+# `cargo xtask sources` fails until both are done.
+#
+# A file transcribed or extracted from another source, rather than copied,
+# names it: `derived_from` is the key, or a list of the keys, of the entries
+# it was read from, and the file is pinned by its own sha256. The gate
+# refuses a `derived_from` naming a key the manifest does not carry, one
+# recorded as `gated`, or the entry itself.
 #
 # Notes cite with `[[source: <key>]]`. A claim that matters carries a section
 # or page alongside — "simdjson § 3", not "simdjson".
@@ -2915,7 +2921,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2025-03-19, is before it was read.
 
@@ -2936,7 +2942,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -2966,7 +2972,7 @@ group  = "J"
 # of the flags field is set, then pp1 = 0 for all glyphs and the xMin and
 # left sidebearing for each glyph must be equal", and that a variable font
 # with TrueType outlines must set the bit.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -2987,7 +2993,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3008,7 +3014,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3038,7 +3044,7 @@ group  = "J"
 # + xMax - xMin)", and, for a variable font, "the left side bearing value in
 # the 'hmtx' table must always be equal to xMin (bit 1 of the 'head' flags
 # field must be set)".
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3068,7 +3074,7 @@ group  = "J"
 # of the glyph's vertical origin and advances downwards"; and for the
 # layout, "The number of entries in the vMetrics array is determined by the
 # value of the numOfLongVerMetrics field of the vertical header table".
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3092,7 +3098,7 @@ group  = "J"
 # two fetches the same day hash alike. Read for numOfLongVerMetrics, the
 # header's last field, at byte 34 in both versions, "Number of advance
 # heights in the vertical metrics table".
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3113,7 +3119,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3141,7 +3147,7 @@ group  = "J"
 # ("Phantom points from the parent or the child may be referenced"), and the
 # one on SCALED_COMPONENT_OFFSET and UNSCALED_COMPONENT_OFFSET ("this
 # behavior is recommended for all rasterizer implementations").
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3162,7 +3168,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3190,7 +3196,7 @@ group  = "J"
 # of MicrosoftDocs/typography (its `gitcommit` meta). The CharString format is
 # this page's "CharString" section: the separate `spec/cff2charstr` url that
 # ttf-parser's comments still cite answers 404.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-10-11, is before it was read.
 
@@ -3211,7 +3217,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2025-03-20, is before it was read.
 
@@ -3232,7 +3238,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3253,7 +3259,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3274,7 +3280,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3302,7 +3308,7 @@ group  = "J"
 # glyph for which a lookup should be performed"; and "In right-to-left
 # scripts, if the first glyph has an advance width of 100, then the second
 # glyph begins at -100,0."
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read. So its article text is also
 # ms-opentype-gpos's.
@@ -3324,7 +3330,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3360,7 +3366,7 @@ group  = "J"
 # process script-neutral characters together with immediately-preceding or
 # following script-specific characters", which baud-font/src/script.rs
 # quotes, are both in it verbatim.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2025-03-18, is before it was read.
 
@@ -3386,7 +3392,7 @@ group  = "J"
 # no-break spaces and is `yi  `); the registered tags it does not derive are
 # byzm, math and musc (not Unicode scripts), jamo ("not recommended"), and
 # jurc, pcun and seal (not encoded in 17.0). Checked 2026-10-13.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2026-09-17, is before it was read.
 
@@ -3412,7 +3418,7 @@ group  = "J"
 # `0.4.03568.8292-0a6c2196`. The script tag
 # `hebr` and its feature order; the engine stages it describes reorder no
 # marks, so it sets no order for Hebrew points either.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3436,7 +3442,7 @@ group  = "J"
 # what fin2, fin3 and med2 do to alaph, and the order each feature is
 # applied in, one by one: ccmp, isol, fina, fin2, fin3, medi, med2, init,
 # rlig, calt.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2022-06-09, is before it was read.
 
@@ -3458,7 +3464,7 @@ group  = "J"
 # Read 2026-10-25; not committed -- a vendor HTML page. The standard order
 # its table gives: ccmp, isol, fina, medi, init, rlig, rclt, calt, each
 # "Always applied", then liga, dlig, cswh and mset.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2022-06-09, is before it was read.
 
@@ -3521,7 +3527,7 @@ group  = "J"
 # Read 2026-10-25; not committed -- a vendor HTML page. `rclt`: "similar
 # to 'calt', but ... it should not be possible to turn off 'rclt'
 # substitutions", "May be used for any script".
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3780,7 +3786,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3806,7 +3812,7 @@ group  = "J"
 # was read for "Point numbers and processing for composite glyphs": deltas
 # for a point-matched component have no effect, and "if positioning offsets
 # are scaled, it is the delta-adjusted offsets that are scaled".
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3827,7 +3833,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3848,7 +3854,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3869,7 +3875,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3890,7 +3896,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2025-03-19, is before it was read.
 
@@ -3913,7 +3919,7 @@ group  = "J"
 # fraction of its chrome.
 # Re-pinned 2026-10-03 (was 3dad3e17..., 56,518 bytes; note J records the drift);
 # image formats 17, 18 and 19 read as before.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3936,7 +3942,7 @@ group  = "J"
 # fraction of its chrome.
 # Re-pinned 2026-10-03 (was c0b1f403..., 52,217 bytes). It defines CBLC as a
 # "downward compatible" extension of EBLC, whose index subtables it does not restate.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3959,7 +3965,7 @@ group  = "J"
 # subtable rules CBLC inherits: "Records must be sorted by firstGlyphIndex, and
 # records should not have overlapping glyph ID ranges"; format 4's numGlyphs + 1
 # pairs, the last only marking where the last image ends.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -3986,7 +3992,7 @@ group  = "J"
 # follows -- "If the application is using
 # bitmap data to draw text and there is bitmap data for a glyph in any strike,
 # then the glyph must be drawn using a bitmap from some strike."
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -4151,7 +4157,7 @@ group  = "J"
 # n+3, the left sidebearing point, the advance width point, the top origin
 # and the advance height point. Hash-verified, not committed -- a vendor HTML
 # page whose spec text is a fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -4514,7 +4520,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
 # updated_at, 2024-07-12, is before it was read.
 
@@ -4535,7 +4541,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
 # updated_at, 2024-07-12, is before it was read.
 
@@ -5668,7 +5674,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -6462,7 +6468,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
 # updated_at, 2025-10-07, is before it was read.
 
@@ -7280,7 +7286,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of MicrosoftDocs/win32-pr, and the page's updated_at,
 # 2026-04-15, is before it was read.
 
@@ -7301,7 +7307,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
 # updated_at, 2026-06-17, is before it was read.
 
@@ -7322,7 +7328,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
 # updated_at, 2024-02-22, is before it was read.
 
@@ -7343,7 +7349,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
 # updated_at, 2024-02-22, is before it was read.
 
@@ -7364,7 +7370,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of MicrosoftDocs/win32-pr, and the page's updated_at,
 # 2025-04-15, is before it was read.
 
@@ -7385,7 +7391,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
 # updated_at, 2024-02-22, is before it was read.
 
@@ -7406,7 +7412,7 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of MicrosoftDocs/win32-pr, and the page's updated_at,
 # 2026-09-10, is before it was read.
 
@@ -12546,7 +12552,7 @@ group  = "J"
 # "Algorithm for interpolation of instance values"): two fetches hashed alike,
 # e5f8db93..., 133,672 bytes, and still render revision 810414e1, so the pin
 # stands.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -12570,7 +12576,7 @@ group  = "J"
 # MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
 # revision this pin names: the page hash does not reproduce across page
 # rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -12594,7 +12600,7 @@ group  = "J"
 # MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
 # revision this pin names: the page hash does not reproduce across page
 # rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -12618,7 +12624,7 @@ group  = "J"
 # MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
 # revision this pin names: the page hash does not reproduce across page
 # rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -16577,7 +16583,7 @@ status = "external"
 group  = "J"
 # Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
 # fetch of the url, not committed -- a vendor HTML page.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2026-08-17, is before it was read.
 
@@ -16599,7 +16605,7 @@ group  = "J"
 # Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
 # fetch of the url, not committed -- a vendor HTML page.
 # The page ms-opentype-cmap pins served different bytes on 2026-10-08; this key pins those.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read. So its article text is also
 # ms-opentype-cmap's.
@@ -26488,7 +26494,7 @@ group  = "C"
 # RCP with no SCP. The page is generated, so a re-fetch may not hash the same.
 # Re-fetched 2026-10-14 (lane scosc): it hashes 35bb7720... and 160,799 bytes, not the
 # above, as a generated page may; lines 794-797 give `ESC[s` and `ESC[u`, no parameter.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of tn-archive-docs-archive-pr on Azure DevOps, and the
 # page's updated_at, 2022-01-21, is before it was read.
 
@@ -29810,7 +29816,7 @@ group  = "J"
 # Read 2026-10-13 for note AB section 11 (Q-A); not committed -- a vendor HTML page, whose hash tracks
 # its chrome as the other learn.microsoft.com pages' do. "dflt" appears on it as a language-system tag,
 # never as a script tag.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2022-06-09, is before it was read.
 
@@ -33885,7 +33891,7 @@ status = "external"
 group  = "J"
 # Fetched 2026-10-20 (lane b121) for OSC 50's family names. Read, not copied:
 # a vendor HTML page whose spec text is a fraction of its chrome.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2024-05-31, is before it was read.
 
@@ -35574,7 +35580,7 @@ status = "external"
 group  = "J"
 # The page bytes `ms-opentype-os2` pinned are no longer served (that key's
 # hash no longer matches a fetch); this is the 2026-10-21 fetch.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
 # 2025-03-20, is before it was read. So its article text is also
 # ms-opentype-os2's.
@@ -40949,7 +40955,7 @@ group  = "AX"
 # for several windows behind one progress indicator; the rule the Dock tile
 # follows across baud's windows. The page is rendered HTML; its hash moves
 # with the site's markup.
-# Checked by its article text, hashed 2026-11-01 (scripts/check-page-text.py). Its
+# Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # revision is a commit of win32/sdk-api-build on Azure DevOps, and the page's
 # updated_at, 2024-02-22, is before it was read.
 
@@ -42619,3 +42625,20 @@ status = "retrieved"
 group  = "SP"
 # The schema starship generates from its own config structs; the same bytes
 # as docs/public/config-schema.json in the release's tarball.
+
+[sources.whatwg-html-entities]
+key    = "whatwg-html-entities"
+title  = "WHATWG HTML Living Standard, 13.5 Named character references -- the list as JSON, each name with its code points and characters"
+author = "WHATWG"
+year   = 2025
+venue  = "html.spec.whatwg.org (CC BY 4.0), served with Last-Modified 12 November 2025"
+url    = "https://html.spec.whatwg.org/entities.json"
+file   = "whatwg-html-entities.json"
+sha256 = "d741d877ac77c4194c4ad526b5b4a19aef8dfe411ab840a466891cdbb9f362e6"
+bytes  = 145897
+status = "retrieved"
+group  = "AN"
+# Fetched 2026-11-05. Its 2,231 names, with and without their semicolons,
+# and their characters are exactly Python 3.13's html.entities.html5, the
+# table the learn.microsoft.com article-text pins were decoded with;
+# `cargo xtask page-text` decodes with this file.

@@ -132,6 +132,12 @@ opt-level = 1
 [profile.dev.package.baud-render]
 opt-level = 1
 
+# The gates' crate too: `cargo xtask sources` hashes the 64 MB of
+# docs/research/sources on every run, and its SHA-256 at opt-level 0 held
+# the gate at 2.9 s; at 1 it took 0.25 s, against the shell's 0.50-0.51.
+[profile.dev.package.xtask]
+opt-level = 1
+
 [profile.dev.package."*"]
 opt-level = 1
 

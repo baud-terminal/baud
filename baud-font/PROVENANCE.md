@@ -10,7 +10,7 @@ class:
   text leaves a choice open and another implementation's answer was taken;
 - **c**, neither: written from the specification alone, or generated.
 
-`scripts/gen-third-party.py --check` reads this table. It fails when a file
+`cargo xtask third-party --check` reads this table. It fails when a file
 of `baud-font/src` has no row, when a row names a file that is not there,
 and when a file classed **a** is under no `[[tree]]` entry of
 `docs/research/third-party.toml` with the notice its row names.

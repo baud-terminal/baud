@@ -254,15 +254,34 @@ def is_path(notice):
     return "/" in notice or notice == "LICENSE"
 
 
-def gen_third_party():
-    """scripts/gen-third-party.py as a module, for its status meanings and
-    licence URIs, so NOTICE and THIRD_PARTY.md say the same thing."""
-    import importlib.util
+class ThirdParty:
+    """The status meanings and licence URIs THIRD_PARTY.md says, so NOTICE
+    and THIRD_PARTY.md say the same thing. `cargo xtask third-party` writes
+    that file from xtask/src/third_party.rs's STATUS and licence_uri; this is
+    a copy of both, which xtask/tests/third_party.rs holds equal to them."""
 
-    spec = importlib.util.spec_from_file_location("gen_third_party", os.path.join(ROOT, "scripts", "gen-third-party.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    STATUS = {
+        "kept": "redistributable, and its notice is satisfied",
+        "own": "the work of baud's author",
+        "nc": "kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence",
+        "copyleft": "redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open",
+        "no-grant": "no grant to redistribute was found; moving it out of the tree (`external`) is a choice still open",
+        "unverified": "licence not established; a choice still open",
+        "open": "an open question, recorded where the file is",
+    }
+
+    @staticmethod
+    def licence_uri(spdx):
+        return {
+            "CC-BY-4.0": "https://creativecommons.org/licenses/by/4.0/",
+            "CC-BY-SA-4.0": "https://creativecommons.org/licenses/by-sa/4.0/",
+            "CC-BY-ND-4.0": "https://creativecommons.org/licenses/by-nd/4.0/",
+            "CC-BY-NC-SA-3.0": "https://creativecommons.org/licenses/by-nc-sa/3.0/",
+            "CC0-1.0": "https://creativecommons.org/publicdomain/zero/1.0/",
+            "LicenseRef-W3C-Document": "https://www.w3.org/copyright/document-license/",
+            "LicenseRef-IETF-RFC": "https://trustee.ietf.org/documents/trust-legal-provisions/",
+            "LicenseRef-Ecma-Copyright": "https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/",
+        }.get(spdx)
 
 
 def unshipped(text, src, tops):
@@ -622,7 +641,7 @@ def check(size, verify, write, write_lic=False):
         {**e, "what": e["name"], "paths": [f"{SOURCES}{f}" for f in e["files"]], "upstream": "", "kind": "source"}
         for _, e in sorted(side["upstream"].items())
     ]
-    g = gen_third_party()
+    g = ThirdParty
     global g_url, g_keys
     manifest = load(SOURCES + "MANIFEST.toml")["sources"]
     g_url = {s["file"]: s["url"] for s in manifest.values() if s.get("file")}

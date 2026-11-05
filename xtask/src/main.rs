@@ -10,7 +10,10 @@ use std::process::ExitCode;
 
 use xtask::audit::{self, Audit, Failed};
 use xtask::impl_audit::Counts;
+use xtask::page_text::{self, Options};
 use xtask::scan_audit::{self, Limit};
+use xtask::sources;
+use xtask::third_party::{self, Mode, Outcome};
 use xtask::{changelog, fnv, text};
 
 fn main() -> ExitCode {
@@ -30,6 +33,13 @@ fn verdict(failed: Failed) -> ExitCode {
     match failed {
         Failed::No => ExitCode::SUCCESS,
         Failed::Yes => ExitCode::FAILURE,
+    }
+}
+
+fn outcome(o: Outcome) -> ExitCode {
+    match o {
+        Outcome::Passed => ExitCode::SUCCESS,
+        Outcome::Failed => ExitCode::FAILURE,
     }
 }
 
@@ -86,10 +96,30 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
             println!("shaders.metal fnv-1a {s}, baud.metallib {l}");
             Ok(ExitCode::SUCCESS)
         }
+        ["sources"] => {
+            let o = sources::run(root, &mut stdout).map_err(|e| e.to_string())?;
+            Ok(outcome(o))
+        }
+        ["third-party", rest @ ..] if rest.len() <= 1 => {
+            let mode = match rest {
+                [] => Mode::Write,
+                ["--check"] => Mode::Check,
+                _ => return Err(format!("not an option: {}", rest.join(" "))),
+            };
+            let o = third_party::run(root, mode, &mut stdout).map_err(|e| e.to_string())?;
+            Ok(outcome(o))
+        }
+        ["page-text", rest @ ..] => {
+            let o = Options::parse(rest)?;
+            let worst = page_text::run(root, &o, &mut stdout)?;
+            Ok(ExitCode::from(worst))
+        }
         _ => {
             eprintln!(
                 "usage: cargo xtask audit | impl-audit <file> | scan-audit [limit] \
-                 | changelog <context> | fnv1a <src> <lib> <sdig> <ldig>"
+                 | changelog <context> | fnv1a <src> <lib> <sdig> <ldig> | sources \
+                 | third-party [--check] | page-text [--key K] [--from DIR] [--save DIR] \
+                 [--print] [--self-test]"
             );
             Ok(ExitCode::from(2))
         }

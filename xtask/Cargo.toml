@@ -15,7 +15,7 @@ publish = false
 [dependencies]
 # `changelog` reads `release-plz.toml`'s parsers. TOML 1.1 is a superset of
 # the 1.0 `tomllib` read, so every file that parsed there parses here.
-toml = "1.1.8"
+toml = { version = "1.1.8", features = ["preserve_order"] }
 # The audit's categories and the changelog's legs. release-plz and
 # git-cliff compile `commit_parsers` with this crate themselves, so the
 # changelog gate now reads them with the engine that applies them.
