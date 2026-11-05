@@ -8,13 +8,13 @@ repository at https://github.com/baud-terminal/baud, whose THIRD_PARTY.md
 lists every such file there.
 
 Tables generated from the Unicode Character Database and Unicode's emoji
-data files: grapheme clusters, widths, canonical composition,
+data files: grapheme clusters and widths, canonical composition,
 default-ignorable code points, cursive joining and the Arabic presentation
-forms, line breaking, emoji presentation, case folding and decomposition,
-scripts, the Indic syllabic and positional categories, and the named emoji
-sequences. The OpenType script tags beside the scripts are identifiers from
-Microsoft's registry and carry no licence. Where such a table sits in a file
-with other code, only its marked generated block is generated
+forms, emoji presentation, case folding and decomposition, scripts, the
+Indic syllabic and positional categories, and the named emoji sequences. The
+OpenType script tags beside the scripts are identifiers from Microsoft's
+registry and carry no licence. Where such a table sits in a file with other
+code, only its marked generated block is generated
   Files:   src/compose.rs, src/ignorable.rs, src/indic_data.rs,
            src/presentation.rs, src/script_data.rs
   Holder:  Unicode, Inc.

@@ -143,24 +143,6 @@ fn the_clusters_a_terminal_meets() {
     assert_eq!(clusters("a\r\nb"), 3, "and does not swallow its neighbours");
 }
 
-/// The committed tables match the pinned Unicode data.
-#[test]
-fn grapheme_tables_match_the_pinned_data() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-grapheme-tables.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "grapheme_data.rs is stale -- rerun scripts/gen-grapheme-tables.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 /// **Every code point has the class and the lookback sets the pinned files
 /// give**, through `GraphemeClass::of_with_lookback` and
 /// `is_spacing_extend`, from GraphemeBreakProperty.txt, emoji-data.txt's
@@ -382,8 +364,8 @@ fn clustering_does_not_disturb_ordinary_text() {
 /// `GraphemeClass::of` reads a nibble from a generated table and indexes
 /// `GraphemeClass::FROM_INDEX` with it. That correspondence is the one thing
 /// here that would fail *silently*: reorder the enum, and every codepoint gets
-/// a different class while the code still compiles and runs. The generator
-/// asserts the order on its side; this asserts it on the code's side, so the
+/// a different class while the code still compiles and runs. The build
+/// pins the order on its side; this asserts it on the code's side, so the
 /// two have to be changed together.
 ///
 /// Not a `transmute` for the same reason. A cast would make the bug

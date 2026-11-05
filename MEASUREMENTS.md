@@ -2253,3 +2253,47 @@ CBLC and Adam7 each have one generated row changed in its last byte and
 one header byte moved; the JPEG test flips a byte of each picture; the
 key extraction has the lost header and the U+001C separator. The
 subsetter has none, since its source is not committed.
+
+
+## The grapheme, width and line-break tables compiled at build time
+
+First carried by "build(domain): drop the python unicode generators and
+tables". `build/grapheme.rs`, `build/width.rs` and `build/linebreak.rs`
+compile BREAK and SPACING_EXTEND, WIDTH and WIDTH8, and LINE into
+`OUT_DIR` through `baud-tablegen` from eight more pinned files in
+`baud-domain/data/`; `build/ucd.rs` holds what they read alike. The three
+Python generators printed OK on the base. Before the delete,
+"build(domain): compile grapheme, width and line break tables" held every
+compiled static to the committed table and printed "identical:
+BREAK_INDEX 4352, BREAK_BLOCKS 28416, SPACING_EXTEND 46, WIDTH_INDEX
+4352, WIDTH_BLOCKS 7360, WIDTH8_INDEX 4352, WIDTH8_BLOCKS 6592,
+LINE_INDEX 4352, LINE_BLOCKS 36864 elements". Applying each EAW header's
+default-W ranges to 17.0.0 changes nothing there: that file lists them.
+
+**Release binaries, at one path, are byte-identical.** `baud` and
+`ingest2`, base and change and a clean A/A rebuild of the change, have one
+sha256 each (00003eea... and d102d223...), the change arm built with no
+`*_data.rs` of these three in its source and all three in `OUT_DIR`.
+`baud-domain` already had a build-dependency, so no crate hash moved, and
+`Width::of`, `of_with_lookback` and `LineProps::of` read the same bytes;
+no timing run, as the verification rule allows.
+
+**The build.** `cargo build -p baud-domain --timings`, `baud-domain` and
+`baud-tablegen` cleaned each round, five rounds rotated, the first
+dropped: the build script runs in [0.32-0.38] s against base's
+[0.18-0.23] and compiles in [0.59-0.72] s against [0.55-0.57]; the lib's
+ranges overlap ([9.36-14.02] s against [9.50-10.13]); `baud-tablegen`
+[0.14-0.15] s in both. Touching `src/lib.rs` ran no build script in any
+round on either arm, and touching a `data/` file ran it once in each.
+Load average 11-18 from other work throughout. The `baud-domain` .crate
+is 1,978,292 bytes, up from 1,502,269, 18.9% of crates.io's 10 MiB.
+
+**Red first.** Built and run: width's order turned to wide over zero is a
+build error at U+302A; Prepended_Concatenation_Mark not left out is one
+at U+0600; Halfwidth dropped from line breaking's East Asian set passes
+every control, and the identity test (LINE_BLOCKS[7593]) and
+`every_code_point_has_the_line_class_the_pinned_files_give` go red;
+InCB Linker and Consonant swapped passes the build's controls, which
+read the same constants, and turns the identity test, `build_tables.rs`
+and the grapheme oracle red. Each oracle was seen red on a
+perturbation of its own reader.

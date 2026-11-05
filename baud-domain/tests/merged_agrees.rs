@@ -1,7 +1,8 @@
 //! The merged table must answer exactly what the two tries answer.
 //!
 //! It is generated *from* them, so this is not independent evidence that the
-//! properties are right -- `width_tables_match_the_pinned_data` and the
+//! properties are right -- `every_code_point_has_the_width_the_pinned_files_give`,
+//! `every_code_point_has_the_grapheme_class_the_pinned_files_give` and the
 //! `GraphemeBreakTest.txt` suite are. What it rules out is the merge itself
 //! going wrong: a palette id colliding, a block deduplicating two blocks that
 //! differ, the ambiguous-width code being resolved the wrong way round.

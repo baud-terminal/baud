@@ -108,31 +108,6 @@ fn ascii_is_one_column() {
     assert_eq!(cols("hello"), 5);
 }
 
-/// **The committed width tables match the pinned Unicode data.**
-///
-/// `baud-domain/src/width_data.rs` is generated, and `baud-domain` has no build
-/// script and no dependencies, so nothing regenerates it automatically. Without
-/// this check a Unicode update, or a hand edit, would leave the tables silently
-/// stale — which is how the hand-written set got five ranges deep in the first
-/// place. A stale table is a test failure here rather than a cursor that lands
-/// in the wrong column on someone else's machine.
-#[test]
-fn width_tables_match_the_pinned_data() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-width-tables.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "width_data.rs is stale -- rerun scripts/gen-width-tables.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 /// A UCD file's `<range> ; <value>` rows, read here and not by the build's
 /// reader, so a fault in one is not a fault in both: each row's first two
 /// fields, comments and blank lines left out, a third and later joined to

@@ -44,15 +44,15 @@ pub const GC: [&str; 38] = [
     "Sm", "So", "Z", "Zl", "Zp", "Zs",
 ];
 
-/// The `gc` values that name a group of categories (UAX #44 section 5.7.1,
+/// The `gc` values that name a group of categories (UAX #44,
 /// `[[source: uax44]]`), which no code point has as its own.
 const GC_GROUPS: [&str; 8] = ["C", "L", "LC", "M", "N", "P", "S", "Z"];
 
 /// The `ea` short names, in PropertyValueAliases.txt's order.
 pub const EA: [&str; 6] = ["A", "F", "H", "N", "Na", "W"];
 
-/// The properties emoji-data.txt lists (UTS #51 section 1.4.1,
-/// `[[source: uts51-emoji]]`): a row naming another is refused.
+/// The properties emoji-data.txt lists (UTS #51, `[[source: uts51-emoji]]`):
+/// a row naming another is refused.
 const EMOJI_PROPERTIES: [&str; 6] = [
     "Emoji",
     "Emoji_Presentation",
@@ -184,11 +184,7 @@ pub fn emoji_version(src: &Source, errs: &mut Errors) {
 
 /// The emoji-data.txt property names, for [`binary`].
 pub fn emoji_properties() -> ValueSet {
-    ValueSet::closed(
-        "emoji-data.txt property",
-        "UTS #51 section 1.4.1",
-        &EMOJI_PROPERTIES,
-    )
+    ValueSet::closed("emoji-data.txt property", "UTS #51", &EMOJI_PROPERTIES)
 }
 
 /// Whether each code point has binary `property`, from a file whose rows

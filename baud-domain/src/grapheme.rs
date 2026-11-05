@@ -46,8 +46,8 @@ impl GraphemeClass {
         GraphemeClass::T,
         GraphemeClass::Lv,
         GraphemeClass::Lvt,
-        // Two spare slots so the index cannot leave the array; the generator
-        // asserts fourteen classes, so nothing reaches these.
+        // Two spare slots so the index cannot leave the array; the build
+        // stores fourteen classes, so nothing reaches these.
         GraphemeClass::Other,
         GraphemeClass::Other,
     ];

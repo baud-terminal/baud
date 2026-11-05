@@ -93,15 +93,6 @@ mod grapheme_data {
     //! ranges of spacing marks UAX #29 classes Extend.
     include!(concat!(env!("OUT_DIR"), "/grapheme_data.rs"));
 }
-#[cfg(test)]
-#[path = "grapheme_data.rs"]
-mod committed_grapheme_data;
-#[cfg(test)]
-#[path = "linebreak_data.rs"]
-mod committed_linebreak_data;
-#[cfg(test)]
-#[path = "width_data.rs"]
-mod committed_width_data;
 mod grid;
 mod history;
 mod ignorable_data;
@@ -116,11 +107,6 @@ mod kitty;
 mod layout;
 mod line;
 mod linebreak;
-// The tables `scripts/gen-grapheme-tables.py`, `gen-width-tables.py` and
-// `gen-linebreak-tables.py` committed, kept beside the compiled ones until
-// `the_compiled_unicode_tables_are_the_committed_ones` has held them equal.
-#[cfg(test)]
-mod unicode_identity;
 mod linebreak_data {
     //! Line-breaking data, compiled by `build/linebreak.rs` from the
     //! sources pinned in `docs/research/sources/MANIFEST.toml`

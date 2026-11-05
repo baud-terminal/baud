@@ -222,25 +222,6 @@ fn every_code_point_has_the_line_class_the_pinned_files_give() {
     );
 }
 
-/// **The committed table is the pinned data's**: the generator, run again,
-/// writes the same file.
-#[test]
-fn linebreak_tables_match_the_pinned_data() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-linebreak-tables.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "linebreak_data.rs is stale -- rerun scripts/gen-linebreak-tables.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 /// `text` with `÷` at each opportunity the breaker gives between its
 /// characters, the end left out.
 fn marked(text: &str, breaker: fn(&[char], &mut dyn FnMut(usize, LineBreak))) -> String {

@@ -122,7 +122,7 @@ index, flat, nblocks = trie(values)
 
 
 def as_bytestring(name, data, doc):
-    """A byte string, which rustfmt leaves as written (gen-grapheme-tables.py)."""
+    """A byte string, which rustfmt leaves as written."""
     body = []
     for i in range(0, len(data), 32):
         chunk = "".join(f"\\x{v:02x}" for v in data[i:i + 32])

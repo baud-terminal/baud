@@ -605,9 +605,9 @@ impl Width {
     /// a ceiling arm returning a constant measured **+32 to +34%** on cat-cjk,
     /// less-cjk and vim.
     ///
-    /// The trie is generated and *exhaustively* checked against those same
-    /// ranges for all 1,114,112 codepoints by `scripts/gen-width-tables.py`,
-    /// which `width_tables_match_the_pinned_data` runs. A generated table
+    /// The trie is compiled by `build/width.rs` and *exhaustively* checked,
+    /// and `every_code_point_has_the_width_the_pinned_files_give` holds all
+    /// 1,114,112 codepoints to the pinned files read apart. A generated table
     /// nobody verifies is the "guessed table would look like it worked" failure
     /// this repo already records.
     /// It profiled at **6.7%** of `cat-cjk.raw` with its own leaf frame, which

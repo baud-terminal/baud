@@ -28,7 +28,7 @@ HarfBuzz's `hb_script_get_horizontal_direction` list and Old Hungarian,
 which HarfBuzz leaves to the caller. A script whose letters disagree stops
 the generator.
 
-Same contract as gen-grapheme-tables.py: generated and committed, and
+Generated and committed, and
 `script_tables_match_the_pinned_data` (baud-font/tests/script.rs) runs this
 with `--check`, so the committed file cannot drift from the pinned data.
 

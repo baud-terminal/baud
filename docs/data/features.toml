@@ -850,7 +850,7 @@ name = "Columns that line up"
 does = "Chinese, Japanese and Korean take two columns and marks take none, with widths from Unicode's own data, so tables, prompts and editors stay aligned."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/encoding/width.rs::wide_and_fullwidth_are_two_columns", "baud-core/tests/encoding/width.rs::width_tables_match_the_pinned_data"]
+tests = ["baud-core/tests/encoding/width.rs::wide_and_fullwidth_are_two_columns", "baud-core/tests/encoding/width.rs::every_code_point_has_the_width_the_pinned_files_give"]
 
 [[feature]]
 id = "syllable-columns"

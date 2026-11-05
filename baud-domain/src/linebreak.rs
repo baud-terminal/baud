@@ -1,7 +1,7 @@
 //! **Unicode's line breaking algorithm**, UAX #14 revision 55 for Unicode
 //! 17.0.0 (`[[source: uax14]]`): where a line of text may break, must
 //! break, and must not. Each code point's class is one indexed load from a
-//! table generated from `LineBreak.txt` (`linebreak_data.rs`), and the
+//! table compiled from `LineBreak.txt` (`build/linebreak.rs`), and the
 //! rules LB2 to LB31 are read at each boundary in the order the annex
 //! gives them, the first that applies deciding.
 //!
