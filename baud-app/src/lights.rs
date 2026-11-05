@@ -261,6 +261,14 @@ impl Strip {
         })
     }
 
+    /// The view of the accessory they are in, none until the window is
+    /// shown (`full_screen_check.rs` reads it).
+    pub(crate) fn holder_view(
+        &self,
+    ) -> Option<Retained<macos_liquid_glass::objc2_app_kit::NSView>> {
+        self.holder.as_ref().map(|h| h.view.clone())
+    }
+
     /// The face or the window changed under the pictures: the next tick
     /// draws them again.
     pub(crate) fn stale(&mut self) {

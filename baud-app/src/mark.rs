@@ -60,7 +60,7 @@ use std::cell::Cell;
 use macos_liquid_glass::drawable::Appearance;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
-    NSAppearanceCustomization, NSImage, NSImageView, NSWindow, NSWindowButton,
+    NSAppearanceCustomization, NSImage, NSImageView, NSView, NSWindow, NSWindowButton,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
@@ -220,6 +220,12 @@ pub(crate) struct Mark {
 }
 
 impl Mark {
+    /// The view of the accessory the lockup is in
+    /// (`full_screen_check.rs` reads it).
+    pub(crate) fn accessory_view(&self) -> Retained<NSView> {
+        self.accessory.view.clone()
+    }
+
     /// **The lockup put in `glass`'s title bar**, a leading accessory
     /// beside its traffic lights, sized for a title bar `inset` points tall,
     /// in the form for the window's appearance now, and centred at once in

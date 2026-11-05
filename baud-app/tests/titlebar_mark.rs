@@ -49,6 +49,11 @@ mod mark;
 #[path = "../src/strip.rs"]
 mod strip;
 
+#[cfg(target_os = "macos")]
+#[allow(dead_code)]
+#[path = "../src/full_screen_check.rs"]
+mod full_screen_check;
+
 const NAME: &str = "the_lockup_sits_in_the_titlebar_strip";
 
 fn main() {
@@ -199,6 +204,9 @@ fn run() {
             let room = place();
             check(w, &view, &mark, &lights, room, inset, &at("resized"));
             follows_full_screen(w, &view, &container, inset, &at("full screen"));
+            if checked == 0 {
+                reads_full_screen_at_rest(w, &view, &container, &mark, &lights, &at("read"));
+            }
             // A flip of appearance swaps the picture and moves nothing.
             let placed = mark.view().frame();
             let mut pictures = Vec::new();
@@ -276,6 +284,95 @@ fn follows_full_screen(w: &NSWindow, view: &NSView, container: &NSView, inset: f
         (top() - inset).abs() < EPS,
         "{at}: a dropped observer still moved the grid"
     );
+}
+
+/// **The filming run's check, through a full screen and back**
+/// (`full_screen_check.rs`), driven as the window would drive it but with
+/// AppKit's two notifications posted by hand and the read at rest called
+/// rather than waited for: armed, it waits for its file; made, it asks
+/// for full screen; entered, it reads; at rest it reads and asks out;
+/// exited, it reads and writes all three. The terminal's view is at the
+/// top in the first two and not in the third, the lockup's and the
+/// lights' accessories are read in the window, and the defaults' positive
+/// control was found. Its toggles go to the main queue, which this test
+/// never runs, and the check is disarmed before the test ends, so none
+/// is ever made: the window is never shown.
+#[cfg(target_os = "macos")]
+fn reads_full_screen_at_rest(
+    w: &NSWindow,
+    view: &NSView,
+    container: &NSView,
+    mark: &mark::Mark,
+    lights: &strip::Accessory,
+    at: &str,
+) {
+    use full_screen_check::{GO, OUT, Parts, Step};
+    let dir = std::env::temp_dir().join(format!("baud-fs-check-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a temp dir");
+    let follow = {
+        let (win, v, c) = (w.retain(), view.retain(), container.retain());
+        full_screen::when_full_screen(w, move |change| strip::follow(change, &win, &v, &c))
+    };
+    full_screen_check::arm(
+        Parts {
+            window: w.retain(),
+            view: view.retain(),
+            container: container.retain(),
+            lockup: Some(mark.accessory_view()),
+            lights: Some(lights.view.clone()),
+        },
+        &dir,
+    );
+    full_screen_check::heard_dir();
+    assert_eq!(
+        full_screen_check::step(),
+        Some(Step::Armed),
+        "{at}: no file yet"
+    );
+    post(w, Posted::Entered);
+    assert_eq!(
+        full_screen_check::step(),
+        Some(Step::Armed),
+        "{at}: not its own"
+    );
+    post(w, Posted::Exited);
+    std::fs::write(dir.join(GO), b"").expect("the file");
+    full_screen_check::heard_dir();
+    assert_eq!(full_screen_check::step(), Some(Step::Entering), "{at}");
+    post(w, Posted::Entered);
+    assert_eq!(full_screen_check::step(), Some(Step::Resting), "{at}");
+    full_screen_check::rest_now();
+    assert_eq!(full_screen_check::step(), Some(Step::Leaving), "{at}");
+    assert!(!dir.join(OUT).exists(), "{at}: written before the exit");
+    post(w, Posted::Exited);
+    assert_eq!(full_screen_check::step(), Some(Step::Done), "{at}");
+    let said = std::fs::read_to_string(dir.join(OUT)).expect("the check's file");
+    full_screen_check::disarm();
+    drop(follow);
+    let _ = std::fs::remove_dir_all(&dir);
+    let reading = |name: &str| -> String {
+        let from = said.find(&format!("\"{name}\": {{")).expect(name);
+        said[from..].lines().next().unwrap_or("").to_string()
+    };
+    for (name, top) in [("entered", true), ("at_rest", true), ("exited", false)] {
+        let r = reading(name);
+        assert!(
+            r.contains(&format!("\"view_at_top\": {top}")),
+            "{at}: {name}: {r}"
+        );
+        assert!(
+            r.matches("\"in_window\": true").count() == 2,
+            "{at}: {name}: {r}"
+        );
+    }
+    assert!(
+        said.contains("\"AppleLanguages\": \"found\""),
+        "{at}: the control:\n{said}"
+    );
+    for key in ["AppleMenuBarVisibleInFullscreen", "_HIHideMenuBar"] {
+        assert!(said.contains(&format!("\"{key}\": ")), "{at}: {key}");
+    }
 }
 
 /// The notification AppKit posts at the end of a transition.

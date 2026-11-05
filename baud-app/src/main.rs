@@ -143,6 +143,8 @@ mod mark;
 // The title strip's accessories and the grid's top, windowed and in full
 // screen.
 #[cfg(target_os = "macos")]
+mod full_screen_check;
+#[cfg(target_os = "macos")]
 mod strip;
 // The state lights as words on DEC's indicator line, both drivers.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

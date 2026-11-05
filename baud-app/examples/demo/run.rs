@@ -305,9 +305,35 @@ fn run(args: &Args) -> Result<(), String> {
     drop(up);
     if let (Some(k), Some(r), Some(s)) = (&kit, &run, session?) {
         record::finish(k, &prep.at, r, &built.target, s)?;
+        keep_full_screen(&prep.at.root, &built.target, &k.gif)?;
     }
     let _ = fs::remove_dir_all(&prep.at.root);
     Ok(())
+}
+
+/// **The full screen's reading kept beside the raw film**, in cargo's
+/// target directory as `NAME.full-screen.json`, not beside the GIF: a file
+/// left untracked in the repository would make the next filming run's tree
+/// dirty. None is kept when the reading failed.
+fn keep_full_screen(root: &Path, target: &Path, gif: &str) -> Result<(), String> {
+    let read = root.join("full-screen").join(FULL_SCREEN_OUT);
+    if !read.is_file() {
+        return Ok(());
+    }
+    let dir = target.join("demo");
+    fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let to = dir.join(full_screen_name(gif));
+    fs::copy(&read, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+    println!(
+        "full:    the window through full screen and back, read into {}",
+        to.display()
+    );
+    Ok(())
+}
+
+/// `NAME.full-screen.json` for the GIF `NAME.gif`.
+fn full_screen_name(gif: &str) -> String {
+    format!("{}.full-screen.json", gif.trim_end_matches(".gif"))
 }
 
 /// **The README session without a window**: baud's own test of it
@@ -1108,6 +1134,44 @@ impl Events {
     }
 }
 
+/// **The variable that arms baud's full-screen reading**, and the files it
+/// is started by and writes, as `baud-app/src/full_screen_check.rs` names
+/// them.
+const FULL_SCREEN_ENV: &str = "BAUD_FULL_SCREEN_CHECK";
+const FULL_SCREEN_GO: &str = "full-screen.go";
+const FULL_SCREEN_OUT: &str = "full-screen.json";
+
+/// How long the reading may take: about two seconds in full screen, and
+/// the two transitions.
+const FULL_SCREEN_LIMIT: Duration = Duration::from_secs(20);
+
+/// **baud's window read through a full screen and back, once the film is
+/// whole**: the file that starts the reading made in `dir`, which baud
+/// watches, and the reading baud writes there waited for, whole. baud
+/// enters and leaves full screen by the window's own `toggleFullScreen:`;
+/// nothing here moves the pointer or posts an event. A reading that never
+/// comes is said and costs nothing else: the film is already whole.
+fn full_screen(dir: &Path) -> Result<(), String> {
+    let go = dir.join(FULL_SCREEN_GO);
+    fs::write(&go, b"").map_err(|e| format!("{}: {e}", go.display()))?;
+    let out = dir.join(FULL_SCREEN_OUT);
+    let t = Instant::now();
+    loop {
+        container::interrupted(&container::INTERRUPTED)?;
+        // baud writes the file in one call, and a reading cut short reads
+        // as no closing brace.
+        let whole = fs::read_to_string(&out).is_ok_and(|s| s.trim_end().ends_with('}'));
+        if whole {
+            return Ok(());
+        }
+        if t.elapsed() > FULL_SCREEN_LIMIT {
+            let _ = fs::remove_file(&out);
+            return Err("baud never wrote its full screen's reading".to_string());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// A pid written whole: to a file beside it, then renamed over it, so a
 /// reader never sees part of it.
 fn write_pid(p: &Path, pid: i32) -> Result<(), String> {
@@ -1121,7 +1185,10 @@ fn write_pid(p: &Path, pid: i32) -> Result<(), String> {
 
 /// **The session played**, and with `--record` filmed: the recorder starts
 /// and must be filming before baud is launched. Returns what the GIF
-/// needs when it filmed.
+/// needs when it filmed. A filmed session, once the recorder has the
+/// film's last frame, reads baud's window through one full screen and
+/// back ([`full_screen`]) before the window closes, and the reading is
+/// kept beside the raw film ([`keep_full_screen`]).
 fn live(
     args: &Args,
     prep: &Prep,
@@ -1141,10 +1208,21 @@ fn live(
         Some(k) => Some(record::start(k, at, &ev)?),
         None => None,
     };
+    // The filming run alone arms baud's full-screen reading, in a
+    // directory of the scratch root.
+    let check = at.root.join("full-screen");
+    let armed: Vec<(&str, &Path)> = match &filming {
+        Some(_) => {
+            fs::create_dir_all(&check).map_err(|e| format!("{}: {e}", check.display()))?;
+            vec![(FULL_SCREEN_ENV, check.as_path())]
+        }
+        None => Vec::new(),
+    };
     let launch = Instant::now();
     let spawned = Command::new(baud)
         .env_clear()
         .envs(prep.env.iter().map(|(k, v)| (k, v)))
+        .envs(armed.iter().copied())
         .current_dir(at.work())
         .stdin(Stdio::null())
         .stdout(log)
@@ -1196,9 +1274,15 @@ fn live(
         }
     }
     let last = guard::frame(pid, &mac::windows(true));
-    close(&mut child, pid);
     let display = filming.as_ref().map(|f| f.display);
     let said = filming.map(|f| f.finish(Duration::from_secs(60)));
+    // The film whole, its window read through a full screen and back.
+    if let (Some(_), Some(Ok(_)), Ok(_)) = (kit, &said, &played) {
+        if let Err(e) = full_screen(&check) {
+            println!("full:    no reading of the full screen: {e}");
+        }
+    }
+    close(&mut child, pid);
     let first = played?;
     leaks(at)?;
     check_printed(&prep.faces, &at.pty_log())?;
@@ -1425,6 +1509,27 @@ fn kept_out(args: impl Iterator<Item = String>) -> impl Iterator<Item = String> 
 
 #[cfg(test)]
 mod tests {
+    /// **The demo arms, starts and reads baud's full-screen reading by the
+    /// names baud uses**, each the app's constant as its source spells it.
+    /// The control: a name of the app's not spelt so is caught.
+    #[test]
+    fn the_full_screen_reading_is_named_as_baud_names_it() {
+        let app = include_str!("../../src/full_screen_check.rs");
+        for (name, value) in [
+            ("ENV", super::FULL_SCREEN_ENV),
+            ("GO", super::FULL_SCREEN_GO),
+            ("OUT", super::FULL_SCREEN_OUT),
+        ] {
+            let line = format!("pub(crate) const {name}: &str = \"{value}\";");
+            assert!(app.contains(&line), "{line}");
+        }
+        assert!(
+            !app.contains("pub(crate) const ENV: &str = \"BAUD_FULLSCREEN\";"),
+            "the control"
+        );
+        assert_eq!(super::full_screen_name("hero.gif"), "hero.full-screen.json");
+    }
+
     /// **Only a starship outside both advisories runs**: 1.27.0 and later
     /// pass, 1.26.0 and 1.24.2 -- the demo's other revision's and the
     /// flake's -- are refused, and so is output that names no version.

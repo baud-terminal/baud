@@ -13307,6 +13307,23 @@ impl Opening {
                 open._full_screen = Some(full_screen);
             }
         });
+        // **The filming run's reading of full screen at rest**
+        // (`full_screen_check.rs`): armed by its variable alone, which the
+        // demo's `--record` sets and nothing else does, in the first window.
+        if let Some(dir) = std::env::var_os(crate::full_screen_check::ENV)
+            .filter(|_| crate::full_screen_check::step().is_none())
+        {
+            crate::full_screen_check::arm(
+                crate::full_screen_check::Parts {
+                    window: window.ns_window().retain(),
+                    view: Retained::into_super(view.clone()),
+                    container: container.clone(),
+                    lockup: driver.icon.as_ref().map(crate::mark::Mark::accessory_view),
+                    lights: driver.lights.holder_view(),
+                },
+                std::path::Path::new(&dir),
+            );
+        }
         driver.window_id = Some(id);
         view.set_responder(Box::new(driver));
         // A key let go with Command held, which AppKit keeps from the view,
