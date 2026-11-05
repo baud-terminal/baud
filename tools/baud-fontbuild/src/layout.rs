@@ -19,7 +19,10 @@
 //! - single and pair positioning: glyph (pair) to value records, a pair
 //!   format 2 subtable ending the search for its first glyph with its
 //!   class 0 value as the default;
-//! - cursive: glyph to entry and exit anchors;
+//! - cursive: glyph to entry and exit anchors, the first subtable to
+//!   cover a glyph winning. A shaper attaches two glyphs only through one
+//!   subtable, so a cursive lookup split between two glyphs that attach
+//!   is not seen; the built fonts have no cursive lookup;
 //! - mark to base, ligature and mark: (mark, base) to both anchors, a
 //!   null base anchor not matching, as HarfBuzz lets the next subtable
 //!   try it.

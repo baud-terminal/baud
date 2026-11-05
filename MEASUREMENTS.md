@@ -2425,14 +2425,15 @@ glyph order and post names; every cmap record, format and mapping; each
 glyph's points, flags, instructions, components and bbox; each gvar
 tuple's region and every point's delta, unreferenced ones inferred as the
 OpenType gvar chapter, revision `810414e1`, infers them
-(`[[source: ms-opentype-gvar]]`); hmtx
-and HVAR per glyph; head, hhea, maxp, OS/2, post, name, gasp, cvt, fpgm,
-prep, fvar, avar and STAT field by field (`checkSumAdjustment` excepted); GDEF, GSUB
-and GPOS as a feature graph, feature parameters included, and per-lookup
-first-match mappings, so a subtable split is not a difference. Devices resolve at -1, 0, 1 and every
-region coordinate of either font: on the built fonts' one axis, wdth, that
-is -1, 0 and 1, between which a delta is linear. It prints the first
-difference per table and exits 0 equal, 1 different, 2 unreadable.
+(`[[source: ms-opentype-gvar]]`); hmtx and HVAR per glyph; head, hhea,
+maxp, OS/2, post, name, gasp, cvt, fpgm, prep, fvar, avar and STAT field
+by field (`checkSumAdjustment` excepted); GDEF, GSUB and GPOS as a
+feature graph, feature parameters included, and per-lookup first-match
+mappings, so a subtable split is not a difference. Devices resolve at -1,
+0, 1 and every region coordinate of either font: on the built fonts' one
+axis, wdth, that is -1, 0 and 1, between which a delta is linear. It
+prints the first difference per table and exits 0 equal, 1 different, 2
+unreadable.
 
 All 57 committed fonts equal themselves; the four built ones expand every
 table with none left as bytes. The seven perturbations of the built
@@ -2463,5 +2464,7 @@ p9, the edited point; gvar deltas blanked turned the gvar edit red;
 feature parameters compared by presence turned the ss01 edit red.
 
 Compared as bytes, and said so: CFF, CFF2, sbix, CBDT and the other
-tables not listed, avar 2's data, the 24-bit-glyph-id formats. Shaping and
-raster differentials are not built here.
+tables not listed, avar 2's data, and the 24-bit-glyph-id formats. Also
+not modelled: a cmap mapping to glyph 0 counts as unmapped, a cursive
+lookup is compared glyph by glyph, and with more than one axis only the
+samples are compared. Shaping and raster differentials are not built here.

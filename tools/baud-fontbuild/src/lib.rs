@@ -25,11 +25,13 @@
 //! records and caret values with variation devices are resolved at the
 //! sampled positions.
 //!
-//! The sampled positions are -1, 0 and 1 on every fvar axis and every
-//! start, peak and end coordinate any variation region of either font
-//! names, one axis at a time with the others at default, and the two
-//! corners. On one axis a resolved delta is linear between consecutive
-//! samples, so equal at every sample is equal everywhere.
+//! The sampled positions are -1, 0 and 1 on every fvar axis, plus every
+//! start, peak and end coordinate that a variation region of either font
+//! names. Each axis is sampled with the others at their defaults, plus the
+//! two corners. On a single axis a resolved delta is linear between
+//! consecutive samples, so being equal at every sample means being equal
+//! everywhere. With two or more axes that argument does not hold, and the
+//! comparison checks only the samples.
 //!
 //! A table neither font models here (CFF, CFF2, sbix, CBDT, ...) or one
 //! that does not parse is compared byte for byte, and the report says
