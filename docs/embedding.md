@@ -75,5 +75,3 @@ Run it with `cargo run -p baud-core --example quickstart`.
   the history behind it.
 - `Term::resize`: a new window size, with the primary screen's lines
   rewrapped.
-- [The architecture](contributing/architecture.md): how the core is laid
-  out and why.

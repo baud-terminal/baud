@@ -81,7 +81,8 @@ fn xterm_names() -> BTreeSet<String> {
 }
 
 /// **Every one of xterm's 319 names is found, and nothing else is.** The
-/// count is note AM's (`docs/research/notes/am/xterm-table-count.py`).
+/// count is the pinned xtermcap.c table's, `DATA` rows and `DGRP` groups
+/// read as `xterm_names` reads them.
 #[test]
 fn every_name_in_xterms_table_is_found_and_no_other() {
     let names = xterm_names();

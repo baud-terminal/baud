@@ -3,10 +3,8 @@
 //! **Why this crate exists and what it refuses.** The constraint is *no
 //! engine dependencies*: HarfBuzz, FreeType, rustybuzz and swash are
 //! reference literature, not dependencies, and this crate reads font files
-//! itself. `docs/research/notes/j-rendering.md` is the decisions register
-//! (D1 names the crate, D6-D11 decide what it parses and how it rasterises,
-//! D8-D9 how it shapes) and `j-rendering-evidence.md` carries the pinned
-//! specifications behind every table it reads.
+//! itself. The `[[source: ...]]` keys at each table it reads name the
+//! pinned specification behind it.
 //!
 //! **The contract is the core's.** `no_std`, `forbid(unsafe_code)`, and one
 //! dependency -- `baud-domain`, for the vocabulary a renderer and the core

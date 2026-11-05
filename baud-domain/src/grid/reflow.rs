@@ -50,7 +50,7 @@ use crate::{LineBidi, LineRendition, RowExtent};
 /// **Which of the lines a reflow re-cuts**: every one, or only those
 /// before a row, counted from the oldest retained row, from which every
 /// row is kept whole -- the rows a shell at its prompt redraws by counting
-/// them (note M, `docs/research/notes/m-resize-and-reflow.md`).
+/// them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Recut {
     All,

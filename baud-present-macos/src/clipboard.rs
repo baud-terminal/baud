@@ -1,6 +1,5 @@
 //! The general pasteboard, as a selection's copy and a paste read it: one
-//! string type, replacing what was there. `docs/research/notes/k-selection.md`
-//! is the spec. And the find pasteboard, the string a find searches for.
+//! string type, replacing what was there. And the find pasteboard, the string a find searches for.
 
 use macos_liquid_glass::objc2_app_kit::NSPasteboard;
 use macos_liquid_glass::objc2_foundation::NSString;

@@ -64,8 +64,7 @@ pub enum Osc<'a> {
     /// nobody will. A resize may re-cut the second and must not re-cut
     /// the first: a shell redraws its prompt by counting the rows it
     /// occupies and erasing that many, so changing the count behind its
-    /// back leaves the top of the old prompt on screen. See
-    /// `docs/research/notes/m-resize-and-reflow.md`.
+    /// back leaves the top of the old prompt on screen.
     Semantic(Semantic<'a>),
     /// `OSC 60`, `OSC 61 ; cat`, `OSC 62 ; cat`: xterm's queries of the
     /// features it allows, [`AllowQuery`].

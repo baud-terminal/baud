@@ -6,7 +6,6 @@
 //! alternate screen -- names lines the screen does not have. The renderer
 //! draws what `Term::view` draws, and these hold its other readers to the
 //! same clamp: the cursor, and a selection's text.
-//! `docs/research/notes/l-scrollbar.md` is the spec.
 
 mod support;
 

@@ -1,6 +1,6 @@
 // What CoreText does with an sbix table of many strikes: whether it opens the
 // font, whether it still draws a glyph's bitmap, and what a cold and a warm
-// draw cost. Note J, docs/research/notes/j-colour-bitmap-limits.md.
+// draw cost.
 // NOTHING IS DRAWN ON SCREEN: every glyph goes into an offscreen
 // CGBitmapContext. One font a process, so a draw is cold the first time.
 //

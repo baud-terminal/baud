@@ -2,7 +2,6 @@
 //! contributes once, a gap inside a row is a space and a trailing blank is
 //! nothing, marks follow their base, a wrapped row joins the next without a
 //! newline, and a range over the history reads the lines the ring kept.
-//! `docs/research/notes/k-selection.md` is the spec.
 
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};

@@ -1,6 +1,6 @@
 //! What an index of which glyphs have a bitmap costs to build, against
-//! walking the strikes per glyph as `Face::has_bitmap` does. Note J,
-//! docs/research/notes/j-colour-bitmap-limits.md. Not a test of the tree:
+//! walking the strikes per glyph as `Face::has_bitmap` does. Not a test of
+//! the tree:
 //! the 4096 rows need `MAX_STRIKES` lifted, as for strike-count-cost.rs:
 //!
 //!   python3 scripts/strike-count-fonts.py OUT

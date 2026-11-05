@@ -79,8 +79,7 @@ pub struct RunRange {
 /// buffer and two buffers the narrow form is 10 KB of working set against
 /// the 20 KB a `usize` word and its padding would take; a line of the
 /// history holds one too, 8 bytes beside its cells' 8 a column. That is the
-/// "thousands are stored" case `CONTRIBUTING.md` names as the one where
-/// narrowing earns its place, and it is read once per row operation rather than
+/// "thousands are stored" case, the one where narrowing earns its place, and it is read once per row operation rather than
 /// once per cell.
 ///
 /// **Beside the word, the row's paragraph properties** ([`LineBidi`]): the

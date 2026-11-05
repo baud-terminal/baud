@@ -175,7 +175,7 @@ fn every_relative_link_resolves() {
 /// **`cargo run` runs baud, because `baud` is the workspace's one binary.**
 ///
 /// The only binary, and the default one, is `baud`; the rest is part of the
-/// tests. `docs/contributing/build.md` and `docs/guide/install.md` tell a
+/// tests. `docs/guide/install.md` tells a
 /// reader `cargo run --release` starts the terminal, and that holds only
 /// while no other member grows a binary target, `baud-app` keeps
 /// `default-run = "baud"`, and the root keeps
@@ -241,23 +241,19 @@ fn baud_is_the_only_binary_and_the_default() {
 
 /// **Paths a document moved from, and where it went**, for history only.
 ///
-/// The research notes are dated: a backticked path in them says what the
-/// file was called on the day the entry was written, and rewriting it would
-/// edit evidence. So a path moved on purpose resolves to its new home when,
-/// and only when, the document naming it is under `docs/research/`; every
-/// other document has to use the new path. Each entry is checked as well: its old path must be
+/// A dated record under `docs/research/` names a file by what it was called
+/// on the day it was written, and rewriting it would edit evidence. So a
+/// path moved on purpose resolves to its new home when, and only when, the
+/// document naming it is under `docs/research/`; every other document has
+/// to use the new path. Each entry is checked as well: its old path must be
 /// gone and its new one present, so a revert or a second move fails here
 /// rather than leaving an entry that excuses nothing.
-const MOVED: &[(&str, &str)] = &[
-    // 2026-10-16, the docs reorganised by reader.
-    ("docs/architecture.md", "docs/contributing/architecture.md"),
-    ("baud-core/tests/readme.rs", "baud-core/tests/embedding.rs"),
-];
+const MOVED: &[(&str, &str)] = &[("baud-core/tests/readme.rs", "baud-core/tests/embedding.rs")];
 
 /// **Every repository path a document names in backticks exists.**
 ///
 /// Documents here cite real paths constantly — `baud-core/src/graph.rs`,
-/// `scripts/check-sources.sh`, `docs/research/notes/g-text-encoding.md` — and
+/// `scripts/check-sources.sh`, `docs/vt-coverage.md` — and
 /// those are load-bearing: they are how a reader gets from a claim to the code
 /// that implements it. A path that has moved turns the claim into folklore.
 ///
@@ -908,103 +904,11 @@ fn every_test_named_in_the_docs_exists() {
     );
 }
 
-/// **Nothing is listed as absent that the coverage table marks done.**
-///
-/// This is the class that got past every other check. The contributor guide
-/// listed `OSC 8` under "Unmeasured — do not assert", beside reflow and selection, as
-/// something still needing random access into variable-length spans. Hyperlinks
-/// are implemented: the link index rides in spare `CellFlags` bits and `NLINK`
-/// slots evict on collision. An agent reading that list would conclude they
-/// were unbuilt, and might build them a second time.
-///
-/// No path was broken and no test name was stale, so `every_relative_link_
-/// resolves` and friends all passed. The document was simply *wrong about the
-/// code*, which is the one thing they cannot see — and it is the exact failure
-/// `vt-coverage.md` exists to prevent, one file over.
-///
-/// The check is narrow on purpose: a mnemonic named in a "not done" section
-/// that also has a **done** row in the coverage table is a contradiction
-/// between two documents in the same repository, and one of them is wrong.
-#[test]
-fn nothing_disclaimed_is_also_marked_done() {
-    let root = root();
-    let coverage = fs::read_to_string(root.join("docs/vt-coverage.md")).expect("vt-coverage.md");
-
-    // Mnemonics with a `done` row.
-    let mut done = BTreeSet::new();
-    for line in coverage.lines() {
-        let l = line.trim();
-        if !l.starts_with('|') || !l.contains("| done") {
-            continue;
-        }
-        for tok in l.split(|c: char| !c.is_ascii_alphanumeric()) {
-            if tok.len() >= 3
-                && tok.len() <= 8
-                && tok
-                    .chars()
-                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-                && tok.chars().any(|c| c.is_ascii_uppercase())
-            {
-                done.insert(tok.to_string());
-            }
-        }
-    }
-    assert!(
-        done.len() > 20,
-        "only {} done mnemonics parsed -- the parser stopped matching",
-        done.len()
-    );
-
-    // Sections that claim something is *not* there.
-    const DISCLAIMERS: &[&str] = &[
-        "## Unmeasured — do not assert",
-        "## Things already tried that lost",
-    ];
-    // The positive control. Both sections live in CONTRIBUTING.md, and the loop
-    // below skips a file without them, so a renamed or moved heading would leave
-    // this gate checking nothing and passing.
-    let guide = fs::read_to_string(root.join("CONTRIBUTING.md")).expect("CONTRIBUTING.md");
-    for start in DISCLAIMERS {
-        assert!(
-            guide.contains(start),
-            "CONTRIBUTING.md has no `{start}` section, so this gate would check nothing"
-        );
-    }
-    let mut contradictions = Vec::new();
-    for f in ["CONTRIBUTING.md", "docs/vt-coverage.md", "README.md"] {
-        let Ok(src) = fs::read_to_string(root.join(f)) else {
-            continue;
-        };
-        for start in DISCLAIMERS {
-            let Some(i) = src.find(start) else { continue };
-            let rest = &src[i + start.len()..];
-            let end = rest.find("\n## ").unwrap_or(rest.len());
-            let section = &rest[..end];
-            for (n, line) in section.lines().enumerate() {
-                // Struck-through entries are records of things that *were*
-                // true, and say so.
-                if line.contains("~~") {
-                    continue;
-                }
-                for tok in line.split(|c: char| !c.is_ascii_alphanumeric()) {
-                    if done.contains(tok) {
-                        contradictions.push(format!(
-                            "{f}: {start:?} names `{tok}`, which vt-coverage.md marks done\n      {}",
-                            line.trim()
-                        ));
-                        let _ = n;
-                    }
-                }
-            }
-        }
-    }
-    assert!(
-        contradictions.is_empty(),
-        "{} contradiction(s) between a disclaimer and the coverage table:\n  {}",
-        contradictions.len(),
-        contradictions.join("\n  ")
-    );
-}
+// A test once held the contributor guide's "Unmeasured" and "Things already
+// tried that lost" sections to the coverage table's done rows, so nothing
+// listed as absent was also marked done. Those sections were the guide's
+// alone, and the guide is not in this tree: `docs/vt-coverage.md` and
+// `README.md` carry neither heading, so the check has nothing left to read.
 
 /// **The ladder's store-traffic column is arithmetic, so it is checked.**
 ///
@@ -1141,39 +1045,19 @@ fn the_cycles_per_byte_table_agrees_with_itself() {
     );
 }
 
-/// **Every research note is in `docs/README.md`'s index, and so is every
-/// group the source manifest files a source under.**
+/// **Every group the source manifest files a source under is in
+/// `docs/README.md`'s index.**
 ///
-/// The index said "it is 1/6 built" and listed four groups missing for weeks
-/// after all of them had notes, and while the directory grew to dozens: a
-/// list written once by hand, of a directory every research session adds to,
-/// and nothing compared the two. The control is the count: a scanner that
-/// stopped matching would find no note and no group, and pass.
+/// The index listed four groups missing for weeks after their sources were
+/// filed: a list written once by hand, of a manifest every research session
+/// adds to, and nothing compared the two. The control is the count: a
+/// scanner that stopped matching would find no group, and pass. This test
+/// also held the index to a directory of research notes, and those are not
+/// in this tree, so the manifest's groups are what is left to hold.
 #[test]
-fn every_research_note_and_source_group_is_in_the_index() {
+fn every_source_group_is_in_the_index() {
     let root = root();
     let index = fs::read_to_string(root.join("docs/README.md")).expect("docs/README.md");
-
-    let mut notes = Vec::new();
-    for e in fs::read_dir(root.join("docs/research/notes"))
-        .expect("docs/research/notes")
-        .flatten()
-    {
-        let name = e.file_name().to_string_lossy().into_owned();
-        if name.ends_with(".md") {
-            notes.push(name);
-        }
-    }
-    notes.sort();
-    assert!(
-        notes.len() > 20,
-        "only {} notes found -- the scanner stopped matching",
-        notes.len()
-    );
-    let unlisted: Vec<_> = notes
-        .iter()
-        .filter(|n| !index.contains(&format!("](research/notes/{n})")))
-        .collect();
 
     let manifest = fs::read_to_string(root.join("docs/research/sources/MANIFEST.toml"))
         .expect("MANIFEST.toml");
@@ -1198,9 +1082,8 @@ fn every_research_note_and_source_group_is_in_the_index() {
         .collect();
 
     assert!(
-        unlisted.is_empty() && ungrouped.is_empty(),
-        "docs/README.md's research index is behind:\n  notes not linked: {unlisted:?}\n  \
-         manifest groups with no row: {ungrouped:?}"
+        ungrouped.is_empty(),
+        "docs/README.md's research index is behind: manifest groups with no row: {ungrouped:?}"
     );
 }
 
@@ -1238,9 +1121,8 @@ fn attributes_above_docs(text: &str) -> Vec<usize> {
 /// insertion between a doc and its item leaves when the item had an
 /// attribute: `A`'s doc, `A`'s attribute, then the new item's doc and the
 /// new item, which now wears `A`'s attribute while `A` has neither.
-/// CONTRIBUTING.md's "Refactoring failures that already happened here" names
-/// that failure, "an attribute stranded from the function it was written
-/// for"; rustc
+/// It happened here: `#[inline(never)]` and the comment explaining it
+/// landed on the function below the one they were written for; rustc
 /// cannot see it, since a doc comment is an attribute and attributes stack
 /// in any order.
 ///

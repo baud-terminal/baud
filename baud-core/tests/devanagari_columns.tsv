@@ -1,6 +1,7 @@
 # Columns a Devanagari unit takes: baud-core's cursor advance (CPR) and what each program assumes.
 # 404 units were measured: the README's Hindi line and its eight words, the Devanagari examples of Microsoft's specification, and every word of two Premchand pages. That is the 399 distinct inputs of baud-font/tests/shape/devanagari.txt, plus the five words of the README line that file does not list (हर, अक्षर, ग्रिड, रखता, है।).
-# The README line and its words come first, then the file's other inputs in the order it first lists them. docs/research/notes/g-text-encoding.md section 4.6 says how each column was measured.
+# The README line and its words come first, then the file's other inputs in the order it first lists them.
+# baud_one_cell is baud-core's cursor advance read back by CPR, legacy_cells and legacy_mc0 a prototype's by CPR with GB9a and GB9c (or GB9c alone) made cell breaks, cap2 computed as at most two; every other column is that program's own count for the unit.
 codepoints	baud_one_cell	legacy_cells	legacy_mc0	cap2	glibc_2.36_2.41_2.43	unicode_width_0.2.2	vim_9.1_macos	bash_5.2_glibc	zsh_5.9_glibc_cc	bash_3.2_macos	bash_5.3_macos	zsh_5.9_macos_cc	zsh_5.9.2_macos_cc	tmux_3.6a_macos	python_wcwidth_0.4.0	macos_libc_wcswidth
 091F 0930 094D 092E 093F 0928 0932 0020 0939 0930 0020 0905 0915 094D 0937 0930 0020 0915 094B 0020 0917 094D 0930 093F 0921 0020 092E 0947 0902 0020 0930 0916 0924 093E 0020 0939 0948 0964	25	32	28	30	32	32	32	32	32	28	28	28	28	28	28	38
 091F 0930 094D 092E 093F 0928 0932	4	6	5	5	6	6	6	6	6	5	5	5	5	5	5	7

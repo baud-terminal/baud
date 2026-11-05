@@ -99,5 +99,6 @@ has used it on a real screen yet, so it is not ready to use.
 
 ## For contributors
 
-The test suites, the benchmarks and the gates are in
-[docs/contributing/build.md](../contributing/build.md).
+`devenv test` runs the test suites and the gates, the same nix-defined
+suite CI runs; [MEASUREMENTS.md](../../MEASUREMENTS.md) says how each
+benchmark is run.

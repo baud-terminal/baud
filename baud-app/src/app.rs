@@ -550,9 +550,8 @@ struct App {
     sizing: Sizing,
     /// Whether something changed since the last present.
     pending: Pending,
-    /// The selection, over absolute lines of the live surface -- see
-    /// `docs/research/notes/k-selection.md` -- and the rotation's advance
-    /// since launch that numbers those lines.
+    /// The selection, over absolute lines of the live surface, and the
+    /// rotation's advance since launch that numbers those lines.
     selection: Option<Selection>,
     /// The selection's text, kept past its highlight while `?1040` is set
     /// (`keep::KeptText`).
@@ -5186,8 +5185,7 @@ mod ghost_tests {
 /// **A window over the history is the primary screen's.** The alternate
 /// screen keeps none, so a window left scrolled back when a program enters
 /// it is the live screen for everything that reads one, and the primary's
-/// ring alone moves it. `docs/research/notes/l-scrollbar.md` is the spec,
-/// after foot, which keeps a view per grid.
+/// ring alone moves it, after foot, which keeps a view per grid.
 #[cfg(test)]
 mod alt_window_tests {
     use super::{
@@ -10878,8 +10876,7 @@ fn builds(flight: Option<InFlight>) -> Builds {
     }
 }
 
-/// A key's echo drawn before the pty answered (row 9 of note N,
-/// `docs/research/notes/q-local-echo.md`): the cell it stands in on the
+/// A key's echo drawn before the pty answered: the cell it stands in on the
 /// live screen, the codepoint it shows, the latency record it belongs to
 /// when the instrument is on, and when it was made.
 struct Prediction {
@@ -11056,9 +11053,8 @@ impl Driver {
     }
 
     /// Row 9: a printable typed at the shell's prompt is drawn before the
-    /// pty answers, as an overlay the next read judges. The gates are the
-    /// design's (`docs/research/notes/q-local-echo.md`): the core's prompt
-    /// zone, the primary screen, the live view, no synchronised update, a
+    /// pty answers, as an overlay the next read judges. The gates: the
+    /// core's prompt zone, the primary screen, the live view, no synchronised update, a
     /// visible cursor that is not in the last column, an ASCII printable,
     /// and no contradiction since the prompt opened. A second key before
     /// the first echo is predicted after the first. An occupied cell is

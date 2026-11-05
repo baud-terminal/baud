@@ -56,7 +56,7 @@ the screen; step 3 joins Arabic letters.
   line. A run that fits stays inline, and so does one the wrap breaks
   before rather than inside: a single foreign word that does not fit drops
   to the next line inline, as any word does, and so does a run of several
-  that fits whole there (the B and own-direction panels of `docs/research/notes/bd/owner-runs/`, chosen 2026-10-27). A run is a stretch above the paragraph's level
+  that fits whole there. A run is a stretch above the paragraph's level
   that holds a letter of the other direction, so a number in a Hebrew
   sentence stays on its line; its ends move to the opportunities around
   it. **Only finished text**: on the main screen, a paragraph wholly in the
@@ -294,9 +294,8 @@ the screen; step 3 joins Arabic letters.
   in their cells, so their line is drawn in the order a write of the same
   text gives it: `cd` composed after `ab` in a Hebrew line is drawn
   `abcd`, the `ab` moved left to make room, and the cursor on the cell
-  after it in logical order, which the paragraph draws left of `abcd`, as the text will be once it is sent and echoed (the options rendered in
-  `docs/research/notes/ab/b205/`;
-  `a_composition_on_a_right_to_left_row_draws_as_the_text_written`, on
+  after it in logical order, which the paragraph draws left of `abcd`, as the text will be once it is sent and echoed
+  (`a_composition_on_a_right_to_left_row_draws_as_the_text_written`, on
   every arm, and
   `a_predicted_echo_on_a_right_to_left_row_draws_as_its_echo`). A
   bracket typed after a Hebrew letter is drawn mirrored, as its echo is
@@ -583,8 +582,7 @@ terminal-wg-bidi-basic-modes]]`, `[[source: terminal-wg-bidi-display-only]]`,
 `[[source: terminal-wg-bidi-erased-cells]]`, `[[source:
 terminal-wg-bidi-cursor]]`, `[[source: terminal-wg-bidi-escape-sequences]]`,
 `[[source: terminal-wg-bidi-ecosystem]]`); VTE, mintty, iTerm2, Konsole,
-mlterm and WezTerm at source (note AB section 3); the renders each choice
-was weighed on are in `docs/research/notes/ab/step2/`.
+mlterm and WezTerm at source.
 
 **Built so:**
 
@@ -656,8 +654,7 @@ row. **Built so:**
 
 **SAPV (2026-10-26)**, read against ECMA-48 8.3.108, TR/53's worked
 example 1 and section 7, UAX #9's L4 and section 7, the Unicode
-Standard's chapters 9 and 23 and ECMA-114
-(`docs/research/notes/ab/b215/`). The decimal mark is settled (above).
+Standard's chapters 9 and 23 and ECMA-114. The decimal mark is settled (above).
 **Built so:**
 
 | choice | behaviour |
@@ -669,20 +666,17 @@ Standard's chapters 9 and 23 and ECMA-114
 | a form a letter has not got | the nearest it has, as a joiner beside it asks (Unicode 23.2) |
 | 20, "device dependent" digits | as stored |
 | `DECSTR` | the default presentation |
-| a letter 5 to 8 asks a form of, inside a word | shaped in that form with its word around it, as a joiner beside it is ("change the context of a particular character occurrence", Unicode 23.2), so `rlig`, `rclt` and `calt` pick that form's variant (`docs/research/notes/ab/b216r/`) |
+| a letter 5 to 8 asks a form of, inside a word | shaped in that form with its word around it, as a joiner beside it is ("change the context of a particular character occurrence", Unicode 23.2), so `rlig`, `rclt` and `calt` pick that form's variant |
 
 **15, where mirroring is the default**, unmirrors a right-to-left path
 with BDSM reset, and with it set L4 governs. UAX #9 section 7: "mirroring
 must be done according to rule L4".
 
-The renders are in `docs/research/notes/ab/b211/`.
-
 **DEC's Hebrew modes and ECMA-48's strings (2026-10-26)**, read against
 the VT510's DECRLCM, DECHEM, DECSTR and chapter 4 pages (`[[source:
 vt510-decrlcm]]`, `[[source: vt510-dechem]]`, `[[source: vt510-decstr]]`,
 `[[source: vt510-chapter4]]`), ECMA-48 7.1, 7.2.3, 7.3.4, 8.3.114 and
-8.3.137, and TR/53's section 7 and worked examples
-(`docs/research/notes/ab/b220/`). Two are settled, both DECRLM's: a row it
+8.3.137, and TR/53's section 7 and worked examples. Two are settled, both DECRLM's: a row it
 wrote is drawn as its cells hold, and `HT` goes to the previous stop.
 **Built so:**
 
@@ -721,13 +715,10 @@ wrote is drawn as its cells hold, and `HT` goes to the previous stop.
 | Arabic with the mode off | joined in display order (terminal-wg's text says no shaping; its author's issue #7 reverses it) |
 | a lam and an alef a soft wrap parts | the ligature in the lam's cell, the alef's cell left blank |
 
-The joining questions and their renders are in
-`docs/research/notes/ab/joining/`.
-
 **The table row, where the texts leave the choice open.** The options
 were drawn on a table of box-drawing rules, a psql-style table drawn with `|`, a Hebrew sentence with a `|` in it beside a shell
-pipeline, and a tree, each drawn by baud's renderer under five options
-(`docs/research/notes/ab/b192/`), and asked again with HTML's `dir=auto`
+pipeline, and a tree, each drawn by baud's renderer under five options,
+and asked again with HTML's `dir=auto`
 (`[[source: whatwg-html-dom-dir]]`: a direction from "the first character
 with a strong directionality") and CSS's `text-align: start`
 (`[[source: css-text-3]]`), by which a web table's Hebrew cell sits
@@ -756,11 +747,10 @@ them, is superseded. The prior art (VTE swaps a cell's base and keeps its
 marks; HarfBuzz substitutes or applies the font's `rtlm`, which baud's
 faces do not carry; no terminal surveyed flips a glyph) does not settle
 it, and leaving them unmirrored would depart from L4, so both are built as
-L4 reads (`docs/research/notes/ab/step2/l4.png` shows both). One of the
+L4 reads. One of the
 126 carries a mark the face draws apart: the base is flipped and the mark
 not, which is Bidi_Mirrored=N and so not "depicted by a mirrored glyph",
-over the whole cell flipped and the cell left unmirrored; the renders are
-in `docs/research/notes/ab/b197/`.
+over the whole cell flipped and the cell left unmirrored.
 
 terminal-wg prefers hiding the cursor on a full reordered line ("It's
 more consistent to make it disappear"); baud draws it.
@@ -935,11 +925,9 @@ eight rounds with the first dropped, on mains:
   konsole-terminaldisplay-c8bc143]]`), and every row left to right put the
   halves at matching ends (Konsole draws every row left to right while its
   BidiLineLTR setting is on, its default), at the cost of a row that runs left to right
-  with the Hebrew period at its right end. The four options on three
-  wrapped paragraphs: `docs/research/notes/ab/b192/wrap.png`.
-  All four were rejected (2026-10-24) for a mixed paragraph broken into lines of one direction each; the texts, the prior
-  art, three prototypes and the recommendation are note BD,
-  `docs/research/notes/bd-bidi-wrap.md`, and with `[screen] wrap_words` on, the
+  with the Hebrew period at its right end. All four were rejected for a
+  mixed paragraph broken into lines of one direction each, and with
+  `[screen] wrap_words` on, the
   default, a finished paragraph is drawn at its words (above, "What you
   see").
 - **BDSM per paragraph**: terminal-wg keeps implicit or explicit per

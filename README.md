@@ -63,10 +63,9 @@ Its terminal core is a separate library any program can embed:
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) says what a change needs, and
-[docs/contributing/build.md](docs/contributing/build.md) has the test suites
-and the gates. [docs/README.md](docs/README.md) is the index of every
-document.
+[docs/README.md](docs/README.md) is the index of every document, and the
+[code of conduct](CODE_OF_CONDUCT.md) says how contributors treat each
+other.
 
 ## Credits
 

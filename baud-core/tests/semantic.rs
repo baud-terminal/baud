@@ -5,9 +5,6 @@
 //! Re-cutting those rows to a new width changes the count behind its
 //! back, so the erase begins below the prompt's first line and that line
 //! survives -- once per resize. Output has no such reader.
-//!
-//! See `docs/research/notes/m-resize-and-reflow.md` for the measurement
-//! and for what the alternatives cost.
 mod support;
 use baud_core::{PackedCell, Resized, Term, Zone};
 use baud_domain::{Back, Row, WinSize};

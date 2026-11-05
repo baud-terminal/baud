@@ -35,9 +35,6 @@
 //!   program.
 //!   A notification with nothing a platform can show is not posted, and
 //!   counted ([`Delivery::bare_line`]).
-//!
-//! Note AX (`docs/research/notes/ax-program-notifications.md`) has the
-//! texts and the forks.
 
 use std::collections::VecDeque;
 use std::time::Duration;

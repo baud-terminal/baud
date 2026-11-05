@@ -1,6 +1,6 @@
 //! The scrollbar's fade and hover on the CPU path, which the pixel oracle
 //! cannot reach: the oracle compares the two GPU arms, so a rule both lost
-//! would pass it. `docs/research/notes/l-scrollbar.md` is the spec.
+//! would pass it.
 
 mod support;
 

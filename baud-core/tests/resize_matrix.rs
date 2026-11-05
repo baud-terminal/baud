@@ -7,9 +7,7 @@
 //! the history on a growth stopped a drag stacking prompts and made an
 //! `ls` disappear when the window came back.
 //!
-//! `docs/research/notes/m-resize-and-reflow.md` is the design and the
-//! measurements; `baud-bench`'s `winch` replays real shell traffic
-//! against it.
+//! `baud-bench`'s `winch` replays real shell traffic against it.
 mod support;
 use baud_core::{Term, Zone};
 use baud_domain::{PackedCell, Row, WinSize};

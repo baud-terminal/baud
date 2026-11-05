@@ -61,7 +61,7 @@ Two rules the tests pin, because both failure modes are worse than silence:
   the bar was UDKs; it is not: DECUDK is DEC STD 070's independent extension
   8 (`Levels: 2X`), not a Level 2 requirement, so a Level 2 claim without `;8`
   is the honest shape for a terminal without them. What keeps baud off Level
-  1 and 2 is the list in note AP (`docs/research/notes/ap-da-level.md`):
+  1 and 2 is this list:
   no Level 1 operation (DECSCL selects Level 1 since 2026-10-19 without
   its restrictions), no DA2, and for Level 2 LS1R-LS3R and the Level 2
   keyboard. Claiming more would make applications
@@ -176,8 +176,7 @@ through `ESC % G` (`[[source: ecma35]]` §15.4, 10646 §12.2), not as a mode
 inside it. So SCS, SO/SI and SS2/SS3 under UTF-8 are extensions: xterm's
 translation, baud's, and the `CellFlags::GRAPHICS` provenance baud keeps
 beside the translated codepoint. They are argued against xterm's practice
-and ncurses', not against ECMA-35, which does not reach them
-([note G](research/notes/g-text-encoding.md)).
+and ncurses', not against ECMA-35, which does not reach them.
 
 **DEC Special Graphics: the positions are DEC's and the codepoints are foot's.**
 `[[source: vt100-ug-ch3]]` names the set's glyphs in text, Table 3-9, for "ASCII
@@ -224,7 +223,7 @@ Four OSC decisions are refusals or limits, and each is deliberate rather than a 
   of an ssh session could otherwise read back whatever the user last copied,
   which may be a password. Answering with anything -- including an empty
   payload -- tells it the feature works, so the refusal is silence.
-  **Writes are honoured** (note V, V11, 2026-09-25), with `[clipboard]
+  **Writes are honoured** (V11), with `[clipboard]
   osc52 = "off"` to refuse them, and they are not held to `OSC_MAX`: the body
   after `52;` goes to its own two areas, the copy being collected and the last
   one finished, and a copy past them is refused whole rather than cut. A `Pd`
@@ -300,8 +299,8 @@ for a North American keyboard and baud has no other (the `?42` row in
 
 ## Still open
 
-**Decided on 2026-09-25 and not built** (`docs/research/notes/v-open-decisions.md`, under its rule: "A
-half-built protocol feature is finished to the spec, not switched off"):
+**Decided and not built**, each to be finished to the spec rather than
+switched off:
 
 * **V10, side margins finished.** DECSLRM binds the wrap, ICH, DCH and
   DECIC/DECDC (above), and since 2026-10-12 every vertical scroll: `SU`,
@@ -341,18 +340,18 @@ Each is a departure from a standard, recorded as a defect. The list moved here
 from the README on 2026-10-12. On the protocol side the full list is the rows
 at **partial** in [vt-coverage.md](vt-coverage.md), which its legend names;
 of those rows the list below repeats the DEC Special Graphics table. Which
-wrap state DECSC saves and DECRC restores left this list on 2026-11-01: the
+wrap state DECSC saves and DECRC restores left this list: the
 pending wrap, and not DECAWM (note AE's Q12; the `ESC 7` and `ESC 8` rows).
 
 - **DEC Special Graphics leaves `0x5F` as `_`**, where every DEC text read
   replaces it with Blank; which code point Blank stores is open.
 - **A `SUB` draws no error character by default**, where DEC's VT220 to
-  VT500 display one (`[[source: dec-std-070]]` p. 5-132): a choice the project made on 2026-10-23, with `[screen] substitute_mark` to draw it, and in VT52 mode it draws none either way, which no DEC text settles ([vt-coverage.md](vt-coverage.md), the SUB rows). Drawing nothing, it moves nothing, so a wrap pending after a full line stays pending across it, where the mark, a character, would take the wrap first (a lean, 2026-11-01).
+  VT500 display one (`[[source: dec-std-070]]` p. 5-132): baud's default, with `[screen] substitute_mark` to draw it, and in VT52 mode it draws none either way, which no DEC text settles ([vt-coverage.md](vt-coverage.md), the SUB rows). Drawing nothing, it moves nothing, so a wrap pending after a full line stays pending across it, where the mark, a character, would take the wrap first.
 - **Marks past what the cluster store holds are dropped**, and counted
-  ([note AB](research/notes/ab-right-to-left.md), §7.2 and Q7).
+  (`marks_dropped`).
 - **When no face draws a cluster whole, each attached code point its base's
   face lacks is dropped**, and counted, where the Unicode Standard asks for a
-  placeholder ([note AD](research/notes/ad-unrenderable-in-a-cell.md)).
+  placeholder (`[[source: unicode18-ch5]]` 5.3).
 - **A cell can be recoloured when more renditions are live than the
   rendition table has slots.** Slots no cell names are freed, and when every
   slot is named one is evicted, so a cell that still names it takes another

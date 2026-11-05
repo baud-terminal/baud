@@ -1,8 +1,7 @@
 //! **A finished paragraph drawn at its words** (`[screen] wrap_words`, on
 //! by default): no word is split across two lines, and in a paragraph that
 //! mixes directions a run of the other direction the wrap would split is
-//! given lines of its own in its own direction
-//! (`docs/research/notes/bd/owner-runs`).
+//! given lines of its own in its own direction.
 //!
 //! Every expectation is the window as drawn: each display row's cells in
 //! visual order, `.` for an erased cell. A right-to-left line is written

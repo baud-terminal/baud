@@ -3,8 +3,8 @@
 //! rust-overlay at the revisions `devenv.lock` holds, and its nightly from
 //! that rust-overlay; the root `flake.nix`, which `nix run` and `nix
 //! build` read, pins its own inputs in `flake.lock` and names the nightly
-//! by date; and the documents that name a nightly, CONTRIBUTING.md's
-//! "Releases" and docs/embedding.md, give that date. This file fails on a
+//! by date; and the document that names a nightly, docs/embedding.md,
+//! gives that date. This file fails on a
 //! lock bumped alone and on a document left on an old nightly. The dev
 //! shell names no date, so both locks moved together can take its nightly
 //! past the flake's; that pair is not held here, and neither are the
@@ -106,18 +106,19 @@ fn the_documents_give_the_nightly_the_flake_builds_with() {
     let date = &flake[at..at + flake[at..].find('"').expect("the date closes")];
     assert_eq!(date.len(), "2026-04-11".len(), "{date:?} is not a date");
 
-    for doc in ["CONTRIBUTING.md", "docs/embedding.md"] {
-        let text = read(doc);
-        let named: Vec<_> = text
-            .match_indices("nightly-")
-            .map(|(i, m)| &text[i + m.len()..(i + m.len() + date.len()).min(text.len())])
-            .collect();
-        assert!(!named.is_empty(), "{doc} names no `nightly-…`");
-        assert!(
-            named.iter().all(|d| *d == date),
-            "{doc} names nightly {named:?}, the flake {date}"
-        );
-    }
+    // docs/embedding.md is the one tracked document naming a nightly; the
+    // contributor guide that also named one is not in this tree.
+    let doc = "docs/embedding.md";
+    let text = read(doc);
+    let named: Vec<_> = text
+        .match_indices("nightly-")
+        .map(|(i, m)| &text[i + m.len()..(i + m.len() + date.len()).min(text.len())])
+        .collect();
+    assert!(!named.is_empty(), "{doc} names no `nightly-…`");
+    assert!(
+        named.iter().all(|d| *d == date),
+        "{doc} names nightly {named:?}, the flake {date}"
+    );
 }
 
 /// `account/name`, the repository's address on GitHub, from the

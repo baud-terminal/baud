@@ -7,8 +7,7 @@
 # Needs docker with an aarch64 Linux engine (colima's default VM on an
 # Apple silicon Mac), and the repository under a directory the engine
 # mounts (colima mounts the home directory). Nothing opens a window here:
-# the compositors are headless, inside the container. The research note
-# docs/research/notes/be-linux-pixels.md holds a run's results.
+# the compositors are headless, inside the container.
 #
 # Three arms, each fixture the same bytes -- a committed recording with
 # `CSI ? 25 l` after it, so no cursor is drawn (the Linux app starts

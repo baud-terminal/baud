@@ -2,8 +2,8 @@
 // probe's own: when the knob appears after each trigger, how long it holds,
 // how long it fades and in what shape, how wide it is at rest, what colour
 // and alpha it draws in each appearance, and what a legacy scroller draws
-// and where it is laid out. `docs/research/notes/l-scrollbar.md` quotes the numbers; nothing
-// here is recalled, because AppKit's header documents none of them
+// and where it is laid out. `baud-render/src/scrollbar.rs` and
+// `baud-app/src/reveal.rs` take their numbers from it; nothing here is recalled, because AppKit's header documents none of them
 // (NSScroller.h and NSScrollView.h name `flashScrollers` "momentarily").
 //
 // NOTHING IS POSTED TO THE DESKTOP. Every trigger is an in-process call on

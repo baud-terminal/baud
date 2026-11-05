@@ -64,7 +64,7 @@ control that says the patch is applied.
 **How it is applied.** `build.rs` copies `docs/research/sources/sfte.h` --
 which stays pristine and hashed in `MANIFEST.toml` -- into `OUT_DIR` and
 replaces the anchor below **exactly once**, failing the build if the anchor is
-found zero or several times. A patch that silently fails to apply is an edit that changed nothing and said so nowhere (CONTRIBUTING.md, "Refactoring failures that already happened here"), and the build refusing is the
+found zero or several times. A patch that silently fails to apply is an edit that changed nothing and said so nowhere, and the build refusing is the
 positive control. The altered copy carries a comment naming this file, which
 is what the zlib licence's second clause asks for.
 

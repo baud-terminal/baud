@@ -16,8 +16,7 @@
 # Needs docker with an aarch64 Linux engine (colima's default VM on an
 # Apple silicon Mac), and the repository under a directory the engine
 # mounts. Nothing opens a window here: the compositor is headless, inside
-# the container. The research note docs/research/notes/be-linux-pixels.md
-# holds a run's results.
+# the container.
 #
 # The `present` bench (baud-bench/benches/present.rs) is built once, in
 # Debian bookworm, and run under two sways on wlroots' headless backend

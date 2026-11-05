@@ -46,7 +46,8 @@ fn alloc_sgr(n: usize) -> String {
 /// The row pitch the arm under measurement lays the grid out at.
 ///
 /// **One binary per arm**, because a runtime switch in the loop measures the
-/// switch (`CONTRIBUTING.md`, "Runtime variant switches in the hot loop").
+/// switch: a runtime `if` in the hot loop once read as a cost for a change
+/// that was free.
 /// The default is what ships: the pitch `grid_stride` derives from the cache
 /// geometry. `stride-live` is the layout this core had before -- the live
 /// column count, the +14% over the aliasing one that the fixed pitch has to

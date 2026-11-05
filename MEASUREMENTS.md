@@ -456,8 +456,7 @@ part of it.
 A cell is eight bytes, so a materialising path cannot go below 8x per *byte of
 text*, and the figures above are per byte of *input*, which includes escapes.
 
-**`RowExtent` bounds blanking at the row's used extent** (note F,
-`docs/research/notes/f-row-extent.md`), so cat-scroll reads 1.9x without
+**`RowExtent` bounds blanking at the row's used extent**, so cat-scroll reads 1.9x without
 deferring a write. `ingest2` prints the figure per run.
 
 ## The ASCII ladder and the store ceiling
@@ -493,8 +492,8 @@ five-byte SGR, thirteen times a text byte.
 
 ## Reproducing
 
-Every benchmark, these and the in-repository ones, with what each is for:
-[docs/contributing/measuring.md](docs/contributing/measuring.md).
+The cross-implementation and in-repository benchmarks, with what each is
+for:
 
 ```sh
 # cross-implementation, real capture
@@ -569,7 +568,7 @@ bound. The median key of the sweep above is 5.5 ms after its tick, so its panel
 time is the late bound. **Under the probe's capture `to_shown` reads 13 ms, four
 times the sweep's**, so the probe validates the bounds and does not replace the
 sweep. Typeahead at a 2 ms cadence: 76 of 80 keys shared a frame, one commit per
-8.33 ms period. `docs/research/notes/o-keystroke-latency.md` has the rest.
+8.33 ms period.
 
 ## The shader cache at launch
 
@@ -596,7 +595,7 @@ With only `com.apple.metalfe` (the front end) aside: no change. With only
 `com.apple.metal` (the per-GPU binaries) aside: library 81.8, pipelines 48.3,
 wall 193.1 -- the proxy for a shipped `.metallib`. A one-line comment in the
 shader source: the next launch's library 76.2, pipelines 0.8, then warm; the
-cache keys on the source and survives rebuilds. `docs/research/notes/p-shader-cache.md`.
+cache keys on the source and survives rebuilds.
 
 ## The Dock icon from the bundle
 
@@ -661,8 +660,8 @@ wait.
 The wait is `_mdns_atfork_prepare()`, 2.66-32.92 ms timed alone; the
 kernel's `__fork()` beside the same thread never took over 0.37 ms. The
 `BAUD_STARTUP=1` launch log before the change read `renderer` at 14.9 ms
-and `pty` at 77.0. `docs/research/notes/aj-launch-splash.md` section 20 and
-`docs/research/sources/aj-observed/fork-wait.txt` have the rest.
+and `pty` at 77.0. `docs/research/sources/aj-observed/fork-wait.txt` has
+the rest.
 
 ## Overlapping sharedApplication with the CoreGraphics connection (row 4, reverted)
 

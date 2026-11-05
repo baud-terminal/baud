@@ -1,6 +1,6 @@
 //! **How many columns a syllable takes**, against what programs count.
 //!
-//! `docs/research/notes/g/devanagari-columns.tsv` holds 404 units of
+//! `baud-core/tests/devanagari_columns.tsv` holds 404 units of
 //! Devanagari -- the README's Hindi line and its words, the Devanagari
 //! examples of Microsoft's specification and every word of two Premchand
 //! pages -- with the columns each program measured: glibc's `wcswidth`,
@@ -36,9 +36,9 @@ struct Unit {
 fn units() -> Vec<Unit> {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../docs/research/notes/g/devanagari-columns.tsv"
+        "/tests/devanagari_columns.tsv"
     ))
-    .expect("devanagari-columns.tsv");
+    .expect("devanagari_columns.tsv");
     let mut lines = src.lines().filter(|l| !l.starts_with('#'));
     let head: Vec<&str> = lines.next().expect("a header").split('\t').collect();
     let col = |name: &str| head.iter().position(|h| *h == name).expect(name);

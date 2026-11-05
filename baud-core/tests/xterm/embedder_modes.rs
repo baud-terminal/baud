@@ -1,7 +1,7 @@
 //! Modes the core records because something outside it can act on them.
 //!
-//! `CONTRIBUTING.md`: "Never record a mode you do not act on. A bit that is set
-//! and never read is the same failure as a sequence parsed and dropped." The
+//! A mode recorded and never acted on is the same failure as a sequence
+//! parsed and dropped. The
 //! core has no renderer, and its input path encodes keys rather than acting on
 //! these, so for these two "acting on it" means *exposing* it -- an embedder
 //! cannot implement either mode without being told, and there is no other

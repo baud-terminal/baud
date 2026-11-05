@@ -8,7 +8,6 @@
 //!
 //! This is **not** the answer to a shell's prompt duplicating on a
 //! resize -- no shell consumes it, and that is `OSC 133` and `Zone`.
-//! `docs/research/notes/m-resize-and-reflow.md` keeps the two apart.
 mod support;
 use baud_domain::WinSize;
 

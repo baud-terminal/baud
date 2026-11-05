@@ -1,8 +1,7 @@
 //! A selection's drawing on the CPU path, where the pixel oracle cannot
 //! reach: the oracle compares the instance arm against the cell shader, so
 //! a rule both of them lost would pass it. This holds the instance and CPU
-//! arms to the rule on their own. `docs/research/notes/k-selection.md` is
-//! the spec.
+//! arms to the rule on their own.
 
 mod support;
 

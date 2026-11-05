@@ -3,8 +3,7 @@
 //! between live spans. The mechanics are checked with synthetic small images
 //! written distinct sentinels -- so an overlap corrupts one and the test sees it
 //! -- and the last test decodes a **real** Sixel from ImageMagick into the store
-//! in place, the zero-extra-copy path `docs/research/notes/t-images.md`
-//! describes.
+//! in place, the zero-extra-copy path.
 
 use baud_domain::{
     BandMove, BelowWindow, Col, ImageAlpha, ImageId, ImagePx, ImageScreen, ImageSlot, ImageStore,

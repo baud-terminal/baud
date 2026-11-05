@@ -320,7 +320,7 @@ impl OtherKeysFormat {
 /// **Masked to the five defined bits on the way in.** The specification's
 /// table defines five bits (html 1536-1556) and gives no rule for any other,
 /// so the mask is baud's choice: a bit kept and never acted on is a mode
-/// recorded and not acted on, which `CONTRIBUTING.md` refuses, and `CSI ? u`,
+/// recorded and not acted on, which baud refuses, and `CSI ? u`,
 /// which writes the stored bits as they are, would report it back. A stored
 /// `KittyFlags` is therefore valid by construction and the encoder never has
 /// to guard against a sixth bit. The protocol is all-or-nothing because its

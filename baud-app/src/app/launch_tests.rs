@@ -289,9 +289,8 @@ impl Session {
 /// `scripts/locale/dock_launch_check.py` launches one: `HOME`, `USER`,
 /// `LOGNAME`, `TMPDIR` and `__CF_USER_TEXT_ENCODING` as this process has
 /// them, a system `PATH` and `SHELL` -- and no `LANG` or `LC_*`, which
-/// launchd does not set (`docs/research/notes/aa-shell-locale.md` section 2,
-/// measured with `launchctl getenv LANG` and two launchd-started apps'
-/// environments) -- with launchd's `XPC_FLAGS` (`[[source:
+/// launchd does not set (measured with `launchctl getenv LANG` and two
+/// launchd-started apps' environments) -- with launchd's `XPC_FLAGS` (`[[source:
 /// aa-obs-cwdprobe-run]]`; its `XPC_SERVICE_NAME`, which names the app, is
 /// left out: no locale rule reads it).
 pub(super) fn launchd_environment() -> Vec<(OsString, OsString)> {
@@ -327,8 +326,8 @@ pub(super) fn launchd_environment() -> Vec<(OsString, OsString)> {
 /// line editor runs: once it reads (bracketed paste on, as it starts each
 /// line), yod, U+05D9, is typed through the responder's text path. The
 /// screen then holds the letter, drawn with ink in its cell, and no U+FFFD
-/// or `<0099>` -- what zsh in the C locale echoes for the letter's two bytes
-/// (`docs/research/notes/aa-shell-locale.md` section 1). Then Return (zsh
+/// or `<0099>` -- what zsh in the C locale echoes for the letter's two bytes.
+/// Then Return (zsh
 /// names the letter as a command it cannot find) and `echo $LANG`, whose
 /// answer names a `.UTF-8` locale; which one is the user's preference, so
 /// only its codeset is checked.

@@ -3,7 +3,7 @@
 binary launched with the system's shader caches in place (warm) and moved
 aside (cold), interleaved, reading the app's own `gpu build:` line.
 
-Row 1 of `docs/research/notes/n-make-faster.md` rests on a research figure
+The shader cache's cost at launch had only a research figure
 -- "~50 ms per pipeline chain on the first launch after an install or an
 OS update" -- that nothing had measured on baud. This is the measurement.
 The app, under `BAUD_STARTUP=1`, prints one line from its GPU probe:

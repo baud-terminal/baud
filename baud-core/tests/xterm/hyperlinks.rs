@@ -893,8 +893,8 @@ fn hyperlinks_are_chunk_invariant() {
 /// The cell is still eight bytes.
 ///
 /// The link rides in spare `CellFlags` bits precisely so this stays true —
-/// `CONTRIBUTING.md` records the 8-byte width as measured, and a ninth byte
-/// would round the cell to twelve.
+/// the 8-byte width is a measured number, and a ninth byte would round
+/// the cell to twelve.
 #[test]
 fn the_cell_is_still_eight_bytes() {
     assert_eq!(core::mem::size_of::<PackedCell>(), 8);

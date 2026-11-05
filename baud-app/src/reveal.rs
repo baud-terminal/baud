@@ -1,8 +1,8 @@
 //! When the scrollbar's thumb is seen, and how wide: AppKit's overlay
-//! scroller, measured by `scripts/scroller-probe.swift` and specified in
-//! `docs/research/notes/l-scrollbar.md`. Pure -- the display link's time in,
-//! a look out -- so the driver's four events and its tick are all this
-//! module has to be told, and a test can walk a timeline without a window.
+//! scroller, measured by `scripts/scroller-probe.swift`. Pure -- the
+//! display link's time in, a look out -- so the driver's four events and
+//! its tick are all this module has to be told, and a test can walk a
+//! timeline without a window.
 //!
 //! A reveal holds the thumb at full, then fades it along Core Animation's
 //! ease-in-ease-out curve to nothing; the pointer over the strip while scrolled back holds it, widened,

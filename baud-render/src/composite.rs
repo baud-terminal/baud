@@ -1,6 +1,6 @@
 //! Pixels: background rows, then masks over them.
 //!
-//! pixman's shape (`docs/research/notes/j-rendering.md` D2, E4): a solid
+//! pixman's shape: a solid
 //! fill per row, then for each glyph its `A8` mask `OVER` the row with the
 //! glyph's colour. Coverage arrives linear from the rasteriser and the
 //! blend is a policy (D7): `Native` blends in the sRGB numbers the way

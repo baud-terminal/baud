@@ -487,8 +487,8 @@ pub(crate) fn reset_in(term: &Term<'_>, before: Before) -> bool {
 /// the key's effect is, and whether that moved it. On the alternate screen
 /// the live screen is already what is drawn, and the primary's window is
 /// kept for when the program leaves, as foot keeps a view per grid and
-/// resets only the live one on a key (`docs/research/notes/l-scrollbar.md`).
-/// The policy is the app's and the window the core's (note V, V2).
+/// resets only the live one on a key.
+/// The policy is the app's and the window the core's.
 pub(crate) fn snap_live(term: &mut Term<'_>) -> bool {
     let moved = term.screen() == Screen::Normal && term.window_back().index() != 0;
     if moved {

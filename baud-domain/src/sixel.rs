@@ -18,8 +18,8 @@
 //!
 //! Only the parts a decoder implements are here: the data bytes, the colour
 //! registers, the repeat introducer, graphics carriage return and new line,
-//! and the raster attributes. `docs/research/notes/s-sixel.md` is the design;
-//! this is the decode half of its first acceptance gate.
+//! and the raster attributes; `baud-domain/tests/sixel_decode.rs` is the
+//! gate its decode answers to.
 
 use crate::decode::{InputEncoding, StreamByte};
 use crate::image::{

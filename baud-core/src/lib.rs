@@ -14,9 +14,7 @@
 //! arithmetic reaches 1000 MB/s on `cat-cjk`, and this crate is built around
 //! it rather than around a faster version of the per-character path.
 //!
-//! `MEASUREMENTS.md` carries the measurements;
-//! `docs/research/notes/b-parser-as-a-graph.md` carries the
-//! literature on storing the automaton.
+//! `MEASUREMENTS.md` carries the measurements.
 //!
 //! **What is reused and what is not.** The foundation is `baud-domain`: the
 //! grid, the cell, the generated Unicode tables and the VT vocabulary, all of

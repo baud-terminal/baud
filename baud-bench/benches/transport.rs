@@ -4,10 +4,10 @@
 //! own binary rather than a mode of a benchmark: it must not have a parser in
 //! it. It settled that "the PTY costs 45%" could not be told from "the
 //! process feeding it cannot keep up" until something measured the transport
-//! with nothing behind it, and the answer (`CONTRIBUTING.md`, "What a PTY row
-//! measures") was that a consumer which only reads reaches **198.6 MB/s
-//! through a PTY and 6144 through a pipe**, because the tty returns 1024
-//! bytes per `read(2)` where the pipe returns 4096.
+//! with nothing behind it. On the reference Mac, `null_ceiling` in this
+//! bench prints **198.6 MB/s through a PTY and 6144 through a pipe** for a
+//! consumer which only reads, because the tty returns 1024 bytes per
+//! `read(2)` where the pipe returns 4096.
 //!
 //! It lived in `baud-bench`'s span-model harness, which went with `baud-core2`.
 //! Nothing here touches a core, so nothing here had to be ported: the whole

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Hostile colour-bitmap fonts for pricing baud's strike walk, and copies
-CoreGraphics will load. Note J, docs/research/notes/j-colour-bitmap-limits.md.
+CoreGraphics will load.
 
     python3 scripts/strike-count-fonts.py OUTDIR
 

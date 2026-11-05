@@ -1,6 +1,5 @@
 //! **A letter of a joining script wider than its one cell**, drawn by
-//! baud's rule for a glyph wider than its cell (rule D,
-//! `docs/research/notes/ac-built-font.md`): full size into the cells its
+//! baud's rule for a glyph wider than its cell: full size into the cells its
 //! ink reaches when they are blank, else fitted to its one cell -- scaled
 //! by its ink, centred, the baseline kept, its marks scaled and moved with
 //! it.

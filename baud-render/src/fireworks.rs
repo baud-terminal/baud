@@ -478,8 +478,7 @@ const MIRROR_54: (f32, f32) = (0.587_785_24, 0.809_017);
 /// notch at 54 degrees, then measured to the edge between them. The
 /// fold-then-segment form follows Inigo Quilez's sdStar5() among his 2D
 /// distance functions, the geometry spelled over again rather than the
-/// code copied, as `docs/research/notes/w/spec-ufo.json` records for the
-/// ufo effect's.
+/// code copied, as the ufo effect's is.
 pub fn star_distance(p: Pt, tip: f32, notch: f32) -> f32 {
     let mut q = Pt {
         x: p.x.abs(),

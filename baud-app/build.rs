@@ -11,9 +11,7 @@
 //! from it, could not launch on a machine without it: a portability defect
 //! wearing the shape of a launch-time row. `-dead_strip_dylibs` makes the
 //! linker omit a load command whose library exports nothing the binary
-//! references, which removes all four; row 5 of note N measured what that
-//! is worth at launch, and the answer is in `docs/research/notes/n-make-faster.md`'s
-//! record.
+//! references, which removes all four.
 //!
 //! A build script rather than `.cargo/config.toml`: devenv exports
 //! `RUSTFLAGS`, and an environment `RUSTFLAGS` replaces every `rustflags`

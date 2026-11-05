@@ -8,8 +8,7 @@ nodes sit 0.4 units off the sheared upright on average horizontally (Regular mas
 0.3 ExtraBold), while a, e, f, y, Q and nine are redrawn, not sheared. Stems keep
 their horizontal width (n, H, l: 90 in both), bars their height (H, E: 82), and the
 combining dots are the sheared upright (U+0323, U+0307: equal area, axes 150.4 x 125.3
-sheared and in the italic). The scripts and their output are in
-docs/research/notes/ac/italic/. Two things are not the shear, both at the rounds.
+sheared and in the italic). Two things are not the shear, both at the rounds.
 
 **The bowls' joints (level_rec).** Of the 350 ends of the Regular master's 175
 right-angle round corners, 10 move more than 3 units along their straight, all at a

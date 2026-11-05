@@ -794,11 +794,10 @@ wc -l "$RV_OUT"
 
 # Mark order: two or more Hebrew points in one cluster, which baud sorts
 # by HarfBuzz's modified combining classes
-# (`[[source: harfbuzz-hb-unicode]]`; note AB 11.4) before the face sees
-# them. The clusters are the thirteen of the hand-typed Genesis 1:1-5
-# (`docs/research/notes/ab/qc/corpus-gen5-differ.txt`) whose canonical
-# order is not HarfBuzz's, and shin + qamats + shin dot, the cluster
-# Courier New's `ccmp` was found to need in this order (note AB 11.4);
+# (`[[source: harfbuzz-hb-unicode]]`) before the face sees them. The
+# clusters are the thirteen of the hand-typed Genesis 1:1-5, listed below,
+# whose canonical order is not HarfBuzz's, and shin + qamats + shin dot,
+# the cluster Courier New's `ccmp` was found to need in this order;
 # each in its canonical spelling and then in HarfBuzz's, the two orders a
 # text arrives in, which are canonically equivalent and shape alike.
 # Columns and features as `script.txt`.
@@ -970,8 +969,7 @@ SEQS
 wc -l "$HF_OUT"
 
 # Hebrew on three more macOS faces, every distinct cluster of the pointed
-# Genesis 1:1-5 and Pango corpora (`docs/research/notes/ab/qc/clusters-all.txt`,
-# note AB section 11): Arial Unicode MS, whose `GPOS` has no Script table
+# Genesis 1:1-5 and Pango corpora (`baud-font/tests/shape/hebrew-clusters.txt`): Arial Unicode MS, whose `GPOS` has no Script table
 # a Hebrew run selects, so HarfBuzz's Hebrew shaper turns `GPOS` off
 # (`gpos_tag`, `[[source: harfbuzz-hb-ot-shaper-hebrew]]`), places the
 # points by its fallback and composes the presentation forms; Courier New,
@@ -1015,7 +1013,7 @@ print("%016x" % h)' "$face")
       [ -z "$cps" ] && continue
       shaped=$(hb-shape --no-glyph-names --features="$features" --face-index="$index" -u "$cps" "$face")
       printf '%s\t%s\t%s\t%s\t%s\n' "$face" "$index" "$fnv" "$cps" "$shaped"
-    done <docs/research/notes/ab/qc/clusters-all.txt
+    done <baud-font/tests/shape/hebrew-clusters.txt
   done
   # And the built Regular, on every platform: a Latin mark on a Hebrew
   # letter, which no lookup of the face places, so it sits where the pen
@@ -1052,7 +1050,7 @@ print("%016x" % h)' "$face")
       [ -z "$cps" ] && continue
       shaped=$(hb-shape --no-glyph-names --features="$SC_FEATURES" -u "$cps" "$face")
       printf '%s\t0\t%s\t%s\t%s\n' "$face" "$fnv" "$cps" "$shaped"
-    done <docs/research/notes/ab/qc/clusters-all.txt
+    done <baud-font/tests/shape/hebrew-clusters.txt
     # And the characters baud draws itself (build/cover.py), alone and
     # carrying a point: placed by the build's own anchor search, so held to
     # HarfBuzz like the letters; the presentation forms U+FB1D-FB4F, each

@@ -35,8 +35,7 @@
 # the Hebrew build writes it (<style>-hebrew below, the bytes the four embedded faces
 # were before Noto Sans Devanagari went in), and each after the merge. The Hebrew stage's
 # outputs are the
-# research tree's final3 set (note AC, docs/research/notes/ac-built-font.md, section
-# 4b) with two conformance fixes (2026-10-08), one letter redrawn (2026-10-24,
+# research tree's final3 set with two conformance fixes (2026-10-08), one letter redrawn (2026-10-24,
 # below), Bold's zayin head ends squared (2026-10-25, below), the glyphs baud
 # draws itself (build/cover.py, below), meteg kept in its cell (build/meteg.py,
 # below) and zayin's head narrowed (2026-10-28, below), and nothing else.

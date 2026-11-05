@@ -927,32 +927,16 @@ mod tests {
         assert_eq!(tau[0], TAU_SLOW, "a corner at home takes the slow one");
     }
 
-    /// **No model of the quad divides by the half-diagonal**, the term the
-    /// audit in note W, section 8.2 found the old rate choice shared with
+    /// **No model of the quad divides by the half-diagonal**, the term an
+    /// audit against kitty v0.49.2 found the old rate choice shared with
     /// kitty's text: a constant over all four corners, which the spread
-    /// cancels. This file and every prototype under note W's research
-    /// directory are read, whitespace removed, for a division by the
-    /// names that term was spelled with; the four prototypes that carried
-    /// it must be among the files read.
+    /// cancels. This file is read, whitespace removed, for a division by
+    /// the names that term was spelled with. The research prototypes that
+    /// once carried it were read too, and are not in this tree.
     #[test]
     fn no_model_of_the_quad_divides_by_the_half_diagonal() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-        let dir = format!("{root}/docs/research/notes/w");
-        let mut files = vec![format!("{root}/baud-render/src/trail.rs")];
-        for entry in std::fs::read_dir(&dir).expect(&dir) {
-            files.push(entry.unwrap().path().to_string_lossy().into_owned());
-        }
-        for name in [
-            "liquid-proto.py",
-            "ufo-proto2.py",
-            "ice-prototype.swift",
-            "orb-harness.swift",
-        ] {
-            assert!(
-                files.iter().any(|f| f.ends_with(&format!("/{name}"))),
-                "{name} is not under {dir}"
-            );
-        }
+        let files = [format!("{root}/baud-render/src/trail.rs")];
         let mut found = Vec::new();
         for file in &files {
             let text: String = std::fs::read_to_string(file)

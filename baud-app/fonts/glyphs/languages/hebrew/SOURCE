@@ -22,8 +22,7 @@ License 1.1 under "Copyright (c) 2019 - Present, Microsoft Corporation, with Res
 Font Name Cascadia Code." The Reserved Font Name binds modified versions (OFL condition
 3), so the built font's name may use neither Cascadia Code nor either of its words:
 SIL's OFL-FAQ 1.1-update7, Q5.4, "You may not use individual words from the Reserved
-Font Names". Its family name is decision 11 in note AC
-(docs/research/notes/ac-built-font.md).
+Font Names".
 
 The variable font's nameID 7 is "Cascadia Code is a trademark of the Microsoft group of
 companies." The built files' nameID 7 carries it, after JetBrains Mono's own notice:

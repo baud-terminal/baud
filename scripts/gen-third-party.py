@@ -21,10 +21,10 @@ The checks, each of which has to be able to fail:
     this script knows, names that URI in each of its files: the URI is
     what a Creative Commons licence asks a copy to carry, and a header the
     generator stopped writing would otherwise pass;
-  - every file the provenance note (PROVENANCE) classes (a), transcribed
+  - every file the provenance table (PROVENANCE) classes (a), transcribed
     from another project, is in a [[tree]] entry whose notice is the text
-    the note names; every file of PROVENANCE_DIRS has a class there, and
-    every file the note names exists (see provenance);
+    the table names; every file of PROVENANCE_DIRS has a class there, and
+    every file the table names exists (see provenance);
   - THIRD_PARTY.md is byte for byte what this script writes.
 
 The sidecar's header says what each field means. Nothing here decides a
@@ -102,22 +102,22 @@ def gather():
     return side, url
 
 
-# The note that classes each font file by where its code came from: (a)
+# The table that classes each font file by where its code came from: (a)
 # transcribed from another project, (b) written from the specification with
-# behaviour matched, (c) neither. Its table rows read
-# | `path` | a | `LICENSES/text` | ... or | `path` | b | -- | ...
-PROVENANCE = "docs/research/notes/bg-font-provenance.md"
+# behaviour matched, (c) neither. Its rows read
+# | `path` | a | `LICENSES/text` | or | `path` | b | -- |
+PROVENANCE = "baud-font/PROVENANCE.md"
 PROVENANCE_DIRS = ("baud-font/src",)
-# The note classes at least this many files: the control for a row pattern
+# The table classes at least this many files: the control for a row pattern
 # that stopped matching, which would find no unrowed transcription and pass.
 PROVENANCE_FLOOR = 32
 
 
 def provenance(side):
-    """What the provenance note's table says against the sidecar: a file
+    """What the provenance table says against the sidecar: a file
     classed (a) whose notice text is under no [[tree]] entry naming it, a
-    file of PROVENANCE_DIRS the note does not class, and a row naming a
-    file that is not there or a class the note does not define."""
+    file of PROVENANCE_DIRS the table does not class, and a row naming a
+    file that is not there or a class the table does not define."""
     import re
 
     errs = []

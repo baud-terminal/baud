@@ -2,7 +2,7 @@
 //! bounded image-slot table and a bounded placement table, all
 //! **refuse-and-count**. Pure, `no_std`, allocation-free -- the caller owns the
 //! pixels, the slots and the placements exactly as it owns the grid and the
-//! arena, and `docs/research/notes/t-images.md` is the design.
+//! arena.
 //!
 //! An image is decoded **once, into the arena in place** (a Sixel into the
 //! gap it claims as its body arrives, [`SixelStream`], or a [`SixelCanvas`]

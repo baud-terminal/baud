@@ -1,9 +1,8 @@
 # CoreText text probes
 
 Small Swift programs that measure what macOS CoreText does to glyph masks.
-They are the only source for the constants in
-`docs/research/notes/j-text-antialiasing.md`, which is why they are kept:
-Apple publishes none of these numbers.
+They are the only source for baud's text anti-aliasing constants, which is
+why they are kept: Apple publishes none of these numbers.
 
 Build any of them the same way. Xcode's `swiftc` is needed, and the nix SDK
 breaks it, so `SDKROOT` is unset:

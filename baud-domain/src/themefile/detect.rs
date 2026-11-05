@@ -1,5 +1,4 @@
-//! Which format a theme file is in, read from its content (note AR,
-//! `docs/research/notes/ar-theme-formats.md`, section 2).
+//! Which format a theme file is in, read from its content.
 //!
 //! **One pass gives one verdict, and only that verdict's reader runs**:
 //! baud never tries reader after reader and keeps whichever parses, which

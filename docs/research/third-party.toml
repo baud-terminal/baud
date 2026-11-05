@@ -1724,7 +1724,7 @@ public   = "Symbols Nerd Font Mono 3.5.1, an icon font embedded in the app, unmo
 holder   = "Ryan L McIntyre (Nerd Fonts), and each icon set's authors"
 
 [[tree]]
-what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia Mono the build reads is byte for byte ttf/CascadiaMono.ttf of Microsoft's v2407.24 release, checked on 2026-11-03 against the release zip, and the repository's LICENSE at that tag is the OFL 1.1; the release binary's own name table carries a notice that differs from it, which FONTLOG.txt records. Shipped under the OFL, decided 2026-11-03"
+what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia Mono the build reads is byte for byte ttf/CascadiaMono.ttf of Microsoft's v2407.24 release, checked on 2026-11-03 against the release zip, and the repository's LICENSE at that tag is the OFL 1.1; the release binary's own name table carries a notice that differs from it, which FONTLOG.txt records. Shipped under the OFL"
 paths    = ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf", "baud-app/fonts/built/Italic.ttf", "baud-app/fonts/built/BoldItalic.ttf", "baud-app/fonts/built/FONTLOG.txt", "baud-app/fonts/built/AUTHORS.txt"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/built/OFL.txt"
@@ -1735,7 +1735,7 @@ holder   = "The JetBrains Mono Project Authors; Microsoft Corporation, with Rese
 from     = ["https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304", "https://github.com/microsoft/cascadia-code/releases/tag/v2407.24", "https://github.com/notofonts/devanagari"]
 
 [[tree]]
-what     = "Cascadia Mono from Cascadia Code v2407.24, byte for byte ttf/CascadiaMono.ttf of Microsoft's release zip (checked 2026-11-03; hebrew/SOURCE gives the URL and both sha256s), and the dagesh anchors read out of it: under the OFL 1.1, the licence of the release's repository at its tag (OFL.txt beside them), decided 2026-11-03"
+what     = "Cascadia Mono from Cascadia Code v2407.24, byte for byte ttf/CascadiaMono.ttf of Microsoft's release zip (checked 2026-11-03; hebrew/SOURCE gives the URL and both sha256s), and the dagesh anchors read out of it: under the OFL 1.1, the licence of the release's repository at its tag (OFL.txt beside them)"
 paths    = ["baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf", "baud-app/fonts/glyphs/languages/hebrew/anchors-400.json", "baud-app/fonts/glyphs/languages/hebrew/anchors-700.json"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/glyphs/languages/hebrew/OFL.txt"
@@ -1753,7 +1753,7 @@ upstream = "baud's own build"
 status   = "own"
 
 [[tree]]
-what     = "The Hebrew build modules: baud's own code under the repository's licence, decided 2026-10-28; they are tools that write the font, not Font Software (FONTLOG.txt)"
+what     = "The Hebrew build modules: baud's own code under the repository's licence; they are tools that write the font, not Font Software (FONTLOG.txt)"
 paths    = ["baud-app/fonts/glyphs/languages/hebrew/casanchors.py", "baud-app/fonts/glyphs/languages/hebrew/build/build.py", "baud-app/fonts/glyphs/languages/hebrew/build/design.py", "baud-app/fonts/glyphs/languages/hebrew/build/design2.py", "baud-app/fonts/glyphs/languages/hebrew/build/design3.py", "baud-app/fonts/glyphs/languages/hebrew/build/field.py", "baud-app/fonts/glyphs/languages/hebrew/build/geom.py", "baud-app/fonts/glyphs/languages/hebrew/build/instance.py", "baud-app/fonts/glyphs/languages/hebrew/build/narrow.py", "baud-app/fonts/glyphs/languages/hebrew/build/optical.py", "baud-app/fonts/glyphs/languages/hebrew/build/pin.py", "baud-app/fonts/glyphs/languages/hebrew/build/style.py"]
 licence  = "CC-BY-NC-SA-4.0"
 notice   = "LICENSE"
@@ -1761,7 +1761,7 @@ upstream = "baud's own build, ported from the research tree"
 status   = "own"
 
 [[tree]]
-what     = "Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors, decided 2026-10-28"
+what     = "Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors"
 paths    = ["baud-font/tests/var/outlines.txt", "baud-font/tests/var/JetBrainsMono-LICENSE.txt", "baud-font/tests/var/FiraCode-LICENSE.txt"]
 licence  = "OFL-1.1"
 notice   = "the two fonts' OFL texts beside it (JetBrainsMono-LICENSE.txt, FiraCode-LICENSE.txt)"
@@ -1769,7 +1769,7 @@ upstream = "read from the test fonts by scripts/gvar-oracle.py"
 status   = "kept"
 
 [[tree]]
-what     = "Glyph outlines read out of Source Code VF by scripts/cff2-oracle.py, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe, decided 2026-10-28"
+what     = "Glyph outlines read out of Source Code VF by scripts/cff2-oracle.py, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe"
 paths    = ["baud-font/tests/var/cff2-outlines.txt", "baud-font/tests/var/SourceCodeVF-LICENSE.txt"]
 licence  = "OFL-1.1"
 notice   = "baud-font/tests/var/SourceCodeVF-LICENSE.txt"
@@ -1964,7 +1964,7 @@ holder   = "Unicode, Inc."
 from     = ["docs/research/sources/iso8859-1.txt", "docs/research/sources/iso8859-2.txt", "docs/research/sources/iso8859-5.txt", "docs/research/sources/iso8859-7.txt", "docs/research/sources/iso8859-8.txt", "docs/research/sources/iso8859-9.txt"]
 
 [[tree]]
-what     = "DEC Supplemental in dec_sets_data.rs, generated by scripts/gen-dec-sets.py from xterm's charsets.h macro map_DEC_Supp_Graphic, as the national sets are, and checked cell for cell against DEC's VT220 Table 2-3 (vt220_tables.tsv) and EK-PPLV2-PM Figure A-2. At 5/15 xterm draws `_` and DEC's Table 2-3, the VT320's Appendix E and Figure A-2 all have ß; DEC's text is the standard, so the cell is ß (CONFORM in the generator; note AF section 3.1). The values no longer come from vt100.net's transcription, decided 2026-11-03"
+what     = "DEC Supplemental in dec_sets_data.rs, generated by scripts/gen-dec-sets.py from xterm's charsets.h macro map_DEC_Supp_Graphic, as the national sets are, and checked cell for cell against DEC's VT220 Table 2-3 (vt220_tables.tsv) and EK-PPLV2-PM Figure A-2. At 5/15 xterm draws `_` and DEC's Table 2-3, the VT320's Appendix E and Figure A-2 all have ß; DEC's text is the standard, so the cell is ß (CONFORM in the generator; note AF section 3.1). The values no longer come from vt100.net's transcription"
 paths    = ["baud-domain/src/dec_sets_data.rs"]
 licence  = "X11"
 notice   = "LICENSES/xterm-COPYING.txt"
@@ -2032,7 +2032,7 @@ public   = "DirectWrite's grayscale text-contrast curve as Windows Terminal port
 holder   = "Microsoft Corporation"
 
 [[tree]]
-what     = "The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Kept as facts, sixteen colour values, credited, and no GPL text ships for them, decided 2026-11-03"
+what     = "The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Kept as facts, sixteen colour values, credited, and no GPL text ships for them"
 paths    = ["baud-render/src/color.rs"]
 licence  = "none claimed; Modus itself is GPL-3.0-or-later"
 spdx     = ""
@@ -2043,8 +2043,8 @@ public   = "The light theme's sixteen colours, Modus Operandi's sixteen colour v
 holder   = "Protesilaos Stavrou (Modus themes), (C) Free Software Foundation"
 
 [[tree]]
-what     = "The quad cursor trail follows kitty's design -- four corners chasing the cursor's at per-corner rates -- with kitty's defaults (decay 0.1 s and 0.4 s, a start threshold of two cells) and its half-pixel end. Its rate choice, which had followed kitty's cursor_trail.c term for term, was re-derived on 2026-10-25 from the derivation in note W, section 8, after a line-by-line audit against kitty v0.49.2, and so were the copies of it in four research prototypes under note W; no line of kitty's is ported"
-paths    = ["baud-render/src/trail.rs", "docs/research/notes/w/liquid-proto.py", "docs/research/notes/w/ufo-proto2.py", "docs/research/notes/w/ice-prototype.swift", "docs/research/notes/w/orb-harness.swift"]
+what     = "The quad cursor trail follows kitty's design -- four corners chasing the cursor's at per-corner rates -- with kitty's defaults (decay 0.1 s and 0.4 s, a start threshold of two cells) and its half-pixel end. Its rate choice, which had followed kitty's cursor_trail.c term for term, was derived anew after a line-by-line audit against kitty v0.49.2; no line of kitty's is ported"
+paths    = ["baud-render/src/trail.rs"]
 licence  = "none claimed; kitty is GPL-3.0-only"
 spdx     = ""
 notice   = "none needed"
@@ -2128,7 +2128,7 @@ public   = "The CFF Standard Encoding, a 256-entry code-to-SID table generated f
 holder   = "Adobe Systems Incorporated"
 
 [[tree]]
-what     = "The kitty keyboard protocol's functional-key numbers in input.rs (kitty_number), with the X keysym of each key as kitty's keyboard layer maps them, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied. The numbers are what an application and a terminal exchange in kitty's protocol, so they are kept as the protocol's interface data, as the placeholder diacritics are, attributed to kitty v0.49.2; kitty's documentation is GPL-3.0, none of its text is kept, and no GPL text ships with the crate, decided 2026-11-03"
+what     = "The kitty keyboard protocol's functional-key numbers in input.rs (kitty_number), with the X keysym of each key as kitty's keyboard layer maps them, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied. The numbers are what an application and a terminal exchange in kitty's protocol, so they are kept as the protocol's interface data, as the placeholder diacritics are, attributed to kitty v0.49.2; kitty's documentation is GPL-3.0, none of its text is kept, and no GPL text ships with the crate"
 paths    = ["baud-domain/src/input.rs", "baud-core/tests/kitty_functional_keys.tsv", "baud-core/tests/kitty_legacy_c0.tsv"]
 licence  = "protocol interface data, attributed to kitty v0.49.2 (Kovid Goyal)"
 spdx     = ""

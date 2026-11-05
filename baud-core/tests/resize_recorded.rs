@@ -20,8 +20,6 @@
 //! The invariant they check:
 //!
 //! > A resize never changes the top line. Only feeding bytes may.
-//!
-//! See `docs/research/notes/m-resize-and-reflow.md`.
 mod support;
 use baud_core::{Owned, PackedCell, Resized, Term};
 use baud_domain::{BytePos, ReadLen, Row, WinSize};

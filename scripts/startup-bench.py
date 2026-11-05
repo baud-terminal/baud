@@ -2,7 +2,7 @@
 """Launch `baud` repeatedly and report the wall from `fork` to its first
 presented frame, with the in-app stages -- one arm, or several arms
 interleaved with an A/A copy, which is how a launch change is kept or
-reverted under the rule of `docs/research/notes/n-make-faster.md`.
+reverted.
 
 The app prints `startup: <stage> <ms>` lines under `BAUD_STARTUP=1`, timed
 from its own `main`; this script times from the spawn, so the gap between

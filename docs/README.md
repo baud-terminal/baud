@@ -30,10 +30,6 @@ them.
 
 | | read it for |
 |---|---|
-| [../CONTRIBUTING.md](../CONTRIBUTING.md) | what a change needs before it lands |
-| [contributing/build.md](contributing/build.md) | setting up, the suites and the gates |
-| [contributing/architecture.md](contributing/architecture.md) | the data path, the two core crates and the constraints that shaped both; read it before touching code |
-| [contributing/measuring.md](contributing/measuring.md) | which benchmark answers which question, and how to run it |
 | [../CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | how contributors treat each other |
 
 ## Reference
@@ -52,9 +48,8 @@ them.
 
 | | read it for |
 |---|---|
-| [../CONTRIBUTING.md](../CONTRIBUTING.md) | the rules for changing baud: the measurement discipline, and what was tried and lost |
 | [../MEASUREMENTS.md](../MEASUREMENTS.md) | every measured number, with the commit, host and payload it was taken on |
-| [the notes below](#research) | the research behind each design, one note per question |
+| [the sources below](#research) | the primary sources every protocol claim cites, by group |
 
 ## Research
 
@@ -65,84 +60,6 @@ recorded in [`MANIFEST.toml`](research/sources/MANIFEST.toml) with a SHA-256,
 and `scripts/check-sources.sh` re-hashes them, so a citation to a key the
 manifest does not carry — or one recorded as `gated`, meaning never obtained —
 fails the build.
-
-`research/notes/` is where a source gets turned into an argument about baud:
-each carries its own status line, and many are a dated record of what was
-decided. The status below says done, with the date and the commit, only
-when every question a note asks is answered or built. A note's letter is
-its filename's prefix, and several notes share one.
-
-| note | title | status |
-|---|---|---|
-| [a-byte-at-a-time.md](research/notes/a-byte-at-a-time.md) | What the kernel and an ATMega do — and why it is not a throughput idea | open |
-| [a-simd-parsing.md](research/notes/a-simd-parsing.md) | SIMD parsing — the decoder is the part with a known better algorithm | open |
-| [aa-shell-locale.md](research/notes/aa-shell-locale.md) | AA. The shell's locale, and Hebrew | open |
-| [ab-right-to-left.md](research/notes/ab-right-to-left.md) | AB. Right-to-left text | open |
-| [ac-built-font.md](research/notes/ac-built-font.md) | AC. The embedded font, built from parts | open |
-| [ad-unrenderable-in-a-cell.md](research/notes/ad-unrenderable-in-a-cell.md) | AD. What a cell draws for a code point no face draws | open |
-| [ae-code-extension.md](research/notes/ae-code-extension.md) | AE. Code extension: the four G slots, GL and GR, and the shifts | open |
-| [af-character-sets.md](research/notes/af-character-sets.md) | AF. Character sets against DEC's own tables: the national replacement sets and the DEC sets baud designates but does not translate | open |
-| [ag-replies-and-images-under-load.md](research/notes/ag-replies-and-images-under-load.md) | AG. Under load: the reply buffer and the Sixel body | open |
-| [ah-title-bar-leds.md](research/notes/ah-title-bar-leds.md) | AH. Lights on the title bar: what each LED may honestly light for | open |
-| [ai-dock-launch-logging.md](research/notes/ai-dock-launch-logging.md) | AI. Where a Dock-launched baud's warnings go | open |
-| [aj-launch-splash.md](research/notes/aj-launch-splash.md) | AJ. The launch splash: the colour logo, and the plasma it vanishes in | open |
-| [ak-window-title.md](research/notes/ak-window-title.md) | AK. The window title: what a program sets, what baud derives, and where it shows | open |
-| [al-trail-flashes.md](research/notes/al-trail-flashes.md) | AL. The cursor trails' flashes: what the texts require, and four ways to bound them | open |
-| [am-xtgettcap.md](research/notes/am-xtgettcap.md) | AM. XTGETTCAP: what baud says about its own capabilities | open |
-| [an-dcs-bodies-and-sixel.md](research/notes/an-dcs-bodies-and-sixel.md) | AN. DCS bodies and Sixel: what the texts say per byte | open |
-| [ap-da-level.md](research/notes/ap-da-level.md) | AP. The Primary DA level: can baud answer `?61;4c`? | open |
-| [aq-docs-structure.md](research/notes/aq-docs-structure.md) | AQ. How the documentation is arranged, and for whom | open |
-| [ar-theme-formats.md](research/notes/ar-theme-formats.md) | AR. Theme file formats, and telling them apart by content | open |
-| [as-glass-legibility.md](research/notes/as-glass-legibility.md) | AS. Glass legibility: what Apple recommends, and what baud draws | open |
-| [at-standard-materials.md](research/notes/at-standard-materials.md) | AT. A standard material for the window body | open |
-| [au-floor-hue.md](research/notes/au-floor-hue.md) | AU. How the contrast floor keeps a lifted colour's hue | open |
-| [av-counted-and-dropped.md](research/notes/av-counted-and-dropped.md) | AV. Everything baud reads and then drops: the walk | open |
-| [aw-scope-calls.md](research/notes/aw-scope-calls.md) | AW. The scope calls: printing, the locator, the status line, the keyboard lights, bell volume, the VT525 colours, ReGIS and Tektronix | open |
-| [ax-program-notifications.md](research/notes/ax-program-notifications.md) | AX. Notifications and progress from programs | open |
-| [ay-fonts-by-name.md](research/notes/ay-fonts-by-name.md) | AY. Fonts by family name, and a family's own bold and italic | open |
-| [az-background-window.md](research/notes/az-background-window.md) | AZ. A window in the background: the cursor and the selection | open |
-| [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) | Data-parallel finite-state machines — vectorising the parser itself | open |
-| [b-parser-as-a-graph.md](research/notes/b-parser-as-a-graph.md) | The parser as a graph — how to store 20 nodes and 5,120 edges | open |
-| [ba-link-preview.md](research/notes/ba-link-preview.md) | BA. Holding Cmd over a link: prior art, the modifiers and every perturbation | done 2026-10-22, `475f2dd` |
-| [bc-frame-ring.md](research/notes/bc-frame-ring.md) | BC. How the frame path becomes a ring: D4 revisited | open |
-| [bd-bidi-wrap.md](research/notes/bd-bidi-wrap.md) | BD. A right-to-left paragraph that wraps | open |
-| [be-linux-pixels.md](research/notes/be-linux-pixels.md) | BE. Linux draws what macOS draws, pixel for pixel, given the same faces and floor | open |
-| [bf-unsupported-walk.md](research/notes/bf-unsupported-walk.md) | BF. What baud still counts as unsupported, walked again | open |
-| [bg-font-provenance.md](research/notes/bg-font-provenance.md) | BG. Where baud-font's code came from: each file transcribed, matched or its own, and the notice a transcription ships | done 2026-10-30, `81e645f3` |
-| [bh-rendition-probe.md](research/notes/bh-rendition-probe.md) | BH. A full rendition table's probe stops at its bucket's reach | done 2026-10-31 |
-| [bi-frozen-renditions.md](research/notes/bi-frozen-renditions.md) | BI. A full rendition table freezes what lies off the screen | open |
-| [bj-reversed-glass.md](research/notes/bj-reversed-glass.md) | BJ. A reversed default page on the glass is raised until its text reads | open |
-| [bk-path-wrap.md](research/notes/bk-path-wrap.md) | BK. A path wraps before its slash, and a mark beside each line the wrap continued | open |
-| [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `158996a` |
-| [d-memory-hierarchy.md](research/notes/d-memory-hierarchy.md) | Memory hierarchy — why a read cost 2.5× where a write did not | open |
-| [e-tty-layer.md](research/notes/e-tty-layer.md) | The tty layer — why a PTY read is 1024 bytes on Darwin and 4095 on Linux | open |
-| [f-cluster-storage.md](research/notes/f-cluster-storage.md) | Where a multi-codepoint cluster lives — three terminals, three answers | open |
-| [f-row-extent.md](research/notes/f-row-extent.md) | The per-row used extent — how four terminals decide what to blank | open |
-| [f-scrollback-ring.md](research/notes/f-scrollback-ring.md) | F — Where a retired line lives: the grid as a ring, checked against the field | open |
-| [g-property-lookup.md](research/notes/g-property-lookup.md) | Two lookups a character, unconditionally — and the design that does fewer | open |
-| [g-text-encoding.md](research/notes/g-text-encoding.md) | G — text encoding, width and grapheme clustering | open |
-| [i-isa-dispatch.md](research/notes/i-isa-dispatch.md) | Instruction-set dispatch — why the seam is a trait and not a crate | open |
-| [j-colour-bitmap-limits.md](research/notes/j-colour-bitmap-limits.md) | J: colour-bitmap limits -- a presence index, its bound, CBLC subtables, flip chains | open |
-| [j-rendering-evidence.md](research/notes/j-rendering-evidence.md) | Rendering -- the evidence behind the register | open |
-| [j-rendering.md](research/notes/j-rendering.md) | Rendering — the decisions register | open |
-| [j-text-antialiasing.md](research/notes/j-text-antialiasing.md) | J. Text anti-aliasing: weight, blend, hinting and placement | open |
-| [k-selection.md](research/notes/k-selection.md) | K. Selection, copy and paste | open |
-| [l-scrollbar.md](research/notes/l-scrollbar.md) | L. The scrollbar | open |
-| [m-resize-and-reflow.md](research/notes/m-resize-and-reflow.md) | M. Resize, reflow, and the prompt the shell redraws | open |
-| [n-make-faster.md](research/notes/n-make-faster.md) | N. What baud can make faster, as a makefaster checklist | open |
-| [o-keystroke-latency.md](research/notes/o-keystroke-latency.md) | O. Keystroke to pixel: the instrument, and what it read first | open |
-| [p-shader-cache.md](research/notes/p-shader-cache.md) | P. The shader cache at launch: 350 ms cold, 12 warm, and what each remedy would buy | open |
-| [q-local-echo.md](research/notes/q-local-echo.md) | Q. Local echo prediction: what row 9 draws before the pty answers, and what judges it | open |
-| [r-sfte.md](research/notes/r-sfte.md) | R. sfte as the second oracle | open |
-| [s-sixel.md](research/notes/s-sixel.md) | S. Sixel graphics | open |
-| [t-images.md](research/notes/t-images.md) | T. Images: the phase register for Sixel and Kitty graphics | open |
-| [u-resize-and-the-window.md](research/notes/u-resize-and-the-window.md) | U. Who holds the window over the history across a resize | open |
-| [v-open-decisions.md](research/notes/v-open-decisions.md) | V. The open decisions, researched | open |
-| [w-cursor-trails.md](research/notes/w-cursor-trails.md) | W. The cursor trails: where each design came from, what was decided, and what is lost | open |
-| [w-fallback-fonts.md](research/notes/w-fallback-fonts.md) | W. Fallback fonts: what other terminals do, and what baud could bundle | superseded by AC |
-| [x-cursor-motion-and-blink.md](research/notes/x-cursor-motion-and-blink.md) | X. The cursor's motion and blink: the designs as reviewed | open |
-| [y-palettes.md](research/notes/y-palettes.md) | Y. Palettes: the light/dark pair, the scheme type, the floor, and what the terminal reports | open |
-| [z-variable-fonts.md](research/notes/z-variable-fonts.md) | Z. Variable fonts in baud-font | open |
 
 The manifest files each source under a group. Its header comment names the
 groups' topics, and two groups it has no line for are described here from
@@ -182,21 +99,17 @@ their entries' titles:
 | AW | the scope calls: printing on macOS, and the alert sound at a volume |
 | AX | notifications and progress from programs: `OSC 9`, `777`, `99`, `9;4` and `1337`, and where each platform shows them |
 | AZ | a window in the background: the unfocused cursor, the inactive selection, theme cursor colours |
-| BE | the Linux app under a pointer: the virtual pointer and keyboard protocols a headless sway takes, and what the app did there; and what a Linux frame copies and damages on two sways (note BE) |
-| BG | where baud-font's code came from: HarfBuzz 10.2.0's and 12.3.0's hb-set-digest.hh and the ttf-parser 0.25.1 files the provenance note reads (note BG) |
-| BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (no note; `baud-app/src/bell.rs` cites them) |
-| BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (no note; `baud-app/src/link.rs` cites them) |
-| CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (no note; `baud-app/src/reload.rs` cites them) |
-| WN | more than one window: a new window, a window's close, the last window closed, and the Dock's reopen (no note; `baud-app/src/windows.rs` cites them) |
-| GP | the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (no note; `scripts/make-brand-pictures.py` and `assets/logo/README.md` cite them) |
-| SP | the shell prompt baud ships: starship 1.27.0's configuration schema, which `assets/starship/baud.toml` is checked against (no note; `baud-app/tests/starship_preset.rs` cites it) |
+| BE | the Linux app under a pointer: the virtual pointer and keyboard protocols a headless sway takes, and what the app did there; and what a Linux frame copies and damages on two sways |
+| BG | where baud-font's code came from: HarfBuzz 10.2.0's and 12.3.0's hb-set-digest.hh and the ttf-parser 0.25.1 files baud-font's code is read against |
+| BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (`baud-app/src/bell.rs` cites them) |
+| BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (`baud-app/src/link.rs` cites them) |
+| CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (`baud-app/src/reload.rs` cites them) |
+| WN | more than one window: a new window, a window's close, the last window closed, and the Dock's reopen (`baud-app/src/windows.rs` cites them) |
+| GP | the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (`scripts/make-brand-pictures.py` and `assets/logo/README.md` cite them) |
+| SP | the shell prompt baud ships: starship 1.27.0's configuration schema, which `assets/starship/baud.toml` is checked against (`baud-app/tests/starship_preset.rs` cites it) |
 
-A group's letter and a note's need not match: group H's sources are key
-encoding, and note H is not in the repository. Both tables are held to
-the directory and the manifest by
-`every_research_note_and_source_group_is_in_the_index`
-(`baud-core/tests/docs.rs`), which fails when a note has no row or a group
-has none.
+The table is held to the manifest by `every_source_group_is_in_the_index`
+(`baud-core/tests/docs.rs`), which fails when a group has no row.
 
 ## The rule these documents follow
 
@@ -229,7 +142,7 @@ the build instead:
 | `baud-core/tests/encoding/graphemes.rs` | all 766 cases of Unicode's `GraphemeBreakTest.txt`, and the generated tables still match the pinned data |
 | `baud-core/tests/encoding/width.rs` | the generated width tables still match the pinned `EastAsianWidth.txt` and general category |
 | `baud-core/tests/state_fields.rs` | every named field of every `baud-core` struct is read by code, not only assigned, so a mode the terminal records is one it acts on and a counter it keeps is one it reports; `rustc` does not check this, because it counts an assignment as a use |
-| `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; **nothing listed as absent is also marked done**; every research note and every manifest group has a row in the index above |
+| `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; every manifest group has a row in the index above |
 | `scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml`, and every learn.microsoft.com page there carries the SHA-256 of its article text, which `scripts/check-page-text.py` fetches and compares on demand |
 | `baud-core/tests/feature_list.rs` | `guide/features.md` and `roadmap.md` are what `scripts/gen-features.py` writes from `docs/data/`; every proof path and test a feature names exists; a feature marked built names a test, a done coverage row or a measurement; every shipped roadmap item is claimed by a feature |
 | `baud-core/tests/embedding.rs` | the usage example in `docs/embedding.md` is compiled, and its block matches the example's body line for line, apart from blank lines, `use` lines and the example's `println!` |
@@ -237,7 +150,7 @@ the build instead:
 
 Each was written after the corresponding claim turned out to be false. The
 coverage document spent most of this project's life naming `tests/coverage.rs`
-as the thing that kept it honest, in a file that did not exist; a note pointed
+as the thing that kept it honest, in a file that did not exist; a document pointed
 at a vt_parser_states.rs that the SRP split had moved; the README pointed at a
 bench/src/payload.rs that the rename to baud-bench had left behind. (Neither
 path is written in backticks here, because both are gone and the check below

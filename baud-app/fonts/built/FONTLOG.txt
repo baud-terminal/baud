@@ -5,10 +5,6 @@ what they are, what changed against what they came from, what was chosen in the
 meantime, and what is still wrong. The licence is OFL.txt and the authors are listed in
 AUTHORS.txt. MANIFEST records how the files are built and pins every input and output.
 
-The record of the design work is note AC, docs/research/notes/ac-built-font.md: section
-4a covers the Regular, 4b the other styles and the italic lean, 4c the italics as built,
-and 6 the open decisions.
-
 On macOS, scripts/bundle-macos.sh puts this directory's OFL.txt, FONTLOG.txt,
 AUTHORS.txt and MANIFEST, glyphs/languages/hebrew/'s OFL.txt and SOURCE, and
 glyphs/languages/devanagari/SOURCE in the app bundle beside the other embedded fonts'

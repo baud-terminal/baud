@@ -320,8 +320,7 @@ in
     # comment once cited (baud-core/tests/perf_floor.rs) left with baud-core2
     # (108f7ef), and the last wall-clock bound became a bench on 2026-09-22, so
     # nothing in the suite fails on the profile. A debug run takes minutes where
-    # release takes seconds. docs/contributing/build.md runs the same tests in
-    # release.
+    # release takes seconds.
     "test:unit" = {
       # `--no-fail-fast`, since 2026-09-22: cargo stops at the first failing
       # test binary, and a wall-clock flake once stopped this run at 81 of

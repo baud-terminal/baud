@@ -1,7 +1,6 @@
 //! The Sixel decode-agreement gate: hand-authored Sixel byte strings decode to
 //! the exact pixels their grammar prescribes. It is the first of the three
-//! acceptance gates `docs/research/notes/s-sixel.md` fixes before any parser
-//! code, and it is the `decode_agrees.rs` shape -- a decoder checked against a
+//! acceptance gates Sixel had before any parser code, and it is the `decode_agrees.rs` shape -- a decoder checked against a
 //! fixture it cannot argue with -- for `[[source: vt3xx-sixel]]`.
 //!
 //! Every token is cited to that source rather than written from memory. The

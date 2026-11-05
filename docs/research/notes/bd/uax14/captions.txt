@@ -1,6 +1,0 @@
-1-owner.png: 1. Owner's text, 44 cols: 'middle' whole; English still left end, then right end  [2 display rows for 2 stored]
-2-hebrew.png: 2. All Hebrew, 44 cols: the split word moves whole (decided: the W1 split is right)  [2 display rows for 2 stored]
-3-phrase.png: 3. English phrase in Hebrew, 36 cols: 'quick' whole; phrase now spans 3 rows  [3 display rows for 3 stored]
-4-url.png: 4. Number and URL in Hebrew, 36 cols: breaks after '/'; one more row  [4 display rows for 3 stored]
-5-english.png: 5. Hebrew phrase in English, 30 cols: the Hebrew word moves whole  [3 display rows for 3 stored]
-6-owner-narrow.png: 6. Owner's text, 24 cols: one more row, the prompt drawn lower  [4 display rows for 3 stored]

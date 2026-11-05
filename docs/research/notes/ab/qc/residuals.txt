@@ -1,5 +1,0 @@
-Arial Hebrew gen5: ids differ 0; C2 holds glyph 268: 0; holds meteg or a cantillation mark: 0; order-differs: 0; C1 output = C2: 0; hb-shape fewer glyphs than C2: 0; more: 0
-Arial Hebrew pango: ids differ 115; C2 holds glyph 268: 115; holds meteg or a cantillation mark: 115; order-differs: 28; C1 output = C2: 87; hb-shape fewer glyphs than C2: 0; more: 0
-New Peninim MT gen5: ids differ 18; C2 holds glyph 268: 0; holds meteg or a cantillation mark: 0; order-differs: 0; C1 output = C2: 18; hb-shape fewer glyphs than C2: 10; more: 0
-New Peninim MT pango: ids differ 41; C2 holds glyph 268: 0; holds meteg or a cantillation mark: 20; order-differs: 0; C1 output = C2: 41; hb-shape fewer glyphs than C2: 24; more: 0
-example, New Peninim MT 05E8 05B5: C2 [167=0@0,0+868|124=0@29,0+0], hb [51=0+868]

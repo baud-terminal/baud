@@ -31,8 +31,7 @@ neon-scan = ["baud-core/neon-scan"]
 # wrong, measured on the path that shapes every run. A memo per codepoint,
 # so the bench enables it and the app does not.
 exceptions = []
-# Two arms for row 7 of `docs/research/notes/n-make-faster.md`, off by
-# default. `ceiling-no-window-cache` never *finds* a ligature window in the
+# Two measurement arms, off by default. `ceiling-no-window-cache` never *finds* a ligature window in the
 # cache (it still writes it), so every window is shaped and the pixels are
 # what the base draws: a pessimising probe that prices the miss.
 # `ceiling-no-windows` skips the overlay's window walk, so no cross-cell

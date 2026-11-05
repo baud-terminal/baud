@@ -5,7 +5,7 @@
 //! would drift from the application's model of the screen and the cursor would
 //! land in the wrong place. That is why no font enters the computation.
 //!
-//! The ranges were hand-written until `docs/research/notes/g-text-encoding.md`
+//! The ranges were hand-written until a reading of UAX #11 against them
 //! pointed out they were not the Unicode property they claimed to be: five
 //! zero-width ranges covering `U+0300..U+036F` but not Arabic, Hebrew or
 //! Devanagari combining marks. They are generated now.

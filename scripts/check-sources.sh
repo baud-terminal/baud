@@ -22,8 +22,8 @@ MANIFEST="$SRC/MANIFEST.toml"
 # **No list of what to scan, because every list here has gone stale.**
 #
 # This gate has carried two, and both were narrower than the sentence above
-# them. `DOCS="docs"` sat under a comment reading "Every doc, not just the
-# notes ... a gate that only scanned notes/ would have let those citations rot
+# them. `DOCS="docs"` sat under a comment reading "Every doc ... a gate
+# that only scanned one directory would have let those citations rot
 # unchecked" -- and left **the root guide's 39 citations** out, along with
 # README.md's and MEASUREMENTS.md's, because those are at the repository root
 # rather than under docs/. `CODE` named nine crates and omitted the three ISA

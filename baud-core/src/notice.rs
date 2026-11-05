@@ -1,8 +1,7 @@
 //! **Notifications and progress from programs**, wired: `OSC 9`, `OSC 777 ;
 //! notify` and kitty's `OSC 99` published for the embedder to deliver,
 //! ConEmu's `OSC 9 ; 4` progress kept for it to show, and `OSC 1337 ;
-//! RequestAttention` (`baud_domain::NoticeDesk`;
-//! `docs/research/notes/ax-program-notifications.md`).
+//! RequestAttention` (`baud_domain::NoticeDesk`).
 //!
 //! **Routed by a prefix, as `52;` is** (`clip.rs`): a kitty chunk's payload
 //! may be 4096 bytes, past the 512 `pending` keeps, so once the body is

@@ -1,7 +1,6 @@
 //! The keystroke-to-pixel instrument: one record per key, stamped as the
 //! key crosses each stage of this process, and one line to stderr per key
-//! once the last stage is known. Row 0 of `docs/research/notes/n-make-faster.md`;
-//! the design and what it first read are `docs/research/notes/o-keystroke-latency.md`.
+//! once the last stage is known. `scripts/key-latency.py` drives it.
 //!
 //! **The clock.** Every stamp is a [`HostTime`] -- mach host time in
 //! nanoseconds -- whether it came from `NSEvent.timestamp`, from the pty

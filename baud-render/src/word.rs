@@ -13,8 +13,8 @@
 //! character position's size "depend on the graphic symbol of the
 //! character being imaged" (`[[source: ecma48]]` 6.3).
 //!
-//! **Where it does not fit** ([`lay`]), rule D at word level
-//! (`docs/research/notes/ac-built-font.md`): its ink may reach into the
+//! **Where it does not fit** ([`lay`]), the wide-glyph rule at word
+//! level: its ink may reach into the
 //! blank cells beside it, keeping 0.26 em -- Noto Sans Devanagari's own
 //! space -- from the next word's half of the blanks between them, and a
 //! word space from anything else; the row's edge and a non-blank cell are

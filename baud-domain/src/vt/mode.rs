@@ -306,7 +306,6 @@ pub enum ModeBit {
     ///
     /// It is not the answer to a *shell's* prompt duplicating on resize,
     /// because no shell consumes it; that is [`Zone`] and `OSC 133`.
-    /// `docs/research/notes/m-resize-and-reflow.md` keeps the two apart.
     ///
     /// [`Zone`]: ../../baud_core/struct.Term.html
     InbandResize,

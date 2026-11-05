@@ -39,7 +39,7 @@
 # Notes cite with `[[source: <key>]]`. A claim that matters carries a section
 # or page alongside — "simdjson § 3", not "simdjson".
 #
-# Groups map to docs/research/notes/, except where a line says otherwise:
+# Groups, by topic:
 #   A  SIMD parsing and vectorised classification
 #   B  data-parallel finite-state machines
 #   C  the terminal parser as specified
@@ -56,32 +56,30 @@
 #   Q  local echo prediction: mosh's prediction engine and its paper
 #   R  sfte: a second external implementation, as an oracle and a feature catalogue
 #   U  who holds the window over the history across a resize: the re-cut, the viewport, the anchors
-#   V  the cursor trails and an editor's own cursor: kitty's and Neovide's trails, helix's drawn cursor and its exit reset (cited by note W, and by path in note X)
+#   V  the cursor trails and an editor's own cursor: kitty's and Neovide's trails, helix's drawn cursor and its exit reset
 #   Y  palettes: light/dark pairs, scheme formats, colour-scheme notifications, contrast floors
-#   AA  where a launched terminal's shell starts and what PWD names, what launchd is, and where a GUI terminal looks for its config (note AA section 9)
+#   AA  where a launched terminal's shell starts and what PWD names, what launchd is, and where a GUI terminal looks for its config
 #   AH  title-bar activity lights: the tty LED trigger, modem panels, per-process counters
 #   AI  where a launched terminal's log lines go: unified logging, files, the journal
 #   AJ  a launch splash: launch guidance, flashing, splash prior art
 #   AK  the window title: OSC titles, derived facts, platform conventions
 #   AL  the cursor trails' flashes: WCAG 2.3.1, broadcast flash rules, OS settings, trail prior art
 #   AM  XTGETTCAP: what a terminal reports about its own capabilities
-#   AN  the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper, the nightly's incremental crash, sccache (cited by the record; note AN cites C and Y)
-#   AO  the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots (no note)
+#   AN  the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper, the nightly's incremental crash, sccache
+#   AO  the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots
 #   AS  the glass's legibility: Apple's material, dimming and accessibility settings, Terminal's profiles
 #   AT  a standard material behind the window body: NSVisualEffectView, the material catalogs, TextEdit
-#   BL  the bell: what a BEL does in a macOS window -- the alert sound, an attention request, a raise (baud-app/src/bell.rs; no note)
-#   BU  bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (baud-app/src/link.rs; no note)
+#   BL  the bell: what a BEL does in a macOS window -- the alert sound, an attention request, a raise (baud-app/src/bell.rs)
+#   BU  bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (baud-app/src/link.rs)
 #   AX  notifications and progress from programs: OSC 9, 777, 99, 9;4 and 1337, and where each platform shows them
 #   AZ  a window in the background: the unfocused cursor, the inactive selection, theme cursor colours
-#   CR  the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (baud-app/src/reload.rs; no note)
-#   WN  more than one window: a new window, a window's close, the last window closed, the Dock's reopen (baud-app/src/windows.rs; no note)
-#   GP  the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (scripts/make-brand-pictures.py and assets/logo/README.md; no note)
-#   SP  the shell prompt baud ships: starship's configuration schema, which assets/starship/baud.toml is checked against (baud-app/tests/starship_preset.rs; no note)
+#   CR  the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (baud-app/src/reload.rs)
+#   WN  more than one window: a new window, a window's close, the last window closed, the Dock's reopen (baud-app/src/windows.rs)
+#   GP  the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (scripts/make-brand-pictures.py and assets/logo/README.md)
+#   SP  the shell prompt baud ships: starship's configuration schema, which assets/starship/baud.toml is checked against (baud-app/tests/starship_preset.rs)
 #
-# Notes K (selection), M (resize and reflow), S (Sixel) and T (images) have
-# no group of their own: what they cite is filed under C, and T's also under
-# J. Note N (making it faster) cites none itself; groups O, P and Q are its
-# rows 0, 1 and 9.
+# Selection, resize and reflow, Sixel and images have no group of their own:
+# their sources are filed under C, and the images' also under J.
 
 [sources.simdjson]
 key    = "simdjson"
@@ -2206,13 +2204,14 @@ group  = "B"
 # --- E: the tty layer ----------------------------------------------------
 #
 # Group E was declared when the corpus was set up and stayed **empty** while
-# CONTRIBUTING.md made load-bearing claims about the tty: that `N_TTY_BUF_SIZE`
-# caps a Linux `read(2)` at 4095 bytes however large the buffer, that Darwin
-# hands back **1024**, that `splice()` "goes through the ldisc ring anyway", and
-# that eBPF "cannot skip the `queue_work()` hop". Every one of those was
-# *measured* in-repo and *explained* from memory. These are the kernel sources
-# the explanations rest on, pinned the way `linux-vt-console` is: one file at
-# one commit, so a line number in a note stays a line number.
+# a guide no longer in the tree made load-bearing claims about the tty: that
+# `N_TTY_BUF_SIZE` caps a Linux `read(2)` at 4095 bytes however large the
+# buffer, that Darwin hands back **1024**, that `splice()` "goes through the
+# ldisc ring anyway", and that eBPF "cannot skip the `queue_work()` hop".
+# Every one of those was *measured* in-repo and *explained* from memory. These
+# are the kernel sources the explanations rest on, pinned the way
+# `linux-vt-console` is: one file at one commit, so a line number stays a
+# line number.
 #
 # The Linux files are taken at the **same commit** as `linux-vt-console`, so
 # the corpus holds one kernel snapshot rather than four. The XNU files are at
@@ -2751,7 +2750,7 @@ group  = "A"
 # Fetched to answer "is baud's CJK path decode-bound?", and it says no. Its
 # Table 6(b) is an **Apple M1**, the same architecture class this project
 # measures on, so its Chinese column is directly comparable rather than a
-# cross-machine number of the kind CONTRIBUTING.md rules out.
+# cross-machine number, which says nothing.
 
 # **Group I exists because an architectural proposal needed checking, not
 # because a note wanted writing.** The question was whether to split
@@ -8034,7 +8033,7 @@ group  = "J"
 # client in wl_keyboard.keymap, and the library that defines it, read as the
 # specification for baud's own XKB compiler and linked nowhere.
 
-# Group O -- row 0 of note N, docs/research/notes/o-keystroke-latency.md: the
+# Group O -- the
 # clocks behind every timestamp on the keystroke-to-pixel path (Apple
 # documentation JSON and the SDK headers), and how typing latency has been
 # defined and measured before (typometer, Dan Luu, Hume, and the terminals
@@ -8888,7 +8887,7 @@ bytes  = 1261
 status = "retrieved"
 group  = "O"
 
-# REPLACES the existing group-J `external` entry of the same key (same sha256, same bytes); the file is now committed. Cited by docs/research/notes/j-rendering-evidence.md.
+# REPLACES the existing group-J `external` entry of the same key (same sha256, same bytes); the file is now committed.
 [sources.danluu-term-latency]
 key    = "danluu-term-latency"
 title  = "Terminal latency"
@@ -8954,7 +8953,7 @@ group  = "O"
 # hume-2020-keyboard-to-photon-latency-tester.html, and the digest is of that
 # copy.
 
-# REPLACES the existing group-J `external` entry of the same key. Same bytes (22263) but a different sha256: the page embeds per-build asset tokens (`?v=...`), so its hash moves with the site build while the text does not. The old title said "Typometer figures"; the method is a camera, not Typometer. Cited by docs/research/notes/j-rendering-evidence.md.
+# REPLACES the existing group-J `external` entry of the same key. Same bytes (22263) but a different sha256: the page embeds per-build asset tokens (`?v=...`), so its hash moves with the site build while the text does not. The old title said "Typometer figures"; the method is a camera, not Typometer.
 [sources.lkhrs-terminal-latency]
 key    = "lkhrs-terminal-latency"
 title  = "Measuring terminal latency -- Is It Snappy? (240 fps iPhone camera) figures for six macOS terminals"
@@ -9238,7 +9237,7 @@ group  = "O"
 # hn-42526221-mitchellh-on-latency-benchmarks.html, and the digest is of that
 # copy.
 
-# Group P -- row 1 of note N, docs/research/notes/p-shader-cache.md: what Apple
+# Group P -- what Apple
 # documents about MTLBinaryArchive, precompiled libraries, the Metal Toolchain
 # download and the system shader cache, and the two third-party measurements
 # that exist. The 37 retrieved files are Apple documentation JSON, two WWDC
@@ -9976,7 +9975,7 @@ group  = "P"
 # alongside gpucapture.1 (MTL_CAPTURE_ENABLED only): the three SDK man pages
 # that name MTL_ variables name no cache variable.
 
-# Group Q: local echo prediction -- row 9 of note N, docs/research/notes/q-local-echo.md.
+# Group Q: local echo prediction.
 [sources.mosh-terminaloverlay-cc]
 key    = "mosh-terminaloverlay-cc"
 title  = "Mosh 1.4.0, src/frontend/terminaloverlay.cc -- the prediction engine: what a keystroke predicts, how a prediction is confirmed, expired or flagged, and the display and glitch triggers"
@@ -10034,7 +10033,7 @@ group  = "Q"
 # Not in the repository: no grant to redistribute it was found (a paper). It
 # was read as mosh-usenix-atc-2012.pdf, and the digest is of that copy.
 
-# Group R -- sfte, docs/research/notes/r-sfte.md: a single-file C11 terminal
+# Group R -- sfte: a single-file C11 terminal
 # emulator, vendored whole as the second implementation `baud-sfte-difftest`
 # drives over the same bytes as `baud-core`. **The amalgamation is pinned, not
 # the readable source**, because `sfte.h` is what compiles and it is
@@ -10431,13 +10430,11 @@ group  = "C"
 # and `t=s` a POSIX shared-memory object the terminal reads and then
 # `shm_unlink`s -- so it is one copy (shm to the image store), not zero, and
 # what it saves is the base64, the zlib and the pty chunking rather than the
-# copy itself, which `docs/research/notes/t-images.md` records against the
-# survey that read the spec. Formats `f=24` RGB, `f=32` RGBA (raw, no decoder)
+# copy itself, as the survey that read the spec records. Formats `f=24` RGB, `f=32` RGBA (raw, no decoder)
 # and `f=100` PNG (a PNG and zlib decoder, which `baud-domain/src/png.rs` is,
 # `no_std` and allocation-free; baud-core does not call it yet). Placements are
 # separate from images, carry a `z` index (negative below text), and a Unicode
-# placeholder (`U+10EEEE`) grid lets an image scroll with text. Design in
-# `docs/research/notes/t-images.md`.
+# placeholder (`U+10EEEE`) grid lets an image scroll with text.
 
 [sources.kitty-graphics-rst]
 key    = "kitty-graphics-rst"
@@ -11124,7 +11121,7 @@ status = "external"
 group  = "L"
 
 # ── Group U: who holds the window over the history across a resize ──────────
-# Six implementations surveyed for docs/research/notes/u-resize-and-the-window.md,
+# Six implementations surveyed,
 # each file re-hashed against the local copy the survey read. External: the
 # licences vary (kitty is GPL-3.0) and the issue snapshots are API responses.
 # `alacritty-term-term-mod` is reused, not repeated: its file hashes the same at
@@ -25496,8 +25493,7 @@ group  = "AL"
 # Group AM, note AM (2026-10-10): XTGETTCAP, what a terminal reports about its own capabilities.
 # xterm's xtermcap.c (committed), input.c and xstrings.c, Xlib's Xutil.h, ncurses' user_caps(5) and
 # terminfo source, a local `infocmp -x -1` capture of xterm-256color (committed), and the code of
-# neovim, vim, tmux, kitty, foot, wezterm and ghostty (external). The note's harnesses and their
-# outputs are beside it, in docs/research/notes/am/.
+# neovim, vim, tmux, kitty, foot, wezterm and ghostty (external).
 
 # `retrieved` (committed) rather than `external`, because a build-time table of
 # xterm's 319 names would be generated from it. xterm's licence permits it, as
@@ -25727,9 +25723,7 @@ status = "external"
 group  = "AM"
 
 # tmux is cited for an absence: no file in the tree at 94796f6 (210 .c/.h/.y)
-# sends or answers XTGETTCAP, and the same holds at 95c1c3d. The per-file
-# hashes of both trees are in docs/research/notes/am/tmux-*-tree.sha256, and
-# the grep with its positive control in tmux-grep.log beside them. This entry
+# sends or answers XTGETTCAP, and the same holds at 95c1c3d. This entry
 # pins the file that shows what tmux reads instead: the XTVERSION name.
 [sources.tmux-tty-keys-c]
 key    = "tmux-tty-keys-c"
@@ -38362,7 +38356,7 @@ bytes  = 12986
 status = "external"
 group  = "E"
 
-# Group J, note BC (docs/research/notes/bc-frame-ring.md): how a frame reaches the GPU
+# Group J: how a frame reaches the GPU
 # on unified memory -- Apple's buffer-instance pattern, its coherence rule, and how five
 # GPU terminals hand their state to the GPU. Read and hash-verified 2026-10-24; not
 # committed -- vendor pages, vendor headers and source files at pinned commits. Re-fetch
@@ -38906,7 +38900,7 @@ file   = ""
 sha256 = "f780d8d92d2e3821b6cfe316ecd1e107d8308e13e7fcc8b968aded710cfca8fb"
 bytes  = 20233
 # ── Note BD: a right-to-left paragraph that wraps (2026-10-24) ──────────────
-# Read for docs/research/notes/bd-bidi-wrap.md; each fetched and hash-verified
+# Each fetched and hash-verified
 # on 2026-10-24, not committed. Five more sources the note reads hash
 # identically to entries above at a newer commit, and the note cites those:
 # mlterm vt_line_bidi.c and vt_bidi.c at 405185a (= the 46cbbc9 keys),

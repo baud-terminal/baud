@@ -16314,8 +16314,7 @@ fn a_devanagari_word_and_its_lights_draw_alike_on_every_arm() {
 }
 
 /// **Bold and italic Hindi draw alike on every arm**, in the faces the
-/// embedded font's four built styles give them (`baud-app/fonts/built/`,
-/// `docs/research/notes/ac-built-font.md`): the Hindi line of the README
+/// embedded font's four built styles give them (`baud-app/fonts/built/`): the Hindi line of the README
 /// clip's `HELLO` (`baud-app/examples/demo/session.rs`) in regular,
 /// `SGR 1`, `SGR 3` and `SGR 1;3`, and bold with `?2027` set,
 /// behind the icon face as the app stacks them; a word whose rendition

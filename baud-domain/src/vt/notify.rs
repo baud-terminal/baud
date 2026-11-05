@@ -1,7 +1,6 @@
 //! **Notifications and progress from programs**: `OSC 9`, `OSC 777 ;
 //! notify`, kitty's `OSC 99` and ConEmu's `OSC 9 ; 4` progress, and the one
-//! `OSC 1337` subcommand of the same class, `RequestAttention`
-//! (`docs/research/notes/ax-program-notifications.md`).
+//! `OSC 1337` subcommand of the same class, `RequestAttention`.
 //!
 //! * **`OSC 9 ; text`** is iTerm2's "Post a notification"
 //!   (`[[source: iterm2-escape-codes]]`). **`OSC 9 ; n ; ...`** is ConEmu's

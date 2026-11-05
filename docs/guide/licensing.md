@@ -50,6 +50,6 @@ are the first thing to lapse when there is none.
 They cost nothing and several are worth more than a small donation:
 
 - Report a bug with a minimal reproduction.
-- Open a PR — see [CONTRIBUTING.md](../../CONTRIBUTING.md).
+- Open a PR.
 - Report a vulnerability privately — see [SECURITY.md](../../SECURITY.md).
 - Tell someone the project exists.

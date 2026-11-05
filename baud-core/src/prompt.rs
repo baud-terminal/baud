@@ -11,9 +11,7 @@
 //! first row, the window is moved back over any of its rows that
 //! scrolled off, and every row of it is erased wherever it now sits.
 //! Nothing above the block is touched and nothing the terminal made is
-//! left in the history. The recordings that each rule answers to are in
-//! `docs/research/notes/m-resize-and-reflow.md`; the tests that fail
-//! without it are `a_block_never_moves_once_it_is_drawn`,
+//! left in the history. The tests that fail without it are `a_block_never_moves_once_it_is_drawn`,
 //! `no_more_than_two_blank_rows_come_between_consecutive_prompts`,
 //! `a_gesture_leaves_one_prompt_on_screen` and
 //! `a_gesture_on_a_fresh_terminal_creates_no_history`.

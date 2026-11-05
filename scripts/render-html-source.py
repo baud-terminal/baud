@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Render a fetched HTML source page to the line-numbered text note AK cites.
+"""Render a fetched HTML source page to line-numbered text.
 
 Usage: scripts/render-html-source.py MODE IN.html > OUT.txt
 
-Note AK (docs/research/notes/ak-*.md) cites some HTML sources as "rendered N":
-line N of this script's output for the page as committed (or, for an external
+A citation of an HTML source as "rendered N" means line N of this script's output for the page as committed (or, for an external
 page, as fetched from its pinned url). The output is reproducible byte for byte;
 the page itself is what is committed and hashed.
 

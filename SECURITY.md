@@ -125,7 +125,7 @@ report them as gaps; if you think one is wrong, the reasoning is in
   `CSI 21 t` get no reply). A resize is no larger than the screen; with no
   screen size known, one in pixels is refused and one in cells is held to
   the largest grid.
-- **`OSC 52` clipboard *writes* are honoured by default** (V11, `docs/research/notes/v-open-decisions.md`), and `[clipboard] osc52 = "off"`
+- **`OSC 52` clipboard *writes* are honoured by default**, and `[clipboard] osc52 = "off"`
   turns them off. The threat is the write itself: anything printed to the
   terminal -- a remote program, a file you `cat` -- can replace your clipboard
   without asking, and you might paste that into a shell. Bracketed paste

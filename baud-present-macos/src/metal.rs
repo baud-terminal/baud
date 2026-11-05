@@ -3,8 +3,7 @@
 //! copying what already sits in memory the GPU can read, and without
 //! waiting for it.
 //!
-//! The design is `docs/research/notes/j-rendering.md` D2, D3, D5 and D13,
-//! on a machine with one memory. Two paths share the shaders' second
+//! It is built for a machine with one memory. Two paths share the shaders' second
 //! half and differ in what the CPU does before the draw:
 //!
 //! * **Instances.** `Renderer::convert` resolves every dirty row into

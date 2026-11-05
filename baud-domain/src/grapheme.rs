@@ -313,7 +313,7 @@ pub enum GraphemeMode {
 /// `Column` is the default, UAX #44's "positive advance width" for `Mc`
 /// (`[[source: uax44]]`) and what glibc, unicode-width, vim and the Linux
 /// shells count; `Joined` is what the macOS shells and tmux count
-/// (`docs/research/notes/g-text-encoding.md` § 4.6).
+/// (`baud-core/tests/devanagari_columns.tsv`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SpacingMarks {
     #[default]

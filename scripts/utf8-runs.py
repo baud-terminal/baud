@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """How long are the text runs a block UTF-8 decoder would work on?
 
-`docs/research/notes/a-simd-parsing.md` prices the lookup algorithm at 0.97
+Keiser and Lemire (`[[source: utf8-lookup]]`) price the lookup algorithm at 0.97
 instructions per byte against a finite-state decoder's 7.0. That figure is only
 reachable if there are *runs* to vectorise over: `baud-core/src/scan/portable.rs`
 records that vectorising the ASCII scan cost 12% because printable runs there

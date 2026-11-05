@@ -1,7 +1,6 @@
 //! **A change of width at a marked prompt re-cuts the finished output above
-//! it and leaves the shell's block as it was** (note M,
-//! `docs/research/notes/m-resize-and-reflow.md`): "Do not re-cut what the
-//! application is about to redraw; re-cut everything above it."
+//! it and leaves the shell's block as it was**: do not re-cut what the
+//! application is about to redraw; re-cut everything above it.
 //!
 //! The screen is a long listing written at eighty columns -- an underlined
 //! header padded past the width, coloured columns, a long name, a symbolic

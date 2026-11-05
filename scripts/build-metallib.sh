@@ -2,8 +2,7 @@
 # Compile baud's Metal shaders to a committed `.metallib`, and record the
 # digest of the source it was built from.
 #
-# Row 1 of `docs/research/notes/n-make-faster.md`: a cold Metal shader
-# cache costs +287 ms to the first present, of which the source-to-AIR
+# A cold Metal shader cache costs +287 ms to the first present, of which the source-to-AIR
 # front end is 277. A `.metallib` holds AIR, so shipping one skips that
 # front end on every machine; the per-GPU pipeline build still happens,
 # because AIR is portable and GPU binaries are not -- and measured, it is

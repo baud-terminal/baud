@@ -139,7 +139,7 @@ they were built from.
 - **From:** https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1
 - **Files:** [baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf](baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf), [baud-app/fonts/symbols-nerd-font/README.md](baud-app/fonts/symbols-nerd-font/README.md), [baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE](baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE)
 
-### baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia Mono the build reads is byte for byte ttf/CascadiaMono.ttf of Microsoft's v2407.24 release, checked on 2026-11-03 against the release zip, and the repository's LICENSE at that tag is the OFL 1.1; the release binary's own name table carries a notice that differs from it, which FONTLOG.txt records. Shipped under the OFL, decided 2026-11-03
+### baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia Mono the build reads is byte for byte ttf/CascadiaMono.ttf of Microsoft's v2407.24 release, checked on 2026-11-03 against the release zip, and the repository's LICENSE at that tag is the OFL 1.1; the release binary's own name table carries a notice that differs from it, which FONTLOG.txt records. Shipped under the OFL
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1
@@ -147,7 +147,7 @@ they were built from.
 - **From:** https://github.com/JetBrains/JetBrainsMono, https://github.com/microsoft/cascadia-code and https://github.com/notofonts/devanagari
 - **Files:** [baud-app/fonts/built/Regular.ttf](baud-app/fonts/built/Regular.ttf), [baud-app/fonts/built/Bold.ttf](baud-app/fonts/built/Bold.ttf), [baud-app/fonts/built/Italic.ttf](baud-app/fonts/built/Italic.ttf), [baud-app/fonts/built/BoldItalic.ttf](baud-app/fonts/built/BoldItalic.ttf), [baud-app/fonts/built/FONTLOG.txt](baud-app/fonts/built/FONTLOG.txt), [baud-app/fonts/built/AUTHORS.txt](baud-app/fonts/built/AUTHORS.txt)
 
-### Cascadia Mono from Cascadia Code v2407.24, byte for byte ttf/CascadiaMono.ttf of Microsoft's release zip (checked 2026-11-03; hebrew/SOURCE gives the URL and both sha256s), and the dagesh anchors read out of it: under the OFL 1.1, the licence of the release's repository at its tag (OFL.txt beside them), decided 2026-11-03
+### Cascadia Mono from Cascadia Code v2407.24, byte for byte ttf/CascadiaMono.ttf of Microsoft's release zip (checked 2026-11-03; hebrew/SOURCE gives the URL and both sha256s), and the dagesh anchors read out of it: under the OFL 1.1, the licence of the release's repository at its tag (OFL.txt beside them)
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1
@@ -155,7 +155,7 @@ they were built from.
 - **From:** https://github.com/microsoft/cascadia-code/releases/tag/v2407.24
 - **Files:** [baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf](baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf), [baud-app/fonts/glyphs/languages/hebrew/anchors-400.json](baud-app/fonts/glyphs/languages/hebrew/anchors-400.json), [baud-app/fonts/glyphs/languages/hebrew/anchors-700.json](baud-app/fonts/glyphs/languages/hebrew/anchors-700.json)
 
-### Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors, decided 2026-10-28
+### Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1
@@ -163,7 +163,7 @@ they were built from.
 - **From:** read from the test fonts by scripts/gvar-oracle.py
 - **Files:** [baud-font/tests/var/outlines.txt](baud-font/tests/var/outlines.txt), [baud-font/tests/var/JetBrainsMono-LICENSE.txt](baud-font/tests/var/JetBrainsMono-LICENSE.txt), [baud-font/tests/var/FiraCode-LICENSE.txt](baud-font/tests/var/FiraCode-LICENSE.txt)
 
-### Glyph outlines read out of Source Code VF by scripts/cff2-oracle.py, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe, decided 2026-10-28
+### Glyph outlines read out of Source Code VF by scripts/cff2-oracle.py, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1
@@ -331,7 +331,7 @@ they were built from.
 - **From:** docs/research/sources/iso8859-1.txt, iso8859-2.txt, iso8859-5.txt, iso8859-7.txt, iso8859-8.txt and iso8859-9.txt
 - **Files:** [baud-domain/src/iso96_data.rs](baud-domain/src/iso96_data.rs)
 
-### DEC Supplemental in dec_sets_data.rs, generated by scripts/gen-dec-sets.py from xterm's charsets.h macro map_DEC_Supp_Graphic, as the national sets are, and checked cell for cell against DEC's VT220 Table 2-3 (vt220_tables.tsv) and EK-PPLV2-PM Figure A-2. At 5/15 xterm draws `_` and DEC's Table 2-3, the VT320's Appendix E and Figure A-2 all have ß; DEC's text is the standard, so the cell is ß (CONFORM in the generator; note AF section 3.1). The values no longer come from vt100.net's transcription, decided 2026-11-03
+### DEC Supplemental in dec_sets_data.rs, generated by scripts/gen-dec-sets.py from xterm's charsets.h macro map_DEC_Supp_Graphic, as the national sets are, and checked cell for cell against DEC's VT220 Table 2-3 (vt220_tables.tsv) and EK-PPLV2-PM Figure A-2. At 5/15 xterm draws `_` and DEC's Table 2-3, the VT320's Appendix E and Figure A-2 all have ß; DEC's text is the standard, so the cell is ß (CONFORM in the generator; note AF section 3.1). The values no longer come from vt100.net's transcription
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
@@ -379,7 +379,7 @@ they were built from.
 - **From:** https://github.com/microsoft/terminal/blob/4e2b8bd9264642475d1398c11a5fd2aba06f373e/src/renderer/atlas/dwrite_helpers.hlsl
 - **Files:** [baud-domain/build.rs](baud-domain/build.rs), [baud-domain/src/contrast.rs](baud-domain/src/contrast.rs)
 
-### The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Kept as facts, sixteen colour values, credited, and no GPL text ships for them, decided 2026-11-03
+### The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Kept as facts, sixteen colour values, credited, and no GPL text ships for them
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** none claimed; Modus itself is GPL-3.0-or-later
@@ -387,13 +387,13 @@ they were built from.
 - **From:** https://github.com/protesilaos/modus-themes
 - **Files:** [baud-render/src/color.rs](baud-render/src/color.rs)
 
-### The quad cursor trail follows kitty's design -- four corners chasing the cursor's at per-corner rates -- with kitty's defaults (decay 0.1 s and 0.4 s, a start threshold of two cells) and its half-pixel end. Its rate choice, which had followed kitty's cursor_trail.c term for term, was re-derived on 2026-10-25 from the derivation in note W, section 8, after a line-by-line audit against kitty v0.49.2, and so were the copies of it in four research prototypes under note W; no line of kitty's is ported
+### The quad cursor trail follows kitty's design -- four corners chasing the cursor's at per-corner rates -- with kitty's defaults (decay 0.1 s and 0.4 s, a start threshold of two cells) and its half-pixel end. Its rate choice, which had followed kitty's cursor_trail.c term for term, was derived anew after a line-by-line audit against kitty v0.49.2; no line of kitty's is ported
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** none claimed; kitty is GPL-3.0-only
 - **Notice:** none needed
 - **From:** https://github.com/kovidgoyal/kitty/blob/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/cursor_trail.c
-- **Files:** [baud-render/src/trail.rs](baud-render/src/trail.rs), [docs/research/notes/w/liquid-proto.py](docs/research/notes/w/liquid-proto.py), [docs/research/notes/w/ufo-proto2.py](docs/research/notes/w/ufo-proto2.py), [docs/research/notes/w/ice-prototype.swift](docs/research/notes/w/ice-prototype.swift), [docs/research/notes/w/orb-harness.swift](docs/research/notes/w/orb-harness.swift)
+- **Files:** [baud-render/src/trail.rs](baud-render/src/trail.rs)
 
 ### The kitty theme reader's colour values (kitty_colour in terminals.rs) and its oklch( and lab( colours (oklab.rs) read and draw as kitty does: kitty's behaviour, its constants (a JND of 0.02, a convergence of 1e-4, a grey below a chroma of 1e-5) and its departures from CSS Color 4 and X11, which note AR's O14 keeps. Both had followed kitty's colors.c and tools/utils/style/colorspaces.go step for step, and were re-derived on 2026-10-25 from the rules in note AR after a line-by-line audit against kitty v0.49.2. The oracle script's driver now compiles kitty's own parse_color body from the fetched, hash-checked file instead of carrying a copy; no line of kitty's is ported
 
@@ -451,7 +451,7 @@ they were built from.
 - **From:** https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf
 - **Files:** [baud-font/src/standard_encoding.rs](baud-font/src/standard_encoding.rs)
 
-### The kitty keyboard protocol's functional-key numbers in input.rs (kitty_number), with the X keysym of each key as kitty's keyboard layer maps them, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied. The numbers are what an application and a terminal exchange in kitty's protocol, so they are kept as the protocol's interface data, as the placeholder diacritics are, attributed to kitty v0.49.2; kitty's documentation is GPL-3.0, none of its text is kept, and no GPL text ships with the crate, decided 2026-11-03
+### The kitty keyboard protocol's functional-key numbers in input.rs (kitty_number), with the X keysym of each key as kitty's keyboard layer maps them, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, written by scripts/extract-kitty-keys.py from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied. The numbers are what an application and a terminal exchange in kitty's protocol, so they are kept as the protocol's interface data, as the placeholder diacritics are, attributed to kitty v0.49.2; kitty's documentation is GPL-3.0, none of its text is kept, and no GPL text ships with the crate
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** protocol interface data, attributed to kitty v0.49.2 (Kovid Goyal)
@@ -555,7 +555,7 @@ they were built from.
 - **From:** baud's own build
 - **Files:** [baud-app/fonts/glyphs/languages/devanagari/build/merge.py](baud-app/fonts/glyphs/languages/devanagari/build/merge.py), [baud-app/fonts/glyphs/languages/devanagari/SOURCE](baud-app/fonts/glyphs/languages/devanagari/SOURCE)
 
-### The Hebrew build modules: baud's own code under the repository's licence, decided 2026-10-28; they are tools that write the font, not Font Software (FONTLOG.txt)
+### The Hebrew build modules: baud's own code under the repository's licence; they are tools that write the font, not Font Software (FONTLOG.txt)
 
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0

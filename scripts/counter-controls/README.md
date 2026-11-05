@@ -58,4 +58,4 @@ the `CoreTypeByProcess` table's `swift-table` attribute carries a
 Bottleneck, Instruction Processing Bottleneck and Useful. It does not say which
 integer column is which, which is what these controls are for.
 
-CONTRIBUTING.md states the identifications, and the controls here are the swings they rest on: cat-cjk is not memory-bound and not mispredict-bound (2% and 3%), and idx1, idx2 and idx4 are a dispatched-work family, which rules out reading an IPC from them.
+The controls here are the swings the identifications rest on: cat-cjk is not memory-bound and not mispredict-bound (2% and 3%), and idx1, idx2 and idx4 are a dispatched-work family, which rules out reading an IPC from them.

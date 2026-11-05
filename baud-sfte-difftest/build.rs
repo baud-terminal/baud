@@ -11,8 +11,8 @@
 //! stays byte-identical to its `MANIFEST.toml` hash; this script copies it to
 //! `OUT_DIR` and applies every patch under `patches/` as an exact-anchor
 //! replacement, and **a patch whose anchor is found zero or several times fails
-//! the build**. A patch that silently fails to apply is the no-op edit
-//! `CONTRIBUTING.md` records, and the build refusing is the positive control --
+//! the build**. A patch that silently fails to apply is an edit that
+//! changed nothing and said so nowhere, and the build refusing is the positive control --
 //! there is no `patch(1)` fuzz here on purpose.
 //!
 //! The shape is `bench-others/multibench/build.rs`'s ghostty arm: find the

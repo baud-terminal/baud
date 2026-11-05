@@ -476,8 +476,8 @@ fn stride_is_the_row_pitch_and_here_it_is_the_column_count() {
 ///
 /// `resize` un-rotates both over the old height, and this is the test that says
 /// so. Without the alternate arm it would be exactly the gap the primary's
-/// version was written to close, one screen over -- and `CONTRIBUTING.md`
-/// records `Term::resize` as an entry point that had **no caller anywhere**
+/// version was written to close, one screen over -- and `Term::resize`
+/// was once an entry point that had **no caller anywhere**
 /// until a test reached it, at which point it yielded three bugs including this
 /// panic.
 #[test]

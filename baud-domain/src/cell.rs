@@ -469,10 +469,10 @@ impl CellFlags {
     ///
     /// **The link rides in the spare bits of this word rather than in a field
     /// of its own, and that is a measured constraint, not a packing game.**
-    /// `CONTRIBUTING.md`: "`PackedCell` is 8 bytes" — going from 4 to 8 already
-    /// cost two points of the kernel ceiling, and a ninth and tenth byte would
-    /// round the cell to twelve. Three flag bits are in use and thirteen are
-    /// not, so a link index fits with 13 bits of room, against `NLINK` of 128.
+    /// `PackedCell` is 8 bytes, the width a codepoint needs, and a ninth and
+    /// tenth byte would round the cell to twelve. Three flag bits are in use
+    /// and thirteen are not, so a link index fits with 13 bits of room,
+    /// against `NLINK` of 128.
     const LINK_SHIFT: u16 = 3;
     /// The link takes exactly the bits `NLINK = 128` needs, and no more.
     ///

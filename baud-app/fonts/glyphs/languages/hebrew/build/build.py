@@ -19,8 +19,7 @@ this directory, sys.path[0]); exact_gap imports flatten, segs and pt_seg_min
 from geom.py instead of the critic's v4_clear.py, which imported uharfbuzz at
 module top; and the save pins fontTools' USE_HARFBUZZ_REPACKER to True (see
 save_pinned). Comments that name fix/, r2/, critic or *.py files not in this
-directory cite the research tree, which is not committed; note AC
-(docs/research/notes/ac-built-font.md) is the record of those rounds.
+directory cite the research tree, which is not committed.
 
 Two conformance changes since the port, both outside the design (2026-10-08,
 because a departure from the standard or the licence is a defect): nameID 7 carries Cascadia's trademark notice after JetBrains Mono's

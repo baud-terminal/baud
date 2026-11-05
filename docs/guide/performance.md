@@ -4,8 +4,7 @@ baud is built to be fast at the four things a terminal does all day: taking
 in a program's output, answering a key, drawing frames while the screen
 churns, and doing it in little memory. This page gives the headline numbers
 in plain terms. [MEASUREMENTS.md](../../MEASUREMENTS.md) is the full record,
-with every table's method, and [measuring](../contributing/measuring.md) says
-how to re-run them.
+with every table's method and, under Reproducing, how to re-run them.
 
 Every figure here was taken on one Mac, an Apple M5 Max running macOS 27.0,
 and carries the commit and date it was taken at. A figure is not current

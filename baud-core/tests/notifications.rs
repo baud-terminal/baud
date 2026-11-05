@@ -1,6 +1,6 @@
 //! Notifications and progress from programs: `OSC 9`, `OSC 777 ; notify`,
 //! kitty's `OSC 99` and ConEmu's `OSC 9 ; 4`, and `OSC 1337 ;
-//! RequestAttention` (`docs/research/notes/ax-program-notifications.md`).
+//! RequestAttention`.
 //!
 //! `[[source: kitty-desktop-notifications]]` is the protocol with the most
 //! to get wrong: chunks, ids, the query and its answer, the reports. Every

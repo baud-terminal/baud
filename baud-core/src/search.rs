@@ -10,8 +10,7 @@
 //! line up the ring, and is gone when the line retires past
 //! [`SearchLines::oldest`].
 //!
-//! **The text a search reads is the text a selection copies**
-//! (`docs/research/notes/k-selection.md`): a row to its last cell with
+//! **The text a search reads is the text a selection copies**: a row to its last cell with
 //! content, an empty cell before it read as a space, a wide character's
 //! tail as nothing, a cluster's marks with their base, and a row the writer
 //! wrapped joined to the next. A match never crosses a row that ended at a

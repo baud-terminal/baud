@@ -523,8 +523,7 @@ pub(crate) fn child_env(parent: Vec<(OsString, OsString)>, locale: Option<&str>)
 /// locale asked of `locale` only when the parent names none. A Dock launch
 /// inherits launchd's environment, which has no locale, and zsh in the C
 /// locale reads each byte of a UTF-8 character as a character of its own:
-/// typed Hebrew came out as `U+FFFD` and `<0099>`
-/// (`docs/research/notes/aa-shell-locale.md`). On macOS the answer is
+/// typed Hebrew came out as `U+FFFD` and `<0099>`. On macOS the answer is
 /// CoreFoundation's, and a launch from a terminal, which passes its `LANG`
 /// on, never pays for it.
 fn spawn_env(
@@ -919,8 +918,7 @@ fn tell(master: crate::sys::Fd, told: &mut crate::sys::Winsize, ws: crate::sys::
 /// **Backspace erases a whole UTF-8 character**: `IUTF8` set on the
 /// terminal `fd`, which the kernel's default leaves clear on Darwin and on
 /// Linux. Without it a line read in canonical mode -- `cat`, `read` -- kept
-/// a Hebrew letter's lead byte `d7` after Backspace
-/// (`docs/research/notes/aa-shell-locale.md` section 5).
+/// a Hebrew letter's lead byte `d7` after Backspace.
 ///
 /// Called in the child, on descriptor 0, before the exec, so the shell's
 /// first look at its terminal already has the flag: Terminal.app 2.15's

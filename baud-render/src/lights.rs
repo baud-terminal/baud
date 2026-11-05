@@ -306,9 +306,9 @@ impl Led {
 
 /// **The read that is full at the platform's ceiling**: Darwin's tty hands
 /// back at most `TTYCLSIZE`, "1024", a read (`[[source: xnu-tty-h]]`
-/// 104-105), measured as 49,152 reads for 48 MB (CONTRIBUTING.md's
-/// `READ_CHUNK` row), and Linux's at most `N_TTY_BUF_SIZE` less one, 4095
-/// (`[[source: linux-n-tty]]`, the same row). A read that long is HS's
+/// 104-105), 49,152 reads for 48 MiB, and Linux's at most
+/// `N_TTY_BUF_SIZE` less one, 4095 (`[[source: linux-n-tty]]`). A read
+/// that long is HS's
 /// sign that more was waiting, though not proof: exactly that much may
 /// have been all there was.
 pub const READ_CEILING: usize = match cfg!(target_os = "linux") {

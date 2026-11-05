@@ -3,8 +3,8 @@
 //! scroll, held, faded, and widened with a track under the pointer, as
 //! AppKit's overlay scroller is; or, under the legacy style, a track and
 //! knob always drawn in a gutter of their own beside the grid.
-//! `docs/research/notes/l-scrollbar.md` is the spec, with the measurements;
-//! this is the geometry, pure, and the solids every path draws.
+//! `scripts/scroller-probe.swift` measures AppKit's; this is the geometry,
+//! pure, and the solids every path draws.
 
 use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
@@ -171,8 +171,8 @@ fn clip(t: Thumb, top: Px, bottom: Px) -> Option<Thumb> {
     })
 }
 
-/// The knob's alpha at full, half the foreground: AppKit's measures 0.50 to
-/// 0.56 (`docs/research/notes/l-scrollbar.md`).
+/// The knob's alpha at full, half the foreground, as AppKit's
+/// (`scripts/scroller-probe.swift` measures it).
 const KNOB_ALPHA: Chan = Chan::from_offset(0x80, 0);
 /// The track's, 12 of 255: AppKit's legacy track, measured at 0.047 in both
 /// appearances.

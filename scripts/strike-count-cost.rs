@@ -1,6 +1,5 @@
 //! What `Face::is_colour` costs on hostile faces past baud's strike bound.
-//! Note J, docs/research/notes/j-colour-bitmap-limits.md. Not a test of the
-//! tree: it needs `MAX_STRIKES` lifted in baud-font/src/bitmap.rs, so it
+//! Not a test of the tree: it needs `MAX_STRIKES` lifted in baud-font/src/bitmap.rs, so it
 //! lives here and is copied in for a run, then removed:
 //!
 //!   python3 scripts/strike-count-fonts.py OUT

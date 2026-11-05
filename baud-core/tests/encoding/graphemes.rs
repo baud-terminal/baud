@@ -7,7 +7,7 @@
 //! — and exactly the kind of "generate valid sequences, do not guess" the
 //! property suites already use.
 //!
-//! Why this exists at all: `docs/research/notes/g-text-encoding.md` deferred
+//! Why this exists at all: the text-encoding research deferred
 //! grapheme clustering because its cost was **unmeasured**. A cost cannot be
 //! measured without an implementation, so this is the implementation, correct
 //! against the official suite, so the deferral becomes a decision made on a

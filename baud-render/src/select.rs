@@ -1,6 +1,5 @@
 //! Selection: a range of cells over the live surface's lines, made with the
-//! mouse and read back as text. `docs/research/notes/k-selection.md` is the
-//! spec; this is the model, platform-free, and the extraction.
+//! mouse and read back as text. This is the model, platform-free, and the extraction.
 //!
 //! An endpoint names an **absolute line** -- the count of rows the surface's
 //! rotation had advanced when the line was the top of the live screen -- and

@@ -1,7 +1,7 @@
 //! The run cache: shaped runs by content, 256 sets of 8 ways.
 //!
 //! ghostty measured shaping at 96% of frame time before its cache existed
-//! (`docs/research/notes/j-rendering-evidence.md` E8), and Fira Code's
+//! (`[[source: ghostty-font-shaper-cache]]`), and Fira Code's
 //! chained singles are 3.5x a plain ligature. So the cache is load-bearing
 //! from the first frame: a run's key is its face and every cell's content
 //! word and attached codepoints, hashed once, and a hit answers the whole

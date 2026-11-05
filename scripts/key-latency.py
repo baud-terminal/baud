@@ -2,9 +2,8 @@
 """Measure keystroke-to-pixel latency for `baud`, leg by leg, as the app
 times its own frames.
 
-Row 0 of `docs/research/notes/n-make-faster.md` is an instrument, not a
-change: without a number for typing, half the rows below it cannot be kept
-or reverted. This script drives it.
+The keystroke instrument is not a change: without a number for typing, a
+latency change cannot be kept or reverted. This script drives it.
 
 WHAT IT MEASURES
     A helper (`scripts/key-post.swift`) posts plain letters as CGEvents
@@ -57,9 +56,7 @@ WHAT IT MEASURES
     `vsync_hi` is the target after it. `total` and `total_hi` are therefore
     a BRACKET, not a measurement: on a fixed-period panel with no dropped
     tick the pixel is composited somewhere in [vsync, vsync_hi], and
-    `scripts/key-pixel.swift` is the probe that adjudicates where. Its
-    adjudication is in the note, `docs/research/notes/o-keystroke-latency.md`,
-    not here. Do not fold a probe run's totals into a sweep's: the probe's
+    `scripts/key-pixel.swift` is the probe that adjudicates where. Do not fold a probe run's totals into a sweep's: the probe's
     own screen capture perturbs the app -- the sweep measured post->shown
     at ~13 ms under capture against ~3 ms without, same child, same box --
     so a probe run measures the app under capture and its `total`s are
@@ -68,8 +65,8 @@ WHAT IT MEASURES
 
 HOW TO READ IT
     Per arm: the median (with n) and the interquartile range [q1-q3] of each
-    leg over the SETTLED rounds (round 1 is warm-up and discarded, per
-    CONTRIBUTING.md), the [min-max] beside it, plus keys posted (the
+    leg over the SETTLED rounds (round 1 is warm-up and discarded, as a
+    cold arm reads below its settled rate), the [min-max] beside it, plus keys posted (the
     helper's count) / paired / completed / excluded, and how many shared a
     frame. With `--aa` a second arm runs the SAME binary again; the two are
     printed side by side and the noise floor is given PER LEG as the larger
@@ -84,10 +81,9 @@ HOW TO READ IT
     |delta| exceeds the floor AND the two arms' interquartile ranges are
     disjoint; every other row says `not a result` and why (within the
     floor, or the IQRs overlap). Without `--aa` there is no floor and no
-    row can be a result. This table is what rows 6, 9 and 11 of
-    `docs/research/notes/n-make-faster.md` -- pace the GPU by completion
-    for a keystroke, draw the echo before the pty round trip, skip the
-    present when nothing changed -- will read.
+    row can be a result. This table is what a latency change -- pacing
+    the GPU by completion for a keystroke, drawing the echo before the pty
+    round trip, skipping the present when nothing changed -- is read by.
 
     A key is `completed` when it paired and reached `vsync`; `excluded` when
     the app's `seq` is not the helper's, its `event` precedes its `post` or

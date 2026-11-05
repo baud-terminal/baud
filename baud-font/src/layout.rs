@@ -24,8 +24,7 @@
 //! trying to support Thai", `[[source: harfbuzz-hb-ot-layout]]`, its script
 //! selection). The specification is silent on a face with no `DFLT`, so
 //! today's behaviour stands. Two other HarfBuzz
-//! choices are *not* made, and both are recorded as the open question Q6 of
-//! `docs/research/notes/ab-right-to-left.md`: the misspelt `dflt` tried
+//! choices are *not* made, and both are open: the misspelt `dflt` tried
 //! before `latn`, and the Hebrew rule that turns `GPOS` off and places
 //! marks by combining class when the `GPOS` table chosen is not `hebr`
 //! (`[[source: harfbuzz-hb-ot-shape]]`, `disable_gpos`; the Hebrew shaper's

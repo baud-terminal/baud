@@ -4,7 +4,7 @@
 Both PDFs are **RC4-encrypted with an empty user password** (standard security
 handler, /R 2, 40-bit). `extract-ecma48.py`'s plain inflater finds *zero*
 streams in them, so every probe misses -- the probe-that-cannot-fire failure
-`CONTRIBUTING.md` records for the letter-spaced ECMA-48 extraction. This
+the letter-spaced ECMA-48 extraction had first. This
 script implements the PDF 1.4 standard security handler (Algorithm 3.2 / 3.1)
 in the standard library, decrypts each stream, inflates it, and runs a
 positive control per document so a broken extraction fails loudly.

@@ -228,9 +228,8 @@ pub const NSGR: usize = 256;
 /// screen from prompt start until the command's output begins, from the
 /// block's first row down, and a resize keeps those rows whole while it
 /// re-cuts the finished output above them; the application owns it after.
-/// `docs/research/notes/m-resize-and-reflow.md` carries the measurement
-/// -- four copies against one on a capture of a real shell replayed with
-/// real resizes -- and what the alternatives cost.
+/// `baud-bench`'s `winch` replays a capture of a real shell with real
+/// resizes against it.
 ///
 /// A terminal that has seen no marks is in [`Zone::Output`], which is
 /// the behaviour that shipped before them: a stream with no shell

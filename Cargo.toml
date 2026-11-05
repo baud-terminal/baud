@@ -15,18 +15,17 @@ members = ["baud-domain", "baud-core", "baud-bench",
   # has not set that path" -- and the path was
   # `/home/<user>/t/alacritty/alacritty_terminal`, which no checkout has,
   # including the one it was written on. So the crate never compiled, while
-  # `BUILD.md` (now `docs/contributing/build.md`) listed it as "the only
-  # oracle outside this repo". Pinned to the
-  # registry version `multibench` already uses, it resolves anywhere, and being
-  # a member is what makes `cargo test --workspace` build it -- which is the
-  # only thing that would have reported the break.
+  # the build guide listed it as "the only oracle outside this repo". Pinned
+  # to the registry version `multibench` already uses, it resolves anywhere,
+  # and being a member is what makes `cargo test --workspace` build it --
+  # which is the only thing that would have reported the break.
   "baud-difftest",
   # The second external oracle: sfte, a single-file C11 terminal, vendored
   # whole under docs/research/sources/ and compiled by this crate's build.rs.
   # A member for the reason baud-difftest is one: `cargo test --workspace`
   # building it is the only thing that reports a break.
   "baud-sfte-difftest",
-  # The renderer, as the crates `docs/research/notes/j-rendering.md` D1 names:
+  # The renderer:
   # the pure font stack, the compositor, one presentation crate per platform,
   # and the binary that joins a pty to a window. None of them touches
   # `baud-core`, which stays `no_std`, allocation-free and dependency-free.
@@ -132,12 +131,12 @@ opt-level = 1
 opt-level = 3
 lto = true
 codegen-units = 1
-# **Every function starts on a 64-byte boundary.** Without it a function's offset
-# in its cache line moves whenever anything linked before it changes size, and
-# `cat` read -8%, -9% and +3% across three builds of one change whose ingest loop
-# was instruction for instruction the same -- a layout lottery this repo had
-# recorded on `cat` several times before. Aligned, all three equalled the base, at
-# no cost on eleven payloads and +2.0% on the app binary's size
-# (`CONTRIBUTING.md`). `bench` inherits this profile, and `test:unit` builds it,
-# so the measurements and the tests run the code that ships.
+# **Every function starts on a 64-byte boundary.** Without it a function's
+# offset in its cache line moves whenever anything linked before it changes
+# size, and `cat` read -8%, -9% and +3% across three builds of one change whose
+# ingest loop was instruction for instruction the same -- a layout lottery this
+# repo had recorded on `cat` several times before. Aligned, all three equalled
+# the base, at no cost on eleven payloads and +2.0% on the app binary's size.
+# `bench` inherits this profile, and `test:unit` builds it, so the
+# measurements and the tests run the code that ships.
 rustflags = ["-C", "llvm-args=-align-all-functions=6"]
