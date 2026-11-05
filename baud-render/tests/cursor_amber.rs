@@ -255,6 +255,57 @@ fn the_light_logo_is_the_light_cursors_amber() {
     }
 }
 
+/// **The brand sheet's colour table is measured**: each row of
+/// `assets/logo/README.md`'s Colour table gives its colour's OKLCH as this
+/// file's [`oklch`] measures the hex, rounded to the digits the row writes,
+/// the hue in degrees from 0 to 360; and its two ambers are the cursor's,
+/// [`BaudCursor::dark`] and [`BaudCursor::light`], so the light one is
+/// the rule's and not a second literal.
+#[test]
+fn the_brand_sheets_colours_are_measured() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/logo/README.md");
+    let text = std::fs::read_to_string(path).expect("the brand sheet");
+    let table = text
+        .split("\n## Colour\n")
+        .nth(1)
+        .expect("a Colour section");
+    let mut ambers = Vec::new();
+    let mut rows = 0;
+    for line in table.lines().take_while(|l| !l.starts_with("## ")) {
+        let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+        let [_, role, hex, lch, _] = cells.as_slice() else {
+            continue;
+        };
+        let Some(hex) = hex.strip_prefix("`#").and_then(|h| h.strip_suffix('`')) else {
+            continue;
+        };
+        let c = Argb(0xFF00_0000 | u32::from_str_radix(hex, 16).expect("six hex digits"));
+        let inner = lch
+            .strip_prefix("oklch(")
+            .and_then(|v| v.strip_suffix(')'))
+            .unwrap_or_else(|| panic!("{role}: {lch} is not oklch(...)"));
+        let (l, ch, h) = oklch(c);
+        let measured = [l, ch, h.rem_euclid(360.0)];
+        let stated: Vec<&str> = inner.split(' ').collect();
+        assert_eq!(stated.len(), 3, "{role}: {inner}");
+        for (v, s) in measured.iter().zip(&stated) {
+            let digits = s.split('.').nth(1).map_or(0, str::len);
+            assert_eq!(
+                &format!("{v:.digits$}"),
+                s,
+                "{role}: #{hex} is oklch({l:.4} {ch:.4} {:.2})",
+                measured[2]
+            );
+        }
+        if role.starts_with("amber") {
+            ambers.push(c);
+        }
+        rows += 1;
+    }
+    assert_eq!(rows, 5, "the table's five rows");
+    assert_eq!(ambers, [BaudCursor::dark().fill, BaudCursor::light().fill]);
+}
+
 /// **Every page gets the reference's colour**: the two themes' pages and
 /// their reversed ones, black, white, a mid grey neither end of the amber
 /// wins on at once, and pages it must lighten on -- navy and a dark red
