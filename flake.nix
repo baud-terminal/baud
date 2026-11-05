@@ -16,11 +16,19 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # **The README session's prompt** (`nix/demo-container/`): starship
+    # 1.27.0 and the bash it runs under, from a nixpkgs-unstable revision,
+    # pinned here by its commit. The revision above carries starship 1.24.2,
+    # inside two advisories. The demo takes its own starship from the same
+    # commit (`baud-app/examples/demo/container.rs`), and only the container's
+    # image reads this input.
+    nixpkgs-demo.url = "github:NixOS/nixpkgs/13e53762c5afaf384d4614e94527a9ccfafe41d0";
   };
 
   outputs =
     { nixpkgs
     , rust-overlay
+    , nixpkgs-demo
     , ...
     }:
     let
@@ -160,6 +168,7 @@
           aarch64-darwin.demo-container = import ./nix/demo-container {
             pkgs = pkgsFor "aarch64-darwin";
             linux = pkgsFor "aarch64-linux";
+            prompt = nixpkgs-demo.legacyPackages.aarch64-linux;
           };
         };
 

@@ -47,9 +47,37 @@ fn locked(lock: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// **The flake locks the dev shell's nixpkgs and rust-overlay at the
+/// shell's revisions**, every input but `nixpkgs-demo`: the README
+/// session's container takes starship from a later nixpkgs of its own
+/// (`nix/demo-container/default.nix`), pinned in `flake.nix` by its commit
+/// and locked at it, and builds nothing of baud's with it. The control:
+/// that input's revision is not the shell's.
 #[test]
 fn the_flake_locks_the_dev_shells_nixpkgs_and_rust_overlay() {
-    let flake = locked(&read("flake.lock"));
+    let lock = read("flake.lock");
+    let demo = lock
+        .find("\"nixpkgs-demo\": {")
+        .map(|at| &lock[at..])
+        .and_then(|node| node.split("\"locked\": {").nth(1))
+        .and_then(|block| field(&block[..block.find('}')?], "rev"))
+        .expect("the demo's nixpkgs is locked");
+    assert!(
+        read("flake.nix").contains(&format!(
+            "nixpkgs-demo.url = \"github:NixOS/nixpkgs/{demo}\";"
+        )),
+        "the demo's input is pinned by the commit it is locked at"
+    );
+    let flake: Vec<_> = locked(&lock)
+        .into_iter()
+        .filter(|(repo, rev)| !(repo == "NixOS/nixpkgs" && rev == demo))
+        .collect();
+    assert!(
+        !locked(&read("devenv.lock"))
+            .iter()
+            .any(|(_, rev)| rev == demo),
+        "the control: the demo's revision is not the shell's"
+    );
     let devenv = locked(&read("devenv.lock"));
     for repo in ["cachix/devenv-nixpkgs", "oxalica/rust-overlay"] {
         assert!(

@@ -66,15 +66,25 @@ const HELIX: &str = "# helix's defaults, for the README session\n";
 
 /// **The zsh startup file.** `PATH` is set here and not only in the
 /// environment: baud starts a login shell, and on macOS `/etc/zprofile`
-/// runs path_helper, which reorders `PATH`, before `.zshrc` is read. Its
+/// runs path_helper, which reorders `PATH`, before `.zshrc` is read. The
+/// prompt is starship's, the pinned one on that `PATH`
+/// (`container::STARSHIP_NIXPKGS`), drawn from baud's preset as the scratch
+/// home holds it ([`STARSHIP`]), its cache in the scratch home too. Its
 /// `ssh` reads the scratch home's ssh config (`container::ZSH_SSH`).
 fn zshrc(path: &str) -> String {
     format!(
-        "export PATH={path}\nPS1='{}'\n{}",
-        crate::session::PS1,
+        "export PATH={path}\nexport STARSHIP_CONFIG=\"$HOME/{STARSHIP}\"\n\
+         export STARSHIP_CACHE=\"$HOME/.cache/starship\"\neval \"$(starship init zsh)\"\n{}",
         crate::container::ZSH_SSH
     )
 }
+
+/// Where the scratch home holds baud's starship preset, the repository's
+/// `assets/starship/baud.toml` byte for byte ([`PRESET`]).
+pub const STARSHIP: &str = ".config/starship.toml";
+
+/// **baud's starship preset**, the file the repository ships.
+pub const PRESET: &str = include_str!("../../../assets/starship/baud.toml");
 
 /// **baud's config**, as the session shows it in helix: 22 lines, no more
 /// than the rows helix gives a file in a 24-row window, so the session's
@@ -148,6 +158,7 @@ pub const PHOTO_AT: &str = "home/baud/canazei.jpg";
 pub fn files(path: &str, faces: &[&str]) -> Vec<(String, Vec<u8>)> {
     vec![
         ("home/.zshrc".to_string(), zshrc(path).into_bytes()),
+        (format!("home/{STARSHIP}"), PRESET.as_bytes().to_vec()),
         (
             "home/.config/helix/config.toml".to_string(),
             HELIX.as_bytes().to_vec(),
@@ -230,8 +241,9 @@ mod tests {
     /// paths beside it, one a line**, at 14 points, the transition on, the
     /// window solid and the cursor still with its plasma trail last, in 22
     /// lines -- the rows helix gives a file in 24 -- with "plasma" on the
-    /// last alone; the zsh file sets the prompt, the `PATH` and ssh's
-    /// config; and baud's environment is its list, no `XDG_*` among it.
+    /// last alone; the zsh file sets the `PATH`, starship's prompt from the
+    /// preset in the scratch home, and ssh's config; and baud's
+    /// environment is its list, no `XDG_*` among it.
     /// Perturbation: a blank line after the fonts makes 23 lines, and a
     /// `trail_scroll` after the trail ends the file on another line.
     #[test]
@@ -269,8 +281,24 @@ mod tests {
         let z = zshrc("/a/bin:/usr/bin");
         assert_eq!(
             z,
-            "export PATH=/a/bin:/usr/bin\nPS1='%F{cyan}baud%f %F{magenta}\u{276F}%f '\n\
+            "export PATH=/a/bin:/usr/bin\n\
+             export STARSHIP_CONFIG=\"$HOME/.config/starship.toml\"\n\
+             export STARSHIP_CACHE=\"$HOME/.cache/starship\"\n\
+             eval \"$(starship init zsh)\"\n\
              alias ssh='ssh -F ~/.ssh/config'\n"
+        );
+        let preset = files("/a/bin", &faces)
+            .into_iter()
+            .find(|(f, _)| f == "home/.config/starship.toml")
+            .expect("the preset in the scratch home");
+        assert_eq!(
+            preset.1,
+            std::fs::read(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../assets/starship/baud.toml"
+            ))
+            .unwrap(),
+            "the repository's preset, byte for byte"
         );
         let at = Layout {
             root: PathBuf::from("/t/r"),

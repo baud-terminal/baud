@@ -1,5 +1,6 @@
-//! **The container the session ssh's into**: a Linux of four nixpkgs
-//! packages -- busybox, OpenSSH's sshd, fastfetch and btop -- run by
+//! **The container the session ssh's into**: a Linux of six nixpkgs
+//! packages -- busybox, bash, starship, OpenSSH's sshd, fastfetch and
+//! btop -- run by
 //! docker in a colima VM of its own on this Mac ([`COLIMA_PROFILE`]), its
 //! host named [`HOST`] and its one user [`USER`]. fastfetch there prints
 //! its whole default card (`nix/demo-container/fastfetch.jsonc` lists its
@@ -7,15 +8,20 @@
 //! session's checks search for this machine's names; beside it it draws
 //! baud's mark, a picture made from the repository's own logo file. btop
 //! shows the cpu box alone (`nix/demo-container/btop.conf`), a graph for
-//! each of the VM's CPUs, as many as this Mac's. The shell marks each
-//! prompt as baud's does, shows the host as baud's badge while the session
-//! is in, and clears the badge on the way out.
+//! each of the VM's CPUs, as many as this Mac's. The login shell is bash,
+//! its prompt starship's, drawn from the repository's preset
+//! (`assets/starship/baud.toml`) as `~ ❯`; it marks each prompt as
+//! baud's shell does, shows the host as baud's badge while the session is
+//! in, and clears the badge on the way out.
 //!
 //! **Made by Nix**: the image is the repository flake's `demo-container`
 //! (`nix/demo-container/`), nixpkgs' `dockerTools.streamLayeredImage` at
 //! the flake's pinned nixpkgs -- the revision `devenv.lock` holds, not the
 //! demo's own [`crate::run::NIXPKGS`] -- with the packages for
-//! aarch64-linux from cache.nixos.org, so no Linux builder is needed.
+//! aarch64-linux from cache.nixos.org, so no Linux builder is needed;
+//! starship and bash come from the flake's `nixpkgs-demo` input, the
+//! revision [`STARSHIP_NIXPKGS`] names, the starship the
+//! demo's own shell runs.
 //! Its files are beside that expression, and this module reads the same
 //! bytes (`include_str!`), so the tests below check what the image holds.
 //!
@@ -52,7 +58,16 @@ use std::time::{Duration, Instant};
 
 /// The container's host name and its one user.
 pub const HOST: &str = "demo";
-pub const USER: &str = "baud";
+pub const USER: &str = "jordan";
+
+/// **The nixpkgs revision starship is taken from**, for the shell on this
+/// Mac and, through the flake's `nixpkgs-demo` input locked at the same
+/// commit, for the container's: [`crate::run::NIXPKGS`] carries starship 1.26.0, which
+/// advisories GHSA-679r-jwc5-r5m3 and GHSA-x486-6jjc-phfp cover, and this
+/// nixpkgs-unstable revision carries 1.27.0, the first release outside
+/// both. Only starship comes from it, so every other program the film
+/// shows stays where it was.
+pub const STARSHIP_NIXPKGS: &str = "github:NixOS/nixpkgs/13e53762c5afaf384d4614e94527a9ccfafe41d0";
 
 /// **The image**, by the name and tag `nix/demo-container/default.nix`
 /// gives it, which the session removes when it ends.
@@ -63,7 +78,7 @@ pub const FLAKE_OUTPUT: &str = "demo-container";
 
 /// **The image's stream, by SHA-256**, from the flake's pinned nixpkgs for
 /// `aarch64-linux`, the system colima's VM runs on an Apple silicon Mac.
-pub const IMAGE_SHA256: &str = "2a9c3f6e5b38c49a7b4e838127c499e43df73e4bae6f1eaceb50ed7aea5ccc86";
+pub const IMAGE_SHA256: &str = "0d1f8760a4a2582c5b1b4ccf54a8b2f64bb6a4176b7b3a4cd128eb3b37496917";
 
 /// **Set by Ctrl-C**: the handler (`mac::catch_interrupt`) stores to it and
 /// does nothing else, and the session's waits stop on it.
@@ -462,7 +477,7 @@ pub fn up(image: &Image, keys: &Keys, port: u16) -> Result<Running, String> {
         &keys.user_pub,
         "authorized_keys",
         0o644,
-        "/home/baud/.ssh/",
+        &format!("/home/{USER}/.ssh/"),
     )?;
     run.docker(&["start", &run.undo.name])?;
     banner(port, &INTERRUPTED)?;
@@ -561,10 +576,12 @@ mod tests {
     /// the connection came from -- and nothing forwarded.
     const SSHD: &str = include_str!("../../../nix/demo-container/sshd_config");
 
-    /// The login shell's start: the packages' tools on `PATH`, glibc's
-    /// built-in `C.UTF-8` locale, the prompt and its mark, and the badge
-    /// set, and cleared on exit. sshd starts the session with an environment
-    /// of its own, so the image's config could not set these.
+    /// The login shell's start, bash's `/etc/profile`: the packages' tools
+    /// on `PATH`, glibc's built-in `C.UTF-8` locale, starship's config and
+    /// its cache, no history file, the badge set, and cleared on exit, then
+    /// starship's prompt and the marks around it. sshd starts the session
+    /// with an environment of its own, so the image's config could not set
+    /// these.
     const PROFILE: &str = include_str!("../../../nix/demo-container/profile");
 
     const PASSWD: &str = include_str!("../../../nix/demo-container/passwd");
@@ -645,25 +662,45 @@ mod tests {
         ));
     }
 
-    /// **The container's prompt marks itself and its session shows the
-    /// host as the badge**: the prompt writes `OSC 133 ; D`, the last
-    /// command done, then `OSC 133 ; A ;` -- baud's own mark, the semicolon
-    /// kept, so `session::PROMPT_MARK` counts it -- and after the prompt's
-    /// text `OSC 133 ; B`, where the input begins, each inside busybox's
-    /// `\[` and `\]`, so its line editor counts none of them as columns
-    /// (`[[source: busybox-1-37-0-lineedit-c]]`). busybox runs nothing
-    /// before a command, so no `C` comes; without the `D` and the `B` baud
-    /// reads the next `A`, the command's output between, as the shell
-    /// drawing its prompt again and erases back to it (`prompt.rs`), which
-    /// took fastfetch's card. The login sets the badge to the host, iTerm2's
+    /// **The container's prompt is starship's, marked as baud's shell
+    /// marks its own, and its session shows the host as the badge**.
+    /// starship sends no mark, and rewrites `PS1` before every prompt, so
+    /// the marks go in after its `starship_precmd`, from a
+    /// `PROMPT_COMMAND` entry of their own: `OSC 133 ; D` with the last
+    /// command's status, which starship has saved by then in
+    /// `STARSHIP_CMD_STATUS`, `$?` being its own, then `OSC 133 ; A ;` --
+    /// baud's own mark, the semicolon kept, so `session::PROMPT_MARK`
+    /// counts it. Both are printed, not put in `PS1`: readline draws the
+    /// prompt again when the first key arrives, and a mark in it would be
+    /// counted twice. `OSC 133 ; B`, where the input begins, ends `PS1`
+    /// inside bash's `\[` and `\]`, so readline counts none of it as
+    /// columns, and `OSC 133 ; C` ends `PS0`, after starship's own, as the
+    /// command starts. Without the `D` and the `B` baud reads the next
+    /// `A`, the command's output between, as the shell drawing its prompt
+    /// again and erases back to it (`prompt.rs`), which took fastfetch's
+    /// card. The login sets the badge to the host, iTerm2's
     /// `SetBadgeFormat` of its base64, and the shell's exit sets it empty,
     /// so it is gone once ssh returns. The control: a mark without its
     /// semicolon is not counted.
     #[test]
     fn the_container_s_prompt_is_marked_and_badged() {
+        let lines: Vec<&str> = PROFILE.lines().collect();
+        let at = |l: &str| {
+            lines
+                .iter()
+                .position(|x| *x == l)
+                .unwrap_or_else(|| panic!("{l}"))
+        };
+        let init = at("eval \"$(starship init bash)\"");
+        assert!(at("export STARSHIP_CONFIG=/etc/starship.toml") < init);
+        assert!(init < at("PROMPT_COMMAND=\"$PROMPT_COMMAND; marks\""));
+        assert!(init < at("PS0=\"$PS0\"'\\e]133;C\\a'"));
         assert!(
-            PROFILE
-                .contains("PS1='\\[\\e]133;D\\a\\e]133;A;\\a\\]\\u@\\h:\\w\\$ \\[\\e]133;B\\a\\]'")
+            PROFILE.contains(
+                "marks() {\n  printf '\\033]133;D;%s\\a\\033]133;A;\\a' \"$STARSHIP_CMD_STATUS\"\n  \
+                 PS1=\"$PS1\"'\\[\\e]133;B\\a\\]'\n}\n"
+            ),
+            "{PROFILE}"
         );
         let mark = "\x1b]133;A;\x07";
         assert_eq!(crate::session::marks(mark.as_bytes()), 1);
@@ -675,6 +712,7 @@ mod tests {
                 .lines()
                 .any(|l| l == "trap 'printf \"\\033]1337;SetBadgeFormat=\\a\"' EXIT")
         );
+        assert!(PROFILE.lines().any(|l| l == "unset HISTFILE"));
     }
 
     /// Standard base64 with padding, for the badge.
@@ -697,8 +735,9 @@ mod tests {
     }
 
     /// **sshd prints nothing of the connection and lets in the user
-    /// alone, by key**, no account having a password; the shell's prompt
-    /// is the one the font check draws, in glibc's `C.UTF-8`.
+    /// alone, by key**, no account having a password; the user's shell is
+    /// the image's bash, in glibc's `C.UTF-8`, and its prompt the one the
+    /// font check draws.
     #[test]
     fn sshd_admits_the_user_by_key_and_prints_no_address() {
         for line in [
@@ -707,21 +746,28 @@ mod tests {
             "PasswordAuthentication no",
             "KbdInteractiveAuthentication no",
             "UsePAM no",
-            "AllowUsers baud",
+            "AllowUsers jordan",
             "PermitRootLogin no",
         ] {
             assert!(SSHD.lines().any(|l| l == line), "{line}");
         }
-        assert!(PASSWD.contains(&format!("{USER}:x:1000:1000:{USER}:/home/{USER}:/bin/sh")));
-        assert!(GROUP.lines().any(|l| l == "baud:x:1000:"));
+        assert!(
+            PASSWD
+                .lines()
+                .any(|l| l == format!("{USER}:x:1000:1000:{USER}:/home/{USER}:/usr/bin/bash"))
+        );
+        assert!(GROUP.lines().any(|l| l == format!("{USER}:x:1000:")));
         // No account has a password to log in by.
         assert!(SHADOW.lines().all(|l| l.split(':').nth(1) == Some("*")));
-        assert!(PROFILE.contains("\\]\\u@\\h:\\w\\$ \\["));
         assert!(PROFILE.lines().any(|l| l == "export LANG=C.UTF-8"));
+        assert!(
+            NIX.lines()
+                .any(|l| l.trim() == "ln -s ${bashInteractive}/bin/bash usr/bin/bash")
+        );
         assert_eq!(
             crate::session::REMOTE_PROMPT,
-            format!("{USER}@{HOST}:~$ "),
-            "busybox's \\u@\\h:\\w\\$ for the user in its home"
+            "~ \u{276F} ",
+            "starship's, at home"
         );
     }
 
@@ -739,7 +785,7 @@ mod tests {
             "Host demo",
             "  HostName 127.0.0.1",
             "  Port 40022",
-            "  User baud",
+            "  User jordan",
             "  HostKeyAlias demo",
             "  IdentityFile ${HOME}/.ssh/demo_ed25519",
             "  IdentitiesOnly yes",
@@ -787,11 +833,15 @@ mod tests {
             "install -m 0600 ${./shadow} etc/shadow".to_string(),
             "install -m 0644 ${./profile} etc/profile".to_string(),
             "install -m 0644 ${./sshd_config} etc/ssh/sshd_config".to_string(),
-            "install -m 0644 ${./fastfetch.jsonc} home/baud/.config/fastfetch/config.jsonc"
+            "install -m 0644 ${starshipConfig} etc/starship.toml".to_string(),
+            "install -m 0644 ${./fastfetch.jsonc} home/jordan/.config/fastfetch/config.jsonc"
                 .to_string(),
-            "install -m 0644 ${./btop.conf} home/baud/.config/btop/btop.conf".to_string(),
+            "install -m 0644 ${./btop.conf} home/jordan/.config/btop/btop.conf".to_string(),
             "chmod 0644 usr/share/baud/mark.png".to_string(),
             "ln -s ${busybox}/bin bin".to_string(),
+            "ln -s ${bashInteractive}/bin/bash usr/bin/bash".to_string(),
+            "ln -s ${starship}/bin/starship usr/bin/starship".to_string(),
+            "chown 1000:1000 home/jordan".to_string(),
             "ln -s ${fastfetchMinimal}/bin/fastfetch usr/bin/fastfetch".to_string(),
             "ln -s ${btop}/bin/btop usr/bin/btop".to_string(),
             "ln -s ${openssh}/bin/sshd usr/sbin/sshd".to_string(),
@@ -799,8 +849,10 @@ mod tests {
         ] {
             assert!(has(NIX, &line), "{line}");
         }
-        assert!(NIX.contains("install -d -m 0755 etc etc/ssh home home/baud"));
+        assert!(NIX.contains("install -d -m 0755 etc etc/ssh home home/jordan"));
+        assert!(!NIX.contains("home/baud"), "the user's home is jordan's");
         assert!(NIX.contains("inherit (linux) busybox openssh fastfetchMinimal btop;"));
+        assert!(NIX.contains("inherit (prompt) starship bashInteractive;"));
         let wide = NIX.replace("-m 0600 ${./shadow}", "-m 0644 ${./shadow}");
         assert!(
             !has(&wide, "install -m 0600 ${./shadow} etc/shadow"),
@@ -810,10 +862,60 @@ mod tests {
             "aarch64-darwin.{FLAKE_OUTPUT} = import ./nix/demo-container {{"
         )));
         assert!(FLAKE.contains("linux = pkgsFor \"aarch64-linux\";"));
+        assert!(FLAKE.contains("prompt = nixpkgs-demo.legacyPackages.aarch64-linux;"));
         assert_eq!(
             socket(r#"{"arch":"aarch64","docker_socket":"unix:///x/docker.sock","k":1}"#),
             Some("unix:///x/docker.sock".to_string())
         );
+    }
+
+    /// **The image's prompt is the preset with only what it shows over
+    /// ssh in docker turned off**: the user and the host, which starship
+    /// shows over ssh on a line of their own, and the container's name,
+    /// which it shows in docker, so the prompt there is `~ ❯` and the
+    /// session's badge alone names the server; nothing else of
+    /// `assets/starship/baud.toml` is changed, the file read whole by
+    /// nix. The starship and bash come from the flake's `nixpkgs-demo`,
+    /// locked at the commit the demo's own starship is built from. The
+    /// control: a fourth module turned off is caught.
+    #[test]
+    fn the_image_s_prompt_is_the_preset_with_the_ssh_lines_off() {
+        let off = |nix: &str| -> Vec<String> {
+            let at = nix
+                .find("pkgs.lib.importTOML ../../assets/starship/baud.toml) {")
+                .unwrap();
+            let body = &nix[at..];
+            let body = &body[body.find('{').unwrap() + 1..body.find('}').unwrap()];
+            body.lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect()
+        };
+        assert_eq!(
+            off(NIX),
+            [
+                "username.disabled = true;",
+                "hostname.disabled = true;",
+                "container.disabled = true;"
+            ]
+        );
+        let more = NIX.replace(
+            "container.disabled = true;",
+            "container.disabled = true;\n      status.disabled = true;",
+        );
+        assert_eq!(off(&more).len(), 4, "the control");
+        let pin = STARSHIP_NIXPKGS
+            .strip_prefix("github:NixOS/nixpkgs/")
+            .unwrap();
+        assert!(FLAKE.contains(&format!(
+            "nixpkgs-demo.url = \"github:NixOS/nixpkgs/{pin}\";"
+        )));
+        let lock = include_str!("../../../flake.lock");
+        let node = &lock[lock
+            .find("\"nixpkgs-demo\": {")
+            .expect("the input is locked")..];
+        let node = &node[..node.find("\"original\"").unwrap()];
+        assert!(node.contains(&format!("\"rev\": \"{pin}\"")), "{node}");
     }
 
     /// A scratch directory for one test.

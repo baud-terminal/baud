@@ -1,5 +1,14 @@
 export PATH=/bin:/usr/bin
 export LANG=C.UTF-8
-PS1='\[\e]133;D\a\e]133;A;\a\]\u@\h:\w\$ \[\e]133;B\a\]'
+export STARSHIP_CONFIG=/etc/starship.toml
+export STARSHIP_CACHE=/tmp/starship
+unset HISTFILE
 printf '\033]1337;SetBadgeFormat=ZGVtbw==\a'
 trap 'printf "\033]1337;SetBadgeFormat=\a"' EXIT
+eval "$(starship init bash)"
+marks() {
+  printf '\033]133;D;%s\a\033]133;A;\a' "$STARSHIP_CMD_STATUS"
+  PS1="$PS1"'\[\e]133;B\a\]'
+}
+PROMPT_COMMAND="$PROMPT_COMMAND; marks"
+PS0="$PS0"'\e]133;C\a'

@@ -25,6 +25,27 @@ use crate::session::{self, SESSION, Step};
 /// `scripts/readme-film.sh`'s.
 pub const NIXPKGS: &str = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a";
 
+/// The oldest starship the session runs: the release that fixed both
+/// advisories.
+const STARSHIP_AT_LEAST: (u32, u32) = (1, 27);
+
+/// **Whether `starship --version`'s output names a starship at least
+/// [`STARSHIP_AT_LEAST`]**, by its first line, `starship 1.27.0`.
+fn starship_new_enough(version: &str) -> bool {
+    let Some(v) = version
+        .lines()
+        .next()
+        .and_then(|l| l.strip_prefix("starship "))
+    else {
+        return false;
+    };
+    let mut parts = v.split('.').map(|n| n.parse::<u32>());
+    match (parts.next(), parts.next()) {
+        (Some(Ok(major)), Some(Ok(minor))) => (major, minor) >= STARSHIP_AT_LEAST,
+        _ => false,
+    }
+}
+
 /// The programs the session runs on this Mac: nixpkgs attribute, binary.
 /// helix edits baud's config, and OpenSSH's client ssh's into the
 /// container (`container.rs`), its manual pages left out; fastfetch and
@@ -300,7 +321,9 @@ fn run(args: &Args) -> Result<(), String> {
 /// clear's shots baud-bench's flash census counts
 /// (`baud-bench/tests/session_flashes.rs`). What the programs printed is
 /// then checked for a character no face draws, and searched as a film's
-/// is.
+/// is, and kept beside the stills as `heard.log`: every byte the session
+/// read from the shell, ssh's session among them, for a replay through
+/// baud's core.
 fn headless(
     p: &Profile,
     prep: &Prep,
@@ -363,8 +386,10 @@ fn headless(
     let heard = prep.at.root.join("heard.log");
     check_printed(&prep.faces, &heard)?;
     if let Some(f) = forbidden {
-        f.search(&[heard])?;
+        f.search(std::slice::from_ref(&heard))?;
     }
+    let kept = stills.join("heard.log");
+    fs::copy(&heard, &kept).map_err(|e| format!("{}: {e}", kept.display()))?;
     println!("stills:  {}", stills.display());
     Ok(())
 }
@@ -418,6 +443,31 @@ struct Prep {
 fn prepare() -> Result<Prep, String> {
     let mut bins = Vec::new();
     let mut tools = Vec::new();
+    // starship, from its own revision, refused unless it is outside both
+    // advisories.
+    let starship_at = format!("{}#starship", container::STARSHIP_NIXPKGS);
+    let starship = nix_build(&starship_at)?.join("bin");
+    let version = Command::new(starship.join("starship"))
+        .arg("--version")
+        .env_clear()
+        .output()
+        .map_err(|e| format!("starship: {e}"))?;
+    let version = String::from_utf8_lossy(&version.stdout).into_owned();
+    if !starship_new_enough(&version) {
+        return Err(format!(
+            "{starship_at} is {:?}; the session runs starship 1.27.0 or later",
+            version.lines().next().unwrap_or("")
+        ));
+    }
+    println!("{:<13}{}", "starship", starship.join("starship").display());
+    tools.push((
+        starship_at,
+        starship
+            .parent()
+            .unwrap_or(&starship)
+            .to_string_lossy()
+            .into_owned(),
+    ));
     let mut store = |attr: &str| -> Result<PathBuf, String> {
         let p = nix_out(attr)?;
         tools.push((attr.to_string(), p.to_string_lossy().into_owned()));
@@ -432,6 +482,7 @@ fn prepare() -> Result<Prep, String> {
         println!("{bin:<13}{}", exe.display());
         bins.push(dir.to_string_lossy().into_owned());
     }
+    bins.push(starship.to_string_lossy().into_owned());
     let cache = cache_dir()?;
     let mut faces = Vec::new();
     for p in &PINNED {
@@ -1374,6 +1425,29 @@ fn kept_out(args: impl Iterator<Item = String>) -> impl Iterator<Item = String> 
 
 #[cfg(test)]
 mod tests {
+    /// **Only a starship outside both advisories runs**: 1.27.0 and later
+    /// pass, 1.26.0 and 1.24.2 -- the demo's other revision's and the
+    /// flake's -- are refused, and so is output that names no version.
+    #[test]
+    fn only_a_starship_outside_the_advisories_runs() {
+        for ok in [
+            "starship 1.27.0\nbranch:\n",
+            "starship 1.28.1",
+            "starship 2.0.0",
+        ] {
+            assert!(super::starship_new_enough(ok), "{ok}");
+        }
+        for no in [
+            "starship 1.26.0\n",
+            "starship 1.24.2",
+            "",
+            "starship",
+            "1.27.0",
+        ] {
+            assert!(!super::starship_new_enough(no), "{no:?}");
+        }
+    }
+
     /// **The recorded command names neither the forbidden list nor its
     /// controls**, whose paths are this machine's, and keeps every other
     /// argument as typed. The control: an argument after another flag is

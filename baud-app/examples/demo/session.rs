@@ -121,7 +121,7 @@ pub const ICAT: &str = "kitten icat --transfer-mode=stream canazei.jpg";
 
 /// **The fireworks' request**, typed at the container's shell in full:
 /// `OSC 1337 ; RequestAttention=fireworks BEL`, iTerm2's, which the
-/// container's busybox `printf` writes for its `\e` and `\a`.
+/// container's bash writes with its `printf` for the `\e` and the `\a`.
 pub const FIREWORKS: &str = "printf '\\e]1337;RequestAttention=fireworks\\a'";
 
 /// The gap between two keys, in milliseconds, around which each is drawn
@@ -198,18 +198,20 @@ pub const HELLO: &str = concat!(
     "\u{1F1EF}\u{1F1F5} \u{1F1F0}\u{1F1F7} \u{1F1EE}\u{1F1F3}\n",
 );
 
-/// **The container's prompt as it is drawn**, busybox ash's `PS1` of
-/// `\u@\h:\w\$ ` for the container's user and host (`container::USER`,
-/// `container::HOST`) in the user's home, for the font check. Before it
-/// the prompt writes [`PROMPT_MARK`], as baud's own shell does, so a
-/// [`Prompt`] counts the container's prompts too.
-pub const REMOTE_PROMPT: &str = "baud@demo:~$ ";
+/// **The container's prompt as it is drawn**, for the font check:
+/// starship's, from baud's preset (`assets/starship/baud.toml`), in the
+/// user's home, `~` and the ❯ in baud's amber. The image turns off the
+/// line starship adds above it over ssh, the user and the host, and the
+/// container's name, so the server is named by the session's badge alone
+/// (`nix/demo-container/default.nix`). Before it bash writes
+/// [`PROMPT_MARK`], as baud's own shell does, so a [`Prompt`] counts the
+/// container's prompts too (`nix/demo-container/profile`).
+pub const REMOTE_PROMPT: &str = "~ \u{276F} ";
 
-/// The shell's prompt, for zsh's `PS1`: nothing of the machine in it.
-pub const PS1: &str = "%F{cyan}baud%f %F{magenta}\u{276F}%f ";
-
-/// The prompt as it is drawn, for the font check.
-pub const PROMPT_SHOWN: &str = "baud \u{276F} ";
+/// **baud's shell's prompt as it is drawn**, for the font check:
+/// starship's from the same preset, in the working directory under the
+/// scratch home (`scratch::Layout::work`), nothing of the machine in it.
+pub const PROMPT_SHOWN: &str = "~/baud \u{276F} ";
 
 /// How many prompts the session waits for, the launch's included.
 pub fn prompts(steps: &[Step]) -> usize {
@@ -428,7 +430,11 @@ mod tests {
     fn prompts_are_counted_and_echo_is_looked_for_after_the_typing() {
         let log = b"\x1b]133;A;aid=7\x07baud > neo\r\n\x1b]133;D;0\x07\x1b]133;A;aid=7\x07";
         assert_eq!(marks(log), 2);
-        assert_eq!(marks(b"\x1b]133;A;\x07baud@demo:~$ "), 1, "the container's");
+        assert_eq!(
+            marks(b"\x1b]133;A;\x07~ \xe2\x9d\xaf "),
+            1,
+            "the container's"
+        );
         assert_eq!(marks(b"\x1b]133;B\x07\x1b]133;C\x07"), 0);
         let at = log.len();
         let more = [&log[..], b"neo"].concat();
