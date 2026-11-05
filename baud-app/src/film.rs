@@ -25,7 +25,8 @@
 //! first and last frames can match) and motion full. **The page is opaque**
 //! -- `[glass] dim_dark = 1.0`, the dark theme's own colour -- because
 //! glass shows the desktop behind the window, which cannot be filmed
-//! without one. There is no title bar and no pointer, and output scrolls
+//! without one. A film draws no title bar -- the README session composes
+//! one over its frames (`chrome.rs`) -- and no pointer, and output scrolls
 //! in jumps: the smooth-scroll slide is the cell path's alone, and this is
 //! the CPU path.
 //!
@@ -63,6 +64,9 @@
 // lights: macOS's, where OH and CD are read.
 #[cfg(target_os = "macos")]
 pub(crate) mod session;
+// The window's title strip, composed over the session's frames.
+#[cfg(target_os = "macos")]
+pub(crate) mod chrome;
 
 use crate::gesture::Pressed;
 use crate::programs::{Heard, Scratch, Under};
@@ -138,6 +142,9 @@ pub(crate) struct Frame<'p> {
     /// before the first and in a film of a command.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) step: Option<usize>,
+    /// What the activity lights showed then, as the take's clocks had them.
+    #[cfg(target_os = "macos")]
+    pub(crate) lights: baud_render::Shown,
 }
 
 /// What a take gave besides its frames.
@@ -466,9 +473,11 @@ struct Recorded {
     /// The screen's text and the cursor then.
     screen: Vec<String>,
     cursor: (baud_domain::Row, baud_domain::Col),
-    /// What the lights showed.
+    /// What the lights showed: when each first lit, and every change.
     #[cfg(target_os = "macos")]
     lit: session::Lit,
+    #[cfg(target_os = "macos")]
+    timeline: Vec<(Duration, baud_render::Shown)>,
 }
 
 /// **The take**: the child in real time against a terminal of the stage's,
@@ -599,6 +608,8 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
                 cursor: u.term.cursor(),
                 #[cfg(target_os = "macos")]
                 lit: lights.lit(),
+                #[cfg(target_os = "macos")]
+                timeline: lights.timeline(),
             };
         }
     }
@@ -632,7 +643,11 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
         cursor,
         #[cfg(target_os = "macos")]
         lit,
+        #[cfg(target_os = "macos")]
+        timeline,
     } = record(f, &stage);
+    #[cfg(target_os = "macos")]
+    let mut seen = 0;
     let mut step = None;
     let g = stage.geometry(&f.grid);
     let mut owned = Owned::new(&f.grid).with_images(stage.cfg.images);
@@ -777,12 +792,16 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
         // A synchronised update younger than its bound holds the frame:
         // the last one stands, as on screen.
         let update = updates.observe(&term, now);
+        #[cfg(target_os = "macos")]
+        let lights = session::shown_at(&timeline, &mut seen, at);
         if k > 0 && update == crate::bell::Update::Honoured {
             keep(Frame {
                 pixels: &shown,
                 size: (w, h),
                 at,
                 step,
+                #[cfg(target_os = "macos")]
+                lights,
             });
             k += 1;
             continue;
@@ -888,6 +907,8 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
             size: (w, h),
             at,
             step,
+            #[cfg(target_os = "macos")]
+            lights,
         });
         // The window is shown once its first frame is: the splash's clock
         // starts on the next (`Timed::shown`).

@@ -29,7 +29,7 @@ pub const NIXPKGS: &str = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52a
 /// helix edits baud's config, and OpenSSH's client ssh's into the
 /// container (`container.rs`), its manual pages left out; fastfetch and
 /// btop run in the container, from its image.
-const PROGRAMS: [(&str, &str); 2] = [("helix", "hx"), ("openssh^out", "ssh")];
+const PROGRAMS: [(&str, &str); 3] = [("helix", "hx"), ("openssh^out", "ssh"), ("kitty", "kitten")];
 
 /// **The headless film's frame period**, in milliseconds: 100 frames a
 /// second, the rate the README logo's flashes are counted at
@@ -459,6 +459,28 @@ fn prepare() -> Result<Prep, String> {
     for (p, from) in PINNED.iter().zip(&faces) {
         fs::copy(from, at.fonts().join(p.file())).map_err(|e| format!("{}: {e}", p.file()))?;
     }
+    // The photo kitten draws, from the cache at the width it is shown at,
+    // scaled by the pinned ffmpeg.
+    let photo = fetch(&scratch::PHOTO, &cache)?;
+    let ffmpeg = store("ffmpeg-headless.bin")?.join("bin/ffmpeg");
+    let shown = at.root.join(scratch::PHOTO_AT);
+    let scaled = Command::new(&ffmpeg)
+        .args(["-v", "error", "-y", "-i"])
+        .arg(&photo)
+        .args(["-vf", &format!("scale={}:-2", scratch::PHOTO_WIDTH)])
+        .args(["-q:v", "2"])
+        .arg(&shown)
+        .status()
+        .map_err(|e| format!("ffmpeg: {e}"))?;
+    if !scaled.success() {
+        return Err(format!("ffmpeg could not scale {}", photo.display()));
+    }
+    println!(
+        "{:<13}{} ({})",
+        "photo",
+        scratch::PHOTO.name,
+        scratch::PHOTO.draws
+    );
     // The container: its image, built by the repository's flake and its
     // stream checked against its pin, and the session's keys, the scratch
     // home's ssh files among what is checked.
@@ -485,6 +507,7 @@ fn prepare() -> Result<Prep, String> {
     fs::write(at.root.join("env"), lines).map_err(|e| format!("env: {e}"))?;
     let pins: Vec<(String, String)> = PINNED
         .iter()
+        .chain([&scratch::PHOTO])
         .map(|p| (p.file().to_string(), p.sha256.to_string()))
         .collect();
 
@@ -673,15 +696,16 @@ fn check_fonts(faces: &[PathBuf], config: &str) -> Result<(), String> {
     let bytes = read_faces(faces)?;
     let stack = stack(&bytes);
     let text = format!(
-        "{}{config}{}{}{}",
+        "{}{config}{}{}{}{}",
         session::HELLO,
         session::PROMPT_SHOWN,
         session::REMOTE_PROMPT,
+        session::ICAT,
         session::FIREWORKS
     );
     covered(
         &stack,
-        "hello.txt, the config, both prompts and the fireworks' request",
+        "hello.txt, the config, both prompts, kitten's command and the fireworks' request",
         &text,
     )?;
     let without: Vec<(&str, &[u8])> = stack

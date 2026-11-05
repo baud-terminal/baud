@@ -118,6 +118,30 @@ const TABLES: &str = "[screen]\ntransition = \"on\"\n[glass]\ndim_dark = 1.0\ndi
                       [font]\nchanges = \"off\"\n[window]\noperations = \"off\"\n\
                       [cursor]\nblink = false\ntrail = \"plasma\"\n";
 
+/// **The photo the picture shot draws**: the elementary OS wallpaper
+/// "Canazei Granite Ridges", an Unsplash photograph published before 8 June
+/// 2017 and so CC0, as elementary's `debian/copyright` records
+/// (`THIRD_PARTY.md`), fetched once by its URL at the wallpapers' tag
+/// `8.0.0` into the faces' cache and refused unless it hashes to the pin
+/// `scripts/readme-capture.sh` checks it by.
+pub const PHOTO: crate::fonts::Pinned = crate::fonts::Pinned {
+    name: "Canazei Granite Ridges",
+    url: "https://raw.githubusercontent.com/elementary/wallpapers/8.0.0/backgrounds/Canazei%20Granite%20Ridges.jpg",
+    sha256: "0eff9cd7fe92aabb8937644ca154436ba926310808dd99a2902cdde335b0868c",
+    draws: "the picture shot",
+};
+
+/// **The photo's width as the session's working directory holds it**, in
+/// pixels: 50 of the film's 17-pixel columns at 14 points, the width the
+/// earlier take's `--place` gave it, which kitten draws a pixel a pixel.
+/// Its 5472-pixel original took kitten a second to decode
+/// (`scripts/readme-capture.sh`).
+pub const PHOTO_WIDTH: u32 = 850;
+
+/// Where the photo is, under the scratch root: the shell's working
+/// directory, so the command names it bare.
+pub const PHOTO_AT: &str = "home/baud/canazei.jpg";
+
 /// **Every text file of the scratch directory**, each a path under the
 /// root and its bytes. The faces are copied in beside the config; they are
 /// the pinned files, the same bytes on every machine.

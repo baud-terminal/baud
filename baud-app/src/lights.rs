@@ -222,7 +222,7 @@ pub(crate) struct Strip {
 
 /// What a look is made from: AppKit's lit and letter colours, the strip's
 /// grey, the glow, the body and the backdrop.
-type LookKey = (ByLed<Argb>, Argb, Argb, Glow, Body, Backdrop);
+pub(crate) type LookKey = (ByLed<Argb>, Argb, Argb, Glow, Body, Backdrop);
 
 impl Strip {
     pub(crate) fn new(right: CGFloat, left: CGFloat) -> Strip {
@@ -350,11 +350,7 @@ impl Strip {
         if let Some((_, l)) = self.looks.iter().find(|(k, _)| *k == key) {
             return *l;
         }
-        let (lit, letters) = match wanted.body {
-            Body::Standard => strip_colours(system, label, ground, wanted.backdrop),
-            Body::Glass => (system, label),
-        };
-        let look = LightsLook::new(lit, system, letters, ground, wanted.glow, wanted.backdrop);
+        let look = look_of(key);
         self.looks.push((key, look));
         look
     }
@@ -461,9 +457,23 @@ impl LineTips {
     }
 }
 
+/// **The look the strip draws its lights in**, from AppKit's lit and
+/// letter colours, the strip's grey, the glow, the body and the backdrop:
+/// over the standard material the lit colours and the letters lifted to
+/// read against its greys, each dark light mixed from the system colour as
+/// it comes; over the glass AppKit's colours as they come. What the
+/// headless film's title strip draws with too (`film/chrome.rs`).
+pub(crate) fn look_of((system, label, ground, glow, body, backdrop): LookKey) -> LightsLook {
+    let (lit, letters) = match body {
+        Body::Standard => strip_colours(system, label, ground, backdrop),
+        Body::Glass => (system, label),
+    };
+    LightsLook::new(lit, system, letters, ground, glow, backdrop)
+}
+
 /// Every light's place in points at `scale`, from the renderer's layout in
 /// device pixels.
-fn spans(renderer: &Renderer<'_, '_>, scale: CGFloat) -> Option<Spans> {
+pub(crate) fn spans(renderer: &Renderer<'_, '_>, scale: CGFloat) -> Option<Spans> {
     let (slots, width) = renderer.activity_lights_layout(scale as f32)?;
     let pt = |px: baud_font::Px| CGFloat::from(px.value()) / scale;
     Some(Spans {

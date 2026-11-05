@@ -38,10 +38,11 @@ pub enum Step {
 use Step::Wheel;
 use Step::{Escape, Hold, Keys, Line, Prompt, Run};
 
-/// **The session the README's clip films**, about 17 seconds of it: one
+/// **The session the README's clip films**, about 19 seconds of it: one
 /// visible edit of baud's own config changes the cursor's trail, then the
-/// scripts, a server over ssh, its system card and its load, fireworks
-/// sent over the wire, home, and the empty prompt the clip loops to.
+/// scripts, a photo drawn in the grid, a server over ssh, its system card
+/// and its load, fireworks sent over the wire, home, and the empty prompt
+/// the clip loops to.
 pub const SESSION: &[Step] = &[
     // The launch: the splash carried off, then the prompt.
     Prompt,
@@ -71,6 +72,11 @@ pub const SESSION: &[Step] = &[
     Run("cat hello.txt"),
     Prompt,
     Hold(1100),
+    // A photo drawn in place by kitten, in kitty's graphics protocol, FAX
+    // lit while it is placed.
+    Run(ICAT),
+    Prompt,
+    Hold(1200),
     // ssh into a container on this machine, its badge and CD lit while
     // ssh holds its connection (`container.rs`); its shell marks each
     // prompt as baud's does.
@@ -100,6 +106,17 @@ pub const SESSION: &[Step] = &[
     Prompt,
     Hold(1000),
 ];
+
+/// **The picture shot's command**: kitten draws `canazei.jpg`, the
+/// pinned photo (`scratch::PHOTO`) at `scratch::PHOTO_WIDTH` pixels,
+/// centred below the command, and moves the cursor to the line after it,
+/// where the next prompt comes. `--transfer-mode=stream` is typed rather
+/// than hidden in an alias: kitten's default, detect, timed out after its
+/// ten seconds in baud at e73843fa (`scripts/readme-capture.sh`). No
+/// `--place`: kitten's help says its trailing new line has no effect with
+/// it, and the earlier take moved the cursor below the photo itself, which
+/// a typed session cannot do unseen.
+pub const ICAT: &str = "kitten icat --transfer-mode=stream canazei.jpg";
 
 /// **The fireworks' request**, typed at the container's shell in full:
 /// `OSC 1337 ; RequestAttention=fireworks BEL`, iTerm2's, which the
@@ -257,16 +274,16 @@ pub fn echoed(log: &[u8], from: usize, text: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// **The session waits for nine prompts**: the launch and one after
-    /// each of the eight commands, the four typed in the container among
+    /// **The session waits for ten prompts**: the launch and one after
+    /// each of the nine commands, the four typed in the container among
     /// them, whose shell marks its prompts as baud's does; helix's `:q` is
     /// the first. Perturbation: drop the `Prompt` after `cat hello.txt` and
-    /// the count is eight.
+    /// the count is nine.
     #[test]
     fn the_session_waits_for_a_prompt_after_every_command() {
-        assert_eq!(prompts(SESSION), 9);
+        assert_eq!(prompts(SESSION), 10);
         let runs = SESSION.iter().filter(|s| matches!(s, Run(_))).count();
-        assert_eq!(runs, 8, "four at baud's shell, four in the container");
+        assert_eq!(runs, 9, "five at baud's shell, four in the container");
         let at = SESSION.iter().position(|s| *s == Run("ssh demo")).unwrap();
         assert_eq!(
             &SESSION[at..at + 3],
@@ -285,6 +302,7 @@ mod tests {
             [
                 "hx ~/.config/baud/config.toml",
                 "cat hello.txt",
+                ICAT,
                 "ssh demo",
                 "fastfetch",
                 "btop",
@@ -329,6 +347,23 @@ mod tests {
         assert_eq!(FIREWORKS, "printf '\\e]1337;RequestAttention=fireworks\\a'");
     }
 
+    /// **The photo is drawn at baud's shell between the scripts and the
+    /// server**, its command typed plain -- kitten, its transfer mode and
+    /// the file's bare name, no path -- and held past its prompt. The
+    /// control: the step before it is the scripts' hold and the one after
+    /// its hold is `ssh`. Perturbation: put `--place 50x16@2x2` back in
+    /// and the command's check fails.
+    #[test]
+    fn the_photo_is_drawn_between_the_scripts_and_the_server() {
+        let at = SESSION.iter().position(|s| *s == Run(ICAT)).unwrap();
+        assert_eq!(
+            &SESSION[at - 1..at + 4],
+            [Hold(1100), Run(ICAT), Prompt, Hold(1200), Run("ssh demo")]
+        );
+        assert_eq!(ICAT, "kitten icat --transfer-mode=stream canazei.jpg");
+        assert!(!ICAT.contains('/'), "no path on screen");
+    }
+
     /// **The plan's duration is its holds, its keys and its wheel**: 1.5 s
     /// of holds, `ab` with its Return at 40 ms a key (0.12 s), `q` (0.04 s),
     /// `:q` and Return (0.12 s), and two wheels of 4 turns, each 30 ms
@@ -355,7 +390,7 @@ mod tests {
         let whole = duration(SESSION).as_secs_f64();
         assert!(
             (15.0..20.0).contains(&whole),
-            "the README session is about 15.5 s before its waits: {whole}"
+            "the README session is about 18 s before its waits: {whole}"
         );
         let esc = duration(&[Escape]).as_secs_f64();
         assert!((esc - 0.04).abs() < 1e-9, "Escape is one key: {esc}");

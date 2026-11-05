@@ -35,7 +35,7 @@ use crate::programs::{Answered, Under};
 use crate::seat::{Geometry, Input};
 use baud_core::Term;
 use baud_domain::{BytePos, HostTime};
-use baud_render::{Activity, ByLed, Led, Light, Pace};
+use baud_render::{Activity, ByLed, Led, Light, Pace, Shown};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -366,6 +366,9 @@ pub(crate) struct Lights {
     /// How much had been written to the child at the last turn.
     wrote: BytePos,
     lit: Lit,
+    /// What the lights showed, at each turn it changed: what the film's
+    /// title strip draws at each frame (`chrome.rs`).
+    timeline: Vec<(Duration, Shown)>,
 }
 
 /// A take's instant as the host's clock, a second in so nothing is at 0.
@@ -384,6 +387,7 @@ impl Lights {
             synced: crate::bell::Synced::new(),
             wrote: BytePos::ZERO,
             lit: Lit(ByLed::of(|_| None)),
+            timeline: Vec::new(),
         }
     }
 
@@ -437,6 +441,9 @@ impl Lights {
             crate::lights::feed(&mut self.activity, Led::Cd, cd, now);
         }
         let shown = self.activity.step(now, Pace::Full);
+        if self.timeline.last().map_or(Shown::DARK, |t| t.1) != shown {
+            self.timeline.push((at, shown));
+        }
         for led in Led::ALL {
             let first = self.lit.0.get_mut(led);
             if first.is_none() && *shown.get(led) == Light::Lit {
@@ -448,6 +455,23 @@ impl Lights {
     pub(crate) fn lit(&self) -> Lit {
         self.lit
     }
+
+    /// What the lights showed, at each turn it changed, from all dark.
+    pub(crate) fn timeline(&mut self) -> Vec<(Duration, Shown)> {
+        std::mem::take(&mut self.timeline)
+    }
+}
+
+/// **What the lights showed at `at`**: the last change at or before it in
+/// `timeline`, all dark before the first; `from` is where the last look
+/// left off, as a film's frames come in order.
+pub(crate) fn shown_at(timeline: &[(Duration, Shown)], from: &mut usize, at: Duration) -> Shown {
+    while timeline.get(*from).is_some_and(|t| t.0 <= at) {
+        *from += 1;
+    }
+    from.checked_sub(1)
+        .and_then(|i| timeline.get(i))
+        .map_or(Shown::DARK, |t| t.1)
 }
 
 /// **`steps` without the command typed as `run`**: its `Run`, and every
@@ -562,6 +586,45 @@ fn the_lights_light_from_what_the_app_reads() {
     assert_eq!(l.lit().first(Led::Syn), Some((ms(70), None)));
 }
 
+/// **A frame's lights are the last change at or before it**: all dark
+/// before the first, the change itself at its instant, and the one before
+/// a later change until it comes, looked up in the frames' order; and a
+/// turn records a change only when the lights moved. The control: the
+/// frame a millisecond before the second change still shows the first.
+/// Perturbation: take the first change after the frame rather than the
+/// last before it and the 50 ms frame shows RD dark.
+#[test]
+fn a_frames_lights_are_the_last_change_before_it() {
+    let ms = Duration::from_millis;
+    let rd = ByLed {
+        rd: Light::Lit,
+        ..Shown::DARK
+    };
+    let timeline = [(ms(10), rd), (ms(80), Shown::DARK)];
+    let mut from = 0;
+    let at = |t: u64, from: &mut usize| shown_at(&timeline, from, ms(t));
+    assert_eq!(at(0, &mut from), Shown::DARK);
+    assert_eq!(at(10, &mut from), rd);
+    assert_eq!(at(50, &mut from), rd);
+    assert_eq!(at(79, &mut from), rd, "the control");
+    assert_eq!(at(80, &mut from), Shown::DARK);
+    assert_eq!(at(500, &mut from), Shown::DARK);
+    let grid = baud_domain::WinSize {
+        ws_col: 20,
+        ws_row: 5,
+    };
+    let mut owned = baud_core::Owned::new(&grid);
+    let term = Term::new(owned.storage(), &grid);
+    let mut l = Lights::new(crate::sys::Pid::MAX);
+    l.turn(ms(5), &term, BytePos::ZERO, None);
+    l.read(b"a", Answered::Nothing, ms(10));
+    l.turn(ms(10), &term, BytePos::ZERO, None);
+    l.turn(ms(11), &term, BytePos::ZERO, None);
+    let t = l.timeline();
+    assert_eq!(t.len(), 1, "one change, RD lit: {t:?}");
+    assert_eq!((t[0].0, *t[0].1.get(Led::Rd)), (ms(10), Light::Lit));
+}
+
 /// **`without` takes a command out whole**: a command at baud's shell
 /// through the prompt it comes back to and the hold after it, and `ssh`
 /// through the `exit` typed in the container, since everything between is
@@ -599,18 +662,22 @@ fn without_takes_a_command_out_whole() {
 /// every one but CS must light (the module's doc says why CS cannot). The
 /// trail the first `ge` draws must be plasma and the one `gg` draws fire,
 /// after the edit saved between them, and `gg` or its hold must light a
-/// fire: each ignition the film's trail lit is printed with its step.
+/// fire: each ignition the film's trail lit is printed with its step. FAX
+/// must first light in the photo's shot, kitten's picture, before
+/// fastfetch's.
 ///
 /// `BAUD_SESSION_WITHOUT` takes a command out ([`without`]), for a
-/// perturbation: without `ssh demo` CD stays dark, without `fastfetch` FAX,
-/// and the test fails. `BAUD_SESSION_POINTS` draws at another size, written
-/// into the config file first, and with `BAUD_SESSION_STILLS` and
-/// `BAUD_FILM_FFMPEG` the last frame of every hold is written there as a
-/// PNG, through baud's CPU renderer on the opaque page: the stills of the
-/// session at the size it is filmed at. With `BAUD_SESSION_FILM` every
-/// frame goes into that file, lossless, at `BAUD_SESSION_PERIOD_MS` a frame
-/// (40 without it), and beside it `<file>.shots` names the frames of the
-/// trails' shot, the fireworks' and the clear's, for the flash census
+/// perturbation: without `ssh demo` CD stays dark, and without the photo
+/// FAX first lights in fastfetch, and the test fails.
+/// `BAUD_SESSION_POINTS` draws at another size, written into the config
+/// file first, and with `BAUD_SESSION_STILLS` and `BAUD_FILM_FFMPEG` the
+/// last frame of every hold is written there as a PNG, through baud's CPU
+/// renderer on the opaque page, the window's title strip composed above
+/// it (`chrome.rs`): the stills of the session at the size it is filmed
+/// at. With `BAUD_SESSION_FILM` every frame, composed so, goes into that
+/// file, lossless, at `BAUD_SESSION_PERIOD_MS` a frame (40 without it),
+/// and beside it `<file>.shots` names the frames of the trails' shot, the
+/// photo's, the fireworks' and the clear's, for the flash census
 /// (`baud-bench/tests/session_flashes.rs`), and `<file>.steps` each step's
 /// first frame.
 #[test]
@@ -699,14 +766,21 @@ fn the_readme_session_lights_every_light() {
         png(ffmpeg.as_ref().expect("BAUD_FILM_FFMPEG"), px, size, &to);
         written += 1;
     };
+    // The window's title strip over every frame, its lights as the take's
+    // clocks showed them then (`chrome.rs`): composed, not filmed.
+    let mut strip: Option<super::chrome::Strip> = None;
+    let mut window: Vec<u32> = Vec::new();
     let take = super::film(&f, |fr| {
-        let px = (fr.size.0.value(), fr.size.1.value());
+        let s = strip
+            .get_or_insert_with(|| super::chrome::Strip::new(fr.size.0, f64::from(super::SCALE)));
+        s.compose(fr.lights, fr.pixels, &mut window);
+        let px = (fr.size.0.value(), fr.size.1.value() + s.height().value());
         if let Some(to) = &film_to {
             let e = encoder.get_or_insert_with(|| {
                 size = px;
                 lossless(ffmpeg.as_ref().expect("BAUD_FILM_FFMPEG"), px, period, to)
             });
-            let bytes: Vec<u8> = fr.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
+            let bytes: Vec<u8> = window.iter().flat_map(|p| p.to_le_bytes()).collect();
             e.stdin
                 .as_mut()
                 .expect("ffmpeg's input")
@@ -722,7 +796,7 @@ fn the_readme_session_lights_every_light() {
                 still(*i, px, *size);
             }
         }
-        last = Some((fr.step, fr.pixels.to_vec(), px));
+        last = Some((fr.step, window.clone(), px));
     });
     if let Some((Some(i), px, size)) = &last {
         still(*i, px, *size);
@@ -811,6 +885,14 @@ fn the_readme_session_lights_every_light() {
             "no fire ignition at `gg`"
         );
     }
+    // The photo lights FAX: first in its shot, kitten typed to the hold
+    // after its prompt, before fastfetch's picture.
+    let first = take.lit.first(Led::Fax).and_then(|(_, s)| s);
+    let icat = at(Step::Run(steps::ICAT));
+    assert!(
+        icat.is_some_and(|icat| first.is_some_and(|StepAt(i)| (icat..=icat + 2).contains(&i))),
+        "FAX first lit in step {first:?}, not in the photo's shot, from step {icat:?}"
+    );
     assert_eq!(
         take.lit.dark(),
         [Led::Cs],
@@ -833,9 +915,10 @@ fn trail_as(
 }
 
 /// **The shots the flash census counts**, by their frames: the trails'
-/// (helix opened to the prompt after it), the fireworks' (their request
-/// typed to the `exit` after it) and the clear's (to the end), a `name
-/// first last` line each after the film's `size W H` and `rate R`.
+/// (helix opened to the prompt after it), the photo's (kitten typed to
+/// the `ssh` after it), the fireworks' (their request typed to the `exit`
+/// after it) and the clear's (to the end), a `name first last` line each
+/// after the film's `size W H` and `rate R`.
 fn shots(steps: &[Step], frames: &[Option<usize>], (w, h): (u32, u32), period: Duration) -> String {
     let at = |want: Step| steps.iter().position(|s| *s == want);
     let ranges = [
@@ -843,6 +926,11 @@ fn shots(steps: &[Step], frames: &[Option<usize>], (w, h): (u32, u32), period: D
             "trails",
             at(Step::Run("hx ~/.config/baud/config.toml")),
             at(Step::Run("cat hello.txt")),
+        ),
+        (
+            "photo",
+            at(Step::Run(steps::ICAT)),
+            at(Step::Run("ssh demo")),
         ),
         (
             "fireworks",

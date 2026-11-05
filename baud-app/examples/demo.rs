@@ -2,7 +2,8 @@
 //! zsh and real programs at real speed, every command typed into the
 //! window key by key -- baud's own config edited in helix, its plasma
 //! trail changed to fire by one word saved and baud's live reload; six
-//! languages and a line of emoji in `cat hello.txt`; ssh into a container
+//! languages and a line of emoji in `cat hello.txt`; a photo drawn by
+//! `kitten icat`; ssh into a container
 //! on this Mac, its system card there with baud's mark drawn as a picture,
 //! btop, and iTerm2's fireworks asked for by a `printf` typed in full;
 //! `exit`, and `clear`. With `--record` the same run films it and encodes
@@ -24,7 +25,7 @@
 //!
 //! **What it needs**: nix, which every program comes from, at the nixpkgs
 //! revision `scripts/readme-film.sh` pins; network once, for the five open
-//! faces it caches; colima and docker, for the container
+//! faces and the photo it caches; colima and docker, for the container
 //! (`demo/container.rs`), whose image the repository's flake makes with
 //! nixpkgs' `dockerTools` from packages cache.nixos.org holds, so no Linux
 //! builder -- in a VM of its own, colima's profile `baud-demo`, made for
@@ -50,7 +51,8 @@
 //! the screen transition on, the window solid (opaque under either
 //! appearance, its font and its size not a program's to change), the
 //! cursor still with the plasma trail -- and the pinned faces beside it,
-//! and the shell's working directory, `~/baud`, holding `hello.txt`; and
+//! and the shell's working directory, `~/baud`, holding `hello.txt` and
+//! `canazei.jpg`, the pinned photo scaled to 850 pixels wide; and
 //! the container's image, streamed by the repository flake's
 //! `demo-container` and pinned by its SHA-256. baud is started with
 //! nothing of this environment but `HOME`, `ZDOTDIR`, `SHELL`, `PATH`,

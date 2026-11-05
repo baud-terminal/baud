@@ -61,7 +61,7 @@ the macOS system font baud falls back to. Encoded with gifski at 1164 px
 wide (16.9 MB), with no frame carrying traces of another, so it loops
 clean. It is to be filmed again, as the take below.
 
-The next take is about 17 seconds, at 80x24 cells and 14 pt
+The next take is about 19 seconds, at 80x24 cells and 14 pt
 (`baud-app/examples/demo/session.rs`). The README shows the GIF 776 px
 wide whatever the window's size, so its text's size there is set by the
 columns: about 776 / (0.6 x 80), 16 px, GitHub's body size, where 110
@@ -79,18 +79,23 @@ columns gave 11.5. Shot by shot:
 3. `cat hello.txt`: pointed Hebrew and Arabic drawn right to left,
    Chinese, Japanese, Korean and Hindi, and a line of emoji with six flags,
    a file the demo writes.
-4. `ssh demo`, into a container on the Mac it is filmed on: its badge,
+4. `kitten icat --transfer-mode=stream canazei.jpg`: a photo drawn in the
+   grid below the command in kitty's graphics protocol, and the prompt
+   under it. The transfer mode is typed rather than hidden: kitten's
+   default, detect, timed out in baud at e73843fa and that timeout is not
+   yet settled (`scripts/readme-capture.sh`).
+5. `ssh demo`, into a container on the Mac it is filmed on: its badge,
    `demo`, at the top right, and the CD light while ssh holds its
    connection.
-5. `fastfetch` there: baud's ❯ █ mark drawn as a picture, sent through ssh
+6. `fastfetch` there: baud's ❯ █ mark drawn as a picture, sent through ssh
    in iTerm2's inline image protocol, beside fastfetch's whole default
    card of the VM the container runs in.
-6. `btop` there, its cpu box alone, a graph for each of the VM's CPUs, as
+7. `btop` there, its cpu box alone, a graph for each of the VM's CPUs, as
    many as the Mac's, sliding in over the shell and out again on `q`.
-7. iTerm2's fireworks, asked for by a `printf` typed in full in the
+8. iTerm2's fireworks, asked for by a `printf` typed in full in the
    container.
-8. `exit`: the badge cleared, CD dark.
-9. `clear`: the cursor to the top in the fire trail, and the empty prompt
+9. `exit`: the badge cleared, CD dark.
+10. `clear`: the cursor to the top in the fire trail, and the empty prompt
    the clip loops to.
 
 baud's mark, missing from this GIF's titlebar, is in the next take's: it
@@ -134,7 +139,8 @@ It lights eight of baud's nine activity lights in the title bar: RD from
 the launch, SD with the first key, OH while helix is in front, AA when
 helix asks the terminal what it supports, HS on a read that fills the tty's
 1024 bytes, CD while ssh holds its connection to the container, FAX while
-the mark is on screen, and SYN while btop holds synchronized output open.
+the photo or the mark is on screen, and SYN while btop holds synchronized
+output open.
 CS lights only when the kernel refuses a write: a program that stops
 reading its input while more than a kilobyte is owed it. Keys typed at a
 person's pace never fill that, so no step of the session lights CS.
@@ -142,10 +148,18 @@ person's pace never fill that, so no step of the session lights CS.
 `cargo run --release --example demo -- --headless DIR` plays the session
 without a window, through baud's core and CPU renderer, reading the config
 again when helix saves it, and fails unless each of the eight lights
-lights, the trail is plasma at `ge` and fire at `gg`, and `gg` lights a
-fire. It writes a still of every
+lights, FAX first in the photo's shot, the trail is plasma at `ge` and fire
+at `gg`, and `gg` lights a fire. It writes a still of every
 hold into DIR, and every frame, 100 a second, into DIR as a lossless film,
-`session.mkv`. baud-bench's flash census counts the film's trails',
+`session.mkv`. **The title bar in those frames is composed, not filmed**:
+no window is opened, so the strip above the text is drawn over each frame
+(`baud-app/src/film/chrome.rs`) at the app's places -- the traffic lights
+as plain circles, baud's lockup from its SVG, and the nine activity lights
+drawn by baud's renderer as the app draws them, each at the state the
+session's own lights showed at that frame -- on one grey, the middle of
+the standard material's range, where the real window's strip shows the
+desktop through it. Only `--record` films the window itself.
+baud-bench's flash census counts the film's trails', photo's,
 fireworks' and clear's shots against WCAG 2.3.1
 (`baud-bench/tests/session_flashes.rs`), and each must pass. Every
 character the programs printed must be drawn by baud's own faces or a
@@ -197,6 +211,8 @@ hero's btop and showed the machine's chip, memory and disks;
 `scripts/readme-capture.sh` no longer makes it.
 
 The photo is an elementary OS wallpaper, pinned by nixpkgs revision and
-sha256. It is an Unsplash photograph published before 8 June 2017 and so CC0,
+sha256; the next take's demo fetches the same file by its URL at the
+wallpapers' tag 8.0.0, checks the same sha256, and scales it to 850 px
+wide. It is an Unsplash photograph published before 8 June 2017 and so CC0,
 as elementary's `debian/copyright` records: "Canazei Granite Ridges"
 (unsplash.com/photos/yrwpJwDNSHE).
