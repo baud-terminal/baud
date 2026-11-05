@@ -9,5 +9,5 @@ that follows GIF89a's Appendix F.
 | file | made with |
 |---|---|
 | noise256.gif | `magick -size 96x80 xc: +noise Random -colors 256 -dither None`: the string table fills and clears |
-| scene64i.gif | baud's scene (`baud-domain/tests/jpeg/scene.py`) with `-colors 64 -interlace GIF` |
+| scene64i.gif | baud's scene (`scene` in `baud-domain/tests/jpeg.rs`) with `-colors 64 -interlace GIF` |
 | scene2.gif | the scene with `-colors 2 -dither None`: the minimum code size of 2 |

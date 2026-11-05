@@ -10,7 +10,7 @@
 //! each functional key the test looks up the spec's number and final byte and
 //! asserts the bytes `Term::key` produces are exactly that CSI-u form. A
 //! transcription slip in the encoder then fails against the source, the same
-//! discipline the base layer keeps against `extract-keys.py`.
+//! discipline the base layer keeps against `coverage.rs`'s `key_tables`.
 //!
 //! `Char` reports its unshifted codepoint; the keypad reports its dedicated
 //! kitty numbers, navigation keys (`KP_LEFT` to `KP_BEGIN`) included, and the

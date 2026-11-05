@@ -10,9 +10,9 @@
 //! condition 2 wants the licence with each copy: `var/bake/` held four
 //! instances of JetBrains Mono and no licence until this test said so.
 //!
-//! The fonts baud wrote from scratch are listed by path with the script that
-//! writes each, so a new font is a decision someone has to make here rather
-//! than a file that slips under the blanket licence.
+//! The fonts baud wrote from scratch are listed by path with the script or
+//! test that writes each, so a new font is a decision someone has to make
+//! here rather than a file that slips under the blanket licence.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -24,17 +24,18 @@ fn root() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
 }
 
-/// Fonts baud wrote from nothing, each with the script that writes it. They
-/// are under the repository's licence (`baud-font/tests/fonts/sbix-LICENSE.txt`
-/// says so for the one that sits among third-party faces).
+/// Fonts baud wrote from nothing, each with the script or test that writes
+/// it. They are under the repository's licence
+/// (`baud-font/tests/fonts/sbix-LICENSE.txt` says so for the one that sits
+/// among third-party faces).
 const OWN: &[(&str, &str)] = &[
     (
         "baud-font/tests/fonts/sbix-strikes.ttf",
-        "scripts/gen-sbix-fixture.py",
+        "baud-font/tests/bitmap.rs",
     ),
     (
         "baud-font/tests/bitmap/cblc-cases.ttf",
-        "scripts/gen-cblc-fixture.py",
+        "baud-font/tests/cblc.rs",
     ),
     (
         "baud-font/tests/var/gvar-cases.ttf",

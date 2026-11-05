@@ -7745,16 +7745,16 @@ sha256 = "72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b"
 bytes  = 10673480
 status = "external"
 group  = "J"
-# 10.7 MB, so not committed; scripts/gen-cbdt-fixture.py subsets it into the
-# committed baud-font/tests/fonts/NotoColorEmoji-subset.ttf, pinned below.
+# 10.7 MB, so not committed; baud-font/tests/noto_subset.rs subsets it into
+# the committed baud-font/tests/fonts/NotoColorEmoji-subset.ttf, pinned below.
 
 [sources.font-noto-color-emoji-subset]
 key    = "font-noto-color-emoji-subset"
 title  = "NotoColorEmoji-subset.ttf -- 46 glyphs of noto-color-emoji-cbdt re-encoded across CBLC index formats 1-5 and image formats 17/18/19"
-author = "scripts/gen-cbdt-fixture.py over the Noto Emoji authors' PNGs"
+author = "baud-font/tests/noto_subset.rs over the Noto Emoji authors' PNGs"
 year   = 2026
 venue  = "baud-font/tests/fonts/NotoColorEmoji-subset.ttf (OFL-1.1, licence beside it)"
-url    = "scripts/gen-cbdt-fixture.py"
+url    = "baud-font/tests/noto_subset.rs"
 file   = ""
 sha256 = "7f73b6fc6753d949fc3bdfc9bad935db68681a134fca60455b42795f6b97fcee"
 bytes  = 51080
@@ -7766,10 +7766,10 @@ group  = "J"
 [sources.font-sbix-strikes]
 key    = "font-sbix-strikes"
 title  = "sbix-strikes.ttf -- six sbix strikes holding every per-glyph case: a glyph in one strike only or two, flip, flip to dupe, dupe to flip, two flips, offsets, unreadable PNGs, dupe and flip loops, a chain at the hop bound, a ramp and its mirror"
-author = "scripts/gen-sbix-fixture.py"
+author = "baud-font/tests/bitmap.rs"
 year   = 2026
 venue  = "baud-font/tests/fonts/sbix-strikes.ttf (the repository's licence, beside it)"
-url    = "scripts/gen-sbix-fixture.py"
+url    = "baud-font/tests/bitmap.rs"
 file   = ""
 sha256 = "1116aa6d1d2b7f8acdffecfc019ba3a63832792af5659134d0282e018fa5f74f"
 bytes  = 54320

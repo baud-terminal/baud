@@ -5,7 +5,7 @@
 //! their source).
 //!
 //! **The fixture says which size drew.** `cblc-cases.ttf`
-//! (`scripts/gen-cblc-fixture.py`) paints each size's images left half in
+//! (written by `baud-font/tests/cblc.rs`) paints each size's images left half in
 //! the size's colour and right half white, as `sbix-strikes.ttf` does:
 //! 20 ppem green, 30 red (refused: its firsts decrease), 40 blue (refused:
 //! its records run past the table), 50 cyan and purple (two overlapping

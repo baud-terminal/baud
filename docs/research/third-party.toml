@@ -1825,7 +1825,7 @@ upstream = "https://github.com/harfbuzz/harfbuzz/releases/tag/12.3.0, run on bau
 status   = "kept"
 
 [[tree]]
-what     = "A subset of Noto Color Emoji (scripts/gen-cbdt-fixture.py), a Modified Version"
+what     = "A subset of Noto Color Emoji (baud-font/tests/noto_subset.rs), a Modified Version"
 paths    = ["baud-font/tests/fonts/NotoColorEmoji-subset.ttf"]
 licence  = "OFL-1.1"
 notice   = "baud-font/tests/fonts/NotoColorEmoji-LICENSE.txt"

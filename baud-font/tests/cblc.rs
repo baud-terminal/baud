@@ -10,7 +10,7 @@
 //! ends.
 //!
 //! The fonts are the Noto Color Emoji subset (`tests/fonts/`), byte surgeries
-//! on it, and `tests/bitmap/cblc-cases.ttf`, which `scripts/gen-cblc-fixture.py`
+//! on it, and `tests/bitmap/cblc-cases.ttf`, which `cblc_font` below
 //! writes. `spec` is a model of the lookup written from the specification's
 //! text, not from baud's reader, and every answer is held to it.
 
@@ -18,6 +18,9 @@ use baud_domain::GlyphId;
 use baud_font::bytes::Index;
 use baud_font::{Face, Records, StrikeRefusal, StrikeState};
 use proptest::prelude::*;
+
+mod writer;
+use writer::{Be, Payloads};
 
 const NOTO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -698,24 +701,261 @@ fn every_cblc_glyph_is_the_specifications_record_walk() {
     }
 }
 
+// ------------------------------------------------------------------ cblc-cases.ttf
+
+/// **`cblc-cases.ttf`: a size for each arrangement of `CBLC` index subtable
+/// records the colour-bitmap lookup refuses or reads**, written by
+/// [`cblc_font`], except a nested record, which the surgeries above and H1
+/// cover. EBLC (`[[source: ms-opentype-eblc]]`): "Records must be sorted by
+/// firstGlyphIndex, and records should not have overlapping glyph ID
+/// ranges". Each size paints its images' left half in its own colour and
+/// the right half white, as `sbix-strikes.ttf` does, so a rendering says
+/// which size drew.
+///
+/// | size | ppem | colour | records | what it is |
+/// |---|---|---|---|---|
+/// | 0 | 20 | green | [1..6] f1, [7..10] f3 | control: sorted, disjoint |
+/// | 1 | 30 | red | [7..10] f1, [1..6] f1 | firsts out of order: refused |
+/// | 2 | 40 | blue | [1..6] f1, [7..10] f1, numberOfIndexSubTables 100,000 | records past the table: refused |
+/// | 3 | 50 | cyan / purple | [1..8] f1 cyan, [5..12] f1 purple | sorted, overlapping: first record that holds the glyph |
+/// | 4 | 60 | magenta | [11..12] f1, [13..17] f1, range 11..17 | glyph 17 past numGlyphs (16), with a complete image |
+/// | 5 | 80 | yellow | [1..13] f4, 13 images, n = 12 | the sentinel pair names glyph 13 and points at a whole image |
+///
+/// numGlyphs is 16. `cmap` (format 12) maps U+E000+g to g for g in 1..15
+/// and U+E011 to glyph 17, past the face, which only size 4 covers. No
+/// outlines.
+const CBLC_GLYPHS: u16 = 16;
+const CBLC_WHITE: [u8; 3] = [240, 240, 240];
+const GREEN: [u8; 3] = [40, 200, 40];
+const RED: [u8; 3] = [220, 40, 40];
+const BLUE: [u8; 3] = [40, 80, 230];
+const CYAN: [u8; 3] = [40, 200, 200];
+const PURPLE: [u8; 3] = [150, 60, 200];
+const MAGENTA: [u8; 3] = [200, 60, 200];
+const YELLOW: [u8; 3] = [230, 210, 30];
+
+/// How a record's subtable is written: index format 1 (u32 offsets), 3
+/// (u16 offsets), or 4 with `n` pairs counted.
+#[derive(Clone, Copy)]
+enum Written {
+    F1,
+    F3,
+    F4(u32),
+}
+
+/// One `IndexSubTableArray` record: first and last glyph, colour, form.
+type CaseRecord = (u16, u16, [u8; 3], Written);
+
+/// One size: ppem, startGlyphIndex, endGlyphIndex, records, and a
+/// numberOfIndexSubTables to write in place of the records' count.
+type CaseSize = (u8, u16, u16, &'static [CaseRecord], Option<u32>);
+
+const CBLC_SIZES: [CaseSize; 6] = [
+    (
+        20,
+        1,
+        10,
+        &[(1, 6, GREEN, Written::F1), (7, 10, GREEN, Written::F3)],
+        None,
+    ),
+    (
+        30,
+        1,
+        10,
+        &[(7, 10, RED, Written::F1), (1, 6, RED, Written::F1)],
+        None,
+    ),
+    (
+        40,
+        1,
+        10,
+        &[(1, 6, BLUE, Written::F1), (7, 10, BLUE, Written::F1)],
+        Some(100_000),
+    ),
+    (
+        50,
+        1,
+        12,
+        &[(1, 8, CYAN, Written::F1), (5, 12, PURPLE, Written::F1)],
+        None,
+    ),
+    (
+        60,
+        11,
+        17,
+        &[
+            (11, 12, MAGENTA, Written::F1),
+            (13, 17, MAGENTA, Written::F1),
+        ],
+        None,
+    ),
+    (80, 1, 13, &[(1, 13, YELLOW, Written::F4(12))], None),
+];
+
+/// Image format 17: smallGlyphMetrics (height, width, bearingX, bearingY,
+/// advance), dataLen, the PNG.
+fn cblc_image17(ppem: u8, colour: [u8; 3], z: &Payloads) -> Vec<u8> {
+    let rows = writer::halves(u32::from(ppem), colour, CBLC_WHITE);
+    let png = writer::png_rgba8(u32::from(ppem), &z.deflate(&rows));
+    Be::default()
+        .u8(ppem)
+        .u8(ppem)
+        .i8(0)
+        .i8(i8::try_from(ppem).unwrap())
+        .u8(ppem)
+        .n32(png.len())
+        .bytes(&png)
+        .done()
+}
+
+/// The index subtable of one record, its images appended to `cbdt`.
+fn cblc_subtable(cbdt: &mut Vec<u8>, record: &CaseRecord, ppem: u8, z: &Payloads) -> Vec<u8> {
+    let &(first, last, colour, form) = record;
+    let base = cbdt.len();
+    let mut out = Be::default();
+    match form {
+        Written::F1 | Written::F3 => {
+            let mut offs = vec![0];
+            for _ in first..=last {
+                cbdt.extend(cblc_image17(ppem, colour, z));
+                offs.push(cbdt.len() - base);
+            }
+            if let Written::F3 = form {
+                out.u16(3).u16(17).n32(base);
+                for &o in &offs {
+                    out.n16(o);
+                }
+                if offs.len() % 2 == 1 {
+                    out.u16(0);
+                }
+            } else {
+                out.u16(1).u16(17).n32(base);
+                for &o in &offs {
+                    out.n32(o);
+                }
+            }
+        }
+        Written::F4(n) => {
+            // `n` pairs are counted, so pair n -- the sentinel the reader is
+            // told is there -- is the pair of glyph first + n, pointing at a
+            // whole image.
+            let mut pairs = Vec::new();
+            for g in first..=last {
+                pairs.push((g, cbdt.len() - base));
+                cbdt.extend(cblc_image17(ppem, colour, z));
+            }
+            pairs.push((0xFFFF, cbdt.len() - base));
+            out.u16(4).u16(17).n32(base).u32(n);
+            for (g, o) in pairs {
+                out.u16(g).n16(o);
+            }
+        }
+    }
+    out.done()
+}
+
+/// One `IndexSubTableList`: the records, then their subtables, each
+/// word-aligned, offsets from the list's start.
+fn cblc_list(records: &[CaseRecord], cbdt: &mut Vec<u8>, ppem: u8, z: &Payloads) -> Vec<u8> {
+    let head = 8 * records.len();
+    let mut subs = Vec::new();
+    let mut recs = Be::default();
+    for record in records {
+        let sub = cblc_subtable(cbdt, record, ppem, z);
+        recs.u16(record.0).u16(record.1).n32(head + subs.len());
+        subs.extend(sub);
+        subs.resize(subs.len().next_multiple_of(4), 0);
+    }
+    let mut out = recs.done();
+    out.extend(subs);
+    out
+}
+
+fn cblc_tables(z: &Payloads) -> (Vec<u8>, Vec<u8>) {
+    let mut cbdt = 0x0003_0000u32.to_be_bytes().to_vec();
+    let lists: Vec<Vec<u8>> = CBLC_SIZES
+        .iter()
+        .map(|&(ppem, _, _, records, _)| cblc_list(records, &mut cbdt, ppem, z))
+        .collect();
+    let mut out = Be::default();
+    out.u32(0x0003_0000).n32(CBLC_SIZES.len());
+    let mut at = 8 + 48 * CBLC_SIZES.len();
+    for (&(ppem, start, end, records, count), list) in CBLC_SIZES.iter().zip(&lists) {
+        out.n32(at)
+            .n32(list.len())
+            .n32(count.map_or(records.len(), |c| usize::try_from(c).unwrap()))
+            .u32(0)
+            // hori and vert sbitLineMetrics, unread
+            .bytes(&[0; 24])
+            .u16(start)
+            .u16(end)
+            .u8(ppem)
+            .u8(ppem)
+            .u8(32)
+            .i8(1);
+        at += list.len();
+    }
+    for list in &lists {
+        out.bytes(list);
+    }
+    (out.done(), cbdt)
+}
+
+/// The whole of `cblc-cases.ttf`, its zlib streams from `z`.
+fn cblc_font(z: &Payloads) -> Vec<u8> {
+    let (cblc, cbdt) = cblc_tables(z);
+    let mut groups: Vec<_> = (1..u32::from(CBLC_GLYPHS))
+        .map(|g| (0xE000 + g, 0xE000 + g, g))
+        .collect();
+    groups.push((0xE011, 0xE011, 17));
+    writer::sfnt(vec![
+        (*b"CBDT", cbdt),
+        (*b"CBLC", cblc),
+        (*b"cmap", writer::cmap(&groups)),
+        (*b"head", writer::head()),
+        (*b"hhea", writer::hhea(CBLC_GLYPHS)),
+        (*b"hmtx", writer::hmtx(CBLC_GLYPHS)),
+        (*b"maxp", writer::maxp(CBLC_GLYPHS)),
+        (*b"post", writer::post()),
+    ])
+}
+
+fn cblc_payloads() -> (Vec<u8>, Payloads) {
+    let committed = read(CASES);
+    let mut z = Payloads::new();
+    z.add(&committed);
+    (committed, z)
+}
+
 #[test]
 fn the_cblc_fixture_is_what_its_generator_writes() {
     // As for `sbix-strikes.ttf`: the generator's table is the fixture's
-    // documentation, so the committed bytes must be what it writes.
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::env::temp_dir().join(format!("baud-cblc-{}.ttf", std::process::id()));
-    let ran = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-cblc-fixture.py"))
-        .arg(&out)
-        .status()
-        .expect("python3 to run the generator");
-    assert!(ran.success(), "gen-cblc-fixture.py failed");
-    let fresh = std::fs::read(&out).unwrap();
-    std::fs::remove_file(&out).unwrap();
-    assert!(
-        fresh == read(CASES),
-        "cblc-cases.ttf is not what scripts/gen-cblc-fixture.py writes: regenerate it"
-    );
+    // documentation, so the committed bytes must be what it writes. Every
+    // byte is the generator's but the 66 zlib streams, which must inflate
+    // to its rows (`writer`).
+    let (committed, z) = cblc_payloads();
+    assert_eq!((z.valid, z.invalid.len()), (66, 0));
+    writer::assert_written("cblc-cases.ttf", &cblc_font(&z), &committed, &z);
+}
+
+#[test]
+fn a_changed_row_or_byte_fails_the_cblc_generator_check() {
+    // Positive controls: one image's rows changed in one byte finds no
+    // committed stream, and size 3's ppem moved in the committed file no
+    // longer compares.
+    let (committed, z) = cblc_payloads();
+    let z = z.perturbing(40);
+    let fresh = cblc_font(&z);
+    assert_eq!(z.missed(), 1);
+    assert!(fresh != committed);
+    let (_, z) = cblc_payloads();
+    let fresh = cblc_font(&z);
+    assert!(fresh == committed && z.missed() == 0);
+    let at = table(&committed, b"CBLC").0 + 8 + 48 * 3 + 44;
+    assert_eq!(committed[at], 50);
+    let mut moved = committed.clone();
+    moved[at] = 51;
+    assert!(fresh != moved);
 }
 
 // ------------------------------------------------------------------ fonts written here

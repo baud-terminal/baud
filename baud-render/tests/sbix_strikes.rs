@@ -2,7 +2,7 @@
 //! drawn mirrored -- at the atlas, where the strike is chosen.
 //!
 //! **The fixture says which strike drew.** `sbix-strikes.ttf`
-//! (`scripts/gen-sbix-fixture.py`) has strikes at 10, 20, 26, 40, 52 and 80 ppem
+//! (written by `baud-font/tests/bitmap.rs`) has strikes at 10, 20, 26, 40, 52 and 80 ppem
 //! whose images -- all but the two ramps and the unreadable PNGs -- paint
 //! the left half in that strike's colour and the right half white. So the
 //! colour a quarter of the way in names the strike, and white there with the

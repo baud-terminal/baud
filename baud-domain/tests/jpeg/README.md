@@ -4,7 +4,8 @@ baud's own test pictures for the JPEG decoder, each beside the reference
 decode it is held to byte for byte. The IJG's own test images are in
 `baud-domain/tests/ijg/`, under the IJG's terms.
 
-The source picture is `scene.py`'s 61 by 45 scene, written as a PPM:
+The source picture is baud's 61 by 45 scene, written as a PPM by `scene`
+in `baud-domain/tests/jpeg.rs`, which holds `scene.ppm` to it:
 gradients, a checker and a hard edge, so every sampling ratio and the
 inverse DCT see detail across block edges. `small` is its 29 by 21 crop
 from (11, 7), made with ImageMagick's `-crop 29x21+11+7 +repage`.
@@ -40,12 +41,12 @@ cmyk:<file>.cmyk`), the samples the colour test turns into RGB:
 Encoded by libjpeg-turbo 3.1.4's `cjpeg` and decoded by its `djpeg -dct
 int` (the `bin` output of nixpkgs' `libjpeg-turbo`), which decodes every
 6b reference above to 6b's bytes but `s440`'s. The source is `scene.ppm`,
-`scene.py`'s output, or `scene16.ppm`, `scene16.py`'s: the same scene at
+or `scene16.ppm`, both written by `scene` in `jpeg.rs`: the same scene at
 16 bits, each sample its 8-bit value times 257 with a dither in its low
-byte. `edge16.pgm` is `edge16.py`'s 16 by 8 grey picture whose neighbours
-differ by 32768 and more. A 12-bit or 16-bit reference holds its samples
-in two bytes, as `djpeg` writes them; the test draws each at its high
-eight bits.
+byte. `edge16.pgm` is the 16 by 8 grey picture `edge16` in `jpeg.rs`
+writes, whose neighbours differ by 32768 and more. A 12-bit or 16-bit
+reference holds its samples in two bytes, as `djpeg` writes them; the
+test draws each at its high eight bits.
 
 | file | source | `cjpeg` arguments | reference |
 |---|---|---|---|

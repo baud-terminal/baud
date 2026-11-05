@@ -10,10 +10,10 @@
 //!
 //! **Corpus.** The committed fixtures always: `NotoColorEmoji-subset.ttf`,
 //! a `CBDT` face re-encoded across every index and image format the reader
-//! implements (`scripts/gen-cbdt-fixture.py` says which glyphs are which),
+//! implements (`tests/noto_subset.rs` says which glyphs are which),
 //! `BungeeTint-Regular.ttf`, a `COLR` v0 face with eight palettes, and
 //! `sbix-strikes.ttf`, six strikes holding every per-glyph case
-//! (`scripts/gen-sbix-fixture.py` lists them), seven unreadable PNGs among
+//! (`SBIX` below lists them), seven unreadable PNGs among
 //! them, which both decoders must refuse and which are counted. On
 //! macOS every face under `/System/Library/Fonts` as well, which is where
 //! Apple Color Emoji's 31,707 `sbix` PNGs come from; a face with no strikes
@@ -51,6 +51,8 @@ use ttf_parser::RgbaColor;
 use ttf_parser::colr::{ClipBox, CompositeMode, Paint, Painter};
 
 mod sha256;
+mod writer;
+use writer::{Be, Payloads};
 
 fn committed() -> Vec<PathBuf> {
     let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fonts"));
@@ -758,7 +760,7 @@ fn every_strike_layer_and_pixel_agrees_with_the_oracles() {
 
 #[test]
 fn the_subset_fixture_answers_every_arrangement_the_generator_wrote() {
-    // `scripts/gen-cbdt-fixture.py` lays glyphs 4..45 out across index
+    // `tests/noto_subset.rs` lays glyphs 4..45 out across index
     // formats 1, 3, 4, 5 and 2 in that order, so every glyph answering is
     // every format read. Glyphs 0..3 carry nothing.
     let data = std::fs::read(concat!(
@@ -822,7 +824,7 @@ fn a_png_the_decoder_refuses_is_named() {
 
 #[test]
 fn the_sbix_fixture_answers_every_case_in_every_strike() {
-    // `scripts/gen-sbix-fixture.py`: strikes at 10, 20, 26, 40, 52 and 80 ppem.
+    // `SBIX`: strikes at 10, 20, 26, 40, 52 and 80 ppem.
     let data = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/fonts/sbix-strikes.ttf"
@@ -1067,30 +1069,242 @@ fn with_cblc_of(data: &[u8], count: u32) -> Vec<u8> {
     out
 }
 
+// ------------------------------------------------------------------ sbix-strikes.ttf
+
+/// **`sbix-strikes.ttf`: every case a per-glyph strike choice and Apple's
+/// undocumented `'flip'` have to get right**, written by [`sbix_font`].
+///
+/// Apple Color Emoji is where these cases live -- 177 glyphs empty in some
+/// of its nine strikes and present in others, 108 `'flip'` records a strike
+/// -- but it is a system file on one platform, so the tests that must run
+/// everywhere read this instead. Six strikes, at 10, 20, 26, 40, 52 and 80
+/// ppem; each strike's images -- all but T's and S's ramps and the
+/// unreadable PNGs -- paint their left half in that strike's colour and
+/// their right half white, so a rendering says which strike it came from
+/// and whether it was mirrored. 26 and 52 are there because a half pixel
+/// above either is where an 800-unit em's f32 scale round trip lands just
+/// under the half (26.5 px comes back 26.499998), which a strike choice
+/// that rounds half up has to survive.
+///
+/// | glyph | codepoint | what each strike holds |
+/// |---|---|---|
+/// | 1 A | U+E001 | `png ` in every strike |
+/// | 2 B | U+E002 | `png ` at 80 only |
+/// | 3 C | U+E003 | `flip` to A in every strike, at offsets (7, 3) A does not have |
+/// | 4 D | U+E004 | `flip` to J, which is a `dupe` of A |
+/// | 5 E | U+E005 | `png ` everywhere, but at 40 a PNG whose zlib stream is invalid |
+/// | 6 F | U+E006 | nothing anywhere |
+/// | 7 G | U+E007 | `flip` to C: two flips on the way to A |
+/// | 8 H | U+E008 | `png ` at 10 only |
+/// | 9 I | U+E009 | `dupe` to itself |
+/// | 10 J | U+E00A | `dupe` to A |
+/// | 11 K | U+E00B | `dupe` to C: a dupe, then a flip |
+/// | 12 L | U+E00C | `flip` to itself |
+/// | 13 M | U+E00D | `png ` at 20 and 52 only |
+/// | 14 N | U+E00E | `png ` in every strike, at offsets (5, -4) |
+/// | 15 P | U+E00F | `flip` to N, at offsets (1, 1) N does not have |
+/// | 16 Q | U+E010 | `png ` everywhere, and every one's zlib stream invalid |
+/// | 17-26 R1-R10 | U+E011-U+E01A | R*k* names R*k+1*, R10 names A; odd *k* `flip`, even `dupe` |
+/// | 27 T | U+E01B | `png ` everywhere: a ramp, red across and blue down |
+/// | 28 U | U+E01C | `flip` to T |
+/// | 29 S | U+E01D | `png ` everywhere: T's ramp stored mirrored |
+///
+/// M is held in two strikes either side of 26, so from 26 px to under 36 px
+/// the nearest holder is 20 while the smallest at or above is 52. R1 to R10
+/// are one chain of ten redirections that alternate kinds: R1 needs eleven
+/// records to reach its image and R2 ten, so the bound -- ten records,
+/// shared by both kinds -- refuses R1 and draws R2. T's image has no
+/// symmetry and S holds it mirrored, so U, mirrored by the renderer, must
+/// draw as S does at every size: the mirror is of the image the font names,
+/// before any scaling.
+///
+/// Every record but C's, N's and P's sits at offsets (0, 0); every image is
+/// ppem x ppem. The corrupt PNGs' chunks carry correct CRCs, so they parse
+/// and only their inflate fails. `head`, `hhea`, `maxp`, `hmtx`, `cmap`
+/// (format 12) and `post` (version 3) are written from scratch; there are
+/// no outlines.
+const SBIX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fonts/sbix-strikes.ttf");
+
+const SBIX_STRIKES: [u16; 6] = [10, 20, 26, 40, 52, 80];
+const SBIX_GLYPHS: u16 = 30;
+const SBIX_WHITE: [u8; 3] = [240, 240, 240];
+
+/// A zlib header, then a block whose type is the reserved 0b11: the seven
+/// unreadable streams, written as they are.
+const SBIX_CORRUPT: [u8; 6] = [0x78, 0x9c, 0xff, 0xff, 0xff, 0xff];
+
+fn sbix_colour(ppem: u16) -> [u8; 3] {
+    match ppem {
+        10 => [220, 40, 40],
+        20 => [40, 200, 40],
+        26 => [200, 60, 200],
+        40 => [40, 80, 230],
+        52 => [40, 200, 200],
+        80 => [230, 210, 30],
+        _ => unreachable!("{ppem} is no strike"),
+    }
+}
+
+fn sbix_png(ppem: u16, corrupt: bool, z: &Payloads) -> Vec<u8> {
+    let ppem32 = u32::from(ppem);
+    if corrupt {
+        return writer::png_rgba8(ppem32, &SBIX_CORRUPT);
+    }
+    let rows = writer::halves(ppem32, sbix_colour(ppem), SBIX_WHITE);
+    writer::png_rgba8(ppem32, &z.deflate(&rows))
+}
+
+/// Red rising across, green falling across, blue rising down: no two
+/// texels of a row alike, and no row like another.
+fn sbix_ramp(ppem: u16, mirrored: bool, z: &Payloads) -> Vec<u8> {
+    let top = u32::from(ppem) - 1;
+    let mut rows = Vec::new();
+    for y in 0..=top {
+        rows.push(0);
+        for x in 0..=top {
+            let u = if mirrored { top - x } else { x };
+            let level = |v: u32| u8::try_from(v * 255 / top).unwrap();
+            rows.extend_from_slice(&[level(u), 255 - level(u), level(y), 255]);
+        }
+    }
+    writer::png_rgba8(u32::from(ppem), &z.deflate(&rows))
+}
+
+fn sbix_write(kind: &[u8; 4], data: &[u8], x: i16, y: i16) -> Option<Vec<u8>> {
+    Some(Be::default().i16(x).i16(y).bytes(kind).bytes(data).done())
+}
+
+fn glyph_ref(g: u16) -> [u8; 2] {
+    g.to_be_bytes()
+}
+
+/// The record each glyph holds in this strike, or `None` for nothing.
+fn sbix_glyph_records(ppem: u16, z: &Payloads) -> Vec<Option<Vec<u8>>> {
+    let png = |corrupt| sbix_png(ppem, corrupt, z);
+    let mut out = vec![None; usize::from(SBIX_GLYPHS)];
+    out[1] = sbix_write(b"png ", &png(false), 0, 0);
+    out[2] = if ppem == 80 {
+        sbix_write(b"png ", &png(false), 0, 0)
+    } else {
+        None
+    };
+    out[3] = sbix_write(b"flip", &glyph_ref(1), 7, 3);
+    out[4] = sbix_write(b"flip", &glyph_ref(10), 0, 0);
+    out[5] = sbix_write(b"png ", &png(ppem == 40), 0, 0);
+    out[7] = sbix_write(b"flip", &glyph_ref(3), 0, 0);
+    out[8] = if ppem == 10 {
+        sbix_write(b"png ", &png(false), 0, 0)
+    } else {
+        None
+    };
+    out[9] = sbix_write(b"dupe", &glyph_ref(9), 0, 0);
+    out[10] = sbix_write(b"dupe", &glyph_ref(1), 0, 0);
+    out[11] = sbix_write(b"dupe", &glyph_ref(3), 0, 0);
+    out[12] = sbix_write(b"flip", &glyph_ref(12), 0, 0);
+    out[13] = if ppem == 20 || ppem == 52 {
+        sbix_write(b"png ", &png(false), 0, 0)
+    } else {
+        None
+    };
+    out[14] = sbix_write(b"png ", &png(false), 5, -4);
+    out[15] = sbix_write(b"flip", &glyph_ref(14), 1, 1);
+    out[16] = sbix_write(b"png ", &png(true), 0, 0);
+    for k in 1..=10u16 {
+        let kind = if k % 2 == 1 { b"flip" } else { b"dupe" };
+        let to = if k < 10 { 17 + k } else { 1 };
+        out[usize::from(16 + k)] = sbix_write(kind, &glyph_ref(to), 0, 0);
+    }
+    out[27] = sbix_write(b"png ", &sbix_ramp(ppem, false, z), 0, 0);
+    out[28] = sbix_write(b"flip", &glyph_ref(27), 0, 0);
+    out[29] = sbix_write(b"png ", &sbix_ramp(ppem, true, z), 0, 0);
+    out
+}
+
+fn sbix_table(z: &Payloads) -> Vec<u8> {
+    let mut strikes = Vec::new();
+    for ppem in SBIX_STRIKES {
+        let head = 4 + 4 * (usize::from(SBIX_GLYPHS) + 1);
+        let mut strike = Be::default();
+        strike.u16(ppem).u16(72);
+        let mut data = Vec::new();
+        for r in sbix_glyph_records(ppem, z) {
+            strike.n32(head + data.len());
+            data.extend(r.unwrap_or_default());
+        }
+        strike.n32(head + data.len()).bytes(&data);
+        strikes.push(strike.done());
+    }
+    let mut out = Be::default();
+    out.u16(1).u16(1).n32(SBIX_STRIKES.len());
+    let mut at = 8 + 4 * SBIX_STRIKES.len();
+    for s in &strikes {
+        out.n32(at);
+        at += s.len();
+    }
+    for s in &strikes {
+        out.bytes(s);
+    }
+    out.done()
+}
+
+/// The whole of `sbix-strikes.ttf`, its zlib streams from `z`.
+fn sbix_font(z: &Payloads) -> Vec<u8> {
+    let groups: Vec<_> = (1..u32::from(SBIX_GLYPHS))
+        .map(|g| (0xE000 + g, 0xE000 + g, g))
+        .collect();
+    writer::sfnt(vec![
+        (*b"cmap", writer::cmap(&groups)),
+        (*b"head", writer::head()),
+        (*b"hhea", writer::hhea(SBIX_GLYPHS)),
+        (*b"hmtx", writer::hmtx(SBIX_GLYPHS)),
+        (*b"maxp", writer::maxp(SBIX_GLYPHS)),
+        (*b"post", writer::post()),
+        (*b"sbix", sbix_table(z)),
+    ])
+}
+
+fn sbix_payloads() -> (Vec<u8>, Payloads) {
+    let committed = std::fs::read(SBIX).unwrap();
+    let mut z = Payloads::new();
+    z.add(&committed);
+    (committed, z)
+}
+
 #[test]
 fn the_sbix_fixture_is_what_its_generator_writes() {
-    // The generator's table is the fixture's documentation, so the committed
-    // bytes must be what it writes; otherwise the table describes another
-    // file. Both Pythons on the development Mac write the same bytes; a
-    // zlib other than Mark Adler's (zlib-ng) deflates differently and would
-    // fail this without the fixture having changed.
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::env::temp_dir().join(format!("baud-sbix-{}.ttf", std::process::id()));
-    let ran = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-sbix-fixture.py"))
-        .arg(&out)
-        .status()
-        .expect("python3 to run the generator");
-    assert!(ran.success(), "gen-sbix-fixture.py failed");
-    let fresh = std::fs::read(&out).unwrap();
-    std::fs::remove_file(&out).unwrap();
-    let committed =
-        std::fs::read(format!("{root}/baud-font/tests/fonts/sbix-strikes.ttf")).unwrap();
-    assert!(
-        fresh == committed,
-        "sbix-strikes.ttf is not what scripts/gen-sbix-fixture.py writes: regenerate it \
-         and re-pin font-sbix-strikes in MANIFEST.toml"
-    );
+    // The generator's table is the fixture's documentation, so the
+    // committed bytes must be what it writes; otherwise the table describes
+    // another file. Every byte is the generator's but the 33 valid zlib
+    // streams, which must inflate to its rows (`writer`).
+    let (committed, z) = sbix_payloads();
+    assert_eq!(z.valid, 33, "valid streams");
+    assert_eq!(z.invalid, vec![SBIX_CORRUPT.to_vec(); 7], "invalid streams");
+    writer::assert_written("sbix-strikes.ttf", &sbix_font(&z), &committed, &z);
+}
+
+#[test]
+fn a_changed_row_or_byte_fails_the_sbix_generator_check() {
+    // Positive controls for the check above: one generated row changed in
+    // one byte finds no committed stream, and one byte of the file outside
+    // every stream -- strike 20's ppem -- no longer compares.
+    let (committed, z) = sbix_payloads();
+    let z = z.perturbing(5);
+    let fresh = sbix_font(&z);
+    assert_eq!(z.missed(), 1);
+    assert!(fresh != committed);
+    let (_, z) = sbix_payloads();
+    let fresh = sbix_font(&z);
+    assert_eq!((z.missed(), &fresh), (0, &committed));
+    let sbix = table_at(&committed, b"sbix");
+    let strike = sbix
+        + usize::try_from(u32::from_be_bytes(
+            committed[sbix + 12..sbix + 16].try_into().unwrap(),
+        ))
+        .unwrap();
+    let mut moved = committed.clone();
+    moved[strike + 1] ^= 1;
+    assert_eq!(&committed[strike..][..2], &[0, 20]);
+    assert!(fresh != moved);
 }
 
 /// baud's decode of one PNG, as its size and RGBA8.
@@ -1115,7 +1329,7 @@ fn adam7_fixtures() -> Vec<PathBuf> {
 
 #[test]
 fn every_interlaced_fixture_decodes_as_its_twin_and_the_oracle() {
-    // `scripts/gen-adam7-fixtures.py`: each picture with interlace method 1
+    // `ADAM7_DIR`: each picture with interlace method 1
     // and again with method 0, every colour type and depth PNG allows, at
     // 1x1, 2x3, 7x9 and 33x17. PNG 2003 13.10: "Decoders are required to
     // be able to read interlaced images." The two baud decodes and the two
@@ -1223,38 +1437,358 @@ fn an_interlace_method_past_adam7_is_a_header_error() {
     );
 }
 
+// ------------------------------------------------------------------ tests/png/
+
+/// **`tests/png/`: interlaced PNGs and their non-interlaced twins, every
+/// colour type and bit depth PNG allows**, written by [`adam7_files`] for
+/// the Adam7 differential above.
+///
+/// Each picture is written twice from the same samples, once with
+/// interlace method 1 (Adam7) and once with method 0, so a decoder's two
+/// paths must agree with each other as well as with the oracle. The encoder
+/// is this file's own, from `[[source: w3c-png-2003]]`: the pass lattice
+/// from 8.2's 8-by-8 pattern, scanlines packed and padded per reduced image
+/// (7.2), no filter byte for an empty pass (9.1, 13.10), and the prior
+/// scanline taken as zero at the start of every reduced image (9.2).
+///
+/// The sizes leave passes empty: 1x1 has only pass 1; 2x3 has passes with
+/// no columns (2 and 4) and one with no rows (3); 7x9 and 33x17 have every
+/// pass, 33 leaving a partial byte below 8 bits. The first scanline of every
+/// pass after the first non-empty one is filtered Up, Average or Paeth, so a
+/// decoder that carries the previous pass's last row in as "prior" decodes
+/// it wrongly; the generator counts the rows where that happens on a
+/// would-be prior that is non-zero. The 7x9 pictures carry `tRNS`, and split
+/// their zlib stream across `IDAT` chunks of five bytes, mid-pass; the 33x17
+/// ones split it every 97 bytes.
+const ADAM7_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/png");
+
+/// 8.2, as the specification prints it.
+const ADAM7_PATTERN: [[u8; 8]; 8] = [
+    [1, 6, 4, 6, 2, 6, 4, 6],
+    [7, 7, 7, 7, 7, 7, 7, 7],
+    [5, 6, 5, 6, 5, 6, 5, 6],
+    [7, 7, 7, 7, 7, 7, 7, 7],
+    [3, 6, 4, 6, 3, 6, 4, 6],
+    [7, 7, 7, 7, 7, 7, 7, 7],
+    [5, 6, 5, 6, 5, 6, 5, 6],
+    [7, 7, 7, 7, 7, 7, 7, 7],
+];
+
+/// (name, colour type, channels, depths): 11.2.2, table 11.1.
+const ADAM7_COLOURS: [(&str, u8, usize, &[u8]); 5] = [
+    ("g", 0, 1, &[1, 2, 4, 8, 16]),
+    ("rgb", 2, 3, &[8, 16]),
+    ("p", 3, 1, &[1, 2, 4, 8]),
+    ("ga", 4, 2, &[8, 16]),
+    ("rgba", 6, 4, &[8, 16]),
+];
+const ADAM7_SIZES: [(usize, usize); 4] = [(1, 1), (2, 3), (7, 9), (33, 17)];
+
+/// (x0, y0, dx, dy) of pass `p`, read off the pattern.
+fn adam7_lattice(p: u8) -> (usize, usize, usize, usize) {
+    let cells: Vec<(usize, usize)> = (0..8)
+        .flat_map(|r| (0..8).map(move |c| (r, c)))
+        .filter(|&(r, c)| ADAM7_PATTERN[r][c] == p)
+        .collect();
+    let (y0, x0) = cells[0];
+    let cols: std::collections::BTreeSet<usize> =
+        cells.iter().filter(|c| c.0 == y0).map(|c| c.1).collect();
+    let rows: std::collections::BTreeSet<usize> =
+        cells.iter().filter(|c| c.1 == x0).map(|c| c.0).collect();
+    let step = |s: &std::collections::BTreeSet<usize>| {
+        let v: Vec<usize> = s.iter().copied().collect();
+        if v.len() > 1 { v[1] - v[0] } else { 8 }
+    };
+    (x0, y0, step(&cols), step(&rows))
+}
+
+/// xorshift32.
+struct Xorshift(u32);
+
+impl Xorshift {
+    fn new(seed: u32) -> Self {
+        Self(if seed == 0 { 1 } else { seed })
+    }
+    fn next(&mut self) -> u32 {
+        let mut s = self.0;
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        self.0 = s;
+        s
+    }
+}
+
+type Pixels = Vec<Vec<Vec<u32>>>;
+
+/// One scanline, samples big-endian, sub-byte samples high bits first, the
+/// last byte's unused low bits zero (7.2).
+fn adam7_pack(row: &[Vec<u32>], depth: u8) -> Vec<u8> {
+    let samples = row.iter().flatten().copied();
+    let byte = |v: u32| u8::try_from(v).unwrap();
+    match depth {
+        16 => samples
+            .flat_map(|s| u16::try_from(s).unwrap().to_be_bytes())
+            .collect(),
+        8 => samples.map(byte).collect(),
+        _ => {
+            let (mut out, mut acc, mut n) = (Vec::new(), 0u32, 0u8);
+            for s in samples {
+                acc = (acc << depth) | s;
+                n += depth;
+                if n == 8 {
+                    out.push(byte(acc));
+                    (acc, n) = (0, 0);
+                }
+            }
+            if n > 0 {
+                out.push(byte(acc << (8 - n)));
+            }
+            out
+        }
+    }
+}
+
+fn adam7_paeth(a: u8, b: u8, c: u8) -> u8 {
+    let p = i16::from(a) + i16::from(b) - i16::from(c);
+    let (pa, pb, pc) = (
+        (p - i16::from(a)).abs(),
+        (p - i16::from(b)).abs(),
+        (p - i16::from(c)).abs(),
+    );
+    if pa <= pb && pa <= pc {
+        a
+    } else if pb <= pc {
+        b
+    } else {
+        c
+    }
+}
+
+/// One filtered scanline: its filter type byte, then each byte less its
+/// prediction (9.2).
+fn adam7_filter(kind: u8, line: &[u8], prior: &[u8], bpp: usize) -> Vec<u8> {
+    let mut out = vec![kind];
+    for (x, &o) in line.iter().enumerate() {
+        let a = if x >= bpp { line[x - bpp] } else { 0 };
+        let b = prior[x];
+        let c = if x >= bpp { prior[x - bpp] } else { 0 };
+        let pred = match kind {
+            0 => 0,
+            1 => a,
+            2 => b,
+            3 => u8::try_from((u16::from(a) + u16::from(b)) / 2).unwrap(),
+            _ => adam7_paeth(a, b, c),
+        };
+        out.push(o.wrapping_sub(pred));
+    }
+    out
+}
+
+/// The reduced images a picture is stored as: itself, or Adam7's non-empty
+/// passes.
+fn adam7_reduced(px: &Pixels, interlace: u8) -> Vec<Pixels> {
+    if interlace == 0 {
+        return vec![px.clone()];
+    }
+    let (w, h) = (px[0].len(), px.len());
+    (1..=7)
+        .filter_map(|p| {
+            let (x0, y0, dx, dy) = adam7_lattice(p);
+            let rows: Pixels = (y0..h)
+                .step_by(dy)
+                .map(|y| (x0..w).step_by(dx).map(|x| px[y][x].clone()).collect())
+                .collect();
+            (!rows.is_empty() && !rows[0].is_empty()).then_some(rows)
+        })
+        .collect()
+}
+
+/// The filtered scanlines, counting in `reset` each pass start whose
+/// wrongly carried prior would have been non-zero.
+fn adam7_encode(px: &Pixels, depth: u8, interlace: u8, reset: &mut usize) -> Vec<u8> {
+    let bpp = (usize::from(depth) * px[0][0].len() / 8).max(1);
+    let mut data = Vec::new();
+    let mut previous_last: Option<Vec<u8>> = None;
+    for (k, image) in adam7_reduced(px, interlace).iter().enumerate() {
+        let lines: Vec<Vec<u8>> = image.iter().map(|r| adam7_pack(r, depth)).collect();
+        let mut prior = vec![0u8; lines[0].len()];
+        for (j, line) in lines.iter().enumerate() {
+            let kind = if j == 0 && k > 0 {
+                if previous_last
+                    .as_ref()
+                    .is_some_and(|l| l.iter().any(|&b| b != 0))
+                {
+                    *reset += 1;
+                }
+                2 + k % 3
+            } else {
+                (j + k) % 5
+            };
+            data.extend(adam7_filter(u8::try_from(kind).unwrap(), line, &prior, bpp));
+            prior.clone_from(line);
+        }
+        previous_last = lines.last().cloned();
+    }
+    data
+}
+
+/// A PNG: `ihdr`, the chunks that go before the image data, and `stream`
+/// split into `IDAT`s of `split` bytes.
+fn adam7_png(ihdr: &[u8], before: &[u8], stream: &[u8], split: Option<usize>) -> Vec<u8> {
+    let mut out = writer::SIGNATURE.to_vec();
+    out.extend(writer::chunk(b"IHDR", ihdr));
+    out.extend_from_slice(before);
+    for part in stream.chunks(split.unwrap_or(stream.len())) {
+        out.extend(writer::chunk(b"IDAT", part));
+    }
+    out.extend(writer::chunk(b"IEND", b""));
+    out
+}
+
+/// Every file of `tests/png/`, by name, and the pass starts that test the
+/// prior reset.
+fn adam7_files(z: &Payloads) -> (Vec<(String, Vec<u8>)>, usize) {
+    let mut reset = 0;
+    let mut seed = 0x9E37_79B9u32;
+    let mut out = Vec::new();
+    for (name, ctype, channels, depths) in ADAM7_COLOURS {
+        for &depth in depths {
+            for (w, h) in ADAM7_SIZES {
+                seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12345);
+                let mut rng = Xorshift::new(seed);
+                let entries = (1u32 << depth).min(200);
+                let top = if ctype == 3 { entries } else { 1 << depth };
+                let px: Pixels = (0..h)
+                    .map(|_| {
+                        (0..w)
+                            .map(|_| (0..channels).map(|_| rng.next() % top).collect())
+                            .collect()
+                    })
+                    .collect();
+                let mut before = Vec::new();
+                if ctype == 3 {
+                    let plte: Vec<u8> = (0..entries * 3)
+                        .map(|_| rng.next().to_le_bytes()[0])
+                        .collect();
+                    before.extend(writer::chunk(b"PLTE", &plte));
+                }
+                let sample = |s: u32| u16::try_from(s).unwrap().to_be_bytes();
+                let trns: Option<Vec<u8>> = match ctype {
+                    _ if (w, h) != (7, 9) => None,
+                    3 => Some(
+                        (0..(entries / 2).max(1))
+                            .map(|_| rng.next().to_le_bytes()[0])
+                            .collect(),
+                    ),
+                    0 => Some(sample(px[0][0][0]).to_vec()),
+                    2 => Some(px[0][0].iter().flat_map(|&s| sample(s)).collect()),
+                    _ => None,
+                };
+                if let Some(trns) = trns {
+                    before.extend(writer::chunk(b"tRNS", &trns));
+                }
+                let split = match (w, h) {
+                    (7, 9) => Some(5),
+                    (33, 17) => Some(97),
+                    _ => None,
+                };
+                for (interlace, tag) in [(1, "i"), (0, "n")] {
+                    let raw = adam7_encode(&px, depth, interlace, &mut reset);
+                    let ihdr = Be::default()
+                        .n32(w)
+                        .n32(h)
+                        .bytes(&[depth, ctype, 0, 0, interlace])
+                        .done();
+                    out.push((
+                        format!("{name}{depth}-{w}x{h}-{tag}.png"),
+                        adam7_png(&ihdr, &before, &z.deflate(&raw), split),
+                    ));
+                }
+            }
+        }
+    }
+    (out, reset)
+}
+
+fn adam7_committed() -> (Vec<(String, Vec<u8>)>, Payloads) {
+    let mut files: Vec<(String, Vec<u8>)> = std::fs::read_dir(ADAM7_DIR)
+        .unwrap()
+        .map(|e| {
+            let e = e.unwrap();
+            (
+                e.file_name().to_string_lossy().into_owned(),
+                std::fs::read(e.path()).unwrap(),
+            )
+        })
+        .collect();
+    files.sort();
+    let mut z = Payloads::new();
+    for (_, bytes) in &files {
+        z.add(bytes);
+    }
+    (files, z)
+}
+
 #[test]
 fn the_adam7_fixtures_are_what_their_generator_writes() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::env::temp_dir().join(format!("baud-adam7-{}", std::process::id()));
-    let ran = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-adam7-fixtures.py"))
-        .arg(&out)
-        .status()
-        .expect("python3 to run the generator");
-    assert!(ran.success(), "gen-adam7-fixtures.py failed");
-    let committed = format!("{root}/baud-font/tests/png");
-    let mut names: Vec<_> = std::fs::read_dir(&committed)
-        .unwrap()
-        .map(|e| e.unwrap().file_name())
-        .collect();
-    names.sort();
-    let mut fresh: Vec<_> = std::fs::read_dir(&out)
-        .unwrap()
-        .map(|e| e.unwrap().file_name())
-        .collect();
+    // Every byte is the generator's but the 120 zlib streams, one a file,
+    // which must inflate to its filtered scanlines (`writer`).
+    let (committed, z) = adam7_committed();
+    assert_eq!((z.valid, z.invalid.len()), (120, 0));
+    let (mut fresh, reset) = adam7_files(&z);
     fresh.sort();
-    assert_eq!(names, fresh, "the generator writes another set of files");
-    for n in &names {
-        let a = std::fs::read(Path::new(&committed).join(n)).unwrap();
-        let b = std::fs::read(out.join(n)).unwrap();
-        assert!(
-            a == b,
-            "{n:?} is not what scripts/gen-adam7-fixtures.py writes"
+    let names = |v: &[(String, Vec<u8>)]| v.iter().map(|f| f.0.clone()).collect::<Vec<_>>();
+    assert_eq!(
+        names(&committed),
+        names(&fresh),
+        "the generator writes another set of files"
+    );
+    let wrong: Vec<&str> = committed
+        .iter()
+        .zip(&fresh)
+        .filter(|(a, b)| a.1 != b.1)
+        .map(|(a, _)| a.0.as_str())
+        .collect();
+    if !wrong.is_empty() || z.missed() > 0 {
+        let out = std::env::temp_dir().join(format!("baud-{}-png", std::process::id()));
+        std::fs::create_dir_all(&out).unwrap();
+        for (name, bytes) in &fresh {
+            std::fs::write(out.join(name), bytes).unwrap();
+        }
+        panic!(
+            "{} file(s) are not what the generator writes ({wrong:?}), and {} scanline \
+             buffer(s) match no committed stream; the generator's files are in {}",
+            wrong.len(),
+            z.missed(),
+            out.display()
         );
     }
-    std::fs::remove_dir_all(&out).unwrap();
-    assert_eq!(names.len(), 120);
+    assert_eq!(committed.len(), 120);
+    // Every pass after the first starts on a row filtered against "prior";
+    // 221 of those would have been non-zero had the last pass's row been
+    // carried in.
+    assert_eq!(reset, 221);
+}
+
+#[test]
+fn a_changed_scanline_or_byte_fails_the_adam7_generator_check() {
+    // Positive controls: one scanline buffer changed in its last byte finds
+    // no committed stream, and one interlace byte flipped in a committed
+    // header no longer compares.
+    let (committed, z) = adam7_committed();
+    let z = z.perturbing(17);
+    let (mut fresh, _) = adam7_files(&z);
+    fresh.sort();
+    assert_eq!(z.missed(), 1);
+    assert!(fresh != committed);
+    let (committed, z) = adam7_committed();
+    let (mut fresh, _) = adam7_files(&z);
+    fresh.sort();
+    assert!(fresh == committed && z.missed() == 0);
+    let mut moved = committed.clone();
+    moved[0].1[28] ^= 1;
+    assert!(fresh != moved);
 }
 
 #[test]

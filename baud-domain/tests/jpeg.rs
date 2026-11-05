@@ -8,8 +8,8 @@
 //! is the IJG's, so the same holds here. The forms the IJG's images do not
 //! reach -- grey, 4:4:4, 4:2:2 with restart markers, 4:1:1, 4:4:0, RGB,
 //! sequential one component a scan, progressive 4:2:0 at an odd size,
-//! baseline 4:2:0 at 29 by 21 -- are baud's own scene
-//! (`baud-domain/tests/jpeg/scene.py`) encoded by the IJG's 6b `cjpeg`,
+//! baseline 4:2:0 at 29 by 21 -- are baud's own scene (`scene` below,
+//! `baud-domain/tests/jpeg/scene.ppm`) encoded by the IJG's 6b `cjpeg`,
 //! `-rgb` by libjpeg-turbo 3.2.0's, and each decoded by 6b's `djpeg -dct
 //! int`, as `baud-domain/tests/jpeg/README.md` records.
 //!
@@ -251,6 +251,87 @@ fn twelve_bit_samples_draw_at_their_high_eight_bits() {
 
 const SCENE: &[u8] = include_bytes!("jpeg/scene.ppm");
 const SCENE16: &[u8] = include_bytes!("jpeg/scene16.ppm");
+
+/// The C library's `rand` step, `seed * 1103515245 + 12345` kept to 31
+/// bits, that seeds every picture written below.
+fn lcg(seed: &mut u32) -> u32 {
+    *seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12345) & 0x7fff_ffff;
+    *seed
+}
+
+/// **baud's scene**, the source of `scene.ppm` and `scene16.ppm`: 61 by
+/// 45, gradients, a hard edge and a checker, so every sampling ratio and
+/// the IDCT see detail at block edges. At 16 bits each sample is its 8-bit
+/// value times 257 with a deterministic eight-bit dither in the low byte,
+/// so the low byte carries detail.
+fn scene(sixteen: bool) -> Vec<u8> {
+    let (w, h) = (61u32, 45u32);
+    let max = if sixteen { 65535 } else { 255 };
+    let mut out = format!("P6\n{w} {h}\n{max}\n").into_bytes();
+    let mut seed = 12345;
+    for y in 0..h {
+        for x in 0..w {
+            let n = (lcg(&mut seed) >> 16) & 15;
+            let r = (x * 4 + n) & 255;
+            let g = (y * 5 + if (x / 6 + y / 6) % 2 == 1 { 40 } else { 0 }) & 255;
+            let b = if x > 30 && y < 20 { 230 } else { (x * y) & 255 };
+            for v in [r, g, b] {
+                if sixteen {
+                    let dither = (lcg(&mut seed) >> 16) & 255;
+                    let sample = u16::try_from((v * 257) ^ dither).unwrap();
+                    out.extend_from_slice(&sample.to_be_bytes());
+                } else {
+                    out.push(u8::try_from(v).unwrap());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// **`edge16.pgm`**: a 16 by 8 16-bit grey picture whose neighbours differ
+/// by half the range and more, so a lossless difference reaches 32768 (SSSS
+/// 16) and the arithmetic coder's magnitude its top category.
+fn edge16() -> Vec<u8> {
+    let (w, h) = (16u32, 8u32);
+    let mut rows: Vec<Vec<u32>> = [[0, 32768], [32768, 0], [65535, 32767], [1, 32769]]
+        .iter()
+        .map(|pair| pair.repeat(8))
+        .collect();
+    let mut seed = 4242;
+    for y in 4..h {
+        rows.push(
+            (0..w)
+                .map(|x| {
+                    ((lcg(&mut seed) >> 8) & 0xFFFF) ^ if (x + y) % 2 == 1 { 0x8000 } else { 0 }
+                })
+                .collect(),
+        );
+    }
+    let mut out = format!("P5\n{w} {h}\n65535\n").into_bytes();
+    for v in rows.iter().flatten() {
+        out.extend_from_slice(&u16::try_from(*v).unwrap().to_be_bytes());
+    }
+    out
+}
+
+/// **The committed sources are what their writers write**, each held byte
+/// for byte; a copy one byte off compares unequal.
+#[test]
+fn the_scene_and_the_edge_are_what_their_writers_write() {
+    let edge: &[u8] = include_bytes!("jpeg/edge16.pgm");
+    for (name, fresh, committed) in [
+        ("scene.ppm", scene(false), SCENE),
+        ("scene16.ppm", scene(true), SCENE16),
+        ("edge16.pgm", edge16(), edge),
+    ] {
+        assert!(fresh == committed, "{name} is not what its writer writes");
+        let mut off = fresh.clone();
+        let last = off.len() - 1;
+        off[last] ^= 1;
+        assert!(off != committed, "{name}: the check cannot fire");
+    }
+}
 
 /// **Each of the seven predictors decodes to the source** (H.2, Table
 /// H.1): the lossless process returns the picture it was given, so the

@@ -34,11 +34,12 @@ sequence nothing asked for.
 
 ## The key tables are extracted, not transcribed
 
-`scripts/extract-keys.py` reads the ten tables out of `[[source: ctlseqs]]` --
-**112 key rows** -- and prints them with the line each was
-found at. A key table written from memory is exactly the "guessed table that
-would be unrecoverable and would look like it worked" this project refused for
-DEC line drawing, so it is generated and re-runnable rather than pasted.
+`key_tables` in `baud-core/tests/coverage.rs` reads the ten tables out of
+`[[source: ctlseqs]]` -- **112 key rows** -- and `print_the_key_tables`
+prints them with the line each was found at. A key table written from
+memory is exactly the "guessed table that would be unrecoverable and would
+look like it worked" this project refused for DEC line drawing, so it is
+generated and re-runnable rather than pasted.
 
 `scripts/extract-kitty-keys.py` does the same for
 `[[source: kitty-keyboard]]`'s "Functional key definitions" table -- **111
@@ -54,7 +55,7 @@ It and the tests carry positive controls (`ESCAPE`, `CAPS_LOCK` and
 extraction fails loudly rather than reporting a plausible subset. It is the
 source of truth the kitty encoder's
 functional-key table is gated against, the way the base rows above are gated
-against `extract-keys.py`. ~~The encoder that consumes it is not built yet.~~
+against `key_tables`. ~~The encoder that consumes it is not built yet.~~
 It is built, and three tests in `baud-core/tests/kitty_encode.rs` read the
 table: `functional_keys_match_the_source` (Esc, Enter, Tab, Backspace, the
 arrows, the editing keys and F1-F20), `keypad_keys_match_the_source` (the

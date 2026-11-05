@@ -219,7 +219,7 @@ they were built from.
 - **From:** https://github.com/harfbuzz/harfbuzz/releases/tag/12.3.0, run on baud-font/tests/fonts/
 - **Files:** [baud-font/tests/var/advances.txt](baud-font/tests/var/advances.txt), [baud-font/tests/var/marks.txt](baud-font/tests/var/marks.txt), [baud-font/tests/var/normalize.txt](baud-font/tests/var/normalize.txt)
 
-### A subset of Noto Color Emoji (scripts/gen-cbdt-fixture.py), a Modified Version
+### A subset of Noto Color Emoji (baud-font/tests/noto_subset.rs), a Modified Version
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1

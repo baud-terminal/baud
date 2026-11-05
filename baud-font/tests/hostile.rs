@@ -28,7 +28,7 @@ const NOTO_SUBSET: &[u8] = include_bytes!("fonts/NotoColorEmoji-subset.ttf");
 /// or an offset, which is where a hop bound that misses a kind would spin.
 const SBIX: &[u8] = include_bytes!("fonts/sbix-strikes.ttf");
 /// A `CBLC` size for each way the lookup refuses or reads one but a nested
-/// record, which `cblc.rs`'s surgeries and H1 cover (`scripts/gen-cblc-fixture.py`).
+/// record, which `cblc.rs`'s surgeries and H1 cover (`cblc.rs`'s `cblc_font`).
 const CBLC_CASES: &[u8] = include_bytes!("bitmap/cblc-cases.ttf");
 /// 2.5 KB of `gvar`-heavy font: a flipped byte lands in the variation data
 /// far more often than in a real face.

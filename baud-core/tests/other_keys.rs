@@ -14,7 +14,7 @@
 //! here.** ctlseqs states four examples in prose -- alt-Tab in both formats,
 //! shift-Tab at level 2, and space at level 3 -- and a table transcribed by hand
 //! is a guessed table that looks like it worked, which is the reason
-//! `scripts/extract-keys.py` exists and the reason `key_encode.rs` reads its own
+//! `coverage.rs` extracts the key tables and the reason `key_encode.rs` reads its own
 //! rows the same way.
 
 #[path = "support/mod.rs"]

@@ -2210,3 +2210,46 @@ order, which `sort` gave here and glibc's locale collation does not, so
 on Linux the per-file lines may come in another order than before. The
 changelog's parsers are compiled with `regex`, the engine release-plz
 and git-cliff run them with, where Python's `re` read them before.
+
+## The bitmap and picture fixtures written by their tests
+
+Not timed: no source under any `src/` changed, and the one manifest
+change is a dev-dependency, `miniz_oxide` 0.9.1 for baud-font's tests,
+already in the lockfile. `ingest2` built at one path from base, change
+and an A/A copy of the change: all three binaries are byte for byte
+the same, 2,716,880 bytes.
+
+Each Python generator was run on the tree before it was deleted, and
+each Rust generator that replaces it writes the committed bytes:
+
+| fixture | Rust | streams spliced / literal |
+|---|---|---|
+| `sbix-strikes.ttf` | `bitmap.rs`, `sbix_font` | 33 / 7 |
+| `cblc-cases.ttf` | `cblc.rs`, `cblc_font` | 66 / 0 |
+| `tests/png/`, 120 files | `bitmap.rs`, `adam7_files` | 120 / 0 |
+| `NotoColorEmoji-subset.ttf` | `noto_subset.rs`, ignored | none |
+| `scene.ppm`, `scene16.ppm`, `edge16.pgm` | `jpeg.rs` | none |
+
+The zlib streams are the one thing not regenerated. All 219 valid ones
+are taken from the committed files by what they inflate to. The
+generator asks for the stream of the rows it computes, so a changed row
+finds none. The 7 corrupt streams are written as the literal
+`78 9c ff ff ff ff`. The Adam7 pass starts that test the prior reset
+number 221, as the Python printed. The subsetter, given the pinned
+Noto (sha256 `72a635cb...`, fetched from its URL), writes 51,080 bytes
+equal to the committed subset.
+
+`key_tables` in `coverage.rs` replaces `extract-keys.py`. It still
+counts 10 tables and 112 key rows, its listing equals the Python's
+line for line (133 lines), and both agree on three perturbed copies of
+`ctlseqs`: a header deleted (9 tables, 108 rows), a row's first bar
+deleted, and U+001C/U+001F as whitespace.
+
+Each check fired on these perturbations, run by hand and then
+reverted: sbix's white, a `post` field, CBLC's purple, an Adam7 pass
+start's filter, the scene's blue, edge16's seed, the 16-bit dither,
+and the subsetter's format-3 padding. The committed controls: sbix,
+CBLC and Adam7 each have one generated row changed in its last byte and
+one header byte moved; the JPEG test flips a byte of each picture; the
+key extraction has the lost header and the U+001C separator. The
+subsetter has none, since its source is not committed.

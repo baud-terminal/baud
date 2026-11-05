@@ -795,36 +795,197 @@ fn every_out_row_states_a_reason() {
     );
 }
 
+/// Whitespace as Python's `str.isspace` has it, which is what `\s` and
+/// `strip()` matched in the extractor this replaced: Unicode's White_Space
+/// and U+001C to U+001F, which Python counts and Rust's `char` does not.
+fn py_space(c: char) -> bool {
+    c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
+}
+
+fn py_strip(s: &str) -> &str {
+    s.trim_matches(py_space)
+}
+
+/// One key table of `[[source: ctlseqs]]`: the line its header is on, the
+/// header's columns joined by " | ", and each row's key and cells.
+type KeyTable = (usize, String, Vec<(String, Vec<String>)>);
+
+/// **xterm's key tables, read out of the pinned `ctlseqs`.** A table
+/// starts on a header line whose first column is `Key` (`^\s+Key\s{2,}(\S.*)$`),
+/// splits its columns on runs of two spaces or more, and takes each
+/// following line of the form `^\s+([^|]+?)\s*\|(.*)$` as a row, skipping
+/// rules (`^\s*[-+]{4,}`) and the blank lines before its first row, until a
+/// blank line or another line after one, within 59 lines of the header. The
+/// rows are pipe-delimited: splitting on whitespace gets a long key name
+/// wrong, since "Cursor Right" leaves a single space before the bar and
+/// would land in the second column.
+fn key_tables(text: &str) -> Vec<KeyTable> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let header = |line: &str| -> Option<String> {
+        let rest = line.trim_start_matches(py_space);
+        if rest.len() == line.len() {
+            return None;
+        }
+        let rest = rest.strip_prefix("Key")?;
+        let cols = rest.trim_start_matches(py_space);
+        if rest.chars().count() - cols.chars().count() < 2 || cols.is_empty() {
+            return None;
+        }
+        Some(cols.to_string())
+    };
+    let rule = |line: &str| {
+        let rest = line.trim_start_matches(py_space);
+        rest.chars().take_while(|&c| c == '-' || c == '+').count() >= 4
+    };
+    let row = |line: &str| -> Option<(String, Vec<String>)> {
+        let bar = line.find('|')?;
+        let key = &line[..bar];
+        let starts_blank = key.chars().next().is_some_and(py_space);
+        if !starts_blank || key.chars().count() < 2 {
+            return None;
+        }
+        let cells = line[bar + 1..].split('|').map(|c| py_strip(c).to_string());
+        Some((py_strip(key).to_string(), cells.collect()))
+    };
+    // A run of two or more whitespace characters, as `re.split(r"\s{2,}")`.
+    let columns = |s: &str| -> Vec<String> {
+        let chars: Vec<char> = s.chars().collect();
+        let (mut out, mut cur, mut i) = (Vec::new(), String::new(), 0);
+        while i < chars.len() {
+            let run = chars[i..].iter().take_while(|&&c| py_space(c)).count();
+            if run >= 2 {
+                out.push(std::mem::take(&mut cur));
+                i += run;
+            } else {
+                cur.push(chars[i]);
+                i += 1;
+            }
+        }
+        out.push(cur);
+        out
+    };
+    let mut out = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let Some(cols) = header(line) else { continue };
+        let cols = columns(py_strip(&cols)).join(" | ");
+        let mut rows = Vec::new();
+        for l in lines.iter().skip(i + 1).take(59) {
+            if rule(l) {
+                continue;
+            }
+            if py_strip(l).is_empty() {
+                if rows.is_empty() {
+                    continue;
+                }
+                break;
+            }
+            match row(l) {
+                Some(r) => rows.push(r),
+                None if rows.is_empty() => continue,
+                None => break,
+            }
+        }
+        if !rows.is_empty() {
+            out.push((i + 1, cols, rows));
+        }
+    }
+    out
+}
+
+/// The tables as the extractor printed them: each with its line and rows,
+/// then the totals. `docs/input-coverage.md` is written against this.
+fn key_listing(tables: &[KeyTable]) -> String {
+    let mut out = String::new();
+    for (at, cols, rows) in tables {
+        out += &format!("--- line {at}: Key | {cols}  ({} rows)\n", rows.len());
+        for (k, v) in rows {
+            out += &format!("    {k:<18} {}\n", v.join("  "));
+        }
+        out += "\n";
+    }
+    out + &key_count(tables) + "\n"
+}
+
+fn key_count(tables: &[KeyTable]) -> String {
+    let total: usize = tables.iter().map(|t| t.2.len()).sum();
+    format!("{} tables, {total} key rows", tables.len())
+}
+
+fn ctlseqs() -> String {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let bytes = std::fs::read(format!("{root}/docs/research/sources/xterm-ctlseqs.txt"))
+        .expect("the pinned ctlseqs");
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// Prints the key tables with the line each was found at, for writing
+/// `docs/input-coverage.md` against:
+/// `cargo test -p baud-core --test coverage -- --ignored --nocapture print_the_key_tables`.
+#[test]
+#[ignore = "a tool: prints the key tables docs/input-coverage.md lists"]
+fn print_the_key_tables() {
+    print!("{}", key_listing(&key_tables(&ctlseqs())));
+}
+
+/// Positive controls for the extraction: a table whose header line is lost
+/// takes its rows with it, and the count moves; a separator of Python's
+/// whitespace that Rust's `char` does not count still splits a header.
+#[test]
+fn a_lost_header_changes_the_key_count() {
+    let text = ctlseqs();
+    let lost: Vec<&str> = text
+        .split('\n')
+        .enumerate()
+        .filter(|&(i, _)| i != 2472)
+        .map(|(_, l)| l)
+        .collect();
+    assert_eq!(
+        key_count(&key_tables(&lost.join("\n"))),
+        "9 tables, 108 key rows"
+    );
+    let table = "  Key\u{1c}\u{1c}Normal  Application\n  Up  | CSI A | SS3 A\n";
+    let got = key_tables(table);
+    assert_eq!(got[0].1, "Normal | Application");
+    assert_eq!(
+        got[0].2,
+        [(
+            "Up".to_string(),
+            vec!["CSI A".to_string(), "SS3 A".to_string()]
+        )]
+    );
+}
+
 /// **`docs/input-coverage.md`'s row counts still match the source.**
 ///
 /// The key tables in that document are extracted from `[[source: ctlseqs]]` by
-/// `scripts/extract-keys.py`, not transcribed. A key table written from memory
+/// [`key_tables`], not transcribed. A key table written from memory
 /// is the "guessed table that would be unrecoverable and would look like it
 /// worked" this project refused for DEC line drawing, so the extraction has to
 /// stay live rather than having been run once.
 ///
 /// This is the positive control as much as the staleness check: if the
-/// extractor stops matching -- a regex that no longer fires, a source that
+/// extractor stops matching -- a pattern that no longer fires, a source that
 /// reflowed -- it reports zero tables, and zero would otherwise look exactly
 /// like agreement with a document nobody updated.
 #[test]
 fn the_input_key_tables_are_still_extractable() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/extract-keys.py"))
-        .arg("--count")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the extractor");
-    assert!(out.status.success(), "extract-keys.py failed");
-    let got = String::from_utf8_lossy(&out.stdout);
-    let got = got.trim();
+    let tables = key_tables(&ctlseqs());
+    let got = key_count(&tables);
 
     assert_eq!(
         got, "10 tables, 112 key rows",
         "the extraction changed. If `ctlseqs` was re-pinned this is expected \
          and docs/input-coverage.md needs regenerating; if not, the extractor \
          stopped matching and is reporting agreement it did not verify."
+    );
+    let lines: Vec<String> = tables.iter().map(|t| t.0.to_string()).collect();
+    assert_eq!(
+        lines,
+        [
+            "2473", "2485", "2498", "2529", "2552", "2628", "2672", "2685", "2703", "2713"
+        ],
+        "the tables are found at other lines"
     );
 
     let doc = std::fs::read_to_string(format!("{root}/docs/input-coverage.md"))

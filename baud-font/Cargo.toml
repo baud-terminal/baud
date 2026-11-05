@@ -25,6 +25,9 @@ baud-domain = { workspace = true }
 # differential test -- the `baud-difftest` discipline, one crate over.
 ttf-parser = "0.25.1"
 png = "0.17.16"
+# Inflates the committed fixtures' zlib streams, which the generators in
+# `tests/writer/` hold to the rows they compute.
+miniz_oxide = "0.9.1"
 # The hostile-input property: a font from disk is the same class of input as
 # bytes from a pty, and the contract is that no byte string panics.
 proptest = "1"

@@ -15,7 +15,7 @@
 //! that makes `DA` under-claim as a VT102.
 //!
 //! The expectations are read out of the pinned specification rather than
-//! written here, for the reason `scripts/extract-keys.py` exists: a key table
+//! written here, for the reason `coverage.rs` extracts the key tables: a key table
 //! transcribed by hand is a guessed table that looks like it worked.
 
 #[path = "support/mod.rs"]
