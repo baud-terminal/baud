@@ -2073,11 +2073,10 @@ playing from tick 0, 5, 30 and 60.
 | on a tick | drawn on its wake | drawn on its wake, the same vsync |
 | between ticks | drawn on its wake | drawn on the next tick, one vsync later |
 
-Between ticks the logo costs one vsync, 8.3 ms at 120 Hz. That is a case
-the headless timeline did not separate: it found each read drawn within
-13.6 ms with the logo on and off. Every frame sets the last commit, and
-while the logo draws one a tick a wake finds it younger than the
-interval and leaves the read to the tick: the flood rule every timed
+Between ticks the logo costs one vsync, 8.3 ms at 120 Hz. Every frame
+sets the last commit, and while the logo draws one a tick a wake finds
+it younger than the interval and leaves the read to the tick: the flood
+rule every timed
 effect shares, a trail, a transition or the scrollbar's fade among them.
 Timing the rule from the last frame that drew a read instead would add
 frames to output under any animation; unmeasured, and not changed here.

@@ -5,8 +5,9 @@
 //! event -- is queued at the event's point, in order, and emptied by
 //! `take`; with no window, as these events have, the point as given (a
 //! window's goes to the screen, `tests/on_screen.rs`). The view is made
-//! and never put in a window, so nothing is shown; the events are built by `NSEvent`'s own constructor
-//! and sent to the area's own owner, as AppKit sends them.
+//! and never put in a window, so nothing is shown; the events are built
+//! by `NSEvent`'s own constructor and sent to the area's own owner, as
+//! AppKit sends them.
 //!
 //! `harness = false` because AppKit views are main-thread-only and
 //! libtest runs every test on a thread of its own; this `main` is the

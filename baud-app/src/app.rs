@@ -15948,9 +15948,9 @@ fn in_view_at(bounds: NSRect, p: NSPoint) -> InView {
 
 /// **The title strip's lights in the terminal view's device pixels**: each
 /// shown light's frame in the flipped view's points, at `scale`, above the
-/// view's top in a window and over it in full screen; the tip opens down from the main display, whose first cell
-/// is at `origin`, a cell `cell` and the frame's right edge at `right`.
-/// None with no light shown.
+/// view's top in a window and over it in full screen; the tip opens down
+/// from the main display, whose first cell is at `origin`, a cell `cell`
+/// and the frame's right edge at `right`. None with no light shown.
 fn strip_lights(
     in_view: baud_render::ByLed<Option<NSRect>>,
     scale: f64,

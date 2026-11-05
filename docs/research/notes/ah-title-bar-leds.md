@@ -1920,10 +1920,11 @@ what a modem's CS was, and dark says the line closed.
 ## 18. Built: every light's hover text at once, drawn by baud on macOS too
 
 The strip's lights and the line's on macOS carried AppKit's `toolTip`,
-which shows only after the system's hover delay. baud draws each light's text itself now, as Linux already did
-(`baud_render::tip`), on the frame after the pointer reaches the light,
-with no dwell, and no `toolTip` is set, so the system's never shows as
-well. The pixels are the same on both systems.
+which shows only after the system's hover delay. baud draws each light's
+text itself now, as Linux already did (`baud_render::tip`), on the frame
+after the pointer reaches the light, with no dwell, and no `toolTip` is
+set, so the system's never shows as well. The pixels are the same on
+both systems.
 
 - **Heard**: a tracking area on each light's view, owned by one object
   (`baud_present_macos::hover`), entered and exited always and in the

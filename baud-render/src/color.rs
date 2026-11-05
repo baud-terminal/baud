@@ -1224,9 +1224,8 @@ impl Theme {
         // that names either -- or kitty's `cursor none` -- takes both from
         // the file, an unset one the cell's colours swapped, as before
         // baud's amber, so baud's text never lands under a colour it was
-        // not chosen for. A file that names neither keeps the amber.
-        // A file that names neither keeps the amber, chosen again against
-        // the file's page.
+        // not chosen for. A file that names neither keeps the amber, chosen
+        // again against the file's page.
         let none = scheme.cursor_text_under == CursorText::UnderACursorColour;
         if scheme.cursor.is_some() || scheme.cursor_text.is_some() || none {
             self.cursor = None;
