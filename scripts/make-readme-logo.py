@@ -78,11 +78,12 @@ ones -- it runs the tests that hold them, and prints what they read:
   - baud-bench's readme_logo_flashes: the census of the GIFs.
 
 **The environment is pinned whole.** Python with Pillow and NumPy comes
-from nixpkgs 7dd199b0 (tools/shell.nix's pin for the pictures), fetched by hash, and
-gifski from readme-film.sh's; the script runs itself again under that
-Python with -I and refuses other versions. The frames come from the
-repository's renderer, built by the cargo on PATH. The generator's
-arithmetic is the same on every platform (scripts/readme-logo/det.py);
+from nixpkgs 7dd199b0, tools/shell.nix's pin for the pictures,
+fetched by hash, and gifski from readme-film.sh's; the script runs
+itself again under that Python with -I and refuses other versions. The
+frames come from the repository's renderer, built by the cargo on PATH.
+The generator's arithmetic is the same on every platform
+(scripts/readme-logo/det.py);
 the files were made on aarch64-darwin, and --check runs by hand, not in CI.
 """
 

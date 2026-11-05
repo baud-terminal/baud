@@ -90,8 +90,9 @@ and no more flashes at a pixel or strict area than the files measured.
 `scripts/make-readme-logo.py` films both halves, encodes them with
 gifski 1.34.0 from `readme-film.sh`'s nixpkgs and Pillow from nixpkgs
 `7dd199b0`, the revision `tools/shell.nix` pins for the pictures, every
-pixel within 3 levels of the page set to it first so the encoder cannot haze the page (0.0004% of the dark
-GIF's page pixels are off it, by at most 13 levels), checks both
+pixel within 3 levels of the page set to it first so the encoder cannot
+haze the page (0.0004% of the dark GIF's page pixels are off it, by at
+most 13 levels), checks both
 encoders write the same bytes twice, takes the SVGs' census, writes the
 files and runs the tests; with `--check` it compares the files byte for
 byte instead of writing them. The generator's arithmetic is IEEE's own

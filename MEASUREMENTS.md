@@ -2865,18 +2865,14 @@ that nixpkgs revision's (`7dd199b0`) first on pkg-config's path, and
 the run refuses another.
 
 Identity: on the base `f4bbbaed` each arm wrote all 33 files (23 logo
-SVGs, 8 logo PNGs, the card's two) into its own archived tree, every
-file byte-equal, the organisation picture included, and `--check` on
-the committed tree printed the same 35 lines and exit 1 in both, the
-Python's launcher line on stderr aside. Then each SVG's note names the
-tool: the 24 SVGs differ in that one comment line and no PNG moves. On
-the rebased master the nine PNGs are byte-equal again and the SVGs are
-equal once the note is substituted. Five perturbations ran through both
-arms: README line 8, a byte of the Bold, a wrong archive, an extra SVG
-and an edited one; stdout and exit are equal in each, and stderr but
-for the refusal's prefix, now `baud-pictures brand:`. `baud-github-org.png` stays
-as committed: both arms draw `e5a514ef...`, 48 pixels from it in rows
-305-352, the mark's light, by at most 15 levels.
+SVGs, 8 logo PNGs, the card's two), every file byte-equal, and
+`--check` printed the same 35 lines and exit 1 in both. The SVGs' note
+now names the tool, the one line they differ in; no PNG moves. Five
+perturbations through both arms gave equal stdout and exit, and stderr
+equal but for the refusal's prefix, now `baud-pictures brand:`.
+`baud-github-org.png` stays as committed: both arms draw
+`e5a514ef...`, 48 pixels from it in the mark's light, by at most 15
+levels.
 
 Lanczos: in the pinned build the horizontal pass adds groups of four
 unfused products and fuses the rest (`fmadd`); the vertical pass fuses
@@ -2893,12 +2889,9 @@ a column and -1336.97 along a row, and only the compiled split matches.
 | outlines, fonts named | `<text>`, no path, `font-family=`, `FONT :`, `font\x1c=` |
 | plasma report | the pen, the block, the cell width, either amber |
 
-Code mutations, each turned a test red: the IDAT buffer, Average
-dropped, the default strategy, control-point bounds, every tap fused,
-none fused, round half away, the alpha kept premultiplied, an
-off-curve point nudged 1e-9. One did not: a component's offset added before
-the pen's scale, `k*(x+615)+cx` for `k*x+(k*615+cx)`, writes the same
-two decimals for every point the card draws.
+Nine code mutations each turned a test red; one did not: a component's
+offset added before the pen's scale writes the same two decimals for
+every point the card draws, so a unit test holds the order instead.
 
 ## The gvar, hvar, ink, joining and vertical cases, in Rust
 
@@ -2925,35 +2918,34 @@ On its gvar, `compare` named sq's one-point tuple, `p0=0,-30` vs
 and 5 and over 5 and 6, whose x is shared, came out dense too. So did
 hvar's phantom-only tuples in all 17 fonts, where the values given are
 the ones inference gives, so `compare` found them equal. No glyph of one
-tuple shared its points. The bake's empty-program patch moves to
+tuple shared its points. The packer's word-run yield (a word run ending
+before two byte-sized values) is reached by no committed cases font and
+is held only by `points_and_deltas_pack_as_fonttools_packs_them`, whose
+bytes are fontTools 4.63.0's `compilePoints` and `compileDeltaValues_`
+output for the same input. The bake's empty-program patch moves to
 `cases/mod.rs` and covers every composite here, as fontTools wrote
-them. hvar's HVARs and phantom's 12-byte `broken` are written as
-bytes.
+them. hvar's HVARs, the malformed ones included, and phantom's 12-byte
+`broken` are written whole as bytes, not as patches over a write-fonts
+table, and all 17 hvar fonts come out byte for byte.
 
-All eight oracles regenerated on a tree with the new fonts equal their
-files, as committed. joining has no oracle file; beside `compare` and
-the format words, `an_over_wide_letter_draws_alike_on_every_arm`
-(baud-present-macos) shapes and draws the new font on every arm and
-passes. Three perturbations:
+All eight oracles regenerated on the new fonts equal their files.
+joining has no oracle file; beside `compare` and the format words,
+`an_over_wide_letter_draws_alike_on_every_arm` (baud-present-macos)
+draws the new font on every arm and passes. Perturbations, each red:
 
-- Every tuple written dense: `compare` finds `hvar/cases.ttf` and
-  `phantom.ttf` equal and `advances.txt` stays as committed. sq's
-  outline in `outlines.txt` moves at data line 660, and
-  `the_gvar_cases_leave_their_points_to_inference` fails.
-- Vertical without the empty programs: `compare` and `vertical.txt`
-  stay equal; `cases --check` fails, 1472 bytes built against 1492.
-- Mark-to-base refused in baud-font: `a_mark_moves_with_its_fitted_base`
-  fails on the old joining and on the new, and no other
-  `overwide_letters` test does.
+- every tuple written dense: `compare` and `advances.txt` stay equal,
+  but `outlines.txt` moves at data line 660 and
+  `the_gvar_cases_leave_their_points_to_inference` fails;
+- vertical without the empty programs: `cases --check`, 1472 bytes
+  built against 1492;
+- mark-to-base refused in baud-font: `a_mark_moves_with_its_fitted_base`,
+  on the old joining and the new;
+- one-tuple point sets left unshared, init as a SingleSubst 2, and
+  `broken` a byte longer: each new test's own.
 
-Each new test fails on a perturbation of its own: one-tuple point sets
-left unshared, as write-fonts leaves them (gvar-cases gid 2); init as a
-SingleSubst 2; `broken` a byte longer.
-
-On the old joining, refusing SingleSubst formats 1 and 2, or
-ChainContext format 3's pairs, turns no `overwide_letters` test red: no
-test there observes joining's substitutions. The same SingleSubst
-refusal turns 15 baud-font shaping tests red.
+No `overwide_letters` test observes joining's substitutions, on the old
+font or the new; refusing SingleSubst turns 15 baud-font shaping tests
+red.
 
 
 ## The feature list's gate in `cargo xtask`

@@ -5,12 +5,13 @@
 # commit that took FreeType to 2.14.3 while HarfBuzz was still 12.3.0;
 # none of nixos-25.11, nixos-26.05 or nixpkgs-unstable carries the pair.
 # Its HarfBuzz check phase runs a CoreText shaping test that fails
-# against this host's CoreText, so the check is skipped; the library is built from the same
-# source and configuration either way. libxkbcommon there is 1.13.1;
-# 1.13.2 comes from nixpkgs 13e53762, the revision flake.lock pins.
+# against this host's CoreText, so the check is skipped; the library is
+# built from the same source and configuration either way. libxkbcommon
+# there is 1.13.1; 1.13.2 comes from nixpkgs 13e53762, the revision
+# flake.lock pins.
 # zlib 1.3.2, which tools/baud-pictures deflates the brand PNGs with, is
 # the one Pillow 12.3.0 carried in nixpkgs 7dd199b0, the revision the
-# pictures were first drawn from, taken from that revision.
+# pictures were first drawn from.
 #
 #   nix-shell tools/shell.nix --run \
 #     'cargo run --release --manifest-path tools/Cargo.toml --bin advance'

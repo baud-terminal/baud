@@ -102,8 +102,8 @@ fn font_of<'a>(fonts: &'a [(&'static str, Vec<u8>)], path: &str) -> FontRef<'a> 
 }
 
 /// **The gvar cases leave their points to inference.** Each sparse tuple
-/// names the points its recipe gives, where write-fonts would have
-/// written a tuple no smaller dense: sq's one-point tuple, two's pair
+/// names the points its recipe gives, where write-fonts writes a tuple
+/// dense whenever dense is no larger: sq's one-point tuple, two's pair
 /// whose x is shared, and hvar's phantoms alone. A dense tuple carries
 /// the deltas inference would give, so no readout moves, and the
 /// inference these fonts are there to reach goes unread.
