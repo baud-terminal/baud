@@ -1203,3 +1203,90 @@ fn with_no_config_an_unmarked_paragraph_is_drawn_at_its_words_in_the_history() {
     let lines = paragraph_rows(&drawn);
     assert!(words_whole(&lines), "every word whole, in order: {lines:?}");
 }
+
+/// The parent a test's shell has: a scratch `HOME` of `tag`'s, `HISTFILE`
+/// at `/dev/null`, this `PATH`, a UTF-8 locale and `/bin/sh` as `SHELL`,
+/// so nothing of the user's is read.
+fn neutral_parent(tag: &str) -> (std::path::PathBuf, Vec<(OsString, OsString)>) {
+    let home = std::env::temp_dir().join(format!("baud-launch-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).expect("a scratch home");
+    let os = |s: &str| OsString::from(s);
+    let env = vec![
+        (os("HOME"), home.clone().into_os_string()),
+        (os("HISTFILE"), os("/dev/null")),
+        (os("PATH"), std::env::var_os("PATH").unwrap_or_default()),
+        (os("LANG"), os("en_US.UTF-8")),
+        (os("SHELL"), os("/bin/sh")),
+    ];
+    (home, env)
+}
+
+/// **The bytes the shell wrote before the window wait in the channel,
+/// and a turn draws them**: `bash --noprofile --norc` prints `hi` and
+/// waits; once its read is in the channel, the frame drawn before a turn
+/// is blank there and the frame after it draws the `h`. This holds the
+/// harness's turn (`Session::pump`), not `Opening::show`, and passes
+/// without the opening turn; show's order is held by
+/// `the_first_frame_follows_the_opening_turn`.
+#[test]
+fn the_first_frame_holds_what_the_shell_wrote_before_it() {
+    let ws = WinSize {
+        ws_col: 40,
+        ws_row: 6,
+    };
+    let (home, parent) = neutral_parent("first-frame");
+    let mut s = Session::start(
+        &ws,
+        r#"exec bash --noprofile --norc -c "printf 'hi\n'; exec cat""#,
+        parent,
+        Parent::Other,
+    );
+    s.woken
+        .recv_timeout(WAIT)
+        .expect("the shell's read woke the reader");
+    let at = (Row::from_index(0), Col::at_index(0));
+    let blank = s.frame();
+    assert_eq!(s.row_text(at.0), "", "nothing fed before the turn");
+    s.pump();
+    assert_eq!(s.row_text(at.0), "hi", "{}", s.tail());
+    let first = s.frame();
+    assert_ne!(
+        s.cell_pixels(&first, at),
+        s.cell_pixels(&blank, at),
+        "the first frame draws the h"
+    );
+    let _ = std::fs::remove_dir_all(home);
+}
+
+/// **A read after a drain earns its own wake**: the reader wakes once a
+/// batch until the main thread drains (`Pty::drain` clears the flag), so a
+/// read that lands before the window can be woken is drained by the first
+/// wake after it, and the next read wakes again. `bash --noprofile
+/// --norc` prints `a`, waits for a line, then prints `b`.
+#[test]
+fn a_read_after_a_drain_earns_its_own_wake() {
+    let ws = WinSize {
+        ws_col: 40,
+        ws_row: 6,
+    };
+    let (home, parent) = neutral_parent("wake");
+    let mut s = Session::start(
+        &ws,
+        r#"exec bash --noprofile --norc -c "stty -echo; printf a; read x; printf b; exec cat""#,
+        parent,
+        Parent::Other,
+    );
+    s.woken
+        .recv_timeout(WAIT)
+        .expect("the first read woke the reader");
+    s.until("a drawn", |s| s.row_text(Row::from_index(0)) == "a");
+    while s.woken.try_recv().is_ok() {}
+    s.outbox.push(b"\n");
+    s.flush();
+    s.woken
+        .recv_timeout(WAIT)
+        .unwrap_or_else(|_| panic!("the read after the drain woke nothing: {}", s.tail()));
+    s.until("b drawn", |s| s.row_text(Row::from_index(0)) == "ab");
+    let _ = std::fs::remove_dir_all(home);
+}

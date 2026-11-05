@@ -371,11 +371,16 @@ impl MapSide {
 }
 
 /// What asked for a frame: the display link's tick, which is the vsync,
-/// or a wake from another thread.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// a wake from another thread, or the window's opening, whose turn feeds
+/// what the shell has written before the first frame is drawn
+/// (`Opening::show`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Trigger {
     Tick,
     Wake,
+    /// Everything a wake does but the frame: `show` draws the window's
+    /// first one itself, at once, with the bytes this turn fed.
+    Opening,
 }
 
 /// Where the grid comes from.
@@ -11614,6 +11619,10 @@ impl Driver {
             self.app.bell.hold(&self.app.term);
             return;
         }
+        // The opening's turn draws nothing: `show` draws the first frame.
+        if trigger == Trigger::Opening {
+            return;
+        }
         // **One frame in flight -- D14 -- and now that is all the gate
         // says.** Before the copy landed, `busy` also meant "do not feed";
         // it means only "do not build a second frame" now. Building one
@@ -13042,6 +13051,21 @@ impl Opening {
         startup_mark("first draw");
         driver.app.present(&v, Show::Now);
         startup_mark("first frame");
+        // **What the shell has written is on the frame the window opens
+        // with**: the reads that landed before the view could be woken wait
+        // in the channel (`run`), and this turn feeds them -- the turn a
+        // wake runs, less its frame -- and a frame drawn now shows them,
+        // before the window is ordered front, rather than at the first
+        // tick. Not while a synchronised update they opened is honoured
+        // (`?2026`): the frame above, drawn before any byte, is the one the
+        // window opens with, and the update's close draws the rest.
+        driver.pump(Trigger::Opening);
+        if driver.app.pending == Pending::Dirty
+            && driver.app.updates.state(&driver.app.term, Instant::now()) != Update::Honoured
+        {
+            driver.app.present(&v, Show::Now);
+            startup_mark("shell's first frame");
+        }
         // **Ordered front at once, without AppKit's inferred open animation**,
         // so the window is whole on screen the moment it is shown and the
         // launch logo, which starts once it is shown (`frame`), plays over the
@@ -13247,15 +13271,18 @@ impl Driver {
 
     /// **The window's close, asked for once**, on a later turn of the main
     /// queue: `close` posts the window's close notification at once, and
-    /// the shell's exit is heard inside the view's callback.
+    /// the shell's exit is heard inside the view's callback. Asked only
+    /// once the driver has its window: the opening turn runs before
+    /// `show` gives it one, and a child already gone is closed by the
+    /// turn of the wake that ends `show`, its stream still closed.
     fn close_later(&mut self) {
         if self.close_asked == CloseAsked::Yes {
             return;
         }
-        self.close_asked = CloseAsked::Yes;
         let Some(id) = self.window_id else {
             return;
         };
+        self.close_asked = CloseAsked::Yes;
         dispatch2::DispatchQueue::main().exec_async(move || {
             let window = OPEN.with_borrow(|o| o.get(id).map(|w| w.window.clone()));
             if let Some(w) = window {
@@ -20006,6 +20033,61 @@ mod mark_tests {
             .expect("Opening::show")
     }
 
+    /// **The window opens with what the shell already wrote**: `show`
+    /// draws the first frame before any byte, as it always did, runs the
+    /// opening turn, which drains the pty's channel into the terminal as a
+    /// wake's turn does, and draws again before the window is ordered front
+    /// when the turn fed something -- unless a synchronised update the
+    /// bytes opened is honoured, which the frame drawn first then stands
+    /// for -- and still wakes the view once the responder is in, for what
+    /// lands after the turn. The windows are AppKit's, so the source is
+    /// what can fail; every anchor is asserted present first, as the
+    /// control, and the opening's turn returns before the pump's own frame.
+    /// Perturbation: the turn moved after the window is shown, or the
+    /// update's test dropped, fails it.
+    #[test]
+    fn the_first_frame_follows_the_opening_turn() {
+        let src = include_str!("app.rs");
+        let body = show(src);
+        let first = concat!(
+            "driver.app.present(&v, ",
+            "Show::Now);\n        startup_mark(\"first frame\");"
+        );
+        let turn = concat!("driver.pump(", "Trigger::Opening);");
+        let owed = concat!(
+            "if driver.app.pending == Pending::Dirty\n",
+            "            && driver.app.updates.state(&driver.app.term, Instant::now()) != ",
+            "Update::Honoured\n        {\n",
+            "            driver.app.present(&v, Show::Now);"
+        );
+        let shown = concat!("window.", "show();");
+        let woken = concat!("view.waker()", ".wake();");
+        for anchor in [first, turn, owed, shown, woken] {
+            assert_eq!(body.matches(anchor).count(), 1, "once in show: {anchor}");
+        }
+        let at = |a: &str| body.find(a).expect("found");
+        assert!(at(first) < at(turn), "the frame before any byte first");
+        assert!(at(turn) < at(owed), "then the turn, then its frame");
+        assert!(at(owed) < at(shown), "both before the window is on screen");
+        assert!(at(shown) < at(woken), "the wake after it, kept");
+        // The turn is the pump's whole, which feeds the drained reads and
+        // returns before its own frame.
+        let pump = src
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(b, _)| b)
+            .expect("the pump");
+        let find = |a: &str| pump.find(a).unwrap_or_else(|| panic!("the pump has {a}"));
+        let drained = find("let drained = self.app.pty.drain();");
+        let fed = find("crate::reads::paced(");
+        let opening = find(concat!(
+            "if trigger == Trigger::",
+            "Opening {\n            return;\n        }"
+        ));
+        let frame = find(concat!("self.app.present(&view, ", "Show::Event);"));
+        assert!(drained < fed && fed < opening && opening < frame);
+    }
+
     /// **The strip is in the title bar and the grid's top follows full
     /// screen**: `show` puts the lockup in a leading titlebar accessory
     /// and the lights in a trailing one, computing no position from the
@@ -20068,6 +20150,78 @@ mod mark_tests {
         let mark = include_str!("mark.rs");
         assert!(mark.contains(concat!("TitlebarSide::", "Leading,")));
         assert!(!mark.contains(concat!("container.", "addSubview")));
+    }
+
+    /// **A close asked before the window exists is asked again once it
+    /// does**: the opening turn runs before `show` gives the driver its
+    /// window, and a child that has already exited reaches `close_later`
+    /// there. It marks the close asked only past the window's guard, so
+    /// the turn of the wake at the end of `show`, which finds the stream
+    /// still closed, dispatches it: no turn ends before the closed
+    /// stream's branch. The close is a dispatch to AppKit's main queue,
+    /// so the source is what can fail; every anchor is asserted present
+    /// first, as the control. Perturbation: the store put back before
+    /// the guard fails it, and so does a return on an empty drain.
+    #[test]
+    fn a_close_before_the_window_is_asked_again_after_it() {
+        let src = include_str!("app.rs");
+        let body = src
+            .split_once(concat!("    fn close_later(", "&mut self) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(b, _)| b)
+            .expect("close_later");
+        let asked = concat!("if self.close_asked == ", "CloseAsked::Yes {");
+        let guard = concat!("let Some(id) = ", "self.window_id else");
+        let store = concat!("self.close_asked = ", "CloseAsked::Yes;");
+        let dispatch = concat!("dispatch2::DispatchQueue::main()", ".exec_async(");
+        for anchor in [asked, guard, store, dispatch] {
+            assert_eq!(body.matches(anchor).count(), 1, "once: {anchor}");
+        }
+        let at = |a: &str| body.find(a).expect("found");
+        assert!(at(asked) < at(guard), "asked once");
+        assert!(at(guard) < at(store), "marked only with a window");
+        assert!(at(store) < at(dispatch), "then dispatched");
+        // The opening turn runs before the window is the driver's.
+        let show = show(src);
+        let turn = show
+            .find(concat!("driver.pump(", "Trigger::Opening);"))
+            .expect("the turn");
+        let given = show
+            .find(concat!("driver.window_id = ", "Some(id);"))
+            .expect("the window given");
+        let woken = show
+            .rfind(concat!("view.waker()", ".wake();"))
+            .expect("the wake");
+        assert!(turn < given && given < woken);
+        // And no turn ends before the closed stream's branch, a drain
+        // that found nothing included.
+        let pump = src
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(b, _)| b)
+            .expect("the pump");
+        let drained = pump
+            .find(concat!("let drained = ", "self.app.pty.drain();"))
+            .expect("the drain");
+        let closed = pump
+            .find(concat!("if drained.stream == ", "Stream::Closed {"))
+            .expect("the closed stream's branch");
+        assert!(drained < closed);
+        let before = &pump[drained..closed];
+        assert!(
+            !before.lines().any(|l| {
+                let l = l.trim_start();
+                !l.starts_with("//") && (l.starts_with("return") || l.contains(" return"))
+            }),
+            "no return before the closed stream's branch"
+        );
+        // The stream stays closed: every drain after the child's end says
+        // so, which is what the wake's turn closes on.
+        let pty = include_str!("pty.rs");
+        assert!(pty.contains(concat!(
+            "Err(std::sync::mpsc::TryRecvError::Disconnected) => ",
+            "break Stream::Closed,"
+        )));
     }
 }
 
