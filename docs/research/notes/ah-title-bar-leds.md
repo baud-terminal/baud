@@ -1847,10 +1847,9 @@ strip and on the line alike (`LightsLook::of`).
   4 pt past the end lights, 20 pt tall in the strip (radius 5), the line
   less a point top and bottom (radius 4). Letters are the foreground,
   lifted only under 4.5:1.
-- **Unlit**: a dot half the lit one's diameter (SC 1.4.1). In the meaning
-  set entry 8; in iec and modem 8 or 0, whichever is visible on the plate
-  and no louder than the quietest lit lamp, the more visible; else the
-  quieter visible one.
+- **Unlit**: a dot half the lit one's diameter (SC 1.4.1), entry 8 in
+  every set (section 19; the iec and modem sets had taken 8 or 0 by the
+  plate).
 - **The glow**: a halo of the lamp's colour from 1 pt off the dot to 3 pt,
   `(1 - t)^1.6`, alpha 0.8 x `activity_lights_glow` (0..1, 0.4 default).
   Dim Flashing Lights draws none and leaves the dot its entry.
@@ -1861,7 +1860,7 @@ strip and on the line alike (`LightsLook::of`).
 |---|---|---|---|---|
 | dark | meaning | 8, 4.75:1 | CD 4.50 | HS 1.04 |
 | dark | iec | 8, 4.75:1 | HS 8.82 | AA 1.13 |
-| dark | modem | 0, 1.10:1 | 4.50 | 2.97 |
+| dark | modem | 8, 4.75:1 | 4.50 | 2.97 |
 | light | meaning | 8, 6.09:1 | OH 6.13 | FAX 1.33 |
 | light | iec | 8, 6.09:1 | AA 4.57 | HS 2.12 |
 | light | modem | 8, 6.09:1 | 6.97 | 1.86 |
@@ -1871,8 +1870,7 @@ the strip and the line's CPU frame is its entry, with moved-mask and
 mixed-colour controls; all nine changing at once flash 1,422 WCAG pixels
 at most, 6.5% of 21,824. On 234 base16 schemes (data, not a gate) the
 meaning set has all nine at 3:1 in 130 of 168 dark and 31 of 66 light.
-**Open**: the dark modem set's unlit lamp is entry 0, 1.10:1 on #101010,
-which the rule gives because entry 8 is louder than its red.
+The dark modem row is section 19's; it was entry 0, 1.10:1 on #101010.
 
 ## 17. Built: CS in the modem's sense, lit while the line is clear
 
@@ -1902,7 +1900,7 @@ what a modem's CS was, and dark says the line closed.
   halves, red's reason (the one light that says something went wrong)
   having gone, and green the colour of a clear line; `"modem"` stays red.
   On the built-in plates green reads 8.82:1 dark and 6.13:1 light, and
-  the iec set's quietest lit lamp, and so its unlit entry, is unchanged.
+  the iec set's quietest lit lamp is unchanged.
   **Open**: the meaning set's entry is a lean: green, the out kind's hue (yellow 3
   dark, cyan 14 light, each SD's), a state's hue (12 dark, 4 light) and a
   neutral lamp (7 dark, 0 light) were weighed, and none was clearly the
@@ -1974,3 +1972,24 @@ well. The pixels are the same on both systems.
   light's view is hidden, still gives them, and the pointer over the
   grid's top rows at the lights' x would show a light's tip with no
   light shown. It needs the same window in full screen on the screen.
+
+## 19. Built: the unlit lamp is entry 8 in every set
+
+Section 16 took the iec and modem sets' unlit lamp as 8 or 0 by the
+plate, whichever was visible and no louder than the quietest lit lamp.
+On the dark theme the modem set's red reads 4.50:1 on the plate and 8
+reads 4.75:1, so the rule took 0, `#000000`, 1.10:1 on `#101010`: a
+dark lamp that could not be seen. Every set takes 8 now, on every
+theme (`LightsLook::of`).
+
+- **Why one entry serves**: lit and unlit already differ by size, the
+  unlit dot half the lit one's diameter, and the lit one has its halo,
+  so the state does not rest on colour (WCAG 2.2's SC 1.4.1,
+  `[[source: wcag22]]`). A dark lamp quieter than every lit one was the
+  old rule's aim, and the size carries that.
+- **Measured** on the built-in plates: 8 reads 4.75:1 dark and 6.09:1
+  light, in every set; the table in section 16 has the dark modem row.
+- **Tests**: `the_unlit_lamp_is_entry_eight_in_every_set`
+  (`baud-render/tests/activity_lights.rs`), red first on the dark modem
+  set (`#000000` where 8 is `#7F7F7F`), across the built-in themes and
+  xterm's sixteen on black and on white.

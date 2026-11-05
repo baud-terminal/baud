@@ -581,10 +581,7 @@ activity_lights = "on"
 #              meaning: HS, CD and CS green 2, FAX and SYN cyan 6, the
 #              rest white 7
 #   "modem"    every light red 1, as the modems' front-panel lamps were
-# An unlit light is a dot half the size: in the meaning set, colour 8;
-# in the iec and modem sets, colour 8 or colour 0: of the two, the ones
-# no louder on the plate than the quietest lit light, the more visible;
-# if neither is, the quieter.
+# An unlit light is a dot half the size, colour 8 in every set.
 activity_lights_colours = "meaning"
 # How strongly a lit light glows, 0 (none) to 1 (the strongest): a soft
 # halo of its own colour a point off the dot. A value outside 0..1 is held

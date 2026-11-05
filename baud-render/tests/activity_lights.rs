@@ -14,7 +14,7 @@ use baud_domain::{Cols, Rows};
 use baud_font::{Face, Px};
 use baud_render::lights::{
     DOT, GAP, HALO, HALO_GAP, LIT_CONTRAST, PAIR, PLATE_PAD, PLATE_RADIUS_TITLE, PLATE_TITLE, TEXT,
-    TEXT_CONTRAST, draw, draw_led, draw_plate, full, layout, ring_entry, unlit_entry, width,
+    TEXT_CONTRAST, draw, draw_led, draw_plate, full, layout, ring_entry, width,
 };
 use baud_render::{
     AREA_LIMIT, Activity, Ansi, Argb, Backdrop, Blend, ByLed, ByLight, DEFAULT_GLOW, Glow, Half,
@@ -349,58 +349,34 @@ fn renderer<'f, 'a>(faces: &'f [Face<'a>], theme: Theme) -> Renderer<'f, 'a> {
     .unwrap()
 }
 
-/// **The unlit lamp is 8 in the meaning set, and 8 or 0 by the plate in
-/// the other two**: whichever of the two is at rest -- visible against
-/// the plate and no louder than the quietest lit lamp -- the more
-/// visible; else the quieter visible one. On the dark theme the IEC set's
-/// quietest lamp, green 2 at 8.8:1, leaves 8 at rest, and the modem set's
-/// red at 4.5:1 does not, so the unlit lamp is 0; a theme whose entry 0
-/// is its background gives 8. The meaning set's is 8 there although its
-/// blue CD is quieter than 8. The ring is the entry the foreground is,
-/// else 7. Perturbations: always take 8, and the modem set's unlit lamp
-/// is louder than its lit ones; take the meaning set's by the plate, and
-/// the default look's is 0.
+/// **The unlit lamp is entry 8 in every set, on every theme**: lit and
+/// unlit already differ by size, so colour is not what tells them apart
+/// (WCAG 2.2's SC 1.4.1, `[[source: wcag22]]`), and one entry for every
+/// dark lamp keeps it visible on the plate wherever 8 is. The modem set's
+/// on the dark theme had been entry 0, `#000000`, 1.10:1 on the `#101010`
+/// plate, invisible; it is 8 now, 4.75:1. The ring is the entry the
+/// foreground is, else 7. Perturbation: take entry 0 where the lit lamps
+/// are quieter than 8, the old rule, and the dark modem set goes red.
 #[test]
-fn the_unlit_lamp_is_eight_or_zero_by_the_plate() {
+fn the_unlit_lamp_is_entry_eight_in_every_set() {
     let dark = Theme::dark();
-    let plate = dark.bg;
-    let lit = |set: LightsColours| ByLed::of(|l| set.entries(Half::Dark).get(l).of(&dark.palette));
-    assert_eq!(
-        unlit_entry(&dark.palette, plate, &lit(LightsColours::Iec)),
-        Ansi::BrightBlack
-    );
-    assert_eq!(
-        unlit_entry(&dark.palette, plate, &lit(LightsColours::Modem)),
-        Ansi::Black
-    );
-    assert_eq!(
-        look_of(&dark, LightsColours::Meaning, Glow::Full, Halo::default()).unlit,
-        dark.palette[8],
-        "the default look's unlit lamp is 8 whatever its lit ones"
-    );
-    assert_eq!(
-        look_of(&dark, LightsColours::Modem, Glow::Full, Halo::default()).unlit,
-        dark.palette[0],
-        "the modem set's look takes its entry by the plate"
-    );
-    let mut same = Theme::dark();
-    same.palette[0] = same.bg;
-    assert_eq!(
-        unlit_entry(&same.palette, same.bg, &lit(LightsColours::Modem)),
-        Ansi::BrightBlack,
-        "an entry 0 that is the plate is not visible"
-    );
     for (name, theme) in themes() {
         for set in LightsColours::ALL {
             let look = look_of(&theme, set, Glow::Full, Halo::default());
-            assert!(
-                [Ansi::Black, Ansi::BrightBlack]
-                    .iter()
-                    .any(|a| a.of(&theme.palette) == look.unlit),
-                "{name} {set:?}"
-            );
+            assert_eq!(look.unlit, theme.palette[8], "{name} {set:?}");
         }
     }
+    let modem = look_of(&dark, LightsColours::Modem, Glow::Full, Halo::default());
+    let seen = contrast_over(
+        modem.unlit,
+        modem.plate,
+        Chan::from_u8(0xFF),
+        Backdrop::any(),
+    );
+    assert!(
+        (seen - 4.75).abs() < 0.005,
+        "the dark modem set's unlit lamp reads {seen:.2}:1 on its plate"
+    );
     assert_eq!(
         ring_entry(&dark.palette, dark.fg),
         Ansi::White,

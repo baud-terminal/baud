@@ -719,8 +719,7 @@ pub struct LightsLook {
     /// Each light's lit colour: its set's entry.
     pub lit: ByLed<Argb>,
     /// Every light's colour while dark, drawn as a dot half the lit one's
-    /// diameter: entry 8 in the meaning set, and in the iec and modem sets
-    /// entry 8 or 0 by the plate ([`unlit_entry`]).
+    /// diameter: entry 8, in every set and on every theme.
     pub unlit: Argb,
     /// An unread light's ring: the entry the foreground is, else 7.
     pub ring: Argb,
@@ -751,11 +750,7 @@ impl LightsLook {
         let (fg, plate) = (fg.with_alpha(opaque), bg.with_alpha(opaque));
         let entries = set.entries(Half::of(fg, plate));
         let lit = ByLed::of(|l| entries.get(l).of(palette));
-        let unlit = match set {
-            LightsColours::Meaning => Ansi::BrightBlack,
-            LightsColours::Iec | LightsColours::Modem => unlit_entry(palette, plate, &lit),
-        }
-        .of(palette);
+        let unlit = Ansi::BrightBlack.of(palette);
         let ring = ring_entry(palette, fg).of(palette);
         let label = crate::color::reads_at(fg, plate, opaque, Backdrop::any(), TEXT_CONTRAST);
         LightsLook {
@@ -768,40 +763,6 @@ impl LightsLook {
             halo,
         }
     }
-}
-
-/// WCAG 2.2's contrast ratio of two opaque colours.
-fn ratio(a: Argb, b: Argb) -> f64 {
-    crate::color::contrast_over(a, b, Chan::from_u8(0xFF), Backdrop::any())
-}
-
-/// **The entry an unlit lamp is drawn in on `plate`** in the iec and
-/// modem sets (the meaning set's is 8 on every theme): 8 or 0, whichever
-/// is at rest -- visible against the plate, not the plate's own colour, and
-/// no louder against it than the quietest lit lamp, `lit` -- the more
-/// visible of the two that are; where neither is at rest, the quieter one
-/// that is visible; 8 where neither is visible. A theme whose entry 0 is
-/// its background gives 8; a set whose lit lamps are quieter against the
-/// plate than 8 gives 0.
-pub fn unlit_entry(palette: &[Argb; 256], plate: Argb, lit: &ByLed<Argb>) -> Ansi {
-    let quiet = Led::ALL
-        .iter()
-        .map(|&l| ratio(*lit.get(l), plate))
-        .fold(f64::INFINITY, f64::min);
-    let seen = |a: Ansi| {
-        let c = a.of(palette);
-        (a, ratio(c, plate), c != plate)
-    };
-    let candidates = [seen(Ansi::BrightBlack), seen(Ansi::Black)];
-    let rest = candidates
-        .iter()
-        .filter(|c| c.2 && c.1 <= quiet)
-        .max_by(|a, b| a.1.total_cmp(&b.1));
-    let visible = candidates
-        .iter()
-        .filter(|c| c.2)
-        .min_by(|a, b| a.1.total_cmp(&b.1));
-    rest.or(visible).map_or(Ansi::BrightBlack, |c| c.0)
 }
 
 /// **The entry an unread light's ring is drawn in**: the one the theme's
