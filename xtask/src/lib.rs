@@ -10,6 +10,8 @@
 //!   (`scripts/check-changelog.sh`).
 //! - `fnv1a <src> <lib> <sdig> <ldig>`: the Metal library's digests
 //!   (`scripts/build-metallib.sh`).
+//! - `features [--check]`: docs/guide/features.md and docs/roadmap.md,
+//!   written from docs/data/ or checked against it and the tree.
 //! - `sources`: the source-provenance gate (`scripts/check-sources.sh`),
 //!   which runs `third-party --check` and the offline half of `page-text`.
 //! - `third-party [--check]`: THIRD_PARTY.md, written or checked.
@@ -23,6 +25,7 @@
 
 pub mod audit;
 pub mod changelog;
+pub mod features;
 pub mod fnv;
 pub mod html;
 pub mod impl_audit;

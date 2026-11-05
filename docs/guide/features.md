@@ -308,7 +308,7 @@ link where the [roadmap](../roadmap.md) plans it.
 ## How this page stays true
 
 This page is generated from `docs/data/features.toml` by
-`scripts/gen-features.py`, which fails the build when a feature's proof is gone,
+`cargo xtask features`, which fails the build when a feature's proof is gone,
 when a feature marked built names none, when a done item on the
 [roadmap](../roadmap.md) is missing from this list, or when this page has been
 edited by hand. Every test run of the project runs this check.

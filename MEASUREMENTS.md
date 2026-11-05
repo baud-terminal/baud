@@ -2954,3 +2954,49 @@ On the old joining, refusing SingleSubst formats 1 and 2, or
 ChainContext format 3's pairs, turns no `overwide_letters` test red: no
 test there observes joining's substitutions. The same SingleSubst
 refusal turns 15 baud-font shaping tests red.
+
+
+## The feature list's gate in `cargo xtask`
+
+Not timed: no byte path changed. `cargo xtask features [--check]`
+replaces `gen-features.py` with its nine checks, and
+`xtask/tests/features.rs` replaces baud-core's `feature_list` test,
+which ran the script; both are deleted, so baud-core runs no Python for
+the feature list.
+
+| arm | inputs | result |
+|---|---|---|
+| the pages | the tree's data | `features.md` and `roadmap.md` written byte-equal to the script's |
+| a 10-file tree | its pages written by each | byte-equal; done items newest first, a tie in title order |
+| the checks | 38 perturbations of it, one or more per check | 34 of 38 equal in stderr and exit; 4 below |
+| the stops | 5 more, a CRLF page among them | exit equal; text below |
+
+Accepted, every exit code equal: the stale line names `cargo xtask
+features` where it named the script (4); where the script stopped on an
+exception, the run prints a line in place of the traceback, which for a
+feature with no `id` is the traceback's last line, `KeyError: 'id'`;
+invalid TOML gives the `toml` crate's reason at tomllib's line and
+column; and a bad argument prints `xtask: not an option` where the
+script printed its docstring. A page checked out with `\r\n` endings
+passes on both, as Python's universal newlines read it.
+
+The heading anchors keep Python's `\w`: the class `[\p{L}\p{N}_]` is a
+word character on exactly the 138,558 code points Python 3.13's `\w`
+matches, and on 4,382 that Unicode 15.1, Python's table, leaves
+unassigned; `lower()` and `to_lowercase` differ on 55 code points, all
+unassigned there, and `isspace` is equal on every one. No heading uses
+them. `\bfn` is a scan with Python's boundary, pinned by a test.
+
+Each perturbation is a `#[test]` holding the script's output line for
+line. Red first: one proof test renamed in the real data turned both
+`the_repository_passes` and the old `feature_list` red. Five mutations
+each turned a named test red: a built feature's partial row let pass,
+done items oldest first, sorted and then reversed, the `fn` boundary
+dropped, the README count off by one; a first form of the boundary
+mutation did not compile and is not counted.
+
+`readme-forbidden.py` stays: eight of the external list's patterns use
+look-around, which `regex` lacks. The verify `cargo xtask publish`
+runs builds the default targets, the library and the binaries, never an
+example ([[source: cargo-eb94155-package-verify-rs]] lines 95-110), and
+baud-app's `include` leaves `examples/` out of its .crate.

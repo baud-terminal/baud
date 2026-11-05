@@ -153,6 +153,6 @@ being built now; the rest are planned. Nothing here is a promised date.
 ## How this page stays true
 
 This page is generated from `docs/data/roadmap.toml`, the same planning list
-the progress dashboard reads, by `scripts/gen-features.py`. Every item marked
+the progress dashboard reads, by `cargo xtask features`. Every item marked
 shipped is claimed by a feature in [the feature list](guide/features.md) or
 named there as not a feature, and the build fails when one is neither.

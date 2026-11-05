@@ -15,7 +15,7 @@ use xtask::publish::{self, Flags};
 use xtask::scan_audit::{self, Limit};
 use xtask::sources;
 use xtask::third_party::{self, Mode, Outcome};
-use xtask::{changelog, fnv, text};
+use xtask::{changelog, features, fnv, text};
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -101,6 +101,16 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
             let o = sources::run(root, &mut stdout).map_err(|e| e.to_string())?;
             Ok(outcome(o))
         }
+        ["features", rest @ ..] if rest.len() <= 1 => {
+            let mode = match rest {
+                [] => features::Mode::Write,
+                ["--check"] => features::Mode::Check,
+                _ => return Err(format!("not an option: {}", rest.join(" "))),
+            };
+            let o =
+                features::run(root, mode, &mut io::stderr().lock()).map_err(|e| e.to_string())?;
+            Ok(outcome(o))
+        }
         ["third-party", rest @ ..] if rest.len() <= 1 => {
             let mode = match rest {
                 [] => Mode::Write,
@@ -132,7 +142,8 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
         _ => {
             eprintln!(
                 "usage: cargo xtask audit | impl-audit <file> | scan-audit [limit] \
-                 | changelog <context> | fnv1a <src> <lib> <sdig> <ldig> | sources \
+                 | changelog <context> | features [--check] | fnv1a <src> <lib> <sdig> <ldig> \
+                 | sources \
                  | third-party [--check] | publish [--size|--verify|--release\
                  |--write-notices|--write-licences] | page-text [--key K] [--from DIR] [--save DIR] \
                  [--print] [--self-test]"
