@@ -163,16 +163,41 @@ past the edge until the window widens again; nothing is destroyed.
   change of the text area, so a zoom that keeps the grid reports too.
   `CSI 14 t`, `CSI 16 t` and `CSI 18 t` answer from the same numbers.
 
-What is still open from this note is the refinement rather than the
-fix: re-cutting the output *above* a prompt while leaving the prompt's
-own rows alone, rather than leaving the whole screen alone whenever a
-prompt is on it. That needs the re-cut to anchor at the prompt and grow
-upward into the history, and the in-place copy ordering argument for it
-is not the one `View::reflow` currently carries -- so it is a change to
-make deliberately, with that argument written out, rather than a flag.
-What it would buy is a long line in finished output re-wrapping while
-the user sits at a prompt; today that waits until the next command's
-output, which is in the output zone and re-cuts.
+**The refinement is built: the output above a prompt is re-cut, the
+prompt's own rows are not.** Leaving the whole screen alone whenever a
+prompt was on it clipped every long line of finished output at the new
+edge, and left a line the terminal had wrapped at the old width with its
+middle past the edge: a listing printed in a new window and narrowed at
+the prompt kept its old cut until the next command. The display's word
+wrap could not mend it, because the cells past the edge are no part of
+what a row shows, and in a new window, with nothing above the first
+prompt, a line drawn on more rows than it is stored in has nowhere to
+push the text above it.
+
+At a prompt, `View::reflow` now re-cuts every line above the block's
+first row and keeps the rows from it down whole (`Recut::Above`): each
+is a line of its own, one row, copied whole at the pitch with its mark,
+its cells past the new width held there -- the way a line not
+single-width was already kept. A kept row is the copy of one source row
+onto one destination row, so the module's ordering argument holds for it
+as for a line of one row: widening writes at or before the row it read,
+narrowing at or after it, and no new argument is needed. The block moves
+with the lines above it and the cursor with the block, so the distance
+the shell counts is the one it drew (`the_prompt_to_cursor_distance_holds_across_every_resize`),
+and its rows are the rows it finds (`a_block_never_moves_once_it_is_drawn`,
+`a_gesture_leaves_one_prompt_on_screen`). The block's first row is
+trusted only while the latest prompt the log holds is retained: a ring
+that came round since gave that row to another line, and then nothing
+is re-cut, as before. Every recorded gesture passes; two of their checks
+now count lines and not rows, because finished prompts above the block
+are re-cut too, and this recording pads its prompt's lines to the width,
+so a narrowing wraps each onto a row of spaces that is the line's own.
+
+What it costs: a drag at a prompt re-cuts the whole ring on every step,
+where it re-cut nothing. What it does not do: a row kept whole that later
+becomes output -- a line typed at the prompt and run -- is read by the
+next re-cut only to the width it had, so text it held past that edge is
+dropped (`a_tail_hidden_at_a_prompt_is_dropped_cleanly_by_a_later_re_cut`).
 
 **Answered 2026-09-25**, as note V's V7
 (`docs/research/notes/v-open-decisions.md`, "Decisions taken, 2026-09-25": V7
@@ -378,9 +403,9 @@ recording's own signature, and the screen at the step the count rises.
 * Whether Terminal.app's duplication has the same cause, given it does
   not reflow. Until that is understood, "not reflowing fixes it" is a
   claim about baud on these captures and not a general one.
-* The **cost** of the re-cut being skipped: nothing here measures what a
-  user loses by having a long line clipped rather than wrapped until the
-  window widens, and that is a judgement rather than a number.
+* ~~The **cost** of the re-cut being skipped.~~ It is no longer skipped
+  above a prompt: a listing narrowed at the prompt lost every column past
+  the edge, and a line wrapped at the old width its middle.
 * Whether a resize should be **coalesced** at all. VS Code needed 300 ms
   because it re-wraps; a terminal that does not re-cut the prompt may
   not need any window, and this repo's own rule is that nothing

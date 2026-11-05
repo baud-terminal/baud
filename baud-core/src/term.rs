@@ -224,12 +224,13 @@ pub const NSGR: usize = 256;
 /// another. Re-cutting *output* has no such reader: nothing will redraw
 /// it, which is exactly why re-cutting it is worth doing.
 ///
-/// So the boundary is not a row, it is a state: the shell owns the
-/// screen from prompt start until the command's output begins, and the
-/// application owns it after. `docs/research/notes/m-resize-and-reflow.md`
-/// carries the measurement -- four copies against one on a capture of a
-/// real shell replayed with real resizes -- and what the alternatives
-/// cost.
+/// So the boundary is a state and the row it began on: the shell owns the
+/// screen from prompt start until the command's output begins, from the
+/// block's first row down, and a resize keeps those rows whole while it
+/// re-cuts the finished output above them; the application owns it after.
+/// `docs/research/notes/m-resize-and-reflow.md` carries the measurement
+/// -- four copies against one on a capture of a real shell replayed with
+/// real resizes -- and what the alternatives cost.
 ///
 /// A terminal that has seen no marks is in [`Zone::Output`], which is
 /// the behaviour that shipped before them: a stream with no shell
@@ -2747,9 +2748,10 @@ impl<'b> Term<'b> {
     /// **A change of width re-cuts the primary and not the alternate
     /// screen.** Between output and output the primary's lines are re-cut to
     /// the new width in place, through the history (`View::reflow`); at a
-    /// prompt nothing is re-cut, because the shell redraws those rows by
-    /// counting them (see [`Zone`]). The alternate screen is cell-addressed:
-    /// the pitch is fixed, so a cell keeps its address whatever the width, a
+    /// prompt the lines above the shell's block are re-cut and the block's
+    /// rows, from its first down, are kept whole, because the shell redraws
+    /// them by counting them (see [`Zone`]). The alternate screen is
+    /// cell-addressed: the pitch is fixed, so a cell keeps its address whatever the width, a
     /// narrower screen stops addressing what lies past its edge, and a wider
     /// one blanks the columns it reveals ([`View::widened`]) because the
     /// program owns them and redraws. What keeps the fixed pitch sound is that
@@ -2878,8 +2880,11 @@ impl<'b> Term<'b> {
         let top_before = self.store.book.top;
         // The width a cut row is read at when a growth asks what it holds.
         // Asked here, before the height step moves the cursor and the
-        // rotation that the width step's own asking reads.
-        let shown = match cols.index() != old_cols.index() && self.primary_recuts() {
+        // rotation that the width step's own asking reads. A cut row lies
+        // below the cursor, so at a prompt it is one of the rows the width
+        // step keeps whole, read at the new width.
+        let widths = cols.index() != old_cols.index();
+        let shown = match widths && self.primary_recuts() {
             true => old_cols,
             false => cols,
         };
@@ -2887,34 +2892,36 @@ impl<'b> Term<'b> {
             held = self.resize_primary_height(g, shown, top_before, held);
         }
 
-        // **The shell's half of the screen is not re-cut.** See [`Zone`]:
-        // between a prompt mark and the output that follows it, the rows
-        // on screen are ones the shell will redraw, and it redraws them by
-        // counting how many they are. Re-cutting them to a new width
-        // changes that count behind its back and leaves the top of the old
-        // prompt behind -- once per resize. Output is re-cut as it always
-        // was, because nothing will redraw it and a long line is worth
-        // re-wrapping.
+        // **The shell's half of the screen is not re-cut; the output above
+        // it is.** See [`Zone`]: between a prompt mark and the output that
+        // follows it, the rows from the block's first are ones the shell
+        // will redraw, and it redraws them by counting how many they are.
+        // Re-cutting them to a new width changes that count behind its back
+        // and leaves the top of the old prompt behind -- once per resize --
+        // so they are kept whole, row for row ([`Term::primary_cut`]).
+        // Output is re-cut as it always was, above a prompt too, because
+        // nothing will redraw it and a long line is worth re-wrapping.
         //
         // A stream that sends no marks is `Zone::Output` and reaches this
         // exactly as before.
         // The window's last rows a re-cut blanked to the new width only,
         // which the measure reads whole (`Reflowed::blanked`).
         let mut blanked = Rows::ZERO;
+        let mut whole = (self.rot, Rows::ZERO);
         let mut recut = Recut::No;
-        if cols.index() != old_cols.index() && self.primary_recuts() {
+        if let Some(cut) = widths.then(|| self.primary_cut(rows)).flatten() {
             if frozen == FrozenResize::Held {
                 self.frozen_normalized(rows);
                 recut = Recut::Yes;
             }
-            (blanked, held) = self.resize_primary_width(g, held, &mut waited);
+            (blanked, whole, held) = self.resize_primary_width(g, held, &mut waited, cut);
         }
         self.resize_growth(g);
         self.resize_alternate_height(g);
 
         self.rows = rows;
         self.cols = cols;
-        self.resize_measure(old_cols, kept, blanked);
+        self.resize_measure(old_cols, kept, blanked, whole);
         self.resize_cursor_and_margins(before, waited);
         // **An image whose row the resize took away goes with it**: a row
         // past what the primary's ring now retains, or past the bottom of a
@@ -3158,9 +3165,9 @@ impl<'b> Term<'b> {
     /// columns are the growth step's ([`Term::resize_growth`]).
     ///
     /// The second step of [`Term::resize`], taken only when the width
-    /// changes and the primary re-cuts in its zone
-    /// ([`Term::primary_recuts`]). It returns the window's last rows the
-    /// re-cut blanked, and the window over the history, `held`, mapped
+    /// changes, re-cutting the lines `cut` names ([`Term::primary_cut`]).
+    /// It returns the window's last rows the re-cut blanked, the rows it
+    /// kept whole, and the window over the history, `held`, mapped
     /// through the re-cut; the anchors the re-cut moves -- images,
     /// prompts, the prompt the shell is at, the primary's `ESC 7` and the
     /// window's first row -- are mapped inside it, as the re-cut visits
@@ -3170,7 +3177,8 @@ impl<'b> Term<'b> {
         g: ResizeGeometry,
         mut held: Option<Rows>,
         waited: &mut Option<Col>,
-    ) -> (Rows, Option<Rows>) {
+        cut: baud_domain::Recut,
+    ) -> (Rows, (RowRot, Rows), Option<Rows>) {
         let ResizeGeometry {
             old_cols,
             rows,
@@ -3341,11 +3349,11 @@ impl<'b> Term<'b> {
             self.rot,
         )
         .reflow(
-            old_cols,
-            cols,
+            (old_cols, cols),
             self.store.book.hist,
             self.store.book.hidden,
             cursor,
+            cut,
             follow,
         );
         match (staged, visited) {
@@ -3438,7 +3446,7 @@ impl<'b> Term<'b> {
             }
             PrimaryCursor::Shared => {}
         }
-        (blanked, held)
+        (blanked, r.kept, held)
     }
 
     /// **A growth keeps both screens' marks honest, whatever the zone.**
@@ -3541,7 +3549,7 @@ impl<'b> Term<'b> {
     ///
     /// A step of [`Term::resize`], taken once the new geometry is the
     /// terminal's.
-    fn resize_measure(&mut self, old_cols: Cols, kept: Kept, blanked: Rows) {
+    fn resize_measure(&mut self, old_cols: Cols, kept: Kept, blanked: Rows, whole: (RowRot, Rows)) {
         let (rows, cols) = (self.rows, self.cols);
         let widest = Cols::of_index(self.store.book.reach.index().max(cols.index()));
         let ring = self.store.ring_rows();
@@ -3561,6 +3569,7 @@ impl<'b> Term<'b> {
                 widest,
                 kept,
                 blanked,
+                whole,
                 &mut PastRows {
                     flags: &mut *book.past,
                     held: &mut book.held,
@@ -3943,6 +3952,39 @@ impl<'b> Term<'b> {
         shell.zone == Zone::Output
             || shell.asks.redraw == Redraw::Never
             || (live && self.input_line_ended())
+    }
+
+    /// **Which of the primary's lines a change of width re-cuts**, with
+    /// the screen `rows` tall: every one where [`Term::primary_recuts`]
+    /// says so; at a prompt the shell will redraw, every line above its
+    /// block, the block's rows and those below kept whole, so the count
+    /// the shell redraws by still reaches the block's first row (note M,
+    /// "Do not re-cut what the application is about to redraw; re-cut
+    /// everything above it"); and none where the block's first row is not
+    /// one the ring retains, so nothing names where the shell's rows begin.
+    /// The block's first row is a ring row, which a ring that came round
+    /// since gave to another line, so it is trusted only while the latest
+    /// prompt the log holds is retained: the block begins at or after it.
+    fn primary_cut(&self, rows: Rows) -> Option<baud_domain::Recut> {
+        if self.primary_recuts() {
+            return Some(baud_domain::Recut::All);
+        }
+        let shell = match self.cold.screen {
+            Screen::Normal => &self.store.strs.shell,
+            Screen::Alternate => &self.store.strs.shell_other,
+        };
+        let book = &self.store.book;
+        let floor = book.top.minus(book.hist).unwrap_or(LineIdx::FIRST);
+        let latest = self.store.strs.prompts.entries().last().map(|e| e.line());
+        if latest.is_none_or(|l| l < floor) {
+            return None;
+        }
+        let ring = self.store.ring_rows();
+        let hist = self.store.book.hist;
+        let oldest = self.rot.retreat(hist.index(), ring);
+        let from = (shell.block.start().index() + ring.index() - oldest.index()) % ring.index();
+        let retained = hist.index() + rows.index() + self.store.book.hidden.index();
+        (from < retained).then(|| baud_domain::Recut::Above(Rows::of_count(from)))
     }
 
     /// Whether the live screen's `I` input line has ended (`prompt.rs`).

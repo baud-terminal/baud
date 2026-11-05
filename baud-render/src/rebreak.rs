@@ -40,12 +40,14 @@
 //! (`baud_domain::WrappedAt`; by baud's reading its cells outside the
 //! margins are no part of its paragraph), a paragraph holding an SDS or SRS string, one
 //! longer than [`crate::CONTEXT`] codepoints, and one with a row holding
-//! text past the live width keep the terminal's cut. The last is a
-//! narrowing the core did not re-cut -- the shell waiting at a marked
-//! prompt, whose rows it will redraw (`Term::primary_zone`) -- which keeps
-//! each row's cells past the new edge to show again: read from the cells
-//! the window shows, the paragraph's text would join each row's first part
-//! to the next row's and draw words the program never wrote.
+//! text past the live width keep the terminal's cut. The last is a row a
+//! narrowing kept whole -- the shell's block while it waits at a marked
+//! prompt, whose rows it will redraw (`Term::resize`), finished once the
+//! line typed there runs -- which keeps its cells past the new edge to
+//! show again: read from the cells the window shows, the paragraph's text
+//! would join each row's first part to the next row's and draw words the
+//! program never wrote. The output above the block is re-cut by the
+//! narrowing and holds nothing past the edge.
 //!
 //! **Where the extra lines go.** A paragraph drawn on more lines than it
 //! is stored in pushes the text above it up: the window's last row stays
@@ -54,12 +56,14 @@
 //! by scrolling back, as any line above it is. At the top of what the
 //! history keeps, where there is nothing above to scroll to, the oldest
 //! re-broken paragraphs in the window keep the terminal's cut until the
-//! rest fits, so no line is pushed where it cannot be read. A paragraph
-//! whose words need fewer lines than it is stored in -- trailing spaces
-//! the terminal wrapped onto a row of their own, hanging -- keeps the
-//! terminal's cut, so the window's last row stays its last and no line
-//! made only of rows above the window is drawn in the gap, where a mouse
-//! report, which names the window's rows, could not name it.
+//! rest fits, so no line is pushed where it cannot be read. Spaces a
+//! program wrote after its last word -- an underlined header padded past
+//! the width -- are laid on lines of their own, as the terminal laid them,
+//! where hanging them would leave the paragraph on fewer lines than it is
+//! stored in ([`unhang`]). A paragraph whose words still need fewer lines
+//! keeps the terminal's cut, so the window's last row stays its last and
+//! no line made only of rows above the window is drawn in the gap, where a
+//! mouse report, which names the window's rows, could not name it.
 //!
 //! **Cells of lines past the window.** The window's first line can hold
 //! cells of its first paragraph's rows above the window, and, while the
@@ -325,6 +329,62 @@ pub(crate) fn break_lines(
     }
     close(&mut lines, start, len, Kind::Para, Piece::Ends);
     (lines, broken)
+}
+
+/// **Trailing spaces laid on lines of their own, as the terminal laid
+/// them**, where hanging them leaves a paragraph on fewer lines than it is
+/// stored in (`want`): the spaces a program wrote after its last word --
+/// an underlined header padded past the width, a coloured bar -- are its
+/// text, and hung past the edge their rendition is not drawn. So the last
+/// line's spaces after its last word fill it to the edge, and the rest go
+/// on lines of their own, each as wide as the line, until the paragraph
+/// has the lines it is stored in; what is left hangs on the last. Lines are
+/// left as they are where its last line is a run's or it has too few
+/// spaces to reach `want`.
+fn unhang(lines: &mut Vec<Line>, text: &[char], spans: &[Span], cols: Cols, want: Rows) {
+    let (cols, want) = (cols.index().max(1), want.index());
+    let Some(&last) = lines.last() else {
+        return;
+    };
+    if last.kind != Kind::Para {
+        return;
+    }
+    let mut out: Vec<Line> = Vec::new();
+    let (mut from, mut w) = (last.from, 0usize);
+    let mut t = last.from;
+    while t < last.to && lines.len() - 1 + out.len() + 1 < want {
+        let s = spans[t].cols().0;
+        if w + s > cols {
+            if !hangs(text[t]) {
+                // A cut inside the words: only spaces are moved.
+                return;
+            }
+            out.push(Line {
+                from,
+                to: t,
+                kind: Kind::Para,
+                piece: Piece::Continues,
+            });
+            from = t;
+            w = 0;
+        }
+        w += s;
+        t += 1;
+    }
+    if out.is_empty() {
+        return;
+    }
+    out.push(Line {
+        from,
+        to: last.to,
+        kind: Kind::Para,
+        piece: last.piece,
+    });
+    if lines.len() - 1 + out.len() != want {
+        return;
+    }
+    lines.pop();
+    lines.extend(out);
 }
 
 /// **The runs a paragraph's other direction holds**: each maximal stretch
@@ -1315,7 +1375,16 @@ fn rebreak(term: &Term<'_>, g: &mut Group<'_>, cols: Cols, work: &mut Breaker) {
         None => Vec::new(),
     };
     let spans: Vec<Span> = g.at.iter().map(|a| a.span).collect();
-    let (lines, broken) = break_lines(&spaced, &spans, &breaks, &runs, cols);
+    let (mut lines, broken) = break_lines(&spaced, &spans, &breaks, &runs, cols);
+    if lines.len() < g.rows.len() {
+        unhang(
+            &mut lines,
+            &spaced,
+            &spans,
+            cols,
+            Rows::of_index(g.rows.len()),
+        );
+    }
     // The stored cut again: drawn as stored.
     let cut: Vec<usize> = (0..g.rows.len())
         .map(|r| {

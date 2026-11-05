@@ -238,9 +238,10 @@ fn dump(t: &Term<'_>) {
 /// * **A null arm.** An empty timed region per step, accumulated beside
 ///   the resize, so the resize column is read against what a clock pair
 ///   costs rather than against zero.
-/// * **The zone counts.** A width change re-cuts the primary only in
-///   `Zone::Output`, so the claim that a drag at a prompt does not
-///   reflow is counted at the call rather than asserted in prose.
+/// * **The zone counts.** A width change re-cuts all of the primary in
+///   `Zone::Output`, and in `Zone::Prompt` the lines above the shell's
+///   block, its rows kept whole, so which rule a drag took is counted at
+///   the call rather than asserted in prose.
 fn cost(path: &str, steps: &[Step], reps: usize) {
     let geom = baud_bench::host_geometry();
     let max = WinSize {
@@ -386,15 +387,16 @@ fn cost(path: &str, steps: &[Step], reps: usize) {
     // averaged away.
     println!("  cells:     parser {cmin}-{cmax} over the gesture, {lmin}-{lmax} lines retained");
     println!(
-        "  zone:      {} of the {wide} width changes are in Zone::Output, where a re-cut runs",
+        "  zone:      {} of the {wide} width changes are in Zone::Output, where all is re-cut",
         in_output
     );
 
     // **The control, because a resize that costs 20 ns looks exactly like
-    // a resize that did not happen.** A width change re-cuts the primary
-    // only in `Zone::Output`; between a prompt mark and the output that
-    // follows it the shell will redraw those rows itself, so the core
-    // leaves them (see `Zone` in `baud-core`). Here the same call is
+    // a resize that did not happen.** A width change re-cuts all of the
+    // primary in `Zone::Output`; between a prompt mark and the output that
+    // follows it the shell will redraw its block's rows itself, so the core
+    // keeps those whole and re-cuts the lines above them (see `Zone` in
+    // `baud-core`). Here the same call is
     // timed in each zone, on the screen the gesture left -- the replay
     // resizes as well as feeds, so the terminal ends at the geometry the
     // gesture ends at -- and looped the way the gesture is, first round
@@ -447,8 +449,8 @@ fn cost(path: &str, steps: &[Step], reps: usize) {
     let settled = output.len();
     let (om, olo, ohi) = bounds(output);
     println!(
-        "  control:   one width change costs {pm} [{plo}-{phi}] ns in Zone::Prompt (no re-cut) \
-         and {om} [{olo}-{ohi}] ns in Zone::Output (the re-cut), on the screen the gesture \
+        "  control:   one width change costs {pm} [{plo}-{phi}] ns in Zone::Prompt (the block \
+         kept) and {om} [{olo}-{ohi}] ns in Zone::Output (all re-cut), on the screen the gesture \
          left, median of {settled} settled rounds"
     );
 }

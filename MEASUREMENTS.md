@@ -1928,3 +1928,39 @@ built: "the cargo feature `profile-rustflags` requires a nightly version of
 Cargo, but this is the `stable` channel", the same from `--path` and, for a
 one-line crate with the same `cargo-features`, from a directory registry
 (`[[source: cargo-eb94155-cargo-features-tests]]`).
+
+## A narrowing at a prompt re-cuts the output above it
+
+**What changed.** At a marked prompt a change of width re-cut nothing, so a
+listing printed in a new window and narrowed kept every row at the old width:
+long lines clipped at the edge, a line wrapped at the old width with its
+middle past it. Now `Term::resize` re-cuts every line above the shell's block
+and keeps the block's rows whole (`View::reflow`, `Recut::Above`; note M), and
+the display draws the re-cut output at its words. The shell's count holds:
+`the_prompt_to_cursor_distance_holds_across_every_resize`,
+`a_block_never_moves_once_it_is_drawn` and
+`a_gesture_leaves_one_prompt_on_screen` pass on every recorded gesture.
+
+**What a drag step costs the core**, `winch <gesture> cost 5`, the mean
+resize per step over the gesture, base (master) against the change, rotated,
+four rounds, the first dropped, on an Apple M5 Max on mains:
+
+| gesture | steps | base, us | change, us |
+|---|---|---|---|
+| `drag` (at a prompt) | 331 | 2.67-3.76 | 7.04-7.73 |
+| `live-drag` (at a prompt) | 519 | 5.11-5.59 | 9.99-10.21 |
+| `full-ring` (no marks: re-cut on both) | 83 | 335.79-352.82 | 337.73-355.41 |
+
+The ranges at a prompt do not overlap: a step that re-cut nothing re-cuts
+the ring now, 4-5 us more on these gestures. `full-ring` re-cuts on both arms
+and its ranges overlap, so the unchanged path is unchanged; it is also the
+bound on a step at a prompt over a full ring, which re-cuts the same rows.
+A resize is not on the per-byte path: no write or parse function changed.
+`ingest2 <payload> 300` under `/usr/bin/time -l`, instructions retired,
+the same four rotated rounds, the first dropped: `cat` 2,135.71-2,143.02 M
+base, 2,135.62-2,137.14 M change; `btop` 5,150.39-5,150.63 M base,
+5,150.02-5,151.11 M change. The ranges overlap: no result, as expected.
+
+**Write amplification and working set.** Per ingested byte, nothing
+changed. Per resize at a prompt, the re-cut writes every retained cell once,
+as a re-cut in the output zone always did.

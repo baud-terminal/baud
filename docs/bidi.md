@@ -65,9 +65,12 @@ the screen; step 3 joins Arabic letters.
   alternate screen, or the live screen of a shell that sends no marks. A
   paragraph with a row holding text past the window's edge keeps the
   terminal's cut: a narrowing while the shell waits at a marked prompt
-  re-cuts no row and keeps each row's cells past the new edge, and the
-  cells the window shows, read as the paragraph's text, would join into
-  words the program never wrote.
+  re-cuts the output above it but keeps the shell's own rows whole, each
+  with its cells past the new edge, and the cells the window shows of a
+  line typed there and run, read as the paragraph's text, would join into
+  words the program never wrote. Spaces a program wrote after its last
+  word go on lines of their own, as the terminal laid them, where hanging
+  them would leave the paragraph on fewer lines than it is stored in.
   With BDSM reset nothing is re-broken (ECMA-48 7.2.1's EXPLICIT: the
   program addresses the presentation lines). **The lines a paragraph gains
   push the text above it up**: the window's last row stays, so the cursor,

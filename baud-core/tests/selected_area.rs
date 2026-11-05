@@ -633,7 +633,9 @@ fn printed_narrowed(pieces: &[&[u8]]) -> String {
     let mut s = Owned::new(&WIDE).with_printer(PrintBudget::of_bytes(4096));
     let mut t = Term::new(s.storage(), &WIDE);
     t.set_printer(PrinterPort::Ready);
-    support::feed(&mut t, b"SSSSSSSSSSSSSSS\x1b[4;1H\x1b]133;A\x07");
+    // The prompt's mark first: every row from it on is the shell's block,
+    // which the narrowing keeps whole, the tail past the edge.
+    support::feed(&mut t, b"\x1b]133;A\x07SSSSSSSSSSSSSSS\x1b[4;1H");
     assert_eq!(t.resize(&WS), Resized::Ok);
     assert_eq!(
         t.row_extent(Row::ZERO).index(),

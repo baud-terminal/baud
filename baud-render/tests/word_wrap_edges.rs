@@ -963,14 +963,15 @@ fn decrlcm_copies_a_kept_paragraph_beside_a_re_broken_one() {
     );
 }
 
-/// **`?96` copies the cut kept for rows held past the edge**: a paragraph
-/// cut at twelve columns, then the window narrowed to eight while the
-/// shell waits at its marked prompt, which re-cuts no row, and five lines
-/// more move the paragraph above the live window. Its rows hold text past the
-/// edge, so the display keeps their cut, and the copy in drawn order reads
-/// those rows -- what the stored rows' copy reads -- not the cells shown
-/// joined into words never written. Not narrowed, the paragraph's copy
-/// reads its display lines, the control.
+/// **`?96` copies the cut kept for rows held past the edge**: a line typed
+/// at a marked prompt, cut at twelve columns, then the window narrowed to
+/// eight while the shell waits there, which keeps the shell's block whole,
+/// then the line run and five lines more move the paragraph above the live
+/// window. Its rows hold text past the edge, so the display keeps their
+/// cut, and the copy in drawn order reads those rows -- what the stored
+/// rows' copy reads -- not the cells shown joined into words never
+/// written. Not narrowed, the paragraph's copy reads its display lines,
+/// the control.
 #[test]
 fn decrlcm_copies_the_cut_kept_for_rows_held_past_the_edge() {
     let copy = |narrowed: bool| {
@@ -980,10 +981,7 @@ fn decrlcm_copies_the_cut_kept_for_rows_held_past_the_edge() {
         };
         let mut owned = Owned::new(&ws);
         let mut t = Term::new(owned.storage(), &ws);
-        let bytes = format!(
-            "{}the quick brown fox jumps\r\n{PROMPT}\x1b[?96h",
-            history(6)
-        );
+        let bytes = format!("{}{PROMPT}the quick brown fox jumps", history(6));
         feed(&mut t, &bytes);
         if narrowed {
             let _ = t.resize(&WinSize {
@@ -991,6 +989,10 @@ fn decrlcm_copies_the_cut_kept_for_rows_held_past_the_edge() {
                 ws_col: 8,
             });
         }
+        feed(
+            &mut t,
+            &format!("\r\n\x1b]133;C\x07\x1b]133;D;0\x07{PROMPT}\x1b[?96h"),
+        );
         feed(&mut t, "\r\n\r\n\r\n\r\n\r\n");
         // The paragraph's three rows sit above the prompt's row and the
         // five below it, four lines above the window: the view four lines
@@ -1007,7 +1009,7 @@ fn decrlcm_copies_the_cut_kept_for_rows_held_past_the_edge() {
             .filter_map(|p| char::from_u32(p.value()))
             .collect();
         assert!(
-            first.starts_with("the quic"),
+            first.starts_with("$ the qu"),
             "the paragraph's row: {first:?}"
         );
         let last = Col::at_index(view.cols().index() - 1);

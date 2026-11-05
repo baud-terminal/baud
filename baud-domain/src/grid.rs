@@ -1,7 +1,7 @@
 use crate::*;
 
 mod reflow;
-pub use reflow::{Follow, Reflowed};
+pub use reflow::{Follow, Recut, Reflowed};
 
 /// A grid indexed by [`Row`] and [`Col`], never by an integer.
 ///
@@ -1356,6 +1356,9 @@ impl<'a> View<'a> {
     /// it, which neither their flag nor their last cell describes. Every
     /// other row the re-cut writes is blank past the new width to the pitch,
     /// so its flag and the cell inside `was` both read clear, which it is.
+    /// **So are the rows it kept whole** (`whole`, [`Reflowed::kept`]): each
+    /// is copied with its cells past the new width, onto a ring row whose
+    /// flag was another row's.
     #[cold]
     #[inline(never)]
     pub fn held_past_edge(
@@ -1364,6 +1367,7 @@ impl<'a> View<'a> {
         reach: Cols,
         kept: Kept,
         blanked: Rows,
+        whole: (RowRot, Rows),
         past: &mut PastRows<'_>,
     ) -> Cols {
         let s = self.stride.index();
@@ -1376,6 +1380,11 @@ impl<'a> View<'a> {
         let rows = self.rows.index();
         for y in rows - blanked.index().min(rows)..rows {
             past.set(self.phys(Row::from_index(y)), PastEdge::Held);
+        }
+        // The rows a re-cut kept whole, read whole: each landed where
+        // another row's flag was.
+        for k in 0..whole.1.index() {
+            past.set(whole.0.advance(k, self.ring).index(), PastEdge::Held);
         }
         // Nothing held and nothing narrower: every row is clear past `was`,
         // so past this edge too.

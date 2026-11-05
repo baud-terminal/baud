@@ -874,15 +874,19 @@ fn paragraph_rows(lines: &[String]) -> Vec<String> {
 /// zsh with no startup file, at forty columns, its prompt `% `, with
 /// thirty lines of history behind its second prompt.
 fn zsh_at_forty() -> Session {
-    let ws = WinSize {
+    zsh_at(&WinSize {
         ws_col: 40,
         ws_row: 12,
-    };
+    })
+}
+
+/// [`zsh_at_forty`] at `ws`.
+fn zsh_at(ws: &WinSize) -> Session {
     let parent = vec![
         (OsString::from("LANG"), OsString::from("en_US.UTF-8")),
         (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),
     ];
-    let mut s = Session::start(&ws, "PS1='%% ' exec /bin/zsh -f -i", parent, Parent::Other);
+    let mut s = Session::start(ws, "PS1='%% ' exec /bin/zsh -f -i", parent, Parent::Other);
     s.until("zsh reads a line", |s| {
         s.written(b"\x1b[?2004h") >= Times(1)
     });
@@ -904,8 +908,9 @@ fn zsh_at_forty() -> Session {
 /// cut splits a word (the control); the frame the renderer then draws with
 /// the config's default, read from no file, breaks every line at a space,
 /// each word whole, and the words in order are the paragraph's. Narrowed
-/// to thirty columns while zsh waits at its prompt, every row keeps the
-/// terminal's cut, as the core left it.
+/// to thirty columns while zsh waits at its prompt, the paragraph above it
+/// is finished output, which the narrowing re-cuts, and the frame draws it
+/// at its words again.
 #[test]
 fn with_no_config_a_marked_shells_paragraph_is_drawn_at_its_words() {
     let mut s = zsh_at_forty();
@@ -936,10 +941,8 @@ fn with_no_config_a_marked_shells_paragraph_is_drawn_at_its_words() {
         .unwrap_or_else(|| panic!("the paragraph is re-broken: {:?}", s.screen_text()));
     let lines = paragraph_rows(&drawn);
     assert!(words_whole(&lines), "every word whole, in order: {lines:?}");
-    // Narrower, while zsh waits at its marked prompt: the core re-cuts
-    // nothing there, each row keeping its cells past the new edge, so the
-    // paragraph keeps the terminal's cut rather than join what each row
-    // shows into words the program never wrote.
+    // Narrower, while zsh waits at its marked prompt: the paragraph is
+    // re-cut, and drawn at its words at thirty.
     s.resize(&WinSize {
         ws_col: 30,
         ws_row: 12,
@@ -947,10 +950,214 @@ fn with_no_config_a_marked_shells_paragraph_is_drawn_at_its_words() {
     let stored = paragraph_rows(&s.screen_text());
     assert!(!words_whole(&stored), "the control at thirty: {stored:?}");
     let _ = s.frame();
-    let lines = s
+    let drawn = s
         .drawn_lines()
-        .map_or_else(|| stored.clone(), |d| paragraph_rows(&d));
-    assert_eq!(lines, stored, "drawn as the terminal cut it at thirty");
+        .unwrap_or_else(|| panic!("re-broken at thirty: {:?}", s.screen_text()));
+    let lines = paragraph_rows(&drawn);
+    assert!(
+        words_whole(&lines),
+        "every word whole at thirty, in order: {lines:?}"
+    );
+}
+
+/// The lines a long-format listing prints, as they read, and the bytes
+/// that print them: an underlined header padded past eighty columns,
+/// coloured columns, a long name, and a symbolic link whose target is
+/// longer than forty.
+fn listing() -> (Vec<String>, Vec<u8>) {
+    let header = [
+        "Permissions",
+        "User  ",
+        "Group",
+        "Size",
+        "Date Modified    ",
+        &format!("Name{}", " ".repeat(60)),
+    ];
+    let mut text = vec![header.join(" ")];
+    let mut bytes = header
+        .iter()
+        .map(|h| format!("\x1b[4m{h}\x1b[24m"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    bytes.push_str("\r\n");
+    for (kind, name) in [
+        ("drwxr-xr-x", "Applications/"),
+        ("drwxr-xr-x", "pre-nix-darwin-20260803-201530-backup/"),
+        (
+            ".rw-r--r--",
+            "a-rather-long-file-name-that-keeps-going-for-a-while.txt",
+        ),
+        (
+            "lrwxr-xr-x",
+            "'Shared - Example Team Space Projects' -> \
+             /home/jordan/Library/CloudStorage/Shared-ExampleTeamSpace-Projects",
+        ),
+    ] {
+        bytes.push_str(&format!(
+            "\x1b[1;34m{kind}\x1b[0m jordan staff  64 B \x1b[32m26-11-04 21:23:07\x1b[0m \x1b[1;36m{name}\x1b[0m\r\n"
+        ));
+        text.push(format!(
+            "{kind} jordan staff  64 B 26-11-04 21:23:07 {name}"
+        ));
+    }
+    (text, bytes.into_bytes())
+}
+
+/// The rows the listing is drawn on in `rows`: from the header's first to
+/// the row before the prompt after it.
+fn listing_rows(rows: &[String]) -> Vec<String> {
+    let Some(from) = rows.iter().position(|l| l.starts_with("Permissions")) else {
+        return Vec::new();
+    };
+    rows[from..]
+        .iter()
+        .take_while(|l| !l.starts_with('%'))
+        .cloned()
+        .collect()
+}
+
+/// Every character but the spaces, in order.
+fn squash(lines: &[String]) -> String {
+    lines
+        .concat()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
+}
+
+/// **A listing narrowed at zsh's prompt, through the functions a window's
+/// resize runs**: zsh with the marks a shell integration sends prints a
+/// long-format listing at eighty columns, and the window is dragged to
+/// forty in steps of three and back, each step as `relayout` takes it --
+/// the terminal resized, the renderer fitted, the child told its size,
+/// which signals zsh to redraw its prompt -- and the frame drawn on the
+/// CPU after each. Every frame draws every character of the listing in
+/// order, nothing past the edge; at forty, once zsh has redrawn, the
+/// listing is drawn at its words with a mark beside each continued line;
+/// back at eighty the listing's rows are the ones drawn before; and zsh
+/// still answers, its stream open.
+#[test]
+fn a_listing_narrowed_at_zshs_prompt_is_drawn_at_its_words_and_zsh_answers() {
+    let wide = WinSize {
+        ws_col: 80,
+        ws_row: 30,
+    };
+    let mut s = zsh_at(&wide);
+    s.renderer.set_margins(baud_font::Px::of(16));
+    s.type_text(
+        "precmd() { print -n '\\e]133;D\\a\\e]133;A\\a' }; \
+         preexec() { print -n '\\e]133;C\\a' }",
+    );
+    s.enter();
+    s.until("zsh reads the next line", |s| {
+        s.written(b"\x1b[?2004h") >= Times(3)
+    });
+    let file = std::env::temp_dir().join(format!("baud-listing-{}", std::process::id()));
+    let (lines, bytes) = listing();
+    std::fs::write(&file, &bytes).expect("the listing's bytes");
+    s.type_text(&format!("cat {}", file.display()));
+    s.enter();
+    s.until("zsh reads the line after", |s| {
+        s.written(b"\x1b[?2004h") >= Times(4)
+    });
+    let _ = std::fs::remove_file(&file);
+    let _ = s.frame();
+    let before = listing_rows(&s.drawn_lines().unwrap_or_else(|| s.screen_text()));
+    assert_eq!(squash(&before), squash(&lines), "the control: {before:#?}");
+    let each = |s: &mut Session, c: u16| {
+        s.resize(&WinSize {
+            ws_col: c,
+            ws_row: 30,
+        });
+        s.pump();
+        let _ = s.frame();
+        let rows = s.drawn_lines().unwrap_or_else(|| s.screen_text());
+        let drawn = listing_rows(&rows);
+        assert_eq!(
+            squash(&drawn),
+            squash(&lines),
+            "at {c}: every character of the listing drawn, in order:\n{}",
+            rows.join("\n")
+        );
+        assert!(
+            drawn.iter().all(|l| l.chars().count() <= usize::from(c)),
+            "at {c}: no row past the edge:\n{}",
+            rows.join("\n")
+        );
+    };
+    for c in (40..80).rev().step_by(3).chain([40]) {
+        each(&mut s, c);
+    }
+    // zsh has redrawn at forty: a line typed and run brings its next
+    // prompt, so every byte it wrote for the drag has been fed.
+    s.type_text("print synced");
+    s.enter();
+    s.until("zsh runs the line at forty", |s| {
+        s.written(b"\x1b[?2004h") >= Times(5)
+    });
+    // The marks as `App::present` places them, before the frame.
+    let back = s.term.window_back();
+    s.renderer.place_marks(
+        &s.term,
+        back,
+        baud_render::Leaving::None,
+        baud_font::Px::of(0),
+    );
+    let _ = s.frame();
+    let rows = s
+        .drawn_lines()
+        .unwrap_or_else(|| panic!("re-broken at forty: {:#?}", s.screen_text()));
+    let drawn = listing_rows(&rows);
+    for word in lines.iter().flat_map(|l| l.split_whitespace()) {
+        if word.contains('-') || word.contains('/') {
+            continue;
+        }
+        assert!(
+            drawn
+                .iter()
+                .any(|l| l.split_whitespace().any(|w| w == word)),
+            "{word:?} whole on a row at forty:\n{}",
+            rows.join("\n")
+        );
+    }
+    let from = rows
+        .iter()
+        .position(|l| l.starts_with("Permissions"))
+        .expect("the header");
+    let ch = i32::try_from(s.renderer.metrics().cell_h.value()).expect("a height");
+    let marked: Vec<usize> = s
+        .renderer
+        .margin_records()
+        .iter()
+        .map(|i| usize::try_from(i32::from(i.y.0).div_euclid(ch)).expect("a row"))
+        .collect();
+    let firsts = ["Permissions", "drwxr", ".rw-", "lrwxr"];
+    for (k, l) in drawn.iter().enumerate() {
+        let first = firsts.iter().any(|p| l.starts_with(p));
+        assert_eq!(
+            marked.contains(&(from + k)),
+            !first,
+            "row {} {l:?}: marked as a continued line:\n{}",
+            from + k,
+            rows.join("\n")
+        );
+    }
+    for c in (40..=80).step_by(3).chain([80]) {
+        each(&mut s, c);
+    }
+    s.type_text("print alive");
+    s.enter();
+    s.until("zsh answers at eighty", |s| {
+        s.written(b"\x1b[?2004h") >= Times(6)
+    });
+    assert_eq!(s.closed, Stream::Open, "zsh's stream is open");
+    let _ = s.frame();
+    let rows = s.drawn_lines().unwrap_or_else(|| s.screen_text());
+    assert_eq!(
+        listing_rows(&rows),
+        before,
+        "back at eighty, the listing's rows as drawn before"
+    );
 }
 
 /// **With no config and no marks, the paragraph is drawn at its words

@@ -105,6 +105,44 @@ fn first_line(t: &Term<'_>) -> Option<String> {
         .find(|l| !l.is_empty())
 }
 
+/// **Whether `want` is in a line on the screen, and in one the history
+/// retains**: the rows joined as their wrap flags join them, oldest first,
+/// runs of spaces collapsed.
+fn lines_holding(t: &Term<'_>, want: &str) -> (bool, bool) {
+    let squash = |l: &str| l.split_whitespace().collect::<Vec<_>>().join(" ");
+    let sb = t.scrollback();
+    let mut rows: Vec<(String, bool, bool)> = (0..sb.len())
+        .rev()
+        .filter_map(|n| sb.line(baud_domain::Back::of(n)))
+        .map(|(c, w)| (text_of(c), w == baud_domain::Wrap::Continues, false))
+        .collect();
+    let vp = t.view(baud_domain::Rows::ZERO);
+    rows.extend((0..t.geometry().1.index()).map(|y| {
+        (
+            text_of(vp.row(Row::from_index(y))),
+            vp.wrapped(Row::from_index(y)) == baud_domain::Wrap::Continues,
+            true,
+        )
+    }));
+    let (mut on_screen, mut retained) = (false, false);
+    let (mut line, mut seen) = (String::new(), false);
+    for (text, wraps, screen) in rows {
+        line.push_str(&text);
+        seen |= screen;
+        if !wraps {
+            if squash(&line).contains(want) {
+                match seen {
+                    true => on_screen = true,
+                    false => retained = true,
+                }
+            }
+            line.clear();
+            seen = false;
+        }
+    }
+    (on_screen, retained)
+}
+
 /// The last row of the screen that holds anything, and what it holds.
 fn last_line(t: &Term<'_>) -> Option<String> {
     (0..t.geometry().1.index())
@@ -556,13 +594,11 @@ fn output_written_before_a_gesture_survives_it() {
                 // Compared with runs of spaces collapsed: a line's padding
                 // is the width it was drawn at.
                 let squash = |l: &str| l.split_whitespace().collect::<Vec<_>>().join(" ");
+                // A line, not a row: a change of width at a prompt re-cuts
+                // the output above it, so the first row as it was drawn is
+                // part of a line wherever that line is now cut.
                 let want = squash(want);
-                let on_screen = screen_text(t).iter().any(|l| squash(l) == want);
-                let sb = t.scrollback();
-                let retained = (0..sb.len()).any(|n| {
-                    sb.line(baud_domain::Back::of(n))
-                        .is_some_and(|(c, _)| squash(&text_of(c)) == want)
-                });
+                let (on_screen, retained) = lines_holding(t, &want);
                 assert!(
                     on_screen || retained,
                     "{name}: step {i} at {}x{}: the first line {want:?} is neither on screen nor retained",
@@ -888,6 +924,11 @@ fn prompt_rows(t: &Term<'_>, sig: &str) -> Vec<usize> {
 
 #[test]
 fn no_more_than_two_blank_rows_come_between_consecutive_prompts() {
+    // Counted in lines: a change of width at a prompt re-cuts the finished
+    // blocks above it, whose lines this recording pads to the width, so a
+    // narrowing wraps each onto a second row of spaces, which is the line's
+    // and no row left behind.
+    //
     // A screenshot of 2026-09-18 09:31, from a live trace: four blocks
     // at rows 1-19, then twelve blank rows, then the fifth.
     // Between one prompt block and the next there is the `$` row, the
@@ -909,9 +950,14 @@ fn no_more_than_two_blank_rows_come_between_consecutive_prompts() {
                 return;
             }
             let rows = prompt_rows(t, sig.trim());
+            let vp = t.view(baud_domain::Rows::ZERO);
             for pair in rows.windows(2) {
+                // Blank lines, not rows: a row the row above wraps onto is
+                // that line's, the spaces a padded line was drawn with at a
+                // wider width and re-cut onto a row of their own.
                 let blank = (pair[0] + 1..pair[1])
                     .filter(|y| row_text(t, *y).is_empty())
+                    .filter(|y| vp.wrapped(Row::from_index(y - 1)) == baud_domain::Wrap::Ended)
                     .count();
                 assert!(
                     blank <= 2,

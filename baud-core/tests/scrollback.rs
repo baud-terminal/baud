@@ -427,9 +427,9 @@ fn a_row_with_a_hidden_tail_under_a_top_region_survives_a_scroll() {
     };
     let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, Depth::of(20));
     let mut t = Term::new(owned.storage(), &ws);
-    let mut s = String::from("\x1b[9;1H");
+    let mut s = String::from("\x1b]133;A\x07\x1b[9;1H");
     s.push_str(&"S".repeat(30));
-    s.push_str("\x1b[10;1H\x1b]133;A\x07");
+    s.push_str("\x1b[10;1H");
     support::feed(&mut t, s.as_bytes());
     assert_eq!(t.resize(&narrow), Resized::Ok);
     support::feed(&mut t, b"\x1b[1;6r");
@@ -497,8 +497,9 @@ fn under_a_region_through_a_prompt_resize(
     };
     let mut t = Term::new(owned.storage(), &first);
     assert_eq!(t.resize(&wide), Resized::Ok);
+    support::feed(&mut t, PROMPT_FIRST);
     support::feed(&mut t, rows);
-    support::feed(&mut t, b"\x1b[10;1H\x1b]133;A\x07$ ");
+    support::feed(&mut t, b"\x1b[10;1H$ ");
     let under = |t: &Term<'_>| {
         (6..10)
             .map(|y| {
@@ -627,7 +628,7 @@ fn the_line_a_region_scroll_opens_keeps_its_blank_to_the_mark_it_reused() {
     let mut t = Term::new(owned.storage(), &wide);
     support::feed(
         &mut t,
-        b"\x1b[7;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\x1b[10;1H\x1b]133;A\x07$ ",
+        b"\x1b]133;A\x07\x1b[7;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\x1b[10;1H$ ",
     );
     assert_eq!(
         t.resize(&WinSize {
@@ -684,7 +685,7 @@ fn cells_a_region_scroll_writes(first: u16, before: &[u8]) -> usize {
             ws_col: first,
         },
     );
-    support::feed(&mut t, before);
+    support::feed(&mut t, &prompt_first(before));
     if first != narrow.ws_col {
         assert_eq!(t.resize(&narrow), Resized::Ok);
     }
@@ -757,7 +758,7 @@ fn a_mark_past_the_edge_keeps_the_reach_a_blank_runs_on_to() {
         let mut t = Term::new(owned.storage(), &wide);
         support::feed(
             &mut t,
-            b"\x1b[9;1Hab\x1b[9;3H\x1b[P\x1b[10;1H\x1b]133;A\x07$ ",
+            b"\x1b]133;A\x07\x1b[9;1Hab\x1b[9;3H\x1b[P\x1b[10;1H$ ",
         );
         assert_eq!(
             t.row_extent(Row::from_index(8)).index(),
@@ -805,7 +806,7 @@ fn a_tail_the_history_holds_at_the_narrowing_keeps_the_reach() {
     let mut t = Term::new(owned.storage(), &wide);
     support::feed(
         &mut t,
-        b"\x1b[3;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\x1b[10;1H\x1b]133;A\x07$ ",
+        b"\x1b]133;A\x07\x1b[3;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\x1b[10;1H$ ",
     );
     assert_eq!(
         t.resize(&WinSize {
@@ -847,7 +848,7 @@ fn a_tail_the_history_holds_at_the_narrowing_keeps_the_reach() {
 /// the narrowed log pane 54%: 95.7 MB/s against 208.4.
 #[test]
 fn a_long_line_above_the_rows_under_a_region_costs_them_nothing_past_the_edge() {
-    let line = b"\x1b[3;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\x1b[10;1H\x1b]133;A\x07$ ";
+    let line = b"\x1b]133;A\x07\x1b[3;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\x1b[10;1H$ ";
     assert_eq!(
         cells_a_region_scroll_writes(40, line),
         cells_a_region_scroll_writes(20, line)
@@ -954,8 +955,9 @@ fn through_a_prompt_narrowing(
     };
     let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
     let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, PROMPT_FIRST);
     support::feed(&mut t, rows);
-    support::feed(&mut t, b"\x1b[10;1H\x1b]133;A\x07$ ");
+    support::feed(&mut t, b"\x1b[10;1H$ ");
     let screen = |t: &Term<'_>| {
         (0..10)
             .map(|y| {
@@ -1401,11 +1403,9 @@ fn a_row_the_repair_clears_past_the_edge_is_not_copied_again() {
     };
     let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(2));
     let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, PROMPT_FIRST);
     support::feed(&mut t, b"\x1b[7;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS");
-    support::feed(
-        &mut t,
-        b"\x1b[8;1Hdash 08\x1b[9;1Hdash 09\x1b[10;1H\x1b]133;A\x07$ ",
-    );
+    support::feed(&mut t, b"\x1b[8;1Hdash 08\x1b[9;1Hdash 09\x1b[10;1H$ ");
     assert_eq!(
         t.resize(&WinSize {
             ws_row: 10,
@@ -1568,12 +1568,10 @@ fn cells_scrolls_write_after_a_renarrowing(row7: &[u8], erase: &[u8]) -> Vec<usi
     };
     let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(2));
     let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, PROMPT_FIRST);
     support::feed(&mut t, b"\x1b[7;1H");
     support::feed(&mut t, row7);
-    support::feed(
-        &mut t,
-        b"\x1b[8;1Hdash 08\x1b[9;1Hdash 09\x1b[10;1H\x1b]133;A\x07$ ",
-    );
+    support::feed(&mut t, b"\x1b[8;1Hdash 08\x1b[9;1Hdash 09\x1b[10;1H$ ");
     assert_eq!(t.resize(&narrow), Resized::Ok);
     support::feed(&mut t, erase);
     support::feed(&mut t, b"\x1b[10;3H");
@@ -1644,6 +1642,28 @@ impl Reads {
     fn every(len: usize) -> impl Iterator<Item = Reads> {
         (1..=len).map(Reads::Of).chain((1..len).map(Reads::SplitAt))
     }
+}
+
+/// **A prompt mark before anything is written**: every row from it on is
+/// the shell's block, which a change of width keeps whole, row for row,
+/// cells past the new edge held there -- what these tests narrow and grow
+/// to keep rows past the edge. A mark after the rows would leave them
+/// above the block, finished output a change of width re-cuts (note M).
+const PROMPT_FIRST: &[u8] = b"\x1b]133;A\x07";
+
+/// `bytes` with a prompt mark in it moved to the front ([`PROMPT_FIRST`]);
+/// bytes with none as they are.
+fn prompt_first(bytes: &[u8]) -> Vec<u8> {
+    let Some(at) = bytes
+        .windows(PROMPT_FIRST.len())
+        .position(|w| w == PROMPT_FIRST)
+    else {
+        return bytes.to_vec();
+    };
+    let mut out = PROMPT_FIRST.to_vec();
+    out.extend_from_slice(&bytes[..at]);
+    out.extend_from_slice(&bytes[at + PROMPT_FIRST.len()..]);
+    out
 }
 
 fn rows_of(t: &Term<'_>) -> Vec<Vec<PackedCell>> {
@@ -1732,10 +1752,13 @@ fn assert_prompt_then_blue(row: &[PackedCell], to: usize, what: &str) {
 }
 
 /// **A redraw in a colour past the edge keeps it to the mark**, as the
-/// shell's own `ED` does. Three lines fed at 20 columns on rows that held
-/// blue bars of mark 30, then a redraw mark in blue: the redraw erases
-/// the block, rows 7 to 10, and the three lines' rows come back blue to
-/// column 30 on a growth, as they do when the shell erases them itself.
+/// shell's own `ED` does. Three lines fed at 20 columns, then a redraw
+/// mark in blue: the redraw erases the block, rows 7 to 10, and the three
+/// lines' rows come back blue to their marks on a growth, as they do when
+/// the shell erases them itself: row 8's ring row lay below the prompt at
+/// the narrowing, kept whole with a blue bar of mark 30, so to column 30;
+/// rows 9 and 10 came round from the bars above the prompt, which the
+/// narrowing re-cut, so to 20.
 /// Erased to the mark and marked empty, the rows read uniform from column
 /// 1, and the clear past the edge took the erase's cells from 20 to 30:
 /// blue to 20. The prompt's row, whose mark was inside the edge, is `$ `
@@ -1744,15 +1767,21 @@ fn assert_prompt_then_blue(row: &[PackedCell], to: usize, what: &str) {
 #[test]
 fn a_redraw_in_a_colour_past_the_edge_keeps_it_to_the_mark() {
     let lines = b"p\r\np\r\np\r\n";
+    // Row 8's ring row lay below the prompt's row at the narrowing, kept
+    // whole with its bar's mark of 30; rows 9 and 10 came round from the
+    // bars above the prompt, finished output the narrowing re-cut, blank
+    // past column 20.
+    let held_to = |y: usize| if y == 7 { 30 } else { 20 };
     let (ed_narrow, ed_grown, ed_erases) = a_redraw_over_blue_bars(lines, ED_BLUE, Reads::Whole);
     assert_eq!(ed_erases, 0, "the control: the shell's ED is no redraw");
     for (y, row) in ed_grown.iter().enumerate().skip(7) {
-        assert_erased_blue(row, 0, 30, &format!("the control: row {}, ED", y + 1));
+        let to = held_to(y);
+        assert_erased_blue(row, 0, to, &format!("the control: row {}, ED", y + 1));
     }
     let (narrow, grown, erases) = a_redraw_over_blue_bars(lines, REDRAW_BLUE, Reads::Whole);
     assert_eq!(erases, 1, "the control: the mark replaced the block");
     for (y, row) in grown.iter().enumerate().skip(7) {
-        assert_erased_blue(row, 0, 30, &format!("row {}, grown", y + 1));
+        assert_erased_blue(row, 0, held_to(y), &format!("row {}, grown", y + 1));
     }
     assert_prompt_then_blue(&narrow[6], 20, "row 7, narrow");
     assert_prompt_then_blue(&grown[6], 20, "row 7, grown");
@@ -1877,13 +1906,13 @@ fn a_redraw_of_a_default_row_writes_to_its_mark_as_ed_does() {
 }
 
 /// **And behind the window, where `ED` cannot reach.** Twelve lines fed at
-/// 20 columns on rows that held blue bars of mark 30 make the block
-/// taller than the screen; the rows the window would give up below hold
-/// text, so the redraw erases the block's rows behind the window where
-/// they lie. Its two lines fed there read as the erase's blue to column
-/// 30, the mark, narrow and grown, as the block's rows on the screen come
-/// back. Marked empty, they read as no cells while narrow and as blue to
-/// 20 once grown.
+/// 20 columns make the block taller than the screen; the rows the window
+/// would give up below hold text, so the redraw erases the block's rows
+/// behind the window where they lie. Its two lines fed there read as the
+/// erase's blue to each row's mark: 30 where the row was kept whole below
+/// the prompt at the narrowing with a bar of mark 30, 20 where it came
+/// round from the bars above the prompt, which the narrowing re-cut. The
+/// block's rows on the screen read as blue to 20 once grown.
 #[test]
 fn a_redraw_in_a_colour_behind_the_window_keeps_it_to_the_mark() {
     let wide = WinSize {
@@ -1920,12 +1949,24 @@ fn a_redraw_in_a_colour_behind_the_window_keeps_it_to_the_mark() {
         (narrow, lines(&t), rows_of(&t))
     };
     let (narrow, grown, rows) = behind(Reads::Whole);
-    for (k, line) in narrow.iter().chain(&grown).enumerate() {
-        assert_eq!(line.len(), 30, "line {} back: to the mark", k % 2);
-        assert_erased_blue(line, 0, 30, &format!("line {} back", k % 2));
+    // Narrow: line 1 back's ring row lay below the prompt at the
+    // narrowing, kept whole with its bar's mark of 30; line 0 back's came
+    // round from the bars above the prompt, which the narrowing re-cut.
+    // Grown: both are finished output above the redrawn block, which the
+    // growth re-cuts -- line 0 back uniform in the erase's blue, its blank
+    // carried to the new width; line 1 back read to the width it had, 20.
+    for (k, (line, to)) in narrow
+        .iter()
+        .chain(&grown)
+        .zip([20, 30, 40, 20])
+        .enumerate()
+    {
+        let what = format!("line {} back, {}", k % 2, ["narrow", "grown"][k / 2]);
+        assert_eq!(line.len(), to, "{what}: to the mark");
+        assert_erased_blue(line, 0, to, &what);
     }
     for (y, row) in rows.iter().enumerate().skip(1) {
-        assert_erased_blue(row, 0, 30, &format!("the control: row {}, grown", y + 1));
+        assert_erased_blue(row, 0, 20, &format!("the control: row {}, grown", y + 1));
     }
     for reads in Reads::every(REDRAW_BLUE.len()) {
         assert_eq!(
@@ -1950,10 +1991,11 @@ fn with_narrowed<R>(line: &[u8], f: impl FnOnce(&mut Term<'_>) -> R) -> R {
     };
     let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
     let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, PROMPT_FIRST);
     for _ in 0..9 {
         support::feed(&mut t, line);
     }
-    support::feed(&mut t, b"\x1b]133;A\x07$ ");
+    support::feed(&mut t, b"$ ");
     assert_eq!(
         t.resize(&WinSize {
             ws_row: 10,
@@ -2335,13 +2377,15 @@ fn a_redraw_over_held_rows_erases_past_the_edge_as_ed_does() {
 }
 
 /// **And behind the window.** A prompt block of fifteen bars and `$ `,
-/// six rows of it behind the window, narrowed at the prompt; the rows the
-/// window would give up hold bars, so a redraw erases the six where they
-/// lie. In blue each reads as the erase's blue to the mark, 30 cells,
-/// narrow and grown, where grown it read the bar's blank past the mark
-/// too, forty; in the default each reads as no cells, where it read
-/// thirty default blanks narrow and forty cells grown. Every read size and
-/// every two-read split of the redraw.
+/// six rows of it behind the window, narrowed at the prompt, which keeps
+/// the block whole; the rows the window would give up hold bars, so a
+/// redraw erases the six where they lie. In blue each reads as the erase's
+/// blue to the mark, 30 cells narrow, where it read the bar's blank past
+/// the mark too, forty; grown, the erased rows are finished output above
+/// the redrawn block, and the growth's re-cut reads each to the width it
+/// had, 20. In the default each reads as no cells, where it read thirty
+/// default blanks narrow and forty cells grown. Every read size and every
+/// two-read split of the redraw.
 #[test]
 fn a_redraw_behind_the_window_clears_what_its_rows_held_past_the_edge() {
     let wide = WinSize {
@@ -2385,6 +2429,15 @@ fn a_redraw_behind_the_window_clears_what_its_rows_held_past_the_edge() {
         let whole = behind(redraw, Reads::Whole);
         for (k, line) in whole.0.iter().chain(&whole.1).enumerate() {
             let what = format!("line {} back, {}", k % 6, ["narrow", "grown"][k / 6]);
+            // Grown, the block the redraw replaced is finished output
+            // above the new one, and the growth re-cuts it: a re-cut reads
+            // a row to the width it had, 20, and what it held past that is
+            // dropped -- the seam `a_tail_hidden_at_a_prompt_is_dropped_
+            // cleanly_by_a_later_re_cut` pins.
+            let len = match k / 6 {
+                0 => len,
+                _ => len.min(20),
+            };
             assert_eq!(line.len(), len, "{what}: its length");
             assert_erased_blue(line, 0, len, &what);
         }
@@ -2701,10 +2754,10 @@ fn grow_over_text_past(prompt: bool, first: Option<u16>, cols: u16) -> usize {
         let lines: Vec<u8> = (0..60)
             .flat_map(|i| format!("line {i:03}\r\n").into_bytes())
             .collect();
-        support::feed(t, &lines);
         if prompt {
-            support::feed(t, b"\x1b]133;A\x07");
+            support::feed(t, PROMPT_FIRST);
         }
+        support::feed(t, &lines);
         each_cut_row(t, |y| format!("\x1b[{y};1H\x1b[2K\x1b[{y};151Hpast"));
         support::feed(t, b"\x1b[21;1H");
         let at = |rows: u16, cols: u16| WinSize {
@@ -3646,11 +3699,12 @@ fn a_retained_line_reads_as_the_window_draws_it_after_a_narrowing() {
     };
     let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
     let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, PROMPT_FIRST);
     for _ in 0..4 {
         support::feed(&mut t, BLUE_BAR);
     }
     support::feed(&mut t, COLOURED_LINES);
-    support::feed(&mut t, b"\x1b]133;A\x07$ ");
+    support::feed(&mut t, b"$ ");
     let n = assert_lines_read_as_the_window_draws_them(&t, "wide");
     assert_eq!(n, 10, "the control: ten lines retired");
     assert_eq!(

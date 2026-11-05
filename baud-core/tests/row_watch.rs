@@ -490,9 +490,12 @@ fn a_line_taken_back_past_the_edge_reaches_the_same_rows() {
     ] {
         let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(30));
         let mut t = Term::new(owned.storage(), &wide);
+        // The prompt's mark first: every row from it on is the shell's
+        // block, which the narrowing keeps whole, the tail past the edge.
+        feed(&mut t, b"\x1b]133;A\x07");
         feed(&mut t, &history());
         feed(&mut t, format!("\x1b[5;1H{}", "S".repeat(30)).as_bytes());
-        feed(&mut t, b"\x1b[10;1H\x1b]133;A\x07");
+        feed(&mut t, b"\x1b[10;1H");
         assert_eq!(t.resize(&WS), Resized::Ok);
         assert_eq!(
             t.row_extent(Row::from_index(4)).index(),

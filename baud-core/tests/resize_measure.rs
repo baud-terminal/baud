@@ -470,6 +470,13 @@ fn the_generator_reaches_the_measure() {
 
 /// A terminal 40 by 10, with room for 12 rows and twenty lines of history;
 /// `f` gets it and puts it at a prompt, so a resize re-cuts nothing.
+/// **A prompt mark before anything is written**: every row from it on is
+/// the shell's block, which a change of width keeps whole, row for row,
+/// cells past the new edge held there -- what these tests narrow to keep
+/// rows past the edge. A mark after the rows would leave them above the
+/// block, finished output a change of width re-cuts (note M).
+const PROMPT_FIRST: &[u8] = b"\x1b]133;A\x07";
+
 fn at_prompt(f: impl FnOnce(&mut Term<'_>)) {
     let ws = WinSize {
         ws_col: 40,
@@ -526,10 +533,11 @@ const LONG: &[u8] = b"\x1b[2;1HLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL";
 /// control: the same row erased in the default blank stays clear.
 #[test]
 fn a_row_clear_at_the_old_edge_is_held_past_the_new_one_by_its_last_cell() {
-    let prompt = b"\x1b[10;1H\x1b]133;A\x07$ ";
+    let prompt = b"\x1b[10;1H$ ";
     every_split(
         b"\x1b[6;1H\x1b[44m\x1b[2K\x1b[0m\x1b[7;1H\x1b[2K\x1b[10;1H",
         |t| {
+            support::feed(t, PROMPT_FIRST);
             support::feed(t, LONG);
             support::feed(t, prompt);
             resize(t, 30, 10);
@@ -553,10 +561,11 @@ fn a_row_clear_at_the_old_edge_is_held_past_the_new_one_by_its_last_cell() {
 /// letters from 20 to 25, which only its mark says.
 #[test]
 fn a_row_clear_at_the_old_edge_is_held_past_the_new_one_by_its_mark() {
-    let prompt = b"\x1b[10;1H\x1b]133;A\x07$ ";
+    let prompt = b"\x1b[10;1H$ ";
     every_split(
         b"\x1b[6;1Habcdefghijklmnopqrstuvwxy\x1b[10;1H",
         |t| {
+            support::feed(t, PROMPT_FIRST);
             support::feed(t, LONG);
             support::feed(t, prompt);
             resize(t, 30, 10);
@@ -583,8 +592,9 @@ fn a_row_clear_at_the_old_edge_is_held_past_the_new_one_by_its_mark() {
 fn a_held_row_emptied_is_read_again_at_a_resize_of_the_height_or_the_same_size() {
     for (cols, rows) in [(20u16, 10u16), (20, 9), (20, 11)] {
         at_prompt(|t| {
+            support::feed(t, PROMPT_FIRST);
             support::feed(t, LONG);
-            support::feed(t, b"\x1b[10;1H\x1b]133;A\x07$ ");
+            support::feed(t, b"\x1b[10;1H$ ");
             resize(t, 20, 10);
             support::feed(t, b"\x1b[2;1H\x1b[20X\x1b[10;3H");
             let before = t.past_edge_check();
@@ -609,8 +619,9 @@ fn a_held_row_emptied_is_read_again_at_a_resize_of_the_height_or_the_same_size()
 #[test]
 fn stale_flags_are_not_trusted_once_the_reach_came_back() {
     at_prompt(|t| {
+        support::feed(t, PROMPT_FIRST);
         support::feed(t, LONG);
-        support::feed(t, b"\x1b[10;1H\x1b]133;A\x07$ ");
+        support::feed(t, b"\x1b[10;1H$ ");
         resize(t, 20, 10);
         resize(t, 40, 10);
         support::feed(

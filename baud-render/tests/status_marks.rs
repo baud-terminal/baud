@@ -138,9 +138,45 @@ fn prompt_rows(t: &Term<'_>, back: usize) -> Vec<i32> {
         .collect()
 }
 
+/// The rows of the window `back` lines up as the word wrap draws it whose
+/// text is a prompt's `$` with its command: `$ cmd` on the row, or `$` with
+/// `cmd` on the row below, where the wrap put the command on a line of its
+/// own.
+fn drawn_prompt_rows(t: &Term<'_>, back: usize) -> Vec<i32> {
+    let mut o = baud_render::Reorder::new();
+    o.set_word_wrap(baud_render::WordWrap::On);
+    o.lay_out(t, Rows::of_count(back));
+    let v = o.view(t, Rows::of_count(back));
+    let text: Vec<String> = (0..v.rows().index())
+        .map(|y| {
+            let r = Row::from_index(y);
+            let mut out = vec![baud_domain::PackedCell::EMPTY; v.cols().index()];
+            o.orders().permute(r, v.row(r), &mut out);
+            out.iter()
+                .map(|c| {
+                    c.content
+                        .as_codepoint()
+                        .and_then(|cp| char::from_u32(cp.value()))
+                        .unwrap_or(' ')
+                })
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    (0..text.len())
+        .filter(|&y| {
+            text[y].starts_with("$ cmd")
+                || (text[y] == "$" && text.get(y + 1).is_some_and(|n| n.starts_with("cmd")))
+        })
+        .map(|y| i32::try_from(y).unwrap())
+        .collect()
+}
+
 /// **A mark stays on its prompt's line**: at every depth of the window
 /// over the history, and after a narrowing reflow re-cuts the lines, each
-/// ended command's mark is on the row its `$ cmd` text is on.
+/// ended command's mark is on the row its `$ cmd` text is drawn on, as the
+/// word wrap draws the window.
 #[test]
 fn a_mark_follows_its_line_through_the_history_and_a_reflow() {
     let data = font("JetBrainsMono-Regular.ttf");
@@ -157,7 +193,7 @@ fn a_mark_follows_its_line_through_the_history_and_a_reflow() {
             let rows: Vec<i32> = marks(&r).into_iter().map(|(y, _)| y).collect();
             // The open prompt, `$ ` with no command, has no mark and is
             // not counted.
-            assert_eq!(rows, prompt_rows(t, back), "back {back}");
+            assert_eq!(rows, drawn_prompt_rows(t, back), "back {back}");
             depths += 1;
         }
         assert!(depths > 20, "the history was walked ({depths})");

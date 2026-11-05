@@ -664,11 +664,12 @@ fn a_wider_alternate_screen_blanks_what_it_reveals_while_the_shell_is_at_a_promp
 }
 
 /// A narrowing re-cut writes each line's cells at the new width, and the
-/// destination rows held other lines' cells past it. A later growth at a
-/// prompt re-cuts nothing and shows every column, so those stale tails came
-/// back beside the re-cut text: the second half of a line with a first
-/// half's tail after it. Every row after the round trip is a line's head or
-/// its tail at 50 columns, and nothing longer.
+/// destination rows held other lines' cells past it. A later growth that
+/// showed every column brought those stale tails back beside the re-cut
+/// text: the second half of a line with a first half's tail after it. At a
+/// prompt the growth re-cuts the output above it, so every row after the
+/// round trip is one whole line again, ninety characters, and nothing
+/// else.
 #[test]
 fn a_narrowing_re_cut_leaves_nothing_past_its_width() {
     support::with_corpus(|t| {
@@ -692,11 +693,17 @@ fn a_narrowing_re_cut_leaves_nothing_past_its_width() {
                     .collect();
                 (y, text.trim_end().to_string())
             })
-            .filter(|(_, s)| s.len() > 50)
+            .filter(|(_, s)| !s.is_empty() && s != "$")
             .collect();
+        let whole = |s: &str| {
+            s.len() == 90
+                && s.starts_with('L')
+                && s[1..3].parse::<u8>().is_ok()
+                && s[3..].bytes().all(|b| b == b'x')
+        };
         assert!(
-            long.is_empty(),
-            "rows longer than the re-cut width: {long:?}"
+            !long.is_empty() && long.iter().all(|(_, s)| whole(s)),
+            "every row one whole line: {long:?}"
         );
     });
 }
@@ -744,19 +751,20 @@ fn a_growth_at_a_prompt_does_not_lengthen_the_lines_a_later_re_cut_reads() {
 }
 
 /// **The seam between the primary's two width models, pinned as it is.**
-/// At a prompt a narrowing re-cuts nothing and a line's tail is hidden past
-/// the live edge; a later narrowing out of the prompt re-cuts, and the
-/// re-cut reads a row only to the width it had, so the hidden tail is not
-/// part of the line any more. It used to stay where it was and come back as
-/// stale bytes on the next growth at a prompt; the re-cut clears its rows
-/// past the new width now, so it is dropped cleanly. The drop itself is the
-/// open question of re-cutting by prompt scope, and the count is pinned so
-/// it moves when that is decided.
+/// At a prompt a narrowing keeps the shell's block whole, and a line typed
+/// there keeps its tail hidden past the live edge; once the command runs a
+/// later narrowing re-cuts it, and the re-cut reads a row only to the width
+/// it had, so the hidden tail is not part of the line any more. It used to
+/// stay where it was and come back as stale bytes on the next growth at a
+/// prompt; the re-cut clears its rows past the new width now, so it is
+/// dropped cleanly. The drop itself is the open question of reading a row
+/// held past its width into the line a re-cut cuts, and the count is
+/// pinned so it moves when that is decided.
 #[test]
 fn a_tail_hidden_at_a_prompt_is_dropped_cleanly_by_a_later_re_cut() {
     support::with_corpus(|t| {
-        support::feed(t, format!("L{}\r\n", "x".repeat(190)).as_bytes());
         support::feed(t, b"\x1b]133;P;k=i\x07$ ");
+        support::feed(t, format!("L{}", "x".repeat(190)).as_bytes());
         resize_ok(t, 100);
         support::feed(t, b"\r\n\x1b]133;C\x07");
         resize_ok(t, 50);
@@ -777,14 +785,17 @@ fn a_tail_hidden_at_a_prompt_is_dropped_cleanly_by_a_later_re_cut() {
                     .to_string()
             })
             .collect();
-        assert!(
-            rows.iter().all(|r| r.len() <= 50),
-            "a row carries bytes past the re-cut width: {rows:?}"
+        // The growth at the next prompt re-cuts the finished line onto one
+        // row: what the narrowing to 50 read of it, its first 100 cells.
+        assert_eq!(
+            rows[0],
+            format!("$ L{}", "x".repeat(97)),
+            "the line as the re-cut read it, nothing past it: {rows:?}"
         );
         let x: usize = rows.iter().map(|r| r.matches('x').count()).sum();
         assert_eq!(
-            x, 99,
-            "the hidden tail's 91 characters are dropped: the open seam"
+            x, 97,
+            "the hidden tail's 93 characters are dropped: the open seam"
         );
     });
 }

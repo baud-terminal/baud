@@ -32,11 +32,30 @@
 //! as keeping the cursor on the screen needs -- so the blank rows under a
 //! prompt absorb a re-cut before any line leaves the top -- and when lines
 //! join it pulls lines back from the history so the screen stays full.
+//!
+//! **Rows a caller names are kept whole** ([`Recut::Above`]): from that
+//! row on, every row is a line of its own, one row, copied whole at the
+//! pitch with its mark -- cells past the new width held there, unseen until
+//! a growth shows them -- as a line not single-width is kept. What a resize
+//! at a shell's prompt keeps: the rows the shell redraws by counting them.
+//! A kept row is the copy of a source row onto one destination row, so the
+//! order above holds for it as it holds for a line of one row: widening
+//! writes at or before the row it read, narrowing at or after it.
 
 use super::{RowRot, View};
 use crate::PackedCell;
 use crate::{Col, Cols, Row, Rows};
 use crate::{LineBidi, LineRendition, RowExtent};
+
+/// **Which of the lines a reflow re-cuts**: every one, or only those
+/// before a row, counted from the oldest retained row, from which every
+/// row is kept whole -- the rows a shell at its prompt redraws by counting
+/// them (note M, `docs/research/notes/m-resize-and-reflow.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Recut {
+    All,
+    Above(Rows),
+}
 
 /// Where the window and the cursor landed after a reflow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +75,11 @@ pub struct Reflowed {
     /// of them. What the resize's measure has to read whole
     /// (`View::held_past_edge`).
     pub blanked: Rows,
+    /// **The rows kept whole** ([`Recut::Above`]): the first one's ring row
+    /// and how many, the last rows the re-cut wrote. Each may hold cells
+    /// past the new width, as the rows in `blanked` may, and lands on a ring
+    /// row whose flag (`PastEdge`) was another row's.
+    pub kept: (RowRot, Rows),
 }
 
 /// **A hook a reflow calls once for every line it keeps, before copying
@@ -86,6 +110,20 @@ struct Cut {
     base: usize,
     old: usize,
     new: usize,
+    /// The first row kept whole, counted from the oldest retained row;
+    /// past every row when every line is re-cut.
+    keep: usize,
+}
+
+/// How a line is copied: re-cut at the new width, or kept as it was.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Shape {
+    /// Re-cut: its cells fall into rows of the new width.
+    Cut,
+    /// Not single-width: one row, its cells where they were.
+    Sized,
+    /// At or past the first row kept whole: one row, copied whole.
+    Kept,
 }
 
 /// One line of the source and its shape at the new width.
@@ -108,6 +146,7 @@ struct Line {
     /// Its first row's paragraph properties, which every row it is cut
     /// into takes: a paragraph's direction is its own, wherever it wraps.
     bidi: LineBidi,
+    shape: Shape,
 }
 
 impl<'a> View<'a> {
@@ -163,9 +202,14 @@ impl<'a> View<'a> {
 
     fn line_at(&self, c: Cut, start: usize, n_src: usize) -> Line {
         let (old, new) = (c.old, c.new);
+        if start >= c.keep {
+            return self.kept_line(c, start);
+        }
         if self.sized(c, start) {
             return self.sized_line(c, start);
         }
+        // A line before the rows kept whole ends where they begin.
+        let n_src = n_src.min(c.keep);
         let mut rows = 1;
         while start + rows < n_src
             && self.used[self.lin(c, start + rows - 1)].wrapped()
@@ -189,6 +233,35 @@ impl<'a> View<'a> {
             tail,
             rendition: LineRendition::Single,
             bidi: self.used[self.lin(c, start)].bidi(),
+            shape: Shape::Cut,
+        }
+    }
+
+    /// **A row at or past the first kept whole is a line of its own**, one
+    /// row, its cells and its mark as they were.
+    fn kept_line(&self, c: Cut, start: usize) -> Line {
+        let p = self.lin(c, start);
+        Line {
+            start,
+            rows: 1,
+            cells: self.stride.index(),
+            spacers: 0,
+            dest: 1,
+            tail: PackedCell::EMPTY,
+            rendition: self.used[p].rendition(),
+            bidi: self.used[p].bidi(),
+            shape: Shape::Kept,
+        }
+    }
+
+    /// A kept row copied to row `dst`: every cell to the pitch and its
+    /// mark, as they were.
+    fn copy_kept(&mut self, c: Cut, l: &Line, dst: usize) {
+        let s = self.stride.index();
+        let (ps, pd) = (self.lin(c, l.start), self.lin(c, dst));
+        if ps != pd {
+            self.cells.copy_within(ps * s..ps * s + s, pd * s);
+            self.used[pd] = self.used[ps];
         }
     }
 
@@ -211,6 +284,7 @@ impl<'a> View<'a> {
             tail: PackedCell::EMPTY,
             rendition: self.used[p].rendition(),
             bidi: self.used[p].bidi(),
+            shape: Shape::Sized,
         }
     }
 
@@ -233,6 +307,9 @@ impl<'a> View<'a> {
     /// The line ending at linear index `end` (exclusive), found from its
     /// marks: the row before its first is the nearest that does not wrap.
     fn line_ending_at(&self, c: Cut, end: usize, first: usize) -> Line {
+        if end > c.keep {
+            return self.kept_line(c, end - 1);
+        }
         let mut start = end - 1;
         while start > first
             && self.used[self.lin(c, start - 1)].wrapped()
@@ -274,8 +351,10 @@ impl<'a> View<'a> {
 
     /// Widening: cells ascending, every write at or before its read.
     fn copy_up(&mut self, c: Cut, l: &Line, dst: usize) {
-        if l.rendition.is_double() {
-            return self.copy_sized(c, l, dst);
+        match l.shape {
+            Shape::Kept => return self.copy_kept(c, l, dst),
+            Shape::Sized => return self.copy_sized(c, l, dst),
+            Shape::Cut => {}
         }
         let new = c.new;
         let mut sp = 0;
@@ -297,8 +376,10 @@ impl<'a> View<'a> {
     /// `k + sp`, and it owns a spacer at `k + sp - 1` when that is a row's
     /// last column and `k` is a lead -- the forward layout read backwards.
     fn copy_down(&mut self, c: Cut, l: &Line, dst: usize) {
-        if l.rendition.is_double() {
-            return self.copy_sized(c, l, dst);
+        match l.shape {
+            Shape::Kept => return self.copy_kept(c, l, dst),
+            Shape::Sized => return self.copy_sized(c, l, dst),
+            Shape::Cut => {}
         }
         let new = c.new;
         let mut sp = l.spacers;
@@ -321,8 +402,8 @@ impl<'a> View<'a> {
     /// Where the cell at (`r`, `x`) of line `l` lands: its destination row
     /// and column, for the cursor and for the window's bottom row.
     fn landing(&self, c: Cut, l: &Line, dst: usize, r: usize, x: usize) -> (usize, usize) {
-        // A sized line's cells stay where they were.
-        if l.rendition.is_double() {
+        // A sized line's cells stay where they were, and a kept row's.
+        if l.shape != Shape::Cut {
             return (dst, x);
         }
         let (old, new) = (c.old, c.new);
@@ -358,14 +439,15 @@ impl<'a> View<'a> {
     /// Re-cut the primary's lines from `old` columns to `new`, over the
     /// `hist` rows behind the window, the window, and the `hidden` rows
     /// past it. `cursor` is the window's cursor; the answer says where the
-    /// window and the cursor are afterwards.
+    /// window and the cursor are afterwards. `recut` says which lines are
+    /// re-cut and from which row on the rows are kept whole.
     pub fn reflow(
         &mut self,
-        old: Cols,
-        new: Cols,
+        (old, new): (Cols, Cols),
         hist: Rows,
         hidden: Rows,
         cursor: (Row, Col),
+        recut: Recut,
         mut follow: Option<Follow<'_>>,
     ) -> Reflowed {
         let (old, new) = (old.index(), new.index());
@@ -378,6 +460,7 @@ impl<'a> View<'a> {
             cursor,
             dropped: Rows::ZERO,
             blanked: Rows::ZERO,
+            kept: (self.rot, Rows::ZERO),
         };
         if old == new || old == 0 || new == 0 || rows == 0 {
             return unchanged;
@@ -387,6 +470,10 @@ impl<'a> View<'a> {
             base: self.rot.retreat(hist.index(), self.ring).index(),
             old,
             new,
+            keep: match recut {
+                Recut::All => usize::MAX,
+                Recut::Above(r) => r.index(),
+            },
         };
         let cur_row = hist.index() + cursor.0.index().min(rows - 1);
         let top_row = hist.index();
@@ -441,6 +528,7 @@ impl<'a> View<'a> {
             }
         }
         let last = first + dest_total;
+        let kept = n_src.saturating_sub(c.keep.max(first));
         let (cur_row, cur_col) = cur.unwrap_or((last.saturating_sub(1).max(first), 0));
         // The window: its top row where it landed, down to keep the cursor
         // on the screen, up to keep the screen full, never above the first
@@ -472,6 +560,7 @@ impl<'a> View<'a> {
             ),
             dropped: Rows::of_count(first),
             blanked: Rows::of_count((top + rows).saturating_sub(last)),
+            kept: (RowRot(self.lin(c, last - kept)), Rows::of_count(kept)),
         }
     }
 

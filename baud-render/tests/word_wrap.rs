@@ -728,36 +728,11 @@ fn at_the_top_of_the_history_a_paragraph_that_shrinks_keeps_its_cut() {
     assert_eq!(got[2], ltr("$ ", 10));
 }
 
-/// **A narrowing at a marked prompt keeps the cut of the rows it did not
-/// re-cut.** While the shell waits at a marked prompt the core re-cuts
-/// nothing on a change of width (`Term::primary_zone`): each row keeps its
-/// cells past the new edge, to show again. Read from the cells the window
-/// shows, the paragraph's text joined each row's first part to the next
-/// row's and drew words never written -- `the quic` and `own fox ` read as
-/// `the`, `quicown`, `fox s` -- so the paragraph keeps the terminal's cut,
-/// every visible cell where it is. The controls: at the
-/// width it was written at the paragraph is drawn at its words, and after
-/// the narrowing its rows hold text past the edge.
-#[test]
-fn a_narrowing_at_a_marked_prompt_keeps_the_cut_of_rows_it_did_not_re_cut() {
-    let wide = WinSize {
-        ws_row: 5,
-        ws_col: 12,
-    };
-    let bytes = format!("{}the quick brown fox jumps\r\n{PROMPT}", history(6));
-    let mut owned = Owned::new(&wide);
-    let mut t = Term::new(owned.storage(), &wide);
-    feed(&mut t, &bytes);
-    let mut o = Reorder::new();
-    o.set_word_wrap(WordWrap::On);
-    o.lay_out(&t, Rows::ZERO);
-    assert!(o.orders().display().is_some(), "the control, at twelve");
-    let _ = t.resize(&WinSize {
-        ws_row: 5,
-        ws_col: 8,
-    });
+/// The rows of the live screen as stored, read to the live width, `.`
+/// for an erased cell.
+fn stored_rows(t: &Term<'_>) -> Vec<String> {
     let vp = t.view(Rows::ZERO);
-    let stored: Vec<String> = (0..vp.rows().index())
+    (0..vp.rows().index())
         .map(|y| {
             vp.row(Row::from_index(y))
                 .iter()
@@ -769,23 +744,149 @@ fn a_narrowing_at_a_marked_prompt_keeps_the_cut_of_rows_it_did_not_re_cut() {
                 })
                 .collect()
         })
+        .collect()
+}
+
+/// **A narrowing at a marked prompt keeps the cut of the rows it did not
+/// re-cut.** At a marked prompt a change of width keeps the shell's block
+/// whole (`Term::resize`, note M): each of its rows keeps its cells past
+/// the new edge, to show again. A line typed there and run is then a
+/// finished paragraph whose rows hold text past the edge. Read from the
+/// cells the window shows, its text joined each row's first part to the
+/// next row's and drew words never written -- `$ the qu` and `brown fo`
+/// read as `qubrown` -- so the paragraph keeps the terminal's cut, every
+/// visible cell where it is. The controls: not narrowed, the same
+/// paragraph is drawn at its words, and narrowed its rows hold text past
+/// the edge.
+#[test]
+fn a_narrowing_at_a_marked_prompt_keeps_the_cut_of_rows_it_did_not_re_cut() {
+    let wide = WinSize {
+        ws_row: 5,
+        ws_col: 12,
+    };
+    let narrow = WinSize {
+        ws_row: 5,
+        ws_col: 8,
+    };
+    let run = "\r\n\x1b]133;C\x07\x1b]133;D;0\x07";
+    for narrowed in [false, true] {
+        let mut owned = Owned::new(&wide);
+        let mut t = Term::new(owned.storage(), &wide);
+        feed(
+            &mut t,
+            &format!("{}{PROMPT}the quick brown fox jumps", history(6)),
+        );
+        if narrowed {
+            let _ = t.resize(&narrow);
+            let vp = t.view(Rows::ZERO);
+            let at = stored_rows(&t)
+                .iter()
+                .position(|l| l.starts_with("$ the"))
+                .expect("the typed line");
+            assert_eq!(
+                (at..at + 3)
+                    .map(|y| vp.text_past_edge(Row::from_index(y)))
+                    .collect::<Vec<_>>(),
+                [
+                    baud_domain::PastEdge::Held,
+                    baud_domain::PastEdge::Held,
+                    baud_domain::PastEdge::Clear
+                ],
+                "the control: the block kept whole, text held past the edge: {:?}",
+                stored_rows(&t)
+            );
+        }
+        feed(&mut t, &format!("{run}{PROMPT}"));
+        let mut o = Reorder::new();
+        o.set_word_wrap(WordWrap::On);
+        o.lay_out(&t, Rows::ZERO);
+        match narrowed {
+            false => assert!(
+                o.orders().display().is_some(),
+                "the control: not narrowed, drawn at its words"
+            ),
+            true => {
+                let rows = stored_rows(&t);
+                let at = rows
+                    .iter()
+                    .position(|l| l.starts_with("$ the"))
+                    .expect("the typed line");
+                assert_eq!(
+                    rows[at..at + 3],
+                    ["$ the qu", "brown fo", "mps....."],
+                    "the rows as the terminal cut them at twelve, shown to eight"
+                );
+                assert!(
+                    o.orders().display().is_none(),
+                    "every row drawn as the terminal cut it"
+                );
+            }
+        }
+    }
+}
+
+/// **A narrowing at a marked prompt re-cuts the output above it, and the
+/// display draws it at its words**: the paragraph a command printed is
+/// finished output, which a change of width re-cuts as it always did, so
+/// its rows hold nothing past the edge and the word wrap reads them whole
+/// -- `the`, `quick`, `brown`, `fox`, `jumps`, each on a line, where the
+/// terminal's re-cut at eight split `the quic|k brown`. Before, the
+/// narrowing kept every row and the paragraph its cut at twelve, clipped.
+#[test]
+fn a_narrowing_at_a_marked_prompt_draws_the_output_above_it_at_its_words() {
+    let wide = WinSize {
+        ws_row: 6,
+        ws_col: 12,
+    };
+    let mut owned = Owned::new(&wide);
+    let mut t = Term::new(owned.storage(), &wide);
+    feed(
+        &mut t,
+        &format!("{}the quick brown fox jumps\r\n{PROMPT}", history(8)),
+    );
+    let _ = t.resize(&WinSize {
+        ws_row: 6,
+        ws_col: 8,
+    });
+    let vp = t.view(Rows::ZERO);
+    assert!(
+        (0..6).all(|y| vp.text_past_edge(Row::from_index(y)) == baud_domain::PastEdge::Clear),
+        "the control: nothing held past the edge"
+    );
+    assert_eq!(
+        stored_rows(&t)[1..5],
+        ["the quic", "k brown ", "fox jump", "s......."],
+        "the control: the terminal's re-cut at eight splits words"
+    );
+    let mut o = Reorder::new();
+    o.set_word_wrap(WordWrap::On);
+    o.lay_out(&t, Rows::ZERO);
+    let vp = o.view(&t, Rows::ZERO);
+    let drawn: Vec<String> = (0..vp.rows().index())
+        .map(|y| {
+            let r = Row::from_index(y);
+            let mut out = vec![PackedCell::EMPTY; vp.cols().index()];
+            o.orders().permute(r, vp.row(r), &mut out);
+            out.iter()
+                .map(|c| {
+                    c.content
+                        .as_codepoint()
+                        .and_then(|p| char::from_u32(p.value()))
+                        .unwrap_or('.')
+                })
+                .collect()
+        })
         .collect();
     assert_eq!(
-        stored,
-        ["h5......", "the quic", "own fox ", "s.......", "$ ......"],
-        "the rows as the terminal cut them at twelve, shown to eight"
-    );
-    assert_eq!(
-        (1..3)
-            .map(|y| vp.text_past_edge(Row::from_index(y)))
-            .collect::<Vec<_>>(),
-        [baud_domain::PastEdge::Held, baud_domain::PastEdge::Held],
-        "the control: text held past the edge"
-    );
-    o.lay_out(&t, Rows::ZERO);
-    assert!(
-        o.orders().display().is_none(),
-        "every row drawn as the terminal cut it"
+        drawn,
+        [
+            ltr("the ", 8),
+            ltr("quick ", 8),
+            ltr("brown ", 8),
+            ltr("fox ", 8),
+            ltr("jumps", 8),
+            ltr("$ ", 8),
+        ]
     );
 }
 
@@ -866,4 +967,65 @@ fn a_path_wraps_before_its_separators() {
 fn a_fraction_a_date_and_w_o_wrap_as_the_default() {
     let (got, _) = path_lines("half 1/2 and 06/07/99 w/o and/or", 10);
     assert_eq!(got, ["half 1/2", "and", "06/07/99", "w/o and/or"]);
+}
+
+/// **Spaces a program wrote after its last word go on lines of their own,
+/// as the terminal laid them**, where hanging them would leave the
+/// paragraph on fewer lines than it is stored in: an underlined header
+/// padded past the width. Written at twelve, `ab cdefgh` and eleven
+/// underlined spaces; narrowed to six, the re-cut splits `cde|fgh` over
+/// four rows. At its words it needs two lines and the spaces, which fill
+/// `cdefgh`'s line no further and go on two lines of their own, six and
+/// five, so the paragraph keeps its four rows and every word is whole.
+/// Hung, they left two lines for four rows, and the paragraph kept the
+/// terminal's cut (the control below, with the wrap off).
+#[test]
+fn spaces_after_the_last_word_are_laid_on_lines_of_their_own() {
+    let ws = WinSize {
+        ws_row: 8,
+        ws_col: 12,
+    };
+    let bytes = format!(
+        "{}ab cdefgh\x1b[4m{}\x1b[24m\r\n{PROMPT}",
+        history(10),
+        " ".repeat(11)
+    );
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
+    feed(&mut t, &bytes);
+    let _ = t.resize(&WinSize {
+        ws_row: 8,
+        ws_col: 6,
+    });
+    let rows = |wrap: WordWrap| {
+        let mut o = Reorder::new();
+        o.set_word_wrap(wrap);
+        o.lay_out(&t, Rows::ZERO);
+        let vp = o.view(&t, Rows::ZERO);
+        (0..vp.rows().index())
+            .map(|y| {
+                let r = Row::from_index(y);
+                let mut out = vec![PackedCell::EMPTY; vp.cols().index()];
+                o.orders().permute(r, vp.row(r), &mut out);
+                out.iter()
+                    .map(|c| {
+                        c.content
+                            .as_codepoint()
+                            .and_then(|p| char::from_u32(p.value()))
+                            .unwrap_or('.')
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        rows(WordWrap::Off)[3..7],
+        ["ab cde", "fgh   ", "      ", "  ...."],
+        "the control: the terminal's re-cut splits a word over four rows"
+    );
+    assert_eq!(
+        rows(WordWrap::On)[3..7],
+        ["ab ...", "cdefgh", "      ", "     ."],
+        "every word whole on the paragraph's four rows"
+    );
 }

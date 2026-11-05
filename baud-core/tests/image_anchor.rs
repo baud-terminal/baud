@@ -1136,11 +1136,17 @@ fn an_anchor_whose_column_a_prompt_resize_cut_off_asks_by_its_rows_first_cell() 
     // first cell, compacted ordinal 45, the anchor lands on row 0 at 50
     // columns; asked by column 20 clamped to the old width, ordinal 60, on
     // row 1.
+    //
+    // The line is written at 60 under a prompt's mark, so it is the shell's
+    // block, which a narrowing keeps whole; the anchor placed where the
+    // re-cut to 60 puts it from a line written wider.
     with(Depth::DEFAULT, |t| {
-        feed(t, long(250).as_bytes());
-        feed(t, SWIRL);
         resize(t, 60, 50);
-        feed(t, b"\r\x1b]133;A\x07$ ");
+        feed(t, b"\x1b]133;A\x07");
+        feed(t, long(250).as_bytes());
+        feed(t, b"\x1b[4;21H");
+        feed(t, SWIRL);
+        feed(t, b"\r$ ");
         resize(t, 15, 50);
         let p = only(t);
         assert_eq!(
