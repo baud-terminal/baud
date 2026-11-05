@@ -98,7 +98,7 @@ fn zshrc(path: &str) -> String {
 ///   so no program moves, resizes or full-screens the window, and it
 ///   keeps the grid it opened at.
 /// - `[cursor]`: the cursor still, so the first and last frames match,
-///   and the plasma trail, which the session changes to fire.
+///   and the plasma trail, which the session changes to liquid.
 ///
 /// The title strip above the grid stays the window's material: no key
 /// makes it solid (`accessible` in `baud-app/src/app.rs`).

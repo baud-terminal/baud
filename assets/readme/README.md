@@ -71,11 +71,11 @@ columns gave 11.5. Shot by shot:
    `baud ❯`.
 2. helix opens baud's own config, `~/.config/baud/config.toml`. `ge` jumps
    to its last line, `trail = "plasma"`, in the plasma trail. `/plasma`,
-   `cfire`, Escape and `:w` change the word to `fire` and save the file,
-   and baud reads it again by itself. `gg` jumps back up in the fire
-   trail and `ge` down again. No hidden script switches the trail: the
-   edit on screen is all of it, and the fire trail stays for the rest of
-   the take.
+   `cliquid`, Escape and `:w` change the word to `liquid` and save the
+   file, and baud reads it again by itself. `gg` jumps back up in the
+   liquid trail, a glass gel in the cursor's colour, and `ge` down again.
+   No hidden script switches the trail: the edit on screen is all of it,
+   and the liquid trail stays for the rest of the take.
 3. `cat hello.txt`: pointed Hebrew and Arabic drawn right to left,
    Chinese, Japanese, Korean and Hindi, and a line of emoji with six flags,
    a file the demo writes.
@@ -95,7 +95,7 @@ columns gave 11.5. Shot by shot:
 8. iTerm2's fireworks, asked for by a `printf` typed in full in the
    container.
 9. `exit`: the badge cleared, CD dark.
-10. `clear`: the cursor to the top in the fire trail, and the empty prompt
+10. `clear`: the cursor to the top in the liquid trail, and the empty prompt
    the clip loops to.
 
 baud's mark, missing from this GIF's titlebar, is in the next take's: it
@@ -148,9 +148,10 @@ person's pace never fill that, so no step of the session lights CS.
 `cargo run --release --example demo -- --headless DIR` plays the session
 without a window, through baud's core and CPU renderer, reading the config
 again when helix saves it, and fails unless each of the eight lights
-lights, FAX first in the photo's shot, the trail is plasma at `ge` and fire
-at `gg`, and `gg` lights a fire. It writes a still of every
-hold into DIR, and every frame, 100 a second, into DIR as a lossless film,
+lights, FAX first in the photo's shot, the trail is plasma at `ge` and
+liquid at `gg` and the second `ge`, and `gg` lights a liquid. It writes a
+still of every hold into DIR, and every frame, 100 a second, into DIR as a
+lossless film,
 `session.mkv`. **The title bar in those frames is composed, not filmed**:
 no window is opened, so the strip above the text is drawn over each frame
 (`baud-app/src/film/chrome.rs`) at the app's places -- the traffic lights

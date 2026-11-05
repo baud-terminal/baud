@@ -48,18 +48,19 @@ pub const SESSION: &[Step] = &[
     Prompt,
     Hold(600),
     // baud's config in helix: the plasma trail down to its last line, the
-    // word changed to fire and saved, and fire trails up and down again,
-    // by baud's live reload of the file it reads.
+    // word changed to liquid and saved, and the liquid trails up and down
+    // again, by baud's live reload of the file it reads.
     Run("hx ~/.config/baud/config.toml"),
     Hold(300),
     Keys("ge"),
     Hold(600),
     Line("/plasma"),
-    Keys("cfire"),
+    Keys("cliquid"),
     Escape,
     Line(":w"),
     // Past the 334 ms after the cursor's return from the command line lit
-    // the last plasma, within which baud lights no other effect.
+    // the last plasma, inside which a liquid only restarts the gel and
+    // lights nothing new (`REIGNITE` in `trail.rs`).
     Hold(400),
     Keys("gg"),
     Hold(600),
@@ -317,14 +318,15 @@ mod tests {
 
     /// **The trail is changed by one visible edit, saved before the jump
     /// that shows it**: `ge` to the config's last line, `/plasma` selects
-    /// the word, `c` replaces it with `fire`, Escape leaves insert mode and
-    /// `:w` saves, and only then `gg`. The hold after `:w` is past baud's
-    /// reload and past the 334 ms after the cursor's return from helix's
-    /// command line lit its last plasma, within which baud lights no
-    /// other effect (`REIGNITE` in `trail.rs`), so `gg` draws the fire;
-    /// at 150 ms the headless session drew none there. The control: the
-    /// steps in that order, with the save before the jump back.
-    /// Perturbation: put `gg` before `:w` and the save's place fails.
+    /// the word, `c` replaces it with `liquid`, Escape leaves insert mode
+    /// and `:w` saves, and only then `gg`. The hold after `:w` is past
+    /// baud's reload and past the 334 ms after the cursor's return from
+    /// helix's command line lit its last plasma, inside which a liquid only
+    /// restarts the gel and lights nothing new (`REIGNITE` in `trail.rs`),
+    /// so `gg` lights a liquid of its own; at 150 ms, in the take that typed
+    /// fire, the headless session drew none there. The
+    /// control: the steps in that order, with the save before the jump
+    /// back. Perturbation: put `gg` before `:w` and the save's place fails.
     #[test]
     fn the_trail_is_changed_by_one_saved_edit() {
         let at = |step: Step| SESSION.iter().position(|s| *s == step).unwrap();
@@ -335,7 +337,7 @@ mod tests {
                 Keys("ge"),
                 Hold(600),
                 Line("/plasma"),
-                Keys("cfire"),
+                Keys("cliquid"),
                 Escape,
                 Line(":w"),
                 Hold(400),

@@ -1,7 +1,7 @@
 //! **The README's session, played in baud's window**: a real interactive
 //! zsh and real programs at real speed, every command typed into the
 //! window key by key -- baud's own config edited in helix, its plasma
-//! trail changed to fire by one word saved and baud's live reload; six
+//! trail changed to liquid by one word saved and baud's live reload; six
 //! languages and a line of emoji in `cat hello.txt`; a photo drawn by
 //! `kitten icat`; ssh into a container
 //! on this Mac, its system card there with baud's mark drawn as a picture,
@@ -106,10 +106,11 @@
 //! types every step into baud's login shell through baud's core, reads the
 //! config again when helix saves it, feeds the nine activity lights as the
 //! macOS driver does, and fails unless each but CS lights, the trail is
-//! plasma at `ge` and fire at `gg`, and the jump `gg` lights a fire; the
-//! last frame of every hold, drawn by baud's CPU renderer on the opaque
-//! page, goes into DIR as a PNG. Every frame, 100 a second, goes into DIR
-//! as a lossless film, `session.mkv`, and baud-bench's flash census must
+//! plasma at `ge` and liquid at `gg` and the second `ge`, and the jump
+//! `gg` lights a liquid; the last frame of every hold, drawn by baud's
+//! CPU renderer on the opaque page, goes into DIR as a PNG. Every frame,
+//! 100 a second, goes into DIR as a lossless film, `session.mkv`, and
+//! baud-bench's flash census must
 //! pass its trails', fireworks' and clear's shots (WCAG 2.3.1); every
 //! character the programs printed must be drawn by baud's faces or a
 //! pinned one. `BAUD_SESSION_POINTS` draws at another size and

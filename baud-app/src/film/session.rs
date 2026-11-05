@@ -660,11 +660,11 @@ fn without_takes_a_command_out_whole() {
 /// read again when helix saves it, as baud reads it -- and its 80x24 grid.
 /// Each light's first lit moment is printed with the step it came in, and
 /// every one but CS must light (the module's doc says why CS cannot). The
-/// trail the first `ge` draws must be plasma and the one `gg` draws fire,
-/// after the edit saved between them, and `gg` or its hold must light a
-/// fire: each ignition the film's trail lit is printed with its step. FAX
-/// must first light in the photo's shot, kitten's picture, before
-/// fastfetch's.
+/// trail the first `ge` draws must be plasma and the ones `gg` and the
+/// second `ge` draw liquid, after the edit saved between them, and `gg` or
+/// its hold must light a liquid: each ignition the film's trail lit is
+/// printed with its step. FAX must first light in the photo's shot,
+/// kitten's picture, before fastfetch's.
 ///
 /// `BAUD_SESSION_WITHOUT` takes a command out ([`without`]), for a
 /// perturbation: without `ssh demo` CD stays dark, and without the photo
@@ -861,9 +861,10 @@ fn the_readme_session_lights_every_light() {
         Vec::<String>::new(),
         "the session names this machine"
     );
-    // The trail as each jump began: plasma down to the trail's line, fire
-    // back up once the edit was saved.
+    // The trail as each jump began: plasma down to the trail's line, liquid
+    // back up once the edit was saved, and down again.
     let at = |want: Step| steps.iter().position(|s| *s == want);
+    let again = steps.iter().rposition(|s| *s == Step::Keys("ge"));
     if let (Some(down), Some(up)) = (at(Step::Keys("ge")), at(Step::Keys("gg"))) {
         assert_eq!(
             trail_as(&take.trails, StepAt(down)),
@@ -872,17 +873,24 @@ fn the_readme_session_lights_every_light() {
         );
         assert_eq!(
             trail_as(&take.trails, StepAt(up)),
-            CursorTrail::Fire,
+            CursorTrail::Liquid,
             "at `gg`"
         );
-        // And the jump up draws the fire: an ignition in `gg` or the hold
+        if let Some(again) = again.filter(|&a| a > up) {
+            assert_eq!(
+                trail_as(&take.trails, StepAt(again)),
+                CursorTrail::Liquid,
+                "at the second `ge`"
+            );
+        }
+        // And the jump up lights a liquid: an ignition in `gg` or the hold
         // after it, which REIGNITE refuses within 334 ms of the last.
         let jump = |s: &Option<usize>| s.is_some_and(|s| s == up || s == up + 1);
         assert!(
             take.ignitions
                 .iter()
-                .any(|(s, t, _)| jump(s) && *t == CursorTrail::Fire),
-            "no fire ignition at `gg`"
+                .any(|(s, t, _)| jump(s) && *t == CursorTrail::Liquid),
+            "no liquid ignition at `gg`"
         );
     }
     // The photo lights FAX: first in its shot, kitten typed to the hold
