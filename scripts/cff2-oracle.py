@@ -2,7 +2,7 @@
 
 Writes baud-font/tests/var/cff2-outlines.txt: every glyph whose id is a
 multiple of 7 in Source Code VF (tests/fonts/SourceCodeVF-Upright.otf), and
-every glyph of tests/var/cff2-cases.otf (scripts/cff2-cases-font.py), drawn
+every glyph of tests/var/cff2-cases.otf (tools/baud-oracle cases cff2), drawn
 by HarfBuzz at the default instance and at the settings named below, as the
 commands its draw functions emit, in font units (the font's scale is its
 units per em). Every coordinate is printed as Python's repr of the float

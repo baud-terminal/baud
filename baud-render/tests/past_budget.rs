@@ -14,7 +14,7 @@
 //! draws the primary's `.notdef`.
 //!
 //! The font is baud's own, `var/budget-cases.ttf`
-//! (`scripts/budget-cases-font.py`): `H` is `heavy`, 240,000 points
+//! (`tools/baud-oracle cases budget`): `H` is `heavy`, 240,000 points
 //! flattened, past the budget at a variation and streamed without scratch
 //! at the default instance; `K` is `heavym`, `heavy` and a component
 //! placed by matched points, past the budget at every instance; `D` and

@@ -24,8 +24,10 @@ fn root() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
 }
 
-/// Fonts baud wrote from nothing, each with the script or test that writes
-/// it. They are under the repository's licence
+/// Fonts baud wrote from nothing, each with the script, tool or test that
+/// writes it -- or, for fontTools' instances of baud's bake cases, the test
+/// that records how they were observed. They are under the repository's
+/// licence
 /// (`baud-font/tests/fonts/sbix-LICENSE.txt` says so for the one that sits
 /// among third-party faces).
 const OWN: &[(&str, &str)] = &[
@@ -47,15 +49,15 @@ const OWN: &[(&str, &str)] = &[
     ),
     (
         "baud-font/tests/var/component-cases.ttf",
-        "scripts/component-cases-font.py",
+        "tools/baud-oracle/src/cases/component.rs",
     ),
     (
         "baud-font/tests/var/bearing-cases.ttf",
-        "scripts/bearing-cases-font.py",
+        "tools/baud-oracle/src/cases/bearing.rs",
     ),
     (
         "baud-font/tests/var/bearing-cases-bit1.ttf",
-        "scripts/bearing-cases-font.py",
+        "tools/baud-oracle/src/cases/bearing.rs",
     ),
     (
         "baud-font/tests/var/vertical-cases.ttf",
@@ -63,11 +65,11 @@ const OWN: &[(&str, &str)] = &[
     ),
     (
         "baud-font/tests/var/colour-refused-cases.ttf",
-        "scripts/colour-refused-font.py",
+        "tools/baud-oracle/src/cases/colour_refused.rs",
     ),
     (
         "baud-font/tests/var/budget-cases.ttf",
-        "scripts/budget-cases-font.py",
+        "tools/baud-oracle/src/cases/budget.rs",
     ),
     (
         "baud-font/tests/var/joining-cases.ttf",
@@ -75,27 +77,27 @@ const OWN: &[(&str, &str)] = &[
     ),
     (
         "baud-font/tests/var/cff2-cases.otf",
-        "scripts/cff2-cases-font.py",
+        "tools/baud-oracle/src/cases/cff2.rs",
     ),
     (
         "baud-font/tests/var/bake/cases.ttf",
-        "scripts/bake-cases-font.py",
+        "tools/baud-oracle/src/cases/bake.rs",
     ),
     (
         "baud-font/tests/var/bake/cases-250.ttf",
-        "scripts/bake-cases-font.py",
+        "baud-font/tests/bake.rs",
     ),
     (
         "baud-font/tests/var/bake/cases-550.ttf",
-        "scripts/bake-cases-font.py",
+        "baud-font/tests/bake.rs",
     ),
     (
         "baud-font/tests/var/bake/cases-700.ttf",
-        "scripts/bake-cases-font.py",
+        "baud-font/tests/bake.rs",
     ),
     (
         "baud-font/tests/var/bake/cases-875.ttf",
-        "scripts/bake-cases-font.py",
+        "baud-font/tests/bake.rs",
     ),
 ];
 

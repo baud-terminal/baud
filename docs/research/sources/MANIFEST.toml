@@ -28633,7 +28633,7 @@ group  = "J"
 # ItemVariationData (k = 2 and 1), 412 `vsindex` and 3,241 `blend` in its glyph
 # charstrings (its 1,016 local subroutines carry 139 and 1,517 more); it has no
 # hints, no flex, no global subroutines and one Font DICT, which
-# `scripts/cff2-cases-font.py` supplies.
+# `tools/baud-oracle cases cff2` supplies.
 
 [sources.harfbuzz-12-3-0-cff2-interp-cs]
 key    = "harfbuzz-12-3-0-cff2-interp-cs"

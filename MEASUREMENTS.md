@@ -2746,3 +2746,60 @@ unspliced source fails at run time, "'stress_skips.metal' file not
 found". Every case in `build_tables.rs` and `build_stress.rs` fires.
 With the source digest now of the spliced text, `xtask/tests/fnv.rs`
 holds only the library's digest, and `metallib.rs` holds the source's.
+
+## The cases fonts in `tools/baud-oracle cases`
+
+Not timed: no byte path changed. `baud-oracle cases <name>` builds the
+bake, bearing, budget, cff2, colour-refused and component fonts from
+their recipes on write-fonts 0.55.0 (`tools/baud-oracle/src/cases/`),
+and the six Python generators are deleted. Before the port, the Python
+under fontTools 4.63.0 rebuilt all eleven files it wrote byte for byte.
+Four places are not write-fonts' own: OS/2 `version` is set to 3 over
+the 4 write-fonts names for the same layout; budget's `full`, 65,536
+points, is written by hand, since write-fonts numbers its last point as
+`cur as u16 - 1`; the CFF2 table is laid out here, write-fonts having
+only an INDEX helper; and bake's `intc`, `fracc` and `nestc` set
+`WE_HAVE_INSTRUCTIONS` on their last component with a program of no
+bytes, a uint16 0 after it, as fontTools wrote them. write-fonts writes
+the bit and the length only for a program with bytes, which left no
+committed font reaching the bake's read of an empty program: refusing a
+flagged program of no bytes turns 10 of the 12 bake tests red on the
+old font and on this one, and turned none on the port before it.
+
+| font | old sha256 | new sha256 | tables that differ |
+|---|---|---|---|
+| `bearing-cases.ttf` | `60644011...` | `88de9199...` | glyf, loca, gvar |
+| `bearing-cases-bit1.ttf` | `645cd787...` | `85063e7e...` | glyf, loca, gvar |
+| `budget-cases.ttf` | `1aca1ae5...` | `e4919d09...` | glyf, loca |
+| `colour-refused-cases.ttf` | `dee5a634...` | `8c7a416d...` | glyf, loca |
+| `component-cases.ttf` | `700386d7...` | `946a3bb2...` | glyf, loca, gvar |
+| `bake/cases.ttf` | `39a50667...` | `7145dafc...` | gvar, GDEF |
+| `cff2-cases.otf` | `cfc8a58f...` | the same | none |
+
+In the six fonts that changed, head differs only in
+`checkSumAdjustment`; `cff2-cases.otf`'s is equal. In the five besides
+bake, the glyf difference is that same flag: fontTools set it, with an
+empty program, on all 47 of their composites, and write-fonts writes
+neither; of baud's readers only the bake reads it, and none of the five
+is baked. bake's GDEF holds the same glyph classes in both, {1: base,
+3: base, 8: mark}, as a glyph ClassDef format 1 in the old font and a
+format 2 of three ranges, glyphs 1, 3 and 8, in the new.
+
+`baud-fontbuild compare` finds each old font equal to its new one, and
+every gvar tuple references the same points in both, bake's two sparse
+tuples included; COLR, CPAL, CFF2 and `full`'s glyph bytes are equal
+as bytes. The first colour-refused draft read `OS/2: ulUnicodeRange2:
+0x00002000 vs 0x00000000`, Geometric Shapes' bit, now set. All eight
+oracles regenerated on the new fonts equal their files line for line,
+but for the two headers that still name Python scripts. fontTools
+4.63.0's instances of the new `bake/cases.ttf` equal the committed
+`cases-<wght>.ttf` byte for byte, at all four weights, so the
+observations stand; without the empty programs all four differed.
+
+Three perturbations: OS/2 version left at 4 names `OS/2: version` in
+all seven fonts; tri's apex moved one unit names `glyph 'tri' (gid 1)
+points: p2=200,300,on vs p2=201,300,on` and turns `component --check`
+red at data line 1; unreferenced points written as zeros names bake's
+sq tuple 0 deltas. Each fails `cases --check`. read-fonts 0.46.0 reads
+`full` as no points (`end + 1` in a u16), so the comparator sees only
+its box and end point; its test decodes the glyf text by hand.

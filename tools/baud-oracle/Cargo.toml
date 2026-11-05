@@ -11,3 +11,7 @@ publish = false
 # The bearing oracle's pp1, read from glyf and hmtx by a reader that is not
 # baud-font, so the test does not take it from the code it checks.
 read-fonts = "=0.46.0"
+# The cases fonts' writer (`baud-oracle cases`): the tables are
+# built as values and serialised here, and what it cannot express is
+# patched into the bytes after.
+write-fonts = "=0.55.0"

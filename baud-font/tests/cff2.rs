@@ -2,7 +2,7 @@
 //!
 //! `tests/var/cff2-outlines.txt` is HarfBuzz 12.3.0's drawing of every
 //! seventh glyph of Source Code VF and every glyph of the cases font
-//! (`scripts/cff2-cases-font.py`), at the default instance and at the
+//! (`tools/baud-oracle cases cff2`), at the default instance and at the
 //! settings `scripts/cff2-oracle.py` names, with every coordinate as the
 //! exact `f32` HarfBuzz handed its draw functions. baud computes a CFF2
 //! charstring in `f64`, as HarfBuzz does, and rounds to `f32` only at the

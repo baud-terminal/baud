@@ -112,7 +112,7 @@ fn the_atlas_draws_a_varied_glyph_at_its_coordinates() {
 
 /// **A composite that matches points is drawn through scratch at the
 /// default instance too.** `anch` in `var/component-cases.ttf`
-/// (`scripts/component-cases-font.py`) lays a bar's first point on a
+/// (`tools/baud-oracle cases component`) lays a bar's first point on a
 /// triangle's apex; `Face::outline` refuses it, since the alignment reads
 /// points a stream has given away, and the atlas draws what `outline_at`
 /// draws -- the bar on the apex, not at the origin.

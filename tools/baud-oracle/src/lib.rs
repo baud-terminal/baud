@@ -19,13 +19,15 @@
 //! | `var` | `normalize.txt` | `hb_font_get_var_coords_normalized` |
 //! | `vertical` | `vertical.txt` | both engines' drawings of the vertical cases |
 //!
-//! And one bin, `baud-oracle`, for the oracles a test or a script runs:
+//! And one bin, `baud-oracle`, for the oracles a test or a script runs
+//! and for the cases fonts:
 //!
 //! | subcommand | writes | asks |
 //! |---|---|---|
 //! | `xkb` | `baud-xkb/tests/fixtures/oracle-*.txt` and `compose/oracle-*.txt` | libxkbcommon's keymap state and Compose tables ([`xkb`]) |
 //! | `raster` | stdout, for `baud-font/tests/raster.rs` | FreeType's unhinted smooth bitmaps ([`raster`]) |
 //! | `shape-helpers` | stdout, for `scripts/gen-shape-fixtures.sh` | nothing: digests, code points and `morx` defaults beside hb-shape ([`shape`]) |
+//! | `cases` | the cases fonts under `baud-font/tests/var/` | nothing: each font built from its recipe on write-fonts ([`cases`]) |
 //!
 //! Run from the repository's root, in the shell that pins the engines:
 //!
@@ -41,6 +43,7 @@
 //! **Outside the workspace**, with its own `Cargo.lock`, so `cargo test
 //! --workspace` and the push hook never build or link a C engine.
 
+pub mod cases;
 pub mod ft;
 pub mod hb;
 pub mod oracle;

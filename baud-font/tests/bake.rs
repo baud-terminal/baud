@@ -22,7 +22,7 @@ use baud_font::{BakePoint, Cluster, Face, Features, Glyph, Ignorable, Refused, S
 
 const FONTS: [&str; 2] = ["JetBrainsMono-Variable", "JetBrainsMono-Italic-Variable"];
 const WEIGHTS: [Weight; 2] = [Weight(400), Weight(700)];
-/// `scripts/bake-cases-font.py`'s font, which reaches what JetBrains Mono
+/// `tools/baud-oracle cases bake`'s font, which reaches what JetBrains Mono
 /// never makes the bake do, and the weights it is instanced at: both sides
 /// of the default, through its `avar`.
 const CASES: &str = "cases";

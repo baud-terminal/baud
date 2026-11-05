@@ -16,7 +16,7 @@
 //! deltas of a point-matched component are ignored and that "it is the
 //! delta-adjusted offsets that are scaled".
 //!
-//! `tests/var/component-cases.ttf` (`scripts/component-cases-font.py`) is
+//! `tests/var/component-cases.ttf` (`tools/baud-oracle cases component`) is
 //! the fixture, since no font on this machine or in the tree reaches
 //! either rule, and `tests/var/components.txt` (`tools/baud-oracle`'s
 //! `component`) holds HarfBuzz 12.3.0's and FreeType 2.14.3's drawings of every glyph at
@@ -56,7 +56,7 @@ enum Side {
     /// does.
     Refused,
     /// Neither engine's: the text's drawing at each weight, worked by hand
-    /// from `scripts/component-cases-font.py`, where both depart. FreeType
+    /// from `tools/baud-oracle cases component`, where both depart. FreeType
     /// refuses every phantom point; HarfBuzz moves a composite's left
     /// phantom by its Y delta, which `[[source: ms-opentype-gvar]]` ignores
     /// ("For AW and LSB points, apply the net X delta adjustments, and

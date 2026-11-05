@@ -15,7 +15,7 @@
 //! is drawn from `xMin - lsb` as with the bit clear.
 //!
 //! `tests/var/bearing-cases.ttf` and `bearing-cases-bit1.ttf`
-//! (`scripts/bearing-cases-font.py`) are the fixtures, the same glyphs with
+//! (`tools/baud-oracle cases bearing`) are the fixtures, the same glyphs with
 //! bit 1 clear and set, and `tests/var/bearings.txt`
 //! (`tools/baud-oracle`'s `bearing`) holds HarfBuzz 12.3.0's and FreeType
 //! 2.14.3's drawings of both at the default instance and three weights,
@@ -32,7 +32,7 @@ const WEIGHTS: [&str; 4] = ["-", "100", "650", "900"];
 /// The glyphs the matched walk draws at the default instance: the stream
 /// refuses them, so the rest are the stream's.
 const MATCHED: [&str; 2] = ["anch", "anchlsb"];
-/// The fixtures' simple glyphs (`scripts/bearing-cases-font.py`); the other
+/// The fixtures' simple glyphs (`tools/baud-oracle cases bearing`); the other
 /// six are composites.
 const SIMPLE: [&str; 4] = ["box", "neg", "same", "boxvar"];
 
