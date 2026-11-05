@@ -1979,6 +1979,20 @@ public   = "Unicode Character Database 17.0.0 files, carried unmodified, which t
 holder   = "Unicode, Inc."
 
 [[tree]]
+what     = "baud-render's build reads the Unicode Character Database files it compiles what SGR 64's stress mark skips, the separators and the combining characters from, through links in baud-render/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
+paths    = [
+  "baud-render/data/unicode-derivedgeneralcategory.txt",
+  "baud-render/data/unicode-propertyvaluealiases.txt",
+  "baud-render/data/unicode-unicodedata.txt",
+]
+licence  = "Unicode-3.0"
+notice   = "LICENSES/Unicode-3.0.txt"
+upstream = "https://www.unicode.org/Public/17.0.0/ucd/"
+status   = "kept"
+public   = "Unicode Character Database 17.0.0 files, carried unmodified, which the build compiles into what the stress mark skips"
+holder   = "Unicode, Inc."
+
+[[tree]]
 what     = "baud-domain's build reads EastAsianWidth.txt of the Unicode Character Database 8.0.0, for the widths iTerm2's UnicodeVersion=8 selects, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file"
 paths    = ["baud-domain/data/unicode-eastasianwidth-8.0.0.txt"]
 licence  = "Unicode-3.0"

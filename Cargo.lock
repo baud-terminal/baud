@@ -216,6 +216,7 @@ dependencies = [
  "baud-core",
  "baud-domain",
  "baud-font",
+ "baud-tablegen",
 ]
 
 [[package]]

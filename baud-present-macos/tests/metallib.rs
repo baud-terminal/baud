@@ -474,6 +474,22 @@ fn the_record_mask_bit_matches_the_shader() {
     assert_eq!(got, baud_render::MASK_RECORD, "{line:?}");
 }
 
+/// The identity check: the arrays the build writes are the committed
+/// generator's block, byte for byte.
+#[test]
+fn the_built_shader_table_is_the_committed_block() {
+    let built = include_str!(concat!(env!("OUT_DIR"), "/stress_skips.metal"));
+    let src = include_str!("../src/shaders.metal");
+    let head = "constant uchar STRESS_SKIP_INDEX[";
+    let start = src.find(head).expect("the committed block");
+    let end = src
+        .find("// END GENERATED: stress mark skips")
+        .expect("its end");
+    let arrays = &built[built.find(head).expect("the built arrays")..];
+    assert_eq!(arrays, &src[start..end]);
+    println!("identical: {} bytes of arrays", arrays.len());
+}
+
 /// **The cell shader skips what the CPU skips**: the stress mark's two
 /// tables in the shader and `baud_render::STRESS_SKIP_INDEX` and
 /// `STRESS_SKIP_BLOCKS` are one set of bytes spelled twice, and a drift

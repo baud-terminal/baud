@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 326 | 60 | redistributable, and its notice is satisfied |
+| kept | 326 | 61 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 596 | 69 | |
+| total | 596 | 70 | |
 
 ## Licence texts in LICENSES/
 
@@ -298,6 +298,14 @@ they were built from.
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
 - **From:** https://www.unicode.org/Public/17.0.0/ucd/
 - **Files:** [baud-font/data/unicode-arabicshaping.txt](baud-font/data/unicode-arabicshaping.txt), [baud-font/data/unicode-bidibrackets.txt](baud-font/data/unicode-bidibrackets.txt), [baud-font/data/unicode-blocks.txt](baud-font/data/unicode-blocks.txt), [baud-font/data/unicode-derivedbidiclass.txt](baud-font/data/unicode-derivedbidiclass.txt), [baud-font/data/unicode-derivedcoreproperties.txt](baud-font/data/unicode-derivedcoreproperties.txt), [baud-font/data/unicode-derivedgeneralcategory.txt](baud-font/data/unicode-derivedgeneralcategory.txt), [baud-font/data/unicode-derivednormalizationprops.txt](baud-font/data/unicode-derivednormalizationprops.txt), [baud-font/data/unicode-indicpositionalcategory.txt](baud-font/data/unicode-indicpositionalcategory.txt), [baud-font/data/unicode-indicsyllabiccategory.txt](baud-font/data/unicode-indicsyllabiccategory.txt), [baud-font/data/unicode-propertyvaluealiases.txt](baud-font/data/unicode-propertyvaluealiases.txt), [baud-font/data/unicode-scriptextensions.txt](baud-font/data/unicode-scriptextensions.txt), [baud-font/data/unicode-scripts.txt](baud-font/data/unicode-scripts.txt), [baud-font/data/unicode-unicodedata.txt](baud-font/data/unicode-unicodedata.txt)
+
+### baud-render's build reads the Unicode Character Database files it compiles what SGR 64's stress mark skips, the separators and the combining characters from, through links in baud-render/data/ to the copies in docs/research/sources/, which the published crate carries as the files
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** Unicode-3.0
+- **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
+- **From:** https://www.unicode.org/Public/17.0.0/ucd/
+- **Files:** [baud-render/data/unicode-derivedgeneralcategory.txt](baud-render/data/unicode-derivedgeneralcategory.txt), [baud-render/data/unicode-propertyvaluealiases.txt](baud-render/data/unicode-propertyvaluealiases.txt), [baud-render/data/unicode-unicodedata.txt](baud-render/data/unicode-unicodedata.txt)
 
 ### baud-domain's build reads EastAsianWidth.txt of the Unicode Character Database 8.0.0, for the widths iTerm2's UnicodeVersion=8 selects, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file
 

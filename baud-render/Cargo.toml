@@ -13,12 +13,27 @@ categories = ["rendering", "graphics"]
 # What crates.io gets: the source, what the build reads, the licence and
 # the notices its third-party files need (`cargo xtask publish`).
 # The tests and their fixtures stay in the repository.
-include = ["/src/", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES/"]
+include = ["/src/", "/build.rs", "/build/", "/data/", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES/"]
+# Not a native library: the key is what hands this build's `OUT_DIR` to
+# the builds of the crates that depend on this one, as
+# `DEP_BAUD_RENDER_STRESS_OUT_DIR`, so `baud-present-macos` writes the
+# cell shader's copy of the stress skip trie from these bytes.
+links = "baud-render-stress"
 
 [dependencies]
 baud-domain = { workspace = true }
 baud-core = { workspace = true, features = ["alloc"] }
 baud-font = { workspace = true }
+
+# The table compiler `build.rs` and `build/*.rs` read the pinned files in
+# `data/` with: std alone, no dependencies, at build time only.
+[build-dependencies]
+baud-tablegen = { workspace = true }
+
+[dev-dependencies]
+# `tests/build_tables.rs` runs the build module on perturbed copies of the
+# pinned files, so each check it makes is seen to fire.
+baud-tablegen = { workspace = true }
 
 [features]
 # **`baud-core`'s NEON scan, on**, as the core's own default build has it,
