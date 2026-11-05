@@ -1,9 +1,9 @@
 # Installing baud
 
 There is no release of baud yet, so Nix is the one way to install it for
-now. Nix builds the `baud` binary from the repository; to have an app you
-can put in Applications and the Dock, Nix and devenv build it from a clone
-of the repository.
+now. Nix builds baud from the repository: the `baud` command and, on a
+Mac, the app, `baud.app`, which you can put in Applications and the Dock.
+A clone of the repository builds the same app with devenv.
 
 ## What you need
 
@@ -26,7 +26,11 @@ nix profile add github:baud-terminal/baud
 ```
 
 The package carries the licences of the fonts baud draws with in
-`share/doc/baud/`, as the app does.
+`share/doc/baud/`, as the app does. On a Mac it carries the app too, in
+`Applications/baud.app`, signed ad hoc as a clone's build signs it, and
+its `bin/baud` is the app's own program. On Linux it carries a desktop
+entry, `share/applications/org.baud.terminal.desktop`, and baud's icon
+under `share/icons`, which a desktop reads to list baud among its apps.
 
 **About the licence.** baud is CC BY-NC-SA 4.0: free to use and share for
 anything that is not commercial. nixpkgs counts a NonCommercial licence as

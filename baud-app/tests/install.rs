@@ -247,3 +247,63 @@ fn every_address_of_the_repository_is_its_home() {
         assert!(gives, "{guide} does not give `{run}`");
     }
 }
+
+/// **The committed icon is the dock PNGs packed**: the bundle copies
+/// `packaging/macos/baud.icns`, so a build with no `iconutil` -- the Nix
+/// package's -- carries the icon a clone's bundle does, and this fails
+/// once the PNGs move without it. iconutil packs the same PNGs into the
+/// same bytes each run, which the control checks: two packings agree.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_committed_icon_is_the_dock_pictures_packed() {
+    let dir = std::env::temp_dir().join(format!("baud-icns-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let pack = |name: &str| {
+        let out = dir.join(name);
+        let ran = std::process::Command::new("bash")
+            .arg(workspace().join("scripts/bundle-macos.sh"))
+            .args(["--icns".as_ref(), out.as_os_str()])
+            .status()
+            .expect("bundle-macos.sh runs");
+        assert!(ran.success(), "bundle-macos.sh --icns failed");
+        std::fs::read(&out).expect("the icon")
+    };
+    let (a, b) = (pack("a.icns"), pack("b.icns"));
+    assert_eq!(a, b, "the control: iconutil packs alike twice");
+    let committed =
+        std::fs::read(workspace().join("packaging/macos/baud.icns")).expect("the committed icon");
+    assert!(
+        a == committed,
+        "packaging/macos/baud.icns is not the PNGs packed -- run \
+         scripts/bundle-macos.sh --icns packaging/macos/baud.icns"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **The Nix package carries the app**: on macOS the bundle, assembled by
+/// the script a clone's build runs, with `bin/baud` its executable; on
+/// Linux the desktop entry, named for the window's Wayland app_id, and
+/// the icon it names.
+#[test]
+fn the_nix_package_ships_the_app() {
+    let flake = read("flake.nix");
+    for needle in [
+        "bash scripts/bundle-macos.sh --assemble \"$out/bin/baud\" \"$app\"",
+        "ln -s ../Applications/baud.app/Contents/MacOS/baud \"$out/bin/baud\"",
+        "packaging/linux/org.baud.terminal.desktop",
+        "desktop-file-validate",
+        "apps/org.baud.terminal.png",
+        "pname = \"baud\";",
+        "mainProgram = \"baud\";",
+    ] {
+        assert!(flake.contains(needle), "flake.nix lacks {needle}");
+    }
+    let linux = read("baud-app/src/linux.rs");
+    assert!(
+        linux.contains("Window::open(&mut conn, \"baud\", \"org.baud.terminal\")"),
+        "the window's app_id moved from the desktop entry's name"
+    );
+    let entry = read("packaging/linux/org.baud.terminal.desktop");
+    assert!(entry.contains("\nIcon=org.baud.terminal\n"), "{entry}");
+    assert!(entry.contains("\nExec=baud\n"), "{entry}");
+}

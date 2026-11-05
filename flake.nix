@@ -1,7 +1,9 @@
 {
   # `nix run github:baud-terminal/baud` opens baud; `nix build` leaves it in
-  # ./result/bin. The dev shell is devenv's (`devenv.nix`); this file only
-  # builds the terminal.
+  # ./result/bin, and the app beside it: on macOS ./result/Applications/
+  # baud.app, on Linux a desktop entry and its icons under ./result/share.
+  # The dev shell is devenv's (`devenv.nix`); this file only builds the
+  # terminal.
   description = "baud, a fast terminal emulator";
 
   # The same nixpkgs and rust-overlay revisions as `devenv.lock`, so the
@@ -77,6 +79,29 @@
           # `rustflags`, the function alignment, still apply.
           env.RUSTFLAGS = "";
 
+          # The Linux desktop entry is checked against the specification as
+          # it is installed; the macOS bundle is signed ad hoc, as a clone's
+          # build signs it, by a signer nixpkgs builds (no Xcode tool is
+          # reachable from a build).
+          nativeBuildInputs =
+            lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.desktop-file-utils ]
+            ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.rcodesign ];
+
+          # **The app**, assembled by the script a clone's build uses, so the
+          # two bundles carry the same Info.plist, icon, fonts' licences and
+          # binary (the shaders' library is inside it), after the fixup has
+          # stripped and signed `bin/baud`, which it does to `bin` and not to
+          # `Applications`. `bin/baud` is then the bundle's executable, so
+          # `nix run` starts the binary the Dock does, and the bundle is
+          # signed last, ad hoc, as `scripts/bundle-macos.sh` signs one.
+          postFixup = lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+            app=$out/Applications/baud.app
+            bash scripts/bundle-macos.sh --assemble "$out/bin/baud" "$app"
+            rm "$out/bin/baud"
+            ln -s ../Applications/baud.app/Contents/MacOS/baud "$out/bin/baud"
+            rcodesign sign "$app"
+          '';
+
           # The fonts baud draws with are inside the binary, and their
           # licences travel with it, as the app bundle carries them.
           postInstall = ''
@@ -92,6 +117,20 @@
             cp -R baud-app/fonts/symbols-nerd-font/icon-licences "$fonts/symbols-nerd-font/"
             cp baud-app/fonts/stix-two-math/{OFL.txt,SOURCE} "$fonts/stix-two-math/"
             cp LICENSE THIRD_PARTY.md "$out/share/doc/baud/"
+          ''
+          # **A desktop entry**, named for the window's Wayland app_id
+          # (`org.baud.terminal`, `baud-app/src/linux.rs`), which is how a
+          # desktop finds a window's entry, and the icon at the sizes drawn.
+          + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            install -Dm644 packaging/linux/org.baud.terminal.desktop \
+              "$out/share/applications/org.baud.terminal.desktop"
+            desktop-file-validate "$out/share/applications/org.baud.terminal.desktop"
+            for n in 16 32 64 128 256 512; do
+              install -Dm644 "assets/logo/baud-icon-dock-$n.png" \
+                "$out/share/icons/hicolor/''${n}x''${n}/apps/org.baud.terminal.png"
+            done
+            install -Dm644 assets/logo/baud-icon-dock.svg \
+              "$out/share/icons/hicolor/scalable/apps/org.baud.terminal.svg"
           '';
 
           meta = {

@@ -2084,3 +2084,18 @@ frames to output under any animation; unmeasured, and not changed here.
 With the tick's own rule dropped from the gate, a tick the display link
 fires early leaves the read past the next tick in the playing arms,
 which the check reports.
+
+## What the Nix package ships
+
+`nix build .#default` on aarch64-darwin, macOS 27.0: `Applications/baud.app`
+with `bin/baud` a link to its executable. Its Info.plist is the one
+`scripts/bundle-macos.sh --info-plist` prints, its icon is the committed
+`packaging/macos/baud.icns` byte for byte, the fonts' licences are 31
+files, as many as `share/doc/baud/fonts` holds, and the binary holds the committed
+`baud.metallib`'s 220,196 bytes. The fixup strips `bin` before the bundle
+is assembled, and rcodesign, built by nixpkgs, signs the bundle ad hoc
+last: `codesign -v` reads the bundle and its executable valid and
+satisfying their designated requirement. The Linux arm, a desktop entry
+and the icon under `share`, evaluates (`nix flake check --no-build
+--all-systems`) and its entry passes `desktop-file-validate` 0.28; no
+Linux build was run.

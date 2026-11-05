@@ -27,8 +27,9 @@ the Linux version is in progress. [What works today, and what doesn't yet](docs/
 
 baud runs on macOS 26 and later, and installs with
 [Nix](https://nixos.org) (with flakes turned on). One command fetches the
-exact compiler, builds the `baud` binary with the settings baud is
-measured with, and opens it: a window running your login shell.
+exact compiler, builds baud with the settings it is measured with -- the
+`baud` command, and on a Mac the app, `baud.app` -- and opens it: a
+window running your login shell.
 
 ```sh
 nix run github:baud-terminal/baud            # or: nix profile add github:baud-terminal/baud
@@ -40,8 +41,8 @@ nixpkgs through this flake's `overlays.default`, allow it there:
 `nixpkgs.config.allowUnfreePredicate = pkg: lib.getName pkg == "baud";`.
 
 There is no release yet, so Nix is the one way to install baud for now.
-[Installing](docs/guide/install.md) has the details, and how to build
-the app for Applications and the Dock, with Nix too.
+[Installing](docs/guide/install.md) has the details, and where the app
+for Applications and the Dock is.
 
 baud needs no configuration. To change the font, colours, cursor or window,
 copy [config.toml.example](config.toml.example) to

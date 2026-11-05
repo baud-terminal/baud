@@ -3,17 +3,21 @@
 # from Finder without a Terminal window (the "two windows" bug), takes focus
 # like an app, and carries its own Dock icon. The icon is packed from
 # assets/logo/baud-icon-dock-<N>.png, baud-icon-dock.svg drawn at each
-# iconset size by scripts/make-brand-pictures.py; the binary is the release
+# iconset size by scripts/make-brand-pictures.py and packed by iconutil into
+# packaging/macos/baud.icns, which is committed; the binary is the release
 # build.
 #
-#   scripts/bundle-macos.sh [--no-build | --info-plist]
+#   scripts/bundle-macos.sh [--no-build | --info-plist | --icns OUT |
+#                            --assemble BIN APP]
 #
 # --info-plist prints the Info.plist it would write and stops, before any
-# build; baud-app/tests/version.rs reads the version keys from it. The
-# release build and the bundle go under $CARGO_TARGET_DIR when it is set,
-# else target/.
-#
-# Needs iconutil (macOS).
+# build; baud-app/tests/version.rs reads the version keys from it. --icns
+# packs the PNGs into OUT with iconutil (macOS) and stops: run with
+# packaging/macos/baud.icns after the PNGs change, and baud-app/tests/
+# install.rs fails while the two differ. --assemble writes the bundle for
+# the binary BIN at APP and stops, with no build and no iconutil, which is
+# how the Nix package makes its bundle. The release build and the bundle go
+# under $CARGO_TARGET_DIR when it is set, else target/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
@@ -47,35 +51,50 @@ if [ "${1:-}" = "--info-plist" ]; then
   plist
   exit 0
 fi
-TARGET=${CARGO_TARGET_DIR:-$ROOT/target}
 
-if [ "${1:-}" != "--no-build" ]; then
-  cargo build --release -p baud
+# The icon: the padded dock squircle at every iconset size, each drawn by
+# the brand generator's pinned resvg and committed, then packed. The sizes
+# come in pairs (Nx and its @2x) per Apple's iconset layout. iconutil packs
+# the same PNGs into the same bytes each time, so the result is committed
+# and the bundle copies it: a build with no iconutil -- Nix's -- carries
+# the same icon.
+if [ "${1:-}" = "--icns" ]; then
+  OUT=${2:?--icns OUT}
+  ICONSET=$(mktemp -d)/baud.iconset
+  mkdir -p "$ICONSET"
+  for pair in 16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x \
+    128:icon_128x128 256:icon_128x128@2x 256:icon_256x256 \
+    512:icon_256x256@2x 512:icon_512x512 1024:icon_512x512@2x; do
+    cp "$ROOT/assets/logo/baud-icon-dock-${pair%%:*}.png" "$ICONSET/${pair#*:}.png"
+  done
+  iconutil -c icns "$ICONSET" -o "$OUT"
+  rm -rf "$(dirname "$ICONSET")"
+  exit 0
 fi
-BIN="$TARGET/release/baud"
+
+if [ "${1:-}" = "--assemble" ]; then
+  BIN=${2:?--assemble BIN APP}
+  APP=${3:?--assemble BIN APP}
+else
+  TARGET=${CARGO_TARGET_DIR:-$ROOT/target}
+  if [ "${1:-}" != "--no-build" ]; then
+    cargo build --release -p baud
+  fi
+  BIN="$TARGET/release/baud"
+  APP="$TARGET/baud.app"
+fi
 [ -x "$BIN" ] || {
   echo "no release binary at $BIN (run without --no-build)"
   exit 1
 }
 
-APP="$TARGET/baud.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # Info.plist with the version substituted in.
 plist >"$APP/Contents/Info.plist"
 
-# The icon: the padded dock squircle at every iconset size, each drawn by
-# the brand generator's pinned resvg and committed, then packed. The sizes
-# come in pairs (Nx and its @2x) per Apple's iconset layout.
-ICONSET=$(mktemp -d)/baud.iconset
-mkdir -p "$ICONSET"
-for pair in 16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x \
-  128:icon_128x128 256:icon_128x128@2x 256:icon_256x256 \
-  512:icon_256x256@2x 512:icon_512x512 1024:icon_512x512@2x; do
-  cp "$ROOT/assets/logo/baud-icon-dock-${pair%%:*}.png" "$ICONSET/${pair#*:}.png"
-done
-iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/baud.icns"
+cp "$ROOT/packaging/macos/baud.icns" "$APP/Contents/Resources/baud.icns"
 
 # The executable.
 cp "$BIN" "$APP/Contents/MacOS/baud"
@@ -116,7 +135,11 @@ cp "$ROOT/baud-app/fonts/stix-two-math/OFL.txt" \
   "$APP/Contents/Resources/fonts/stix-two-math/"
 
 # Ad-hoc sign, so the bundle has a stable identity for TCC/accessibility and
-# runs without a quarantine prompt after a local build.
-codesign --force --sign - "$APP" >/dev/null 2>&1 || echo "note: codesign failed (bundle still runs)"
+# runs without a quarantine prompt after a local build. --assemble leaves
+# the signing to its caller: the Nix package signs with a signer nixpkgs
+# builds, as no Xcode tool is reachable from a Nix build (flake.nix).
+if [ "${1:-}" != "--assemble" ]; then
+  codesign --force --sign - "$APP" >/dev/null 2>&1 || echo "note: codesign failed (bundle still runs)"
+fi
 
 echo "built $APP  (baud $VERSION)"
