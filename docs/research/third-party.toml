@@ -1681,8 +1681,8 @@ public   = "baud's app icon and title bar logo, whose glyphs are JetBrains Mono 
 holder   = "The JetBrains Mono Project Authors"
 
 [[tree]]
-what     = "The letters of the repository's link picture and of the README's logo: JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by scripts/make-brand-pictures.py for the picture, and the app's built Bold, drawn by baud's renderer for the logo (scripts/make-readme-logo.py). The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout and the tape are baud's own"
-paths    = ["assets/readme/social.svg", "assets/readme/social.png", "assets/readme/logo-dark.gif", "assets/readme/logo-light.gif", "assets/readme/JetBrainsMono-OFL.txt"]
+what     = "The letters of the repository's link picture and of the README's logo: JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by scripts/make-brand-pictures.py for the picture, and the app's built Bold, drawn by baud's renderer for the logo and the walls its plasma's path was chosen against (scripts/make-readme-logo.py). The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout, the tape and the plasma are baud's own"
+paths    = ["assets/readme/social.svg", "assets/readme/social.png", "assets/readme/logo-dark.gif", "assets/readme/logo-light.gif", "assets/readme/logo-dark.svg", "assets/readme/logo-light.svg", "assets/readme/logo-walls.png", "assets/readme/JetBrainsMono-OFL.txt"]
 licence  = "OFL-1.1"
 notice   = "assets/readme/JetBrainsMono-OFL.txt"
 upstream = "https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304"

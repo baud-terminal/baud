@@ -1492,6 +1492,52 @@ limit. The control, the same cursor at 125/125, counts four flashes. **WCAG
 2.2.2**: blinking past five seconds can be stopped by `blink = false` and
 `stop_blinking_after`, both unchanged.
 
+## The README logo's plasma, ported from the frames it was chosen in
+
+**What changed.** The README's header logo is the lockup with baud's plasma
+moving round and through it as if the glyphs were walls
+(`assets/readme/README.md`). The renderer gained splash layers drawn behind or
+in front of the lockup, through its glyphs as slabs (`splash::Slabs`: the
+keyline, the knot cut, the rim), and a plasma detail clock (`effect::Live`);
+the generator is `scripts/readme-logo/`. Draw-time only, in a tool the script
+runs: no per-byte path changed and no ingest arm was timed. The trail bench's
+frame hashes (`trail 1`) equal master's on all 60 rows.
+
+**How close it is to the frames it was chosen from**, the window's interior
+(frames 18 to 194, clear of the fades), pixels of 487,200 a frame more than 8
+levels apart in a channel, and the mean level apart, medians over the frames:
+
+| this | against | px > 8 levels, median (max) | mean level, median (max) |
+|---|---|---|---|
+| the chosen frames' own strands, drawn by this renderer | the chosen GIF | 1,231 (3,380) | 0.124 (0.232) |
+| the generator's strands, drawn the same | the chosen frames' own strands, drawn the same | 0 (92) | 0.000 (0.006) |
+| this film | the chosen GIF | 1,231 (3,380) | 0.124 (0.232) |
+
+The light half reads 1,139 (3,175) and 0.119 (0.225). The floor is the chosen
+GIF's encoder (quality 90, its palette snapped) and what the renderer changed
+since: a leftward strand's braid mirrored (e7253f69) and glyph coverage
+rounding (e30fd9c4). The generator's strands differ from the chosen ones only
+in the current's tail: libm's `sin` and `exp`, which the chosen frames used,
+round differently from the generator's own (`det.py`) in the last bit, and the
+advected parcels are chaotic, so 87 of the window's 11,048 tail links move
+more than half a unit; the head, the residual and the tongues are the same to
+the printed digit. Over the whole ten-second chain 2,138 of 28,550 tail links
+move.
+
+**Why the walls are frozen.** Recomputed from today's drawing of the lockup --
+3,930 pixels apart by at most 2 levels, 3 pixels of the half-coverage mask --
+the chain's seed search lands on another seed, 2309, and every strand of every
+frame moves; seed 2241 itself draws a chain 31% behind the letters with two
+counter passes, under its targets of 40% and three. So the drawing the path was
+chosen against is kept (`assets/readme/logo-walls.png`), and every run holds
+today's drawing to it at those counts.
+
+**The files**: GIFs of 2,671,015 and 2,646,691 bytes; SVGs of 1,178,009 and
+1,102,717. WCAG 2.3.1: 9 general and 0 red flashes at a pixel in a second,
+areas 630.5 and 761.25, strict 1,495 and 2,304.5, of 21,824: both pass by the
+area. The word's worst contrast 6.79 and 12.61 to 1. The haze: 0.0004% of the
+dark GIF's page pixels are off the page, by at most 13 levels.
+
 ## The cursor trails' costs
 
 `scripts/idle-cpu.py`, the window unfocused, five rounds of ten seconds with the

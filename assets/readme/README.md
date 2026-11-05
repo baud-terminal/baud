@@ -4,43 +4,100 @@
 lockup the launch splash holds, as the logo files draw it, drawn by
 baud's CPU renderer at twice its 300 units on GitHub's own page colour,
 #0d1117 for the dark theme and #ffffff for the light, 840 by 580 and
-shown 420 wide, so the lockup is its 300. Only the block cursor moves as drawn; in the encoded file gifski's palette, picked frame by frame, also moves at most 528 glyph-edge pixels by at most 27 levels across the first three frame changes, and none after them:
-it blinks as baud's cursor blinks by default, each phase asked of the
-app's own caret and drawn by the cursor's own drawing
-(`baud-app/src/logo_film.rs`), so the logo follows the default blink.
+shown 420 wide, so the lockup is its 300. baud's white plasma moves round
+and through it as if each glyph were a solid wall: in front of the
+letters or behind them, changing side only through the counters of b, a
+and d, the gaps between the letters, the u's open top or round the ends;
+behind a letter it is hidden but for what shows through its holes;
+against a stroke it squashes flat and runs along it; where it passes in
+front, a keyline of page parts it from the letter and the letter is cut
+under its core, as the strand over another in a knot. A swirling current
+(curl noise) carries it, and a short tail of wisps slides round the
+letters. Its path is a seeded random chain of moves, never a lap, and
+the block blinks as baud's cursor blinks by default, each frame's phase
+asked of the app's own caret (`baud-app/src/logo_film.rs`).
 
-At the default, 250 ms shown and 250 hidden with nothing drawn in the
-hidden phase, each file is nineteen frames of 25 hundredths of a second:
-shown and hidden by turns nine times, 4.5 s of blinking, then a
-nineteenth frame with the cursor shown, which the file rests on. It
-plays once: it carries no loop block. The blink is the most whole
-cycles that end before five seconds, because WCAG 2.2's 2.2.2 Pause,
-Stop, Hide (Level A) covers blinking that starts automatically, lasts
-more than five seconds and is presented in parallel with other content,
-and asks for a way to pause, stop or hide it ([[source: wcag22]]); a
-README carries no control of its own, so the logo stops by itself
-instead. It does not rely on GitHub's own setting to pause animated
-images.
+**It plays once, for 4.5 s, then rests.** WCAG 2.2's 2.2.2 Pause, Stop,
+Hide (Level A) covers moving or blinking content that starts by itself,
+lasts more than five seconds and is shown beside other content, and asks
+for a way to pause, stop or hide it ([[source: wcag22]]); a README
+carries no control of its own, and GitHub's setting to pause animated
+images does not reach an image inside `<picture>`, so the logo stops by
+itself. It moves for the most whole blink cycles that end before five
+seconds, nine at the default's 250 ms shown and 250 hidden: 216 frames,
+20 ms each and 30 closing each phase, fading in from the bare logo over
+0.3 s and out to it over 0.4, then a last frame of the logo with the
+cursor shown, which the file rests on. It carries no loop block. The
+4.5 s are the plasma's ten-second chain from 1.00 s, the start on a
+blink cycle with the most of the chain's events between the fades --
+two wall hits, a graze, a weave through two slots and two surges -- and
+of those the least light under the fades.
 
-| half | bytes | frames | blink, read off the decoded file | most flashes at a pixel in a second, general / red |
-|---|---|---|---|---|
-| dark | 10,902 | 19 | 9 x (250 ms shown, 250 hidden), then shown | 2 / 0 |
-| light | 11,372 | 19 | 9 x (250 ms shown, 250 hidden), then shown | 2 / 0 |
+| file | bytes | frames | motion | most flashes at a pixel in a second, general / red | area, strict, of 21,824 | the word's worst contrast |
+|---|---|---|---|---|---|---|
+| `logo-dark.gif` | 2,671,015 | 217 | 4.5 s, then shown | 9 / 0 | 630.5, 1,495 | 6.79 : 1 |
+| `logo-light.gif` | 2,646,691 | 217 | 4.5 s, then shown | 9 / 0 | 761.25, 2,304.5 | 12.61 : 1 |
+| `logo-dark.svg` | 1,178,009 | 215 images over the logo | 4.5 s, then shown | 9 / 0 | 604, 1,500.5 | |
+| `logo-light.svg` | 1,102,717 | 215 images over the logo | 4.5 s, then shown | 9 / 0 | 763.2, 2,336.8 | |
 
-Two tests hold the committed files, each decoding them with baud's own
-GIF decoder: `logo_film::tests::the_readme_logos_blink_the_default_and_rest_shown`
-(`baud-app`) requires that outside the cursor no frame differs from
-the first beyond the encoder's palette, reads shown and hidden off the
-block's pixels, and requires the default's phases, under five seconds of
-blinking and a last frame that is the first, the cursor shown; `baud-bench/tests/readme_logo_flashes.rs` takes
-WCAG 2.3.1's census of the frames at 100 a second and 2 pixels a point,
-the last held 3 s, and requires both verdicts to pass and no pixel to
-flash more than three times in a second. `scripts/make-readme-logo.py`
-films both halves, encodes them with gifski 1.34.0 at quality 80 from
-`readme-film.sh`'s nixpkgs, Python and Pillow from
-`make-brand-pictures.py`'s, checks gifski writes the same bytes twice,
-writes the files and runs both tests; with `--check` it compares the
-files byte for byte instead of writing them.
+Both pass WCAG 2.3.1 ([[source: wcag22]]) by its second half: a few
+pixels flash more than three times in a second where strands cross them,
+over an area far under the general and red flash thresholds. The
+contrast is the word's own ink against the ground 2 to 7 pixels round
+it, the worst frame of both files. WCAG 1.4.3 exempts a logotype ("Text
+that is part of a logo or brand name has no contrast requirement",
+[[source: wcag22]]); the script's floor borrows the 4.5 to 1 it asks of
+text, so the plasma never washes the word out.
+
+**The README shows the GIF; the SVGs are for the site.** An SVG is the
+bare logo as a PNG with each frame over it as a WebP of what it changes,
+shown and hidden by SMIL `<set>` at the GIF's own times, all hidden at
+4.5 s so it rests on the logo: under half the GIF's bytes, in full colour
+where a GIF frame has 256. GitHub serves a file of the repository with
+`Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline';
+sandbox`; headless Chromium, given those headers and the SVG in an
+`<img>`, draws its frames, plays them at their times and rests on the
+logo, but nothing here has shown it in Safari, Firefox or GitHub's
+mobile app, where an animated SVG made of embedded pictures is not
+known to play, and a GIF plays everywhere the README is read. The GIF is
+also the look the plasma was chosen in.
+
+**The plasma's path was chosen against `logo-walls.png`**: the bare
+lockup on the dark half, block shown, as the renderer drew it then,
+from which `scripts/readme-logo/geometry.py` reads the glyphs' signed
+distance field, normals and counters. Today's renderer draws it 3,930
+pixels apart by at most 2 levels, 3 pixels of its half-coverage mask; the
+path is a random search that takes every pixel of the walls as given,
+and against today's own drawing the same seed draws a chain that fails
+its targets (31% of the time behind the letters where the targets ask
+40 to 50, two counter passes where they ask three), so the walls are
+kept, pinned by their SHA-256, and every run holds today's drawing to
+them at those counts, or the path must be chosen again.
+
+Three tests hold the committed files, each decoding them with baud's
+own decoders: `logo_film::tests::the_readme_logos_move_under_five_seconds_and_rest_shown`
+(`baud-app`) requires each GIF to play once, the plasma to move, the
+block read off its pixels to blink the default's phases, under five
+seconds of motion and a last frame that is the first, the bare logo,
+cursor shown; `logo_film::tests::the_readme_svgs_play_the_gifs_times_and_rest_shown`
+requires each SVG to hold nothing that runs or fetches, nothing that
+repeats, its frames on the film's grid, never two at once, its motion
+ending where the GIF's does, and its base the GIF's last frame, cursor
+shown; `baud-bench/tests/readme_logo_flashes.rs` takes WCAG 2.3.1's
+census of each GIF at 100 samples a second and 2 pixels a point, the
+last frame held 3 s, and requires both verdicts to pass, no red flash,
+and no more flashes at a pixel or strict area than the files measured.
+`scripts/make-readme-logo.py` films both halves, encodes them with
+gifski 1.34.0 from `readme-film.sh`'s nixpkgs and Pillow from
+`make-brand-pictures.py`'s, every pixel within 3 levels of the page set
+to it first so the encoder cannot haze the page (0.0004% of the dark
+GIF's page pixels are off it, by at most 13 levels), checks both
+encoders write the same bytes twice, takes the SVGs' census, writes the
+files and runs the tests; with `--check` it compares the files byte for
+byte instead of writing them. The generator's arithmetic is IEEE's own
+and `scripts/readme-logo/det.py`'s, and it runs with the platform's
+`sin`, `exp` and the like taken away (`scripts/readme-logo/nolibm.py`),
+so its frames do not depend on a platform's libm.
 
 `hero.gif` is a screen recording of a real baud session, its window filmed
 as it ran: a shell, every command typed into it at real speed, glass and

@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/readme/logo-dark.gif">
-  <img alt="baud: the word baud, an amber prompt and an amber block cursor, the cursor blinking for a few seconds and then staying on" src="assets/readme/logo-light.gif" width="420">
+  <img alt="baud: the word baud, an amber prompt and an amber block cursor, with a strand of plasma weaving round and through the letters as if they were solid walls, passing in front of them and behind, through the holes of b, a and d and the gaps between the letters, and flattening along a stroke it meets, while the cursor blinks; after four and a half seconds the plasma fades and the logo rests with the cursor on" src="assets/readme/logo-light.gif" width="420">
 </picture>
 
 **The terminal with character: its own font, its own cursor effects, and the speed to keep up.**
