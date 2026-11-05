@@ -254,7 +254,7 @@ fn the_lines_lights_are_the_title_strips_pictures() {
     assert!(on_plate > 1000, "the control: the plate, {on_plate}");
     assert_eq!(
         digest(&line),
-        4_123_545_115_173_808_163,
+        10_857_341_317_046_224_528,
         "the line's pixels"
     );
 }
@@ -704,32 +704,47 @@ fn the_lines_pixels_are_pinned_in_every_state() {
         }
     }
     let want = [
-        ("dark", Glow::Full, Light::Dark, 7_849_512_638_526_911_931),
-        ("dark", Glow::Full, Light::Lit, 5_312_797_589_331_973_419),
-        ("dark", Glow::Full, Light::Unread, 402_903_640_830_943_323),
-        ("dark", Glow::Dimmed, Light::Dark, 7_849_512_638_526_911_931),
-        ("dark", Glow::Dimmed, Light::Lit, 1_018_366_718_110_630_459),
-        ("dark", Glow::Dimmed, Light::Unread, 402_903_640_830_943_323),
-        ("light", Glow::Full, Light::Dark, 14_218_837_881_295_335_315),
-        ("light", Glow::Full, Light::Lit, 8_291_315_892_717_512_407),
+        ("dark", Glow::Full, Light::Dark, 11_139_640_499_553_258_512),
+        ("dark", Glow::Full, Light::Lit, 4_193_230_360_004_257_676),
+        ("dark", Glow::Full, Light::Unread, 9_701_134_340_204_264_256),
+        (
+            "dark",
+            Glow::Dimmed,
+            Light::Dark,
+            11_139_640_499_553_258_512,
+        ),
+        ("dark", Glow::Dimmed, Light::Lit, 16_053_332_130_226_172_416),
+        (
+            "dark",
+            Glow::Dimmed,
+            Light::Unread,
+            9_701_134_340_204_264_256,
+        ),
+        ("light", Glow::Full, Light::Dark, 18_185_792_506_890_850_112),
+        ("light", Glow::Full, Light::Lit, 13_082_435_051_013_733_956),
         (
             "light",
             Glow::Full,
             Light::Unread,
-            8_845_114_105_503_958_811,
+            18_123_793_569_135_808_872,
         ),
         (
             "light",
             Glow::Dimmed,
             Light::Dark,
-            14_218_837_881_295_335_315,
+            18_185_792_506_890_850_112,
         ),
-        ("light", Glow::Dimmed, Light::Lit, 7_907_669_469_043_253_295),
+        (
+            "light",
+            Glow::Dimmed,
+            Light::Lit,
+            17_966_483_633_469_483_292,
+        ),
         (
             "light",
             Glow::Dimmed,
             Light::Unread,
-            8_845_114_105_503_958_811,
+            18_123_793_569_135_808_872,
         ),
     ];
     assert_eq!(got, want);

@@ -7,7 +7,8 @@
 //! the program's output and HS each one as long as the platform's tty hands
 //! back (`baud_render::lights::READ_CEILING`, Linux's 4095), AA a reply the
 //! core queued while it read that output, SD a write the kernel took any of
-//! and CS one it refused any of, SYN and FAX from the core's state, and OH
+//! and CS dark for one it refused any of and while bytes are owed, SYN and
+//! FAX from the core's state, and OH
 //! while a job other than the shell is in front. **OH reads the terminal's
 //! foreground group** (`TIOCGPGRP` on the master, `fg::group`), which both
 //! kernels answer, and the shell `forkpty` started leads its own group
@@ -183,7 +184,7 @@ impl LineLights {
     }
 
     /// What a write to the child did: SD for any byte the kernel took, CS
-    /// for any it refused.
+    /// dark for any it refused.
     pub(crate) fn wrote(&mut self, w: Wrote, now: HostTime) {
         match w {
             Wrote::All => self.activity.seen(Led::Sd, now),
@@ -197,10 +198,20 @@ impl LineLights {
 
     /// **The states at a turn**: OH from who is in front, SYN while the
     /// program holds synchronized output open or opened it since the last
-    /// turn ([`crate::bell::Synced`]), FAX while a picture is placed.
-    pub(crate) fn states(&mut self, front: InFront, term: &baud_core::Term<'_>, now: HostTime) {
+    /// turn ([`crate::bell::Synced`]), FAX while a picture is placed, and
+    /// CS dark while `outbox` holds bytes the kernel has not taken.
+    pub(crate) fn states(
+        &mut self,
+        front: InFront,
+        term: &baud_core::Term<'_>,
+        outbox: &crate::pty::Outbox,
+        now: HostTime,
+    ) {
         if front == InFront::Job {
             self.activity.seen(Led::Oh, now);
+        }
+        if !outbox.is_empty() {
+            self.activity.seen(Led::Cs, now);
         }
         if self.synced.seen(term) {
             self.activity.seen(Led::Syn, now);
@@ -245,6 +256,7 @@ impl LineLights {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pty::Outbox;
     use baud_render::Light;
 
     const MS: Duration = Duration::from_millis(1);
@@ -258,7 +270,8 @@ mod tests {
     /// nobody.
     /// **The Linux driver feeds, schedules and lays out the line**, held in
     /// its source since the driver runs only under Wayland: each read
-    /// stamps RD and HS, each write SD and CS, every turn steps the lights
+    /// stamps RD and HS, each write SD and a refused one CS, each sampled
+    /// turn the states and CS from the outbox, every turn steps the lights
     /// before the frame, the wait is bounded by the next change, the grid is
     /// laid out from the window's height less the line, and the setting's
     /// reload gives the window the line's pixels. Perturbation: take
@@ -271,6 +284,7 @@ mod tests {
             "self.lights.read(bytes, now);",
             "self.lights.answered(now);",
             "self.lights.wrote(wrote, now);",
+            "self.lights.states(front, &self.term, &self.outbox, now);",
             "d.flush_reply();\n        d.tick_lights();\n",
             "report, lights, words,\n        ]",
             "let lights = d.lights_wait(now);",
@@ -390,12 +404,14 @@ mod tests {
     }
 
     /// **Each stamp lights its own light, a step owes a frame only when the
-    /// line moved, and the wait ends when a light goes dark**: a read lights
-    /// RD, one at the ceiling HS too, a reply AA, a write SD and a refused
-    /// one CS, a job in front OH; the step that shows them owes a frame,
-    /// the next with nothing new does not; the wait is the hold, and at its
-    /// end the lights go dark and owe one more; with two lights held to
-    /// different ends, the wait is the sooner. Perturbation: wake for the
+    /// line moved, and the wait ends when a light goes back to rest**: a
+    /// read lights RD, one at the ceiling HS too, a reply AA, a write SD, a
+    /// job in front OH, and a refused write darkens CS, lit while the line
+    /// is clear; the step that shows them owes a frame, the next with
+    /// nothing new does not; the wait is the hold, and at its end the
+    /// lights are at rest, CS lit again, and owe one more; with two lights
+    /// held to different ends, the wait is the sooner. Bytes owed at a
+    /// turn keep CS dark, and an empty outbox leaves it lit. Perturbation: wake for the
     /// latest change rather than the soonest (`Activity::next_change`) --
     /// SD would stay lit until RD's hold ends -- and this goes red.
     #[test]
@@ -418,14 +434,14 @@ mod tests {
                 ws_row: 2,
             },
         );
-        l.states(InFront::Job, &term, at(Duration::ZERO));
+        l.states(InFront::Job, &term, &Outbox::default(), at(Duration::ZERO));
         let (shown, _) = l
             .step(at(Duration::ZERO), Pace::Full, Glow::Full)
             .expect("a frame owed");
-        for led in [Led::Rd, Led::Hs, Led::Aa, Led::Sd, Led::Cs, Led::Oh] {
+        for led in [Led::Rd, Led::Hs, Led::Aa, Led::Sd, Led::Oh] {
             assert_eq!(*shown.get(led), Light::Lit, "{led:?}");
         }
-        for led in [Led::Cd, Led::Fax, Led::Syn] {
+        for led in [Led::Cd, Led::Cs, Led::Fax, Led::Syn] {
             assert_eq!(*shown.get(led), Light::Dark, "{led:?}");
         }
         assert_eq!(
@@ -442,8 +458,9 @@ mod tests {
         assert_eq!(wait, MS * 150, "the hold's end");
         let (shown, _) = l
             .step(at(MS * 200), Pace::Full, Glow::Dimmed)
-            .expect("dark now");
-        assert_eq!(shown, Shown::DARK);
+            .expect("at rest now");
+        assert_eq!(shown, Shown::rest());
+        assert_eq!(shown.cs, Light::Lit, "the line clear again");
         assert_eq!(
             l.wait(at(MS * 200), Pace::Full),
             Some(Duration::from_millis(200)),
@@ -455,7 +472,7 @@ mod tests {
         l.stale();
         assert_eq!(
             l.step(at(MS * 450), Pace::Full, Glow::Dimmed),
-            Some((Shown::DARK, Glow::Dimmed))
+            Some((Shown::rest(), Glow::Dimmed))
         );
         // The soonest light to change bounds the wait, not the last: SD
         // seen at 0 goes dark at 200, RD seen again at 120 at 320.
@@ -466,16 +483,36 @@ mod tests {
         l.read(b"x", at(MS * 120));
         assert_eq!(l.step(at(MS * 150), Pace::Full, Glow::Full), None);
         assert_eq!(l.wait(at(MS * 150), Pace::Full), Some(MS * 50), "SD's hold");
-        // A write the kernel took whole is SD alone; one it took none of
-        // is CS alone.
+        // A write the kernel took whole lights SD and leaves CS lit; one
+        // it took none of leaves SD dark and darkens CS.
         let mut l = LineLights::new();
         l.wrote(Wrote::All, at(Duration::ZERO));
         let (s, _) = l.step(at(Duration::ZERO), Pace::Full, Glow::Full).unwrap();
-        assert_eq!((s.sd, s.cs), (Light::Lit, Light::Dark));
+        assert_eq!((s.sd, s.cs), (Light::Lit, Light::Lit));
         let mut l = LineLights::new();
         l.wrote(Wrote::Nothing, at(Duration::ZERO));
         let (s, _) = l.step(at(Duration::ZERO), Pace::Full, Glow::Full).unwrap();
-        assert_eq!((s.sd, s.cs), (Light::Dark, Light::Lit));
+        assert_eq!((s.sd, s.cs), (Light::Dark, Light::Dark));
+        // Bytes still owed at each turn keep CS dark past the hold; the
+        // outbox emptied, it lights once the hold is over.
+        let mut owed = Outbox::default();
+        owed.push(b"x");
+        for m in [16, 100, 190, 300] {
+            l.states(InFront::Shell, &term, &owed, at(MS * m));
+            let _ = l.step(at(MS * m), Pace::Full, Glow::Full);
+            assert_eq!(l.activity.shown().cs, Light::Dark, "owed at {m}");
+        }
+        for m in [316, 499] {
+            l.states(InFront::Shell, &term, &Outbox::default(), at(MS * m));
+            let _ = l.step(at(MS * m), Pace::Full, Glow::Full);
+        }
+        assert_eq!(
+            l.activity.shown().cs,
+            Light::Dark,
+            "the hold after the last owed"
+        );
+        let _ = l.step(at(MS * 500), Pace::Full, Glow::Full);
+        assert_eq!(l.activity.shown().cs, Light::Lit, "clear");
     }
 
     /// **An update opened and closed between two samplings lights SYN**:
@@ -500,8 +537,13 @@ mod tests {
             let (shown, _) = l.step(at(t), Pace::Full, Glow::Full).expect("a frame");
             *shown.get(Led::Syn)
         };
-        l.states(InFront::Shell, &term, at(Duration::ZERO));
-        l.states(InFront::Shell, &term, at(SAMPLE));
+        l.states(
+            InFront::Shell,
+            &term,
+            &Outbox::default(),
+            at(Duration::ZERO),
+        );
+        l.states(InFront::Shell, &term, &Outbox::default(), at(SAMPLE));
         assert_eq!(syn(&mut l, SAMPLE), Light::Dark, "no update, no SYN");
         crate::reads::feed(
             &mut term,
@@ -511,7 +553,7 @@ mod tests {
             &mut crate::hostlog::NoLog,
         );
         assert!(!term.synchronized_output(), "closed by the sampling");
-        l.states(InFront::Shell, &term, at(SAMPLE * 2));
+        l.states(InFront::Shell, &term, &Outbox::default(), at(SAMPLE * 2));
         assert_eq!(syn(&mut l, SAMPLE * 2), Light::Lit, "opened since");
         let mut fresh = crate::bell::Synced::new();
         assert!(!fresh.seen(&term), "a first reading is the baseline");
@@ -530,8 +572,13 @@ mod tests {
         let mut owned = baud_core::Owned::new(&grid);
         let mut term = baud_core::Term::new(owned.storage(), &grid);
         let mut l = LineLights::new();
-        l.states(InFront::Shell, &term, at(Duration::ZERO));
-        l.states(InFront::Shell, &term, at(SAMPLE));
+        l.states(
+            InFront::Shell,
+            &term,
+            &Outbox::default(),
+            at(Duration::ZERO),
+        );
+        l.states(InFront::Shell, &term, &Outbox::default(), at(SAMPLE));
         crate::reads::feed(
             &mut term,
             [&b"\x1b[?2026hframe\x1b[?2026l"[..]],
@@ -540,7 +587,7 @@ mod tests {
             &mut crate::hostlog::NoLog,
         );
         l.away(&term);
-        l.states(InFront::Shell, &term, at(SAMPLE * 2));
+        l.states(InFront::Shell, &term, &Outbox::default(), at(SAMPLE * 2));
         l.stale();
         let (shown, _) = l
             .step(at(SAMPLE * 2), Pace::Full, Glow::Full)

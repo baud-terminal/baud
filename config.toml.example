@@ -546,8 +546,8 @@ operations = "on"
 # program on its own, CD (Carrier Detect) while the program in front is
 # ssh with its connection up, OH (Off Hook) while a program other than the
 # shell is in front, RD (Receive Data) and SD (Send Data) when baud
-# receives data from the program and sends data to it, CS (Clear to Send,
-# inverted, with a bar) when the program stops taking what baud sends,
+# receives data from the program and sends data to it, CS (Clear to Send)
+# while the program takes what baud sends, out while it is not taking it,
 # FAX while a picture is shown, and SYN while the program holds the screen
 # to draw it at once. Hold the pointer over one to see what it means. They
 # follow Reduce Motion (steady) and, on macOS, Dim Flashing Lights (no
@@ -563,13 +563,13 @@ operations = "on"
 #   "off"          nowhere, and nothing is read for them
 activity_lights = "on"
 # Which of your theme's sixteen colours each light is lit in:
-#   "meaning"  baud's own: one colour for each kind of thing, red only for
-#              CS; on a dark theme HS 10, AA 11, CD 4, OH 6, RD 2, SD 3,
-#              CS 1, FAX 5, SYN 13, and on a light one no yellow: AA 6,
-#              OH 12, SD 14
+#   "meaning"  baud's own: one colour for each kind of thing, CS green
+#              for a clear line; on a dark theme HS 10, AA 11, CD 4,
+#              OH 6, RD 2, SD 3, CS 2, FAX 5, SYN 13, and on a light one
+#              no yellow: AA 6, OH 12, SD 14
 #   "iec"      the IEC 60073 standard's colours for an indicator's
-#              meaning: HS and CD green 2, CS yellow 3, FAX and SYN cyan
-#              6, the rest white 7
+#              meaning: HS, CD and CS green 2, FAX and SYN cyan 6, the
+#              rest white 7
 #   "modem"    every light red 1, as the modems' front-panel lamps were
 # An unlit light is a dot half the size: in the meaning set, colour 8;
 # in the iec and modem sets, colour 8 or colour 0: of the two, the ones

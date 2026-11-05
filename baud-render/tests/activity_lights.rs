@@ -303,15 +303,18 @@ fn every_lamp_pixel_on_the_title_strip_is_its_palette_entry() {
 /// that was told nothing draws the meaning set, on the dark theme its
 /// dark half and on the light theme its light one. Perturbation: default
 /// to `Iec`, or give the light half the dark half's yellow, and this goes
-/// red.
+/// red. CS is green, entry 2, in the meaning and iec sets: lit, it says
+/// the line is clear, IEC 60073's normal condition, and no set lights a
+/// lamp red for the state a session is in nearly all of the time but the
+/// modem set, whose every lamp is red.
 #[test]
 fn the_sets_are_their_tables_and_meaning_is_the_default() {
     let nums = |set: LightsColours, half| Led::ALL.map(|l| index(*set.entries(half).get(l)));
     use LightsColours::{Iec, Meaning, Modem};
-    assert_eq!(nums(Meaning, Half::Dark), [10, 11, 4, 6, 2, 3, 1, 5, 13]);
-    assert_eq!(nums(Meaning, Half::Light), [10, 6, 4, 12, 2, 14, 1, 5, 13]);
+    assert_eq!(nums(Meaning, Half::Dark), [10, 11, 4, 6, 2, 3, 2, 5, 13]);
+    assert_eq!(nums(Meaning, Half::Light), [10, 6, 4, 12, 2, 14, 2, 5, 13]);
     for half in [Half::Dark, Half::Light] {
-        assert_eq!(nums(Iec, half), [2, 7, 2, 7, 7, 7, 3, 6, 6]);
+        assert_eq!(nums(Iec, half), [2, 7, 2, 7, 7, 7, 2, 6, 6]);
         assert_eq!(nums(Modem, half), [1; 9]);
     }
     assert_eq!(LightsColours::default(), Meaning);
@@ -775,9 +778,10 @@ fn ink(img: &LightsImage, label: Argb, from: f32, to: f32, rows: core::ops::Rang
 /// its left**: at 1x and 2x, for each of the nine and each state, a lit
 /// light's centre is its lit entry and a dark one's the unlit entry; an
 /// unread one is a ring, its centre clear and its edge the ring's entry;
-/// the letters put ink left of the light and none right of it; only CS
-/// has ink above its letters' caps, its bar; the picture is its slot's
-/// width and the strip's height, clear in its corner.
+/// the letters put ink left of the light and none right of it; no light
+/// has ink above its letters' caps, CS's no more than the rest, none of
+/// the nine being inverted; the picture is its slot's width and the
+/// strip's height, clear in its corner.
 #[test]
 fn each_light_is_drawn_in_its_state_with_its_letters_to_the_left() {
     let mono = font("JetBrainsMono-Regular.ttf");
@@ -825,7 +829,7 @@ fn each_light_is_drawn_in_its_state_with_its_letters_to_the_left() {
                 );
                 let caps_top = cy - 0.73 * TEXT * scale / 2.0;
                 let bar = ink(&img, look.label, 0.0, left, 0..px(caps_top - 0.2 * scale));
-                assert_eq!(bar, led == Led::Cs, "{led:?} at {scale}x: the bar");
+                assert!(!bar, "{led:?} at {scale}x: ink above the caps");
                 assert_eq!(at(&img, 0.0, 0.0).a().get(), 0, "the plate shows through");
             }
         }
@@ -958,6 +962,17 @@ fn train(seed: u64, len: Duration) -> Vec<Duration> {
     out
 }
 
+/// **What `led` shows while its thing holds, and at rest**: lit and dark,
+/// but CS the other way round -- lit while the line is clear, dark for the
+/// hold after bytes were owed the program that the kernel had not taken,
+/// as a modem's CS is on until the modem lowers CTS.
+fn seen_rest(led: Led) -> (Light, Light) {
+    match led {
+        Led::Cs => (Light::Dark, Light::Lit),
+        _ => (Light::Lit, Light::Dark),
+    }
+}
+
 /// The state `led` shows on every tick across `len`, at `pace`, fed
 /// `events`.
 fn run(led: Led, events: &[Duration], len: Duration, pace: Pace) -> Vec<(Duration, Light)> {
@@ -1000,9 +1015,10 @@ fn most_changes(seen: &[(Duration, Light)], span: Duration) -> usize {
 /// one-second window holds more than six changes (three pairs of opposing
 /// changes, WCAG 2.2's count), and under Reduce Motion no closed two-second
 /// window more than two, so no second more than one; every event has its
-/// light lit within the dwell and a tick of it; a lit light goes dark only
-/// once the last event's hold is over; and it is lit only within the hold
-/// plus the dwell and a tick of an event. The control: a light that
+/// light lit within the dwell and a tick of it -- CS dark, its sense being
+/// the other way round ([`seen_rest`]) -- a lit light goes dark only once
+/// the last event's hold is over, and it is lit only within the hold plus
+/// the dwell and a tick of an event. The control: a light that
 /// flashes 50 ms for each event, the Linux tty trigger's blink, makes more
 /// than six on the same trains, so the count can fail.
 #[test]
@@ -1016,6 +1032,7 @@ fn the_lights_flash_at_most_three_times_a_second_and_show_everything() {
         for pace in [Pace::Full, Pace::Steady] {
             let timing = pace.timing();
             let seen = run(led, &events, len, pace);
+            let (shows, rest) = seen_rest(led);
             let most = most_changes(&seen, Duration::from_secs(1));
             assert!(most <= 6, "seed {seed} {led:?} {pace:?}: {most}");
             if pace == Pace::Steady {
@@ -1024,12 +1041,11 @@ fn the_lights_flash_at_most_three_times_a_second_and_show_everything() {
             }
             for &b in events.iter().filter(|&&b| b + timing.dwell + slack < len) {
                 assert!(
-                    seen.iter().any(|&(at, l)| l == Light::Lit
-                        && at >= b
-                        && at <= b + timing.dwell + slack)
+                    seen.iter()
+                        .any(|&(at, l)| l == shows && at >= b && at <= b + timing.dwell + slack)
                         || seen
                             .iter()
-                            .any(|&(at, l)| l == Light::Lit && at <= b && at + TICK > b),
+                            .any(|&(at, l)| l == shows && at <= b && at + TICK > b),
                     "seed {seed} {led:?} {pace:?}: the event at {b:?} was never shown"
                 );
             }
@@ -1039,7 +1055,7 @@ fn the_lights_flash_at_most_three_times_a_second_and_show_everything() {
                     .iter()
                     .any(|&b| b + TICK <= at && at + TICK < b + timing.hold);
                 assert!(
-                    !(was == Light::Lit && l == Light::Dark && held),
+                    !(was == shows && l == rest && held),
                     "seed {seed} {led:?} {pace:?}: dark at {at:?} inside a hold"
                 );
             }
@@ -1048,8 +1064,8 @@ fn the_lights_flash_at_most_three_times_a_second_and_show_everything() {
                     .iter()
                     .any(|&b| b <= at && at < b + timing.hold + timing.dwell + slack);
                 assert!(
-                    l == Light::Dark || !quiet,
-                    "seed {seed} {led:?} {pace:?}: still lit at {at:?}"
+                    l == rest || !quiet,
+                    "seed {seed} {led:?} {pace:?}: still shown at {at:?}"
                 );
             }
         }
@@ -1218,4 +1234,88 @@ fn one_thing_a_light_and_a_state() {
     for s in Light::ALL {
         assert_eq!(*st.get(s), s);
     }
+}
+
+/// **CS is lit while the line is clear, as a modem's is**: from the first
+/// step, before anything is seen, CS is lit and the rest dark, and at rest
+/// no light owes a change, so a driver with no display link sleeps; bytes
+/// owed the program at a tick darken it at that step and keep it dark
+/// while they are owed, for the hold after the last of them, the wait
+/// bounded by that hold's end, and it lights again once the hold and the
+/// dwell are over and owes nothing more. Owed
+/// for less than a tick, it still goes dark, for the hold. Under Reduce
+/// Motion the same, two seconds each. The control: SD fed the same is lit
+/// for the same span, the sense CS has the other way round.
+#[test]
+fn cs_is_lit_while_the_line_is_clear() {
+    let ms = |m: u64| t(Duration::from_millis(m));
+    let mut a = Activity::new();
+    let rest = a.step(ms(0), Pace::Full);
+    for led in Led::ALL {
+        let want = match led {
+            Led::Cs => Light::Lit,
+            _ => Light::Dark,
+        };
+        assert_eq!(*rest.get(led), want, "{led:?} at rest");
+    }
+    assert_eq!(
+        a.next_change(ms(0), Pace::Full),
+        None,
+        "nothing to wake for"
+    );
+    // Owed from 100 to 500 ms, seen at each 8 ms tick.
+    let mut cs = Vec::new();
+    let mut sd = Vec::new();
+    let mut b = Activity::new();
+    for m in (0..2_000).step_by(8) {
+        if (100..=500).contains(&m) {
+            a.seen(Led::Cs, ms(m));
+            b.seen(Led::Sd, ms(m));
+        }
+        cs.push((m, a.step(ms(m), Pace::Full).cs));
+        sd.push((m, b.step(ms(m), Pace::Full).sd));
+        if m == 504 {
+            assert_eq!(
+                a.next_change(ms(m), Pace::Full),
+                Some(ms(696)),
+                "dark, it wakes at the hold's end to light"
+            );
+        }
+    }
+    for &(m, l) in &cs {
+        let want = match (104..696).contains(&m) {
+            true => Light::Dark,
+            false => Light::Lit,
+        };
+        assert_eq!(l, want, "CS at {m} ms");
+    }
+    for (&(m, c), &(_, s)) in cs.iter().zip(&sd) {
+        assert_eq!(
+            c == Light::Dark,
+            s == Light::Lit,
+            "SD the other way at {m} ms"
+        );
+    }
+    assert_eq!(
+        a.next_change(ms(2_000), Pace::Full),
+        None,
+        "clear again, at rest"
+    );
+    // Owed for under a tick: dark at the step after, for the hold.
+    let mut a = Activity::new();
+    a.step(ms(0), Pace::Full);
+    a.seen(Led::Cs, ms(3));
+    assert_eq!(
+        a.step(ms(8), Pace::Full).cs,
+        Light::Dark,
+        "a refusal between ticks"
+    );
+    assert_eq!(a.step(ms(200), Pace::Full).cs, Light::Dark, "the hold");
+    assert_eq!(a.step(ms(208), Pace::Full).cs, Light::Lit, "clear");
+    // Reduce Motion: two seconds dark.
+    let mut a = Activity::new();
+    a.seen(Led::Cs, ms(0));
+    assert_eq!(a.step(ms(0), Pace::Steady).cs, Light::Dark);
+    assert_eq!(a.step(ms(1_999), Pace::Steady).cs, Light::Dark);
+    assert_eq!(a.step(ms(2_000), Pace::Steady).cs, Light::Lit);
 }

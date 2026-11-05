@@ -105,7 +105,7 @@
 //! running: baud's own test of it (`film::session` in `baud-app/src/`)
 //! types every step into baud's login shell through baud's core, reads the
 //! config again when helix saves it, feeds the nine activity lights as the
-//! macOS driver does, and fails unless each but CS lights, the trail is
+//! macOS driver does, and fails unless each lights, the trail is
 //! plasma at `ge` and liquid at `gg` and the second `ge`, and the jump
 //! `gg` lights a liquid; the last frame of every hold, drawn by baud's
 //! CPU renderer on the opaque page, goes into DIR as a PNG. Every frame,

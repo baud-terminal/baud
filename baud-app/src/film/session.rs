@@ -18,20 +18,22 @@
 //! * **OH** and **CD** from `front::Front` over the kernel's answers
 //!   (`front::Live`): a job other than the shell in front, and an ssh among
 //!   it holding an established TCP connection.
-//! * **CS** never: it lights for a write the kernel refused any of, and the
-//!   harness writes until the kernel has taken every byte. Nothing in the
-//!   session could light it honestly either: the program in front reads
-//!   its input throughout, and keys at a typist's pace never fill the
-//!   tty's input queue -- a refusal needs a program that stops reading
+//! * **CS** lit from the first turn, the line clear, and dark for the hold
+//!   after a write the kernel took only part of at once (`Under::shorts`),
+//!   as the app's is for a write it refused any of. The harness writes
+//!   until the kernel has taken every byte, so nothing is owed at a turn,
+//!   and in the session nothing is likely to darken it: the program in
+//!   front reads its input throughout, and keys at a typist's pace never
+//!   fill the tty's input queue -- that needs a program that stops reading
 //!   while more than a kilobyte is owed it -- a paste into a program that
 //!   is not reading, or a program that floods queries and stops reading
 //!   their answers.
 //!
-//! [`Lit`] is what each light showed, and when it first lit, by the step
-//! that had begun then.
+//! [`Lit`] is what each light showed, when it first lit, by the step that
+//! had begun then, and when it first went out after that.
 
 use super::{Event, Logged, middle};
-use crate::programs::{Answered, Under};
+use crate::programs::{Answered, Shorts, Under};
 use crate::seat::{Geometry, Input};
 use baud_core::Term;
 use baud_domain::{BytePos, HostTime};
@@ -334,14 +336,23 @@ impl<'a> Player<'a> {
 }
 
 /// **What the lights showed through a take**: for each, the first moment
-/// it showed lit and the step that had begun then, or none.
+/// it showed lit and the step that had begun then, or none, and the first
+/// moment after that it showed anything else.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Lit(ByLed<Option<(Duration, Option<StepAt>)>>);
+pub(crate) struct Lit(
+    ByLed<Option<(Duration, Option<StepAt>)>>,
+    ByLed<Option<(Duration, Option<StepAt>)>>,
+);
 
 impl Lit {
     /// When `led` first showed lit, and in which step.
     pub(crate) fn first(&self, led: Led) -> Option<(Duration, Option<StepAt>)> {
         *self.0.get(led)
+    }
+
+    /// When `led` first went out once it had lit, and in which step.
+    pub(crate) fn out(&self, led: Led) -> Option<(Duration, Option<StepAt>)> {
+        *self.1.get(led)
     }
 
     /// The lights that never showed lit.
@@ -365,6 +376,8 @@ pub(crate) struct Lights {
     synced: crate::bell::Synced,
     /// How much had been written to the child at the last turn.
     wrote: BytePos,
+    /// How many writes the kernel had taken only part of at the last turn.
+    shorts: Shorts,
     lit: Lit,
     /// What the lights showed, at each turn it changed: what the film's
     /// title strip draws at each frame (`chrome.rs`).
@@ -386,7 +399,8 @@ impl Lights {
             sampled: None,
             synced: crate::bell::Synced::new(),
             wrote: BytePos::ZERO,
-            lit: Lit(ByLed::of(|_| None)),
+            shorts: Shorts::NONE,
+            lit: Lit(ByLed::of(|_| None), ByLed::of(|_| None)),
             timeline: Vec::new(),
         }
     }
@@ -408,20 +422,26 @@ impl Lights {
     }
 
     /// **A turn at `at`**: SD for any byte written to the child since the
-    /// last, SYN, FAX, OH and CD sampled once a frame, and the clocks
-    /// stepped, each light's first lit moment kept with the step `player`
-    /// is at.
+    /// last, CS dark for any write of the `shorts` the kernel took only
+    /// part of since the last, SYN, FAX, OH and CD sampled once a frame,
+    /// and the clocks stepped, each light's first lit moment and first
+    /// moment out after it kept with the step `player` is at.
     pub(crate) fn turn(
         &mut self,
         at: Duration,
         term: &Term<'_>,
         wrote: BytePos,
+        shorts: Shorts,
         player: Option<&Player<'_>>,
     ) {
         let now = host(at);
         if wrote > self.wrote {
             self.wrote = wrote;
             self.activity.seen(Led::Sd, now);
+        }
+        if shorts > self.shorts {
+            self.shorts = shorts;
+            self.activity.seen(Led::Cs, now);
         }
         let due = self
             .sampled
@@ -441,13 +461,20 @@ impl Lights {
             crate::lights::feed(&mut self.activity, Led::Cd, cd, now);
         }
         let shown = self.activity.step(now, Pace::Full);
-        if self.timeline.last().map_or(Shown::DARK, |t| t.1) != shown {
+        if self.timeline.last().map_or(Shown::rest(), |t| t.1) != shown {
             self.timeline.push((at, shown));
         }
+        let step = player.map(Player::step);
         for led in Led::ALL {
+            let lit = *shown.get(led) == Light::Lit;
             let first = self.lit.0.get_mut(led);
-            if first.is_none() && *shown.get(led) == Light::Lit {
-                *first = Some((at, player.map(Player::step)));
+            if first.is_none() && lit {
+                *first = Some((at, step));
+            }
+            let lit_before = first.is_some();
+            let out = self.lit.1.get_mut(led);
+            if out.is_none() && lit_before && !lit {
+                *out = Some((at, step));
             }
         }
     }
@@ -463,7 +490,8 @@ impl Lights {
 }
 
 /// **What the lights showed at `at`**: the last change at or before it in
-/// `timeline`, all dark before the first; `from` is where the last look
+/// `timeline`, every light at rest before the first, CS lit
+/// (`Shown::rest`), as the clocks start; `from` is where the last look
 /// left off, as a film's frames come in order.
 pub(crate) fn shown_at(timeline: &[(Duration, Shown)], from: &mut usize, at: Duration) -> Shown {
     while timeline.get(*from).is_some_and(|t| t.0 <= at) {
@@ -471,7 +499,7 @@ pub(crate) fn shown_at(timeline: &[(Duration, Shown)], from: &mut usize, at: Dur
     }
     from.checked_sub(1)
         .and_then(|i| timeline.get(i))
-        .map_or(Shown::DARK, |t| t.1)
+        .map_or(Shown::rest(), |t| t.1)
 }
 
 /// **`steps` without the command typed as `run`**: its `Run`, and every
@@ -523,10 +551,12 @@ fn env_of(text: &str) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
 /// the core answered AA, a write SD, `?2026` held open SYN and a placed
 /// picture FAX -- each from the core's own state -- and a turn with
 /// nothing new lights nothing more; an update opened and closed between
-/// two turns lights SYN too. CS is never lit, which is what the session
-/// test expects of it. The controls: a read of 1023 bytes does not light
-/// HS, a turn reads OH and CD of a shell that is not there as dark, and
-/// two turns with no update between them leave SYN dark.
+/// two turns lights SYN too. CS is lit from the first turn, the line
+/// clear, and a write the kernel took only part of darkens it for the
+/// hold, then it lights again, its first moment out kept. The controls: a
+/// read of 1023 bytes does not light HS, a turn reads OH and CD of a
+/// shell that is not there as dark, two turns with no update between them
+/// leave SYN dark, and no short write leaves CS lit throughout.
 #[test]
 fn the_lights_light_from_what_the_app_reads() {
     let grid = baud_domain::WinSize {
@@ -539,15 +569,16 @@ fn the_lights_light_from_what_the_app_reads() {
     let mut l = Lights::new(gone);
     let ms = Duration::from_millis;
     l.read(&[b'a'; 1023], Answered::Nothing, ms(10));
-    l.turn(ms(10), &term, BytePos::ZERO, None);
+    l.turn(ms(10), &term, BytePos::ZERO, Shorts::NONE, None);
     assert_eq!(l.lit().first(Led::Rd), Some((ms(10), None)));
+    assert_eq!(l.lit().first(Led::Cs), Some((ms(10), None)), "CS, clear");
     assert_eq!(
         l.lit().first(Led::Hs),
         None,
         "1023 bytes is not the ceiling"
     );
     l.read(&[b'a'; 1024], Answered::Bytes, ms(40));
-    l.turn(ms(40), &term, BytePos::from_index(3), None);
+    l.turn(ms(40), &term, BytePos::from_index(3), Shorts::NONE, None);
     for led in [Led::Hs, Led::Aa, Led::Sd] {
         assert_eq!(l.lit().first(led), Some((ms(40), None)), "{led:?}");
     }
@@ -559,20 +590,32 @@ fn the_lights_light_from_what_the_app_reads() {
         &mut crate::hostlog::NoLog,
     );
     assert!(term.synchronized_output());
-    l.turn(ms(70), &term, BytePos::from_index(3), None);
+    l.turn(ms(70), &term, BytePos::from_index(3), Shorts::NONE, None);
     assert_eq!(l.lit().first(Led::Syn), Some((ms(70), None)));
     assert_eq!(
         l.lit().dark(),
-        [Led::Cd, Led::Oh, Led::Cs, Led::Fax],
+        [Led::Cd, Led::Oh, Led::Fax],
         "nothing else lit"
     );
+    assert_eq!(
+        l.lit().out(Led::Cs),
+        None,
+        "no short write, CS lit throughout"
+    );
+    let one = Shorts::NONE.next();
+    l.turn(ms(100), &term, BytePos::from_index(9), one, None);
+    assert_eq!(l.lit().out(Led::Cs), Some((ms(100), None)), "a short write");
+    l.turn(ms(299), &term, BytePos::from_index(9), one, None);
+    assert_eq!(l.activity.shown().cs, Light::Dark, "the hold");
+    l.turn(ms(300), &term, BytePos::from_index(9), one, None);
+    assert_eq!(l.activity.shown().cs, Light::Lit, "clear again");
     // An update opened and closed between two turns, as btop's through
     // ssh, lights SYN; two turns with none between leave it dark.
     let mut owned = baud_core::Owned::new(&grid);
     let mut term = Term::new(owned.storage(), &grid);
     let mut l = Lights::new(gone);
-    l.turn(ms(10), &term, BytePos::ZERO, None);
-    l.turn(ms(40), &term, BytePos::ZERO, None);
+    l.turn(ms(10), &term, BytePos::ZERO, Shorts::NONE, None);
+    l.turn(ms(40), &term, BytePos::ZERO, Shorts::NONE, None);
     assert_eq!(l.lit().first(Led::Syn), None, "no update");
     crate::reads::feed(
         &mut term,
@@ -582,12 +625,12 @@ fn the_lights_light_from_what_the_app_reads() {
         &mut crate::hostlog::NoLog,
     );
     assert!(!term.synchronized_output());
-    l.turn(ms(70), &term, BytePos::ZERO, None);
+    l.turn(ms(70), &term, BytePos::ZERO, Shorts::NONE, None);
     assert_eq!(l.lit().first(Led::Syn), Some((ms(70), None)));
 }
 
-/// **A frame's lights are the last change at or before it**: all dark
-/// before the first, the change itself at its instant, and the one before
+/// **A frame's lights are the last change at or before it**: at rest,
+/// CS lit, before the first, the change itself at its instant, and the one before
 /// a later change until it comes, looked up in the frames' order; and a
 /// turn records a change only when the lights moved. The control: the
 /// frame a millisecond before the second change still shows the first.
@@ -598,17 +641,17 @@ fn a_frames_lights_are_the_last_change_before_it() {
     let ms = Duration::from_millis;
     let rd = ByLed {
         rd: Light::Lit,
-        ..Shown::DARK
+        ..Shown::rest()
     };
-    let timeline = [(ms(10), rd), (ms(80), Shown::DARK)];
+    let timeline = [(ms(10), rd), (ms(80), Shown::rest())];
     let mut from = 0;
     let at = |t: u64, from: &mut usize| shown_at(&timeline, from, ms(t));
-    assert_eq!(at(0, &mut from), Shown::DARK);
+    assert_eq!(at(0, &mut from), Shown::rest(), "at rest, CS lit");
     assert_eq!(at(10, &mut from), rd);
     assert_eq!(at(50, &mut from), rd);
     assert_eq!(at(79, &mut from), rd, "the control");
-    assert_eq!(at(80, &mut from), Shown::DARK);
-    assert_eq!(at(500, &mut from), Shown::DARK);
+    assert_eq!(at(80, &mut from), Shown::rest());
+    assert_eq!(at(500, &mut from), Shown::rest());
     let grid = baud_domain::WinSize {
         ws_col: 20,
         ws_row: 5,
@@ -616,10 +659,10 @@ fn a_frames_lights_are_the_last_change_before_it() {
     let mut owned = baud_core::Owned::new(&grid);
     let term = Term::new(owned.storage(), &grid);
     let mut l = Lights::new(crate::sys::Pid::MAX);
-    l.turn(ms(5), &term, BytePos::ZERO, None);
+    l.turn(ms(5), &term, BytePos::ZERO, Shorts::NONE, None);
     l.read(b"a", Answered::Nothing, ms(10));
-    l.turn(ms(10), &term, BytePos::ZERO, None);
-    l.turn(ms(11), &term, BytePos::ZERO, None);
+    l.turn(ms(10), &term, BytePos::ZERO, Shorts::NONE, None);
+    l.turn(ms(11), &term, BytePos::ZERO, Shorts::NONE, None);
     let t = l.timeline();
     assert_eq!(t.len(), 1, "one change, RD lit: {t:?}");
     assert_eq!((t[0].0, *t[0].1.get(Led::Rd)), (ms(10), Light::Lit));
@@ -651,7 +694,7 @@ fn without_takes_a_command_out_whole() {
     assert!(ff.contains(&Step::Run("btop")));
 }
 
-/// **The README session lights every light but CS**, played without a
+/// **The README session lights every light**, played without a
 /// window by `cargo run --example demo -- --headless DIR`, which makes the
 /// scratch directory `BAUD_SESSION_ROOT` names, starts the container and
 /// runs this: the session's steps (`SESSION`) typed into baud's own login
@@ -659,7 +702,8 @@ fn without_takes_a_command_out_whole() {
 /// environment, the config where baud finds it with that environment --
 /// read again when helix saves it, as baud reads it -- and its 80x24 grid.
 /// Each light's first lit moment is printed with the step it came in, and
-/// every one but CS must light (the module's doc says why CS cannot). The
+/// every one must light, CS from the first turn; when CS first went out,
+/// if it did, is printed too (the module's doc says why it rarely can). The
 /// trail the first `ge` draws must be plasma and the ones `gg` and the
 /// second `ge` draw liquid, after the edit saved between them, and `gg` or
 /// its hold must light a liquid: each ignition the film's trail lit is
@@ -834,6 +878,14 @@ fn the_readme_session_lights_every_light() {
             None => println!("lights:  {:<3} never lit", led.letters()),
         }
     }
+    match take.lit.out(Led::Cs) {
+        Some((at, step)) => println!(
+            "lights:  CS  out at {:>6.2} s, in step {}",
+            at.as_secs_f64(),
+            step.map_or("-".to_string(), |StepAt(i)| format!("{i} {:?}", steps[i]))
+        ),
+        None => println!("lights:  CS  never out"),
+    }
     for (step, trail) in &take.trails {
         println!(
             "trail:   {trail:?} from step {}",
@@ -903,8 +955,8 @@ fn the_readme_session_lights_every_light() {
     );
     assert_eq!(
         take.lit.dark(),
-        [Led::Cs],
-        "every light but CS lights in the session"
+        Vec::<Led>::new(),
+        "every light lights in the session"
     );
 }
 

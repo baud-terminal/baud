@@ -294,7 +294,7 @@ fn run(args: &Args) -> Result<(), String> {
 /// in its profile, played on the scratch directory against the running
 /// container. It types every step into baud's login shell through baud's
 /// core, draws through baud's CPU renderer, and fails unless every light
-/// but CS lights; the last frame of every hold goes into `stills` as a
+/// lights; the last frame of every hold goes into `stills` as a
 /// PNG. Every frame, drawn [`CENSUS_PERIOD_MS`] apart, goes into a
 /// lossless film beside them, `session.mkv`, whose trails', fireworks' and
 /// clear's shots baud-bench's flash census counts

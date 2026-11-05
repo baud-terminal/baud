@@ -770,7 +770,8 @@ mod tests {
     /// the point at the middle of every placed light falls in that light's
     /// rectangle and in no other's, and the text there names that light's
     /// letters and nothing else's; the texts are nine different ones, each
-    /// spelling out its letters, CS's saying it is inverted.
+    /// spelling out its letters, CS's saying it is lit while the program
+    /// takes what baud sends, as a modem's is, and nothing of an inversion.
     #[test]
     fn each_lights_rectangle_maps_to_its_own_hover_text() {
         let spans = spans_for_test();
@@ -801,7 +802,9 @@ mod tests {
                 );
             }
         }
-        assert!(Led::Cs.tip().contains("inverted"), "{}", Led::Cs.tip());
+        let cs = Led::Cs.tip();
+        assert!(cs.contains("lit while the program takes"), "{cs}");
+        assert!(!cs.contains("invert"), "{cs}");
         assert!(Led::Rd.tip().contains("Receive Data"));
         assert!(Led::Sd.tip().contains("Send Data"));
     }
@@ -925,7 +928,8 @@ mod tests {
     /// core's state at the tick, the frame baud holds or shows; a drain that brought bytes gives RD its latest read's
     /// stamp and HS each full read's; a reply the core queued during a feed,
     /// or one nobody typed at a flush, lights AA; a write the kernel took
-    /// any of stamps SD, and one it refused any of stamps CS; the process
+    /// any of stamps SD, and one it refused any of, or bytes still owed at
+    /// the tick, darken CS; the process
     /// watch tells the sampler; the window's appearance makes the pictures
     /// stale, and a resize re-places them.
     #[test]
@@ -951,6 +955,7 @@ mod tests {
             "crate::lights::feed(&mut self.app.activity, Led::Cd, cd, now);",
             "let synced = self.synced.seen(&self.app.term);",
             "self.app.term.images().any_placed()",
+            "if !self.app.outbox.is_empty() {\n                self.app.activity.seen(Led::Cs, now);",
             "crate::access::lights_pace(self.app.motion)",
             "let glow = crate::lights::glow(self.app.flashing);",
             "look: self.app.renderer.lights_look(glow),",

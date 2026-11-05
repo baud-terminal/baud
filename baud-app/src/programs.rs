@@ -143,10 +143,28 @@ pub(crate) struct Under<'t, 's> {
     /// Every byte written to the child: the seat's, the core's answers and
     /// the keys typed, in order.
     pub(crate) wrote: Vec<u8>,
+    /// How many writes the kernel took only part of at once, the rest
+    /// written after it made room: what darkens CS in a film's lights.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) shorts: Shorts,
     /// The pointer's clock, for the stamps a click is counted by.
     clock: Duration,
     /// What a point is mapped through.
     geometry: Geometry,
+}
+
+/// **How many writes the kernel took only part of at once**, counted up
+/// from none: what darkens CS in a film's lights.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub(crate) struct Shorts(u64);
+
+impl Shorts {
+    pub(crate) const NONE: Shorts = Shorts(0);
+
+    /// One more.
+    pub(crate) const fn next(self) -> Shorts {
+        Shorts(self.0.saturating_add(1))
+    }
 }
 
 /// Whether a read left the core an answer of its own to send.
@@ -196,6 +214,7 @@ impl<'t, 's> Under<'t, 's> {
             master,
             sent: Vec::new(),
             wrote: Vec::new(),
+            shorts: Shorts::NONE,
             clock: Duration::from_secs(1),
             geometry,
         }
@@ -220,6 +239,7 @@ impl<'t, 's> Under<'t, 's> {
             master,
             sent: Vec::new(),
             wrote: Vec::new(),
+            shorts: Shorts::NONE,
             clock: Duration::from_secs(1),
             geometry,
         }
@@ -238,6 +258,9 @@ impl<'t, 's> Under<'t, 's> {
             // SAFETY: an open descriptor and a buffer valid for its length.
             let n = unsafe { crate::sys::write(self.master, b.as_ptr().cast(), b.len()) };
             let n = usize::try_from(n).expect("the child's pty takes the write");
+            if n < b.len() {
+                self.shorts = self.shorts.next();
+            }
             b = &b[n..];
         }
     }

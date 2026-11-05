@@ -1857,3 +1857,48 @@ at most, 6.5% of 21,824. On 234 base16 schemes (data, not a gate) the
 meaning set has all nine at 3:1 in 130 of 168 dark and 31 of 66 light.
 **Open**: the dark modem set's unlit lamp is entry 0, 1.10:1 on #101010,
 which the rule gives because entry 8 is louder than its red.
+
+## 17. Built: CS in the modem's sense, lit while the line is clear
+
+6.1 took CS inverted, lit when the kernel refused a write, because the
+modem's polarity "would always be on". It is the modem's polarity now:
+the Courier's CS is "ON until the modem lowers CTS" (2.3), so baud's is
+lit while the program takes what baud sends and dark while bytes are owed
+it that the kernel has not taken. Being lit nearly all of a session is
+what a modem's CS was, and dark says the line closed.
+
+- **The clock** (`Activity`): each lamp has a state at rest and one while
+  its thing is seen (`Led::at_rest`, `Led::when_seen`), dark and lit for
+  eight, lit and dark for CS, and the hold and dwell work on those. What
+  CS's clock is told of is the line closing: a write the kernel refused
+  any of (`Wrote::Part`, `Wrote::Nothing`) and, at each macOS tick and
+  each sampled Linux turn, an outbox not yet empty. So CS is lit from the
+  first frame, dark from the step after bytes were owed until the hold
+  after the last tick that found them owed, and at rest no lamp owes a
+  change: a lit CS wakes nothing (`next_change` none).
+- **DEC's line** shows the word CS while the outbox is empty, the same
+  state, and the hover text over both says the same.
+- **The bar is gone**, with nothing inverted to mark. The line's picture
+  keeps its 11 points, from the dot and the 2 points of halo the line
+  draws (`LINE_HALO`), which the bar's height had set before.
+- **Colours**: in `"iec"` CS is green 2, IEC 60073's normal condition,
+  where its yellow 3 had said abnormal; in `"meaning"` green 2 on both
+  halves, red's reason (the one light that says something went wrong)
+  having gone, and green the colour of a clear line; `"modem"` stays red.
+  On the built-in plates green reads 8.82:1 dark and 6.13:1 light, and
+  the iec set's quietest lit lamp, and so its unlit entry, is unchanged.
+  The meaning set's entry is a lean: green, the out kind's hue (yellow 3
+  dark, cyan 14 light, each SD's), a state's hue (12 dark, 4 light) and a
+  neutral lamp (7 dark, 0 light) were weighed, and none was clearly the
+  better.
+- **The README session** lights all nine; its harness writes until the
+  kernel has taken every byte, so CS goes out there only for a write the
+  kernel took part of at once (`Under::shorts`), and the run prints when.
+- **Tests**: red first, `cs_is_lit_while_the_line_is_clear` (CS lit at
+  rest, nothing to wake for, dark while owed and for the hold after, SD
+  the other way round as its control), the flash count with CS's sense
+  reversed, the sets' tables and no ink above any light's caps; red under
+  the old behaviour put back, the Linux line's stamps, both drivers'
+  outbox feeds, DEC's word and the session's lights. Re-pinned: the line's twelve
+  digests and the light's tip frame, by the bar's pixels and, lit, CS's
+  colour.

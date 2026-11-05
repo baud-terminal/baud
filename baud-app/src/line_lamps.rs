@@ -16,8 +16,8 @@
 //! front, a refused read unknown, `CD?`. On Linux OH is the terminal's
 //! foreground group, the read the lights' own line makes
 //! (`own_line::FrontRead`), and CD has no reader there and shows unknown.
-//! CS while bytes are owed to the program that the kernel has not taken --
-//! a state, not the refusal the lights flash for.
+//! CS while the line is clear, no byte owed to the program that the kernel
+//! has not taken, as the lights' CS is lit.
 //! FAX while a picture is placed, SYN while synchronized output is held:
 //! the core's own.
 //!
@@ -79,7 +79,7 @@ fn state(lit: impl FnOnce() -> bool) -> LampState {
 }
 
 /// **The five lamps as they are now**: `cd` and `oh` as the driver read
-/// them, CS while `outbox` holds bytes the kernel has not taken, FAX
+/// them, CS while `outbox` holds no byte the kernel has not taken, FAX
 /// while a picture is placed, SYN while synchronized output is held.
 pub(crate) fn read(
     term: &Term<'_>,
@@ -90,7 +90,7 @@ pub(crate) fn read(
     IndicatorLamps {
         cd,
         oh,
-        cs: state(|| !outbox.is_empty()),
+        cs: state(|| outbox.is_empty()),
         fax: state(|| term.images().any_placed()),
         syn: state(|| term.synchronized_output()),
     }
@@ -151,7 +151,7 @@ mod tests {
     }
 
     /// **Each step gives the line the lamps as they are**: SYN while the
-    /// program holds synchronized output, CS while bytes are owed, CD
+    /// program holds synchronized output, CS while nothing is owed, CD
     /// unknown where it cannot be read; a change owes a frame while the
     /// indicator is shown, none while it is not, and a step that changes
     /// nothing owes nothing. Off and past the area clause the line has
@@ -171,18 +171,22 @@ mod tests {
         assert_eq!(step(&mut t, &outbox, on, area), Owes::Nothing, "none shown");
         feed(&mut t, b"\x1b[1$~");
         assert_eq!(shown(on, &t, area), Shown::Words);
-        assert_eq!(words(&t), "CD?");
+        assert_eq!(words(&t), "CD?     CS");
         feed(&mut t, b"\x1b[?2026h");
         assert_eq!(step(&mut t, &outbox, on, area), Owes::Frame);
-        assert_eq!(words(&t), "CD?            SYN");
+        assert_eq!(words(&t), "CD?     CS     SYN");
         assert_eq!(step(&mut t, &outbox, on, area), Owes::Nothing);
         outbox.push(b"x");
         assert_eq!(step(&mut t, &outbox, on, area), Owes::Frame);
-        assert_eq!(words(&t), "CD?     CS     SYN");
+        assert_eq!(
+            words(&t),
+            "CD?            SYN",
+            "owed: the line is not clear"
+        );
         feed(&mut t, b"\x1b[?2026l");
         outbox = crate::pty::Outbox::default();
         assert_eq!(step(&mut t, &outbox, on, area), Owes::Frame);
-        assert_eq!(words(&t), "CD?");
+        assert_eq!(words(&t), "CD?     CS");
         assert_eq!(shown(on, &t, FlashClause::Count), Shown::None);
         assert_eq!(step(&mut t, &outbox, on, FlashClause::Count), Owes::Frame);
         assert_eq!(words(&t), "", "past the area clause, none");

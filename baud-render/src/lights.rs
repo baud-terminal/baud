@@ -25,7 +25,7 @@
 //! the lights are drawn in the colours the terminal draws its text in. Which
 //! entry each light takes is a table compiled in, by theme half
 //! ([`LightsColours`], `[window] activity_lights_colours`): `"meaning"`,
-//! baud's own, one hue a kind with red only for CS; `"iec"`, IEC 60073's
+//! baud's own, one hue a kind; `"iec"`, IEC 60073's
 //! meanings for an indicator's colour; or `"modem"`, every lamp red, as the
 //! front panels' LEDs were. On the plate, which is the theme's background
 //! and opaque, a lamp reads against one colour whatever the window's
@@ -35,9 +35,10 @@
 //! the lit one's diameter, so the state reads without its colour (WCAG
 //! 2.2's SC 1.4.1, `[[source: wcag22]]`). A light baud may not read is
 //! drawn as a ring ([`Light::Unread`]), neither lit nor dark (note AH,
-//! Q8). CS is inverted from the modem's -- lit when the program stopped
-//! taking what baud sends -- and its letters carry a bar, the mark of an
-//! active-low signal. A change is one step, as an LED's is.
+//! Q8). CS is the modem's sense, lit while the line is clear: lit from the
+//! first frame while the program takes what baud sends, and dark while
+//! bytes are owed it that the kernel has not taken. A change is one step,
+//! as an LED's is.
 //!
 //! **The clock** ([`Activity`]): every light, the ones that show a state as
 //! well as the ones that show an event, is lit for the hold after the last
@@ -167,9 +168,10 @@ pub enum Direction {
 ///   telephone line"; baud's while a job other than the shell is in front.
 /// * **RD**, Receive Data, and **SD**, Send Data: a read of the master,
 ///   and a write the kernel took any of.
-/// * **CS**, Clear to Send, inverted: the Courier's is "ON until the modem
-///   lowers CTS", always on in baud's sense; baud's is lit when the kernel
-///   refused a write -- the program is not reading its input, or is gone.
+/// * **CS**, Clear to Send: the Courier's is "ON until the modem lowers
+///   CTS"; baud's is lit while the line is clear and dark while bytes are
+///   owed the program that the kernel has not taken -- it is not reading
+///   its input fast enough, or has gone ([`Led::at_rest`]).
 /// * **FAX**: "Flashes steadily to indicate fax mode"; baud's while a
 ///   picture is placed on the screen.
 /// * **SYN**: "ON when the modem ... enters synchronous mode"; baud's
@@ -250,9 +252,9 @@ impl Led {
                  paste, the terminal's answers."
             }
             Led::Cs => {
-                "CS -- Clear to Send, inverted: lit when the program stopped taking what baud \
-                 sends it, because it is not reading its input or has gone. A modem's CS is \
-                 lit while the line is clear; this one lights when it is not."
+                "CS -- Clear to Send: lit while the program takes what baud sends it, your keys \
+                 and the terminal's answers. It goes out while baud is holding bytes the \
+                 program has not taken, because it is not reading its input or has gone."
             }
             Led::Fax => "FAX -- Fax mode: lit while a picture is shown in the terminal.",
             Led::Syn => {
@@ -269,8 +271,9 @@ impl Led {
         matches!(self, Led::Cd | Led::Oh)
     }
 
-    /// **What the light says of the line**: RD and HS bring data in, SD,
-    /// AA and CS send it out or fail to, and the rest show a state.
+    /// **What the light says of the line**: RD and HS bring data in, SD
+    /// and AA send it out and CS says the way out is clear, and the rest
+    /// show a state.
     pub const fn direction(self) -> Direction {
         match self {
             Led::Rd | Led::Hs => Direction::In,
@@ -279,21 +282,26 @@ impl Led {
         }
     }
 
-    /// Whether the letters carry a bar: CS's, which is inverted from the
-    /// modem's.
-    pub const fn bar(self) -> Bar {
+    /// **What the light shows while nothing is seen**: dark, but CS lit.
+    /// A modem's CS is "ON until the modem lowers CTS"
+    /// (`[[source: usr-courier-hs-1988]]`, PDF p.97), so what CS's clock is
+    /// told of is the line closing -- bytes owed the program that the
+    /// kernel has not taken -- and it shows dark for that.
+    pub const fn at_rest(self) -> Light {
         match self {
-            Led::Cs => Bar::Over,
-            _ => Bar::None,
+            Led::Cs => Light::Lit,
+            _ => Light::Dark,
         }
     }
-}
 
-/// A bar over a light's letters, the mark of a signal that is active low.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Bar {
-    None,
-    Over,
+    /// **What the light shows while its thing is seen**: the other of
+    /// [`Led::at_rest`]'s two.
+    pub const fn when_seen(self) -> Light {
+        match self.at_rest() {
+            Light::Lit => Light::Dark,
+            Light::Dark | Light::Unread => Light::Lit,
+        }
+    }
 }
 
 /// **The read that is full at the platform's ceiling**: Darwin's tty hands
@@ -412,6 +420,12 @@ impl ByLed<Light> {
         fax: Light::Dark,
         syn: Light::Dark,
     };
+
+    /// **Every light at rest**, as nothing seen leaves it: CS lit, the rest
+    /// dark ([`Led::at_rest`]).
+    pub fn rest() -> Shown {
+        ByLed::of(Led::at_rest)
+    }
 
     /// Every light at `light`.
     pub fn all(light: Light) -> Shown {
@@ -551,16 +565,17 @@ impl Half {
 /// ([`LightsColours::entries`]), so the runtime only indexes the theme.
 ///
 /// * **`"meaning"`**, the default, baud's own: one hue a kind of thing,
-///   and red only for CS, the one light that says something went wrong.
-///   On a dark page HS 10, AA 11, CD 4, OH 6, RD 2, SD 3, CS 1, FAX 5,
-///   SYN 13; on a light one no yellow, whose normal entry a light theme
-///   darkens toward brown -- HS 10, AA 6, CD 4, OH 12, RD 2, SD 14, CS 1,
-///   FAX 5, SYN 13.
+///   and CS green, the colour of a clear line, which it is nearly all of a
+///   session. On a dark page HS 10, AA 11, CD 4, OH 6, RD 2, SD 3, CS 2,
+///   FAX 5, SYN 13; on a light one no yellow, whose normal entry a light
+///   theme darkens toward brown -- HS 10, AA 6, CD 4, OH 12, RD 2, SD 14,
+///   CS 2, FAX 5, SYN 13.
 /// * **`"iec"`**: the colours IEC 60073:2002 gives an indicator's meaning
 ///   (Tables 7 and 8: green normal, yellow abnormal, white general
-///   information and status), taken to the palette -- HS and CD 2, CS 3,
-///   FAX and SYN 6, the rest 7. The standard is not among the sources the
-///   repository holds; note AH names the clauses.
+///   information and status), taken to the palette -- HS, CD and CS 2, CS
+///   lit being the line's normal condition, FAX and SYN 6, the rest 7. The
+///   standard is not among the sources the repository holds; note AH names
+///   the clauses.
 /// * **`"modem"`**: every lamp entry 1, red, as the Courier's and the
 ///   Hayes's front-panel LEDs were.
 ///
@@ -583,7 +598,7 @@ const MEANING_DARK: ByLed<Ansi> = ByLed {
     oh: Ansi::Cyan,
     rd: Ansi::Green,
     sd: Ansi::Yellow,
-    cs: Ansi::Red,
+    cs: Ansi::Green,
     fax: Ansi::Magenta,
     syn: Ansi::BrightMagenta,
 };
@@ -596,7 +611,7 @@ const MEANING_LIGHT: ByLed<Ansi> = ByLed {
     oh: Ansi::BrightBlue,
     rd: Ansi::Green,
     sd: Ansi::BrightCyan,
-    cs: Ansi::Red,
+    cs: Ansi::Green,
     fax: Ansi::Magenta,
     syn: Ansi::BrightMagenta,
 };
@@ -609,7 +624,7 @@ const IEC: ByLed<Ansi> = ByLed {
     oh: Ansi::White,
     rd: Ansi::White,
     sd: Ansi::White,
-    cs: Ansi::Yellow,
+    cs: Ansi::Green,
     fax: Ansi::Cyan,
     syn: Ansi::Cyan,
 };
@@ -834,9 +849,6 @@ pub const PAIR: f32 = 9.0;
 const CAP: f32 = 0.73;
 /// An unread light's ring, in points across its stroke.
 const RING: f32 = 1.25;
-/// CS's bar: its stroke and its gap above the letters' caps, in points.
-const BAR: f32 = 0.9;
-const BAR_GAP: f32 = 1.2;
 
 /// The advance of `text` in `face` at `px` pixels per em.
 fn advance(face: &Face<'_>, text: &str, px: f32) -> f32 {
@@ -907,16 +919,21 @@ pub const LINE_MARGIN: f32 = 2.0;
 /// end than this is left out.
 pub const LINE_END: f32 = 9.0;
 
+/// **How far the halo reaches past the dot on the lights' own line**, in
+/// points: its gap and the first point of its fade, two of the three the
+/// title strip's taller pictures draw, so a lit lamp glows on the line and
+/// the line stays as low as an indicator line is.
+pub const LINE_HALO: f32 = HALO_GAP + 1.0;
+
 /// **How tall the lights' picture is on their own line, in points**: the
-/// tallest thing drawn above a light's centre is CS's bar -- the caps'
-/// half height, the bar's gap and its stroke -- and below it the light's
-/// own half, since the letters have no descender; [`draw_led`] centres
-/// both on the picture, so the picture is twice the taller half, rounded
-/// up to a whole point. In points and never from the cell, so a large
-/// font does not enlarge the lights and the area clause WCAG 2.3.1's
-/// threshold rests on holds at every size.
+/// tallest thing drawn about a light's centre -- the dot and the halo the
+/// line draws past it ([`LINE_HALO`]), or the letters' caps, which have no
+/// descender -- twice over, since [`draw_led`] centres both on the
+/// picture, rounded up to a whole point. In points and never from the
+/// cell, so a large font does not enlarge the lights and the area clause
+/// WCAG 2.3.1's threshold rests on holds at every size.
 pub fn line_picture() -> f32 {
-    let above = (CAP * TEXT / 2.0 + BAR_GAP + BAR).max(DOT / 2.0);
+    let above = (DOT / 2.0 + LINE_HALO).max(CAP * TEXT / 2.0);
     (2.0 * above).ceil()
 }
 
@@ -1085,15 +1102,6 @@ fn disc(canvas: &mut Canvas<'_>, c: Point, r: f32, wind: Wind) {
     canvas.cubic(at(0.0, -r), at(k, -r), at(r, -k), at(r, 0.0));
 }
 
-/// A rectangle from corner `a` to corner `b`.
-fn rect(canvas: &mut Canvas<'_>, a: Point, b: Point) {
-    let (p, q) = (Point::new(b.x, a.y), Point::new(a.x, b.y));
-    canvas.line(a, p);
-    canvas.line(p, b);
-    canvas.line(b, q);
-    canvas.line(q, a);
-}
-
 /// The coverage `draw` leaves over `extent`, a byte a pixel.
 fn coverage(extent: Extent, draw: impl FnOnce(Canvas<'_>) -> Canvas<'_>) -> Option<Vec<Chan>> {
     let mut scratch = vec![0.0; extent.scratch()?];
@@ -1175,17 +1183,7 @@ pub fn draw_led(
     let run = advance(face, led.letters(), TEXT) * scale;
     let pen = Point::new(0.0, mid + CAP * px / 2.0);
     let centre = Point::new(run + GAP * scale + r, mid);
-    let text = coverage(extent, |mut c| {
-        if led.bar() == Bar::Over {
-            let top = mid - CAP * px / 2.0 - BAR_GAP * scale;
-            rect(
-                &mut c,
-                Point::new(0.0, top - BAR * scale),
-                Point::new(run, top),
-            );
-        }
-        letters(face, c, led.letters(), px, pen)
-    })?;
+    let text = coverage(extent, |c| letters(face, c, led.letters(), px, pen))?;
     out.width = w;
     out.height = h;
     out.pixels.clear();
@@ -1338,6 +1336,10 @@ enum Owed {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Lamp {
     light: Light,
+    /// What it shows with nothing seen, and what while its thing is: dark
+    /// and lit, but CS lit and dark ([`Led::at_rest`]).
+    rest: Light,
+    shows: Light,
     /// When it last changed, if ever: a light that never changed has no
     /// dwell to wait out.
     since: Option<HostTime>,
@@ -1349,9 +1351,11 @@ struct Lamp {
 }
 
 impl Lamp {
-    const fn new() -> Lamp {
+    const fn new(led: Led) -> Lamp {
         Lamp {
-            light: Light::Dark,
+            light: led.at_rest(),
+            rest: led.at_rest(),
+            shows: led.when_seen(),
             since: None,
             last: HostTime::ZERO,
             owed: Owed::Nothing,
@@ -1361,7 +1365,7 @@ impl Lamp {
 
     fn seen(&mut self, at: HostTime) {
         self.last = self.last.max(at);
-        if self.light != Light::Lit {
+        if self.light != self.shows {
             self.owed = Owed::Seen;
         }
     }
@@ -1376,24 +1380,26 @@ impl Lamp {
         }
         let held = now < self.last.plus(t.hold);
         let refused = self.refused.is_some_and(|r| now < r.plus(t.hold));
-        let want = match (self.owed, self.light, held, refused) {
-            (Owed::Seen, _, _, _) | (_, Light::Lit, true, _) => Light::Lit,
+        let showing = self.light == self.shows;
+        let want = match (self.owed, showing, held, refused) {
+            (Owed::Seen, _, _, _) | (_, true, true, _) => self.shows,
             (_, _, _, true) => Light::Unread,
-            _ => Light::Dark,
+            _ => self.rest,
         };
         if want != self.light {
             self.light = want;
             self.since = Some(now);
         }
-        if want == Light::Lit {
+        if want == self.shows {
             self.owed = Owed::Nothing;
         }
     }
 }
 
 /// **Every light's clock**: told each time its thing is seen -- a read, a
-/// write, a reply, a state found set at a tick -- and of each read that was
-/// refused, stepped on the display link's clock.
+/// write, a reply, a state found set at a tick, and for CS bytes owed --
+/// and of each read that was refused, stepped on the display link's
+/// clock. Each starts at rest, CS lit and the rest dark.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Activity {
     lamps: ByLed<Lamp>,
@@ -1407,24 +1413,25 @@ impl Default for Activity {
 
 impl Activity {
     pub const fn new() -> Activity {
-        const L: Lamp = Lamp::new();
         Activity {
             lamps: ByLed {
-                hs: L,
-                aa: L,
-                cd: L,
-                oh: L,
-                rd: L,
-                sd: L,
-                cs: L,
-                fax: L,
-                syn: L,
+                hs: Lamp::new(Led::Hs),
+                aa: Lamp::new(Led::Aa),
+                cd: Lamp::new(Led::Cd),
+                oh: Lamp::new(Led::Oh),
+                rd: Lamp::new(Led::Rd),
+                sd: Lamp::new(Led::Sd),
+                cs: Lamp::new(Led::Cs),
+                fax: Lamp::new(Led::Fax),
+                syn: Lamp::new(Led::Syn),
             },
         }
     }
 
     /// `led`'s thing was seen at `at`: bytes read or written, a reply
-    /// queued, a state found set.
+    /// queued, a state found set; for CS, bytes owed the program that the
+    /// kernel has not taken, a write it refused any of or an outbox not
+    /// yet empty.
     pub fn seen(&mut self, led: Led, at: HostTime) {
         self.lamps.get_mut(led).seen(at);
     }
@@ -1462,7 +1469,7 @@ impl Activity {
                 let lamp = self.lamps.get(l);
                 [
                     lamp.since.map(|s| s.plus(t.dwell)),
-                    (lamp.light == Light::Lit).then(|| lamp.last.plus(t.hold)),
+                    (lamp.light == lamp.shows).then(|| lamp.last.plus(t.hold)),
                     lamp.refused.map(|r| r.plus(t.hold)),
                 ]
             })

@@ -192,19 +192,20 @@ the person's config: baud finds the scratch home's, the file helix edits.
 ssh reads a config, a key and a known host made for the session in its
 scratch directory, so it neither asks nor writes.
 
-It lights eight of baud's nine activity lights in the title bar: RD from
-the launch, SD with the first key, OH while helix is in front, AA when
-helix asks the terminal what it supports, HS on a read that fills the tty's
-1024 bytes, CD while ssh holds its connection to the container, FAX while
-the photo or the mark is on screen, and SYN while btop holds synchronized
-output open.
-CS lights only when the kernel refuses a write: a program that stops
-reading its input while more than a kilobyte is owed it. Keys typed at a
-person's pace never fill that, so no step of the session lights CS.
+It lights all nine of baud's activity lights in the title bar: CS from
+the launch, the line clear, RD from the launch, SD with the first key, OH
+while helix is in front, AA when helix asks the terminal what it
+supports, HS on a read that fills the tty's 1024 bytes, CD while ssh holds
+its connection to the container, FAX while the photo or the mark is on
+screen, and SYN while btop holds synchronized output open.
+CS goes out only while bytes are owed a program that the kernel has not
+taken: a program that stops reading its input while more than a kilobyte
+is owed it. Keys typed at a person's pace never fill that, so CS stays lit
+through the session.
 
 `cargo run --release --example demo -- --headless DIR` plays the session
 without a window, through baud's core and CPU renderer, reading the config
-again when helix saves it, and fails unless each of the eight lights
+again when helix saves it, and fails unless each of the nine lights
 lights, FAX first in the photo's shot, the trail is plasma at `ge` and
 liquid at `gg` and the second `ge`, and `gg` lights a liquid. It writes a
 still of every hold into DIR, and every frame, 100 a second, into DIR as a

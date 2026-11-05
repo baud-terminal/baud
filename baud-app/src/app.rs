@@ -1700,7 +1700,8 @@ impl App {
             return Sent::Nothing;
         }
         // SD lights for a write the kernel took any of, never for bytes
-        // still owed; CS, inverted, for a write it refused any of.
+        // still owed; a write it refused any of darkens CS, the line no
+        // longer clear.
         match self.pty.write(&mut self.outbox) {
             Wrote::All => {
                 self.activity.seen(Led::Sd, now);
@@ -14859,7 +14860,8 @@ impl Driver {
         }
         // SYN and FAX: the core's state at the tick, SYN's reading taken
         // whether or not the lights show, so showing them again lights
-        // nothing opened while they were away.
+        // nothing opened while they were away. CS: dark while bytes are
+        // owed the program that the kernel has not taken.
         let synced = self.synced.seen(&self.app.term);
         if setting.shown() {
             if synced {
@@ -14867,6 +14869,9 @@ impl Driver {
             }
             if self.app.term.images().any_placed() {
                 self.app.activity.seen(Led::Fax, now);
+            }
+            if !self.app.outbox.is_empty() {
+                self.app.activity.seen(Led::Cs, now);
             }
         }
         let pace = crate::access::lights_pace(self.app.motion);

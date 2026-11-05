@@ -585,6 +585,7 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
             epoch.elapsed(),
             u.term,
             baud_domain::BytePos::from_index(u.wrote.len()),
+            u.shorts,
             player.as_ref(),
         );
         #[cfg(target_os = "macos")]

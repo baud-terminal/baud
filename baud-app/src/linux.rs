@@ -2605,7 +2605,7 @@ impl Driver {
         self.term.clear_reply();
         if !self.outbox.is_empty() {
             let wrote = self.pty.write(&mut self.outbox);
-            // SD for what the kernel took, CS for what it refused.
+            // SD for what the kernel took, CS dark for what it refused.
             let now = self.timed.clock.host(Instant::now());
             self.lights.wrote(wrote, now);
         }
@@ -2626,7 +2626,7 @@ impl Driver {
         // OH, SYN and FAX at a frame's pace: the loop turns once a read.
         if self.lights.due(now) == crate::own_line::Sampled::Now {
             let front = self.in_front(now);
-            self.lights.states(front, &self.term, now);
+            self.lights.states(front, &self.term, &self.outbox, now);
         }
         let pace = crate::access::lights_pace(self.motion);
         if let Some((shown, glow)) = self.lights.step(now, pace, baud_render::Glow::Full) {
