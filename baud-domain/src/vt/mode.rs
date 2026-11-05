@@ -1387,7 +1387,8 @@ pub enum IndicatorLamp {
     CarrierDetect,
     /// Off Hook: a program other than the shell is in front.
     OffHook,
-    /// Clear to Send, inverted: the program is not taking what is sent.
+    /// Clear to Send: the line is clear, no byte owed the program that the
+    /// kernel has not taken.
     ClearToSend,
     /// Fax: a picture is on the screen.
     Fax,

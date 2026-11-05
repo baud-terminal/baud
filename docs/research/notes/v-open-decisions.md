@@ -163,7 +163,7 @@ what blocks other work comes first.
 | V3 | Select some text, then make the window taller: today the selection is dropped. | Keep it across a height-only resize on the main screen. Clear it on a width change, on the alternate screen, and where it touches rows a shrink cut. | Clip the selection at cut rows instead of clearing it. |
 | V5 | While a command is printing (not at a marked prompt), the re-wrap on a width change runs at once and history is 2,000 lines, so dragging very narrow can drop the oldest lines. At a prompt nothing is lost. How many a real drag drops is unmeasured. | Keep both. Count the rows a re-wrap drops, and commit a full-history drag fixture that measures a drag step. | |
 | V6 | Which rule decides the top line when the window changes height ("rule 3", today's). | Confirm rule 3. | Rule 1 for growth, kitty's default: a taller window adds blank rows at the bottom instead of bringing history back. |
-| V7 | Should old output re-wrap while you sit at a marked shell prompt? Today it is cut and comes back whole when you widen. | Not now. Revisit after V2, V9 and V5's fixture. | Build it: a large change. |
+| V7 | Should old output re-wrap while you sit at a marked shell prompt? Today it is cut and comes back whole when you widen. | Not now. Revisit after V2, V9 and V5's fixture. Built since: the output above a marked prompt is re-cut and the shell's block kept whole (note M, 'The refinement is built'). | Build it: a large change. |
 | V8 | A resize and a `SIGWINCH` on every drag step, with no debounce. | Confirm. | |
 | V9 | What must a row hidden below the screen hold to come back when the window grows? Today's test misfires both ways. | A written character, where a space counts and colour alone does not. First compare the seven recorded gestures to confirm which resizes change. | Also count a background the program set, so rows erased in a background colour (the red band) come back. Rows erased in a foreground-only colour still do not. |
 | V12 | baud tells programs `?1001` highlight tracking is on, and draws nothing. | Stop claiming it. Count `?1001 h` and answer DECRQM with 0, the house convention for a mode baud refuses. | Build it. No user is known. |
@@ -1273,6 +1273,9 @@ test flips and V9 only decides reveal against blank-fill. V9 depends on this
 answer.
 
 ### V7. Re-wrap old output while you sit at a prompt (note U question 7)
+
+Built since: the output above a marked prompt is re-cut and the shell's block
+kept whole (note M, 'The refinement is built').
 
 **The question** -- When the shell sits at its prompt (between the OSC 133
 prompt marks your zsh sends), baud re-wraps nothing on a width change:

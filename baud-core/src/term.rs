@@ -2751,10 +2751,10 @@ impl<'b> Term<'b> {
     /// prompt the lines above the shell's block are re-cut and the block's
     /// rows, from its first down, are kept whole, because the shell redraws
     /// them by counting them (see [`Zone`]). The alternate screen is
-    /// cell-addressed: the pitch is fixed, so a cell keeps its address whatever the width, a
-    /// narrower screen stops addressing what lies past its edge, and a wider
-    /// one blanks the columns it reveals ([`View::widened`]) because the
-    /// program owns them and redraws. What keeps the fixed pitch sound is that
+    /// cell-addressed: the pitch is fixed, so a cell keeps its address
+    /// whatever the width, a narrower screen stops addressing what lies past
+    /// its edge, and a wider one blanks the columns it reveals
+    /// ([`View::widened`]) because the program owns them and redraws. What keeps the fixed pitch sound is that
     /// a clear runs through a mark that lies past the live edge, so a line
     /// erased while the screen was narrow does not come back with a tail --
     /// and a mark is true to the live edge and no further, so a growth has to

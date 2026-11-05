@@ -1887,7 +1887,7 @@ what a modem's CS was, and dark says the line closed.
   having gone, and green the colour of a clear line; `"modem"` stays red.
   On the built-in plates green reads 8.82:1 dark and 6.13:1 light, and
   the iec set's quietest lit lamp, and so its unlit entry, is unchanged.
-  The meaning set's entry is a lean: green, the out kind's hue (yellow 3
+  **Open**: the meaning set's entry is a lean: green, the out kind's hue (yellow 3
   dark, cyan 14 light, each SD's), a state's hue (12 dark, 4 light) and a
   neutral lamp (7 dark, 0 light) were weighed, and none was clearly the
   better.

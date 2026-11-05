@@ -203,7 +203,10 @@ dropped (`a_tail_hidden_at_a_prompt_is_dropped_cleanly_by_a_later_re_cut`).
 (`docs/research/notes/v-open-decisions.md`, "Decisions taken, 2026-09-25": V7
 is among those taken "as recommended"), whose recommendation reads: '**Not
 now: keep "no re-cut at a marked prompt", and revisit after V2, V9 and V5's
-full-ring bench.**'
+full-ring bench.**' That recommendation is superseded by the section above:
+the re-cut above a prompt is built, once a narrowing at the prompt was found
+to leave finished output clipped and a wrapped line's middle hidden past the
+edge (`prompt_recut`).
 
 ## The contract, from the shell's own author
 
