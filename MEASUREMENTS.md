@@ -2057,3 +2057,30 @@ ranges overlap: no result, as expected.
 **Write amplification and working set.** Per ingested byte, nothing
 changed. A full-screen transition lays the grid out twice, once at the
 transition's resize and once at the notification.
+
+## The launch logo and the prompt's frame (modelled)
+
+Not timed: a replay through `frame_gate`, the pump's frame gate, on a
+virtual clock (`app::gate_tests`). A 469-byte prompt in one read lands on
+ticks 3, 10, 40 and 70 and half a tick after each, at 120 Hz with the
+ticks 0, +0.6, -0.4 and +0.2 ms off their vsyncs, each frame's completion
+2 ms after it is drawn and a frame on screen at the first vsync after its
+completion. Arms: the logo off, waiting for a window it never sees, and
+playing from tick 0, 5, 30 and 60.
+
+| read lands | logo off or waiting | logo playing |
+|---|---|---|
+| on a tick | drawn on its wake | drawn on its wake, the same vsync |
+| between ticks | drawn on its wake | drawn on the next tick, one vsync later |
+
+Between ticks the logo costs one vsync, 8.3 ms at 120 Hz. That is a case
+the headless timeline did not separate: it found each read drawn within
+13.6 ms with the logo on and off. Every frame sets the last commit, and
+while the logo draws one a tick a wake finds it younger than the
+interval and leaves the read to the tick: the flood rule every timed
+effect shares, a trail, a transition or the scrollbar's fade among them.
+Timing the rule from the last frame that drew a read instead would add
+frames to output under any animation; unmeasured, and not changed here.
+With the tick's own rule dropped from the gate, a tick the display link
+fires early leaves the read past the next tick in the playing arms,
+which the check reports.

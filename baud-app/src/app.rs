@@ -383,6 +383,68 @@ enum Trigger {
     Opening,
 }
 
+/// **What a turn's frame gate decides** ([`frame_gate`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Decided {
+    /// Nothing is owed a frame.
+    Clean,
+    /// A synchronised update holds it (`?2026`).
+    Held,
+    /// Owed, and left to the tick, the frame in flight's completion, or
+    /// -- at the opening -- the window's first frame.
+    Later,
+    /// Drawn now.
+    Now,
+}
+
+/// **What the pump's frame gate reads**, as the turn left it.
+#[derive(Clone, Copy)]
+struct FrameGate {
+    pending: Pending,
+    /// The synchronised update, asked only when a frame is owed: the
+    /// asking moves its clock (`UpdateClock::observe`).
+    update: Option<Update>,
+    trigger: Trigger,
+    echo: Echo,
+    guess: Guess,
+    marked: Marked,
+    /// Since the last frame was committed, and how far apart the ticks
+    /// are.
+    since_commit: Duration,
+    interval: Duration,
+    flight: InFlight,
+}
+
+/// **The pump's frame gate**: whether this turn draws. Nothing owed is
+/// [`Decided::Clean`]; a synchronised update the clock still honours holds
+/// the frame, so a partial redraw is never shown; at the opening the
+/// window's first frame draws it. Otherwise a frame is due on a tick, on a
+/// key's echo fed, a prediction or a composition owed, or once a frame's
+/// time has passed since the last commit -- so a flood draws once a vsync
+/// and a keystroke draws now -- and it is drawn unless one is in flight,
+/// whose completion runs the turn again. The launch logo is no input: it
+/// owes the ticks frames (`frame`), and nothing here asks about it.
+fn frame_gate(g: FrameGate) -> Decided {
+    if g.pending != Pending::Dirty {
+        return Decided::Clean;
+    }
+    if g.update == Some(Update::Honoured) {
+        return Decided::Held;
+    }
+    if g.trigger == Trigger::Opening {
+        return Decided::Later;
+    }
+    let due = g.trigger == Trigger::Tick
+        || g.echo == Echo::Fed
+        || g.guess == Guess::Owed
+        || g.marked == Marked::Owed
+        || g.since_commit >= g.interval;
+    match due && g.flight == InFlight::Idle {
+        true => Decided::Now,
+        false => Decided::Later,
+    }
+}
+
 /// Where the grid comes from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Sizing {
@@ -7790,6 +7852,23 @@ mod drag_tests {
             let path = body(SRC, head, "    ");
             assert!(!path.contains("splash"), "{head} reads the splash");
         }
+        // And the frame gate the pump decides by, whose fields are the
+        // only way anything reaches it (`frame_gate`).
+        for (head, end) in [
+            (
+                concat!("fn frame_gate(g: ", "FrameGate) -> Decided {"),
+                "\n}\n",
+            ),
+            (concat!("struct ", "FrameGate {"), "\n}\n"),
+        ] {
+            let at = SRC.find(head).unwrap_or_else(|| panic!("no {head}"));
+            let gate = &SRC[at..at + SRC[at..].find(end).expect("its end")];
+            assert!(gate.len() > 200, "{head} is read whole");
+            assert!(
+                !gate.contains("splash") && !gate.contains("Splash"),
+                "{head} reads the splash"
+            );
+        }
         let drawn = body(
             SRC,
             concat!("    fn frame(&mut self, ", "target: f64) {"),
@@ -10295,13 +10374,13 @@ mod motion_tests {
         let fed = pump.find("crate::reads::paced(").expect("the read");
         assert!(pump[fed..].starts_with(&span), "the read, then the ring");
         let rung = fed + span.len();
-        let first_return = fed + pump[fed..].find("return;").expect("the control: a return");
+        let gate = pump
+            .find(&bare("let frame = frame_gate(FrameGate {"))
+            .expect("the control: the frame gate");
         let held = pump
-            .find(&bare(
-                ".observe(&self.app.term, Instant::now()) == Update::Honoured",
-            ))
+            .find(&bare(".observe(&self.app.term, Instant::now()));"))
             .expect("the held update");
-        assert!(rung < first_return, "before the clean-frame return");
+        assert!(rung < gate, "before the gate, which can draw nothing");
         assert!(rung < held, "before the held update");
 
         let shim = SRC
@@ -11598,9 +11677,6 @@ impl Driver {
                 self.close_later();
             }
         }
-        if self.app.pending != Pending::Dirty {
-            return;
-        }
         // Hold the frame while the application is mid synchronised update, so
         // a partial redraw is never shown -- btop wraps its menu redraw in
         // one, and presenting between the `?2026h` and the `?2026l` flickered
@@ -11614,15 +11690,9 @@ impl Driver {
         // (`UpdateClock`), where an instant kept across them let the new
         // update inherit an outlived one's start, and keep the hold's start
         // while frames are held, so a chain of them is not held for ever.
-        if self.app.updates.observe(&self.app.term, Instant::now()) == Update::Honoured {
-            // Honoured: what the update changes of `?5` is its to hide.
-            self.app.bell.hold(&self.app.term);
-            return;
-        }
-        // The opening's turn draws nothing: `show` draws the first frame.
-        if trigger == Trigger::Opening {
-            return;
-        }
+        // Asked only when a frame is owed.
+        let update = (self.app.pending == Pending::Dirty)
+            .then(|| self.app.updates.observe(&self.app.term, Instant::now()));
         // **One frame in flight -- D14 -- and now that is all the gate
         // says.** Before the copy landed, `busy` also meant "do not feed";
         // it means only "do not build a second frame" now. Building one
@@ -11637,14 +11707,29 @@ impl Driver {
         // commit is under a frame's time old. A read with no key behind it
         // keeps the gate. With a frame in flight the echo stays owed, and
         // the completion wake draws it: paced by the GPU, not the tick.
-        let due = trigger == Trigger::Tick
-            || self.app.echo == Echo::Fed
-            || self.app.guess == Guess::Owed
-            || self.app.marked == Marked::Owed
-            || self.app.last_commit.elapsed() >= self.app.interval;
-        if due && !busy {
-            let view = self.view.clone();
-            self.app.present(&view, Show::Event);
+        // The decision is `frame_gate`'s, a function of what this turn left.
+        let frame = frame_gate(FrameGate {
+            pending: self.app.pending,
+            update,
+            trigger,
+            echo: self.app.echo,
+            guess: self.app.guess,
+            marked: self.app.marked,
+            since_commit: self.app.last_commit.elapsed(),
+            interval: self.app.interval,
+            flight: match busy {
+                true => InFlight::Busy,
+                false => InFlight::Idle,
+            },
+        });
+        match frame {
+            Decided::Clean | Decided::Later => {}
+            // Honoured: what the update changes of `?5` is its to hide.
+            Decided::Held => self.app.bell.hold(&self.app.term),
+            Decided::Now => {
+                let view = self.view.clone();
+                self.app.present(&view, Show::Event);
+            }
         }
     }
 }
@@ -18289,10 +18374,19 @@ mod tests {
             "marked_text owes a frame"
         );
         let pump = body(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"));
-        let due = &pump[pump.find("let due = ").expect("pump's due")..];
+        assert!(
+            pump.contains(concat!("marked: self.app.", "marked,")),
+            "the pump hands the gate the composition"
+        );
+        let gate = SRC
+            .split(concat!("fn frame_gate(g: ", "FrameGate) -> Decided {"))
+            .nth(1)
+            .expect("the gate");
+        let gate = &gate[..gate.find("\n}\n").expect("its end")];
+        let due = &gate[gate.find("let due = ").expect("the gate's due")..];
         let due = &due[..due.find(';').expect("its end")];
         assert!(
-            due.contains(concat!("self.app.marked == ", "Marked::Owed")),
+            due.contains(concat!("g.marked == ", "Marked::Owed")),
             "an owed composition makes a frame due"
         );
     }
@@ -20042,7 +20136,8 @@ mod mark_tests {
     /// for -- and still wakes the view once the responder is in, for what
     /// lands after the turn. The windows are AppKit's, so the source is
     /// what can fail; every anchor is asserted present first, as the
-    /// control, and the opening's turn returns before the pump's own frame.
+    /// control, and the opening's gate draws nothing of its own
+    /// (`frame_gate`).
     /// Perturbation: the turn moved after the window is shown, or the
     /// update's test dropped, fails it.
     #[test]
@@ -20070,22 +20165,36 @@ mod mark_tests {
         assert!(at(turn) < at(owed), "then the turn, then its frame");
         assert!(at(owed) < at(shown), "both before the window is on screen");
         assert!(at(shown) < at(woken), "the wake after it, kept");
-        // The turn is the pump's whole, which feeds the drained reads and
-        // returns before its own frame.
+        // The turn is the pump's whole, which feeds the drained reads.
         let pump = src
             .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(b, _)| b)
             .expect("the pump");
-        let find = |a: &str| pump.find(a).unwrap_or_else(|| panic!("the pump has {a}"));
-        let drained = find("let drained = self.app.pty.drain();");
-        let fed = find("crate::reads::paced(");
-        let opening = find(concat!(
-            "if trigger == Trigger::",
-            "Opening {\n            return;\n        }"
-        ));
-        let frame = find(concat!("self.app.present(&view, ", "Show::Event);"));
-        assert!(drained < fed && fed < opening && opening < frame);
+        let drained = pump
+            .find("let drained = self.app.pty.drain();")
+            .expect("the drain");
+        let fed = pump.find("crate::reads::paced(").expect("the feed");
+        assert!(drained < fed);
+        let gate = |trigger| {
+            super::frame_gate(super::FrameGate {
+                pending: super::Pending::Dirty,
+                update: Some(crate::bell::Update::Closed),
+                trigger,
+                echo: super::Echo::Fed,
+                guess: super::Guess::Owed,
+                marked: super::Marked::Owed,
+                since_commit: std::time::Duration::from_secs(1),
+                interval: std::time::Duration::from_millis(8),
+                flight: baud_present_macos::InFlight::Idle,
+            })
+        };
+        assert_eq!(gate(super::Trigger::Opening), super::Decided::Later);
+        assert_eq!(
+            gate(super::Trigger::Wake),
+            super::Decided::Now,
+            "the control"
+        );
     }
 
     /// **The strip is in the title bar and the grid's top follows full
@@ -20415,5 +20524,275 @@ mod strip_lights_tests {
         let view = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(640.0, 400.0));
         assert_eq!(in_view_at(view, NSPoint::new(455.0, -1.0)), InView::Left);
         assert_eq!(in_view_at(view, NSPoint::new(455.0, 0.5)), InView::Yes);
+    }
+}
+
+/// **The launch logo never moves the frame of a read that lands on a
+/// tick, and moves a read between ticks by one vsync at most**, through
+/// the pump's own frame gate (`frame_gate`): a prompt of 469
+/// bytes in one read -- a starship prompt's shape, four rows, OSC 133
+/// marks and an OSC 7 naming a neutral user and host -- replayed at 120 Hz
+/// on a virtual clock in the loop's order: each tick, the logo's owed
+/// frame (`frame`) and then the pump's gate; each read, a wake's turn; each
+/// frame's completion, 2 ms after it was drawn, a wake's turn too. The
+/// ticks jitter, as the display link's do. A frame drawn at `t` reaches
+/// the screen at the first vsync after its completion. The arms: the logo
+/// off, waiting for a window it never sees, and playing from tick 0, 5, 30
+/// and 60.
+///
+/// * **A read that lands on a tick** -- with the logo's frames, one is
+///   drawn on every tick -- is on the screen at the same vsync in every
+///   arm.
+/// * **A read that lands between ticks** is drawn no later than the next
+///   tick in every arm. Not at the same vsync: with no frame since the
+///   last tick a wake draws at once, and while the logo draws a frame on
+///   every tick the wake finds one younger than the interval and leaves
+///   the read to the next tick -- one vsync later, the flood rule every
+///   timed effect shares (a trail, a transition, the scrollbar's fade).
+#[cfg(test)]
+mod gate_tests {
+    use super::{Decided, Echo, FrameGate, Guess, Marked, Pending, Trigger, frame_gate};
+    use crate::bell::Update;
+    use crate::config::{LaunchSplash, SystemMotion};
+    use crate::splash::{Owes, Splash};
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, ReadLen, Row, WinSize};
+    use baud_present_macos::InFlight;
+    use std::time::Duration;
+
+    const WS: WinSize = WinSize {
+        ws_col: 80,
+        ws_row: 24,
+    };
+    /// 120 Hz, in microseconds.
+    const TICK: u64 = 8_333;
+    /// From a frame drawn to its completion.
+    const GPU: u64 = 2_000;
+    /// How far each tick lands from its vsync, in turn.
+    const JITTER: [i64; 4] = [0, 600, -400, 200];
+
+    /// When tick `n` fires.
+    fn tick_at(n: Tick) -> Duration {
+        let jitter = JITTER[usize::try_from(n.0 % 4).expect("an index")];
+        Duration::from_micros((n.0 * TICK).saturating_add_signed(jitter))
+    }
+
+    /// A tick's number.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord)]
+    struct Tick(u64);
+
+    /// The prompt: 469 bytes in one read.
+    fn prompt() -> Vec<u8> {
+        let mut p = Vec::new();
+        p.extend_from_slice(b"\x1b]133;A\x07\x1b]7;file://host/home/user\x07");
+        p.extend_from_slice(
+            b"\r\n\x1b[1;36mhome/user/code/project\x1b[0m on \x1b[1;35m branch main\x1b[0m ",
+        );
+        p.extend_from_slice(b"\x1b[1;31m[!?]\x1b[0m is \x1b[1;38;5;208m v1.0.0\x1b[0m via \x1b[1;31m rust 1.96\x1b[0m\r\n");
+        p.extend_from_slice(b"\x1b[33mtook 2s\x1b[0m \x1b[2mat 12:00:00\x1b[0m\r\n");
+        p.extend_from_slice(b"\x1b[1;32muser@host\x1b[0m ");
+        let tail = b"\x1b[1;32m\xe2\x9d\xaf\x1b[0m \x1b]133;B\x07";
+        while p.len() + tail.len() < 469 {
+            p.push(b' ');
+        }
+        p.extend_from_slice(tail);
+        p
+    }
+
+    fn shows_prompt(t: &Term<'_>) -> bool {
+        let view = t.view(t.window_back());
+        (0..view.rows().index()).any(|y| {
+            let row: String = view
+                .row(Row::from_index(y))
+                .iter()
+                .filter_map(|c| c.content.as_codepoint())
+                .filter_map(|p| char::from_u32(p.value()))
+                .collect();
+            row.contains("user@host")
+        })
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Arm {
+        Off,
+        Waiting,
+        PlayingFrom(Tick),
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord)]
+    enum Event {
+        /// Before a tick at the same time, so a read on a tick is fed
+        /// before the tick's turn.
+        Read,
+        Done,
+        Tick(Tick),
+    }
+
+    /// The vsync on which the prompt is first on screen, and the time its
+    /// frame was drawn in microseconds, for a read landing at `read`.
+    fn replay(arm: Arm, read: Duration, gate: fn(FrameGate) -> Decided) -> (u64, u64) {
+        let us = |d: Duration| u64::try_from(d.as_micros()).expect("a time");
+        let read = us(read);
+        let mut owned = Owned::new(&WS);
+        let mut term = Term::new(owned.storage(), &WS);
+        let mut splash = Splash::new(match arm {
+            Arm::Off => LaunchSplash::Off,
+            _ => LaunchSplash::On,
+        });
+        let mut events: Vec<(u64, Event)> = (0..=120_u64)
+            .map(|n| (us(tick_at(Tick(n))), Event::Tick(Tick(n))))
+            .collect();
+        events.push((read, Event::Read));
+        let mut pending = Pending::Clean;
+        let mut last_commit = 0_u64;
+        let mut busy = InFlight::Idle;
+        let bytes = prompt();
+        assert_eq!(bytes.len(), 469);
+        loop {
+            events.sort();
+            if events.is_empty() {
+                panic!("{arm:?}: the prompt was never drawn");
+            }
+            let (now, event) = events.remove(0);
+            let trigger = match event {
+                Event::Tick(n) => {
+                    if arm == Arm::PlayingFrom(n) && splash.shown() == Owes::Frame {
+                        pending = Pending::Dirty;
+                    }
+                    if splash.owes(Duration::from_micros(now).as_secs_f64()) == Owes::Frame {
+                        pending = Pending::Dirty;
+                    }
+                    Trigger::Tick
+                }
+                Event::Read => {
+                    term.write_at(BytePos::ZERO, &bytes);
+                    term.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+                    pending = Pending::Dirty;
+                    Trigger::Wake
+                }
+                Event::Done => {
+                    busy = InFlight::Idle;
+                    Trigger::Wake
+                }
+            };
+            let frame = gate(FrameGate {
+                pending,
+                update: (pending == Pending::Dirty).then_some(Update::Closed),
+                trigger,
+                echo: Echo::Drawn,
+                guess: Guess::None,
+                marked: Marked::Drawn,
+                since_commit: Duration::from_micros(now - last_commit),
+                interval: Duration::from_micros(TICK),
+                flight: busy,
+            });
+            if frame == Decided::Now {
+                let at = Duration::from_micros(now).as_secs_f64();
+                let _ = splash.look(Some(at), &term, SystemMotion::Full);
+                pending = Pending::Clean;
+                last_commit = now;
+                busy = InFlight::Busy;
+                events.push((now + GPU, Event::Done));
+                if shows_prompt(&term) {
+                    return ((now + GPU).div_ceil(TICK), now);
+                }
+            }
+        }
+    }
+
+    const ARMS: [Arm; 6] = [
+        Arm::Off,
+        Arm::Waiting,
+        Arm::PlayingFrom(Tick(0)),
+        Arm::PlayingFrom(Tick(5)),
+        Arm::PlayingFrom(Tick(30)),
+        Arm::PlayingFrom(Tick(60)),
+    ];
+
+    /// The prompt lands early, mid-way and late in the logo, on a tick
+    /// and between ticks.
+    fn check(gate: fn(FrameGate) -> Decided) -> Result<(), String> {
+        for n in [3_u64, 10, 40, 70] {
+            let tick = tick_at(Tick(n));
+            let on: Vec<u64> = ARMS.iter().map(|&a| replay(a, tick, gate).0).collect();
+            if on.iter().any(|&v| v != on[0]) {
+                return Err(format!("a read on tick {n}: vsyncs {on:?} across {ARMS:?}"));
+            }
+            let between = tick + Duration::from_micros(TICK / 2);
+            let next = tick_at(Tick(n + 1));
+            for a in ARMS {
+                let drawn = Duration::from_micros(replay(a, between, gate).1);
+                if drawn > next {
+                    return Err(format!(
+                        "{a:?}: a read between ticks {n} and {} drawn at {drawn:?}, after the tick at {next:?}",
+                        n + 1
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_read_on_a_tick_is_on_screen_at_the_same_vsync_under_the_logo() {
+        assert_eq!(check(frame_gate), Ok(()));
+        // The control: the probe sees the logo's frames, which leave a
+        // read between ticks to the next tick, where the logo off draws
+        // it at once.
+        let between = 40 * TICK + TICK / 2;
+        let at = Duration::from_micros(between);
+        let off = replay(Arm::Off, at, frame_gate);
+        let on = replay(Arm::PlayingFrom(Tick(30)), at, frame_gate);
+        assert_eq!(off.1, between, "the logo off: drawn on the read's wake");
+        assert!(on.1 > between, "the logo on: left to the tick");
+        assert_eq!(on.0, off.0 + 1, "one vsync later");
+    }
+
+    /// **Perturbation, compiled**: a gate whose tick is due only once a
+    /// frame's time has passed since the last commit -- the tick's own
+    /// rule dropped -- leaves a read past the next tick when the display
+    /// link fires early, and the check says so.
+    #[test]
+    fn a_gate_without_the_ticks_rule_fails_the_check() {
+        fn no_tick_rule(g: FrameGate) -> Decided {
+            match (g.trigger, g.since_commit < g.interval) {
+                (Trigger::Tick, true) if g.pending == Pending::Dirty => Decided::Later,
+                _ => frame_gate(g),
+            }
+        }
+        assert!(check(no_tick_rule).is_err());
+    }
+
+    /// **The pump decides by this gate**, and by no copy of it: its body
+    /// hands `frame_gate` a `FrameGate` and draws only on `Decided::Now`. Every
+    /// anchor is asserted present first.
+    #[test]
+    fn the_pump_calls_the_gate() {
+        let src = include_str!("app.rs");
+        let pump = src
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(b, _)| b)
+            .expect("the pump");
+        let call = concat!("let frame = frame_gate(", "FrameGate {");
+        let now = concat!(
+            "Decided::Now => {\n",
+            "                let view = self.view.clone();"
+        );
+        let present = concat!("self.app.present(&view, ", "Show::Event);");
+        for anchor in [call, now, present] {
+            assert_eq!(
+                pump.matches(anchor).count(),
+                1,
+                "once in the pump: {anchor}"
+            );
+        }
+        assert!(pump.find(call) < pump.find(now) && pump.find(now) < pump.find(present));
+        assert_eq!(
+            src.matches(concat!("fn frame_gate(", "g: FrameGate)"))
+                .count(),
+            1
+        );
+        assert!(!pump.contains("let due = "), "no second gate in the pump");
     }
 }

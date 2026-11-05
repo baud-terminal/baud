@@ -592,6 +592,80 @@ pub fn bitmap_refusals(path: &str, face: &Face<'_>) -> Vec<String> {
 /// measures that from outside and adds the two.
 static START: OnceLock<Instant> = OnceLock::new();
 static WANTED: OnceLock<Wanted> = OnceLock::new();
+/// The file the timeline is written to beside stderr ([`Timeline`]).
+static TIMELINE: OnceLock<std::sync::Mutex<Timeline>> = OnceLock::new();
+
+/// **The launch timeline's file**, beside stderr: a launch from the Dock,
+/// Finder or `open` has its stderr on `/dev/null` (note AI, section 1.3), so
+/// a line written there alone is lost, and with it every launch whose shell
+/// the account names. On macOS `~/Library/Logs/baud/startup.log`, the
+/// directory note AI's option (b) names for an app's log files; on Linux
+/// `$XDG_STATE_HOME/baud/startup.log`, else `~/.local/state/baud/`, the
+/// XDG directory whose state "may contain ... logs". Note AI decided the
+/// unified log for baud's warnings and left its route open; this is the
+/// opt-in timeline `BAUD_STARTUP` asks for, `open --env BAUD_STARTUP=1`
+/// included, and nothing is written without it. Each launch appends, under
+/// a line naming its process.
+pub(crate) struct Timeline {
+    file: Option<std::fs::File>,
+}
+
+impl Timeline {
+    /// Where the file is, from `home` and `state` (`$XDG_STATE_HOME`), each
+    /// only when absolute.
+    pub(crate) fn path(
+        home: Option<&std::path::Path>,
+        state: Option<&std::path::Path>,
+    ) -> Option<std::path::PathBuf> {
+        let home = home.filter(|h| h.is_absolute());
+        let dir = match cfg!(target_os = "macos") {
+            true => home.map(|h| h.join("Library/Logs/baud")),
+            false => state
+                .filter(|s| s.is_absolute())
+                .map(|s| s.join("baud"))
+                .or_else(|| home.map(|h| h.join(".local/state/baud"))),
+        }?;
+        Some(dir.join("startup.log"))
+    }
+
+    /// The file at `path` opened to append, its directory made, and the
+    /// launch's first line written; no file when it cannot be.
+    pub(crate) fn open(path: Option<&std::path::Path>) -> Timeline {
+        use std::io::Write;
+        let file = path.and_then(|p| {
+            std::fs::create_dir_all(p.parent()?).ok()?;
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+                .ok()?;
+            writeln!(f, "startup: launch, pid {}", std::process::id()).ok()?;
+            Some(f)
+        });
+        Timeline { file }
+    }
+
+    /// `startup: text`, to `stderr` and to the file.
+    pub(crate) fn line(&mut self, stderr: &mut impl std::io::Write, text: &str) {
+        use std::io::Write;
+        let _ = writeln!(stderr, "startup: {text}");
+        if let Some(f) = self.file.as_mut() {
+            let _ = writeln!(f, "startup: {text}");
+        }
+    }
+}
+
+/// A timeline line, to stderr and the file.
+fn startup_line(text: &str) {
+    let mut err = std::io::stderr();
+    match TIMELINE.get() {
+        Some(t) => match t.lock() {
+            Ok(mut t) => t.line(&mut err, text),
+            Err(_) => Timeline { file: None }.line(&mut err, text),
+        },
+        None => Timeline { file: None }.line(&mut err, text),
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Wanted {
@@ -818,10 +892,17 @@ pub fn tell_defaults(
 
 pub fn startup_begin() {
     let _ = START.set(Instant::now());
-    let _ = WANTED.set(match std::env::var_os("BAUD_STARTUP") {
+    let wanted = match std::env::var_os("BAUD_STARTUP") {
         Some(_) => Wanted::Print,
         None => Wanted::Quiet,
-    });
+    };
+    let _ = WANTED.set(wanted);
+    if wanted == Wanted::Print {
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        let state = std::env::var_os("XDG_STATE_HOME").map(std::path::PathBuf::from);
+        let path = Timeline::path(home.as_deref(), state.as_deref());
+        let _ = TIMELINE.set(std::sync::Mutex::new(Timeline::open(path.as_deref())));
+    }
 }
 
 pub fn startup_mark(stage: &str) {
@@ -829,7 +910,7 @@ pub fn startup_mark(stage: &str) {
         return;
     }
     let since = START.get().map_or(Duration::ZERO, Instant::elapsed);
-    eprintln!("startup: {stage:<18} {:9.3} ms", since.as_secs_f64() * 1e3);
+    startup_line(&format!("{stage:<18} {:9.3} ms", since.as_secs_f64() * 1e3));
 }
 
 /// A stage that happens many times and is worth printing once: the first
@@ -847,7 +928,7 @@ pub fn startup_note(text: &str) {
     if WANTED.get() != Some(&Wanted::Print) {
         return;
     }
-    eprintln!("startup: {text}");
+    startup_line(text);
 }
 
 #[cfg(target_os = "macos")]
@@ -880,6 +961,59 @@ pub static FIRST_WAKE: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 pub static FIRST_VISIBLE: AtomicBool = AtomicBool::new(false);
 pub static FIRST_PRESENT: AtomicBool = AtomicBool::new(false);
+
+/// **The launch timeline reaches its file with stderr discarded**, as a
+/// Dock launch's is: a timeline opened at a scratch path, its stderr a
+/// sink, as `/dev/null` takes it, holds the launch's line and each line
+/// after it; a second launch appends. The control: the sink is given the
+/// same lines, so the file is a copy and not a different stream.
+#[cfg(test)]
+mod timeline_tests {
+    use super::Timeline;
+    use std::path::Path;
+
+    #[test]
+    fn the_timeline_reaches_its_file_with_stderr_discarded() {
+        let dir = std::env::temp_dir().join(format!("baud-timeline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("Logs/baud/startup.log");
+        let mut t = Timeline::open(Some(&path));
+        t.line(&mut std::io::sink(), "splash: reads 12.0 ms, 469 bytes");
+        let mut err = Vec::new();
+        t.line(&mut err, "first frame 157.6 ms");
+        drop(t);
+        let mut t = Timeline::open(Some(&path));
+        t.line(&mut std::io::sink(), "pty 14.2 ms");
+        drop(t);
+        let text = std::fs::read_to_string(&path).expect("the file");
+        let pid = format!("startup: launch, pid {}", std::process::id());
+        assert_eq!(
+            text,
+            format!(
+                "{pid}\nstartup: splash: reads 12.0 ms, 469 bytes\nstartup: first frame 157.6 ms\n\
+                 {pid}\nstartup: pty 14.2 ms\n"
+            )
+        );
+        assert_eq!(err, b"startup: first frame 157.6 ms\n", "the control");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Where the file goes: the user's log directory on macOS, the XDG
+    /// state directory on Linux; nowhere from a relative home.
+    #[test]
+    fn the_timeline_lives_in_the_users_log_directory() {
+        let home = Path::new("/Users/me");
+        let at = Timeline::path(Some(home), Some(Path::new("/state")));
+        match cfg!(target_os = "macos") {
+            true => assert_eq!(
+                at.as_deref(),
+                Some(Path::new("/Users/me/Library/Logs/baud/startup.log"))
+            ),
+            false => assert_eq!(at.as_deref(), Some(Path::new("/state/baud/startup.log"))),
+        }
+        assert_eq!(Timeline::path(Some(Path::new("rel")), None), None);
+    }
+}
 
 #[cfg(test)]
 mod tests {
