@@ -10,6 +10,11 @@
 //! | `cff2` | `cff2-cases.otf` | the CFF2 charstring rules the real CFF2 fonts leave untested ([`cff2`]) |
 //! | `colour-refused` | `colour-refused-cases.ttf` | a colour glyph whose outline is refused ([`colour_refused`]) |
 //! | `component` | `component-cases.ttf` | components placed by points and by scaled offsets ([`component`]) |
+//! | `gvar` | `gvar-cases.ttf` | the gvar rules the real fonts leave untested ([`gvar`]) |
+//! | `hvar` | `hvar/*.ttf` | HVAR, well formed and malformed, and the phantom-point advance ([`hvar`]) |
+//! | `ink` | `ink-cases.ttf` | fallback mark placement against varied boxes ([`ink`]) |
+//! | `joining` | `joining-cases.ttf` | Arabic letters wider than a cell, joined and marked ([`joining`]) |
+//! | `vertical` | `vertical-cases.ttf` | components placed on the vertical phantom points ([`vertical`]) |
 //!
 //! Each table is a write-fonts value, serialised by write-fonts, except
 //! where it cannot express the case; then the bytes are written here, or
@@ -29,15 +34,24 @@ pub mod budget;
 pub mod cff2;
 pub mod colour_refused;
 pub mod component;
+pub mod gvar;
+pub mod hvar;
+pub mod ink;
+pub mod joining;
+mod tuples;
+pub mod vertical;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use read_fonts::tables::glyf::CurvePoint;
 use write_fonts::FontBuilder;
+use write_fonts::TableWriter;
 use write_fonts::tables::cmap::Cmap;
 use write_fonts::tables::fvar::{AxisInstanceArrays, Fvar, VariationAxisRecord};
-use write_fonts::tables::glyf::{Bbox, Contour, GlyfLocaBuilder, Glyph, SimpleGlyph};
+use write_fonts::tables::glyf::{
+    Bbox, CompositeGlyph, Contour, GlyfLocaBuilder, Glyph, SimpleGlyph,
+};
 use write_fonts::tables::head::{Flags, Head, MacStyle};
 use write_fonts::tables::hhea::Hhea;
 use write_fonts::tables::hmtx::{Hmtx, LongMetric};
@@ -49,6 +63,7 @@ use write_fonts::tables::post::Post;
 use write_fonts::types::{
     FWord, Fixed, GlyphId, LongDateTime, NameId, Tag, UfWord, Version16Dot16,
 };
+use write_fonts::validate::{Validate, ValidationCtx};
 
 /// One case: its name and the fonts it writes, each as a path under the
 /// root and its bytes.
@@ -58,7 +73,7 @@ pub struct Case {
 }
 
 /// Every case, in the order `cases all` writes them.
-pub const ALL: [Case; 6] = [
+pub const ALL: [Case; 11] = [
     Case {
         name: "bake",
         fonts: bake::fonts,
@@ -82,6 +97,26 @@ pub const ALL: [Case; 6] = [
     Case {
         name: "component",
         fonts: component::fonts,
+    },
+    Case {
+        name: "gvar",
+        fonts: gvar::fonts,
+    },
+    Case {
+        name: "hvar",
+        fonts: hvar::fonts,
+    },
+    Case {
+        name: "ink",
+        fonts: ink::fonts,
+    },
+    Case {
+        name: "joining",
+        fonts: joining::fonts,
+    },
+    Case {
+        name: "vertical",
+        fonts: vertical::fonts,
     },
 ];
 
@@ -234,6 +269,93 @@ pub fn glyf_loca(glyphs: &[Glyph]) -> (Vec<u8>, Vec<u8>, LocaFormat) {
     for g in glyphs {
         b.add_glyph(g).expect("a valid glyph");
     }
+    finish(b)
+}
+
+/// **Patch: an empty program on a composite.** write-fonts writes a
+/// composite's `WE_HAVE_INSTRUCTIONS` and its program's length only when
+/// the program has bytes (`CompositeGlyph::write_into`); fontTools' pen
+/// glyphs carry the flag on their last component and a program of zero
+/// bytes (a uint16 length of 0), and the cases fonts that keep that form
+/// write every composite without a program so ([`empty_programs`]): bake's
+/// intc, fracc and nestc, so the bake's read of an empty program has a
+/// glyph that reaches it, and every composite of the gvar, hvar, ink and
+/// vertical cases. The composite's bytes are write-fonts', the last
+/// record's flags gain the bit and the length follows; the builder lays
+/// loca and the checksums over them.
+pub struct EmptyProgram<'a>(pub &'a CompositeGlyph);
+
+impl EmptyProgram<'_> {
+    const MORE_COMPONENTS: u16 = 0x0020;
+    const WE_HAVE_INSTRUCTIONS: u16 = 0x0100;
+
+    fn bytes(&self) -> Vec<u8> {
+        assert!(self.0.instructions().is_empty(), "a program of no bytes");
+        let mut b = write_fonts::dump_table(self.0).expect("a composite");
+        // Past the header, each record: flags, glyph, two arguments (words
+        // under ARG_1_AND_2_ARE_WORDS), then a scale, an x and y scale or
+        // a two by two.
+        let mut at = 10;
+        let last = loop {
+            let flags = u16::from_be_bytes([b[at], b[at + 1]]);
+            let record = at;
+            at += 4 + if flags & 0x0001 != 0 { 4 } else { 2 };
+            at += match flags {
+                f if f & 0x0008 != 0 => 2,
+                f if f & 0x0040 != 0 => 4,
+                f if f & 0x0080 != 0 => 8,
+                _ => 0,
+            };
+            if flags & Self::MORE_COMPONENTS == 0 {
+                break record;
+            }
+        };
+        assert_eq!(at, b.len(), "the records end the glyph, with no padding");
+        let flags = u16::from_be_bytes([b[last], b[last + 1]]);
+        assert_eq!(flags & Self::WE_HAVE_INSTRUCTIONS, 0, "write-fonts' flags");
+        b[last..last + 2].copy_from_slice(&(flags | Self::WE_HAVE_INSTRUCTIONS).to_be_bytes());
+        b.extend(0u16.to_be_bytes());
+        b
+    }
+}
+
+impl write_fonts::FontWrite for EmptyProgram<'_> {
+    fn write_into(&self, writer: &mut TableWriter) {
+        writer.write_slice(&self.bytes());
+        writer.pad_to_2byte_aligned();
+    }
+}
+
+impl Validate for EmptyProgram<'_> {
+    fn validate_impl(&self, ctx: &mut ValidationCtx) {
+        self.0.validate_impl(ctx);
+    }
+}
+
+impl write_fonts::tables::glyf::SomeGlyph for EmptyProgram<'_> {}
+
+/// glyf and loca from glyphs in glyph order, every composite without a
+/// program written as [`EmptyProgram`] writes it.
+pub fn empty_programs(glyphs: &[Glyph]) -> (Vec<u8>, Vec<u8>, LocaFormat) {
+    let mut b = GlyfLocaBuilder::new();
+    for g in glyphs {
+        add_glyph(&mut b, g);
+    }
+    finish(b)
+}
+
+/// One glyph into `b`, a composite without a program as [`EmptyProgram`]
+/// writes it.
+pub fn add_glyph(b: &mut GlyfLocaBuilder, g: &Glyph) {
+    match g {
+        Glyph::Composite(c) if c.instructions().is_empty() => b.add_glyph(&EmptyProgram(c)),
+        g => b.add_glyph(g),
+    }
+    .expect("a valid glyph");
+}
+
+/// glyf and loca's bytes, and loca's format.
+pub fn finish(b: GlyfLocaBuilder) -> (Vec<u8>, Vec<u8>, LocaFormat) {
     let (glyf, loca, format) = b.build();
     (
         write_fonts::dump_table(&glyf).expect("glyf"),

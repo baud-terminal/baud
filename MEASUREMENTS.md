@@ -2899,3 +2899,58 @@ none fused, round half away, the alpha kept premultiplied, an
 off-curve point nudged 1e-9. One did not: a component's offset added before
 the pen's scale, `k*(x+615)+cx` for `k*x+(k*615+cx)`, writes the same
 two decimals for every point the card draws.
+
+## The gvar, hvar, ink, joining and vertical cases, in Rust
+
+Not timed: no byte path changed. `baud-oracle cases` builds the other
+five cases fonts, 21 files, on write-fonts 0.55.0, and their Python
+generators are deleted. Before the port, the Python under fontTools
+4.63.0 with uharfbuzz 0.53.2 rebuilt all 21 byte for byte. 20 of them
+come out byte for byte again; `joining-cases.ttf` is re-pinned,
+`d6162796...` to `306fd95d...`, and differs only in where GSUB's and
+GPOS's subtables lie and in the checksums that follow. Its new bytes
+are what the deleted generator writes under the same fontTools without
+uharfbuzz: fontTools' `otBase` packs GSUB and GPOS with `hb.repack`
+when it can import uharfbuzz, else with its own serializer. Both
+tables keep their sizes, 222 and 160 bytes, and every format word:
+init, medi and the inner lookup SingleSubst 1, fina 2, calt
+ChainContext 3, mark MarkBasePos 1, GDEF's ClassDef 2.
+
+Three places are not write-fonts' own. gvar is packed here as fontTools
+packed it (`cases/tuples.rs`). write-fonts writes a sparse tuple dense
+when dense is no smaller, filling the points left to inference with the
+values given for them, and shares no point set that only one tuple uses.
+On its gvar, `compare` named sq's one-point tuple, `p0=0,-30` vs
+`p0=0,0`, the first of the differences. Two's tuples over points 0, 2
+and 5 and over 5 and 6, whose x is shared, came out dense too. So did
+hvar's phantom-only tuples in all 17 fonts, where the values given are
+the ones inference gives, so `compare` found them equal. No glyph of one
+tuple shared its points. The bake's empty-program patch moves to
+`cases/mod.rs` and covers every composite here, as fontTools wrote
+them. hvar's HVARs and phantom's 12-byte `broken` are written as
+bytes.
+
+All eight oracles regenerated on a tree with the new fonts equal their
+files, as committed. joining has no oracle file; beside `compare` and
+the format words, `an_over_wide_letter_draws_alike_on_every_arm`
+(baud-present-macos) shapes and draws the new font on every arm and
+passes. Three perturbations:
+
+- Every tuple written dense: `compare` finds `hvar/cases.ttf` and
+  `phantom.ttf` equal and `advances.txt` stays as committed. sq's
+  outline in `outlines.txt` moves at data line 660, and
+  `the_gvar_cases_leave_their_points_to_inference` fails.
+- Vertical without the empty programs: `compare` and `vertical.txt`
+  stay equal; `cases --check` fails, 1472 bytes built against 1492.
+- Mark-to-base refused in baud-font: `a_mark_moves_with_its_fitted_base`
+  fails on the old joining and on the new, and no other
+  `overwide_letters` test does.
+
+Each new test fails on a perturbation of its own: one-tuple point sets
+left unshared, as write-fonts leaves them (gvar-cases gid 2); init as a
+SingleSubst 2; `broken` a byte longer.
+
+On the old joining, refusing SingleSubst formats 1 and 2, or
+ChainContext format 3's pairs, turns no `overwide_letters` test red: no
+test there observes joining's substitutions. The same SingleSubst
+refusal turns 15 baud-font shaping tests red.

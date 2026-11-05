@@ -3,7 +3,7 @@
 Writes baud-font/tests/var/outlines.txt: for each committed variable test
 font, a sample of its glyphs -- every glyph whose id is a multiple of 37,
 which reaches simple and composite glyphs alike -- and every glyph of
-tests/var/gvar-cases.ttf (scripts/gvar-cases-font.py), drawn by HarfBuzz at
+tests/var/gvar-cases.ttf (tools/baud-oracle cases gvar), drawn by HarfBuzz at
 the default instance and at the settings named below, as the commands its
 draw functions emit, in font units (the font's scale is its units per em).
 The default rows are the control: they say HarfBuzz's emission rule is

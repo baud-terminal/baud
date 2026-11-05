@@ -41,11 +41,11 @@ const OWN: &[(&str, &str)] = &[
     ),
     (
         "baud-font/tests/var/gvar-cases.ttf",
-        "scripts/gvar-cases-font.py",
+        "tools/baud-oracle/src/cases/gvar.rs",
     ),
     (
         "baud-font/tests/var/ink-cases.ttf",
-        "scripts/ink-cases-font.py",
+        "tools/baud-oracle/src/cases/ink.rs",
     ),
     (
         "baud-font/tests/var/component-cases.ttf",
@@ -61,7 +61,7 @@ const OWN: &[(&str, &str)] = &[
     ),
     (
         "baud-font/tests/var/vertical-cases.ttf",
-        "scripts/vertical-cases-font.py",
+        "tools/baud-oracle/src/cases/vertical.rs",
     ),
     (
         "baud-font/tests/var/colour-refused-cases.ttf",
@@ -73,7 +73,7 @@ const OWN: &[(&str, &str)] = &[
     ),
     (
         "baud-font/tests/var/joining-cases.ttf",
-        "scripts/joining-cases-font.py",
+        "tools/baud-oracle/src/cases/joining.rs",
     ),
     (
         "baud-font/tests/var/cff2-cases.otf",
@@ -101,8 +101,11 @@ const OWN: &[(&str, &str)] = &[
     ),
 ];
 
-/// `baud-font/tests/var/hvar/` is written whole by one script.
-const OWN_DIR: (&str, &str) = ("baud-font/tests/var/hvar/", "scripts/hvar-cases-font.py");
+/// `baud-font/tests/var/hvar/` is written whole by one case.
+const OWN_DIR: (&str, &str) = (
+    "baud-font/tests/var/hvar/",
+    "tools/baud-oracle/src/cases/hvar.rs",
+);
 
 fn fonts(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(rd) = fs::read_dir(dir) else { return };

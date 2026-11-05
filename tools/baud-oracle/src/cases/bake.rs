@@ -40,12 +40,10 @@
 //! timestamps are fixed, at 3,600,000,000 seconds after 1904.
 
 use read_fonts::tables::glyf::CurvePoint;
-use write_fonts::TableWriter;
 use write_fonts::tables::avar::{Avar, AxisValueMap, SegmentMaps};
 use write_fonts::tables::gdef::Gdef;
 use write_fonts::tables::glyf::{
-    Anchor, Bbox, Component, ComponentFlags, CompositeGlyph, GlyfLocaBuilder, Glyph, SimpleGlyph,
-    Transform,
+    Anchor, Bbox, Component, ComponentFlags, CompositeGlyph, Glyph, SimpleGlyph, Transform,
 };
 use write_fonts::tables::gpos::{
     AnchorFormat1, AnchorFormat3, AnchorTable, BaseArray, BaseRecord, Gpos, MarkArray, MarkBasePos,
@@ -60,11 +58,10 @@ use write_fonts::tables::variations::{
     VariationRegionList,
 };
 use write_fonts::types::{F2Dot14, GlyphId16, Tag};
-use write_fonts::validate::{Validate, ValidationCtx};
 
 use super::{
-    Extremes, Totals, all, bbox, bytes, cmap, font, fvar, gid, glyph_box, gvar, head, hhea, hmtx,
-    maxp, name, os2, os2_bytes, poly, post_v2, tuple,
+    Extremes, Totals, all, bbox, bytes, cmap, empty_programs, font, fvar, gid, glyph_box, gvar,
+    head, hhea, hmtx, maxp, name, os2, os2_bytes, poly, post_v2, tuple,
 };
 
 const ORDER: [&str; 12] = [
@@ -72,7 +69,7 @@ const ORDER: [&str; 12] = [
 ];
 
 /// A composite's components: (glyph, x, y, flags), and its program; an
-/// empty one is still flagged, as [`EmptyProgram`] writes it.
+/// empty one is still flagged, as [`super::EmptyProgram`] writes it.
 type Parts = (
     &'static [(&'static str, i16, i16, ComponentFlags)],
     &'static [u8],
@@ -149,65 +146,6 @@ fn composite(glyphs: &[Glyph], (parts, program): &Parts) -> CompositeGlyph {
     g.set_instructions(program);
     g
 }
-
-/// **Patch: an empty program on intc, fracc and nestc.** write-fonts
-/// writes a composite's `WE_HAVE_INSTRUCTIONS` and its program's length
-/// only when the program has bytes (`CompositeGlyph::write_into`); these
-/// three carry the flag on their last component and a program of zero
-/// bytes (a uint16 length of 0), as fontTools wrote them, so the bake's
-/// read of an empty program has a glyph that reaches it. The composite's
-/// bytes are write-fonts', the last record's flags gain the bit and the
-/// length follows; the builder lays loca and the checksums over them.
-struct EmptyProgram<'a>(&'a CompositeGlyph);
-
-impl EmptyProgram<'_> {
-    const MORE_COMPONENTS: u16 = 0x0020;
-    const WE_HAVE_INSTRUCTIONS: u16 = 0x0100;
-
-    fn bytes(&self) -> Vec<u8> {
-        assert!(self.0.instructions().is_empty(), "a program of no bytes");
-        let mut b = write_fonts::dump_table(self.0).expect("a composite");
-        // Past the header, each record: flags, glyph, two arguments (words
-        // under ARG_1_AND_2_ARE_WORDS), then a scale, an x and y scale or
-        // a two by two.
-        let mut at = 10;
-        let last = loop {
-            let flags = u16::from_be_bytes([b[at], b[at + 1]]);
-            let record = at;
-            at += 4 + if flags & 0x0001 != 0 { 4 } else { 2 };
-            at += match flags {
-                f if f & 0x0008 != 0 => 2,
-                f if f & 0x0040 != 0 => 4,
-                f if f & 0x0080 != 0 => 8,
-                _ => 0,
-            };
-            if flags & Self::MORE_COMPONENTS == 0 {
-                break record;
-            }
-        };
-        assert_eq!(at, b.len(), "the records end the glyph, with no padding");
-        let flags = u16::from_be_bytes([b[last], b[last + 1]]);
-        assert_eq!(flags & Self::WE_HAVE_INSTRUCTIONS, 0, "write-fonts' flags");
-        b[last..last + 2].copy_from_slice(&(flags | Self::WE_HAVE_INSTRUCTIONS).to_be_bytes());
-        b.extend(0u16.to_be_bytes());
-        b
-    }
-}
-
-impl write_fonts::FontWrite for EmptyProgram<'_> {
-    fn write_into(&self, writer: &mut TableWriter) {
-        writer.write_slice(&self.bytes());
-        writer.pad_to_2byte_aligned();
-    }
-}
-
-impl Validate for EmptyProgram<'_> {
-    fn validate_impl(&self, ctx: &mut ValidationCtx) {
-        self.0.validate_impl(ctx);
-    }
-}
-
-impl write_fonts::tables::glyf::SomeGlyph for EmptyProgram<'_> {}
 
 fn region(start: f32, peak: f32, end: f32) -> VariationRegion {
     VariationRegion::new(vec![RegionAxisCoordinates {
@@ -350,19 +288,7 @@ pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
             }
         })
         .collect();
-    let mut b = GlyfLocaBuilder::new();
-    for g in &glyphs {
-        match g {
-            Glyph::Composite(c) if c.instructions().is_empty() => b.add_glyph(&EmptyProgram(c)),
-            g => b.add_glyph(g),
-        }
-        .expect("a valid glyph");
-    }
-    let (glyf, loca, format) = b.build();
-    let (glyf, loca) = (
-        write_fonts::dump_table(&glyf).expect("glyf"),
-        write_fonts::dump_table(&loca).expect("loca"),
-    );
+    let (glyf, loca, format) = empty_programs(&glyphs);
     let (hmtx, long) = hmtx(&metrics);
     let map: Vec<(u32, _)> = ORDER[1..]
         .iter()

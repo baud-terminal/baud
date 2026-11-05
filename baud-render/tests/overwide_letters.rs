@@ -5,7 +5,7 @@
 //! column fits and a wide character is not blank.
 //!
 //! The faces: baud's built Regular for the grid, and `joining-cases.ttf`
-//! (`scripts/joining-cases-font.py`), whose sad is 1300 units isolated and
+//! (`tools/baud-oracle cases joining`), whose sad is 1300 units isolated and
 //! 950 medial against a cell of 600, drawn from boxes so where the ink
 //! lies is exact. And, where the README's cache holds it, Noto Sans Arabic
 //! 2.013, on which the README's Arabic line drew تضع without the dot of

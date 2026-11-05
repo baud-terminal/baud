@@ -10,9 +10,9 @@
 //! a glyph past the scratch budget refused and counted rather than taken
 //! for blank.
 //!
-//! The fonts are baud's own: `var/ink-cases.ttf` (`scripts/ink-cases-font.py`)
-//! has no `GPOS`, so its marks take the fallback, and carries `heavy`, whose
-//! 240,000 flattened points are past `VAR_POINTS_MAX`.
+//! The fonts are baud's own: `var/ink-cases.ttf` (`tools/baud-oracle
+//! cases ink`) has no `GPOS`, so its marks take the fallback, and carries
+//! `heavy`, whose 240,000 flattened points are past `VAR_POINTS_MAX`.
 
 mod support;
 
