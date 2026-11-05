@@ -2803,3 +2803,50 @@ red at data line 1; unreferenced points written as zeros names bake's
 sq tuple 0 deltas. Each fails `cases --check`. read-fonts 0.46.0 reads
 `full` as no points (`end + 1` in a u16), so the comparator sees only
 its box and end point; its test decodes the glyf text by hand.
+
+## The cluster and merged tables compiled at build time
+
+`build/cluster.rs` compiles the cluster machine from a second
+implementation of UAX #29's rules, GB1 to GB999 in the annex's order and
+each legacy variant the rules less what section 3.1.1 excludes;
+`build/merged.rs` compiles the merged table from the BREAK, WIDTH and
+WIDTH8 tries as `of_with_lookback` and `Width::of` read them. Before the
+delete, "build(domain): compile the cluster and merged tables at build
+time" printed "identical: CLUSTER_READY 1, CLUSTER_STATES 94,
+CLUSTER_NEXT 24064, CLUSTER_PARTS_LEGACY 3008, CLUSTER_PARTS_MARKS_JOINED
+3008, MERGED_PALETTE 99, MERGED_INDEX 4352, MERGED_BLOCKS 65536,
+BMP_DIRECT 131072, cluster.bin 30178, merged.bin 201071 elements", the
+two `.bin` reassembled from the compiled statics in their layout.
+
+**Release binaries.** `baud` and `ingest2`, built at one path from fresh
+extractions with every file touched: change and a clean A/A rebuild are
+byte-identical. Against base, `__TEXT,__text` (4,033,984 and 1,225,216
+bytes), `__TEXT,__const` and `__cstring` are byte-identical and every
+section keeps its size; each binary differs in two bytes of
+`__DATA_CONST,__const`, two panic locations in `grapheme.rs` moved down
+three lines (599 to 602, 621 to 624) by the `ClusterRules` doc, and in
+the UUID and the code signature. No timing run.
+
+**The build.** `cargo build -p baud-domain --timings`, both arms at one
+path, five rounds rotated, the first dropped: the build script runs in
+[0.79-1.67] s against base's [0.72-1.10], compiles in [0.96-2.20] s
+against [0.80-1.45], and the lib in [10.78-22.11] s against
+[9.28-18.51]; every range overlaps, load average 10-58 from other work.
+Touching `src/lib.rs` ran no build script in any round on either arm,
+and touching a `data/` file ran it once. The `baud-domain` .crate is
+1.85 MiB compressed.
+
+**Red first.** GB8 widened to join T V passes the build's controls and
+turns `the_cluster_table_agrees_with_the_rules`, the identity test,
+`the_parts_tables_agree_with_the_rules` and baud-core's
+GraphemeBreakTest.txt runners red at lines 505 and 581; a parts bit
+dropped after an odd regional indicator leaves the first green and turns
+the parts test, `the_legacy_variants_are_the_extended_machine_parted`
+and the legacy-parts suite red; private use ending at U+10FFFC turns
+`the_merged_table_agrees_with_both_tries` red at U+10FFFD. The ready
+predicate without its InCB term ("ready states [1, 29, 63]") and U+0000
+narrow are `cargo::error`s. In `build_tables.rs`, GB1, GB3 to GB9c, GB11
+and GB12/13 dropped one at a time each fire their own control -- GB1 and
+GB5 did not until an Extend at the start of text and Prepend LF were
+added -- and the state count, the seven-bit id and the palette and block
+bounds are red; GB999 dropped is the same table by construction.

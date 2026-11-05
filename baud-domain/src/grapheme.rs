@@ -219,12 +219,15 @@ pub struct ClusterBreak {
 }
 
 /// The cluster machine as `[[source: uax29]]`'s rules over four fields:
-/// the definition `CLUSTER_NEXT` is generated from and answers to.
+/// the definition `CLUSTER_NEXT` answers to.
 ///
-/// Tooling and tests only: `baud-domain/tests/cluster_states.rs`
-/// enumerates its states through `to_bits`/`from_bits` to emit the
-/// table, and `the_cluster_table_agrees_with_the_rules` holds the table
-/// to it. It has no table id, so nothing on it can disagree with one.
+/// Tooling and tests only. `build/cluster.rs` compiles the table from a
+/// second implementation of the rules, since a build script cannot call
+/// the crate it builds, and `the_cluster_table_agrees_with_the_rules` and
+/// `the_parts_tables_agree_with_the_rules` (`tests/cluster_states.rs`)
+/// hold the table to this one at every reachable state, through
+/// `to_bits`/`from_bits`. It has no table id, so nothing on it can
+/// disagree with one.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct ClusterRules {
     prev: Option<GraphemeClass>,
@@ -745,9 +748,10 @@ impl ClusterRules {
     }
 
     /// The rules, walked. **Not the hot path** --
-    /// [`ClusterBreak::is_break_classified`] is a table now -- but the table is generated from this, and
+    /// [`ClusterBreak::is_break_classified`] is a table now -- but
     /// `the_cluster_table_agrees_with_the_rules` checks every reachable state
-    /// against it, so this stays as the definition the artefact answers to.
+    /// of the table against it, so this stays as the definition the table
+    /// answers to.
     pub fn is_break_by_rules(&mut self, cur: GraphemeClass, lb: Lookback) -> bool {
         // **An ordinary character after an ordinary character, with no lookback
         // live.** Han, kana and most punctuation are all `Other`, so this is

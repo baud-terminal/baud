@@ -1,8 +1,9 @@
-//! How many states does the cluster machine actually reach?
+//! How many states does the cluster machine actually reach, and does the
+//! table `build/cluster.rs` compiles answer as the crate's rules do?
 //!
 //! Deciding whether `decide`/`advance` can be replaced by a transition table
-//! needs the reachable state count, not the nominal one: 15 x 2 x 3 x 3 = 270
-//! combinations exist, but most may be unreachable.
+//! needed the reachable state count, not the nominal one: 15 x 2 x 3 x 3 =
+//! 270 combinations exist, and 94 are reachable.
 
 use baud_domain::{ClusterCells, ClusterRules, GraphemeClass, Lookback, RunBlocker};
 use std::collections::HashSet;
@@ -48,167 +49,15 @@ fn report_reachable_cluster_states() {
     );
 }
 
-/// The cluster transition table as `scripts/gen-cluster-table.py` reads it:
-/// the state count, then one byte per (state, input), then one ready byte per
-/// state, then two bit tables of one bit per (state, input): where a join the
-/// extended rules make parts under legacy clusters, and where it parts with
-/// spacing marks joined ([`ClusterCells`]).
-///
-/// States are numbered in breadth-first order from the initial one, and the
-/// map is only ever looked up, never iterated, so the bytes do not depend on
-/// a hash seed.
-fn cluster_table_bytes() -> Vec<u8> {
-    use std::collections::HashMap;
-    let start = ClusterRules::new().to_bits();
-    let mut id: HashMap<u16, u8> = HashMap::from([(start, 0)]);
-    let mut order: Vec<u16> = vec![start];
-    let mut i = 0usize;
-    while i < order.len() {
-        let st = order[i];
-        i += 1;
-        for b in 0u16..256 {
-            let (cl, lb) = (
-                GraphemeClass::FROM_INDEX[(b & 0xf) as usize],
-                Lookback::from_bits((b >> 4) as u8),
-            );
-            if (b & 0xf) >= 14 {
-                continue;
-            }
-            let mut m = ClusterRules::from_bits(st);
-            let _ = m.is_break_by_rules(cl, lb);
-            let n = m.to_bits();
-            if !id.contains_key(&n) {
-                let next = id.len() as u8;
-                id.insert(n, next);
-                order.push(n);
-            }
-        }
-    }
-    assert!(
-        order.len() <= 128,
-        "state id must fit 7 bits: {}",
-        order.len()
-    );
-
-    // One byte an entry: bit 7 is the break decision, bits 0..7 the next state.
-    let mut table = vec![0u8; order.len() * 256];
-    let mut ready = vec![0u8; order.len()];
-    for (si, &st) in order.iter().enumerate() {
-        // From the fields: the rule form has no table id to ask. Until
-        // 2026-10-16 one type carried both, and asking its table here
-        // said "not ready" of every state from `from_bits`.
-        ready[si] = u8::from(matches!(
-            ClusterRules::from_bits(st).ordinary_run_blocker(),
-            RunBlocker::Ready
-        ));
-        for b in 0u16..256 {
-            if (b & 0xf) >= 14 {
-                continue;
-            }
-            let (cl, lb) = (
-                GraphemeClass::FROM_INDEX[(b & 0xf) as usize],
-                Lookback::from_bits((b >> 4) as u8),
-            );
-            let mut m = ClusterRules::from_bits(st);
-            let brk = m.is_break_by_rules(cl, lb);
-            table[si * 256 + b as usize] = (u8::from(brk) << 7) | id[&m.to_bits()];
-        }
-    }
-    assert_eq!(
-        ready.iter().filter(|&&r| r == 1).count(),
-        1,
-        "exactly one state is ordinary-run-ready"
-    );
-    let mut out = Vec::new();
-    out.extend_from_slice(&(order.len() as u32).to_le_bytes());
-    out.extend_from_slice(&table);
-    out.extend_from_slice(&ready);
-    for cells in [ClusterCells::Legacy, ClusterCells::LegacyMarksJoined] {
-        out.extend_from_slice(&parts_bits(&order, cells));
-    }
-    out
-}
-
-/// One bit per (state, input), bit `i & 7` of byte `i >> 3` for `i = state *
-/// 256 + input`: the extended rules join there and the variant `cells`
-/// breaks, each from the rules ([`ClusterRules::is_break_in`]).
-fn parts_bits(order: &[u16], cells: ClusterCells) -> Vec<u8> {
-    let mut bits = vec![0u8; order.len() * 256 / 8];
-    for (si, &st) in order.iter().enumerate() {
-        for b in 0u8..=255 {
-            if (b & 0xf) >= 14 {
-                continue;
-            }
-            let (cl, lb) = (
-                GraphemeClass::FROM_INDEX[usize::from(b & 0xf)],
-                Lookback::from_bits(b >> 4),
-            );
-            let joins = !ClusterRules::from_bits(st).is_break_by_rules(cl, lb);
-            let parts = ClusterRules::from_bits(st).is_break_in(cells, cl, lb);
-            if joins && parts {
-                let i = si * 256 + usize::from(b);
-                bits[i >> 3] |= 1 << (i & 7);
-            }
-        }
-    }
-    bits
-}
-
-/// Dump the cluster transition table for `scripts/gen-cluster-table.py`.
-/// Run with `--ignored` to regenerate.
-#[test]
-#[ignore]
-fn emit_cluster_table() {
-    let out = cluster_table_bytes();
-    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/cluster.bin"), &out).expect("write");
-    println!("\n  {} bytes", out.len());
-}
-
-/// The committed `cluster.bin` is what the emitter writes, byte for byte,
-/// and the emitter writes the same bytes twice in one process, as a guard;
-/// determinism rests on the maps being looked up and never iterated.
-#[test]
-fn the_committed_cluster_bin_is_the_emitters_output() {
-    let (a, b) = (cluster_table_bytes(), cluster_table_bytes());
-    assert!(a == b, "the emitter is not deterministic");
-    let committed: &[u8] = include_bytes!("../cluster.bin");
-    assert_eq!(a.len(), committed.len(), "cluster.bin size");
-    if let Some(i) = (0..a.len()).find(|&i| a[i] != committed[i]) {
-        panic!(
-            "cluster.bin differs from the emitter at byte {i}: committed {:#04x}, emitted {:#04x}",
-            committed[i], a[i]
-        );
-    }
-}
-
-/// `cluster_data.rs` is what `cluster.bin` formats to, so the chain from the
-/// rules to the compiled table is closed: rules to `cluster.bin` above, and
-/// `cluster.bin` to `cluster_data.rs` here.
-#[test]
-fn cluster_data_rs_is_what_cluster_bin_formats_to() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-cluster-table.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the formatter");
-    assert!(
-        out.status.success(),
-        "cluster_data.rs is stale -- rerun scripts/gen-cluster-table.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
-/// The committed transition table must reproduce the rule implementation for
+/// The compiled transition table must reproduce the rule implementation for
 /// every reachable state and every input.
 ///
-/// `cluster_next` reads the committed table and `is_break_by_rules` walks
-/// the rules, so this checks the artefact against the rules that generated
-/// it, which is the same contract `the_merged_table_agrees_with_both_tries`
-/// holds for the property table. It does not see the ready byte, which is
-/// why `the_committed_cluster_bin_is_the_emitters_output` exists.
+/// `cluster_next` reads the table `build/cluster.rs` compiles from its own
+/// implementation of the rules, and `is_break_by_rules` walks the crate's,
+/// so this holds the two implementations equal, the same contract
+/// `the_merged_table_agrees_with_both_tries` holds for the property table.
+/// It does not see the ready state or the parts tables, which is why
+/// `the_parts_tables_agree_with_the_rules` exists.
 #[test]
 fn the_cluster_table_agrees_with_the_rules() {
     use baud_domain::cluster_next;

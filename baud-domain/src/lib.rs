@@ -79,26 +79,14 @@ mod cluster_data {
     //! state against every input through the crate's rules.
     include!(concat!(env!("OUT_DIR"), "/cluster_data.rs"));
 }
-// The tables `scripts/gen-cluster-table.py` and `gen-merged-table.py`
-// committed, kept beside the compiled ones until
-// `the_compiled_cluster_and_merged_tables_are_the_committed_ones` has held
-// them equal.
-#[cfg(test)]
-mod cluster_identity;
 mod colour_name;
-#[cfg(test)]
-#[path = "cluster_data.rs"]
-mod committed_cluster_data;
-#[cfg(test)]
-#[path = "merged_data.rs"]
-mod committed_merged_data;
 pub mod contrast;
 mod link_table;
 
 /// One entry of the UAX #29 transition table: bit 7 is the break decision,
 /// bits 0..7 the next state. Exposed so
-/// `the_cluster_table_agrees_with_the_rules` can check the artefact against
-/// the rules that generated it.
+/// `the_cluster_table_agrees_with_the_rules` can check the table
+/// `build/cluster.rs` compiles against the crate's own rules.
 pub fn cluster_next(state: u8, input: u8) -> u8 {
     cluster_data::CLUSTER_NEXT[(state as usize) * 256 + input as usize]
 }

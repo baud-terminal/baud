@@ -1908,13 +1908,13 @@ public   = "The DEC Special Graphics table: 31 codepoints generated from foot's 
 holder   = "Daniel Eklöf (foot)"
 
 [[tree]]
-what     = "Tables generated from the Unicode Character Database files pinned in the manifest: grapheme clusters and widths merged into one table, the text-default emoji a VS16 widens; and, in baud.metallib, compiled, what SGR 64's stress mark skips, the table the builds of baud-render and baud-present-macos compile from baud-render/data/ and write into the shader it is compiled from"
-paths    = ["baud-domain/src/merged_data.rs", "baud-domain/src/vs16.rs", "baud-present-macos/src/baud.metallib"]
+what     = "Tables generated from the Unicode Character Database files pinned in the manifest: the text-default emoji a VS16 widens; and, in baud.metallib, compiled, what SGR 64's stress mark skips, the table the builds of baud-render and baud-present-macos compile from baud-render/data/ and write into the shader it is compiled from"
+paths    = ["baud-domain/src/vs16.rs", "baud-present-macos/src/baud.metallib"]
 licence  = "Unicode-3.0"
 notice   = "LICENSES/Unicode-3.0.txt"
 upstream = "https://www.unicode.org/Public/"
 status   = "kept"
-public   = "Tables generated from the Unicode Character Database and Unicode's emoji data files: grapheme clusters and widths, and emoji presentation. baud.metallib carries the stress mark's skip trie compiled in, which the build writes from baud-render's tables"
+public   = "Tables generated from the Unicode Character Database and Unicode's emoji data files: emoji presentation. baud.metallib carries the stress mark's skip trie compiled in, which the build writes from baud-render's tables"
 holder   = "Unicode, Inc."
 
 [[tree]]
