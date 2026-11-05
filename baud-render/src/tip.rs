@@ -1,7 +1,9 @@
 //! **Hover text baud draws in the frame**: what a word on DEC's indicator
 //! line means, shown while the pointer is over it, on macOS and on Linux
-//! alike, and what a light on the lights' own line means on Linux, whose
-//! window has no tooltips of its own. Wayland has no tooltip protocol,
+//! alike, and what each activity light means, on its own line or in
+//! macOS's title strip: on macOS in place of AppKit's `toolTip`, which
+//! waits out the system's hover delay, and on Linux, whose window has no
+//! tooltips of its own. Wayland has no tooltip protocol,
 //! and its `xdg_popup` -- which "can be used to implement for example
 //! menus, popovers, tooltips"
 //! (`[[source: wp-xdg-shell]]`) -- would be a second surface with its own

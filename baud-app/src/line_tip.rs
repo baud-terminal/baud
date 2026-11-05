@@ -5,15 +5,22 @@
 //! (`baud_render::tip`): Wayland has no tooltip protocol, and drawn here
 //! the pixels are the renderer's on both systems.
 //!
-//! **And over the lights on their own line, on Linux**, all nine: the
-//! pointer over a light's place on the line ([`LightsLine`], where the
-//! last frame drew them) shows its `Led::tip` the same way, above a line
-//! at the bottom and below one at the top, by the same rules. On macOS
-//! those lights carry AppKit's tooltips (`lights::LineTips`).
+//! **And over the activity lights**, all nine, wherever they are: on their
+//! own line in the frame, on macOS and Linux, and in macOS's title strip.
+//! The pointer over a light ([`LightsAt`], each light's place in the
+//! pointer's pixels) shows its `Led::tip` the same way, the moment it
+//! arrives -- no dwell, where AppKit's `toolTip` waits out the system's
+//! delay -- above a line at the bottom and below one at the top or the
+//! title strip, by the same rules. A light in the title strip lies above
+//! the terminal view in a window, at a negative row of its pixels, and
+//! over its top in full screen, where the title bar is a window of its
+//! own; the macOS driver hears the pointer cross it through a tracking
+//! area on each light (`baud_present_macos::hover`), so the tip's rules
+//! depend on the light's frame on the screen and not on which view, or
+//! which window, holds it.
 //!
 //! **WCAG 2.2's 1.4.13, Content on Hover or Focus** (`[[source: wcag22]]`)
-//! governs a tip baud draws itself; its exception, for content "controlled
-//! by the user agent", covers the strip's AppKit tooltips and not this:
+//! governs every tip, since baud draws each itself:
 //!
 //! * **Hoverable**: "the pointer can be moved over the additional content
 //!   without the additional content disappearing". The tip stays while the
@@ -41,13 +48,13 @@
 //! What it does not reach: keyboard focus, since a terminal's keys are the
 //! program's, and a screen reader, since baud exposes no accessibility
 //! element for the grid on either system. The strip's lights on macOS each
-//! carry their hover text as their accessibility help as well
-//! (`lights.rs`).
+//! carry their hover text as their accessibility help (`lights.rs`), and
+//! no `toolTip`, so the system's tip never shows as well as baud's.
 
 use baud_core::{IndicatorLamp, Term};
 use baud_domain::{Col, Row, Rows};
 use baud_font::Px;
-use baud_render::{ByLed, Led, LineEdge, TipArea, TipLook};
+use baud_render::{ByLed, Led, LineEdge, Renderer, TipArea, TipLook};
 
 /// **Where the pointer is, for the tip**: over the main display's cell
 /// `row`, `col`; over column `col` of the status line's row; or anywhere
@@ -109,8 +116,8 @@ pub(crate) enum Changed {
     Yes,
 }
 
-/// **What a tip explains**: a word on DEC's indicator line, or a light on
-/// the lights' own line where baud draws that light's tip (Linux).
+/// **What a tip explains**: a word on DEC's indicator line, or an
+/// activity light, on its own line or in macOS's title strip.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Subject {
     Word(IndicatorLamp),
@@ -128,12 +135,9 @@ impl Subject {
 }
 
 /// **The lights' own line as the last frame drew it**, in the whole
-/// frame's device pixels, for a light's tip where baud draws it: the edge
-/// it is at, its top and height, each placed light's left and width
-/// (`Renderer::lights_places`), where the grid's first cell starts, a
-/// cell's size, and the whole frame's width. Only the Linux driver makes
-/// one.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+/// frame's device pixels: the edge it is at, its top and height, each
+/// placed light's left and width (`Renderer::lights_places`), where the
+/// grid's first cell starts, a cell's size, and the whole frame's width.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct LightsLine {
     pub(crate) edge: LineEdge,
@@ -146,43 +150,105 @@ pub(crate) struct LightsLine {
 }
 
 impl LightsLine {
-    /// **The light whose place on the line `p` is in**, a device pixel of
-    /// the whole frame; none off the line or between the lights.
-    pub(crate) fn light_at(&self, p: (f64, f64)) -> Option<Led> {
-        let px = |v: Px| f64::from(v.value());
-        let on_line = (px(self.top)..px(self.top) + px(self.height)).contains(&p.1);
-        Led::ALL.into_iter().filter(|_| on_line).find(|&led| {
-            self.places
-                .get(led)
-                .is_some_and(|(x, w)| (px(x)..px(x) + px(w)).contains(&p.0))
+    /// The line `r` last drew, or none while the lights are elsewhere or
+    /// off.
+    pub(crate) fn drawn(r: &Renderer<'_, '_>) -> Option<LightsLine> {
+        let m = r.metrics();
+        Some(LightsLine {
+            edge: r.lights_edge()?,
+            top: r.lights_top(),
+            height: r.lights_height(),
+            places: r.lights_places(),
+            origin: (r.strip(), r.grid_top()),
+            cell: (m.cell_w, m.cell_h),
+            width: r.whole_size().0,
         })
     }
 
-    /// **Whether `p` is in `led`'s tip's reach**, its box at `area`: in
-    /// the box's columns or the light's, from the box to the line, so the
-    /// pointer crosses from the light onto the box over the notice, DEC's
-    /// line and the gutter, and across the box, without the tip going. On
-    /// the line itself only the light's own place holds it, as on DEC's
-    /// line only the word does.
-    fn reach(&self, area: TipArea, led: Led, p: (f64, f64)) -> bool {
+    /// **The line's lights in the pointer's pixels**, the frame's corner at
+    /// `corner` among them: the buffer's corner on Linux, where the
+    /// centred frame sits in the view on macOS.
+    pub(crate) fn at(&self, corner: (f64, f64)) -> LightsAt {
         let px = |v: Px| f64::from(v.value());
-        let cell = |o: Px, size: Px, i: usize| px(o) + px(size) * i as f64;
+        LightsAt {
+            edge: self.edge,
+            places: ByLed::of(|led| {
+                self.places.get(led).map(|(x, w)| Spot {
+                    x: corner.0 + px(x),
+                    y: corner.1 + px(self.top),
+                    w: px(w),
+                    h: px(self.height),
+                })
+            }),
+            origin: (corner.0 + px(self.origin.0), corner.1 + px(self.origin.1)),
+            cell: (px(self.cell.0), px(self.cell.1)),
+            right: corner.0 + px(self.width),
+        }
+    }
+}
+
+/// **A light's place in the pointer's pixels**: its left and top, its
+/// width and height.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Spot {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) w: f64,
+    pub(crate) h: f64,
+}
+
+impl Spot {
+    fn holds(&self, p: (f64, f64)) -> bool {
+        (self.x..self.x + self.w).contains(&p.0) && (self.y..self.y + self.h).contains(&p.1)
+    }
+}
+
+/// **Where the lights are, for a light's tip**, in the pointer's device
+/// pixels -- the whole frame's on Linux, the terminal view's on macOS --
+/// whichever view holds them: the main display's side they are on, which
+/// way the tip opens, each placed light's [`Spot`], where the main
+/// display's first cell starts, a cell's size, and the frame's right edge.
+/// A light in macOS's title strip is above the view, at a negative row.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct LightsAt {
+    pub(crate) edge: LineEdge,
+    pub(crate) places: ByLed<Option<Spot>>,
+    pub(crate) origin: (f64, f64),
+    pub(crate) cell: (f64, f64),
+    pub(crate) right: f64,
+}
+
+impl LightsAt {
+    /// **The light whose place `p` is in**; none off every light.
+    pub(crate) fn light_at(&self, p: (f64, f64)) -> Option<Led> {
+        Led::ALL
+            .into_iter()
+            .find(|&led| self.places.get(led).is_some_and(|s| s.holds(p)))
+    }
+
+    /// **Whether `p` is in `led`'s tip's reach**, its box at `area`: in
+    /// the box's columns or the light's, from the light to the box, so the
+    /// pointer crosses from the light onto the box over whatever lies
+    /// between -- the notice, DEC's line and the gutter under a line at the
+    /// bottom, the padding under the title strip -- and across the box,
+    /// without the tip going. Beside the light, level with it, only the
+    /// light's own place holds it, as on DEC's line only the word does.
+    fn reach(&self, area: TipArea, led: Led, p: (f64, f64)) -> bool {
+        let Some(spot) = *self.places.get(led) else {
+            return false;
+        };
+        let cell = |o: f64, size: f64, i: usize| o + size * i as f64;
         let box_left = cell(self.origin.0, self.cell.0, area.left.index());
-        let left = self
-            .places
-            .get(led)
-            .map_or(box_left, |(x, _)| box_left.min(px(x)));
+        let left = box_left.min(spot.x);
+        let right = self.right.max(spot.x + spot.w);
         let (top, bottom) = match self.edge {
-            LineEdge::Bottom => (
-                cell(self.origin.1, self.cell.1, area.top.index()),
-                px(self.top),
-            ),
+            LineEdge::Bottom => (cell(self.origin.1, self.cell.1, area.top.index()), spot.y),
             LineEdge::Top => (
-                px(self.top) + px(self.height),
+                spot.y + spot.h,
                 cell(self.origin.1, self.cell.1, area.bottom.index()),
             ),
         };
-        (left..px(self.width)).contains(&p.0) && (top..bottom).contains(&p.1)
+        (left..right).contains(&p.0) && (top..bottom).contains(&p.1)
     }
 }
 
@@ -195,10 +261,10 @@ impl LightsLine {
 #[derive(Default)]
 pub(crate) struct LineTip {
     over: Option<Over>,
-    /// The pointer in the whole frame's device pixels, where the driver
-    /// draws the lights' line's tips.
+    /// The pointer in the pixels the lights' places are in
+    /// ([`LightsAt`]).
     at: Option<(f64, f64)>,
-    lights: Option<LightsLine>,
+    lights: Option<LightsAt>,
     subject: Option<Subject>,
     look: Option<TipLook>,
     dismissed: Option<Subject>,
@@ -207,13 +273,13 @@ pub(crate) struct LineTip {
 
 impl LineTip {
     /// The pointer moved to `over`.
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(test)]
     pub(crate) fn update(&mut self, term: &Term<'_>, over: Over) -> Changed {
         self.update_at(term, over, None)
     }
 
-    /// The pointer moved to `over`, at `at` in the whole frame's device
-    /// pixels where the driver draws the lights' line's tips.
+    /// The pointer moved to `over`, at `at` in the pixels the lights'
+    /// places are in ([`LightsAt`]).
     pub(crate) fn update_at(
         &mut self,
         term: &Term<'_>,
@@ -226,9 +292,8 @@ impl LineTip {
         self.settle(term)
     }
 
-    /// The pointer left the window: what AppKit's exit says; the Linux
-    /// seat reads a pointer off the surface as [`Over::Elsewhere`].
-    #[cfg(any(target_os = "macos", test))]
+    /// The pointer left the window and every light.
+    #[cfg(test)]
     pub(crate) fn leave(&mut self, term: &Term<'_>) -> Changed {
         self.went = None;
         self.over = None;
@@ -236,11 +301,10 @@ impl LineTip {
         self.settle(term)
     }
 
-    /// The lights' own line as the last frame drew it, or none: where a
-    /// light's tip is hit and whether its light is still placed. The
-    /// pointer has not moved, so nothing else changes.
-    #[cfg(any(target_os = "linux", test))]
-    pub(crate) fn set_lights(&mut self, lights: Option<LightsLine>) {
+    /// Where the lights are now, or none: where a light's tip is hit and
+    /// whether its light is still placed. The pointer has not moved, so
+    /// nothing else changes.
+    pub(crate) fn set_lights(&mut self, lights: Option<LightsAt>) {
         self.lights = lights;
     }
 
@@ -396,9 +460,12 @@ mod tests {
     /// it, each frame refreshing it and handing it to the renderer, and
     /// the cell path drawing its lines with the link preview's bar; the
     /// Linux seat's pointer, its keys, each turn and each frame the same.
-    /// The Linux driver gives the tip the lights' own line as drawn, with
-    /// the pointer's pixel, so a light there shows its own text. The
-    /// strip's lights carry the same text as their accessibility help.
+    /// Both give the tip where the lights are, with the pointer's pixel,
+    /// so a light shows its own text: the Linux driver its line as drawn,
+    /// the macOS driver its line or the title strip's lights, each crossing
+    /// of a light there heard by a tracking area before the next pump. No
+    /// `toolTip` is set anywhere. The strip's lights carry the same text as
+    /// their accessibility help.
     /// Read off the files, as the lights' wiring is.
     #[test]
     fn both_drivers_drive_the_tip() {
@@ -412,11 +479,54 @@ mod tests {
         };
         let mouse = body(MAC, concat!("    fn mouse(&mut self, ", "event: &Mouse) {"));
         for want in [
-            "ViewMouseKind::Exited => self.app.line_tip.leave(&self.app.term),",
-            "crate::line_tip::over_at((event.x, event.y), scale, cell, grid, pad, status)",
-            "self.app.line_tip.update(&self.app.term, over)",
+            "ViewMouseKind::Exited => InView::Left,",
+            "self.tip_at((event.x, event.y), in_view);",
         ] {
             assert!(mouse.contains(want), "{want}");
+        }
+        let at = body(
+            MAC,
+            concat!(
+                "    fn tip_at(&mut self, ",
+                "at: (f64, f64), in_view: InView) {"
+            ),
+        );
+        for want in [
+            "InView::Yes => crate::line_tip::over_at(at, scale, cell, grid, pad, status),",
+            "self.app.line_tip.set_lights(lights);",
+            "self.app.line_tip.update_at(&self.app.term, over, pixel)",
+        ] {
+            assert!(at.contains(want), "{want}");
+        }
+        // The title strip's lights: a crossing their tracking areas heard
+        // settles the tip where the pointer is then, at the next turn,
+        // before the pump draws.
+        let wake = body(
+            MAC,
+            concat!(
+                "    fn wake(&mut self) {
+",
+                "        startup_first("
+            ),
+        );
+        let crossed = wake
+            .find("self.lights_crossed();")
+            .expect("crossings taken");
+        assert!(crossed < wake.find("self.pump(Trigger::Wake);").expect("the pump"));
+        let crossing = body(MAC, concat!("    fn lights_crossed(&mut self) ", "{"));
+        for want in [
+            "if self.lights.crossed().is_empty() {",
+            "mouseLocationOutsideOfEventStream()",
+            "self.view.convertPoint_fromView(now, None)",
+            "self.tip_at((v.x, v.y), in_view);",
+        ] {
+            assert!(crossing.contains(want), "{want}");
+        }
+        assert!(STRIP.contains(".watch(&v);"), "every light's view watched");
+        // No system tip anywhere, so the system's never shows over baud's.
+        let set_tip = concat!("setTool", "Tip");
+        for (name, src) in [("app.rs", MAC), ("lights.rs", STRIP)] {
+            assert!(!src.contains(set_tip), "{name} sets a toolTip");
         }
         let key = body(
             MAC,
@@ -451,7 +561,16 @@ mod tests {
             LINUX,
             concat!(
                 "    fn lights_drawn(&self) -> ",
-                "Option<crate::line_tip::LightsLine> {"
+                "Option<crate::line_tip::LightsAt> {"
+            ),
+        );
+        assert!(drawn.contains("LightsLine::drawn(&self.renderer).map(|l| l.at((0.0, 0.0)))"));
+        const HERE: &str = include_str!("line_tip.rs");
+        let line = body(
+            HERE,
+            concat!(
+                "    pub(crate) fn drawn(r: &Renderer<'_, '_>) -> ",
+                "Option<LightsLine> {"
             ),
         );
         for want in [
@@ -461,7 +580,7 @@ mod tests {
             "origin: (r.strip(), r.grid_top()),",
             "width: r.whole_size().0,",
         ] {
-            assert!(drawn.contains(want), "{want}");
+            assert!(line.contains(want), "{want}");
         }
         let pointer = body(
             LINUX,
@@ -749,7 +868,7 @@ mod tests {
         let line = line_at(LineEdge::Bottom);
         let on = f64::from(line.top.value() + 15);
         let mut tip = LineTip::default();
-        tip.set_lights(Some(line));
+        tip.set_lights(Some(line.at((0.0, 0.0))));
         for led in Led::ALL {
             let (x, w) = line.places.get(led).unwrap();
             let p = (f64::from(x.value() + w.value() / 2), on);
@@ -770,10 +889,7 @@ mod tests {
         assert!(tip.look().is_none(), "on the grid");
         let mut none = LineTip::default();
         point(&mut none, &t, line, (920.0, on));
-        assert!(
-            none.look().is_none(),
-            "no line drawn: macOS's AppKit tooltips"
-        );
+        assert!(none.look().is_none(), "no lights placed");
     }
 
     /// **A light's tip is hoverable, dismissible and persistent as a
@@ -795,7 +911,7 @@ mod tests {
         for edge in [LineEdge::Bottom, LineEdge::Top] {
             let line = line_at(edge);
             let mut tip = LineTip::default();
-            tip.set_lights(Some(line));
+            tip.set_lights(Some(line.at((0.0, 0.0))));
             let (x, w) = line.places.rd.unwrap();
             let mid = f64::from(x.value() + w.value() / 2);
             let on = f64::from(line.top.value() + 15);
@@ -842,16 +958,19 @@ mod tests {
             }
             // A narrow window leaves SD out: gone, and not back until the
             // pointer moves.
-            tip.set_lights(Some(LightsLine {
-                places: ByLed {
-                    sd: None,
-                    ..line.places
-                },
-                ..line
-            }));
+            tip.set_lights(Some(
+                LightsLine {
+                    places: ByLed {
+                        sd: None,
+                        ..line.places
+                    },
+                    ..line
+                }
+                .at((0.0, 0.0)),
+            ));
             assert_eq!(tip.refresh(&t), Changed::Yes);
             assert!(tip.look().is_none(), "{edge:?}: SD left out");
-            tip.set_lights(Some(line));
+            tip.set_lights(Some(line.at((0.0, 0.0))));
             assert_eq!(tip.refresh(&t), Changed::No, "{edge:?}: stays down");
             point(&mut tip, &t, line, (f64::from(sx.value() + 21), on));
             assert!(tip.look().is_some(), "{edge:?}: the pointer moved");
@@ -880,7 +999,7 @@ mod tests {
         let row_y = |r: Row| line.origin.1.value() + n(r.index()) * 34;
         for led in Led::ALL {
             let mut tip = LineTip::default();
-            tip.set_lights(Some(line));
+            tip.set_lights(Some(line.at((0.0, 0.0))));
             let (x, w) = (*line.places.get(led)).expect("every light placed");
             let mid = f64::from(x.value() + w.value() / 2);
             let on = f64::from(line.top.value() + 15);
@@ -897,5 +1016,116 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// **The line's lights are where the frame puts them**, in the
+    /// pointer's pixels: the frame's corner 40 by 30 pixels into the view,
+    /// the line 400 pixels down it and 30 tall, RD 100 pixels along it and
+    /// 40 wide is a spot at (140, 430), 40 by 30, its middle RD's and the
+    /// pixel past its right edge no light's; the main display's first cell
+    /// and the frame's right edge move with the corner; a light the line
+    /// left out has none. Perturbation: leave the corner out -- every spot
+    /// sits up and left of its light -- and this goes red.
+    #[test]
+    fn the_lines_lights_are_where_the_frame_puts_them() {
+        let line = LightsLine {
+            edge: LineEdge::Bottom,
+            top: Px::of(400),
+            height: Px::of(30),
+            places: ByLed {
+                rd: Some((Px::of(100), Px::of(40))),
+                ..ByLed::default()
+            },
+            origin: (Px::of(6), Px::of(8)),
+            cell: (Px::of(16), Px::of(34)),
+            width: Px::of(1290),
+        };
+        let at = line.at((40.0, 30.0));
+        assert_eq!(
+            at.places.rd,
+            Some(Spot {
+                x: 140.0,
+                y: 430.0,
+                w: 40.0,
+                h: 30.0
+            })
+        );
+        assert_eq!(at.light_at((160.0, 445.0)), Some(Led::Rd));
+        assert_eq!(at.light_at((180.0, 445.0)), None, "past its right edge");
+        assert_eq!((at.origin, at.right), ((46.0, 38.0), 1330.0));
+        assert_eq!(at.places.sd, None, "left out");
+    }
+
+    /// **A light in the title strip shows its tip on the first update that
+    /// reaches it, and holds it down to its box**: the strip's lights above
+    /// the view, at negative rows of its pixels, as the macOS driver gives
+    /// them (`strip_lights`), RD 40 pixels wide and 56 tall over the view's
+    /// top, the grid 20 pixels down at 2 pixels a point. The crossing into
+    /// RD, its point in the strip, changes the frame at once and shows RD's
+    /// text opening down, a row below the main display's first; the walk
+    /// straight down from the light over the padding and the gap row and
+    /// through the box keeps it; a key -- Escape is one -- takes it away
+    /// while the pointer stays, and it stays down there; the next light
+    /// shows its own; a crossing out of the light upward takes that away.
+    /// Perturbation: put the strip's lights at the view's top, with no row
+    /// of their own, and the crossing at the strip's point shows nothing.
+    #[test]
+    fn a_title_strip_lights_tip_shows_on_entry_and_holds_to_its_box() {
+        let mut owned = Owned::new(&WS);
+        let t = Term::new(owned.storage(), &WS);
+        let places = ByLed::of(|led| {
+            let i = Led::ALL.iter().position(|&l| l == led).unwrap();
+            Some(Spot {
+                x: 900.0 + 42.0 * i as f64,
+                y: -56.0,
+                w: 40.0,
+                h: 56.0,
+            })
+        });
+        let lights = LightsAt {
+            edge: LineEdge::Top,
+            places,
+            origin: (0.0, 20.0),
+            cell: (16.0, 34.0),
+            right: 1290.0,
+        };
+        let over = |p: (f64, f64)| {
+            over_at(
+                (p.0 / 2.0, p.1 / 2.0),
+                2.0,
+                (16.0, 34.0),
+                (80, 24),
+                (0, 20),
+                t.status_rows(),
+            )
+        };
+        let mut tip = LineTip::default();
+        tip.set_lights(Some(lights));
+        let rd = lights.places.rd.unwrap();
+        let mid = rd.x + rd.w / 2.0;
+        let entered = tip.update_at(&t, Over::Elsewhere, Some((mid, -10.0)));
+        assert_eq!(entered, Changed::Yes, "the crossing shows it at once");
+        let look = tip.look().expect("RD's tip").clone();
+        assert_eq!(text(&look), Led::Rd.tip());
+        assert_eq!(look.area.top, Row::from_index(0), "down from the strip");
+        assert_eq!(look.lines[0].row, Row::from_index(1), "a row below");
+        let bottom = 20 + 34 * i32::try_from(look.area.bottom.index()).unwrap();
+        for y in -9..bottom {
+            let p = (mid, f64::from(y));
+            assert_eq!(tip.update_at(&t, over(p), Some(p)), Changed::No, "{y}");
+            assert!(tip.look().is_some(), "{y}");
+        }
+        let on = (mid + 1.0, -10.0);
+        tip.update_at(&t, Over::Elsewhere, Some(on));
+        assert_eq!(tip.dismiss(&t), Changed::Yes, "a key, Escape among them");
+        assert!(tip.look().is_none());
+        let still = tip.update_at(&t, Over::Elsewhere, Some((mid, -11.0)));
+        assert_eq!(still, Changed::No, "stays dismissed on the light");
+        let sd = lights.places.sd.unwrap();
+        tip.update_at(&t, Over::Elsewhere, Some((sd.x + 20.0, -10.0)));
+        assert_eq!(text(tip.look().expect("SD's")), Led::Sd.tip());
+        let gone = tip.update_at(&t, Over::Elsewhere, Some((sd.x + 20.0, -60.0)));
+        assert_eq!(gone, Changed::Yes, "out of the light upward");
+        assert!(tip.look().is_none());
     }
 }

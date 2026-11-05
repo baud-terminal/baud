@@ -29,14 +29,15 @@
 //! [`lights`], for the one bitmap the activity lights are shown in;
 //! [`notify`], for the messages it sends by name; [`settings`],
 //! [`launch`], [`closing`] and [`full_screen`], each for a notification's
-//! observer; and [`keyup`], for the key-up monitor's registration and
-//! handler.
+//! observer; [`keyup`], for the key-up monitor's registration and
+//! handler; and [`hover`], for its tracking areas' owner.
 #![cfg(target_os = "macos")]
 #![deny(unsafe_code)]
 
 pub mod clipboard;
 pub mod closing;
 pub mod full_screen;
+pub mod hover;
 pub mod journal;
 pub mod keyup;
 pub mod launch;

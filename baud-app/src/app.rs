@@ -4501,9 +4501,6 @@ struct Driver {
     /// The activity lights at the strip's right, in a trailing titlebar
     /// accessory (`lights.rs`, `strip.rs`).
     lights: crate::lights::Strip,
-    /// The hover texts over the lights' own line, when the setting puts
-    /// them there (`lights.rs`).
-    line_tips: crate::lights::LineTips,
     /// OH's and CD's sampler of the job in front, and the kernel's reads
     /// it makes, on the tick while the lights are on (`front.rs`).
     front: crate::front::Front,
@@ -11939,21 +11936,15 @@ impl Responder for Driver {
             ViewMouseKind::Up => crate::hide::Act::Nothing,
         };
         hide_pointer(act);
-        // The hover text over DEC's line's words: where the pointer is,
-        // the line's row included, which a press or a report clamps away.
-        let tipped = match event.kind {
-            ViewMouseKind::Exited => self.app.line_tip.leave(&self.app.term),
-            _ => {
-                let (scale, cell, grid, pad) = self.pointer_geometry();
-                let status = self.app.term.status_rows();
-                let over =
-                    crate::line_tip::over_at((event.x, event.y), scale, cell, grid, pad, status);
-                self.app.line_tip.update(&self.app.term, over)
-            }
+        // The hover text over DEC's line's words and over the lights:
+        // where the pointer is, the line's row included, which a press or a
+        // report clamps away; a pointer leaving the view is over no cell,
+        // and perhaps over a light in the title strip.
+        let in_view = match event.kind {
+            ViewMouseKind::Exited => InView::Left,
+            _ => InView::Yes,
         };
-        if tipped == crate::line_tip::Changed::Yes {
-            self.app.pending = Pending::Dirty;
-        }
+        self.tip_at((event.x, event.y), in_view);
         // Any press is input to the blink's stop -- one the scrollbar, a
         // link or a tracking child takes too -- before those take it, and
         // to a GIF frame waiting for the user (`Term::pointer_pressed`).
@@ -12369,6 +12360,9 @@ impl Responder for Driver {
         if ASKED.with(|a| a.take(self.window_id)) {
             self.new_window();
         }
+        // The pointer crossing a light in the title strip, heard by its
+        // tracking area since the last turn.
+        self.lights_crossed();
         let (began, start) = (host_now(), Instant::now());
         self.pump(Trigger::Wake);
         self.app.launch_log.turn(began, start.elapsed());
@@ -12960,8 +12954,7 @@ impl Opening {
             // lights it is placed against.
             icon: None,
             icon_inset: inset,
-            lights: crate::lights::Strip::new(None),
-            line_tips: crate::lights::LineTips::new(),
+            lights: crate::lights::Strip::new(None, None),
             front: crate::front::Front::new(),
             procs: crate::front::Live::new(),
             synced: crate::bell::Synced::new(),
@@ -13094,12 +13087,13 @@ impl Opening {
         // in the traffic lights' own view, which AppKit detaches from the
         // window in full screen, so neither stays behind in the content.
         driver.icon = crate::mark::Mark::put(mtm, &window, inset);
-        driver.lights = crate::lights::Strip::new(Some(crate::strip::Accessory::put(
+        let holder = crate::strip::Accessory::put(
             mtm,
             &window,
             TitlebarSide::Trailing,
             NSSize::new(0.0, inset),
-        )));
+        );
+        driver.lights = crate::lights::Strip::new(Some(holder), Some(driver.view.waker()));
         startup_mark("titlebar");
         // The glass under the terminal now that the first frame is on the
         // layer: ordering a window whose content is a glass effect view costs
@@ -14902,30 +14896,82 @@ impl Driver {
             }
             self.app.pending = Pending::Dirty;
         }
-        self.place_line_tips();
+        self.place_tips();
     }
 
-    /// **The hover texts over the lights' own line**, where the last frame
-    /// placed the lights: the whole frame centred in the view as
-    /// `grid_origin` centres it, and none without a line.
-    fn place_line_tips(&mut self) {
+    /// **Where the lights are, for their hover text**, told to the tip,
+    /// which each frame settles again (`line_tip.rs`).
+    fn place_tips(&mut self) {
+        let lights = self.lights_at();
+        self.app.line_tip.set_lights(lights);
+    }
+
+    /// **Where the lights are, in the terminal view's device pixels**: on
+    /// their own line, where the last frame placed them, the whole frame
+    /// centred in the view as `grid_origin` centres it; in the title strip,
+    /// each shown light's frame on the screen (`Strip::screen_frames`),
+    /// through whichever window holds it, brought into the view through the
+    /// terminal's window: above the view in a window, over its top in full
+    /// screen, where the title bar is a window of its own. None with the
+    /// lights off.
+    fn lights_at(&self) -> Option<crate::line_tip::LightsAt> {
         let r = &self.app.renderer;
-        let rects = match r.lights_edge() {
-            Some(_) => {
-                let (w, h) = r.whole_size();
-                let (sw, sh) = self.app.view_px;
-                let origin = grid_origin((sw, sh), (w, h), Px::of(0), Px::of(0));
-                crate::lights::line_tips(
-                    origin,
-                    r.lights_top(),
-                    r.lights_height(),
-                    r.lights_places(),
-                    self.app.scale,
-                )
-            }
-            None => baud_render::ByLed::default(),
+        let whole = r.whole_size();
+        let o = grid_origin(self.app.view_px, whole, Px::of(0), Px::of(0));
+        let px = |v: Px| f64::from(v.value());
+        let corner = (px(o.0), px(o.1));
+        if let Some(line) = crate::line_tip::LightsLine::drawn(r) {
+            return Some(line.at(corner));
+        }
+        let frames = self.lights.screen_frames();
+        let w = self.window.ns_window();
+        let in_view = baud_render::ByLed::of(|led| {
+            (*frames.get(led)).map(|s| baud_present_macos::hover::in_view(w, &self.view, s))
+        });
+        let m = r.metrics();
+        strip_lights(
+            in_view,
+            self.app.scale,
+            (corner.0 + px(r.strip()), corner.1 + px(r.grid_top())),
+            (px(m.cell_w), px(m.cell_h)),
+            corner.0 + px(whole.0),
+        )
+    }
+
+    /// **The tip at view point `at`**: the cell under it, the line's row
+    /// counted, or none where the pointer has left the view; and its pixel,
+    /// for the lights, which a light in the title strip is above the view.
+    fn tip_at(&mut self, at: (f64, f64), in_view: InView) {
+        let (scale, cell, grid, pad) = self.pointer_geometry();
+        let status = self.app.term.status_rows();
+        let over = match in_view {
+            InView::Left => crate::line_tip::Over::Elsewhere,
+            InView::Yes => crate::line_tip::over_at(at, scale, cell, grid, pad, status),
         };
-        self.line_tips.place(&self.view, rects);
+        let lights = self.lights_at();
+        self.app.line_tip.set_lights(lights);
+        let pixel = Some((at.0 * scale, at.1 * scale));
+        if self.app.line_tip.update_at(&self.app.term, over, pixel) == crate::line_tip::Changed::Yes
+        {
+            self.app.pending = Pending::Dirty;
+        }
+    }
+
+    /// **The pointer crossing a light's edge in the title strip**, heard
+    /// by the lights' tracking areas since the last turn: the tip settled
+    /// where the pointer is now, brought into the view, so it shows on the
+    /// frame after the pointer reaches a light. Now and not where it
+    /// crossed: the wake that brings a crossing can come after moves the
+    /// view already heard, and its older point would bring back a tip the
+    /// pointer has left.
+    fn lights_crossed(&mut self) {
+        if self.lights.crossed().is_empty() {
+            return;
+        }
+        let now = self.window.ns_window().mouseLocationOutsideOfEventStream();
+        let v = self.view.convertPoint_fromView(now, None);
+        let in_view = in_view_at(self.view.bounds(), v);
+        self.tip_at((v.x, v.y), in_view);
     }
 
     /// **The title strip's ends now** (`strip.rs`): the window's width,
@@ -15775,6 +15821,53 @@ fn band_of(view_w: Px, beside: Px, padding: f64, scale: CGFloat) -> Px {
     // `as i64` is the widening the audit permits.
     let pad = u32::try_from((padding * scale).max(0.0).floor() as i64).unwrap_or(0);
     Px::of(pad.min(left))
+}
+
+/// Whether the pointer is over the terminal view or has left it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum InView {
+    Yes,
+    Left,
+}
+
+/// Whether view point `p` is in the view's `bounds`.
+fn in_view_at(bounds: NSRect, p: NSPoint) -> InView {
+    let (o, s) = (bounds.origin, bounds.size);
+    match (o.x..o.x + s.width).contains(&p.x) && (o.y..o.y + s.height).contains(&p.y) {
+        true => InView::Yes,
+        false => InView::Left,
+    }
+}
+
+/// **The title strip's lights in the terminal view's device pixels**: each
+/// shown light's frame in the flipped view's points, at `scale`, above the
+/// view's top in a window and over it in full screen; the tip opens down from the main display, whose first cell
+/// is at `origin`, a cell `cell` and the frame's right edge at `right`.
+/// None with no light shown.
+fn strip_lights(
+    in_view: baud_render::ByLed<Option<NSRect>>,
+    scale: f64,
+    origin: (f64, f64),
+    cell: (f64, f64),
+    right: f64,
+) -> Option<crate::line_tip::LightsAt> {
+    if in_view.iter().all(|(_, r)| r.is_none()) {
+        return None;
+    }
+    Some(crate::line_tip::LightsAt {
+        edge: baud_render::LineEdge::Top,
+        places: baud_render::ByLed::of(|led| {
+            (*in_view.get(led)).map(|r| crate::line_tip::Spot {
+                x: r.origin.x * scale,
+                y: r.origin.y * scale,
+                w: r.size.width * scale,
+                h: r.size.height * scale,
+            })
+        }),
+        origin,
+        cell,
+        right,
+    })
 }
 
 /// **Where the grid begins in the view**, in device pixels: the whole
@@ -20136,5 +20229,42 @@ mod carried_tests {
         );
         assert_eq!(now.from, was.from);
         assert!((now.origin_dy - was.origin_dy - 3.0 * cell_h).abs() < 1e-3);
+    }
+}
+
+#[cfg(test)]
+mod strip_lights_tests {
+    use super::{InView, in_view_at, strip_lights};
+    use baud_render::{ByLed, LineEdge};
+    use macos_liquid_glass::objc2_foundation::{NSPoint, NSRect, NSSize};
+
+    /// **The title strip's lights in the view's pixels**: a light's frame
+    /// 20 by 28 points at (450, -28) in the flipped view, above its top, is
+    /// 40 by 56 pixels at (900, -56) at 2x, the tip opening down; none
+    /// shown, none at all; and the pointer over the light has left the
+    /// view, a point below its top has not. Perturbation: take the frame's
+    /// bottom-left corner, as an unflipped view has it, and RD sits below
+    /// the strip.
+    #[test]
+    fn the_strips_lights_are_above_the_view_in_its_pixels() {
+        let rect = |x, y| Some(NSRect::new(NSPoint::new(x, y), NSSize::new(20.0, 28.0)));
+        let frames = ByLed {
+            rd: rect(450.0, -28.0),
+            sd: rect(471.0, -28.0),
+            ..ByLed::default()
+        };
+        let got = strip_lights(frames, 2.0, (0.0, 20.0), (16.0, 34.0), 1290.0).expect("lights");
+        assert_eq!(got.edge, LineEdge::Top);
+        let rd = got.places.rd.expect("RD");
+        assert_eq!((rd.x, rd.y, rd.w, rd.h), (900.0, -56.0, 40.0, 56.0));
+        assert_eq!(got.light_at((910.0, -1.0)), Some(baud_render::Led::Rd));
+        assert_eq!(got.light_at((910.0, 1.0)), None, "the view's first row");
+        assert!(got.places.hs.is_none());
+        assert!(strip_lights(ByLed::default(), 2.0, (0.0, 0.0), (16.0, 34.0), 1.0).is_none());
+        // Where the pointer is when a crossing is taken: over the light,
+        // above the view, it has left the view; just under it, in it.
+        let view = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(640.0, 400.0));
+        assert_eq!(in_view_at(view, NSPoint::new(455.0, -1.0)), InView::Left);
+        assert_eq!(in_view_at(view, NSPoint::new(455.0, 0.5)), InView::Yes);
     }
 }

@@ -2553,21 +2553,11 @@ impl Driver {
     }
 
     /// **The lights' own line as the last frame drew it**, for their hover
-    /// text, which baud draws on Linux: the whole frame is drawn from the
-    /// buffer's corner, so its pixels are the surface's at the scale. None
-    /// while the lights are elsewhere or off.
-    fn lights_drawn(&self) -> Option<crate::line_tip::LightsLine> {
-        let r = &self.renderer;
-        let m = r.metrics();
-        Some(crate::line_tip::LightsLine {
-            edge: r.lights_edge()?,
-            top: r.lights_top(),
-            height: r.lights_height(),
-            places: r.lights_places(),
-            origin: (r.strip(), r.grid_top()),
-            cell: (m.cell_w, m.cell_h),
-            width: r.whole_size().0,
-        })
+    /// text, which baud draws on Linux as on macOS: the whole frame is
+    /// drawn from the buffer's corner, so its pixels are the surface's at
+    /// the scale. None while the lights are elsewhere or off.
+    fn lights_drawn(&self) -> Option<crate::line_tip::LightsAt> {
+        crate::line_tip::LightsLine::drawn(&self.renderer).map(|l| l.at((0.0, 0.0)))
     }
 
     /// **Who is in front at `now`**: the terminal's foreground group

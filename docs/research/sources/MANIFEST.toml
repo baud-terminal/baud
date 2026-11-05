@@ -35409,6 +35409,20 @@ status = "external"
 group  = "AX"
 # Read 2026-10-21; not committed, a vendor page.
 
+[sources.macos-sdk-nstrackingarea-h]
+key    = "macos-sdk-nstrackingarea-h"
+title  = "NSTrackingArea.h -- NSTrackingMouseEnteredAndExited, NSTrackingActiveAlways, NSTrackingInVisibleRect, the owner held weakly"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (Xcode 27.0)"
+url    = "$SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSTrackingArea.h"
+file   = ""
+sha256 = "e14fa2b09053afc05d0962ea5db14ad8addf22fe3a540839de1db4cfae11a4b5"
+bytes  = 3397
+status = "external"
+group  = "AH"
+# Read for what each option makes AppKit send a tracking area's owner.
+
 [sources.macos-sdk-unusernotificationcenter-h]
 key    = "macos-sdk-unusernotificationcenter-h"
 title  = "UNUserNotificationCenter.h -- currentNotificationCenter, requestAuthorizationWithOptions, addNotificationRequest, removeDeliveredNotificationsWithIdentifiers, the delegate"

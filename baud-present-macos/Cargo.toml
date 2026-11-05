@@ -56,6 +56,19 @@ block2 = "0.6"
 objc2-quartz-core = "0.3.2"
 objc2-core-foundation = "0.3"
 
+# AppKit's views are main-thread-only and libtest runs each test on a thread
+# of its own: this test's `main` is the process's main thread.
+[[test]]
+name = "crossings"
+path = "tests/crossings.rs"
+harness = false
+
+# The same, for two windows built and never shown.
+[[test]]
+name = "on_screen"
+path = "tests/on_screen.rs"
+harness = false
+
 # `baud-core`'s NEON scan, on, for the reason `baud-render` gives.
 [features]
 default = ["neon-scan"]

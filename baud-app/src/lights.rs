@@ -10,12 +10,17 @@
 //! full screen (`strip.rs`) -- re-placed on every resize. The accessory
 //! is sized at every layout to the lights and to the room right of the
 //! lockup ([`crate::strip::lights_width`]), since AppKit lets the two
-//! ends of a narrow title bar overlap. A view a light gives each its own
-//! hover text, AppKit's `toolTip`, shown only while the pointer is over
-//! that light, and its frame is the tooltip's rectangle wherever the view
-//! is placed. A light that would reach baud's lockup in a narrow window is
-//! not drawn, the leftmost first, so nothing covers the traffic lights or
-//! the lockup.
+//! ends of a narrow title bar overlap. Each light's view has its own
+//! tracking area (`baud_present_macos::hover`): the pointer crossing a
+//! light is heard at once, and baud draws the light's hover text in the
+//! frame on the next frame (`line_tip.rs`), as it does on Linux, with no
+//! `toolTip`, whose system delay is the wait this replaces. What decides
+//! which light the pointer is over is each light's frame on the screen
+//! ([`Strip::screen_frames`]), through whichever window holds its view --
+//! in full screen the title bar's own, not the terminal's
+//! (`baud_present_macos::hover`). A light that would
+//! reach baud's lockup in a narrow window is not drawn, the leftmost
+//! first, so nothing covers the traffic lights or the lockup.
 //!
 //! **The colours are the theme's** (`Renderer::lights_look`): every lamp
 //! one of the theme's sixteen palette entries in the set `[window]
@@ -40,20 +45,20 @@
 //! **Or on a line of their own in the frame** (`[window] activity_lights
 //! = "bottom_line"` or `"top_line"`): the renderer draws the same pictures
 //! there on the same plate (`baud_render::lights`,
-//! `Renderer::set_lights_line`), and this module puts each light's hover
-//! text over its place on that line ([`LineTips`]). The Linux window has no
+//! `Renderer::set_lights_line`), and `line_tip.rs` shows each light's
+//! hover text from its place on that line. The Linux window has no
 //! title bar -- no compositor decorations are asked for and none are drawn
 //! -- so the line is its default, and its lights are drawn there by the
 //! Linux driver.
 
+use baud_present_macos::hover::Crossings;
 use baud_render::lights::{PLATE_PAD, PLATE_RADIUS_TITLE, PLATE_TITLE, draw_plate};
 use baud_render::{
     ActivityLights, ByLed, ByLight, Glow, Led, Light, LightsImage, LightsLook, Renderer, Shown,
 };
+use macos_liquid_glass::drawable::Waker;
 use macos_liquid_glass::objc2::rc::Retained;
-use macos_liquid_glass::objc2_app_kit::{
-    NSAccessibility, NSImage, NSImageScaling, NSImageView, NSView,
-};
+use macos_liquid_glass::objc2_app_kit::{NSAccessibility, NSImage, NSImageScaling, NSImageView};
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 
@@ -210,10 +215,14 @@ pub(crate) struct Strip {
     spans: Spans,
     /// The scale the spans are whole device pixels at.
     scale: CGFloat,
+    /// The lights' tracking areas' owner, made with the views, and whom it
+    /// wakes at a crossing.
+    crossings: Option<Crossings>,
+    waker: Option<Waker>,
 }
 
 impl Strip {
-    pub(crate) fn new(holder: Option<crate::strip::Accessory>) -> Strip {
+    pub(crate) fn new(holder: Option<crate::strip::Accessory>, waker: Option<Waker>) -> Strip {
         Strip {
             holder,
             views: ByLed::default(),
@@ -226,7 +235,30 @@ impl Strip {
                 width: 0.0,
             },
             scale: 1.0,
+            crossings: None,
+            waker,
         }
+    }
+
+    /// **The screen points the pointer crossed a light's edge at** since
+    /// the last call, in order: where the driver settles a light's tip.
+    pub(crate) fn crossed(&self) -> Vec<NSPoint> {
+        self.crossings
+            .as_ref()
+            .map_or_else(Vec::new, Crossings::take)
+    }
+
+    /// **Each shown light's frame on the screen**, from its view, through
+    /// the window that holds it, which in full screen is the title bar's
+    /// and not the terminal's; none for a light not shown.
+    pub(crate) fn screen_frames(&self) -> ByLed<Option<NSRect>> {
+        ByLed::of(|led| {
+            self.views
+                .get(led)
+                .as_ref()
+                .filter(|v| !v.isHidden())
+                .and_then(|v| baud_present_macos::hover::on_screen(v))
+        })
     }
 
     /// The face or the window changed under the pictures: the next tick
@@ -305,10 +337,15 @@ impl Strip {
                 }
                 let v = NSImageView::new(mtm);
                 v.setImageScaling(NSImageScaling::ScaleNone);
-                v.setToolTip(Some(&NSString::from_str(led.tip())));
+                // No `toolTip`: baud draws the hover text at once, where
+                // AppKit's would wait out the system's delay and show
+                // over baud's. The pointer crossing the light is heard.
+                let waker = self.waker;
+                self.crossings
+                    .get_or_insert_with(|| Crossings::new(mtm, waker))
+                    .watch(&v);
                 // What VoiceOver says of the light: its letters, and its
-                // hover text set as the element's help, whatever AppKit
-                // derives from the tooltip.
+                // hover text set as the element's help.
                 v.setAccessibilityLabel(Some(&NSString::from_str(led.letters())));
                 v.setAccessibilityHelp(Some(&NSString::from_str(led.tip())));
                 container.addSubview(&v);
@@ -370,82 +407,6 @@ impl Strip {
                 None => v.setHidden(true),
             }
         }
-    }
-}
-
-/// **Each light's hover rectangle on the lights' own line**, in the
-/// terminal view's points, top-left origin as the view is flipped: the
-/// whole frame at `origin` device pixels in the view, the line `top`
-/// pixels down it and `height` tall, each placed light at its left and
-/// width on the line (`Renderer::lights_places`); a light the line left
-/// out has none.
-pub(crate) fn line_tips(
-    origin: (baud_font::Px, baud_font::Px),
-    top: baud_font::Px,
-    height: baud_font::Px,
-    places: ByLed<Option<(baud_font::Px, baud_font::Px)>>,
-    scale: CGFloat,
-) -> ByLed<Option<NSRect>> {
-    let scale = scale.max(1.0);
-    let pt = |px: u32| CGFloat::from(px) / scale;
-    let y = pt(origin.1.value().saturating_add(top.value()));
-    ByLed::of(|led| {
-        places.get(led).map(|(x, w)| {
-            NSRect::new(
-                NSPoint::new(pt(origin.0.value().saturating_add(x.value())), y),
-                NSSize::new(pt(w.value()), pt(height.value())),
-            )
-        })
-    })
-}
-
-/// **The hover texts of the lights on their own line**: a clear view a
-/// light, over its place in the terminal view, with its `toolTip`, as the
-/// title strip's image views carry theirs; it draws nothing and takes no
-/// event a superview would, since a view's unhandled mouse event goes on
-/// up the responder chain.
-pub(crate) struct LineTips {
-    views: ByLed<Option<Retained<NSView>>>,
-    at: ByLed<Option<NSRect>>,
-}
-
-impl LineTips {
-    pub(crate) fn new() -> LineTips {
-        LineTips {
-            views: ByLed::default(),
-            at: ByLed::default(),
-        }
-    }
-
-    /// Each light's view over `rects` in `view`, made the first time, and
-    /// hidden where a light has no place -- or every one, with no line.
-    pub(crate) fn place(&mut self, view: &NSView, rects: ByLed<Option<NSRect>>) {
-        // Nothing to move, or no line and no view made for one.
-        let none = |(_, v): (Led, &Option<Retained<NSView>>)| v.is_none();
-        if rects == self.at
-            && (self.views.iter().all(|(_, v)| v.is_some()) || self.views.iter().all(none))
-        {
-            return;
-        }
-        let Some(mtm) = MainThreadMarker::new() else {
-            return;
-        };
-        for led in Led::ALL {
-            let v = self.views.get_mut(led).get_or_insert_with(|| {
-                let v = NSView::new(mtm);
-                v.setToolTip(Some(&NSString::from_str(led.tip())));
-                view.addSubview(&v);
-                v
-            });
-            match rects.get(led) {
-                Some(r) => {
-                    v.setFrame(*r);
-                    v.setHidden(false);
-                }
-                None => v.setHidden(true),
-            }
-        }
-        self.at = rects;
     }
 }
 
@@ -806,39 +767,6 @@ mod tests {
         assert_eq!(kept, [9, 8, 3], "the leftmost go first");
     }
 
-    /// **Each light on its own line has its hover rectangle over its place**,
-    /// in the flipped view's points: the whole frame 20 by 15 pixels into
-    /// the view at 2x, the line 400 pixels down it and 30 tall, RD 100
-    /// pixels along it and 40 wide is (60, 207.5) points and 20 by 15; a
-    /// light the line left out has none. Perturbation: leave the frame's
-    /// origin out -- every rectangle sits up and left of its light -- and
-    /// this goes red.
-    #[test]
-    fn each_light_on_its_line_has_its_hover_rectangle() {
-        use baud_font::Px;
-        let places = ByLed {
-            rd: Some((Px::of(100), Px::of(40))),
-            syn: Some((Px::of(500), Px::of(60))),
-            ..ByLed::default()
-        };
-        let r = line_tips(
-            (Px::of(20), Px::of(15)),
-            Px::of(400),
-            Px::of(30),
-            places,
-            2.0,
-        );
-        let rect = |x, y, w, h| Some(NSRect::new(NSPoint::new(x, y), NSSize::new(w, h)));
-        assert_eq!(r.rd, rect(60.0, 207.5, 20.0, 15.0));
-        assert_eq!(r.syn, rect(260.0, 207.5, 30.0, 15.0));
-        for led in Led::ALL
-            .into_iter()
-            .filter(|&l| l != Led::Rd && l != Led::Syn)
-        {
-            assert_eq!(*r.get(led), None, "{led:?}: left out");
-        }
-    }
-
     /// **Each light's rectangle shows its own text, and only its own**:
     /// the point at the middle of every placed light falls in that light's
     /// rectangle and in no other's, and the text there names that light's
@@ -1072,12 +1000,12 @@ mod tests {
         let style = body(concat!("    fn apply_style(&mut self) ", "{"));
         assert!(style.contains("self.lights.stale();"), "{style}");
         // On their own line: the tick hands the renderer what they show and
-        // puts the hover texts over them, every frame places their records,
+        // tells the tips where the lights are, every frame places their records,
         // and a re-lay sets the line at its scale and takes its pixels off
         // the grid's.
         for want in [
             "self.app.renderer.set_lights(shown, glow);",
-            "self.place_line_tips();",
+            "self.place_tips();",
         ] {
             assert!(show.contains(want), "{want}\n{show}");
         }

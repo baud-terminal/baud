@@ -1111,7 +1111,8 @@ mod tests {
             origin: (Px::of(0), Px::of(0)),
             cell: (Px::of(20), Px::of(20)),
             width: Px::of(400),
-        };
+        }
+        .at((0.0, 0.0));
         assert_eq!(seat.frame_point(2.0), None, "not on the surface");
         put(&mut seat, &mut t, Input::Entered(55.0, 64.5), NONE);
         let at = seat.frame_point(2.0).expect("on the surface");

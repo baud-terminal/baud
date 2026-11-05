@@ -1918,3 +1918,59 @@ what a modem's CS was, and dark says the line closed.
   outbox feeds, DEC's word and the session's lights. Re-pinned: the line's twelve
   digests and the light's tip frame, by the bar's pixels and, lit, CS's
   colour.
+
+## 18. Built: every light's hover text at once, drawn by baud on macOS too
+
+The strip's lights and the line's on macOS carried AppKit's `toolTip`,
+which shows only after the system's hover delay. baud draws each light's text itself now, as Linux already did
+(`baud_render::tip`), on the frame after the pointer reaches the light,
+with no dwell, and no `toolTip` is set, so the system's never shows as
+well. The pixels are the same on both systems.
+
+- **Heard**: a tracking area on each light's view, owned by one object
+  (`baud_present_macos::hover`), entered and exited always and in the
+  view's visible rect (`[[source: macos-sdk-nstrackingarea-h]]`). A
+  crossing wakes the responder, which settles the tip where the pointer
+  is then (`mouseLocationOutsideOfEventStream`) before the pump: the wake
+  can arrive after moves the view already heard, and the crossing's own
+  point would bring back a tip the pointer has left.
+- **Where**: which light the pointer is over is a function of each
+  light's frame on the screen (`Strip::screen_frames`), read through the
+  window that holds the light and brought into the terminal view's
+  pixels through the terminal's (`hover::on_screen`, `hover::in_view`;
+  `line_tip::LightsAt`), so the views moving into a titlebar accessory
+  changes where they are read from and nothing else. The route is the
+  screen's because in full screen the title bar, and the accessory in
+  it, is a window of its own -- "Fullscreen window toolbar is detached
+  from window and hides/shows on rollover"
+  (`[[source: sdk27-nsapplication-h]]`, line 168): a light's rect in its
+  window's coordinates is in that window's, and read as the terminal's
+  it put a light's hit spot 930 points from the light, as far as the
+  title bar's window sits up the screen, in two windows never shown
+  placed as full screen places them
+  (`baud-present-macos/tests/on_screen.rs`). In a window the two windows
+  are one and the route gives what the window's coordinates gave; the
+  same test pins that. A crossing's point goes to the screen through the
+  event's window the same way. The line's lights are the renderer's
+  places, offset by where the frame sits in the view.
+- **WCAG 2.2's 1.4.13** holds for the strip's lights as for the line's:
+  the tip opens down from the main display and stays while the pointer
+  moves from the light to it and across it; it stays until the pointer
+  leaves, its light goes or a key is typed, Escape among them, which
+  dismisses it without moving the pointer, on both systems.
+- **Not shown by a test**: that AppKit sends the crossings for real
+  pointer motion. The test sends the owner the messages the header names,
+  with events `NSEvent` builds, in a view never put on screen.
+- **Open, unmeasured**: in full screen the strip's lights lie over the
+  terminal view's top, and the tip is drawn in the terminal's layer,
+  opening down from the main display. Whether that box shows over or
+  under the title bar's window while the title bar is shown is
+  unmeasured: it needs a window in full screen on the screen, which no
+  test here opens.
+- **Open, unmeasured**: when the full-screen title bar hides, whether
+  AppKit moves its window off the screen or keeps its frame and only
+  takes it away. In the first case the lights' hit spots leave the view;
+  in the second `Strip::screen_frames`, which asks only whether a
+  light's view is hidden, still gives them, and the pointer over the
+  grid's top rows at the lights' x would show a light's tip with no
+  light shown. It needs the same window in full screen on the screen.
