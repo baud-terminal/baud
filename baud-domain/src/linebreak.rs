@@ -1,11 +1,54 @@
 //! **Unicode's line breaking algorithm**, UAX #14 revision 55 for Unicode
-//! 17.0.0 (`[[source: uax14]]`), with its default rules and no tailoring:
-//! where a line of text may break, must break, and must not. Each code
-//! point's class is one indexed load from a table generated from
-//! `LineBreak.txt` (`linebreak_data.rs`), and the rules LB2 to LB31 are
-//! read at each boundary in the order the annex gives them, the first that
-//! applies deciding. `every_line_break_test_case_breaks_where_it_says`
-//! holds every case of Unicode's `LineBreakTest.txt` to it.
+//! 17.0.0 (`[[source: uax14]]`): where a line of text may break, must
+//! break, and must not. Each code point's class is one indexed load from a
+//! table generated from `LineBreak.txt` (`linebreak_data.rs`), and the
+//! rules LB2 to LB31 are read at each boundary in the order the annex
+//! gives them, the first that applies deciding.
+//!
+//! **Two entry points.** [`line_breaks`] is the algorithm with its default
+//! rules and no tailoring, and
+//! `every_line_break_test_case_breaks_where_it_says` holds every case of
+//! Unicode's `LineBreakTest.txt` to it. [`line_breaks_in_paths`] is the
+//! same algorithm with one tailoring, for file paths and URLs, which the
+//! display's word wrap uses.
+//!
+//! **The tailoring, disclosed as UAX14-C1 requires** ("If the
+//! implementation tailors the behavior of Section 6.2, Tailorable Line
+//! Breaking Rules, that fact must be disclosed"). Inside a *path run* a
+//! line breaks **before** a separator, not after it, so `/home/jordan`
+//! wraps as `/home` then `/jordan`. A run is a stretch with no space, hard
+//! break or ZW, past any opening bracket or quotation mark that leads it,
+//! and it is a path run when it starts `/`, `~/`, `./` or `../`, holds
+//! `://`, starts with a drive `X:\` or a UNC `\\` (where `\` separates
+//! as `/` does), or holds two or more `/` and is not a number form, a run
+//! built only from LB25's classes (NU SY IS PR PO OP CL CP HY). Every other
+//! run keeps the default rules: `1/2`, `06/07/99`, `w/o`, `and/or` and
+//! `src/main.rs` break exactly as UAX #14 breaks them. In a path run, with
+//! *sep* a separator and *seg* a letter, a digit or `.`:
+//!
+//! * **T1** `SP ÷` before the run's first separator or its first
+//!   character, so a path moves to the next line whole (`cd ÷/home`,
+//!   `cd ÷../etc`), where LB13 forbids a break before `/` "even after
+//!   spaces" and LB15d one before the `.` of `../`; not where the spaces
+//!   follow an opening bracket or quotation mark, which LB14 and LB15a
+//!   keep.
+//! * **T2** `sep × sep`: never inside `//`, `///` or `\\`.
+//! * **T3** `: × sep`: `https://` and `C:\` stay whole.
+//! * **T4** no break before the separator after a segment of exactly `~`,
+//!   `.` or `..`: `~/`, `./` and `../` stay whole.
+//! * **B1** `seg ÷ sep` before a separator a segment follows, where LB13
+//!   (`× SY`) and, for `\`, LB24 (`(AL | HL) × PR`) forbid it.
+//! * **B2** `sep × seg`, removing LB31's break after the separator, except
+//!   after a `://` run, where the default break stays.
+//!
+//! The rules are read after LB12a and before LB13, so no decision of
+//! Section 6.1 (LB4-LB12a) can change: they alter LB13, LB24 and LB31
+//! only, which § 8.1 permits ("alteration, removal, or addition of rules
+//! applied after rule LB12"). A path run's digits break at its separators
+//! too, which is the annex's own § 8 URL example ("suppresses SY × NU from
+//! rule LB25 within the scope of a URL"). Finding the path runs is one
+//! pass over the text, a class read per code point, and the class sets
+//! the rules name are bit sets built at compile time.
 
 use crate::linebreak_data::{LINE_BLOCKS, LINE_INDEX};
 
@@ -228,18 +271,237 @@ impl Text<'_> {
 /// boundary before `cps[i]` and `cps.len()` the end of the text. LB2 never
 /// breaks at the start, and LB3 always at the end, so an empty text has
 /// no boundaries.
-pub fn line_breaks(cps: &[char], mut f: impl FnMut(usize, LineBreak)) {
+pub fn line_breaks(cps: &[char], f: impl FnMut(usize, LineBreak)) {
+    breaks(cps, Rules::Default, f);
+}
+
+/// **[`line_breaks`] with the path tailoring** this module's header
+/// discloses: inside a path run a line breaks before a separator and not
+/// after it, and a path after a space may move to the next line whole.
+/// Outside every path run each boundary is [`line_breaks`]'s.
+pub fn line_breaks_in_paths(cps: &[char], f: impl FnMut(usize, LineBreak)) {
+    breaks(cps, Rules::Paths, f);
+}
+
+/// Which rules a boundary is read under.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Rules {
+    Default,
+    Paths,
+}
+
+fn breaks(cps: &[char], rules: Rules, mut f: impl FnMut(usize, LineBreak)) {
     let t = Text { cps };
+    let mut run = PathRun::NONE;
     for i in 1..cps.len() {
-        f(i, boundary(&t, i));
+        if rules == Rules::Paths && i >= run.end {
+            run = PathRun::at(cps, i);
+        }
+        f(i, boundary(&t, i, &run));
     }
     if !cps.is_empty() {
         f(cps.len(), LineBreak::Mandatory);
     }
 }
 
-/// The rules at the boundary before `cps[b]`, `0 < b < len`.
-fn boundary(t: &Text<'_>, b: usize) -> LineBreak {
+/// A set of classes, one bit a class by its place in [`LineClass::ALL`],
+/// built at compile time.
+#[derive(Clone, Copy)]
+struct Classes(u64);
+
+impl Classes {
+    const fn of(cs: &[LineClass]) -> Classes {
+        let mut bits = 0u64;
+        let mut i = 0;
+        while i < cs.len() {
+            bits |= 1 << (cs[i] as u8);
+            i += 1;
+        }
+        Classes(bits)
+    }
+
+    fn has(self, c: LineClass) -> bool {
+        self.0 >> (c as u8) & 1 == 1
+    }
+}
+
+/// What ends a run: a space, a hard break, ZW.
+const RUN_ENDS: Classes = Classes::of(&[SP, BK, CR, LF, NL, ZW]);
+/// What may lead a run before its first character: `(/usr`, `'~/x`.
+const LEADS: Classes = Classes::of(&[OP, QU, QuPi, QuPf]);
+/// LB25's alphabet: a run of these alone is a number form, `06/07/99`.
+const NUMBER_FORM: Classes = Classes::of(&[NU, SY, IS, PR, PO, OP, CL, CP, HY]);
+/// The classes of a path's segment, beside `.`.
+const SEGMENT: Classes = Classes::of(&[AL, HL, NU]);
+
+/// What separates a path run's segments.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Separators {
+    /// Not a path run.
+    None,
+    /// `/`.
+    Slash,
+    /// `/` and `\`: a drive `X:\` or UNC `\\` run.
+    Both,
+}
+
+/// **The run a boundary is in**: from `start` to `end`, its first
+/// character past any lead at `body`, and what separates its segments.
+#[derive(Clone, Copy, Debug)]
+struct PathRun {
+    start: usize,
+    body: usize,
+    end: usize,
+    seps: Separators,
+}
+
+impl PathRun {
+    const NONE: PathRun = PathRun {
+        start: 0,
+        body: 0,
+        end: 0,
+        seps: Separators::None,
+    };
+
+    /// The run holding `cps[from]`, read to its end once: a run-ending
+    /// character is a run of its own that is no path.
+    fn at(cps: &[char], from: usize) -> PathRun {
+        let class = |c: char| LineProps::of(c).class;
+        if RUN_ENDS.has(class(cps[from])) {
+            return PathRun {
+                start: from,
+                body: from,
+                end: from + 1,
+                seps: Separators::None,
+            };
+        }
+        // The run started at the last run end before `from`.
+        let start = (0..from)
+            .rev()
+            .find(|&k| RUN_ENDS.has(class(cps[k])))
+            .map_or(0, |k| k + 1);
+        let end = (from..cps.len())
+            .find(|&k| RUN_ENDS.has(class(cps[k])))
+            .unwrap_or(cps.len());
+        let lead = cps[start..end]
+            .iter()
+            .take_while(|&&c| LEADS.has(class(c)))
+            .count();
+        let body = start + lead;
+        let run = &cps[body..end];
+        let windows =
+            (run.len() >= 3 && run[0].is_ascii_alphabetic() && run[1] == ':' && run[2] == '\\')
+                || run.starts_with(&['\\', '\\']);
+        let rooted = run.starts_with(&['/'])
+            || run.starts_with(&['~', '/'])
+            || run.starts_with(&['.', '/'])
+            || run.starts_with(&['.', '.', '/']);
+        let scheme = run.windows(3).any(|w| w == [':', '/', '/']);
+        let slashes = run.iter().filter(|&&c| c == '/').count();
+        let number = run.iter().all(|&c| NUMBER_FORM.has(class(c)));
+        let seps = match (windows, rooted || scheme || (slashes >= 2 && !number)) {
+            (true, _) => Separators::Both,
+            (false, true) => Separators::Slash,
+            (false, false) => Separators::None,
+        };
+        PathRun {
+            start,
+            body,
+            end,
+            seps,
+        }
+    }
+
+    /// What separates the segments at `k`: the run's, inside it.
+    fn seps_at(&self, k: usize) -> Separators {
+        match (self.start..self.end).contains(&k) {
+            true => self.seps,
+            false => Separators::None,
+        }
+    }
+
+    /// Whether `cps[k]` is a separator of the run.
+    fn sep(&self, cps: &[char], k: usize) -> bool {
+        match self.seps_at(k) {
+            Separators::None => false,
+            Separators::Slash => cps[k] == '/',
+            Separators::Both => matches!(cps[k], '/' | '\\'),
+        }
+    }
+}
+
+/// **The path tailoring at the boundary before `cps[b]`**, read after
+/// LB12a and before LB13 (this module's header): `Some` decides, `None`
+/// leaves the boundary to the default rules.
+fn paths(t: &Text<'_>, b: usize, pa: usize, run: &PathRun) -> Option<LineBreak> {
+    use LineBreak::{Allowed, Prohibited};
+    if run.seps_at(b) == Separators::None {
+        return None;
+    }
+    let cps = t.cps;
+    let sep = |k: usize| run.sep(cps, k);
+    // T1: a path after a space moves to the next line whole, but not
+    // after an opening bracket or quotation mark and spaces (LB14, LB15a).
+    // Its first character is a separator, or the `.` of `./` and `../`,
+    // which LB15d (`× IS`) holds to the space.
+    if t.class(pa) == SP && (sep(b) || b == run.body) {
+        let opened = t
+            .over_spaces(pa)
+            .is_some_and(|k| t.class(k).quote() || t.class(k) == OP);
+        return match opened {
+            true => None,
+            false => Some(Allowed),
+        };
+    }
+    if run.seps_at(pa) == Separators::None {
+        return None;
+    }
+    let seg = |k: usize| !sep(k) && (SEGMENT.has(t.class(k)) || cps[k] == '.');
+    // T3, T2: never after a colon or inside a separator run.
+    if (cps[pa] == ':' || sep(pa)) && sep(b) {
+        return Some(Prohibited);
+    }
+    // The segment that ends at `k`, back to the separator or the run's
+    // lead before it.
+    let segment = |k: usize| {
+        let mut j = k;
+        while j > run.body && !sep(j - 1) {
+            j -= 1;
+        }
+        &cps[j..=k]
+    };
+    // B2: no break after a separator before a segment, but after a run of
+    // two or more that a colon leads, a URL's `://`.
+    if sep(pa) && seg(b) {
+        let mut n = 0;
+        let mut j = pa;
+        while j >= run.body && sep(j) {
+            n += 1;
+            match j.checked_sub(1) {
+                Some(k) => j = k,
+                None => break,
+            }
+        }
+        let authority = n >= 2 && j >= run.body && cps[j] == ':' && !sep(j);
+        return match authority {
+            true => Some(Allowed),
+            false => Some(Prohibited),
+        };
+    }
+    // B1, T4: a break before a separator a segment follows, but not after
+    // `~`, `.` or `..`.
+    if seg(pa) && sep(b) && t.after(b).is_some_and(seg) {
+        return match segment(pa) {
+            ['~'] | ['.'] | ['.', '.'] => Some(Prohibited),
+            _ => Some(Allowed),
+        };
+    }
+    None
+}
+
+/// The rules at the boundary before `cps[b]`, `0 < b < len`, with the path
+/// tailoring inside `run` when it is a path run.
+fn boundary(t: &Text<'_>, b: usize, run: &PathRun) -> LineBreak {
     use LineBreak::{Allowed, Mandatory, Prohibited};
     let a = b - 1;
     let (ra, rb) = (t.raw(a), t.raw(b));
@@ -284,6 +546,10 @@ fn boundary(t: &Text<'_>, b: usize) -> LineBreak {
     }
     if cb == GL && !matches!(ca, SP | BA | HY | HH) {
         return Prohibited;
+    }
+    // The path tailoring, after every rule of Section 6.1.
+    if let Some(d) = paths(t, b, pa, run) {
+        return d;
     }
     // LB13.
     if matches!(cb, CL | CP | EX | SY) {

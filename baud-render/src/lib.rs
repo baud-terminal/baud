@@ -79,6 +79,7 @@ mod trail;
 mod transition;
 pub mod ufo;
 mod units;
+pub mod wrapmark;
 
 pub use atlas::{
     Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Rescaled, SIZES, Side, SizeKey,
@@ -157,3 +158,4 @@ pub use transition::{
     travel as slide_travel,
 };
 pub use units::{Band, Coverage, Digest, Tally};
+pub use wrapmark::WrapMarker;

@@ -703,7 +703,9 @@ impl Arms<'_, '_> {
     /// the same map, the same overlay and records -- so a difference in
     /// the pixels can only be the grid it read.
     fn draw_copied(&mut self, t: &mut Term<'_>) -> Vec<u32> {
-        let (w, h) = self.renderer.frame_size();
+        // The whole frame, as `draw` draws it: the grid's frame and what
+        // is kept beside it, the strip and the margins.
+        let (w, h) = self.renderer.whole_size();
         let n = usize::try_from(w.value() * h.value()).unwrap();
         let target = self.gpu.offscreen(w, h).expect("target");
         let view = t.view(self.back);
@@ -5070,6 +5072,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     hollow_cursor_gate(&mut arms, &mut t);
     cpu_page_gate(&mut arms, &mut t);
     status_marks_gate(&mut arms, &mut t);
+    wrap_marks_gate(&mut arms, &mut t);
     lights_line_gate(&mut arms, &mut t);
     lights_line_slide_gate(&mut arms, &mut t);
     substitute_mark_gate(&mut arms, &mut t);
@@ -8079,6 +8082,72 @@ fn status_marks_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     assert_eq!(again, off_a, "off draws the frame without the strip");
     feed(t, b"\x1b[2J\x1b[H");
     arms.margin = margin;
+}
+
+/// **The word wrap's continuation marks on every path**: an English
+/// paragraph and a Hebrew one the terminal cut inside a word, finished
+/// above a marked prompt, re-wrapped at their words, with a band of
+/// padding lent each side, drawn by the instance arm, the cell arm and the
+/// CPU arm into the whole frame. The three agree on every pixel, the
+/// English continuation is marked in the left margin and the Hebrew in the
+/// right (a positive control each), the grid between is the frame drawn
+/// with no margins, moved right by the band, and with none lent again the
+/// frame is that one.
+fn wrap_marks_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let (margin, reads) = (arms.margin, arms.reads);
+    arms.margin = (0, 0);
+    // The cell arm reads the display's lines, a copy, as the app's does
+    // for a window it re-wraps.
+    arms.reads = Reads::Copy;
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    feed(t, b"\x1b[2J\x1b[H");
+    let he = "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \u{5E2}\u{5D5}\u{5DC}\u{5DE}\u{5D9} ".repeat(13);
+    let text = format!("{}\r\n{he}\r\n\x1b]133;A\x07$ ", "alphabet ".repeat(20));
+    feed(t, text.as_bytes());
+    let off = three(arms, t, "no margins");
+    let (fw, fh) = arms.renderer.whole_size();
+    let (fw, fh) = (
+        usize::try_from(fw.value()).unwrap(),
+        usize::try_from(fh.value()).unwrap(),
+    );
+    let band = 16usize;
+    arms.renderer.set_margins(Px::of(16));
+    let a = three(arms, t, "the marks");
+    assert!(
+        arms.renderer.margin_records().len() >= 2,
+        "both paragraphs continue"
+    );
+    let (w, h) = arms.renderer.whole_size();
+    let (w, h) = (
+        usize::try_from(w.value()).unwrap(),
+        usize::try_from(h.value()).unwrap(),
+    );
+    assert_eq!((w, h), (fw + 2 * band, fh));
+    let clear = a[0];
+    let inked =
+        |x0: usize| (0..h).any(|y| a[y * w + x0..y * w + x0 + band].iter().any(|&p| p != clear));
+    assert!(inked(0), "the English line marked on the left");
+    assert!(inked(w - band), "the Hebrew line marked on the right");
+    for y in 0..h {
+        assert_eq!(
+            &a[y * w + band..y * w + band + fw],
+            &off[y * fw..y * fw + fw],
+            "grid row {y}"
+        );
+    }
+    arms.renderer.set_margins(Px::of(0));
+    let again = three(arms, t, "none lent");
+    assert_eq!(again, off, "none lent draws the frame without margins");
+    feed(t, b"\x1b[2J\x1b[H");
+    arms.margin = margin;
+    arms.reads = reads;
 }
 
 /// **The activity lights' own line on every path**: with the line below

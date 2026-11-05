@@ -204,6 +204,7 @@ pub fn set_up_renderer(
     renderer.set_emoji_default(cfg.emoji);
     renderer.set_status_marks(cfg.exit_status);
     renderer.set_word_wrap(cfg.wrap_words);
+    renderer.set_wrap_marker(cfg.wrap_marker);
     renderer.set_notice(notice.codepoints());
 }
 

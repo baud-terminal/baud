@@ -3,7 +3,8 @@
 //! sequence with `÷` at each break opportunity and `×` where there is none,
 //! the boundary after the last character included.
 
-use baud_domain::{LineBreak, LineClass, LineProps, line_breaks};
+use baud_domain::{LineBreak, LineClass, LineProps, line_breaks, line_breaks_in_paths};
+use proptest::prelude::*;
 
 struct Case {
     cps: Vec<char>,
@@ -150,4 +151,164 @@ fn linebreak_tables_match_the_pinned_data() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+/// `text` with `÷` at each opportunity the breaker gives between its
+/// characters, the end left out.
+fn marked(text: &str, breaker: fn(&[char], &mut dyn FnMut(usize, LineBreak))) -> String {
+    let cps: Vec<char> = text.chars().collect();
+    let mut at = vec![false; cps.len() + 1];
+    breaker(&cps, &mut |i, b| at[i] = b != LineBreak::Prohibited);
+    let mut out = String::new();
+    for (i, c) in cps.iter().enumerate() {
+        if i > 0 && at[i] {
+            out.push('÷');
+        }
+        out.push(*c);
+    }
+    out
+}
+
+fn default(cps: &[char], f: &mut dyn FnMut(usize, LineBreak)) {
+    line_breaks(cps, f);
+}
+
+fn paths(cps: &[char], f: &mut dyn FnMut(usize, LineBreak)) {
+    line_breaks_in_paths(cps, f);
+}
+
+/// **A path breaks before its separators, and moves whole after a
+/// space** (`linebreak.rs`' header, T1-T4 and B1-B2): `/home` then
+/// `/jordan`, `cd ÷/home`, a dated log path at each separator where the
+/// default glues its digits (LB25), a Windows path at its backslashes
+/// where the default has no opportunity, `https://` and `C:\` whole, `~/`,
+/// `./` and `../` whole. Each row's default is beside it, the positive
+/// control that the tailoring changed it.
+#[test]
+fn a_path_breaks_before_its_separators() {
+    for (text, want, was) in [
+        ("ls /home/jordan", "ls ÷/home÷/jordan", "ls /÷home/÷jordan"),
+        ("cd /home", "cd ÷/home", "cd /÷home"),
+        (
+            "/var/log/2026/11/04.log",
+            "/var÷/log÷/2026÷/11÷/04.log",
+            "/÷var/÷log/÷2026/11/04.log",
+        ),
+        (
+            r"C:\Users\jordan\Code",
+            r"C:\Users÷\jordan÷\Code",
+            r"C:÷\Users\jordan\Code",
+        ),
+        (
+            r"\\server\share\a.txt",
+            r"\\server÷\share÷\a.txt",
+            r"\÷\server\share\a.txt",
+        ),
+        (
+            "https://github.com/jordan",
+            "https://÷github.com÷/jordan",
+            "https://÷github.com/÷jordan",
+        ),
+        (
+            "file:///Users/jordan",
+            "file:///÷Users÷/jordan",
+            "file:///÷Users/÷jordan",
+        ),
+        (
+            "cfg ~/.config/baud",
+            "cfg ÷~/.config÷/baud",
+            "cfg ÷~/.config/÷baud",
+        ),
+        (
+            "cd ../../etc/ssh",
+            "cd ÷../../etc÷/ssh",
+            "cd ../../÷etc/÷ssh",
+        ),
+        ("cp dir/ /tmp/", "cp ÷dir/ ÷/tmp/", "cp ÷dir/ /÷tmp/"),
+        ("ls /", "ls ÷/", "ls /"),
+        ("(/usr/lib)", "(/usr÷/lib)", "(/÷usr/÷lib)"),
+        ("see ( /usr)", "see ÷( /usr)", "see ÷( /÷usr)"),
+    ] {
+        assert_eq!(marked(text, paths), want, "{text}");
+        assert_eq!(marked(text, default), was, "{text}: the default");
+    }
+}
+
+/// **Outside a path run the tailoring is the default**: a fraction and a
+/// date (LB25, "so as to not break "1/2" or "06/07/99""), the
+/// abbreviations the SY paragraph names, a relative path of one slash and
+/// text with none break as UAX #14 breaks them.
+#[test]
+fn outside_a_path_the_default_rules_hold() {
+    for text in [
+        "half 1/2 and 06/07/99",
+        "-1/12 2026/11/04",
+        "w/o A/S and/or",
+        "see src/main.rs now",
+        "the quick brown fox",
+        "a-b c.d e:f",
+    ] {
+        assert_eq!(marked(text, paths), marked(text, default), "{text}");
+    }
+    // The positive control: each would differ were it a path run.
+    assert_ne!(marked("/w/o", paths), marked("/w/o", default));
+}
+
+/// Whether Section 6.1 (LB4-LB12a) decides the boundary before `cps[b]`,
+/// which no tailoring may change.
+fn decided_by_six_one(cps: &[char], b: usize) -> bool {
+    use LineClass::*;
+    let raw = |i: usize| LineProps::of(cps[i]).class;
+    let (a, rb) = (raw(b - 1), raw(b));
+    if matches!(a, BK | CR | LF | NL) || matches!(rb, BK | CR | LF | NL | SP | ZW) {
+        return true;
+    }
+    let mut j = Some(b - 1);
+    while let Some(k) = j.filter(|&k| raw(k) == SP) {
+        j = k.checked_sub(1);
+    }
+    if j.is_some_and(|k| raw(k) == ZW) || a == ZWJ {
+        return true;
+    }
+    if matches!(rb, CM | ZWJ) && !matches!(a, BK | CR | LF | NL | SP | ZW) {
+        return true;
+    }
+    matches!(a, WJ | GL) || rb == WJ || (rb == GL && !matches!(a, SP | BA | HY | HH))
+}
+
+fn atoms() -> impl Strategy<Value = &'static str> {
+    prop::sample::select(vec![
+        "/", "//", "\\", "~", ".", "..", ":", "://", "C:\\", "\\\\", "home", "jordan", "2026",
+        "11", "x", "שלום", " ", "  ", "(", ")", "\"", "\u{201C}", "-", "_", "\u{2060}", "\u{00A0}",
+        "\u{200B}", "\u{200D}", "\u{0301}", "\n", "?", "=", "%",
+    ])
+}
+
+proptest! {
+    /// **No decision of Section 6.1 moves** (UAX14-C1's first two
+    /// subconditions), over texts built from path pieces and the
+    /// characters 6.1 names: WJ, GL, ZW, ZWJ, a combining mark, a space,
+    /// a hard break.
+    #[test]
+    fn the_tailoring_keeps_every_six_one_decision(parts in prop::collection::vec(atoms(), 1..24)) {
+        let text: String = parts.concat();
+        let cps: Vec<char> = text.chars().collect();
+        let (mut d, mut t) = (vec![None; cps.len() + 1], vec![None; cps.len() + 1]);
+        line_breaks(&cps, |i, b| d[i] = Some(b));
+        line_breaks_in_paths(&cps, |i, b| t[i] = Some(b));
+        for b in 1..cps.len() {
+            if decided_by_six_one(&cps, b) {
+                prop_assert_eq!(d[b], t[b], "{:?} at {}", text, b);
+            }
+        }
+        prop_assert_eq!(d[cps.len()], t[cps.len()]);
+    }
+
+    /// **Text with no separator holds no path run**, so it breaks as the
+    /// default does at every boundary.
+    #[test]
+    fn text_without_a_separator_breaks_as_the_default(parts in prop::collection::vec(atoms(), 1..24)) {
+        let text: String = parts.concat().replace(['/', '\\'], "");
+        prop_assert_eq!(marked(&text, paths), marked(&text, default));
+    }
 }

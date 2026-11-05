@@ -39,7 +39,14 @@ the screen; step 3 joins Arabic letters.
   at its edge, between cells (UAX #14's emergency break, `[[source: uax14]]`
   section 3). Every break is a UAX #14 opportunity, chosen greedily, which
   section 1 leaves to "higher level software"; an erased cell between
-  characters is given to the breaker as a space. In a paragraph that mixes
+  characters is given to the breaker as a space. **One tailoring,
+  disclosed as UAX14-C1 requires**: inside a path (`/home/jordan`,
+  `~/x`, `../x`, `https://...`, `C:\x`, a run of two or more `/` that is
+  no number form) a line breaks before a separator and not after it, and
+  the path moves to the next line whole after a space; outside a path
+  every opportunity is the default algorithm's
+  (`baud_domain::line_breaks_in_paths`, whose header gives the rules).
+  In a paragraph that mixes
   directions, **a run of the other direction that the wrap would split --
   its words falling on two lines, or one word wider than the whole line --
   gets lines of its own**, as many as it needs at its words, laid out in

@@ -353,6 +353,11 @@ pub struct Config {
     /// own -- `"on"` by default, or `"off"`, which draws every row as the
     /// terminal cut it at the last column ([`baud_render::WordWrap`]).
     pub wrap_words: baud_render::WordWrap,
+    /// `[screen] wrap_marker`: whether a mark, `↪`, is drawn in the
+    /// window's padding beside each line `wrap_words` continued -- `"on"`
+    /// by default, or `"off"` ([`baud_render::WrapMarker`]). It takes no
+    /// column, is never copied, and needs padding to be drawn in.
+    pub wrap_marker: baud_render::WrapMarker,
     /// `[shell] integration`: whether baud marks the prompts of the zsh,
     /// bash and fish it starts, so their latest output is finished text
     /// too -- `"on"` by default, or `"off"`, which starts every shell as
@@ -1029,6 +1034,7 @@ impl Config {
             exit_status: baud_render::StatusMarks::Off,
             badge: BadgeShown::On,
             wrap_words: baud_render::WordWrap::On,
+            wrap_marker: baud_render::WrapMarker::On,
             shell_integration: crate::shell::Integration::On,
             set_up: baud_domain::SetUp::FACTORY,
             checksum: baud_domain::ChecksumReport::On,
@@ -1763,6 +1769,18 @@ impl Config {
                                 "config: [screen] wrap_words {other:?} is not on or off; using on"
                             ));
                             baud_render::WordWrap::On
+                        }
+                    };
+                }
+                ("screen", "wrap_marker") => {
+                    self.wrap_marker = match value.trim().trim_matches('"') {
+                        "on" => baud_render::WrapMarker::On,
+                        "off" => baud_render::WrapMarker::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [screen] wrap_marker {other:?} is not on or off; using on"
+                            ));
+                            baud_render::WrapMarker::On
                         }
                     };
                 }
@@ -4668,6 +4686,27 @@ mod reader {
         assert_eq!(c.wrap_words, baud_render::WordWrap::On);
         assert_eq!(said.len(), 1, "{said:?}");
         assert!(said[0].contains("wrap_words"), "{said:?}");
+    }
+
+    /// **The word wrap's continuation mark is drawn unless `[screen]
+    /// wrap_marker = "off"`**, quoted or bare; any other value keeps it on
+    /// and says so.
+    #[test]
+    fn the_wrap_marker_is_drawn_unless_turned_off() {
+        assert_eq!(Config::defaults().wrap_marker, baud_render::WrapMarker::On);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[screen]\nwrap_marker = {off}\n");
+            assert_eq!(
+                read(&text).wrap_marker,
+                baud_render::WrapMarker::Off,
+                "{off}"
+            );
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nwrap_marker = \"yes\"\n");
+        assert_eq!(c.wrap_marker, baud_render::WrapMarker::On);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("wrap_marker"), "{said:?}");
     }
 
     /// **A program's badge is drawn unless `[screen] badge = "off"`**, quoted

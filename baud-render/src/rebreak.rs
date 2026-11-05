@@ -17,8 +17,12 @@
 //! (`bd/owner-runs`' B and own-direction panels).
 //!
 //! **Where the breaks come from.** Every break is a UAX #14 break
-//! opportunity (`baud_domain::line_breaks`, which passes
-//! `LineBreakTest.txt`), and the choice among them is the greedy one: as
+//! opportunity under one disclosed tailoring for paths
+//! (`baud_domain::line_breaks_in_paths`: a path such as `/home/jordan`
+//! breaks before its separators, `/home` then `/jordan`, and moves to the
+//! next line whole after a space; outside a path every opportunity is the
+//! default algorithm's, which passes `LineBreakTest.txt`), and the choice
+//! among them is the greedy one: as
 //! many words as fit, a line's trailing spaces left to hang past the edge
 //! (UAX #14 leaves the selection "in the domain of higher level software",
 //! section 1). An erased cell between characters is given to the breaker
@@ -79,7 +83,7 @@ use baud_core::{BidiSupport, PromptLine, Screen, Term, Zone};
 use baud_domain::{
     Autodetect, Bidi, BidiClass, BidiDirection, BidiLevel, BidiProps, CharacterPath, Col, Cols,
     LineBreak, LineRendition, PackedCell, PastEdge, Row, RowExtent, RowRot, RowStyles, RowWritten,
-    Rows, Stride, Viewport, Wrap, WrappedAt, is_table_rule, line_breaks,
+    Rows, Stride, Viewport, Wrap, WrappedAt, is_table_rule, line_breaks_in_paths,
 };
 
 use crate::frozen::Words;
@@ -454,6 +458,11 @@ pub struct Display {
     /// paragraph's level or its moved run's direction; none for a line
     /// drawn as a stored row.
     runs: Vec<Option<BidiDirection>>,
+    /// **The direction of each line that continues a paragraph the display
+    /// re-wrapped**, by the same index as `used`: every line of such a
+    /// paragraph but its first, the line [`crate::wrapmark`] marks; none
+    /// for a paragraph's first line and a line drawn as a stored row.
+    continues: Vec<Option<BidiDirection>>,
     /// For each window display cell, the stored cell it shows: a window
     /// row's, or one of a line past the window that a paragraph runs on
     /// from or into.
@@ -632,6 +641,19 @@ impl Display {
         runs.iter()
             .map(|(r, l)| (r.clone(), line_styles(term, back, self.rows, *l)))
             .collect()
+    }
+
+    /// **The direction of display line `at` where it continues a
+    /// paragraph the display re-wrapped at its words**, a row of the
+    /// window or a line that many above its first: every line of such a
+    /// paragraph but its first. None for a paragraph's first line, a line
+    /// drawn as the terminal cut it, and a line the display does not hold.
+    pub(crate) fn continues(&self, at: crate::renderer::Anchor) -> Option<BidiDirection> {
+        let k = match at {
+            crate::renderer::Anchor::At(y) => self.above.index().checked_add(y.index()),
+            crate::renderer::Anchor::Above(n) => self.above.index().checked_sub(n.index()),
+        }?;
+        self.continues.get(k).copied().flatten()
     }
 
     /// Whether any cell of the display's window lines, or of the lines
@@ -1270,7 +1292,8 @@ fn rebreak(term: &Term<'_>, g: &mut Group<'_>, cols: Cols, work: &mut Breaker) {
         false => (BidiLevel::LTR, None),
     };
     g.level = level;
-    // UAX #14 over the text, each erased cell a space.
+    // UAX #14 over the text, each erased cell a space, with the path
+    // tailoring: a path breaks before its separators.
     let spaced: Vec<char> = g
         .text
         .iter()
@@ -1280,7 +1303,7 @@ fn rebreak(term: &Term<'_>, g: &mut Group<'_>, cols: Cols, work: &mut Breaker) {
         })
         .collect();
     let mut breaks = vec![LineBreak::Prohibited; spaced.len() + 1];
-    line_breaks(&spaced, |p, b| breaks[p] = b);
+    line_breaks_in_paths(&spaced, |p, b| breaks[p] = b);
     // Never inside a cell.
     for (p, a) in g.at.iter().enumerate() {
         if a.span == Span::Attached {
@@ -1453,6 +1476,7 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
         cells: vec![PackedCell::EMPTY; total * n],
         used: vec![RowExtent::of(n); total],
         runs: vec![None; total],
+        continues: vec![None; total],
         from: vec![None; nrows * n],
         to: vec![None; nrows * n],
         past: (Rows::ZERO, Rows::ZERO),
@@ -1559,6 +1583,9 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
                     .with_autodetect(Autodetect::Off);
                 let e = RowExtent::of(n).with_bidi(bidi);
                 d.runs[k] = Some(dir);
+                if li > 0 {
+                    d.continues[k] = Some(dir);
+                }
                 d.used[k] = match l.piece {
                     Piece::Continues => e.wrapping(n),
                     Piece::Ends => e,
@@ -1628,6 +1655,7 @@ fn window_lines(g: &Group<'_>) -> Vec<Option<WindowLine>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use baud_domain::line_breaks;
 
     fn spans(s: &str) -> (Vec<char>, Vec<Span>) {
         let t: Vec<char> = s.chars().collect();

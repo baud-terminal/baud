@@ -258,7 +258,7 @@ impl Stage {
     fn geometry(&self, grid: &WinSize) -> Geometry {
         let m = self.renderer.metrics();
         Geometry {
-            pad: (PAD.value() + self.renderer.strip().value(), PAD.value()),
+            pad: (PAD.value() + self.renderer.grid_left().value(), PAD.value()),
             cell: (f64::from(m.cell_w.value()), f64::from(m.cell_h.value())),
             grid: (grid.ws_col, grid.ws_row),
             scale: 1.0,

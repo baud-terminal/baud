@@ -56,6 +56,8 @@ pub enum Part {
     Badge,
     /// `[screen] wrap_words`: the next frame lays the window out again.
     WrapWords,
+    /// `[screen] wrap_marker`: the next frame places the marks, or none.
+    WrapMarker,
     /// `[cursor] guide`.
     CursorGuide,
     /// `[images] animation`: the next turn steps or holds a kitty
@@ -129,6 +131,7 @@ impl Part {
             | Part::Hollow
             | Part::Badge
             | Part::WrapWords
+            | Part::WrapMarker
             | Part::CursorGuide
             | Part::ImageAnimation
             | Part::TermOptions
@@ -171,6 +174,7 @@ impl Part {
             Part::Hollow => "[cursor] unfocused_hollow",
             Part::Badge => "[screen] badge",
             Part::WrapWords => "[screen] wrap_words",
+            Part::WrapMarker => "[screen] wrap_marker",
             Part::CursorGuide => "[cursor] guide",
             Part::ImageAnimation => "[images] animation",
             Part::TermOptions => "the terminal's options",
@@ -265,6 +269,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         unfocused_cursor,
         badge,
         wrap_words,
+        wrap_marker,
         shell_integration,
         cursor_guide,
         set_up,
@@ -320,6 +325,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     part(old.unfocused_cursor != *unfocused_cursor, Part::Hollow);
     part(old.badge != *badge, Part::Badge);
     part(old.wrap_words != *wrap_words, Part::WrapWords);
+    part(old.wrap_marker != *wrap_marker, Part::WrapMarker);
     part(old.cursor_guide != *cursor_guide, Part::CursorGuide);
     part(
         old.image_animation != *image_animation,
@@ -538,6 +544,7 @@ mod tests {
             ("[cursor]\nunfocused_hollow = \"on\"\n", Part::Hollow),
             ("[screen]\nbadge = \"off\"\n", Part::Badge),
             ("[screen]\nwrap_words = \"off\"\n", Part::WrapWords),
+            ("[screen]\nwrap_marker = \"off\"\n", Part::WrapMarker),
             ("[cursor]\nguide = \"on\"\n", Part::CursorGuide),
             ("[images]\nanimation = \"off\"\n", Part::ImageAnimation),
             ("[screen]\nchecksum = \"off\"\n", Part::TermOptions),

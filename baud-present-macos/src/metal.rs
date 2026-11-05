@@ -2310,10 +2310,12 @@ impl Gpu {
         let chrome = usize::try_from(renderer.chrome().value()).map_or(count, |c| c.min(count));
         let content = count - chrome;
         // The exit-status marks after them, drawn in the strip's own pass,
-        // and the activity lights after those, in their line's.
+        // the activity lights after those, in their line's, and the word
+        // wrap's marks last, over the grid's rows across the whole width.
         let marks = renderer.strip_records().len();
         let lights = renderer.lights_records().len();
-        let bytes = (count + marks + lights).saturating_mul(Instance::BYTES);
+        let wraps = renderer.margin_records().len();
+        let bytes = (count + marks + lights + wraps).saturating_mul(Instance::BYTES);
         let mut trail_at = None;
         let slot = self.ring.0;
         if self.instances[slot].length() < bytes {
@@ -2333,7 +2335,8 @@ impl Gpu {
                     renderer
                         .instances()
                         .chain(renderer.strip_records())
-                        .chain(renderer.lights_records()),
+                        .chain(renderer.lights_records())
+                        .chain(renderer.margin_records()),
                 )
                 .enumerate()
             {
@@ -2386,8 +2389,9 @@ impl Gpu {
             )),
             false => None,
         };
-        let (viewport, pad, strip_vp, line_vp) =
-            letterbox_whole(target, renderer.whole_size(), Parts::of(renderer));
+        let boxed = letterbox_whole(target, renderer.whole_size(), Parts::of(renderer));
+        let (viewport, pad, strip_vp, line_vp, rows_vp) =
+            (boxed.grid, boxed.pad, boxed.strip, boxed.line, boxed.rows);
         let trail = self.trail_draw(renderer, pad);
         let uniforms: [f32; UNIFORM_FLOATS] = [
             px_f32(frame_px.0),
@@ -2421,7 +2425,12 @@ impl Gpu {
             size: target.size(),
             uniforms: uniforms.map(f32::to_bits),
             clear: renderer.clear_color(),
-            strip: renderer.strip_records().to_vec(),
+            strip: renderer
+                .strip_records()
+                .iter()
+                .chain(renderer.margin_records())
+                .copied()
+                .collect(),
             lights: renderer.lights_records().to_vec(),
             unrowed: match off_grid || !images.is_empty() {
                 true => Unrowed::Yes,
@@ -2551,6 +2560,15 @@ impl Gpu {
                         metrics,
                         (&mask, &color),
                     )?;
+                    let at = count + marks + lights;
+                    self.draw_strip(
+                        &enc,
+                        &self.instances[slot],
+                        (At(at), At(at + wraps)),
+                        (target, rows_vp, frame_px.1),
+                        metrics,
+                        (&mask, &color),
+                    )?;
                 }
             }
         }
@@ -2561,7 +2579,7 @@ impl Gpu {
         self.last = Last::Instances(key);
         renderer.take_redraw();
         Some(Drawn::Frame(GpuFrame {
-            instances: Tally::of(count + marks + lights),
+            instances: Tally::of(count + marks + lights + wraps),
             upload: upload_time,
             submit,
             gpu,
@@ -2639,8 +2657,9 @@ impl Gpu {
             )?),
             false => None,
         };
-        let (viewport, pad, strip_vp, line_vp) =
-            letterbox_whole(target, renderer.whole_size(), Parts::of(renderer));
+        let boxed = letterbox_whole(target, renderer.whole_size(), Parts::of(renderer));
+        let (viewport, pad, strip_vp, line_vp, rows_vp) =
+            (boxed.grid, boxed.pad, boxed.strip, boxed.line, boxed.rows);
         let trail = self.trail_draw(renderer, pad);
         // A block the records draw over a Devanagari syllable's span is not
         // the shader's to draw on its cell.
@@ -2773,7 +2792,14 @@ impl Gpu {
             .try_fold(RowSet::NONE, |set, r| {
                 crate::redraw::record_rows(r, cell, grid_cells_rows).map(|rs| set.union(rs))
             });
-        let strip_now = renderer.strip_records();
+        // The word wrap's marks are kept with the strip's: a change to
+        // either draws the frame whole.
+        let strip_now: Vec<Instance> = renderer
+            .strip_records()
+            .iter()
+            .chain(renderer.margin_records())
+            .copied()
+            .collect();
         let lights_now = renderer.lights_records();
         let unrowed = match moving.is_none() || !images.is_empty() || input.slide.is_some() {
             true => Unrowed::Yes,
@@ -2923,13 +2949,16 @@ impl Gpu {
             let n = g + input.records.len();
             let under = g + usize::try_from(input.under.value()).map_or(n - g, |u| u.min(n - g));
             // The exit-status marks after the records, drawn in the strip's
-            // own pass, and the activity lights after those, in their line's.
+            // own pass, the activity lights after those, in their line's,
+            // and the word wrap's marks last, over the grid's rows across
+            // the whole width.
             let marks = renderer.strip_records().len();
             let lights = renderer.lights_records().len();
+            let wraps = renderer.margin_records().len();
             let mut trail_at = None;
             let mut records = None;
-            if n + marks + lights > 0 {
-                let bytes = (n + marks + lights).saturating_mul(Instance::BYTES);
+            if n + marks + lights + wraps > 0 {
+                let bytes = (n + marks + lights + wraps).saturating_mul(Instance::BYTES);
                 let slot = self.ring.0;
                 if self.instances[slot].length() < bytes {
                     let want = bytes.max(BUFFER_FLOOR).next_power_of_two();
@@ -2947,7 +2976,8 @@ impl Gpu {
                                 .iter()
                                 .chain(input.records)
                                 .chain(renderer.strip_records())
-                                .chain(renderer.lights_records()),
+                                .chain(renderer.lights_records())
+                                .chain(renderer.margin_records()),
                         )
                         .enumerate()
                     {
@@ -3189,6 +3219,15 @@ impl Gpu {
                             metrics,
                             (&mask, &color),
                         )?;
+                        let at = n + marks + lights;
+                        self.draw_strip(
+                            &enc,
+                            &self.instances[slot],
+                            (At(at), At(at + wraps)),
+                            (target, rows_vp, frame_px.1),
+                            metrics,
+                            (&mask, &color),
+                        )?;
                     }
                 }
             }
@@ -3226,7 +3265,7 @@ impl Gpu {
         };
         if changed == Redraw::Whole {
             last.strip.clear();
-            last.strip.extend_from_slice(strip_now);
+            last.strip.extend_from_slice(&strip_now);
             last.lights.clear();
             last.lights.extend_from_slice(lights_now);
             last.records.clear();
@@ -3258,7 +3297,8 @@ impl Gpu {
                 input.grounds.len()
                     + input.records.len()
                     + renderer.strip_records().len()
-                    + renderer.lights_records().len(),
+                    + renderer.lights_records().len()
+                    + renderer.margin_records().len(),
             )),
             upload: upload_time,
             submit,
@@ -3464,6 +3504,7 @@ fn letterbox(target: &Target, grid: (Px, Px)) -> (MTLViewport, [f32; 2]) {
 /// ([`baud_render::Renderer::whole_size`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Parts {
+    margin: Px,
     strip: Px,
     top: Px,
     rows: Px,
@@ -3474,6 +3515,7 @@ struct Parts {
 impl Parts {
     fn of(r: &Renderer<'_, '_>) -> Parts {
         Parts {
+            margin: r.margins(),
             strip: r.strip(),
             top: r.grid_top(),
             rows: r.frame_size().1,
@@ -3483,37 +3525,56 @@ impl Parts {
     }
 }
 
-/// **The whole frame centred**: [`letterbox`] of the exit-status strip,
-/// the grid and the gutter, and the lights' line, then the grid's
-/// viewport and pad `parts.strip` pixels in from the whole's left and
-/// `parts.top` down from its top, the strip's own viewport at that left
-/// over the grid's rows, and the line's across the whole width at its
-/// rows. With no strip and no line, the grid's are [`letterbox`]'s.
-fn letterbox_whole(
-    target: &Target,
-    whole: (Px, Px),
-    parts: Parts,
-) -> (MTLViewport, [f32; 2], MTLViewport, MTLViewport) {
+/// **The whole frame centred**: [`letterbox`] of the margins, the
+/// exit-status strip, the grid and the gutter, and the lights' line, then
+/// the grid's viewport and pad `parts.margin` and `parts.strip` pixels in
+/// from the whole's left and `parts.top` down from its top, the strip's
+/// own viewport past the left margin over the grid's rows, the line's
+/// across the whole width at its rows, and the grid's rows across the
+/// whole width, where the margins' marks are drawn
+/// ([`baud_render::Renderer::margin_records`]). With no margin, strip or
+/// line, the grid's are [`letterbox`]'s.
+fn letterbox_whole(target: &Target, whole: (Px, Px), parts: Parts) -> Letterboxed {
     let (vp, _) = letterbox(target, whole);
     let px = |p: Px| f64::from(p.value());
-    let s = px(parts.strip);
+    let (m, s) = (px(parts.margin), px(parts.strip));
     let rows = MTLViewport {
         originY: vp.originY + px(parts.top),
         height: px(parts.rows),
         ..vp
     };
     let grid = MTLViewport {
-        originX: rows.originX + s,
-        width: (rows.width - s).max(0.0),
+        originX: rows.originX + m + s,
+        width: (rows.width - 2.0 * m - s).max(0.0),
         ..rows
     };
-    let own = MTLViewport { width: s, ..rows };
+    let own = MTLViewport {
+        originX: rows.originX + m,
+        width: s,
+        ..rows
+    };
     let line = MTLViewport {
         originY: vp.originY + px(parts.line_top),
         height: px(parts.line),
         ..vp
     };
-    (grid, [grid.originX as f32, grid.originY as f32], own, line)
+    Letterboxed {
+        grid,
+        pad: [grid.originX as f32, grid.originY as f32],
+        strip: own,
+        line,
+        rows,
+    }
+}
+
+/// [`letterbox_whole`]'s viewports: the grid's and its pad, the strip's,
+/// the lights' line's, and the grid's rows across the whole width.
+struct Letterboxed {
+    grid: MTLViewport,
+    pad: [f32; 2],
+    strip: MTLViewport,
+    line: MTLViewport,
+    rows: MTLViewport,
 }
 
 /// A straight colour as the render pass's premultiplied clear.

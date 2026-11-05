@@ -549,10 +549,19 @@ tests = ["baud-app/src/host.rs::claude_codes_symbols_draw_from_stix_behind_a_con
 id = "word-wrap"
 area = "text"
 name = "Words kept whole when text wraps"
-does = "Finished text wraps at its words: a word that does not fit at the end of a line moves whole to the next one, where it was cut at the last column, and in a Hebrew paragraph an English run the wrap would cut gets a line of its own, left to right against the left edge, the Hebrew carrying on below it; copying still gives the text as the program wrote it. It covers what scrolled back and the output above the prompt of the zsh, bash and fish baud starts, whose prompts it marks for them, or of any shell that marks its own; `[screen] wrap_words = \"off\"` turns it off."
+does = "Finished text wraps at its words: a word that does not fit at the end of a line moves whole to the next one, where it was cut at the last column, and in a Hebrew paragraph an English run the wrap would cut gets a line of its own, left to right against the left edge, the Hebrew carrying on below it; copying still gives the text as the program wrote it. A path wraps before its slashes, `/home` then `/jordan`, and moves to the next line whole after a space, so `cd` is never left with a lone `/`; a Windows path wraps at its backslashes, and a URL keeps `https://` and its host together. It covers what scrolled back and the output above the prompt of the zsh, bash and fish baud starts, whose prompts it marks for them, or of any shell that marks its own; `[screen] wrap_words = \"off\"` turns it off."
 status = "built"
 platform = "both"
-tests = ["baud-render/tests/word_wrap.rs::the_run_the_wrap_splits_gets_a_line_of_its_own_in_its_own_direction", "baud-render/tests/word_wrap.rs::an_all_english_paragraph_wraps_at_its_words", "baud-present-macos/tests/cells.rs::a_re_broken_paragraph_draws_the_same_on_every_arm"]
+tests = ["baud-render/tests/word_wrap.rs::the_run_the_wrap_splits_gets_a_line_of_its_own_in_its_own_direction", "baud-render/tests/word_wrap.rs::an_all_english_paragraph_wraps_at_its_words", "baud-render/tests/word_wrap.rs::a_path_wraps_before_its_separators", "baud-domain/tests/linebreak.rs::a_path_breaks_before_its_separators", "baud-present-macos/tests/cells.rs::a_re_broken_paragraph_draws_the_same_on_every_arm"]
+
+[[feature]]
+id = "wrap-marker"
+area = "text"
+name = "A mark beside wrapped lines"
+does = "Each line that carries on a paragraph the word wrap re-wrapped gets a small hook arrow, ↪, in the window's padding beside it, on the right for a right-to-left line, so a line that begins `/jordan` does not read as a path the program printed. It takes no column, is never copied, and is not drawn on a full-screen program's screen or beside a line the program itself wrapped at the edge; `[screen] wrap_marker = \"off\"` turns it off, and with no padding it is not drawn."
+status = "built"
+platform = "macos"
+tests = ["baud-render/tests/wrap_marker.rs::a_mark_is_drawn_beside_each_line_the_display_re_wrapped", "baud-render/tests/wrap_marker.rs::the_margins_take_no_column_and_leave_the_grid_as_it_was", "baud-app/src/app.rs::the_wrap_marks_take_the_padding_and_no_column"]
 
 [[feature]]
 id = "hebrew-font"

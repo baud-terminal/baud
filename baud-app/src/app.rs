@@ -2212,15 +2212,22 @@ impl App {
         // The frame -- the grid, and a legacy scroller's gutter beside it --
         // and the whole surface it is centred in; the letterbox margin
         // between them is the gap.
-        // The whole frame -- the exit-status strip, when kept, then the
-        // grid and the gutter -- is centred; the pad is the grid's origin,
-        // the strip in from the letterbox.
-        let (w, h) = self.renderer.whole_size();
+        // The window's padding lent to the word wrap's marks, a band each
+        // side (`Renderer::set_margins`): as wide as the padding, or what
+        // the letterbox leaves where a pinned grid fills more of the view.
+        // The grid keeps its place and every column.
         let (sw, sh) = self.view_px;
+        let band = margin_band(sw, &self.renderer, self.padding, self.scale);
+        self.renderer.set_margins(band);
+        // The whole frame -- the left margin, the exit-status strip, when
+        // kept, then the grid and the gutter, then the right margin -- is
+        // centred; the pad is the grid's origin, the margin and the strip
+        // in from the letterbox.
+        let (w, h) = self.renderer.whole_size();
         self.pad_px = grid_origin(
             (sw, sh),
             (w, h),
-            self.renderer.strip(),
+            self.renderer.grid_left(),
             self.renderer.grid_top(),
         );
         let surface_stale = self.presenter.as_ref().map(Presenter::size) != Some((sw, sh));
@@ -14116,6 +14123,7 @@ impl Driver {
                     self.app.renderer.set_word_wrap(c.wrap_words);
                     self.app.kept.set_word_wrap(c.wrap_words);
                 }
+                Part::WrapMarker => self.app.renderer.set_wrap_marker(c.wrap_marker),
                 Part::ImageAnimation => self.app.image_animation = c.image_animation,
                 Part::Hollow => {
                     self.app.unfocused_cursor = c.unfocused_cursor;
@@ -15746,14 +15754,31 @@ impl Driver {
     }
 }
 
+/// **The band of the window's padding each side lends the word wrap's
+/// marks**, in device pixels: the padding at `scale`, or half of what the
+/// view leaves beside the grid's frame and the strip where that is less.
+fn margin_band(view_w: Px, r: &Renderer<'_, '_>, padding: f64, scale: CGFloat) -> Px {
+    let beside = r.frame_size().0.value().saturating_add(r.strip().value());
+    band_of(view_w, Px::of(beside), padding, scale)
+}
+
+/// [`margin_band`]'s arithmetic, for a frame and strip `beside` wide.
+fn band_of(view_w: Px, beside: Px, padding: f64, scale: CGFloat) -> Px {
+    let left = view_w.value().saturating_sub(beside.value()) / 2;
+    // The padding in points, at most a few dozen, times a scale of 1 to 3:
+    // `as i64` is the widening the audit permits.
+    let pad = u32::try_from((padding * scale).max(0.0).floor() as i64).unwrap_or(0);
+    Px::of(pad.min(left))
+}
+
 /// **Where the grid begins in the view**, in device pixels: the whole
-/// frame `whole` -- the exit-status strip, the grid and the gutter, and
-/// the activity lights' line -- centred in the view `view`, and the grid
-/// `strip` in from its left and `top` down from its top
-/// (`Renderer::grid_top`).
-fn grid_origin(view: (Px, Px), whole: (Px, Px), strip: Px, top: Px) -> (Px, Px) {
+/// frame `whole` -- the margins, the exit-status strip, the grid and the
+/// gutter, and the activity lights' line -- centred in the view `view`,
+/// and the grid `left` in from its left (`Renderer::grid_left`) and `top`
+/// down from its top (`Renderer::grid_top`).
+fn grid_origin(view: (Px, Px), whole: (Px, Px), left: Px, top: Px) -> (Px, Px) {
     (
-        Px::of((view.0.value().saturating_sub(whole.0.value()) / 2).saturating_add(strip.value())),
+        Px::of((view.0.value().saturating_sub(whole.0.value()) / 2).saturating_add(left.value())),
         Px::of((view.1.value().saturating_sub(whole.1.value()) / 2).saturating_add(top.value())),
     )
 }
@@ -18542,6 +18567,49 @@ mod tests {
         assert_eq!((c.index(), px.x), (0, ImagePx::ZERO));
         let (_, c, px) = pointer_under((30.5, 5.0), scale, cell, grid, pad);
         assert_eq!((c.index(), px.x), (1, ImagePx::of(21)));
+    }
+
+    /// **The word wrap's marks take the padding and no column**: across
+    /// widths, scales and paddings, the grid a view holds is what it was
+    /// (`grid_in` never reads the band), the band is at most the padding,
+    /// the whole frame with a band each side still fits the view, and the
+    /// grid begins where it began with none. A grid pinned wider than the
+    /// view leaves the band only what the letterbox has; a view with no
+    /// padding lends none.
+    #[test]
+    fn the_wrap_marks_take_the_padding_and_no_column() {
+        let cell = (17.0, 34.0);
+        for scale in [1.0, 2.0, 3.0] {
+            for padding in [0.0, 4.0, 8.0, 12.5] {
+                for view_w in (300..=900).step_by(37) {
+                    let ws = grid_in((f64::from(view_w), 400.0), padding * scale, 0.0, cell);
+                    let frame = u32::from(ws.ws_col) * 17;
+                    let view = (Px::of(view_w), Px::of(400));
+                    let b = band_of(view.0, Px::of(frame), padding, scale);
+                    assert!(f64::from(b.value()) <= padding * scale);
+                    assert!(
+                        frame + 2 * b.value() <= view_w,
+                        "{view_w} {padding} {scale}"
+                    );
+                    let whole = Px::of(frame + 2 * b.value());
+                    assert_eq!(
+                        grid_origin(view, (whole, Px::of(340)), b, Px::of(0)),
+                        grid_origin(view, (Px::of(frame), Px::of(340)), Px::of(0), Px::of(0)),
+                        "{view_w} {padding} {scale}: the grid where it was"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            band_of(Px::of(100), Px::of(96), 8.0, 2.0),
+            Px::of(2),
+            "pinned"
+        );
+        assert_eq!(
+            band_of(Px::of(400), Px::of(300), 0.0, 2.0),
+            Px::of(0),
+            "none"
+        );
     }
 
     /// **The grid begins below the lights' line at the top, and is centred

@@ -2317,6 +2317,16 @@ pub struct Renderer<'f, 'a> {
     /// Whether the last CPU frame repainted the strip, for
     /// [`Renderer::painted`]: its whole height then.
     strip_fresh: StripFresh,
+    /// **The word wrap's continuation marks** ([`crate::wrapmark`]):
+    /// whether they are drawn, the band of the window's padding the driver
+    /// lends each side for them ([`Renderer::set_margins`]), their records
+    /// in the whole frame's pixels, and what the CPU path last painted in
+    /// the bands, as the strip keeps it.
+    wrap_marker: crate::wrapmark::WrapMarker,
+    margins: Px,
+    margin_inst: Vec<Instance>,
+    margin_painted: Option<(Argb, Vec<Instance>)>,
+    margin_fresh: StripFresh,
     /// **The activity lights' own line** ([`Renderer::set_lights_line`]):
     /// a band of the whole frame outside the grid, above or below it.
     lights: crate::lights::LineState,
@@ -2886,6 +2896,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             strip_inst: Vec::new(),
             strip_painted: None,
             strip_fresh: StripFresh::No,
+            wrap_marker: crate::wrapmark::WrapMarker::On,
+            margins: Px::of(0),
+            margin_inst: Vec::new(),
+            margin_painted: None,
+            margin_fresh: StripFresh::No,
             lights: crate::lights::LineState::new(),
             bar_inst: Vec::new(),
             trail: None,
@@ -5792,17 +5807,66 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// **The whole frame**: the strip, then [`Renderer::frame_size`]'s grid
-    /// and gutter, and the activity lights' line above or below all of it
+    /// **The whole frame**: the left margin, the strip, then
+    /// [`Renderer::frame_size`]'s grid and gutter, then the right margin,
+    /// and the activity lights' line above or below all of it
     /// ([`Renderer::lights_height`]). What a driver allocates and a
-    /// presenter centres; the grid is drawn [`Renderer::strip`] pixels in
-    /// from its left and [`Renderer::grid_top`] down from its top.
+    /// presenter centres; the grid is drawn [`Renderer::grid_left`] pixels
+    /// in from its left and [`Renderer::grid_top`] down from its top.
     pub fn whole_size(&self) -> (Px, Px) {
         let (w, h) = self.frame_size();
+        let beside = self
+            .strip()
+            .value()
+            .saturating_add(self.margins().value().saturating_mul(2));
         (
-            Px::of(w.value().saturating_add(self.strip().value())),
+            Px::of(w.value().saturating_add(beside)),
             Px::of(h.value().saturating_add(self.lights.height().value())),
         )
+    }
+
+    /// **Where the grid's frame starts in the whole frame**, in pixels
+    /// from its left: past the left margin and the exit-status strip.
+    pub fn grid_left(&self) -> Px {
+        Px::of(self.margins().value().saturating_add(self.strip().value()))
+    }
+
+    /// **Whether the word wrap's continuation marks are drawn**
+    /// (`[screen] wrap_marker`, [`crate::wrapmark`]): beside each line the
+    /// display re-wrapped, in the margins the driver lends.
+    pub fn set_wrap_marker(&mut self, marker: crate::wrapmark::WrapMarker) {
+        if marker != self.wrap_marker {
+            self.wrap_marker = marker;
+            self.margin_painted = None;
+            self.known = Prev::Unknown;
+        }
+    }
+
+    pub fn wrap_marker(&self) -> crate::wrapmark::WrapMarker {
+        self.wrap_marker
+    }
+
+    /// **The band of the window's padding each side lends the marks**, in
+    /// pixels: the driver's padding, which the whole frame then holds as a
+    /// margin at its left and its right, so the grid stays where it was and
+    /// keeps every column. Lent only while the marks are drawn: with the
+    /// word wrap or the marks off the margins are none
+    /// ([`Renderer::margins`]).
+    pub fn set_margins(&mut self, band: Px) {
+        if band != self.margins {
+            self.margins = band;
+            self.margin_painted = None;
+            self.known = Prev::Unknown;
+        }
+    }
+
+    /// The margin at each side of the whole frame: the band lent, while the
+    /// word wrap and its marks are both on; else none.
+    pub fn margins(&self) -> Px {
+        match (self.word_wrap, self.wrap_marker) {
+            (crate::WordWrap::On, crate::wrapmark::WrapMarker::On) => self.margins,
+            _ => Px::of(0),
+        }
     }
 
     /// **The activity lights' own line**, at `edge` of the whole frame and
@@ -5900,7 +5964,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
             glow: self.lights.glow,
             scale: self.lights.line.map_or(0.0, |l| l.scale),
         };
-        let width = self.whole_size().0;
+        // The line's width less the right margin, so the lights keep their
+        // place against the grid's frame however wide the margins are.
+        let width = Px::of(
+            self.whole_size()
+                .0
+                .value()
+                .saturating_sub(self.margins().value()),
+        );
         let face = self.stack.face(self.stack.badge());
         self.lights
             .place(face, &mut self.atlas, key, &palette, width);
@@ -5958,6 +6029,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         pan: Px,
     ) {
         self.strip_inst.clear();
+        self.place_wrap_marks(term, back, leaving, pan);
         if self.status == crate::status::StatusMarks::Off {
             return;
         }
@@ -6008,6 +6080,130 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// y as the grid's rows.
     pub fn strip_records(&self) -> &[Instance] {
         &self.strip_inst
+    }
+
+    /// **The word wrap's continuation marks for the next frame**
+    /// ([`crate::wrapmark`]), placed by [`Renderer::place_marks`]: one in
+    /// the margin at the start side of each line of the window that
+    /// continues a paragraph the display re-wrapped at its words, at that
+    /// line's top, lowered by `pan` and with the line above the window when
+    /// a smooth scroll draws it (`leaving`), as the strip's marks are. None
+    /// on the alternate screen, with no display, and where the margins
+    /// have no room ([`crate::wrapmark::room`]).
+    fn place_wrap_marks(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        leaving: crate::status::Leaving,
+        pan: Px,
+    ) {
+        self.margin_inst.clear();
+        let band = self.margins();
+        let Some(w) = crate::wrapmark::room(band, self.metrics.cell_w) else {
+            return;
+        };
+        if term.screen() == baud_core::Screen::Alternate {
+            return;
+        }
+        let Some(shown) = self.bidi.display_now(term, back) else {
+            return;
+        };
+        let page = self.clear_color_of(term);
+        let color = crate::color::reads_at(
+            self.theme
+                .entry(Chan::from_u8(8), |c| term.palette(c))
+                .with_alpha(Chan::from_u8(0xFF)),
+            page.with_alpha(Chan::from_u8(0xFF)),
+            page.a(),
+            self.theme.backdrop,
+            crate::Floor::GLASS_TRIGGER,
+        );
+        let cell = crate::boxes::Cell {
+            w: self.metrics.cell_w,
+            h: self.metrics.cell_h,
+        };
+        let (ch, base) = (px_i32(self.metrics.cell_h), px_i32(self.metrics.baseline));
+        let lift = px_i32(pan);
+        let whole = px_i32(self.whole_size().0);
+        // The band's left, and the box's inside it, centred.
+        let inset = (px_i32(band) - px_i32(w)) / 2;
+        // The line above the window when a smooth scroll draws it, then
+        // the window's rows, each with its top.
+        let leaving_line = match leaving {
+            crate::status::Leaving::Drawn => Some((Anchor::Above(Rows::of_count(1)), -ch)),
+            crate::status::Leaving::None => None,
+        };
+        let window = (0..self.main.index()).map(|y| {
+            let top = i32::try_from(y).unwrap_or(i32::MAX).saturating_mul(ch);
+            (Anchor::At(Row::from_index(y)), top)
+        });
+        for (at, top) in leaving_line.into_iter().chain(window) {
+            let Some(dir) = shown.continues(at) else {
+                continue;
+            };
+            let side = crate::wrapmark::Side::of(dir);
+            let Some(slot) = self.atlas.wrap_mark(side, w, cell, self.metrics.baseline) else {
+                continue;
+            };
+            let x = match side {
+                crate::wrapmark::Side::Left => inset,
+                crate::wrapmark::Side::Right => whole - px_i32(band) + inset,
+            };
+            self.margin_inst.push(Instance {
+                x: screen(x + slot.left),
+                y: screen(top + lift + base + slot.top),
+                w: slot.w,
+                h: slot.h,
+                u: slot.x,
+                v: slot.y,
+                color,
+                kind: slot.kind,
+                // The identity: a mark is a shape, not text to bend.
+                curve: CurveRow::default(),
+            });
+        }
+    }
+
+    /// **The continuation marks' records**, in the whole frame's pixels: x
+    /// from its left edge, the margins at its two ends, y as the grid's
+    /// rows. What a GPU path draws over the grid's rows across the whole
+    /// width, after the strip's.
+    pub fn margin_records(&self) -> &[Instance] {
+        &self.margin_inst
+    }
+
+    /// Paints the margins into `target`, the whole frame's width over the
+    /// grid's rows: the clear colour in each margin, then the marks, when
+    /// either changed since the last paint or the frame is new.
+    fn paint_margins(&mut self, target: &mut Target<'_>, damage: Damage) {
+        let band = self.margins();
+        if band.value() == 0 {
+            return;
+        }
+        let clear = self.clear_color();
+        let fresh = match &self.margin_painted {
+            Some((c, insts)) => damage == Damage::Full || *c != clear || *insts != self.margin_inst,
+            None => true,
+        };
+        if !fresh {
+            return;
+        }
+        self.margin_fresh = StripFresh::Yes;
+        let w = self.whole_size().0;
+        let all = Band {
+            top: Px::of(0),
+            bottom: self.frame_size().1,
+        };
+        for left in [Px::of(0), Px::of(w.value().saturating_sub(band.value()))] {
+            if let Some(mut own) = target.columns(left, band) {
+                own.fill_band(all, &[], self.metrics.cell_w, clear);
+            }
+        }
+        let page = self.page();
+        for inst in &self.margin_inst {
+            target.over(inst, &self.atlas, self.blend, page, all);
+        }
+        self.margin_painted = Some((clear, self.margin_inst.clone()));
     }
 
     /// Paints the strip into `target`, the strip's own columns: the clear
@@ -6187,10 +6383,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     bottom: px(end),
                 })
             });
-        let strip = (self.strip_fresh == StripFresh::Yes).then_some(Band {
-            top: Px::of(0),
-            bottom: self.frame_size().1,
-        });
+        let strip = (self.strip_fresh == StripFresh::Yes || self.margin_fresh == StripFresh::Yes)
+            .then_some(Band {
+                top: Px::of(0),
+                bottom: self.frame_size().1,
+            });
         // In the whole frame: below the lights' line when it is at the top,
         // and the line itself when this frame repainted it.
         let down = self.grid_top();
@@ -6256,6 +6453,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.place_images(term, back, Snapshots::Skipped);
         let converted = self.convert_with(term, back, damage, ImageRows::Repainted);
         self.strip_fresh = StripFresh::No;
+        self.margin_fresh = StripFresh::No;
         self.lights.fresh = crate::lights::Fresh::No;
         // With the activity lights' line kept, `target` is the whole frame:
         // the rest is painted into the rows beside the line, and the line on
@@ -6287,27 +6485,30 @@ impl<'f, 'a> Renderer<'f, 'a> {
     ) -> Frame {
         let under = self.image_places.iter().any(|p| p.layer.under_text());
         let over = Some(term.images());
-        // With the exit-status strip kept, `target` is the whole frame: the
-        // grid is painted into the columns past the strip, and the strip on
-        // its own.
-        let strip = self.strip();
-        if strip.value() == 0 {
+        // With the exit-status strip or the margins kept, `target` is the
+        // whole frame's width: the grid is painted into the columns past the
+        // left margin and the strip, the strip on its own, and the margins.
+        let (strip, band) = (self.strip(), self.margins());
+        if strip.value() == 0 && band.value() == 0 {
             return match under {
                 true => self.paint_rows(target, converted, UnderImages(term.images()), over),
                 false => self.paint_rows(target, converted, NoUnder, over),
             };
         }
         let (w, _) = self.frame_size();
-        let frame = match target.columns(strip, w) {
+        let frame = match target.columns(self.grid_left(), w) {
             Some(mut grid) => match under {
                 true => self.paint_rows(&mut grid, converted, UnderImages(term.images()), over),
                 false => self.paint_rows(&mut grid, converted, NoUnder, over),
             },
             None => Frame::default(),
         };
-        if let Some(mut own) = target.columns(Px::of(0), strip) {
-            self.paint_strip(&mut own, damage);
+        if strip.value() > 0 {
+            if let Some(mut own) = target.columns(band, strip) {
+                self.paint_strip(&mut own, damage);
+            }
         }
+        self.paint_margins(target, damage);
         frame
     }
 
@@ -8262,8 +8463,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// [`Renderer::hide_cursor`], painted into `target`, which must still
-    /// hold the last frame: the grid's columns of it, past the exit-status
-    /// strip when one is kept, as [`Renderer::render_at`] paints them, and
+    /// hold the last frame: the grid's columns of it, past the left margin
+    /// and the exit-status strip when either is kept
+    /// ([`Renderer::grid_left`]), as [`Renderer::render_at`] paints them, and
     /// the images on those rows. **An image the terminal no longer holds**
     /// -- the alternate screen's, which leaving it deletes before the
     /// switch is seen -- cannot be blitted again, so on the rows painted it
@@ -8279,12 +8481,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             )
         });
         let converted = self.hide_cursor(term);
-        let strip = self.strip();
-        if strip.value() == 0 {
+        let left = self.grid_left();
+        if left.value() == 0 {
             return self.paint_kept(term, target, converted, cell);
         }
         let (w, _) = self.frame_size();
-        match target.columns(strip, w) {
+        match target.columns(left, w) {
             Some(mut grid) => self.paint_kept(term, &mut grid, converted, cell),
             None => Frame::default(),
         }

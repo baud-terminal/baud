@@ -111,6 +111,7 @@ its filename's prefix, and several notes share one.
 | [bh-rendition-probe.md](research/notes/bh-rendition-probe.md) | BH. A full rendition table's probe stops at its bucket's reach | done 2026-10-31 |
 | [bi-frozen-renditions.md](research/notes/bi-frozen-renditions.md) | BI. A full rendition table freezes what lies off the screen | open |
 | [bj-reversed-glass.md](research/notes/bj-reversed-glass.md) | BJ. A reversed default page on the glass is raised until its text reads | open |
+| [bk-path-wrap.md](research/notes/bk-path-wrap.md) | BK. A path wraps before its slash, and a mark beside each line the wrap continued | open |
 | [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `158996a` |
 | [d-memory-hierarchy.md](research/notes/d-memory-hierarchy.md) | Memory hierarchy — why a read cost 2.5× where a write did not | open |
 | [e-tty-layer.md](research/notes/e-tty-layer.md) | The tty layer — why a PTY read is 1024 bytes on Darwin and 4095 on Linux | open |

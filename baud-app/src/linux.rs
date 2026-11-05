@@ -1981,6 +1981,8 @@ impl Driver {
                     self.renderer.set_word_wrap(c.wrap_words);
                     self.seat.set_word_wrap(c.wrap_words);
                 }
+                // No padding to lend: the marks are never drawn here.
+                Part::WrapMarker => self.renderer.set_wrap_marker(c.wrap_marker),
                 // On their own line, the window having no title bar: its
                 // pixels given or taken back now.
                 Part::ActivityLights => {

@@ -555,6 +555,11 @@ struct Memo {
     /// ([`Atlas::slot_fitted_at`], `crate::fit`). A map of its own, so the
     /// key every other glyph is looked up by is no wider for it.
     fitted: HashMap<(GlyphKey, u32), Option<Slot>>,
+    /// **The word wrap's continuation marks** ([`crate::wrapmark`]), by
+    /// their side and the width of the box they are drawn in, which the
+    /// padding the driver lends sets: the height is the cell's, a function
+    /// of the size.
+    wrap_marks: HashMap<(crate::wrapmark::Side, u32), Option<Slot>>,
 }
 
 /// Whether a glyph's image is flipped left to right: a mirrored
@@ -578,6 +583,7 @@ impl Memo {
             flipped: HashMap::new(),
             sheared: HashMap::new(),
             fitted: HashMap::new(),
+            wrap_marks: HashMap::new(),
         }
     }
 
@@ -590,6 +596,7 @@ impl Memo {
             && self.flipped.is_empty()
             && self.sheared.is_empty()
             && self.fitted.is_empty()
+            && self.wrap_marks.is_empty()
     }
 }
 
@@ -1968,6 +1975,26 @@ impl Atlas {
         let slot = crate::status::draw(mark, cell.w, cell.h, &mut self.scratch, &mut self.coverage)
             .and_then(|extent| self.place_cell_mask(extent, baseline));
         self.held.procedural.insert(mark.key().0, slot);
+        slot
+    }
+
+    /// **A word wrap continuation mark's mask** ([`crate::wrapmark`]), `w`
+    /// wide and the cell's height, placed as a procedural glyph is and
+    /// memoised under its side and width, per size with them.
+    pub(crate) fn wrap_mark(
+        &mut self,
+        side: crate::wrapmark::Side,
+        w: Px,
+        cell: crate::boxes::Cell,
+        baseline: Px,
+    ) -> Option<Slot> {
+        let key = (side, w.value());
+        if let Some(slot) = self.held.wrap_marks.get(&key) {
+            return *slot;
+        }
+        let slot = crate::wrapmark::draw(side, w, cell.h, &mut self.scratch, &mut self.coverage)
+            .and_then(|extent| self.place_cell_mask(extent, baseline));
+        self.held.wrap_marks.insert(key, slot);
         slot
     }
 

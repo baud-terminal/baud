@@ -788,3 +788,82 @@ fn a_narrowing_at_a_marked_prompt_keeps_the_cut_of_rows_it_did_not_re_cut() {
         "every row drawn as the terminal cut it"
     );
 }
+
+/// The display lines of `text` written above a prompt in a window `cols`
+/// wide, the history's lines and the prompt's left out, each trimmed of
+/// its erased cells; and the words the layout broke at a line's edge.
+fn path_lines(text: &str, cols: u16) -> (Vec<String>, baud_render::Tally) {
+    let ws = WinSize {
+        ws_row: 8,
+        ws_col: cols,
+    };
+    let (got, o) = drawn_as(
+        &ws,
+        &format!("{}{text}\r\n{PROMPT}", history(8)),
+        Rows::ZERO,
+        WordWrap::On,
+    );
+    let emergency = o
+        .orders()
+        .display()
+        .map(|d| d.counts().2)
+        .unwrap_or_default();
+    let lines = got
+        .iter()
+        .map(|l| l.trim_end_matches(['.', ' ']).to_string())
+        .filter(|l| {
+            let history = l
+                .strip_prefix('h')
+                .is_some_and(|n| n.parse::<u16>().is_ok());
+            !history && l != "$"
+        })
+        .collect();
+    (lines, emergency)
+}
+
+/// **A path wraps before its separators, and moves whole after a space**
+/// (`baud_domain::line_breaks_in_paths`): `/home` then `/jordan`; `cd`
+/// never left with a lone `/`; a dated log path broken at its separators
+/// with no word broken at the edge, where UAX #14's default glues
+/// `2026/11/04.log` (LB25) and breaks it at the edge; a Windows path at
+/// its backslashes; a URL's host whole before its path.
+#[test]
+fn a_path_wraps_before_its_separators() {
+    let none = baud_render::Tally::default();
+    let mut wrong = Vec::new();
+    for (text, cols, want) in [
+        ("ls /home/jordan", 10, vec!["ls /home", "/jordan"]),
+        ("cd /home", 7, vec!["cd", "/home"]),
+        (
+            "/var/log/2026/11/04.log",
+            12,
+            vec!["/var/log", "/2026/11", "/04.log"],
+        ),
+        (
+            r"C:\Users\jordan\Code",
+            10,
+            vec![r"C:\Users", r"\jordan", r"\Code"],
+        ),
+        (
+            "https://github.com/jordan",
+            20,
+            vec!["https://github.com", "/jordan"],
+        ),
+    ] {
+        let (got, emergency) = path_lines(text, cols);
+        if got != want || emergency != none {
+            wrong.push(format!(
+                "{text} at {cols}: {got:?}, {emergency:?} broken at the edge"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// **A fraction, a date and the abbreviations UAX #14 names wrap as its
+/// default wraps them**: no path run, so no break before their slash.
+#[test]
+fn a_fraction_a_date_and_w_o_wrap_as_the_default() {
+    let (got, _) = path_lines("half 1/2 and 06/07/99 w/o and/or", 10);
+    assert_eq!(got, ["half 1/2", "and", "06/07/99", "w/o and/or"]);
+}

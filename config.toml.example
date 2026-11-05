@@ -432,8 +432,16 @@ guide = "off"
 # still running and full-screen programs keep the program's lines, and so
 # does output the window was narrowed past while the shell waited at its
 # prompt. Copying gives the text as the program wrote it either way, except
-# while a program has set ?96, when a copy follows the lines as drawn. "on"
+# while a program has set ?96, when a copy follows the lines as drawn. A
+# path wraps before its slashes, /home then /jordan, and moves to the next
+# line whole after a space; a Windows path wraps at its backslashes. "on"
 # by default.
+#
+# wrap_marker: a small hook arrow in the window's padding beside each line
+# wrap_words carried on, on the right for a right-to-left line. It takes no
+# column and is never copied; a full-screen program's screen and lines a
+# program wrapped at the edge have none, and with padding = 0 there is no
+# room for it. "on" by default.
 [screen]
 transition = "off"
 checksum = "on"
@@ -450,6 +458,7 @@ substitute_mark = "off"
 substitute_character = "\u2426"
 prompt_at_bottom = "off"
 wrap_words = "on"
+wrap_marker = "on"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast

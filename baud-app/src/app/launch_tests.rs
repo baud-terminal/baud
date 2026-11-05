@@ -248,9 +248,9 @@ impl Session {
         let m = self.renderer.metrics();
         let n = |p: baud_font::Px| usize::try_from(p.value()).expect("a size");
         let (cw, ch, w) = (n(m.cell_w), n(m.cell_h), n(self.renderer.whole_size().0));
-        // The grid is drawn the exit-status strip in from the left, from
-        // the top (`Renderer::whole_size`).
-        let x0 = n(self.renderer.strip());
+        // The grid is drawn the margin and the exit-status strip in from
+        // the left, from the top (`Renderer::whole_size`).
+        let x0 = n(self.renderer.grid_left());
         (0..ch)
             .flat_map(|y| {
                 let at = (row.index() * ch + y) * w + x0 + col.index() * cw;
