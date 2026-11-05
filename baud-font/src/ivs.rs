@@ -17,7 +17,7 @@
 //! blob -- it no longer rewrites a bad offset to null
 //! (`[[source: harfbuzz-12-3-0-sanitize]]`) -- so a store, a data set, a
 //! region list or a map that does not check out takes the table that owns
-//! it with it. `scripts/advance-oracle.py` shows it on four broken `HVAR`s.
+//! it with it. `tools/baud-oracle`'s `advance` shows it on four broken `HVAR`s.
 //! An offset of 0 is not malformed: it is a null subtable, which varies
 //! nothing. Every subtable is checked when the table is parsed, and read
 //! lazily afterwards.

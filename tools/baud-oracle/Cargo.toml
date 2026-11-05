@@ -1,0 +1,13 @@
+[package]
+name = "baud-oracle"
+version = "0.1.0"
+edition = "2024"
+description = "baud-font's reference-engine oracles: HarfBuzz and FreeType through first-party extern \"C\""
+license = "CC-BY-NC-SA-4.0"
+# A test tool: nothing here is published.
+publish = false
+
+[dependencies]
+# The bearing oracle's pp1, read from glyf and hmtx by a reader that is not
+# baud-font, so the test does not take it from the code it checks.
+read-fonts = "=0.46.0"

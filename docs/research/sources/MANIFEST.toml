@@ -4229,8 +4229,9 @@ sha256 = "627e20092871f554c7eaf719e56dac72497d2d9a1a91b5919ac78bcf74d84deb"
 bytes  = 81037
 status = "external"
 group  = "J"
-# Read 2026-10-11, hash-verified, not committed: the release freetype-py
-# loads in scripts/component-oracle.py. A matched parent point is numbered
+# Read 2026-10-11, hash-verified, not committed: the release the component
+# oracle links (freetype-py loaded it while the oracle was Python; now
+# tools/baud-oracle's component). A matched parent point is numbered
 # from the composite's own start and must be one of the earlier components'
 # (k >= num_base_points is Invalid_Composite), a child point must be an
 # outline point (no phantoms), and SCALED_COMPONENT_OFFSET scales the offset
@@ -12719,7 +12720,7 @@ bytes  = 10501
 status = "retrieved"
 group  = "J"
 # The implementation baud-font's variation normalisation is checked against
-# (scripts/var-oracle.py runs this HarfBuzz version), and the source of the
+# (tools/baud-oracle's var runs this HarfBuzz version), and the source of the
 # one rounding the OpenType specification leaves open. Note Z.
 
 [sources.harfbuzz-12-3-0-avar]
@@ -12735,7 +12736,7 @@ bytes  = 15095
 status = "retrieved"
 group  = "J"
 # The implementation baud-font's variation normalisation is checked against
-# (scripts/var-oracle.py runs this HarfBuzz version), and the source of the
+# (tools/baud-oracle's var runs this HarfBuzz version), and the source of the
 # one rounding the OpenType specification leaves open. Note Z.
 
 [sources.harfbuzz-12-3-0-fvar]
@@ -12751,7 +12752,7 @@ bytes  = 15594
 status = "retrieved"
 group  = "J"
 # The implementation baud-font's variation normalisation is checked against
-# (scripts/var-oracle.py runs this HarfBuzz version), and the source of the
+# (tools/baud-oracle's var runs this HarfBuzz version), and the source of the
 # one rounding the OpenType specification leaves open. Note Z.
 
 [sources.harfbuzz-12-3-0-gvar]

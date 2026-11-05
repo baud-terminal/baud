@@ -17,9 +17,9 @@
 //! `tests/var/bearing-cases.ttf` and `bearing-cases-bit1.ttf`
 //! (`scripts/bearing-cases-font.py`) are the fixtures, the same glyphs with
 //! bit 1 clear and set, and `tests/var/bearings.txt`
-//! (`scripts/bearing-oracle.py`) holds HarfBuzz 12.3.0's and FreeType
+//! (`tools/baud-oracle`'s `bearing`) holds HarfBuzz 12.3.0's and FreeType
 //! 2.14.3's drawings of both at the default instance and three weights,
-//! with where each glyph's left phantom starts, read by fontTools.
+//! with where each glyph's left phantom starts, read by read-fonts.
 
 use baud_domain::GlyphId;
 use baud_font::var::{Fixed, Variation};

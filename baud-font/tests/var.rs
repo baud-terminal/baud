@@ -2,7 +2,7 @@
 //!
 //! `tests/var/normalize.txt` is HarfBuzz's normalised coordinate for every
 //! wght design value from 0 to 1000 in quarter units, over the three
-//! committed variable faces; `scripts/var-oracle.py` writes it. The
+//! committed variable faces; `tools/baud-oracle`'s `var` writes it. The
 //! specification fixes the arithmetic except the rounding of one 16.16
 //! division, so agreeing with HarfBuzz at every quarter unit -- both clamps,
 //! the default, every `avar` segment and its edges -- is agreeing with the
@@ -404,7 +404,7 @@ fn a_walk_past_harfbuzzs_edge_bound_draws_nothing_on_either_path() {
     assert!(none.0.is_empty());
 }
 
-/// Every advance `scripts/advance-oracle.py` recorded -- every glyph of the
+/// Every advance `tools/baud-oracle`'s `advance` recorded -- every glyph of the
 /// cases fonts, every 11th of the real ones -- against HarfBuzz's, exactly:
 /// both round to whole units. The default rows are the control that the
 /// oracle's scale is units per em: each must be the `hmtx` advance.
@@ -466,7 +466,7 @@ fn every_advance_is_harfbuzzs() {
     );
 }
 
-/// Every text `scripts/marks-oracle.py` shaped -- the Latin letters under
+/// Every text `tools/baud-oracle`'s `marks` shaped -- the Latin letters under
 /// sixteen combining marks, and stacks of two -- against HarfBuzz's glyphs,
 /// clusters and mark offsets, at the default and at each weight, exactly.
 /// HarfBuzz reports a mark's offset from its own pen position, one base

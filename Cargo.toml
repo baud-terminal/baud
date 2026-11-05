@@ -46,8 +46,10 @@ members = ["baud-domain", "baud-core", "baud-bench",
 ]
 
 # bench-others/* are standalone harnesses against sibling checkouts of other
-# terminals. They do not belong in this lock file.
-exclude = ["bench-others"]
+# terminals. They do not belong in this lock file. tools/ holds the crates
+# that link C engines, with its own workspace and lock file, so a workspace
+# build never compiles or links them.
+exclude = ["bench-others", "tools"]
 
 # **`cargo run` builds the binary the bundle ships.** `baud` is the one binary,
 # and the rest is part of the tests. Without this line a bare

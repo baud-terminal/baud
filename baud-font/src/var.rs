@@ -327,8 +327,8 @@ mod tests {
     /// A negative half, which none of the 12,003 fixture values reaches:
     /// an axis 0 / 2 / 3 at `2 - k / 65536` is `-k / 2` in 16.16. HarfBuzz
     /// 12.3.0 answers 0 at k = 5 (-2.5 rounds up to -2, then to 0 in 2.14)
-    /// and -1 at k = 6 (`scripts/var-oracle.py` does not reach it; asked of
-    /// uharfbuzz 0.53.2 directly). Rounding halves away from zero, as the
+    /// and -1 at k = 6 (`tools/baud-oracle`'s `var` does not reach it; asked
+    /// of uharfbuzz 0.53.2 directly). Rounding halves away from zero, as the
     /// first version of step 1 did, gives -1 at k = 5.
     #[test]
     fn a_negative_half_rounds_up_as_harfbuzz_rounds_it() {

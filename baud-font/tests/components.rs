@@ -18,8 +18,8 @@
 //!
 //! `tests/var/component-cases.ttf` (`scripts/component-cases-font.py`) is
 //! the fixture, since no font on this machine or in the tree reaches
-//! either rule, and `tests/var/components.txt` (`scripts/component-oracle.py`)
-//! holds HarfBuzz 12.3.0's and FreeType 2.14.3's drawings of every glyph at
+//! either rule, and `tests/var/components.txt` (`tools/baud-oracle`'s
+//! `component`) holds HarfBuzz 12.3.0's and FreeType 2.14.3's drawings of every glyph at
 //! the default instance and three weights. The two engines disagree on
 //! fourteen glyphs; [`SIDES`] says, glyph by glyph, which drawing the text
 //! makes baud's, and where the text says nothing which drawing baud keeps.

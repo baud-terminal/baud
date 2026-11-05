@@ -14,7 +14,7 @@
 //! FreeType's 0.
 //!
 //! `tests/var/vertical-cases.ttf` (`scripts/vertical-cases-font.py`) is the
-//! fixture and `tests/var/vertical.txt` (`scripts/vertical-oracle.py`)
+//! fixture and `tests/var/vertical.txt` (`tools/baud-oracle`'s `vertical`)
 //! holds HarfBuzz 12.3.0's and FreeType 2.14.3's drawings of it. FreeType
 //! refuses every phantom point in a match; HarfBuzz places a child's
 //! vertical phantoms as the text does, applies the X delta of a composite's

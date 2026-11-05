@@ -294,6 +294,9 @@ fn every_repository_path_named_in_the_docs_exists() {
         "baud-sfte-difftest/",
         "xtask/",
         "bench-others/",
+        // The crates that link C engines, outside the workspace, added with
+        // `tools/baud-oracle`.
+        "tools/",
         "docs/",
         "scripts/",
         ".github/",
@@ -436,6 +439,9 @@ fn every_test_named_in_the_docs_exists() {
         "baud-present-wayland",
         "baud-tablegen",
         "xtask",
+        // Outside the workspace; its docs name the C functions its extern
+        // blocks declare, which this collects as it collects any `fn`.
+        "tools/baud-oracle",
     ] {
         let dir = root().join(d);
         assert!(

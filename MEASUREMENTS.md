@@ -2353,3 +2353,64 @@ turned a test red. A 32-to-31 reference window did not: no name on the
 pinned list is longer than 31 characters without its semicolon.
 `check-publish.py` keeps its own copy of the status meanings and licence
 URIs, which a test holds equal to xtask's until it is ported.
+
+
+## baud-font's oracles in `tools/baud-oracle`
+
+Not timed: no byte path changed, and nothing in the workspace links the
+new crate. `tools/` is its own workspace with its own `Cargo.lock`,
+excluded from the root's, so `cargo test --workspace` never builds a C
+engine. `baud-oracle` calls HarfBuzz and FreeType through first-party
+`extern "C"` (`tools/baud-oracle/src/hb.rs`, `tools/baud-oracle/src/ft.rs`).
+A C probe compiled against the headers holds each struct's size, the
+offset of every field the bindings read, the constants, the version
+macros and FreeType's 95 error texts to them.
+
+The engines: none of nixos-25.11 (HarfBuzz 12.1.0, FreeType 2.13.3),
+nixos-26.05 (13.2.1, 2.14.3) or nixpkgs-unstable (14.5.1, 2.14.3) has the
+pair; nixpkgs `21622bac70c2`, the commit that took FreeType to 2.14.3,
+has both, and `tools/shell.nix` pins it. HarfBuzz's
+check phase fails there on one CoreText shaping test against this host's
+CoreText, so it is skipped. The Python arm was nixos-26.05's uharfbuzz
+0.53.2, which builds its own vendored 12.3.0, and nixpkgs' 12.3.0 carries
+a cmap patch for CVE-2026-22693: two builds of one version, so their
+agreement below is measured, not assumed. Every bin refuses to write a
+line unless the linked versions are 12.3.0 and 2.14.3.
+
+| oracle | committed rows | on its perturbation | rows |
+|---|---|---|---|
+| `advance` | 13,252 equal | first hmtx advance of `gvar-cases.ttf` +37 | 13,252 equal |
+| `bearing` | 180 equal | `bearing-cases-bit1.ttf` swapped for JetBrains Mono | 15,768 equal |
+| `cff2` | 1,360 equal | `cff2-cases.otf` swapped for JetBrains Mono (quadratics) | 42,952 equal |
+| `component` | 264 equal | `component-cases.ttf` swapped for JetBrains Mono | 13,936 equal |
+| `gvar` | 1,098 equal | `gvar-cases.ttf` swapped for Source Code VF (cubics) | 71,208 equal |
+| `marks` | 11,722 equal | `ink-cases.ttf` swapped for Fira Code | 11,722 equal |
+| `var` | 12,003 equal | `FiraCode-VF.ttf` swapped for Source Code VF | 12,003 equal |
+| `vertical` | 126 equal | `post` version 3 in `vertical-cases.ttf` (no names) | 126 equal |
+
+"Equal" is every data line byte for byte, Python's against Rust's, both
+exiting 0; the perturbations reach branches the committed fonts do not
+(a bare `C`, `Q`, a `None` name). `tools/baud-oracle/tests/regenerate.rs`
+keeps the identity and one perturbation per oracle that must fail
+`--check`.
+
+Red first: the first `cff2` run differed at data line 225, `...07813`
+for Python's `...07812`. Where two shortest strings tie, Rust's `{:e}`
+rounds up and CPython rounds to even, so `repr` now rounds to the shortest
+length with `{:.*e}` (`tools/baud-oracle/src/pyfmt.rs`). Three mutations
+each turned a test red: back to `{:e}`'s digits (cff2, and the repr rows),
+`x_offset` and `y_offset` swapped (the probe, and marks at line 17), and
+the perturbations not written (the positive control).
+
+The six ported scripts are deleted and their files regenerated: only the
+headers changed, once, `uharfbuzz 0.53.2` to `tools/baud-oracle` and the
+generator line to the bin, because a Rust regenerator cannot print the
+Python binding's name; `bearings.txt`'s pp1 reader is `read-fonts 0.46.0`,
+not fontTools. `scripts/gvar-oracle.py` and `scripts/cff2-oracle.py` stay
+beside their ports with their headers unchanged: LICENSE names both as
+the writers of `outlines.txt` and `cff2-outlines.txt`, and LICENSE is not
+edited here, so their deletion waits on that edit. FreeType errors print
+FreeType's own texts. freetype-py's table misquotes eight of them
+(0x8F-0x9B). All eight are table-missing or table-format errors that
+FT_New_Face raises, and there both arms stop before writing a row, so no
+row of either arm can hold one.

@@ -1,0 +1,7 @@
+# The tools that link C: kept out of the repository's workspace (the root
+# manifest excludes `tools`), with their own lock file, so `cargo test
+# --workspace` and the push hook never build or link a C engine. Build them
+# in `tools/shell.nix`, which pins the engines.
+[workspace]
+resolver = "2"
+members = ["baud-oracle"]
