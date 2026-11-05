@@ -24,11 +24,11 @@ BoldItalic.ttf  JetBrains Mono 2.304 Bold Italic plus Hebrew, leaning right, and
                 Devanagari Bold, upright. The variant is A-L2.
 
 All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/,
-baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there) and Noto Sans Devanagari
-2.007's variable font, fetched by the URL and sha256 in
+baud-app/fonts/glyphs/languages/hebrew/stage/ (see SOURCE in hebrew/) and Noto Sans
+Devanagari 2.007's variable font, fetched by the URL and sha256 in
 baud-app/fonts/glyphs/languages/devanagari/SOURCE. It builds them in two stages, the
-Hebrew and then the Devanagari (THE DEVANAGARI), and refuses to write bytes other than
-these sha256s:
+Hebrew and then the Devanagari (THE DEVANAGARI). These are the files' sha256s, written
+by the parametric Hebrew build the stage sources were read from:
 
   Regular.ttf     d8e9226d5e68c02e55b3d45232e8adffa22c10123f491de4c6be3f50433d901d
   Bold.ttf        87b66b6067bc8bb4d03b4d0cd32538cf59bccaa927d181b2cc831004093dcc0d
@@ -36,7 +36,7 @@ these sha256s:
   BoldItalic.ttf  20a50bbf6c4147e3eed6cee22ff9ba2df39993238654e06ef3afb840994a441c
 
 and, for the Hebrew stage the merge starts from, these, the four files as they were
-before the Devanagari went in:
+before the Devanagari went in, from which the stage sources were read:
 
   Regular         cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1
   Bold            2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20
@@ -57,10 +57,12 @@ outline (and Bold's loca, for its length), Bold Italic's left side bearing for i
 and head's checksum alone. The gates were run again on these bytes on 2026-10-08,
 2026-10-24 and 2026-10-25 (CHANGELOG).
 
+The Hebrew stage is now merged from the stage sources by tools/baud-fontbuild, whose
+writer lays GSUB and GPOS out in another order than fontTools, so a rebuilt file differs
+from the one above in GSUB's bytes and head's checksum. The build pins each rebuilt
+stage's and file's sha256, and refuses a rebuilt file that `baud-fontbuild compare` does
+not hold equal to the one above in every glyph, mapping, metric, field and lookup.
 Running scripts/build-fonts.sh --check rebuilds all four and compares them with MANIFEST.
-scripts/build-fonts.sh --italics rebuilds the two italics with the rounds' correction
-off (both its parts) and requires the plain shear's earlier gated bytes (note AC 4b),
-so the correction is the only thing the italics add to the shear.
 
 
 WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304

@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 326 | 63 | redistributable, and its notice is satisfied |
+| kept | 326 | 64 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 596 | 72 | |
+| total | 596 | 73 | |
 
 ## Licence texts in LICENSES/
 
@@ -155,6 +155,14 @@ they were built from.
 - **Notice:** [baud-app/fonts/glyphs/languages/hebrew/OFL.txt](baud-app/fonts/glyphs/languages/hebrew/OFL.txt)
 - **From:** https://github.com/microsoft/cascadia-code/releases/tag/v2407.24
 - **Files:** [baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf](baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf), [baud-app/fonts/glyphs/languages/hebrew/anchors-400.json](baud-app/fonts/glyphs/languages/hebrew/anchors-400.json), [baud-app/fonts/glyphs/languages/hebrew/anchors-700.json](baud-app/fonts/glyphs/languages/hebrew/anchors-700.json)
+
+### The Hebrew stage's sources, one per style: the glyphs, anchors, lookups, GDEF classes and the name and OS/2 edits the Hebrew stage adds to stock JetBrains Mono, read out of the stage fonts the earlier parametric build wrote, and merged into stock JetBrains Mono by tools/baud-fontbuild's stage. The glyphs are drawn from Cascadia Mono, and the name records carry JetBrains Mono's and Cascadia Mono's notices: data read out of both fonts, so part of each font's Font Software, under each font's OFL 1.1 (the two OFL texts beside them, copies of hebrew/OFL.txt and jetbrains-mono/OFL.txt). The Rust that reads and merges them is baud's own, under the repository's licence
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** the two fonts' OFL texts beside them (CascadiaMono-OFL.txt, JetBrainsMono-OFL.txt)
+- **From:** read out of the Hebrew stage fonts by tools/baud-fontbuild's extract
+- **Files:** [baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt](baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt), [baud-app/fonts/glyphs/languages/hebrew/stage/Bold.txt](baud-app/fonts/glyphs/languages/hebrew/stage/Bold.txt), [baud-app/fonts/glyphs/languages/hebrew/stage/Italic.txt](baud-app/fonts/glyphs/languages/hebrew/stage/Italic.txt), [baud-app/fonts/glyphs/languages/hebrew/stage/BoldItalic.txt](baud-app/fonts/glyphs/languages/hebrew/stage/BoldItalic.txt), [baud-app/fonts/glyphs/languages/hebrew/stage/CascadiaMono-OFL.txt](baud-app/fonts/glyphs/languages/hebrew/stage/CascadiaMono-OFL.txt), [baud-app/fonts/glyphs/languages/hebrew/stage/JetBrainsMono-OFL.txt](baud-app/fonts/glyphs/languages/hebrew/stage/JetBrainsMono-OFL.txt)
 
 ### Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors
 

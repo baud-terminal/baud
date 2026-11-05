@@ -1,5 +1,5 @@
 Cascadia Mono's Hebrew: the source of the Hebrew in baud's embedded font
-(baud-app/fonts/built/), which scripts/build-fonts.sh builds from this directory.
+(baud-app/fonts/built/), which scripts/build-fonts.sh builds from stage/ in this directory.
 
 Release:   Cascadia Code v2407.24 (tag v2407.24, commit 56bcca3f2c1e4cb19458954f0e2bb4635960df91,
            published 2024-11-27)
@@ -45,18 +45,30 @@ is byte for byte OFL.txt.
 Designers, per the repository's README.md at the tag (line 78) and the font's nameID 9:
 Hebrew, Liron Lavi Turkenich; the family, Aaron Bell.
 
-Also in this directory in the repository, all read by the build (the app bundle carries
-only this file and OFL.txt):
+Also in this directory in the repository (the app bundle carries only this file and
+OFL.txt):
+  stage/
+      What the build reads: one source per style (Regular.txt, Bold.txt, Italic.txt,
+      BoldItalic.txt), the Hebrew stage's glyphs, anchors, lookups, GDEF classes and
+      name and OS/2 edits, which tools/baud-fontbuild's stage merges into stock
+      JetBrains Mono of that style. They were read out of the Hebrew stage files the
+      build below wrote, by tools/baud-fontbuild's extract, and the stage built from
+      them compares equal to those files in every table. They are data read out of
+      Cascadia Mono and JetBrains Mono, under each font's OFL beside them
+      (CascadiaMono-OFL.txt, a copy of OFL.txt here, and JetBrainsMono-OFL.txt).
   anchors-400.json, anchors-700.json
       Cascadia's own dagesh anchors (the letter's anchor minus the dagesh's mark
-      anchor), read from the wght 400 and 700 instances by casanchors.py.
-      scripts/build-fonts.sh regenerates both on every run and stops if either differs.
-      They are data read out of Cascadia Mono and are under OFL.txt beside them, as the
-      font is.
+      anchor), read from the wght 400 and 700 instances by casanchors.py. The
+      build below placed its dagesh by them; the stage sources carry the anchors it
+      wrote, and scripts/build-fonts.sh no longer reads these. They are data read out
+      of Cascadia Mono and are under OFL.txt beside them, as the font is.
   casanchors.py
-      That reader.
+      That reader. No longer run by the build.
   build/
-      The build modules. build.py is the build; style.py the STYLE parameter; design.py,
+      The parametric build modules that wrote the Hebrew stage the sources were read
+      from. scripts/build-fonts.sh no longer runs them, but for instance.py and pin.py,
+      which instance and save Noto Sans Devanagari for the Devanagari stage. build.py
+      was the build; style.py the STYLE parameter; design.py,
       design2.py and design3.py are rounds 1-3; distinct.py is round 5 (2026-10-24),
       which moves dalet's leg so that it does not read as zayin, and round 6
       (2026-10-28), which narrows zayin's head from the left so that it does not

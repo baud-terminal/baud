@@ -1,5 +1,6 @@
-//! **baud's font-build tools.** Today one: `compare`, the check a rebuilt
-//! font is held to when its bytes cannot be.
+//! **baud's font-build tools.** Two: `compare`, the check a rebuilt font
+//! is held to when its bytes cannot be, and [`stage`], which builds the
+//! Hebrew stage of baud's embedded font from its committed sources.
 //!
 //! ```text
 //! cargo run --release --manifest-path tools/Cargo.toml \
@@ -51,6 +52,7 @@ mod dump;
 mod fixed;
 mod glyphs;
 mod layout;
+pub mod stage;
 mod var;
 
 pub use dump::Dump;

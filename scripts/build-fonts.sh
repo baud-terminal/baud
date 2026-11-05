@@ -1,162 +1,81 @@
 #!/usr/bin/env bash
-# **Build baud's embedded font from what is committed, and prove the bytes.**
+# **Build baud's embedded font from what is committed, and prove it.**
 #
-#   scripts/build-fonts.sh            build Regular, Bold, Italic and Bold Italic, gate all
-#                                     four, and write
-#                                     baud-app/fonts/built/{Regular,Bold,Italic,BoldItalic}.ttf
-#                                     and MANIFEST
-#   scripts/build-fonts.sh --check    rebuild into a temporary directory and compare with
-#                                     built/MANIFEST and the committed files; writes nothing
-#   scripts/build-fonts.sh --italics  build the two italics with the rounds' correction off
-#                                     (ROUND_K=0 LEVEL=0) and compare each with the plain shear's
-#                                     gated hash: the control that the correction is the
-#                                     only thing the italics add to the shear; writes nothing
+#   scripts/build-fonts.sh          rebuild Regular, Bold, Italic and Bold Italic, gate all
+#                                   four, and write baud-app/fonts/built/MANIFEST
+#   scripts/build-fonts.sh --check  rebuild into a temporary directory and compare with
+#                                   built/MANIFEST and the committed files; writes nothing
 #
-# The inputs are the stock JetBrains Mono base (baud-app/fonts/jetbrains-mono/),
-# baud-app/fonts/glyphs/languages/devanagari/ (its merge module and SOURCE) with the
-# Noto Sans Devanagari variable font that SOURCE pins, fetched by URL and refused unless
-# it hashes as pinned (it is not in the repository), and
-# baud-app/fonts/glyphs/languages/hebrew/: Cascadia Mono's variable font from the
-# v2407.24 release, the dagesh anchors read from its instances, and the build modules
-# (build/). The steps: instance the variable font at wght 400 and 700, regenerate the
-# anchors from those instances and require them equal to the committed ones, then run
-# build/build.py once per style under `env -i` with that style's exact environment. The
-# italics are the upright design leaning right 9 degrees with the Latin, with JetBrains
-# Mono Italic's correction of rounds: its bowls' joints levelled and its round corners'
-# handles re-balanced (build/optical.py); each merges into JetBrains Mono's own Italic
-# or Bold Italic and carries the built family's name, so the four embedded faces are
-# one family, as the OpenType name table's nameID 1 has a style-linking group share one
-# name. Then Noto Sans Devanagari goes into each (devanagari/build/merge.py): the
-# variable font instanced at wght 400 (Regular, Italic) or 700 (Bold, Bold Italic), its
-# width axis kept, merged after every glyph, lookup and table the Hebrew build wrote,
-# which the merge proves unchanged object by object before it writes.
+# Each style is built in two stages.
 #
-# **The gate is the sha256 of the gated files, by value**, at two stages: each style as
-# the Hebrew build writes it (<style>-hebrew below, the bytes the four embedded faces
-# were before Noto Sans Devanagari went in), and each after the merge. The Hebrew stage's
-# outputs are the
-# research tree's final3 set with two conformance fixes (2026-10-08), one letter redrawn (2026-10-24,
-# below), Bold's zayin head ends squared (2026-10-25, below), the glyphs baud
-# draws itself (build/cover.py, below), meteg kept in its cell (build/meteg.py,
-# below) and zayin's head narrowed (2026-10-28, below), and nothing else.
-# The fixes: nameID 7 carries
-# Cascadia's trademark notice after JetBrains Mono's, and GSUB and GPOS each carry a
-# hebr script record naming DFLT's Script table (build.py, with_script_copy). Take
-# that 6-byte record out of each table and GSUB and GPOS are final3's byte for byte;
-# every other table but name and head (its checksum) is final3's. final3's gates --
-# the generalised gate, OTS, the strip-and-compare gate, Latin against stock, the
-# style path -- ran on the final3 bytes, and were run again on these. OTS passes.
-# The generalised gate fails "GSUB byte-identical" and "GPOS scripts unchanged", and
-# the strip-and-compare gate "GPOS minus appended != JBM GPOS", "mark reach set
-# differs", "mkmk reach set differs" and "GSUB differs": each only because of the
-# hebr record, and with it taken out every check of both passes. Every style-path,
-# Latin and floor render is pixel-identical to final3's; that checks the latn path
-# only, because baud's shaper selects latn, else DFLT (baud-font/src/layout.rs), so no
-# render reads the hebr record. Overpaint ran on them too, but through baud-render it
-# cannot fail for any font: the composite clips each glyph to its own row's band
-# (baud-render/src/composite.rs, `Composite::over`), so ink below a row is cut, not
-# painted over the next. The letter: dalet (U+05D3), whose leg build/distinct.py
-# moves to its roof's right end so that it no longer reads as zayin (note AC 4d).
-# Against the build before it each style differs in that glyph's outline, its
-# anchors and head's checksum alone; the generalised and strip-and-compare gates print
-# the same lines on both, OTS passes, and the meteg check passes the same clusters.
-# The zayin: round 1's widening of its head (build/design.py, EDITS) moved only the
-# points above y 540, under which Bold's thicker head starts (517), so Bold's and Bold
-# Italic's head ends slanted 22 units; the band starts at y 500 now. Regular and
-# Italic come out byte for byte as before; Bold and Bold Italic differ in that glyph's
-# outline (and Bold's loca, for its length), Bold Italic's side bearing for it and
-# head's checksum alone, and the gates print what they printed before. cover.py's
-# glyphs (2026-10-25): U+20AA NEW SHEQEL SIGN, U+05C6 NUN HAFUKHA, U+05EF YOD
-# TRIANGLE, the Yiddish ligatures U+05F0-U+05F2, the presentation forms
-# U+FB1D-U+FB4F and the cantillation marks U+0591-U+05AF, appended after every glyph
-# before them, so no glyph ID moves and no existing glyph, advance, cmap entry,
-# class or GSUB byte changes; GPOS changes only in the appended mark-to-base lookup,
-# which gains the new letters' and forms' base records and the new marks' classes,
-# and in three mark-to-mark lookups appended for the cantillation marks, and OS/2
-# gains the Alphabetic Presentation Forms range bit (measured against the builds
-# before them). The generalised gate's counts change (135 code points added) and it
-# fails one check more, that the Hebrew block maps round 4's 52 code points (it maps
-# 88), and three more that hold the appended GPOS to two lookups and one filtering
-# set (it has five and four); cgate.py adds "appended lookups [(4, 0), (6, 16), (6,
-# 16), (6, 16), (6, 16)]", "mark filtering set 3 / appended 4", "non-Hebrew cmap
-# entry added" in each of the four cmap subtables, "Hebrew cmap 88 != r4 52" and
-# "OS/2 other fields ['ulUnicodeRange2']"; OTS passes. meteg.py (2026-10-26) keeps
-# meteg inside its cell beside its vowel: GPOS gains a chained context in mkmk,
-# after meteg's mark-to-mark, and the 24 mark-to-base lookups it runs (the vowel
-# and meteg placed again, when meteg follows the vowel and when it precedes it
-# through CGJ), and nothing else changes but head's checksum (measured against the
-# builds before). OTS passes; gate.py's lookup count reads 5 -> 35 and its
-# features line names mkmk [2, 3, 4, 6, 7, 8, 9, 10]; cgate.py's appended lookups
-# read [(4, 0), (6, 16), (8, 16), (6, 16), (6, 16), (6, 16)] and 24 (4, 0).
-# Zayin (2026-10-28): build/distinct.py moves its head's left end 80 units right,
-# so that it does not read as dalet (note AC 4e). Against the build before it each
-# style differs in zayin's and its composite U+FB36's outline and side bearing,
-# their base records in GPOS and head's checksum alone (measured table by table and
-# record by record); OTS passes. A
-# build whose bytes differ is
-# not that set, whatever it looks like, so the build refuses to write it. Changing
-# the design
-# means re-running those gates and then these constants, in one change, with the
-# reason.
+# The Hebrew stage: `baud-fontbuild stage` (tools/baud-fontbuild, Rust on read-fonts and
+# write-fonts) merges baud-app/fonts/glyphs/languages/hebrew/stage/<Style>.txt into stock
+# JetBrains Mono of the same style (baud-app/fonts/jetbrains-mono/). The source holds what
+# the stage adds and nothing else: the Hebrew glyphs, drawn from Cascadia Mono, with their
+# advances, code points and GDEF classes; the appended mark glyph sets and GPOS lookups; the
+# features those lookups join; the hebr script records naming DFLT's Script table; and the
+# OS/2 range fields and name records the stage sets. The sources were read out of the Hebrew
+# stage the earlier parametric build wrote (the stage hashes FONTLOG.txt lists), and
+# `baud-fontbuild compare` held the stage built from them equal to it in every table.
 #
-# **Every byte depends on the environment, so the environment is pinned whole.**
-# - Python and its packages come from one nixpkgs revision fetched by hash. The
-#   interpreter it gives on aarch64-darwin is the store path that built final3.
-# - The build modules read generic variable names (EY, DX, GV, SM, LAMED and more), so
-#   a stray one in a shell would silently change the outputs. Python runs under
-#   `env -i` and gets only the variables written below. `-s` keeps a user
-#   site-packages out of sys.path. `-I` and `-E` are not used, because they would
-#   drop PYTHONHASHSEED and PYTHONDONTWRITEBYTECODE.
-# - SOURCE_DATE_EPOCH fixes head.modified; head.created is stock JetBrains Mono's.
-#   Without it, Regular differs at byte 161 (head).
-# - fontTools' USE_HARFBUZZ_REPACKER is pinned to True in code (build/pin.py). That is
-#   why uharfbuzz is in the env: without it, GPOS packs in another order and every
-#   output's hash changes (measured, pin.py). It is a build-time dependency only.
+# The Devanagari stage: Noto Sans Devanagari 2.007's variable font, which devanagari/SOURCE
+# pins and this script fetches by URL and refuses unless it hashes as pinned (it is not in
+# the repository), instanced at wght 400 (Regular, Italic) or 700 (Bold, Bold Italic) with
+# its width axis kept (hebrew/build/instance.py), and merged after every glyph, lookup and
+# table the Hebrew stage holds (devanagari/build/merge.py), which proves that stage unchanged
+# object by object before it writes. Both steps are Python, run as described below.
 #
-# **Measured on aarch64-darwin only.** Whether another system reproduces these bytes
-# (skia-pathops, numpy and scipy do floating point here) is unmeasured.
+# **The gate is two hashes and one comparison per style.** The Hebrew stage's sha256 and the
+# merged font's are pinned (gate_hash), so a build that is not deterministic fails. The
+# committed files are the bytes the earlier build wrote from a Hebrew stage fontTools had
+# packed: write-fonts lays this stage's GSUB and GPOS out in another order, and the merge
+# copies GSUB's lookups byte for byte, so the merged font's GSUB bytes and head's checksum
+# differ from the committed file's, and no other table's bytes do. `baud-fontbuild compare`
+# then holds each merged font equal to the committed file: every glyph, mapping, metric,
+# field and lookup it expands (its crate documentation lists them). The committed file
+# must hash as the gate and MANIFEST's output line say. A build that differs writes
+# nothing: a change to the design changes the shipped bytes, which is a re-pin of its own.
+#
+# **The Python steps' environment is pinned whole.** Python and its packages come from one
+# nixpkgs revision fetched by hash, and run under `env -i` with only the variables written
+# below; `-s` keeps a user site-packages out of sys.path. SOURCE_DATE_EPOCH fixes
+# head.modified, and fontTools' USE_HARFBUZZ_REPACKER is pinned to True in code
+# (hebrew/build/pin.py), which is why uharfbuzz is in the env: it is a build-time dependency
+# only.
+#
+# **Measured on aarch64-darwin only.**
 set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
-
 HEB=baud-app/fonts/glyphs/languages/hebrew
 JBM=baud-app/fonts/jetbrains-mono
 OUT=baud-app/fonts/built
-
 DEVA=baud-app/fonts/glyphs/languages/devanagari
-
+TOOLS=tools
 NIXPKGS_REV=7dd199b0e2993e37b4775ed66b1c291699608c9f
 NIXPKGS_SHA256=08kxnni9l87i089hy7p9a7yr64w6h9x5m2cc7k2hn455hidm9mm3
-
-# Cascadia Mono's variable font, ttf/CascadiaMono.ttf in the v2407.24 release zip
-# (hebrew/SOURCE). The build refuses any other file.
-VF_SHA256=08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2
-
 # Noto Sans Devanagari 2.007's variable font (devanagari/SOURCE), fetched once into the
 # cache the README capture keeps its Noto faces in (NOTO_CACHE, else
 # $XDG_CACHE_HOME/baud-readme, else ~/.cache/baud-readme). The build refuses any other
 # file. It is data: nothing in it runs.
 NOTO_URL='https://raw.githubusercontent.com/notofonts/notofonts.github.io/noto-monthly-release-2026.10.01/fonts/NotoSansDevanagari/unhinted/variable-ttf/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf'
 NOTO_SHA256=9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7
-
-# The gated hashes: the four embedded styles, and for --italics the two italics as the
-# plain 9-degree shear the earlier gated right-lean recipes built (note AC 4b), with
-# round 5's dalet since 2026-10-24, Bold's squared zayin since 2026-10-25,
-# cover.py's glyphs, meteg.py's lookups and round 6's zayin (2026-10-28), which the
-# italics' recipes reproduce byte for byte with ROUND_K=0 LEVEL=0.
-# The four after the merge are the embedded faces; the four -hebrew ones are the Hebrew
-# stage, which the merge starts from.
+# The gated hashes, three per style: the committed file (<style>), the Hebrew stage this
+# build writes (<style>-hebrew) and the merged font this build writes (<style>-merged),
+# which compares equal to the committed file.
 gate_hash() {
   case $1 in
   Regular) echo d8e9226d5e68c02e55b3d45232e8adffa22c10123f491de4c6be3f50433d901d ;;
   Bold) echo 87b66b6067bc8bb4d03b4d0cd32538cf59bccaa927d181b2cc831004093dcc0d ;;
   Italic) echo 0ae4e4c355152b4302aa006e52ae7cf3a23619317e8e1608eec9aac03e203a6e ;;
   BoldItalic) echo 20a50bbf6c4147e3eed6cee22ff9ba2df39993238654e06ef3afb840994a441c ;;
-  Regular-hebrew) echo cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1 ;;
-  Bold-hebrew) echo 2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20 ;;
-  Italic-hebrew) echo f38d9c23ad98f70647024b0239f920e9c1a500a832189404446057f2ec04310c ;;
-  BoldItalic-hebrew) echo 67947476d3d36a5c35eb72cdc32fc6211fb4be46f7b48f3d91c913d15c5228de ;;
-  Italic-plain) echo 7e67a91f489890f49fa660eccca27ed69d3b65ad932a54f20059b1f538b690b3 ;;
-  BoldItalic-plain) echo aebd45ffaa33e93c6dd0cd0cbb7d40a2367972536e4cf5ecf1a6349dac1798f3 ;;
+  Regular-hebrew) echo 6dfd02c43ae24cb5dcc3b7c62f38e5e1a89ce31837b2d33183597be45c9de857 ;;
+  Bold-hebrew) echo b0004652bc6f20ac3c191851588c6164f7aaeed4171e90f9dc5c34fa455a9404 ;;
+  Italic-hebrew) echo 69ff807e656889c71bccb23ed0314b9526fb8b7a05f07e209f6cbdde834e1db1 ;;
+  BoldItalic-hebrew) echo f46eab60b785be45c8bddeb45fdcc109cf85a6e93303cca8ab7a385e8a5f6918 ;;
+  Regular-merged) echo f1be32d9cdd3dc91b36fbab7319b13b5c5c3ff23fe231a50be1df12801566ae1 ;;
+  Bold-merged) echo 8839f152bf72483419e32e39478fff68fa4943cb8b35a62e62cd15342d04a5da ;;
+  Italic-merged) echo b23de6f037eedf1ecdce191141c67578cc7cd042187ba75ef2007738b763a185 ;;
+  BoldItalic-merged) echo ae5207aab2ffb14ecf29924ba1c6e0f3a1d93745ffa5287da078d59aa07c4fdb ;;
   *) return 1 ;;
   esac
 }
@@ -164,47 +83,12 @@ gate_hash() {
 # The environment every Python step gets, and nothing else.
 BASE_ENV=(SOURCE_DATE_EPOCH=315532800 PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1)
 
-# Each style's environment, copied exactly from the research drivers that built the
-# gated set. buildone.sh exported DIP_FLOOR=1 and LOWEST_DIP=-293 for every style.
-# buildall.sh gave Bold and Bold Italic BOLDENV, and Bold Italic right its own
-# hataf gap (54). buildall3.sh rebuilt the two right leans with the meteg cell fit
-# (METEG_FIT=1) under UID_TAG prototype-bi-bold2-m: those are the italics' recipes,
-# whose rounds' correction is style.py's ROUND_K and LEVEL, set by STYLE. VARIANT=A
-# and LAMED=L2 are the interim picks for the open choices 1a and 1b.
-BOLDENV=(BOLD_DOT_W=120 BOLD_DOT_H=98 BOLD_GV=40 BOLD_HATAF_BAR_MIN_DROP=3
-  BOLD_LOWEST_TWO=-272.0 BOLD_LOWEST_DIP=-298.0 BOLD_SEG_PITCH=133 BOLD_QUB_DX=146
-  BOLD_QUB_PITCH=134.4 BOLD_SEG_HOME=-43 BOLD_QUB_HOME=-42)
-COMMON=(VARIANT=A LAMED=L2 DIP_FLOOR=1 LOWEST_DIP=-293)
-recipe() {
-  case $1 in
-  Regular) RECIPE=(STYLE=Regular LEAN=R "${COMMON[@]}") ;;
-  Bold) RECIPE=(STYLE=Bold LEAN=R "${BOLDENV[@]}" UID_TAG=prototype-bi-bold2 BOLD_HATAF_GAP=46 "${COMMON[@]}") ;;
-  Italic) RECIPE=(STYLE=Italic LEAN=R UID_TAG=prototype-bi-bold2-m METEG_FIT=1 "${COMMON[@]}") ;;
-  BoldItalic) RECIPE=(STYLE=BoldItalic LEAN=R "${BOLDENV[@]}" UID_TAG=prototype-bi-bold2-m BOLD_HATAF_GAP=54 METEG_FIT=1 "${COMMON[@]}") ;;
-  # the italics with the rounds' correction off: the plain shear (--italics)
-  Italic-plain) recipe Italic && RECIPE+=(ROUND_K=0 LEVEL=0) ;;
-  BoldItalic-plain) recipe BoldItalic && RECIPE+=(ROUND_K=0 LEVEL=0) ;;
-  *) return 1 ;;
-  esac
-}
-
-# The JetBrains Mono file each recipe merges into.
-base_of() {
-  case $1 in
-  Regular) echo Regular ;;
-  Bold) echo Bold ;;
-  Italic | Italic-*) echo Italic ;;
-  BoldItalic | BoldItalic-*) echo BoldItalic ;;
-  esac
-}
-
 mode=build
 case ${1:-} in
 "") ;;
 --check) mode=check ;;
---italics) mode=italics ;;
 *)
-  echo "usage: $0 [--check | --italics]" >&2
+  echo "usage: $0 [--check]" >&2
   exit 2
   ;;
 esac
@@ -227,6 +111,12 @@ PYENV=$(nix-build --no-out-link -E "
 PY=$PYENV/bin/python3
 SYSTEM=$(nix-instantiate --eval -E builtins.currentSystem | tr -d '"')
 
+# baud-fontbuild, built from the tools workspace's own lock file.
+echo "baud-fontbuild: cargo build --release --locked" >&2
+cargo build -q --release --locked --manifest-path "$TOOLS/Cargo.toml" -p baud-fontbuild
+FONTBUILD=${CARGO_TARGET_DIR:-$TOOLS/target}/release/baud-fontbuild
+RUSTC=$(rustc -V)
+
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/baud-fonts.XXXXXX")
 # BUILD_FONTS_KEEP=1 keeps the work directory (instances, logs, the rebuilt MANIFEST).
 if [ "${BUILD_FONTS_KEEP:-}" = 1 ]; then
@@ -235,23 +125,10 @@ else
   trap 'rm -rf "$WORK"' EXIT
 fi
 
-# One Python step: env -i, the base environment, the step's own variables, then the
-# interpreter and its arguments after `--`.
+# One Python step: env -i, the base environment, then the interpreter and its arguments.
 py() {
-  local vars=()
-  while [ "$1" != -- ]; do
-    vars+=("$1")
-    shift
-  done
-  shift
-  # ${vars[@]+...}: bash 3.2 (macOS /bin/bash) calls an empty array unbound under set -u.
-  env -i "${BASE_ENV[@]}" HEBREW_WORK="$WORK" ${vars[@]+"${vars[@]}"} "$PY" -s "$@"
+  env -i "${BASE_ENV[@]}" "$PY" -s "$@"
 }
-
-if [ "$(sha "$HEB/CascadiaMono.ttf")" != "$VF_SHA256" ]; then
-  echo "FAIL $HEB/CascadiaMono.ttf is not the release's variable font (want sha256 $VF_SHA256)" >&2
-  exit 1
-fi
 
 # The Noto variable font: fetched once, refused unless it is the pinned file.
 NOTO_DIR=${NOTO_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/baud-readme}
@@ -267,26 +144,6 @@ if [ "$(sha "$NOTO_VF")" != "$NOTO_SHA256" ]; then
   exit 1
 fi
 
-for w in 400 700; do
-  py -- "$HEB/build/instance.py" "$HEB/CascadiaMono.ttf" "$w" "$WORK/cas$w.ttf"
-  py -- "$HEB/casanchors.py" "$WORK/cas$w.ttf" "$WORK/anchors-$w.json" >"$WORK/anchors-$w.log"
-  if ! cmp -s "$WORK/anchors-$w.json" "$HEB/anchors-$w.json"; then
-    echo "FAIL anchors-$w.json: regenerated from the wght $w instance, it differs from the committed file" >&2
-    exit 1
-  fi
-done
-
-# build_one STYLE OUT: the Hebrew build of one recipe.
-build_one() {
-  local name=$1 out=$2
-  recipe "$name"
-  if ! py "${RECIPE[@]}" -- "$HEB/build/build.py" "$out" >"$WORK/$name.log" 2>&1; then
-    echo "FAIL build $name; the log's tail:" >&2
-    tail -n 30 "$WORK/$name.log" >&2
-    exit 1
-  fi
-}
-
 # The Noto weight each style takes.
 noto_weight() {
   case $1 in
@@ -295,65 +152,61 @@ noto_weight() {
   esac
 }
 
-# merge_one STYLE: Noto Sans Devanagari into the Hebrew stage of STYLE.
-merge_one() {
-  local name=$1
-  if ! py -- "$DEVA/build/merge.py" "$WORK/$name-hebrew.ttf" "$WORK/noto$(noto_weight "$name").ttf" "$name" \
+STYLES=(Regular Bold Italic BoldItalic)
+fail=0
+for name in "${STYLES[@]}"; do
+  if ! "$FONTBUILD" stage "$JBM/JetBrainsMono-$name.ttf" "$HEB/stage/$name.txt" \
+    "$WORK/$name-hebrew.ttf" >"$WORK/$name.stage.log" 2>&1; then
+    echo "FAIL stage $name:" >&2
+    cat "$WORK/$name.stage.log" >&2
+    exit 1
+  fi
+done
+for w in 400 700; do
+  py "$HEB/build/instance.py" "$NOTO_VF" "$w" "$WORK/noto$w.ttf"
+done
+for name in "${STYLES[@]}"; do
+  if ! py "$DEVA/build/merge.py" "$WORK/$name-hebrew.ttf" "$WORK/noto$(noto_weight "$name").ttf" "$name" \
     "$WORK/$name.ttf" "$WORK/$name.merge.json" >"$WORK/$name.merge.log" 2>&1; then
     echo "FAIL merge $name; the log's tail:" >&2
     tail -n 30 "$WORK/$name.merge.log" >&2
     exit 1
   fi
-}
-
-if [ "$mode" = italics ]; then
-  fail=0
-  for name in Italic-plain BoldItalic-plain; do
-    build_one "$name" "$WORK/$name.ttf"
-    got=$(sha "$WORK/$name.ttf")
-    want=$(gate_hash "$name")
-    if [ "$got" = "$want" ]; then
-      echo "ok   $name-A-L2  $got  (the plain shear; not embedded)"
-    else
-      echo "FAIL $name-A-L2  $got  want $want"
-      fail=1
-    fi
-  done
-  exit $fail
-fi
-
-STYLES=(Regular Bold Italic BoldItalic)
-fail=0
-for name in "${STYLES[@]}"; do
-  build_one "$name" "$WORK/$name-hebrew.ttf"
-done
-for w in 400 700; do
-  py -- "$HEB/build/instance.py" "$NOTO_VF" "$w" "$WORK/noto$w.ttf"
 done
 for name in "${STYLES[@]}"; do
-  merge_one "$name"
-done
-for name in "${STYLES[@]}"; do
-  for stage in "$name-hebrew" "$name"; do
-    got=$(sha "$WORK/$stage.ttf")
+  for stage in "$name-hebrew" "$name-merged"; do
+    file=$WORK/$stage.ttf
+    if [ "$stage" = "$name-merged" ]; then file=$WORK/$name.ttf; fi
+    got=$(sha "$file")
     want=$(gate_hash "$stage")
     if [ "$got" != "$want" ]; then
       echo "GATE FAIL $stage: built $got, the gated file is $want" >&2
       fail=1
     fi
   done
+  got=$(sha "$OUT/$name.ttf" 2>/dev/null || echo missing)
+  if [ "$got" != "$(gate_hash "$name")" ]; then
+    echo "GATE FAIL $OUT/$name.ttf is $got, the gated file is $(gate_hash "$name")" >&2
+    fail=1
+  fi
+  if ! "$FONTBUILD" compare "$OUT/$name.ttf" "$WORK/$name.ttf" >"$WORK/$name.compare.log" 2>&1; then
+    echo "GATE FAIL $name: the rebuilt font differs from $OUT/$name.ttf:" >&2
+    head -n 20 "$WORK/$name.compare.log" >&2
+    fail=1
+  fi
 done
 
 # MANIFEST: every line not starting with '#' is compared by --check. Machine facts
-# (system, store path) are comments: reported, never compared.
+# (system, store path, compiler) are comments: reported, never compared.
 manifest() {
   echo "# baud-app/fonts/built/MANIFEST: what scripts/build-fonts.sh built, from what, and how."
   echo "# Written by scripts/build-fonts.sh. 'scripts/build-fonts.sh --check' rebuilds and compares"
   echo "# every line that does not start with '#'; '#' lines are the building machine's facts."
   echo "# system $SYSTEM"
   echo "# python-env $PYENV"
+  echo "# rustc $RUSTC"
   echo "nixpkgs $NIXPKGS_REV fetchTarball-sha256 $NIXPKGS_SHA256"
-  py -- -c '
+  py -c '
 import sys, fontTools, pathops, numpy, scipy, uharfbuzz
 print("package python", sys.version.split()[0])
 print("package fonttools", fontTools.version)
@@ -361,30 +214,26 @@ print("package skia-pathops", pathops.__version__)
 print("package numpy", numpy.__version__)
 print("package scipy", scipy.__version__)
 print("package uharfbuzz", uharfbuzz.__version__, "(HarfBuzz %s)" % uharfbuzz.version_string())'
-  echo "pin USE_HARFBUZZ_REPACKER=True (build/pin.py)"
+  echo "pin USE_HARFBUZZ_REPACKER=True (hebrew/build/pin.py)"
   local v
   for v in "${BASE_ENV[@]}"; do echo "env $v"; done
-  echo "env HEBREW_WORK=<a temporary directory holding the instances>"
   echo "python-flags -s, under env -i"
-  for name in "${STYLES[@]}"; do
-    recipe "$name"
-    echo "recipe $name ${RECIPE[*]}"
-  done
-  echo "step instance build/instance.py CascadiaMono.ttf 400 cas400.ttf; build/instance.py CascadiaMono.ttf 700 cas700.ttf"
-  echo "step anchors casanchors.py cas400.ttf anchors-400.json; casanchors.py cas700.ttf anchors-700.json (each must equal the committed file)"
-  echo "step build build/build.py <style>-hebrew.ttf, once per recipe"
-  echo "step instance-noto build/instance.py NotoSansDevanagari[wdth,wght].ttf 400 noto400.ttf; build/instance.py NotoSansDevanagari[wdth,wght].ttf 700 noto700.ttf"
+  echo "step stage baud-fontbuild stage JetBrainsMono-<style>.ttf hebrew/stage/<style>.txt <style>-hebrew.ttf, once per style"
+  echo "step instance-noto hebrew/build/instance.py NotoSansDevanagari[wdth,wght].ttf 400 noto400.ttf; hebrew/build/instance.py NotoSansDevanagari[wdth,wght].ttf 700 noto700.ttf"
   echo "step merge devanagari/build/merge.py <style>-hebrew.ttf noto<weight>.ttf <style> <style>.ttf, once per style (Regular, Italic: noto400; Bold, Bold Italic: noto700)"
+  echo "step compare baud-fontbuild compare built/<style>.ttf <style>.ttf, once per style (each must be equal)"
   local f
   while IFS= read -r f; do
     echo "input $(sha "$f") $f"
-  done < <(find "$DEVA" "$HEB" -type f -not -name '*.pyc' -not -name .DS_Store -not -path '*/__pycache__/*' | LC_ALL=C sort)
+  done < <({
+    find "$DEVA" "$HEB/stage" "$TOOLS/baud-fontbuild/src" -type f \
+      -not -name '*.pyc' -not -name .DS_Store -not -path '*/__pycache__/*'
+    printf '%s\n' "$HEB/build/instance.py" "$HEB/build/pin.py" \
+      "$TOOLS/Cargo.toml" "$TOOLS/Cargo.lock" "$TOOLS/baud-fontbuild/Cargo.toml"
+  } | LC_ALL=C sort)
   echo "fetched $NOTO_SHA256 $NOTO_URL (cached outside the repository; not committed)"
   for name in "${STYLES[@]}"; do
-    echo "input $(sha "$JBM/JetBrainsMono-$(base_of "$name").ttf") $JBM/JetBrainsMono-$(base_of "$name").ttf"
-  done
-  for w in 400 700; do
-    echo "intermediate $(sha "$WORK/cas$w.ttf") cas$w.ttf (the wght $w instance; not committed)"
+    echo "input $(sha "$JBM/JetBrainsMono-$name.ttf") $JBM/JetBrainsMono-$name.ttf"
   done
   for w in 400 700; do
     echo "intermediate $(sha "$WORK/noto$w.ttf") noto$w.ttf (Noto Sans Devanagari at wght $w, its width axis kept; not committed)"
@@ -393,21 +242,22 @@ print("package uharfbuzz", uharfbuzz.__version__, "(HarfBuzz %s)" % uharfbuzz.ve
     echo "intermediate $(sha "$WORK/$name-hebrew.ttf") $name-hebrew.ttf (the Hebrew stage; not committed)"
   done
   for name in "${STYLES[@]}"; do
-    echo "output $(sha "$WORK/$name.ttf") $OUT/$name.ttf"
+    echo "intermediate $(sha "$WORK/$name.ttf") $name.ttf (the merged font; compares equal to the output below; not committed)"
+  done
+  for name in "${STYLES[@]}"; do
+    echo "output $(sha "$OUT/$name.ttf") $OUT/$name.ttf"
   done
 }
 manifest >"$WORK/MANIFEST"
 
 if [ "$mode" = build ]; then
   if [ "$fail" -ne 0 ]; then
-    echo "FAIL: not the gated bytes; nothing written to $OUT" >&2
+    echo "FAIL: not the gated fonts; nothing written to $OUT" >&2
     exit 1
   fi
-  mkdir -p "$OUT"
-  for name in "${STYLES[@]}"; do cp "$WORK/$name.ttf" "$OUT/$name.ttf"; done
   cp "$WORK/MANIFEST" "$OUT/MANIFEST"
   grep '^output ' "$OUT/MANIFEST"
-  echo "ok: wrote ${STYLES[*]} into $OUT, each the gated bytes, and $OUT/MANIFEST"
+  echo "ok: rebuilt ${STYLES[*]}, each equal to the committed file; wrote $OUT/MANIFEST"
   exit 0
 fi
 
@@ -416,14 +266,6 @@ if [ ! -f "$OUT/MANIFEST" ]; then
   echo "FAIL: no $OUT/MANIFEST to check against" >&2
   exit 1
 fi
-for name in "${STYLES[@]}"; do
-  want=$(awk -v p="$OUT/$name.ttf" '$1 == "output" && $3 == p { print $2 }' "$OUT/MANIFEST")
-  got=$(sha "$OUT/$name.ttf" 2>/dev/null || echo missing)
-  if [ -z "$want" ] || [ "$got" != "$want" ]; then
-    echo "FAIL committed $OUT/$name.ttf is $got; MANIFEST says ${want:-nothing}"
-    fail=1
-  fi
-done
 grep -v '^#' "$OUT/MANIFEST" >"$WORK/committed"
 grep -v '^#' "$WORK/MANIFEST" >"$WORK/rebuilt"
 if ! cmp -s "$WORK/committed" "$WORK/rebuilt"; then
@@ -442,4 +284,4 @@ fi
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi
-echo "ok: rebuilt $(grep -c '^output ' "$WORK/MANIFEST") outputs from the committed inputs; every MANIFEST line matches"
+echo "ok: rebuilt $(grep -c '^output ' "$WORK/MANIFEST") fonts from the committed inputs, each equal to the committed file; every MANIFEST line matches"

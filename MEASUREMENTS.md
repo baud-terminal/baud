@@ -2992,3 +2992,52 @@ look-around, which `regex` lacks. The verify `cargo xtask publish`
 runs builds the default targets, the library and the binaries, never an
 example ([[source: cargo-eb94155-package-verify-rs]] lines 95-110), and
 baud-app's `include` leaves `examples/` out of its .crate.
+
+## The Hebrew stage built from its sources, `tools/baud-fontbuild stage`
+
+Not timed: no byte path changed. `baud-fontbuild stage` merges
+`hebrew/stage/<Style>.txt` into stock JetBrains Mono on write-fonts
+0.55.0; `scripts/build-fonts.sh` runs it in place of the parametric
+Python build, whose modules stay in the tree, unrun but for
+`instance.py` and `pin.py`, which the Devanagari step still uses. The
+four sources were read out of the Python Hebrew stage (`cb6087a6...`,
+`2b46941c...`, `f38d9c23...`, `67947476...`, the hashes MANIFEST had
+pinned) by `baud-fontbuild extract`, which writes a source only when
+the stage built from it compares equal to the file it read. They hold
+135 appended glyphs per style, 30 appended GPOS lookups, four mark sets,
+two feature lists, the two hebr records and the OS/2 and name edits.
+
+Spike first: every table of the four stages and of the four built
+fonts (gvar through its tuples), read by read-fonts and written by
+write-fonts, compares equal,
+but for STAT's version (write-fonts writes 1.2; the stage has no STAT).
+Against the Python stage, the built stage is comparator-equal in every
+table, none left as bytes; as bytes, GSUB, GPOS, cmap (format 4: 3978
+bytes for 3986, another segmentation) and head's checksum differ, and
+every other table is equal. Two encodings
+were patched back: write-fonts pads each glyph to an even length, and
+the Devanagari merge digests every glyph's stored bytes, so the padded
+stage failed it with "686 objects of BUILT changed" (the 686 odd-length
+glyphs); and read-fonts' format 4 `glyph_id_array` runs to the end of
+the cmap table, so a converted subtable carried format 12's 13,456
+bytes inside it. The build trims the pad and builds cmap from mappings.
+
+Through the unchanged merge, each style's font compares equal to the
+committed one, none left as bytes, and differs in bytes in GSUB (772
+bytes shorter: the stranded list tables the merge left among the old
+lookups are not there) and head's checksum alone. REACH: GSUB is the
+one encoding that reaches the shipped tables, read by baud-font's
+layout. With the four rebuilt fonts in place of the committed ones and
+the fixtures' fnv column moved to theirs, baud-font's and baud-render's
+suites pass, 1236 tests; with Regular put back, shape.rs fails 7 of 15
+on its fnv pin, the control that the rebuilt files were the ones read.
+The committed fonts stay: MANIFEST pins the stage's and the merge's
+new hashes and the committed outputs, which the build holds equal.
+
+Perturbations: the pad trim off passes the comparator and fails
+`every_glyph_is_stored_without_padding_as_the_stage_stores_it`; the
+long-metric run not collapsed reads `hhea: numberOfHMetrics: 1848 vs
+1878` against the Python stage. Ten source edits (a point, an anchor,
+a lookup flag, a code point, a name, an OS/2 range, a class, an
+advance, a feature list, a mark set) each name their table, and five
+malformed sources are refused (`tests/stage.rs`).

@@ -2,7 +2,7 @@
 name = "baud-fontbuild"
 version = "0.1.0"
 edition = "2024"
-description = "baud's font-build tools: `compare`, the glyph-level equivalence check a rebuilt font is held to"
+description = "baud's font-build tools: `compare`, the glyph-level equivalence check a rebuilt font is held to, and `stage`, the Hebrew stage built from its sources"
 license = "CC-BY-NC-SA-4.0"
 # A build tool: nothing here is published.
 publish = false
@@ -11,3 +11,6 @@ publish = false
 # The reader both fonts are expanded through. It is not baud-font, so the
 # comparison does not rest on the code the built fonts feed.
 read-fonts = "=0.46.0"
+# The stage's writer (`baud-fontbuild stage`): the tables are built as
+# values and serialised here.
+write-fonts = "=0.55.0"

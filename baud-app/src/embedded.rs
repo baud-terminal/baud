@@ -21,9 +21,10 @@
 //! trademark notices after JetBrains Mono's
 //! (`the_built_font_carries_hebr_and_each_trademark_notice`).
 //! `scripts/build-fonts.sh` builds them from `fonts/jetbrains-mono/`,
-//! `fonts/glyphs/languages/hebrew/` and, by the pinned file
+//! `fonts/glyphs/languages/hebrew/stage/` and, by the pinned file
 //! `fonts/glyphs/languages/devanagari/SOURCE` names, Noto Sans Devanagari's
-//! variable font, and refuses any bytes but these;
+//! variable font, and refuses a rebuild that does not compare equal to
+//! these;
 //! `fonts/built/MANIFEST` pins how, and `fonts/built/FONTLOG.txt` says what
 //! changed, what was picked for the meantime and what is still open. The
 //! Italic and Bold Italic are `fonts/built/Italic.ttf` and `BoldItalic.ttf`:

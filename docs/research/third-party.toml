@@ -1777,6 +1777,14 @@ public   = "Cascadia Mono from Cascadia Code v2407.24, unmodified, and the dages
 holder   = "Microsoft Corporation, with Reserved Font Name Cascadia Code"
 
 [[tree]]
+what     = "The Hebrew stage's sources, one per style: the glyphs, anchors, lookups, GDEF classes and the name and OS/2 edits the Hebrew stage adds to stock JetBrains Mono, read out of the stage fonts the earlier parametric build wrote, and merged into stock JetBrains Mono by tools/baud-fontbuild's stage. The glyphs are drawn from Cascadia Mono, and the name records carry JetBrains Mono's and Cascadia Mono's notices: data read out of both fonts, so part of each font's Font Software, under each font's OFL 1.1 (the two OFL texts beside them, copies of hebrew/OFL.txt and jetbrains-mono/OFL.txt). The Rust that reads and merges them is baud's own, under the repository's licence"
+paths    = ["baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt", "baud-app/fonts/glyphs/languages/hebrew/stage/Bold.txt", "baud-app/fonts/glyphs/languages/hebrew/stage/Italic.txt", "baud-app/fonts/glyphs/languages/hebrew/stage/BoldItalic.txt", "baud-app/fonts/glyphs/languages/hebrew/stage/CascadiaMono-OFL.txt", "baud-app/fonts/glyphs/languages/hebrew/stage/JetBrainsMono-OFL.txt"]
+licence  = "OFL-1.1"
+notice   = "the two fonts' OFL texts beside them (CascadiaMono-OFL.txt, JetBrainsMono-OFL.txt)"
+upstream = "read out of the Hebrew stage fonts by tools/baud-fontbuild's extract"
+status   = "kept"
+
+[[tree]]
 what     = "The Devanagari merge module and the record of the Noto Sans Devanagari file it merges from: baud's own code and text under the repository's licence, as the Hebrew build modules are; the font itself is fetched by its pinned URL and sha256 at font-build time and is not in the tree, and its copyright line is in the built font's OFL.txt"
 paths    = ["baud-app/fonts/glyphs/languages/devanagari/build/merge.py", "baud-app/fonts/glyphs/languages/devanagari/SOURCE"]
 licence  = "CC-BY-NC-SA-4.0"
