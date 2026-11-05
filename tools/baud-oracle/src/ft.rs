@@ -27,6 +27,14 @@ pub const LOAD_NO_SCALE: i32 = 1 << 0;
 pub const LOAD_NO_HINTING: i32 = 1 << 1;
 /// `FT_CURVE_TAG_ON`, a tag's on-curve bit.
 pub const CURVE_TAG_ON: u8 = 0x01;
+/// `FT_LOAD_RENDER`.
+pub const LOAD_RENDER: i32 = 1 << 2;
+/// `FT_LOAD_NO_BITMAP`.
+pub const LOAD_NO_BITMAP: i32 = 1 << 3;
+/// `FT_LOAD_TARGET_NORMAL`.
+pub const LOAD_TARGET_NORMAL: i32 = 0;
+/// `FT_FACE_FLAG_SCALABLE`.
+pub const FACE_FLAG_SCALABLE: c_long = 1 << 0;
 
 /// `FT_Vector`.
 #[repr(C)]
@@ -164,6 +172,13 @@ unsafe extern "C" {
     fn FT_Done_Face(face: *mut FaceRec) -> Error;
     fn FT_Set_Var_Design_Coordinates(face: *mut FaceRec, n: c_uint, coords: *const Fixed) -> Error;
     fn FT_Load_Glyph(face: *mut FaceRec, glyph: c_uint, flags: i32) -> Error;
+    fn FT_Set_Char_Size(
+        face: *mut FaceRec,
+        width: c_long,
+        height: c_long,
+        horz_resolution: c_uint,
+        vert_resolution: c_uint,
+    ) -> Error;
 }
 
 /// One `FT_Library`, as freetype-py keeps one for the process. It is never
@@ -197,6 +212,36 @@ impl Library {
         assert_eq!(e, 0, "FT_New_Face {}: {}", path.display(), message(e));
         Face(f)
     }
+}
+
+impl Library {
+    /// `FT_New_Face(path, index)`, the error returned rather than asserted.
+    pub fn face_at(&self, path: &Path, index: c_long) -> Result<Face, Error> {
+        let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).expect("a path");
+        let mut f = core::ptr::null_mut();
+        // SAFETY: a live library, a NUL-terminated path and an out-pointer.
+        match unsafe { FT_New_Face(self.0, c.as_ptr(), index, &mut f) } {
+            0 => Ok(Face(f)),
+            e => Err(e),
+        }
+    }
+}
+
+/// A rendered glyph: the slot's bitmap origin and size, and its rows,
+/// `width` bytes each, top row first.
+pub struct Rendered {
+    /// `bitmap_left`.
+    pub left: c_int,
+    /// `bitmap_top`.
+    pub top: c_int,
+    /// `bitmap.width`.
+    pub width: u32,
+    /// `bitmap.rows`.
+    pub rows: u32,
+    /// `bitmap.pitch`.
+    pub pitch: i32,
+    /// `rows * |pitch|` bytes, as freetype-py's `buffer` returned them.
+    pub buffer: Vec<u8>,
 }
 
 impl Default for Library {
@@ -261,6 +306,65 @@ impl Face {
                 start = end;
             }
             Ok(out)
+        }
+    }
+}
+
+impl Face {
+    /// `face_flags`.
+    pub fn flags(&self) -> c_long {
+        // SAFETY: a live face.
+        unsafe { (*self.0).face_flags }
+    }
+
+    /// `num_glyphs`.
+    pub fn num_glyphs(&self) -> c_long {
+        // SAFETY: a live face.
+        unsafe { (*self.0).num_glyphs }
+    }
+
+    /// `FT_Set_Char_Size(width, height, hres, vres)`, 26.6 sizes.
+    pub fn set_char_size(
+        &mut self,
+        width: c_long,
+        height: c_long,
+        h: u32,
+        v: u32,
+    ) -> Result<(), Error> {
+        // SAFETY: a live face.
+        match unsafe { FT_Set_Char_Size(self.0, width, height, h, v) } {
+            0 => Ok(()),
+            e => Err(e),
+        }
+    }
+
+    /// `FT_Load_Glyph(glyph, flags)`, then the slot's bitmap.
+    pub fn load_bitmap(&mut self, glyph: u32, flags: i32) -> Result<Rendered, Error> {
+        // SAFETY: a live face; the error is checked before the slot is read.
+        let e = unsafe { FT_Load_Glyph(self.0, glyph, flags) };
+        if e != 0 {
+            return Err(e);
+        }
+        // SAFETY: after a successful load the slot's bitmap holds `rows`
+        // rows of `|pitch|` bytes (none when `buffer` is null), valid until
+        // the next load, which the `&mut self` borrow excludes.
+        unsafe {
+            let slot = &*(*self.0).glyph;
+            let b = &slot.bitmap;
+            let len = b.rows as usize * b.pitch.unsigned_abs() as usize;
+            let buffer = if b.buffer.is_null() || len == 0 {
+                Vec::new()
+            } else {
+                core::slice::from_raw_parts(b.buffer, len).to_vec()
+            };
+            Ok(Rendered {
+                left: slot.bitmap_left,
+                top: slot.bitmap_top,
+                width: b.width,
+                rows: b.rows,
+                pitch: b.pitch,
+                buffer,
+            })
         }
     }
 }
@@ -431,6 +535,35 @@ mod tests {
         );
         assert_eq!(h["FT_Outline.contours.elem"], size_of::<c_ushort>() as i128);
         assert_eq!(h["FT_FaceRec.glyph"], offset_of!(FaceRec, glyph) as i128);
+        assert_eq!(
+            h["FT_FaceRec.face_flags"],
+            offset_of!(FaceRec, face_flags) as i128
+        );
+        assert_eq!(
+            h["FT_FaceRec.num_glyphs"],
+            offset_of!(FaceRec, num_glyphs) as i128
+        );
+        assert_eq!(
+            h["FT_GlyphSlotRec.bitmap"],
+            offset_of!(GlyphSlotRec, bitmap) as i128
+        );
+        assert_eq!(
+            h["FT_GlyphSlotRec.bitmap_left"],
+            offset_of!(GlyphSlotRec, bitmap_left) as i128
+        );
+        assert_eq!(
+            h["FT_GlyphSlotRec.bitmap_top"],
+            offset_of!(GlyphSlotRec, bitmap_top) as i128
+        );
+        assert_eq!(h["FT_Bitmap.size"], size_of::<Bitmap>() as i128);
+        assert_eq!(h["FT_Bitmap.rows"], offset_of!(Bitmap, rows) as i128);
+        assert_eq!(h["FT_Bitmap.width"], offset_of!(Bitmap, width) as i128);
+        assert_eq!(h["FT_Bitmap.pitch"], offset_of!(Bitmap, pitch) as i128);
+        assert_eq!(h["FT_Bitmap.buffer"], offset_of!(Bitmap, buffer) as i128);
+        assert_eq!(h["FT_LOAD_RENDER"], LOAD_RENDER as i128);
+        assert_eq!(h["FT_LOAD_NO_BITMAP"], LOAD_NO_BITMAP as i128);
+        assert_eq!(h["FT_LOAD_TARGET_NORMAL"], LOAD_TARGET_NORMAL as i128);
+        assert_eq!(h["FT_FACE_FLAG_SCALABLE"], FACE_FLAG_SCALABLE as i128);
         assert_eq!(
             h["FT_GlyphSlotRec.outline"],
             offset_of!(GlyphSlotRec, outline) as i128

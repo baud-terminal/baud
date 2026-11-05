@@ -2,7 +2,8 @@
 and fontTools' instances of it as the oracle.
 
 Writes baud-font/tests/var/bake/cases.ttf and cases-<wght>.ttf for each
-weight below, the instances made as scripts/bake-oracle.py makes them.
+weight below, the instances made as bake/'s JetBrains Mono instances were
+(instantiateVariableFont with its defaults, recalcTimestamp off).
 JetBrains Mono has no glyph program, no degenerate component, no
 composite whose offsets stay whole beside one whose do not, no left-phantom
 delta, one advance, no intermediate region and no avar; the bake's rules

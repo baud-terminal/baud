@@ -1,7 +1,9 @@
-//! **baud-font's reference-engine oracles**: HarfBuzz 12.3.0 and FreeType
-//! 2.14.3 run on the committed test fonts, their answers written to
-//! `baud-font/tests/var/*.txt`, which baud-font's tests read with no tool
-//! on their path.
+//! **The reference-engine oracles**: HarfBuzz 12.3.0 and FreeType 2.14.3
+//! run on the committed test fonts, their answers written to
+//! `baud-font/tests/var/*.txt`, and libxkbcommon 1.13.2 on baud-xkb's
+//! keymaps and Compose tables, its answers written to
+//! `baud-xkb/tests/fixtures/`; the tests read both with no tool on their
+//! path.
 //!
 //! One bin per oracle, each the port of the Python script that wrote its
 //! file before it, call for call and format for format:
@@ -16,6 +18,14 @@
 //! | `marks` | `marks.txt` | `hb_shape` with the mark features |
 //! | `var` | `normalize.txt` | `hb_font_get_var_coords_normalized` |
 //! | `vertical` | `vertical.txt` | both engines' drawings of the vertical cases |
+//!
+//! And one bin, `baud-oracle`, for the oracles a test or a script runs:
+//!
+//! | subcommand | writes | asks |
+//! |---|---|---|
+//! | `xkb` | `baud-xkb/tests/fixtures/oracle-*.txt` and `compose/oracle-*.txt` | libxkbcommon's keymap state and Compose tables ([`xkb`]) |
+//! | `raster` | stdout, for `baud-font/tests/raster.rs` | FreeType's unhinted smooth bitmaps ([`raster`]) |
+//! | `shape-helpers` | stdout, for `scripts/gen-shape-fixtures.sh` | nothing: digests, code points and `morx` defaults beside hb-shape ([`shape`]) |
 //!
 //! Run from the repository's root, in the shell that pins the engines:
 //!
@@ -35,6 +45,9 @@ pub mod ft;
 pub mod hb;
 pub mod oracle;
 pub mod pyfmt;
+pub mod raster;
+pub mod shape;
+pub mod xkb;
 
 mod abi;
 
@@ -97,6 +110,15 @@ pub fn engines(header: &str) -> Vec<String> {
         .filter(|w| w[0] == "HarfBuzz" || w[0] == "FreeType")
         .map(|w| format!("{} {}", w[0], w[1]))
         .collect()
+}
+
+/// Refuse to rasterise unless the linked FreeType is the pinned one.
+pub fn pinned_freetype(l: &ft::Library) {
+    let v = l.version();
+    assert_eq!(
+        v, FREETYPE,
+        "linked FreeType {v}, not the pinned {FREETYPE}"
+    );
 }
 
 /// What `--check` compares: the data lines exactly, and the engines the

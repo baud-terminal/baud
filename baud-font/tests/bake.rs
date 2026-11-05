@@ -1,10 +1,19 @@
 //! Note Z step 5: the build-time bake against fontTools 4.63.0's instancer.
 //!
 //! `tests/var/bake/*.ttf` are fontTools' instances of the committed variable
-//! fonts (`scripts/bake-oracle.py`). Every comparison reads both files with
-//! this file's own small `glyf` reader, which shares no code with the bake:
-//! the fixture was encoded by fontTools, so one reader agreeing over both is
-//! an independent check, and a disagreement names the glyph and the field.
+//! fonts, kept as observations of that engine as `bake/VERSION` names it,
+//! "fontTools 4.63.0": JetBrains Mono upright and italic at wght 400 and
+//! 700, made by `fontTools.varLib.instancer.instantiateVariableFont(font,
+//! {"wght": w})` with its defaults (overlap flags set, names left as they
+//! are) on each `TTFont(path, recalcTimestamp=False)`, saved with
+//! `recalcTimestamp` off so the head timestamp stays the variable file's.
+//! The script that made them is retired, since a Rust port could not be
+//! fontTools; observing them again needs fontTools 4.63.0 outside the
+//! repository, as re-reading an observed source does. Every comparison
+//! reads both files with this file's own small `glyf` reader, which shares
+//! no code with the bake: the fixture was encoded by fontTools, so one
+//! reader agreeing over both is an independent check, and a disagreement
+//! names the glyph and the field.
 
 use std::collections::BTreeMap;
 

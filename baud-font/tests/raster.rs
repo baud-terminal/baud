@@ -32,10 +32,13 @@
 //! and two CFF faces, so the cubic path is driven by real charstrings rather
 //! than only by the quad-to-cubic cases a TrueType face never produces.
 //!
-//! **The FreeType half is gated on `BAUD_FREETYPE_PYTHON`**: a Python with
-//! `freetype-py` importable (`nix-shell -p python3Packages.freetype-py`
-//! provides one). Unset, the test says so and passes on the ab_glyph half
-//! alone; set and broken, it fails rather than skipping.
+//! **The FreeType half is gated on `BAUD_FREETYPE_ORACLE`**: the path of
+//! `tools/baud-oracle`'s `baud-oracle` bin, which links the pinned FreeType
+//! 2.14.3 and answers `baud-oracle raster`. Build it with
+//! `nix-shell tools/shell.nix --run 'cargo build --release --manifest-path
+//! tools/Cargo.toml --bin baud-oracle'`. Unset, the test says so and
+//! passes on the ab_glyph half alone; set and broken, it fails rather than
+//! skipping.
 
 use baud_domain::GlyphId;
 use baud_font::bytes::Count;
@@ -485,7 +488,7 @@ fn a_wholly_covered_pixel_is_255_and_each_pixel_its_rounded_area() {
 // ---------------------------------------------------------------------------
 // FreeType, within a tolerance.
 
-/// One glyph as `scripts/raster-oracle.py` prints it.
+/// One glyph as `baud-oracle raster` prints it.
 struct FtGlyph {
     gid: u32,
     px: f32,
@@ -496,21 +499,18 @@ struct FtGlyph {
     bytes: Vec<u8>,
 }
 
-fn freetype_oracle(python: &str, path: &Path, index: u32) -> Vec<FtGlyph> {
+fn freetype_oracle(oracle: &str, path: &Path, index: u32) -> Vec<FtGlyph> {
     let sizes: Vec<String> = SIZES.iter().map(|s| format!("{s}")).collect();
-    let out = std::process::Command::new(python)
-        .arg(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../scripts/raster-oracle.py"
-        ))
+    let out = std::process::Command::new(oracle)
+        .arg("raster")
         .arg(path)
         .arg(index.to_string())
         .args(&sizes)
         .output()
-        .expect("the oracle script runs");
+        .unwrap_or_else(|e| panic!("BAUD_FREETYPE_ORACLE={oracle} does not run: {e}"));
     assert!(
         out.status.success(),
-        "raster-oracle.py failed on {}: {}",
+        "baud-oracle raster failed on {}: {}",
         path.display(),
         String::from_utf8_lossy(&out.stderr)
     );
@@ -541,9 +541,9 @@ fn freetype_oracle(python: &str, path: &Path, index: u32) -> Vec<FtGlyph> {
 
 #[test]
 fn every_mask_is_within_tolerance_of_freetype() {
-    let Ok(python) = std::env::var("BAUD_FREETYPE_PYTHON") else {
+    let Ok(oracle) = std::env::var("BAUD_FREETYPE_ORACLE") else {
         eprintln!(
-            "BAUD_FREETYPE_PYTHON unset: the FreeType half of the raster differential did not run"
+            "BAUD_FREETYPE_ORACLE unset: the FreeType half of the raster differential did not run"
         );
         return;
     };
@@ -561,7 +561,7 @@ fn every_mask_is_within_tolerance_of_freetype() {
             let Ok(face) = Face::parse_index(&data, FaceIndex::of(i)) else {
                 continue;
             };
-            for ft in freetype_oracle(&python, &path, i) {
+            for ft in freetype_oracle(&oracle, &path, i) {
                 if ft.w == 0 || ft.h == 0 {
                     continue;
                 }

@@ -1818,7 +1818,7 @@ upstream = "https://github.com/JetBrains/JetBrainsMono/tree/cd5227bd1f61dff3bbd6
 status   = "kept"
 
 [[tree]]
-what     = "fontTools' instances of JetBrains Mono's variable fonts at wght 400 and 700 (scripts/bake-oracle.py), Modified Versions"
+what     = "fontTools 4.63.0's instances of JetBrains Mono's variable fonts at wght 400 and 700 (instantiateVariableFont with its defaults), kept as observations, Modified Versions"
 paths    = ["baud-font/tests/var/bake/JetBrainsMono-Variable-400.ttf", "baud-font/tests/var/bake/JetBrainsMono-Variable-700.ttf", "baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-400.ttf", "baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-700.ttf"]
 licence  = "OFL-1.1"
 notice   = "baud-font/tests/var/bake/JetBrainsMono-LICENSE.txt"

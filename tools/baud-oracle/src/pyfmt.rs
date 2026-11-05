@@ -16,6 +16,10 @@
 //!   the decimal point's position `decpt` satisfies `-4 < decpt <= 16`, an
 //!   exponent of at least two digits and a sign otherwise, and `.0` added
 //!   to a fixed number with no fraction (`Py_DTSF_ADD_DOT_0`).
+//! * [`general`] is `"%g" % x`: six significant digits, fixed notation
+//!   while the rounded value's exponent is from -4 to 5, trailing zeros
+//!   and a bare point dropped, and an exponent of at least two digits and
+//!   a sign otherwise.
 
 /// `f"{x:.{places}f}"`.
 pub fn fixed(x: f64, places: usize) -> String {
@@ -78,6 +82,35 @@ pub fn repr(x: f64) -> String {
     format!("{sign}{body}")
 }
 
+/// `"%g" % x` for a Python `float`.
+pub fn general(x: f64) -> String {
+    const P: i32 = 6;
+    if x.is_nan() {
+        return "nan".to_string();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "inf" } else { "-inf" }.to_string();
+    }
+    // The exponent of the value rounded to P digits, which decides the
+    // notation, as C's `%g` takes it.
+    let e = format!("{x:.*e}", (P - 1) as usize);
+    let (mantissa, exp) = e.split_once('e').expect("{:e} has an exponent");
+    let exp: i32 = exp.parse().expect("an exponent");
+    let strip = |s: &str| -> String {
+        if s.contains('.') {
+            s.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    if (-4..P).contains(&exp) {
+        strip(&format!("{x:.*}", (P - 1 - exp) as usize))
+    } else {
+        let esign = if exp < 0 { '-' } else { '+' };
+        format!("{}e{esign}{:02}", strip(mantissa), exp.unsigned_abs())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,6 +147,31 @@ mod tests {
         ];
         for &(x, want) in rows {
             assert_eq!(repr(x), want, "repr({x:e})");
+        }
+    }
+
+    /// Each row is CPython's `"%g" % x`.
+    #[test]
+    fn general_is_python_s() {
+        let rows: &[(f64, &str)] = &[
+            (12.0, "12"),
+            (24.0, "24"),
+            (13.5, "13.5"),
+            (0.5, "0.5"),
+            (-0.0, "-0"),
+            (0.0, "0"),
+            (0.0001, "0.0001"),
+            (0.00001, "1e-05"),
+            (123456.0, "123456"),
+            (999999.5, "1e+06"),
+            (1234567.0, "1.23457e+06"),
+            (1e6, "1e+06"),
+            (0.1, "0.1"),
+            (2.0 / 3.0, "0.666667"),
+            (f64::INFINITY, "inf"),
+        ];
+        for &(x, want) in rows {
+            assert_eq!(general(x), want, "%g of {x:e}");
         }
     }
 

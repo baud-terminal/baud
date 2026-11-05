@@ -2564,3 +2564,47 @@ point short is a `cargo::error` on `baud-font` (22 ranges, 17 expected);
 FORMS sorted by form first turns `presentation.rs`'s oracle and the
 identity test red. Every check `build_tables.rs` names in both crates is
 seen to fire.
+
+
+## The xkb, raster and shape-fixture oracles in `tools/baud-oracle`
+
+Not timed: no byte path changed, and nothing in the workspace links the
+new code. `baud-oracle xkb`, `raster` and `shape-helpers` replace the
+deleted `xkb-oracle.py` and `raster-oracle.py` and the 25 inline Python
+blocks of `scripts/gen-shape-fixtures.sh`; libxkbcommon is
+declared as `extern "C"` (`tools/baud-oracle/src/xkb.rs`), its enums and
+the new FreeType fields held to the headers by the C probe (80 values).
+
+The engines, each the version the fixtures name: libxkbcommon 1.13.2
+from nixpkgs `13e53762` (flake.lock's revision; L6's `21622bac` has
+1.13.1) in `tools/shell.nix`, and hb-shape from `tools/hb-shape.nix`:
+14.5.1 at `13e53762`, the very derivation the script names
+(`vxihlv2p...-harfbuzz-14.5.1.drv`), and 13.2.1 at nixos-26.05 `7dcdd873`,
+whose tarball, patch and meson flags equal the build that made the
+13.2.1 files. libxkbcommon has no version call, so `build.rs` passes
+`pkg-config`'s and `xkb` refuses any other.
+
+| oracle | identity | side by side, perturbed |
+|---|---|---|
+| `xkb` | 16 fixtures byte-equal (4 keymaps, 12 Compose tables) | `a` made `b` in the US keymap; `g1` made `g2` in edge.Compose; a missing file: equal output and exit |
+| `raster` | 21 faces, 47,228,225 bytes equal to freetype-py on FreeType 2.14.3 | sizes 13.5, 7.25, 100, 0.5 and `1e1`; a bitmap-only face; a bad path, index and integer: equal, exit 0 or 1 |
+| `shape-helpers` | all 17 hb-shape fixtures byte-equal, fnv64 column included, each under its header's version, a `python3` that exits 99 first on PATH and never called | morx defaults on 748 system faces (17 non-trivial, 509 with no `morx`) and two synthetic fonts, one refused: equal text and exit |
+
+Before the port, the Python script reproduced every fixture too under
+the same two pins, so the base arm is measured, not assumed. The
+Compose environment was never recorded: XLOCALEDIR=`compose/xlocale`,
+HOME=`compose/home` (unset for `home-unset`), locale `xx` for the small
+files, found by regenerating all twelve byte-equal; `xkb --check` keeps
+that table. The Wikisource pages are fetched in bash with curl under
+the old User-Agent and hash pins; neither holds `&`, so the helper
+refuses a character reference rather than port `html.unescape`. Python's
+`\s` is held to CPython's 29 code points, U+001C-U+001F among them.
+
+`raster.rs` reads `BAUD_FREETYPE_ORACLE=<bin>`: unset it says so and
+passes; set, 164,184 glyphs pass; a bad path fails. Eight mutations each
+turned a test red: layout and level swapped, HOME set for `home-unset`,
+left and top swapped, the size rounded down, the FNV basis off by one,
+Rust's whitespace for Python's, the off selectors not requested, and
+`bitmap_left` and `bitmap_top` swapped in the struct. `bake-oracle.py`
+is retired: its TTFs stay as fontTools 4.63.0 observations, the recipe
+in `baud-font/tests/bake.rs`.

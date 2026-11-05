@@ -1,7 +1,8 @@
 //! **libxkbcommon is the oracle for Compose too.** Each `oracle-*.txt`
-//! under `tests/fixtures/compose/` is `scripts/xkb-oracle.py compose`'s
-//! record of libxkbcommon 1.13.2 reading one Compose file from a buffer:
-//! every entry its iterator yields, then traces fed to its state machine --
+//! under `tests/fixtures/compose/` is `tools/baud-oracle`'s `baud-oracle
+//! xkb compose` record of libxkbcommon 1.13.2 reading one Compose file
+//! from a buffer, under the environment `baud-oracle xkb` gives it: every
+//! entry its iterator yields, then traces fed to its state machine --
 //! each sequence and a keysym after it, all but its last keysym and then
 //! one that continues nothing, and for every sixteenth a Shift_L fed
 //! after the first keysym -- with the status after each feed and, where

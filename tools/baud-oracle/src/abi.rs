@@ -1,7 +1,8 @@
-//! **The C probe that holds `hb.rs` and `ft.rs` to the headers**, the way
-//! `baud-app/src/sys.rs`'s tests hold its declarations to the platform's:
-//! written, compiled with `cc` against the flags `pkg-config` gives for the
-//! linked HarfBuzz and FreeType, run, and its `name=value` lines read back.
+//! **The C probe that holds `hb.rs`, `ft.rs` and `xkb.rs` to the
+//! headers**, the way `baud-app/src/sys.rs`'s tests hold its declarations
+//! to the platform's: written, compiled with `cc` against the flags
+//! `pkg-config` gives for the linked HarfBuzz, FreeType and libxkbcommon,
+//! run, and its `name=value` lines read back.
 //! A wrong signature usually fails to link; a wrong field order compiles,
 //! links and reads the wrong member, so the struct half cannot be left to
 //! reading.
@@ -19,6 +20,8 @@ const PROBE: &str = r#"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_MULTIPLE_MASTERS_H
+#include <xkbcommon/xkbcommon.h>
+#include <xkbcommon/xkbcommon-compose.h>
 
 #define SIZE(t) printf(#t ".size=%lld\n", (long long)sizeof(t))
 #define AT(t, f) printf(#t "." #f "=%lld\n", (long long)offsetof(t, f))
@@ -45,6 +48,25 @@ int main(void) {
     SIZE(FT_Pos); SIZE(FT_Fixed); SIZE(FT_Error);
     VALUE(FT_LOAD_NO_SCALE); VALUE(FT_LOAD_NO_HINTING); VALUE(FT_CURVE_TAG_ON);
     VALUE(FREETYPE_MAJOR); VALUE(FREETYPE_MINOR); VALUE(FREETYPE_PATCH);
+    AT(FT_FaceRec, face_flags); AT(FT_FaceRec, num_glyphs);
+    AT(FT_GlyphSlotRec, bitmap); AT(FT_GlyphSlotRec, bitmap_left);
+    AT(FT_GlyphSlotRec, bitmap_top);
+    SIZE(FT_Bitmap); AT(FT_Bitmap, rows); AT(FT_Bitmap, width);
+    AT(FT_Bitmap, pitch); AT(FT_Bitmap, buffer);
+    VALUE(FT_LOAD_RENDER); VALUE(FT_LOAD_NO_BITMAP); VALUE(FT_LOAD_TARGET_NORMAL);
+    VALUE(FT_FACE_FLAG_SCALABLE);
+
+    VALUE(XKB_KEY_UP); VALUE(XKB_KEY_DOWN);
+    VALUE(XKB_STATE_MODS_DEPRESSED); VALUE(XKB_STATE_MODS_LATCHED);
+    VALUE(XKB_STATE_MODS_LOCKED); VALUE(XKB_STATE_MODS_EFFECTIVE);
+    VALUE(XKB_STATE_LAYOUT_DEPRESSED); VALUE(XKB_STATE_LAYOUT_LATCHED);
+    VALUE(XKB_STATE_LAYOUT_LOCKED); VALUE(XKB_STATE_LAYOUT_EFFECTIVE);
+    VALUE(XKB_KEYMAP_FORMAT_TEXT_V1); VALUE(XKB_COMPOSE_FORMAT_TEXT_V1);
+    VALUE(XKB_CONTEXT_NO_FLAGS); VALUE(XKB_KEYMAP_COMPILE_NO_FLAGS);
+    VALUE(XKB_COMPOSE_COMPILE_NO_FLAGS); VALUE(XKB_COMPOSE_STATE_NO_FLAGS);
+    VALUE(XKB_COMPOSE_NOTHING); VALUE(XKB_COMPOSE_COMPOSING);
+    VALUE(XKB_COMPOSE_COMPOSED); VALUE(XKB_COMPOSE_CANCELLED);
+    VALUE(XKB_COMPOSE_FEED_IGNORED); VALUE(XKB_COMPOSE_FEED_ACCEPTED);
 
     /* The header's own error list, expanded the way fterrors.h documents. */
 #undef FTERRORS_H_
@@ -57,7 +79,7 @@ int main(void) {
 "#;
 
 /// The integer lines the probe prints: the floor its output is held to.
-const PRINTED: usize = 44;
+const PRINTED: usize = 80;
 
 /// The errors `fterrdef.h` defines, the probe counted on to print them.
 const DEFINED: usize = 95;
@@ -70,12 +92,12 @@ fn run_probe() -> String {
     let (src, bin) = (dir.join("probe.c"), dir.join("probe"));
     std::fs::write(&src, PROBE).expect("write the probe");
     let flags = Command::new("pkg-config")
-        .args(["--cflags", "harfbuzz", "freetype2"])
+        .args(["--cflags", "harfbuzz", "freetype2", "xkbcommon"])
         .output()
         .expect("pkg-config, which tools/shell.nix provides");
     assert!(
         flags.status.success(),
-        "pkg-config found no harfbuzz or freetype2"
+        "pkg-config found no harfbuzz, freetype2 or xkbcommon"
     );
     let flags = String::from_utf8(flags.stdout).expect("utf-8 flags");
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());

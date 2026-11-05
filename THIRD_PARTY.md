@@ -203,7 +203,7 @@ they were built from.
 - **From:** https://github.com/JetBrains/JetBrainsMono/tree/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/fonts
 - **Files:** [baud-font/tests/fonts/JetBrainsMono-Regular.ttf](baud-font/tests/fonts/JetBrainsMono-Regular.ttf), [baud-font/tests/fonts/JetBrainsMono-Variable.ttf](baud-font/tests/fonts/JetBrainsMono-Variable.ttf), [baud-font/tests/fonts/JetBrainsMono-Italic-Variable.ttf](baud-font/tests/fonts/JetBrainsMono-Italic-Variable.ttf)
 
-### fontTools' instances of JetBrains Mono's variable fonts at wght 400 and 700 (scripts/bake-oracle.py), Modified Versions
+### fontTools 4.63.0's instances of JetBrains Mono's variable fonts at wght 400 and 700 (instantiateVariableFont with its defaults), kept as observations, Modified Versions
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1
