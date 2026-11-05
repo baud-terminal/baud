@@ -236,7 +236,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
         errs.push(derived.error(
             Kind::Control,
             format!(
-                "U+{cp:04X} is jt {} in this file and {} from ArabicShaping.txt",
+                "U+{cp:04X} is jt {} in this file and {} from ArabicShaping.txt and its header's General Category defaults",
                 TYPES[usize::from(held[cp])],
                 TYPES[usize::from(types[cp])]
             ),

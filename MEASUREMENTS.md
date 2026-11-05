@@ -2493,8 +2493,8 @@ the copy and the test that held it equal are gone.
 Two departures are accepted, both in text and neither in an exit code:
 the three hints read `run cargo xtask publish --write-...` where they
 named the script, and a TOML error is the `toml` crate's line on stderr,
-where tomllib's traceback stood, exit 1 on both. The published set is 13 crates, `baud-tablegen` among them,
-reached as a build-dependency.
+where tomllib's traceback stood, exit 1 on both. The published set is 13
+crates, `baud-tablegen` among them, reached as a build-dependency.
 
 What the port keeps, each pinned by a test: Python's `$` matches before
 a final newline, so a keyword `"terminal\n"` passes; `\s` holds for
@@ -2504,10 +2504,14 @@ on a dangling one; sizes round half to even (131,072 bytes is "0.12");
 int equal to a float only when exactly so; the
 wrap drops leading space on every line but the first, strips U+2003 as
 space, keeps a no-break space inside its word and expands tabs to
-eight columns. `\b` is the `regex` crate's Unicode boundary, which can
-differ from Python's on marks and other numerals; no NOTICE reaches it. The root is the
-directory the command runs in, as for every xtask command, where the
-script took its own folder's parent.
+eight columns. `\b` is the `regex` crate's Unicode boundary, whose `\w`
+takes combining marks and leaves out No-category numerals, where
+Python's does the reverse: `decided` followed by U+0301 is found by
+Python and missed here, and `²2026-01-01` is missed by Python and found
+here. This departure is open, and no NOTICE reaches it. The root is the
+directory the command runs in, canonicalised, as for every xtask
+command. The script took its own folder's parent unresolved, so through
+a symlinked checkout its relpath of a linked file could start with `..`.
 
 Each check is a `#[test]` on a perturbation, and 27 mutations, one per
 check and per kept rule, each turned a named test red. The stale unpack
@@ -2517,37 +2521,25 @@ between; the oversize crate holds 10.5 MiB of xorshift bytes.
 
 ## The caseless, search, sequence, joining and ignorable tables compiled at build time
 
-First carried by "build(unicode): drop five python generators and their
-tables". `build/caseless.rs`, `search.rs`, `sequence.rs`, `joining.rs`
-and `ignorable.rs` compile their tables into `baud-domain`'s `OUT_DIR`
-from six more pinned files in `baud-domain/data/`; `baud-font` gains its
-first build script, whose `build/presentation.rs` and
-`build/ignorable.rs` read three files in `baud-font/data/`. The sequence
-edges are placed by `baud_tablegen::place`, seeds from 0 up as the
-generator tried them. The four generators with `--check` printed OK on
-the base, and `gen-default-ignorable.py`, which had none, wrote both
-crates' committed file byte for byte. Before the delete,
-"build(unicode): compile five more unicode tables at build time" held
-every compiled static and const to the committed table and printed
-"identical: CASELESS_INDEX 4352, CASELESS_BLOCKS 6912, CASELESS_POOL
-3136, SEARCH_INDEX 8704, SEARCH_BLOCKS 18560, SEARCH_PROPS 3136,
-SEARCH_POOL 7687, NODE_SPAN 4688, SPANS 10495, SEEDS 2048, EDGES 8192,
-CONTINUES 544, JOINING_INDEX 4352, JOINING_BLOCKS 20224,
-DEFAULT_IGNORABLE 17 elements" and, in `baud-font`, "identical:
-DEFAULT_IGNORABLE 17, FORMS 242, LAM_ALEF 4 elements".
+Caseless, search, sequence and joining compile into `baud-domain`'s
+`OUT_DIR` from pinned `data/`, and `baud-font` gains its first build
+script (presentation forms and default-ignorable); the sequence edges are
+placed by `baud_tablegen::place`, seeds from 0 up as the generator tried
+them. Before the delete, the identity commit printed "identical:
+CASELESS_INDEX 4352, CASELESS_BLOCKS 6912, CASELESS_POOL 3136,
+SEARCH_INDEX 8704, SEARCH_BLOCKS 18560, SEARCH_PROPS 3136, SEARCH_POOL
+7687, NODE_SPAN 4688, SPANS 10495, SEEDS 2048, EDGES 8192, CONTINUES 544,
+JOINING_INDEX 4352, JOINING_BLOCKS 20224, DEFAULT_IGNORABLE 17 elements"
+and, in `baud-font`, "identical: DEFAULT_IGNORABLE 17, FORMS 242,
+LAM_ALEF 4 elements".
 
-**Release binaries, at one path, differ from base by the crate-hash
-rename, and the code is the base's.** `baud-font`'s first
-build-dependency renames its symbols, so `baud` and `ingest2` (whose
-`baud-bench` links `baud-font`) differ from base in every section's size
-but the compact unwind table's, which follows the function order the
-rename moves (36,540 to 36,556 bytes in `baud`, 13,176 to 13,168 in
-`ingest2`); `__text` is 4,033,984 and 1,225,216 bytes in both. A control
-arm -- base's sources under the change's `baud-font` manifest,
-`build.rs`, `build/`, `data/` and `baud-tablegen` -- gives a `baud` and
-an `ingest2` byte-identical to the change's (sha256 cb9cba2c... and
-f35983a9...), and so does a clean A/A rebuild of the change. No timing
-run.
+**Release binaries differ from base by the crate-hash rename only.**
+`baud-font`'s first build-dependency renames its symbols, so `baud` and
+`ingest2` differ from base; `__text` is 4,033,984 and 1,225,216 bytes in
+both. A control arm (base's sources under the change's `baud-font`
+manifest, `build.rs`, `build/`, `data/` and `baud-tablegen`) gives
+binaries byte-identical to the change's, and so does a clean A/A rebuild
+of the change. No timing run.
 
 **The build.** `cargo build -p baud-font --timings`, both arms extracted
 at one path, five rounds rotated, the first dropped: `baud-domain`'s

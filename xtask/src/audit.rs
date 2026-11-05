@@ -249,9 +249,9 @@ pub const CRATES: [Crate; 9] = [
     // compares and `Emit::array`'s `per_line`, plus `From<bool> for Check`,
     // the one bridge into the two-state enum, and the cast the generated
     // const pin carries as text. It is a build-dependency with no
-    // dependencies, so `baud-domain`'s types are not there to take. 9 until
-    // the perfect hash's bucket and slot counts became `Buckets` and
-    // `Slots`, which `place` takes too, so the two cannot be swapped.
+    // dependencies, so `baud-domain`'s types are not there to take. The
+    // perfect hash's bucket and slot counts are `Buckets` and `Slots`,
+    // which `place` takes too, so the two cannot be swapped.
     krate("baud-tablegen", &["baud-tablegen/src"], Sites(7), Sites(25)),
     // xtask: 5 raw sites and no signature primitives, and every one is the
     // audit's own text matching itself -- the category names it prints,
