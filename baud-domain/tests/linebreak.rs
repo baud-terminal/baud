@@ -134,6 +134,94 @@ fn the_line_trie_agrees_with_the_class_enum() {
     assert_eq!(LineProps::of('a').east_asian, baud_domain::EastAsian::No);
 }
 
+/// Each code point's value in a pinned UCD file of `<range> ; <value>`
+/// rows, `default` where it lists none, read here and not by the build's
+/// reader, so a fault in one is not a fault in both.
+fn ucd_values(file: &str, default: &str) -> Vec<String> {
+    let path = format!(
+        "{}/../docs/research/sources/{file}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let mut out = vec![default.to_string(); 0x11_0000];
+    for line in text.lines() {
+        let body = line.split('#').next().unwrap_or("").trim();
+        if body.is_empty() {
+            continue;
+        }
+        let (range, value) = body.split_once(';').expect("a range and a value");
+        let (range, value) = (range.trim(), value.trim());
+        let (lo, hi) = range.split_once("..").unwrap_or((range, range));
+        let hex = |s: &str| u32::from_str_radix(s, 16).expect("hex");
+        for cp in hex(lo)..=hex(hi) {
+            let i = usize::try_from(cp).expect("index");
+            // emoji-data.txt lists several properties over one code point:
+            // keep Extended_Pictographic, the one read here.
+            if out[i] != "Extended_Pictographic" {
+                out[i] = value.to_string();
+            }
+        }
+    }
+    out
+}
+
+/// **Every code point has the class the pinned files give**, through
+/// `LineProps::of`: LineBreak.txt's class, resolved as LB1 resolves it
+/// with no other criteria (AI, SG and XX to AL; SA to CM for gc Mn and Mc,
+/// else AL; CJ to NS), a QU of gc Pi or Pf as `QuPi` or `QuPf`;
+/// East_Asian_Width F, W or H as East Asian; and Extended_Pictographic of
+/// gc Cn as an unassigned pictographic. Read with this file's own reader,
+/// and a class matched by its name, not the table's order.
+#[test]
+fn every_code_point_has_the_line_class_the_pinned_files_give() {
+    let lb = ucd_values("unicode-linebreak.txt", "XX");
+    let gc = ucd_values("unicode-derivedgeneralcategory.txt", "Cn");
+    let ea = ucd_values("unicode-eastasianwidth.txt", "N");
+    let emoji = ucd_values("unicode-emoji-data.txt", "");
+    let mut wrong = Vec::new();
+    for cp in 0..0x11_0000u32 {
+        let Some(c) = char::from_u32(cp) else {
+            continue;
+        };
+        let i = usize::try_from(cp).expect("index");
+        let g = gc[i].as_str();
+        let class = match (lb[i].as_str(), g) {
+            ("AI" | "SG" | "XX", _) => "AL",
+            ("SA", "Mn" | "Mc") => "CM",
+            ("SA", _) => "AL",
+            ("CJ", _) => "NS",
+            ("QU", "Pi") => "QuPi",
+            ("QU", "Pf") => "QuPf",
+            (other, _) => other,
+        };
+        let east = if ["F", "W", "H"].contains(&ea[i].as_str()) {
+            baud_domain::EastAsian::Yes
+        } else {
+            baud_domain::EastAsian::No
+        };
+        let pictographic = if emoji[i] == "Extended_Pictographic" && g == "Cn" {
+            baud_domain::Unassigned::Pictographic
+        } else {
+            baud_domain::Unassigned::No
+        };
+        let got = LineProps::of(c);
+        if format!("{:?}", got.class) != class
+            || got.east_asian != east
+            || got.pictographic != pictographic
+        {
+            wrong.push(format!(
+                "U+{cp:04X} {got:?}, {class} {east:?} {pictographic:?} expected"
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} wrong: {:?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(20)]
+    );
+}
+
 /// **The committed table is the pinned data's**: the generator, run again,
 /// writes the same file.
 #[test]

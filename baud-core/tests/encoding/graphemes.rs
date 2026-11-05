@@ -161,6 +161,70 @@ fn grapheme_tables_match_the_pinned_data() {
     );
 }
 
+/// **Every code point has the class and the lookback sets the pinned files
+/// give**, through `GraphemeClass::of_with_lookback` and
+/// `is_spacing_extend`, from GraphemeBreakProperty.txt, emoji-data.txt's
+/// Extended_Pictographic, DerivedCoreProperties.txt's InCB and
+/// DerivedGeneralCategory.txt, read by `width.rs`'s own reader rather than
+/// the build's. A class is matched by its name, so the table's order is
+/// not what this checks.
+#[test]
+fn every_code_point_has_the_grapheme_class_the_pinned_files_give() {
+    use crate::width::{ucd_has, ucd_values};
+    let gcb = ucd_values("unicode-graphemebreakproperty.txt", "Other");
+    let gc = ucd_values("unicode-derivedgeneralcategory.txt", "Cn");
+    let pictographic = ucd_has("unicode-emoji-data.txt", "Extended_Pictographic");
+    let dcp = "unicode-derivedcoreproperties.txt";
+    let linker = ucd_has(dcp, "InCB;Linker");
+    let consonant = ucd_has(dcp, "InCB;Consonant");
+    let extend = ucd_has(dcp, "InCB;Extend");
+    let name = |gcb: &str| {
+        match gcb {
+            "CR" => "Cr",
+            "LF" => "Lf",
+            "ZWJ" => "Zwj",
+            "Regional_Indicator" => "RegionalIndicator",
+            "LV" => "Lv",
+            "LVT" => "Lvt",
+            other => other,
+        }
+        .to_string()
+    };
+    let mut wrong = Vec::new();
+    for cp in 0..0x11_0000u32 {
+        let Some(c) = Codepoint::new(cp) else {
+            continue;
+        };
+        let i = usize::try_from(cp).expect("index");
+        let (class, lookback) = GraphemeClass::of_with_lookback(c);
+        let got = (
+            format!("{class:?}"),
+            lookback.pictographic(),
+            lookback.linker(),
+            lookback.consonant(),
+            lookback.incb_extend(),
+            baud_domain::is_spacing_extend(c),
+        );
+        let want = (
+            name(&gcb[i]),
+            pictographic[i],
+            linker[i],
+            consonant[i],
+            extend[i],
+            gc[i] == "Mc" && gcb[i] == "Extend",
+        );
+        if got != want {
+            wrong.push(format!("U+{cp:04X} {got:?} for {want:?}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} wrong: {:?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(20)]
+    );
+}
+
 /// **A combining mark is attached, not discarded.**
 ///
 /// `baud-core2`'s `put_cp` returned early on `Width::ZERO`, so every combining

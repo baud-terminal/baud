@@ -1892,19 +1892,36 @@ public   = "Tables generated from the Unicode Character Database and Unicode's e
 holder   = "Unicode, Inc."
 
 [[tree]]
-what     = "baud-domain's build reads the Unicode Character Database files it compiles its bidirectional tables from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
+what     = "baud-domain's build reads the Unicode Character Database files it compiles its bidirectional, grapheme-cluster, width and line-breaking tables from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
 paths    = [
   "baud-domain/data/unicode-bidibrackets.txt",
   "baud-domain/data/unicode-bidimirroring.txt",
   "baud-domain/data/unicode-derivedbidiclass.txt",
+  "baud-domain/data/unicode-derivedcoreproperties.txt",
+  "baud-domain/data/unicode-derivedgeneralcategory.txt",
+  "baud-domain/data/unicode-eastasianwidth.txt",
+  "baud-domain/data/unicode-emoji-data.txt",
+  "baud-domain/data/unicode-graphemebreakproperty.txt",
+  "baud-domain/data/unicode-linebreak.txt",
   "baud-domain/data/unicode-propertyvaluealiases.txt",
+  "baud-domain/data/unicode-proplist.txt",
   "baud-domain/data/unicode-unicodedata.txt",
 ]
 licence  = "Unicode-3.0"
 notice   = "LICENSES/Unicode-3.0.txt"
 upstream = "https://www.unicode.org/Public/17.0.0/ucd/"
 status   = "kept"
-public   = "Unicode Character Database 17.0.0 files, carried unmodified, which the build compiles into the bidirectional tables"
+public   = "Unicode Character Database 17.0.0 files, carried unmodified, which the build compiles into the bidirectional, grapheme-cluster, width and line-breaking tables"
+holder   = "Unicode, Inc."
+
+[[tree]]
+what     = "baud-domain's build reads EastAsianWidth.txt of the Unicode Character Database 8.0.0, for the widths iTerm2's UnicodeVersion=8 selects, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file"
+paths    = ["baud-domain/data/unicode-eastasianwidth-8.0.0.txt"]
+licence  = "Unicode-3.0"
+notice   = "LICENSES/Unicode-3.0.txt"
+upstream = "https://www.unicode.org/Public/8.0.0/ucd/"
+status   = "kept"
+public   = "EastAsianWidth.txt of the Unicode Character Database 8.0.0, carried unmodified, which the build compiles into the Unicode 8 width table"
 holder   = "Unicode, Inc."
 
 [[tree]]

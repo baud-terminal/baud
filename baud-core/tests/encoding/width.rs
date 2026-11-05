@@ -133,6 +133,140 @@ fn width_tables_match_the_pinned_data() {
     );
 }
 
+/// A UCD file's `<range> ; <value>` rows, read here and not by the build's
+/// reader, so a fault in one is not a fault in both: each row's first two
+/// fields, comments and blank lines left out, a third and later joined to
+/// the second by `;`.
+pub(crate) fn ucd_rows(file: &str) -> Vec<(u32, u32, String)> {
+    let path = format!(
+        "{}/../docs/research/sources/{file}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let body = line.split('#').next().unwrap_or("").trim();
+        if body.is_empty() {
+            continue;
+        }
+        let mut fields = body.split(';').map(str::trim);
+        let range = fields.next().expect("a range");
+        let value = fields.collect::<Vec<_>>().join(";");
+        let (lo, hi) = range.split_once("..").unwrap_or((range, range));
+        let hex = |s: &str| u32::from_str_radix(s, 16).expect("hex");
+        out.push((hex(lo), hex(hi), value));
+    }
+    out
+}
+
+/// Each code point's value in `file`, `default` where it lists none.
+pub(crate) fn ucd_values(file: &str, default: &str) -> Vec<String> {
+    let mut out = vec![default.to_string(); 0x11_0000];
+    for (lo, hi, v) in ucd_rows(file) {
+        for cp in lo..=hi {
+            out[usize::try_from(cp).expect("index")] = v.clone();
+        }
+    }
+    out
+}
+
+/// Whether each code point is listed in `file` with `value`.
+pub(crate) fn ucd_has(file: &str, value: &str) -> Vec<bool> {
+    let mut has = vec![false; 0x11_0000];
+    for (lo, hi, v) in ucd_rows(file) {
+        if v == value {
+            for cp in lo..=hi {
+                has[usize::try_from(cp).expect("index")] = true;
+            }
+        }
+    }
+    has
+}
+
+/// **Every code point has the width the pinned files give**, through
+/// `Width::of` and `Width::of_unicode8`, both ambiguous settings, from
+/// DerivedGeneralCategory.txt, EastAsianWidth.txt 17.0.0 and 8.0.0,
+/// PropList.txt and emoji-data.txt read by this file's own reader. Zero
+/// is gc Mn, Me or Cf but U+00AD, and under the current tables but not
+/// Unicode 8's, but Prepended_Concatenation_Mark; then wide (EAW W or F,
+/// or Emoji_Presentation under the current tables only, and Unicode 8's
+/// header defaults); then ambiguous (EAW A), wide only when asked and
+/// never for private use (gc Co). U+0000 is zero, and the rest of ASCII
+/// narrow, before any table is read.
+#[test]
+fn every_code_point_has_the_width_the_pinned_files_give() {
+    let gc = ucd_values("unicode-derivedgeneralcategory.txt", "Cn");
+    let ea = ucd_values("unicode-eastasianwidth.txt", "N");
+    let mut ea8 = ucd_values("unicode-eastasianwidth-8.0.0.txt", "N");
+    let mut listed8 = vec![false; 0x11_0000];
+    for (lo, hi, _) in ucd_rows("unicode-eastasianwidth-8.0.0.txt") {
+        for cp in lo..=hi {
+            listed8[usize::try_from(cp).expect("index")] = true;
+        }
+    }
+    // EastAsianWidth-8.0.0.txt's header: the unassigned code points of
+    // these blocks, and of planes 2 and 3, default to W.
+    for (lo, hi) in [
+        (0x3400, 0x4DBF),
+        (0x4E00, 0x9FFF),
+        (0xF900, 0xFAFF),
+        (0x20000, 0x2FFFD),
+        (0x30000, 0x3FFFD),
+    ] {
+        for cp in lo..=hi {
+            let i = usize::try_from(cp).expect("index");
+            if !listed8[i] {
+                ea8[i] = "W".to_string();
+            }
+        }
+    }
+    let pcm = ucd_has("unicode-proplist.txt", "Prepended_Concatenation_Mark");
+    let presentation = ucd_has("unicode-emoji-data.txt", "Emoji_Presentation");
+    let mut wrong = Vec::new();
+    for cp in 0..0x11_0000u32 {
+        let Some(c) = Codepoint::new(cp) else {
+            continue;
+        };
+        let i = usize::try_from(cp).expect("index");
+        let mark = ["Mn", "Me", "Cf"].contains(&gc[i].as_str()) && cp != 0xAD;
+        let private = gc[i] == "Co";
+        let expect = |zero: bool, wide: bool, ambiguous: bool, setting: AmbiguousWidth| {
+            if cp < 0x80 {
+                if cp == 0 { Width::ZERO } else { Width::NARROW }
+            } else if zero {
+                Width::ZERO
+            } else if wide || (ambiguous && setting == AmbiguousWidth::Wide && !private) {
+                Width::WIDE
+            } else {
+                Width::NARROW
+            }
+        };
+        for setting in [AmbiguousWidth::Narrow, AmbiguousWidth::Wide] {
+            let now = expect(
+                mark && !pcm[i],
+                ["W", "F"].contains(&ea[i].as_str()) || presentation[i],
+                ea[i] == "A",
+                setting,
+            );
+            let then = expect(
+                mark,
+                ["W", "F"].contains(&ea8[i].as_str()),
+                ea8[i] == "A",
+                setting,
+            );
+            if Width::of(c, setting) != now || Width::of_unicode8(c, setting) != then {
+                wrong.push(format!("U+{cp:04X} {setting:?}"));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} wrong: {:?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(20)]
+    );
+}
+
 /// DECRQM `?2027` answers `2`, reset, at power-on.
 ///
 /// Mode 2027 is grapheme cluster mode. This answered `0` (not recognized)

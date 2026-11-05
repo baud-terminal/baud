@@ -50,16 +50,31 @@ with other code, only its marked generated block is generated
   From:    https://www.unicode.org/Public/
 
 Unicode Character Database 17.0.0 files, carried unmodified, which the build
-compiles into the bidirectional tables
+compiles into the bidirectional, grapheme-cluster, width and line-breaking
+tables
   Files:   data/unicode-bidibrackets.txt, data/unicode-bidimirroring.txt,
            data/unicode-derivedbidiclass.txt,
-           data/unicode-propertyvaluealiases.txt,
+           data/unicode-derivedcoreproperties.txt,
+           data/unicode-derivedgeneralcategory.txt,
+           data/unicode-eastasianwidth.txt, data/unicode-emoji-data.txt,
+           data/unicode-graphemebreakproperty.txt,
+           data/unicode-linebreak.txt,
+           data/unicode-propertyvaluealiases.txt, data/unicode-proplist.txt,
            data/unicode-unicodedata.txt
   Holder:  Unicode, Inc.
   Licence: Unicode-3.0
   Notice:  LICENSES/Unicode-3.0.txt
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://www.unicode.org/Public/17.0.0/ucd/
+
+EastAsianWidth.txt of the Unicode Character Database 8.0.0, carried
+unmodified, which the build compiles into the Unicode 8 width table
+  Files:   data/unicode-eastasianwidth-8.0.0.txt
+  Holder:  Unicode, Inc.
+  Licence: Unicode-3.0
+  Notice:  LICENSES/Unicode-3.0.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://www.unicode.org/Public/8.0.0/ucd/
 
 kitty's colour names, generated from X.Org's rgb.txt and the one name kitty
 adds to it, DebianRed (215, 7, 81), from Debian's rgb.txt. A colour name and

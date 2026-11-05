@@ -78,7 +78,30 @@ mod frame;
 mod frozen;
 pub mod gif;
 mod grapheme;
-mod grapheme_data;
+mod grapheme_data {
+    //! Grapheme-cluster data, compiled by `build/grapheme.rs` from the
+    //! sources pinned in `docs/research/sources/MANIFEST.toml`
+    //! (`[[source: gbp-data]]`, `[[source: emoji-data]]`,
+    //! `[[source: dcp-data]]`, `[[source: gc-data]]`,
+    //! `[[source: unicode-propertyvaluealiases]]`). BREAK is one byte a code
+    //! point: the low four bits `GraphemeClass`, the high four `Lookback`.
+    //! The class and the lookback sets are one table because the cluster
+    //! rules need them together: 32,768 bytes against the 21,032 of a class
+    //! trie and four range tables, and a probe that added a whole table
+    //! lookup to `Width::of` measured flat, so the loads were never the cost
+    //! and the binary searches' branches were. SPACING_EXTEND is the 46
+    //! ranges of spacing marks UAX #29 classes Extend.
+    include!(concat!(env!("OUT_DIR"), "/grapheme_data.rs"));
+}
+#[cfg(test)]
+#[path = "grapheme_data.rs"]
+mod committed_grapheme_data;
+#[cfg(test)]
+#[path = "linebreak_data.rs"]
+mod committed_linebreak_data;
+#[cfg(test)]
+#[path = "width_data.rs"]
+mod committed_width_data;
 mod grid;
 mod history;
 mod ignorable_data;
@@ -93,7 +116,22 @@ mod kitty;
 mod layout;
 mod line;
 mod linebreak;
-mod linebreak_data;
+// The tables `scripts/gen-grapheme-tables.py`, `gen-width-tables.py` and
+// `gen-linebreak-tables.py` committed, kept beside the compiled ones until
+// `the_compiled_unicode_tables_are_the_committed_ones` has held them equal.
+#[cfg(test)]
+mod unicode_identity;
+mod linebreak_data {
+    //! Line-breaking data, compiled by `build/linebreak.rs` from the
+    //! sources pinned in `docs/research/sources/MANIFEST.toml`
+    //! (`[[source: unicode-linebreak]]`, `[[source: gc-data]]`,
+    //! `[[source: eaw-data]]`, `[[source: emoji-data]]`,
+    //! `[[source: unicode-propertyvaluealiases]]`). LINE is one byte a code
+    //! point: the low six bits `LineClass` as UAX #14's LB1 resolves it
+    //! (`[[source: uax14]]`), bit 6 East_Asian_Width F, W or H, bit 7
+    //! Extended_Pictographic and unassigned.
+    include!(concat!(env!("OUT_DIR"), "/linebreak_data.rs"));
+}
 mod merged;
 mod merged_data;
 mod nrcs_data;
@@ -125,7 +163,18 @@ mod variants;
 pub mod vs16;
 mod vt;
 mod width;
-mod width_data;
+mod width_data {
+    //! Width data, compiled by `build/width.rs` from the sources pinned in
+    //! `docs/research/sources/MANIFEST.toml` (`[[source: eaw-data]]`,
+    //! `[[source: eaw-data-8]]`, `[[source: gc-data]]`,
+    //! `[[source: unicode-proplist-17]]`, `[[source: emoji-data]]`,
+    //! `[[source: unicode-propertyvaluealiases]]`). WIDTH and WIDTH8 are two
+    //! bits a code point, four a byte: 0 narrow, 1 zero, 2 wide, 3
+    //! ambiguous, under Unicode 17.0.0's East_Asian_Width and 8.0.0's. A
+    //! two-stage trie is consulted once per **non-ASCII codepoint** and
+    //! never per byte: printable ASCII, the ~94% path, never reaches it.
+    include!(concat!(env!("OUT_DIR"), "/width_data.rs"));
+}
 pub mod zlib;
 
 pub use base64::*;
