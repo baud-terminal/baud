@@ -30,7 +30,7 @@ use crate::stack::{EmojiDefault, FaceIx, FaceTable, Stack};
 use crate::stack::{FaceStyle, FontSlot, Presentation, TextFace};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
 use crate::transition::{self, Transition, Veil};
-use crate::units::{Band, Tally};
+use crate::units::{Band, Tally, slots};
 use baud_core::{BidiSupport, PaintRole, ProgramPaint, Term};
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
@@ -2365,6 +2365,15 @@ pub struct Renderer<'f, 'a> {
     /// The splash's block drawn as a blinking cursor at this phase
     /// ([`Renderer::set_splash_cursor`]): shown, its own, unless set.
     splash_cursor: CursorPhase,
+    /// The plasma layers the CPU path draws with the splash on this frame
+    /// and the last ([`Renderer::set_splash_layers`]): a frame with either
+    /// repaints whole.
+    splash_layers: Vec<splash::Layer>,
+    last_splash_layers: Vec<splash::Layer>,
+    /// The colour the splash's layers take ([`Renderer::set_splash_ink`]).
+    splash_ink: Option<Argb>,
+    /// The lockup's glyphs as slabs to the layers ([`splash::Slabs`]).
+    splash_slabs: Option<splash::Slabs>,
     /// An input method's composition on this frame and the last, and its
     /// records: the rows under either are dirty, and the cells under it are
     /// converted blank so its own glyphs replace theirs ([`Composition`]).
@@ -2917,6 +2926,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             splash_inst: Vec::new(),
             splash_holes: Vec::new(),
             splash_cursor: CursorPhase::SHOWN,
+            splash_layers: Vec::new(),
+            last_splash_layers: Vec::new(),
+            splash_ink: None,
+            splash_slabs: None,
             composition: None,
             last_composition: None,
             taken: crate::overlay::Taken::default(),
@@ -4080,6 +4093,33 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.splash_cursor = phase;
             self.build_splash();
         }
+    }
+
+    /// **Plasma layers the CPU path draws with the splash**, from the next
+    /// [`Renderer::render`]: each behind the lockup's glyphs or in front of
+    /// them at its emitter's opacity ([`splash::Layer`]), in
+    /// [`Renderer::set_splash_ink`]'s colour, through
+    /// [`Renderer::set_splash_slabs`]'s slabs if any. None by default, and
+    /// none is drawn without the splash. Only the CPU path draws them and no
+    /// driver sets them: `baud-app`'s logo film does. A frame with layers,
+    /// or the frame after one, repaints whole.
+    pub fn set_splash_layers(&mut self, layers: &[splash::Layer]) {
+        self.splash_layers.clear();
+        self.splash_layers.extend_from_slice(layers);
+    }
+
+    /// **The colour the splash's layers take**: `None`, the default, the
+    /// half's amber.
+    pub fn set_splash_ink(&mut self, ink: Option<Argb>) {
+        self.splash_ink = ink;
+    }
+
+    /// **The lockup's glyphs as slabs to the splash's layers**, from the next
+    /// frame ([`splash::Slabs`]); `None`, the default, draws the layers
+    /// under or over the glyphs and nothing more. Slabs whose fields do not
+    /// each hold a weight for every pixel of their box are taken as none.
+    pub fn set_splash_slabs(&mut self, slabs: Option<splash::Slabs>) {
+        self.splash_slabs = slabs.filter(splash::Slabs::fits);
     }
 
     /// The splash's records, for a path that draws records of its own:
@@ -6462,6 +6502,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // glyphs, so it is never over its own last blit; the rows one
         // arrives on are repainted for it (`arrived_under`).
         self.fit(term);
+        // A frame with the splash's layers, or the one after it, repaints
+        // whole: no row's reach counts their records.
+        let damage = match self.splash_layers.is_empty() && self.last_splash_layers.is_empty() {
+            true => damage,
+            false => Damage::Full,
+        };
         self.place_images(term, back, Snapshots::Skipped);
         let converted = self.convert_with(term, back, damage, ImageRows::Repainted);
         self.strip_fresh = StripFresh::No;
@@ -8720,6 +8766,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
         }
+        self.splash_layers_over(target, splash::Depth::Behind, page);
         for r in (0..self.rows.index()).filter(|&r| self.dirty[r]) {
             let band = self.band(Row::from_index(r));
             let mut target = self.repainted(target, r);
@@ -8749,10 +8796,149 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 target.over(inst, &self.atlas, self.blend, page, band);
             }
         }
+        self.splash_layers_over(target, splash::Depth::Front, page);
+        self.last_splash_layers.clone_from(&self.splash_layers);
         frame.composite = t1.elapsed();
         frame.cache = self.cache.stats();
         frame.atlas = self.atlas.stats();
         frame
+    }
+
+    /// **The splash's plasma layers at `depth`** ([`splash::Layer`]), each
+    /// one's records as a trail's are made -- by [`Vfx::instances`], in the
+    /// layers' ink, a repeat pass's bands alone and capped, its emitter's
+    /// opacity on every record -- drawn over the dirty rows by the
+    /// compositor every effect takes, through the slabs if any
+    /// ([`splash::Slabs`]): behind, the light the layers drew is taken back
+    /// off the keyline; in front, the glyphs under the layers' core are cut
+    /// before they are drawn and the rim lit after. Nothing without the
+    /// splash or with no layer.
+    fn splash_layers_over(&self, target: &mut Target<'_>, depth: splash::Depth, page: Page) {
+        if self.splash.is_none() || self.splash_layers.is_empty() {
+            return;
+        }
+        let pieces = self.dirty_pieces();
+        let ink = self.splash_ink.unwrap_or(self.splash_colours().amber);
+        // Slabs whose box the frame does not hold are none.
+        let slabs = self.splash_slabs.as_ref().filter(|s| {
+            let (xs, ys) = s.span();
+            target.take(xs, ys).len() == s.glyph.len()
+        });
+        let mut recs = Vec::new();
+        let (front, behind) = match (slabs, depth) {
+            (Some(s), splash::Depth::Front) => {
+                let front = self.splash_light(splash::Depth::Front, s, &pieces, page);
+                let behind = match s.rim.gain > 0.0 {
+                    true => Some(self.splash_light(splash::Depth::Behind, s, &pieces, page)),
+                    false => None,
+                };
+                if s.knot.strength > 0.0 {
+                    let (xs, ys) = s.span();
+                    let mut px = target.take(xs.clone(), ys.clone());
+                    s.cut_knot(&mut px, &front);
+                    target.put(xs, ys, &px);
+                }
+                (Some(front), behind)
+            }
+            _ => (None, None),
+        };
+        let before = match (slabs, depth) {
+            (Some(s), splash::Depth::Behind) => {
+                let (xs, ys) = s.span();
+                Some(target.take(xs, ys))
+            }
+            _ => None,
+        };
+        for l in self.splash_layers.iter().filter(|l| l.depth == depth) {
+            self.layer_records(l, ink, &mut recs);
+            target.effect_over(
+                &l.vfx,
+                &recs,
+                (self.blend, page, Mix::Normal),
+                &pieces,
+                self.threads,
+            );
+        }
+        let Some(s) = slabs else {
+            return;
+        };
+        let (xs, ys) = s.span();
+        let mut px = target.take(xs.clone(), ys.clone());
+        match (before, front, behind) {
+            (Some(before), _, _) => s.cut_behind(&mut px, &before),
+            (None, Some(front), Some(behind)) => s.light_rim(&mut px, &front, &behind),
+            _ => return,
+        }
+        target.put(xs, ys, &px);
+    }
+
+    /// **A splash layer's records in `ink`**: a repeat pass's bands alone,
+    /// capped as a trail's are, and its emitter's opacity on every record.
+    fn layer_records(&self, l: &splash::Layer, ink: Argb, recs: &mut Vec<Instance>) {
+        recs.clear();
+        l.vfx.instances(self.pixel_size(), ink, recs);
+        if l.vfx.emitter.strength == Strength::UnderThreshold {
+            recs.retain(|r| r.kind == Kind::Band);
+            for r in recs.iter_mut() {
+                r.color = r
+                    .color
+                    .with_alpha(flash::capped(r.color.a(), self.flash_cap));
+            }
+        }
+        let k = l.vfx.emitter.opacity;
+        if k != Smear::OPAQUE {
+            for r in recs.iter_mut() {
+                r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
+            }
+        }
+    }
+
+    /// **The splash layers' own light at `depth`** over the slabs' box, 0
+    /// to 1 a pixel: the layers drawn white over black on a frame of their
+    /// own, as [`Renderer::splash_layers_over`] draws them.
+    fn splash_light(
+        &self,
+        depth: splash::Depth,
+        s: &splash::Slabs,
+        pieces: &[(Band, Px, Px)],
+        page: Page,
+    ) -> Vec<f32> {
+        let (w, h) = self.pixel_size();
+        let mut black = vec![0xFF00_0000u32; slots(w) * slots(h)];
+        let mut recs = Vec::new();
+        if let Some(mut t) = Target::new(&mut black, w, w, h) {
+            for l in self.splash_layers.iter().filter(|l| l.depth == depth) {
+                self.layer_records(l, Argb(0xFFFF_FFFF), &mut recs);
+                t.effect_over(
+                    &l.vfx,
+                    &recs,
+                    (self.blend, page, Mix::Normal),
+                    pieces,
+                    self.threads,
+                );
+            }
+        }
+        let (xs, ys) = s.span();
+        let lit = Target::new(&mut black, w, w, h).map(|t| t.take(xs, ys));
+        lit.unwrap_or_default()
+            .into_iter()
+            .map(|p| f32::from(Argb(p).r().get()) / 255.0)
+            .collect()
+    }
+
+    /// The dirty rows' bands and the columns each repaints, as an effect is
+    /// drawn over them.
+    fn dirty_pieces(&self) -> Vec<(Band, Px, Px)> {
+        (0..self.rows.index())
+            .filter(|&r| self.dirty[r])
+            .map(|r| {
+                let band = self.band(Row::from_index(r));
+                match self.repaint.get(r) {
+                    Some(&Repaint::Cols { left, right }) => (band, left, right),
+                    _ => (band, Px::of(0), Px::of(u32::MAX)),
+                }
+            })
+            .collect()
     }
 
     /// **The threads a CPU frame draws an effect on, at most**, from the

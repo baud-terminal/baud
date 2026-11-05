@@ -231,6 +231,29 @@ pub struct Ignition {
     /// crawling through noise fixed to the frame. Zero for one that never
     /// rode, which draws exactly as before.
     pub rode: f32,
+    /// **The plasma's insides on a clock of their own** ([`Live`]); `None`
+    /// for every trail and the splash, which draw exactly as before.
+    pub live: Option<Live>,
+}
+
+/// **A plasma whose insides run apart from its body**: the README logo's
+/// strands each age slowly on [`Ignition::age`], so each stays lit for the
+/// tail it is part of, while their filaments, knots and ions run on
+/// `phase`, seconds of the display's clock. The envelope, the cooling and
+/// the thinning stay on the age. Only the CPU path reads it: a plasma
+/// carrying one is a splash layer (`crate::splash::Layer`), which no GPU
+/// path draws.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Live {
+    /// Seconds of the detail clock since the ignition.
+    pub phase: f32,
+    /// A fine wiggle on the filaments: its amplitude in cells, cycles a
+    /// cell, and cycles a second of the detail clock; amplitude zero draws
+    /// none.
+    pub fine: [f32; 3],
+    /// The ions shed a cell of the path, against a trail's three, with no
+    /// floor of eight under them as a trail has: zero sheds none.
+    pub ions: f32,
 }
 
 impl Ignition {
@@ -250,6 +273,7 @@ impl Ignition {
             seed,
             unit,
             rode: 0.0,
+            live: None,
         }
     }
 

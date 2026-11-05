@@ -30,7 +30,7 @@
 //! `plasma_tube` in Rust, which the CPU path draws by.
 
 use crate::det::Det;
-use crate::effect::{self, Hash, Ignition, Particle, Vfx, smoothstep};
+use crate::effect::{self, Hash, Ignition, Live, Particle, Vfx, smoothstep};
 use crate::trail::Pt;
 use core::ops::Range;
 
@@ -111,6 +111,23 @@ fn wave(x: f32) -> f32 {
     (core::f32::consts::PI * (2.0 * f - 1.0)).det_sin()
 }
 
+/// **The seconds the waves, the knots and the ions have run**: the detail
+/// clock's under a [`Live`], else the ignition's age.
+fn phase(f: &Ignition) -> f32 {
+    f.live.map_or(f.age, |l| l.phase)
+}
+
+/// **The fine wiggle a filament takes at `s`**, cells across, under a
+/// [`Live`] that asks for one; zero otherwise.
+fn fine(live: Option<Live>, s: f32, ph: f32) -> f32 {
+    match live {
+        Some(l) if l.fine[0] != 0.0 => {
+            l.fine[0] * smoothstep(0.0, 2.0, s) * wave(l.fine[1] * s + ph + l.fine[2] * l.phase)
+        }
+        _ => 0.0,
+    }
+}
+
 /// The filaments' table, spelled as the shader spells it: cycles a cell and
 /// a second of each wave and harmonic, the harmonic's share, the width in
 /// cells and the gain.
@@ -166,14 +183,16 @@ pub fn parts(vfx: &Vfx, p: Pt) -> Option<Parts> {
         let salt = f.seed.0 ^ 0xA511_E9B3;
         let hashed = |n: u32| Hash(salt.wrapping_add(n)).next().unit();
         let kn = hashed(8);
+        let t = phase(&f);
         for (i, n) in [0u32, 1, 2].into_iter().enumerate() {
             let (ph, ph2) = (hashed(n), hashed(16 + n));
             let along = amp
-                * ((1.0 - PX_M[i]) * wave(PX_K[i] * s + ph + PX_F[i] * f.age)
-                    + PX_M[i] * wave(PX_K2[i] * s + ph2 + PX_F2[i] * f.age));
+                * ((1.0 - PX_M[i]) * wave(PX_K[i] * s + ph + PX_F[i] * t)
+                    + PX_M[i] * wave(PX_K2[i] * s + ph2 + PX_F2[i] * t))
+                + fine(f.live, s, hashed(24 + n));
             let wid = (PX_W[i] * (1.0 - 0.5 * k)).max(1.1 / c);
             let x = (w - along) / wid;
-            let knot = 0.72 + 0.28 * wave(0.45 * s + kn + n as f32 / 3.0 + q[7] * f.age);
+            let knot = 0.72 + 0.28 * wave(0.45 * s + kn + n as f32 / 3.0 + q[7] * t);
             fil += PX_G[i] * (-x * x).det_exp() * knot;
         }
         fil = fil.clamp(0.0, 1.0)
@@ -737,6 +756,8 @@ struct Frame {
     kn: f32,
     thirds: [f32; 3],
     knot_age: f32,
+    live: Option<Live>,
+    ph3: [f32; 3],
     wid: [f32; 3],
     /// 10.3 filament widths: farther than this across from a filament its
     /// term is zero ([`shade`]).
@@ -802,13 +823,15 @@ impl Frame {
             amp: q[0] * 0.62,
             ph: [0, 1, 2].map(hashed),
             ph2: [16, 17, 18].map(hashed),
-            fa: core::array::from_fn(|i| PX_F[i] * f.age),
-            fa2: core::array::from_fn(|i| PX_F2[i] * f.age),
+            fa: core::array::from_fn(|i| PX_F[i] * phase(&f)),
+            fa2: core::array::from_fn(|i| PX_F2[i] * phase(&f)),
             kn: hashed(8),
             // `n as f32 / 3.0` for n of 0, 1 and 2: each whole number is
             // exact as an `f32`.
             thirds: [0.0f32, 1.0, 2.0].map(|n| n / 3.0),
-            knot_age: q[7] * f.age,
+            knot_age: q[7] * phase(&f),
+            live: f.live,
+            ph3: [24, 25, 26].map(hashed),
             wid: core::array::from_fn(|i| (PX_W[i] * (1.0 - 0.5 * k)).max(1.1 / c)),
             gone: core::array::from_fn(|i| 10.3 * (PX_W[i] * (1.0 - 0.5 * k)).max(1.1 / c)),
             hand: Hand::of(&f),
@@ -861,7 +884,8 @@ impl Frame {
         for i in 0..3 {
             along[i] = amp
                 * ((1.0 - PX_M[i]) * wave(PX_K[i] * s + self.ph[i] + self.fa[i])
-                    + PX_M[i] * wave(PX_K2[i] * s + self.ph2[i] + self.fa2[i]));
+                    + PX_M[i] * wave(PX_K2[i] * s + self.ph2[i] + self.fa2[i]))
+                + fine(self.live, s, self.ph3[i]);
             knot[i] = 0.72 + 0.28 * wave(0.45 * s + self.kn + self.thirds[i] + self.knot_age);
         }
         Braid {
@@ -1046,7 +1070,10 @@ pub fn end(ignition: &Ignition) -> f32 {
 }
 
 fn shed(ignition: &Ignition) -> impl Iterator<Item = Hash> + use<> {
-    let n = (ignition.len / ignition.unit.max(1.0) * IONS_PER_UNIT).clamp(8.0, 64.0);
+    let n = match ignition.live {
+        Some(l) => (ignition.len / ignition.unit.max(1.0) * l.ions).clamp(0.0, 64.0),
+        None => (ignition.len / ignition.unit.max(1.0) * IONS_PER_UNIT).clamp(8.0, 64.0),
+    };
     let seed = ignition.seed.0;
     (0..u32::try_from(n.round() as i64).unwrap_or(8))
         .map(move |i| Hash(seed ^ i.wrapping_mul(0x9E37_79B9)).next())
@@ -1129,7 +1156,7 @@ impl Ion {
     }
 
     fn at(&self, f: &Ignition) -> Option<Particle> {
-        let a = f.age - self.born;
+        let a = phase(f) - self.born;
         if a < 0.0 || a > self.life {
             return None;
         }
@@ -1230,6 +1257,105 @@ mod tests {
         }
         assert_eq!(plus + minus, 45, "three a unit of a fifteen-unit path");
         assert!(plus > 16 && minus > 16, "both charges: {plus} and {minus}");
+    }
+
+    /// **A [`Live`] plasma runs its insides on its own clock**: with the
+    /// clock at the age, no wiggle and a trail's three ions a unit it draws
+    /// the trail's own plasma, part for part and ion for ion; the clock
+    /// moved on alone moves the filaments and the ions and leaves the
+    /// envelope and the tube where the age has them; the age moved alone
+    /// moves the envelope; a wiggle moves the filaments only; and the ions
+    /// it asks for are the ions it sheds, none for zero. The controls: each
+    /// of those moves is seen at some point of the path.
+    #[test]
+    fn a_live_plasma_runs_its_insides_on_its_own_clock() {
+        let f = ignition(cell(10.0, 5.0), cell(40.0, 5.0), Seed(5)).at(0.12);
+        let vfx = |ig: Ignition| Vfx {
+            effect: Effect::Plasma,
+            emitter: Smear {
+                corners: Rect {
+                    right: cell(40.0, 5.0).right,
+                    ..cell(10.0, 5.0)
+                }
+                .corners(),
+                hole: cell(40.0, 5.0),
+                shape: Shape::Quad,
+                strength: crate::flash::Strength::Full,
+                opacity: Smear::OPAQUE,
+            },
+            ignition: ig,
+            axis: ig.dir,
+        };
+        let live = |l: Live| Ignition { live: Some(l), ..f };
+        let same = Live {
+            phase: f.age,
+            fine: [0.0, 1.4, 5.0],
+            ions: IONS_PER_UNIT,
+        };
+        // Points along the path and across it, in front of the hole.
+        let points: Vec<Pt> = (0..240)
+            .map(|i| Pt {
+                x: 10.5 * CELL.0 + f32::from(u8::try_from(i % 60).unwrap()) * 0.5 * CELL.0,
+                y: 5.5 * CELL.1 + (f32::from(u8::try_from(i / 60).unwrap()) - 1.5) * 0.1 * CELL.1,
+            })
+            .collect();
+        let parts_at = |ig: Ignition| -> Vec<Option<Parts>> {
+            points.iter().map(|&p| parts(&vfx(ig), p)).collect()
+        };
+        let ions_of = |ig: Ignition| ions(&ig).collect::<Vec<_>>();
+        assert_eq!(parts_at(live(same)), parts_at(f), "at its age, the trail's");
+        assert_eq!(ions_of(live(same)), ions_of(f), "and its ions");
+        let moved = parts_at(live(Live {
+            phase: f.age + 0.4,
+            ..same
+        }));
+        let base = parts_at(f);
+        let pairs = || moved.iter().zip(&base).filter_map(|(a, b)| a.zip(*b));
+        assert!(pairs().count() > 100, "the points are on the plasma");
+        assert!(
+            pairs().all(|(a, b)| a.env == b.env && a.tube == b.tube),
+            "the body stays"
+        );
+        assert!(
+            pairs().any(|(a, b)| a.filaments != b.filaments),
+            "the filaments move"
+        );
+        assert_ne!(
+            ions_of(live(Live {
+                phase: f.age + 0.1,
+                ..same
+            })),
+            ions_of(f),
+            "the ions move"
+        );
+        let aged = parts_at(Ignition {
+            age: f.age + 0.1,
+            live: Some(same),
+            ..f
+        });
+        let aged_pairs = aged.iter().zip(&base).filter_map(|(a, b)| a.zip(*b));
+        assert!(
+            aged_pairs.clone().any(|(a, b)| a.env != b.env),
+            "the age moves the body"
+        );
+        let fine = parts_at(live(Live {
+            fine: [0.3, 1.4, 5.0],
+            ..same
+        }));
+        let fine_pairs = || fine.iter().zip(&base).filter_map(|(a, b)| a.zip(*b));
+        assert!(fine_pairs().all(|(a, b)| a.env == b.env && a.tube == b.tube));
+        assert!(
+            fine_pairs().any(|(a, b)| a.filaments != b.filaments),
+            "the wiggle"
+        );
+        let shed_at = |ions: f32| shed(&live(Live { ions, ..same })).count();
+        assert_eq!(shed_at(0.0), 0, "none asked, none shed");
+        let unit = f.len / f.unit;
+        assert_eq!(
+            shed_at(0.6),
+            usize::try_from((unit * 0.6).round() as i64).unwrap()
+        );
+        assert_eq!(shed(&f).count(), 45, "the trail's three a unit of fifteen");
     }
 
     /// **The plasma is out when its last ion dies**, and never before its

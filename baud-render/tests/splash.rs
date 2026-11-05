@@ -5,7 +5,7 @@
 
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
-use baud_font::Face;
+use baud_font::{Face, Px};
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::splash::{DARK, GONE, LEFT, LIGHT, OUT, glow};
 use baud_render::{
@@ -1073,5 +1073,274 @@ fn the_held_splash_is_the_lockup_files() {
     assert!(
         off.abs() <= 1.0,
         "the word's centre is {off:.2} px from the file's"
+    );
+}
+
+/// The dark half's held lockup and one pass of plasma over its word, for
+/// the layer tests: the renderer, the term, the frame buffer, the held
+/// frame, the pass and the frame-pixel box round the word.
+struct Layered<'f> {
+    r: Renderer<'f, 'f>,
+    owned: Owned,
+    px: Vec<u32>,
+    held: Vec<u32>,
+    vfx: Vfx,
+    word: [Px; 4],
+}
+
+fn layered<'f>(faces: &'f [Face<'f>]) -> Layered<'f> {
+    use baud_render::splash::{EMITTER, SEAM, SEED, origin, pass_over, placed, scale};
+    let owned = Owned::new(&WS);
+    let mut r = renderer(faces, Theme::dark());
+    r.set_splash(look(SplashPhase::Hold));
+    let (w, h) = r.pixel_size();
+    let frame = (w.value() as f32, h.value() as f32);
+    let (s, o) = (scale(frame), origin(frame, scale(frame)));
+    let word = Rect {
+        right: SEAM.0,
+        ..EMITTER
+    };
+    let b = placed(word, o, s);
+    let at = |v: f32| Px::of(u32::try_from(v.round() as i64).unwrap());
+    let word_px = [
+        at(b.left),
+        at(b.top),
+        at(b.right - b.left),
+        at(b.bottom - b.top),
+    ];
+    Layered {
+        r,
+        owned,
+        px: Vec::new(),
+        held: Vec::new(),
+        vfx: pass_over(word, o, s, SEED, 0.05),
+        word: word_px,
+    }
+}
+
+/// Every index of a `width`-wide frame inside the box `[left, top, w, h]`.
+fn inside(width: Px, b: [Px; 4]) -> impl Fn(usize) -> bool {
+    let v = |p: Px| usize::try_from(p.value()).unwrap();
+    let (wd, x0, y0, x1, y1) = (
+        v(width),
+        v(b[0]),
+        v(b[1]),
+        v(b[0]) + v(b[2]),
+        v(b[1]) + v(b[3]),
+    );
+    move |i| (x0..x1).contains(&(i % wd)) && (y0..y1).contains(&(i / wd))
+}
+
+/// **The splash's layers draw behind its glyphs or in front of them, on
+/// the CPU path alone**: one pass of plasma over the word, a layer behind
+/// the held lockup, leaves every pixel the word covers whole and lights the
+/// ground round it; in front, it lights the word as well. No record a GPU
+/// path draws moves (`trail`, `splash`). Taken away, the next frame, drawn
+/// incrementally, is the held lockup's again; at no opacity a layer draws
+/// nothing, and without the splash none is drawn.
+#[test]
+fn the_splash_layers_draw_behind_or_in_front() {
+    use baud_render::splash::{Depth, Layer};
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let mut l = layered(&faces);
+    let mut t = Term::new(l.owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l");
+    l.r.set_splash(None);
+    let bare = paint(&mut l.r, &mut t, &mut l.px, Damage::Full);
+    l.r.set_splash(look(SplashPhase::Hold));
+    let held = paint(&mut l.r, &mut t, &mut l.px, Damage::Full);
+    let records = (l.r.trail().to_vec(), l.r.splash().to_vec());
+    let vfx = l.vfx;
+    let ink = baud_render::Argb(0xFFF3_F4F6).0;
+    let mut drawn = |r: &mut Renderer<'_, '_>, layers: &[Layer]| {
+        r.set_splash_layers(layers);
+        let f = paint(r, &mut t, &mut l.px, Damage::Incremental);
+        assert_eq!(
+            (r.trail().to_vec(), r.splash().to_vec()),
+            records,
+            "no record moved"
+        );
+        f
+    };
+    let behind = drawn(
+        &mut l.r,
+        &[Layer {
+            vfx,
+            depth: Depth::Behind,
+        }],
+    );
+    let front = drawn(
+        &mut l.r,
+        &[Layer {
+            vfx,
+            depth: Depth::Front,
+        }],
+    );
+    let inked: Vec<usize> = (0..held.len()).filter(|&i| held[i] == ink).collect();
+    assert!(
+        inked.len() > 200,
+        "the premise: the word is drawn, {}",
+        inked.len()
+    );
+    let lit = |f: &[u32]| f.iter().zip(&held).filter(|(a, b)| a != b).count();
+    assert!(lit(&behind) > 500, "behind: lit round the word");
+    assert!(
+        inked.iter().all(|&i| behind[i] == ink),
+        "behind: the word whole"
+    );
+    let over = inked.iter().filter(|&&i| front[i] != ink).count();
+    assert!(over > 100, "in front: the word lit, {over} pixels");
+    assert_eq!(drawn(&mut l.r, &[]), held, "taken away, the held lockup's");
+    let none = Layer {
+        vfx: Vfx {
+            emitter: Smear {
+                opacity: baud_domain::Chan::from_u8(0),
+                ..vfx.emitter
+            },
+            ..vfx
+        },
+        depth: Depth::Front,
+    };
+    assert_eq!(drawn(&mut l.r, &[none]), held, "at no opacity, nothing");
+    l.r.set_splash(None);
+    l.r.set_splash_layers(&[Layer {
+        vfx,
+        depth: Depth::Front,
+    }]);
+    assert_eq!(
+        paint(&mut l.r, &mut t, &mut l.px, Damage::Incremental),
+        bare,
+        "no splash, no layer"
+    );
+}
+
+/// **The slabs cut the keyline, the knot and light the rim, inside their
+/// box alone** (`splash::Slabs`), over the word's box:
+///
+/// * a behind cut of one takes back every pixel of light a behind layer
+///   drew in the box, and none outside it;
+/// * the knot cut takes the glyph pixels under a front layer's core
+///   toward the page before the layer is drawn, so each is no brighter
+///   than without it and some are darker, the box alone;
+/// * the rim takes its band toward its ink by the layers' light, and at no
+///   gain draws nothing;
+/// * slabs whose fields do not hold a weight for each pixel are none, and
+///   with no layer the slabs and the ink change no pixel.
+#[test]
+fn the_slabs_cut_the_keyline_and_the_knot_and_light_the_rim() {
+    use baud_render::splash::{Depth, Knot, Layer, Rim, Slabs};
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let mut l = layered(&faces);
+    let mut t = Term::new(l.owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l");
+    l.held = paint(&mut l.r, &mut t, &mut l.px, Damage::Full);
+    let (w, _) = l.r.pixel_size();
+    let in_box = inside(w, l.word);
+    let n = usize::try_from(l.word[2].value() * l.word[3].value()).unwrap();
+    let page = baud_render::Argb(Theme::dark().bg.0 | 0xFF00_0000);
+    let slabs = |cut: f32, knot: f32, rim: f32| Slabs {
+        left: l.word[0],
+        top: l.word[1],
+        width: l.word[2],
+        height: l.word[3],
+        page,
+        behind_cut: vec![cut; n],
+        glyph: vec![1.0; n],
+        knot: Knot {
+            core: [0.05, 0.1],
+            grow: 1.0,
+            strength: knot,
+        },
+        rim: Rim {
+            band: vec![1.0; n],
+            gain: rim,
+            ink: baud_render::Argb(0xFFFF_0000),
+        },
+    };
+    let vfx = l.vfx;
+    let mut frame = |r: &mut Renderer<'_, '_>, depth: Option<Depth>, s: Option<Slabs>| {
+        r.set_splash_slabs(s);
+        let layers: Vec<Layer> = depth
+            .map(|depth| Layer { vfx, depth })
+            .into_iter()
+            .collect();
+        r.set_splash_layers(&layers);
+        paint(r, &mut t, &mut l.px, Damage::Incremental)
+    };
+    let held = l.held.clone();
+    let luma = |p: u32| {
+        let [_, r, g, b] = p.to_be_bytes();
+        u32::from(r) + u32::from(g) + u32::from(b)
+    };
+    // The behind cut.
+    let plain = frame(&mut l.r, Some(Depth::Behind), None);
+    let cut = frame(&mut l.r, Some(Depth::Behind), Some(slabs(1.0, 0.0, 0.0)));
+    let lit_in = (0..held.len())
+        .filter(|&i| in_box(i) && plain[i] != held[i])
+        .count();
+    assert!(
+        lit_in > 200,
+        "the premise: the layer lights the box, {lit_in}"
+    );
+    for i in 0..held.len() {
+        match in_box(i) {
+            true => assert_eq!(cut[i], held[i], "behind, cut: pixel {i} as held"),
+            false => assert_eq!(cut[i], plain[i], "behind, outside: pixel {i} lit"),
+        }
+    }
+    // The knot cut.
+    let plain = frame(&mut l.r, Some(Depth::Front), None);
+    let knot = frame(&mut l.r, Some(Depth::Front), Some(slabs(0.0, 1.0, 0.0)));
+    let mut darker = 0;
+    for i in 0..held.len() {
+        match in_box(i) {
+            true => {
+                assert!(luma(knot[i]) <= luma(plain[i]), "knot: pixel {i} brighter");
+                darker += usize::from(luma(knot[i]) < luma(plain[i]));
+            }
+            false => assert_eq!(knot[i], plain[i], "knot, outside: pixel {i}"),
+        }
+    }
+    assert!(
+        darker > 100,
+        "the knot cuts the word under the strand, {darker}"
+    );
+    // The rim.
+    let rim = frame(&mut l.r, Some(Depth::Front), Some(slabs(0.0, 0.0, 0.5)));
+    let red = |p: u32| p.to_be_bytes()[1];
+    let mut toward = 0;
+    for i in 0..held.len() {
+        match in_box(i) {
+            true => {
+                assert!(red(rim[i]) >= red(plain[i]).min(red(0xFFFF_0000)));
+                toward += usize::from(rim[i] != plain[i]);
+            }
+            false => assert_eq!(rim[i], plain[i], "rim, outside: pixel {i}"),
+        }
+    }
+    assert!(toward > 100, "the rim lights the band, {toward}");
+    let none = frame(&mut l.r, Some(Depth::Front), Some(slabs(0.0, 0.0, 0.0)));
+    assert_eq!(none, plain, "no knot, no rim: the layer alone");
+    // Slabs that do not fit, and no layer.
+    let mut short = slabs(1.0, 1.0, 0.5);
+    short.glyph.pop();
+    assert_eq!(
+        frame(&mut l.r, Some(Depth::Front), Some(short)),
+        plain,
+        "slabs that do not fit are none"
+    );
+    l.r.set_splash_ink(Some(baud_render::Argb(0xFF00_FF00)));
+    assert_eq!(
+        frame(&mut l.r, None, Some(slabs(1.0, 1.0, 0.5))),
+        held,
+        "no layer: the slabs and the ink change nothing"
     );
 }

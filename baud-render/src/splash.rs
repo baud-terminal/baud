@@ -61,7 +61,10 @@ use crate::effect::{Effect, Ignition, Seed, Vfx, smoothstep};
 use crate::flash::Strength;
 use crate::instance::{Instance, Screen};
 use crate::trail::{Pt, Rect, Segment, Shape, Smear};
+use crate::units::slots;
 use baud_domain::Chan;
+use baud_font::Px;
+use core::ops::Range;
 
 /// **Where the splash is**, as the driver hands it each frame.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -475,6 +478,188 @@ pub fn at_alpha(c: Argb, alpha: f32) -> Argb {
     c.with_alpha(Chan::from_unit(
         alpha.clamp(0.0, 1.0) * f32::from(c.a().get()) / 255.0,
     ))
+}
+
+/// **Where a [`Layer`] is drawn against the lockup's glyphs**: behind
+/// them, where the splash's own plasma is, or in front of them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Depth {
+    Behind,
+    Front,
+}
+
+/// **A plasma layer drawn with the splash, by the CPU path alone**
+/// ([`crate::Renderer::set_splash_layers`]): an effect built as a trail's,
+/// drawn by the same records and compositor at its emitter's opacity,
+/// behind the glyphs or in front of them. No driver sets one and the GPU
+/// paths draw none: they are how `baud-app`'s logo film draws the README's
+/// header. They take one colour ([`crate::Renderer::set_splash_ink`]),
+/// not [`paint`]'s glyph colours, and in one colour source-over commutes
+/// -- a pixel of glyph coverage `c` under a light `a` is `L (a + c - a c)
+/// + G (1 - a)(1 - c)` either way round -- so over the word the depth reads
+/// only through [`Slabs`].
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Layer {
+    pub vfx: Vfx,
+    pub depth: Depth,
+}
+
+/// **The knot cut**: the front layers' own light from `core[0]` to
+/// `core[1]` taken as their core, the core grown by `grow` pixels, and
+/// each glyph pixel under it taken `strength` of the way to the page
+/// before the front layers are drawn, so a strand in front of a letter
+/// reads as the over strand of a knot.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Knot {
+    pub core: [f32; 2],
+    pub grow: f32,
+    pub strength: f32,
+}
+
+/// **The rim**: `band`, a weight on each pixel of the glyphs' inner edge;
+/// on it the plasma's light -- the front layers' and 0.6 of the behind
+/// layers', blurred over 6 pixels and scaled by `gain` -- takes the pixel
+/// toward `ink`, at most 0.85 of the way. A `gain` of zero draws none.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Rim {
+    pub band: Vec<f32>,
+    pub gain: f32,
+    pub ink: Argb,
+}
+
+/// **The lockup's glyphs as slabs**: what the [`Layer`]s' depth does to
+/// the pixels beyond drawing them under or over the glyphs, over the
+/// frame-pixel box from `left`, `top`, `width` by `height`, each field a
+/// weight for each pixel of it, row by row:
+///
+/// * `behind_cut`: how much of the light the behind layers drew is taken
+///   back off a pixel -- the glyphs' mask grown by a keyline -- so a
+///   letter in front of plasma stands clear of it by a gap of page;
+/// * `glyph`: the glyphs' coverage, which the [`Knot`] cut takes toward
+///   `page` under a strand in front;
+/// * the [`Rim`] on the glyphs' inner edge.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Slabs {
+    pub left: Px,
+    pub top: Px,
+    pub width: Px,
+    pub height: Px,
+    pub page: Argb,
+    pub behind_cut: Vec<f32>,
+    pub glyph: Vec<f32>,
+    pub knot: Knot,
+    pub rim: Rim,
+}
+
+impl Slabs {
+    /// Whether every field holds a weight for each of the box's pixels.
+    pub fn fits(&self) -> bool {
+        let n = slots(self.width) * slots(self.height);
+        self.behind_cut.len() == n && self.glyph.len() == n && self.rim.band.len() == n
+    }
+
+    /// The box's columns and rows, as a target takes them.
+    pub(crate) fn span(&self) -> (Range<usize>, Range<usize>) {
+        let (x, y) = (slots(self.left), slots(self.top));
+        (x..x + slots(self.width), y..y + slots(self.height))
+    }
+
+    /// **The knot cut over the box's pixels `px`**, `front` the front
+    /// layers' own light at each: each glyph pixel taken toward the page by
+    /// its coverage times the most of the core within the grown reach
+    /// ([`Knot`]).
+    pub(crate) fn cut_knot(&self, px: &mut [u32], front: &[f32]) {
+        let (w, h) = (slots(self.width), slots(self.height));
+        let k = self.knot;
+        let core: Vec<f32> = front
+            .iter()
+            .map(|&a| smoothstep(k.core[0], k.core[1], a))
+            .collect();
+        let reach = usize::try_from(k.grow.max(0.0).ceil() as i64).unwrap_or(0) + 1;
+        for y in 0..h {
+            for x in 0..w {
+                let gl = self.glyph[y * w + x];
+                if gl <= 0.0 {
+                    continue;
+                }
+                let mut best = 0.0f32;
+                for yy in y.saturating_sub(reach)..(y + reach + 1).min(h) {
+                    for xx in x.saturating_sub(reach)..(x + reach + 1).min(w) {
+                        let (dx, dy) = (xx as f32 - x as f32, yy as f32 - y as f32);
+                        let wgt = (k.grow + 1.0 - (dx * dx + dy * dy).sqrt()).clamp(0.0, 1.0);
+                        if wgt > 0.0 {
+                            best = best.max(core[yy * w + xx] * wgt);
+                        }
+                    }
+                }
+                let i = y * w + x;
+                px[i] = mix(Argb(px[i]), self.page, gl * best * k.strength).0;
+            }
+        }
+    }
+
+    /// **The behind cut over the box's pixels `px`**: each taken back
+    /// toward `before`, what it was before the behind layers were drawn,
+    /// by its `behind_cut`.
+    pub(crate) fn cut_behind(&self, px: &mut [u32], before: &[u32]) {
+        for ((p, &b), &t) in px.iter_mut().zip(before).zip(&self.behind_cut) {
+            *p = mix(Argb(*p), Argb(b), t).0;
+        }
+    }
+
+    /// **The rim over the box's pixels `px`**, `front` and `behind` the
+    /// layers' own light at each ([`Rim`]).
+    pub(crate) fn light_rim(&self, px: &mut [u32], front: &[f32], behind: &[f32]) {
+        const R: usize = 6;
+        let (w, h) = (slots(self.width), slots(self.height));
+        let mut light: Vec<f32> = front.iter().zip(behind).map(|(f, b)| f + 0.6 * b).collect();
+        // A box blur of 6 pixels along the rows, then down the columns, each
+        // the mean of the pixels it covers inside the box.
+        for pass in [Pass::Rows, Pass::Cols] {
+            let mut out = vec![0.0f32; w * h];
+            for y in 0..h {
+                for x in 0..w {
+                    let (along, len) = match pass {
+                        Pass::Rows => (x, w),
+                        Pass::Cols => (y, h),
+                    };
+                    let (mut acc, mut n) = (0.0f32, 0.0f32);
+                    for d in along.saturating_sub(R)..(along + R + 1).min(len) {
+                        acc += match pass {
+                            Pass::Rows => light[y * w + d],
+                            Pass::Cols => light[d * w + x],
+                        };
+                        n += 1.0;
+                    }
+                    out[y * w + x] = acc / n;
+                }
+            }
+            light = out;
+        }
+        for ((p, &band), &l) in px.iter_mut().zip(&self.rim.band).zip(&light) {
+            if band > 0.0 {
+                *p = mix(Argb(*p), self.rim.ink, band * (self.rim.gain * l).min(0.85)).0;
+            }
+        }
+    }
+}
+
+/// A blur's direction.
+#[derive(Clone, Copy)]
+enum Pass {
+    Rows,
+    Cols,
+}
+
+/// `a` taken `t` of the way to `b`, each colour channel rounded, `a`'s
+/// alpha kept.
+fn mix(a: Argb, b: Argb, t: f32) -> Argb {
+    let t = t.clamp(0.0, 1.0);
+    let ch = |x: Chan, y: Chan| {
+        let (x, y) = (f32::from(x.get()), f32::from(y.get()));
+        Chan::from_unit((x + (y - x) * t).round() / 255.0)
+    };
+    Argb::rgb(ch(a.r(), b.r()), ch(a.g(), b.g()), ch(a.b(), b.b())).with_alpha(a.a())
 }
 
 /// **A part of the frame the shell has drawn**, which the splash yields:
