@@ -2705,3 +2705,45 @@ KeyError and SystemExit of the generators, and at least one control and
 one count in each module. Three checks have no case, because no one-row
 edit reaches them: 256 or more scripts, more than 256 extension sets,
 and the 37 right-to-left scripts.
+
+## The stress mark's tables compiled at build time
+
+`baud-render` gains its first build script: `build/stress.rs` compiles
+the stress mark's skip trie, the separators and the combining trie into
+`OUT_DIR` from pinned `data/` through `baud-tablegen`, and a `links` key
+hands that `OUT_DIR` to `baud-present-macos`'s new build, which writes
+the skip trie as `stress_skips.metal` and `shaders.metal` with it spliced
+over its `#include`. The identity commit printed "identical:
+STRESS_SKIP_INDEX 4352, STRESS_SKIP_BLOCKS 4704, COMBINING_INDEX 4352,
+COMBINING_BLOCKS 2400, SEPARATORS 19 elements" and "identical: 56693
+bytes of arrays".
+
+**The `.metallib` is base's byte for byte.** `build-metallib.sh` finds
+`OUT_DIR` in `cargo check --message-format=json` and compiles with `-I`
+there; at one path both arms wrote 220,196 `cmp`-identical bytes, equal
+to the committed library. The spliced text differs from base's in
+comments, so only `shaders.metal.fnv` moves.
+
+**Release binaries: the crate-hash rename and the shader's comments.**
+`baud`'s `__text` is 4,033,984 bytes in every arm; `__TEXT,__const` is
+232 bytes larger, the 226 the comments add to the runtime fallback's
+source. Arm A, the identity commit (base's code, both build scripts),
+against arm B, the change with base's comment lines put back (its
+spliced text `cmp`-equal to base's `shaders.metal`): 147 bytes differ,
+the UUID, the signature and 35 panic line numbers of `metal.rs`, +3. A
+clean A/A rebuild is identical. No timing: the per-byte path is
+untouched.
+
+**The build.** `--timings`, five rounds rotated at one path, the first
+dropped: `baud-render`'s script compiles in [0.31-0.34] s and runs in
+[0.18-0.19] s, `baud-present-macos`'s in [0.23-0.25] and [0.04-0.06];
+the libs overlap base's. Touching `src/lib.rs` ran no build script;
+touching UnicodeData.txt ran each that reads it once. `baud-render`'s
+`.crate` goes 0.63 to 0.99 MiB with `data/`.
+
+**Red first.** U+2030 dropped from CSS's exceptions passes the build and
+turns `the_stress_mark_skips_what_css_leaves_bare` red there; all
+exceptions dropped, or bits packed high first, is a `cargo::error`; a
+short shader block turns the table pin and the digest gate red; the
+unspliced source fails at run time, "'stress_skips.metal' file not
+found". Every case in `build_tables.rs` and `build_stress.rs` fires.

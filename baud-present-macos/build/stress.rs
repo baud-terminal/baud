@@ -14,6 +14,9 @@
 /// The include, by the name the shaders give it.
 pub const INCLUDE: &str = "stress_skips.metal";
 
+/// The line of `src/shaders.metal` the include is spliced over.
+pub const LINE: &str = "#include \"stress_skips.metal\"";
+
 /// The trie's stage 1: one block number for each 256 codepoints.
 const INDEX_LEN: usize = 0x1100;
 
@@ -50,6 +53,38 @@ pub fn metal(index: &[u8], blocks: &[u8]) -> Result<String, String> {
             out.push_str(&format!("    {},\n", line.join(", ")));
         }
         out.push_str("};\n");
+    }
+    Ok(out)
+}
+
+/// `shader` with `include` in place of its one [`LINE`]; refused, at the
+/// line and column of each, unless there is exactly one.
+pub fn splice(path: &str, shader: &str, include: &str) -> Result<String, String> {
+    let at: Vec<usize> = shader
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| l.trim_end() == LINE)
+        .map(|(i, _)| i + 1)
+        .collect();
+    match at.as_slice() {
+        [_] => {}
+        [] => return Err(format!("{path}: no `{LINE}` line to splice the table over")),
+        [first, rest @ ..] => {
+            let more: Vec<String> = rest.iter().map(|l| format!("{path}:{l}:1")).collect();
+            return Err(format!(
+                "{path}:{first}:1: `{LINE}` is given {} times, once expected; again at {}",
+                at.len(),
+                more.join(", ")
+            ));
+        }
+    }
+    let mut out = String::with_capacity(shader.len() + include.len());
+    for line in shader.split_inclusive('\n') {
+        if line.trim_end() == LINE {
+            out.push_str(include);
+        } else {
+            out.push_str(line);
+        }
     }
     Ok(out)
 }

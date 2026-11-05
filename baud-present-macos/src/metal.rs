@@ -116,11 +116,14 @@ pub const SHAPES_PER_CELL: usize = 27;
 /// the slot count.
 pub const CURSOR_SHAPE_SLOT: usize = 3;
 
-/// The shaders, as the compiler and the runtime both read them.
-/// `scripts/build-metallib.sh` compiles this file to `baud.metallib`;
-/// the fallback below compiles this same text at launch when that
-/// library will not load. One source, so the two cannot disagree.
-const SHADERS: &str = include_str!("shaders.metal");
+/// The shaders, as the compiler and the runtime both read them:
+/// `shaders.metal` with the stress mark's table spliced over its
+/// `#include`, written by the build (`build/stress.rs`).
+/// `scripts/build-metallib.sh` compiles `shaders.metal` with the include
+/// beside it to `baud.metallib`; the fallback below compiles this text at
+/// launch when that library will not load, since a source compiled at
+/// run time has no include path. One text, so the two cannot disagree.
+const SHADERS: &str = include_str!(concat!(env!("OUT_DIR"), "/shaders.metal"));
 
 /// The same shaders compiled to AIR, generated and committed by
 /// `scripts/build-metallib.sh`. Loading it skips the source-to-AIR front

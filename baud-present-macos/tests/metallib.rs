@@ -1,8 +1,12 @@
 //! The committed `baud.metallib` must be the shaders beside it.
 //!
-//! `scripts/build-metallib.sh` compiles `src/shaders.metal` and records
-//! two FNV-1a digests: the source's in `src/shaders.metal.fnv` and the
-//! library's own in `src/baud.metallib.fnv`. Editing a shader
+//! `scripts/build-metallib.sh` compiles `src/shaders.metal`, with the
+//! stress mark's table the build writes into `OUT_DIR` beside it as its
+//! include, and records two FNV-1a digests: the source's in
+//! `src/shaders.metal.fnv`, of the text the compiler reads -- the shaders
+//! with that table spliced in, which the build also writes -- and the
+//! library's own in `src/baud.metallib.fnv`. A new table, from a new
+//! Unicode version, moves the first digest as an edit does. Editing a shader
 //! without re-running it would leave the app loading a library that
 //! draws the *old* shaders -- and nothing else would notice, because the
 //! library loads perfectly and the pixels are merely wrong. That is this
@@ -12,6 +16,10 @@
 //! the workflows are `ubuntu-latest` and there is no macOS runner, so
 //! these go red where the shaders are edited and nowhere else.
 #![cfg(target_os = "macos")]
+
+/// The shaders as the compiler reads them: `src/shaders.metal` with the
+/// stress mark's table spliced over its `#include`, from the build.
+const SHADERS: &str = include_str!(concat!(env!("OUT_DIR"), "/shaders.metal"));
 
 /// FNV-1a, the digest this repo already uses for its golden frames, and
 /// the same eight bytes `scripts/build-metallib.sh` writes.
@@ -30,13 +38,13 @@ fn the_library_was_built_from_the_shaders_beside_it() {
     // the generator run. The source's alone relates the shaders to
     // themselves: a `baud.metallib` swapped for one built from different
     // text with the same entry points would pass every other gate here.
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let recorded = include_str!("../src/shaders.metal.fnv").trim();
     assert_eq!(
         format!("{:016x}", fnv(src.as_bytes())),
         recorded,
-        "src/shaders.metal has changed since baud.metallib was built \
-         -- run scripts/build-metallib.sh"
+        "src/shaders.metal, or the stress table it includes, has changed \
+         since baud.metallib was built -- run scripts/build-metallib.sh"
     );
 
     let lib = include_bytes!("../src/baud.metallib");
@@ -83,7 +91,7 @@ fn the_shipped_library_offers_what_the_source_does() {
     let Some(device) = MTLCreateSystemDefaultDevice() else {
         panic!("a Metal device; this test cannot skip itself");
     };
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let from_source = device
         .newLibraryWithSource_options_error(&NSString::from_str(src), None)
         .expect("the shaders compile");
@@ -121,7 +129,7 @@ fn the_shipped_library_offers_what_the_source_does() {
 /// number before a `.metallib` is built.
 #[test]
 fn the_shape_slot_count_matches_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let prefix = "#define SHAPE_SLOTS ";
     let line = src
         .lines()
@@ -167,7 +175,7 @@ fn the_shape_slot_count_matches_the_shader() {
 #[test]
 fn the_bolts_shape_matches_the_shader() {
     use baud_render::lightning as l;
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let define = |name: &str| -> String {
         let prefix = format!("#define {name} ");
         let line = src
@@ -202,7 +210,7 @@ fn the_bolts_shape_matches_the_shader() {
 #[test]
 fn the_ices_constants_match_the_shader() {
     use baud_render::ice;
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let define = |name: &str| -> String {
         let prefix = format!("#define {name} ");
         let line = src
@@ -233,7 +241,7 @@ fn the_ices_constants_match_the_shader() {
 #[test]
 fn the_liquids_constants_match_the_shader() {
     use baud_render::liquid;
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let define = |name: &str| -> String {
         let prefix = format!("#define {name} ");
         let line = src
@@ -271,7 +279,7 @@ fn the_liquids_constants_match_the_shader() {
 /// skips a blank cell by the second.
 #[test]
 fn the_wide_tail_value_matches_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     for (name, want) in [
         ("WIDE_TAIL", baud_domain::Content::WIDE_TAIL.bits()),
         ("EMPTY_CELL", baud_domain::Content::EMPTY.bits()),
@@ -300,7 +308,7 @@ fn the_wide_tail_value_matches_the_shader() {
 /// or a block element as asked.
 #[test]
 fn the_line_range_matches_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     for (name, want) in [
         ("LINE_FIRST", baud_render::Line::FIRST),
         ("LINE_LAST", baud_render::Line::LAST),
@@ -327,7 +335,7 @@ fn the_line_range_matches_the_shader() {
 /// cell path while the instance path hid it, or hide some other rendition.
 #[test]
 fn the_hidden_text_bits_match_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     for (name, want) in [
         ("SHAPE_BLINK", baud_render::Shapes::BLINK.0),
         ("SHAPE_RAPID_BLINK", baud_render::Shapes::RAPID_BLINK.0),
@@ -355,7 +363,7 @@ fn the_hidden_text_bits_match_the_shader() {
 /// run's parts sit under in the glyph map.
 #[test]
 fn the_line_shape_bits_match_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     for (name, want) in [
         ("SHAPE_OVERLINE", baud_render::Shapes::OVERLINE.0),
         (
@@ -387,7 +395,7 @@ fn the_line_shape_bits_match_the_shader() {
 /// cell path alone.
 #[test]
 fn the_bare_mask_bit_matches_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let prefix = "#define MASK_BARE ";
     let line = src
         .lines()
@@ -407,7 +415,7 @@ fn the_bare_mask_bit_matches_the_shader() {
 /// column from half of it and leave the line's decorations to its records.
 #[test]
 fn the_sized_mask_bit_matches_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let prefix = "#define MASK_SIZED ";
     let line = src
         .lines()
@@ -429,7 +437,7 @@ fn the_sized_mask_bit_matches_the_shader() {
 /// the selection's column range over a reordered row on the cell arm alone.
 #[test]
 fn the_bidi_mask_bits_match_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     for (name, want) in [
         ("MASK_BIDI", baud_render::MASK_BIDI),
         ("MASK_SELECTED", baud_render::MASK_SELECTED),
@@ -460,7 +468,7 @@ fn the_bidi_mask_bits_match_the_shader() {
 /// The record bit, which the leaving row's mask reads too (`sized_bits`).
 #[test]
 fn the_record_mask_bit_matches_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let prefix = "#define MASK_RECORD ";
     let line = src
         .lines()
@@ -474,29 +482,13 @@ fn the_record_mask_bit_matches_the_shader() {
     assert_eq!(got, baud_render::MASK_RECORD, "{line:?}");
 }
 
-/// The identity check: the arrays the build writes are the committed
-/// generator's block, byte for byte.
-#[test]
-fn the_built_shader_table_is_the_committed_block() {
-    let built = include_str!(concat!(env!("OUT_DIR"), "/stress_skips.metal"));
-    let src = include_str!("../src/shaders.metal");
-    let head = "constant uchar STRESS_SKIP_INDEX[";
-    let start = src.find(head).expect("the committed block");
-    let end = src
-        .find("// END GENERATED: stress mark skips")
-        .expect("its end");
-    let arrays = &built[built.find(head).expect("the built arrays")..];
-    assert_eq!(arrays, &src[start..end]);
-    println!("identical: {} bytes of arrays", arrays.len());
-}
-
 /// **The cell shader skips what the CPU skips**: the stress mark's two
 /// tables in the shader and `baud_render::STRESS_SKIP_INDEX` and
 /// `STRESS_SKIP_BLOCKS` are one set of bytes spelled twice, and a drift
 /// would mark a comma, or leave a letter bare, on the cell path alone.
 #[test]
 fn the_stress_mark_table_matches_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let table = |name: &str| -> Vec<u8> {
         let head = format!("constant uchar {name}[");
         let start = src
@@ -529,7 +521,7 @@ fn the_stress_mark_table_matches_the_shader() {
 /// the wrong cells on the cell path alone.
 #[test]
 fn the_default_background_bit_matches_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     let prefix = "#define SHAPE_DEFAULT_BG ";
     let line = src
         .lines()
@@ -550,7 +542,7 @@ fn the_default_background_bit_matches_the_shader() {
 /// never inserted, and every bold cell would draw nothing on the cell path.
 #[test]
 fn the_face_style_bits_match_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     for (name, want) in [
         ("FACE_SHIFT", baud_render::Shapes::FACE_SHIFT),
         ("KEY_STYLE_SHIFT", baud_render::CellKey::STYLE_SHIFT),
@@ -586,7 +578,7 @@ fn the_face_style_bits_match_the_shader() {
 /// would catch only as pixels.
 #[test]
 fn the_effect_kinds_match_the_shader() {
-    let src = include_str!("../src/shaders.metal");
+    let src = SHADERS;
     for (name, kind) in [
         ("KIND_BAND", baud_render::Kind::Band),
         ("KIND_PARTICLE", baud_render::Kind::Particle),

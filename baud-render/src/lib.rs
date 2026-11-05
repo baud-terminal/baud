@@ -70,39 +70,19 @@ mod select;
 pub mod splash;
 mod stack;
 pub mod status;
-mod stress_data;
-#[cfg(test)]
-mod stress_built {
+/// The codepoints `SGR 64`'s stress mark skips, compiled by `build.rs`
+/// (`build/stress.rs`) from `[[source: gc-data]]` and
+/// `[[source: unicode-data]]` by `[[source: css-text-decor-3]]`'s rule:
+/// Z*, P* but the punctuation that normalizes to one of its exceptions,
+/// Cc, Cf and Cn -- and, for a cluster on a skipped base, the separators
+/// and combining characters that decide whether it is "a space that
+/// combines with any combining characters".
+/// `the_stress_mark_skips_what_css_leaves_bare` recomputes the skip set
+/// from the pinned files at every codepoint with a reader of its own, and
+/// the cell shader's copy of the skip trie is pinned to this one by
+/// `the_stress_mark_table_matches_the_shader`.
+mod stress_data {
     include!(concat!(env!("OUT_DIR"), "/stress.rs"));
-
-    /// The identity check: every table the build compiles is the
-    /// committed generator's, element for element.
-    #[test]
-    fn the_built_stress_tables_are_the_committed_ones() {
-        use crate::stress_data as was;
-        let pairs: [(&str, &[u8], &[u8]); 4] = [
-            (
-                "STRESS_SKIP_INDEX",
-                STRESS_SKIP_INDEX,
-                was::STRESS_SKIP_INDEX,
-            ),
-            (
-                "STRESS_SKIP_BLOCKS",
-                STRESS_SKIP_BLOCKS,
-                was::STRESS_SKIP_BLOCKS,
-            ),
-            ("COMBINING_INDEX", COMBINING_INDEX, was::COMBINING_INDEX),
-            ("COMBINING_BLOCKS", COMBINING_BLOCKS, was::COMBINING_BLOCKS),
-        ];
-        let mut seen = Vec::new();
-        for (name, built, committed) in pairs {
-            assert_eq!(built, committed, "{name}");
-            seen.push(format!("{name} {}", built.len()));
-        }
-        assert_eq!(SEPARATORS, was::SEPARATORS, "SEPARATORS");
-        seen.push(format!("SEPARATORS {}", SEPARATORS.len()));
-        println!("identical: {} elements", seen.join(", "));
-    }
 }
 mod syllable;
 pub mod tip;

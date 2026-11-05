@@ -28,17 +28,6 @@ which his page puts under MIT
   From:    https://bottosson.github.io/posts/gamutclipping/ and
            https://bottosson.github.io/posts/oklab/
 
-Tables generated from the Unicode Character Database and Unicode's emoji
-data files: grapheme clusters and widths, and emoji presentation. Where such
-a table sits in a file with other code, only its marked generated block is
-generated
-  Files:   src/stress_data.rs
-  Holder:  Unicode, Inc.
-  Licence: Unicode-3.0
-  Notice:  LICENSES/Unicode-3.0.txt
-  Status:  kept: redistributable, and its notice is satisfied
-  From:    https://www.unicode.org/Public/
-
 Unicode Character Database 17.0.0 files, carried unmodified, which the build
 compiles into what the stress mark skips
   Files:   data/unicode-derivedgeneralcategory.txt,

@@ -27,6 +27,16 @@
 #     route is to ask `xcodebuild` where the component is and take the
 #     compiler from there, which is what this does.
 #
+# THE STRESS MARK'S TABLE IS BUILT, NOT COMMITTED
+#     `shaders.metal` includes `stress_skips.metal`, which
+#     `baud-present-macos/build.rs` writes into its `OUT_DIR` from the
+#     table `baud-render`'s build compiles out of the pinned UCD files,
+#     beside `shaders.metal` with that file spliced in. So this asks cargo
+#     to run the build and say where `OUT_DIR` is (`cargo check
+#     --message-format=json`, its `build-script-executed` line), compiles
+#     with `-I` there, and records the spliced text's digest: the text the
+#     compiler read, and the one the runtime fallback compiles.
+#
 # Usage: scripts/build-metallib.sh [xcode-developer-dir]
 
 set -eu
@@ -74,12 +84,23 @@ metal="$search/Metal.xctoolchain/usr/bin/metal"
   exit 5
 }
 
+# The build's `OUT_DIR`, from the line cargo prints when the build
+# script has run; the positive control is the two files in it.
+gen=$(cd "$here" && cargo check -p baud-present-macos --message-format=json |
+  sed -n 's|^{"reason":"build-script-executed","package_id":"path+file://[^"#]*/baud-present-macos#[^"]*",.*"out_dir":"\([^"]*\)"}$|\1|p' |
+  tail -n 1)
+[ -n "$gen" ] && [ -s "$gen/stress_skips.metal" ] && [ -s "$gen/shaders.metal" ] || {
+  echo "cargo named no OUT_DIR holding stress_skips.metal and shaders.metal" >&2
+  echo "(got: ${gen:-nothing})" >&2
+  exit 7
+}
+
 # **The library's floor is the app's: macOS 26**. Without the flag the
 # compiler takes its target from the environment --
 # `MACOSX_DEPLOYMENT_TARGET`, 14.0 under devenv, else the SDK's version,
 # 14.4 from the nix SDKROOT -- so the same source built two libraries.
 # `baud-app/tests/macos_floor.rs` holds this release to Info.plist's.
-"$metal" -mmacosx-version-min=26.0 -o "$out" "$src"
+"$metal" -mmacosx-version-min=26.0 -I "$gen" -o "$out" "$src"
 [ -s "$out" ] || {
   echo "the compiler wrote nothing to $out" >&2
   exit 6
@@ -91,6 +112,6 @@ metal="$search/Metal.xctoolchain/usr/bin/metal"
 # it relates the shaders to themselves -- and a library swapped for one
 # built from different text with the same entry points would pass every
 # other gate here.
-(cd "$here" && cargo xtask fnv1a "$src" "$out" "$digest" "$libdigest")
+(cd "$here" && cargo xtask fnv1a "$gen/shaders.metal" "$out" "$digest" "$libdigest")
 
 echo "$(basename "$out"): $(wc -c <"$out" | tr -d ' ') bytes, from $("$metal" --version 2>&1 | head -1)"

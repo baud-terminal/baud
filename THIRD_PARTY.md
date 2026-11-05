@@ -267,13 +267,13 @@ they were built from.
 - **From:** https://codeberg.org/dnkl/foot/src/tag/1.21.0/terminal.c
 - **Files:** [baud-domain/src/dec_graphics.rs](baud-domain/src/dec_graphics.rs)
 
-### Tables generated from the Unicode Character Database files pinned in the manifest: grapheme clusters and widths merged into one table, the text-default emoji a VS16 widens, and what SGR 64's stress mark skips with the separators and combining characters it reads (scripts/gen-stress-table.py). Of shaders.metal only the block between its BEGIN GENERATED and END GENERATED stress-mark markers is generated, and baud.metallib carries those bytes compiled
+### Tables generated from the Unicode Character Database files pinned in the manifest: grapheme clusters and widths merged into one table, the text-default emoji a VS16 widens; and, in baud.metallib, compiled, what SGR 64's stress mark skips, the table the builds of baud-render and baud-present-macos compile from baud-render/data/ and write into the shader it is compiled from
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Unicode-3.0
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
 - **From:** https://www.unicode.org/Public/
-- **Files:** [baud-domain/src/merged_data.rs](baud-domain/src/merged_data.rs), [baud-domain/src/vs16.rs](baud-domain/src/vs16.rs), [baud-render/src/stress_data.rs](baud-render/src/stress_data.rs), [baud-present-macos/src/shaders.metal](baud-present-macos/src/shaders.metal), [baud-present-macos/src/baud.metallib](baud-present-macos/src/baud.metallib)
+- **Files:** [baud-domain/src/merged_data.rs](baud-domain/src/merged_data.rs), [baud-domain/src/vs16.rs](baud-domain/src/vs16.rs), [baud-present-macos/src/baud.metallib](baud-present-macos/src/baud.metallib)
 
 ### baud-domain's build reads the Unicode Character Database files it compiles its bidirectional, grapheme-cluster, width, line-breaking, case-folding, search-key, cursive-joining and default-ignorable tables and its named emoji variation sequences from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files
 

@@ -11,7 +11,7 @@ Tables generated from the Unicode Character Database and Unicode's emoji
 data files: grapheme clusters and widths, and emoji presentation. Where such
 a table sits in a file with other code, only its marked generated block is
 generated
-  Files:   src/baud.metallib, src/shaders.metal
+  Files:   src/baud.metallib
   Holder:  Unicode, Inc.
   Licence: Unicode-3.0
   Notice:  LICENSES/Unicode-3.0.txt
