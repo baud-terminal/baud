@@ -884,8 +884,11 @@ pub fn run() {
         if d.bell.is_due(at) {
             d.pending = Pending::Dirty;
         }
+        // Nothing while a synchronised update holds the frame
+        // (`Caret::tick`).
         let blinks = d.blinks();
-        if d.caret.due(at, blinks) == Owes::Frame {
+        let update = d.updates.state(&d.term, Instant::now());
+        if d.caret.tick(at, blinks, update) == Owes::Frame {
             d.pending = Pending::Dirty;
         }
         match d.timed.turn(at, &mut d.term) {
@@ -1257,8 +1260,6 @@ impl Driver {
         {
             crate::warn!("{line}");
         }
-        // Output shows the cursor and restarts its blink (`caret.rs`).
-        self.caret.restart(Instant::now());
         // The read owes the derived title a check, made at the next frame.
         self.derive.owe();
         self.send_title();
@@ -2860,6 +2861,10 @@ impl Driver {
         self.renderer.set_flash(bell.flash);
         self.renderer.set_bell_tint(bell.tint);
         let blinks = self.blinks();
+        // The cursor this frame presents restarts the cycle if it is not
+        // the one the last frame did (`Caret::present`).
+        self.caret
+            .present(seen_at, crate::caret::PresentedCursor::of(&self.term));
         let caret = self.caret.plan(seen_at, blinks);
         self.renderer.set_cursor_blink(caret);
         // The selection's share of the view, or `?1001`'s region.

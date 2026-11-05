@@ -4,7 +4,7 @@
 use crate::access::{Contrast, MotionSource, motion_override, system_motion};
 use crate::bar::Took;
 use crate::bell::{Bell, Rings, Update, UpdateClock};
-use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes};
+use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes, PresentedCursor, live_cursor};
 use crate::effects::{
     Composed, SwitchForm, TrailCursor, regis_phase, switch_at, switch_form, text_blink,
     trail_cursor, window_of,
@@ -2387,6 +2387,9 @@ impl App {
             self.focus,
             live_cursor(&self.term),
         );
+        // The cursor this frame presents restarts the cycle if it is not
+        // the one the last frame did (`Caret::present`).
+        self.caret.present(seen_at, PresentedCursor::of(&self.term));
         let caret = self.caret.plan(seen_at, blinks);
         self.renderer.set_cursor_blink(caret);
         // Image placements for this view, for the two GPU arms: both read the
@@ -4963,19 +4966,6 @@ fn chase_frame(
         chase.snap();
     }
     now.and_then(|now| chase.frame(cursor, now, cell, height))
-}
-
-/// The cursor to draw: the live screen's, while the window is on it, and
-/// on the status line's row below the grid while DECSASD selects the line
-/// (`Term::status_line`), where the main display's is not drawn.
-fn live_cursor(term: &Term<'_>) -> Option<(Row, Col)> {
-    if term.window_back().index() != 0 {
-        return None;
-    }
-    match term.status_line().and_then(|l| l.cursor) {
-        Some(c) => Some((Row::from_index(term.geometry().1.index()), c)),
-        None => term.cursor_visible().then(|| term.cursor()),
-    }
 }
 
 /// What the app keeps over the screen and a read can leave naming cells
@@ -11468,9 +11458,6 @@ impl Driver {
         }
         if !drained.chunks.is_empty() {
             self.app.latency.fed(host_now);
-            // Output shows the cursor and restarts its blink: foot's "prevent
-            // blinking while typing" (`caret.rs`).
-            self.app.caret.restart(host_now());
             // The first read after a key's write is that key's echo -- the
             // instrument's rule, and the loop's: it is owed a frame now.
             if self.app.echo == Echo::Wanted {
@@ -12298,14 +12285,16 @@ impl Responder for Driver {
         // The cursor's blink owes a frame at each flip, and when it stops in
         // the off phase -- focus lost, a steady style, hidden, looked away
         // from -- the frame that shows it (`caret.rs`). Nothing while it does
-        // not blink, so an idle steady cursor builds no frame.
+        // not blink, so an idle steady cursor builds no frame, and nothing
+        // while a synchronised update holds the frame (`Caret::tick`).
         if let Some(now) = HostTime::of_secs(target) {
             let blinks = crate::caret::blinks(
                 self.app.term.cursor_style(),
                 self.app.focus,
                 live_cursor(&self.app.term),
             );
-            if self.app.caret.due(now, blinks) == Owes::Frame {
+            let update = self.app.updates.state(&self.app.term, Instant::now());
+            if self.app.caret.tick(now, blinks, update) == Owes::Frame {
                 self.app.pending = Pending::Dirty;
             }
         }

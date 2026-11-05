@@ -253,9 +253,11 @@ floor = 1.2
 # "prefer non-blinking cursor" (macOS 15 and later). `true` blinks whatever
 # that switch says, with a warning, and `false` starts the cursor steady. A
 # blinking cursor blinks only while the window has focus, and shows at once on
-# a key or on output. `stop_blinking_after` stops it, shown, after that many
-# seconds without a key, a click or a paste -- output does not count; 0 is
-# never.
+# a key, a paste, or output that moves it, hides or shows it, or changes its
+# shape; output that leaves it as it was -- another pane of a multiplexer
+# redrawing -- keeps it blinking. `stop_blinking_after` stops it, shown, after
+# that many seconds without a key, a click or a paste -- output does not
+# count; 0 is never.
 #
 # `blink_interval_ms`: how long each phase lasts, shown and hidden alike.
 # Unset, macOS's `NSTextInsertionPointBlinkPeriodOn` and `...Off` are followed

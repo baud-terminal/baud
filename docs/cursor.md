@@ -96,6 +96,20 @@ has reported it, always means the hard switch. `blink = false` holds the
 cursor steady, and `stop_blinking_after` stops it, shown, after a quiet
 spell.
 
+The blink starts again, shown, on a key, a paste or an input method's
+commit, and when the cursor a frame draws changes: it moves to another cell,
+is hidden or shown, or takes another shape. A shell printing at its prompt
+moves the cursor with every read, so the cursor stays shown while it prints.
+Output that leaves the cursor where, how and whether it was keeps the blink
+running: a terminal multiplexer redrawing a spinner in another pane hides
+the cursor inside a synchronised update, draws the other pane and puts the
+cursor back on its cell, and the cursor blinks through it. The
+comparison is made at the frame, after a synchronised update has closed, so
+a cursor hidden and shown again, or moved away and back, within one update
+is no change. foot restarts the blink on every read of output
+[[source: foot-term-reset]], which holds the cursor steady whenever any pane
+draws; baud departs from it there.
+
 Each animation looks the same on every path: the GPU, and the CPU path --
 `BAUD_GPU=0`, a Mac with no Metal device, or Linux -- which the pixel oracle
 holds to the GPU's pixel for pixel on every animation that draws: the plasma

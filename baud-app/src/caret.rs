@@ -23,14 +23,25 @@
 //! is, not of a length of its own, so it scales with any interval and ends
 //! inside the phase ([`BlinkAnimation::at`]). Reduce Motion means none.
 //!
-//! **It blinks where foot blinks it, and nowhere else.** foot arms its blink
-//! timer only while the window has focus (`term_cursor_blink_update`, whose
-//! `activate` needs `term->visual_focus`, in `[[source: foot-term-reset]]`'s
-//! file), so a window in the background holds a steady cursor. And it restarts
-//! the cycle shown on every read of the child's output -- "Prevent blinking
-//! while typing" (the same file, 254-258) -- so a cursor that is moving is not
-//! hidden half the time. baud restarts it on a key sent as well: a key the
-//! child does not echo, a password, reads nothing back to restart it.
+//! **It blinks only while the window has focus**, as foot arms its blink
+//! timer (`term_cursor_blink_update`, whose `activate` needs
+//! `term->visual_focus`, in `[[source: foot-term-reset]]`'s file), so a window
+//! in the background holds a steady cursor.
+//!
+//! **The cycle restarts, shown, on input or on a change of the cursor a frame
+//! presents** ([`Caret::present`]), and on nothing else. Input is a key sent,
+//! a paste, an input method's commit, a focus gain: a key the child does not
+//! echo, a password, still shows the cursor. The presented cursor is the one
+//! a frame puts on screen -- its cell, whether it is drawn, its shape and
+//! blink -- compared with the last frame's, so a cursor that moves as a shell
+//! prints is shown while it moves and not hidden half the time. Output that
+//! leaves it where, how and whether it was keeps the cycle running: a
+//! multiplexer redrawing a spinner in another pane about nine times a second, each
+//! frame a synchronised update that hides the cursor, draws elsewhere and puts
+//! it back, presents the same cursor every frame, and it blinks. foot restarts
+//! the cycle on every read of the child's output instead -- "Prevent blinking
+//! while typing" (the same file, 254-258) -- which holds the cursor steady
+//! while any pane of a multiplexer draws; baud departs from that.
 //!
 //! **A cursor that is not blinking draws [`CursorPhase::SHOWN`], and the
 //! frame that stops it blinking is owed.** Losing focus, a steady style,
@@ -57,12 +68,12 @@
 
 use core::time::Duration;
 
-use baud_core::{CursorStyle, Focus};
-use baud_domain::Chan;
+use baud_core::{CursorStyle, Focus, Term};
+use baud_domain::{Chan, Col, Row};
 use baud_render::det::Det;
 use baud_render::{CursorLook, CursorPhase};
 
-use crate::bell::Moment;
+use crate::bell::{Moment, Update};
 pub use crate::config::BlinkAnimation;
 use crate::config::{BlinkChoice, BlinkInterval, StopAfter};
 
@@ -345,6 +356,38 @@ pub fn blinks<T>(style: CursorStyle, focus: Focus, cursor: Option<T>) -> Blinks 
     }
 }
 
+/// The cursor to draw: the live screen's, while the window is on it, and
+/// on the status line's row below the grid while DECSASD selects the line
+/// (`Term::status_line`), where the main display's is not drawn.
+pub fn live_cursor(term: &Term<'_>) -> Option<(Row, Col)> {
+    if term.window_back().index() != 0 {
+        return None;
+    }
+    match term.status_line().and_then(|l| l.cursor) {
+        Some(c) => Some((Row::from_index(term.geometry().1.index()), c)),
+        None => term.cursor_visible().then(|| term.cursor()),
+    }
+}
+
+/// **The cursor as a frame presents it**: its cell, `None` where it is not
+/// drawn ([`live_cursor`]), and its style, the shape with the blink `?12`
+/// folds in (`Term::cursor_style`). What [`Caret::present`] compares.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PresentedCursor {
+    at: Option<(Row, Col)>,
+    style: CursorStyle,
+}
+
+impl PresentedCursor {
+    /// The cursor a frame of `term` drawn now presents.
+    pub fn of(term: &Term<'_>) -> PresentedCursor {
+        PresentedCursor {
+            at: live_cursor(term),
+            style: term.cursor_style(),
+        }
+    }
+}
+
 /// **How the cursor is drawn in a window with `focus`**: in its shape while
 /// the window has the keyboard, and `unfocused` -- `[cursor]
 /// unfocused_hollow`'s look -- while another window has it. The one
@@ -381,6 +424,10 @@ pub struct Caret<M> {
     animation: BlinkAnimation,
     /// The last input; output never moves it.
     quiet_since: M,
+    /// The cursor the last frame on screen presented, and the one the frame
+    /// being planned presents, which [`Caret::commit`] makes the last.
+    presented: Option<PresentedCursor>,
+    planned: Option<PresentedCursor>,
 }
 
 impl<M: Moment> Caret<M> {
@@ -400,13 +447,23 @@ impl<M: Moment> Caret<M> {
             stop,
             animation,
             quiet_since: now,
+            presented: None,
+            planned: None,
         }
     }
 
-    /// Output: the cursor shows, and the cycle restarts from `now`. It does
-    /// not hold off the stop.
-    pub fn restart(&mut self, now: M) {
-        self.epoch = now;
+    /// **A frame about to present `cursor`, at `now`**, before its
+    /// [`Caret::plan`]: the cycle restarts from `now`, shown, when the cursor
+    /// differs from the one the last frame on screen presented -- another
+    /// cell, shown or hidden, another shape or blink. It does not hold off
+    /// the stop. Called only for a frame that is drawn, after the driver's
+    /// synchronised-update hold, so what a held update hid and showed again,
+    /// or moved away and back, is never seen.
+    pub fn present(&mut self, now: M, cursor: PresentedCursor) {
+        if self.presented != Some(cursor) {
+            self.epoch = now;
+        }
+        self.planned = Some(cursor);
     }
 
     /// Input -- a key sent, a paste, a focus gain: the cycle restarts shown,
@@ -502,6 +559,19 @@ impl<M: Moment> Caret<M> {
         }
     }
 
+    /// **What the blink owes a tick at `now`, under `update`**: nothing
+    /// while a synchronised update holds the frame, else [`Caret::due`].
+    /// A held update's cursor is the program's half-drawn one -- a
+    /// multiplexer hides it while it draws another pane -- and no frame can
+    /// show it, so reading it would only restart the cycle when the update
+    /// closes on the cursor it opened on.
+    pub fn tick(&mut self, now: M, blinks: Blinks, update: Update) -> Owes {
+        match update {
+            Update::Honoured => Owes::Nothing,
+            Update::Closed | Update::Outlived => self.due(now, blinks),
+        }
+    }
+
     /// Whether a frame drawn at `now` would show other than the last drawn
     /// frame did: the tick owes a frame when it would.
     pub fn due(&mut self, now: M, blinks: Blinks) -> Owes {
@@ -512,10 +582,14 @@ impl<M: Moment> Caret<M> {
         }
     }
 
-    /// A frame showing `phase` reached the screen. One put off or refused
-    /// does not call this, so the next asks again.
+    /// A frame showing `phase`, and the cursor [`Caret::present`] was told
+    /// of, reached the screen. One put off or refused does not call this, so
+    /// the next asks again.
     pub fn commit(&mut self, phase: CursorPhase) {
         self.drawn = phase;
+        if let Some(cursor) = self.planned.take() {
+            self.presented = Some(cursor);
+        }
     }
 
     /// When the drawing next changes, for a `poll` timeout: the next flip,
@@ -605,6 +679,15 @@ mod tests {
                 "{unfocused:?}"
             );
             assert_eq!(look(Focus::Lost, unfocused), unfocused, "{unfocused:?}");
+        }
+    }
+
+    /// A blinking block presented on the first row at column `col`: a
+    /// cursor output moved there.
+    fn at_col(col: Col) -> PresentedCursor {
+        PresentedCursor {
+            at: Some((Row::from_index(0), col)),
+            style: CursorStyle::BlinkingBlock,
         }
     }
 
@@ -752,7 +835,10 @@ mod tests {
             }
             let now = t0 + at;
             match event(tick) {
-                Event::Output => c.restart(now),
+                // Output that moves the cursor: shell output, `tail -f`.
+                Event::Output => {
+                    c.present(now, at_col(Col::at_index(usize::try_from(tick).unwrap())));
+                }
                 Event::Key => c.input(now),
                 Event::Click => c.quiet(now),
                 Event::None => {}
@@ -1308,7 +1394,7 @@ mod tests {
 
     /// Input restarts the cycle shown, and a frame is owed if the drawn one
     /// had the cursor hidden; the next hide is a whole on phase later.
-    /// Output restarts it the same way.
+    /// Output that moves the presented cursor restarts it the same way.
     #[test]
     fn input_and_output_restart_the_cycle() {
         for restart in [Event::Key, Event::Output] {
@@ -1321,7 +1407,7 @@ mod tests {
             c.commit(hidden);
             match restart {
                 Event::Key => c.input(at(750)),
-                _ => c.restart(at(750)),
+                _ => c.present(at(750), at_col(Col::at_index(1))),
             }
             assert_eq!(
                 c.due(at(751), Blinks::Yes),
@@ -1562,6 +1648,91 @@ mod tests {
         );
         assert_eq!(clicked, never);
         assert_eq!(clicked.len(), 19);
+    }
+
+    /// **A tick under a held synchronised update owes nothing and restarts
+    /// nothing**: a multiplexer's frame read in two parts leaves the cursor
+    /// hidden at a tick between them, and reading it would stop the blink
+    /// there and restart the cycle when the update closes on the cursor it
+    /// opened on. Held, the cursor 700 ms in is hidden, on the cycle it was
+    /// on; the control, the same tick with no update open, restarts it.
+    /// Perturbation: `tick` asking `due` under a held update hides nothing.
+    #[test]
+    fn a_held_update_owes_the_tick_nothing_and_restarts_nothing() {
+        for (update, want) in [
+            (Update::Honoured, HIDDEN),
+            (Update::Closed, SHOWN),
+            (Update::Outlived, SHOWN),
+        ] {
+            let t0 = Instant::now();
+            let mut c = caret(t0);
+            let at = |ms: u64| t0 + MS * u32::try_from(ms).unwrap();
+            let p = c.plan(t0, Blinks::Yes);
+            c.commit(p);
+            let owes = c.tick(at(300), Blinks::No, update);
+            if update == Update::Honoured {
+                assert_eq!(owes, Owes::Nothing, "held");
+            }
+            assert_eq!(c.plan(at(700), Blinks::Yes), want, "{update:?}");
+        }
+    }
+
+    /// **Every driver tells the caret the cursor a frame presents, just
+    /// before it plans the frame's blink, and asks the tick through the held
+    /// update**: the macOS and Linux drivers, which no headless test runs,
+    /// and the film, which the blink's film tests run. Each plan is the line
+    /// after its present, each tick is `tick` and never `due`, and no read
+    /// restarts the cycle. The control: every pinned line is found once.
+    /// Perturbations: drop either driver's `present`, or give either tick
+    /// back `due`, and it fails.
+    #[test]
+    fn every_driver_presents_before_it_plans_and_ticks_through_the_hold() {
+        let plans = [
+            (
+                "app.rs",
+                include_str!("app.rs"),
+                "self.caret.plan(seen_at, blinks);",
+            ),
+            (
+                "linux.rs",
+                include_str!("linux.rs"),
+                "self.caret.plan(seen_at, blinks);",
+            ),
+            (
+                "film.rs",
+                include_str!("film.rs"),
+                "caret.plan(now, blinks);",
+            ),
+        ];
+        for (name, src, plan) in plans {
+            let lines: Vec<&str> = src.lines().map(str::trim).collect();
+            let at: Vec<usize> = (0..lines.len())
+                .filter(|&i| lines[i].ends_with(plan))
+                .collect();
+            assert_eq!(at.len(), 1, "{name}: one plan of the frame's blink");
+            assert!(
+                at[0] > 0 && lines[at[0] - 1].contains("PresentedCursor::of("),
+                "{name}: the cursor presented just before the plan"
+            );
+            assert!(
+                !src.contains(concat!("caret.", "restart(")),
+                "{name}: a read restarts the cycle"
+            );
+        }
+        for (name, src) in [
+            ("app.rs", include_str!("app.rs")),
+            ("linux.rs", include_str!("linux.rs")),
+        ] {
+            assert_eq!(
+                src.matches(concat!("caret.", "tick(")).count(),
+                1,
+                "{name}: the tick"
+            );
+            assert!(
+                !src.contains(concat!("caret.", "due(")),
+                "{name}: a tick asks `due`"
+            );
+        }
     }
 
     /// After the stop a click is input enough to start it again, shown:

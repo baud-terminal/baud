@@ -149,7 +149,6 @@ pub(crate) struct Frame<'p> {
     /// for a cursor that does not blink, or one in its shown phase.
     ///
     /// [`CursorPhase::SHOWN`]: baud_render::CursorPhase::SHOWN
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) caret: baud_render::CursorPhase,
 }
 
@@ -639,8 +638,21 @@ fn flatten(pixels: &mut [u32], page: baud_render::Argb) {
 
 /// **A film made**: the take, then every frame drawn from its log at its
 /// instant and handed to `keep`.
-pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
+pub(crate) fn film(f: &Film<'_>, keep: impl FnMut(Frame<'_>)) -> Take {
     let mut stage = Stage::new(f);
+    let recorded = record(f, &stage);
+    play(f, &mut stage, recorded, keep)
+}
+
+/// **The take's log played**: every frame drawn at its instant and handed
+/// to `keep`, and the checks that the film's terminal answered and ended
+/// as the take's did.
+fn play(
+    f: &Film<'_>,
+    stage: &mut Stage,
+    recorded: Recorded,
+    mut keep: impl FnMut(Frame<'_>),
+) -> Take {
     let Recorded {
         log,
         heard,
@@ -652,7 +664,7 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
         lit,
         #[cfg(target_os = "macos")]
         timeline,
-    } = record(f, &stage);
+    } = recorded;
     #[cfg(target_os = "macos")]
     let mut seen = 0;
     let mut step = None;
@@ -736,7 +748,6 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
                     if after.thumb == crate::seat::Thumb::Reveal {
                         timed.bar.reveal.reveal(timed.clock.host(when));
                     }
-                    caret.restart(when);
                 }
                 Event::Decode => {
                     let _ = crate::reads::decode_step(&mut term);
@@ -822,6 +833,9 @@ pub(crate) fn film(f: &Film<'_>, mut keep: impl FnMut(Frame<'_>)) -> Take {
             term.cursor_visible() || term.status_line().is_some_and(|l| l.cursor.is_some());
         let blinks =
             crate::caret::blinks(term.cursor_style(), Focus::Gained, visible.then_some(()));
+        // The cursor this frame presents restarts the cycle if it is not
+        // the one the last frame did (`Caret::present`).
+        caret.present(now, crate::caret::PresentedCursor::of(&term));
         let phase = caret.plan(now, blinks);
         r.set_cursor_blink(phase);
         r.set_highlight(seat.highlight(&term));
@@ -1219,5 +1233,337 @@ fn film_the_readme_clip() {
         take.frames.0,
         started.elapsed(),
         take.answers.len()
+    );
+}
+
+/// **A take of `log` with no child**: the instants and bytes a child would
+/// have logged, and what the take's terminal would have answered and ended
+/// on, from a terminal of the stage's fed the same reads -- so a film can
+/// play bytes a test wrote, at the instants it chose.
+fn written(f: &Film<'_>, stage: &Stage, log: Vec<Logged>, end: Duration) -> Recorded {
+    let mut owned = Owned::new(&f.grid).with_images(stage.cfg.images);
+    let mut term = stage.term(Term::new(owned.storage(), &f.grid));
+    let (mut heard, mut wrote) = (Vec::new(), Vec::new());
+    for e in &log {
+        match &e.event {
+            Event::Read(b) => {
+                heard.extend_from_slice(b);
+                crate::reads::feed(
+                    &mut term,
+                    [&b[..]],
+                    |o| wrote.extend_from_slice(o),
+                    |_| {},
+                    &mut crate::hostlog::NoLog,
+                );
+            }
+            Event::Typed(b) => wrote.extend_from_slice(b),
+            _ => panic!("a written take reads and types, and nothing else"),
+        }
+    }
+    Recorded {
+        log,
+        heard,
+        wrote,
+        end,
+        screen: crate::programs::screen(&term),
+        cursor: term.cursor(),
+        #[cfg(target_os = "macos")]
+        lit: session::Lit::default(),
+        #[cfg(target_os = "macos")]
+        timeline: Vec::new(),
+    }
+}
+
+/// The cursor blinking, at the default rate, with no trail and no splash to
+/// draw over the frames, and a frame every 10 ms.
+fn blink_film() -> Film<'static> {
+    Film {
+        child: Child::Command("true"),
+        env: Vec::new(),
+        grid: WinSize {
+            ws_col: 84,
+            ws_row: 10,
+        },
+        config: "[cursor]\nblink = true\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n",
+        source: None,
+        period: Duration::from_millis(10),
+        limit: Duration::from_secs(10),
+    }
+}
+
+/// A drawn frame of a blink film: its instant, its cursor's phase and a
+/// digest of its pixels.
+type Drawn = (Duration, baud_render::CursorPhase, u64);
+
+/// **`log` filmed** until `end`: every frame drawn.
+fn blink_frames(log: Vec<(Duration, Event)>, end: Duration) -> Vec<Drawn> {
+    use std::hash::{Hash as _, Hasher as _};
+    let f = blink_film();
+    let mut stage = Stage::new(&f);
+    let log = log
+        .into_iter()
+        .map(|(at, event)| Logged { at, event })
+        .collect();
+    let recorded = written(&f, &stage, log, end);
+    let mut drawn = Vec::new();
+    play(&f, &mut stage, recorded, |fr| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        fr.pixels.hash(&mut h);
+        drawn.push((fr.at, fr.caret, h.finish()));
+    });
+    drawn
+}
+
+/// Whether the other pane's spinner turns from frame to frame, or holds
+/// one glyph so every frame draws the same pixels.
+#[derive(Clone, Copy, PartialEq)]
+enum Spin {
+    Turning,
+    Still,
+}
+
+/// Whether every frame of the stream is one read, or every other one is
+/// cut across two.
+#[derive(Clone, Copy, PartialEq)]
+enum Cut {
+    Whole,
+    EveryOther,
+}
+
+/// **A multiplexer redrawing a pane the cursor is not in**, its frames in
+/// turn, in the shape herdr 0.9.5 sends with a spinner running in an
+/// unfocused split: a synchronised update that hides the cursor, closes any
+/// link, redraws a spinner and its counter, puts the cursor back on the
+/// focused pane's cell (row 8, column 30) and shows it, and after the update
+/// the same cursor position and show again. The redraws' bytes are the
+/// recording's, the spinner turning through its four glyphs.
+fn other_pane(spin: Spin) -> impl Iterator<Item = Vec<u8>> {
+    (0..).map(move |n: usize| {
+        let glyph = match spin {
+            Spin::Turning => ["\\", "|", "/", "-"][n / 2 % 4],
+            Spin::Still => "|",
+        };
+        let body = match (n % 2, spin) {
+            (0, _) | (_, Spin::Still) => {
+                format!("\x1b[7;37H\x1b[0;39;49m{glyph}\x1b[7;40H1\x1b[0m")
+            }
+            _ => format!(
+                "\x1b[9;76H\x1b[0;39;49m{}\x1b[9;80H{}\x1b[0m",
+                100 + n % 900,
+                n % 10
+            ),
+        };
+        format!(
+            "\x1b[?2026h\x1b[?25l\x1b]8;;\x1b\\{body}\x1b[8;30H\x1b[?25h\x1b[?2026l\x1b[8;30H\x1b[?25h"
+        )
+        .into_bytes()
+    })
+}
+
+/// The multiplexer's stream until `until`: the cursor put on its cell at
+/// 5 ms, then a frame every 108 ms from 100 ms -- 9.3 a second, the rate
+/// measured -- each in one read, or under [`Cut::EveryOther`] every other one
+/// in two reads 15 ms apart, cut after the hide, so a frame instant falls
+/// inside the update.
+fn stream(until: Duration, cut: Cut, spin: Spin) -> Vec<(Duration, Event)> {
+    let ms = Duration::from_millis;
+    let mut log = vec![(ms(5), Event::Read(b"\x1b[8;30H".to_vec()))];
+    let instants = (0u32..)
+        .map(|k| ms(100) + ms(108) * k)
+        .take_while(|&t| t < until);
+    for (n, (at, frame)) in instants.zip(other_pane(spin)).enumerate() {
+        if cut == Cut::EveryOther && n % 2 == 1 {
+            let opened = "\x1b[?2026h\x1b[?25l".len();
+            log.push((at, Event::Read(frame[..opened].to_vec())));
+            log.push((at + ms(15), Event::Read(frame[opened..].to_vec())));
+        } else {
+            log.push((at, Event::Read(frame)));
+        }
+    }
+    log
+}
+
+/// The default cycle's two phases.
+fn default_phases() -> (Duration, Duration) {
+    match crate::caret::Cycle::DEFAULT {
+        crate::caret::Cycle::Blinks { on, off } => (on.get(), off.get()),
+        crate::caret::Cycle::Steady => unreachable!("the default blinks"),
+    }
+}
+
+/// The instants the cursor went from shown to hidden among `drawn`'s
+/// frames from `from` for `over`.
+fn hides(drawn: &[Drawn], from: Duration, over: Duration) -> Vec<Duration> {
+    let shown = baud_render::CursorPhase::SHOWN;
+    drawn
+        .windows(2)
+        .filter(|w| w[1].0 >= from && w[1].0 < from + over)
+        .filter(|w| w[0].1 == shown && w[1].1 != shown)
+        .map(|w| w[1].0)
+        .collect()
+}
+
+/// The frame drawn at `at`.
+fn drawn_at(drawn: &[Drawn], at: Duration) -> Drawn {
+    *drawn
+        .iter()
+        .find(|d| d.0 == at)
+        .unwrap_or_else(|| panic!("a frame at {at:?}"))
+}
+
+/// The spinner's stream, with `event` at `at`.
+fn stream_with(event: Event, at: Duration) -> Vec<(Duration, Event)> {
+    let mut log = stream(Duration::from_secs(3), Cut::Whole, Spin::Turning);
+    log.push((at, event));
+    log.sort_by_key(|e| e.0);
+    log
+}
+
+/// **A spinner in another pane does not hold the cursor steady**: herdr's
+/// frames, 9.3 a second, each hiding the cursor inside a synchronised
+/// update and showing it again on the cell it left, half of them cut across
+/// two reads with a frame instant inside the update. The cursor presented
+/// never changes after it is put on its cell, so over 3 s it hides as often
+/// as an idle cursor does: once each cycle of [`Cycle::DEFAULT`] whose hide
+/// falls inside the 3 s -- six at 250/250 -- counted from the frame that first
+/// drew it on its cell, and the same as the control with no stream after the
+/// cursor is placed. Perturbations: restart the cycle on every frame drawn
+/// (`Caret::present` ignoring the last cursor) -- which is restarting on every
+/// read, each read owing a frame -- and it never hides; compare the cursor at
+/// each read rather than at a frame drawn, and the half-drawn reads restart it.
+///
+/// [`Cycle::DEFAULT`]: crate::caret::Cycle::DEFAULT
+#[test]
+fn a_spinner_in_another_pane_does_not_hold_the_cursor_steady() {
+    let ms = Duration::from_millis;
+    let (on, off) = default_phases();
+    let over = Duration::from_secs(3);
+    let want = (0u32..).take_while(|&k| on + (on + off) * k < over).count();
+    // The first frame after the cursor is put on its cell, at 5 ms.
+    let from = ms(10);
+    let drawn = blink_frames(stream(ms(3200), Cut::EveryOther, Spin::Turning), ms(3200));
+    let control = blink_frames(stream(ms(100), Cut::Whole, Spin::Turning), ms(3200));
+    let (seen, quiet) = (hides(&drawn, from, over), hides(&control, from, over));
+    assert_eq!(quiet.len(), want, "the control, no stream: {quiet:?}");
+    assert_eq!(seen.len(), want, "the spinner's stream: {seen:?}");
+}
+
+/// **A key restarts the cycle, shown, at once**: in the spinner's stream, a
+/// key typed at 1400 ms, in the third hidden phase, and not echoed. The
+/// frame before it hides the cursor; the frame at it shows it, and so does
+/// every frame for a whole shown phase after; the next hides it.
+/// Perturbation: drop the film's `caret.input` and the frame at the key is
+/// still hidden.
+#[test]
+fn a_key_shows_the_cursor_at_once() {
+    let ms = Duration::from_millis;
+    let (on, _) = default_phases();
+    let drawn = blink_frames(stream_with(Event::Typed(b"x".to_vec()), ms(1400)), ms(3000));
+    let shown = baud_render::CursorPhase::SHOWN;
+    assert_ne!(drawn_at(&drawn, ms(1390)).1, shown, "hidden before the key");
+    assert_eq!(drawn_at(&drawn, ms(1400)).1, shown, "shown at the key");
+    let until = ms(1400) + on;
+    assert_eq!(
+        drawn_at(&drawn, until - ms(10)).1,
+        shown,
+        "a whole shown phase"
+    );
+    assert_ne!(drawn_at(&drawn, until).1, shown, "then hidden");
+}
+
+/// **A program moving the cursor to another cell restarts the cycle**,
+/// shown: at 1400 ms, in a hidden phase, a read that moves it one column on.
+/// Perturbation: leave the cell out of what `Caret::present` compares, and
+/// the frame at the move is hidden.
+#[test]
+fn a_cursor_moved_to_another_cell_is_shown() {
+    let ms = Duration::from_millis;
+    let moved = Event::Read(b"\x1b[8;31H".to_vec());
+    let drawn = blink_frames(stream_with(moved, ms(1400)), ms(3000));
+    let shown = baud_render::CursorPhase::SHOWN;
+    assert_ne!(
+        drawn_at(&drawn, ms(1390)).1,
+        shown,
+        "hidden before the move"
+    );
+    assert_eq!(drawn_at(&drawn, ms(1400)).1, shown, "shown at the move");
+}
+
+/// **A change of shape restarts the cycle, shown**: `DECSCUSR 2`, a steady
+/// block, blinking under `?12h` (`Term::cursor_style` folds it in), then
+/// `DECSCUSR 6`, a steady bar, blinking the same, at 1400 ms in a hidden
+/// phase. The control is the hide before it: the steady shapes blink.
+/// Perturbation: leave the style out of what `Caret::present` compares, and
+/// the frame at the change is hidden.
+#[test]
+fn a_change_of_shape_is_shown() {
+    let ms = Duration::from_millis;
+    let mut log = stream_with(Event::Read(b"\x1b[6 q".to_vec()), ms(1400));
+    log.insert(0, (ms(2), Event::Read(b"\x1b[?12h\x1b[2 q".to_vec())));
+    let drawn = blink_frames(log, ms(3000));
+    let shown = baud_render::CursorPhase::SHOWN;
+    assert_ne!(
+        drawn_at(&drawn, ms(1390)).1,
+        shown,
+        "hidden before the change"
+    );
+    assert_eq!(drawn_at(&drawn, ms(1400)).1, shown, "shown at the change");
+}
+
+/// **Output that leaves the cursor hidden keeps it hidden**: a frame at
+/// 1000 ms hides it, and every frame after shows it hidden, the blink
+/// showing nothing -- each the same pixels as a frame from the hidden phase
+/// before (300 ms), and none the pixels of a shown one (600 ms), which the
+/// cursor makes differ: the control that the digest sees the cursor. The
+/// stream draws the same spinner glyph each frame, so only the cursor can
+/// change the pixels; the hiding frames are the multiplexer's without the
+/// show at their end. Perturbation: the CPU path drawing the cursor
+/// whatever `DECTCEM` says, and a frame after the hide is not the hidden
+/// phase's pixels.
+#[test]
+fn output_that_hides_the_cursor_keeps_it_hidden() {
+    let ms = Duration::from_millis;
+    let mut log = stream(ms(1000), Cut::Whole, Spin::Still);
+    let hide =
+        b"\x1b[?2026h\x1b[?25l\x1b[7;37H\x1b[0;39;49m|\x1b[7;40H1\x1b[0m\x1b[8;30H\x1b[?2026l";
+    let hiding = (0u32..)
+        .map(|k| ms(1000) + ms(108) * k)
+        .take_while(|&t| t < ms(3000));
+    log.extend(hiding.map(|at| (at, Event::Read(hide.to_vec()))));
+    let drawn = blink_frames(log, ms(3000));
+    let (hidden, shown) = (drawn_at(&drawn, ms(300)), drawn_at(&drawn, ms(600)));
+    assert_ne!(hidden.1, baud_render::CursorPhase::SHOWN, "300 ms hides it");
+    assert_eq!(shown.1, baud_render::CursorPhase::SHOWN, "600 ms shows it");
+    assert_ne!(hidden.2, shown.2, "the control: the digest sees the cursor");
+    for d in drawn.iter().filter(|d| d.0 >= ms(1010)) {
+        assert_eq!(d.2, hidden.2, "the cursor drawn at {:?}", d.0);
+    }
+}
+
+/// **A shell printing at its prompt holds the cursor shown while it moves**,
+/// as before: a letter every 100 ms for 3 s, each moving the cursor a column
+/// on, restarts the cycle each time, so no frame hides it; after the last,
+/// it blinks again within a cycle. Perturbation: leave the cell out of what
+/// `Caret::present` compares, and it hides while the text is written.
+#[test]
+fn a_shell_printing_at_its_prompt_shows_the_cursor_as_it_moves() {
+    let ms = Duration::from_millis;
+    let (on, off) = default_phases();
+    let mut log = vec![(ms(5), Event::Read(b"$ ".to_vec()))];
+    let letters = (1u32..=30).map(|k| ms(100) * k);
+    log.extend(letters.map(|at| (at, Event::Read(b"a".to_vec()))));
+    let drawn = blink_frames(log, ms(3000) + on + off + ms(100));
+    let shown = baud_render::CursorPhase::SHOWN;
+    let writing = ms(100)..ms(3000) + on;
+    assert!(
+        drawn
+            .iter()
+            .filter(|d| writing.contains(&d.0))
+            .all(|d| d.1 == shown),
+        "a hide while the text is written"
+    );
+    assert!(
+        drawn.iter().any(|d| d.0 >= writing.end && d.1 != shown),
+        "the control: it blinks once the text stops"
     );
 }

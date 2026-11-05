@@ -338,7 +338,7 @@ impl<'a> Player<'a> {
 /// **What the lights showed through a take**: for each, the first moment
 /// it showed lit and the step that had begun then, or none, and the first
 /// moment after that it showed anything else.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(crate) struct Lit(
     ByLed<Option<(Duration, Option<StepAt>)>>,
     ByLed<Option<(Duration, Option<StepAt>)>>,

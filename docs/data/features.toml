@@ -1930,10 +1930,10 @@ rows = ["vt:`OSC 12` / `OSC 112`"]
 id = "cursor-blink"
 area = "cursor"
 name = "Your blink"
-does = "A plain, even blink, twice a second, within the flashing-light limits. It follows macOS's \"prefer non-blinking cursor\" and its caret rate, or your own interval; it blinks only while the window is in front, shows at once when you type, and can stop after a quiet spell."
+does = "A plain, even blink, twice a second, within the flashing-light limits. It follows macOS's \"prefer non-blinking cursor\" and its caret rate, or your own interval; it blinks only while the window is in front, shows at once when you type or paste or a program moves, hides or reshapes it, keeps blinking while another pane of a terminal multiplexer redraws, and can stop after a quiet spell."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/caret.rs::the_unset_cycle_is_two_fifty_each_phase", "baud-app/src/caret.rs::the_default_blink_is_a_plain_switch", "baud-bench/tests/blink_flashes.rs::the_default_blink_is_below_the_flash_thresholds", "baud-app/src/config.rs::blink_interval_reads_milliseconds_and_refuses_the_rest", "baud-app/src/config.rs::stop_blinking_after_reads_seconds_and_zero_is_never"]
+tests = ["baud-app/src/caret.rs::the_unset_cycle_is_two_fifty_each_phase", "baud-app/src/film.rs::a_spinner_in_another_pane_does_not_hold_the_cursor_steady", "baud-app/src/film.rs::a_key_shows_the_cursor_at_once", "baud-app/src/film.rs::a_shell_printing_at_its_prompt_shows_the_cursor_as_it_moves", "baud-app/src/caret.rs::the_default_blink_is_a_plain_switch", "baud-bench/tests/blink_flashes.rs::the_default_blink_is_below_the_flash_thresholds", "baud-app/src/config.rs::blink_interval_reads_milliseconds_and_refuses_the_rest", "baud-app/src/config.rs::stop_blinking_after_reads_seconds_and_zero_is_never"]
 
 [[feature]]
 id = "cursor-hollow"
