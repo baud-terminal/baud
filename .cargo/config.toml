@@ -24,3 +24,13 @@ MACOSX_DEPLOYMENT_TARGET = { value = "26.0", force = true }
 # `scripts/check-sources.sh` execs `sources`.
 [alias]
 xtask = "run -q -p xtask --"
+
+# **Every test, bench and `cargo run` starts under a memory bound.**
+# `scripts/bounded` runs the binary and kills it past
+# `BAUD_TEST_MEMORY_BOUND_MIB`; what it covers and does not, and the helper a
+# harness calls, are at the top of that file. A path with a slash is relative
+# to the directory holding `.cargo/`, so cargo started anywhere under this
+# directory finds this by walking up from where it was started, a crate under
+# `bench-others/` or `tools/` with a manifest of its own included.
+[target.'cfg(all())']
+runner = "scripts/bounded"

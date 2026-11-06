@@ -3773,3 +3773,70 @@ a multiple of four bytes.
 the thumb and the edges, and `linux-pixels.sh` reports screens that differ from the
 bench, which it exits 0 on. `snapshot.debian.org`, which `linux-frames.sh` pins, failed
 image builds with a 504 where the error was read, and later let them through.
+
+## One binary cannot take the machine down
+
+macOS refuses `RLIMIT_AS`, `_DATA` and `_RSS` below 512 GiB, and under a runaway test binary it
+kills other processes first. So `scripts/bounded`, now cargo's runner, reads the program's tree
+from outside at 4 Hz: the sum of `ri_phys_footprint`, and over `BAUD_TEST_MEMORY_BOUND_MIB`, 16
+GiB by default, the tree is killed by pid, each start time checked, exit 113. The peak log showed
+`cargo test` and doctests, `cargo nextest run` and its `--list`, `cargo bench`, `cargo run`, `cargo
+xtask`, and crates with their own manifests under `tools/` and `bench-others/` going through it.
+`scripts/bounded --timeout SECS -- COMMAND...` adds a new session, a kill of the whole tree on the
+time, the bound or COMMAND's end, and exit 115. nextest's `slow-timeout`, 20 periods of 60 s because
+the slowest real tests read 363, 341 and 234 s at load 30-50, is for a hang and a group kill and is
+no memory bound: 20 minutes at 0.8 GiB/s is 960 GiB.
+
+**Not bounded.** A binary run by its own path; a `CARGO_TARGET_*_RUNNER` naming another runner; cargo
+started from outside the repository with `--manifest-path`, which finds no config (0 peak-log lines,
+1 from inside); build scripts and the compiler; a process that forks with its parent gone inside one
+poll; a group SIGKILL inside the first poll, for a child in its own session; a setuid descendant,
+unreadable and unkillable; a total across binaries. `cargo run` of `baud-app` was not run: no window
+here.
+
+**Fail closed.** No `rustc`, a source that will not compile, a bound that does not parse or is past
+the machine's memory: 114, not run. A program that cannot start: 126 or 127. The program unreadable
+for 8 polls: killed, 114. `kill -9` of the watcher: a sentinel in its own session, told of new
+descendants each poll, sees its pipe close and kills them; `kill -9` of the sentinel: all killed,
+114. What a finished program leaves stays alive, as with no runner, and the sentinel bounds it.
+
+**What the program inherits** is byte-equal with no runner, by a C probe: descriptors, signals,
+group, session, umask, cwd, nice, limits, environment. std's `SIGPIPE`, bash rewriting `_`, `PWD`,
+`OLDPWD` and `SHLVL`, and a script local of an exported name each broke it. `DYLD_*` alone is lost,
+to the protected `/usr/bin/env`, and no crate builds a dylib. A signal sent to the group reaches a
+program still running two seconds later a second time (`RELAY_AFTER`): a signal to the group and one
+to the watcher alone look the same from there. No Rust in the workspace outside the guard handles
+SIGINT or SIGTERM today.
+
+**A tree with no watcher yet.** `rustc` writes its objects beside `-o`, so parallel first builds in
+one directory deleted each other's: `cargo nextest list -p xtask` on a fresh tree read 104 in 4 of 4
+tries, and 16 parallel starts failed 13 of 160. Each build now has a directory of its own, and
+`two_first_starts_build_apart` holds two starts in `rustc` until both are there.
+
+**Linux: one Ubuntu 24.04 aarch64 VM, no container.** With a user `runs.slice`: hogs alone and in
+their own session killed at 1,006,632,960 bytes touched of a 1 GiB bound, status 137; 8 and 64 GiB
+reservations granted; `--timeout` left nothing, 115. Without, `ulimit -v` at the bound plus 8 GiB
+for glibc's arenas, `baud-app` reserving nothing it does not write: 64 GiB refused, 8 granted, a 3
+GiB hog not stopped, as the limit counts address per process; `--timeout` left the child in its own
+session. `xtask/tests/bounded.rs` is 7 shared tests and 3 Linux's there, each green on both, and
+24 of the watcher's on macOS. The workspace did not run on Linux.
+
+**The cost.** 7,570 tests, four rounds, arms rotated, under one outer helper, base against guard:
+wall 130.3 s (129.4-130.6) to 133.2 s (133.0-133.7), user + sys 1,914.7 s (1,911.6-1,932.4) to
+1,945.5 s (1,934.9-1,953.6). 8.2 ms a run, `/usr/bin/true` at 1.9 against 10.1 ms, 500 each.
+`ingest2` under the runner, with none, and with none again, 6 rounds: `cat-cjk` 514.0
+(511.5-516.4), 514.9 (512.2-516.1), 512.7 (507.8-515.6) MB/s; `cat` 1,629.2 (1,611.4-1,637.6),
+1,632.3 (1,612.1-1,647.6), 1,618.2 (1,550.0-1,639.7); `cells_written` equal. The ranges overlap: no
+result, so 4 Hz stands. Benches run from copied binaries skip cargo.
+
+**The peaks: 7,601 tests, 9,477 log lines.** Largest,
+`graph::classes::the_alphabet_reduces_as_the_stride_doubles`, 1.79 GiB polled and by `ru_maxrss`;
+next `every_precomposed_letter_draws_alike_on_every_arm`, 1.11 GiB; the whole run's tree, 3.36 GiB.
+Benches are not in that, and `cargo run` of the terminal sums all a user runs in it, so the bound
+stands at 16 GiB.
+
+**Red first.** 35 perturbations, 32 of a scratch copy of the script or watcher and 3 of the config
+files, under an unperturbed helper with hogs capped at 3 GiB: all red. Compression cannot be forced
+on an idle machine (`MADV_PAGEOUT`, `VM_BEHAVIOR_PAGEOUT` refused), so clean file pages, over the
+bound by resident size and under it by footprint, hold the choice of number; a hog of one repeated
+value, run with resident size read instead, stayed green.
