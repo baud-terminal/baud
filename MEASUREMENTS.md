@@ -3840,3 +3840,43 @@ files, under an unperturbed helper with hogs capped at 3 GiB: all red. Compressi
 on an idle machine (`MADV_PAGEOUT`, `VM_BEHAVIOR_PAGEOUT` refused), so clean file pages, over the
 bound by resident size and under it by footprint, hold the choice of number; a hog of one repeated
 value, run with resident size read instead, stayed green.
+
+## The kitty row is a Rust crate
+
+Apple M5 Max, macOS 27.0, on AC, load average 3.5-7.9 from other work. kitty 0.49.2 and Python
+3.14.7, nix's, on `e42a24bd`. A real PTY, 4096-byte reads, 32 MiB, median of 9. Generated payloads,
+`multibench`'s dump: stream.bin 524,192 B and tui.bin 524,124 B, byte-equal when dumped again from
+this base. Six rounds of `bench.py` and `bench-others/kitty-bench` against one kitty, arms rotated,
+the first dropped. Median of the five rounds' medians [their range], MiB/s:
+
+| row | payload | `bench.py` | harness |
+|---|---|---|---|
+| ceiling | streaming | 179.5 [177.4-206.3] | 214.8 [184.4-217.8] |
+| ceiling | TUI | 196.2 [137.0-207.7] | 217.3 [213.6-220.4] |
+| kitty | streaming | 104.1 [99.4-112.3] | 118.3 [108.7-120.0] |
+| kitty | TUI | 159.9 [125.5-166.6] | 162.5 [149.2-165.6] |
+
+The kitty ranges overlap and so do the streaming ceilings: no result between the arms there. The TUI
+ceiling reads higher with no overlap, a read loop that left Python. The two arms call one kitty, so
+any difference in the kitty rows is the driver, whose share is unmeasured: Python ran the read loop and a `__getattr__` that built a
+closure for each of 442,699 callbacks per 32 MiB of TUI, and Rust runs both now. The last recording,
+c0a8a428's 101.7 [88.7-119.4] and 121.4 [116.1-135.4], was `bench.py` on Host B and an unnamed
+kitty; `bench.py` here reads 159.9 on TUI, so that gap is not the harness.
+
+**Python still runs**: kitty's interpreter, inside kitty, is part of what is measured. No tracked
+file is Python for this row, and the crate links nothing of kitty's at build time.
+
+**The bytes are equal.** 32 MiB fed in 4096-byte pieces through both drivers: read and parsed
+33,554,432 on both payloads and arms; callbacks 140,251 and 442,699 on both; the final screen and
+cursor byte-equal. A PTY rep ends at the first read past the total, so its count differs by run on
+either arm, and the harness exits 1 on a rep whose parsed bytes differ from its read bytes.
+
+**Arguments.** No argument, a missing directory, `--help`, extra arguments and `""` each exit 1 on
+both, read the same way. Three departures: an empty payload hung `bench.py`, killed at 30 s, and
+exits 1 here; a commit of no bytes would loop there and is an error here; with no kitty, `bench.py`
+printed the ceiling row first and the harness prints no table.
+
+**Red first.** 25 perturbations of a scratch copy under `scripts/bounded --timeout 120` at 4 GiB, 25
+red. `zero-not-checked`, whose fake pushes to a Vec for ever, ended at the bound (113) in 3.6 s, swap
+2,656 MiB before and after, no process left. A read size through a PTY could not fire on Darwin, whose
+tty returns 1024 at most, so that test reads a pipe. Two tests need a kitty and are `#[ignore]`d.

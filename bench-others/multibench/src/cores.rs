@@ -1,3 +1,4 @@
+#[cfg(have_ghostty)]
 use crate::ffi::ghostty;
 use crate::*;
 use alacritty_terminal::event::{Event, EventListener};

@@ -1,0 +1,20 @@
+[package]
+name = "kitty-bench"
+version = "0.1.0"
+edition = "2021"
+# Not published: nothing here is.
+publish = false
+
+[dependencies]
+# Everything of kitty and of its Python is reached through dlopen and dlsym at
+# run time. No build script and no link line names either.
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# Its own workspace root, so a checkout nested under another one (a worktree)
+# does not walk up into that one and refuse to build.
+[workspace]

@@ -90,10 +90,10 @@ fn main() {
         s += 1;
     }
 
-    // The kitty harness cannot be a Rust core (its parser is a CPython object),
-    // so it runs in Python — and a second implementation of these generators
-    // would be a second thing to keep in sync. Dump the exact bytes instead, so
-    // "same payloads" is a fact rather than a claim.
+    // kitty cannot be a core here (its parser is a CPython object), so it has a
+    // crate of its own, `bench-others/kitty-bench`, and a second implementation of
+    // these generators would be a second thing to keep in sync. Dump the exact
+    // bytes instead, so "same payloads" is a fact rather than a claim.
     if let Ok(dir) = std::env::var("DUMP_PAYLOADS") {
         std::fs::write(format!("{dir}/stream.bin"), &stream).expect("write stream.bin");
         std::fs::write(format!("{dir}/tui.bin"), &tui).expect("write tui.bin");
