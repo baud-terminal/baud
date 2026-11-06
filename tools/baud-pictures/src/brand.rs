@@ -19,9 +19,10 @@
 //! * `assets/logo/baud-lockup-{dark,light,mono-black,mono-white}.svg`:
 //!   "baud" and the mark on one line, 300 by 130: the word where it always
 //!   was, the ❯'s cell from x 192 with the block's top on the word's top
-//!   ([`lined_up`]), the whole ink then centred across the box. The light forms' amber, here and in the
-//!   marks and the title bar's lockup below, is the brand's, [`AMBER`],
-//!   the dark forms' and the amber baud's cursor draws on both themes
+//!   ([`lined_up`]), the whole ink then centred across the box. The light
+//!   forms' amber, here and in the marks and the title bar's lockup below,
+//!   is the brand's, [`AMBER`], the dark forms' and the amber baud's cursor
+//!   draws on both themes
 //!   (`BaudCursor::light`, which the plasma example reports and the run
 //!   holds to it), so the launch logo and the cursor match.
 //! * `assets/logo/baud-lockup-{dark,light}-blinking.svg`: their fixed
@@ -54,8 +55,9 @@
 //! In every mark but the Dock's the cell is as tall as the cursor the file
 //! had before (46 at the lockup's 300, 168 at 512, 10.5 at 32), the 512's
 //! and the 32's on the same rows, and the mark's ink is centred across the
-//! icon or under the word. **The Dock icon's mark is a prompt at the start of a terminal's
-//! first line**: in the tile's upper left, in a terminal's own margin, 1.2
+//! icon or under the word. **The Dock icon's mark is a prompt at the start
+//! of a terminal's first line**: in the tile's upper left, in a terminal's
+//! own margin, 1.2
 //! times the 512 icons' cell so it reads at the Dock's 32 pt, the ❯'s cell
 //! corner one of their cell widths (76.36 units) in from the tile's left
 //! and top and the mark scaled about it. The title bar's lockups keep the

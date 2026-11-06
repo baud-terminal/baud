@@ -4270,8 +4270,8 @@ and lasts past five seconds, with no control, and GitHub's setting does not
 reach an image inside `<picture>`. `logo.rs` states it, and the README's
 `<picture>` serves a reader who asked for reduced motion the still lockup first,
 which `the_readmes_logo_gives_reduced_motion_a_still` holds; nothing has shown
-that on GitHub, the repository being private. 2.3.1 is a separate criterion. The SVGs' `<animate>` is checked by parse and compose, not in a
-browser.
+that on GitHub, the repository being private. 2.3.1 is a separate criterion. The
+SVGs' `<animate>` is checked by parse and compose, not in a browser.
 
 ## The block's top on the word's top
 
@@ -4292,7 +4292,9 @@ mark moves; `the_held_splash_is_the_lockup_files` holds the splash to the file.
 The title bar's tight box stays centred on the cell's rows and goes from 184.52
 tall to 168, so the mark stays on the strip's centre line and `mark.rs` changes
 nothing. Marks, icons and the Dock do not move. `baud-github-org.png` was stale
-before this and stays so; `brand --check` fails on it alone. `hero.gif` is a
+before this and stays as committed. A redraw would now differ for a second
+reason too: its word light is the splash's first pass, whose box moved with the
+cell. `brand --check` fails on it alone, at base and here. `hero.gif` is a
 session captured earlier and still shows the old lockup.
 
 **The CPU arm's rounding, and a rule in place of a count.** In
@@ -4323,7 +4325,9 @@ today's word is 3,873 pixels by at most 2 levels off the walls over its columns,
 of the half-coverage mask, and today's ❯ is theirs 4 rows up, 57 pixels by 2
 levels, its block 5 rows up, exact. `walls_hold` holds those counts and refuses
 anything else, and the film's slabs are cut against today's distance field. The
-block's keep-out in the path is over 4.5 units and the move 2.26.
+chain's keep-out behind the block is over 4.5 units and the move 2.26. Strand ends
+are not kept out: 13 fall in the moved block, on frames 69, 70, 183-186 and 286,
+all at light 0.53 or under, and 7 of them are in the walls' block too.
 
 | file | bytes | frames | general / red flashes at a pixel a second | area, strict, of 21,824 | word's worst contrast |
 |---|---|---|---|---|---|
