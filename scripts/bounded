@@ -23,7 +23,8 @@
 # returns what cargo returns, which is 113 from `cargo test` and 100 from
 # `cargo nextest run`. (macOS. On Linux, not run: the inner `systemd-run --scope`
 # moves the test binary out of the outer's scope, so each scope bounds its own
-# part, and the outer's sum leaves that part out.)
+# part, and the outer's sum leaves that part out; on the fallback, an inner
+# `ulimit -v` above the outer's is refused.)
 #
 # **What it does not reach.** A binary run by its own path and not through
 # cargo. A copied subfolder has no `.cargo/` above it, which is what the helper
@@ -183,8 +184,9 @@ __bounded_restore_env() {
   fi
 }
 
-# **A value past the machine's memory is no bound, so it is refused**, and the
-# default comes down to it: the same rule the watcher applies from `hw.memsize`.
+# **A value past the machine's memory is no bound, so the variable's is
+# refused**, and the file's comes down to it: the same rule the watcher applies
+# from `hw.memsize`.
 __bounded_linux_check_ram() {
   local __bounded_key __bounded_value __bounded_unit
   while read -r __bounded_key __bounded_value __bounded_unit; do

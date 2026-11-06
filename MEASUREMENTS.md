@@ -3030,15 +3030,16 @@ committed one, none left as bytes, and differs in bytes in GSUB (772
 bytes shorter: the stranded list tables the merge left among the old
 lookups are not there) and head's checksum alone. REACH: the shipped
 files are unchanged, so no reader sees a new encoding. GSUB is the one
-encoding a re-pin would ship, and baud-font's layout reads it. With the four rebuilt fonts in place of the committed ones and
-the fixtures' fnv column moved to theirs, baud-font's and baud-render's
-suites pass, 1236 tests; with Regular put back, shape.rs fails 7 of 15
-on its fnv pin, the control that the rebuilt files were the ones read.
-The committed fonts stay: MANIFEST pins the stage's and the merge's
-new hashes and the committed outputs, which the build holds equal.
-MANIFEST now also pins tools/Cargo.toml, tools/Cargo.lock and every
-baud-fontbuild source as inputs, so a change any tools lane makes to the
-shared lock turns build-fonts.sh --check red until MANIFEST is rewritten.
+encoding a re-pin would ship, and baud-font's layout reads it. With the
+four rebuilt fonts in place of the committed ones and the fixtures' fnv
+column moved to theirs, baud-font's and baud-render's suites pass, 1236
+tests; with Regular put back, shape.rs fails 7 of 15 on its fnv pin, the
+control that the rebuilt files were the ones read. The committed fonts
+stay: MANIFEST pins the stage's and the merge's new hashes and the
+committed outputs, which the build holds equal. MANIFEST now also pins
+tools/Cargo.toml, tools/Cargo.lock and every baud-fontbuild source as
+inputs, so a change any tools lane makes to the shared lock turns
+build-fonts.sh --check red until MANIFEST is rewritten.
 
 Perturbations: the pad trim off passes the comparator and fails
 `every_glyph_is_stored_without_padding_as_the_stage_stores_it`; the
@@ -3324,8 +3325,9 @@ with the modules written inline in `key.rs` and `py_random` declared at
 the top of `iterm.rs`, `__TEXT,__text` matched and `cmp` differed, on 9
 words of `__DATA_CONST,__const` in `ingest2`: its word offsets moved by +9
 and +6, which match those files' 9 and 6 added lines; this was inferred from
-the shifts, not decoded symbol by symbol. So each table keeps its file, now an `include!`, and
-`py_random` is declared after `iterm.rs`' last line. No timing run.
+the shifts, not decoded symbol by symbol. So each table keeps its file, now
+an `include!`, and `py_random` is declared after `iterm.rs`' last line. No
+timing run.
 
 **Red first.** The identity test is red with termcap names taken first
 (ROWS[0]) and with the termcap table's last row winning. After the
@@ -3529,12 +3531,13 @@ differences. The tests' expected values are the scripts' answers.
 **Exit codes that differ, each on purpose.** `ecma48 --find` and `--section`
 never ran the control: with it missing and the needle present the script said
 HIT and 0, and this says the extraction is broken and 1 (8 of the 14 are these
-control cases; 7 of the 8 keep their exit). A lone word on `ecma48` was "unrecognized arguments", 2; on 8
-command lines tried (`-`, of the 3) it is now a term, the form this command
-exists to add, and on an LZW key it was ignored with the text dumped. A key
-replaced a path, so no row, a missing file and a `--file` that is not the pinned
-bytes are 2, where a bad path raised. At an equal exit, `--help` is shorter (14
-command lines, 2 of the 3) and a stopped run says one line for a traceback.
+control cases; 7 of the 8 keep their exit). A lone word on `ecma48` was
+"unrecognized arguments", 2; on 8 command lines tried (`-`, of the 3) it is now
+a term, the form this command exists to add, and on an LZW key it was ignored
+with the text dumped. A key replaced a path, so no row, a missing file and a
+`--file` that is not the pinned bytes are 2, where a bad path raised. At an
+equal exit, `--help` is shorter (14 command lines, 2 of the 3) and a stopped
+run says one line for a traceback.
 
 **Inputs no pinned document holds.** `baud_domain::zlib`'s `Code::build` allows
 any incomplete code set and zlib only a single distance code, so 6 of the 14 read
@@ -3993,6 +3996,51 @@ on an idle machine (`MADV_PAGEOUT`, `VM_BEHAVIOR_PAGEOUT` refused), so clean fil
 bound by resident size and under it by footprint, hold the choice of number; a hog of one repeated
 value, run with resident size read instead, stayed green.
 
+## The kitty row is a Rust crate
+
+Apple M5 Max, macOS 27.0, on AC, load average 3.5-7.9 from other work. kitty 0.49.2 and Python
+3.14.7, nix's, on `e42a24bd`. A real PTY, 4096-byte reads, 32 MiB, median of 9. Generated payloads,
+`multibench`'s dump: stream.bin 524,192 B and tui.bin 524,124 B, byte-equal when dumped again from
+this base. Six rounds of `bench.py` and `bench-others/kitty-bench` against one kitty, arms rotated,
+the first dropped. Median of the five rounds' medians [their range], MiB/s:
+
+| row | payload | `bench.py` | harness |
+|---|---|---|---|
+| ceiling | streaming | 179.5 [177.4-206.3] | 214.8 [184.4-217.8] |
+| ceiling | TUI | 196.2 [137.0-207.7] | 217.3 [213.6-220.4] |
+| kitty | streaming | 104.1 [99.4-112.3] | 118.3 [108.7-120.0] |
+| kitty | TUI | 159.9 [125.5-166.6] | 162.5 [149.2-165.6] |
+
+The kitty ranges overlap and so do the streaming ceilings: no result between the arms there. The TUI
+ceiling read higher with no overlap in this session and overlapped in two later rotated sessions
+(201.2-224.4 against 160.7-205.7, and 168.0-220.5 against 151.3-178.1), so there is no result
+between the arms on either ceiling. The read loop and the writer both left Python, and `bench.py`'s
+writer copied the rest of the payload on every write. The two arms call one kitty, so any difference
+in the kitty rows is the driver, whose share is unmeasured: Python ran the read loop and a
+`__getattr__` that built a closure for each of 442,699 callbacks per 32 MiB of TUI, and Rust runs
+both now. The last recording, c0a8a428's 101.7 [88.7-119.4] and 121.4 [116.1-135.4], was `bench.py`
+on Host B and an unnamed kitty; `bench.py` here reads 159.9 on TUI, so that gap is not the harness.
+
+**Python still runs**: kitty's interpreter, inside kitty, is part of what is measured. No tracked
+file is Python for this row, and the crate links nothing of kitty's at build time.
+
+**The bytes are equal.** 32 MiB fed in 4096-byte pieces through both drivers: read and parsed
+33,554,432 on both payloads and arms; callbacks 140,251 and 442,699 on both; the final screen and
+cursor byte-equal. A PTY rep ends at the first read past the total, so its count differs by run on
+either arm, and the harness exits 1 on a rep whose parsed bytes differ from its read bytes.
+
+**Arguments.** No argument, a missing directory, `--help`, extra arguments and `""` each exit 1 on
+both, read the same way. Four departures: an empty payload hung `bench.py`, killed at 30 s, and
+exits 1 here; a commit of no bytes would loop there and is an error here; with no kitty, `bench.py`
+printed the ceiling row first and the harness prints no table; a source that ended short of the
+total, or a read error other than the end of the PTY, printed a rate from `bench.py` and exits 1
+here.
+
+**Red first.** 25 perturbations of a scratch copy under `scripts/bounded --timeout 120` at 4 GiB, 25
+red. `zero-not-checked`, whose fake pushes to a Vec for ever, ended at the bound (113) in 3.6 s, swap
+2,656 MiB before and after, no process left. A read size through a PTY could not fire on Darwin, whose
+tty returns 1024 at most, so that test reads a pipe. Two tests need a kitty and are `#[ignore]`d.
+
 ## The bound lives in `budgets.toml`
 
 `budgets.toml`, `[tests]`, `memory-max = "16G"`: a quoted size in systemd's format, K, M, G and T of
@@ -4023,29 +4071,30 @@ sum it, and on the fallback an inner `ulimit -v` above the outer's is refused.
 
 **Copies of the tree.** A published crate carries neither `scripts/` nor `.cargo/`, and `cargo xtask
 publish --size --verify` stays green: 13 crates. The flake's `src = ./.` holds the file once it is
-tracked and has `doCheck = false`. The Linux drivers, `scripts/linux-frames.sh` among them, bind-mount the whole
-tree read-only at `/src`, and `scripts/x86-avx2.sh` runs in its own checkout, so both have it. A scratch copy of the
-script needs the file one directory above it; a `git archive` has it.
+tracked and has `doCheck = false`. The Linux drivers, `scripts/linux-frames.sh` among them,
+bind-mount the whole tree read-only at `/src`, and `scripts/x86-avx2.sh` runs in its own checkout,
+so both have it. A scratch copy of the script needs the file one directory above it; a `git archive`
+has it.
 
 **Red first.** 26 perturbations, 24 of a scratch copy under an unperturbed helper, one of the test's
 copy helper, one of the committed line. 25 are red; `adopt_children` taken out of the kill stayed
 green, as the polls had found the tree already, and no digit cap went red only once a case wrapping
 to 16 GiB was added. The constant kept; a default for no file and for no
-key; a loose form; G of 1000; T of G; no letter as MiB; K as MiB; octal; no wrap check; no digit cap;
-0 allowed; the last line skipped; any section; a section that never ends; last of two wins; the
+key; a loose form; G of 1000; T of G; no letter as MiB; K as MiB; octal; no wrap check; no digit
+cap; 0 allowed; the last line skipped; any section; a section that never ends; last of two wins; the
 variable ignored; the variable skipping the file; the file in `scripts/`; the helper's and the
 inner's bound each inert; the helper turning a failure into 113; a kill of one member alone; a copy
 helper without the file, where the two refusal tests now say which refusal; a comment on the value's
-line. All of this ran on macOS: the three refusal tests are shared and were not run on Linux, and the
-sizes, read through a stand-in for the watcher, are macOS's tests of shell code both share.
+line. All of this ran on macOS: the three refusal tests are shared and were not run on Linux, and
+the sizes, read through a stand-in for the watcher, are macOS's tests of shell code both share.
 
 ## The observed captures left the repository
 
 Not timed: no byte path changed. `baud-domain/src/cache.rs` is the one per-byte
 source touched, comment lines only. `ingest2` built from `git archive` at one path:
-`__TEXT,__text` is 1,225,600 bytes on base, change and an A/A copy, SHA-256
-6b41d34e450e9e91 on all three; `min_cols + 1` in `store_stride` moves it to
-4d7dd87d9fe68adb, so the comparison can fail.
+`__TEXT,__text` is 1,225,600 bytes and byte-identical on base, change and an A/A
+copy; `min_cols + 1` in `store_stride` moves it, so the comparison can fail. The hash
+depends on the build path, so none is quoted.
 
 **What left.** 258 of the 261 files under `docs/research/sources/*-observed/`: the
 67 screenshots, the 20 Python harnesses, and the probes, sweeps and outputs of notes
@@ -4065,8 +4114,9 @@ was built, which its own row held.
 the count: 185 is 144 now, in three asserts, the only non-comment Rust lines of this
 change. The 144 hold every colour type, bit depth, interlace and filter the 67 did,
 which were all 8-bit RGB or RGBA and not interlaced. What the corpus gives up: its
-largest IDAT falls from 323,000 bytes to 54,332, and no file now has the ancillary chunk
-`caNv`, though other ancillary chunks remain.
+largest IDAT falls from 323,000 bytes to 54,332, no file now has the ancillary
+chunk `caNv`, though other ancillary chunks remain, and no stream now opens with
+the zlib header `78 9C`; `78 DA` and `78 01` remain.
 
 **Nothing the build needs left.** No removed script produces a committed table:
 the three tables `gen-utf8-tables` printed are nowhere in the tree, and `decode.rs`

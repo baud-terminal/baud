@@ -852,7 +852,7 @@ pub extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
                     "a bound of {mib} MiB is past this machine's memory, and so no bound"
                 ));
             }
-            // The default on a machine smaller than it.
+            // The file's value on a machine smaller than it.
             bound = memory;
             mib = memory >> 20;
         }

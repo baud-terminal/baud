@@ -67,11 +67,10 @@ fn points(face: &Face<'_>, c: char) -> Vec<(f32, f32)> {
 /// by moving every point above y 540 outward, 22 units each side
 /// (the retired parametric build's round 1). Regular's head underside is at
 /// 548, so the whole end moved; Bold's thicker head starts at 517, so only
-/// its top corners
-/// moved and each end slanted 22 units, in Bold and Bold Italic; the band
-/// has started at y 500 since 2026-10-25. Each end's outermost point at the
-/// top must stand over its outermost point at the underside, within a unit,
-/// once the italics' lean is taken out.
+/// its top corners moved and each end slanted 22 units, in Bold and Bold
+/// Italic; the band has started at y 500 since 2026-10-25. Each end's
+/// outermost point at the top must stand over its outermost point at the
+/// underside, within a unit, once the italics' lean is taken out.
 #[test]
 fn zayin_head_ends_stand_square_in_every_style() {
     let mut slanted = vec![];

@@ -99,7 +99,9 @@ tests on empty files and have not been loaded.
 The table goes to stdout. On stderr are the kitty and the interpreter it used,
 the bytes each rep read and parsed, and how many callbacks the parser asked for.
 A bad argument, a kitty that will not load, a broken cycle, a wrong byte count
-or a short read exits 1 with one line on stderr and no row for what failed.
+or a short read exits 1 with the reason on stderr and no row for what failed; a
+kitty that is not found also lists where it looked, and a failure inside the
+interpreter prints its traceback first.
 
 `cargo test` here needs no kitty and lists the two tests that do as ignored.
 `KITTY_ROOT=$K cargo test -- --include-ignored` runs them, and with no kitty
