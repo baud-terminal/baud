@@ -4293,10 +4293,27 @@ The title bar's tight box stays centred on the cell's rows and goes from 184.52
 tall to 168, so the mark stays on the strip's centre line and `mark.rs` changes
 nothing. Marks, icons and the Dock do not move. `baud-github-org.png` was stale
 before this and stays so; `brand --check` fails on it alone. `hero.gif` is a
-session captured earlier and still shows the old lockup. The CPU arm's rounding
-in `the_splash_draws_alike_on_every_arm` goes from at most 40 pixels to 76 by 1
-level on the frames the plasma lights over light: one row of a band, the box's
-top now a fraction of a pixel. The bound is 80.
+session captured earlier and still shows the old lockup.
+
+**The CPU arm's rounding, and a rule in place of a count.** In
+`the_splash_draws_alike_on_every_arm` the most pixels the CPU arm differs from
+the GPU on goes from 1, measured on the base, to 76 by 1 level, on the light
+half at plasma ages 0 and 0.1. It is deterministic: 60 runs hash-identical. A
+level band's row is one light over one ground, so a rounding tie takes the whole
+run of one ink. At cell top 42.74 that is 76 pixels of word ink on row 117, red
+237 on the CPU arm and 236 on the GPU, the exact value 236.49999625, 3.75e-6
+below the half. The colour is not the cause: the old amber on the new shape gives
+the same 76. On the test's frames tops 42.73 and 42.75 give 0 and 1. A pixel count
+is luck: over 275 ages of each half, each of 17 tops from 42 to 45 has a frame
+with at least 25 pixels on a tie.
+
+So the test holds a rule: at most 1 level, and every differing channel's exact
+value within 3.5e-5 levels of a half, except at most 2 strays a frame. 3.5e-5 is
+the CPU path's forward error, 3.5 x 2^-25 x 255 + 2^-17 = 3.42e-5; 2 is the most
+measured over those 9,350 frames. Its blind spot: up to 2 real pixels off a tie
+pass on any frame. A 1-level error on 60 pixels of one row of the dark half's CPU
+arm passes a bound of 80 pixels and fails the rule, 60 off a tie. The GPU figures
+are this Mac's.
 
 **The film keeps its path.** The path is a search over every pixel of
 `logo-walls.png`. Chosen against today's drawing it lands on seed 2396 with 13
@@ -4305,10 +4322,8 @@ that chain are kept, and the mark moved in the word's frame, the word staying pu
 today's word is 3,873 pixels by at most 2 levels off the walls over its columns, 2
 of the half-coverage mask, and today's ❯ is theirs 4 rows up, 57 pixels by 2
 levels, its block 5 rows up, exact. `walls_hold` holds those counts and refuses
-anything else, and the film's slabs are cut against today's distance field. Of
-the 2,673 strand heads past the word, 11 are in ink against the walls and 11
-against today's mark, 3 of them new; the block's keep-out in the path is over 4.5
-units and the move 2.26.
+anything else, and the film's slabs are cut against today's distance field. The
+block's keep-out in the path is over 4.5 units and the move 2.26.
 
 | file | bytes | frames | general / red flashes at a pixel a second | area, strict, of 21,824 | word's worst contrast |
 |---|---|---|---|---|---|
@@ -4316,6 +4331,29 @@ units and the move 2.26.
 | `logo-light.gif` | 4,410,610 | 320 | 7 / 0 | 518.25, 2,189 | 12.03 |
 | `logo-dark.svg` | 1,843,110 | 320 images | 8 / 0 | 366.2, 1,429.8 | |
 | `logo-light.svg` | 1,736,938 | 320 images | 7 / 0 | 497.0, 2,200.5 | |
+
+**The plasma near the moved mark.** The strands are byte-identical before and
+after the move. The ❯ has no keep-out of its own, so the mark moved into strands
+passing above it. The path stays as chosen. Contact, over all 320 frames of both
+films, is at least 32 levels on the glyph's ink, the block counted on the frames
+it is shown:
+
+| glyph, film | frames | pixels | before the move: frames, pixels |
+|---|---|---|---|
+| ❯, dark | 15 | 1,522 | 13, 1,321 |
+| ❯, light | 17 | 1,591 | 13, 1,377 |
+| block, dark | 5 | 931 | 5, 1,311 |
+| block, light | 5 | 994 | 5, 1,381 |
+
+That is about 15% more on the ❯ and 28-29% less on the block. On those counts the
+largest gain on any frame is 50 pixels, on frame 185, in both films (dark 112
+against 62, light 116 against 66): glow tinting the ❯'s top edge. The largest
+contact, frames 269-270, is a front strand over the ❯, there before the move and
+slightly less after it. The ❯ stays amber and legible on the frames viewed. The
+controls: the mark 10 units further up reads 25 frames on the ❯, in both films,
+and a strand injected over the block, in the dark film, reads 1,569 pixels on one
+frame. A faint outline of the hidden block shows around frame 185 in both films,
+dark and light, before and after the move, unmeasured.
 
 **The About window cuts to the still.** It plays the same file, which now lasts
 10 s, for 4.75 s: nineteen 250 ms phases, the most that end under WCAG 2.2.2's five

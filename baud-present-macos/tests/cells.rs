@@ -2035,6 +2035,84 @@ fn no_surface_keeps_a_slid_frame() {
     }
 }
 
+/// **The most a byte's exact value can lie from a rounding tie and the CPU
+/// arm's `Blend::over_unit` still round it across**, in levels: its `f32`
+/// `Cs a + cb (1 - a)` rounds four times below 1, at most 3.5 half-ulps of
+/// 2^-24 there, and `* 255` once more, half of 2^-16: 3.5 * 2^-25 * 255 +
+/// 2^-17 = 3.42e-5. The GPU's store rounds less (`src`, `1 - a` and one
+/// fused multiply-add, then the exact product), so no pixel the arms round
+/// differently at one light lies farther from a tie.
+const TIE_LEVELS: f64 = 3.5e-5;
+
+/// **Pixels of a plasma frame the arms may differ on off a tie**: where the
+/// shader's light is some ulps from the CPU's, in the filaments, or an ion
+/// lies over a band, and the byte is near a tie by chance: at most 2 on
+/// 9,350 frames, 275 ages of each half at each of 17 cell tops.
+const TIE_STRAYS: usize = 2;
+
+/// **The differing pixels of a splash plasma frame, as the two kinds its
+/// rounding gives** (strays, on a tie): a pixel is on a tie when, from the
+/// band's ink over the bare frame's pixel at [`plasma::light`], every channel
+/// the arms differ on has its exact value within [`TIE_LEVELS`] of a half. A
+/// level band's row has one light over one ground, so one tie takes the
+/// whole row of one ink at once, and no count of pixels bounds it; a real
+/// difference is not at a tie, and is a stray however few rows it takes.
+fn off_the_ties(
+    arms: &mut Arms<'_, '_>,
+    cpu: &[u32],
+    gpu: &[u32],
+    plain: &[u32],
+    (age, colours): (f32, baud_render::splash::Colours),
+) -> (usize, usize) {
+    let frame = arms.renderer.whole_size();
+    let (w, h) = (frame.0.value() as f32, frame.1.value() as f32);
+    let scale = baud_render::splash::scale((w, h));
+    let at = baud_render::splash::origin((w, h), scale);
+    let vfx = baud_render::splash::vfx(at, scale, age);
+    let fw = usize::try_from(frame.0.value()).unwrap();
+    let mut records = Vec::new();
+    vfx.instances(frame, colours.amber, &mut records);
+    baud_render::splash::paint(&mut records, at, scale, colours);
+    let glow = baud_render::splash::glow(age);
+    let (mut strays, mut ties) = (0, 0);
+    for (i, (&c, &g)) in cpu.iter().zip(gpu).enumerate() {
+        if c == g {
+            continue;
+        }
+        let (x, y) = (
+            i32::try_from(i % fw).unwrap(),
+            i32::try_from(i / fw).unwrap(),
+        );
+        let band = records.iter().find(|r| {
+            let (rx, ry) = (i32::from(r.x.0), i32::from(r.y.0));
+            r.kind == Kind::Band
+                && (rx..rx + i32::from(r.w.0)).contains(&x)
+                && (ry..ry + i32::from(r.h.0)).contains(&y)
+        });
+        let tie = band.is_some_and(|r| {
+            let mut p = at;
+            p.x = x as f32 + 0.5;
+            p.y = y as f32 + 0.5;
+            let a = f64::from(baud_render::plasma::light(&vfx, p))
+                * f64::from(Chan::from_unit(glow).get())
+                / 255.0;
+            [16u32, 8, 0].iter().all(|&k| {
+                let ch = |v: u32| (v >> k) & 0xFF;
+                if ch(c) == ch(g) {
+                    return true;
+                }
+                let v = f64::from(ch(r.color.0)) * a + f64::from(ch(plain[i])) * (1.0 - a);
+                (v - v.floor() - 0.5).abs() <= TIE_LEVELS
+            })
+        });
+        match tie {
+            true => ties += 1,
+            false => strays += 1,
+        }
+    }
+    (strays, ties)
+}
+
 /// **The launch splash draws alike on every arm** (note AJ): the lockup
 /// held, the plasma at three ages as the logo comes out, three as the
 /// second plasma carries it out from the frame it lights, one as what is
@@ -2043,9 +2121,10 @@ fn no_surface_keeps_a_slid_frame() {
 /// and the light
 /// half. The cell arm draws what the instance arm draws, pixel for pixel;
 /// the CPU arm, which the Linux driver draws with, the same, but for the
-/// plasma's own rounding against the GPU's -- a step on a band's row of
-/// pixels at most, 76 where the plasma lights on the light half, the box's
-/// top a fraction of a pixel since it stands on the word's -- as
+/// plasma's own rounding against the GPU's -- a step at most, on a tie
+/// ([`off_the_ties`]), which takes a band's row of one ink at once, 76
+/// pixels of word ink where the plasma lights on the light half, and off
+/// the ties at most [`TIE_STRAYS`] pixels a frame -- as
 /// [`effect_scenes`] holds each GPU arm to the effect's reference. The
 /// controls: the held logo changes the frame and its block is the half's
 /// amber, exactly, at the block's centre; each plasma lights pixels the
@@ -2075,10 +2154,11 @@ fn the_splash_draws_alike_on_every_arm() {
     );
     let (out, gone) = (baud_render::splash::OUT, baud_render::splash::GONE);
     let swept = baud_render::splash::LEFT;
-    for (half, theme, amber) in [
-        ("dark", Theme::dark(), baud_render::splash::DARK.amber),
-        ("light", Theme::light(), baud_render::splash::light().amber),
+    for (half, theme, colours) in [
+        ("dark", Theme::dark(), baud_render::splash::DARK),
+        ("light", Theme::light(), baud_render::splash::light()),
     ] {
+        let amber = colours.amber;
         arms.renderer.set_theme(theme);
         arms.splash = None;
         let (plain, _) = arms.draw(&mut t);
@@ -2109,9 +2189,10 @@ fn the_splash_draws_alike_on_every_arm() {
             let (n, most) = channel_diff(&cpu, &a, |_| true);
             match phase {
                 SplashPhase::Plasma(age) if age < gone => {
+                    let (strays, ties) = off_the_ties(&mut arms, &cpu, &a, &plain, (age, colours));
                     assert!(
-                        most <= 1 && n <= 80,
-                        "{at}: the CPU arm differs on {n}, by {most}"
+                        most <= 1 && strays <= TIE_STRAYS,
+                        "{at}: the CPU arm differs on {n}, by {most}: {ties} on a tie, {strays} off one"
                     );
                 }
                 _ => assert_eq!((n, most), (0, 0), "{at}: the CPU arm differs"),
