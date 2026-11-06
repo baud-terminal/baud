@@ -3440,14 +3440,15 @@ it is the same function, and 200,000 random lists found no difference.
 
 ## The build's name: `<version>+<commit>`, and what it costs the core
 
-The app calls itself `1.0.0-beta.1+0a8418b`: the manifests' version and SemVer
+The app calls itself `<version>+<commit>`: the manifests' version and SemVer
 build metadata (`[[source: semver]]`, rule 10), which orders nothing and is
 "generally ignored by Cargo" (`[[source: cargo-manifest-version]]`). A registry
 index keeps one entry for `1.0.7` and `1.0.7+extra`
 (`[[source: cargo-registry-index]]`), so a hash in a manifest would have nowhere
 to go; none goes there. `baud-app/build.rs` writes `BAUD_VERSION`, and no file.
 
-**Real runs of the identifier**, `baud --version` after each build:
+**Real runs of the identifier**, `baud --version` after each build, when the
+version was `1.0.0-beta.1`:
 
 | tree | prints |
 |---|---|

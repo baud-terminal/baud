@@ -62,9 +62,9 @@ exclude = ["bench-others", "tools"]
 default-members = ["baud-app"]
 
 [workspace.package]
-# The version is `1.0.0-beta.N`. Every crate inherits this, and
-# `baud-app/tests/version.rs` holds it to that scheme.
-version = "1.0.0-beta.1"
+# The version is `1.0.0-beta`, then `1.0.0-beta.N`. Every crate inherits this,
+# and `baud-app/tests/version.rs` holds it to that scheme.
+version = "1.0.0-beta"
 # Deliberately 2021, not the 2024 the rust-template scaffold ships. An edition
 # migration across a measured hot path is a change that needs a benchmark, not
 # a flag flip.
@@ -97,18 +97,18 @@ rust-version = "1.96"
 # ran the NEON scan it was built to leave out. Published, each library
 # keeps the scan as its own default.
 [workspace.dependencies]
-baud-domain = { path = "baud-domain", version = "1.0.0-beta.1" }
-baud-tablegen = { path = "baud-tablegen", version = "1.0.0-beta.1" }
-baud-isa = { path = "baud-isa", version = "1.0.0-beta.1" }
-baud-isa-aarch64 = { path = "baud-isa-aarch64", version = "1.0.0-beta.1" }
-baud-isa-x86-64 = { path = "baud-isa-x86-64", version = "1.0.0-beta.1" }
-baud-core = { path = "baud-core", version = "1.0.0-beta.1", default-features = false }
-baud-font = { path = "baud-font", version = "1.0.0-beta.1" }
-baud-render = { path = "baud-render", version = "1.0.0-beta.1", default-features = false }
-baud-xkb = { path = "baud-xkb", version = "1.0.0-beta.1" }
-baud-wayland = { path = "baud-wayland", version = "1.0.0-beta.1" }
-baud-present-wayland = { path = "baud-present-wayland", version = "1.0.0-beta.1" }
-baud-present-macos = { path = "baud-present-macos", version = "1.0.0-beta.1", default-features = false }
+baud-domain = { path = "baud-domain", version = "1.0.0-beta" }
+baud-tablegen = { path = "baud-tablegen", version = "1.0.0-beta" }
+baud-isa = { path = "baud-isa", version = "1.0.0-beta" }
+baud-isa-aarch64 = { path = "baud-isa-aarch64", version = "1.0.0-beta" }
+baud-isa-x86-64 = { path = "baud-isa-x86-64", version = "1.0.0-beta" }
+baud-core = { path = "baud-core", version = "1.0.0-beta", default-features = false }
+baud-font = { path = "baud-font", version = "1.0.0-beta" }
+baud-render = { path = "baud-render", version = "1.0.0-beta", default-features = false }
+baud-xkb = { path = "baud-xkb", version = "1.0.0-beta" }
+baud-wayland = { path = "baud-wayland", version = "1.0.0-beta" }
+baud-present-wayland = { path = "baud-present-wayland", version = "1.0.0-beta" }
+baud-present-macos = { path = "baud-present-macos", version = "1.0.0-beta", default-features = false }
 
 # **The debug suite optimises the four crates its time is spent in, and
 # every dependency.** At opt-level 0 the workspace nextest took 1531 s,

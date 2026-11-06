@@ -94,11 +94,15 @@ mod tests {
     /// and from a named one.**
     #[test]
     fn the_lines_say_the_build() {
-        assert_eq!(line("1.0.0-beta.1+abc1234"), "baud 1.0.0-beta.1+abc1234");
+        assert_eq!(line("1.0.0-beta+abc1234"), "baud 1.0.0-beta+abc1234");
         assert_eq!(line(BUILD), format!("baud {BUILD}"));
         assert_eq!(
-            about_line("1.0.0-beta.1+abc1234.dirty"),
-            "Version 1.0.0-beta.1 (abc1234.dirty)"
+            about_line("1.0.0-beta+abc1234.dirty"),
+            "Version 1.0.0-beta (abc1234.dirty)"
+        );
+        assert_eq!(
+            about_line("1.0.0-beta.2+abc1234"),
+            "Version 1.0.0-beta.2 (abc1234)"
         );
         assert_eq!(about_line("1.0.0+unknown"), "Version 1.0.0 (unknown)");
         assert_eq!(about_line("1.0.0"), "Version 1.0.0");

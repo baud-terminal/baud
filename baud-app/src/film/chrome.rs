@@ -553,7 +553,7 @@ mod tests {
 
     /// The build's name in these tests, whatever this build is called, so
     /// the layout pinned below is not a commit's.
-    const VERSION: &str = "1.0.0-beta.1+0123abc.dirty";
+    const VERSION: &str = "1.0.0-beta+0123abc.dirty";
 
     /// **The build's name follows the lockup in the strip, and gives way
     /// first**: in the film's window it starts a light's gap past the

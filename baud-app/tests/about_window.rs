@@ -56,7 +56,7 @@ mod checks {
     use std::path::PathBuf;
     use std::rc::Rc;
 
-    const BUILD: &str = "1.0.0-beta.1+0123abc.dirty";
+    const BUILD: &str = "1.0.0-beta+0123abc.dirty";
     const DARK: &str = "NSAppearanceNameDarkAqua";
     const LIGHT: &str = "NSAppearanceNameAqua";
 
@@ -127,7 +127,7 @@ mod checks {
         let about =
             crate::about::build(mtm, BUILD, image(&dark), image(&light)).expect("the window");
         let lines = about.lines();
-        assert_eq!(lines[0], "Version 1.0.0-beta.1 (0123abc.dirty)");
+        assert_eq!(lines[0], "Version 1.0.0-beta (0123abc.dirty)");
         assert_eq!(lines[1], "github.com/baud-terminal/baud");
         assert_eq!(
             about.link_url().as_deref(),

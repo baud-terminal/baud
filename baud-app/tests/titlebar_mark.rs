@@ -109,7 +109,7 @@ const SPANS_WIDTH: CGFloat = 180.25;
 
 /// The longest name a build has: seven digits of hash and `.dirty`.
 #[cfg(target_os = "macos")]
-const VERSION: &str = "1.0.0-beta.1+0123abc.dirty";
+const VERSION: &str = "1.0.0-beta+0123abc.dirty";
 
 /// The plate's pad before the first light, `baud_render::lights::PLATE_PAD`.
 #[cfg(target_os = "macos")]

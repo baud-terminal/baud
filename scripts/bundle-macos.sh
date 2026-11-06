@@ -22,15 +22,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
-# The version scheme is 1.0.0-beta.N. CFBundleShortVersionString is "three
-# period-separated integers ... only numeric characters (0-9) and periods"
-# (Apple, [[source: apple-cfbundleshortversionstring]]), so it takes the
-# version less its pre-release part; any other shape stops the bundle here
-# rather than writing a plist Apple refuses.
-if [[ $VERSION =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-beta\.[0-9]+)?$ ]]; then
+# The version scheme is X.Y.Z-beta, then X.Y.Z-beta.N, then X.Y.Z.
+# CFBundleShortVersionString is "three period-separated integers ... only
+# numeric characters (0-9) and periods" (Apple,
+# [[source: apple-cfbundleshortversionstring]]), so it takes the version less
+# its pre-release part; any other shape stops the bundle here rather than
+# writing a plist Apple refuses.
+if [[ $VERSION =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-beta(\.(0|[1-9][0-9]*))?)?$ ]]; then
   SHORT_VERSION=${BASH_REMATCH[1]}
 else
-  echo "version $VERSION is neither X.Y.Z nor X.Y.Z-beta.N" >&2
+  echo "version $VERSION is not X.Y.Z, X.Y.Z-beta or X.Y.Z-beta.N" >&2
   exit 1
 fi
 # CFBundleVersion is the counter committed beside the plist, raised by hand

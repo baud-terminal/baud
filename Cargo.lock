@@ -73,7 +73,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "baud"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-core",
  "baud-domain",
@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "baud-bench"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-core",
  "baud-domain",
@@ -112,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "baud-core"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-core",
  "baud-domain",
@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "baud-difftest"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "alacritty_terminal",
  "baud-core",
@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "baud-domain"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-domain",
  "baud-tablegen",
@@ -147,7 +147,7 @@ dependencies = [
 
 [[package]]
 name = "baud-font"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "ab_glyph_rasterizer",
  "baud-domain",
@@ -160,14 +160,14 @@ dependencies = [
 
 [[package]]
 name = "baud-isa"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-domain",
 ]
 
 [[package]]
 name = "baud-isa-aarch64"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-domain",
  "baud-isa",
@@ -175,7 +175,7 @@ dependencies = [
 
 [[package]]
 name = "baud-isa-x86-64"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-domain",
  "baud-isa",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "baud-present-macos"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-core",
  "baud-domain",
@@ -202,7 +202,7 @@ dependencies = [
 
 [[package]]
 name = "baud-present-wayland"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-domain",
  "baud-wayland",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "baud-render"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-core",
  "baud-domain",
@@ -221,25 +221,25 @@ dependencies = [
 
 [[package]]
 name = "baud-sfte-difftest"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-core",
 ]
 
 [[package]]
 name = "baud-tablegen"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 
 [[package]]
 name = "baud-wayland"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-domain",
 ]
 
 [[package]]
 name = "baud-xkb"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-domain",
 ]
@@ -1277,7 +1277,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "xtask"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta"
 dependencies = [
  "baud-domain",
  "regex",

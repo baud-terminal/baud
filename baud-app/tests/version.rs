@@ -1,6 +1,7 @@
 //! **baud's version, and the two places outside Cargo that spell it.**
 //!
-//! The version is `1.0.0-beta.N`. The workspace version is the one source:
+//! The version is `1.0.0-beta`, then `1.0.0-beta.N`: SemVer orders the bare
+//! one first. The workspace version is the one source:
 //! every crate inherits it, `build.rs` adds the build's identifier after a
 //! `+` for what the app says of itself -- `TERM_PROGRAM_VERSION` and
 //! XTVERSION among it (`baud-app/src/pty.rs` holds those two to each other),
@@ -40,14 +41,16 @@ fn integer(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) && (s == "0" || !s.starts_with('0'))
 }
 
-/// The scheme, `1.0.0-beta.N`, with N a positive integer.
+/// The scheme: `1.0.0-beta`, or `1.0.0-beta.N` with N a positive integer.
 #[test]
 fn the_version_is_the_beta_scheme() {
     let v = workspace_version();
-    let n = v
-        .strip_prefix("1.0.0-beta.")
-        .unwrap_or_else(|| panic!("{v} is not 1.0.0-beta.N"));
-    assert!(integer(n) && n != "0", "{v}: N is a positive integer");
+    if v != "1.0.0-beta" {
+        let n = v
+            .strip_prefix("1.0.0-beta.")
+            .unwrap_or_else(|| panic!("{v} is neither 1.0.0-beta nor 1.0.0-beta.N"));
+        assert!(integer(n) && n != "0", "{v}: N is a positive integer");
+    }
     assert_eq!(env!("CARGO_PKG_VERSION"), v, "the baud package inherits it");
 }
 
@@ -104,6 +107,68 @@ fn the_bundle_says_the_version_as_apple_allows() {
         (1..=3).contains(&parts.len()) && parts.iter().all(|p| integer(p)),
         "CFBundleVersion {build}: one to three integers"
     );
+}
+
+/// **Every version of the scheme reaches the plist, and no other does**: the
+/// script run from a copy of what it reads, each version in that copy's
+/// manifest, so the next bump is tested before it happens. Without this the
+/// script stops, and with it the nix package. Perturbation: take `-beta` out
+/// of its pattern, or make the `.N` required.
+#[test]
+fn the_bundle_takes_each_shape_of_the_scheme() {
+    let plist_of = |version: &str, at: &str| {
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join("bundle-version")
+            .join(at);
+        std::fs::create_dir_all(root.join("scripts")).expect("the copy");
+        std::fs::create_dir_all(root.join("packaging/macos")).expect("the copy");
+        for file in [
+            "scripts/bundle-macos.sh",
+            "packaging/macos/Info.plist",
+            "packaging/macos/build-number",
+        ] {
+            std::fs::copy(workspace().join(file), root.join(file)).expect(file);
+        }
+        std::fs::write(
+            root.join("Cargo.toml"),
+            format!("[workspace.package]\nversion = \"{version}\"\n"),
+        )
+        .expect("the manifest");
+        Command::new("bash")
+            .arg(root.join("scripts/bundle-macos.sh"))
+            .arg("--info-plist")
+            .output()
+            .expect("bash runs")
+    };
+    for (at, version, short) in [
+        ("release", "1.2.3", "1.2.3"),
+        ("bare", "1.2.3-beta", "1.2.3"),
+        ("numbered", "1.2.3-beta.4", "1.2.3"),
+    ] {
+        let out = plist_of(version, at);
+        assert!(
+            out.status.success(),
+            "{version}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let plist = String::from_utf8(out.stdout).expect("UTF-8");
+        assert_eq!(
+            plist_string(&plist, "CFBundleShortVersionString"),
+            short,
+            "{version}"
+        );
+    }
+    for (at, version) in [
+        ("empty-number", "1.2.3-beta."),
+        ("zero-led", "1.2.3-beta.01"),
+        ("two-numbers", "1.2.3-beta.1.2"),
+        ("alpha", "1.2.3-alpha"),
+        ("two-parts", "1.2"),
+    ] {
+        let out = plist_of(version, at);
+        assert!(!out.status.success(), "{version} is refused");
+        assert!(out.stdout.is_empty(), "{version} writes no plist");
+    }
 }
 
 /// The build number committed beside the plist: one line, raised by hand
@@ -226,8 +291,8 @@ fn no_git_is_unknown() {
     }
     assert!(build_id::is_build_metadata(build_id::UNKNOWN));
     assert_eq!(
-        build_id::full("1.0.0-beta.1", build_id::UNKNOWN),
-        "1.0.0-beta.1+unknown"
+        build_id::full("1.0.0-beta", build_id::UNKNOWN),
+        "1.0.0-beta+unknown"
     );
 }
 
