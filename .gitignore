@@ -44,9 +44,6 @@ result-*
 # rustc ICE reports, which a crashing compiler leaves where it ran
 rustc-ice-*.txt
 
-# Python bytecode from the driver scripts run as modules
-__pycache__/
-
 # A build tree that got in once: an ad-hoc command's `$S` was unset, cargo
 # wrote to a literal `$S/`, and `git add -A` committed 139 files and
 # 59.5 MB of rlibs in ee9ceef. `target/` above did not match it. The

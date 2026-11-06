@@ -5,7 +5,7 @@ numbered lines with an empty config, and sent `g`, `e`, `g`, `g` and `:`, each
 key a second after the one before:
 
 ```sh
-python3 -c "open('lines.txt','w').write(''.join(f'line {i:03}\n' for i in range(1,201)))"
+seq -f 'line %03g' 1 200 > lines.txt
 : > empty.toml
 TERM=xterm-256color capture-tui --seconds 6.5 --rows 50 \
   --cols 200 --key-delay 1.0 --keys 'gegg:' --out helix-ge-gg.raw \
@@ -44,7 +44,7 @@ at column 41, row 11 -- each written whole, 300 ms apart, the first key 2.5 s
 in, once helix has waited out its start-up queries:
 
 ```sh
-python3 -c "open('lines.txt','w').write(''.join(f'line {i:03}\n' for i in range(1,201)))"
+seq -f 'line %03g' 1 200 > lines.txt
 : > empty.toml
 W='\x1b[<64;41;11M'
 TERM=xterm-256color capture-tui --seconds 5.5 --rows 24 \

@@ -5,7 +5,7 @@ what they do to the cursor's blink. Both were taken on macOS 27 at 200x50,
 opened on a file of two hundred numbered lines, and sent `:`, `q` and Return:
 
 ```sh
-python3 -c "open('lines.txt','w').write(''.join(f'line {i:03}\n' for i in range(1,201)))"
+seq -f 'line %03g' 1 200 > lines.txt
 : > empty.toml
 TERM=xterm-256color capture-tui --seconds 8 --rows 50 \
   --cols 200 --key-delay 1.5 --keys ':q\r' --out vim-exit.raw \

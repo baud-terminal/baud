@@ -4085,3 +4085,29 @@ the app's directory is `/`, launchd's `XPC_FLAGS` is `0x0`, and libX11's three s
 
 **LICENSE.** Its sentence on these directories now names their data files; no
 screenshot is left for it to name.
+
+## `cargo xtask no-python` holds the repository at none
+
+Not timed: no byte path changed. **It refuses**, in every file `git ls-files` lists: a Python file
+by its path; a shebang naming the interpreter or pip; a command or package install in a shell file
+or a shell or unlabelled Markdown fence; a nix attribute outside a comment; a `Command::new` given a
+name; in any text file, a name followed by a flag, a heredoc or a `.py` path, or pip by a flag or a
+verb; a run in a Markdown code span.
+
+**It allows** what is no command line. The match is whole and case-sensitive and what follows has to
+be what only a command line has, so the language in prose, `pythonic`, `libpython3.14`, a shell
+comment and a span holding the word alone pass. Not read, by name: the gate's two files, what
+`MANIFEST.toml` pins, `*.raw` under `tests/`, a file with a NUL in its first 8000 bytes. History is
+one form: in this file, below its first heading and outside a fence, a span after the word `ran`.
+
+**Red first.** Master's tree with only the gate added exits 1 with 6 findings; this tree exits 0. 21
+tests, and 31 perturbations of the gate each red. The recipes' `seq` writes the same 1800 bytes; the
+captures were not retaken. `dev-ci` and the push hook's `enterTest` call it; `devenv.nix` was parsed
+and its tasks were not run.
+
+**With Python off `PATH`.** Stubs for the six names first on `PATH`, logging and exiting 127, each
+shown to log first. The log stayed empty through the gate, `xtask`'s tests (400 of 400), clippy, the
+workspace doctests, `sources`, `third-party --check`, `features --check`, `audit_all.sh`, `publish
+--size`, `scripts/check-features.sh` and `scripts/build-fonts.sh --check`. A stub cannot see an
+absolute path: a tracked one fires the gate, and one inside a tool is not seen.
+`bench-others/kitty-bench` loads kitty's interpreter by design and is outside these gates.

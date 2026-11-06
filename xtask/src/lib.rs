@@ -17,6 +17,7 @@
 //! - `sources`: the source-provenance gate (`scripts/check-sources.sh`),
 //!   which runs `third-party --check` and the offline half of `page-text`.
 //! - `third-party [--check]`: THIRD_PARTY.md, written or checked.
+//! - `no-python`: no tracked file is Python or runs it.
 //! - `publish [--size|--verify|--release|--write-notices|--write-licences]`:
 //!   what crates.io would receive, checked before anything is sent.
 //! - `page-text [--key K] [--from DIR] [--save DIR] [--print] [--self-test]`:
@@ -47,6 +48,7 @@ pub mod html;
 pub mod impl_audit;
 pub mod loop_head;
 pub mod md5;
+pub mod no_python;
 pub mod page_text;
 pub mod pdf;
 pub mod pdf_search;

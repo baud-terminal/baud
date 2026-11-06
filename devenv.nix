@@ -45,9 +45,6 @@ in
   packages = [
     pkgs.git
     pkgs.pkg-config
-    # The gates still written in Python run under this one, not whatever
-    # python happens to be on the host.
-    pkgs.python3
     # `test:unit` runs the tests through nextest (since 2026-10-07):
     # `cargo test` runs the ~120 test binaries one after another, so a binary
     # with one long test left the other cores idle until it finished. nextest
@@ -131,6 +128,8 @@ in
     cargo clippy --quiet -p baud --target ${linuxTarget} --all-targets -- -D warnings || { echo "FAILED: linux"; exit 1; }
     echo "=== sources ==="
     bash ./scripts/check-sources.sh || { echo "FAILED: sources"; exit 1; }
+    echo "=== no-python ==="
+    cargo xtask no-python || { echo "FAILED: no-python"; exit 1; }
     echo "=== audit ==="
     sh ./audit_all.sh || { echo "FAILED: audit"; exit 1; }
     echo "=== ALL PASSED ==="
@@ -173,7 +172,7 @@ in
       echo
       echo "Available scripts:"
       echo "  devenv test   - The check suite the pre-push hook runs"
-      echo "  dev-ci        - A quicker subset (fmt, clippy, check, test, bare, linux, sources, audit)"
+      echo "  dev-ci        - A quicker subset (fmt, clippy, check, test, bare, linux, sources, no-python, audit)"
       echo "  dev-test      - Run tests"
       echo "  dev-fmt       - Check formatting"
       echo "  dev-lint      - Run clippy"
@@ -371,6 +370,15 @@ in
       after = [ "test:fmt" ];
     };
 
+    # No tracked file is Python or runs it: nothing here declares an
+    # interpreter any more, so a script that calls one again would work on
+    # the machine it was written on and nowhere else. `xtask/src/no_python.rs`
+    # says what it reads. A plain edge, as sources has: it needs no other gate.
+    "test:no-python" = {
+      exec = "cargo xtask no-python";
+      after = [ "test:fmt" ];
+    };
+
     # The type-system gate: raw integers outside the newtype internals are a
     # bug waiting for two quantities to be confused. Per-file limits and the
     # reason for each live in `xtask/src/audit.rs`.
@@ -499,5 +507,5 @@ in
   # gate alone (`devenv tasks run test:features`, or the by-hand
   # `test:feature-suites`, schedules the chain before it), and that gate's
   # failure exits 0.
-  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:changelog test:clippy test:check test:unit test:bare test:linux test:audit test:features test:paths test:publish";
+  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:no-python test:changelog test:clippy test:check test:unit test:bare test:linux test:audit test:features test:paths test:publish";
 }
