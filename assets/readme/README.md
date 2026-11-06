@@ -17,30 +17,30 @@ letters. Its path is a seeded random chain of moves, never a lap, and
 the block blinks as baud's cursor blinks by default, each frame's phase
 asked of the app's own caret (`baud-app/src/logo_film.rs`).
 
-**It plays once, for 4.5 s, then rests.** WCAG 2.2's 2.2.2 Pause, Stop,
-Hide (Level A) covers moving or blinking content that starts by itself,
-lasts more than five seconds and is shown beside other content, and asks
-for a way to pause, stop or hide it ([[source: wcag22]]); a README
-carries no control of its own, and GitHub's setting to pause animated
-images does not reach an image inside `<picture>`, so the logo stops by
-itself. It moves for the most whole blink cycles that end before five
-seconds, nine at the default's 250 ms shown and 250 hidden: 216 frames,
-20 ms each and 30 closing each phase, fading in from the bare logo over
-0.3 s and out to it over 0.4, then a last frame of the logo with the
-cursor shown, which the file rests on. It carries no loop block. The
-4.5 s are the plasma's ten-second chain from 1.00 s, the start on a
-blink cycle with the most of the chain's events between the fades --
-two wall hits, a graze, a weave through two slots and two surges -- and
-of those the least light under the fades.
+**It repeats, and the plasma never rests.** The file is the plasma's whole
+ten-second chain at full light, twenty of the blink's 500 ms cycles: 320 frames,
+30 ms each and 40 closing each phase, with a NETSCAPE2.0 block of count zero, so
+the frame after the last is the first and no frame is the bare logo. The chain
+closes on itself: its last move lands on its start, its current is periodic in
+the loop, and its events wrap. **This departs from WCAG 2.2's 2.2.2 Pause, Stop,
+Hide** (Level A): the motion starts by itself and lasts more than five seconds
+beside other content ([[source: wcag22]]), a README carries no control of its
+own, and GitHub's setting to pause animated images does not reach an image inside
+`<picture>`. So the README's `<picture>` serves a reader who asked for reduced
+motion the still lockup instead, `assets/logo/baud-lockup-dark-tight.svg` or
+`-light-tight.svg`, by `prefers-reduced-motion` on its first two sources, first
+because a browser takes the first that matches. The About window plays the same
+file for 4.75 s and cuts to that still, so there it stops by itself.
 
 | file | bytes | frames | motion | most flashes at a pixel in a second, general / red | area, strict, of 21,824 | the word's worst contrast |
 |---|---|---|---|---|---|---|
-| `logo-dark.gif` | 2,671,015 | 217 | 4.5 s, then shown | 9 / 0 | 630.5, 1,495 | 6.79 : 1 |
-| `logo-light.gif` | 2,646,127 | 217 | 4.5 s, then shown | 9 / 0 | 761.25, 2,304.5 | 12.61 : 1 |
-| `logo-dark.svg` | 1,178,009 | 215 images over the logo | 4.5 s, then shown | 9 / 0 | 604, 1,500.5 | |
-| `logo-light.svg` | 1,100,085 | 215 images over the logo | 4.5 s, then shown | 9 / 0 | 762, 2,337.8 | |
+| `logo-dark.gif` | 4,487,419 | 320 | repeats every 10 s | 7 / 0 | 381.5, 1,420.5 | 6.71 : 1 |
+| `logo-light.gif` | 4,410,610 | 320 | repeats every 10 s | 7 / 0 | 518.25, 2,189 | 12.03 : 1 |
+| `logo-dark.svg` | 1,843,110 | 320 images over the logo | repeats every 10 s | 8 / 0 | 366.2, 1,429.8 | |
+| `logo-light.svg` | 1,736,938 | 320 images over the logo | repeats every 10 s | 7 / 0 | 497, 2,200.5 | |
 
-Both pass WCAG 2.3.1 ([[source: wcag22]]) by its second half: a few
+Both pass WCAG 2.3.1 ([[source: wcag22]]) across the repeat and its join, each
+fed twice over to the census, by its second half: a few
 pixels flash more than three times in a second where strands cross them,
 over an area far under the general and red flash thresholds. The
 contrast is the word's own ink against the ground 2 to 7 pixels round
@@ -51,50 +51,45 @@ text, so the plasma never washes the word out.
 
 **The README shows the GIF; the SVGs are for the site.** An SVG is the
 bare logo as a PNG with each frame over it as a WebP of what it changes,
-shown and hidden by SMIL `<set>` at the GIF's own times, all hidden at
-4.5 s so it rests on the logo: under half the GIF's bytes, in full colour
-where a GIF frame has 256. GitHub serves a file of the repository with
-`Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline';
-sandbox`; headless Chromium, given those headers and the SVG in an
-`<img>`, draws its frames, plays them at their times and rests on the
-logo, but nothing here has shown it in Safari, Firefox or GitHub's
-mobile app, where an animated SVG made of embedded pictures is not
-known to play, and a GIF plays everywhere the README is read. The GIF is
+shown and hidden by a discrete SMIL `<animate>` at the GIF's own times,
+repeating over its length: under half the GIF's bytes, in full colour where a
+GIF frame has 256. Nothing here has shown this form in a browser, and an
+animated SVG made of embedded pictures is not known to play in Safari, Firefox
+or GitHub's mobile app, and a GIF plays everywhere the README is read. The GIF is
 also the look the plasma was chosen in.
 
 **The plasma's path was chosen against `logo-walls.png`**: the bare
 lockup on the dark half, block shown, as the renderer drew it then,
 from which `tools/baud-pictures geometry` reads the glyphs' signed
-distance field, normals and counters. Today's renderer draws it 3,930
-pixels apart by at most 2 levels, 3 pixels of its half-coverage mask; the
-path is a random search that takes every pixel of the walls as given,
-and against today's own drawing the same seed draws a chain that fails
-its targets (31% of the time behind the letters where the targets ask
-40 to 50, two counter passes where they ask three), so the walls are
-kept, pinned by their SHA-256, and every run holds today's drawing to
-them at those counts, or the path must be chosen again.
+distance field, normals and counters. The path is a random search that
+takes every pixel of the walls as given: against today's own drawing the
+same search lands on seed 2396 with 13 events, where the film as chosen is
+seed 2241 with 14, another path. So the walls are kept, pinned by their SHA-256, and the path with
+them. Every run holds today's word to them, 3,873 pixels apart by at most 2
+levels, 2 pixels of its half-coverage mask, and today's mark to theirs moved
+up, the ❯ 4 rows and the block 5 of the canvas, or the path must be chosen
+again. The film's slabs are cut against today's drawing, so a letter's cut
+and keyline fall where the letter is.
 
 Three tests hold the committed files, each decoding them with baud's
-own decoders: `logo_film::tests::the_readme_logos_move_under_five_seconds_and_rest_shown`
-(`baud-app`) requires each GIF to play once, the plasma to move, the
-block read off its pixels to blink the default's phases, under five
-seconds of motion and a last frame that is the first, the bare logo,
-cursor shown; `logo_film::tests::the_readme_svgs_play_the_gifs_times_and_rest_shown`
-requires each SVG to hold nothing that runs or fetches, nothing that
-repeats, its frames on the film's grid, never two at once, its motion
-ending where the GIF's does, and its base the GIF's last frame, cursor
-shown; `baud-bench/tests/readme_logo_flashes.rs` takes WCAG 2.3.1's
-census of each GIF at 100 samples a second and 2 pixels a point, the
-last frame held 3 s, and requires both verdicts to pass, no red flash,
-and no more flashes at a pixel or strict area than the files measured.
+own decoders: `logo_film::tests::the_readme_logos_repeat_and_the_plasma_never_rests`
+(`baud-app`) requires each GIF to repeat for ever, the block read off its
+pixels to blink the default's phases, and every frame to move pixels off the
+block against the bare logo; `logo_film::tests::the_readme_svgs_repeat_at_the_gifs_times`
+requires each SVG to hold nothing that runs or fetches, its frames on the
+film's grid, never two at once, each repeating over the film's length, and its
+base the bare logo, cursor shown; `baud-bench/tests/readme_logo_flashes.rs`
+takes WCAG 2.3.1's census of each GIF at 100 samples a second and 2 pixels a
+point, fed twice over, and requires both verdicts to pass, no red flash, and
+no more flashes at a pixel or strict area than the files measured.
 `tools/baud-pictures logo`, run in `tools/shell.nix`, films both
 halves and encodes them, the GIFs with gifski 1.34.0 from
 `readme-film.sh`'s nixpkgs, run as a program and never linked, and the
 SVGs' frames with libwebp 1.6.0 from nixpkgs `7dd199b0`, the revision
 `tools/shell.nix` pins for the pictures, the build Pillow 12.3.0 linked
 there, called as Pillow called it; every pixel within 3 levels of the
-page is set to it first so the encoder cannot haze the page (0.0004% of
-the dark GIF's page pixels are off it, by at most 13 levels). It checks
+page is set to it first so the encoder cannot haze the page (0.0006% of
+the dark GIF's page pixels are off it, by at most 20 levels). It checks
 both encoders write the same bytes twice, takes the SVGs' census, writes
 the files and runs the tests; with `--check` it compares the files byte
 for byte instead of writing them. The generator, `tools/baud-pictures

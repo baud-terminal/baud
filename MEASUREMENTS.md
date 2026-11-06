@@ -4223,8 +4223,9 @@ and `splash_flashes` pass, and no red transition, the amber's linear R/(R+G+B)
 
 `logo-{dark,light}.gif` and `.svg` play the plasma's whole ten-second chain and
 repeat, with no bare logo and no seam. Not timed: no byte path changed, only
-`tools/baud-pictures`, the film test module and its census. These figures are
-of `baud-pictures logo --out`, the films not being committed with this change.
+`tools/baud-pictures`, the film test module and its census. The tables here are
+of `baud-pictures logo --out` before the mark moved; the committed files are in
+"The block's top on the word's top", below.
 
 **How a random path closes.** It is built to: the chain's last move lands on its
 start with its depth's parity kept, the current is curl noise of waves periodic
@@ -4266,6 +4267,68 @@ halves, each read from the decoded GIF at the test's 32 levels.
 **Departure.** WCAG 2.2's 2.2.2 Pause, Stop, Hide (Level A,
 `[[source: wcag22]]`) is not met on a README's page: the motion starts by itself
 and lasts past five seconds, with no control, and GitHub's setting does not
-reach an image inside `<picture>`. `logo.rs` states it. 2.3.1 is a separate
-criterion. The SVGs' `<animate>` is checked by parse and compose, not in a
+reach an image inside `<picture>`. `logo.rs` states it, and the README's
+`<picture>` serves a reader who asked for reduced motion the still lockup first,
+which `the_readmes_logo_gives_reduced_motion_a_still` holds; nothing has shown
+that on GitHub, the repository being private. 2.3.1 is a separate criterion. The SVGs' `<animate>` is checked by parse and compose, not in a
 browser.
+
+## The block's top on the word's top
+
+The mark moves up against the word in every lockup: 2.26 units of the 300 box,
+8.26 of the title bar's tight one, 0.62 pt there. The cell's top is 42.74, the
+word's baseline less `b` and `d`'s 0.73 em at size 62. The glyphs, the gap, 1.43
+pt in the title bar, and the colour stay. Not timed: no byte path changed
+(`baud-render/src/splash.rs` constants, drawn only by the splash).
+
+`every_lockups_block_stands_on_the_words_top` reads the nine lockups the generator
+writes: red on the base's files (45 against 42.74 in the 300 box, 164.35 against
+156.09 tight, 203.42 against 200.11 on the card), green on these within 0.02 of
+each file's units. The gap there is a guard, green both ways, its control a block
+a unit nearer. The generator refuses too (`lined_up`, `plasma_holds`).
+
+**Who takes it.** The lockups, the card and the splash, whose word stays and whose
+mark moves; `the_held_splash_is_the_lockup_files` holds the splash to the file.
+The title bar's tight box stays centred on the cell's rows and goes from 184.52
+tall to 168, so the mark stays on the strip's centre line and `mark.rs` changes
+nothing. Marks, icons and the Dock do not move. `baud-github-org.png` was stale
+before this and stays so; `brand --check` fails on it alone. `hero.gif` is a
+session captured earlier and still shows the old lockup. The CPU arm's rounding
+in `the_splash_draws_alike_on_every_arm` goes from at most 40 pixels to 76 by 1
+level on the frames the plasma lights over light: one row of a band, the box's
+top now a fraction of a pixel. The bound is 80.
+
+**The film keeps its path.** The path is a search over every pixel of
+`logo-walls.png`. Chosen against today's drawing it lands on seed 2396 with 13
+events, another path; the film as chosen is seed 2241 with 14. So the walls and
+that chain are kept, and the mark moved in the word's frame, the word staying put:
+today's word is 3,873 pixels by at most 2 levels off the walls over its columns, 2
+of the half-coverage mask, and today's ❯ is theirs 4 rows up, 57 pixels by 2
+levels, its block 5 rows up, exact. `walls_hold` holds those counts and refuses
+anything else, and the film's slabs are cut against today's distance field. Of
+the 2,673 strand heads past the word, 11 are in ink against the walls and 11
+against today's mark, 3 of them new; the block's keep-out in the path is over 4.5
+units and the move 2.26.
+
+| file | bytes | frames | general / red flashes at a pixel a second | area, strict, of 21,824 | word's worst contrast |
+|---|---|---|---|---|---|
+| `logo-dark.gif` | 4,487,419 | 320 | 7 / 0 | 381.5, 1,420.5 | 6.71 |
+| `logo-light.gif` | 4,410,610 | 320 | 7 / 0 | 518.25, 2,189 | 12.03 |
+| `logo-dark.svg` | 1,843,110 | 320 images | 8 / 0 | 366.2, 1,429.8 | |
+| `logo-light.svg` | 1,736,938 | 320 images | 7 / 0 | 497.0, 2,200.5 | |
+
+**The About window cuts to the still.** It plays the same file, which now lasts
+10 s, for 4.75 s: nineteen 250 ms phases, the most that end under WCAG 2.2.2's five
+seconds with the block shown, so the cut moves only the plasma. It rests on the
+tight lockup placed where the film draws the lockup, a point a unit, and Reduce
+Motion and a bare binary show the same picture. At 2x the amber's box is the
+still's 535, 236 to 605, 326 against the film's 536, 235 to 607, 326. The still's
+word is the files' 500 where the film's is the renderer's Bold, so the word thins
+by a pixel or two a side at the cut.
+
+**The cut is no flash.** `flash_census` over the window's own pictures at 2x, the
+film's 152 frames for their delays then the still for 3 s: dark 7 general and 0
+red, area 381.5, strict 1,420.5; light 7 and 0, 518.2, 2,189. Those are the film's
+own worst, in the same second, 1.54 s in, so the cut adds nothing, and both
+verdicts pass. 11,237 pixels of 614,880 move over 32 levels at the cut in
+dark, 11,021 in light.
